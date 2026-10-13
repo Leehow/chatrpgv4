@@ -1,7 +1,8 @@
 /** Private memory-query operations reuse the kernel evidence owner and the current task runtime. */
-import {ContractError, isPlainRecord, type Json, type ObservationPacket, type OperationProposal} from './contracts.ts';
+import {ContractError, isPlainRecord, type IntentBinding, type Json, type ObservationPacket, type OperationProposal} from './contracts.ts';
 import type {OwnedOperation, HostOperationContext} from '../../extensions/kernel/canonical-operation-dispatcher.ts';
 import type {TaskRuntime} from './task-runtime.ts';
+import type {TaskLeaseOptions} from './task-context.ts';
 
 /** Only semantic evidence reaches the Keeper. Original refs remain in host observation metadata. */
 export function presentMemoryEvidence(value: unknown): Json {
@@ -19,9 +20,10 @@ interface Options {
     runtime(): TaskRuntime;
     call(method: string, params: Record<string, unknown>): Promise<Record<string, any>>;
 }
-export function registerMemoryReadOperations(options: Options): () => void {
+export interface MemorySearchRequest {query: string; filters: Record<string, Json>; needs?: string[]}
+export function createMemoryReadOwner(options: Options) {
     const filters = new Map<string, Record<string, Json>>(), releases: Array<() => void> = [];
-    const packet = (proposal: OperationProposal, result: Record<string, any>, status: ObservationPacket['status'] = 'succeeded'): ObservationPacket => ({
+    const packet = (proposal: Pick<OperationProposal,'id'|'readSet'>, result: Record<string, any>, status: ObservationPacket['status'] = 'succeeded'): ObservationPacket => ({
         operationId: proposal.id, status, result: result as Json, refs: Array.isArray(result.refs) ? result.refs : [], receipts: [], readSet: proposal.readSet,
         coverage: {used: Array.isArray(result.coverage?.used) ? result.coverage.used : [], omitted: Array.isArray(result.coverage?.omitted) ? result.coverage.omitted : [],
             unknown: Array.isArray(result.coverage?.unknown) ? result.coverage.unknown : []}});
@@ -45,24 +47,23 @@ export function registerMemoryReadOperations(options: Options): () => void {
             }
         },
     }));
-    releases.push(options.registerOwned('memory.search', {capability: 'recall', kind: 'read',
-        validate(args) {
+    const validate = (args: Record<string, Json>): Record<string,Json> => {
             if (!isPlainRecord(args) || Object.keys(args).some(key => !['query', 'filters', 'needs'].includes(key)) || typeof args.query !== 'string'
                 || !args.query.trim() || args.query.length > 2048 || !isPlainRecord(args.filters)
                 || args.needs !== undefined && (!Array.isArray(args.needs) || args.needs.length>32 || args.needs.some(value=>typeof value!=='string'||!value.trim()||value.length>2048))
                 || Object.keys(args.filters).some(key => !['line', 'turns', 'about', 'kinds', 'include_superseded'].includes(key)))
                 throw new ContractError('invalid_memory_search');
             return args;
-        }, async execute(proposal, context: HostOperationContext) {
-            const runtime = options.runtime(), parent = runtime.snapshot(proposal.taskId), task = context.task.context;
-            const query = String(proposal.args.query), id = await runtime.begin({domain: 'memory-read', parentId: task.id, intent: parent.intent,
-                lease: {owner: 'memory-read', goal: query, scope: task.scope, capabilities: ['recall'], readSet: task.readSet,
-                    budget: task.budget, signal: context.task.signal}});
-            filters.set(id, structuredClone(proposal.args.filters as Record<string, Json>));
+    };
+    const search = async (request: MemorySearchRequest, binding: {operationId:string;intent:IntentBinding;lease:TaskLeaseOptions;parentId?:string}): Promise<ObservationPacket> => {
+            const args=validate(request as unknown as Record<string,Json>) as unknown as MemorySearchRequest,runtime = options.runtime(),query=args.query;
+            const proposal={id:binding.operationId,readSet:binding.lease.readSet};
+            const id = await runtime.begin({domain:'memory-read',intent:binding.intent,lease:binding.lease,...(binding.parentId?{parentId:binding.parentId}:{})});
+            filters.set(id, structuredClone(args.filters));
             try {
                 const result = await runtime.submit(id, {goal: query, subgoals: ['Find relevant retained evidence and its canonical context.'],
                     constraints: ['Conversation reports never grant facts, public knowledge or world effects.'],
-                    evidenceRequired: Array.isArray(proposal.args.needs) && proposal.args.needs.length ? proposal.args.needs as string[] : [query],
+                    evidenceRequired: args.needs?.length ? args.needs : [query],
                     completion: ['Return supported bounded evidence with explicit unknown and omitted coverage.'], capabilities: ['recall'],
                     replanWhen: ['The evidence snapshot changes.'], returnWhen: ['Coverage or the original task budget ends.']});
                 if (['cancelled', 'stale'].includes(result.status)) return {...packet(proposal, {code: 'memory_query_stale'}, 'stale'), coverage: result.coverage};
@@ -79,7 +80,15 @@ export function registerMemoryReadOperations(options: Options): () => void {
                 if (result.status !== 'complete') reply.status = 'partial';
                 return {...packet(proposal, reply), result: presentMemoryEvidence(reply), coverage: result.coverage};
             } finally { filters.delete(id); }
+    };
+    releases.push(options.registerOwned('memory.search', {capability: 'recall', kind: 'read',validate,
+        async execute(proposal, context: HostOperationContext) {
+            const runtime=options.runtime(),parent=runtime.snapshot(proposal.taskId),task=context.task.context;
+            return search(proposal.args as unknown as MemorySearchRequest,{operationId:proposal.id,intent:parent.intent,parentId:task.id,
+                lease:{owner:'memory-read',goal:String(proposal.args.query),scope:task.scope,capabilities:['recall'],readSet:task.readSet,
+                    budget:task.budget,signal:context.task.signal}});
         },
     }));
-    return () => {for (const release of releases) release(); filters.clear();};
+    return {search,close:() => {for (const release of releases) release(); filters.clear();}};
 }
+export function registerMemoryReadOperations(options: Options): () => void {return createMemoryReadOwner(options).close;}

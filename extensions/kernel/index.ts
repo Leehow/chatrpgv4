@@ -1614,7 +1614,8 @@ export default function (pi: ExtensionAPI, host: {capabilities?:RuntimeCapabilit
 	let nativeSource: ((request: {moduleId: string; campaign: string; toolCallId: string; question: string}, signal?: AbortSignal) => Promise<Record<string, any>>) | undefined;
 	pi.events.on('coc:native-source-consult', value => { nativeSource = typeof value === 'function' ? value as typeof nativeSource : undefined; });
 	let memorySearch: ((request: {campaign: string; toolCallId: string; query: string; filters: Record<string, unknown>}, signal?: AbortSignal) => Promise<Record<string, any>>) | undefined;
-	pi.events.on('coc:typed-memory-search', value => { memorySearch = typeof value === 'function' ? value as typeof memorySearch : undefined; });
+	let refreshRecallTool: (()=>void)|undefined;
+	pi.events.on('coc:typed-memory-search', value => { memorySearch = typeof value === 'function' ? value as typeof memorySearch : undefined; refreshRecallTool?.(); });
 	/** Contract §28.9: the build-skew notice is the operator's, once per session, not once per reopen. */
 	let modSkewNotified = false;
 	/** §135.11: the session's runs are driven (`PI_COC_LOOP_ENGINE=hybrid-v1`), so the run, not `agent_end`, takes the turn-close steer. */
@@ -6487,8 +6488,8 @@ export default function (pi: ExtensionAPI, host: {capabilities?:RuntimeCapabilit
 		preparedCallId: id => table?.mintedCallIds.get(id),
 	});
 	// The setup process's tool surface is only onboarding's `setup`: not one of the eight verbs is registered (contract §14.4).
-	for (const spec of setupMode ? [] : offeredTools(COC_TOOLS, process.env)) {
-		pi.registerTool({
+	for (const spec of setupMode ? [] : offeredTools(COC_TOOLS, process.env,{memoryQueryAvailable:!!memorySearch})) {
+		const register=(spec:CocToolSpec)=>pi.registerTool({
 			name: spec.name,
 			label: spec.label,
 			description: spec.description,
@@ -6530,6 +6531,8 @@ export default function (pi: ExtensionAPI, host: {capabilities?:RuntimeCapabilit
 			execute: async (toolCallId, params, signal, onUpdate, ctx) => dispatcher.execute(spec, toolCallId,
 				params as Record<string, unknown>, signal, onUpdate, ctx),
 		});
+		register(spec);
+		if(spec.name==='recall')refreshRecallTool=()=>register(offeredTools(COC_TOOLS,process.env,{memoryQueryAvailable:!!memorySearch}).find(tool=>tool.name==='recall')!);
 	}
 
 	// Native isError is returned by the dispatcher; finalization still owns refusal accounting.

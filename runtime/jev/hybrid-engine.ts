@@ -7,14 +7,22 @@ import {nativeSearchCapability} from '../native-search.js';
 /** One native RunDriver; the Keeper owns decisions and prose, and the host owns tool execution. */
 import type { RunDriverPorts } from '@earendil-works/pi-agent-core';
 import type { SessionRunDriver } from '@earendil-works/pi-coding-agent';
-import { createHash } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import type { DecisionPort as JevDecisionPort } from './decision-port.ts';
-import { type Json, type ObservationPacket, type OperationProposal, type ReadSet, type ScopeBinding } from './contracts.ts';
+import { ContractError, type IntentBinding, type Json, type ObservationPacket, type OperationProposal, type ReadSet, type ScopeBinding } from './contracts.ts';
 import { type TaskClock } from './task-context.ts';
 import { JEV_MODEL } from './question-packing.ts';
 import { type InteractionScope } from './interaction-scope.ts';
 import { bindingOf, customMessage, PRESCREEN_TYPE, CLERK_TYPE, type ContextBinding } from '../../extensions/table/context-policy.ts';
-import type { HostOperationContext } from '../../extensions/kernel/canonical-operation-dispatcher.ts';
+import {createCanonicalOperationDispatcher,type HostOperationContext} from '../../extensions/kernel/canonical-operation-dispatcher.ts';
+import {KernelError} from '../../extensions/kernel/client.ts';
+import {readJevApiKey} from '../../extensions/jev/agent/config.js';
+import {createDecisionAdapter} from './decision-adapter.ts';
+import {createMemoryReadDomain,MEMORY_READ_POLICY_VERSION} from './memory-read-domain.ts';
+import {createMemoryReadOwner,presentMemoryEvidence} from './memory-read-owner.ts';
+import {TaskRuntime,type TaskRecord} from './task-runtime.ts';
+import {PREPARATION_DECISION_BUDGET} from './preparation-budget.ts';
+import {issueSourceRef} from './source-ref.ts';
 import { NPC_REACTION_DECISION, type ConsequenceClass } from './candidates.ts';
 import { type GuardedDestination } from './route-compile.ts';
 import { type ConsequenceRow } from './consequence-route.ts';
@@ -376,11 +384,69 @@ const statedPart = (records: BindRecord[]): BindRecord | undefined => records.fi
  */
 export function createHybridEngine(options: HybridEngineOptions): {runDriver: SessionRunDriver; extension: (pi: any) => void; bridge: () => KernelBridge | undefined;
   keeperCallCapMs: number | (() => Promise<number>); onKeeperCallCap: (phase:'first_byte'|'streaming',capMs:number)=>void} {
-  let bridge:KernelBridge|undefined,closer:TurnClosePort|undefined,consultations:SourceAnswersPort|undefined,api:any;
+  let bridge:KernelBridge|undefined,closer:TurnClosePort|undefined,consultations:SourceAnswersPort|undefined,api:any,gateway:OperationGateway|undefined;
   let current:{runId:string;inputRevision:string;rawInput:string}|undefined, model:any;
+  let runSignal:AbortSignal|undefined,closed=false;
+  const queries=new Set<AbortController>();
   let steer:Row|undefined;
   const record=(row:Row)=>{try{(options.record??bridge?.record)?.(row);}catch{/* Telemetry is observational. */}};
+  const decision=options.decision===undefined?(readJevApiKey(options.env)?createDecisionAdapter({env:options.env}):undefined):options.decision??undefined;
+  const bindMemorySearch=()=>{
+    for(const query of queries)query.abort('memory_query_owner_closed');
+    const bound=bridge,owner=gateway;
+    api?.events.emit('coc:typed-memory-search',!closed&&decision&&bound?.call&&bound.campaign
+      ?async(request:{campaign:string;toolCallId:string;query:string;filters:Record<string,Json>},signal?:AbortSignal)=>{
+        const active=current,controller=new AbortController();
+        if(closed||!active||request.campaign!==bound.campaign||bound!==bridge||owner!==gateway)
+          throw new KernelError({code:'needs',message:'The memory query owner is unavailable for this run',details:{reason:'memory_query_scope_stale'}});
+        queries.add(controller);
+        const combined=AbortSignal.any([controller.signal,...(signal?[signal]:[]),...(runSignal?[runSignal]:[])]);
+        const inputResource=`input:${active.runId}`;
+        const currentRead=async(intent?:IntentBinding)=>{
+          if(closed||active!==current||bound!==bridge||owner!==gateway||combined.aborted)throw new ContractError('memory_query_scope_stale');
+          const capsule=object(await bound.call!('table.capsule',{campaign:bound.campaign,_context_read:true})),context=object(capsule._context);
+          if(closed||active!==current||bound!==bridge||owner!==gateway||combined.aborted
+            ||context.campaign!==bound.campaign||!Number.isSafeInteger(context.turn)||typeof context.source_revision!=='string'||typeof context.world_revision!=='string'
+            ||intent&&(context.worldline!==intent.scope.worldline||context.loop!==intent.scope.loop||context.turn!==intent.turn))
+            throw new ContractError('memory_query_scope_stale');
+          const readSet:ReadSet=[{kind:'world',resource:bound.campaign!,revision:text(context.task_world_revision)||context.world_revision},
+            {kind:'source',resource:bound.campaign!,revision:text(context.task_source_revision)||context.source_revision},
+            {kind:'draft',resource:inputResource,revision:active.inputRevision},
+            {kind:'family',resource:'memory-read',revision:MEMORY_READ_POLICY_VERSION}];
+          return {context,readSet};
+        };
+        let leaf:ReturnType<typeof createMemoryReadOwner>|undefined,runtime:TaskRuntime|undefined;
+        try{
+          const {context,readSet}=await currentRead(),scope:ScopeBinding={owner:`keeper-run:${active.runId}`,campaign:bound.campaign,
+            audience:'keeper',worldline:context.worldline,loop:context.loop};
+          const rawInput=issueSourceRef({scope,resource:inputResource,revision:active.inputRevision,sourceType:'turn',text:active.rawInput},
+            {kind:'utf16',start:0,end:active.rawInput.length});
+          const intent:IntentBinding={id:randomUUID(),rawInput,scope,turn:context.turn,inputRevision:active.inputRevision,limits:['read_only']};
+          const records=new Map<string,TaskRecord>();
+          const operations=createCanonicalOperationDispatcher();
+          runtime=new TaskRuntime({decision,domains:[createMemoryReadDomain()],...(options.clock?{clock:options.clock}:{}),
+            store:{load:async id=>structuredClone(records.get(id)),save:async value=>{records.set(value.checkpoint.context.id,structuredClone(value));}},
+            operations:{validate:async()=> (await currentRead(intent)).readSet,
+              dispatch:(proposal,task,journal)=>operations.dispatch(proposal,{task,journal,validateCurrent:async()=>{
+                if(task.revalidate((await currentRead(intent)).readSet).status!=='current')throw new ContractError('task_read_set_stale');
+              },recover:async()=>{throw new ContractError('memory_query_has_no_world_settlement');},
+                trace:event=>record({lane:'memory_query',...event})})}});
+          leaf=createMemoryReadOwner({registerOwned:(name,value)=>operations.registerOwned(name,value),runtime:()=>runtime!,
+            call:async(method,params)=>object(await bound.call!(method,params))});
+          const budget=PREPARATION_DECISION_BUDGET;
+          const result=await leaf.search({query:request.query,filters:request.filters},{operationId:request.toolCallId,intent,
+            lease:{owner:'memory-read',goal:request.query,scope,capabilities:['recall'],readSet,signal:combined,
+              budget:{deadlineAt:(options.clock?.now()??Date.now())+turnBudgetMs(options.env),remainingActions:budget.actions,
+                remainingInputTokens:budget.inputTokens,remainingOutputTokens:budget.outputTokens,remainingCostUsd:budget.costUsd}}});
+          if(result.status!=='succeeded')throw new KernelError({code:'needs',message:'The memory query did not produce current evidence',
+            details:{reason:text(object(result.result).code)||'memory_query_unavailable'}});
+          return presentMemoryEvidence(result.result) as Row;
+        }finally{leaf?.close();await runtime?.shutdown();queries.delete(controller);}
+      }:undefined);
+  };
   const runDriver:SessionRunDriver={engine:'hybrid-v1',prepare:context=>{
+    for(const query of queries)query.abort('new_keeper_input');
+    runSignal=undefined;
     current={runId:context.runId,inputRevision:context.inputRevision,rawInput:context.rawInput};
     steer=undefined;
     api?.events.emit('coc:keeper-run',current);
@@ -414,6 +480,7 @@ export function createHybridEngine(options: HybridEngineOptions): {runDriver: Se
           artifact:{kind:'turn_close',verdict}};
       }},
       projection:{project:async({stepId,signal})=>{
+        runSignal=signal;
         api?.events.emit('coc:keeper-run',{...current,signal});
         api?.events.emit('coc:model-infer',{run:context.runId,step:stepId});
         const messages:Row[]=[];
@@ -462,12 +529,14 @@ export function createHybridEngine(options: HybridEngineOptions): {runDriver: Se
   }};
   const extension=(pi:any)=>{
     api=pi;
-    pi.events.on('coc:kernel-bridge',(value:KernelBridge)=>{bridge=value?.call?value:undefined;});
+    pi.events.on('coc:kernel-bridge',(value:KernelBridge)=>{bridge=value?.call?value:undefined;bindMemorySearch();});
+    pi.events.on('coc:operation-dispatcher',(value:OperationGateway|undefined)=>{gateway=value;bindMemorySearch();});
     pi.events.on('coc:turn-close',(value:TurnClosePort)=>{closer=value;});
     pi.events.on('coc:source-answers',(value:SourceAnswersPort)=>{consultations=value;});
     const announce=()=>pi.events.emit('coc:loop-engine',{engine:'hybrid-v1',prescreen:'run',singleKeeper:true});
     const refresh=(_event:any,ctx:any)=>{model=ctx?.model;announce();};
     announce();pi.on('session_start',refresh);pi.on('before_agent_start',refresh);
+    pi.on('session_shutdown',()=>{closed=true;bindMemorySearch();});
   };
   return{runDriver,extension,bridge:()=>bridge,keeperCallCapMs:async()=>{
     const ordinary=keeperCallCapMs(options.env),level=api?.getThinkingLevel?.();

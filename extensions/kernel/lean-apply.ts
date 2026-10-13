@@ -125,7 +125,14 @@ export function leanTools(tools: readonly CocToolSpec[]): readonly CocToolSpec[]
 }
 
 /** The tools this process offers the Keeper. */
-export function offeredTools(tools: readonly CocToolSpec[], env: Readonly<Record<string, string | undefined>> = process.env): readonly CocToolSpec[] {
+export function offeredTools(tools: readonly CocToolSpec[], env: Readonly<Record<string, string | undefined>> = process.env,
+  capabilities:{memoryQueryAvailable?:boolean}={}): readonly CocToolSpec[] {
+	if(capabilities.memoryQueryAvailable===false)tools=tools.map(spec=>{
+    if(spec.name!=='recall')return spec;
+    const parameters=cloneSchema(spec.parameters) as Record<string,any>;
+    delete parameters.properties.query;
+    return {...spec,parameters};
+  });
 	const current=env.PI_COC_LOOP_ENGINE==='hybrid-v1'?tools.filter(tool=>!['output','narrate'].includes(tool.name)).map(spec=>{
     if(!['apply','ask'].includes(spec.name))return spec;
     const parameters=cloneSchema(spec.parameters) as Record<string,any>;
