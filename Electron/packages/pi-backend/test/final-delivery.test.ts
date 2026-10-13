@@ -18,10 +18,11 @@ it('retains a completed public reference stream until a canonical prose replacem
   expect(history.entry('reference')).toBeUndefined();
 });
 
-for(const [name,mechanics] of [
-  ['clock-only',[]],
-  ['dice-only',[{kind:'roll',visibility:'public',roll:17,target:40}]],
-  ['item-only',[{kind:'item',name:'Notebook',quantity:1}]],
+for(const [name,mechanics,marked_text] of [
+  ['clock-only',[],undefined],
+  ['dice-only',[{kind:'roll',visibility:'public',roll:17,target:40}],undefined],
+  ['item-only',[{kind:'item',name:'Notebook',quantity:1}],undefined],
+  ['marker-only',[{kind:'time',marker:'time',minutes:5}],'{{time}}\n\n{{say:Clerk}}{{/say}}'],
 ] as const)it(`restores completed public prose beside a ${name} row until a real body replaces it`,async()=>{
   const root=await mkdtemp(join(tmpdir(),'pipi-reference-history-'));
   const agentDir=join(root,'agent'),sessionsRoot=join(root,'sessions'),directory=join(sessionsRoot,'project'),cwd=join(root,'project');
@@ -36,7 +37,7 @@ for(const [name,mechanics] of [
     rows.push(row);parent=row.id;
   }
   rows.push({type:'custom',id:'clock-card',parentId:parent,customType:'coc-mechanics',timestamp:stamp,
-    data:{turn:25,mechanics,player_clock:{minutes:640},final_stream_id:'reference'}});
+    data:{turn:25,mechanics,player_clock:{minutes:640},final_stream_id:'reference',...(marked_text?{marked_text}:{})}});
   rows.push({type:'custom',id:'completed',parentId:'clock-card',customType:'coc-final-delivery',timestamp:stamp,data:{...base,event:'end',status:'completed',sequence:4}});
   rows.push({type:'message',id:'assistant',parentId:'completed',timestamp:stamp,message:{role:'assistant',content:[],stopReason:'stop'}});
   await writeFile(file,rows.map(row=>JSON.stringify(row)).join('\n')+'\n');

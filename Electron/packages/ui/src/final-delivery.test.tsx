@@ -30,9 +30,10 @@ it('ignores replayed stream frames after the canonical card has replaced that de
   expect(rows).toEqual([canonical]);
 });
 
-for(const [name,mechanics] of [
-  ['dice-only',[{kind:'roll',visibility:'public',roll:17,target:40}]],
-  ['item-only',[{kind:'item',name:'Notebook',quantity:1}]],
+for(const [name,mechanics,marked_text] of [
+  ['dice-only',[{kind:'roll',visibility:'public',roll:17,target:40}],undefined],
+  ['item-only',[{kind:'item',name:'Notebook',quantity:1}],undefined],
+  ['marker-only',[{kind:'time',marker:'time',minutes:5}],'{{time}}\n\n{{say:Clerk}}{{/say}}'],
 ] as const)it(`keeps the completed public body beside a ${name} card until real prose replaces it`,()=>{
   let rows=applyStreamEvent([],{type:'final_delivery',sessionId:'s',frame:{...base,sequence:1,event:'start',status:'streaming'}});
   rows=applyStreamEvent(rows,{type:'final_delivery',sessionId:'s',frame:{...base,sequence:2,event:'delta',delta:'Public rules answer.'}});
@@ -40,7 +41,7 @@ for(const [name,mechanics] of [
   expect(mounted.container.textContent).toBe('Public rules answer.');
   rows=applyStreamEvent(rows,{type:'final_delivery',sessionId:'s',frame:{...base,sequence:3,event:'end',status:'finalizing'}});
   rows=applyStreamEvent(rows,{type:'presentation',sessionId:'s',entry:{id:'mechanics',role:'assistant',content:'',timestamp:2,
-    presentation:{renderer:'coc-mechanics',details:{final_stream_id:'delivery',mechanics}}}});
+    presentation:{renderer:'coc-mechanics',details:{final_stream_id:'delivery',mechanics,...(marked_text?{marked_text,rendered_text:'Public rules answer.'}:{})}}}});
   rows=applyStreamEvent(rows,{type:'final_delivery',sessionId:'s',frame:{...base,sequence:4,event:'end',status:'completed'}});
   const prose=rows.filter(row=>row.presentation?.renderer==='coc-stream');
   expect(prose).toHaveLength(1);

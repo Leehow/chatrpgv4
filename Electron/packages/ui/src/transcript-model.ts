@@ -1,6 +1,8 @@
 import type { HistoryEntry, HistoryTool, OpeningHelp, StreamEvent, TranscriptCitation, TranscriptFileSource } from '@pipi/host-api'
 import { stripAttachmentPathsForDisplay } from './attachments'
 import { displaySecretPlaceholders } from './secret-display'
+import { withoutMechanicsMarkers } from '../../../../shared/delivery-markers.js'
+export { withoutMechanicsMarkers }
 
 export type TranscriptTool = {
   id: string
@@ -243,30 +245,6 @@ function displayHistoryEntry(entry: HistoryEntry): HistoryEntry {
         : { ...activity, content: displaySecretPlaceholders(activity.content) }),
     } : {}),
   }
-}
-
-/**
- * The machine tokens the kernel mints: the `{{marker}}` of §16.6 and the `{{say:…}}…{{/say}}`
- * wrapper of §40.1. Literal: nothing here reads prose.
- *
- * Both have to go, because this is what decides whether the card is already drawing a delivery.
- * The plain copy of a turn is `rendered_text`, which carries neither kind; if the say tokens were
- * left in, a spoken turn would stop matching its own card and the narration would print twice. The
- * say name is matched by shape alone — any script, the play language is open (§23).
- */
-const MECHANICS_MARKER = /\{\{[a-z0-9][a-z0-9:_-]*\}\}|\{\{say:[^{}\n]{1,60}\}\}|\{\{\/say\}\}/g
-/**
- * Whatever else is still in braces: the card drops it too (`pipicoc/mechanics.js` LOOSE_TOKEN, §40.4),
- * so no brace reaches the player. A Keeper marker that names a handout by its book title
- * (`{{handout:Handout 3: The House Is Built (1835)}}`) is outside the ASCII grammar above; left in,
- * the card's text stopped matching the plain copy and the turn printed twice (2026-10-02).
- */
-const LOOSE_MARKER = /\{\{[^{}\n]*\}\}/g
-
-/** A delivery with its markers taken out, the way the kernel strips them for `rendered_text`. */
-export function withoutMechanicsMarkers(text: string): string {
-  return text.replace(MECHANICS_MARKER, '').replace(LOOSE_MARKER, '').replace(/[ \t]{2,}/g, ' ')
-    .replace(/[ \t]+$/gm, '').replace(/\n{3,}/g, '\n\n').trim()
 }
 
 /** Keep initial generation paced; a revision is an immediate update of the same row (§167). */
@@ -694,8 +672,10 @@ export function applyStreamEvent(previous: ChatMessage[], event: Exclude<StreamE
     if(frame.version!==1||!Number.isSafeInteger(frame.sequence))return previous;
     if(previous.some(item=>{
       const body=item.presentation?.details as {final_stream_id?:string;marked_text?:unknown;rendered_text?:unknown}|undefined;
+      const text=typeof body?.marked_text==='string'&&body.marked_text?body.marked_text
+        :typeof body?.rendered_text==='string'?body.rendered_text:'';
       return item.presentation?.renderer==='coc-mechanics'&&body?.final_stream_id===frame.delivery_id
-        &&[body.marked_text,body.rendered_text].some(text=>typeof text==='string'&&text.trim());
+        &&withoutMechanicsMarkers(text);
     }))return previous;
     if(frame.event==='start')previous=previous.map(item=>item.role==='assistant'&&item.streaming?{...item,streaming:false}:item);
     const at=previous.findIndex(item=>item.id===id);
@@ -724,7 +704,7 @@ export function applyStreamEvent(previous: ChatMessage[], event: Exclude<StreamE
     // reading and the re-reading came to disagree about whose words a delivery was.
     const details = event.entry.presentation?.details as { marked_text?: string; rendered_text?: string } | undefined
     const liveProse = (event.entry.role ?? 'assistant') === 'assistant' && (event.entry.presentation
-      ? event.entry.presentation.renderer === 'coc-mechanics' && [details?.marked_text,details?.rendered_text].some(text=>typeof text==='string'&&text.trim())
+      ? event.entry.presentation.renderer === 'coc-mechanics' && Boolean(withoutMechanicsMarkers(details?.marked_text||details?.rendered_text||''))
       : Boolean(event.entry.content))
     // §171.3: a delivery takes the draft's place in the same update. Initial growth retains playback;
     // revised prose drops it, so the update appears immediately and never starts another animation (§167).
