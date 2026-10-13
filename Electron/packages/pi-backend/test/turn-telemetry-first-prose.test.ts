@@ -95,8 +95,8 @@ describe("the stream-event classifier (§135.11.5)", () => {
   });
 });
 
-/** A bound COC session unless `coc: false` (§135.11.6: the kept text's moment depends on the binding). */
-async function fixture({ coc = true }: { coc?: boolean } = {}) {
+/** A bound COC transport unless `coc: false`; setup retains text, while play exposes only public delivery. */
+async function fixture({ coc = true, mode = "play" }: { coc?: boolean; mode?: "play" | "setup" } = {}) {
   root = await mkdtemp(join(tmpdir(), "pipi-first-prose-"));
   const agentDir = join(root, "agent");
   const sessionsRoot = join(root, "sessions");
@@ -107,7 +107,7 @@ async function fixture({ coc = true }: { coc?: boolean } = {}) {
   await writeFile(sessionPath, [
     JSON.stringify({ type: "session", version: 3, id: "s1", timestamp: "2026-09-26T00:00:00.000Z", cwd }),
     ...(coc
-      ? [JSON.stringify({ type: "custom", customType: "coc-session", data: { campaign: "campaign-1", home: root, play_language: "en", mode: "play" } })]
+      ? [JSON.stringify({ type: "custom", customType: "coc-session", data: { campaign: "campaign-1", home: root, play_language: "en", mode } })]
       : []),
   ].join("\n") + "\n");
   const backend = createPiHostBackend({
@@ -120,10 +120,12 @@ async function fixture({ coc = true }: { coc?: boolean } = {}) {
     authRuntime: { getProviders: async () => [], getAvailable: async () => [], login: async () => undefined, logout: async () => undefined },
   });
   const presentations: Array<{ id: string; at: number }> = [];
+  const streams: Array<{event:any;at:number}> = [];
   let started = 0;
   backend.subscribe(frame => {
     if (frame.channel !== "stream") return;
     const event = frame.event as any;
+    streams.push({event,at:Date.now()});
     if (event.type === "presentation") presentations.push({ id: event.entry.id, at: Date.now() });
     if (event.type === "status" && event.status === "started") started += 1;
   });
@@ -155,7 +157,7 @@ async function fixture({ coc = true }: { coc?: boolean } = {}) {
     rpc({ type: "message_start", message });
     rpc({ type: "message_end", message });
   };
-  return { backend, presentations, rpc, open, close, deliver };
+  return { backend, presentations, streams, rpc, open, close, deliver };
 }
 
 async function telemetryRows(agentDir: string): Promise<TurnTelemetryRecord[]> {
@@ -264,8 +266,8 @@ describe("PiHostBackend first-prose seam (§135.11.5)", () => {
   });
 
   it("counts assistant text a session without a COC binding keeps at message_end from its first delta", async () => {
-    // Unbound, the text is prose on screen from its first delta. A bound session folds it until its
-    // message ends (§135.11.6); that case is the next one. This test ran on a bound session before.
+    // Unbound, text is prose from its first delta. A bound non-private setup transport folds it until
+    // message_end (§135.11.6); that case is next. Play raw assistant text is private.
     const { backend, rpc, open, close } = await fixture({ coc: false });
     try {
       await open("kept-turn");
@@ -286,8 +288,8 @@ describe("PiHostBackend first-prose seam (§135.11.5)", () => {
     }
   });
 
-  it("counts a bound COC session's kept text at its message_end, when it leaves the folded card (§135.11.6)", async () => {
-    const { backend, rpc, open, close } = await fixture();
+  it("counts a bound COC setup transport's kept text at its message_end, when it leaves the folded card (§135.11.6)", async () => {
+    const { backend, rpc, open, close } = await fixture({mode:"setup"});
     try {
       await open("folded-turn");
       const first = await within(() => rpc({ type: "message_update", assistantMessageEvent: { type: "text_delta", contentIndex: 0, delta: "The rain has not " } }));
@@ -308,8 +310,8 @@ describe("PiHostBackend first-prose seam (§135.11.5)", () => {
     }
   });
 
-  it("counts text replaced by prose at the replacement, and text replaced by nothing never", async () => {
-    const { backend, rpc, open, close } = await fixture();
+  it("counts setup text replaced by prose at the replacement, and text replaced by nothing never", async () => {
+    const { backend, rpc, open, close } = await fixture({mode:"setup"});
     try {
       // The Keeper's words beside a tool call are streamed, then stripped at message_end.
       await open("dropped-turn");
@@ -335,6 +337,69 @@ describe("PiHostBackend first-prose seam (§135.11.5)", () => {
     } finally {
       await backend.close();
     }
+  });
+
+  it("never counts private play text, thinking or final assistant text as visible prose",async()=>{
+    const {backend,rpc,streams,open,close}=await fixture();
+    try{
+      await open("private-play");
+      rpc({type:"message_update",assistantMessageEvent:{type:"text_delta",contentIndex:0,delta:"PRIVATE_PROCESS_TEXT"}});
+      rpc({type:"message_update",assistantMessageEvent:{type:"thinking_delta",contentIndex:1,delta:"PRIVATE_REASONING"}});
+      rpc({type:"message_end",message:{role:"assistant",content:[{type:"text",text:"PRIVATE_FINAL_TEXT"}],stopReason:"stop"}});
+      const record=await close("private-play");
+      expect(JSON.stringify(streams)).not.toContain("PRIVATE_");
+      expect(streams.some(row=>row.event.type==="text"||row.event.type==="thinking")).toBe(false);
+      expect(record.durations).not.toHaveProperty("firstProseMs");
+      expect(record).not.toHaveProperty("firstProseVia");
+      expect(record.phases.map(item=>item.name)).not.toContain("first_prose");
+    }finally{await backend.close();}
+  });
+
+  it("counts the first actual public play delta where it is forwarded, without moving TTFT or the mark at completion and body replacement",async()=>{
+    const {backend,rpc,streams,open,close}=await fixture();
+    try{
+      await open("public-play");
+      const privateFirst=await within(()=>rpc({type:"message_update",assistantMessageEvent:{type:"text_delta",contentIndex:0,delta:"PRIVATE_PROCESS_TEXT"}}));
+      rpc({type:"message_end",message:{role:"assistant",content:[{type:"text",text:"PRIVATE_FINAL_TEXT"}],stopReason:"stop"}});
+      await sleep(25);
+      const base={version:1,campaign:"campaign-1",turn:1,worldline:"main",loop:0,run:"run",input_revision:"input",
+        delivery_id:"public-delivery",attempt_id:"public-attempt"};
+      const delivery=(sequence:number,data:Record<string,unknown>)=>rpc({type:"entry_appended",entry:{type:"custom",id:`public-${sequence}`,
+        customType:"coc-final-delivery",timestamp:new Date().toISOString(),data:{...base,sequence,timestamp:Date.now(),...data}}});
+      const notProse=await within(()=>{
+        delivery(1,{event:"start",status:"streaming"});
+        delivery(2,{event:"delta",delta:" \n "});
+      });
+      await sleep(25);
+      const first=await within(()=>delivery(3,{event:"delta",delta:"The public reply appears."}));
+      const visible=streams.find(row=>row.event.type==="final_delivery"&&row.event.frame.sequence===3);
+      expect(visible?.event.frame.delta).toBe("The public reply appears.");
+      expect(visible?.at).toBeGreaterThanOrEqual(first.before);
+      expect(visible?.at).toBeLessThanOrEqual(first.after);
+      await sleep(30);
+      delivery(4,{event:"end",status:"completed"});
+      const replacement=await within(()=>rpc({type:"entry_appended",entry:card("public-body",{
+        turn:1,mechanics:[],marked_text:"{{say:Clerk}}The public reply appears.{{/say}}",final_stream_id:"public-delivery"})}));
+      const body=streams.find(row=>row.event.type==="presentation"&&row.event.entry.id==="public-body");
+      expect(body?.event.entry.presentation?.details?.marked_text).toBe("{{say:Clerk}}The public reply appears.{{/say}}");
+      expect(body?.at).toBeGreaterThanOrEqual(replacement.before);
+      expect(body?.at).toBeLessThanOrEqual(replacement.after);
+      const record=await close("public-play");
+      expect(JSON.stringify(streams)).not.toContain("PRIVATE_");
+      expect(record.firstProseVia).toBe("draft");
+      const at=phase(record,"first_prose")!;
+      expect(at).toBeGreaterThan(privateFirst.after);
+      expect(at).toBeGreaterThan(notProse.after);
+      expect(at).toBeGreaterThanOrEqual(first.before);
+      expect(at).toBeLessThanOrEqual(first.after);
+      expect(at).toBeLessThan(replacement.before);
+      expect(record.durations?.firstProseMs).toBe(at-phase(record,"host_received")!);
+      expect(record.durations?.ttftMs).toBe(phase(record,"first_stream")!-phase(record,"pi_dispatch")!);
+      expect(phase(record,"first_stream")).toBeGreaterThanOrEqual(privateFirst.before);
+      expect(phase(record,"first_stream")).toBeLessThanOrEqual(privateFirst.after);
+      expect(record.performance?.ttftMs).toBe(record.durations?.ttftMs);
+      expect(record.durations!.ttftMs!).toBeLessThan(record.durations!.firstProseMs!);
+    }finally{await backend.close();}
   });
 
   it("does not count an earlier turn's card redrawn in place during this turn", async () => {

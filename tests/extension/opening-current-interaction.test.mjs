@@ -88,7 +88,11 @@ test('current-interaction publication retains the current NPC and entry-to-inter
 test('review omissions name exactly the assigned pointers not answered by the submitted review',()=>{
  const review={checked:[{paths:['/nodes/0'],verdict:'supported',source_refs:refs}],missing:[]};
  assert.throws(()=>checkReviewEvidence(review,['/nodes/0','/nodes/1/summary','/coverage'],new Set([1])),
-  {message:'review omitted assigned fields: ["/nodes/1/summary","/coverage"]'});
+  error=>{
+   assert.ok(error.message.startsWith('review omitted assigned fields: ["/nodes/1/summary","/coverage"]. '));
+   assert.match(error.message,/Add checked entries answering these exact rooted pointers in paths/);
+   return true;
+  });
 });
 
 test('the existing source retry appends an owned attempt and preserves the failed opening evidence',async t=>{

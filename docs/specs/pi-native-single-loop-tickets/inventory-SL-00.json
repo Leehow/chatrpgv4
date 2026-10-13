@@ -1747,33 +1747,27 @@
     },
     {
       "file": "runtime/jev/memory-read-owner.ts",
-      "symbol": "registerMemoryReadOperations.execute",
+      "symbol": "createMemoryReadOwner.search",
       "kind": "task-runtime",
       "callee": "runtime.begin",
       "count": 1,
-      "owner": "S0 task mode: memory.search owner",
-      "path": "source-only",
+      "owner": "Shared read-only memory.search owner",
+      "path": "app-play-gated",
       "role": "driver",
-      "trace": "n/a",
-      "note": "Recursive child task inside an owner operation (design 2.4). Registered only by task-host-session.",
-      "lines_at_0b729e8fb": [
-        58
-      ]
+      "trace": "Controlled native Pi/TS query seam; unconfigured live source omits query",
+      "note": "Bounded memory-only task reused by the native query leaf when Jev is configured and by the retained S0 wrapper. Revalidates current input/world/source scope; cannot apply, resolve or publish. No retired Keeper TaskHost is restored."
     },
     {
       "file": "runtime/jev/memory-read-owner.ts",
-      "symbol": "registerMemoryReadOperations.execute",
+      "symbol": "createMemoryReadOwner.search",
       "kind": "task-runtime",
       "callee": "runtime.submit",
       "count": 1,
-      "owner": "S0 task mode: memory.search owner",
-      "path": "source-only",
+      "owner": "Shared read-only memory.search owner",
+      "path": "app-play-gated",
       "role": "driver",
-      "trace": "n/a",
-      "note": "Same.",
-      "lines_at_0b729e8fb": [
-        63
-      ]
+      "trace": "Controlled native Pi/TS query seam; unconfigured live source omits query",
+      "note": "Bounded memory-only task reused by the native query leaf when Jev is configured and by the retained S0 wrapper. Revalidates current input/world/source scope; cannot apply, resolve or publish. No retired Keeper TaskHost is restored."
     },
     {
       "file": "runtime/jev/first-sight.ts",
@@ -2309,6 +2303,30 @@
       "role": "leaf",
       "trace": "native-search session entries and telemetry; protocol continuation tests",
       "note": "Foreground Historical Reference grant only. Delegates the existing Pi inference to its verified provider protocol; at most three pause continuations retain original server blocks. Child lanes keep their existing transport."
+    },
+    {
+      "file": "runtime/jev/hybrid-engine.ts",
+      "symbol": "createHybridEngine",
+      "kind": "jev-adapter",
+      "callee": "createDecisionAdapter",
+      "count": 1,
+      "owner": "Native read-only memory query decision port",
+      "path": "app-play-gated",
+      "role": "leaf",
+      "trace": "Controlled native Pi/TS memory query seam",
+      "note": "A configured Jev credential or explicit decision port supplies the existing bounded memory-read domain. No prose generation or Keeper-turn authority."
+    },
+    {
+      "file": "runtime/jev/hybrid-engine.ts",
+      "symbol": "createHybridEngine.bindMemorySearch",
+      "kind": "task-runtime",
+      "callee": "new TaskRuntime",
+      "count": 1,
+      "owner": "Native read-only memory query artifact runtime",
+      "path": "app-play-gated",
+      "role": "infra",
+      "trace": "Controlled native Pi/TS memory query seam",
+      "note": "One isolated in-memory artifact runtime per available requested query. Existing domain, dispatcher, budgets, current read-set and cancellation apply; no persistent truth store or model starts in this constructor."
     }
   ]
 }
