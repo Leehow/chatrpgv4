@@ -52,7 +52,7 @@ test('registered table aliases resolve while unrelated and ambiguous subjects re
     assert.equal(error.code,'invalid_params');assert.ok(error.message.includes(expected));assert.deepEqual(readJsonl(path),before);
   }
   const accepted=await client.ok('memory.submit',{campaign:CAMPAIGN,job_id:packet.job_id,candidates:[candidate]});
-  assert.equal(accepted.candidates,1);assert.equal(readJsonl(path).at(-1).subject,'Gabriela Macario');
+  assert.equal(accepted.candidates,1);const stored=readJsonl(path).at(-1);assert.ok(stored);assert.equal(stored.subject,'Gabriela Macario');
 });
 
 test('an issued participant identity does not publish an undelivered speech or its pending knowledge',async t=>{
