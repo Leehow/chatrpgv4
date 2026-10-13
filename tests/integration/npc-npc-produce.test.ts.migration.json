@@ -1,0 +1,30 @@
+{
+  "source": "tests/kernel/test_npc_produce.py",
+  "tests": [
+    {
+      "name": "test_a_thing_of_the_tables_own_and_one_the_book_prices_are_his_from_the_next_turn",
+      "parameters": null
+    },
+    {
+      "name": "test_the_same_thing_again_is_not_a_second_one_and_a_name_someone_else_holds_stays_theirs",
+      "parameters": null
+    },
+    {
+      "name": "test_what_the_kernel_refuses",
+      "parameters": null
+    },
+    {
+      "name": "test_what_his_own_act_brought_out_says_when_and_by_which_act",
+      "parameters": null
+    },
+    {
+      "name": "test_what_anyone_at_the_table_brought_out_is_in_every_packet_newest_first_and_capped",
+      "parameters": null
+    },
+    {
+      "name": "test_the_budget_cuts_what_the_table_brought_out_before_what_he_holds",
+      "parameters": null
+    }
+  ],
+  "unsupported": []
+}

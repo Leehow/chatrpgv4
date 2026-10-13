@@ -2,7 +2,7 @@
 # usage: play-turn.sh <worktree> <run> "<player line>"   -- one live turn; prints the prose and what rolled
 wt=$1; run=$2; line=$3
 cd "$wt" || exit 1
-python3 tests/play/driver.py turn "$line" --run "$run" --timeout 300 > /dev/null 2>"$wt/.coc/playtests/$run/play-turn.err"; rc=$?
+node tests/play/driver.ts turn "$line" --run "$run" --timeout 300 > /dev/null 2>"$wt/.coc/playtests/$run/play-turn.err"; rc=$?
 python3 - "$wt/.coc/playtests/$run" "$rc" <<'PY'
 import json,sys,glob,os
 d=sys.argv[1]; rc=sys.argv[2]

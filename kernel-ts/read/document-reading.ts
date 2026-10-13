@@ -13,6 +13,7 @@ export function readCurrentDocument(world:Row,params:Row):Row{
     if(typeof params.name!=='string'||!params.name.trim())throw new RpcError('invalid_params','A focused document read needs the actual carrier name');
     const item=findNamedObject(row(row(world.objects).instances),params.name);
     if(!item)throw new RpcError('unknown_entity','No registered carrier has this name');
+    if(item.document?.image)throw new RpcError('invalid_params','An image carrier has no searchable text; inspect its revealed source image or open it in inventory');
     if(typeof row(item.document).text!=='string')throw new RpcError('needs','The current readable document has not been initialized');
     const revision=number(item.document.revision),page=params.document_page??1;
     if(!integer(page)||number(page)<1)throw new RpcError('invalid_params','document_page must be a positive integer');

@@ -1,0 +1,42 @@
+{
+  "source": "tests/kernel/test_transactions.py",
+  "tests": [
+    {
+      "name": "test_idempotent_replay_and_conflict",
+      "parameters": null
+    },
+    {
+      "name": "test_turn_state_errors",
+      "parameters": null
+    },
+    {
+      "name": "test_ask_closes_turn_and_pending_choice_carries_over",
+      "parameters": null
+    },
+    {
+      "name": "test_pending_turn_survives_a_crash",
+      "parameters": null
+    },
+    {
+      "name": "test_pending_turn_from_hand_edited_turn_json",
+      "parameters": null
+    },
+    {
+      "name": "test_transport_errors_do_not_kill_the_kernel",
+      "parameters": null
+    },
+    {
+      "name": "test_commit_failure_keeps_the_turn_open",
+      "parameters": null
+    },
+    {
+      "name": "test_ask_keeps_story_mechanics_and_interaction_separate",
+      "parameters": null
+    },
+    {
+      "name": "test_mechanics_choice_has_no_question_or_numbered_prose",
+      "parameters": null
+    }
+  ],
+  "unsupported": []
+}

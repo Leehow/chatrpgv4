@@ -14,6 +14,7 @@ import {resolveUiWordsSync} from '../../runtime/ui-words.ts';
 import {extensionContentRoot, extensionHome, fill} from '../ui/words.ts';
 import {publicDefinition, publicUsage} from '../../kernel-ts/mods/public-definition.ts';
 import {auditSubreviewPlacement} from '../../kernel-ts/mods/audit-references.ts';
+import {renderMapView} from '../kernel/map-view.ts';
 
 /**
  * Contract §158.2: what a job whose package requires audit.owed.v1 is told about `owed`. A job without it gets
@@ -543,6 +544,30 @@ export default function modsExtension(pi: ExtensionAPI): void {
         }
         await guard?.();
         if (role === "usage") signal?.throwIfAborted();
+        if(role==='create'&&owner.home){
+          const draft=JSON.parse(await readFile(join(job.cwd,'result.json'),'utf8')),document=draft?.document;
+          if(document&&typeof document.handout==='string'&&['map','image'].includes(document.presentation)){
+            // This is the kernel's closed name comparison, not a semantic source guess.
+            const nameKey=(value:string)=>Array.from(value.normalize('NFKC')).map(char=>{
+              const parts=char.normalize('NFKD');
+              return parts!==char&&/^\P{M}\p{M}+$/u.test(parts)?Array.from(parts)[0]:char;
+            }).join('').toLowerCase().replace(/[\s_\-]+/gu,' ').trim();
+            const sources=(job.document_sources??[]).filter((source:any)=>typeof source.name==='string'&&nameKey(source.name)===nameKey(document.handout));
+            const mapName=sources.length===1&&typeof sources[0].map==='string'?sources[0].map:document.handout;
+            let looked:any;
+            try{looked=await current('table.look',{campaign,focus:'map',name:mapName});}
+            catch(error){if(!isKernelError(error)||!['unknown_entity','invalid_params'].includes(error.code))throw error;}
+            if(!looked?.map_views?.some((view:any)=>view.regions?.length)){
+              const catalog=await current('table.look',{campaign,focus:'map'});
+              const names=(catalog.maps??[]).filter((map:any)=>[map.name,map.display_name].some(name=>typeof name==='string'&&nameKey(name)===nameKey(document.handout)));
+              if(names.length===1)looked=await current('table.look',{campaign,focus:'map',name:names[0].name});
+            }
+            for(const view of looked?.map_views??[])await renderMapView(view,{
+              modulesRoot:join(owner.home,'.coc/modules'),sourceRoots:[join(owner.home,'.coc/module-campaigns',campaign,'modules')],
+              campaignDir:join(owner.home,'.coc/campaigns',campaign)
+            });
+          }
+        }
         const result = await current(acceptMethod, {campaign, job:job.job, ...afterDelivery});
         if (role === "usage") signal?.throwIfAborted();
         return result;

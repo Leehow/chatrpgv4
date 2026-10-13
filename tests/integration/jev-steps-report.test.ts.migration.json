@@ -1,0 +1,116 @@
+{
+  "source": "tests/play/test_jev_steps_report.py",
+  "tests": [
+    {
+      "name": "test_resolve_home_recognises_every_layout",
+      "parameters": null
+    },
+    {
+      "name": "test_the_same_campaigns_dir_named_two_ways_is_one_home",
+      "parameters": null
+    },
+    {
+      "name": "test_aggregate_over_a_checkout_and_an_app_home_pins_every_number",
+      "parameters": null
+    },
+    {
+      "name": "test_verdict_text_says_met_or_not_met_with_the_table_count_and_per_table_numbers",
+      "parameters": null
+    },
+    {
+      "name": "test_the_added_ms_line_is_inclusive_and_judged_per_table",
+      "parameters": [
+        "@pytest.mark.parametrize(\"ms, met\", [(1500, True), (1501, False)])\n"
+      ]
+    },
+    {
+      "name": "test_agreement_is_precision_over_judged_cleared_rows_and_is_inclusive_at_point_nine",
+      "parameters": null
+    },
+    {
+      "name": "test_a_ratio_just_under_the_line_is_not_printed_as_the_line",
+      "parameters": null
+    },
+    {
+      "name": "test_a_cleared_row_with_no_keeper_verdict_is_not_judged",
+      "parameters": null
+    },
+    {
+      "name": "test_executed_rows_are_out_individually_and_the_tables_that_execute_stay_in_the_verdict",
+      "parameters": null
+    },
+    {
+      "name": "test_a_first_impression_roll_without_an_npc_field_is_not_the_keepers_action",
+      "parameters": null
+    },
+    {
+      "name": "test_two_false_positives_in_one_table_fail_and_one_passes",
+      "parameters": null
+    },
+    {
+      "name": "test_no_evidence_is_never_a_pass",
+      "parameters": null
+    },
+    {
+      "name": "test_same_campaign_id_in_two_homes_is_two_tables",
+      "parameters": null
+    },
+    {
+      "name": "test_campaign_filter_applies_across_homes",
+      "parameters": null
+    },
+    {
+      "name": "test_original_root_and_glob_form_still_prints_every_campaign_then_the_verdict",
+      "parameters": null
+    },
+    {
+      "name": "test_detail_flag_prints_the_per_campaign_sections",
+      "parameters": null
+    },
+    {
+      "name": "test_a_directory_that_is_no_home_is_an_error_not_no_data",
+      "parameters": null
+    },
+    {
+      "name": "test_no_arguments_prints_the_docstring",
+      "parameters": null
+    },
+    {
+      "name": "test_an_unreadable_turn_file_is_a_missing_turn_not_a_crash",
+      "parameters": null
+    },
+    {
+      "name": "test_the_report_writes_nothing_and_leaves_the_execute_list_alone",
+      "parameters": null
+    },
+    {
+      "name": "test_an_executed_clue_is_narrated_when_the_keepers_text_places_its_marker",
+      "parameters": null
+    },
+    {
+      "name": "test_the_known_real_case_an_executed_clue_the_prose_never_places_is_neither",
+      "parameters": null
+    },
+    {
+      "name": "test_a_marker_for_another_handle_that_starts_with_this_one_is_not_a_marker_for_it",
+      "parameters": null
+    },
+    {
+      "name": "test_a_step_that_cannot_be_checked_is_counted_as_such_never_as_narrated",
+      "parameters": null
+    },
+    {
+      "name": "test_the_turn_is_the_one_telemetry_puts_the_run_on",
+      "parameters": null
+    },
+    {
+      "name": "test_only_executed_clue_rows_are_examined_and_a_row_written_twice_counts_once",
+      "parameters": null
+    },
+    {
+      "name": "test_the_section_prints_per_table_counts_reversed_as_not_available_and_lists_the_misses",
+      "parameters": null
+    }
+  ],
+  "unsupported": []
+}

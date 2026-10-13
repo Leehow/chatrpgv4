@@ -1,12 +1,14 @@
 # 真桌验收方法
 
-每个切片的验收都是一张真桌：本主会话当唯一玩家，`pi` 统一跑 `grok-build/grok-4.5`、`low` 当守秘人，一回合一回，走产品路径（2026-10-11 用户裁定，后续不使用 4.7）。启动后核对实际模型；历史测试保留原证据的实际模型。禁止假守秘人脚本、批量结算、关键词路由或场景模板刷回合（仓库 `Agents.md` 的绝对禁令）。自动化接缝（内核 RPC、扩展、驾驭器）证明的是契约，真桌证明的是产品；到目前为止每次真桌都找出 3–5 个接缝看不见的系统缺陷。
+每个切片的验收都是一张真桌：本主会话当唯一玩家，`pi` 统一跑 Codex Relay `codex-relay/gpt-6-luna`、`high` 当守秘人；测试中的最终作者也使用同一配置。一回合一回，走产品路径（2026-10-13 用户裁定，覆盖此前 Grok 4.5/low 测试默认值）。启动后核对实际模型；历史测试保留原证据的实际模型。禁止假守秘人脚本、批量结算、关键词路由或场景模板刷回合（仓库 `Agents.md` 的绝对禁令）。自动化接缝（内核 RPC、扩展、驾驭器）证明的是契约，真桌证明的是产品；到目前为止每次真桌都找出 3–5 个接缝看不见的系统缺陷。
 
 ## 工具
 
-- 驾驭器 `tests/play/driver.py`：`start --campaign <id> --run <run_id> [--launcher bin/pi-coc-setup]` 起一个守护进程与 `pi --mode rpc`；`turn "<玩家原文>" --run <run_id> --timeout <秒>` 发一条玩家输入并打印交付；`stop`；`status`；`log`。证据落在 `.coc/playtests/<run_id>/`（每回合 `turn-N.json`、`events.jsonl`、`pi-stderr.log`）。
-- 指标 `tests/play/kpi.py --campaign <id> --turns a-b`：从战役遥测算每回合「第一次写状态前的只读调用数」、工具总数、内核报错、是否进规则层；`--baseline` 给 `haunting-s0` 13–25 回合的基线。
-- 原 PDF 从 setup 入口准备；页图由 `bin/coc-source` 提供，Python 内核只接收带页来源的图谱草稿。资料包/OCR 入口已退役。
+若 Codex Relay 报并发已满，本次测试回退到 `grok-build/grok-4.5` / `low`，包括最终作者和辅助车道；保留 Luna 失败记录，后续测试默认仍为 Luna/high（2026-10-13 用户补充裁定）。
+
+- 驾驭器 `tests/play/driver.ts`：`node tests/play/driver.ts start --campaign <id> --run <run_id> [--launcher bin/pi-coc-setup]` 起一个守护进程与 `pi --mode rpc`；`turn "<玩家原文>" --run <run_id> --timeout <秒>` 发一条玩家输入并打印交付；`stop`；`status`；`log`。证据落在 `.coc/playtests/<run_id>/`（每回合 `turn-N.json`、`events.jsonl`、`pi-stderr.log`）。
+- 指标 `node tests/play/kpi.ts --campaign <id> --turns a-b`：从战役遥测算每回合「第一次写状态前的只读调用数」、工具总数、内核报错、是否进规则层；`--baseline` 给 `haunting-s0` 13–25 回合的基线。
+- 原 PDF 从 setup 入口准备；页图由 `bin/coc-source` 提供，TS 内核只接收带页来源的图谱草稿。资料包/OCR 入口已退役。
 - 建卡进程走 `bin/pi-coc setup`（驾驭器用 `--launcher bin/pi-coc-setup`），游玩进程走 `bin/pi-coc --campaign <id>`。
 
 ## 证据
@@ -21,7 +23,7 @@
 - 切片 2（提交链）：一局跨两次 `pi-coc` 会话八回合以上，第二次会话中守秘人主动召回第一次会话的事实。
 - 切片 3（胶囊与 Director）：同一战役对照，第一次写状态前的只读调用数下降（基线中位数 3 → 0），进规则层的 lane 不降。
 - 切片 4（建卡与模组车道）：一本真 PDF 从 `bin/pi-coc setup` 走七步到 `ready_for_table`，开桌三回合，开场材料全部来自构建出的图。
-- 切片 5（退役旧树）：全量测试在 `uv run --frozen` 下绿，一局十回合回归。
+- 切片 5（退役旧树）：全量原生 TS 测试通过，一局十回合回归。
 
 ## 读证据的三条戒律
 
@@ -39,7 +41,7 @@ make a turn settled; existing prose, rejection and exit classification remain
 unchanged. Repeated snapshots replace the same turn's projection rather than
 printing duplicate cards; explicit results remain the fallback when no entry exists.
 
-`driver.py turn` prints separate structured mechanics and choice panels after the
+`node tests/play/driver.ts turn` prints separate structured mechanics and choice panels after the
 prose and notices. The player panel excludes keeper rows, concealed roll figures
 and grades, receipt/call/marker identifiers, pending-choice bindings and runtime
 actor handles. Condition rows show a subject label only when
@@ -64,3 +66,11 @@ Opening diagnostics require the campaign state, its matching history repository,
 locked Mods and its campaign-private module scope; a shared initial module alone
 does not reconstruct a long campaign's published graph. Missing-copy startup
 failures are environment evidence, never successful gameplay or Jev verdicts.
+
+## Uniform live acceptance profile
+
+The live driver profile is explicit: Luna/high normally, Grok 4.5/low only after actual upstream concurrency saturation. PI_COC_TEST_MODEL is a test-only process binding. When it selects either approved profile, actual single-completion lane effort and tool-enabled build-worker effort must use that same profile even where a normal caller has an off/low default. The final author already uses this binding. Outside these two exact test profiles, existing caller and lane/environment precedence remains unchanged. Telemetry must report the same effective options carried by the request, not merely inherited environment values. Retain mismatched earlier runs as diagnostic evidence.
+
+Targeted external comparison: OpenAI reasoning guidance places effort on the actual request (https://developers.openai.com/api/docs/guides/reasoning), and Gemini thinking documentation likewise describes explicit request configuration (https://ai.google.dev/gemini-api/docs/generate-content/thinking). Both support checking sent options rather than assuming environment export establishes behavior; provider defaults and supported values differ, so the local model adapter remains responsible for translation. This comparison does not change normal product effort defaults.
+
+Stopping an in-flight live driver must wake its transport wait after the Pi child has closed, finalize the retained partial turn, and only then write final totals. A process-exit wake is transport evidence, never a delivered Keeper event or a settled turn. A saturated retry stop must not leave the daemon alive until the player turn timeout.

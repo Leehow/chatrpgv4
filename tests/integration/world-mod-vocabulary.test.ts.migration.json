@@ -1,0 +1,50 @@
+{
+  "source": "tests/kernel/test_mod_vocabulary.py",
+  "tests": [
+    {
+      "name": "test_a_vocabulary_contribution_is_checked_for_shape",
+      "parameters": null
+    },
+    {
+      "name": "test_a_contributed_key_reaches_the_reader_and_the_module_records_it",
+      "parameters": null
+    },
+    {
+      "name": "test_a_recorded_key_reaches_the_table_and_does_not_need_its_package_on",
+      "parameters": null
+    },
+    {
+      "name": "test_a_word_no_package_asked_for_does_not_reach_the_table",
+      "parameters": null
+    },
+    {
+      "name": "test_a_package_can_see_whether_its_own_word_reached_the_table",
+      "parameters": null
+    },
+    {
+      "name": "test_a_bound_word_outlives_the_package_that_asked_for_it",
+      "parameters": null
+    },
+    {
+      "name": "test_the_table_may_establish_a_word_the_book_left_silent",
+      "parameters": null
+    },
+    {
+      "name": "test_what_the_table_established_goes_when_the_package_does",
+      "parameters": null
+    },
+    {
+      "name": "test_the_book_is_not_the_tables_to_overwrite",
+      "parameters": null
+    },
+    {
+      "name": "test_only_a_word_an_active_package_establishes_is_accepted",
+      "parameters": null
+    },
+    {
+      "name": "test_a_table_whose_module_never_carried_the_word_can_still_establish_it",
+      "parameters": null
+    }
+  ],
+  "unsupported": []
+}

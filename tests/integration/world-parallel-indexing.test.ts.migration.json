@@ -1,0 +1,26 @@
+{
+  "source": "tests/kernel/test_parallel_indexing.py",
+  "tests": [
+    {
+      "name": "test_cold_long_book_queues_opening_directly_and_new_questions_revisit_ready_entities",
+      "parameters": null
+    },
+    {
+      "name": "test_selective_navigation_is_one_owned_job_and_unread_ranges_remain_navigation",
+      "parameters": null
+    },
+    {
+      "name": "test_foreground_question_claims_a_slot_while_background_reading_is_running",
+      "parameters": null
+    },
+    {
+      "name": "test_empty_detail_requests_never_dispatch_an_unbounded_reader",
+      "parameters": null
+    },
+    {
+      "name": "test_same_focus_waits_for_background_publication_instead_of_racing_its_dossier",
+      "parameters": null
+    }
+  ],
+  "unsupported": []
+}

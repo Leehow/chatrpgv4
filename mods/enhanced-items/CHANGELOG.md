@@ -1,3 +1,12 @@
+## 1.4.2
+- Explicit collection of already revealed player reference images uses a session-bound host control and asynchronous campaign sidecar. References appear in Maps or Images, retain frozen source pixels, and remain read-only without creating physical paper or advancing fiction. Requires `objects.image-references.v1`.
+
+## 1.4.1
+- Explicit player collection of a revealed image records a read-only player reference through the existing asynchronous definition and object path. The Keeper and creator preserve that reference basis instead of inventing physical paper, printing, folding or possession. Source identity, custody and image editing restrictions remain unchanged.
+
+## 1.4.0
+- Acquired maps and pictured handouts are immutable image carriers in inventory. The existing asynchronous creator captures the revealed source, and the inventory groups papers, maps and images separately. Viewing remains distinct from physical acquisition; image editing is unsupported.
+
 # 1.3.5
 - Requires `weapons.improvised.v1` (contract §224.7; user ruling 2026-10-11: 「临时武器那个应该归为物品增强mod里」). On a table where this package is enabled, a declared first blow with a held object whose attack usage is still being prepared is rolled that turn as the weapons-table row the object most resembles (Keeper Rulebook, Improvised Weapons p.104): the kernel offers the rows on `first_blow.preparation.improvised`, the host binds the closest one as `action.improvised`, and the result names it as `outcome.improvised`. No usage is written; the object's own usage preparation runs as before and takes over once it lands. With the package disabled the kernel offers no rows and the attack keeps its preparation, as before 1.3.5.
 - `agent.md` ("Attacking with an instance") tells the Keeper how to read `outcome.improvised`.

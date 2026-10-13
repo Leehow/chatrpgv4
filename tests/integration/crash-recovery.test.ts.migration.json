@@ -1,0 +1,30 @@
+{
+  "source": "tests/kernel/test_crash_recovery.py",
+  "tests": [
+    {
+      "name": "test_resume_is_null_before_any_turn_is_committed",
+      "parameters": null
+    },
+    {
+      "name": "test_killed_between_acting_and_committed_reopens_and_finishes_with_one_commit",
+      "parameters": null
+    },
+    {
+      "name": "test_narrate_replayed_after_reopen_makes_no_second_commit",
+      "parameters": null
+    },
+    {
+      "name": "test_missing_checkpoint_is_rebuilt_from_head_on_reopen",
+      "parameters": null
+    },
+    {
+      "name": "test_corrupted_turn_json_rebuilds_a_fresh_turn_from_the_checkpoint",
+      "parameters": null
+    },
+    {
+      "name": "test_first_player_input_after_reopen_carries_resume_the_second_does_not",
+      "parameters": null
+    }
+  ],
+  "unsupported": []
+}

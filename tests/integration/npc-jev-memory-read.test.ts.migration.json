@@ -1,0 +1,48 @@
+{
+  "source": "tests/kernel/test_jev_memory_read.py",
+  "tests": [
+    {
+      "name": "test_wide_candidate_pool_pages_beyond_twelve_and_raw_gap_fallback_is_explicit_and_read_only",
+      "parameters": null
+    },
+    {
+      "name": "test_exact_original_preserves_negation_conditions_utf16_refs_and_speaker_while_legacy_summary_is_derived",
+      "parameters": null
+    },
+    {
+      "name": "test_finish_preserves_separately_read_initial_condition_and_later_answer",
+      "parameters": null
+    },
+    {
+      "name": "test_finish_bounds_accumulated_original_pages_and_reports_explicit_context_omission",
+      "parameters": null
+    },
+    {
+      "name": "test_scope_unissued_alias_and_selection_bounds_fail_closed",
+      "parameters": null
+    },
+    {
+      "name": "test_finish_requires_refresh_after_receipt_index_or_committed_source_change",
+      "parameters": [
+        "@pytest.mark.parametrize(\"change\", [\"receipt\", \"index\", \"source\"])\n"
+      ]
+    },
+    {
+      "name": "test_explicit_foreign_line_reads_indexed_rows_but_reports_raw_originals_unavailable",
+      "parameters": null
+    },
+    {
+      "name": "test_snapshot_include_superseded_filter_controls_closed_relationship_rows",
+      "parameters": null
+    },
+    {
+      "name": "test_any_line_collapses_inherited_occurrence_but_keeps_same_id_from_distinct_source_commits",
+      "parameters": null
+    },
+    {
+      "name": "test_public_recall_query_requires_typed_host_and_rejects_unissued_continuations",
+      "parameters": null
+    }
+  ],
+  "unsupported": []
+}

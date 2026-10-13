@@ -43,6 +43,10 @@
     "typescript": "5.9.3"
   },
   "scripts": {
+    "test": "node scripts/test-fast.mjs",
+    "test:fast": "node scripts/test-fast.mjs",
+    "test:integration": "node scripts/test-integration.mjs",
+    "test:all": "node scripts/test-all.mjs",
     "build:runtime": "node scripts/build-runtime.mjs",
     "check:kernel": "tsc -p tsconfig.kernel.json",
     "test:ext": "node scripts/test-extension.mjs",

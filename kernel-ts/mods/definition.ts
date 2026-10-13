@@ -19,6 +19,15 @@ function hashable(value: any, collection: 'dict key' | 'set element' = 'dict key
 function member(values: readonly string[], value: any): boolean { hashable(value, 'set element'); return values.includes(value); }
 
 export function validateDocumentSeed(value: any): Row {
+  if (isJsonObject(value) && ['map','image'].includes(String(value.presentation))) {
+    const reference = exactly(value,['handout','presentation']) && nonempty(value.handout) && length(value.handout) <= 160;
+    const image = row(value.image);
+    const captured = exactly(value,['image','presentation']) && exactly(image,['path','media_type','sha256','source'])
+      && nonempty(image.path) && nonempty(image.source) && typeof image.sha256 === 'string' && /^[a-f0-9]{64}$/.test(image.sha256)
+      && ['image/png','image/jpeg','image/webp','image/gif'].includes(image.media_type);
+    if (!reference && !captured) return invalid('Image documents need a revealed handout name and presentation map or image');
+    return clone(value);
+  }
   const message = 'Document needs bounded plain text and presentation paper, notebook or book';
   if (!isJsonObject(value) || !member(['paper', 'notebook', 'book'], value.presentation)) return invalid(message);
   const text = exactly(value, ['text', 'presentation']) && typeof value.text === 'string' && length(value.text) <= 64000;

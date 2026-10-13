@@ -1,0 +1,40 @@
+{
+  "source": "tests/kernel/test_continuation.py",
+  "tests": [
+    {
+      "name": "test_checkpoint_is_written_after_the_commit",
+      "parameters": null
+    },
+    {
+      "name": "test_open_returns_resume_and_the_first_capsule_carries_it_once",
+      "parameters": null
+    },
+    {
+      "name": "test_head_ahead_of_checkpoint_rebuilds_it_from_head",
+      "parameters": null
+    },
+    {
+      "name": "test_missing_checkpoint_is_rebuilt_from_head",
+      "parameters": null
+    },
+    {
+      "name": "test_lost_turn_json_is_rebuilt_from_the_checkpoint",
+      "parameters": [
+        "@pytest.mark.parametrize(\"damage\", [\"delete\", \"corrupt\"])\n"
+      ]
+    },
+    {
+      "name": "test_lost_turn_json_after_an_ask_restores_the_pending_choice",
+      "parameters": null
+    },
+    {
+      "name": "test_lost_turn_json_before_any_narrate_is_turn_zero",
+      "parameters": null
+    },
+    {
+      "name": "test_pending_turn_keeps_the_last_checkpoint_as_resume",
+      "parameters": null
+    }
+  ],
+  "unsupported": []
+}

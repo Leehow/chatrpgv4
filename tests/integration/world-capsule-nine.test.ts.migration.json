@@ -1,0 +1,90 @@
+{
+  "source": "tests/kernel/test_capsule_nine.py",
+  "tests": [
+    {
+      "name": "test_the_capsule_has_nine_sections_a_head_and_the_clock",
+      "parameters": null
+    },
+    {
+      "name": "test_the_clock_and_elapsed_follow_the_world_minutes",
+      "parameters": null
+    },
+    {
+      "name": "test_situations_ride_in_the_capsule_and_stay_in_look",
+      "parameters": null
+    },
+    {
+      "name": "test_clock_pressure_from_the_wound_hour",
+      "parameters": null
+    },
+    {
+      "name": "test_clock_pressure_from_the_dying_clock_is_always_near_full",
+      "parameters": null
+    },
+    {
+      "name": "test_threat_pressure_when_a_danger_names_a_present_npc",
+      "parameters": null
+    },
+    {
+      "name": "test_continuation_has_one_base_projection_until_answered",
+      "parameters": null
+    },
+    {
+      "name": "test_choice_obligation_from_the_pending_ask",
+      "parameters": null
+    },
+    {
+      "name": "test_session_obligation_from_a_live_combat",
+      "parameters": null
+    },
+    {
+      "name": "test_quest_obligations_read_the_module_graph_and_the_discovered_clues",
+      "parameters": null
+    },
+    {
+      "name": "test_the_style_provider_sends_every_directive_on_the_first_turn_and_the_beats_after",
+      "parameters": null
+    },
+    {
+      "name": "test_without_a_provider_style_is_the_language_and_the_register",
+      "parameters": null
+    },
+    {
+      "name": "test_a_legacy_narration_craft_lock_keeps_the_base_lines_it_was_played_with",
+      "parameters": null
+    },
+    {
+      "name": "test_the_legacy_table_keeps_its_language_only_axis_to_that_language",
+      "parameters": null
+    },
+    {
+      "name": "test_a_style_package_that_would_not_fit_is_refused_when_the_catalog_loads",
+      "parameters": null
+    },
+    {
+      "name": "test_only_one_style_provider_is_enabled_at_a_time",
+      "parameters": null
+    },
+    {
+      "name": "test_a_new_process_starts_over_with_the_full_directives",
+      "parameters": null
+    },
+    {
+      "name": "test_register_is_a_campaign_setting_from_the_text_graph",
+      "parameters": null
+    },
+    {
+      "name": "test_the_provider_lines_are_the_same_for_every_play_language",
+      "parameters": null
+    },
+    {
+      "name": "test_the_memory_section_is_trimmed_from_its_tail_and_named_in_truncated",
+      "parameters": null
+    },
+    {
+      "name": "test_the_capsule_stays_keeper_only",
+      "parameters": null
+    }
+  ],
+  "unsupported": []
+}

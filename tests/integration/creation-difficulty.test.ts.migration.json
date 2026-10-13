@@ -1,0 +1,90 @@
+{
+  "source": "tests/kernel/test_creation_difficulty.py",
+  "tests": [
+    {
+      "name": "test_absent_hard_and_empty_custom_are_bit_identical",
+      "parameters": null
+    },
+    {
+      "name": "test_same_seed_same_difficulty_same_card",
+      "parameters": null
+    },
+    {
+      "name": "test_presets_roll_the_rulebook_dice_on_the_rulebook_bounds",
+      "parameters": null
+    },
+    {
+      "name": "test_normal_preset_fattens_only_the_budgets",
+      "parameters": null
+    },
+    {
+      "name": "test_easy_preset_fattens_budgets_and_rolls_kinder_luck",
+      "parameters": null
+    },
+    {
+      "name": "test_extreme_preset_thins_budgets_and_lowers_the_cap",
+      "parameters": null
+    },
+    {
+      "name": "test_quick_fire_is_the_rulebook_array_under_every_preset",
+      "parameters": null
+    },
+    {
+      "name": "test_custom_pool_dice_replacement_rolls_and_bounds_its_own_range",
+      "parameters": null
+    },
+    {
+      "name": "test_custom_fixed_luck_rolls_nothing",
+      "parameters": null
+    },
+    {
+      "name": "test_custom_luck_dice_replaces_the_roll",
+      "parameters": null
+    },
+    {
+      "name": "test_custom_budget_multiplier_and_fixed",
+      "parameters": null
+    },
+    {
+      "name": "test_custom_fixed_occupation_budget_ignores_the_formula",
+      "parameters": null
+    },
+    {
+      "name": "test_custom_skill_cap_replaces_75",
+      "parameters": null
+    },
+    {
+      "name": "test_campaign_create_rejects_bad_difficulty_shapes",
+      "parameters": null
+    },
+    {
+      "name": "test_snapshot_sheet_and_receipt_records",
+      "parameters": null
+    },
+    {
+      "name": "test_draft_limits_obey_the_preset_knobs",
+      "parameters": null
+    },
+    {
+      "name": "test_draft_limits_obey_custom_knobs",
+      "parameters": null
+    },
+    {
+      "name": "test_override_bounds_follow_a_replaced_pool",
+      "parameters": null
+    },
+    {
+      "name": "test_luck_override_keeps_creation_bounds_under_a_replaced_pool",
+      "parameters": null
+    },
+    {
+      "name": "test_a_corrupt_snapshot_fails_loudly_on_the_next_build",
+      "parameters": null
+    },
+    {
+      "name": "test_a_described_person_under_a_preset_takes_the_array_and_the_plain_card_keeps_its_dice",
+      "parameters": null
+    }
+  ],
+  "unsupported": []
+}

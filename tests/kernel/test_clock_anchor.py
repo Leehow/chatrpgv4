@@ -99,10 +99,22 @@ def test_opening_mixed_batch_is_still_refused(undated):
     create_campaign(undated)
     error = undated.table_err('apply', call_id='t0-c1', effects=[
         {'kind': 'clock', 'local_datetime': '1975-07-14T09:00'},
-        {'kind': 'clue', 'clue': 'knott-research-leads'}])
+        {'kind': 'move', 'to': 'newspaper-morgue'}])
     assert error['code'] == 'turn_state'
     assert read_json(campaign_dir(undated.workspace) / 'world.json')['clock'] == {'minutes': 0}
     print('OPENING_MIXED_REFUSAL', json.dumps(error))
+
+
+def test_opening_clock_and_information_land_without_choosing_a_player_action(undated):
+    create_campaign(undated)
+    result = undated.table('apply', call_id='t0-c1', effects=[
+        {'kind': 'clock', 'local_datetime': '1975-07-14T09:00'},
+        {'kind': 'clue', 'clue': 'knott-research-leads'}])
+    assert len(result['receipts']) == 2
+    assert clock(undated)['at'] == '1975-07-14T09:00'
+    assert undated.table('status')['state'] == 'awaiting_player'
+    world = read_json(campaign_dir(undated.workspace) / 'world.json')
+    assert 'knott-research-leads' in world['discovered_clues']
 
 
 @pytest.mark.parametrize('opening', [False, True])

@@ -1,0 +1,10 @@
+{
+  "source": "tests/kernel/test_mod_checker.py",
+  "tests": [
+    {
+      "name": "test_emitted_mod_checker_reuses_validation_without_kernel_or_state_writes",
+      "parameters": null
+    }
+  ],
+  "unsupported": []
+}

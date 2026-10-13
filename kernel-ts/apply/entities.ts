@@ -4,6 +4,7 @@ import {isAbsolute,join} from 'node:path';
 import {RpcError} from '../errors.js';
 import {isJsonObject} from '../json.js';
 import {isAmbiguity,notAPerson,personRefusal,recordOf,type ModuleGraph} from '../read/module-graph.js';
+import {handoutImageSource} from '../read/handout-image-source.js';
 import {handoutFile} from '../read/handout-document.js';
 import {npcNode,npcsPresent,personLabel,personNode,personRecord,unplacedPeople,untoldBlock} from '../read/capsule.js';
 import {unsupported} from '../read/handlers.js';
@@ -572,20 +573,22 @@ export async function stageHandout(context:ApplyContext,effect:Row,asset:(module
     if(!['player-safe','revealable'].includes(visibility))throw new RpcError('invalid_params',`${repr(handle)} is ${visibility}; it cannot be handed to the player`,{fix:'keeper-only images and cards stay in lookup {kind: secret}; hand out a player-safe or revealable one',details:{handout:handle,visibility}});
     const label=typeof effect.label==='string'&&effect.label.trim()?effect.label:null,record=recordOf(node),props=row(node.properties),registered=await asset(graph.moduleId,node.node_id)||{};
     const attachment:Row={handout:handle,path:null,media_type:null,available:false};
+    const raster=await handoutImageSource(graph,node,asset);
     const text=typeof record.authored_text==='string'?record.authored_text:registered.authored_text;
     if(typeof text==='string'&&text.trim()){
         const folder=join(context.campaign.directory,'handouts'),path=join(folder,`${handle}.md`);
         if(context.stageText)context.stageText(path,handoutFile(display,text));else{await mkdir(folder,{recursive:true});await writeFile(path,handoutFile(display,text),'utf8');}
         Object.assign(attachment,{path,media_type:'text/markdown',available:true});
     }else{
-        const ref=registered.path||props.asset_ref||props.image_ref,media=registered.media_type||props.media_type||null;
+        const deniedLink=typeof props.image_asset_id==='string'&&!raster;
+        const ref=deniedLink?null:raster?.ref||registered.path||props.asset_ref||props.image_ref,media=deniedLink?null:raster?.media_type||registered.media_type||props.media_type||null;
         const candidates=ref?[isAbsolute(string(ref))?string(ref):join(context.kernel.stateRoot,'modules',graph.moduleId,string(ref)),string(ref)]:[];
         let found:string|null=null;for(const path of candidates)if(await context.kernel.snapshots.isFile(path)){found=path;break;}
         Object.assign(attachment,{path:found||(ref?string(ref):null),media_type:media,available:found!=null});
     }
     // A text transcription does not replace an available original image.
-    if(attachment.media_type==='text/markdown'&&['image/png','image/jpeg','image/webp','image/gif'].includes(registered.media_type||props.media_type)){
-        const ref=registered.path||props.asset_ref,media=registered.media_type||props.media_type;
+    if(attachment.media_type==='text/markdown'&&raster){
+        const ref=raster.ref,media=raster.media_type;
         const candidates=typeof ref==='string'?[isAbsolute(ref)?ref:join(context.kernel.stateRoot,'modules',graph.moduleId,ref),ref]:[];
         for(const path of candidates)if(await context.kernel.snapshots.isFile(path)){Object.assign(attachment,{image_path:path,image_media_type:media});break;}
     }

@@ -16,7 +16,7 @@ export function readableWriting(world:Row,item:Row):string {
 }
 
 export function currentOwnedDocuments(world:Row,actor:string):Row[] {
-    return values(row(row(world.objects).instances)).filter(item=>item.document&&rootObjectOwner(world,item).kind==='investigator'
+    return values(row(row(world.objects).instances)).filter(item=>item.document&&!item.document.image&&rootObjectOwner(world,item).kind==='investigator'
         &&rootObjectOwner(world,item).id===actor).map(item=>({name:item.name,revision:row(item.document).revision,
             text:chars(row(item.document).text,400),truncated:string(row(item.document).text).length>400,
             open:documentSurface(world,item).open===true,

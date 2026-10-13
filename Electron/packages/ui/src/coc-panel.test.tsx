@@ -68,6 +68,7 @@ function view(overrides: Record<string, unknown> = {}) {
 
 /**
  * One `invoke` that answers `sheet` with whatever the test hands it, in order.
+ * Independent reference reads return their own empty catalog without consuming a sheet refresh.
  *
  * A host attaches `ui` to every sheet answer (§23), so a bound view gets one here at its own play
  * language. An answer with no view is left alone on purpose: that is how a test says "this failure
@@ -80,7 +81,17 @@ function host(...answers: unknown[]) {
     if (!data || 'ui' in data || !view) return answer;
     return {...(answer as object), data: {...data, ui: ui(view.play_language ?? 'zh-Hans')}};
   });
-  const invoke = vi.fn(async () => dressed[Math.min(invoke.mock.calls.length, dressed.length) - 1]);
+  let sheetReads=0;
+  const invoke = vi.fn(async (method:string,params:Record<string,unknown>) => {
+    if(method==='mods.document.references') {
+      expect(Object.keys(params)).toEqual(['actor']);
+      expect(typeof params.actor).toBe('string');
+      expect((params.actor as string).length).toBeGreaterThan(0);
+      return {ok:true,data:{references:[]}};
+    }
+    if(method!=='sheet')throw new Error(`Unexpected panel method: ${method}`);
+    return dressed[Math.min(sheetReads++,dressed.length-1)];
+  });
   return { invoke };
 }
 
@@ -117,10 +128,15 @@ it('keeps passport words live, the era unlabelled and decoration across refreshe
   expect(container.querySelector('.coc-sheet-avatar')?.getAttribute('src')).toContain('Ag==');
   expect(Array.from(container.querySelector('.coc-sheet-identity')?.children ?? []).slice(0,3).map(node=>node.className))
     .toEqual(['coc-sheet-art','coc-sheet-avatar','coc-sheet-seal']);
-  expect(api.invoke).toHaveBeenLastCalledWith('sheet',{include_identity_art:true});
+  expect(api.invoke.mock.calls.filter(([method])=>method==='sheet').at(-1)).toEqual(['sheet',{include_identity_art:true}]);
   fireEvent.click(screen.getByRole('button',{name:'Refresh'}));
   await screen.findByText('Projected modern era');
-  expect(api.invoke).toHaveBeenLastCalledWith('sheet',{retry_projection:true});
+  expect(api.invoke.mock.calls.filter(([method])=>method==='sheet')).toEqual([
+    ['sheet',{include_identity_art:true}],['sheet',{retry_projection:true}],
+  ]);
+  expect(api.invoke.mock.calls.filter(([method])=>method==='mods.document.references')).toEqual([
+    ['mods.document.references',{actor:investigator.id}],['mods.document.references',{actor:investigator.id}],
+  ]);
   expect(container.querySelector('.coc-sheet-art')?.getAttribute('style')).toBe(mount?.getAttribute('style'));
   expect(container.querySelector('.coc-sheet-seal')?.getAttribute('src')).toContain('AQ==');
 });

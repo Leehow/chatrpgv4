@@ -26,6 +26,7 @@ export async function documentRequestState(campaign:RequestReader,world:Row,item
 export async function requestDocumentEdit(campaign:CampaignWritePort,world:Row,item:Row,actor:Row,params:Row):Promise<Row>{
     if(Object.keys(params).some(key=>!['campaign','actor','name','version','action','text'].includes(key)))
         throw new RpcError('invalid_params','Unknown document edit request field');
+    if(item.document?.image)throw new RpcError('invalid_params','Image documents are read-only');
     const version=await documentVersion(campaign,world,item),action=params.action;
     if(params.version!==version)throw new RpcError('revision_conflict','The writing or its custody changed; retain the draft and reload');
     if(!['save','reset'].includes(action)||action==='reset'&&Object.hasOwn(params,'text'))

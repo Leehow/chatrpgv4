@@ -1,62 +1,58 @@
 import assert from 'node:assert/strict';
-import { spawnSync } from 'node:child_process';
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
-import { tmpdir } from 'node:os';
-import { dirname, join, resolve } from 'node:path';
-import { after, test } from 'node:test';
-import { fileURLToPath } from 'node:url';
+import {spawnSync} from 'node:child_process';
+import {mkdtempSync,mkdirSync,readFileSync,writeFileSync,rmSync,symlinkSync} from 'node:fs';
+import {tmpdir} from 'node:os';
+import {dirname,join,resolve} from 'node:path';
+import {createRequire} from 'node:module';
+import {test} from 'node:test';
+import {fileURLToPath} from 'node:url';
 
-const root = resolve(dirname(fileURLToPath(import.meta.url)), '../..');
-const scratch = mkdtempSync(join(tmpdir(), 'pi-coc-test-selection-'));
-after(() => rmSync(scratch, { recursive: true, force: true }));
-let sequence = 0;
-function run(changed, args = ['--json'], env = {}) {
-  const list = join(scratch, `changed-${sequence++}`);
-  writeFileSync(list, changed.join('\n'));
-  return spawnSync(process.execPath, ['scripts/select-tests.mjs', '--changed', list, ...args],
-    { cwd: root, encoding: 'utf8', env: { ...process.env, ...env } });
+const root=resolve(dirname(fileURLToPath(import.meta.url)),'../..');
+const selector=readFileSync(join(root,'scripts/select-tests.mjs'),'utf8');
+const integration=readFileSync(join(root,'scripts/test-integration.mjs'),'utf8');
+const dependencyRoot=dirname(dirname(createRequire(import.meta.url).resolve('typescript/package.json')));
+const smoke=['tests/extension/ts-kernel-foundation.test.mjs','tests/extension/control-flow-inventory.test.mjs'];
+function fixture(t){
+  const repo=mkdtempSync(join(tmpdir(),'pi-coc-native-selection-'));t.after(()=>rmSync(repo,{recursive:true,force:true}));
+  const write=(path,source)=>{mkdirSync(dirname(join(repo,path)),{recursive:true});writeFileSync(join(repo,path),source);};
+  symlinkSync(dependencyRoot,join(repo,'node_modules'),'dir');
+  write('scripts/select-tests.mjs',selector);write('scripts/test-integration.mjs',integration);
+  write('scripts/test-integration-ts.mjs',"import{writeFileSync}from'node:fs';writeFileSync(process.env.SELECTOR_ARG_LOG,JSON.stringify({args:process.argv.slice(2),workers:process.env.COC_TS_TEST_CONCURRENCY}));process.exitCode=Number(process.env.SELECTOR_EXIT??0);");
+  for(const path of smoke)write(path,'export {};');
+  write('runtime/a.mjs',"import '../kernel-ts/leaf.ts';");write('runtime/b.mjs','export {};');write('runtime/loop-helper.mjs','export {};');
+  write('kernel-ts/leaf.ts','export {};');write('kernel-ts/sourcemapped.ts','export {};');write('kernel-ts/rpc.ts',"import './leaf.ts';");
+  write('tests/extension/a.test.mjs',"import '../../runtime/a.mjs';");write('tests/extension/dynamic.test.mjs',"await import('../../runtime/b.mjs');");
+  write('tests/extension/bundle.test.mjs',"const entry='build/kernel/rpc.mjs';");write('tests/extension/data.test.mjs',"const path='content/read.json';");
+  write('tests/integration/helper.ts',"import '../../runtime/a.mjs';");write('tests/integration/alpha.test.ts',"import './helper.ts';");
+  write('tests/play/driver.ts',"import '../../runtime/b.mjs';");write('tests/integration/beta.test.ts',"import '../play/driver.ts';");
+  write('tests/integration/entry.test.ts',"const entry='kernel-ts/rpc.ts';");write('tests/integration/bundle-helper.ts',"const entry='build/kernel/rpc.mjs';");
+  write('tests/integration/bundle.test.ts',"import './bundle-helper.ts';");write('tests/integration/data.test.ts',"const path='content/read.json';");
+  write('tests/integration/corpus-helper.ts',"const directory='content/corpus/';");write('tests/integration/corpus.test.ts',"import './corpus-helper.ts';");
+  write('experiments/single-loop-routing/loop.test.mjs',"import '../../runtime/loop-helper.mjs';");
+  write('build/kernel/rpc.mjs.map',JSON.stringify({sources:['../../kernel-ts/sourcemapped.ts']}));
+  let sequence=0;
+  const run=(changed,args=['--json'],env={})=>{const list=join(repo,`changed-${sequence++}.txt`);writeFileSync(list,changed.join('\n'));return spawnSync(process.execPath,['scripts/select-tests.mjs','--changed',list,...args],{cwd:repo,encoding:'utf8',env:{...process.env,...env}});};
+  const select=changed=>{const result=run(changed);assert.equal(result.status,0,result.stderr);const selection=JSON.parse(result.stdout);for(const path of smoke)assert.ok(selection.ext.includes(path)||selection.full);assert.ok(!('py' in selection)&&!('py_files' in selection));return selection;};
+  return{repo,write,run,select};
 }
-function select(changed) {
-  const result = run(changed);
-  assert.equal(result.status, 0, result.stderr);
-  return JSON.parse(result.stdout);
-}
-const suites = ['tests/kernel', 'tests/play'];
-
-test('independent Python tests select only their files and keep both extension smoke tests', () => {
-  const paths = ['tests/kernel/test_resolve.py', 'tests/kernel/test_capsule_nine.py'];
-  const result = select(paths);
-  assert.equal(result.full, false);
-  assert.equal(result.py, true);
-  assert.deepEqual(result.py_files, [...paths].sort());
-  for (const smoke of ['tests/extension/ts-kernel-foundation.test.mjs', 'tests/extension/control-flow-inventory.test.mjs'])
-    assert.ok(result.ext.includes(smoke));
-});
-
-test('shared fixtures, helpers, deleted tests, runtime code and unknown impact keep both Python suites', () => {
-  for (const path of ['tests/kernel/conftest.py', 'tests/kernel/kernel_pool.py', 'tests/kernel/test_rules_families.py',
-    'tests/kernel/test_missing_selector_probe.py', 'kernel-ts/json.ts', 'pyproject.toml', `unplaced-${process.pid}.dat`]) {
-    assert.deepEqual(select([path]).py_files, suites, path);
-  }
-});
-
-test('documentation and an empty change do not start pytest', () => {
-  for (const changed of [[], ['docs/kernel-rpc.md']]) {
-    const result = select(changed);
-    assert.equal(result.py, false);
-    assert.deepEqual(result.py_files, []);
-  }
-});
-
-test('the local runner passes selected files, preserves exit status and skips an empty selection', () => {
-  const log = join(scratch, 'uv-args');
-  writeFileSync(join(scratch, 'uv'), '#!/bin/sh\nprintf "%s\\n" "$@" > "$SELECTOR_ARG_LOG"\nexit 7\n', { mode: 0o755 });
-  const env = { PATH: scratch + ':' + process.env.PATH, SELECTOR_ARG_LOG: log };
-  const result = run(['tests/kernel/test_resolve.py'], ['--run-py'], env);
-  assert.equal(result.status, 7, result.stderr);
-  assert.deepEqual(readFileSync(log, 'utf8').trim().split('\n'),
-    ['run', '--frozen', 'python', '-m', 'pytest', 'tests/kernel/test_resolve.py', '-n', '2', '-q', '-p', 'no:cacheprovider']);
-  rmSync(log);
-  assert.equal(run([], ['--run-py'], env).status, 0);
-  assert.throws(() => readFileSync(log), { code: 'ENOENT' });
-});
+test('empty changes retain both smokes and skip the integration lane',t=>{const r=fixture(t).select([]);assert.equal(r.full,false);assert.equal(r.integration,false);assert.deepEqual(r.integration_files,[]);assert.deepEqual(r.ext,smoke.sort());});
+test('documentation changes remain inert',t=>{const r=fixture(t).select(['docs/kernel-rpc.md']);assert.equal(r.full,false);assert.equal(r.integration,false);});
+test('an extension test change selects that test',t=>{const r=fixture(t).select(['tests/extension/a.test.mjs']);assert.equal(r.full,false);assert.ok(r.ext.includes('tests/extension/a.test.mjs'));assert.equal(r.integration,false);});
+test('an independent native integration file selects only that file',t=>{const r=fixture(t).select(['tests/integration/alpha.test.ts']);assert.equal(r.full,false);assert.equal(r.integration,true);assert.deepEqual(r.integration_files,['tests/integration/alpha.test.ts']);});
+test('relative extension imports reach changed source modules',t=>{const r=fixture(t).select(['runtime/a.mjs']);assert.ok(r.ext.includes('tests/extension/a.test.mjs'));assert.ok(r.integration_files.includes('tests/integration/alpha.test.ts'));});
+test('dynamic imports reach changed source modules',t=>{const r=fixture(t).select(['runtime/b.mjs']);assert.ok(r.ext.includes('tests/extension/dynamic.test.mjs'));assert.deepEqual(r.integration_files,['tests/integration/beta.test.ts']);});
+test('JavaScript specifiers resolve to TypeScript source files',t=>{const f=fixture(t);f.write('tests/extension/source.test.mjs',"import '../../kernel-ts/leaf.js';");assert.ok(f.select(['kernel-ts/leaf.ts']).ext.includes('tests/extension/source.test.mjs'));});
+test('native imports follow transitive shared helpers',t=>{const r=fixture(t).select(['tests/integration/helper.ts']);assert.equal(r.full,false);assert.deepEqual(r.integration_files,['tests/integration/alpha.test.ts']);});
+test('explicit repository source entries follow their own imports',t=>{const r=fixture(t).select(['kernel-ts/leaf.ts']);assert.ok(r.integration_files.includes('tests/integration/entry.test.ts'));assert.ok(r.integration_files.includes('tests/integration/alpha.test.ts'));});
+test('exact repository data paths select both native lanes',t=>{const r=fixture(t).select(['content/read.json']);assert.equal(r.full,false);assert.ok(r.ext.includes('tests/extension/data.test.mjs'));assert.deepEqual(r.integration_files,['tests/integration/data.test.ts']);});
+test('directory readers cover data descendants through native helpers',t=>{const r=fixture(t).select(['content/corpus/page.json']);assert.equal(r.full,false);assert.deepEqual(r.integration_files,['tests/integration/corpus.test.ts']);});
+test('emitted sourcemaps preserve extension source dependencies',t=>{const r=fixture(t).select(['kernel-ts/sourcemapped.ts']);assert.equal(r.full,false);assert.ok(r.ext.includes('tests/extension/bundle.test.mjs'));});
+test('emitted sourcemaps reach native tests through bundle helpers',t=>{const r=fixture(t).select(['kernel-ts/sourcemapped.ts']);assert.deepEqual(r.integration_files,['tests/integration/bundle.test.ts']);});
+test('a changed routing-loop test selects the routing lane',t=>{const r=fixture(t).select(['experiments/single-loop-routing/loop.test.mjs']);assert.equal(r.loop_routing,true);assert.equal(r.integration,false);});
+test('routing-loop imports select the routing lane',t=>{const r=fixture(t).select(['runtime/loop-helper.mjs']);assert.equal(r.full,false);assert.equal(r.loop_routing,true);});
+test('dependency manifest changes retain the full conservative fallback',t=>{const r=fixture(t).select(['package-lock.json']);assert.equal(r.full,true);assert.equal(r.integration,true);assert.deepEqual(r.integration_files,['tests/integration/*.test.ts']);assert.equal(r.loop_routing,true);});
+test('unknown impact retains the full conservative fallback',t=>{const r=fixture(t).select(['unplaced.dat']);assert.equal(r.full,true);assert.deepEqual(r.integration_files,['tests/integration/*.test.ts']);});
+test('missing sourcemaps preserve the runtime-build fallback',t=>{const f=fixture(t);rmSync(join(f.repo,'build'),{recursive:true});const r=f.select(['runtime/a.mjs']);assert.equal(r.full,true);assert.ok(r.unplaced.some(path=>path.includes('no build/ sourcemaps')));});
+test('deleted native tests and helpers cannot silently narrow coverage',t=>{const f=fixture(t);for(const path of ['tests/integration/deleted.test.ts','tests/integration/missing-helper.ts','tests/play/missing-driver.ts']){const r=f.select([path]);assert.equal(r.full,true);assert.deepEqual(r.integration_files,['tests/integration/*.test.ts']);}});
+test('the local native runner forwards files and workers, preserves failure and skips empty selections',t=>{const f=fixture(t),log=join(f.repo,'arguments.json'),env={SELECTOR_ARG_LOG:log,SELECTOR_EXIT:'7'};const result=f.run(['tests/integration/alpha.test.ts'],['--run-integration','--integration-workers','3'],env);assert.equal(result.status,7,result.stderr);assert.deepEqual(JSON.parse(readFileSync(log,'utf8')),{args:['tests/integration/alpha.test.ts'],workers:'3'});rmSync(log);assert.equal(f.run([],['--run-integration'],env).status,0);assert.throws(()=>readFileSync(log),{code:'ENOENT'});});
+test('play helpers use the same import rules and explain output names the actual dependency',t=>{const f=fixture(t),r=f.select(['tests/play/driver.ts']);assert.equal(r.full,false);assert.deepEqual(r.integration_files,['tests/integration/beta.test.ts']);const explanation=f.run(['tests/play/driver.ts'],['--explain','tests/integration/beta.test.ts']);assert.equal(explanation.status,0);assert.equal(explanation.stdout.trim(),'reaches tests/play/driver.ts');});

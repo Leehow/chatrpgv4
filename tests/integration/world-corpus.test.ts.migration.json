@@ -1,0 +1,12 @@
+{
+  "source": "tests/kernel/test_corpus.py",
+  "tests": [
+    {
+      "name": "test_recorded_payload_replays_as_a_resolve",
+      "parameters": [
+        "@pytest.mark.parametrize(\"path\", CASES, ids=[p.stem for p in CASES])\n"
+      ]
+    }
+  ],
+  "unsupported": []
+}

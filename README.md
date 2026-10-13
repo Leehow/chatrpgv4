@@ -61,17 +61,32 @@ bin/pi-coc --campaign <id>            # 开桌
 ## 测试
 
 ```bash
-uv run --frozen python -m pytest tests/kernel tests/play -q
-npm run test:ext
+npm test                             # default: direct TS business tests + required smoke guards
+npm run test:integration              # all migrated native RPC, disk, and driver assertions
+npm run test:all                      # build + all extension/loop tests + integration
+npm run test:ext                      # complete extension suite
 npm run check:kernel                  # TS 内核严格类型检查
 npm run test:electron        # 复制进来的 PipiUI 套件，比对已记录的失败基线
-node scripts/select-tests.mjs --run-py  # selected pytest files, two local workers; shared changes fall back to both suites
+node scripts/select-tests.mjs --run-integration  # affected native integration files; unknown scope selects all
 ```
+
+The fast tier covers resource settlement, SAN day boundaries, character-creation
+arithmetic, mechanics identity and rule bands. It calls production TS directly
+and is the everyday feedback loop for these areas. It is not a substitute for
+integration checks after changes to RPC, transactions, persistence or wiring.
+Run `test:all` before integration. All 1,792 original test functions and their
+8,383 assertion statements have native TS counterparts recorded in
+`tests/ts-migration-manifest.json`; the original source files remain immutable
+audit material. They are no longer executed with pytest. The native integration
+runner retains JUnit results, actual exit status, storage provenance and failed
+workspaces under `.coc/test-runs/`. See
+[the complete migration contract](docs/specs/full-ts-test-migration.md).
+Frozen Python-oracle comparisons are separate historical compatibility checks.
 
 Contract-test scratch uses a fresh owned run under `.tmp/test-scratch/`, apart from real `.coc/playtests` evidence.
 Passing Node test processes remove only their allocations; failures, SIGINT/SIGTERM and explicit `KEEP_*_EVIDENCE`
 retain an owner record and reason. SIGKILL cannot run cleanup; the guard reports the unfinished allocation and preserves it.
-`npm run test:ext` scopes the existing Node runner; it also works without Node 24's global-setup flag. Python contract fixtures default to pytest's `tmp_path`;
+`npm run test:ext` scopes the existing Node runner; it also works without Node 24's global-setup flag. Native integration fixtures use owned storage allocations;
 `COC_RPC_EVIDENCE_DIR` deliberately retains their output. Earlier evidence is never deleted by these test helpers.
 
 `Electron/` 是整包复制进来的（§23），它自带的上游套件在本检出里本来就是红的：packs、workflow
@@ -85,7 +100,7 @@ retain an owner record and reason. SIGKILL cannot run cleanup; the guard reports
 真坏的用例在没人跟它抢资源的时候照样坏，所以这两道都藏不住确定性的失败。仍然翻来翻去的，按名字
 写进同一文件的 `flaky`，两个方向都不查——每条都要写明为什么钉不住（目前是空的）。
 
-真桌验收走 `tests/play/driver.py`，默认 `grok-build/grok-4.7-build-fast`、`low` 当守秘人，本主会话当唯一玩家，一回合一回；历史基线对照可显式指定其他模型，方法见 `docs/acceptance.md`。
+真桌验收走 `node tests/play/driver.ts`，默认 `codex-relay/gpt-6-luna` / high；Relay 报并发满时，本次测试的守秘人、最终作者和辅助车道一起回退 Grok 4.5 / low，保留实际模型与失败证据。本主会话当唯一玩家，一回合一回，方法见 `docs/acceptance.md`。
 
 ## PipiCOC 界面
 

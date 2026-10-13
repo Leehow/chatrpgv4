@@ -67,7 +67,7 @@ export function createModRuntime(context: KernelContext, sources: ModSources = {
       return {...await runtime.view(config), campaign: campaign.id, play_language: await playLanguageOf(context, meta)};
     }
     return Object.freeze({
-      ...createDocumentHandlers(writer, runtime),
+      ...createDocumentHandlers(writer, runtime, jobs),
       'mods.equipment.prepare': params => equipment.prepare(params),
       'mods.equipment.publish': params => equipment.publish(params),
       'mods.equipment.fail': params => equipment.fail(params),

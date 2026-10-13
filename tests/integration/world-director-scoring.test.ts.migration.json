@@ -1,0 +1,106 @@
+{
+  "source": "tests/kernel/test_director_scoring.py",
+  "tests": [
+    {
+      "name": "test_first_turn_character_scores_the_graph_value_times_the_structure_weight",
+      "parameters": null
+    },
+    {
+      "name": "test_reveal_on_investigate_intent_with_gates_and_registry_grounding",
+      "parameters": null
+    },
+    {
+      "name": "test_reveal_on_social_intent_scores_lower_than_investigate",
+      "parameters": null
+    },
+    {
+      "name": "test_choice_on_idle_intent_with_two_undiscovered_clues",
+      "parameters": null
+    },
+    {
+      "name": "test_cut_on_explicit_move_intent",
+      "parameters": null
+    },
+    {
+      "name": "test_cut_on_a_met_exit_condition_beats_character",
+      "parameters": null
+    },
+    {
+      "name": "test_cut_on_main_line_complete_from_a_reachable_conclusion",
+      "parameters": null
+    },
+    {
+      "name": "test_montage_intent_scores_but_loses_to_an_agenda_npc",
+      "parameters": null
+    },
+    {
+      "name": "test_pressure_on_a_stalled_turn_ties_with_cut_and_the_tiebreak_order_decides",
+      "parameters": null
+    },
+    {
+      "name": "test_recover_yielded_scene_and_stalled_transition_after_two_stalled_turns",
+      "parameters": null
+    },
+    {
+      "name": "test_payoff_rises_with_structured_memory_overlap",
+      "parameters": null
+    },
+    {
+      "name": "test_subsystem_scores_from_combat_intent_after_the_fight_ended",
+      "parameters": null
+    },
+    {
+      "name": "test_advance_is_the_default_and_grounds_nothing",
+      "parameters": null
+    },
+    {
+      "name": "test_pending_choice_overrides_to_choice",
+      "parameters": null
+    },
+    {
+      "name": "test_fumble_overrides_to_pressure",
+      "parameters": null
+    },
+    {
+      "name": "test_dying_overrides_to_subsystem_with_pressure_and_the_registered_grounding",
+      "parameters": null
+    },
+    {
+      "name": "test_live_session_overrides_to_subsystem_grounded_by_the_session_rule",
+      "parameters": null
+    },
+    {
+      "name": "test_hp_state_reads_the_rulebook_thresholds",
+      "parameters": null
+    },
+    {
+      "name": "test_character_adoption_needs_someone_present_and_no_move",
+      "parameters": null
+    },
+    {
+      "name": "test_cut_adoption_is_a_move_receipt",
+      "parameters": null
+    },
+    {
+      "name": "test_choice_adoption_is_a_turn_closed_by_ask",
+      "parameters": null
+    },
+    {
+      "name": "test_pressure_adoption_is_time_damage_or_a_negative_delta",
+      "parameters": null
+    },
+    {
+      "name": "test_reveal_adoption_only_counts_a_listed_clue",
+      "parameters": null
+    },
+    {
+      "name": "test_a_pushed_failure_does_not_create_director_consequence_debt",
+      "parameters": null
+    },
+    {
+      "name": "test_a_live_session_still_scores_the_other_beats_so_a_stalled_fight_shows",
+      "parameters": null
+    }
+  ],
+  "unsupported": []
+}

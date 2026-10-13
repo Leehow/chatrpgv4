@@ -1,7 +1,7 @@
 /**
- * Focused test selection: the extension tests and pytest scope a change can affect.
+ * Focused native test selection: extension, integration and routing scopes a change can affect.
  *
- * Usage: node scripts/select-tests.mjs [--base <rev>] [--changed <file>] [--json] [--explain <test file>] [--run-py]
+ * Usage: node scripts/select-tests.mjs [--base <rev>] [--changed <file>] [--json] [--explain <test file>] [--run-integration]
  *
  * The change is `git diff <base>...HEAD` plus the working tree's modified and untracked files (base defaults to the
  * merge base with 0.9.7a). `--changed <file>` reads that list instead, one path per line: the box gets the list from the
@@ -15,8 +15,9 @@
  * The smoke set always runs. A changed file this cannot place (a dependency manifest, a build script, a data file no
  * test names and that the product reads at runtime) selects everything: `full: true`.
  * The routing loop test (experiments/single-loop-routing/loop.test.mjs) is placed by the same rules.
- * `py_files` narrows independent pytest-file changes; shared helpers, deleted tests and emitted bundles keep both
- * suite directories. `py` remains a boolean for older runners. --run-py executes the selection locally (-n 2).
+ * Native integration tests use these same rules, including imports through tests/play helpers.
+ * `integration_files` contains selected native files; `integration` records whether the lane is needed.
+ * --run-integration invokes the native evidence runner with the selected files and preserves its exit status.
  */
 import { execFileSync, spawnSync } from 'node:child_process';
 import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs';
@@ -41,7 +42,7 @@ const changed = new Set((listed ? readFileSync(listed, 'utf8').split('\n') : [
 /** Always run: the kernel boots, the static run-driving inventory, the host composes. */
 const SMOKE = ['tests/extension/ts-kernel-foundation.test.mjs', 'tests/extension/control-flow-inventory.test.mjs'];
 /** Code roots whose modules the import graph covers. */
-const CODE_ROOTS = ['extensions', 'runtime', 'kernel-ts', 'pipicoc', 'tests/extension', 'scripts', 'experiments', 'Electron/resources/runtime'];
+const CODE_ROOTS = ['extensions', 'runtime', 'kernel-ts', 'pipicoc', 'tests/extension', 'tests/integration', 'tests/play', 'scripts', 'experiments', 'Electron/resources/runtime'];
 const CODE_EXT = new Set(['.ts', '.mts', '.mjs', '.js', '.cjs']);
 /** Changes that never reach a test run. */
 const INERT = [/^docs\//, /^\.claude\//, /^\.github\//, /\.md$/i];
@@ -65,7 +66,8 @@ function walk(dir, out = []) {
 const modules = CODE_ROOTS.flatMap(dir => walk(dir));
 const moduleSet = new Set(modules);
 const LOOP = 'experiments/single-loop-routing/loop.test.mjs';
-const tests = modules.filter(path => (path.startsWith('tests/extension/') && path.endsWith('.test.mjs')) || path === LOOP);
+const isIntegrationTest = path => path.startsWith('tests/integration/') && path.endsWith('.test.ts');
+const tests = modules.filter(path => (path.startsWith('tests/extension/') && path.endsWith('.test.mjs')) || isIntegrationTest(path) || path === LOOP);
 
 /** A relative specifier to a repository module, the way Node and the TS-ESM sources write them. */
 function resolveSpecifier(from, specifier) {
@@ -82,7 +84,12 @@ for (const path of modules) {
   const source = readFileSync(join(root, path), 'utf8');
   text.set(path, source);
   const info = ts.preProcessFile(source, true, true);
-  imports.set(path, info.importedFiles.map(file => resolveSpecifier(path, file.fileName)).filter(Boolean));
+  // A complete repository module path is an explicit dependency too: native fixtures hand
+  // kernel-ts/rpc.ts to esbuild, and that entry's own imports must remain in the closure.
+  const named = [...source.matchAll(/["'`]([A-Za-z0-9_./-]+\.(?:ts|mts|mjs|js|cjs))["'`]/g)]
+    .map(match => moduleSet.has(match[1]) ? match[1] : resolveSpecifier(path, match[1]))
+    .filter(candidate => candidate && candidate !== path);
+  imports.set(path, [...new Set([...info.importedFiles.map(file => resolveSpecifier(path, file.fileName)).filter(Boolean), ...named])]);
 }
 
 /** Emitted bundle → the sources its sourcemap lists. */
@@ -125,7 +132,6 @@ function closure(test) {
 
 let full = false;
 const unplaced = [];
-const isPytestFile = path => /^tests\/(kernel|play)\/(?:[^/]+\/)*test_[A-Za-z0-9_]+\.py$/.test(path);
 const isData = path => !moduleSet.has(path) && !INERT.some(rule => rule.test(path)) && !GLOBAL.some(rule => rule.test(path));
 /** The modules that name a data path, or the nearest of its directories that some module names. */
 function readersOf(path) {
@@ -140,10 +146,9 @@ function readersOf(path) {
 const affected = new Set([...changed].filter(path => moduleSet.has(path)));
 for (const path of changed) {
   if (GLOBAL.some(rule => rule.test(path))) { full = true; unplaced.push(path); continue; }
-  // A Python test is executable test code, not an unknown product data file.
-  if (isPytestFile(path)) {
-    for (const reader of readersOf(path)) affected.add(reader);
-    continue;
+  // A deleted code dependency no longer has an import graph to prove a narrow scope.
+  if (!moduleSet.has(path) && CODE_EXT.has(extname(path)) && CODE_ROOTS.some(dir => path.startsWith(dir + '/'))) {
+    full = true; unplaced.push(path); continue;
   }
   if (!isData(path)) continue;
   const readers = readersOf(path);
@@ -169,49 +174,29 @@ for (const test of tests) {
 }
 for (const test of SMOKE) if (existsSync(join(root, test))) select(test, 'smoke');
 
-/** Python tests build paths from parts (`ROOT / "build" / "kernel" / "rpc.mjs"`), so a file counts as named by its basename. */
-function pythonUnder(dir, out = []) {
-  for (const entry of readdirSync(join(root, dir), { withFileTypes: true })) {
-    if (entry.name.startsWith('.') || entry.name === 'node_modules' || entry.name === '__pycache__') continue;
-    const path = join(dir, entry.name);
-    if (entry.isDirectory()) pythonUnder(path, out); else if (entry.name.endsWith('.py')) out.push(path);
-  }
-  return out;
-}
-const pySources = new Map(pythonUnder('tests').map(path => [path, readFileSync(join(root, path), 'utf8')]));
-const pyText = [...pySources.values()].join('\n');
-const pyTriggers = [...changed].filter(path => path.endsWith('.py') || path.startsWith('tests/kernel/')
-  || path.startsWith('tests/play/') || (!INERT.some(rule => rule.test(path)) && pyText.includes(path.split('/').pop())));
-const py = full || changedBundles.size > 0 || pyTriggers.length > 0;
-// Naming a changed test module anywhere else is conservatively treated as shared usage,
-// including multiline imports and importlib calls. Helpers and implicit fixtures always run whole.
-const independent = path => isPytestFile(path) && existsSync(join(root, path)) && ![...pySources].some(([other, source]) =>
-  other !== path && new RegExp(`\\b${path.split('/').pop().slice(0, -3)}\\b`).test(source));
-const pyFiles = !py ? [] : !full && !changedBundles.size && pyTriggers.length && pyTriggers.every(independent)
-  ? [...new Set(pyTriggers)].sort() : ['tests/kernel', 'tests/play'];
-for (const path of pyFiles) reasons.set(path, isPytestFile(path) ? 'independent changed pytest file' : 'full pytest fallback');
-const ext = [...reasons.keys()].filter(test => test !== LOOP && !pyFiles.includes(test)).sort();
+const integrationFiles = [...reasons.keys()].filter(isIntegrationTest).sort();
+const ext = [...reasons.keys()].filter(test => test.startsWith('tests/extension/')).sort();
 const result = {
   base, changed: changed.size, full, unplaced,
   ext: full ? ['tests/extension/**/*.test.mjs'] : ext,
-  py,
-  py_files: pyFiles,
+  integration: full || integrationFiles.length > 0,
+  integration_files: full ? ['tests/integration/*.test.ts'] : integrationFiles,
   loop_routing: full || reasons.has(LOOP),
 };
 const explain = flag('--explain');
 if (explain) { console.log(reasons.get(explain) ?? 'not selected'); process.exit(0); }
-if (args.includes('--run-py')) {
-  console.log(`pytest selection: ${pyFiles.join(' ') || '(none)'}`);
-  if (pyFiles.length) {
-    const run = spawnSync('uv', ['run', '--frozen', 'python', '-m', 'pytest', ...pyFiles, '-n', flag('--py-workers') ?? '2', '-q', '-p', 'no:cacheprovider'],
-      { cwd: root, stdio: 'inherit', env: { ...process.env, COC_TEST_NODE: process.env.COC_TEST_NODE ?? process.execPath } });
+if (args.includes('--run-integration')) {
+  console.log(`Native integration selection: ${result.integration_files.join(' ') || '(none)'}`);
+  if (result.integration_files.length) {
+    const run = spawnSync(process.execPath, ['scripts/test-integration.mjs', ...result.integration_files],
+      { cwd: root, stdio: 'inherit', env: { ...process.env, COC_TS_TEST_CONCURRENCY: flag('--integration-workers') ?? process.env.COC_TS_TEST_CONCURRENCY ?? '2' } });
     if (run.error) throw run.error;
     process.exitCode = run.status ?? (run.signal === 'SIGINT' ? 130 : 1);
   }
 }
 else if (args.includes('--json')) console.log(JSON.stringify({ ...result, reasons: Object.fromEntries(reasons) }, null, 1));
 else {
-  console.log(`base ${base.slice(0, 9)}  changed ${changed.size}  full ${full}  ext ${full ? 'all' : result.ext.length + '/' + (tests.length - 1)}  py ${result.py}  loop ${result.loop_routing}`);
+  console.log(`base ${base.slice(0, 9)}  changed ${changed.size}  full ${full}  ext ${full ? 'all' : result.ext.length}  integration ${result.integration}  loop ${result.loop_routing}`);
   if (unplaced.length) console.log('unplaced: ' + unplaced.join(', '));
   if (!full) console.log(result.ext.join('\n'));
 }

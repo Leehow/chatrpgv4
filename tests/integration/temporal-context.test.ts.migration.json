@@ -1,0 +1,66 @@
+{
+  "source": "tests/kernel/test_temporal_context.py",
+  "tests": [
+    {
+      "name": "test_old_save_projects_need_without_inventing_records",
+      "parameters": null
+    },
+    {
+      "name": "test_precise_review_boundary_inside_same_day_part_does_not_auto_close",
+      "parameters": null
+    },
+    {
+      "name": "test_night_changes_applicability_not_the_recorded_world",
+      "parameters": null
+    },
+    {
+      "name": "test_awakened_person_survives_routine_guess_and_five_minutes",
+      "parameters": null
+    },
+    {
+      "name": "test_inferred_account_lands_once_the_observed_record_no_longer_applies",
+      "parameters": null
+    },
+    {
+      "name": "test_time_earlier_in_the_batch_decides_whether_the_record_still_applies",
+      "parameters": null
+    },
+    {
+      "name": "test_invalid_activity_rolls_back_time_and_scene_atomically",
+      "parameters": null
+    },
+    {
+      "name": "test_context_effects_replay_without_moving_or_transferring_objects",
+      "parameters": null
+    },
+    {
+      "name": "test_effect_order_binds_resulting_clock",
+      "parameters": null
+    },
+    {
+      "name": "test_leaving_person_marks_record_for_review_without_erasing_observation",
+      "parameters": null
+    },
+    {
+      "name": "test_opening_context_initializes_only_active_scene",
+      "parameters": null
+    },
+    {
+      "name": "test_daily_life_table_is_mod_owned_and_disabled_strategy_keeps_world_facts",
+      "parameters": null
+    },
+    {
+      "name": "test_daily_life_guidance_does_not_displace_existing_package_instructions",
+      "parameters": null
+    },
+    {
+      "name": "test_temporal_threshold_uses_the_configured_numeric_setting",
+      "parameters": null
+    },
+    {
+      "name": "test_temporal_table_validation_rejects_duplicate_items_before_install",
+      "parameters": null
+    }
+  ],
+  "unsupported": []
+}

@@ -1,0 +1,74 @@
+{
+  "source": "tests/kernel/test_turn_floor.py",
+  "tests": [
+    {
+      "name": "test_style_carries_the_providers_floor_lines_on_every_turn",
+      "parameters": null
+    },
+    {
+      "name": "test_without_a_style_provider_there_is_no_floor",
+      "parameters": null
+    },
+    {
+      "name": "test_first_player_turn_has_no_previous_turn_to_read",
+      "parameters": null
+    },
+    {
+      "name": "test_an_empty_turn_and_a_repeated_input_score_recover_from_the_graph",
+      "parameters": null
+    },
+    {
+      "name": "test_a_different_line_after_an_empty_turn_is_not_a_repeat",
+      "parameters": null
+    },
+    {
+      "name": "test_a_turn_that_landed_a_receipt_is_not_empty",
+      "parameters": null
+    },
+    {
+      "name": "test_recover_offer_leads_with_the_present_person_when_nothing_is_owed",
+      "parameters": null
+    },
+    {
+      "name": "test_a_failed_check_last_turn_is_the_consequence_still_owed",
+      "parameters": null
+    },
+    {
+      "name": "test_an_open_exit_someone_present_knows_becomes_a_route_row",
+      "parameters": null
+    },
+    {
+      "name": "test_walking_the_offered_route_is_recorded_as_offer_taken",
+      "parameters": null
+    },
+    {
+      "name": "test_offer_stays_inside_the_director_budget",
+      "parameters": null
+    },
+    {
+      "name": "test_an_implicit_close_is_recorded_and_surfaces_in_recent_and_the_signals",
+      "parameters": null
+    },
+    {
+      "name": "test_an_explicit_close_is_the_default",
+      "parameters": null
+    },
+    {
+      "name": "test_the_director_graph_declares_the_two_recover_rules_and_their_threshold",
+      "parameters": null
+    },
+    {
+      "name": "test_attacking_a_person_with_no_stat_block_is_refused_toward_a_receipt_not_toward_prose",
+      "parameters": null
+    },
+    {
+      "name": "test_failed_checks_keep_obstacle_signals_without_recovery_debt",
+      "parameters": null
+    },
+    {
+      "name": "test_passing_the_obstacle_clears_its_advisory_count",
+      "parameters": null
+    }
+  ],
+  "unsupported": []
+}

@@ -1,6 +1,10 @@
 /** Tool-enabled host job packets and acceptance; this module never invokes a model. */
 import { mkdir, lstat, writeFile } from 'node:fs/promises';
-import { join } from 'node:path';
+import { join, isAbsolute } from 'node:path';
+import {handoutImageSource} from '../read/handout-image-source.js';
+import {handoutImageFile} from '../../shared/handout-images.js';
+import {prepareMapRender,readMapRenderCache} from '../../shared/map-render-cache.js';
+import {knownMapViews} from '../read/maps.js';
 import type { KernelContext } from '../context.js';
 import { RpcError } from '../errors.js';
 import { writeJsonAtomic } from '../fileio.js';
@@ -98,16 +102,46 @@ export class ModJobs {
             if (!this.sources.asset) throw new RpcError('not_implemented', 'The module asset contribution is not implemented');
             const record = recordOf(node), registered = (graph.assetOverride ? await graph.assetOverride(node.node_id) : await this.sources.asset(graph.moduleId, node.node_id)) || {};
             const value = typeof record.authored_text === 'string' ? record.authored_text : registered.authored_text;
-            if (typeof value === 'string') result.push({name: graph.displayName(node), text: value});
+            const resolved=await handoutImageSource(graph,node,this.sources.asset);
+            const ref=resolved?.ref,media=resolved?.media_type;
+            const image = ['player-safe','revealable'].includes(node.visibility) && typeof ref === 'string'
+                && typeof media === 'string' && ['image/png','image/jpeg','image/webp','image/gif'].includes(media)
+                ? {path:isAbsolute(ref)?ref:join(this.context.stateRoot,'modules',graph.moduleId,ref),media_type:media,visibility:node.visibility} : null;
+            if (typeof value === 'string' || image) result.push({name:graph.displayName(node),source_node:resolved?.source_node??node.node_id,...(typeof value === 'string'?{text:value}:{}),...(image?{image}: {})});
+        }
+        if(this.sources.asset)for(const view of await knownMapViews(graph,world,this.sources.asset)){
+            const source=graph.find(view.map);
+            const existing=result.find(item=>normalize(item.name)===normalize(view.name)||source&&item.source_node===source.node_id);
+            if(existing){existing.map_view=view;existing.image=true;}
+            else result.push({name:view.name,image:true,map_view:view});
         }
         return result;
     }
-    async documentSeed(graph: ModuleGraph, world: Row, value: any): Promise<Row> {
+    async documentSeed(graph: ModuleGraph, world: Row, value: any, campaign: {id:string;directory:string}): Promise<Row> {
         let seed = validateDocumentSeed(value);
+        if (Object.hasOwn(seed, 'image')) throw new RpcError('invalid_params','Image paths and bytes are host-owned; name a revealed handout');
         if (Object.hasOwn(seed, 'handout')) {
             const matches = (await this.knownHandouts(graph, world)).filter(item => normalize(item.name) === normalize(seed.handout));
-            if (matches.length !== 1) throw new RpcError('invalid_params', 'Document source must name one already revealed textual handout');
-            seed = validateDocumentSeed({text: matches[0].text, presentation: seed.presentation});
+            if (matches.length !== 1) throw new RpcError('invalid_params', 'Document source must name one already revealed handout');
+            const source=matches[0];
+            if (['map','image'].includes(seed.presentation)) {
+                const cached=source.map_view?await readMapRenderCache(await prepareMapRender(source.map_view,{
+                    modulesRoot:join(this.context.stateRoot,'modules'),sourceRoots:[join(this.context.stateRoot,'module-campaigns',campaign.id,'modules')],campaignDir:campaign.directory
+                })):null;
+                const file=handoutImageFile({...source.map_view?cached:source.image,document:'ready'},{home:this.context.workspace,campaign:campaign.id});
+                if(source.map_view&&(!cached||file?.sha256!==cached.sha256))throw new RpcError('needs','The current authorized map view must be rendered before image acquisition');
+                if (!file) throw new RpcError('needs','The revealed handout has no available player-safe raster image');
+                const folder=join(campaign.directory,'document-assets');
+                await mkdir(folder,{recursive:true});
+                const path=join(folder,file.sha256);
+                await writeFile(path,file.bytes,{flag:'wx'}).catch(error=>{if(error.code!=='EEXIST')throw error;});
+                const retained=handoutImageFile({path,media_type:file.media_type,document:'ready'},{home:this.context.workspace,campaign:campaign.id});
+                if(retained?.sha256!==file.sha256)throw new RpcError('needs','The acquired image snapshot could not be verified');
+                seed=validateDocumentSeed({presentation:seed.presentation,image:{path,media_type:file.media_type,sha256:file.sha256,source:source.name}});
+            } else {
+                if (typeof source.text !== 'string') throw new RpcError('invalid_params','This handout is an image; use presentation map or image');
+                seed = validateDocumentSeed({text:source.text,presentation:seed.presentation});
+            }
         }
         return seed;
     }
@@ -269,10 +303,11 @@ export class ModJobs {
         const wait = row(row(params.input).preparation_wait), refused = row(row(params.input).rebinding_refused);
         const evidence = sourceAudit || continuity ? await auditSourceEvidence(this.context, campaign, module, world, turn, party, continuity, wait, refused,row(row(params.input).source_consultations),
             continuityOwed ? await this.owedReview(campaign.id, graph, world, party) : null) : null;
+        const knownHandouts=await this.knownHandouts(graph,world);
         const request: Row = {role, input: params.input ?? null, capabilities: sorted(MOD_CAPABILITIES), play_language: await playLanguageOf(this.context, meta),
             mod_settings: Object.fromEntries(candidates.map(mod => [mod.id, (world as Row).mods.active[mod.id].settings])),
             scene: whereSection(graph, world, graph.scene(world.active_scene as string)), party, objects: objectContext(world), receipts: prefetch ? [] : field(turn, 'receipts', []),
-            known_handouts: (await this.knownHandouts(graph, world)).map(item => ({name: item.name, preview: chars(item.text, 240)})),
+            known_handouts: knownHandouts.map(item => ({name:item.name,preview:chars(string(item.text),240),...(item.image?{image:true}:{})})),
             unregistered_equipment: unregisteredEquipment(party, claimedEquipment(world))};
         if (role === 'create' && params._equipment) request.equipment = clone(params._equipment);
         if (role === 'audit') {
@@ -335,6 +370,7 @@ export class ModJobs {
         }
         const taken = presetOf(request);
         return {enabled: true, job: key, cwd: root, system_prompt: join(root, 'prompt.md'), mod: packageRow.id, digest: packageRow.digest,
+            ...(role==='create'?{document_sources:knownHandouts.filter(item=>item.map_view).map(item=>({name:item.name,map:item.map_view.map}))}:{}),
             ...(request.equipment ? {equipment:true} : {}),
             accepted: await this.context.snapshots.pathExists(join(root, 'accepted.json')), role, ...(sourceAudit ? {source_review: true} : {}),
             ...(taken ? {preset: {weapon: taken.id, confidence: clone(taken.confidence ?? null)}} : {}),
@@ -529,7 +565,7 @@ export class ModJobs {
         } else if (request.role === 'create' && request.equipment && raw === null) {
             result = {skipped:true,provenance:{mod:identity.mod,digest:identity.digest,job:key}};
         } else if (request.role === 'create') {
-            if (isJsonObject(raw) && Object.hasOwn(raw, 'document')) raw.document = await this.documentSeed(graph, world, raw.document);
+            if (isJsonObject(raw) && Object.hasOwn(raw, 'document')) raw.document = await this.documentSeed(graph, world, raw.document, campaign);
             const {value, deviations} = await gatePreset(raw, preset, draft => validateDefinition(draft, {name: request.input.name ?? null, category: request.input.category ?? null}));
             if (value.category === 'weapon' && array(active.get(identity.mod)!.requires).includes('weapons.profile.v2') && !Object.hasOwn(value.parameters, 'adds_damage_bonus'))
                 throw new RpcError('invalid_params', 'Weapon profile v2 must explicitly declare adds_damage_bonus from its preset rule');

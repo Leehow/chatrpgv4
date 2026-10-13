@@ -1,0 +1,10 @@
+{
+  "source": "tests/kernel/test_director_adoption.py",
+  "tests": [
+    {
+      "name": "test_subsystem_adoption_counts_rolls_made_inside_the_session",
+      "parameters": null
+    }
+  ],
+  "unsupported": []
+}

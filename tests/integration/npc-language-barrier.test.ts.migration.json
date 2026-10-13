@@ -1,0 +1,14 @@
+{
+  "source": "tests/kernel/test_language_barrier.py",
+  "tests": [
+    {
+      "name": "test_unknown_language_policy_reaches_every_turn_and_ordinary_audit",
+      "parameters": null
+    },
+    {
+      "name": "test_established_language_reaches_keeper_and_auditor_without_rewriting_source",
+      "parameters": null
+    }
+  ],
+  "unsupported": []
+}

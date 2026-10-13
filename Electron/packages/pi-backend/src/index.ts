@@ -6,7 +6,7 @@ import { readCocBinding, cocBindingOfRow, readColdSheet, callColdKernel, mechani
   laneLabelsLoaded, reloadLaneLabels, deliveryWords, handoutTitles, CocCardLedger, type CocCardPatch,
   cocContentRoot, cocForgetUiWords, cocPlayLanguage, cocUiWords, cocUiWordsLoaded, SHEET_LANES, type SheetLane, type CocBinding,
   type CocHistoryWords, type CocUiWords } from "./coc-view.js";
-import {withHandoutImages} from './coc-handout-images.js';
+import {withHandoutImages,withDocumentImage} from './coc-handout-images.js';
 import {withMapImages} from './coc-map-images.js';
 import {handoutReadingAnswer} from './coc-handout-reading.js';
 import { ChildProcessWithoutNullStreams, execFile, spawn } from "node:child_process";
@@ -3921,6 +3921,7 @@ export class PiHostBackend implements HostBackend {
     const started = Date.now();
     const history = await readHistory(session.path, 0, Number.MAX_SAFE_INTEGER, this.vaultDir, sessionId);
     this.startCocDetailsRecovery(sessionId, session.path, history);
+    this.startCocReferenceRecovery(sessionId, session.path);
     this.reconcileOrphanedNow(sessionId);
     const agents = [...this.agents.values()]
       .filter(agent => agent.sessionId === sessionId)
@@ -3944,6 +3945,86 @@ export class PiHostBackend implements HostBackend {
 
   private readonly cocDetailsRecoveries = new Map<string, Promise<void>>();
   private readonly cocDocumentSubmissions = new Map<string, Promise<unknown>>();
+  private readonly cocReferenceWorkers = new Map<string, Promise<void>>();
+  private readonly cocReferenceScans = new Map<string, Promise<void>>();
+  /** Reference collection is a session-owned UI write, never a player prompt or fictional apply. */
+  private async cocReferenceAccess(sessionId: string, write = true): Promise<{selected: SessionMeta; binding: CocBinding; repo: string}> {
+    if (!sessionId || !this.managedNodeModulesRoot) throw this.cocRefusal('campaign_unbound','Select the image game session');
+    await this.sidebarPrefsLoaded;
+    const selected = await this.locate(sessionId), binding = await readCocBinding(selected.path);
+    if (!binding) throw this.cocRefusal('campaign_unbound','Select the image campaign');
+    if(write){
+      if(this.sidebarArchivedCache.has(sessionId))throw this.cocRefusal('capability_denied','This session is archived');
+      if (this.closed || !(await this.leaseFor(selected).query()).writable) throw this.cocRefusal('capability_denied','This session is read-only');
+    }
+    return {selected,binding,repo:resolve(this.managedNodeModulesRoot,'..')};
+  }
+  private cocReferenceChanged(sessionId: string, campaign: string, reference?: any): void {
+    this.cocSheetReads.delete(sessionId);
+    for (const type of ['sheet_changed','mods-changed']) emitFrame(this.listeners,{protocolVersion:PIPI_HOST_PROTOCOL_VERSION,
+      channel:'ext.coc-keeper',event:{type,payload:{sessionId,campaign,...(reference?{reference}: {})}}});
+  }
+  private async finishCocReference(sessionId: string, binding: CocBinding, referenceId: string, map?: string): Promise<any> {
+    const access=await this.cocReferenceAccess(sessionId);
+    if(access.binding.home!==binding.home||access.binding.campaign!==binding.campaign)
+      throw this.cocRefusal('campaign_unbound','The selected reference campaign changed');
+    if(map){
+      // Reuse the existing no-prompt recovery transport: the pack owns authorized canvas rendering.
+      const live=await this.ensure(sessionId,undefined,true);
+      if(this.closed||this.live.get(sessionId)!==live||!this.liveProcessUsable(live)||!this.extensions.isMounted(sessionId,'coc-keeper'))
+        throw this.cocRefusal('runtime_unavailable','The image reference rendering transport is unavailable');
+      await this.cocReferenceAccess(sessionId);
+      const answer=await this.enqueueExtInvoke(sessionId,'coc-keeper','mods.document.reference_finish',{reference_id:referenceId});
+      if(!answer.ok)throw this.cocRefusal(answer.error?.code??'kernel_error',answer.error?.message??'Image reference preparation failed');
+      return answer.data;
+    }
+    return callColdKernel(access.repo,binding.home,'mods.document.reference_finish',
+      {campaign:binding.campaign,reference_id:referenceId},this.env,this.cocRuntime);
+  }
+  private startCocReferenceWorker(sessionId: string, binding: CocBinding, reference: any, map?: string): void {
+    if (this.closed || this.sidebarArchivedCache.has(sessionId) || reference?.status !== 'queued' || typeof reference.id !== 'string' || !reference.id) return;
+    const key=JSON.stringify([sessionId,binding.home,binding.campaign,reference.id]);
+    if (this.cocReferenceWorkers.has(key)) return;
+    const work=Promise.resolve().then(async()=>{
+      // The kernel rechecks its pinned source/view. The worker accepts no renderer paths or replacement pixels.
+      const result:any=await this.finishCocReference(sessionId,binding,reference.id,map);
+      if(result?.reference?.status==='refused') console.warn(`[pipicoc] Image reference ${reference.id} was refused: ${result.error?.message??'Its kernel diagnostic is retained'}`);
+      this.cocReferenceChanged(sessionId,binding.campaign,result?.reference);
+    }).catch(error=>{
+      console.warn(`[pipicoc] Image reference ${reference.id} failed: ${error instanceof Error?error.message:String(error)}`);
+      emitFrame(this.listeners,{protocolVersion:PIPI_HOST_PROTOCOL_VERSION,channel:'ext.coc-keeper',event:{type:'reference_failed',
+        payload:{sessionId,campaign:binding.campaign,reference_id:reference.id,code:this.cocCode(error)}}});
+      this.cocReferenceChanged(sessionId,binding.campaign);
+    }).finally(()=>{if(this.cocReferenceWorkers.get(key)===work)this.cocReferenceWorkers.delete(key);});
+    this.cocReferenceWorkers.set(key,work);
+  }
+  /** Restore durable queued references; map warming may start the recovery transport, never a prompt. */
+  private startCocReferenceRecovery(sessionId: string, path: string): void {
+    if(this.closed||this.sidebarArchivedCache.has(sessionId)||this.cocReferenceScans.has(sessionId))return;
+    const work=Promise.resolve().then(async()=>{
+      const binding=await readCocBinding(path);
+      if(!binding||!existsSync(join(binding.home,'.coc/campaigns',binding.campaign,'reference-items.json')))return;
+      const access=await this.cocReferenceAccess(sessionId);
+      if(access.binding.home!==binding.home||access.binding.campaign!==binding.campaign)return;
+      const view:any=await callColdKernel(access.repo,binding.home,'table.view',{campaign:binding.campaign},this.env,this.cocRuntime);
+      for(const actor of Array.isArray(view?.investigators)?view.investigators:[]){
+        const id=typeof actor?.id==='string'?actor.id:actor?.name;if(typeof id!=='string')continue;
+        const result:any=await callColdKernel(access.repo,binding.home,'mods.document.references',{campaign:binding.campaign,actor:id},this.env,this.cocRuntime);
+        for(const reference of Array.isArray(result?.references)?result.references:[]){
+          const job=(result._reference_jobs??[]).find((row:any)=>row.reference_id===reference.id);
+          this.startCocReferenceWorker(sessionId,binding,reference,job?.map);
+        }
+      }
+    }).catch(error=>{
+      console.warn(`[pipicoc] Image reference recovery failed for ${sessionId}: ${error instanceof Error?error.message:String(error)}`);
+    }).finally(()=>{if(this.cocReferenceScans.get(sessionId)===work)this.cocReferenceScans.delete(sessionId);});
+    this.cocReferenceScans.set(sessionId,work);
+  }
+  private async cocReferenceSheetAccess(result: ExtInvokeResult, sessionId: string): Promise<ExtInvokeResult> {
+    let writable=false;
+    try {await this.cocReferenceAccess(sessionId);writable=true;} catch { /* An uncertain lease offers no collection control. */ }
+    return result.ok && isRecord(result.data)?{...result,data:{...result.data,collection_writable:writable}}:result;
+  }
   /** A loaded waiting card owns recovery; no player sentence or story turn is manufactured. */
   private startCocDetailsRecovery(sessionId: string, path: string, history: HistoryEntry[], equipment = false): void {
     if (this.closed || this.sidebarArchivedCache.has(sessionId) || this.cocDetailsRecoveries.has(sessionId)
@@ -4764,6 +4845,7 @@ export class PiHostBackend implements HostBackend {
             session.header.id,
           );
           this.startCocDetailsRecovery(session.header.id, session.path, entries);
+          this.startCocReferenceRecovery(session.header.id, session.path);
           freezeProbeHistoryIpcEnd({ session: session.header.id, ms: Date.now() - started, rows: entries.length });
           return entries;
         } catch (error) {
@@ -10001,6 +10083,31 @@ export class PiHostBackend implements HostBackend {
         return {ok: true, data};
       } catch (error) { return this.cocDenied(this.cocCode(error), error instanceof Error ? error.message : String(error)); }
     }
+    if(id==='coc-keeper'&&method==='mods.document.reference_finish')return this.cocDenied('capability_denied','Reference completion is host-internal');
+    if(id==='coc-keeper'&&(['mods.document.collect','mods.document.references'].includes(method)
+      || method==='mods.document.view'&&isRecord(params)&&Object.hasOwn(params,'reference_id'))){
+      try {
+        const sid=isRecord(optsValue)&&typeof optsValue.sessionId==='string'?optsValue.sessionId.trim():'';
+        if(!isRecord(params))throw this.cocRefusal('invalid_params','Expected reference parameters');
+        const allowed=method==='mods.document.collect'?['actor','handout','presentation']
+          :method==='mods.document.references'?['actor']:['actor','reference_id'];
+        if(Object.keys(params).some(key=>!allowed.includes(key)))throw this.cocRefusal('invalid_params','Reference parameters cannot override session or source authority');
+        const access=await this.cocReferenceAccess(sid,method==='mods.document.collect');
+        const result:any=await callColdKernel(access.repo,access.binding.home,method,{...params,campaign:access.binding.campaign},this.env,this.cocRuntime);
+        if(method==='mods.document.collect'){
+          this.cocReferenceChanged(sid,access.binding.campaign,result?.reference);
+          this.startCocReferenceWorker(sid,access.binding,result?.reference,result?._reference_source?.map);
+        }else if(method==='mods.document.references'){
+          for(const reference of Array.isArray(result?.references)?result.references:[]){
+            const job=(result._reference_jobs??[]).find((row:any)=>row.reference_id===reference.id);
+            this.startCocReferenceWorker(sid,access.binding,reference,job?.map);
+          }
+        }
+        const {_reference_source,_reference_jobs,...publicData}=result;
+        const data=method==='mods.document.view'?withDocumentImage(publicData,access.binding):publicData;
+        return {ok:true,data};
+      }catch(error){return this.cocDenied(this.cocCode(error),error instanceof Error?error.message:String(error));}
+    }
     if(id==='coc-keeper'&&['mods.document.request','mods.document.apply'].includes(method)){
       const sid=isRecord(optsValue)&&typeof optsValue.sessionId==='string'?optsValue.sessionId.trim():'';
       const previous=this.cocDocumentSubmissions.get(sid)??Promise.resolve();
@@ -10055,14 +10162,15 @@ export class PiHostBackend implements HostBackend {
         let data:any = await callColdKernel(repo,context?.home ?? resolve(this.env.PI_COC_HOME || repo),method,request,this.env,this.cocRuntime);
         if (method === 'mods.equipment.retry' && context) this.startCocDetailsRecovery(sid,(await this.locate(sid)).path,[],true);
         if (method === "mods.document.apply") emitFrame(this.listeners,{protocolVersion:PIPI_HOST_PROTOCOL_VERSION,channel:'ext.coc-keeper',event:{type:'sheet_changed',payload:{campaign:context?.campaign}}});
-        if (['mods.document.view','mods.document.request_status'].includes(method) && context) {
+        if (['mods.document.view','mods.document.request_status'].includes(method) && context && data?.editing !== 'read_only') {
           const state = await this.getModelState(sid);
           const host = this.cocOnboardingRegistry.get({...this.cocRuntime,repo,home:context.home,agentDir:this.sharedProfileDir,env:this.env});
           const reading = host.documentPresentationStatus({campaign:context.campaign,actor:data.actor,name:data.name,version:data.version,play_language:data.play_language,
             ...await this.cocFastLane(state,{model:this.env.PI_COC_MOD_MODEL?.trim(),thinking:this.env.PI_COC_MOD_THINKING?.trim()})});
           data = reading.pending ? reading : {...data,display_name:reading.display_name,text:reading.text,original:reading.original};
         }
-        if (method.startsWith("mods.document.") && data?.editor?.renderer === "paper") {
+        if (['mods.document.view','mods.document.request_status'].includes(method) && context) data=withDocumentImage(data,context);
+        if (method.startsWith("mods.document.") && data?.editor?.renderer === "paper" && data?.editing !== 'read_only') {
           try {data.texture = `data:image/jpeg;base64,${(await fs.readFile(join(repo,'pipicoc/assets/paper-texture.jpg'))).toString('base64')}`;}
           catch { /* Text remains editable if the optional texture asset is unavailable. */ }
         }
@@ -10402,7 +10510,7 @@ export class PiHostBackend implements HostBackend {
       const generate = isRecord(params) && params.portrait === "generate";
       if (!generate) {
         const pending = this.cocSheetReads.get(sessionId);
-        if (pending) return this.cocSheetWithIdentityArtwork(await pending,params,context);
+        if (pending) return this.cocReferenceSheetAccess(await this.cocSheetWithIdentityArtwork(await pending,params,context),sessionId);
         const read = (async (): Promise<ExtInvokeResult> => {
           if (!context) return {ok:true,data:{status:"unbound",view:null,campaign:null,...await this.cocAnswerWords(undefined)}};
           // One retry word covers every projection this read starts: the sheet's vocabulary lanes
@@ -10469,7 +10577,8 @@ export class PiHostBackend implements HostBackend {
             code:this.cocCode(error),reason:error instanceof Error?error.message:String(error),...words}};}
         })().finally(()=>this.cocSheetReads.delete(sessionId));
         this.cocSheetReads.set(sessionId,read);
-        return this.cocSheetWithIdentityArtwork(await read,params,context);
+        this.startCocReferenceRecovery(sessionId,selected.path);
+        return this.cocReferenceSheetAccess(await this.cocSheetWithIdentityArtwork(await read,params,context),sessionId);
       }
     }
     if (id === "coc-keeper" && method === "board") {
@@ -10487,11 +10596,11 @@ export class PiHostBackend implements HostBackend {
         if (binding && answered.ok && isRecord(answered.data) && answered.data.status === "ready") {
           await this.cocMergeSheetLanes(sessionId, binding, answered.data.view, retry);
           // §39.4: the pack hands each map's picture over by the path of its stored PNG; the pixels are read here.
-          return {...answered,data:{...answered.data,view:withHandoutImages(answered.data.view,binding),maps:withMapImages(answered.data.maps,binding)}};
+          return this.cocReferenceSheetAccess({...answered,data:{...answered.data,view:withHandoutImages(answered.data.view,binding),maps:withMapImages(answered.data.maps,binding)}},sessionId);
         }
         // Whatever else the pack answered, no host path goes on to the panel.
-        return answered.ok && isRecord(answered.data) && Array.isArray(answered.data.maps)
-          ? {...answered,data:{...answered.data,maps:withMapImages(answered.data.maps,binding)}} : answered;
+        return this.cocReferenceSheetAccess(answered.ok && isRecord(answered.data) && Array.isArray(answered.data.maps)
+          ? {...answered,data:{...answered.data,maps:withMapImages(answered.data.maps,binding)}} : answered,sessionId);
       }
       // Cold -- a restored session with no agent yet. The board still opens: it reads the same
       // player-safe `table.view` the sheet reads, and the map rows without their layers, so a map
@@ -10526,7 +10635,7 @@ export class PiHostBackend implements HostBackend {
             () => undefined,
           );
         }
-        return {ok:true,data:{status:"ready",campaign:context.campaign,view,maps,...words}};
+        return this.cocReferenceSheetAccess({ok:true,data:{status:"ready",campaign:context.campaign,view,maps,...words}},sessionId);
       } catch(error) {
         return {ok:true,data:{status:"error",view:null,campaign:context.campaign,maps:[],
           code:this.cocCode(error),reason:error instanceof Error?error.message:String(error),...words}};

@@ -1,0 +1,38 @@
+{
+  "source": "tests/kernel/test_minted_place.py",
+  "tests": [
+    {
+      "name": "test_an_explicit_outside_mint_keeps_its_way_back_across_a_new_process",
+      "parameters": null
+    },
+    {
+      "name": "test_within_writes_located_in_and_the_capsule_shows_the_book_place",
+      "parameters": null
+    },
+    {
+      "name": "test_within_accepts_registered_table_places_but_never_people_or_unknowns",
+      "parameters": null
+    },
+    {
+      "name": "test_the_within_place_offers_its_unseated_people_and_the_ledger_wins",
+      "parameters": null
+    },
+    {
+      "name": "test_a_dead_person_is_never_offered_by_the_book_again",
+      "parameters": null
+    },
+    {
+      "name": "test_brief_lists_the_window_first_and_says_how_much_it_cut",
+      "parameters": null
+    },
+    {
+      "name": "test_a_book_without_a_window_keeps_graph_order_and_says_nothing_cut",
+      "parameters": null
+    },
+    {
+      "name": "test_placement_candidates_include_active_table_context_but_no_unrelated_mints",
+      "parameters": null
+    }
+  ],
+  "unsupported": []
+}

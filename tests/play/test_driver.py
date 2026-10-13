@@ -829,7 +829,8 @@ def test_thinking_off_reaches_the_launcher_args():
         args = captured["args"]
         assert "--thinking" in args
         assert args[args.index("--thinking") + 1] == "off"
-        assert module.DEFAULT_THINKING == "low"  # the bug's constant is still "low", not "off"
+        assert module.DEFAULT_THINKING == "high"  # Explicit off still overrides the current test default.
+        assert module.DEFAULT_MODEL == "codex-relay/gpt-6-luna"
     finally:
         shutil.rmtree(run_dir(run_id), ignore_errors=True)
 
@@ -862,6 +863,40 @@ def test_thinking_omitted_falls_back_to_default():
         module.Daemon(run_id=run_id, campaign="test-campaign", launcher=str(FAKE_PI), model=None)
         args = captured["args"]
         assert args[args.index("--thinking") + 1] == module.DEFAULT_THINKING
+    finally:
+        shutil.rmtree(run_dir(run_id), ignore_errors=True)
+
+
+def test_luna_test_profile_reaches_both_keeper_and_final_author():
+    spec = importlib.util.spec_from_file_location("driver_luna_profile", DRIVER)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    captured: dict = {}
+
+    class FakePiProcess:
+        def __init__(self, launcher, args, stderr_log_path, events_path, log, cwd=None, env=None):
+            captured.update(args=args, env=env)
+            self.proc = SimpleNamespace(pid=999999)
+
+        def call(self, message, timeout=None):
+            return {"success": True}
+
+        def alive(self):
+            return True
+
+    module.PiProcess = FakePiProcess
+    run_id = f"fixture-luna-profile-{uuid.uuid4().hex[:10]}"
+    try:
+        module.Daemon(run_id=run_id, campaign="test-campaign", launcher=str(FAKE_PI),
+                      model=module.DEFAULT_MODEL, thinking=module.DEFAULT_THINKING)
+        assert captured["args"][captured["args"].index("--provider") + 1] == "codex-relay"
+        assert captured["args"][captured["args"].index("--model") + 1] == "gpt-6-luna"
+        assert captured["args"][captured["args"].index("--thinking") + 1] == "high"
+        assert captured["env"]["PI_COC_TEST_MODEL"] == "codex-relay/gpt-6-luna"
+        assert int(captured["env"]["PI_COC_KEEPER_CALL_CAP_FLOOR_MS"]) >= 60000
+        for name in module.TEST_LANE_MODEL_ENVS:
+            assert captured["env"][name] == "codex-relay/gpt-6-luna"
+            assert captured["env"][f"{name}_THINKING"] == "high"
     finally:
         shutil.rmtree(run_dir(run_id), ignore_errors=True)
 

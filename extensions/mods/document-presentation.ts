@@ -31,6 +31,7 @@ function cacheFor(options:Options):OwnerCache {
 
 /** Panel invokes remain short; repeated owned views poll the same background job. */
 export function documentPresentationStatus(options:Options, document:Row):Row {
+  if (document.editing === 'read_only' && document.image) return document;
   const {views} = cacheFor(options);
   const key = JSON.stringify([options.home, document.name, document.version, document.play_language]);
   let job = views.get(key);
@@ -124,6 +125,7 @@ validateDocumentReference(JSON.parse(readFileSync("result.json","utf8")),JSON.pa
 }
 
 export async function presentDocument(options:Options, document:Row):Promise<Row> {
+  if (document.editing === 'read_only' && document.image) return document;
   // The tag set is open (contract §23, 2026-09-09): a reading is asked for by the shape of the tag
   // it is asked in, never by membership of a registry. This used to load `content/languages.json`
   // and refuse a document in any tag nobody had registered there.

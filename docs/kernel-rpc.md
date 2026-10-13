@@ -31347,6 +31347,49 @@ CPU 1007 s); pooled 1705 passed, 1 skipped in 973.1 s (16:13, user CPU 525 s) --
 client constructions, 1041 rebinds, 91 idle processes evicted by the pool's caps (2 per key, 6 in all). The six
 extra passes are `test_kernel_pool.py`. On leehow-pc the full extension suite passed 2821/2821 on this change.
 
+### 146.4 Direct resource settlement pilot (2026-10-12)
+
+The [resource settlement test pilot](specs/resource-settlement-test-pilot.md)
+adds direct TypeScript counterparts for the twelve HP/MP recovery RPC cases.
+The production resource contribution and settlement context retain rule, RNG,
+receipt and state-transition authority; only per-case sheet/save storage is
+in memory. The unchanged RPC cases retain transport, public projection and
+disk-persistence coverage. The pilot changes no public method, rule, storage
+durability guarantee or full-suite gate. Performance requires a same-machine
+comparison including test-runner startup, with original assertion coverage
+accounted for explicitly.
+
+### 146.5 Fast development and retained integration tests (2026-10-12)
+
+The [direct TS migration](specs/direct-ts-test-migration.md) extends the resource
+pilot. The default development command runs direct production-TypeScript
+business tests and the mandatory smoke guards. Explicit integration and full
+commands retain RPC, disk, restart and transaction checks. Original Python
+tests remain an unchanged comparison reference. Migrated cases are inventoried
+with their original assertions and parameter sets; a fast pass is not a full
+regression pass. No test adapter becomes a production rule or persistence path.
+
+### 146.6 Complete native integration and pytest retirement (2026-10-13)
+
+The [complete TS migration](specs/full-ts-test-migration.md) accounts for every
+original assertion and parameter expansion in `tests/ts-migration-manifest.json`.
+All production RPC, persistence, restart, transaction, play-controller, metric and
+storage-runner checks execute through Node native tests. `test:integration`,
+`test:all`, affected-file selection and the current-repository LAN routes use the
+same native runner. It records actual exit status, JUnit case outcomes and owned
+storage receipts; failures and signals retain evidence. Both mandatory smoke
+guards remain in the affected-file route, and unknown dependencies select all.
+
+The original Python test sources are immutable audit material, with frozen hashes,
+not an executable fallback. The old pytest controller, fixtures and dependencies
+are retired after passing the complete prerequisite gates. Historical measurements
+and failures above keep their original provenance. The frozen Python oracle is
+read-only historical compatibility evidence and remains independent of pytest.
+The native pool implementation and its fresh-process equivalence checks are
+`tests/integration/kernel-pool.ts` and `kernel-pool.test.ts`; direct subprocess
+fixtures also retain their real transport and process lifecycle boundaries.
+Live acceptance uses `node tests/play/driver.ts` and `node tests/play/kpi.ts`.
+
 ## 147. Two small PDF readiness gates, native source decisions and continuing background reading (2026-09-27, JPDF)
 
 Status: implementation contract. The prior `module.read.*`, source, review, setup and game authority of §22/§23 remains in force. The [specification](specs/jev-pdf-demand-reading.md) and [pinned prototype evidence](specs/jev-pdf-demand-reading-tickets.md#required-prototype-evidence) define the scope and adverse cases. No section below is a claim that code or live acceptance has passed.
@@ -45475,6 +45518,100 @@ Real installed and GUI evidence: oldInstalled covered real G45low setup and offi
 Honest quality and memory limitations: two same-material diagnostics structurally passed—one text identical, the other narrative shortened with identical NPC dialogue. There is no claim of naturalness superiority; front meaning still often complete speech despite brief guidance, and there is no deterministic semantic fidelity proof. This record does not claim a pristine full-run pass, no errors, whole scenario ending, or NPC naturalness improvement, and it invents neither acceptance nor new architecture.
 
 
+### 233.20 Owner's test-model profile (2026-10-13)
+
+The real-play driver defaults to codex-relay/gpt-6-luna with high reasoning.
+It passes PI_COC_TEST_MODEL for that profile so the selected final author also
+uses Luna/high, verifies the actual model and includes the profile in cache
+identity and evidence. Ordinary product sessions retain their existing author
+configuration. Historical records retain their original model attribution.
+When relay upstream concurrency is saturated, the owner permits Grok 4.5/low
+for that test, including the author and supporting lanes; Luna/high remains
+the test default. Record the fallback and retain the failed run.
+
+The two exact PI_COC_TEST_MODEL profiles also pin the actual supporting-lane
+reasoning effort, including single-completion callers with ordinary off/low
+defaults and tool-enabled BUILD readers. This test-only binding outranks their
+ordinary caller and environment defaults; all other sessions keep the existing
+precedence. Effective request options and telemetry must agree. Exporting a
+lane environment alone is not evidence of the effort sent to a provider.
+
+## 234. Acquired image carriers in Enhanced Items (2026-10-13)
+
+User direction: maps and pictured handouts physically acquired during play belong in
+inventory as separate items, grouped separately from ordinary equipment and written
+papers. Preparation runs beside delivery, as for existing document definitions.
+Image editing is deliberately unsupported.
+
+**Writer.** Enhanced Items 1.4.0 accepts `document:{handout:<revealed name>,
+presentation:"map"|"image"}` on a physical definition or object initialization.
+The name must resolve to an already revealed, player-safe/revealable image. This is
+an explicit acquisition, never a consequence of `apply handout` alone. The kernel
+copies the validated raster into the campaign's content-addressed document assets;
+the instance retains that exact path, media type, digest and source name. Model
+supplied image paths, URLs and bytes are refused. Existing text seeds are unchanged.
+Queued definitions use the existing placeholder/replacement and background creator
+path (§129.4), preserving object identity and custody. No extra image generation or
+translation job is introduced; pictured words remain in the original image.
+
+**Reader.** The owned document view returns a read-only image descriptor. Hot and cold
+player hosts materialize bytes through the same scoped raster gate as handouts,
+verify the acquisition digest, and render an image viewer. Inventory projects the
+explicit presentation into papers, maps and pictured-handout groups; classification
+never guesses from a name or filename. Contained carriers remain reachable through
+their root owner's inventory. Legacy carriers remain papers.
+
+**Actor.** The Keeper registers physically acquired carriers with define/object and
+continues play while the existing creator runs. The player opens the retained image
+from inventory. Transfers keep the snapshot; a new owner gets the same pixels. View,
+request and apply verify current root ownership. Image write, append, reset, physical
+editing and document division are refused; UI controls cannot bypass this boundary.
+Showing an image alone neither grants custody nor reveals undiscovered material.
+
+Explicit player collection is also acquisition: an out-of-character request to
+keep an already revealed map/pictured handout in inventory records an owned
+read-only player reference. It does not assert a new in-fiction sheet, printing,
+folding or physical possession. The existing define/object document seed remains
+the writer; the Keeper states this reference basis and causal player choice in
+the proposal. Admission still reviews that actual choice. No automatic acquisition,
+new source, new verb or physical-paper invention follows from display alone.
+The creator must preserve that basis; image bytes still come only from the
+revealed raster/map snapshot owner, with the same identity, custody and read-only gates.
+
+**Source integration decision (2026-10-13).** Revealed handout images resolve their reviewed
+`image_asset_id` through the current module asset owner; neither a MIME guess from a filename
+nor hand-written starter registry repair supplies that missing link. The referenced raster
+must itself be player-safe or revealable. Handout display and inventory acquisition share
+this resolver, including a handout that also has an authored textual transcription.
+
+Already held region maps are offered through the same creator source catalog. They bind
+to the current authorized `knownMapViews/mapView` projection and the existing host renderer's
+cropped/redacted PNG, never to an unrestricted original source image. One shared, Canvas-free
+render-plan helper computes the source-byte/geometry identity and cache path. The host
+renderer writes the actual PNG and a matching digest receipt; acquisition recomputes the
+authorized view, checks that receipt and snapshots its bytes. A creator acceptance may
+warm this cache through the existing map read and renderer before deterministic acceptance.
+The host job carries `document_sources: [{name,map}]` for these entries, binding each offered
+source name to its canonical semantic map handle even when a handout wrapper has another
+name. The creator's request still receives only the source name, preview and image flag;
+render plans, paths and bytes remain host-owned. Acceptance resolves the current view again.
+A missing/stale cache refuses instead of silently using full source pixels, including when
+the requested presentation is `image`. Accepted carriers retain their original snapshot;
+later map knowledge does not edit it. No new verb, automatic acquisition or image editor.
+
+
+Precedent: [Foundry journal image pages](https://foundryvtt.com/article/journal/)
+and [Roll20 handouts](https://wiki.roll20.net/Handouts) distinguish viewing from
+ownership/edit permissions. We retain that distinction and use this product's
+existing physical objects, transaction authority and asynchronous creator instead
+of adding a second inventory or automatic acquisition on display.
+
+Image carriers stay out of the writable-document binding catalog and current-text
+capsule; the object catalog identifies their read-only image source. Text search
+and page windows refuse an image instead of reporting an empty page or a false
+absence. Physical open/close/show retain the existing visibility surface, but do
+not manufacture textual observations or authorize editing the image.
+
 ## 235. Canonical turn events, actor cognition and permitted output (2026-10-13)
 
 Owner-approved spec: docs/specs/turn-events-and-perspectives.md. Implemented; the confirmed Pi/TS persistence/publication/read/output seam and a coherent real-driver episode are verified. The spec records exact coverage, retained failures and the authorized test-model fallback; it does not claim prose superiority or a completed campaign.
@@ -45500,3 +45637,71 @@ The existing durable ask/narrate owner binds accepted artifact coverage and reso
 Speech activation checks every matching selected material. A short declared quotation must overlap the actual canonical speaker's attributed span; an earlier context copy or a different speaker's identical words cannot stand in for that delivery.
 
 Output reuses its source registry, frozen packet, author and cache. Every story-bearing packet channel is explicitly projected; source titles, private activity/reasons, private NPC knowledge and concealed mechanical results cannot enter via metadata or guidance. Provenance stays in backend evidence. All new state is versioned and task/campaign scoped. No new verb, authority, semantic regex, scheduler, Python kernel, external dependency or mandatory plot progression is added.
+
+### 234.1 Explicit host-owned player reference collection (owner approved 2026-10-13)
+
+The owner explicitly includes already revealed player reference images even when
+no physical paper exists in the fiction. The earlier define/object reference
+proposal in §234 is superseded for this OOC/UI case: interaction reference scope
+continues refusing world writes. Real physical image acquisitions retain that
+existing path. The host must not manufacture paper to satisfy a collection request.
+
+Host-only RPC `mods.document.collect` takes campaign binding supplied by the host,
+an investigator `actor`, a revealed source `handout`, and an explicit closed
+`presentation` of map or image. Category comes from the player's UI selection,
+never names, filenames or semantic regular expressions. No client paths, bytes,
+arbitrary owner, mode override or source disclosure is accepted. A session-bound
+host checks its writable lease and rejects archived sessions before collection.
+No Keeper verb is added; no prompt or fictional turn is sent by collection.
+
+`reference-items.json` is a campaign sidecar, outside world.objects and character
+sheets. Schema 1 entries have stable kernel-issued id, actor_id, worldline,
+canonical source/view identity, pinned source digest, handout, presentation,
+status queued/ready/refused and, on completion, the existing immutable image
+descriptor. Duplicate selection of the same actor/worldline/source/view/category
+returns the same id. The actor must be a campaign investigator. Sources must
+already be publicly revealed and satisfy the existing raster or authorized-map
+view gates. Completion rechecks the pinned source/view identity; it never admits
+later source replacement or newly revealed pixels into an earlier selection.
+
+Collection immediately returns a queued record and finishes asynchronously through
+the Mod host scheduling path. `mods.document.reference_finish` accepts only the
+bound reference id, revalidates source authority, snapshots existing validated
+bytes through content-addressed document assets, and updates the same entry.
+Failures remain refused with retained diagnostic evidence. No image creation,
+translation or content-authoring job is introduced. Existing public source labels
+are preserved. A restart can resume queued entries; a failed/ready entry is not
+silently rewritten. Serial locking and atomic writes protect concurrent selections.
+
+Host-only `mods.document.references {actor}` returns only that actor's current
+worldline entries. `mods.document.view {actor, reference_id}` reads the same
+record and exposes only the existing read-only image view; ordinary name-based
+physical document ownership checks remain intact. References never enter NPC
+knowledge, physical object placement, load, transfers, rules effects or writing.
+Reader requests remain bound to the actor and worldline; ready pixels stay frozen.
+
+The player host offers an explicit collection control on an authorized image/map
+card, choosing Maps or Images. It merges reference rows into those backpack groups,
+keeps queued rows visible and opens ready rows with the same scoped raster/digest
+gate. Hot and cold hosts share the session/campaign binding and collection worker;
+no permissive reference-scope apply exception or global intent state is introduced.
+Use existing projected UI words where suitable; every new authored caption has one
+English source and the existing presenter owns other languages.
+
+Writer: the explicit session-bound host selection and asynchronous completion.
+Reader: the owning investigator's backpack and read-only image viewer.
+Actor: the player selects a public image, collects it, then opens its retained copy.
+
+Collection requires an active package declaring `objects.image-references.v1`;
+Enhanced Items 1.4.2 requires it. Previously collected ready references remain
+readable when the package is disabled. Sheet `collection_writable` is true only
+for a writable, non-archived session; clients treat an absent value as false.
+
+Kernel envelopes may return host-only `_reference_source:{map}` on collection
+and `_reference_jobs:[{reference_id,map?}]` when listing queued work. These contain
+canonical public map handles, never pixels, private geometry or filesystem paths,
+and are stripped before UI delivery. The host warms that authorized view through
+the existing map renderer, then invokes completion. A failed completion returns
+the retained refused reference with its error diagnostic; malformed protocol
+arguments still fail normally. Cold map warming may start the existing extension
+transport in details-recovery mode without sending a prompt or changing fiction.

@@ -1,0 +1,14 @@
+{
+  "source": "tests/kernel/test_map_arrival.py",
+  "tests": [
+    {
+      "name": "test_the_move_lands_and_the_map_published_later_arrives_on_the_next_turn_once",
+      "parameters": null
+    },
+    {
+      "name": "test_a_refused_map_review_settles_the_focus_and_the_next_arrival_reads_nothing",
+      "parameters": null
+    }
+  ],
+  "unsupported": []
+}

@@ -1,0 +1,10 @@
+{
+  "source": "tests/kernel/test_walk_on_person.py",
+  "tests": [
+    {
+      "name": "test_a_walk_on_arrives_as_the_result_of_a_shout_and_stays_a_person_of_this_table",
+      "parameters": null
+    }
+  ],
+  "unsupported": []
+}

@@ -179,3 +179,42 @@ test('an unfinished physical edit restores its draft while keeping current writi
   expect(screen.getByText(say('en','paper','editPending'))).toBeTruthy();
   expect(screen.getByText(say('en','paper','dirty'))).toBeTruthy();
 });
+
+test('acquired image viewer shows retained pixels and offers no editing controls',async()=>{
+  const invoke=vi.fn(async()=>({ok:true,data:{name:'Folded map',presentation:'map',editing:'read_only',
+    image:'data:image/png;base64,AAAA',version:'one',play_language:'en'}}));
+  const close=vi.fn();
+  render(<Editor api={{invoke}} name="Folded map" actor="i" ui={ui('en')} onClose={close}/>);
+  const picture=await screen.findByRole('img',{name:'Folded map'});
+  expect(picture.getAttribute('src')).toBe('data:image/png;base64,AAAA');
+  expect(screen.queryByRole('textbox')).toBeNull();
+  expect(screen.queryByRole('button',{name:'Save',exact:true})).toBeNull();
+  expect(screen.queryByRole('button',{name:'Restore acquisition original'})).toBeNull();
+  fireEvent.keyDown(screen.getByRole('dialog'),{key:'s',ctrlKey:true});
+  expect(invoke.mock.calls).toHaveLength(1);
+  fireEvent.click(screen.getByRole('button',{name:'Close',exact:true}));
+  expect(close).toHaveBeenCalledOnce();
+});
+
+test('inventory separates maps and image handouts from text without classifying names',async()=>{
+ const entries=[
+  {name:'Notebook-shaped box',category:'item',parameters:{},state:{}},
+  {name:'Unmarked leaf',category:'item',parameters:{},state:{},document:{presentation:'map',read_only:true}},
+  {name:'Town map cover',category:'item',parameters:{},state:{},document:{presentation:'book'}},
+  {name:'Portrait',category:'item',parameters:{},state:{},document:{presentation:'image',read_only:true},container:'Satchel'},
+ ];
+ const invoke=vi.fn(async()=>({ok:true,data:{campaign:'c1',ui:ui('en'),view:{play_language:'en',investigators:[{
+  id:'i',name:'Investigator',weapons:[],equipment:entries.slice(0,3).map(item=>({name:item.name})),objects:entries,
+ }]}}}));
+ const {container}=render(<Panel api={{invoke}}/>);
+ await screen.findByText('Unmarked leaf');
+ expect([...container.querySelectorAll('.coc-inventory-group')].map(node=>node.textContent)).toEqual([
+  say('en','sheet','equipment'),say('en','paper','papers'),say('en','paper','maps'),say('en','paper','images'),
+ ]);
+ expect([...container.querySelectorAll('.coc-inventory-entry')].map(node=>node.querySelector('.coc-inventory-name')?.textContent))
+  .toEqual(['Notebook-shaped box','Town map cover','Unmarked leaf','Portrait']);
+ expect(screen.queryByRole('button',{name:/Notebook-shaped box/})).toBeNull();
+ expect(screen.getByRole('button',{name:/Unmarked leaf.*View image/})).toBeTruthy();
+ expect(screen.getByRole('button',{name:/Portrait.*View image/})).toBeTruthy();
+ expect(container.querySelectorAll('.coc-inventory-entry')).toHaveLength(4);
+});

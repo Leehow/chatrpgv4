@@ -1,0 +1,178 @@
+{
+  "source": "tests/kernel/test_worldline.py",
+  "tests": [
+    {
+      "name": "test_a_new_campaign_is_born_on_wl_main",
+      "parameters": null
+    },
+    {
+      "name": "test_the_seed_is_the_campaign_the_line_and_the_fork_point",
+      "parameters": null
+    },
+    {
+      "name": "test_a_campaign_without_worldlines_is_adopted_as_main_without_rewriting_a_commit",
+      "parameters": null
+    },
+    {
+      "name": "test_forking_moves_the_table_and_leaves_the_line_it_came_from_whole",
+      "parameters": null
+    },
+    {
+      "name": "test_the_fork_happens_after_the_commit_not_during_the_batch",
+      "parameters": null
+    },
+    {
+      "name": "test_the_fork_receipt_projects_as_a_worldline_mechanics_row",
+      "parameters": null
+    },
+    {
+      "name": "test_a_fork_from_an_earlier_turn_rewinds_the_tree_to_that_turn",
+      "parameters": null
+    },
+    {
+      "name": "test_a_repeated_call_id_forks_once",
+      "parameters": null
+    },
+    {
+      "name": "test_switching_moves_only_the_active_line",
+      "parameters": null
+    },
+    {
+      "name": "test_switching_to_an_unknown_or_current_line_is_refused",
+      "parameters": null
+    },
+    {
+      "name": "test_a_name_another_line_already_has_is_refused_before_anything_is_written",
+      "parameters": null
+    },
+    {
+      "name": "test_a_worldline_effect_must_be_the_last_of_its_batch",
+      "parameters": null
+    },
+    {
+      "name": "test_a_turn_carries_at_most_one_worldline_effect",
+      "parameters": null
+    },
+    {
+      "name": "test_a_turn_that_changes_the_line_cannot_be_closed_by_ask",
+      "parameters": null
+    },
+    {
+      "name": "test_a_book_that_declares_a_time_loop_gets_the_time_loop_weights",
+      "parameters": null
+    },
+    {
+      "name": "test_a_confluence_names_at_least_two_lines_and_must_include_the_one_at_the_table",
+      "parameters": null
+    },
+    {
+      "name": "test_two_lines_that_disagree_about_a_wound_stop_the_merge_until_the_keeper_settles_it",
+      "parameters": null
+    },
+    {
+      "name": "test_a_disposition_the_class_does_not_allow_is_refused_and_a_drop_must_say_why",
+      "parameters": null
+    },
+    {
+      "name": "test_a_settled_confluence_lands_a_line_whose_commit_keeps_both_histories",
+      "parameters": null
+    },
+    {
+      "name": "test_a_merged_line_cannot_be_played_again",
+      "parameters": null
+    },
+    {
+      "name": "test_a_thing_one_line_spent_is_a_conflict_but_a_thing_it_never_had_is_not",
+      "parameters": null
+    },
+    {
+      "name": "test_clues_never_conflict_they_are_a_union",
+      "parameters": null
+    },
+    {
+      "name": "test_a_rewind_leaves_echoes_of_the_loop_it_came_from",
+      "parameters": null
+    },
+    {
+      "name": "test_an_echo_is_revealed_by_apply_clue_and_only_then_is_it_known",
+      "parameters": null
+    },
+    {
+      "name": "test_an_echo_no_line_left_behind_is_refused",
+      "parameters": null
+    },
+    {
+      "name": "test_a_candidate_carries_the_line_and_the_circuit_it_was_remembered_on",
+      "parameters": null
+    },
+    {
+      "name": "test_recall_memory_reads_this_line_by_default_and_every_line_on_request",
+      "parameters": null
+    },
+    {
+      "name": "test_only_a_declared_person_carries_what_another_circuit_knew",
+      "parameters": null
+    },
+    {
+      "name": "test_the_capsule_carries_the_previous_circuit",
+      "parameters": null
+    },
+    {
+      "name": "test_a_failed_transition_rolls_the_reference_back_and_keeps_the_turn",
+      "parameters": null
+    },
+    {
+      "name": "test_the_same_action_on_two_lines_does_not_roll_the_same_numbers",
+      "parameters": null
+    },
+    {
+      "name": "test_an_explicit_seed_still_pins_the_dice",
+      "parameters": null
+    },
+    {
+      "name": "test_a_module_without_a_reset_refuses_a_loop_fork_but_never_an_if",
+      "parameters": null
+    },
+    {
+      "name": "test_a_loop_fork_rewinds_to_the_anchor_and_keeps_what_persists",
+      "parameters": null
+    },
+    {
+      "name": "test_the_capsule_carries_the_line_the_anchor_and_who_remembers",
+      "parameters": null
+    },
+    {
+      "name": "test_the_house_is_where_the_loop_can_be_rewound",
+      "parameters": null
+    },
+    {
+      "name": "test_a_reset_that_keeps_the_clock_keeps_it",
+      "parameters": null
+    },
+    {
+      "name": "test_open_returns_to_the_active_line_and_the_checkpoint_names_it",
+      "parameters": null
+    },
+    {
+      "name": "test_a_new_process_opens_the_line_the_last_one_left_on",
+      "parameters": null
+    },
+    {
+      "name": "test_recall_history_lines_returns_the_tree_of_worldlines",
+      "parameters": null
+    },
+    {
+      "name": "test_a_fork_from_an_earlier_turn_carries_that_turns_owed_rows",
+      "parameters": null
+    },
+    {
+      "name": "test_a_rewind_closes_what_the_rewound_circuit_owed",
+      "parameters": null
+    },
+    {
+      "name": "test_a_confluence_closes_what_the_merged_lines_owed",
+      "parameters": null
+    }
+  ],
+  "unsupported": []
+}

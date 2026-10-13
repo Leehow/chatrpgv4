@@ -22,5 +22,10 @@
   "editHint": "保存会在故事中请求一次实际动作。工具、时间和见证者都很重要。",
   "editRequest": "修改{name}中的文字",
   "editPending": "这次游戏内修改尚未完成；你请求的草稿已保留。",
-  "requestSave": "请求修改"
+  "requestSave": "请求修改",
+  "papers": "纸页与书本",
+  "maps": "地图",
+  "images": "图片手卡",
+  "openImage": "查看图片",
+  "imageReadOnly": "仅可查看图片，无法编辑。"
 }

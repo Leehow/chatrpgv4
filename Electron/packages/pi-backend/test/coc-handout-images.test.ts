@@ -56,3 +56,19 @@ test('the reading job goes through the display gate and carries the digest of th
   expect(handoutImageFile({...row,path:join(assets,'notes.png')},binding)).toBeUndefined();
  }finally{rmSync(home,{recursive:true,force:true});}
 });
+
+test('owned image descriptors require their retained acquisition digest',async()=>{
+ const {withDocumentImage}=await import('../src/coc-handout-images.js');
+ const home=mkdtempSync(join(tmpdir(),'image-document-'));
+ try{
+  const campaign=join(home,'.coc/campaigns/test');mkdirSync(campaign,{recursive:true});
+  writeFileSync(join(campaign,'campaign.json'),JSON.stringify({module_id:'book-1'}));
+  const bytes=Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+jK1cAAAAASUVORK5CYII=','base64');
+  const path=join(campaign,'retained.png');writeFileSync(path,bytes);
+  const view={editing:'read_only',image:{path,media_type:'image/png',sha256:createHash('sha256').update(bytes).digest('hex')}};
+  expect(withDocumentImage(view,{home,campaign:'test'}).image).toBe('data:image/png;base64,'+bytes.toString('base64'));
+  expect(typeof view.image).toBe('object');
+  expect(()=>withDocumentImage({...view,image:{...view.image,sha256:'bad'}},{home,campaign:'test'})).toThrow(/changed/);
+  expect(()=>withDocumentImage(view,{home,campaign:'different'})).toThrow(/unavailable/);
+ }finally{rmSync(home,{recursive:true,force:true});}
+});

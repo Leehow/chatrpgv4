@@ -1,0 +1,38 @@
+{
+  "source": "tests/kernel/test_worldline_due.py",
+  "tests": [
+    {
+      "name": "test_a_rewind_never_leaves_a_deadline_further_away_than_its_own_rule",
+      "parameters": null
+    },
+    {
+      "name": "test_a_rewind_leaves_the_sheet_and_the_sanity_engine_saying_the_same_thing",
+      "parameters": null
+    },
+    {
+      "name": "test_a_rewind_that_keeps_the_clock_keeps_every_deadline_reachable",
+      "parameters": null
+    },
+    {
+      "name": "test_a_rewind_rewrites_the_world_the_sheets_and_the_engine_saves",
+      "parameters": null
+    },
+    {
+      "name": "test_a_kept_investigator_does_not_owe_the_rewound_time",
+      "parameters": null
+    },
+    {
+      "name": "test_a_kept_rewind_is_refused_by_name_while_state_no_engine_can_move_is_on_the_table",
+      "parameters": null
+    },
+    {
+      "name": "test_a_kept_wound_older_than_the_rewound_clock_keeps_its_age",
+      "parameters": null
+    },
+    {
+      "name": "test_a_kept_wound_younger_than_the_anchor_stays_exactly_as_old",
+      "parameters": null
+    }
+  ],
+  "unsupported": []
+}

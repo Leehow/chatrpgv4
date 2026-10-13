@@ -1,0 +1,90 @@
+{
+  "source": "tests/kernel/test_journal.py",
+  "tests": [
+    {
+      "name": "test_job_packet_shape_and_the_closed_recordable_set",
+      "parameters": null
+    },
+    {
+      "name": "test_recordable_also_covers_receipt_references_and_journal_names",
+      "parameters": null
+    },
+    {
+      "name": "test_submit_merges_entries_and_counts_a_turn_once",
+      "parameters": null
+    },
+    {
+      "name": "test_each_rejection_points_at_the_entry_and_nothing_lands",
+      "parameters": null
+    },
+    {
+      "name": "test_replay_is_idempotent_and_divergence_conflicts",
+      "parameters": null
+    },
+    {
+      "name": "test_fail_backlogs_the_job_and_the_default_does_not_redispatch_it",
+      "parameters": null
+    },
+    {
+      "name": "test_table_view_projects_the_journal_for_the_player",
+      "parameters": null
+    },
+    {
+      "name": "test_table_view_setting_up_has_the_empty_journal_shape",
+      "parameters": null
+    },
+    {
+      "name": "test_a_person_the_prose_never_named_is_journaled_under_a_label",
+      "parameters": null
+    },
+    {
+      "name": "test_the_lane_can_name_a_person_the_scan_cannot_see",
+      "parameters": null
+    },
+    {
+      "name": "test_named_needs_the_words_that_named_them",
+      "parameters": null
+    },
+    {
+      "name": "test_a_name_the_book_does_not_give_them_is_asked_about_once",
+      "parameters": null
+    },
+    {
+      "name": "test_a_name_in_another_script_is_taken_with_its_words",
+      "parameters": null
+    },
+    {
+      "name": "test_one_word_for_one_person",
+      "parameters": null
+    },
+    {
+      "name": "test_the_lane_is_told_what_the_table_calls_each_person",
+      "parameters": null
+    },
+    {
+      "name": "test_a_handle_is_not_what_the_table_calls_anyone",
+      "parameters": null
+    },
+    {
+      "name": "test_untold_starts_at_opening_without_a_journal",
+      "parameters": null
+    },
+    {
+      "name": "test_a_table_epithet_is_not_disclosure_and_is_shared_by_player_surfaces",
+      "parameters": null
+    },
+    {
+      "name": "test_committed_name_is_known_before_the_journal_runs",
+      "parameters": null
+    },
+    {
+      "name": "test_a_resolved_authored_token_displayed_as_epithet_does_not_disclose_name",
+      "parameters": null
+    },
+    {
+      "name": "test_a_say_span_of_theirs_shows_the_player_the_name",
+      "parameters": null
+    }
+  ],
+  "unsupported": []
+}

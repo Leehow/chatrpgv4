@@ -1,0 +1,62 @@
+{
+  "source": "tests/kernel/test_npc_situation.py",
+  "tests": [
+    {
+      "name": "test_a_landed_blow_last_turn_and_a_purse_taken_this_turn_are_two_sentences_and_nothing_else",
+      "parameters": null
+    },
+    {
+      "name": "test_the_state_reads_the_fight_the_ledger_and_the_room",
+      "parameters": null
+    },
+    {
+      "name": "test_an_intention_under_way_is_in_done_and_not_in_happened",
+      "parameters": null
+    },
+    {
+      "name": "test_an_intention_given_up_is_said_in_happened_the_next_turn",
+      "parameters": null
+    },
+    {
+      "name": "test_thirty_settled_intentions_fit_the_budget_and_the_newest_survives",
+      "parameters": null
+    },
+    {
+      "name": "test_the_budget_is_the_named_default_in_host_budgets",
+      "parameters": null
+    },
+    {
+      "name": "test_holdings_are_the_weapons_combat_reads_and_what_he_owns",
+      "parameters": null
+    },
+    {
+      "name": "test_a_name_is_required_and_must_be_someone",
+      "parameters": null
+    },
+    {
+      "name": "test_constraints_are_the_capsules_rows_that_name_him",
+      "parameters": null
+    },
+    {
+      "name": "test_said_before_a_move_the_line_is_not_theirs_and_the_arrival_stands_in_for_it",
+      "parameters": null
+    },
+    {
+      "name": "test_the_person_it_was_said_to_has_it_and_no_one_else_does",
+      "parameters": null
+    },
+    {
+      "name": "test_the_readings_are_booleans_or_absent",
+      "parameters": null
+    },
+    {
+      "name": "test_words_that_named_no_one_are_said_to_no_one_by_name",
+      "parameters": null
+    },
+    {
+      "name": "test_named_no_one_is_a_boolean_or_absent",
+      "parameters": null
+    }
+  ],
+  "unsupported": []
+}

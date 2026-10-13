@@ -1,0 +1,20 @@
+/** A refused investigator action never proposes replacing the player's declared action. */
+import {test} from 'node:test';
+import assert from 'node:assert/strict';
+import {kernel,opening,resolve,resolveErr,receipts} from './rules-rpc-support.ts';
+import {clientFor,hayesTurn,corbittsTurn,editFight,CORBITT,INVESTIGATOR} from './rules-fight-fixtures.ts';
+async function decisions(k:any){const names=[...new Set<string>((await k.ok('table.resolve.options',{campaign:'c1'})).decisions.filter((r:any)=>r.family==='combat').map((r:any)=>r.name))].sort();assert.ok(names.length>=4&&names.includes('combat:attack')&&names.includes('combat:maneuver'));return names;}
+const escapeRegex=(value:string)=>value.replace(/[.*+?^${}()|[\]\\]/g,'\\$&');
+const named=(fix:string,names:string[])=>names.filter(name=>fix.includes(name)||new RegExp(`\\b${escapeRegex(name.split(':')[1])}\\b`,'i').test(fix)).sort();
+const demand={intent:'combat',decision:'combat:maneuver',goal:'挥拳威逼，逼他把钱交出来',method:'一拳逼他把钱交出来',target:'Walter Corbitt',weapon:'unarmed'};
+const cases:Record<string,(k:any)=>Promise<[string,any]>>={
+ maneuver_whose_goal_is_the_demand:async k=>['combat:maneuver',await resolveErr(k,`t1-c${await hayesTurn(k)}`,demand)],
+ defence_with_nothing_to_answer:async k=>['combat:defend',await resolveErr(k,`t1-c${await hayesTurn(k)}`,{intent:'combat',decision:'combat:defend',defense:'dodge',goal:'躲开',method:'侧身'})],
+ blow_out_of_turn:async k=>['combat:attack',await resolveErr(k,`t1-c${await corbittsTurn(k)}`,{intent:'combat',goal:'hit him',method:'fists',target:'Walter Corbitt',weapon:'unarmed'})],
+ blow_while_a_defence_is_owed:async k=>{const n=await hayesTurn(k);await resolve(k,`t1-c${n}`,{intent:'combat',goal:'hit him',method:'fists',target:'Walter Corbitt',weapon:'unarmed'});return ['combat:attack',await resolveErr(k,`t1-c${n+1}`,{intent:'combat',goal:'hit him again',method:'fists',target:'Walter Corbitt',weapon:'unarmed'})];},
+ flight_while_held:async k=>{const n=await hayesTurn(k);editFight(k,{investigator:{conditions:['grappled']}});return ['combat:flee',await resolveErr(k,`t1-c${n}`,{intent:'flee',decision:'combat:flee',goal:'get away',method:'run for the stairs'})];},
+ flight_with_no_fight:async k=>{await opening(k,'钱呢？你说的二十块，现在就给我。');return ['combat:flee',await resolveErr(k,'t1-c1',{intent:'flee',decision:'combat:flee',goal:'get away',method:'run'})];},
+};
+for(const [name,run] of Object.entries(cases))test(`test_an_investigators_refused_fight_action_names_no_other_fight_decision [${name}]`,async t=>{const k=await clientFor(t),[refused,error]=await run(k);assert.ok(['needs','turn_state'].includes(error.code));assert.ok(error.fix);const names=await decisions(k);assert.ok(names.includes(refused));assert.deepEqual(named(error.fix,names.filter(name=>name!==refused)),[]);});
+test('test_the_maneuver_refusal_still_names_the_four_and_changes_nothing',async t=>{const k=await clientFor(t),n=await hayesTurn(k),count=(await receipts(k)).length,error=await resolveErr(k,`t1-c${n}`,demand);assert.equal(error.code,'needs');assert.equal(error.details.needs.field,'goal');assert.deepEqual(error.details.needs.options.slice().sort(),['disarm','escape','ongoing_disadvantage','push']);const s=(await k.table('look',{focus:'session'})).session;assert.equal(s.turn_of,INVESTIGATOR);assert.equal(s.pending_defense,null);assert.equal((await receipts(k)).length,count);});
+test('test_an_npcs_held_flight_still_names_his_way_free',async t=>{const k=await clientFor(t),n=await corbittsTurn(k);editFight(k,{corbitt:{conditions:['grappled']}});const e=await resolveErr(k,`t1-c${n}`,{actor:'Walter Corbitt',intent:'flee',goal:'get away',method:'run for the stairs'});assert.equal(e.details.actor,CORBITT);assert.deepEqual(named(e.fix,await decisions(k)),['combat:maneuver']);});

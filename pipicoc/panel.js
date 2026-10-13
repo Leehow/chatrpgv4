@@ -147,6 +147,8 @@ const CSS = `
 .coc-line-val{flex:none;color:var(--text-strong);font:600 15px/1.3 var(--coc-serif);font-variant-numeric:tabular-nums}
 .coc-line-note{color:var(--muted);font-size:11px;overflow-wrap:anywhere}
 .coc-inventory{list-style:none;margin:0;padding:0}
+.coc-inventory-group{font-size:12px;font-weight:650;color:var(--muted);margin:18px 0 10px}
+.coc-inventory-group:first-child{margin-top:0}
 .coc-inventory-entry{padding:12px 0;border-bottom:1px solid var(--border)}
 .coc-inventory-entry:first-child{padding-top:0}
 .coc-inventory-entry:last-child{border-bottom:0;padding-bottom:0}
@@ -470,6 +472,8 @@ const PAPER_STYLE = `
 .coc-paper-dialog[data-renderer="plain"] .coc-paper-status,.coc-paper-dialog[data-renderer="plain"] .coc-paper-kicker{color:var(--muted,#666)}
 .coc-paper-dialog[data-renderer="plain"] button{background:var(--surface-hover,#eee);color:var(--text-strong,#222);border-color:var(--border,#ccc)}
 .coc-paper-dialog[data-renderer="plain"] .coc-paper-save{background:var(--accent,#8d482c);color:var(--bg,#fff)}
+.coc-image-body{flex:1;min-height:0;overflow:auto;padding:16px;text-align:center}
+.coc-image-body img{max-width:100%;height:auto;object-fit:contain}
 .coc-inventory-document{display:block;text-align:left;color:inherit;font:inherit;background:none;border:0;padding:0;cursor:pointer}
 .coc-inventory-document:hover .coc-inventory-name{text-decoration:underline;text-underline-offset:4px}
 .coc-inventory-document:focus-visible{outline:2px solid var(--accent);outline-offset:5px;border-radius:2px}
@@ -486,7 +490,8 @@ const PAPER_STYLE = `
 export function createDocumentEditor(React) {
   const h = React.createElement;
   const {useState, useEffect, useRef} = React;
-  return function DocumentEditor({api, name, actor, ui, onClose, onSaved}) {
+  return function DocumentEditor({api, name, actor, reference_id, ui, onClose, onSaved}) {
+    const selector = reference_id ? {reference_id,actor} : {name,actor};
     const t = (key) => word(ui, "paper", key);
     // A refusal shows its code's caption; the English message it carries goes behind the fold.
     const failed = (failure) => word(ui, "errors", text(failure && failure.code), word(ui, "errors", "unknown"));
@@ -497,12 +502,13 @@ export function createDocumentEditor(React) {
     const [busy, setBusy] = useState(false), [loading, setLoading] = useState(true), [error, setError] = useState(null);
     const [closing, setClosing] = useState(false);
     const [notice, setNotice] = useState("");
-    const dirty = value && draft !== value.text;
+    const imageDocument = Boolean(reference_id) || value?.editing === 'read_only';
+    const dirty = value && !imageDocument && draft !== value.text;
     async function ready(response, current) {
       while (response?.ok && response.data?.pending) {
         await new Promise(resolve=>setTimeout(resolve,700));
         if (current !== generation.current) return null;
-        response = await api.invoke("mods.document.view", {name, actor});
+        response = await api.invoke("mods.document.view", selector);
       }
       return response;
     }
@@ -510,7 +516,7 @@ export function createDocumentEditor(React) {
       const current = ++generation.current;
       setLoading(true); setError(null);
       try {
-        const response = await ready(await api.invoke("mods.document.view", {name, actor}), current);
+        const response = await ready(await api.invoke("mods.document.view", selector), current);
         if (current !== generation.current) return;
         if (!response?.ok) { setError(failureOf(response) || {code:"document_unavailable", message:""}); return; }
         setValue(response.data); if(!keepDraft)setDraft(response.data.edit_request&&['queued','selected','needs_follow_up','refused','stale'].includes(response.data.edit_request.status)?response.data.edit_request.text:response.data.text); setClosing(false);
@@ -520,7 +526,7 @@ export function createDocumentEditor(React) {
       finally { if (current === generation.current) setLoading(false); }
     }
     async function persist(action) {
-      if (!value || busy) return;
+      if (!value || imageDocument || busy) return;
       const current = generation.current;
       setBusy(true); setError(null); setNotice("");
       try {
@@ -544,17 +550,17 @@ export function createDocumentEditor(React) {
       if (element?.showModal) element.showModal(); else element?.setAttribute("open", "");
       return () => { generation.current++; if (element?.open && element.close) element.close(); };
     }, []);
-    useEffect(() => { focused.current=false; void load(); return () => {generation.current++;}; }, [api,name,actor]);
+    useEffect(() => { focused.current=false; void load(); return () => {generation.current++;}; }, [api,name,actor,reference_id]);
     useEffect(() => { if (!loading && value && !focused.current) {input.current?.focus();focused.current=true;} }, [loading,value]);
     return h(React.Fragment, null, h("style", null, PAPER_STYLE),
-      h("dialog", {ref:dialog, className:"coc-paper-dialog", "aria-label":value?.display_name || name, lang:value?.play_language || (isRecord(ui) ? text(ui.tag) : ""), "data-renderer":value?.editor?.renderer || "paper",
+      h("dialog", {ref:dialog, className:"coc-paper-dialog", "aria-label":value?.display_name || name, lang:value?.play_language || (isRecord(ui) ? text(ui.tag) : ""), "data-renderer":imageDocument ? "plain" : value?.editor?.renderer || "paper",
         style:value?.texture ? {backgroundImage:`url(${value.texture})`} : undefined,
         onCancel:event=>{event.preventDefault();close();},
         onClick:event=>{if(event.target===event.currentTarget)close();},
         onKeyDown:event=>{if((event.metaKey||event.ctrlKey)&&event.key.toLowerCase()==="s"){event.preventDefault();if(dirty)void persist("save");}}},
         h("div", {className:"coc-paper-shell"},
           h("header", {className:"coc-paper-head"}, h("div", null,
-            h("p", {className:"coc-paper-kicker"}, t("title")), h("h2", null, value?.display_name || name)),
+            h("p", {className:"coc-paper-kicker"}, imageDocument ? t(value?.presentation==='map'?'maps':'images') : t("title")), h("h2", null, value?.display_name || name)),
             h("button", {type:"button",className:"coc-paper-close",disabled:busy,onClick:close}, t("close"))),
           loading && h("p", {className:"coc-paper-message",role:"status"}, t("loading")),
           error && h("p", {className:"coc-paper-message",role:"alert"}, failed(error),
@@ -563,17 +569,25 @@ export function createDocumentEditor(React) {
               h("p", null, error.message)) : null),
           notice && h("p",{className:"coc-paper-message",role:"status"},notice),
           value?.editing==='in_fiction'&&h('p',{className:'coc-paper-message'},t('editHint')),
-          h("textarea", {ref:input, "aria-label":t("body"), value:draft, placeholder:t("empty"), maxLength:64000,
+          imageDocument ? h("div",{className:"coc-image-body"},
+            value && h("img",{src:value.image,alt:value.display_name || name,draggable:false,onError:()=>setError({code:"document_unavailable",message:"Image could not be displayed"})})) : h("textarea", {ref:input, "aria-label":t("body"), value:draft, placeholder:t("empty"), maxLength:64000,
             readOnly:loading||busy||!value, spellCheck:false, onChange:event=>{setDraft(event.target.value);setClosing(false);}}),
           closing && h("div", {className:"coc-paper-message",role:"status"}, t("unsaved"), " ",
             h("button", {type:"button",onClick:onClose}, t("discard")), " ",
             h("button", {type:"button",onClick:()=>setClosing(false)}, t("stay"))),
-          h("footer", {className:"coc-paper-foot"},
+          imageDocument ? h("footer",{className:"coc-paper-foot"},h("span",{className:"coc-paper-status"},t("imageReadOnly"))) : h("footer", {className:"coc-paper-foot"},
             h("div", null, h("button", {type:"button",disabled:loading||busy||!value||(draft===value.original&&value.text===value.original),
               onClick:()=>void persist("reset")}, t("reset")), h("span", {className:"coc-paper-status"}, t("original"))),
             h("div", null, h("span", {className:"coc-paper-status",role:"status"}, loading?t("loading"):busy?t("saving"):dirty?t("dirty"):value?.text!==value?.original?t("altered"):t("clean")),
               h("button", {type:"button",className:"coc-paper-save",disabled:loading||busy||!dirty,onClick:()=>void persist("save")}, value?.editing==='in_fiction'?t('requestSave'):closing?t("saveClose"):t("save")))))));
   };
+}
+
+export function inventoryKind(item, objects = []) {
+  if (isRecord(item) && item.reference_id) return item.presentation === "map" ? "maps" : "images";
+  const name = isRecord(item) ? item.name : item;
+  const document = objects.find(object => object.name === name)?.document;
+  return !document ? "equipment" : document.presentation === "map" ? "maps" : document.presentation === "image" ? "images" : "papers";
 }
 
 export function createComponent(React) {
@@ -739,9 +753,25 @@ export function createComponent(React) {
       return props.empty ? h(Section, { title: props.title, icon: props.icon, anchor: props.anchor }, h("p", { className: "coc-sheet-note" }, props.empty)) : null;
     }
     const {t,term=value=>value}=props;
+    const rows=props.grouped ? ["equipment","papers","maps","images"].flatMap(group=>{
+      const items=list.filter(item=>inventoryKind(item,props.objects)===group);
+      return items.length?[{inventoryGroup:group},...items]:[];
+    }) : list;
     const valueText=value=>typeof value==="boolean"?(value?t("itemYes"):t("itemNo")):Array.isArray(value)?value.map(valueText).join(" / "):term(text(value));
     return h(Section, { title: props.title, icon: props.icon, anchor: props.anchor },
-      h("ul",{className:"coc-inventory"},list.map((item,index)=>{
+      h("ul",{className:"coc-inventory"},rows.map((item,index)=>{
+        if(item?.inventoryGroup)return h("li",{key:`group:${item.inventoryGroup}`,className:"coc-inventory-group"},props.groupLabels[item.inventoryGroup]);
+        if(item?.reference_id) {
+          const label=text(item.label || item.name || item.handout);
+          return h("li",{key:`reference:${item.reference_id}`,className:"coc-inventory-entry","data-reference-id":item.reference_id,"data-reference-status":item.status},
+            h("div",{className:"coc-inventory-heading"},
+              item.status==="ready" ? h("button",{type:"button",className:"coc-inventory-document",onClick:()=>props.onOpenReference(item)},
+                h("span",{className:"coc-inventory-name"},label),h("small",null,props.imageLabel)) :
+                h("span",{className:"coc-inventory-name"},label)),
+            item.status==="queued" ? h("div",{className:"coc-inventory-preparation",role:"status"},
+              h("span",{className:"coc-inventory-wait","aria-hidden":true}),props.preparingLabel) :
+            item.status==="refused" ? h("p",{role:"alert",className:"coc-sheet-note"},props.referenceFailure(item)) : null);
+        }
         const name=isRecord(item)?text(item.name):text(item);
         const object=(props.objects || []).find(row=>row.name===name);
         const preparation=(props.preparation || []).find(row=>row.name===name);
@@ -762,7 +792,7 @@ export function createComponent(React) {
           ? h("button",{type:"button",className:"coc-inventory-document",onClick:event=>{
               // On a folded line the paper's own click must not also toggle the fold.
               event.preventDefault();props.onOpenDocument(writable.name);}},
-              h("span",{className:"coc-inventory-name"},line.title),h("small",null,props.paperLabel))
+              h("span",{className:"coc-inventory-name"},line.title),h("small",null,writable.document.read_only?props.imageLabel:props.paperLabel))
           : h("span",{className:"coc-inventory-name"},line.title);
         const quantity=line.quantity!==undefined?h("span",{className:"coc-inventory-quantity"},fill(t("quantity"),{n:line.quantity})):null;
         const body=[
@@ -915,12 +945,30 @@ export function createComponent(React) {
     useEffect(() => () => clearTimeout(portraitNoteTimer.current), []);
     const [who, setWho] = useState(0);
     const [documentTarget, setDocumentTarget] = useState(null);
+    const [references, setReferences] = useState(null);
+    const selectedActor = answer?.view?.investigators?.[Math.min(who,Math.max(0,(answer?.view?.investigators?.length || 0)-1))]?.id;
+    useEffect(() => {
+      let active=true, timer;
+      const actor=selectedActor,campaign=answer?.campaign;
+      if (!actor || !campaign || !api.invoke) {setReferences(null);return;}
+      async function read() {
+        try {
+          const response=await api.invoke("mods.document.references",{actor});
+          if (!active) return;
+          const rows=response?.ok && Array.isArray(response.data?.references) ? response.data.references : [];
+          setReferences({actor,campaign,rows,error:response?.ok?null:failureOf(response)});
+          if(rows.some(item=>item.status==="queued"))timer=setTimeout(()=>void read(),700);
+        } catch(error) {if(active)setReferences({actor,campaign,rows:[],error});}
+      }
+      void read();
+      return () => {active=false;clearTimeout(timer);};
+    },[api,selectedActor,answer]);
     // The jump rail's chips are read off the rendered sheet, never computed from the data: a
     // section that chose not to render has no chip, so the rail can never point at nothing.
     const sheetRoot = useRef(null);
     const identityArt = useRef(null);
     const [railAnchors, setRailAnchors] = useState([]);
-    useEffect(()=>setDocumentTarget(null),[api]);
+    useEffect(()=>setDocumentTarget(null),[api,who]);
     useEffect(()=>{if(answer?.campaign&&documentTarget&&answer.campaign!==documentTarget.campaign)setDocumentTarget(null);},[answer?.campaign]);
     // The words of the last answer that actually arrived, kept so the chrome of a failure this
     // panel raised itself stays in the language the player was reading a moment ago.
@@ -1042,6 +1090,8 @@ export function createComponent(React) {
     const view = isRecord(answer.view) ? answer.view : null;
     const party = view && Array.isArray(view.investigators) ? view.investigators.filter(isRecord) : [];
     const sheet = party[Math.min(who, Math.max(0, party.length - 1))] || null;
+    const ownedReferences=references?.actor===sheet?.id && references?.campaign===answer.campaign ? references.rows.filter(item=>
+      isRecord(item)&&item.actor_id===sheet.id&&typeof item.id==="string"&&["map","image"].includes(item.presentation)&&["queued","ready","refused"].includes(item.status)) : [];
     // The play language's word for a rules term, straight from the rules data (§16.5). No table here.
     const glossary = view && isRecord(view.labels) ? view.labels : {};
     const term = (name) => (typeof glossary[name] === "string" && glossary[name]) || name;
@@ -1170,12 +1220,23 @@ export function createComponent(React) {
         view.presentation_status==="failed"?h("button",{type:"button",onClick:()=>{void load(true);}},t("retry")):null) :
       // Explicit weapons appear once under weapons. An ordinary object keeps its inventory identity;
       // its applicable attack usages are details of that object, not a reason to move it.
-      sheet ? h(ItemSection, { title: t("equipment"), icon: "backpack", anchor: "equipment", list: (sheet.equipment || []).filter(item => !view.finance_equipment?.includes(item)
-        && !(item && item.object_id && !(sheet.objects || []).some(object=>object.name===item.name&&object.category==="item") && (sheet.weapons || []).some(weapon => weapon && weapon.object_id === item.object_id))), objects:(sheet.objects || []).filter(item=>item.category!=="weapon"), empty: t("noEquipment"), t, term,
-        documents:sheet.objects, insideLabel:word(ui,"paper","inside"), paperLabel:word(ui,"paper","open"),
-        preparation:sheet.equipment_preparation,preparingLabel:word(ui,"mechanics","preparing",t("loading")),
-        onRetry:name=>{void api.invoke("mods.equipment.retry",{name,actor:sheet.id}).then(()=>load()).catch(()=>load());},
-        onOpenDocument:name=>setDocumentTarget({name,actor:sheet.id,campaign:answer.campaign}) }) : null,
+      sheet ? (()=>{
+        const objects=sheet.objects || [];
+        const equipment=(sheet.equipment || []).filter(item=>!view.finance_equipment?.includes(item)
+          && !(item && item.object_id && !objects.some(object=>object.name===item.name&&object.category==="item") && (sheet.weapons || []).some(weapon=>weapon && weapon.object_id===item.object_id)));
+        const nested=objects.filter(item=>item.document && item.container && !equipment.some(row=>(isRecord(row)?row.name:row)===item.name));
+        return h(React.Fragment,null,h(ItemSection,{title:t('equipment'),icon:'backpack',anchor:'equipment',grouped:true,
+          groupLabels:{equipment:t('equipment'),papers:word(ui,'paper','papers'),maps:word(ui,'paper','maps'),images:word(ui,'paper','images')},
+          list:[...equipment,...nested,...ownedReferences.map(item=>({...item,reference_id:item.id}))],objects:objects.filter(item=>item.category!=="weapon"),empty:t('noEquipment'),t,term,
+          documents:objects,insideLabel:word(ui,'paper','inside'),paperLabel:word(ui,'paper','open'),imageLabel:word(ui,'paper','openImage'),
+          preparation:sheet.equipment_preparation,preparingLabel:word(ui,'mechanics','preparing',t('loading')),
+          referenceFailure:item=>word(ui,'errors',text(item.error?.code),word(ui,'errors','unknown')),
+          onOpenReference:item=>setDocumentTarget({name:item.label || item.name || item.handout,reference_id:item.reference_id,actor:sheet.id,campaign:answer.campaign}),
+          onRetry:name=>{void api.invoke('mods.equipment.retry',{name,actor:sheet.id}).then(()=>load()).catch(()=>load());},
+          onOpenDocument:name=>setDocumentTarget({name,actor:sheet.id,campaign:answer.campaign})}),
+          references?.actor===sheet.id && references?.campaign===answer.campaign && references.error ?
+            h("p",{role:"alert",className:"coc-sheet-note"},word(ui,"errors",text(references.error.code),word(ui,"errors","unknown"))) : null);
+      })() : null,
       sheet ? h(Finance, { sheet, t, term }) : null,
       sheet ? h(Background, { sheet, term, t }) : null,
 

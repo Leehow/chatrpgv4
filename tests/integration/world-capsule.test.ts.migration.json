@@ -1,0 +1,38 @@
+{
+  "source": "tests/kernel/test_capsule.py",
+  "tests": [
+    {
+      "name": "test_player_input_capsule_has_all_sections",
+      "parameters": null
+    },
+    {
+      "name": "test_the_appearance_the_player_wrote_reaches_the_keeper_bounded",
+      "parameters": null
+    },
+    {
+      "name": "test_look_focus_variants",
+      "parameters": null
+    },
+    {
+      "name": "test_lookup_module_and_secret",
+      "parameters": null
+    },
+    {
+      "name": "test_lookup_module_takes_exact_handles_and_a_starter_reads_only_the_book_it_has",
+      "parameters": null
+    },
+    {
+      "name": "test_recall_transcript",
+      "parameters": null
+    },
+    {
+      "name": "test_capsule_is_kept_with_the_turn_cursor_and_the_closed_record",
+      "parameters": null
+    },
+    {
+      "name": "test_an_affordance_row_carries_what_it_yields_and_its_gate",
+      "parameters": null
+    }
+  ],
+  "unsupported": []
+}

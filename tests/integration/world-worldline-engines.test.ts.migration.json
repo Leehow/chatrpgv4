@@ -1,0 +1,28 @@
+{
+  "source": "tests/kernel/test_worldline_engines.py",
+  "tests": [
+    {
+      "name": "test_a_line_whose_investigator_went_mad_does_not_merge_away_in_silence",
+      "parameters": null
+    },
+    {
+      "name": "test_the_madness_lands_on_disk_when_the_keeper_takes_the_line_that_holds_it",
+      "parameters": null
+    },
+    {
+      "name": "test_taking_the_line_that_kept_its_mind_removes_the_other_line_s_snapshot",
+      "parameters": null
+    },
+    {
+      "name": "test_a_tick_only_one_line_earned_is_a_disagreement_no_sheet_can_show",
+      "parameters": null
+    },
+    {
+      "name": "test_luck_is_still_a_numeric_conflict_because_no_engine_keeps_it",
+      "parameters": null
+    }
+  ],
+  "unsupported": [
+    "import typing: Any"
+  ]
+}

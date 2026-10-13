@@ -1,0 +1,1934 @@
+{
+  "version": 1,
+  "fastFiles": [
+    "tests/extension/chargen-direct.test.mjs",
+    "tests/extension/creation-difficulty-direct.test.mjs",
+    "tests/extension/mechanics-identity-direct.test.mjs",
+    "tests/extension/rules-bands-direct.test.mjs",
+    "tests/extension/sanity-day-direct.test.mjs",
+    "tests/extension/resource-settlement.test.mjs",
+    "tests/extension/test-tiers.test.mjs",
+    "tests/extension/control-flow-inventory.test.mjs",
+    "tests/extension/ts-kernel-foundation.test.mjs"
+  ],
+  "groups": [
+    {
+      "source": "tests/kernel/test_apply_time_healing.py",
+      "sha256": "2b68e73a13bbce97a8e909653def0308148f30945da7ac17b2201024498c9c5f",
+      "direct": "tests/extension/resource-settlement.test.mjs",
+      "originalKind": "rpc",
+      "cases": [
+        {
+          "name": "test_a_day_of_rest_is_one_hit_point_not_three",
+          "line": 48,
+          "assertions": [
+            {
+              "line": 51,
+              "expression": "hp(kernel) == 8 and \"major_wound\" not in sheet(kernel)[\"conditions\"]"
+            },
+            {
+              "line": 53,
+              "expression": "hp(kernel) == 9"
+            },
+            {
+              "line": 54,
+              "expression": "hp_rows(rested) == [{\"investigator\": INVESTIGATOR, \"resource\": \"hp\", \"before\": 8, \"after\": 9}]"
+            },
+            {
+              "line": 55,
+              "expression": "any(r.startswith(\"delta:hp-t1\") for r in rested[\"receipts\"])"
+            }
+          ],
+          "raises": [],
+          "parameters": []
+        },
+        {
+          "name": "test_the_day_turns_at_twenty_four_hours",
+          "line": 58,
+          "assertions": [
+            {
+              "line": 64,
+              "expression": "hp(kernel) == 9"
+            },
+            {
+              "line": 66,
+              "expression": "hp(kernel) == 11"
+            }
+          ],
+          "raises": [],
+          "parameters": []
+        },
+        {
+          "name": "test_a_week_of_rest_is_seven_hit_points",
+          "line": 69,
+          "assertions": [
+            {
+              "line": 73,
+              "expression": "hp(kernel) == 2 and \"major_wound\" not in sheet(kernel)[\"conditions\"]"
+            },
+            {
+              "line": 75,
+              "expression": "hp(kernel) == 9"
+            },
+            {
+              "line": 76,
+              "expression": "hp_rows(rested) == [{\"investigator\": INVESTIGATOR, \"resource\": \"hp\", \"before\": 2, \"after\": 9}]"
+            }
+          ],
+          "raises": [],
+          "parameters": []
+        },
+        {
+          "name": "test_a_month_of_rest_is_as_long_as_the_month",
+          "line": 79,
+          "assertions": [
+            {
+              "line": 85,
+              "expression": "hp(kernel) == 12"
+            },
+            {
+              "line": 86,
+              "expression": "hp_rows(rested) == [{\"investigator\": INVESTIGATOR, \"resource\": \"hp\", \"before\": 2, \"after\": 12}]"
+            }
+          ],
+          "raises": [],
+          "parameters": []
+        },
+        {
+          "name": "test_a_major_wound_gets_no_weekly_roll_from_two_days_and_a_third",
+          "line": 89,
+          "assertions": [
+            {
+              "line": 97,
+              "expression": "hp(kernel) == 4 and \"major_wound\" in sheet(kernel)[\"conditions\"]"
+            },
+            {
+              "line": 99,
+              "expression": "\"recovered\" not in rested"
+            },
+            {
+              "line": 100,
+              "expression": "not [r for r in rested[\"receipts\"] if r.startswith(\"delta:hp\")]"
+            },
+            {
+              "line": 101,
+              "expression": "hp(kernel) == 4"
+            },
+            {
+              "line": 102,
+              "expression": "\"major_wound\" in sheet(kernel)[\"conditions\"]"
+            }
+          ],
+          "raises": [],
+          "parameters": []
+        },
+        {
+          "name": "test_three_weeks_with_a_major_wound_roll_three_times",
+          "line": 115,
+          "assertions": [
+            {
+              "line": 128,
+              "expression": "hp(one_week) > 1"
+            },
+            {
+              "line": 129,
+              "expression": "hp(three_weeks) > hp(one_week)"
+            },
+            {
+              "line": 130,
+              "expression": "hp_rows(rested) == [{\"investigator\": INVESTIGATOR, \"resource\": \"hp\", \"before\": 1, \"after\": hp(three_weeks)}]"
+            },
+            {
+              "line": 125,
+              "expression": "hp(table) == 1 and \"major_wound\" in sheet(table)[\"conditions\"]"
+            }
+          ],
+          "raises": [],
+          "parameters": []
+        },
+        {
+          "name": "test_healing_clears_the_sheet_and_a_healed_wound_does_not_come_back",
+          "line": 133,
+          "assertions": [
+            {
+              "line": 148,
+              "expression": "hp(kernel) == 4 and \"major_wound\" in sheet(kernel)[\"conditions\"]"
+            },
+            {
+              "line": 151,
+              "expression": "hp(kernel) == 12"
+            },
+            {
+              "line": 155,
+              "expression": "sheet(kernel)[\"conditions\"] == []"
+            },
+            {
+              "line": 160,
+              "expression": "hp(kernel) == 10"
+            },
+            {
+              "line": 161,
+              "expression": "\"major_wound\" not in sheet(kernel)[\"conditions\"]"
+            }
+          ],
+          "raises": [],
+          "parameters": []
+        }
+      ],
+      "retainedOnly": []
+    },
+    {
+      "source": "tests/kernel/test_apply_time_mp.py",
+      "sha256": "95051a2d1971e05231fe39d68a3b4dcee70518f863b119335a2026efa6974971",
+      "direct": "tests/extension/resource-settlement.test.mjs",
+      "originalKind": "rpc",
+      "cases": [
+        {
+          "name": "test_apply_time_five_minutes_leaves_mp_untouched",
+          "line": 50,
+          "assertions": [
+            {
+              "line": 68,
+              "expression": "\"recovered\" not in result"
+            },
+            {
+              "line": 69,
+              "expression": "read_json(_sheet_path(kernel))[\"current_mp\"] == 3"
+            }
+          ],
+          "raises": [],
+          "parameters": []
+        },
+        {
+          "name": "test_apply_time_sixty_minutes_grants_exactly_one_point",
+          "line": 72,
+          "assertions": [
+            {
+              "line": 84,
+              "expression": "regained and regained[0][\"before\"] == 0 and regained[0][\"after\"] == 1"
+            },
+            {
+              "line": 85,
+              "expression": "read_json(_sheet_path(kernel))[\"current_mp\"] == 1"
+            }
+          ],
+          "raises": [],
+          "parameters": []
+        },
+        {
+          "name": "test_apply_time_ninety_minutes_grants_one_point_not_a_rounded_two",
+          "line": 88,
+          "assertions": [
+            {
+              "line": 105,
+              "expression": "regained and regained[0][\"before\"] == 0 and regained[0][\"after\"] == 1"
+            },
+            {
+              "line": 106,
+              "expression": "read_json(_sheet_path(kernel))[\"current_mp\"] == 1"
+            }
+          ],
+          "raises": [],
+          "parameters": []
+        },
+        {
+          "name": "test_apply_time_two_separate_thirty_minute_advances_do_not_yet_accumulate",
+          "line": 109,
+          "assertions": [
+            {
+              "line": 132,
+              "expression": "\"recovered\" not in first"
+            },
+            {
+              "line": 134,
+              "expression": "\"recovered\" not in second"
+            },
+            {
+              "line": 135,
+              "expression": "read_json(_sheet_path(kernel))[\"current_mp\"] == 0"
+            }
+          ],
+          "raises": [],
+          "parameters": []
+        },
+        {
+          "name": "test_apply_time_long_rest_never_exceeds_the_pow_over_five_ceiling",
+          "line": 138,
+          "assertions": [
+            {
+              "line": 150,
+              "expression": "regained and regained[0][\"before\"] == 9 and regained[0][\"after\"] == 11"
+            },
+            {
+              "line": 151,
+              "expression": "read_json(_sheet_path(kernel))[\"current_mp\"] == 11"
+            }
+          ],
+          "raises": [],
+          "parameters": []
+        }
+      ],
+      "retainedOnly": []
+    },
+    {
+      "source": "tests/kernel/test_chargen.py",
+      "sha256": "ee57070e85c3c4fe59aed9f7dfe1863220197efc164264f8caa41d9250ee3cfd",
+      "direct": "tests/extension/chargen-direct.test.mjs",
+      "originalKind": "mixed",
+      "cases": [
+        {
+          "name": "test_derive_values_match_the_rulebook_cases",
+          "line": 41,
+          "assertions": [
+            {
+              "line": 43,
+              "expression": "derived == {\"HP\": 12, \"SAN\": 60, \"MP\": 12, \"MOV\": 7, \"DB\": \"+1D4\", \"BUILD\": 1}"
+            }
+          ],
+          "raises": [],
+          "parameters": []
+        },
+        {
+          "name": "test_movement_rate_applies_the_age_penalty",
+          "line": 46,
+          "assertions": [
+            {
+              "line": 48,
+              "expression": "chargen.derive(fast, 50, 0)[\"values\"][\"MOV\"] == 9"
+            },
+            {
+              "line": 49,
+              "expression": "chargen.derive(fast, 50, 1)[\"values\"][\"MOV\"] == 8"
+            }
+          ],
+          "raises": [],
+          "parameters": []
+        },
+        {
+          "name": "test_every_derived_number_names_its_table",
+          "line": 52,
+          "assertions": [
+            {
+              "line": 54,
+              "expression": "trace[\"HP\"].startswith(\"derived-attributes.hit_points\")"
+            },
+            {
+              "line": 55,
+              "expression": "trace[\"MP\"].startswith(\"derived-attributes.magic_points\")"
+            },
+            {
+              "line": 56,
+              "expression": "trace[\"SAN\"].startswith(\"derived-attributes.sanity\")"
+            },
+            {
+              "line": 57,
+              "expression": "trace[\"DB\"].startswith(\"damage-bonus-build\") and trace[\"BUILD\"].startswith(\"damage-bonus-build\")"
+            },
+            {
+              "line": 58,
+              "expression": "trace[\"MOV\"].startswith(\"movement-rate\")"
+            }
+          ],
+          "raises": [],
+          "parameters": []
+        },
+        {
+          "name": "test_age_bracket_20_39_only_runs_one_edu_check",
+          "line": 63,
+          "assertions": [
+            {
+              "line": 66,
+              "expression": "trace[\"bracket\"] == \"20-39\""
+            },
+            {
+              "line": 67,
+              "expression": "trace[\"edu_reduction\"] == 0 and trace[\"app_reduction\"] == 0"
+            },
+            {
+              "line": 68,
+              "expression": "trace[\"characteristic_reductions\"] == []"
+            },
+            {
+              "line": 69,
+              "expression": "len(trace[\"edu_improvement_checks\"]) == 1"
+            },
+            {
+              "line": 76,
+              "expression": "trace[\"mov_penalty\"] == 0 and trace[\"luck_rolls_keep_highest\"] == 1"
+            },
+            {
+              "line": 72,
+              "expression": "1 <= check[\"improvement\"] <= 10"
+            },
+            {
+              "line": 73,
+              "expression": "aged[\"values\"][\"EDU\"] == min(99, BASE[\"EDU\"] + check[\"improvement\"])"
+            },
+            {
+              "line": 75,
+              "expression": "aged[\"values\"][\"EDU\"] == BASE[\"EDU\"]"
+            }
+          ],
+          "raises": [],
+          "parameters": []
+        },
+        {
+          "name": "test_age_bracket_40_49_spreads_the_reduction_over_the_listed_choices",
+          "line": 79,
+          "assertions": [
+            {
+              "line": 82,
+              "expression": "trace[\"bracket\"] == \"40-49\""
+            },
+            {
+              "line": 83,
+              "expression": "aged[\"values\"][\"APP\"] == BASE[\"APP\"] - 5"
+            },
+            {
+              "line": 84,
+              "expression": "[r[\"characteristic\"] for r in trace[\"characteristic_reductions\"]] == [\"STR\", \"CON\", \"DEX\"]"
+            },
+            {
+              "line": 85,
+              "expression": "sum(r[\"amount\"] for r in trace[\"characteristic_reductions\"]) == 5"
+            },
+            {
+              "line": 86,
+              "expression": "aged[\"values\"][\"STR\"] + aged[\"values\"][\"CON\"] + aged[\"values\"][\"DEX\"] == BASE[\"STR\"] + BASE[\"CON\"] + BASE[\"DEX\"] - 5"
+            },
+            {
+              "line": 87,
+              "expression": "len(trace[\"edu_improvement_checks\"]) == 2"
+            },
+            {
+              "line": 88,
+              "expression": "trace[\"mov_penalty\"] == 1"
+            }
+          ],
+          "raises": [],
+          "parameters": []
+        },
+        {
+          "name": "test_teens_lose_edu_and_roll_luck_twice",
+          "line": 91,
+          "assertions": [
+            {
+              "line": 93,
+              "expression": "aged[\"values\"][\"EDU\"] == BASE[\"EDU\"] - 5"
+            },
+            {
+              "line": 94,
+              "expression": "aged[\"trace\"][\"luck_rolls_keep_highest\"] == 2"
+            },
+            {
+              "line": 96,
+              "expression": "len(luck[\"attempts\"]) == 2"
+            },
+            {
+              "line": 97,
+              "expression": "luck[\"value\"] == max(a[\"total\"] for a in luck[\"attempts\"]) * 5"
+            }
+          ],
+          "raises": [],
+          "parameters": []
+        },
+        {
+          "name": "test_age_outside_the_table_is_refused",
+          "line": 100,
+          "assertions": [
+            {
+              "line": 103,
+              "expression": "excinfo.value.stage == \"age\""
+            }
+          ],
+          "raises": [
+            {
+              "line": 101,
+              "expression": "pytest.raises(ChargenError)"
+            },
+            {
+              "line": 104,
+              "expression": "pytest.raises(ChargenError)"
+            }
+          ],
+          "parameters": []
+        },
+        {
+          "name": "test_quick_fire_uses_the_data_array_and_leads_with_the_formula",
+          "line": 110,
+          "assertions": [
+            {
+              "line": 114,
+              "expression": "generated[\"array\"] == array"
+            },
+            {
+              "line": 115,
+              "expression": "generated[\"assignment_order\"][0] == \"EDU\""
+            },
+            {
+              "line": 116,
+              "expression": "sorted(generated[\"values\"].values()) == sorted(array)"
+            },
+            {
+              "line": 117,
+              "expression": "generated[\"values\"][\"EDU\"] == array[0]"
+            }
+          ],
+          "raises": [],
+          "parameters": []
+        },
+        {
+          "name": "test_rolled_uses_each_characteristic_dice_times_the_multiplier",
+          "line": 120,
+          "assertions": [
+            {
+              "line": 125,
+              "expression": "roll[\"dice\"] == dice[abbr][\"dice\"].upper()"
+            },
+            {
+              "line": 126,
+              "expression": "roll[\"total\"] == sum(roll[\"faces\"]) + (6 if roll[\"dice\"].endswith(\"+6\") else 0)"
+            },
+            {
+              "line": 127,
+              "expression": "sheet[\"creation\"][\"characteristics\"][\"values\"][abbr] == roll[\"total\"] * 5"
+            }
+          ],
+          "raises": [],
+          "parameters": []
+        },
+        {
+          "name": "test_same_seed_same_sheet_different_seed_different_rolls",
+          "line": 130,
+          "assertions": [
+            {
+              "line": 134,
+              "expression": "one == two"
+            },
+            {
+              "line": 135,
+              "expression": "three[\"characteristics\"] != one[\"characteristics\"]"
+            }
+          ],
+          "raises": [],
+          "parameters": []
+        },
+        {
+          "name": "test_formula_parser_takes_the_richest_alternative_and_says_which",
+          "line": 140,
+          "assertions": [
+            {
+              "line": 142,
+              "expression": "parsed[\"base\"] == [(\"EDU\", 2)] and len(parsed[\"alternatives\"]) == 3"
+            },
+            {
+              "line": 144,
+              "expression": "value[\"total\"] == 120 + 140 and value[\"alternative\"] == [\"DEX*2\"]"
+            },
+            {
+              "line": 146,
+              "expression": "plain[\"total\"] == 260 and plain[\"alternative\"] is None"
+            }
+          ],
+          "raises": [
+            {
+              "line": 147,
+              "expression": "pytest.raises(ChargenError)"
+            }
+          ],
+          "parameters": []
+        },
+        {
+          "name": "test_occupation_points_follow_the_formula_and_credit_rating_the_range",
+          "line": 153,
+          "assertions": [
+            {
+              "line": 160,
+              "expression": "occ[\"budget\"][\"total\"] == expected"
+            },
+            {
+              "line": 161,
+              "expression": "sheet[\"credit_rating\"] == spec[\"credit_rating_range\"][0] == sheet[\"skills\"][\"Credit Rating\"]"
+            },
+            {
+              "line": 162,
+              "expression": "occ[\"points\"] == expected - sheet[\"credit_rating\"]"
+            },
+            {
+              "line": 163,
+              "expression": "occ[\"spent\"] + occ[\"unspent\"] == occ[\"points\"]"
+            },
+            {
+              "line": 164,
+              "expression": "set(occ[\"allocations\"]) <= set(occ[\"resolved\"])"
+            },
+            {
+              "line": 166,
+              "expression": "\"any one other skill\" in occ[\"choices_pending\"]"
+            },
+            {
+              "line": 167,
+              "expression": "receipt[\"choices_pending\"] == occ[\"choices_pending\"]"
+            }
+          ],
+          "raises": [],
+          "parameters": []
+        },
+        {
+          "name": "test_spread_reserves_the_entries_it_cannot_name_instead_of_maxing_four_skills",
+          "line": 170,
+          "assertions": [
+            {
+              "line": 178,
+              "expression": "occ[\"allocation\"] == \"spread\" == receipt[\"allocation\"] == POLICY[\"allocation\"][\"default\"]"
+            },
+            {
+              "line": 179,
+              "expression": "sheet[\"creation\"][\"allocation\"] == {\"policy\": \"spread\", \"tiers\": tiers, \"source\": \"steps.json create-investigator.allocation\"}"
+            },
+            {
+              "line": 180,
+              "expression": "set(occ[\"allocations\"]) == set(occ[\"resolved\"]) and len(occ[\"resolved\"]) == 4"
+            },
+            {
+              "line": 182,
+              "expression": "{sheet[\"skills\"][s] for s in occ[\"resolved\"]} == {tiers[0]}"
+            },
+            {
+              "line": 183,
+              "expression": "[r[\"for\"] for r in occ[\"reserved\"]] == occ[\"choices_pending\"]"
+            },
+            {
+              "line": 184,
+              "expression": "all(0 < r[\"points\"] <= tiers[0] for r in occ[\"reserved\"])"
+            },
+            {
+              "line": 185,
+              "expression": "receipt[\"occupation_reserved\"] == sum(r[\"points\"] for r in occ[\"reserved\"]) <= occ[\"unspent\"]"
+            },
+            {
+              "line": 186,
+              "expression": "occ[\"spent\"] + occ[\"unspent\"] == occ[\"points\"]"
+            },
+            {
+              "line": 190,
+              "expression": "filled_occ[\"allocation\"] == \"fill\" and filled[\"creation\"][\"allocation\"][\"policy\"] == \"fill\""
+            },
+            {
+              "line": 191,
+              "expression": "{filled[\"skills\"][s] for s in filled_occ[\"resolved\"]} == {chargen.cap}"
+            },
+            {
+              "line": 192,
+              "expression": "filled_occ[\"reserved\"] == [] and filled_receipt[\"occupation_reserved\"] == 0"
+            },
+            {
+              "line": 193,
+              "expression": "filled_occ[\"points\"] == occ[\"points\"]"
+            }
+          ],
+          "raises": [],
+          "parameters": []
+        },
+        {
+          "name": "test_spread_walks_the_list_tier_by_tier_and_the_tiers_come_from_the_table",
+          "line": 196,
+          "assertions": [
+            {
+              "line": 201,
+              "expression": "allocations == {\"A\": 60, \"B\": 50, \"C\": 20}"
+            },
+            {
+              "line": 202,
+              "expression": "reserved == [{\"for\": \"any one other skill\", \"points\": 70}]"
+            },
+            {
+              "line": 203,
+              "expression": "sum(allocations.values()) + sum(r[\"points\"] for r in reserved) == 200"
+            },
+            {
+              "line": 206,
+              "expression": "allocations == {\"A\": 65, \"B\": 45, \"C\": 30} and reserved == [{\"for\": \"any one other skill\", \"points\": 60}]"
+            },
+            {
+              "line": 209,
+              "expression": "allocations == {\"A\": 65, \"B\": 55, \"C\": 5} and reserved == [{\"for\": \"any one other skill\", \"points\": 75}]"
+            },
+            {
+              "line": 212,
+              "expression": "allocations == {\"A\": 65} and reserved == []"
+            },
+            {
+              "line": 214,
+              "expression": "Chargen.allocate([\"A\", \"B\", \"C\"], 9, dict(values), 75) == {\"A\": 3, \"B\": 3, \"C\": 3}"
+            }
+          ],
+          "raises": [],
+          "parameters": []
+        },
+        {
+          "name": "test_the_default_policy_is_read_from_the_table_and_unknown_policies_are_refused",
+          "line": 217,
+          "assertions": [
+            {
+              "line": 220,
+              "expression": "sheet[\"creation\"][\"allocation\"][\"policy\"] == \"fill\" and sheet[\"creation\"][\"skills\"][\"occupation\"][\"reserved\"] == []"
+            },
+            {
+              "line": 223,
+              "expression": "refused.value.stage == \"allocation\" and refused.value.expected[\"options\"] == [\"spread\", \"fill\"]"
+            },
+            {
+              "line": 224,
+              "expression": "refused.value.expected[\"default\"] == POLICY[\"allocation\"][\"default\"]"
+            }
+          ],
+          "raises": [
+            {
+              "line": 221,
+              "expression": "pytest.raises(ChargenError)"
+            }
+          ],
+          "parameters": []
+        },
+        {
+          "name": "test_skill_values_are_base_plus_points_and_never_above_the_cap",
+          "line": 227,
+          "assertions": [
+            {
+              "line": 242,
+              "expression": "value == base + points"
+            },
+            {
+              "line": 243,
+              "expression": "points == 0 or value <= cap"
+            }
+          ],
+          "raises": [],
+          "parameters": []
+        },
+        {
+          "name": "test_interest_points_are_int_times_two_over_the_standard_sheet",
+          "line": 246,
+          "assertions": [
+            {
+              "line": 249,
+              "expression": "interest[\"budget\"][\"formula\"] == POLICY[\"formulas\"][\"personal_interest_points\"]"
+            },
+            {
+              "line": 250,
+              "expression": "interest[\"budget\"][\"total\"] == sheet[\"characteristics\"][\"INT\"] * 2"
+            },
+            {
+              "line": 253,
+              "expression": "set(interest[\"pool\"]) == set(standard) - resolved - set(POLICY[\"interest_pool\"][\"exclude\"])"
+            },
+            {
+              "line": 254,
+              "expression": "set(interest[\"allocations\"]) <= set(interest[\"pool\"])"
+            },
+            {
+              "line": 255,
+              "expression": "sheet[\"skills\"][\"Cthulhu Mythos\"] == 0"
+            },
+            {
+              "line": 256,
+              "expression": "interest[\"spent\"] + interest[\"unspent\"] == interest[\"budget\"][\"total\"]"
+            }
+          ],
+          "raises": [],
+          "parameters": []
+        },
+        {
+          "name": "test_finance_comes_from_the_era_tier_or_is_declared_unavailable",
+          "line": 259,
+          "assertions": [
+            {
+              "line": 262,
+              "expression": "finance[\"credit_rating\"] == sheet[\"credit_rating\"] and finance[\"period\"] == \"1920s\""
+            },
+            {
+              "line": 263,
+              "expression": "sheet[\"cash\"] == f\"{finance['cash']['amount']} {finance['cash']['currency']}\""
+            },
+            {
+              "line": 264,
+              "expression": "receipt[\"finance_available\"] is True"
+            },
+            {
+              "line": 266,
+              "expression": "ww1[\"finance\"] is None and ww1[\"cash\"] is None"
+            },
+            {
+              "line": 267,
+              "expression": "ww1[\"creation\"][\"finance\"][\"available\"] is False and \"ww1\" in ww1[\"creation\"][\"finance\"][\"reason\"]"
+            },
+            {
+              "line": 268,
+              "expression": "receipt[\"finance_available\"] is False"
+            },
+            {
+              "line": 270,
+              "expression": "ww1[\"creation\"][\"skills\"][\"standard_sheet\"] is None"
+            },
+            {
+              "line": 271,
+              "expression": "ww1[\"creation\"][\"skills\"][\"interest\"][\"unspent\"] == ww1[\"characteristics\"][\"INT\"] * 2"
+            }
+          ],
+          "raises": [],
+          "parameters": []
+        },
+        {
+          "name": "test_equipment_is_not_invented",
+          "line": 274,
+          "assertions": [
+            {
+              "line": 276,
+              "expression": "sheet[\"equipment\"] == [] and sheet[\"weapons\"] == []"
+            },
+            {
+              "line": 277,
+              "expression": "sheet[\"creation\"][\"equipment\"][\"source\"] is None"
+            }
+          ],
+          "raises": [],
+          "parameters": []
+        },
+        {
+          "name": "test_unknown_occupation_and_method_are_refused",
+          "line": 280,
+          "assertions": [
+            {
+              "line": 283,
+              "expression": "excinfo.value.stage == \"occupation\" and \"Journalist\" in excinfo.value.expected[\"options\"]"
+            },
+            {
+              "line": 286,
+              "expression": "excinfo.value.stage == \"method\""
+            }
+          ],
+          "raises": [
+            {
+              "line": 281,
+              "expression": "pytest.raises(ChargenError)"
+            },
+            {
+              "line": 284,
+              "expression": "pytest.raises(ChargenError)"
+            }
+          ],
+          "parameters": []
+        },
+        {
+          "name": "test_sheet_has_the_pregen_shape",
+          "line": 289,
+          "assertions": [
+            {
+              "line": 295,
+              "expression": "set(sheet[\"characteristics\"]) == set(pregen[\"characteristics\"])"
+            },
+            {
+              "line": 296,
+              "expression": "set(sheet[\"derived\"]) == set(pregen[\"derived\"])"
+            },
+            {
+              "line": 294,
+              "expression": "key in sheet"
+            }
+          ],
+          "raises": [],
+          "parameters": []
+        },
+        {
+          "name": "test_default_investigator_id_slugs_latin_names_and_numbers_the_rest",
+          "line": 299,
+          "assertions": [
+            {
+              "line": 300,
+              "expression": "default_investigator_id(\"Ada Lovelace\", 1) == \"ada-lovelace\""
+            },
+            {
+              "line": 301,
+              "expression": "default_investigator_id(\"\u6258\u9a6c\u65af\u00b7\u6d77\u65af\", 2) == \"inv-2\""
+            }
+          ],
+          "raises": [],
+          "parameters": []
+        },
+        {
+          "name": "test_dice_pools_group_the_characteristics_by_their_own_expression",
+          "line": 338,
+          "assertions": [
+            {
+              "line": 339,
+              "expression": "chargen.dice_pools() == [(\"3D6\", [\"STR\", \"CON\", \"DEX\", \"APP\", \"POW\"]), (\"2D6+6\", [\"SIZ\", \"INT\", \"EDU\"])]"
+            }
+          ],
+          "raises": [],
+          "parameters": []
+        },
+        {
+          "name": "test_an_aptitude_permutes_the_same_rolls_inside_each_pool",
+          "line": 343,
+          "assertions": [
+            {
+              "line": 346,
+              "expression": "stated[\"method\"] == \"rolled_pool_assignment\""
+            },
+            {
+              "line": 347,
+              "expression": "stated[\"multiplier\"] == plain[\"multiplier\"]"
+            },
+            {
+              "line": 350,
+              "expression": "stated[\"values\"][\"STR\"] == max(plain[\"values\"][a] for a in pools(chargen)[0])"
+            },
+            {
+              "line": 351,
+              "expression": "stated[\"values\"][\"INT\"] == min(plain[\"values\"][a] for a in pools(chargen)[1])"
+            },
+            {
+              "line": 349,
+              "expression": "sorted(plain[\"values\"][a] for a in pool) == sorted(stated[\"values\"][a] for a in pool)"
+            }
+          ],
+          "raises": [],
+          "parameters": [
+            "pytest.mark.parametrize(\"seed\", APTITUDE_SEEDS)"
+          ]
+        },
+        {
+          "name": "test_each_characteristic_reports_the_dice_that_actually_made_its_value",
+          "line": 355,
+          "assertions": [
+            {
+              "line": 361,
+              "expression": "moved <= set(pools(chargen)[0])"
+            },
+            {
+              "line": 362,
+              "expression": "{row[\"characteristic\"] for row in stated[\"assignment\"] if row[\"direction\"]} == {\"STR\", \"CON\", \"APP\"}"
+            },
+            {
+              "line": 358,
+              "expression": "sum(roll[\"faces\"]) + (6 if roll[\"dice\"] == \"2D6+6\" else 0) == roll[\"total\"]"
+            },
+            {
+              "line": 359,
+              "expression": "roll[\"total\"] * stated[\"multiplier\"] == stated[\"values\"][abbr]"
+            }
+          ],
+          "raises": [],
+          "parameters": [
+            "pytest.mark.parametrize(\"seed\", APTITUDE_SEEDS)"
+          ]
+        },
+        {
+          "name": "test_only_the_named_characteristic_and_the_slot_it_took_from_move",
+          "line": 366,
+          "assertions": [
+            {
+              "line": 373,
+              "expression": "stated[\"values\"][abbr] == plain[\"values\"][abbr]"
+            }
+          ],
+          "raises": [],
+          "parameters": [
+            "pytest.mark.parametrize(\"seed\", APTITUDE_SEEDS)"
+          ]
+        },
+        {
+          "name": "test_an_absent_or_empty_aptitude_generates_exactly_as_before",
+          "line": 376,
+          "assertions": [
+            {
+              "line": 379,
+              "expression": "chargen.rolled(random.Random(\"s1\"), chargen.aptitude(empty)) == plain"
+            }
+          ],
+          "raises": [],
+          "parameters": []
+        },
+        {
+          "name": "test_the_kernel_only_accepts_the_closed_set",
+          "line": 390,
+          "assertions": [
+            {
+              "line": 393,
+              "expression": "raised.value.stage == \"aptitude\""
+            },
+            {
+              "line": 394,
+              "expression": "message in str(raised.value)"
+            }
+          ],
+          "raises": [
+            {
+              "line": 391,
+              "expression": "pytest.raises(ChargenError)"
+            }
+          ],
+          "parameters": [
+            "pytest.mark.parametrize(\"value,message\", [\n    ({\"strong\": [\"LUCK\"], \"origin\": \"player\"}, \"unknown characteristics\"),\n    ({\"strong\": [\"Strength\"], \"origin\": \"player\"}, \"unknown characteristics\"),\n    ({\"strong\": [\"STR\"], \"weak\": [\"STR\"], \"origin\": \"player\"}, \"cannot be both\"),\n    ({\"strong\": [\"STR\", \"STR\"], \"origin\": \"player\"}, \"at most once\"),\n    ({\"strong\": [\"STR\"]}, \"must say who named this\"),\n    ({\"strong\": [\"STR\"], \"origin\": \"keeper\"}, \"must say who named this\"),\n])"
+          ]
+        },
+        {
+          "name": "test_an_inference_off_the_concept_is_capped_and_a_players_claim_is_not",
+          "line": 397,
+          "assertions": [
+            {
+              "line": 400,
+              "expression": "chargen.aptitude(read)[\"origin\"] == \"concept\""
+            },
+            {
+              "line": 403,
+              "expression": "raised.value.stage == \"aptitude\""
+            },
+            {
+              "line": 404,
+              "expression": "raised.value.expected[\"concept_limit\"] == limit"
+            },
+            {
+              "line": 406,
+              "expression": "chargen.aptitude(said)[\"strong\"] == [\"STR\", \"CON\"]"
+            }
+          ],
+          "raises": [
+            {
+              "line": 401,
+              "expression": "pytest.raises(ChargenError)"
+            }
+          ],
+          "parameters": []
+        },
+        {
+          "name": "test_both_origins_place_the_same_rolls_the_same_way",
+          "line": 409,
+          "assertions": [
+            {
+              "line": 412,
+              "expression": "placed[0][\"values\"] == placed[1][\"values\"]"
+            },
+            {
+              "line": 413,
+              "expression": "[p[\"aptitude\"][\"origin\"] for p in placed] == [\"player\", \"concept\"]"
+            }
+          ],
+          "raises": [],
+          "parameters": []
+        },
+        {
+          "name": "test_an_aptitude_cannot_direct_the_quick_fire_array",
+          "line": 416,
+          "assertions": [
+            {
+              "line": 419,
+              "expression": "raised.value.stage == \"aptitude\""
+            }
+          ],
+          "raises": [
+            {
+              "line": 417,
+              "expression": "pytest.raises(ChargenError)"
+            }
+          ],
+          "parameters": []
+        },
+        {
+          "name": "test_the_built_card_records_the_assignment_as_its_method",
+          "line": 422,
+          "assertions": [
+            {
+              "line": 424,
+              "expression": "sheet[\"creation\"][\"method\"] == \"rolled_pool_assignment\""
+            },
+            {
+              "line": 425,
+              "expression": "receipt[\"method\"] == \"rolled_pool_assignment\""
+            },
+            {
+              "line": 426,
+              "expression": "sheet[\"creation\"][\"characteristics\"][\"aptitude\"] == {\"strong\": [\"STR\"], \"weak\": [\"INT\"], \"origin\": \"player\"}"
+            },
+            {
+              "line": 428,
+              "expression": "plain[\"creation\"][\"method\"] == \"rolled\""
+            },
+            {
+              "line": 429,
+              "expression": "\"aptitude\" not in plain[\"creation\"][\"characteristics\"]"
+            }
+          ],
+          "raises": [],
+          "parameters": []
+        },
+        {
+          "name": "test_the_supplied_interest_order_decides_who_reaches_a_usable_value",
+          "line": 447,
+          "assertions": [
+            {
+              "line": 450,
+              "expression": "interest[\"allocation\"] == \"spread\""
+            },
+            {
+              "line": 451,
+              "expression": "interest[\"tiers\"] == [50, 70]"
+            },
+            {
+              "line": 452,
+              "expression": "interest[\"source\"] == \"steps.json create-investigator.interest_allocation\""
+            },
+            {
+              "line": 453,
+              "expression": "first[\"skills\"][\"Fighting (Brawl)\"] == 50"
+            },
+            {
+              "line": 454,
+              "expression": "first[\"skills\"][\"Jump\"] == chargen.skill_base(\"Jump\", first[\"characteristics\"])"
+            },
+            {
+              "line": 456,
+              "expression": "second[\"skills\"][\"Jump\"] == 50"
+            },
+            {
+              "line": 457,
+              "expression": "second[\"skills\"][\"Fighting (Brawl)\"] < first[\"skills\"][\"Fighting (Brawl)\"]"
+            },
+            {
+              "line": 458,
+              "expression": "second[\"creation\"][\"skills\"][\"interest\"][\"spent\"] == first[\"creation\"][\"skills\"][\"interest\"][\"spent\"]"
+            }
+          ],
+          "raises": [],
+          "parameters": []
+        },
+        {
+          "name": "test_the_interest_budget_is_still_spent_whole",
+          "line": 461,
+          "assertions": [
+            {
+              "line": 465,
+              "expression": "interest[\"unspent\"] == 0"
+            },
+            {
+              "line": 466,
+              "expression": "interest[\"spent\"] == interest[\"budget\"][\"total\"]"
+            },
+            {
+              "line": 467,
+              "expression": "interest[\"allocation\"] == policy"
+            },
+            {
+              "line": 468,
+              "expression": "receipt[\"interest_allocation\"] == policy"
+            }
+          ],
+          "raises": [],
+          "parameters": []
+        },
+        {
+          "name": "test_fill_keeps_the_older_level_round_robin",
+          "line": 471,
+          "assertions": [
+            {
+              "line": 474,
+              "expression": "given[-1] - given[0] <= 1"
+            },
+            {
+              "line": 475,
+              "expression": "sheet[\"creation\"][\"skills\"][\"interest\"][\"tiers\"] is None"
+            }
+          ],
+          "raises": [],
+          "parameters": []
+        },
+        {
+          "name": "test_the_legacy_auto_pool_carries_no_order_so_it_keeps_the_round_robin",
+          "line": 478,
+          "assertions": [
+            {
+              "line": 481,
+              "expression": "interest[\"allocation\"] == \"fill\""
+            },
+            {
+              "line": 482,
+              "expression": "receipt[\"interest_allocation\"] == \"fill\""
+            },
+            {
+              "line": 484,
+              "expression": "given[-1] - given[0] <= 1"
+            }
+          ],
+          "raises": [],
+          "parameters": []
+        },
+        {
+          "name": "test_an_unknown_interest_policy_is_refused_at_its_own_stage",
+          "line": 487,
+          "assertions": [
+            {
+              "line": 490,
+              "expression": "raised.value.stage == \"interest_allocation\""
+            },
+            {
+              "line": 491,
+              "expression": "raised.value.expected[\"options\"] == [\"spread\", \"fill\"]"
+            }
+          ],
+          "raises": [
+            {
+              "line": 488,
+              "expression": "pytest.raises(ChargenError)"
+            }
+          ],
+          "parameters": []
+        }
+      ],
+      "retainedOnly": [
+        "test_kernel_sheets_are_reproducible_from_the_seed",
+        "test_kernel_defaults_come_from_the_steps_table"
+      ]
+    },
+    {
+      "source": "tests/kernel/test_mechanics_identity.py",
+      "sha256": "a9550774bff9d67220198f7b6c38cc84bff11b615359ff80ccd8af2683f24753",
+      "direct": "tests/extension/mechanics-identity-direct.test.mjs",
+      "originalKind": "oracle",
+      "cases": [
+        {
+          "name": "test_public_identity_is_explicit_and_projection_preserves_canonical_receipt",
+          "line": 19,
+          "assertions": [
+            {
+              "line": 25,
+              "expression": "row[\"marker\"] == \"check:spot-hidden\""
+            },
+            {
+              "line": 26,
+              "expression": "row[\"receipt\"] == receipt[\"id\"]"
+            },
+            {
+              "line": 27,
+              "expression": "all(row[field] == value for field, value in numeric.items())"
+            },
+            {
+              "line": 28,
+              "expression": "row[f\"{key}_is_investigator\"] is (identity is True)"
+            },
+            {
+              "line": 33,
+              "expression": "receipt == original"
+            },
+            {
+              "line": 30,
+              "expression": "row[key] == \"hidden-name\" and row[f\"{key}_label\"] == \"Hidden Name\""
+            },
+            {
+              "line": 32,
+              "expression": "key not in row and f\"{key}_label\" not in row"
+            }
+          ],
+          "raises": [],
+          "parameters": [
+            "pytest.mark.parametrize(\"receipt, key, numeric\", [\n    ({\"id\": \"roll:spot-hidden-hidden-name-t1-c1\", \"kind\": \"roll\", \"skill\": \"Spot Hidden\",\n      \"roll\": 31, \"target\": 60, \"threshold\": 60, \"passed\": True}, \"actor\", {\"roll\": 31, \"target\": 60}),\n    ({\"id\": \"roll:damage-t1-c1\", \"kind\": \"roll\", \"form\": \"dice\", \"skill\": \"Damage\",\n      \"expression\": \"1D6\", \"faces\": [4], \"total\": 4}, \"actor\", {\"faces\": [4], \"total\": 4}),\n    ({\"id\": \"delta:hp-t1-c1\", \"kind\": \"delta\", \"resource\": \"hp\", \"before\": 12, \"after\": 8},\n     \"subject\", {\"before\": 12, \"after\": 8}),\n])",
+            "pytest.mark.parametrize(\"identity\", [True, False, None])"
+          ]
+        },
+        {
+          "name": "test_call_and_family_ride_on_the_projection_and_the_receipt_is_not_mutated",
+          "line": 36,
+          "assertions": [
+            {
+              "line": 41,
+              "expression": "row[\"call\"] == \"t1-c1\" and row[\"family\"] == \"core-check\""
+            },
+            {
+              "line": 42,
+              "expression": "stamped == original"
+            },
+            {
+              "line": 47,
+              "expression": "\"call\" not in row and \"family\" not in row"
+            },
+            {
+              "line": 48,
+              "expression": "bare == original"
+            }
+          ],
+          "raises": [],
+          "parameters": []
+        }
+      ],
+      "retainedOnly": []
+    },
+    {
+      "source": "tests/kernel/test_rules_bands.py",
+      "sha256": "8c6392a49b62d1cdd779b6b53ca108402b3d25c373db21c90cdff4f4fad31674",
+      "direct": "tests/extension/rules-bands-direct.test.mjs",
+      "originalKind": "rpc",
+      "cases": [
+        {
+          "name": "test_time_rows_are_the_time_cost_categories_in_the_table_order_with_their_ranges",
+          "line": 37,
+          "assertions": [
+            {
+              "line": 40,
+              "expression": "result[\"field\"] == \"time.band\""
+            },
+            {
+              "line": 41,
+              "expression": "result[\"table\"] == \"time-costs\""
+            },
+            {
+              "line": 43,
+              "expression": "result[\"rows\"] == [{\"handle\": handle, \"min\": row[\"min\"], \"max\": row[\"max\"], \"default\": row[\"default\"],\n                               \"covers\": row[\"covers\"].strip()}\n                              for handle, row in categories.items()]"
+            },
+            {
+              "line": 46,
+              "expression": "all(row[\"covers\"] for row in result[\"rows\"])"
+            },
+            {
+              "line": 48,
+              "expression": "{\"local_travel\", \"long_travel\"} <= {row[\"handle\"] for row in result[\"rows\"]}"
+            }
+          ],
+          "raises": [],
+          "parameters": []
+        },
+        {
+          "name": "test_damage_rows_are_the_severity_ladder_in_order_with_their_dice_and_notes",
+          "line": 51,
+          "assertions": [
+            {
+              "line": 54,
+              "expression": "result[\"table\"] == \"hazards\""
+            },
+            {
+              "line": 55,
+              "expression": "result[\"rows\"] == [{\"handle\": handle, \"dice\": row[\"damage_expr\"].strip().upper(), \"note\": row[\"note\"]}\n                              for handle, row in severity.items()]"
+            },
+            {
+              "line": 57,
+              "expression": "[row[\"handle\"] for row in result[\"rows\"]][:2] == [\"minor\", \"moderate\"]"
+            }
+          ],
+          "raises": [],
+          "parameters": []
+        },
+        {
+          "name": "test_a_field_the_kernel_does_not_roll_from_is_refused_with_the_ones_it_does",
+          "line": 61,
+          "assertions": [
+            {
+              "line": 63,
+              "expression": "error[\"code\"] == \"invalid_params\""
+            },
+            {
+              "line": 64,
+              "expression": "error[\"details\"] == {\"field\": \"field\", \"options\": [\"time.band\", \"damage.band\"]}"
+            },
+            {
+              "line": 65,
+              "expression": "\"details.options\" in error[\"fix\"]"
+            }
+          ],
+          "raises": [],
+          "parameters": [
+            "pytest.mark.parametrize(\"params\", [{\"field\": \"npc.archetype\"}, {\"field\": \"cash.band\"}, {}])"
+          ]
+        },
+        {
+          "name": "test_a_malformed_row_fails_loudly_naming_the_table_and_the_row",
+          "line": 68,
+          "assertions": [
+            {
+              "line": 76,
+              "expression": "error[\"code\"] == \"campaign_not_ready\""
+            },
+            {
+              "line": 77,
+              "expression": "error[\"details\"] == {\"table\": \"time-costs\", \"row\": \"first_aid\"}"
+            }
+          ],
+          "raises": [],
+          "parameters": []
+        }
+      ],
+      "retainedOnly": []
+    },
+    {
+      "source": "tests/kernel/test_sanity_day_boundary.py",
+      "sha256": "87acf5066bc614e978ad09dbd1a8f6d089c3d298c28bcc5b9aad7147ebb155cb",
+      "direct": "tests/extension/sanity-day-direct.test.mjs",
+      "originalKind": "rpc",
+      "cases": [
+        {
+          "name": "test_midnight_closes_the_sanity_day",
+          "line": 46,
+          "assertions": [
+            {
+              "line": 52,
+              "expression": "(state[\"daily_san_lost\"], state[\"day_start_san\"]) == (3, OPENING_SAN)"
+            },
+            {
+              "line": 55,
+              "expression": "clock_at(kernel) == \"1920-10-12T23:59\""
+            },
+            {
+              "line": 56,
+              "expression": "\"day_ended\" not in late"
+            },
+            {
+              "line": 58,
+              "expression": "(state[\"daily_san_lost\"], state[\"day_start_san\"]) == (3, OPENING_SAN)"
+            },
+            {
+              "line": 61,
+              "expression": "clock_at(kernel) == \"1920-10-13T00:00\""
+            },
+            {
+              "line": 62,
+              "expression": "midnight[\"day_ended\"] == {\"days\": 1, \"sanity\": [\n        {\"investigator\": INVESTIGATOR, \"day_start_san\": OPENING_SAN - 3, \"went_indefinitely_insane\": False}]}"
+            },
+            {
+              "line": 65,
+              "expression": "(state[\"daily_san_lost\"], state[\"day_start_san\"]) == (0, OPENING_SAN - 3)"
+            },
+            {
+              "line": 67,
+              "expression": "len(closed) == 1"
+            },
+            {
+              "line": 68,
+              "expression": "closed[0][\"payload\"] == {**closed[0][\"payload\"], \"daily_san_lost\": 3, \"threshold\": 11,\n                                    \"day_start_san\": OPENING_SAN, \"next_day_start_san\": OPENING_SAN - 3,\n                                    \"indefinite_insanity_triggered\": False}"
+            }
+          ],
+          "raises": [],
+          "parameters": []
+        },
+        {
+          "name": "test_travel_across_midnight_ends_the_day_though_it_is_no_rest",
+          "line": 73,
+          "assertions": [
+            {
+              "line": 80,
+              "expression": "clock_at(kernel) == \"1920-10-13T00:30\""
+            },
+            {
+              "line": 81,
+              "expression": "driven[\"day_ended\"][\"days\"] == 1"
+            },
+            {
+              "line": 82,
+              "expression": "(snapshot(kernel)[\"daily_san_lost\"], snapshot(kernel)[\"day_start_san\"]) == (0, OPENING_SAN - 3)"
+            }
+          ],
+          "raises": [],
+          "parameters": []
+        },
+        {
+          "name": "test_a_fifth_lost_within_one_day_is_indefinite_insanity",
+          "line": 85,
+          "assertions": [
+            {
+              "line": 92,
+              "expression": "fourth[\"indefinite_insane\"] is True and fourth[\"san_after\"] == OPENING_SAN - 12"
+            },
+            {
+              "line": 93,
+              "expression": "snapshot(kernel)[\"indefinite_insane\"] is True"
+            },
+            {
+              "line": 90,
+              "expression": "lose(kernel, f\"t1-c{n}\", 3)[\"indefinite_insane\"] is False"
+            }
+          ],
+          "raises": [],
+          "parameters": []
+        },
+        {
+          "name": "test_the_same_loss_spread_over_days_never_reaches_a_fifth",
+          "line": 96,
+          "assertions": [
+            {
+              "line": 108,
+              "expression": "snapshot(kernel)[\"day_start_san\"] == OPENING_SAN - 9"
+            },
+            {
+              "line": 114,
+              "expression": "snapshot(kernel)[\"day_start_san\"] == OPENING_SAN - 15"
+            },
+            {
+              "line": 119,
+              "expression": "state[\"indefinite_insane\"] is False and state[\"san_current\"] == OPENING_SAN - 21"
+            },
+            {
+              "line": 120,
+              "expression": "(state[\"daily_san_lost\"], state[\"day_start_san\"]) == (6, OPENING_SAN - 15)"
+            },
+            {
+              "line": 122,
+              "expression": "lose(kernel, f\"t1-c{n}\", 3)[\"indefinite_insane\"] is True"
+            },
+            {
+              "line": 104,
+              "expression": "lose(kernel, f\"t1-c{n}\", 3)[\"indefinite_insane\"] is False"
+            },
+            {
+              "line": 110,
+              "expression": "lose(kernel, f\"t1-c{n}\", 3)[\"indefinite_insane\"] is False"
+            },
+            {
+              "line": 116,
+              "expression": "lose(kernel, f\"t1-c{n}\", 3)[\"indefinite_insane\"] is False"
+            }
+          ],
+          "raises": [],
+          "parameters": []
+        },
+        {
+          "name": "test_one_advance_across_several_midnights_closes_each_day_in_turn",
+          "line": 125,
+          "assertions": [
+            {
+              "line": 133,
+              "expression": "clock_at(kernel) == \"1920-10-15T10:00\""
+            },
+            {
+              "line": 134,
+              "expression": "skipped[\"day_ended\"] == {\"days\": 3, \"sanity\": [\n        {\"investigator\": INVESTIGATOR, \"day_start_san\": OPENING_SAN - 3, \"went_indefinitely_insane\": False}]}"
+            },
+            {
+              "line": 137,
+              "expression": "(state[\"daily_san_lost\"], state[\"day_start_san\"], state[\"indefinite_insane\"]) == (0, OPENING_SAN - 3, False)"
+            },
+            {
+              "line": 139,
+              "expression": "judged == [3, 0, 0]"
+            },
+            {
+              "line": 141,
+              "expression": "lose(kernel, \"t1-c3\", 3)[\"indefinite_insane\"] is False"
+            }
+          ],
+          "raises": [],
+          "parameters": []
+        },
+        {
+          "name": "test_an_investigator_who_has_lost_nothing_is_not_given_a_snapshot_by_midnight",
+          "line": 144,
+          "assertions": [
+            {
+              "line": 149,
+              "expression": "passed[\"day_ended\"] == {\"days\": 1, \"sanity\": []}"
+            },
+            {
+              "line": 150,
+              "expression": "not (campaign_dir(kernel.workspace) / \"save\" / \"sanity-state\" / f\"{INVESTIGATOR}.json\").exists()"
+            },
+            {
+              "line": 152,
+              "expression": "(snapshot(kernel)[\"daily_san_lost\"], snapshot(kernel)[\"day_start_san\"]) == (3, OPENING_SAN)"
+            }
+          ],
+          "raises": [],
+          "parameters": []
+        }
+      ],
+      "retainedOnly": []
+    },
+    {
+      "source": "tests/kernel/test_apply.py",
+      "sha256": "47d597e3f52631e4f2ed078bae7d8b8f34d0f6c0bbf2cac472f499f14101dd93",
+      "direct": "tests/extension/sanity-day-direct.test.mjs",
+      "originalKind": "rpc",
+      "cases": [
+        {
+          "name": "test_environment_damage_records_zero_hp_conditions",
+          "line": 395,
+          "assertions": [
+            {
+              "line": 407,
+              "expression": "False"
+            },
+            {
+              "line": 402,
+              "expression": "\"unconscious\" in sheet[\"conditions\"]"
+            },
+            {
+              "line": 403,
+              "expression": "\"dead\" not in sheet[\"conditions\"]"
+            },
+            {
+              "line": 404,
+              "expression": "\"dying\" not in sheet[\"conditions\"]"
+            }
+          ],
+          "raises": [],
+          "parameters": []
+        },
+        {
+          "name": "test_environment_major_wound_and_lethal_damage",
+          "line": 410,
+          "assertions": [
+            {
+              "line": 416,
+              "expression": "{\"major_wound\", \"unconscious\", \"dying\"} <= set(read_json(path)[\"conditions\"])"
+            },
+            {
+              "line": 418,
+              "expression": "\"dead\" in read_json(path)[\"conditions\"]"
+            }
+          ],
+          "raises": [],
+          "parameters": []
+        }
+      ],
+      "retainedOnly": [
+        "test_move_reachable_and_unreachable",
+        "test_a_route_the_keeper_made_lands_and_says_it_was_off_the_graph",
+        "test_move_retraces_the_trail",
+        "test_a_clue_of_the_scene_left_this_turn_lands_at_that_scene",
+        "test_a_move_then_the_old_scenes_clue_in_one_batch_lands",
+        "test_clue_here_not_here_and_duplicate",
+        "test_time_advances_the_clock",
+        "test_batch_is_atomic",
+        "test_reserved_and_unknown_effect_kinds",
+        "test_damage_effect_rolls_the_dice_and_moves_hp",
+        "test_damage_effect_takes_compound_rulebook_dice",
+        "test_move_label_names_the_scene_from_then_on",
+        "test_a_night_of_rest_gives_back_the_hit_point_the_rulebook_promises",
+        "test_travel_time_is_a_trip_not_a_rest",
+        "test_magic_points_come_back_over_an_hour_of_rest",
+        "test_the_scene_underfoot_can_be_given_its_name",
+        "test_a_naming_leaves_no_row_on_the_player_s_card",
+        "test_handout_display_name_prefers_delivery_over_underlying_asset",
+        "test_a_batch_reports_every_effect_it_refused_not_only_the_first",
+        "test_a_batch_with_one_bad_effect_still_reports_exactly_one"
+      ]
+    },
+    {
+      "source": "tests/kernel/test_creation_difficulty.py",
+      "sha256": "46e0426e8f5c7f3be0711d36390a0d64ef40c39785e8ab8c56ead6f15a50d827",
+      "direct": "tests/extension/creation-difficulty-direct.test.mjs",
+      "originalKind": "rpc",
+      "cases": [
+        {
+          "name": "test_same_seed_same_difficulty_same_card",
+          "line": 61,
+          "assertions": [
+            {
+              "line": 65,
+              "expression": "second == first"
+            }
+          ],
+          "raises": [],
+          "parameters": []
+        },
+        {
+          "name": "test_presets_roll_the_rulebook_dice_on_the_rulebook_bounds",
+          "line": 71,
+          "assertions": [
+            {
+              "line": 80,
+              "expression": "\"scaling\" not in generation"
+            },
+            {
+              "line": 81,
+              "expression": "generation == baseline[\"creation\"][\"characteristics\"]"
+            },
+            {
+              "line": 82,
+              "expression": "card[\"creation\"][\"age\"] == baseline[\"creation\"][\"age\"]"
+            },
+            {
+              "line": 83,
+              "expression": "card[\"derived\"] == baseline[\"derived\"]"
+            },
+            {
+              "line": 85,
+              "expression": "card[\"creation\"][\"luck\"][\"dice\"] == \"2D6+6\""
+            },
+            {
+              "line": 87,
+              "expression": "card[\"creation\"][\"luck\"] == baseline[\"creation\"][\"luck\"]"
+            },
+            {
+              "line": 88,
+              "expression": "card[\"characteristics\"] == baseline[\"characteristics\"]"
+            }
+          ],
+          "raises": [],
+          "parameters": []
+        },
+        {
+          "name": "test_normal_preset_fattens_only_the_budgets",
+          "line": 91,
+          "assertions": [
+            {
+              "line": 96,
+              "expression": "occupation[\"budget\"][\"total\"] == card[\"characteristics\"][\"EDU\"] * 4"
+            },
+            {
+              "line": 97,
+              "expression": "occupation[\"budget_adjusted\"] == {\"total\": jsround(card[\"characteristics\"][\"EDU\"] * 4 * 1.25),\n                                             \"multiplier\": 1.25, \"fixed\": None}"
+            },
+            {
+              "line": 99,
+              "expression": "occupation[\"points\"] == occupation[\"budget_adjusted\"][\"total\"] - occupation[\"credit_rating\"][\"value\"]"
+            },
+            {
+              "line": 100,
+              "expression": "occupation[\"spent\"] + occupation[\"unspent\"] == occupation[\"points\"]"
+            },
+            {
+              "line": 101,
+              "expression": "interest[\"budget\"][\"total\"] == card[\"characteristics\"][\"INT\"] * 2"
+            },
+            {
+              "line": 102,
+              "expression": "interest[\"budget_adjusted\"] == {\"total\": jsround(card[\"characteristics\"][\"INT\"] * 2 * 1.25),\n                                           \"multiplier\": 1.25, \"fixed\": None}"
+            },
+            {
+              "line": 104,
+              "expression": "interest[\"spent\"] + interest[\"unspent\"] == interest[\"budget_adjusted\"][\"total\"]"
+            },
+            {
+              "line": 105,
+              "expression": "skills[\"cap\"][\"value\"] == 75 and \"difficulty\" not in skills[\"cap\"]"
+            }
+          ],
+          "raises": [],
+          "parameters": []
+        },
+        {
+          "name": "test_easy_preset_fattens_budgets_and_rolls_kinder_luck",
+          "line": 108,
+          "assertions": [
+            {
+              "line": 112,
+              "expression": "skills[\"occupation\"][\"budget_adjusted\"][\"total\"] == jsround(card[\"characteristics\"][\"EDU\"] * 4 * 1.5)"
+            },
+            {
+              "line": 113,
+              "expression": "skills[\"interest\"][\"budget_adjusted\"][\"total\"] == jsround(card[\"characteristics\"][\"INT\"] * 2 * 1.5)"
+            },
+            {
+              "line": 115,
+              "expression": "luck[\"dice\"] == \"2D6+6\" and all(8 <= a[\"total\"] <= 18 for a in luck[\"attempts\"])"
+            },
+            {
+              "line": 116,
+              "expression": "card[\"characteristics\"][\"LUCK\"] == max(a[\"total\"] for a in luck[\"attempts\"]) * 5"
+            },
+            {
+              "line": 117,
+              "expression": "skills[\"cap\"][\"value\"] == 75"
+            }
+          ],
+          "raises": [],
+          "parameters": []
+        },
+        {
+          "name": "test_extreme_preset_thins_budgets_and_lowers_the_cap",
+          "line": 120,
+          "assertions": [
+            {
+              "line": 124,
+              "expression": "skills[\"cap\"] == {\"value\": 60, \"source\": \"skills.guided_creation_policy.starting_skill_cap\",\n                             \"difficulty\": {\"skill_cap\": 60}}"
+            },
+            {
+              "line": 127,
+              "expression": "occupation[\"budget_adjusted\"] == {\"total\": jsround(occupation[\"budget\"][\"total\"] * 0.75),\n                                             \"multiplier\": 0.75, \"fixed\": None}"
+            },
+            {
+              "line": 129,
+              "expression": "occupation[\"points\"] == occupation[\"budget_adjusted\"][\"total\"] - occupation[\"credit_rating\"][\"value\"]"
+            },
+            {
+              "line": 130,
+              "expression": "occupation[\"spent\"] + occupation[\"unspent\"] == occupation[\"points\"]"
+            },
+            {
+              "line": 135,
+              "expression": "interest[\"budget_adjusted\"] == {\"total\": jsround(interest[\"budget\"][\"total\"] * 0.75),\n                                           \"multiplier\": 0.75, \"fixed\": None}"
+            },
+            {
+              "line": 137,
+              "expression": "interest[\"spent\"] + interest[\"unspent\"] == interest[\"budget_adjusted\"][\"total\"]"
+            },
+            {
+              "line": 133,
+              "expression": "bases[name] + amount <= 60"
+            }
+          ],
+          "raises": [],
+          "parameters": []
+        },
+        {
+          "name": "test_quick_fire_is_the_rulebook_array_under_every_preset",
+          "line": 140,
+          "assertions": [
+            {
+              "line": 148,
+              "expression": "generation[\"array\"] == array"
+            },
+            {
+              "line": 149,
+              "expression": "\"scaling\" not in generation"
+            },
+            {
+              "line": 150,
+              "expression": "generation[\"values\"] == baseline[\"creation\"][\"characteristics\"][\"values\"]"
+            }
+          ],
+          "raises": [],
+          "parameters": []
+        },
+        {
+          "name": "test_custom_pool_dice_replacement_rolls_and_bounds_its_own_range",
+          "line": 156,
+          "assertions": [
+            {
+              "line": 160,
+              "expression": "generation[\"replaced_dice\"] == {\"3D6\": \"1D4+2\"}"
+            },
+            {
+              "line": 167,
+              "expression": "card[\"creation\"][\"difficulty\"] == {\"mode\": \"custom\", \"custom\": {\"characteristic_dice\": {\"3D6\": \"1D4+2\"}}}"
+            },
+            {
+              "line": 162,
+              "expression": "generation[\"rolls\"][abbr][\"dice\"] == \"1D4+2\""
+            },
+            {
+              "line": 163,
+              "expression": "generation[\"values\"][abbr] in (15, 20, 25, 30)"
+            },
+            {
+              "line": 165,
+              "expression": "generation[\"rolls\"][abbr][\"dice\"] == \"2D6+6\""
+            },
+            {
+              "line": 166,
+              "expression": "40 <= generation[\"values\"][abbr] <= 90"
+            }
+          ],
+          "raises": [],
+          "parameters": []
+        },
+        {
+          "name": "test_custom_fixed_luck_rolls_nothing",
+          "line": 170,
+          "assertions": [
+            {
+              "line": 173,
+              "expression": "card[\"characteristics\"][\"LUCK\"] == 65"
+            },
+            {
+              "line": 174,
+              "expression": "card[\"creation\"][\"luck\"][\"value\"] == 65 and card[\"creation\"][\"luck\"][\"attempts\"] == []"
+            },
+            {
+              "line": 175,
+              "expression": "card[\"creation\"][\"luck\"][\"fixed\"] is True"
+            }
+          ],
+          "raises": [],
+          "parameters": []
+        },
+        {
+          "name": "test_custom_luck_dice_replaces_the_roll",
+          "line": 178,
+          "assertions": [
+            {
+              "line": 182,
+              "expression": "luck[\"dice\"] == \"2D4\" and all(2 <= a[\"total\"] <= 8 for a in luck[\"attempts\"])"
+            },
+            {
+              "line": 183,
+              "expression": "card[\"characteristics\"][\"LUCK\"] == max(a[\"total\"] for a in luck[\"attempts\"]) * 5"
+            }
+          ],
+          "raises": [],
+          "parameters": []
+        },
+        {
+          "name": "test_custom_budget_multiplier_and_fixed",
+          "line": 186,
+          "assertions": [
+            {
+              "line": 191,
+              "expression": "occupation[\"budget_adjusted\"] == {\"total\": jsround(occupation[\"budget\"][\"total\"] * 2), \"multiplier\": 2, \"fixed\": None}"
+            },
+            {
+              "line": 192,
+              "expression": "occupation[\"points\"] == occupation[\"budget_adjusted\"][\"total\"] - occupation[\"credit_rating\"][\"value\"]"
+            },
+            {
+              "line": 193,
+              "expression": "occupation[\"spent\"] + occupation[\"unspent\"] == occupation[\"points\"]"
+            },
+            {
+              "line": 194,
+              "expression": "interest[\"budget_adjusted\"] == {\"total\": 50, \"multiplier\": None, \"fixed\": 50}"
+            },
+            {
+              "line": 195,
+              "expression": "interest[\"spent\"] == 50"
+            }
+          ],
+          "raises": [],
+          "parameters": []
+        },
+        {
+          "name": "test_custom_fixed_occupation_budget_ignores_the_formula",
+          "line": 198,
+          "assertions": [
+            {
+              "line": 202,
+              "expression": "occupation[\"budget\"][\"total\"] == card[\"characteristics\"][\"EDU\"] * 4"
+            },
+            {
+              "line": 203,
+              "expression": "occupation[\"points\"] == 300 - occupation[\"credit_rating\"][\"value\"]"
+            },
+            {
+              "line": 204,
+              "expression": "occupation[\"spent\"] + occupation[\"unspent\"] == occupation[\"points\"]"
+            }
+          ],
+          "raises": [],
+          "parameters": []
+        },
+        {
+          "name": "test_custom_skill_cap_replaces_75",
+          "line": 207,
+          "assertions": [
+            {
+              "line": 210,
+              "expression": "card[\"creation\"][\"skills\"][\"cap\"] == {\"value\": 60, \"source\": \"skills.guided_creation_policy.starting_skill_cap\",\n                                                 \"difficulty\": {\"skill_cap\": 60}}"
+            }
+          ],
+          "raises": [],
+          "parameters": []
+        }
+      ],
+      "retainedOnly": [
+        "test_absent_hard_and_empty_custom_are_bit_identical",
+        "test_campaign_create_rejects_bad_difficulty_shapes",
+        "test_snapshot_sheet_and_receipt_records",
+        "test_draft_limits_obey_the_preset_knobs",
+        "test_draft_limits_obey_custom_knobs",
+        "test_override_bounds_follow_a_replaced_pool",
+        "test_luck_override_keeps_creation_bounds_under_a_replaced_pool",
+        "test_a_corrupt_snapshot_fails_loudly_on_the_next_build",
+        "test_a_described_person_under_a_preset_takes_the_array_and_the_plain_card_keeps_its_dice"
+      ]
+    }
+  ],
+  "integrationPolicy": "All original tests remain mandatory in integration/all. No blanket pytest deselection.",
+  "businessCaseCount": 111,
+  "fastCaseCount": 129
+}

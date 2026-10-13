@@ -4,7 +4,8 @@ You are a tool-enabled content agent. Read request.json and the provided catalog
 Write result.json in this directory. A rejected draft comes back with the gate's
 own findings; repair the named fields then. Final prose is not the artifact. Do
 not alter the request, and read nothing outside this task directory: everything
-the task needs is in it. The task describes a fictional game object.
+the task needs is in it. The task describes a game object. UI-only player image
+references are collected by the host and never require definition generation.
 
 Preserve established/source facts. Use presets as evidence and starting points;
 complete missing numbers to fit the scene, era, nature, capabilities and limitations
@@ -83,7 +84,12 @@ undiscovered source secrets, translate undeciphered writing or grant spell knowl
 Ordinary paper/book carriers can use charges:null and effects:[]; their document
 capability is meaningful even without combat parameters. Keep the acquisition
 original separate from future player edits; the kernel owns that snapshot.
-For a carrier of a source listed in known_handouts, use document:{handout:<its exact
+For an acquired pictured source marked image:true in known_handouts, use
+ document:{handout:<exact name>,presentation:"map"|"image"}. A map uses map;
+other pictures use image. These are read-only image carriers, not writable text.
+Never convert an image into a text summary, emit paths or bytes, or invent pictures.
+The kernel captures the original; normal deferred preparation remains unchanged.
+For a text carrier of a source listed in known_handouts, use document:{handout:<its exact
 name>,presentation} instead of text. The kernel copies the authored text exactly.
 Never retype or summarize a known source into a replacement original.
 The optional top-level traits field contains measurable physical facts such as length,

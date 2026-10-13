@@ -1,0 +1,22 @@
+{
+  "source": "tests/kernel/test_mechanics_readers.py",
+  "tests": [
+    {
+      "name": "test_a_creature_with_a_stat_block_is_fought_with_the_books_numbers",
+      "parameters": null
+    },
+    {
+      "name": "test_sanity_check_rolls_the_typed_loss_without_action_san_loss",
+      "parameters": null
+    },
+    {
+      "name": "test_an_unstated_half_is_the_keepers_to_complete",
+      "parameters": null
+    },
+    {
+      "name": "test_a_spell_named_by_a_tome_is_learned_and_cast_at_its_stated_price",
+      "parameters": null
+    }
+  ],
+  "unsupported": []
+}

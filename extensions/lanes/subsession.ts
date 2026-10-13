@@ -341,7 +341,7 @@ const LANE_THINKING_LEVELS: ReadonlySet<string> = new Set(["off", "minimal", "lo
  * `after-delivery-floor` (2026-09-29, §37.11.1): the setting's, table's or default level was below the floor
  * a post-delivery lane is given, and the floor decided.
  */
-export type LaneThinkingSource = "caller" | "lane-operator" | "operator" | "setting" | "table" | "default" | "after-delivery-floor";
+export type LaneThinkingSource = "test-profile" | "caller" | "lane-operator" | "operator" | "setting" | "table" | "default" | "after-delivery-floor";
 
 /** The ranks a post-delivery floor may raise: the product's own defaults, never an operator's or a caller's explicit choice. */
 const FLOORED_SOURCES: ReadonlySet<LaneThinkingSource> = new Set(["setting", "table", "default"]);
@@ -355,6 +355,13 @@ export async function afterDeliveryFloor(choice: LaneThinkingChoice, contentRoot
 }
 
 export interface LaneThinkingChoice { level: ModelThinkingLevel; source: LaneThinkingSource }
+
+/** RPC §233.20: only the two exact approved live-test profiles override ordinary lane defaults. */
+function liveTestThinkingChoice(): LaneThinkingChoice | undefined {
+	if (process.env.PI_COC_TEST_MODEL === "codex-relay/gpt-6-luna") return { level: "high", source: "test-profile" };
+	if (process.env.PI_COC_TEST_MODEL === "grok-build/grok-4.5") return { level: "low", source: "test-profile" };
+	return undefined;
+}
 
 function normalizedThinkingLevel(raw: string): ModelThinkingLevel {
 	const resolved = raw.trim().toLowerCase();
@@ -757,10 +764,10 @@ async function runLaneAttempt<T>(
 		// provider's ceiling rather than a floor (see `laneReasoningOptions`). SL-91: `envName` is
 		// passed through so a lane whose model came from its own environment override also takes its
 		// thinking level from a matching `${envName}_THINKING`, ranked above the shared resolution;
-		// `request.thinking` (a caller-named level; no caller does today) still outranks everything.
-		const chosen: LaneThinkingChoice = request.thinking !== undefined
+		// The approved live-test profile outranks caller defaults; ordinary runs keep the existing precedence.
+		const chosen: LaneThinkingChoice = liveTestThinkingChoice() ?? (request.thinking !== undefined
 			? { level: request.thinking, source: "caller" }
-			: laneThinkingChoice(request.ctx, request.envName);
+			: laneThinkingChoice(request.ctx, request.envName));
 		const { level: thinking, source: thinkingSource } = request.afterDelivery ? await afterDeliveryFloor(chosen) : chosen;
 		const reasoning = laneReasoningOptions(resolved.model, thinking);
 		// `lane_thinking_effective` (SL-81): the level the body actually carries -- the same

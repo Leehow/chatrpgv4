@@ -27,5 +27,5 @@ export async function runExtensionTests(args) {
 }
 
 if (process.argv[1] && import.meta.url === pathToFileURL(resolve(process.argv[1])).href) {
-  await runExtensionTests(["tests/extension/**/*.test.mjs", ...process.argv.slice(2)]);
+  await runExtensionTests([...process.argv.slice(2), "tests/extension/**/*.test.mjs"]);
 }

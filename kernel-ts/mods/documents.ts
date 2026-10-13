@@ -15,11 +15,13 @@ import type { createWriteRuntime } from '../write/index.js';
 import { validateDocumentSeed } from './definition.js';
 import type { ModRuntime } from './runtime.js';
 import {documentRequests,documentRequestState,requestDocumentEdit,acknowledgeDocumentDispatch} from './document-requests.js';
+import {createReferenceItems} from './reference-items.js';
+import type {ModJobs} from './jobs.js';
 
 export function initializeDocument(item: Row, seed: any): void {
     if (item.document != null) throw new RpcError('invalid_params', 'An existing document cannot be reinitialized; its acquisition snapshot is retained');
-    item.document = { ...validateDocumentSeed(seed), original: null, acquired_by: null, revision: 1 };
-    if (!Object.hasOwn(item.document, 'text')) throw new RpcError('invalid_params', 'The kernel must materialize the revealed handout before initializing its carrier');
+    item.document = { ...validateDocumentSeed(seed), ...(seed.image?{text:''}:{}), original: null, acquired_by: null, revision: 1 };
+    if (!Object.hasOwn(item.document, 'text') && !item.document.image) throw new RpcError('invalid_params', 'The kernel must materialize the revealed handout before initializing its carrier');
 }
 export function ownershipChanged(world: Row): void {
     for (const item of values(row(world.objects).instances)) {
@@ -42,6 +44,7 @@ export function writeDocument(item: Row, text: any): boolean {
     if (typeof text !== 'string' || length(text) > 64000) throw new RpcError('invalid_params', 'Document text must be a string of at most 64000 characters');
     const document = item.document;
     if (!truth(document)) throw new RpcError('invalid_params', 'Initialize the writable carrier before changing its text');
+    if (document.image) throw new RpcError('invalid_params', 'Image documents are read-only');
     if (text === document.text) return false;
     document.text = text; document.player_edited = false; document.revision++; document.edited_at = nowIso();
     return true;
@@ -60,6 +63,7 @@ export function appendDocument(item: Row, suffix: any): boolean {
 
 /** Contract §99: a physical split rebases each carrier onto the complete text it now contains. */
 export function divideDocument(prior: Row, part: Row, split: {part: string; remainder: string}): void {
+    if (prior.document?.image) throw new RpcError('invalid_params','Image documents cannot be divided or edited');
     const source = row(prior.document), revision = Math.trunc(number(source.revision)) + 1;
     const rebase = (text: string): Row => {
         const document: Row = {...clone(source), text, original: text, player_edited: false, revision};
@@ -69,7 +73,8 @@ export function divideDocument(prior: Row, part: Row, split: {part: string; rema
     prior.document = rebase(split.remainder);
     part.document = rebase(split.part);
 }
-export function createDocumentHandlers(writer: ReturnType<typeof createWriteRuntime>, runtime: ModRuntime): HandlerGroup {
+export function createDocumentHandlers(writer: ReturnType<typeof createWriteRuntime>, runtime: ModRuntime, jobs: ModJobs): HandlerGroup {
+    const references = createReferenceItems(writer, runtime, jobs);
     async function owned(params: Row): Promise<{campaign: CampaignWriter; world: Row; actor: Row; item: Row}> {
         const campaign = await writer.campaign(params), world = await campaign.readWorld(), actor = selectActor(await campaign.party(), params.actor);
         const item = findNamedObject(row(row(world.objects).instances), params.name);
@@ -84,18 +89,22 @@ export function createDocumentHandlers(writer: ReturnType<typeof createWriteRunt
         const request=row((await documentRequests(campaign)).entries)[item.id];
         return {name: item.name, actor: actor.name, text: document.text, original: document.original, presentation: document.presentation,
             player_edited: Object.hasOwn(document, 'player_edited') ? document.player_edited : truth(document.edited_at) && document.text !== document.original,
-            version: await documentVersion(campaign, world, item), editor: await runtime.editor(world),editing:'in_fiction',
+            version: await documentVersion(campaign, world, item), editor: await runtime.editor(world),editing:document.image?'read_only':'in_fiction',
+            ...(document.image?{image:clone(document.image)}:{}),
             ...(request?{edit_request:{status:await documentRequestState(campaign,world,item,request),text:request.text,action:request.action}}:{}),
             play_language: await playLanguageOf(campaign.context, meta)};
     }
     return {
+        'mods.document.collect': params => references.collect(params),
+        'mods.document.references': params => references.references(params),
+        'mods.document.reference_finish': params => references.finish(params),
         'mods.document.options': async params => {
             const campaign = await writer.campaign(params), world = await campaign.readWorld(), party = await campaign.party();
             // Omitted actor is not a choice of one investigator from a multi-investigator table.
             const actor = params.actor == null && party.length !== 1 ? null : selectActor(party, params.actor);
             const documents: Row[] = [];
             for (const item of values(row(row(world.objects).instances))) {
-                if (!truth(item.document)) continue;
+                if (!truth(item.document) || item.document.image) continue;
                 const root = rootObjectOwner(world, item);
                 if (!actor || root.kind !== 'investigator' || root.id !== actor.id || item.document.acquired_by !== actor.id) continue;
                 const owner = row(item.owner), holder = owner.kind === 'investigator'
@@ -118,6 +127,7 @@ export function createDocumentHandlers(writer: ReturnType<typeof createWriteRunt
             return {actor:actor?.name ?? null, documents, known,...(playerKnowledge?{playerKnowledge}:{}),...(knowledge?{knowledge}:{})};
         },
         'mods.document.view': async params => {
+            if (Object.hasOwn(params, 'reference_id')) return references.view(params);
             const value=await owned(params),view=await response(value);
             if(params._writing_identity!==true)return view;
             const root=rootObjectOwner(value.world,value.item),direct=row(value.item.owner);
@@ -139,6 +149,7 @@ export function createDocumentHandlers(writer: ReturnType<typeof createWriteRunt
             if (Object.keys(params).some(key => !['campaign', 'actor', 'name', 'version', 'action', 'text'].includes(key))) throw new RpcError('invalid_params', 'Unknown document edit field');
             const value = await owned(params), {campaign, world, actor, item} = value;
             if (params.version !== await documentVersion(campaign, world, item)) throw new RpcError('revision_conflict', 'The document or its ownership changed; keep your draft and reload before saving');
+            if (item.document.image) throw new RpcError('invalid_params','Image documents are read-only');
             const action = params.action;
             if (!['save', 'reset'].includes(action as string) || action === 'reset' && Object.hasOwn(params, 'text')) throw new RpcError('invalid_params', 'Document action must be save with text, or reset without client text');
             const document = item.document, text = action === 'reset' ? document.original : params.text, before = document.text;

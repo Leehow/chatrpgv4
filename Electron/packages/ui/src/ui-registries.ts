@@ -42,6 +42,8 @@ export type ToolRenderProps = {
    * answer's `data`; a refusal rejects with an Error carrying the refusal's `code`.
    */
   onInvokeExtension?: RendererInvoke
+  /** A player reference collection control is hidden without the current writable lease. */
+  collectionWritable?: boolean
 }
 
 /** §155.8: `host.invokeExtension` bound to a session, answering `data` or throwing `{code}`. */

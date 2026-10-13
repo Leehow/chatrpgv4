@@ -1,0 +1,30 @@
+{
+  "source": "tests/kernel/test_capsule_module.py",
+  "tests": [
+    {
+      "name": "test_the_first_turn_after_open_carries_the_briefing_from_the_graph",
+      "parameters": null
+    },
+    {
+      "name": "test_a_new_process_briefs_again_under_the_same_condition_as_style_and_resume",
+      "parameters": null
+    },
+    {
+      "name": "test_the_briefing_speaks_the_play_language_in_head_only",
+      "parameters": null
+    },
+    {
+      "name": "test_lines_step_down_before_anyone_is_dropped_and_the_tail_goes_last",
+      "parameters": null
+    },
+    {
+      "name": "test_domains_the_graph_lacks_are_empty_arrays_never_guesses",
+      "parameters": null
+    },
+    {
+      "name": "test_the_line_is_graph_text_never_the_name_repeated",
+      "parameters": null
+    }
+  ],
+  "unsupported": []
+}

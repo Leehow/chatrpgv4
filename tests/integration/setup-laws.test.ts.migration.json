@@ -1,0 +1,64 @@
+{
+  "source": "tests/kernel/test_setup_laws.py",
+  "tests": [
+    {
+      "name": "test_setup_steps_table_matches_the_committed_content_file",
+      "parameters": null
+    },
+    {
+      "name": "test_setup_steps_is_a_dag_and_start_is_a_step",
+      "parameters": null
+    },
+    {
+      "name": "test_setup_steps_ops_are_registered_rpc_methods_with_one_documented_exception",
+      "parameters": null
+    },
+    {
+      "name": "test_setup_steps_rejection_and_next_texts_are_nonempty_english_lines",
+      "parameters": null
+    },
+    {
+      "name": "test_table_open_on_setting_up_campaign_sends_back_to_setup",
+      "parameters": null
+    },
+    {
+      "name": "test_setup_methods_refuse_a_campaign_that_is_already_active",
+      "parameters": null
+    },
+    {
+      "name": "test_setup_occupations_lists_antiquarian_with_its_book_numbers",
+      "parameters": null
+    },
+    {
+      "name": "test_setup_investigator_derived_values_match_rulebook_arithmetic",
+      "parameters": null
+    },
+    {
+      "name": "test_setup_investigator_is_deterministic_under_the_same_seed",
+      "parameters": null
+    },
+    {
+      "name": "test_setup_investigator_unknown_occupation_asks_for_one_of_the_options",
+      "parameters": null
+    },
+    {
+      "name": "test_setup_complete_needs_an_investigator_first",
+      "parameters": null
+    },
+    {
+      "name": "test_setup_complete_writes_handoff_and_flips_status_then_opens",
+      "parameters": null
+    },
+    {
+      "name": "test_setup_complete_module_not_ready_is_unreachable_for_a_starter",
+      "parameters": null
+    },
+    {
+      "name": "test_new_starter_creates_a_campaign_opens_and_passes_the_ten_invariants",
+      "parameters": [
+        "@pytest.mark.parametrize(\"starter_id\", [\"mystery-house\", \"the-haunting-rulebook\"])\n"
+      ]
+    }
+  ],
+  "unsupported": []
+}

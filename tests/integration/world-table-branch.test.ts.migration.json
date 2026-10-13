@@ -1,0 +1,54 @@
+{
+  "source": "tests/kernel/test_table_branch.py",
+  "tests": [
+    {
+      "name": "test_branch_from_a_mid_history_commit_on_main",
+      "parameters": null
+    },
+    {
+      "name": "test_branch_from_a_commit_that_lives_on_a_dormant_line",
+      "parameters": null
+    },
+    {
+      "name": "test_replaying_the_same_branch_call_is_a_noop",
+      "parameters": null
+    },
+    {
+      "name": "test_branch_refuses_while_a_turn_is_open",
+      "parameters": null
+    },
+    {
+      "name": "test_branch_refuses_a_commit_no_line_reaches",
+      "parameters": null
+    },
+    {
+      "name": "test_branch_mints_a_name_from_the_fork_turn",
+      "parameters": null
+    },
+    {
+      "name": "test_branch_refuses_a_name_that_collides",
+      "parameters": null
+    },
+    {
+      "name": "test_branch_lands_the_label_on_the_worldline_forked_event",
+      "parameters": null
+    },
+    {
+      "name": "test_a_replay_that_switches_back_still_announces_the_branch_once",
+      "parameters": null
+    },
+    {
+      "name": "test_the_next_player_input_capsule_carries_the_branched_section_exactly_once",
+      "parameters": null
+    },
+    {
+      "name": "test_host_switch_restores_both_lines_and_preserves_their_turns",
+      "parameters": null
+    },
+    {
+      "name": "test_host_switch_refuses_during_a_turn_without_changing_the_active_line",
+      "parameters": null
+    }
+  ],
+  "unsupported": []
+}

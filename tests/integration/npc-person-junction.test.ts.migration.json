@@ -1,0 +1,66 @@
+{
+  "source": "tests/kernel/test_person_junction.py",
+  "tests": [
+    {
+      "name": "test_a_table_word_as_target_reaches_the_social_adjudication",
+      "parameters": null
+    },
+    {
+      "name": "test_a_table_word_as_actor_is_that_npcs_own_roll",
+      "parameters": null
+    },
+    {
+      "name": "test_a_table_word_as_target_settles_exactly_as_the_book_name_does",
+      "parameters": null
+    },
+    {
+      "name": "test_an_obligation_claimed_against_the_table_word_is_that_persons",
+      "parameters": null
+    },
+    {
+      "name": "test_a_seat_the_graph_answers_is_the_graphs_person_whatever_the_table_called_someone_else",
+      "parameters": null
+    },
+    {
+      "name": "test_a_word_two_people_carry_refuses_resolve_before_anything_rolls",
+      "parameters": null
+    },
+    {
+      "name": "test_look_focus_npc_reads_the_table_word",
+      "parameters": null
+    },
+    {
+      "name": "test_look_focus_npc_refuses_a_word_two_people_carry",
+      "parameters": null
+    },
+    {
+      "name": "test_npc_perspective_reads_the_table_word",
+      "parameters": null
+    },
+    {
+      "name": "test_npc_job_reads_the_table_word",
+      "parameters": null
+    },
+    {
+      "name": "test_the_npc_act_reads_read_the_table_word",
+      "parameters": null
+    },
+    {
+      "name": "test_the_npc_act_reads_refuse_a_word_two_people_carry",
+      "parameters": null
+    },
+    {
+      "name": "test_apply_clue_from_reads_the_table_word",
+      "parameters": null
+    },
+    {
+      "name": "test_apply_person_who_refuses_a_word_two_people_carry",
+      "parameters": null
+    },
+    {
+      "name": "test_a_say_token_two_people_carry_stays_a_label",
+      "parameters": null
+    }
+  ],
+  "unsupported": []
+}

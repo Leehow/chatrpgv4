@@ -20,7 +20,29 @@ function createReact(extra = {}) {
 	let cursor = 0;
 	let tree;
 	let details;
+	const contexts = new Map();
+	function renderNode(node) {
+		if (Array.isArray(node)) return node.map(renderNode);
+		if (!node || typeof node !== "object") return node;
+		if (typeof node.type === "function") return renderNode(node.type(node.props));
+		if (node.type?.context) {
+			const context = node.type.context, previous = contexts.get(context);
+			contexts.set(context, node.props.value);
+			try { return {type: "fragment", props: {children: renderNode(node.props.children)}}; }
+			finally { if (previous === undefined) contexts.delete(context); else contexts.set(context, previous); }
+		}
+		return {...node, props: {...node.props, children: renderNode(node.props.children)}};
+	}
 	const React = {
+		createContext(fallback) {
+			const context = {fallback};
+			context.Provider = {context};
+			return context;
+		},
+		useContext(context) { return contexts.has(context) ? contexts.get(context) : context.fallback; },
+		useRef(initial) {const i=cursor++; return states[i] ??= {current:initial};},
+		// This viewer harness mounts controls but exercises no polling or unmount lifecycle.
+		useEffect() {},
 		useState(init) {
 			const i = cursor++;
 			if (states.length <= i) states.push(init);
@@ -36,14 +58,13 @@ function createReact(extra = {}) {
 				const existing = merged.children;
 				merged.children = existing === undefined ? extra : [existing, ...extra].flat(Infinity);
 			}
-			if (typeof type === "function") return type(merged);
 			return { type, props: merged };
 		},
 	};
 	const Card = createComponent(React);
 	function refresh() {
 		cursor = 0;
-		tree = Card({ details, ...extra });
+		tree = renderNode(Card({ details, ...extra }));
 	}
 	/** The turn's trailing mechanics folds start shut; the player opens them by their own toggles to reach the map. */
 	function openSlip() {
@@ -178,20 +199,32 @@ test("tooltips, alt text and thumbnails carry only the public map and known-leve
 	assert.ok(thumbs.every(node => playerSafe(node.props.src)));
 });
 
-test("zoom and pan stay on the card: no model, no kernel, no campaign write", () => {
+test("zoom and pan stay on the card: no model, no kernel, no campaign write", async () => {
 	const source = readFileSync(join(REPO, "pipicoc/mechanics.js"), "utf8");
 	const start = source.indexOf("function MapRow(");
 	const end = source.indexOf("function renderRow(", start);
 	const mapRow = source.slice(start, end);
-	assert.equal(/invoke|fetch\(|prompt\(|appendEntry|pi\.|xmlhttp|WebSocket/i.test(mapRow), false);
+	const controlsStart = mapRow.indexOf('h("label", { className: "coc-map-tools" }');
+	const controlsEnd = mapRow.indexOf("kindKey === 'handout' ? h(HandoutSlot", controlsStart);
+	assert.ok(controlsStart >= 0 && controlsEnd > controlsStart, "The actual viewport controls must be inspected");
+	const viewportControls = mapRow.slice(controlsStart, controlsEnd);
+	// Collection is a separate explicit host control; the slider, floors and viewport stay local.
+	assert.equal(/invoke|fetch\(|prompt\(|appendEntry|pi\.|xmlhttp|WebSocket/i.test(viewportControls), false);
 	assert.match(mapRow, /onPointerDown:\s*panViewport/);
 	assert.match(source, /function panViewport\(/);
 
-	const mounted = createReact();
+	const calls = [];
+	const mounted = createReact({collectionWritable:true,onInvoke:async(method,params)=>{
+		calls.push({method,params});
+		return {collection_writable:true,view:{investigators:[{id:"reader",name:"Reader"}]}};
+	}});
 	let tree = mounted.render(delivery([{
 		kind: "map", map: "house", view_id: "v1", receipt: "map:house-t1", label: "House",
 		document: "ready", image: PNG, regions: [],
 	}]).details);
+	const collector = collect(tree, node => node.props?.className === "coc-reference-collect")[0];
+	assert.ok(collector, "The actual session-bound collection consumer is mounted beside the viewer");
+	assert.deepEqual(calls, [], "Viewing the map does not initiate collection or another host operation");
 	const slider = collect(tree, node => node.type === "input" && node.props?.type === "range")[0];
 	slider.props.onChange({ target: { value: "180" } });
 	tree = mounted.tree;
@@ -214,6 +247,14 @@ test("zoom and pan stay on the card: no model, no kernel, no campaign write", ()
 	assert.equal(scroller.scrollTop, 26);
 	listeners.get("pointerup")({ pointerId: 7 });
 	assert.equal(scroller.dataset.panning, "");
+	assert.equal(listeners.size, 0, "Pointer completion removes every local drag listener");
+	assert.equal(/invoke|fetch\(|prompt\(|appendEntry|pi\.|xmlhttp|WebSocket/i.test(viewport.props.onPointerDown.toString()), false);
+	assert.deepEqual(calls, [], "Zoom and the complete pointer drag do not invoke the host");
+	const save = collect(mounted.tree, node => node.type === "button" && node.props?.className === "coc-handout-action")[0];
+	assert.ok(save, "Collection has its own explicit button");
+	save.props.onClick();
+	await Promise.resolve();
+	assert.deepEqual(calls, [{method:"sheet",params:{}}], "Only the separate collection click asks for investigator selection");
 });
 
 /**

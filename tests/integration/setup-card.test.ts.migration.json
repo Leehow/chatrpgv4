@@ -1,0 +1,196 @@
+{
+  "source": "tests/kernel/test_setup_card.py",
+  "tests": [
+    {
+      "name": "test_a_described_person_takes_the_quick_fire_array_in_priority_order",
+      "parameters": null
+    },
+    {
+      "name": "test_a_weak_characteristic_takes_the_bottom_of_the_array",
+      "parameters": null
+    },
+    {
+      "name": "test_without_a_word_about_the_person_the_dice_decide",
+      "parameters": null
+    },
+    {
+      "name": "test_a_number_written_in_the_dossier_is_a_pin",
+      "parameters": null
+    },
+    {
+      "name": "test_a_pin_above_the_creation_bound_asks_for_the_unlock",
+      "parameters": null
+    },
+    {
+      "name": "test_a_profile_revision_moves_no_number",
+      "parameters": null
+    },
+    {
+      "name": "test_one_backstory_category_can_be_corrected_alone",
+      "parameters": null
+    },
+    {
+      "name": "test_a_backstory_category_at_the_top_level_is_folded_in",
+      "parameters": null
+    },
+    {
+      "name": "test_draft_with_a_card_on_the_table_is_a_revision",
+      "parameters": null
+    },
+    {
+      "name": "test_an_unprinted_weapon_goes_to_the_equipment_instead_of_a_refusal",
+      "parameters": null
+    },
+    {
+      "name": "test_unknown_profile_fields_are_named_not_the_whole_schema",
+      "parameters": null
+    },
+    {
+      "name": "test_fewer_than_eight_occupation_skills_are_filled_from_the_trade",
+      "parameters": null
+    },
+    {
+      "name": "test_names_resolve_through_the_localized_labels",
+      "parameters": null
+    },
+    {
+      "name": "test_an_unknown_trade_offers_the_closest_entries_by_their_skills",
+      "parameters": null
+    },
+    {
+      "name": "test_an_unresolved_skill_is_dropped_with_candidates_and_the_card_is_still_drawn",
+      "parameters": null
+    },
+    {
+      "name": "test_the_catalog_is_one_compact_read",
+      "parameters": null
+    },
+    {
+      "name": "test_a_pinned_skill_survives_a_list_change_and_the_new_skills_take_only_what_is_left",
+      "parameters": null
+    },
+    {
+      "name": "test_soft_allocations_are_sticky_and_only_the_biggest_holder_gives_way",
+      "parameters": null
+    },
+    {
+      "name": "test_a_pin_by_the_model_is_recorded_as_the_models",
+      "parameters": null
+    },
+    {
+      "name": "test_a_pin_above_the_cap_asks_for_the_unlock_and_takes_it",
+      "parameters": null
+    },
+    {
+      "name": "test_a_pin_the_budget_cannot_hold_is_kept_and_the_overspend_is_reported",
+      "parameters": null
+    },
+    {
+      "name": "test_a_relaxed_budget_left_unspent_is_a_note_not_a_gate",
+      "parameters": null
+    },
+    {
+      "name": "test_auto_spread_spends_what_is_left_and_moves_no_pin",
+      "parameters": null
+    },
+    {
+      "name": "test_the_override_alias_still_edits_numbers_for_the_card",
+      "parameters": null
+    },
+    {
+      "name": "test_credit_rating_is_pinned_inside_the_trade_range",
+      "parameters": null
+    },
+    {
+      "name": "test_a_refused_revision_leaves_the_card_as_it_was",
+      "parameters": null
+    },
+    {
+      "name": "test_a_revision_needs_a_card",
+      "parameters": null
+    },
+    {
+      "name": "test_reroll_is_the_only_call_that_rolls_again_and_it_keeps_the_pins",
+      "parameters": null
+    },
+    {
+      "name": "test_confirm_checks_only_that_this_is_the_current_card",
+      "parameters": null
+    },
+    {
+      "name": "test_previewed_is_gone",
+      "parameters": null
+    },
+    {
+      "name": "test_the_card_file_holds_the_pins_and_the_soft_share",
+      "parameters": null
+    },
+    {
+      "name": "test_a_printed_list_with_alternatives_and_slashes_still_fills_the_trade",
+      "parameters": null
+    },
+    {
+      "name": "test_a_ninth_occupation_pick_leads_the_interest_list_and_is_reported",
+      "parameters": null
+    },
+    {
+      "name": "test_a_reordered_interest_list_respreads_that_pool_and_keeps_the_pins",
+      "parameters": null
+    },
+    {
+      "name": "test_credit_rating_follows_the_trade_on_an_occupation_change",
+      "parameters": null
+    },
+    {
+      "name": "test_a_pin_from_the_dossier_below_its_base_is_refused_on_the_first_draft_too",
+      "parameters": null
+    },
+    {
+      "name": "test_a_pinned_characteristic_is_written_into_the_generation_record",
+      "parameters": null
+    },
+    {
+      "name": "test_a_reroll_spends_the_new_budget",
+      "parameters": null
+    },
+    {
+      "name": "test_a_modern_card_lists_the_whole_standard_sheet_and_the_modern_only_skills",
+      "parameters": null
+    },
+    {
+      "name": "test_a_skill_pin_is_points_so_dodge_follows_dex",
+      "parameters": null
+    },
+    {
+      "name": "test_the_worksheet_columns_are_the_pin_and_the_card_reports_both",
+      "parameters": null
+    },
+    {
+      "name": "test_a_custom_skill_lives_on_the_card_with_its_own_base_and_takes_points",
+      "parameters": null
+    },
+    {
+      "name": "test_the_edit_control_can_change_the_occupation",
+      "parameters": null
+    },
+    {
+      "name": "test_the_budget_reports_the_characteristic_points_against_the_point_buy_reference",
+      "parameters": null
+    },
+    {
+      "name": "test_the_edit_control_can_move_a_skill_between_the_lists_and_the_points_reflow",
+      "parameters": null
+    },
+    {
+      "name": "test_the_edit_control_can_change_the_age_and_the_age_table_reruns_on_the_same_dice",
+      "parameters": null
+    },
+    {
+      "name": "test_a_bigger_budget_after_a_characteristic_edit_is_spent_not_left_on_the_table",
+      "parameters": null
+    }
+  ],
+  "unsupported": [
+    "StatementGroup: semantic = dict(semantic); semantic[\"era\"] = \"modern\"; return semantic\n"
+  ]
+}

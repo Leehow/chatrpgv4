@@ -1,0 +1,38 @@
+{
+  "source": "tests/kernel/test_fast_guidance.py",
+  "tests": [
+    {
+      "name": "test_guidance_opens_setup_but_not_world_or_play_and_preserves_confirmation",
+      "parameters": null
+    },
+    {
+      "name": "test_the_start_scene_seats_its_own_cast_before_any_other_scene_claims_them",
+      "parameters": null
+    },
+    {
+      "name": "test_review_binds_both_files_and_requires_source_support",
+      "parameters": null
+    },
+    {
+      "name": "test_campaign_cannot_pin_an_unaccepted_or_different_language_guidance",
+      "parameters": null
+    },
+    {
+      "name": "test_explicit_opening_does_not_reuse_another_prepared_scene",
+      "parameters": null
+    },
+    {
+      "name": "test_ambiguous_guidance_publishes_choices_without_authorizing_character_creation",
+      "parameters": null
+    },
+    {
+      "name": "test_authored_era_prose_uses_the_rulebook_default_without_losing_the_setting",
+      "parameters": null
+    },
+    {
+      "name": "test_an_opening_published_ready_stays_ready_under_a_later_rule",
+      "parameters": null
+    }
+  ],
+  "unsupported": []
+}

@@ -1,0 +1,22 @@
+{
+  "source": "tests/kernel/test_postgame_settlement.py",
+  "tests": [
+    {
+      "name": "test_ending_requires_accounting_and_source_expression_uses_existing_frozen_plan",
+      "parameters": null
+    },
+    {
+      "name": "test_late_accounting_preserves_ending_and_cannot_repeat_or_replace_reward",
+      "parameters": null
+    },
+    {
+      "name": "test_postgame_allowlist_blocks_adventure_and_routing_overrides",
+      "parameters": null
+    },
+    {
+      "name": "test_completed_pending_settlement_reuses_the_frozen_source_reward",
+      "parameters": null
+    }
+  ],
+  "unsupported": []
+}

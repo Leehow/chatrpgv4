@@ -375,6 +375,75 @@ function createHandoutReading(React) {
 }
 /* >>> end handout reading <<< */
 
+/* >>> player reference collection: shared verbatim between mechanics.js and board.js <<< */
+export function createReferenceCollector(React) {
+  const h = React.createElement;
+  return function ReferenceCollector({invoke, ui, handout, presentation = "image", actors, writable = false}) {
+    const [choice, setChoice] = React.useState(null);
+    const [actor, setActor] = React.useState("");
+    const [category, setCategory] = React.useState(presentation);
+    const [busy, setBusy] = React.useState(false);
+    const [saved, setSaved] = React.useState(null);
+    const [failure, setFailure] = React.useState(null);
+    const alive = React.useRef(true);
+    React.useEffect(() => {alive.current = true; return () => {alive.current = false;};}, []);
+    React.useEffect(() => {
+      if (!saved?.id || saved.status !== "queued" || !actor || !invoke) return;
+      let active=true, timer;
+      async function refresh() {
+        try {
+          const answer=await invoke("mods.document.references",{actor});
+          if(!active)return;
+          const reference=answer?.references?.find(item=>item.id===saved.id);
+          if(reference) {setSaved(reference);if(reference.status!=="queued")return;}
+          timer=setTimeout(()=>void refresh(),700);
+        } catch(error) {if(active)setFailure(error);}
+      }
+      timer=setTimeout(()=>void refresh(),700);
+      return ()=>{active=false;clearTimeout(timer);};
+    },[saved?.id,saved?.status,actor,invoke]);
+    if (!invoke || !handout || writable !== true) return null;
+    const paper = key => word(ui, "paper", key);
+    async function choose() {
+      setBusy(true); setFailure(null);
+      try {
+        const answer = Array.isArray(actors) ? {view:{investigators:actors},collection_writable:writable} : await invoke("sheet", {});
+        if (!alive.current) return;
+        if (answer?.collection_writable !== true) {setChoice(false); return;}
+        const party = (answer?.view?.investigators || []).filter(item => isRecord(item) && text(item.id));
+        if (!party.length) throw Object.assign(new Error("No campaign investigator is available"), {code:"campaign_unbound"});
+        setActor(text(party[0].id)); setChoice(party);
+      } catch (error) {if(alive.current)setFailure(error);}
+      finally {if(alive.current)setBusy(false);}
+    }
+    async function collect() {
+      if (busy || !Array.isArray(choice) || !choice.some(item => item.id === actor)) return;
+      setBusy(true); setFailure(null);
+      try {
+        const answer = await invoke("mods.document.collect", {actor, handout, presentation:category});
+        if (!answer?.reference?.id) throw new Error("The collection did not return a reference");
+        if (alive.current) {setSaved(answer.reference); setChoice(null);}
+      } catch (error) {if(alive.current)setFailure(error);}
+      finally {if(alive.current)setBusy(false);}
+    }
+    if (choice === false) return null;
+    return h("div", {className:"coc-reference-collect", "data-reference-id":saved?.id,style:{display:"flex",flexWrap:"wrap",alignItems:"center",gap:8,marginTop:8}},
+      saved ? h("span", {role:saved.status === "refused" ? "alert" : "status"}, saved.status === "refused" ? word(ui,"errors","unknown") :
+        saved.status === "queued" ? word(ui,"mechanics","preparing",paper("saving")) : paper("clean")) :
+      Array.isArray(choice) ? h(React.Fragment, null,
+        h("label", null, word(ui,"sheet","identityTitle"), " ", h("select", {value:actor,disabled:busy,onChange:event=>setActor(event.target.value)},
+          choice.map(item=>h("option",{key:item.id,value:item.id},text(item.display_name || item.name))))),
+        h("label", null, paper("maps"), " / ", paper("images"), " ", h("select", {value:category,disabled:busy,onChange:event=>setCategory(event.target.value)},
+          h("option",{value:"map"},paper("maps")),h("option",{value:"image"},paper("images")))),
+        h("button",{type:"button",disabled:busy,onClick:()=>void collect()},busy?paper("saving"):paper("save")),
+        h("button",{type:"button",disabled:busy,onClick:()=>setChoice(null)},paper("close"))) :
+      h("button", {type:"button",className:"coc-handout-action",disabled:busy,onClick:()=>void choose()},busy?paper("saving"):paper("save")),
+      failure ? h("span",{role:"alert"},word(ui,"errors",text(failure.code),word(ui,"errors","unknown"))) : null);
+  };
+}
+/* >>> end player reference collection <<< */
+
+
 if (typeof document !== "undefined" && !document.getElementById(STYLE_ID)) {
   const style = document.createElement("style");
   style.id = STYLE_ID;
@@ -474,6 +543,7 @@ export function createComponent(React) {
   const { useCallback, useEffect, useRef, useState } = React;
   const h = React.createElement;
   const HandoutReading = createHandoutReading(React);
+  const ReferenceCollector = createReferenceCollector(React);
 
   /**
    * A decorative glyph restating its label, keyed by the stable name rather than the localized
@@ -565,6 +635,7 @@ export function createComponent(React) {
             handout && typeof invoke === "function"
               ? h(HandoutReading, { key: handout, handout, invoke, ui, active: open, bodyClass: "coc-clue-doc-body", original: authored })
               : authored,
+            h(ReferenceCollector,{invoke,ui,handout:handout || text(row.map),presentation:row.map?'map':'image',actors:props.actors,writable:props.writable}),
             regionLabels.length ? h("div", { className: "coc-map-regions" }, regionLabels.join(" \u00b7 ")) : null)
         // Nothing to open: the place the player knows is still worth naming, and it is the only
         // thing here that is true without the pixels (§59 -- a `none` page is delivered, not lost).
@@ -573,16 +644,16 @@ export function createComponent(React) {
 
   /** The maps this table has been shown (§39.3): arrival cards and Keeper-granted regions alike. */
   function Maps(props) {
-    const { maps, t, term } = props;
+    const { maps, t, term, ui, invoke, actors, writable } = props;
     return h(Section, { title: t("maps"), icon: "map", anchor: "maps" },
       maps.length
-        ? maps.map((row, index) => h(MapBlock, { key: text(row.map) || index, row, t, term }))
+        ? maps.map((row, index) => h(MapBlock, { key: text(row.map) || index, row, t, term, ui, invoke, actors, writable }))
         : h("p", { className: "coc-sheet-note" }, t("noMaps")));
   }
 
   /** Found clues -- the old sheet's clues section, word for word. */
   function Clues(props) {
-    const { view, t, term = value => value, ui, invoke } = props;
+    const { view, t, term = value => value, ui, invoke, writable } = props;
     const clues = isRecord(view.clues) ? view.clues : {};
     const discovered = Array.isArray(clues.discovered) ? clues.discovered : [];
     const here = Array.isArray(clues.here) ? clues.here : [];
@@ -610,7 +681,7 @@ export function createComponent(React) {
     // A pictured document is drawn as its picture, and only a pictured one gets the §155 control:
     // a text-only card is already words in hand.
     const documentRows = documents.map((doc, index) => playerImage(doc.image)
-      ? h(MapBlock, {key:`doc:${text(doc.handout)}:${index}`,row:doc,t,term,ui,invoke})
+      ? h(MapBlock, {key:`doc:${text(doc.handout)}:${index}`,row:doc,t,term,ui,invoke,actors:view.investigators,writable})
       : h("details", { className: "coc-clue coc-clue-fold coc-clue-doc", key: `doc:${text(doc.handout)}:${index}`, "data-handout": text(doc.handout) },
         h("summary", null, h(Icon, { name: "document" }),
           h("span", { className: "coc-clue-name" }, term(text(doc.name) || text(doc.handout)))),
@@ -774,8 +845,8 @@ export function createComponent(React) {
     const term = (name) => (typeof glossary[name] === "string" && glossary[name]) || name;
     return h("div", { className: "coc-board", role: "region", ...(props.title ? { "aria-label": props.title } : {}) },
       refresh,
-      h(Maps, { maps, t, term }),
-      h(Clues, { view, t, term, ui, invoke: api.invoke ? readHandout : undefined }),
+      h(Maps, { maps, t, term, ui, invoke:api.invoke ? readHandout : undefined, actors:view.investigators, writable:answer.collection_writable }),
+      h(Clues, { view, t, term, ui, invoke: api.invoke ? readHandout : undefined, writable:answer.collection_writable }),
       h(Npcs, { view, t, term }));
   };
 }

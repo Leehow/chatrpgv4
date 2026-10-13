@@ -63,7 +63,7 @@ PipiCOC 界面现已复制到本分支 `Electron/`，经 `pipicoc/rpc` 启动当
 2. **谁读它。** 哪一节投影把它送到守秘人面前。白名单里躺着零消费者的字段，这个仓库出过两次。
 3. **谁据它行动。** 守秘人拿它做什么，落成哪张收据。这一端没有测试能静态回答，只能数：`lane: "offers"` 每回合记下胶囊摆出了什么、这一回合取了什么。
 
-守着这三端的东西：`tests/extension/world-state-seams.test.mjs`（前两端，走 AST 配对世界状态的读写；**它看不见图上的作者字段**，别指望它挡住第一类）、`offerLedger` 与 `tests/play/kpi.py` 的 offers 一节（第三端）。
+守着这三端的东西：`tests/extension/world-state-seams.test.mjs`（前两端，走 AST 配对世界状态的读写；**它看不见图上的作者字段**，别指望它挡住第一类）、`offerLedger` 与 `tests/play/kpi.ts` 的 offers 一节（第三端）。
 
 **两条不许破的边界：**
 
@@ -85,12 +85,12 @@ PipiCOC 界面现已复制到本分支 `Electron/`，经 `pipicoc/rpc` 启动当
 
 **Pi-Coc 的验收 / 体验 / 开桌 / 实机测试 / 端到端只有一种方法**（用户说这些词就是在点这一条，不是在点建战役、pytest 或把命令行扔给用户）：
 
-1. 用 `tests/play/driver.py` 以 RPC 模式起 `bin/pi-coc`（建卡用 `--launcher bin/pi-coc-setup`）。驾驭器只做传输。
-2. **Grok Build 4.5 / low 统一当守秘人**（`grok-build/grok-4.5`；2026-10-11 用户裁定），驱动全部判断、叙事、NPC、规则调用，后续不使用 4.7。源码游玩设置在 `.pi/coc-agent/settings.json`；App 新会话默认与驾驭器启动模型均为 4.5 / low。启动后核对实际模型，避免自动开场混用旧选择。历史测试保留其原始模型记录，不改写旧证据。
+1. 用 `tests/play/driver.ts` 以 RPC 模式起 `bin/pi-coc`（建卡用 `--launcher bin/pi-coc-setup`）。驾驭器只做传输。
+2. **真桌测试默认 `codex-relay/gpt-6-luna` / high**，最终作者与辅助车道使用同一配置。Codex Relay 实际报并发满时，本次测试回退到 `grok-build/grok-4.5` / low，保留 Luna 失败记录并核对后续实际模型。产品/App 全局默认仍为 Grok 4.5 / low；历史证据不改写。完整方法见 `docs/acceptance.md`（2026-10-13 用户裁定）。
 3. **本主会话就是唯一玩家。** 一次一句自然的话，一回合一回，从建卡/开场跑到结局或真阻断。不问「要我当玩家吗」——角色已定死。
 4. 沿途覆盖要测的能力点，不预设脚本，由守秘人正常推进。
 5. **慢可以，假不行。**
-6. 证据是 `.coc/campaigns/<id>/` 的回合记录与遥测、`.coc/playtests/<run>/`、`.coc/modules/<id>/`；指标用 `tests/play/kpi.py`。
+6. 证据是 `.coc/campaigns/<id>/` 的回合记录与遥测、`.coc/playtests/<run>/`、`.coc/modules/<id>/`；指标用 `tests/play/kpi.ts`。
 
 ### TRPG 验收看演绎逻辑，允许改编（2026-10-07 用户裁定）
 
@@ -186,15 +186,29 @@ Grok 系模型屡次把「交付」当目标、把意图当配菜，也屡次静
 
 - **契约先行**：先在 `docs/kernel-rpc.md` 写形状，再开工；worker 只按契约写，形状对不上以契约为准，集成时补回归用例。
 - **worker 按任务选模型**：内核实现用 Fable；扩展用 Opus；测试、驾驭器、机械迁移用 Sonnet/Haiku；不全用一个模型。同一 worktree 的 worker 路径互斥、`commit_policy: no_commit`，由 lead 集成与提交。
-- 测试：`uv run --frozen python -m pytest tests/kernel tests/play -q` 与 `npm run test:ext`。**不要并发跑两个 pytest**（临时目录会撞出幻影失败）；提交前看真实退出码，别信 `pytest | tail`。 pytest 默认复用 `--retargetable` 内核进程（`tests/kernel/kernel_pool.py`，契约 §146）；`COC_TEST_KERNEL_POOL=0` 退回每例 spawn，断言进程启动/退出本身的用例用 `RpcClient(..., fresh=True)`。
-- 测试分两档（2026-10-08 用户批准），都在局域网盒子上跑（`leehow-pc-tests` skill 的 `remote-test.sh`）：
-  - 改代码时用 `focused`：由 `scripts/select-tests.mjs` 按本次改动挑测试，只跑它挑中的。
+- 日常反馈默认 `npm test`：直接调用生产 TS，包含两组必跑冒烟；迁移范围和原断言清单见 `tests/direct-ts-migration.json`、`docs/specs/direct-ts-test-migration.md`。`npm run test:integration` 执行全部原测试的 TS 对应实现；完整断言与参数集账本见 `tests/ts-migration-manifest.json`；`npm run test:all` 构建后跑齐 ext、loop 和 integration。快速通过不等于全量通过。
+- 重测试串行占用每台局域网测试机；核对真实退出码、JUnit 与保留的证据。原生 RPC 用 `tests/integration/support.ts` 的真实子进程；进程池等价性与故障淘汰由 `tests/integration/kernel-pool.test.ts` 单独验证。旧 Python 测试原文只作不可变迁移审计，不再通过 pytest 执行。
+- 快速入口可本机运行；重测试继续遵守局域网盒子策略（`leehow-pc-tests` skill 的 `remote-test.sh`），用户明确要求本机时按本机执行：
+  - 改动未迁移模块或 RPC、事务、磁盘、接线路径时，快速测试后补 `focused`：由 `scripts/select-tests.mjs` 按本次改动挑测试。
     - 挑的依据只有三样：import 关系、构建产物 sourcemap 里列出的源文件、测试里写出的数据或源文件路径；不做语义判断。
     - 冒烟两件（`ts-kernel-foundation`、`control-flow-inventory`）每次都跑。
     - 遇到它判断不了影响范围的改动（依赖清单、构建脚本等），直接退回全量。
-  - 合主线前用 `all`：ext、pytest、loop 三路同时跑，ext 每个文件一个进程，按上次耗时从慢到快排队。
+  - 合主线前用 `all`：盒子串行跑 ext、integration、loop 全量；本机的 `npm run test:all` 按阶段串行、每阶段最多两个 worker，避免占满开发机。
   - 本地 `node scripts/select-tests.mjs --explain <测试文件>` 可以查某个测试为什么被挑中。
   - 测试不走 import、按字符串加载源文件时，文件里要写出完整的仓库路径（如 `extensions/kernel/index.ts`），挑选器才认得出；把路径拆成几段拼起来，它就看不见。
 - 复制进来的 PipiUI 套件用 `npm run test:electron` 跑：它比对 `Electron/scripts/vitest-suite-baseline.json` 里记下的已知失败，只在出现差异时红。基线之外的新失败是回归；基线里不再失败的条目要用 `--record` 重记。**不许手写基线条目**把红的糊绿——那张表只许缩短。
 - 主检出与共享 worktree 上禁用 `git stash`、`reset --hard`、`checkout --`、`clean`；要隔离就开临时 worktree。不推、不删分支、不改共享历史，除非用户当回合明说。
 - 每次真桌验收都会找出几个接缝看不见的系统缺陷：给每个切片预留一次修复提交。
+
+## Test model override (owner 2026-10-13)
+
+For all subsequent live tests, use Codex Relay `codex-relay/gpt-6-luna` with
+`high` reasoning. This supersedes earlier Grok 4.5/low test-model instructions,
+including the final author within a test. `tests/play/driver.ts` selects this
+profile and passes `PI_COC_TEST_MODEL` to its runtime. Verify actual models;
+never rewrite the model attribution of historical evidence. Product session
+model defaults are not changed by this test-only instruction.
+If Codex Relay reports saturated upstream concurrency, use `grok-build/grok-4.5`
+with `low` reasoning for that test, including its author and supporting lanes
+(owner 2026-10-13). Record the fallback and preserve the failed Luna evidence;
+Luna/high remains the default for subsequent tests.

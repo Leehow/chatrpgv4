@@ -1,0 +1,22 @@
+{
+  "source": "tests/kernel/test_capsule_budgets.py",
+  "tests": [
+    {
+      "name": "test_every_section_stays_within_its_budget_on_a_rich_state",
+      "parameters": null
+    },
+    {
+      "name": "test_head_and_turn_are_excluded_from_the_budget_and_from_truncated",
+      "parameters": null
+    },
+    {
+      "name": "test_style_budget_is_larger_on_the_first_capsule_of_a_fresh_process",
+      "parameters": null
+    },
+    {
+      "name": "test_style_budget_is_the_smaller_one_in_a_later_turn",
+      "parameters": null
+    }
+  ],
+  "unsupported": []
+}

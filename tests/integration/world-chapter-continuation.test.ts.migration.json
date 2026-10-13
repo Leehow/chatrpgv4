@@ -1,0 +1,26 @@
+{
+  "source": "tests/kernel/test_chapter_continuation.py",
+  "tests": [
+    {
+      "name": "test_ending_scope_is_explicit_and_validated_before_world_effects",
+      "parameters": null
+    },
+    {
+      "name": "test_chapter_accounting_replays_until_movement_then_next_session_can_settle",
+      "parameters": null
+    },
+    {
+      "name": "test_legacy_chapter_correction_preserves_history_and_rewards_and_survives_restart",
+      "parameters": null
+    },
+    {
+      "name": "test_explicit_campaign_ending_cannot_be_reclassified",
+      "parameters": null
+    },
+    {
+      "name": "test_legacy_correction_requires_existing_accounting",
+      "parameters": null
+    }
+  ],
+  "unsupported": []
+}

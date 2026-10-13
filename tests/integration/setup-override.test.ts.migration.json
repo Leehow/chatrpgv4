@@ -1,0 +1,102 @@
+{
+  "source": "tests/kernel/test_setup_override.py",
+  "tests": [
+    {
+      "name": "test_draft_carries_the_limits_block_and_the_file_stores_it",
+      "parameters": null
+    },
+    {
+      "name": "test_override_one_characteristic_recomputes_derived_and_resets_currents",
+      "parameters": null
+    },
+    {
+      "name": "test_a_dex_change_recomputes_the_dodge_base_and_holds_its_points",
+      "parameters": null
+    },
+    {
+      "name": "test_skill_edits_within_the_budget_are_applied",
+      "parameters": null
+    },
+    {
+      "name": "test_exceeding_a_pool_is_reported_on_the_card_not_refused",
+      "parameters": null
+    },
+    {
+      "name": "test_overspending_past_every_soft_point_is_a_non_standard_card",
+      "parameters": null
+    },
+    {
+      "name": "test_a_stale_revision_conflicts",
+      "parameters": null
+    },
+    {
+      "name": "test_unknown_edit_fields_are_invalid_and_list_the_legal_fields",
+      "parameters": null
+    },
+    {
+      "name": "test_skill_edits_below_the_base_and_above_the_cap_are_refused",
+      "parameters": null
+    },
+    {
+      "name": "test_cthulhu_mythos_and_credit_rating_are_not_skill_edits",
+      "parameters": null
+    },
+    {
+      "name": "test_credit_rating_stays_within_the_occupation_range",
+      "parameters": null
+    },
+    {
+      "name": "test_a_characteristic_above_the_default_bound_needs_an_unlock",
+      "parameters": null
+    },
+    {
+      "name": "test_a_limits_override_unlocks_and_persists_into_later_overrides",
+      "parameters": null
+    },
+    {
+      "name": "test_dry_run_returns_the_would_be_result_and_writes_nothing",
+      "parameters": null
+    },
+    {
+      "name": "test_an_identical_profile_reuses_the_overridden_draft",
+      "parameters": null
+    },
+    {
+      "name": "test_confirm_without_a_revision_commits_the_current_overridden_draft",
+      "parameters": null
+    },
+    {
+      "name": "test_override_is_refused_between_confirmation_and_handoff",
+      "parameters": null
+    },
+    {
+      "name": "test_override_is_refused_once_the_campaign_left_setting_up",
+      "parameters": null
+    },
+    {
+      "name": "test_the_allocation_ledger_is_rewritten_to_the_manual_numbers",
+      "parameters": null
+    },
+    {
+      "name": "test_a_credit_rating_edit_recomputes_wealth_and_charges_the_occupation_pool",
+      "parameters": null
+    },
+    {
+      "name": "test_unlocking_a_pool_budget_raises_the_total_the_ledger_shows",
+      "parameters": null
+    },
+    {
+      "name": "test_unknown_limits_override_keys_are_invalid_params",
+      "parameters": null
+    },
+    {
+      "name": "test_a_pin_survives_a_re_draft_that_changes_the_age",
+      "parameters": null
+    },
+    {
+      "name": "test_a_pin_stored_without_columns_keeps_its_value_and_takes_an_edit",
+      "parameters": null
+    }
+  ],
+  "unsupported": []
+}

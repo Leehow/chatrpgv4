@@ -1,0 +1,58 @@
+{
+  "source": "tests/kernel/test_scene_obligations.py",
+  "tests": [
+    {
+      "name": "test_the_morgue_issues_the_gate_open_and_the_archivist_blocked",
+      "parameters": null
+    },
+    {
+      "name": "test_meeting_arty_makes_the_check_the_next_step",
+      "parameters": null
+    },
+    {
+      "name": "test_a_scene_without_obligations_reads_as_before",
+      "parameters": null
+    },
+    {
+      "name": "test_a_claimed_pass_sets_the_flag_in_the_same_call",
+      "parameters": null
+    },
+    {
+      "name": "test_a_claimed_failure_leaves_it_open_with_the_book_line_and_no_consequence",
+      "parameters": null
+    },
+    {
+      "name": "test_a_push_continues_the_claim_it_pushes",
+      "parameters": null
+    },
+    {
+      "name": "test_the_same_skill_without_the_claim_is_the_folded_attempt",
+      "parameters": null
+    },
+    {
+      "name": "test_apply_flag_waives_and_reopens_with_ordinary_receipts",
+      "parameters": null
+    },
+    {
+      "name": "test_a_guarded_clue_lands_while_open_and_says_so",
+      "parameters": null
+    },
+    {
+      "name": "test_a_claim_is_refused_by_name_when_it_does_not_fit",
+      "parameters": null
+    },
+    {
+      "name": "test_the_offer_ledger_counts_the_obligation_and_marks_it_taken",
+      "parameters": null
+    },
+    {
+      "name": "test_a_fresh_campaign_carries_the_commission_as_an_open_accept_with_its_settlement",
+      "parameters": null
+    },
+    {
+      "name": "test_the_accept_settlement_files_its_yields_in_one_apply_and_crosses_nothing",
+      "parameters": null
+    }
+  ],
+  "unsupported": []
+}

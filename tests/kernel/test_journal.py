@@ -502,7 +502,9 @@ def test_a_table_epithet_is_not_disclosure_and_is_shared_by_player_surfaces(kern
     kernel.table("player_input", text="I ask his name.")
     # §103.8: while he is untold his book name is not a word the table may call him, and the Keeper does not hold it: the
     # introduction says it through {{name:}}, which the delivery fills in.
-    assert kernel.err("table.apply", {"campaign": CAMPAIGN, "call_id": "t3-c1", "effects": [{"kind": "person", "who": label, "name": KNOTT}]})["details"]["reason"] == "untold_name"
+    staged = kernel.table("apply", call_id="t3-c1", effects=[{"kind": "person", "who": label, "name": KNOTT}])
+    assert staged["names_pending_delivery"] == [{"who": KNOTT, "name": KNOTT}]
+    assert kernel.table("look", focus="npc", name=KNOTT)["untold"]["label"] == label
     delivered = narrate(kernel, "t3-c2", f'{{{{say:{label}}}}}"My name is {{{{name:{label}}}}}."{{{{/say}}}}')
     assert f"My name is {KNOTT}." in delivered["rendered_text"]
     later = kernel.table("player_input", text="I nod.")

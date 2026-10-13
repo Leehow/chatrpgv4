@@ -1,0 +1,112 @@
+{
+  "source": "tests/kernel/test_npc_stakes.py",
+  "tests": [
+    {
+      "name": "test_after_a_landed_blow_the_rung_is_one_above_his_base_and_only_the_keeper_sees_the_die",
+      "parameters": [
+        "@pytest.mark.parametrize(\"seed,outcome\", LANDED.items(), ids=[f\"seed{seed}-{outcome}\" for seed, outcome in LANDED.items()])\n"
+      ]
+    },
+    {
+      "name": "test_on_the_dangerous_rung_a_roll_at_most_its_surprise_column_allows_a_surprise",
+      "parameters": [
+        "@pytest.mark.parametrize(\"seed,expected\", SURPRISE_SEEDS.items(), ids=[f\"seed{seed}-{'surprise' if e else 'none'}\" for seed, e in SURPRISE_SEEDS.items()])\n"
+      ]
+    },
+    {
+      "name": "test_a_severe_roll_that_surprises_carries_the_severe_permission",
+      "parameters": null
+    },
+    {
+      "name": "test_a_severe_surprise_packet_carries_the_permission_to_be_unexpected",
+      "parameters": null
+    },
+    {
+      "name": "test_a_first_contact_row_and_an_open_obligation_do_not_prepare_him",
+      "parameters": null
+    },
+    {
+      "name": "test_a_reaction_the_book_preordains_is_prepared_until_its_obligation_is_done",
+      "parameters": null
+    },
+    {
+      "name": "test_the_die_is_rolled_once_per_person_per_turn_and_only_in_an_open_turn",
+      "parameters": null
+    },
+    {
+      "name": "test_the_die_is_no_interaction_no_fact_and_not_the_last_roll",
+      "parameters": null
+    },
+    {
+      "name": "test_a_die_rolled_for_someone_elsewhere_names_no_one_into_the_journal",
+      "parameters": null
+    },
+    {
+      "name": "test_the_base_is_the_disposition_word_first",
+      "parameters": null
+    },
+    {
+      "name": "test_without_a_disposition_the_pinned_archetype_gives_the_base",
+      "parameters": null
+    },
+    {
+      "name": "test_each_shift_is_the_tables",
+      "parameters": [
+        "@pytest.mark.parametrize(\"setup,expected\", [case[1:] for case in SHIFT_CASES], ids=[case[0] for case in SHIFT_CASES])\n"
+      ]
+    },
+    {
+      "name": "test_hit_points_at_half_move_him_up_and_the_last_rung_holds",
+      "parameters": null
+    },
+    {
+      "name": "test_in_a_fight_with_the_investigators_a_calm_man_is_at_least_tense_though_no_one_struck_him",
+      "parameters": null
+    },
+    {
+      "name": "test_a_punch_that_opens_a_fight_is_one_rung_not_two",
+      "parameters": null
+    },
+    {
+      "name": "test_all_three_violence_facts_at_once_are_still_one_rung",
+      "parameters": null
+    },
+    {
+      "name": "test_his_own_turn_of_the_fight_a_turn_after_the_punch_is_tense",
+      "parameters": null
+    },
+    {
+      "name": "test_last_turns_blow_moves_him_with_no_fight_running_and_only_the_newest_committed_turn_counts",
+      "parameters": null
+    },
+    {
+      "name": "test_nothing_done_and_no_fight_is_calm_as_before",
+      "parameters": null
+    },
+    {
+      "name": "test_a_table_the_kernel_cannot_read_is_refused_and_nothing_is_rolled",
+      "parameters": [
+        "@pytest.mark.parametrize(\"breaking\", BROKEN, ids=[f.__name__ for f in BROKEN])\n"
+      ]
+    },
+    {
+      "name": "test_a_column_that_falls_or_a_missing_surprise_is_refused_before_a_roll",
+      "parameters": [
+        "@pytest.mark.parametrize(\"breaking\", SURPRISE_BROKEN, ids=[f.__name__ for f in SURPRISE_BROKEN])\n"
+      ]
+    },
+    {
+      "name": "test_a_table_whose_columns_rise_or_stay_is_read",
+      "parameters": null
+    },
+    {
+      "name": "test_the_shipped_columns_are_the_tickets_and_rise_with_the_rung",
+      "parameters": null
+    },
+    {
+      "name": "test_the_shipped_table_names_every_disposition_and_archetype_and_no_certain_rung",
+      "parameters": null
+    }
+  ],
+  "unsupported": []
+}

@@ -69,7 +69,10 @@ export default function (pi: ExtensionAPI) {
             const entry = ctx?.modelRegistry.find(id.slice(0, slash), id.slice(slash + 1));
             // §20 addendum 6 (SL-65): the reader's own context window, so a background/play reading's stage
             // lease can be sized to survive its actual whole-context reservations, not a fixed assumption.
-            return { id, vision: entry?.input?.includes("image") === true, thinking: pi.getThinkingLevel(), contextWindow: entry?.contextWindow };
+            const testModel = process.env.PI_COC_TEST_MODEL;
+            const thinking = testModel === 'codex-relay/gpt-6-luna' ? 'high'
+                : testModel === 'grok-build/grok-4.5' ? 'low' : pi.getThinkingLevel();
+            return { id, vision: entry?.input?.includes("image") === true, thinking, contextWindow: entry?.contextWindow };
         };
         const record = (row: Row) => {
             const line = { at: new Date().toISOString(), ...row };

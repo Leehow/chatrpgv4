@@ -222,7 +222,7 @@ export async function stageModEffect(context: ApplyContext, original: Row, sheet
                     {fix:'Add the causal reason to object.why, outside document; preserve the chosen writing scope.',details:{field:'object.why'}});
                 // §188.8: the player reads the document; a joined word of several untold people is nobody's name there.
                 await refuseJoinedInDocument(context.kernel, context.campaign.id, graph, world, value.text);
-            } else seed = await jobs.documentSeed(graph, world, value);
+            } else seed = await jobs.documentSeed(graph, world, value, campaign);
         }
         const item = division
             ? divideObject(world, prior!, division, owner, turn)

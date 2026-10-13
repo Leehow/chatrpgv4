@@ -1,0 +1,138 @@
+{
+  "source": "tests/kernel/test_visual_reading.py",
+  "tests": [
+    {
+      "name": "test_a_reader_cannot_publish_an_arbitrary_local_file_as_a_handout",
+      "parameters": null
+    },
+    {
+      "name": "test_retired_source_commands_are_not_registered",
+      "parameters": null
+    },
+    {
+      "name": "test_binding_checks_bytes_and_reuses_the_exact_source",
+      "parameters": null
+    },
+    {
+      "name": "test_indexing_requires_actual_full_page_observation",
+      "parameters": null
+    },
+    {
+      "name": "test_index_publication_recovers_without_exposing_or_duplicating_partial_rows",
+      "parameters": null
+    },
+    {
+      "name": "test_module_review_requires_scope_without_repeated_numeric_transcription",
+      "parameters": [
+        "@pytest.mark.parametrize(\"required_path\", [\"/nodes/2/properties/mechanics/profile/characteristics/STR\", \"/coverage\"])\n"
+      ]
+    },
+    {
+      "name": "test_ready_material_cache_cannot_hide_changed_published_graph_bytes",
+      "parameters": null
+    },
+    {
+      "name": "test_existing_material_does_not_swallow_a_new_question",
+      "parameters": null
+    },
+    {
+      "name": "test_queued_preparation_reuses_material_published_by_an_earlier_job",
+      "parameters": null
+    },
+    {
+      "name": "test_a_prepared_summary_is_mapped_without_silently_replacing_campaign_values",
+      "parameters": null
+    },
+    {
+      "name": "test_further_reading_reuses_an_existing_claim_identity_and_reason",
+      "parameters": null
+    },
+    {
+      "name": "test_published_material_remains_usable_without_the_original_pdf",
+      "parameters": null
+    },
+    {
+      "name": "test_distinct_regions_on_the_same_page_keep_their_own_assets_across_publications",
+      "parameters": null
+    },
+    {
+      "name": "test_two_kernel_sessions_cannot_claim_the_same_job",
+      "parameters": null
+    },
+    {
+      "name": "test_material_preflight_precedes_the_whole_effect_batch_and_rng",
+      "parameters": null
+    },
+    {
+      "name": "test_a_reference_alone_cannot_promote_a_thin_node_to_ready",
+      "parameters": null
+    },
+    {
+      "name": "test_registration_does_not_overwrite_an_interrupted_source_copy",
+      "parameters": null
+    },
+    {
+      "name": "test_grouped_review_still_names_every_required_numeric_field",
+      "parameters": null
+    },
+    {
+      "name": "test_kernel_crash_reclaims_a_new_attempt_and_rejects_the_old_lease",
+      "parameters": null
+    },
+    {
+      "name": "test_replaying_a_completed_job_does_not_release_another_active_job",
+      "parameters": null
+    },
+    {
+      "name": "test_an_authored_ending_relation_is_not_a_movement_exit",
+      "parameters": null
+    },
+    {
+      "name": "test_attaching_original_source_keeps_legacy_material_usable",
+      "parameters": null
+    },
+    {
+      "name": "test_rebinding_identical_source_repairs_a_missing_original",
+      "parameters": null
+    },
+    {
+      "name": "test_rebinding_the_matching_original_preserves_corrupted_bytes_and_the_published_graph",
+      "parameters": null
+    },
+    {
+      "name": "test_ready_npc_question_publishes_new_fields_without_recopying_the_dossier",
+      "parameters": null
+    },
+    {
+      "name": "test_reviewed_skeleton_exposes_choices_without_authorizing_play",
+      "parameters": null
+    },
+    {
+      "name": "test_skeleton_cannot_publish_material_readiness",
+      "parameters": null
+    },
+    {
+      "name": "test_empty_skeleton_cannot_publish_a_generated_module_as_authored_structure",
+      "parameters": null
+    },
+    {
+      "name": "test_unrelated_detail_cannot_unlock_an_unprepared_skeleton_opening",
+      "parameters": null
+    },
+    {
+      "name": "test_later_npc_reading_adds_textual_dossier_facts_without_replacing_old_ones",
+      "parameters": [
+        "@pytest.mark.parametrize('field,initial,addition', [\n    ('knowledge', 'She knows the harbor keeper.', ['She knows the harbor keeper.', 'She knows the tower route.']),\n    ('beliefs', ['She believes the harbor is safe.'], 'She believes the tower is abandoned.'),\n    ('lies', ['She says she has never visited the tower.'], ['She says she owns no boat.']),\n])\n"
+      ]
+    },
+    {
+      "name": "test_an_index_refusal_names_the_sections_without_a_reference_and_the_repair_lands",
+      "parameters": null
+    },
+    {
+      "name": "test_read_ahead_follows_authored_exits_not_index_page_order",
+      "parameters": null
+    }
+  ],
+  "unsupported": []
+}

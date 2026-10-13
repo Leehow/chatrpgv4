@@ -1,0 +1,54 @@
+{
+  "source": "tests/kernel/test_table_graph.py",
+  "tests": [
+    {
+      "name": "test_shape_and_setup_before_opening",
+      "parameters": null
+    },
+    {
+      "name": "test_game_clock_mod_uses_the_current_world_and_normal_activation",
+      "parameters": null
+    },
+    {
+      "name": "test_turn_nodes_clock_and_projection",
+      "parameters": null
+    },
+    {
+      "name": "test_undated_nodes_share_the_view_day_clock",
+      "parameters": null
+    },
+    {
+      "name": "test_pinned_nodes_backfill_setup_and_turn_zero_anchor",
+      "parameters": null
+    },
+    {
+      "name": "test_pinned_nodes_use_their_own_committed_anchor",
+      "parameters": null
+    },
+    {
+      "name": "test_fork_lines_edges_and_tips",
+      "parameters": null
+    },
+    {
+      "name": "test_truncation_retains_tips",
+      "parameters": null
+    },
+    {
+      "name": "test_max_nodes_validation_and_cap",
+      "parameters": null
+    },
+    {
+      "name": "test_merge_and_worldline_kinds_cold",
+      "parameters": null
+    },
+    {
+      "name": "test_read_only",
+      "parameters": null
+    },
+    {
+      "name": "test_unknown_campaign",
+      "parameters": null
+    }
+  ],
+  "unsupported": []
+}

@@ -1,0 +1,34 @@
+{
+  "source": "tests/kernel/test_haunting_shapes.py",
+  "tests": [
+    {
+      "name": "test_the_chapel_row_carries_its_mech_line",
+      "parameters": null
+    },
+    {
+      "name": "test_the_chapel_hazard_binds_luck_then_jump_to_the_books_1d6",
+      "parameters": null
+    },
+    {
+      "name": "test_sanity_check_on_corbitt_rolls_the_typed_1_1d8",
+      "parameters": null
+    },
+    {
+      "name": "test_end_session_without_an_expression_takes_the_books_1d6",
+      "parameters": null
+    },
+    {
+      "name": "test_another_ending_kind_binds_nothing",
+      "parameters": null
+    },
+    {
+      "name": "test_the_liber_ivonis_read_check_binds_the_cards_latin",
+      "parameters": null
+    },
+    {
+      "name": "test_a_nested_member_reaches_the_card_only_through_a_group_key",
+      "parameters": null
+    }
+  ],
+  "unsupported": []
+}

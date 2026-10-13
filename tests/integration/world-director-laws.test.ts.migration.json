@@ -1,0 +1,42 @@
+{
+  "source": "tests/kernel/test_director_laws.py",
+  "tests": [
+    {
+      "name": "test_capsule_has_no_write_side",
+      "parameters": null
+    },
+    {
+      "name": "test_director_is_byte_identical_across_repeated_calls",
+      "parameters": null
+    },
+    {
+      "name": "test_director_is_byte_identical_across_processes_for_the_same_state",
+      "parameters": null
+    },
+    {
+      "name": "test_live_combat_session_overrides_to_subsystem",
+      "parameters": null
+    },
+    {
+      "name": "test_advance_is_the_default_when_no_rule_fires",
+      "parameters": null
+    },
+    {
+      "name": "test_grounded_by_entries_are_registered_ontology_targets",
+      "parameters": null
+    },
+    {
+      "name": "test_scores_are_bounded_and_at_most_three",
+      "parameters": null
+    },
+    {
+      "name": "test_reveal_adoption_true_when_the_listed_clue_is_applied",
+      "parameters": null
+    },
+    {
+      "name": "test_reveal_adoption_false_when_the_turn_only_narrates",
+      "parameters": null
+    }
+  ],
+  "unsupported": []
+}

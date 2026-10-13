@@ -1,0 +1,66 @@
+{
+  "source": "tests/kernel/test_markers.py",
+  "tests": [
+    {
+      "name": "test_the_kernel_hands_the_keeper_its_markers_and_they_are_names_not_receipt_ids",
+      "parameters": null
+    },
+    {
+      "name": "test_a_second_roll_of_the_same_skill_is_numbered_across_calls",
+      "parameters": null
+    },
+    {
+      "name": "test_a_placed_marker_leaves_the_prose_and_lands_on_its_row",
+      "parameters": null
+    },
+    {
+      "name": "test_a_receipt_nobody_placed_gets_a_fallback_marker_after_the_delivery",
+      "parameters": null
+    },
+    {
+      "name": "test_a_delivery_with_no_explicit_marker_appends_every_mechanic_without_changing_prose",
+      "parameters": null
+    },
+    {
+      "name": "test_a_marker_naming_no_receipt_is_dropped_not_refused",
+      "parameters": null
+    },
+    {
+      "name": "test_only_the_first_placement_of_a_marker_stands",
+      "parameters": null
+    },
+    {
+      "name": "test_a_delivery_whose_markers_all_miss_still_reaches_the_player",
+      "parameters": null
+    },
+    {
+      "name": "test_a_delivery_of_a_marker_and_latin_prose_is_delivered_on_a_zh_hans_table",
+      "parameters": null
+    },
+    {
+      "name": "test_ask_places_markers_the_same_way",
+      "parameters": null
+    },
+    {
+      "name": "test_a_mechanics_ask_without_story_text_still_places_every_row",
+      "parameters": null
+    },
+    {
+      "name": "test_the_turn_record_keeps_both_readings",
+      "parameters": null
+    },
+    {
+      "name": "test_the_commit_subject_is_minted_from_the_rendered_text",
+      "parameters": null
+    },
+    {
+      "name": "test_a_marker_alone_on_its_line_leaves_no_blank_paragraph",
+      "parameters": null
+    },
+    {
+      "name": "test_a_translated_marker_never_reaches_the_rendered_text",
+      "parameters": null
+    }
+  ],
+  "unsupported": []
+}

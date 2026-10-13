@@ -517,6 +517,75 @@ function createHandoutReading(React) {
 }
 /* >>> end handout reading <<< */
 
+/* >>> player reference collection: shared verbatim between mechanics.js and board.js <<< */
+export function createReferenceCollector(React) {
+  const h = React.createElement;
+  return function ReferenceCollector({invoke, ui, handout, presentation = "image", actors, writable = false}) {
+    const [choice, setChoice] = React.useState(null);
+    const [actor, setActor] = React.useState("");
+    const [category, setCategory] = React.useState(presentation);
+    const [busy, setBusy] = React.useState(false);
+    const [saved, setSaved] = React.useState(null);
+    const [failure, setFailure] = React.useState(null);
+    const alive = React.useRef(true);
+    React.useEffect(() => {alive.current = true; return () => {alive.current = false;};}, []);
+    React.useEffect(() => {
+      if (!saved?.id || saved.status !== "queued" || !actor || !invoke) return;
+      let active=true, timer;
+      async function refresh() {
+        try {
+          const answer=await invoke("mods.document.references",{actor});
+          if(!active)return;
+          const reference=answer?.references?.find(item=>item.id===saved.id);
+          if(reference) {setSaved(reference);if(reference.status!=="queued")return;}
+          timer=setTimeout(()=>void refresh(),700);
+        } catch(error) {if(active)setFailure(error);}
+      }
+      timer=setTimeout(()=>void refresh(),700);
+      return ()=>{active=false;clearTimeout(timer);};
+    },[saved?.id,saved?.status,actor,invoke]);
+    if (!invoke || !handout || writable !== true) return null;
+    const paper = key => word(ui, "paper", key);
+    async function choose() {
+      setBusy(true); setFailure(null);
+      try {
+        const answer = Array.isArray(actors) ? {view:{investigators:actors},collection_writable:writable} : await invoke("sheet", {});
+        if (!alive.current) return;
+        if (answer?.collection_writable !== true) {setChoice(false); return;}
+        const party = (answer?.view?.investigators || []).filter(item => isRecord(item) && text(item.id));
+        if (!party.length) throw Object.assign(new Error("No campaign investigator is available"), {code:"campaign_unbound"});
+        setActor(text(party[0].id)); setChoice(party);
+      } catch (error) {if(alive.current)setFailure(error);}
+      finally {if(alive.current)setBusy(false);}
+    }
+    async function collect() {
+      if (busy || !Array.isArray(choice) || !choice.some(item => item.id === actor)) return;
+      setBusy(true); setFailure(null);
+      try {
+        const answer = await invoke("mods.document.collect", {actor, handout, presentation:category});
+        if (!answer?.reference?.id) throw new Error("The collection did not return a reference");
+        if (alive.current) {setSaved(answer.reference); setChoice(null);}
+      } catch (error) {if(alive.current)setFailure(error);}
+      finally {if(alive.current)setBusy(false);}
+    }
+    if (choice === false) return null;
+    return h("div", {className:"coc-reference-collect", "data-reference-id":saved?.id,style:{display:"flex",flexWrap:"wrap",alignItems:"center",gap:8,marginTop:8}},
+      saved ? h("span", {role:saved.status === "refused" ? "alert" : "status"}, saved.status === "refused" ? word(ui,"errors","unknown") :
+        saved.status === "queued" ? word(ui,"mechanics","preparing",paper("saving")) : paper("clean")) :
+      Array.isArray(choice) ? h(React.Fragment, null,
+        h("label", null, word(ui,"sheet","identityTitle"), " ", h("select", {value:actor,disabled:busy,onChange:event=>setActor(event.target.value)},
+          choice.map(item=>h("option",{key:item.id,value:item.id},text(item.display_name || item.name))))),
+        h("label", null, paper("maps"), " / ", paper("images"), " ", h("select", {value:category,disabled:busy,onChange:event=>setCategory(event.target.value)},
+          h("option",{value:"map"},paper("maps")),h("option",{value:"image"},paper("images")))),
+        h("button",{type:"button",disabled:busy,onClick:()=>void collect()},busy?paper("saving"):paper("save")),
+        h("button",{type:"button",disabled:busy,onClick:()=>setChoice(null)},paper("close"))) :
+      h("button", {type:"button",className:"coc-handout-action",disabled:busy,onClick:()=>void choose()},busy?paper("saving"):paper("save")),
+      failure ? h("span",{role:"alert"},word(ui,"errors",text(failure.code),word(ui,"errors","unknown"))) : null);
+  };
+}
+/* >>> end player reference collection <<< */
+
+
 if (typeof document !== "undefined" && !document.getElementById(STYLE_ID)) {
   const style = document.createElement("style");
   style.id = STYLE_ID;
@@ -805,6 +874,7 @@ function familyLabel(group, t, term) {
 export function createComponent(React) {
   const h = React.createElement;
   const HandoutReading = createHandoutReading(React);
+  const ReferenceCollector = createReferenceCollector(React);
   const Reveal = typeof React.createContext === "function" ? React.createContext(null) : null;
   const graphemes = new Intl.Segmenter(undefined, { granularity: "grapheme" });
   function RevealBlock({ at, children }) {
@@ -968,6 +1038,7 @@ export function createComponent(React) {
    */
   function MapRow(props) {
     const { row, name, t, kindKey = 'map' } = props;
+    const host = useHostCall();
     const [zoom, setZoom] = React.useState(100);
     const [broken, setBroken] = React.useState(false);
     // Whether the player has the row open (null until the first toggle says): a closed row asks
@@ -1038,6 +1109,7 @@ export function createComponent(React) {
               onError: () => setBroken(true),
             })),
             kindKey === 'handout' ? h(HandoutSlot, { handout, active: open !== false, original: body }) : body,
+            host && h(ReferenceCollector,{invoke:host.invoke,ui:host.ui,handout:handout || text(row.map),presentation:kindKey==='map'?'map':'image',writable:host.collectionWritable}),
             regionLabels.length ? h("div", { className: "coc-map-regions" }, regionLabels.join(" · ")) : null)
         // Nothing to open: the place the player knows is still worth naming, and it is the only
         // thing here that is true without the pixels.
@@ -1616,7 +1688,7 @@ export function createComponent(React) {
     if (!card || !HostCall) return card;
     const invoke = typeof props.onInvoke === "function" ? props.onInvoke : null;
     const ui = isRecord(props.details) ? props.details.ui : null;
-    return h(HostCall.Provider, { value: invoke ? { invoke, ui } : null },
+    return h(HostCall.Provider, { value: invoke ? { invoke, ui, collectionWritable:props.collectionWritable } : null },
       enabled ? h(Reveal.Provider, { value: props.typewriter.active ? props.typewriter.visible : null }, card) : card);
   };
 }

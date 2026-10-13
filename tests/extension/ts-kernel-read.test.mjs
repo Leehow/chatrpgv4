@@ -28,7 +28,7 @@ const exports=[
   ['read/director',['score','signals','directorSection']],
   ['read/rule-facts',['evaluateCondition','factsFromState','semanticName']],
   ['read/mechanics',['mechanics']],
-  ['read/capsule',['fitBudget','fittedModuleSection','npcEntry','npcView','presentSection','investigatorView']],
+  ['read/capsule',['jsonSize','fitBudget','fittedModuleSection','npcEntry','npcView','presentSection','investigatorView']],
   ['read/session-view',['SessionView']],
   ['read/mods',['publicSheet','objectLook']],
 ];
@@ -494,7 +494,24 @@ test('capsule budget cuts match Python for nested lists, Unicode and module rost
   for(const [index,budget] of budgets.entries())await t.test(`module budget ${budget}`,()=>{
     // §187.4: `more` (the lines the fit dropped) is the TS kernel's own too; it is checked below against the graph.
     const [section,cut]=api.fittedModuleSection(graph,budget),{creatures:_creatures,more:_more,...rest}=section;
-    same([rest,cut],expected[index],`module ${budget}`);
+    const [historical,historicalCut]=expected[index];
+    const withCurrentCounters={...historical,...(_more?{more:_more}:{})};
+    if(api.jsonSize(withCurrentCounters)<=budget||budget===120){
+      same([rest,cut],expected[index],`module ${budget}`);
+    }else{
+      // The immutable historical core predates in-budget omission metadata (§187.4).
+      // Keep every retained field exact; only trailing roster rows may pay its mandatory bytes.
+      assert.equal(cut,true);
+      assert.equal(historicalCut,true);
+      assert.ok(api.jsonSize(section)<=budget,`current brief including counters fits ${budget}`);
+      assert.deepEqual(Object.keys(rest).sort(),Object.keys(historical).sort());
+      for(const [key,value] of Object.entries(historical)){
+        if(Array.isArray(value)){
+          assert.ok(Array.isArray(rest[key])&&rest[key].length<=value.length,key);
+          same(rest[key],value.slice(0,rest[key].length),`original ${key} order and retained bytes`);
+        }else same(rest[key],value,`original ${key}`);
+      }
+    }
   });
   await t.test('more counts the roster lines the fit dropped (§187.4)',()=>{
     for(const budget of budgets){

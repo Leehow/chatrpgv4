@@ -142,7 +142,7 @@ def _check(client: RpcClient, workspace: Path, call_id: str, action: dict, expec
     return result
 
 
-def run_recorded_case(path, workspace, *, command=None, frozen_clock=False, capture_failure=False):
+def run_recorded_case(path, workspace, *, command=None, frozen_clock=False, capture_failure=False, capture_state=True):
     case = json.loads(path.read_text(encoding="utf-8"))
     client = None
     failure = None
@@ -161,9 +161,10 @@ def run_recorded_case(path, workspace, *, command=None, frozen_clock=False, capt
     finally:
         if client:
             client.close()
-    return {"exchanges": client.exchanges if client else [], "state": snapshot(workspace), "failure": failure}
+    return {"exchanges": client.exchanges if client else [],
+            "state": snapshot(workspace) if capture_state else None, "failure": failure}
 
 
 @pytest.mark.parametrize("path", CASES, ids=[p.stem for p in CASES])
 def test_recorded_payload_replays_as_a_resolve(path, tmp_path):
-    run_recorded_case(path, tmp_path / "ws")
+    run_recorded_case(path, tmp_path / "ws", capture_state=False)

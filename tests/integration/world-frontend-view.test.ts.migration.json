@@ -1,0 +1,40 @@
+{
+  "source": "tests/kernel/test_frontend_view.py",
+  "tests": [
+    {
+      "name": "test_sheet_is_read_only_and_hides_undiscovered_clues",
+      "parameters": null
+    },
+    {
+      "name": "test_the_view_carries_the_clock_in_the_fiction_not_only_elapsed",
+      "parameters": null
+    },
+    {
+      "name": "test_the_view_carries_a_day_clock_without_a_declared_date",
+      "parameters": [
+        "@pytest.mark.parametrize('start_time', [None, '23:30'])\n"
+      ]
+    },
+    {
+      "name": "test_sheet_does_not_persist_legacy_trail_migration",
+      "parameters": null
+    },
+    {
+      "name": "test_the_glossary_is_the_rules_data_in_the_campaigns_play_language",
+      "parameters": null
+    },
+    {
+      "name": "test_an_english_table_gets_only_the_rows_the_data_declares_for_english",
+      "parameters": null
+    },
+    {
+      "name": "test_a_discovered_clue_is_listed_by_the_name_the_table_gave_it",
+      "parameters": null
+    },
+    {
+      "name": "test_an_unnamed_clue_falls_back_to_the_graph_rather_than_to_its_handle",
+      "parameters": null
+    }
+  ],
+  "unsupported": []
+}

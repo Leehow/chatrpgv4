@@ -3005,6 +3005,7 @@ function AppContent({ host: injectedHost }: { host?: PipiHostAPI }) {
                 illustrateDisabled={sessionWorking || branchBusy}
                 actionWords={timeline?.ui?.words?.['message-actions']}
                 onInvokeExtension={invokeForRenderer}
+                collectionWritable={Boolean(canWriteLease && selectedSession && !archivedSessionIds.includes(selectedSession))}
                 onChoose={async (entry,option)=>{
                   if(entry.renderer==='coc-character-draft'){const ack=await host.invokeExtension!("coc-keeper",option==='presentation'?"draft-presentation":"draft-previewed",{revision:(entry.details as any).revision},{sessionId:selectedSession});if(!ack.ok)throw new Error(ack.error?.message||"Preview acknowledgment failed");return ack.data;}
                   const result=await host.invokeExtension!("coc-keeper","choose",{choice:(entry.details as any).name,option},{sessionId:selectedSession});

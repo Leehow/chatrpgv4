@@ -1,0 +1,50 @@
+{
+  "source": "tests/kernel/test_facts_warn.py",
+  "tests": [
+    {
+      "name": "test_narrate_facts_are_sentences_from_receipts_and_world",
+      "parameters": null
+    },
+    {
+      "name": "test_keeper_only_lists_present_npc_secrets_and_drops_discovered_clues",
+      "parameters": null
+    },
+    {
+      "name": "test_warn_anchors_quotes_as_substrings_and_drops_the_rest",
+      "parameters": null
+    },
+    {
+      "name": "test_warn_locates_a_quote_whose_quotation_marks_were_retyped",
+      "parameters": null
+    },
+    {
+      "name": "test_warn_files_the_verifiers_play_language_finding",
+      "parameters": null
+    },
+    {
+      "name": "test_warn_files_an_investigator_identity_mismatch_without_classifying_it",
+      "parameters": null
+    },
+    {
+      "name": "test_warnings_reach_the_next_capsule_only_for_the_latest_committed_turn",
+      "parameters": null
+    },
+    {
+      "name": "test_capsule_memory_section_is_the_ranked_head_within_budget",
+      "parameters": null
+    },
+    {
+      "name": "test_capsule_memory_section_takes_six_ranked_hits",
+      "parameters": null
+    },
+    {
+      "name": "test_capsule_warnings_section_budget",
+      "parameters": null
+    },
+    {
+      "name": "test_narrate_facts_carry_what_the_player_was_already_told",
+      "parameters": null
+    }
+  ],
+  "unsupported": []
+}

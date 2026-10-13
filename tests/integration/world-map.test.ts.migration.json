@@ -1,0 +1,95 @@
+{
+  "source": "tests/kernel/test_map.py",
+  "tests": [
+    {
+      "name": "test_map_reveal_records_only_named_regions_and_projects_a_host_view",
+      "parameters": null
+    },
+    {
+      "name": "test_observation_without_movement_reveals_only_the_seen_region",
+      "parameters": null
+    },
+    {
+      "name": "test_a_limited_plan_does_not_disclose_omitted_or_secret_regions",
+      "parameters": null
+    },
+    {
+      "name": "test_hearing_a_place_name_does_not_write_map_knowledge",
+      "parameters": null
+    },
+    {
+      "name": "test_secret_region_uses_reviewed_alternate_source_correspondence",
+      "parameters": null
+    },
+    {
+      "name": "test_knowledge_is_retained_after_leaving_and_replays_idempotently",
+      "parameters": null
+    },
+    {
+      "name": "test_map_apply_grants_no_movement_clue_or_item",
+      "parameters": null
+    },
+    {
+      "name": "test_bad_map_region_rolls_back_the_entire_apply_batch",
+      "parameters": null
+    },
+    {
+      "name": "test_map_knowledge_is_isolated_across_worldline_switches",
+      "parameters": null
+    },
+    {
+      "name": "test_legacy_save_without_map_fields_is_conservative_and_recoverable",
+      "parameters": null
+    },
+    {
+      "name": "test_map_knowledge_is_campaign_scoped",
+      "parameters": null
+    },
+    {
+      "name": "test_first_arrival_presents_the_depicted_player_map",
+      "parameters": null
+    },
+    {
+      "name": "test_returning_does_not_present_the_map_again",
+      "parameters": null
+    },
+    {
+      "name": "test_an_arrival_on_a_map_already_granted_is_an_update_and_look_reads_the_living_map",
+      "parameters": null
+    },
+    {
+      "name": "test_table_maps_is_empty_until_a_map_is_seen",
+      "parameters": null
+    },
+    {
+      "name": "test_table_maps_arrival_reads_only_the_presented_player_safe_regions",
+      "parameters": null
+    },
+    {
+      "name": "test_table_maps_reveal_reads_only_granted_regions_in_authored_order",
+      "parameters": null
+    },
+    {
+      "name": "test_table_maps_does_not_list_unseen_maps_or_keeper_source_assets",
+      "parameters": null
+    },
+    {
+      "name": "test_table_maps_unions_arrival_and_grants_without_partial_words",
+      "parameters": null
+    },
+    {
+      "name": "test_table_maps_incomplete_stored_words_fall_back_together",
+      "parameters": [
+        "@pytest.mark.parametrize(\"field\", [\"title\", \"region\", \"level\"])\n",
+        "@pytest.mark.parametrize(\"missing\", [None, \"\", \"   \"])\n"
+      ]
+    },
+    {
+      "name": "test_table_maps_is_byte_for_byte_read_only_in_an_open_turn",
+      "parameters": [
+        "@pytest.mark.parametrize(\"legacy\", [False, True])\n"
+      ]
+    }
+  ],
+  "unsupported": []
+}

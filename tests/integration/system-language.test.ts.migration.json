@@ -1,0 +1,28 @@
+{
+  "source": "tests/kernel/test_system_language.py",
+  "tests": [
+    {
+      "name": "test_no_cjk_character_anywhere_in_code_or_system_content",
+      "parameters": null
+    },
+    {
+      "name": "test_a_zh_hans_turn_is_delivered_verbatim_with_every_receipt_projected",
+      "parameters": null
+    },
+    {
+      "name": "test_story_is_separate_from_roll_and_clock_json",
+      "parameters": null
+    },
+    {
+      "name": "test_no_player_facing_field_is_refused_by_its_script",
+      "parameters": null
+    },
+    {
+      "name": "test_any_tag_shaped_play_language_opens_a_table_and_a_malformed_one_names_the_shape",
+      "parameters": null
+    }
+  ],
+  "unsupported": [
+    "except try:\n            text = path.read_text(encoding=\"utf-8\")\n        except UnicodeDecodeError:\n            continue  # bytes, not text (an image in a fixture)\n"
+  ]
+}

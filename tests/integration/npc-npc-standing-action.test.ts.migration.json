@@ -1,0 +1,96 @@
+{
+  "source": "tests/kernel/test_npc_standing_action.py",
+  "tests": [
+    {
+      "name": "test_no_disposition_no_authored_word_and_no_override_is_no_standing",
+      "parameters": null
+    },
+    {
+      "name": "test_the_rules_default_reads_the_disposition_table",
+      "parameters": [
+        "@pytest.mark.parametrize(\"disposition,fraction,outnumbered,stance,expected\", TABLE_ROWS,\n                         ids=[f\"{row[0]}-hp{row[1]}-{'outnumbered' if row[2] else 'one-on-one'}-{row[3] or 'hostile'}\" for row in TABLE_ROWS])\n"
+      ]
+    },
+    {
+      "name": "test_the_stance_is_the_ledger_folded_with_the_open_turn",
+      "parameters": null
+    },
+    {
+      "name": "test_an_npc_out_of_the_fight_has_no_standing",
+      "parameters": null
+    },
+    {
+      "name": "test_an_attack_without_a_legal_target_is_not_issued",
+      "parameters": null
+    },
+    {
+      "name": "test_no_standing_while_an_attack_is_pending",
+      "parameters": null
+    },
+    {
+      "name": "test_an_authored_attack_is_issued_with_basis_authored",
+      "parameters": null
+    },
+    {
+      "name": "test_an_authored_word_outside_the_enum_is_refused_where_the_book_is_registered",
+      "parameters": [
+        "@pytest.mark.parametrize(\"combat,path\", [({\"action\": \"flee\"}, \"combat.action\"), ({\"disposition\": \"cowardly\"}, \"combat.disposition\")])\n"
+      ]
+    },
+    {
+      "name": "test_a_keeper_hold_is_a_receipt_survives_a_restart_and_lapses_with_its_round",
+      "parameters": null
+    },
+    {
+      "name": "test_a_keeper_attack_stands_and_a_disposition_override_replaces_the_book",
+      "parameters": null
+    },
+    {
+      "name": "test_an_override_is_refused_whole_without_why_with_another_change_with_an_unknown_word_or_a_hold_outside_a_fight",
+      "parameters": null
+    },
+    {
+      "name": "test_a_hold_for_someone_outside_the_fight_is_refused",
+      "parameters": null
+    },
+    {
+      "name": "test_the_standing_action_and_disposition_are_keeper_only",
+      "parameters": null
+    },
+    {
+      "name": "test_a_card_without_a_disposition_carries_what_one_is_inferred_from",
+      "parameters": null
+    },
+    {
+      "name": "test_a_stated_tactic_is_the_cards_default_disposition_through_the_table",
+      "parameters": null
+    },
+    {
+      "name": "test_a_keeper_tactic_is_the_cards_word_and_a_rule_default_tactic_is_not",
+      "parameters": null
+    },
+    {
+      "name": "test_a_malformed_tactic_map_is_refused_when_the_card_is_read",
+      "parameters": [
+        "@pytest.mark.parametrize(\"section\", [{\"dodge\": \"runs_away\"}, {\"parry\": \"avoids_fighting\"}, [\"dodge\"]])\n"
+      ]
+    },
+    {
+      "name": "test_a_table_without_the_tactic_map_gives_no_default",
+      "parameters": null
+    },
+    {
+      "name": "test_an_inferred_disposition_is_a_receipt_is_written_once_and_survives_a_restart",
+      "parameters": null
+    },
+    {
+      "name": "test_an_inferred_write_over_the_books_disposition_is_refused",
+      "parameters": null
+    },
+    {
+      "name": "test_an_unreadable_ledger_withholds_the_tables_reading_and_never_guesses_a_stance",
+      "parameters": null
+    }
+  ],
+  "unsupported": []
+}

@@ -1,0 +1,128 @@
+{
+  "source": "tests/kernel/test_setup_drafts.py",
+  "tests": [
+    {
+      "name": "test_sex_is_required_and_the_issue_says_how_to_draft_it",
+      "parameters": null
+    },
+    {
+      "name": "test_draft_is_complete_without_party_and_confirm_commits_exact_card",
+      "parameters": null
+    },
+    {
+      "name": "test_language_advice_does_not_block_a_player_chosen_low_skill",
+      "parameters": null
+    },
+    {
+      "name": "test_a_revision_keeps_unrelated_rolls_and_a_stale_revision_cannot_be_confirmed",
+      "parameters": null
+    },
+    {
+      "name": "test_bad_semantic_choices_do_not_replace_a_valid_draft",
+      "parameters": null
+    },
+    {
+      "name": "test_incomplete_legacy_card_cannot_finish_and_story_questions_are_open",
+      "parameters": null
+    },
+    {
+      "name": "test_prologue_is_source_bound_and_survives_handoff",
+      "parameters": null
+    },
+    {
+      "name": "test_same_input_cannot_approve_its_own_draft",
+      "parameters": null
+    },
+    {
+      "name": "test_parallel_confirmation_writes_one_card",
+      "parameters": null
+    },
+    {
+      "name": "test_malformed_profile_returns_findings_and_keeps_draft",
+      "parameters": null
+    },
+    {
+      "name": "test_confirmed_draft_cannot_be_replaced_before_handoff",
+      "parameters": null
+    },
+    {
+      "name": "test_pending_action_must_come_from_actual_player_input",
+      "parameters": null
+    },
+    {
+      "name": "test_scenario_bound_is_a_sentence_and_the_issue_says_so",
+      "parameters": null
+    },
+    {
+      "name": "test_a_key_connection_naming_scenario_bound_is_told_which_categories_it_may_name",
+      "parameters": null
+    },
+    {
+      "name": "test_new_draft_requires_appearance_and_preserves_it_across_skill_changes",
+      "parameters": null
+    },
+    {
+      "name": "test_a_stated_aptitude_places_the_quick_fire_array",
+      "parameters": null
+    },
+    {
+      "name": "test_clearing_an_aptitude_returns_to_this_players_own_dice",
+      "parameters": null
+    },
+    {
+      "name": "test_an_illegal_aptitude_is_refused_and_keeps_the_valid_draft",
+      "parameters": null
+    },
+    {
+      "name": "test_the_interest_list_is_spent_in_the_order_the_player_cares_about",
+      "parameters": null
+    },
+    {
+      "name": "test_a_reading_off_the_concept_is_recorded_as_a_reading",
+      "parameters": null
+    },
+    {
+      "name": "test_a_setting_up_campaign_gets_the_setup_shape_from_mods_context",
+      "parameters": null
+    },
+    {
+      "name": "test_prose_moves_a_characteristic_with_or_without_the_package",
+      "parameters": null
+    },
+    {
+      "name": "test_the_players_own_trade_stays_on_the_card_beside_the_entry",
+      "parameters": null
+    },
+    {
+      "name": "test_a_stated_trade_must_be_words_or_absent",
+      "parameters": null
+    },
+    {
+      "name": "test_a_starting_weapon_is_named_the_way_play_names_it",
+      "parameters": null
+    },
+    {
+      "name": "test_an_era_the_rulebook_never_tabulated_builds_the_card_and_says_what_stood_in",
+      "parameters": null
+    },
+    {
+      "name": "test_a_period_the_agent_invents_is_still_refused_with_the_closed_set",
+      "parameters": null
+    },
+    {
+      "name": "test_a_resumed_setup_counts_the_draft_as_the_investigator_step",
+      "parameters": null
+    },
+    {
+      "name": "test_a_model_number_never_overwrites_a_player_pin",
+      "parameters": null
+    },
+    {
+      "name": "test_a_named_weapon_plays_by_its_printed_profile_under_the_players_name",
+      "parameters": null
+    }
+  ],
+  "unsupported": [
+    "WithStatement: with ThreadPoolExecutor(2) as pool:\n            futures = [pool.submit(client.ok, \"setup.confirm\", params) for client in"
+  ]
+}

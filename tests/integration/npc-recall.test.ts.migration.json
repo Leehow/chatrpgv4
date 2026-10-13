@@ -1,0 +1,22 @@
+{
+  "source": "tests/kernel/test_recall.py",
+  "tests": [
+    {
+      "name": "test_transcript_cards_then_verified_read",
+      "parameters": null
+    },
+    {
+      "name": "test_transcript_read_flags_a_row_that_drifted_from_the_turn_record",
+      "parameters": null
+    },
+    {
+      "name": "test_history_timeline_events_and_diff",
+      "parameters": null
+    },
+    {
+      "name": "test_recall_memory_about_takes_one_word_of_a_name_people_first",
+      "parameters": null
+    }
+  ],
+  "unsupported": []
+}
