@@ -127,10 +127,11 @@ export function stageEvent(raw:unknown,input:{graph:ModuleGraph;world:Row;party:
     if(matches.length>1)invalid('ambiguous reference across worldlines');
     const event=matches[0];
     if(event)return {name,event:event.id,scope:event.scope};
+    if(input.prior.some(receipt=>receipt.id===name))return {name,receipts:[name]};
     if(name==='receipts'&&input.prior.length)return {name,receipts:input.prior.map(receipt=>receipt.id)};
     const source=array(input.sources).find(source=>source.name===name);
     if(source)return clone(source);
-    invalid('unissued reference','Causes are optional. Use only an exact event reference issued by outcome/history, an issued source alias, or receipts for earlier settled receipts. Omit unsupported causes; the successful batch effects are linked automatically.');
+    invalid('unissued reference','Causes are optional. Use only an exact event reference issued by outcome/history, an issued source alias, an exact receipt id already issued this turn, or receipts for earlier settled receipts. Omit unsupported causes; the successful batch effects are linked automatically.');
   };
   const causes=list(value.causes,'causes',16).map(reference),corrects=value.corrects===undefined?undefined:reference(value.corrects),binding=material(value.material);
   if(corrects&&!corrects.event)invalid('correction must reference one canonical event');

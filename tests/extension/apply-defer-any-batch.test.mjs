@@ -234,16 +234,18 @@ test('a definition whose job is already accepted attaches in the call instead of
   assert.deepEqual(h.tasks, []);
 });
 
-test('FR-09: the real owed-object host path queues starting gear, keeps the row open, then adopts it on resume',async t=>{
+test('FR-09: the real owed-object host adopts a writable notebook now and enriches the same instance on resume',async t=>{
   const game=await table(t);
-  await game.call('table.narrate',{call_id:game.next(),text:'You check the flashlight you brought.'});
-  const effect={kind:'object',name:'flashlight',definition:'flashlight',to:game.sheet.name,adopt:'flashlight'};
-  const owed={name:'t1-owed-kit',turn:1,kind:'object',effect,quote:null,what:'flashlight',object:{name:'flashlight',category:'item',owner:game.sheet.name},owner_id:game.sheet.id,equipment_basis:true};
-  await writeFile(join(game.directory,'owed.json'),JSON.stringify({open:[{name:owed.name,turn:1,kind:'object',effect:null,quote:null,what:'Register the flashlight.',object:{name:'flashlight',category:'item'}}],closed:[]}));
+  const name='notebook and stub pencil';
+  await game.call('table.narrate',{call_id:game.next(),text:'You check the notebook you brought.'});
+  const effect={kind:'object',name,definition:name,to:game.sheet.name,adopt:name};
+  const owed={name:'t1-owed-kit',turn:1,kind:'object',effect,quote:null,what:name,object:{name,category:'item',owner:game.sheet.name},owner_id:game.sheet.id,equipment_basis:true};
+  await writeFile(join(game.directory,'owed.json'),JSON.stringify({open:[{name:owed.name,turn:1,kind:'object',effect:null,quote:null,what:'Register the notebook.',object:{name,category:'item'}}],closed:[]}));
   await game.call('table.player_input',{text:'I check my gear.'});
   let release;const gate=new Promise(resolve=>{release=resolve;});
   const h=host(game,async(task)=>{
-    await gate;await writeFile(join(task.request.cwd,'result.json'),JSON.stringify({...DRAFT,name:'flashlight',description:'A flashlight.',player_view:{description:'A flashlight.',fields:['charges']}}));return ok;
+    await gate;await writeFile(join(task.request.cwd,'result.json'),JSON.stringify({...DRAFT,name,description:'A notebook.',
+      document:{text:'Creator seed must not overwrite notes.',presentation:'notebook'},player_view:{description:'A notebook.',fields:['charges']}}));return ok;
   });h.turn=2;t.after(()=>release());
   const payload={campaign:'c1',effects:[{...effect,owed:owed.name}]};
   await h.bridge.prepare('apply',payload);
@@ -251,16 +253,34 @@ test('FR-09: the real owed-object host path queues starting gear, keeps the row 
   assert.ok(payload.effects[0]._queued);
   await game.call('table.apply',{call_id:'t2-c1',effects:payload.effects});
   const readOwed=async()=>JSON.parse(await readFile(join(game.directory,'owed.json'),'utf8'));
-  assert.equal((await readOwed()).open.length,1,'queued adoption is not an instance');
-  assert.equal((await game.call('table.capsule')).owed.find(r=>r.name===owed.name).clerk,false,'do not duplicate queued work');
+  const readSheet=async()=>JSON.parse(await readFile(game.sheetPath,'utf8'));
+  const notebook=Object.values((await game.world()).objects.instances).find(item=>item.name===name);
+  assert.ok(notebook,'adoption creates the usable physical instance before the creator returns');
+  assert.equal((await game.world()).objects.definitions[notebook.definition].placeholder,true);
+  assert.deepEqual((await readSheet()).equipment.filter(item=>(typeof item==='string'?item:item.name)===name)
+    .map(item=>item.object_id),[notebook.id],'one managed row replaces the existing carried equipment');
+  assert.equal((await readOwed()).open.length,0,'the physical adoption settles the owed registration immediately');
+  assert.equal((await readOwed()).closed.filter(row=>row.name===owed.name).length,1);
+  assert.equal((await readOwed()).closed.find(row=>row.name===owed.name).how,'landed');
+  assert.ok(!(await game.call('table.capsule')).owed.some(row=>row.name===owed.name),'no duplicate adoption is offered');
+  await game.call('table.apply',{call_id:'t2-c2',effects:[{kind:'object',name,from:game.sheet.name,to:game.sheet.name,
+    document:{text:'Children safe in Baltimore.\n',presentation:'notebook'},why:'Write the chosen note in the carried notebook.'}]});
+  assert.equal((await game.world()).objects.instances[notebook.id].document.text,'Children safe in Baltimore.\n');
+  await game.call('table.apply',{call_id:'t2-c3',effects:[{kind:'object',name,from:game.sheet.name,to:game.sheet.name,
+    document:{action:'append',text:'Address withheld.\n'},why:'Append the second player-chosen note.'}]});
   release();await h.bridge.after('apply',payload);
-  await game.call('table.narrate',{call_id:'t2-c2',text:'The flashlight rests in your hand.'});
+  await until(()=>h.details().length===1,'the notebook definition is prepared');
+  await game.call('table.narrate',{call_id:'t2-c4',text:'The notes are written in your notebook.'});
   await game.call('table.player_input',{text:'I carry on.'});h.turn=3;
   await h.bridge.after('player_input',{campaign:'c1'});
-  await until(async()=>{
-    const sheet=JSON.parse(await readFile(game.sheetPath,'utf8'));
-    return sheet.equipment.some(value=>value.name==='flashlight'&&value.object_id);
-  },'owed equipment adopted');
+  const enriched=(await game.world()).objects.instances[notebook.id];
+  assert.equal(enriched.definition,notebook.definition,'enrichment replaces the original placeholder definition in place');
+  assert.equal((await game.world()).objects.definitions[enriched.definition].placeholder,undefined);
+  assert.equal(enriched.document.text,'Children safe in Baltimore.\nAddress withheld.\n','enrichment preserves the chosen writing');
+  assert.deepEqual((await readSheet()).equipment.filter(item=>item.object_id===notebook.id).map(item=>item.object_id),[notebook.id]);
+  await h.bridge.after('player_input',{campaign:'c1'});
+  assert.equal(Object.values((await game.world()).objects.instances).filter(item=>item.name===name).length,1);
+  assert.deepEqual(h.tasks,['create'],'enrichment does not run another creator or award another notebook');
   assert.equal((await readOwed()).open.length,0);
-  assert.equal((await readOwed()).closed[0].how,'landed');
+  assert.equal((await readOwed()).closed.filter(row=>row.name===owed.name).length,1,'repeated resume does not settle the owed row twice');
 });

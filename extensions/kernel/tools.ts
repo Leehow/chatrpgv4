@@ -172,7 +172,7 @@ export const PLAIN_PROSE = "Write the prose itself: not a quoted or JSON-encoded
 const TurnEvent = Type.Object({
   name:Type.String({maxLength:120,description:'A distinct semantic name for this occurrence in the current turn.'}),
   summary:Type.Optional(Type.String({maxLength:1200,description:'What actually occurred; keep hidden causes here. A future plan is not an executed action.'})),
-  causes:Type.Optional(Type.Array(Type.String(),{maxItems:16,description:'Optional exact issued event/source names, or receipts for earlier settled receipts of this turn. Omit if no reference was issued; batch effect links are automatic.'})),
+  causes:Type.Optional(Type.Array(Type.String(),{maxItems:16,description:'Optional exact issued event/source names, a receipt id already issued this turn, or the literal receipts for all earlier settled receipts this turn. Omit if no reference was issued; batch effect links are automatic.'})),
   corrects:Type.Optional(Type.String({description:'The issued event reference this new record corrects; never erase old evidence.'})),
   material:Type.Optional(Type.String({description:'Local public material name if this occurrence awaits delivery; omit for an already established occurrence.'})),
   materials:Type.Optional(Type.Array(Type.Object({name:Type.String({maxLength:120}),text:Type.String({maxLength:4000}),

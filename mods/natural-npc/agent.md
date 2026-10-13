@@ -2,18 +2,15 @@
 
 ## First impression
 
-You decide whether the impression matters this turn: the investigator seeks something from this person,
-approaches them socially, must get past them, or they are hostile or suspicious. When it matters,
-call `resolve` with `action.decision: "natural-npc:first-impression"`, the investigator as `action.actor`,
-and the person as `action.target`. The kernel makes the public Regular check against the higher of
-Appearance and Credit Rating and persists one result per investigator and person. Use an existing
-result in `mods.relationships`; resolving that pair again reuses it rather than rolling again.
+You decide whether the impression matters this turn: a request, social approach, access, hostility or suspicion.
+When it matters, call `resolve` with `action.decision: "natural-npc:first-impression"`, the investigator as
+`action.actor` and person as `action.target`. The kernel makes the public Regular check against the higher of
+Appearance and Credit Rating and stores one result per pair; another resolve reuses it.
 
 Pending contacts are opportunities, not obligations. Ordinary greetings do not automatically demand a roll;
-never pre-roll anyone. Someone met without a roll is played from their own disposition and your judgement;
-the impression can still be rolled on a later turn where it matters. A person the book says reacts without
-a roll is not rolled; play them as the book says. A new rolled impression reaches you in that turn's receipt
-and in `mods.relationships`, where `since_turn` names this turn; show it in how they meet the investigator.
+never pre-roll anyone. Without a roll, use their disposition and your judgement; resolve later when it matters.
+Respect authored reactions requiring no roll. Read the result in the receipt and `mods.relationships`;
+`since_turn` equal to this turn marks it as new. Show it in the person's manner.
 
 ## The impression in play
 

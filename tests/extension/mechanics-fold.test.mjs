@@ -123,9 +123,9 @@ test("a marked delivery folds only its unplaced rows, under what they are, shut 
 	const here = byClass(tree, "coc-mech-here");
 	assert.equal(here.length, 1);
 	assert.equal(collect(here[0], node => node.props?.["data-kind"] === "roll").length, 1);
-	// The header says what the rows are -- belongings that arrived -- and how many, and that one of
+	// The header says what the rows are -- already-carried belongings -- and how many, and that one of
 	// them is still preparing. It is not a generic "mechanics" slip.
-	assert.deepEqual(headerOf(toggle), { caption: WORDS["fold.itemsGained"], count: 2 });
+	assert.deepEqual(headerOf(toggle), { caption: WORDS["fold.items"], count: 2 });
 	assert.equal(WORDS.mechanics, undefined, "the generic slip caption is gone from the source");
 	assert.equal(waitingMarks(toggle).length, 1, "a pending row puts the waiting mark on the shut header");
 	assert.equal(byClass(toggle, "coc-mech-wait").length, 1, "the header mark is the row's own waiting mark");
@@ -175,7 +175,7 @@ test("a plain delivery folds by settlement family, keeping each family's group i
 	const toggles = togglesOf(tree);
 	assert.deepEqual(toggles.map(headerOf), [
 		{ caption: WORDS["family.combat"], count: 2 },
-		{ caption: WORDS["fold.itemsGained"], count: 1 },
+		{ caption: WORDS["fold.items"], count: 1 },
 	]);
 	assert.ok(toggles.every(toggle => toggle.props["aria-expanded"] === false));
 	assert.equal(byClass(tree, "coc-mech-settle").length, 0, "no group is drawn while shut");
@@ -194,4 +194,14 @@ test("a delivery with every row placed draws no fold at all", () => {
 	const tree = createReact().render(marked([ROLL]));
 	assert.equal(togglesOf(tree).length, 0);
 	assert.equal(byClass(tree, "coc-mech-list").length, 0);
+});
+
+test("true acquisitions say items gained while a fold mixed with adoption says items", () => {
+	const gained = { kind: "item", receipt: "item:t4-c6", name: "House key", quantity: 1, to: "investigator", to_label: "Shen", call: "t4-c6" };
+	assert.deepEqual(headerOf(toggleOf(createReact().render(plain([gained])))), {
+		caption: WORDS["fold.itemsGained"], count: 1,
+	});
+	assert.deepEqual(headerOf(toggleOf(createReact().render(plain([gained, NOTEBOOK])))), {
+		caption: WORDS["fold.items"], count: 2,
+	});
 });

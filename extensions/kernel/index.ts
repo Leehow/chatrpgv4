@@ -5989,7 +5989,7 @@ export default function (pi: ExtensionAPI, host: {capabilities?:RuntimeCapabilit
 			if((spec.name==='narrate'||spec.name==='ask')&&!referenceDelivery)payload.quotes=await purchaseRecovery(state).offers(payload.quotes,state.turn);
 			delete payload._cash_requests;
 			if((spec.name==='narrate'||spec.name==='ask')&&!referenceDelivery)payload._cash_requests=await purchaseRecovery(state).requests(state.turn);
-      if (spec.name === 'apply') documentBindings = await bindAppendArguments(state,payload,signal,providerBudget,!host);
+      if (!singleKeeper && spec.name === 'apply') documentBindings = await bindAppendArguments(state,payload,signal,providerBudget,!host);
 			// §187.2.3: a place the Keeper is about to mint is placed in the book before admission and the kernel see it.
 			if (spec.name === "apply" && !host) await placeEstablishedMoves(payload, {env: process.env, campaign: state.campaign, turn: state.turn,
 				callId: String(payload.call_id ?? ""), call: (method, params) => state.kernel.call(method, params), record: row => record(row), signal: state.lanes.signal});
@@ -7382,6 +7382,13 @@ export default function (pi: ExtensionAPI, host: {capabilities?:RuntimeCapabilit
 			// of its options is the player's own answer and is not put to review.
 			state.answering = state.lastAsk;
 			state.lastAsk = undefined;
+			if (mods?.after) {
+				// Ready registrations belong to this newly opened turn, before the Keeper reads its state.
+				await mods.after('player_input', {...result, campaign: state.campaign}, state.lanes.signal);
+				const {_context, ...fresh} = await state.kernel.call<Record<string, unknown>>('table.capsule', {campaign: state.campaign});
+				result.capsule = fresh;
+				result._context = _context;
+			}
 			// §107.1: a map published after the table arrived is presented on this turn; its host-only views are
 			// rendered through the same hop as an apply's and never reach the Keeper.
 			await prepareMapViews(state, result as Record<string, unknown>);

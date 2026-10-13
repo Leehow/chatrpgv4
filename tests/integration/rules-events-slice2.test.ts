@@ -1,7 +1,7 @@
 // Migrated from tests/kernel/test_events_slice2.py; original case names and assertions retained.
 import assert from 'node:assert/strict';
 import {test} from 'node:test';
-import {kernel} from './support.ts';
+import {kernel,openTurn,createCampaign,importSource,type Row} from './support.ts';
 import {resolve,walk_to_confrontation} from './rules-families.test.ts';
 const ask=(client:any,call_id:string,prompt:string,options:string[])=>client.table('ask',{call_id,prompt,options});
 import {RpcClient,campaign_dir,narrate,open_turn,read_jsonl,pyStr,pyLen,pyBool,pyInt,pyList,pySet,pyDict,pySorted,pyRange,pyEnumerate,pyIsInstance,pyAny,pyAll,pySum,pyNext,pyFormat,pyAt,pySlice,pyEqual,pyContains,pyDivide,pyAdd,pyMultiply,pyUnion,pyIntersection,pySubtract,pyLess,pyLessEqual,pyCompare,pyMethod,pyIterable,pyMin,pyMax,pyZip,pyParametrize,pyCartesian,acquireFixture,temporaryPath,pyMonkeypatch,json,re,hashlib,shutil,Path,deepcopy,Counter} from "./npc-support.ts";
@@ -54,3 +54,54 @@ assert.ok(pyBool(pyEqual(pyAt(pyAt(events,1),"data"),({["minutes"]:20,["why"]:"t
 assert.ok(pyBool(pyEqual(pyAt(pyAt((await read_jsonl(pyDivide((await campaign_dir(kernel.workspace)),"events.jsonl"))),(-1)),"type"),"scene-moved")),"tests/kernel/test_events_slice2.py:78 assert read_jsonl(campaign_dir(kernel.workspace) / \"events.jsonl\")[-1][\"type\"] == \"scene-moved\"");
 }
 if(process.argv[1]===import.meta.filename)for(const [index,row] of ([{}]).entries())test("test_travel_advances_the_clock_as_an_event"+(([{}]).length>1?' ['+index+']':''),async(t)=>{const temporary=temporaryPath(t);await test_travel_advances_the_clock_as_an_event(await kernel(t,{}));});
+
+test('an event can name the exact public roll receipt already issued this turn',async t=>{
+  const k=await kernel(t,{env:{COC_KERNEL_SEED:'7'}});await openTurn(k,'I ask Knott for access to the house.');
+  await k.table('resolve',{call_id:'t1-c1',action:{intent:'social',decision:'natural-npc:first-impression',target:'Steven Knott'}});
+  const roll=(await k.table('status')).receipts.find((receipt:Row)=>receipt.kind==='roll');
+  assert.equal(roll.id,'roll:mod-natural-npc-t1-c1');assert.equal(roll.visibility,'public');
+  const applied=await k.table('apply',{call_id:'t1-c2',effects:[],event:{name:'response to the impression',summary:'Knott considers the visitor.',causes:[roll.id]}});
+  assert.deepEqual(applied.outcome.events[0].causes,[{name:roll.id,receipts:[roll.id]}]);
+});
+
+test('a concealed receipt remains private when an event names it as a cause',async t=>{
+  const k=await kernel(t,{env:{COC_KERNEL_SEED:'7'}});await openTurn(k,'I watch Knott for signs of hesitation.');
+  await k.table('resolve',{call_id:'t1-c1',action:{intent:'investigate',decision:'psychology:observe-concealed',target:'Steven Knott',goal:'Observe his expression',method:'Watch his manner'}});
+  const hidden=(await k.table('status')).receipts.find((receipt:Row)=>receipt.kind==='roll');
+  assert.equal(hidden.visibility,'concealed');
+  const applied=await k.table('apply',{call_id:'t1-c2',effects:[],event:{name:'response to the observation',summary:'PRIVATE_OBSERVATION_CAUSE',causes:[hidden.id],
+    materials:[{name:'visible response',text:'Knott pauses before replying.',kind:'description',visibility:'player'}]}});
+  assert.deepEqual(applied.outcome.events[0].causes,[{name:hidden.id,receipts:[hidden.id]}]);
+  const materials=applied.outcome.public_materials;
+  assert.deepEqual(materials.map((material:Row)=>material.text),['Knott pauses before replying.']);
+  assert.ok(!JSON.stringify(materials).includes(hidden.id));assert.ok(!JSON.stringify(materials).includes('PRIVATE_OBSERVATION_CAUSE'));
+  const published=await k.table('narrate',{call_id:'t1-c3',text:'Knott pauses before replying.'});
+  const {mechanicsEntry}=await importSource('Electron/packages/pi-backend/src/coc-view.ts');
+  const projected=mechanicsEntry({type:'custom',customType:'coc-mechanics',id:'observation-card',data:published}).presentation.details.mechanics;
+  const cards=projected.filter((card:Row)=>card.kind==='roll');assert.equal(cards.length,1);assert.equal(cards[0].visibility,'concealed');
+  for(const card of cards){
+    assert.equal(card.roll,undefined);assert.equal(card.target,undefined);assert.equal(card.passed,undefined);assert.equal(card.level,undefined);
+  }
+  assert.ok(!JSON.stringify((await k.table('capsule')).player_knows).includes('PRIVATE_OBSERVATION_CAUSE'));
+});
+
+test('unissued receipt ids and receipts from another turn or worldline cannot become event causes',async t=>{
+  const k=await kernel(t,{env:{COC_KERNEL_SEED:'7'}});await createCampaign(k);await k.table('open');
+  const opening=await k.table('narrate',{call_id:'t0-c1',text:'Knott waits in the office.'});
+  await k.table('player_input',{text:'I ask Knott for access.'});
+  await k.table('resolve',{call_id:'t1-c1',action:{intent:'social',decision:'natural-npc:first-impression',target:'Steven Knott'}});
+  const roll=(await k.table('status')).receipts.find((receipt:Row)=>receipt.kind==='roll');
+  const before=(await k.table('status')).receipts;
+  const fabricated=await k.tableErr('apply',{call_id:'t1-c2',effects:[{kind:'time',minutes:5}],event:{name:'fabricated cause',summary:'A consequence.',causes:['roll:mod-natural-npc-t1-c999']}});
+  assert.equal(fabricated.details.field,'event.unissued reference');assert.deepEqual((await k.table('status')).receipts,before);
+  assert.equal((await k.table('capsule')).where.clock.minutes,0);
+  const correction=await k.tableErr('apply',{call_id:'t1-c3',effects:[],event:{name:'incorrect correction',summary:'A correction.',corrects:roll.id}});
+  assert.equal(correction.details.field,'event.correction must reference one canonical event');
+  await k.table('narrate',{call_id:'t1-c4',text:'The discussion ends.'});await k.table('player_input',{text:'I continue the discussion.'});
+  const earlier=await k.tableErr('apply',{call_id:'t2-c1',effects:[],event:{name:'earlier receipt cause',summary:'A consequence.',causes:[roll.id]}});
+  assert.equal(earlier.details.field,'event.unissued reference');
+  await k.table('narrate',{call_id:'t2-c2',text:'The discussion continues.'});
+  await k.table('branch',{commit:opening.commit,name:'side'});await k.table('player_input',{text:'I ask a different question on this branch.'});
+  const sibling=await k.tableErr('apply',{call_id:'t1-c2',effects:[],event:{name:'sibling receipt cause',summary:'A consequence.',causes:[roll.id]}});
+  assert.equal(sibling.details.field,'event.unissued reference');assert.deepEqual((await k.table('status')).receipts,[]);
+});

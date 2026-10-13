@@ -45766,3 +45766,11 @@ Private-play tool cards expose a deterministic public summary through the existi
 Existing possession vocabulary collection includes canonical equipment, object and definition names. The existing presenter projects these words into the open play_language and the existing inventory, item cards and document titles read that projection. Canonical names, identities and player-authored note bodies remain unchanged. No authored language table, language detector or additional translation agent is introduced.
 
 Acceptance uses actual Pi/RunDriver and TS RPC, save/restart and the canonical App viewport. Verify one notebook identity plus its written text on disk and after restart, meaningful safe expanded steps, matching cross-paragraph speech colors, an applicable public first-impression roll with pair reuse, and translated item labels. Preserve original failed evidence and actual model identities.
+
+### 237.2 Follow the actual tool failures through their existing owners
+
+Owner added per-turn tool-failure diagnosis and repair during real App acceptance. A new player turn invokes the existing Mod after(player_input) safe-boundary hook after resetting its runtime turn and call ordinal, before publishing the refreshed capsule. Ready historical registrations are promoted through ordinary apply; this is recovery of an existing owned item, not a new acquisition or a wait for unfinished generation.
+
+The single-Keeper path bypasses the retired append semantic binding. The same KP chooses the actual target and suffix, and existing kernel ownership, selected-edit, physical writing and transaction checks remain authoritative. No new intent classifier or approval gate replaces the removed binding.
+
+Event causes also accept an exact receipt id already issued in the current turn, using the existing name/receipts reference shape. This does not accept fabricated ids or make private receipts public. Existing event and source references and the aggregate literal receipts retain their meanings. Inspect every real turn's failures and retries independently; a provider timeout is not a tool failure, and eventual success does not erase the original failed attempt.

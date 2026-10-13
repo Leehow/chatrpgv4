@@ -1,5 +1,8 @@
 # Natural NPC
 
+## 1.6.2
+- Shortens the first-impression instructions to keep default package guidance within the existing 65,536-byte budget. Keeper judgement, public Regular max(APP, Credit Rating), once-per-pair reuse, optional contacts, greeting and authored no-roll behavior are unchanged. The new version preserves frozen 1.6.1 packages; no state migration is needed.
+
 ## 1.6.1
 - The same Keeper decides when a first impression matters and calls the existing resolver. The retired host/Jev contact route is no longer its execution owner. Pending contacts remain optional; the kernel still owns the public dice, higher characteristic and once-per-pair result. No state migration or new agent is introduced.
 

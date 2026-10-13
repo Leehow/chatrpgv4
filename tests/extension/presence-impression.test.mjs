@@ -2,7 +2,7 @@
  * Contract §224.3 (user ruling 2026-10-10, re-rules §178 per the Keeper Rulebook: Credit Rating gauges first impressions,
  * p.60; roll only when there is tension and something at stake, pp.82-83): a Mod check declared `trigger: "presence"`
  * (natural-npc's first impression) is no longer rolled by the kernel when people meet. While a person shares a scene with an
- * investigator the pair is offered in `mods.pending_contacts`; the host's selection rolls it only when it matters, through
+ * investigator the pair is offered in `mods.pending_contacts`; the Keeper invokes it only when it matters (§237.1), through
  * `resolve`, and the receipt keeps §178's shape (`trigger`, `public_target_label`) so the card still names whom it is about.
  *
  * The Haunting stands in: Knott seats the start scene, the newspaper morgue seats Ruth Blake and Arty Wilmot, the fixture's
@@ -102,7 +102,7 @@ test('§224.3: a move or a walk-on rolls nothing; the people met are offered ins
   for (const handle of ['ruth-blake', 'a dock worker']) assert.ok(offered(input.capsule).includes(handle), `${handle} is offered`);
 });
 
-test('§224.3: an offered pair the host resolves keeps §178\'s receipt shape and the card names the person in the table\'s word', async t => {
+test('§237.1: an offered pair the Keeper resolves keeps §178\'s receipt shape and the card names the person in the table\'s word', async t => {
   const {call, read, write} = await table(t);
   await call('table.open');
   await call('table.narrate', {call_id: 't0-c1', text: 'The opening.'});
@@ -149,7 +149,7 @@ test('a contact check pends beside the presence one, and neither is rolled by th
 test('a package that declares a presence check must require checks.presence.v1', async () => {
   const files = new Map([['mod.json', await readFile(join(root, 'mods/natural-npc/mod.json'))]]);
   for (const name of JSON.parse(files.get('mod.json').toString('utf8')).package_files) files.set(name, await readFile(join(root, 'mods/natural-npc', name)));
-  assert.equal(api.manifestFrom(files).version, '1.6.0');
+  assert.equal(api.manifestFrom(files).version, '1.6.2');
   const manifest = JSON.parse(files.get('mod.json').toString('utf8'));
   manifest.requires = manifest.requires.filter(value => value !== 'checks.presence.v1');
   files.set('mod.json', Buffer.from(JSON.stringify(manifest)));

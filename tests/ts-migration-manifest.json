@@ -49830,7 +49830,7 @@
           "counterpart": {
             "file": "tests/integration/rules-events-slice2.test.ts",
             "name": "test_canonical_events_end_to_end",
-            "sha256": "6d717bb9789c2f043a717fdc0248c5704f81cf06511044b9bbe53a41ef5fd8df"
+            "sha256": "481eed84a1d7a02e9671aa3ff1857a8267225f87a4c1879a44a1087a1e81cca7"
           },
           "review": "statement-by-statement",
           "validation": {
@@ -49925,7 +49925,7 @@
           "counterpart": {
             "file": "tests/integration/rules-events-slice2.test.ts",
             "name": "test_travel_advances_the_clock_as_an_event",
-            "sha256": "6d717bb9789c2f043a717fdc0248c5704f81cf06511044b9bbe53a41ef5fd8df"
+            "sha256": "481eed84a1d7a02e9671aa3ff1857a8267225f87a4c1879a44a1087a1e81cca7"
           },
           "review": "statement-by-statement",
           "validation": {
@@ -81219,7 +81219,7 @@
           "counterpart": {
             "file": "tests/integration/mod-combat.test.ts",
             "name": "test_first_impression_refusal_names_who_is_here_and_how_to_stage_the_target",
-            "sha256": "daa461e731a58cac58f0951e87da4f1fdcaacd85808f86ecb7b572309d1229df"
+            "sha256": "f0196e7d774afb8a85dc326994ab4d030f42cad471d90db686fd298e168f5c88"
           },
           "review": "statement-by-statement",
           "validation": {
@@ -81325,7 +81325,7 @@
           "counterpart": {
             "file": "tests/integration/mod-combat.test.ts",
             "name": "test_first_impression_uses_higher_value_and_reuses_pair",
-            "sha256": "daa461e731a58cac58f0951e87da4f1fdcaacd85808f86ecb7b572309d1229df"
+            "sha256": "f0196e7d774afb8a85dc326994ab4d030f42cad471d90db686fd298e168f5c88"
           },
           "review": "statement-by-statement",
           "validation": {
@@ -81423,7 +81423,7 @@
           "counterpart": {
             "file": "tests/integration/mod-combat.test.ts",
             "name": "test_pending_contact_carries_the_handle_the_first_impression_receipt_carries",
-            "sha256": "daa461e731a58cac58f0951e87da4f1fdcaacd85808f86ecb7b572309d1229df"
+            "sha256": "f0196e7d774afb8a85dc326994ab4d030f42cad471d90db686fd298e168f5c88"
           },
           "review": "statement-by-statement",
           "validation": {
@@ -81971,7 +81971,7 @@
           "counterpart": {
             "file": "tests/integration/mod-combat.test.ts",
             "name": "test_npc_fires_generated_weapon_then_player_takes_remaining_ammo",
-            "sha256": "daa461e731a58cac58f0951e87da4f1fdcaacd85808f86ecb7b572309d1229df"
+            "sha256": "f0196e7d774afb8a85dc326994ab4d030f42cad471d90db686fd298e168f5c88"
           },
           "review": "statement-by-statement",
           "validation": {
@@ -82159,7 +82159,7 @@
           "counterpart": {
             "file": "tests/integration/mod-combat.test.ts",
             "name": "test_generated_spell_is_priced_and_npc_can_cast_it",
-            "sha256": "daa461e731a58cac58f0951e87da4f1fdcaacd85808f86ecb7b572309d1229df"
+            "sha256": "f0196e7d774afb8a85dc326994ab4d030f42cad471d90db686fd298e168f5c88"
           },
           "review": "statement-by-statement",
           "validation": {
@@ -82343,7 +82343,7 @@
           "counterpart": {
             "file": "tests/integration/mod-combat.test.ts",
             "name": "test_legacy_hidden_first_impression_is_reused_without_disclosing_or_rerolling",
-            "sha256": "daa461e731a58cac58f0951e87da4f1fdcaacd85808f86ecb7b572309d1229df"
+            "sha256": "f0196e7d774afb8a85dc326994ab4d030f42cad471d90db686fd298e168f5c88"
           },
           "review": "statement-by-statement",
           "validation": {
@@ -82437,7 +82437,7 @@
           "counterpart": {
             "file": "tests/integration/mod-combat.test.ts",
             "name": "test_player_learns_generated_spell_and_its_effect_reaches_the_sheet",
-            "sha256": "daa461e731a58cac58f0951e87da4f1fdcaacd85808f86ecb7b572309d1229df"
+            "sha256": "f0196e7d774afb8a85dc326994ab4d030f42cad471d90db686fd298e168f5c88"
           },
           "review": "statement-by-statement",
           "validation": {
@@ -82527,7 +82527,7 @@
           "counterpart": {
             "file": "tests/integration/mod-combat.test.ts",
             "name": "test_worldline_merge_requires_an_explicit_choice_for_different_object_owners",
-            "sha256": "daa461e731a58cac58f0951e87da4f1fdcaacd85808f86ecb7b572309d1229df"
+            "sha256": "f0196e7d774afb8a85dc326994ab4d030f42cad471d90db686fd298e168f5c88"
           },
           "review": "statement-by-statement",
           "validation": {
@@ -82629,7 +82629,7 @@
           "counterpart": {
             "file": "tests/integration/mod-combat.test.ts",
             "name": "test_container_transfer_and_condition_are_preserved",
-            "sha256": "daa461e731a58cac58f0951e87da4f1fdcaacd85808f86ecb7b572309d1229df"
+            "sha256": "f0196e7d774afb8a85dc326994ab4d030f42cad471d90db686fd298e168f5c88"
           },
           "review": "statement-by-statement",
           "validation": {
@@ -82719,7 +82719,7 @@
           "counterpart": {
             "file": "tests/integration/mod-combat.test.ts",
             "name": "test_mod_resolution_obeys_pending_defense_and_preserves_session_projection",
-            "sha256": "daa461e731a58cac58f0951e87da4f1fdcaacd85808f86ecb7b572309d1229df"
+            "sha256": "f0196e7d774afb8a85dc326994ab4d030f42cad471d90db686fd298e168f5c88"
           },
           "review": "statement-by-statement",
           "validation": {
@@ -82813,7 +82813,7 @@
           "counterpart": {
             "file": "tests/integration/mod-combat.test.ts",
             "name": "test_same_owner_damage_updates_instance_and_cannot_be_hidden_in_legacy_rows",
-            "sha256": "daa461e731a58cac58f0951e87da4f1fdcaacd85808f86ecb7b572309d1229df"
+            "sha256": "f0196e7d774afb8a85dc326994ab4d030f42cad471d90db686fd298e168f5c88"
           },
           "review": "statement-by-statement",
           "validation": {
@@ -83225,7 +83225,7 @@
           "counterpart": {
             "file": "tests/integration/mod-deferral.test.ts",
             "name": "test_registration_can_be_queued_past_delivery_and_completed_afterwards",
-            "sha256": "50f44aa6e5318fd9d8b725b03970f8cd702f18d1b5c3546808addf468360afcc"
+            "sha256": "9ee3d0f483701703f9c208cb86bf408264c958031d7fc407902afe162ff7fcbc"
           },
           "review": "statement-by-statement",
           "validation": {
@@ -83347,7 +83347,7 @@
           "counterpart": {
             "file": "tests/integration/mod-deferral.test.ts",
             "name": "test_plain_item_identity_lands_now_and_ready_definition_adopts_only_the_same_acquisition",
-            "sha256": "50f44aa6e5318fd9d8b725b03970f8cd702f18d1b5c3546808addf468360afcc"
+            "sha256": "9ee3d0f483701703f9c208cb86bf408264c958031d7fc407902afe162ff7fcbc"
           },
           "review": "statement-by-statement",
           "validation": {
@@ -83433,7 +83433,7 @@
           "counterpart": {
             "file": "tests/integration/mod-deferral.test.ts",
             "name": "test_pending_identity_removed_before_creator_completion_is_never_resurrected",
-            "sha256": "50f44aa6e5318fd9d8b725b03970f8cd702f18d1b5c3546808addf468360afcc"
+            "sha256": "9ee3d0f483701703f9c208cb86bf408264c958031d7fc407902afe162ff7fcbc"
           },
           "review": "statement-by-statement",
           "validation": {
@@ -83579,7 +83579,7 @@
           "counterpart": {
             "file": "tests/integration/mod-deferral.test.ts",
             "name": "test_a_placement_beside_a_queued_definition_stands_on_a_placeholder_until_the_resume_replaces_it",
-            "sha256": "50f44aa6e5318fd9d8b725b03970f8cd702f18d1b5c3546808addf468360afcc"
+            "sha256": "9ee3d0f483701703f9c208cb86bf408264c958031d7fc407902afe162ff7fcbc"
           },
           "review": "statement-by-statement",
           "validation": {
@@ -83677,7 +83677,7 @@
           "counterpart": {
             "file": "tests/integration/mod-deferral.test.ts",
             "name": "test_a_usage_batch_can_take_the_registration_behind_a_placeholder_in_the_same_turn",
-            "sha256": "50f44aa6e5318fd9d8b725b03970f8cd702f18d1b5c3546808addf468360afcc"
+            "sha256": "9ee3d0f483701703f9c208cb86bf408264c958031d7fc407902afe162ff7fcbc"
           },
           "review": "statement-by-statement",
           "validation": {
@@ -83967,7 +83967,7 @@
           "counterpart": {
             "file": "tests/integration/mod-deferral.test.ts",
             "name": "test_a_queued_registration_answers_look_instead_of_reading_as_unknown",
-            "sha256": "50f44aa6e5318fd9d8b725b03970f8cd702f18d1b5c3546808addf468360afcc"
+            "sha256": "9ee3d0f483701703f9c208cb86bf408264c958031d7fc407902afe162ff7fcbc"
           },
           "review": "statement-by-statement",
           "validation": {
@@ -133491,7 +133491,7 @@
           "counterpart": {
             "file": "tests/integration/npc-speech.test.ts",
             "name": "test_a_say_token_wraps_a_line_and_resolves_to_the_person_present",
-            "sha256": "72cac9244b41ddf7eea6940c76630c8113e4e37d6e9cc709b87c9e190e7d213e"
+            "sha256": "88f63831dab4fe3f8a178629c04010158f27d9d6210ab1c6a1e5f1dc9494e6eb"
           },
           "review": "statement-by-statement",
           "validation": {
@@ -133586,7 +133586,7 @@
           "counterpart": {
             "file": "tests/integration/npc-speech.test.ts",
             "name": "test_the_investigator_and_a_stranger_resolve_their_own_way",
-            "sha256": "72cac9244b41ddf7eea6940c76630c8113e4e37d6e9cc709b87c9e190e7d213e"
+            "sha256": "88f63831dab4fe3f8a178629c04010158f27d9d6210ab1c6a1e5f1dc9494e6eb"
           },
           "review": "statement-by-statement",
           "validation": {
@@ -133677,7 +133677,7 @@
           "counterpart": {
             "file": "tests/integration/npc-speech.test.ts",
             "name": "test_the_shape_is_repaired_never_refused",
-            "sha256": "72cac9244b41ddf7eea6940c76630c8113e4e37d6e9cc709b87c9e190e7d213e"
+            "sha256": "88f63831dab4fe3f8a178629c04010158f27d9d6210ab1c6a1e5f1dc9494e6eb"
           },
           "review": "statement-by-statement",
           "validation": {
@@ -133764,7 +133764,7 @@
           "counterpart": {
             "file": "tests/integration/npc-speech.test.ts",
             "name": "test_a_span_with_no_words_is_unwrapped_and_never_recorded",
-            "sha256": "72cac9244b41ddf7eea6940c76630c8113e4e37d6e9cc709b87c9e190e7d213e"
+            "sha256": "88f63831dab4fe3f8a178629c04010158f27d9d6210ab1c6a1e5f1dc9494e6eb"
           },
           "review": "statement-by-statement",
           "validation": {
@@ -133859,7 +133859,7 @@
           "counterpart": {
             "file": "tests/integration/npc-speech.test.ts",
             "name": "test_a_mechanics_marker_inside_a_line_moves_after_it_and_still_binds",
-            "sha256": "72cac9244b41ddf7eea6940c76630c8113e4e37d6e9cc709b87c9e190e7d213e"
+            "sha256": "88f63831dab4fe3f8a178629c04010158f27d9d6210ab1c6a1e5f1dc9494e6eb"
           },
           "review": "statement-by-statement",
           "validation": {
@@ -133946,7 +133946,7 @@
           "counterpart": {
             "file": "tests/integration/npc-speech.test.ts",
             "name": "test_a_say_token_is_never_a_dropped_marker",
-            "sha256": "72cac9244b41ddf7eea6940c76630c8113e4e37d6e9cc709b87c9e190e7d213e"
+            "sha256": "88f63831dab4fe3f8a178629c04010158f27d9d6210ab1c6a1e5f1dc9494e6eb"
           },
           "review": "statement-by-statement",
           "validation": {
@@ -134037,7 +134037,7 @@
           "counterpart": {
             "file": "tests/integration/npc-speech.test.ts",
             "name": "test_ask_takes_the_same_token",
-            "sha256": "72cac9244b41ddf7eea6940c76630c8113e4e37d6e9cc709b87c9e190e7d213e"
+            "sha256": "88f63831dab4fe3f8a178629c04010158f27d9d6210ab1c6a1e5f1dc9494e6eb"
           },
           "review": "statement-by-statement",
           "validation": {
@@ -134136,7 +134136,7 @@
           "counterpart": {
             "file": "tests/integration/npc-speech.test.ts",
             "name": "test_who_spoke_reaches_the_ledger_the_capsule_and_the_journal",
-            "sha256": "72cac9244b41ddf7eea6940c76630c8113e4e37d6e9cc709b87c9e190e7d213e"
+            "sha256": "88f63831dab4fe3f8a178629c04010158f27d9d6210ab1c6a1e5f1dc9494e6eb"
           },
           "review": "statement-by-statement",
           "validation": {
@@ -134223,7 +134223,7 @@
           "counterpart": {
             "file": "tests/integration/npc-speech.test.ts",
             "name": "test_a_line_left_unmarked_is_a_verifier_finding",
-            "sha256": "72cac9244b41ddf7eea6940c76630c8113e4e37d6e9cc709b87c9e190e7d213e"
+            "sha256": "88f63831dab4fe3f8a178629c04010158f27d9d6210ab1c6a1e5f1dc9494e6eb"
           },
           "review": "statement-by-statement",
           "validation": {
@@ -134326,7 +134326,7 @@
           "counterpart": {
             "file": "tests/integration/npc-speech.test.ts",
             "name": "test_a_line_a_person_already_said_is_delivered_with_a_finding_and_a_moved_line_is_not",
-            "sha256": "72cac9244b41ddf7eea6940c76630c8113e4e37d6e9cc709b87c9e190e7d213e"
+            "sha256": "88f63831dab4fe3f8a178629c04010158f27d9d6210ab1c6a1e5f1dc9494e6eb"
           },
           "review": "statement-by-statement",
           "validation": {
@@ -174075,5 +174075,139 @@
     "frontendProof": ".coc/test-runs/electron-baseline-rLZjHi",
     "guidancePatchProof": ".coc/test-runs/guidance-final-review-fie3Bl",
     "sourcePolicy": "Full snapshots plus explicitly reviewed guidance-only patches and focused current verification; no single-source zero-drift claim."
-  }
+  },
+  "nativeRevalidations": [
+    {
+      "file": "tests/integration/mod-combat.test.ts",
+      "prior_sha256": "daa461e731a58cac58f0951e87da4f1fdcaacd85808f86ecb7b572309d1229df",
+      "current_sha256": "f0196e7d774afb8a85dc326994ab4d030f42cad471d90db686fd298e168f5c88",
+      "contract": "docs/kernel-rpc.md §237.1",
+      "basis": "Owner-authorized current behavior amendment. Historical original-source and assertion inventories are not rewritten.",
+      "behaviorAmendments": [
+        "The existing first-impression counterparts remain. A new current-TS regression verifies that the sole Keeper selects a meaningful first impression, calls the existing resolver and reuses the once-per-pair public result; simply sharing a scene still does not roll."
+      ],
+      "historicalValidationRetained": "Every existing entry.validation, entry.review, original source hash, original case hash, assertion, exception and parameter value is retained unchanged. Prior counterpart file identity is recorded above; the current hash is backed by this separate revalidation.",
+      "currentValidation": {
+        "command": "/Users/haoli/.local/opt/node-v24.19.0-darwin-arm64/bin/node --test tests/integration/mod-combat.test.ts",
+        "result": "passed",
+        "passed": 12,
+        "failed": 0,
+        "exitCode": 0,
+        "durationMs": 29506.356209,
+        "evidence": {
+          "kind": "actual root/worker tool output",
+          "reportedBy": "root",
+          "persistentLog": null
+        },
+        "additionalFullRun": {
+          "log": "/home/leehow/leehow/code/wt/codex-tests/.pytest-runs/chatrpgv4-wt-pi-coc-v2/run.unDRZRq1/remote-all.log",
+          "fileResult": "passed",
+          "integration": {
+            "tests": 2097,
+            "passed": 2096,
+            "failed": 1
+          },
+          "limitation": "The complete integration run was not green; its sole failure was an unrelated instruction-budget assertion. This record claims only this native file passed."
+        }
+      }
+    },
+    {
+      "file": "tests/integration/mod-deferral.test.ts",
+      "prior_sha256": "50f44aa6e5318fd9d8b725b03970f8cd702f18d1b5c3546808addf468360afcc",
+      "current_sha256": "9ee3d0f483701703f9c208cb86bf408264c958031d7fc407902afe162ff7fcbc",
+      "contract": "docs/kernel-rpc.md §237.1",
+      "basis": "Owner-authorized current behavior amendment. Historical original-source and assertion inventories are not rewritten.",
+      "behaviorAmendments": [
+        "Current behavior intentionally differs from the historical queued-registration expectation: adopting already-carried equipment creates an immediate writable placeholder identity instead of leaving ownership entirely queued.",
+        "Later asynchronous enrichment queues only the definition and enriches the same instance; it does not queue a second object acquisition or replace subsequent written notes.",
+        "The current counterpart of test_a_queued_registration_answers_look_instead_of_reading_as_unknown expects a readable pending instance instead of the historical needs refusal and queued adopted row. The unknown-object refusal remains covered.",
+        "A new current-TS notebook regression verifies actual note text, append, same inventory identity, later enrichment and process restart."
+      ],
+      "historicalValidationRetained": "Every existing entry.validation, entry.review, original source hash, original case hash, assertion, exception and parameter value is retained unchanged. Prior counterpart file identity is recorded above; the current hash is backed by this separate revalidation.",
+      "currentValidation": {
+        "command": "/Users/haoli/.local/opt/node-v24.19.0-darwin-arm64/bin/node --test tests/integration/mod-deferral.test.ts",
+        "result": "passed",
+        "passed": 7,
+        "failed": 0,
+        "exitCode": 0,
+        "durationMs": 12848.710083,
+        "evidence": {
+          "kind": "actual root/worker tool output",
+          "reportedBy": "root",
+          "persistentLog": null
+        },
+        "additionalFullRun": {
+          "log": "/home/leehow/leehow/code/wt/codex-tests/.pytest-runs/chatrpgv4-wt-pi-coc-v2/run.unDRZRq1/remote-all.log",
+          "fileResult": "passed",
+          "integration": {
+            "tests": 2097,
+            "passed": 2096,
+            "failed": 1
+          },
+          "limitation": "The complete integration run was not green; its sole failure was an unrelated instruction-budget assertion. This record claims only this native file passed."
+        }
+      }
+    },
+    {
+      "file": "tests/integration/npc-speech.test.ts",
+      "prior_sha256": "72cac9244b41ddf7eea6940c76630c8113e4e37d6e9cc709b87c9e190e7d213e",
+      "current_sha256": "88f63831dab4fe3f8a178629c04010158f27d9d6210ab1c6a1e5f1dc9494e6eb",
+      "contract": "docs/kernel-rpc.md §237.1",
+      "basis": "Owner-authorized current behavior amendment. Historical original-source and assertion inventories are not rewritten.",
+      "behaviorAmendments": [
+        "Explicit paired say spans now remain attributed to their speaker across paragraph gaps until the closing marker.",
+        "The current counterpart of test_the_shape_is_repaired_never_refused uses a genuinely unclosed final span to exercise paragraph-gap recovery. Its historical fixture had a closing marker; the original source and assertion inventory are retained as historical evidence, not claimed unchanged current behavior.",
+        "A new current-TS regression verifies paired multi-paragraph speech and intervening narration outside closed spans."
+      ],
+      "historicalValidationRetained": "Every existing entry.validation, entry.review, original source hash, original case hash, assertion, exception and parameter value is retained unchanged. Prior counterpart file identity is recorded above; the current hash is backed by this separate revalidation.",
+      "currentValidation": {
+        "command": "/Users/haoli/.local/opt/node-v24.19.0-darwin-arm64/bin/node --test tests/integration/npc-speech.test.ts",
+        "result": "passed",
+        "passed": 11,
+        "failed": 0,
+        "exitCode": 0,
+        "durationApproximateMs": 17100,
+        "evidence": {
+          "kind": "actual root/worker tool output",
+          "reportedBy": "speech worker",
+          "persistentLog": null
+        },
+        "additionalFullRun": {
+          "log": "/home/leehow/leehow/code/wt/codex-tests/.pytest-runs/chatrpgv4-wt-pi-coc-v2/run.unDRZRq1/remote-all.log",
+          "fileResult": "passed",
+          "integration": {
+            "tests": 2097,
+            "passed": 2096,
+            "failed": 1
+          },
+          "limitation": "The complete integration run was not green; its sole failure was an unrelated instruction-budget assertion. This record claims only this native file passed."
+        }
+      }
+    },
+    {
+      "file": "tests/integration/rules-events-slice2.test.ts",
+      "prior_sha256": "6d717bb9789c2f043a717fdc0248c5704f81cf06511044b9bbe53a41ef5fd8df",
+      "current_sha256": "481eed84a1d7a02e9671aa3ff1857a8267225f87a4c1879a44a1087a1e81cca7",
+      "contract": "docs/kernel-rpc.md §237.2",
+      "basis": "Owner-authorized additional current-TS regressions. Both original counterparts remain unchanged; the whole native file hash also covers three new regressions.",
+      "behaviorAmendments": [
+        "An event cause may reference an exact receipt id already issued in the current turn through the existing cause name/receipts shape.",
+        "New regressions verify accepted current-receipt causes, refusal of fabricated/foreign/stale receipts with atomic rollback, and preservation of concealed public projection."
+      ],
+      "historicalValidationRetained": "Every existing entry.validation, entry.review, original source hash, original case hash, assertion, exception and parameter value is retained unchanged. Prior counterpart file identity is recorded above; the current hash is backed by this separate revalidation.",
+      "currentValidation": {
+        "command": "node --test tests/integration/rules-events-slice2.test.ts",
+        "result": "passed",
+        "passed": 5,
+        "failed": 0,
+        "exitCode": 0,
+        "evidence": {
+          "kind": "actual worker tool output",
+          "reportedBy": "receipt-cause worker; confirmed by root",
+          "persistentLog": null
+        },
+        "limitation": "The earlier full run does not establish execution of these three later-added cases. This record claims the reported focused five-case execution only."
+      }
+    }
+  ]
 }
