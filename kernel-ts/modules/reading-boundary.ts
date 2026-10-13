@@ -72,11 +72,13 @@ export class ReadingBoundary {
 /** The boundary a campaign graph crosses with, or null for a legacy one. */
 export const graphBoundary = (graph: ModuleGraph): ReadingBoundary | null => graph.nameFree ? new ReadingBoundary(graph) : null;
 
-/** The boundary of a campaign named by id, from its saved world; null for none, a legacy campaign, or a book with no graph yet. */
+/** The saved world's boundary, or the retained setup bindings before that world exists. */
 export async function campaignBoundary(context: KernelContext, campaign: unknown, moduleId: string): Promise<ReadingBoundary | null> {
-    if (typeof campaign !== 'string' || !CAMPAIGN_ID.test(campaign) || !await campaignNodeHandles(context, campaign)) return null;
+    if (typeof campaign !== 'string' || !CAMPAIGN_ID.test(campaign)) return null;
+    const handles = await campaignNodeHandles(context, campaign);
+    if (!handles) return null;
     const path = join(context.campaignsRoot, campaign, 'world.json');
-    const world = await context.snapshots.isFile(path) ? row(await context.snapshots.readJson(path)) : {};
+    const world = await context.snapshots.isFile(path) ? row(await context.snapshots.readJson(path)) : {node_handles: Object.fromEntries(handles)};
     try { return graphBoundary((await loadCampaignModule(context, moduleId, world, campaign)).graph); }
     catch { return null; }
 }
