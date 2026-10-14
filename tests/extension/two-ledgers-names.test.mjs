@@ -30,6 +30,8 @@ export {nativeAdvisoryLocks} from './kernel-ts/native-locks.ts';
 export {createKernelRuntime} from './kernel-ts/registry.ts';
 export {castEntry} from './kernel-ts/cast/entry.ts';
 export {sayRanges} from './kernel-ts/write/speech-pass.ts';
+export {bookCast, publicSpokenSharedNames} from './kernel-ts/read/cast.ts';
+export {loadCampaignModule} from './kernel-ts/read/campaign.ts';
 export {handleLine} from './kernel-ts/transport.ts';
 export {ModuleStore} from './kernel-ts/modules/store.ts';
 export {ensureCampaignModule, moduleContext} from './kernel-ts/modules/campaign-scope.ts';`, resolveDir: root},
@@ -362,6 +364,64 @@ test('§194.5: narration outside a line and the investigator\'s own lines stay g
 	assert.ok(!record.told_text.includes('克拉夫楚克'), 'and the told check never reads it');
 	const after = await untoldNames(h);
 	assert.ok(after.includes('迪米尔·克拉夫楚克') && after.includes('卡特琳娜·克拉夫楚克'), 'both still untold');
+});
+
+test('a committed NPC shared word survives reopening and later narration without telling either owner', async t => {
+	const h = await farm(t);
+	const first = h.stored.people.find(person => person.book.includes('Dimiri Kravchuk'));
+	const second = h.stored.people.find(person => person.book.includes('Katarina Kravchuk'));
+	const word = first.book.find(name => second.book.includes(name));
+	assert.ok(word, 'the authored people share one literal');
+	await h.call('table.player_input', {text: 'Ask the captain about the departed family.'});
+	await h.call('table.narrate', {call_id: 't1-c1', text: `{{say:Captain Aganin}}The ${word} family left.{{/say}}`});
+	await h.call('table.open');
+	const protectedWords = (await h.call('table.untold')).protected;
+	assert.ok(protectedWords.includes(word), 'the request can retain the already public literal');
+	await h.call('table.player_input', {text: 'Remember the publicly mentioned family.'});
+	const text = `You recall the ${word} family.`;
+	assert.deepEqual((await h.call('table.untold_spans', {text})).spans, []);
+	await h.call('table.narrate', {call_id: 't2-c1', text});
+	const record = (await records(h)).find(row => row.turn === 2);
+	assert.equal(record.rendered_text, text, 'the public wording is unchanged');
+	assert.ok(!record.told_text.includes(word), 'wording does not disclose either identity');
+	assert.equal(record.told_lines, undefined);
+	await h.call('table.open');
+	const after = await untoldNames(h);
+	assert.ok(after.includes('Dimiri Kravchuk') && after.includes('Katarina Kravchuk'));
+	await h.call('table.player_input', {text: 'Consider only what was publicly said.'});
+	await assert.rejects(h.call('table.narrate', {call_id: 't3-c1', text: 'Dimiri Kravchuk waits outside.'}),
+		error => error?.details?.reason === 'untold_name', 'an unspoken longer name is still hidden');
+	const longer = first.book.find(name => name !== word && name.includes(word));
+	await assert.rejects(h.call('table.narrate', {call_id: 't3-c2', text: `${longer} waits outside.`}),
+		error => error?.details?.reason === 'untold_name', 'the public word does not shield its hidden longer name');
+	const joined = (await h.call('table.untold')).people.find(person => person.name === word).shown;
+	await assert.rejects(h.call('table.narrate', {call_id: 't3-c3', text: `You recall ${joined}.`}),
+		error => error?.details?.reason === 'untold_name' && !!error.details.joined?.length, 'joined labels are not public names');
+});
+
+test('shared public words require committed canonical NPC speech, not other delivery fields or roles', async t => {
+	const h = await farm(t);
+	const first = h.stored.people.find(person => person.book.includes('Dimiri Kravchuk'));
+	const second = h.stored.people.find(person => person.book.includes('Katarina Kravchuk'));
+	const word = first.book.find(name => second.book.includes(name));
+	await h.call('table.player_input', {text: 'Listen to the captain.'});
+	await h.call('table.narrate', {call_id: 't1-c1', text: `{{say:Captain Aganin}}The ${word} family left.{{/say}}`});
+	const record = (await records(h)).find(row => row.turn === 1);
+	const {graph} = await api.loadCampaignModule(h.context, h.mid, await worldOf(h), CAMPAIGN);
+	assert.deepEqual(api.publicSpokenSharedNames(graph, [record]), [word]);
+	const line = record.speech[0];
+	assert.deepEqual(api.publicSpokenSharedNames(graph, [{...record, speech: [{...line, text: 'The Kravchuk family left.'}]}]),
+		['Kravchuk'], 'the same exact shared pieces offered by the roster are covered');
+	const negatives = [
+		{...record, closed_by: 'ask'}, {...record, commit: null}, {...record, commit: false},
+		{...record, speech: [{...line, who: {investigator: 'inv-1', name: 'Investigator'}}]},
+		{...record, speech: [{...line, who: {label: 'A voice'}}]},
+		{...record, speech: [{...line, who: {...line.who, investigator: 'inv-1'}}]},
+		{...record, speech: [], player_text: word, rendered_text: word},
+		{...record, speech: [], delivery_evidence: {artifact_text: word, materials: [{text: word}]}},
+		{...record, speech: [{...line, text: 'A public greeting.', who: {...line.who, shown: word, name: word}}]},
+		{...record, speech: [{...line, text: `{{name:${word}}}`}]}];
+	for (const candidate of negatives) assert.deepEqual(api.publicSpokenSharedNames(graph, [candidate]), []);
 });
 
 test('§194.5: a place in a line the host cleared tells nobody; an ask delivers a spoken name and tells nobody, as {{name:}} on an ask', async t => {

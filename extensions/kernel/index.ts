@@ -6854,6 +6854,7 @@ export default function (pi: ExtensionAPI, host: {capabilities?:RuntimeCapabilit
 			// §135.11: a driven run asks the turn close what it did, through this port, when it has no delivery evidence.
 			pi.events.emit('coc:turn-close', Object.freeze({
 				campaign,
+				ended: () => operationGate.open && !!table && table.inputEnded?.turn === table.turn,
 				verdict: () => operationGate.open ? turnCloseVerdict() : { status: 'none', reason: 'no_table' },
 			}));
             pi.events.emit('coc:final-output',Object.freeze({
@@ -7291,8 +7292,10 @@ export default function (pi: ExtensionAPI, host: {capabilities?:RuntimeCapabilit
             if(pending){
                 if(pending.evidence.publication?.interaction_scope==='reference'){
                     finalOutput.restoreStream(pending.evidence);
-                    const delivered=await state.kernel.call<Record<string,unknown>>('table.reference.answer',{
-                        campaign:state.campaign,call_id:pending.evidence.publication.call_id,text:pending.text});
+                    let delivered:Record<string,unknown>;
+                    try{delivered=await state.kernel.call<Record<string,unknown>>('table.reference.answer',{
+                        campaign:state.campaign,call_id:pending.evidence.publication.call_id,text:pending.text});}
+                    catch(error){endInput(state,'pending_publication_failed',sessionCtx);throw error;}
                     applyToolSuccess(state,'narrate',pending.evidence.publication.call_id,delivered);
                     finalOutput.finishStream(pending.evidence,'completed');
                 }else{

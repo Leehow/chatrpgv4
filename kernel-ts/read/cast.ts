@@ -22,6 +22,7 @@ import { prepareNameHistory, type TellGuard } from '../journal/name-history.js';
 import { array, integer, normalize, number, row, string, type Row } from './values.js';
 import { isJsonObject, jsonDigest, type ReadonlyJson } from '../json.js';
 import { join } from 'node:path';
+import { prosePlaces } from '../write/names.js';
 
 const text = (value: unknown): string => typeof value === 'string' ? value.trim() : '';
 
@@ -397,8 +398,28 @@ export function protectedNames(graph: ModuleGraph, world: Row, journal: Row, rec
         ? person.nodes.some(node => !!integer(row(row(journal.entries)[string(node.node_id)]).named_at)
             || toldTurn(graph, node, history, Infinity, ownerOf(graph, person.nodes, person.castIds)) !== null)
         : castToldTurn(person, history) !== null);
-    const words = [...tableWords(graph, world, journal).map(entry => entry.word), ...bookCast(graph).filter(told).flatMap(person => person.names)];
+    const words = [...tableWords(graph, world, journal).map(entry => entry.word), ...bookCast(graph).filter(told).flatMap(person => person.names),
+        ...publicSpokenSharedNames(graph, history)];
     return [...new Set(words.map(text).filter(Boolean))];
+}
+
+/** A committed NPC line can make a shared literal public without identifying any of its owners. */
+export function publicSpokenSharedNames(graph: ModuleGraph, records: Iterable<Row>): string[] {
+    const owners = new Map<string, Set<CastPerson>>();
+    for (const person of bookCast(graph)) for (const name of [...person.names, ...namePieces(person.names)]) {
+        const into = owners.get(name) ?? new Set<CastPerson>();
+        into.add(person); owners.set(name, into);
+    }
+    const shared = [...owners].filter(([, people]) => people.size > 1).map(([name]) => name), spoken = new Set<string>();
+    for (const record of records) {
+        if (record.closed_by !== 'narrate' || !record.commit) continue;
+        for (const line of array(record.speech)) {
+            const who = row(row(line).who);
+            if (typeof who.npc !== 'string' || !who.npc || Object.hasOwn(who, 'investigator') || typeof row(line).text !== 'string') continue;
+            for (const place of prosePlaces(row(line).text, shared)) spoken.add(place.name);
+        }
+    }
+    return [...spoken];
 }
 
 /**

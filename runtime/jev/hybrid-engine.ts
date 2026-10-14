@@ -117,6 +117,7 @@ export interface KernelBridge {
 /** The kernel extension's turn-close port (`coc:turn-close`, contract §135.11). */
 export interface TurnClosePort {
   campaign?: string;
+  ended?(): boolean;
   verdict(): Record<string, unknown> | Promise<Record<string, unknown>>;
 }
 /** The kernel extension's consultation port (`coc:source-answers`, contract §135.31.2): what went pending, what landed since. */
@@ -452,6 +453,7 @@ export function createHybridEngine(options: HybridEngineOptions): {runDriver: Se
     steer=undefined;
     api?.events.emit('coc:keeper-run',current);
     const policy={name:'single-keeper',version:'1',initial:()=>null,reduce:()=>null,next:(view:any):any=>{
+      if(closer?.campaign===bridge?.campaign&&closer?.ended?.())return{kind:'finish',outcome:'undelivered',reason:'input_ended'};
       if(view.pendingProposals.length)return{kind:'operate',proposals:view.pendingProposals,reason:'keeper_tools'};
       if(view.delivery==='accepted'||view.delivery==='awaiting_player')return{kind:'finish',outcome:view.delivery==='accepted'?'delivered':'awaiting_player',reason:'delivery_accepted'};
       const last=view.lastObservation;

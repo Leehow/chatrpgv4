@@ -364,7 +364,9 @@ test('native publication keeps an ambiguous protected name pending without retry
     {kind:'person',who:'Arty Wilmot',name:'the editor'},
     {kind:'time',minutes:8},
   ]},text:'Alex watches you.'};
-  const {table,seen}=await directTable([()=>{authors++;return fauxAssistantMessage(JSON.stringify(response));}],{
+  const {table,seen}=await directTable([()=>{authors++;return fauxAssistantMessage(JSON.stringify(response));},()=>{
+    authors++;return fauxAssistantMessage(JSON.stringify({version:1,record:{effects:[{kind:'time',minutes:3}]},text:'UNACCEPTED_NEW_ACTION'}));
+  }],{
     prepareWorkspace:workspace=>seedPrintedNames(workspace,true),
   });
   t.after(()=>table.dispose());
@@ -376,6 +378,16 @@ test('native publication keeps an ambiguous protected name pending without retry
   assert.equal(table.telemetry().filter(row=>row.tool==='apply'&&row.ok).length,1);
   const status=await table.runtimeBridges().at(-1).call('table.status',{campaign:'test-camp'});
   assert.equal(status.state,'acting');
+  const exposed=seen.filter(frame=>frame.event==='delta').map(frame=>frame.delta).join('');
+  await table.session.prompt('I walk toward the gate.');
+  assert.equal(authors,1,'an ended input must not start another Keeper inference');
+  assert.equal(table.telemetry().filter(row=>row.lane==='provider-call').length,1);
+  assert.equal(table.telemetry().filter(row=>row.tool==='apply'&&row.ok).length,1);
+  const later=await table.runtimeBridges().at(-1).call('table.status',{campaign:'test-camp'});
+  assert.equal(later.state,'acting');
+  assert.equal(later.receipts.filter(row=>row.kind==='time').length,1);
+  assert.equal(seen.filter(frame=>frame.event==='delta').map(frame=>frame.delta).join(''),exposed,
+    'the rejected recovery adds no new public text');
 });
 
 test('a planned intent survives the next response without becoming an attempted task',async t=>{
@@ -514,6 +526,9 @@ test('a failed reference publication recovers its exact text without turning int
   t.after(()=>table.dispose());
   await table.session.prompt('OOC: explain the rule.');
   assert.equal(seen.at(-1).status,'publication_pending');
+  await table.session.prompt('I wait for the explanation.');
+  assert.equal(table.telemetry().filter(row=>row.lane==='provider-call').length,1,
+    'failed exact recovery ends that input before another author request');
   writeFileSync(join(table.workspace,'.coc/repos/test-camp.git/hooks/pre-commit'),'#!/bin/sh\nexit 0\n');
   await table.session.prompt('I wait quietly.');
   const record=JSON.parse(readFileSync(join(table.workspace,'.coc/campaigns/test-camp/turns/0001.json'),'utf8'));
