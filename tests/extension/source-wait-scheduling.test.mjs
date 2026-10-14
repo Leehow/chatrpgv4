@@ -82,10 +82,11 @@ test('an actually claimed source owner wakes its waiter when it completes during
  const home=await mkdtemp(join(tmpdir(),'source-running-wait-')),module=join(home,'.coc/modules/book'),work=join(module,'work/read-1/attempt-1');
  await mkdir(work,{recursive:true});
  t.mock.timers.enable({apis:['setTimeout','setInterval','Date'],now:0});
- let release,started=false,ready=false,claimed=false;const claims=[],requests=[];
+ let release,markStarted,started=false,ready=false,claimed=false;const claims=[],requests=[];
  const held=new Promise(resolve=>{release=resolve;});
+ const ownerStarted=new Promise(resolve=>{markStarted=resolve;});
  const runtime={contentRoot:resolve(import.meta.dirname,'../../content'),async runTask({request},signal){
-  if(!started){started=true;await Promise.race([held,new Promise(resolve=>signal.addEventListener('abort',resolve,{once:true}))]);}
+  if(!started){started=true;markStarted();await Promise.race([held,new Promise(resolve=>signal.addEventListener('abort',resolve,{once:true}))]);}
   if(signal.aborted)throw Error('cancelled');
   const cache=join(module,'cache/pages'),image=join(cache,'page-1.png'),id='page-'+request.eventLog;
   await writeFile(join(work,'draft.json'),JSON.stringify({title:'Fixture',language:'en',sections:[{name:'Opening',pages:[[1,1]],source_refs:[{page:1}]}],map_candidates:[]})+'\n');
@@ -104,10 +105,8 @@ test('an actually claimed source owner wakes its waiter when it completes during
    return {};
   }});
  t.after(async()=>{release();await service.close();await rm(home,{recursive:true,force:true});});
- const pending=service.ensure('book',{purpose:'index'});let finished=false;
- pending.then(()=>{finished=true;});
- const drain=async check=>{for(let i=0;i<200&&!check();i++)await new Promise(setImmediate);assert.ok(check(),'the real scheduler did not settle');};
- await drain(()=>started);await advance(t,7500);
+ const pending=service.ensure('book',{purpose:'index'});
+ await ownerStarted;assert.ok(started,'the real scheduler did not settle');await advance(t,7500);
  assert.deepEqual(requests,[0,300,900,2100,4500,7500]);
  assert.deepEqual(claims,[0,0],'the running pump does not receive an empty claim on every poll');
  release();
