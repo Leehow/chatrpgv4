@@ -7968,8 +7968,13 @@ export default function (pi: ExtensionAPI, host: {capabilities?:RuntimeCapabilit
 		let blocks = (event.message.content ?? []) as Array<Record<string, unknown>>;
 		let hasToolCalls = blocks.some((b) => b.type === "toolCall");
 		if(singleKeeper&&hasToolCalls&&keeperReply){
-			keeperReply.stream?.interrupt();
-			keeperReply=undefined;
+			const reply=keeperReply;
+			await reply.work;
+			const record=reply.decoder.record;
+			if(reply.stream||reply.evidence||record&&(record.event!==undefined||Array.isArray(record.effects)&&record.effects.length)){
+				blocks=blocks.filter(block=>block.type!=='toolCall');
+				hasToolCalls=false;
+			}else keeperReply=undefined;
 		}
 		if(singleKeeper&&!hasToolCalls&&keeperReply){
 			const reply=keeperReply;keeperReply=undefined;

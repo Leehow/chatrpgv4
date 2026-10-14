@@ -5,7 +5,7 @@ import {join,resolve,relative} from 'node:path';
 import {tmpdir} from 'node:os';
 import {spawnSync} from 'node:child_process';
 import {createHash} from 'node:crypto';
-import {fauxAssistantMessage,fauxToolCall} from '@earendil-works/pi-ai';
+import {fauxAssistantMessage,fauxText,fauxToolCall} from '@earendil-works/pi-ai';
 import {openTable,waitForIdle} from './harness.mjs';
 import {createHybridEngine} from '../../runtime/jev/hybrid-engine.ts';
 import {createFinalOutputOwner} from '../../extensions/kernel/final-output.ts';
@@ -245,6 +245,91 @@ test('ordinary native prose uses one Keeper request and no JSON repair',async t=
   await table.session.prompt('Where is the father now?');
   assert.equal(seen.filter(frame=>frame.event==='delta').map(frame=>frame.delta).join(''),text);
   assert.equal(seen.at(-1).status,'completed');
+  assert.equal(table.telemetry().filter(row=>row.lane==='provider-call').length,1);
+  assert.deepEqual(table.extensionErrors,[]);
+});
+
+for(const form of ['compact','marker'])test(`a valid ${form} final response publishes once without its extra native proposal`,async t=>{
+  const text='The office remains quiet. You can keep talking to the clerk.';
+  const body=form==='compact'?JSON.stringify({version:1,record:{effects:[{kind:'time',minutes:8}]},text}):'{{public}}'+text;
+  const {table,seen}=await directTable([fauxAssistantMessage([
+    fauxText(body),fauxToolCall('apply',{effects:[{kind:'time',minutes:2}]}),
+  ],{stopReason:'toolUse'}),fauxAssistantMessage('{{public}}UNEXPECTED_SECOND_REPLY')]);
+  t.after(()=>table.dispose());
+  await table.session.prompt('I wait for eight minutes and listen to the clerk.');
+  const turn=JSON.parse(readFileSync(join(table.workspace,'.coc/campaigns/test-camp/turns/0001.json'),'utf8'));
+  assert.equal(turn.world.clock.minutes,form==='compact'?8:0,'the native proposal cannot add time after final delivery began');
+  assert.ok(turn.commit,'the original complete final body has one canonical commit');
+  assert.equal(turn.delivery_evidence.artifact_text,text);
+  assert.equal(turn.receipts.filter(row=>row.kind==='time').length,form==='compact'?1:0);
+  assert.equal(seen.filter(frame=>frame.event==='delta').map(frame=>frame.delta).join(''),text);
+  assert.equal(new Set(seen.map(frame=>frame.delivery_id)).size,1);
+  assert.deepEqual(seen.filter(frame=>frame.event==='end').map(frame=>frame.status),['finalizing','completed']);
+  assert.equal(table.telemetry().filter(row=>row.lane==='provider-call').length,1,'no correction inference is needed');
+  assert.equal(table.session.messages.filter(message=>message.role==='toolResult'&&message.toolName==='apply').length,0);
+  assert.deepEqual(table.extensionErrors,[]);
+});
+
+test('ordinary private tool-side text still executes and continues from the real result',async t=>{
+  const text='You finish waiting in the office.';
+  let received=false;
+  const {table,seen}=await directTable([fauxAssistantMessage([
+    fauxText('PRIVATE_TOOL_SIDE_EXPLANATION'),fauxToolCall('apply',{effects:[{kind:'time',minutes:8}]}),
+  ],{stopReason:'toolUse'}),context=>{
+    received=context.messages.some(message=>message.role==='toolResult'&&message.toolName==='apply'&&!message.isError);
+    return fauxAssistantMessage('{{public}}'+text);
+  }]);
+  t.after(()=>table.dispose());
+  await table.session.prompt('I wait eight minutes.');
+  const turn=JSON.parse(readFileSync(join(table.workspace,'.coc/campaigns/test-camp/turns/0001.json'),'utf8'));
+  assert.ok(received);
+  assert.ok(turn.commit);
+  assert.equal(turn.world.clock.minutes,8);
+  assert.equal(turn.receipts.filter(row=>row.kind==='time').length,1);
+  assert.equal(seen.filter(frame=>frame.event==='delta').map(frame=>frame.delta).join(''),text);
+  assert.equal(table.telemetry().filter(row=>row.lane==='provider-call').length,2,'one tool request and its normal final continuation');
+  assert.deepEqual(table.telemetry().filter(row=>row.reason==='text_beside_tool_calls').map(row=>row.calls),[[{tool:'apply',outcome:'landed'}]]);
+  assert.deepEqual(table.extensionErrors,[]);
+});
+
+test('a malformed final body cannot add a native proposal after its record settled',async t=>{
+  const record={effects:[{kind:'time',minutes:8}]},text='After waiting, you speak again.';
+  const malformed='{"version":1,"record":'+JSON.stringify(record)+' '.repeat(80)+';"text":"PRIVATE_MALFORMED_BODY"}';
+  const {table,seen}=await directTable([fauxAssistantMessage([
+    fauxText(malformed),fauxToolCall('apply',{effects:[{kind:'time',minutes:2}]}),
+  ],{stopReason:'toolUse'}),()=>{
+    assert.equal(seen.length,0,'the bad body remains private');
+    assert.equal(JSON.parse(readFileSync(join(table.workspace,'.coc/campaigns/test-camp/world.json'),'utf8')).clock.minutes,8);
+    return fauxAssistantMessage(JSON.stringify({version:1,record,text}));
+  }]);
+  t.after(()=>table.dispose());
+  await table.session.prompt('I wait eight minutes before speaking.');
+  const turn=JSON.parse(readFileSync(join(table.workspace,'.coc/campaigns/test-camp/turns/0001.json'),'utf8'));
+  assert.ok(turn.commit);
+  assert.equal(turn.world.clock.minutes,8);
+  assert.equal(turn.receipts.filter(row=>row.kind==='time').length,1);
+  assert.equal(turn.delivery_evidence.artifact_text,text);
+  assert.equal(table.session.messages.filter(message=>message.role==='toolResult'&&message.toolName==='apply').length,0);
+  assert.equal(table.telemetry().filter(row=>row.lane==='provider-call').length,2,'only the original malformed-body repair');
+  assert.equal(new Set(seen.map(frame=>frame.delivery_id)).size,1);
+  assert.deepEqual(table.extensionErrors,[]);
+});
+
+test('an interrupted final body preserves its prefix without executing its extra proposal',async t=>{
+  const text='The office remains quiet. You wait patiently.';
+  const {table,seen}=await directTable([fauxAssistantMessage([
+    fauxText(JSON.stringify({version:1,record:{effects:[{kind:'time',minutes:8}]},text})),
+    fauxToolCall('apply',{effects:[{kind:'time',minutes:2}]}),
+  ],{stopReason:'length'}),fauxAssistantMessage('{{public}}UNEXPECTED_SECOND_REPLY')]);
+  t.after(()=>table.dispose());
+  await table.session.prompt('I wait quietly for eight minutes.');
+  const turn=JSON.parse(readFileSync(join(table.workspace,'.coc/campaigns/test-camp/turns/0001.json'),'utf8'));
+  assert.equal(turn.world.clock.minutes,8);
+  assert.equal(turn.receipts.filter(row=>row.kind==='time').length,1);
+  assert.ok(!turn.commit,'an interrupted response is not a completed delivery');
+  assert.equal(seen.filter(frame=>frame.event==='delta').map(frame=>frame.delta).join(''),text);
+  assert.deepEqual(seen.filter(frame=>frame.event==='end').map(frame=>frame.status),['interrupted']);
+  assert.equal(table.session.messages.filter(message=>message.role==='toolResult'&&message.toolName==='apply').length,0);
   assert.equal(table.telemetry().filter(row=>row.lane==='provider-call').length,1);
   assert.deepEqual(table.extensionErrors,[]);
 });
