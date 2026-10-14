@@ -110,13 +110,32 @@ export async function openClueRoute(deps: ClueRouteDeps, refusal: CheckFirstRefu
 		}
 		const rows = (Array.isArray(read.candidates) ? read.candidates : []).map(value => (value ?? {}) as Row)
 			.filter(row => (row.effect as Row | undefined)?.kind === "clue");
-		const own = rows.find(row => (row.effect as Row).clue === refusal.clue), description = (own?.description ?? {}) as Row;
+		if (deps.signal?.aborted) return undefined;
+		const own = rows.find(row => (row.effect as Row).clue === refusal.clue);
+		let description = (own?.description ?? {}) as Row;
+		// A refused batch has already rolled back its move: canonical options may still describe the parent.
+		// Read only the issued clue's existing private entity; this read grants no clue, location or roll authority.
+		if (!own) {
+			const lookup = (await deps.call("table.lookup", {campaign: deps.campaign, kind: "module", query: refusal.clue, expected_kind: "clue"}) ?? {}) as Row;
+			if (deps.signal?.aborted) return undefined;
+			const entities = Array.isArray(lookup.entities) ? lookup.entities : [], entity = entities[0] as Row | undefined;
+			if (lookup.query === refusal.clue && lookup.expected_kind === "clue" && entities.length === 1 && entity?.name === refusal.clue
+				&& entity.kind === "clue" && (entity.material === undefined || entity.material === "ready")) {
+				description = {summary: entity.summary, supports: (Array.isArray(entity.relations) ? entity.relations : [])
+					.filter((entry): entry is Row => !!entry && typeof entry === "object" && entry.kind === "supports" && typeof entry.to === "string" && entry.to.trim() !== "")
+					.map(entry => ({name: entry.to, importance: null}))};
+			}
+		}
+		if (typeof description.summary !== "string" || !description.summary.trim()) {
+			await deps.record({...base, ok: false, reason: "basis_unavailable", chosen: null, resent: false, ms: Date.now() - began});
+			return undefined;
+		}
 		const strings = (value: unknown): string[] => (Array.isArray(value) ? value : []).filter((entry): entry is string => typeof entry === "string" && entry.trim() !== "");
 		const supports = (Array.isArray(description.supports) ? description.supports : []).filter((entry): entry is Row => !!entry && typeof entry === "object")
 			.map(entry => ({name: String(entry.name ?? ""), importance: typeof entry.importance === "string" ? entry.importance : null}));
 		const input: ClueRouteInput = {campaign: deps.campaign, turn: deps.turn, declaration: deps.declaration ?? "",
 			clue: {name: refusal.clue, summary: String(description.summary ?? ""), cues: strings(description.cues), check: refusal.check, supports,
-				others: rows.filter(row => row !== own).map(row => String(((row.description ?? {}) as Row).summary ?? "")).filter(Boolean).slice(0, 12)},
+				others: own ? rows.filter(row => row !== own).map(row => String(((row.description ?? {}) as Row).summary ?? "")).filter(Boolean).slice(0, 12) : []},
 			rolls: refusal.routes.other_rolls};
 		const result = await ask(input, deps, began + shipped.timeoutMs);
 		if (deps.signal?.aborted) return undefined;

@@ -277,7 +277,7 @@ test('§192.3: the in-process readers -- scene groups, placeOf, material, the ca
 	assert.ok(graph.sceneAssetNodes(node('scene-tower')).some(each => each.node_id === 'tome-keeper-log'), 'what the copy holds');
 	assert.deepEqual(graph.sceneEndings(node('scene-tower')).map(row => row.name), ['The lamp goes out']);
 	assert.deepEqual(graph.placesOutward(node('scene-tower')), ['scene-tower', 'location-headland']);
-	assert.deepEqual(graph.scenePlaces(node('scene-tower')).map(row => row.name), ['Lamp room']);
+	assert.deepEqual(graph.scenePlaces(node('scene-tower')).map(row => row.name), ['Flooded cellar', 'Lamp room']);
 	assert.equal(graph.entranceRelation(node('scene-dock'), node('scene-tower')), 'play-precedes');
 	// The dock's affordance names the oil that stands for the copy it grants, found through the copy.
 	const oilCopy = graph.handle(node('clue-lamp-oil-copy'));

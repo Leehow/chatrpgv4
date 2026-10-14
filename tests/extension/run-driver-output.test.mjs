@@ -11,6 +11,7 @@ import {createHybridEngine} from '../../runtime/jev/hybrid-engine.ts';
 import {createFinalOutputOwner} from '../../extensions/kernel/final-output.ts';
 import {importSource,RpcClient,rpcCommand} from '../integration/support.ts';
 import {writeSourceMetadata} from '../integration/module-support.ts';
+import {JEV_MODEL} from '../../runtime/jev/question-packing.ts';
 
 const root=resolve(import.meta.dirname,'../..');
 const plan={version:1,materials:[
@@ -251,6 +252,85 @@ test('the single Keeper reads a current inner scene and settles only the selecte
   assert.deepEqual(table.telemetry().filter(row=>row.tool==='apply').map(row=>row.ok),[true]);
   assert.equal(table.telemetry().filter(row=>row.lane==='kernel-rpc'&&row.method==='table.narrate'&&row.ok).length,1);
   assert.equal(table.telemetry().some(row=>row.lane==='keeper-delivery'&&row.ok===false),false);
+});
+
+// Genuine Pi/native RPC seam; decision and Keeper prose are deterministic doubles, not live play acceptance.
+test('a rolled-back inner move reads the issued clue basis and reuses distinct stranded checks once',async t=>{
+  let requests=0,content,stranded,rolls;const states=[];
+  const retained=mkdtempSync(join(tmpdir(),'clue-route-native-fixture-'));
+  t.after(()=>rmSync(retained,{recursive:true,force:true,maxRetries:5,retryDelay:50}));
+  const privateSummary='PRIVATE_ROUTE_BASIS: the old deed is tucked between two visible shelf boards.';
+  const publicText='You enter the permitted front room and find the loose deed between the shelf boards.';
+  t.mock.method(globalThis,'fetch',async(_url,init)=>{
+    const request=JSON.parse(init.body);if(request.state?.clue?.book_check)states.push(request.state);
+    return new Response(JSON.stringify({model:JEV_MODEL,answers:Object.fromEntries(Object.keys(request.questions)
+      .map(key=>[key,{type:'noul',noul:key==='fit_r0'?0.85:0.1}])),usage:{input_tokens:300,output_tokens:12}}),
+      {status:200,headers:{'Content-Type':'application/json'}});
+  });
+  const {table,seen}=await directTable([context=>{
+    requests++;assert.ok(rolls.every(roll=>JSON.stringify(context.messages).includes(roll.receipt)),'the actual next Pi request receives both earlier checks');
+    return fauxAssistantMessage(JSON.stringify({version:1,record:{effects:[
+      {kind:'move',to:'route-inner-room'},{kind:'clue',clue:'route-inner-deed',label:'Loose deed',how:'The earlier shelf inspection found it.'},
+      {kind:'time',minutes:8},{kind:'item',name:'Loose test slip',quantity:1}],
+      event:{name:'route-room-inspection',summary:'The investigator enters the permitted room and finds the loose deed.',
+        knowledge:[{actor:'Thomas Hayes',statement:'A loose deed was found between shelf boards.',mode:'observed',state:'accurate'}]}},text:publicText}));
+  }],{seedCampaign:false,retainAt:retained,env:{PI_COC_LOOP_ENGINE:'hybrid-v1',PI_COC_KERNEL_CMD:JSON.stringify(rpcCommand()),
+    EXT_JEV_APIKEY:'test-only',PI_COC_CLUE_ROUTE:'on',COC_KERNEL_SEED:'2'},prepareWorkspace:async workspace=>{
+    content=join(workspace,'route-content');cpSync(join(root,'content'),content,{recursive:true});
+    const file=join(content,'starters/the-haunting/module-graph.json'),data=JSON.parse(readFileSync(file,'utf8'));
+    for(const node of data.nodes)if(node.properties?.runtime_projection?.record?.is_start)node.properties.runtime_projection.record.is_start=false;
+    const nodes=[['scene-route-house','scene','Route fixture house',{runtime_projection:{kind:'scene',record:{scene_id:'route-house',is_start:true}}}],
+      ['scene-route-inner-room','scene','PRIVATE_ROUTE_INNER_HEADING',{}],
+      ['clue-route-inner-deed','clue','Loose deed',{delivery_kind:'skill_check',skill:'Library Use',difficulty:'regular'}]];
+    data.nodes.push(...nodes.map(([node_id,node_kind,name,properties])=>({node_id,node_kind,name,properties,
+      summary:node_kind==='clue'?privateSummary:name,visibility:'keeper-only',source_refs:[{source_id:'fixture',pdf_index:0}]})));
+    data.relations.push({relation_id:'route-inner-in-house',from_node_id:'scene-route-inner-room',relation_kind:'located-in',to_node_id:'scene-route-house',properties:{}},
+      {relation_id:'route-deed-in-room',from_node_id:'clue-route-inner-deed',relation_kind:'discoverable-at',to_node_id:'scene-route-inner-room',properties:{}});
+    writeFileSync(file,JSON.stringify(data));
+    const pregens=join(content,'starters/the-haunting/pregens/thomas-hayes/character.json'),pregen=JSON.parse(readFileSync(pregens,'utf8'));
+    pregen.skills['Spot Hidden']=95;writeFileSync(pregens,JSON.stringify(pregen));
+    const client=new RpcClient(workspace,{content,env:{COC_KERNEL_SEED:'2'}});
+    try{
+      await client.ok('campaign.create',{id:'test-camp',module:'the-haunting',pregen:'thomas-hayes',play_language:'en'});
+      await client.ok('table.narrate',{campaign:'test-camp',call_id:'t0-c1',text:'You have permission to enter the front room.'});
+      await client.ok('table.player_input',{campaign:'test-camp',text:'I inspect visible shelf boards and separately watch the owner.'});
+      rolls=[];
+      for(const [index,goal]of ['Inspect the shelf boards for loose records','Watch the owner reaction'].entries())
+        rolls.push(await client.ok('table.resolve',{campaign:'test-camp',call_id:`t1-c${index+1}`,action:{actor:'Thomas Hayes',intent:'investigate',goal,method:goal,skill:'Spot Hidden'}}));
+      assert.ok(rolls.every(roll=>roll.outcome.passed));assert.equal(new Set(rolls.map(roll=>roll.receipt)).size,2);
+      await client.ok('table.release',{campaign:'test-camp',release:'stranded'});
+      stranded=readFileSync(join(workspace,'.coc/campaigns/test-camp/turns/0001.json'),'utf8');
+    }finally{await client.close();}
+    process.env.PI_COC_KERNEL_CMD=JSON.stringify([...rpcCommand(),'--workspace',workspace,'--content',content]);
+  }});
+  let closed=false;t.after(async()=>{if(!closed)await table.dispose();});
+  await table.session.prompt('I enter the permitted front room and take the deed found by the earlier shelf inspection, take one loose slip, and spend eight minutes.');
+  assert.equal(states.length,1);assert.equal(states[0].clue.states,privateSummary,'the actual route packet retains its issued child clue after rollback');
+  assert.deepEqual(Object.values(states[0].rolls).map(roll=>roll.goal),['Inspect the shelf boards for loose records','Watch the owner reaction']);
+  assert.equal(requests,1);assert.deepEqual(table.extensionErrors,[]);
+  assert.equal(seen.filter(frame=>frame.event==='delta').map(frame=>frame.delta).join(''),publicText);
+  assert.ok(seen.filter(frame=>frame.event==='delta').length>2);assert.equal(seen.at(-1)?.status,'completed');
+  assert.equal(JSON.stringify(seen).includes('PRIVATE_ROUTE'),false);
+  const dir=join(table.workspace,'.coc/campaigns/test-camp'),turn=JSON.parse(readFileSync(join(dir,'turns/0002.json'),'utf8'));
+  assert.ok(turn.commit);assert.equal(turn.world.clock.minutes,8);
+  for(const kind of ['move','clue','time','item','event'])assert.equal(turn.receipts.filter(receipt=>receipt.kind===kind).length,1,kind);
+  assert.equal(turn.receipts.some(receipt=>receipt.kind==='roll'),false,'the route does not reroll settled observations');
+  const clue=turn.receipts.find(receipt=>receipt.kind==='clue');
+  assert.deepEqual(clue.check,{skill:'Library Use',difficulty:'regular'});
+  assert.deepEqual(clue.found_by,{route:'fitting_check',roll:rolls[0].receipt,passed:true,turn:1,judged:'jev'});
+  const telemetry=table.telemetry(),route=telemetry.find(row=>row.lane==='clue-route');
+  assert.equal(route?.resent,true);assert.equal(route?.chosen,'fitting_check');
+  assert.ok(telemetry.some(row=>row.lane==='kernel-rpc'&&row.method==='table.apply'&&row.ok===false),'the original transaction really refuses before its bounded read');
+  assert.equal(telemetry.filter(row=>row.lane==='kernel-rpc'&&row.method==='table.lookup'&&row.ok).length,1);
+  assert.equal(readFileSync(join(dir,'turns/0001.json'),'utf8'),stranded);
+  const workspace=table.workspace;await table.dispose();closed=true;
+  const restarted=new RpcClient(workspace,{content});t.after(()=>restarted.close());
+  const next=await restarted.ok('table.player_input',{campaign:'test-camp',text:'I read the acquired deed and remember what I saw.'});
+  assert.equal(next.capsule.where.scene,'route-inner-room');assert.equal(next.capsule.where.clock.minutes,8);
+  const memory=await restarted.ok('table.recall',{campaign:'test-camp',what:'memory',about:['Thomas Hayes']});
+  assert.ok(memory.hits.some(row=>row.statement==='A loose deed was found between shelf boards.'&&row.authority==='canonical_event'));
+  assert.equal(readFileSync(join(dir,'turns/0001.json'),'utf8'),stranded);
+  assert.equal(JSON.parse(readFileSync(join(dir,'turns/0002.json'),'utf8')).commit,turn.commit);
 });
 
 // Publish a generation fixture through the existing metadata fixture/manifest seam; never gameplay.
