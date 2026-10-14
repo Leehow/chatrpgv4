@@ -463,3 +463,8 @@ export async function applyProviderModelCorrections(agentHome: string, correctio
 }
 
 export {speechPass, SAY_TOKENS} from '../kernel-ts/write/speech-pass.ts';
+export {createKernelContext} from '../kernel-ts/context.ts';
+export {ModuleGraph} from '../kernel-ts/read/module-graph.ts';
+export {nodeHandleMap} from '../kernel-ts/read/node-handles.ts';
+export {readPublishedGraph} from '../kernel-ts/read/published-graph.ts';
+export {publicSceneLabel} from '../kernel-ts/read/capsule.ts';

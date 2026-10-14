@@ -1,7 +1,7 @@
-import { readFile, readdir } from 'node:fs/promises';
+import { readFile, readdir, stat, realpath } from 'node:fs/promises';
 import { createInterface } from 'node:readline';
 import { createReadStream } from 'node:fs';
-import { join, resolve } from 'node:path';
+import { dirname, join, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import type { HistoryEntry } from '@pipi/host-api';
 import {handoutImage} from './coc-handout-images.js';
@@ -449,6 +449,70 @@ export async function currentDraft(binding?:CocBinding):Promise<Record<string,un
     const draft=JSON.parse(await readFile(join(folder,'setup/drafts',`${revision}.json`),'utf8'));
     return draft&&typeof draft==='object'&&!Array.isArray(draft)?draft as Record<string,unknown>:undefined;
   } catch {return undefined;}
+}
+
+/** Read-only generation caches suffice for display; missing or damaged context never authorizes an old title. */
+export async function historySceneNames(binding:CocBinding|undefined, cards:readonly any[], repo?:string, contentRoot?:string):Promise<Map<string,Map<string,{from_label:string;to_label:string}>>> {
+  const found=new Map<string,Map<string,{from_label:string;to_label:string}>>();
+  const wanted=cards.filter(card=>card?.type==='custom'&&card.customType==='coc-mechanics'&&typeof card.id==='string'
+    &&Array.isArray(card.data?.mechanics)&&card.data.mechanics.some((row:any)=>row?.kind==='scene'));
+  if(!wanted.length||!binding||!repo||!/^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/.test(binding.campaign))return found;
+  let reader:any,graph:any,world:any;
+  try {
+    reader=await import(pathToFileURL(resolve(repo,'build/runtime/host.mjs')).href);
+    const folder=join(binding.home,'.coc/campaigns',binding.campaign);
+    const meta=JSON.parse(await readFile(join(folder,'campaign.json'),'utf8'));
+    world=JSON.parse(await readFile(join(folder,'world.json'),'utf8'));
+    if(meta.id!==binding.campaign||typeof meta.module_id!=='string'||!/^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/.test(meta.module_id))return found;
+    const context=await reader.createKernelContext({workspace:binding.home,content:contentRoot??join(repo,'content')});
+    const privateFolder=join(binding.home,'.coc/module-campaigns',binding.campaign,'modules',meta.module_id);
+    const scoped=await stat(privateFolder).then(info=>info.isDirectory(),()=>false);
+    const moduleFolder=scoped?privateFolder:join(binding.home,'.coc/modules',meta.module_id);
+    let source:any={};
+    try {source=JSON.parse(await readFile(join(moduleFolder,'module.json'),'utf8'));}
+    catch(error) {if(scoped||(error as NodeJS.ErrnoException).code!=='ENOENT')throw error;}
+    if(scoped&&(source.id!==meta.module_id||source.campaign_scope!==binding.campaign))return found;
+    if(Object.keys(source).length&&source.id!==meta.module_id)return found;
+    if(Object.keys(source).length) {
+      const home=await realpath(binding.home),expected=scoped?join(home,'.coc/module-campaigns',binding.campaign,'modules',meta.module_id):join(home,'.coc/modules',meta.module_id);
+      if(await realpath(moduleFolder)!==expected)return found;
+    }
+    const file=Object.keys(source).length?resolve(moduleFolder,source.graph_file??'module-graph.json')
+      :join(context.content,'starters',meta.module_id,'module-graph.json');
+    const published=await reader.readPublishedGraph({...context,moduleRoot:dirname(moduleFolder)},file,source,meta.module_id);
+    if(![meta.module_id,`module-${meta.module_id}`].includes(published.raw.module_id))return found;
+    graph=new reader.ModuleGraph(meta.module_id,published.raw,published.digest,{},undefined,false,
+      meta.handles==='name-free'?reader.nodeHandleMap(world):null);
+    graph.projectSourcePlaces();
+    for(const entity of Array.isArray(world.table_entities)?world.table_entities:[])graph.addTableEntity(entity);
+  } catch {return found;}
+  const records=new Map<number,Promise<any>>();
+  await Promise.all(wanted.map(async card=>{
+    const turn=card.data.turn;
+    if(!Number.isSafeInteger(turn)||turn<0||typeof card.data.final_stream_id!=='string'||!card.data.final_stream_id.trim()
+      ||card.data.campaign&&card.data.campaign!==binding.campaign)return;
+    let pending=records.get(turn);
+    if(!pending){pending=readFile(join(binding.home,'.coc/campaigns',binding.campaign,'turns',`${String(turn).padStart(4,'0')}.json`),'utf8')
+      .then(JSON.parse).catch(()=>undefined);records.set(turn,pending);}
+    const record=await pending,evidence=record?.delivery_evidence;
+    if(record?.turn!==turn||record.closed_by!=='narrate'||!record.commit||!record.closed_at
+      ||evidence?.context?.campaign!==binding.campaign||evidence.context.turn!==turn
+      ||typeof evidence.publication?.call_id!=='string'||!Object.hasOwn(record.calls??{},evidence.publication.call_id)
+      ||card.data.final_stream_id!==evidence.stream?.delivery_id)return;
+    const names=new Map<string,{from_label:string;to_label:string}>();
+    for(const item of card.data.mechanics) {
+      if(item?.kind!=='scene'||typeof item.receipt!=='string')continue;
+      const receipt=record.receipts?.find((row:any)=>row?.id===item.receipt&&row.kind==='move'&&row.from===item.from&&row.to===item.to);
+      if(!receipt)continue;
+      const label=(handle:unknown)=>{
+        try {const scene=typeof handle==='string'?graph.sceneByHandle(handle):null;return scene?reader.publicSceneLabel(graph,world,scene):'Scene';}
+        catch {return 'Scene';}
+      };
+      names.set(item.receipt,{from_label:label(item.from),to_label:label(item.to)});
+    }
+    found.set(card.id,names);
+  }));
+  return found;
 }
 
 /** Display-only recovery of accepted say boundaries; the original turn and transcript remain evidence. */

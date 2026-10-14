@@ -60,14 +60,14 @@ it('draws a card for a delivery that only spoke',()=>{
   expect(mechanicsEntry({...row,data:{...row.data,marked_text:''}},'zh-Hans')).toBeUndefined();
 });
 
-async function historicalSpeechFixture() {
+async function historicalSpeechFixture(hostRepo?:string) {
   const {cp,appendFile}=await import('node:fs/promises');
   const {createPiHostBackend}=await import('../src/index.js');
   const repo=resolve(import.meta.dirname,'../../../..'),home=await mkdtemp(join(tmpdir(),'historical-speech-display-'));
   const profile=join(home,'profile'),pack=join(profile,'extensions/coc-keeper');await mkdir(pack,{recursive:true});
   await cp(join(repo,'pipiui-extension.json'),join(pack,'pipiui-extension.json'));await cp(join(repo,'pipicoc'),join(pack,'pipicoc'),{recursive:true});
   const backend=createPiHostBackend({agentDir:profile,sessionsRoot:join(home,'sessions'),runtimeRoot:join(home,'runtime'),defaultPack:'coc-keeper',
-    managedNodeModulesRoot:join(repo,'node_modules'),env:{...process.env,PI_COC_HOME:home},spawn:()=>{throw Error('History must not start Pi');}});
+    managedNodeModulesRoot:join(hostRepo??repo,'node_modules'),cocRuntime:{contentRoot:join(repo,'content')},env:{...process.env,PI_COC_HOME:home},spawn:()=>{throw Error('History must not start Pi');}});
   await backend.handle('addProject',[home]);const projects=await backend.handle('listProjects',[]) as any[];
   const session=await backend.handle('newSession',[projects[0].id]) as any;
   const {path}=await (backend as any).locate(session.id);
@@ -85,6 +85,61 @@ async function historicalSpeechFixture() {
   await appendFile(path,JSON.stringify(card)+'\n');
   return {backend,session,path,file,record,card,artifact,appendFile};
 }
+
+it('history projects old private scene footers without changing their evidence or importing source state',async()=>{
+  const {build}=await import('esbuild'),{symlink,rm,stat,rename}=await import('node:fs/promises');
+  const {createHash}=await import('node:crypto'),{jsonDigest}=await import('../../../../kernel-ts/json.js');
+  const repo=resolve(import.meta.dirname,'../../../..'),hostRepo=await mkdtemp(join(tmpdir(),'historical-scene-runtime-'));
+  await symlink(join(repo,'node_modules'),join(hostRepo,'node_modules'));
+  await build({entryPoints:[join(repo,'runtime/host.ts')],outfile:join(hostRepo,'build/runtime/host.mjs'),bundle:true,packages:'external',platform:'node',format:'esm',target:'node24',logLevel:'silent'});
+  const fixture=await historicalSpeechFixture(hostRepo),home=JSON.parse(await readFile(fixture.path+'.coc.json','utf8')).home;
+  const folder=join(home,'.coc/campaigns/historical-speech'),moduleFolder=join(home,'.coc/modules/the-haunting');
+  const raw=JSON.parse(await readFile(join(repo,'content/starters/the-haunting/module-graph.json'),'utf8'));
+  const room=raw.nodes.find((node:any)=>node.node_id==='scene-hall-of-records');room.name='Undisclosed private room';
+  const runtime=room.properties.runtime_projection.record;runtime.display_name=room.name;delete runtime.destination_identity;delete runtime.destination_access;
+  raw.nodes.push({node_id:'scene-public-archive',node_kind:'scene',name:'Public archive',visibility:'public',properties:{runtime_projection:{record:{scene_id:'public-archive',display_name:'Public archive'}}}});
+  const graph=JSON.stringify(raw),digest=createHash('sha256').update(graph).digest('hex');
+  await mkdir(moduleFolder,{recursive:true});await writeFile(join(moduleFolder,'module-graph.json'),graph);
+  await writeFile(join(moduleFolder,'module.json'),JSON.stringify({id:'the-haunting',generation:1,graph_digest:digest}));
+  await writeFile(join(moduleFolder,'module-graph-manifest.json'),JSON.stringify({contract_id:'coc.module-graph-manifest.v1',schema_version:1,module_id:'the-haunting',generation:1,graph_contract_id:raw.contract_id,graph_content_digest:jsonDigest(raw)}));
+  await writeFile(join(folder,'campaign.json'),JSON.stringify({id:'historical-speech',module_id:'the-haunting'}));
+  await writeFile(join(folder,'world.json'),JSON.stringify({active_scene:'hall-of-records',scene_labels:{'commission-briefing':'Public office','Created side room':'Public side room'},
+    table_entities:[{id:'scene-table-side-room',kind:'scene',name:'Created side room',summary:'Established during play.',turn:9,from:'public-archive'}]}));
+  const rows=[{kind:'scene',receipt:'move:private',from:'commission-briefing',to:'hall-of-records',from_label:'Old private office title',to_label:room.name,minutes:20},
+    {kind:'scene',receipt:'move:public',from:'hall-of-records',to:'public-archive',from_label:room.name,to_label:'Public archive',minutes:5},
+    {kind:'scene',receipt:'move:established',from:'public-archive',to:'Created side room',from_label:'Public archive',to_label:'Public side room',minutes:3},...fixture.card.data.mechanics];
+  fixture.card.data.mechanics=rows;Object.assign(fixture.record,{mechanics:rows,receipts:rows.filter(row=>row.kind==='scene').map(row=>({...row,kind:'move',id:row.receipt}))});
+  await writeFile(fixture.file,JSON.stringify(fixture.record));
+  const saved=await readFile(fixture.path,'utf8');await writeFile(fixture.path,saved.trimEnd().split('\n').map(line=>{const row=JSON.parse(line);return row.id===fixture.card.id?JSON.stringify(fixture.card):line;}).join('\n')+'\n');
+  const paths=[fixture.path,fixture.file,join(folder,'world.json'),join(moduleFolder,'module.json'),join(moduleFolder,'module-graph.json')],before=await Promise.all(paths.map(path=>readFile(path,'utf8')));
+  try {
+    const entries=await fixture.backend.handle('getSessionHistory',[fixture.session.id,0,50]) as any[];
+    const details=entries.find(entry=>entry.id===fixture.card.id).presentation.details;
+    expect(details.mechanics.slice(0,2).map((row:any)=>[row.from_label,row.to_label,row.minutes])).toEqual([['Public office','Scene',20],['Scene','Public archive',5]]);
+    expect(details.mechanics[2]).toMatchObject({from_label:'Public archive',to_label:'Public side room',minutes:3});
+    expect(JSON.stringify(entries)).not.toContain(room.name);expect(JSON.stringify(entries)).not.toContain('Old private office title');
+    expect(details.speech[0].text).toBe('One.\n\nTwo.\n\nThree.');
+    expect(await Promise.all(paths.map(path=>readFile(path,'utf8')))).toEqual(before);
+    expect(await stat(join(home,'.coc/source-reading.sqlite')).then(()=>true,()=>false)).toBe(false);
+    const neutral=async()=>{
+      await fixture.appendFile(fixture.path,'\n');
+      const original=await Promise.all(paths.filter(path=>path!==join(folder,'world.json')).map(path=>readFile(path,'utf8')));
+      const history=await fixture.backend.handle('getSessionHistory',[fixture.session.id,0,50]) as any[];
+      const projected=history.find(entry=>entry.id===fixture.card.id).presentation.details;
+      expect(projected.mechanics.slice(0,2).map((row:any)=>[row.from_label,row.to_label,row.minutes])).toEqual([['Scene','Scene',20],['Scene','Scene',5]]);
+      expect(projected.mechanics[2]).toMatchObject({from_label:'Scene',to_label:'Scene',minutes:3});
+      expect(JSON.stringify(history)).not.toContain(room.name);expect(JSON.stringify(history)).not.toContain('Old private office title');
+      expect(projected.speech[0].text).toBe('One.\n\nTwo.\n\nThree.');
+      expect(await Promise.all(paths.filter(path=>path!==join(folder,'world.json')).map(path=>readFile(path,'utf8')))).toEqual(original);
+      expect(await stat(join(home,'.coc/source-reading.sqlite')).then(()=>true,()=>false)).toBe(false);
+    };
+    await writeFile(join(moduleFolder,'module.json'),JSON.stringify({id:'the-haunting',generation:1,graph_digest:'0'.repeat(64)}));
+    await neutral();
+    await writeFile(join(moduleFolder,'module.json'),before[3]);
+    await rename(join(folder,'world.json'),join(folder,'world-unavailable.json'));
+    try {await neutral();} finally {await rename(join(folder,'world-unavailable.json'),join(folder,'world.json'));}
+  } finally {await fixture.backend.close();await rm(hostRepo,{recursive:true,force:true});}
+},30000);
 
 it('restored history repairs paired speech paragraphs while retaining public characters, identities and mechanic positions',async()=>{
   const fixture=await historicalSpeechFixture();

@@ -2,7 +2,7 @@ import { CocOnboardingHost, CocOnboardingRegistry, type CocOnboardingOptions } f
 import { timelineAnchors, transcriptPrefix } from './coc-timeline.js';
 import {readDefensePreference, writeDefensePreference, isDefenseChoice} from './coc-defense.js';
 export { CocOnboardingRegistry } from './coc-onboarding.js';
-import { readCocBinding, cocBindingOfRow, readColdSheet, callColdKernel, mechanicsEntry, draftPresentations, currentDraft, historySpeech, laneWords, laneProjection, laneLabels,
+import { readCocBinding, cocBindingOfRow, readColdSheet, callColdKernel, mechanicsEntry, draftPresentations, currentDraft, historySpeech, historySceneNames, laneWords, laneProjection, laneLabels,
   laneLabelsLoaded, reloadLaneLabels, deliveryWords, handoutTitles, CocCardLedger, type CocCardPatch,
   cocContentRoot, cocForgetUiWords, cocPlayLanguage, cocUiWords, cocUiWordsLoaded, SHEET_LANES, type SheetLane, type CocBinding,
   type CocHistoryWords, type CocUiWords } from "./coc-view.js";
@@ -1770,12 +1770,18 @@ async function readHistoryFallback(
     if (wanted.has(entry?.id)) wantedRows.push(entry);
   }
   const speech=await historySpeech(cocBinding,wantedRows,cocHost?.repo);
+  const sceneNames=await historySceneNames(cocBinding,wantedRows,cocHost?.repo,cocHost?.contentRoot);
   for (const entry of wantedRows) {
     const secrets = vaultDir && sessionId ? revealRedactionSecrets(vaultDir, sessionId) : [];
     const recovered=speech.get(entry?.id);
     const mapped = visibleHistoryEntry(entry, secrets, cocBinding?.play_language, cocPresentations, cocWords, cocDraft,
       [...(recovered?[recovered]:[]),...cocCards.patchesFor(entry?.id)],cocBinding);
     if (!mapped) continue;
+    if(mapped.presentation?.renderer==='coc-mechanics') {
+      const details=mapped.presentation.details as any,names=sceneNames.get(entry.id);
+      details.mechanics=details.mechanics.map((row:any)=>row?.kind==='scene'
+        ?{...row,from_label:names?.get(row.receipt)?.from_label??'Scene',to_label:names?.get(row.receipt)?.to_label??'Scene'}:row);
+    }
     const publicSummary=toolResults.get(entry.id);
     if(mapped.role==='tool'&&cocBinding?.mode==='play'&&publicSummary?.campaign===cocBinding.campaign)mapped.content=publicSummary.content;
     const sentAt = mapped.role === "user" && entry?.type === "message" ? sentTimes.get(entry.message?.timestamp) : undefined;
