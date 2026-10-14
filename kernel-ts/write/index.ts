@@ -1380,8 +1380,17 @@ export function createWriteRuntime(context: KernelContext, contributions: WriteC
         if(!Array.isArray(names)||names.length>48||names.some(name=>typeof name!=='string'||name.length>120))
             throw new RpcError('invalid_params','Invalid delivery speaker names');
         const resolve=speakerResolver(module.graph,snapshot.world,snapshot.party,await untoldAt(snapshot,module.graph));
-        const speakers=names.map(name=>{const who=resolve(name);return {name,who:{...who,name:'shown' in who?who.shown:'name' in who?who.name:who.label}};});
-        return {checked:true,turn:snapshot.turn.turn,state:snapshot.turn.state,published:false,...(names.length?{speakers}:{})};
+        const prepared=(name:string)=>{const who=resolve(name);return {name,who:{...who,name:'shown' in who?who.shown:'name' in who?who.name:who.label}};};
+        // Earlier-scene speech is already settled; only its safe player-facing label belongs in the stream catalog.
+        const spoken=array(eventOutcome(array(snapshot.turn.receipts),array(snapshot.turn.disclosures)).public_materials)
+            .filter(material=>material.kind==='speech').flatMap(material=>{
+                const entry=prepared(string(material.speaker)),name=entry.who.name;
+                return typeof name==='string'&&name.trim()&&name.length<=120?[prepared(name)]:[];
+            });
+        const seen=new Set<string>(),speakers=[...spoken,...names.map(prepared)].filter(entry=>{
+            if(seen.has(entry.name))return false;seen.add(entry.name);return true;
+        }).slice(0,48);
+        return {checked:true,turn:snapshot.turn.turn,state:snapshot.turn.state,published:false,...(speakers.length?{speakers}:{})};
     }
     async function ask(params: Row): Promise<Row> {
         // §135.31: the turn's Keeper reads ride on the delivery for its record; they are not part of the call's digest.

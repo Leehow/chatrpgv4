@@ -1144,6 +1144,51 @@ test('native speech aliases bind exact whole quotes to the same current actor ac
   assert.deepEqual(table.extensionErrors,[]);
 });
 
+test('the first native stream catalog includes safe earlier-scene speech without disclosing private or corrected people',async t=>{
+  const {table}=await directTable([],{prepareWorkspace:workspace=>{
+    seedPrintedNames(workspace,true);
+    process.env.PI_COC_KERNEL_CMD=JSON.stringify([...rpcCommand(),'--workspace',workspace,'--content',join(root,'content')]);
+  }});
+  t.after(()=>table.dispose());
+  assert.deepEqual(table.extensionErrors,[]);
+  const bridge=table.runtimeBridges().at(-1),campaign='test-camp';
+  await bridge.call('table.player_input',{campaign,text:'I leave the office, go to the library and ask about public access.'});
+  const speech=(name,speaker,visibility='player')=>({name,speaker,visibility,kind:'speech',text:'Words for '+name,audience:['Thomas Hayes']});
+  await bridge.call('table.apply',{campaign,call_id:'t1-c1',effects:[],event:{name:'superseded-account',summary:'An earlier draft account.',
+    materials:[speech('corrected-person','Arty Wilmot')]}});
+  await bridge.call('table.apply',{campaign,call_id:'t1-c2',effects:[{kind:'move',to:'Central Library',minutes:30},
+    {kind:'npc',name:'Public Librarian',walk_on:true,to:'here'},
+    {kind:'person',who:'Mr. Dooley',name:'the porter'}],
+    event:{name:'cross-scene-reply',summary:'The visitor leaves, travels and asks the librarian.',corrects:'event:t1:superseded-account',
+      materials:[speech('farewell','Steven Knott'),speech('farewell-again','Steven Knott'),speech('answer','Public Librarian'),
+        speech('anonymous','Mr. Dooley'),speech('private-person','Walter Corbitt','keeper')],
+      knowledge:[{actor:'Thomas Hayes',source:'Steven Knott',statement:'The departure answer was heard.',mode:'heard',state:'uncertain',material:'farewell'}]}});
+  const worldFile=join(table.workspace,'.coc/campaigns/test-camp/world.json'),turnFile=join(table.workspace,'.coc/campaigns/test-camp/turn.json');
+  const worldBefore=readFileSync(worldFile,'utf8'),turnBefore=readFileSync(turnFile,'utf8');
+  const frames=[],calls=[];
+  const owner=createFinalOutputOwner({runtime:()=>({home:table.workspace}),record:async()=>{},stream:frame=>frames.push(frame),
+    call:async(method,params)=>{calls.push(method);return bridge.call(method,params);}});
+  const stream=await owner.openStream(campaign,1,'cross-scene-catalog-fixture');
+  const start=frames.find(frame=>frame.event==='start');assert.ok(start);
+  assert.deepEqual(start.speakers.map(row=>row.name).sort(),['Public Librarian','Steven Knott','the porter'].sort());
+  const departure=start.speakers.find(row=>row.name==='Steven Knott'),arrival=start.speakers.find(row=>row.name==='Public Librarian');
+  assert.ok(departure.who.npc);assert.ok(arrival.who.npc);assert.notEqual(departure.who.npc,arrival.who.npc);
+  assert.equal(start.speakers.find(row=>row.name==='the porter').who.name,'the porter');
+  assert.equal(JSON.stringify(start).includes('Mr. Dooley'),false);
+  assert.equal(JSON.stringify(start).includes('Arty Wilmot'),false);
+  assert.equal(JSON.stringify(start).includes('Walter Corbitt'),false);
+  assert.equal(calls.filter(method=>method==='table.delivery.check').length,1);
+  assert.equal(calls.includes('table.status'),false,'preparation does not add a status read');
+  assert.equal(readFileSync(worldFile,'utf8'),worldBefore);
+  assert.equal(readFileSync(turnFile,'utf8'),turnBefore,'preparing identities neither publishes speech nor activates cognition');
+  assert.equal(frames.filter(frame=>frame.event==='delta').length,0,'identities are prepared before prose');
+  stream.interrupt();
+  const checked=await bridge.call('table.delivery.check',{campaign,speakers:['Alex']});
+  const shared=checked.speakers.find(row=>row.name==='Alex');
+  assert.ok(shared);assert.equal(shared.who.label,'Alex');
+  assert.equal(shared.who.npc,undefined,'a shared safe label must not select the first canonical speaker');
+});
+
 test('speech occurrence resolution reuses prepared identities and bounds missing aliases without public names',async t=>{
   const home=mkdtempSync(join(tmpdir(),'pi-coc-speech-identity-'));
   t.after(()=>rmSync(home,{recursive:true,force:true}));
