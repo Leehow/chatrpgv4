@@ -299,19 +299,45 @@ export async function sceneView(campaign: CampaignSnapshot, module: LoadedModule
         ...(number(campaign.turn.turn) === 0 ? { module: fittedModuleSection(graph)[0] } : {})
     };
 }
+function playerInvestigator(view: Row): Row {
+    const result = {...view};
+    delete result.setting_era;
+    if (view.finance && typeof view.finance === 'object' && !Array.isArray(view.finance)) {
+        result.finance = {...view.finance};
+        delete result.finance.substituted_for;
+        delete result.finance.note;
+    }
+    if (view.creation && typeof view.creation === 'object' && !Array.isArray(view.creation)) {
+        result.creation = {...view.creation};
+        if (view.creation.finance && typeof view.creation.finance === 'object' && !Array.isArray(view.creation.finance)) {
+            result.creation.finance = {...view.creation.finance};
+            delete result.creation.finance.substituted_for;
+            delete result.creation.finance.note;
+        }
+    }
+    return result;
+}
+function playerInvestigatorLabels(labels: Row, sheets: Row[]): Row {
+    const privateTexts = new Set(sheets.flatMap(sheet => [sheet.setting_era, sheet.finance?.substituted_for,
+        sheet.finance?.note, sheet.creation?.finance?.substituted_for, sheet.creation?.finance?.note])
+        .filter(value => typeof value === 'string' && value.length > 0));
+    return Object.fromEntries(Object.entries(labels).filter(([key]) => !privateTexts.has(key)));
+}
 export async function tableView(context: KernelContext, params: Row): Promise<Row> {
     const initial = await CampaignSnapshot.open(context, params.campaign, false, false),
         language = await playLanguageOf(context, initial.meta);
-    if (initial.meta.status === "setting_up")
+    if (initial.meta.status === "setting_up") {
+        const party = await initial.files("party");
         return {
             play_language: language,
             state: "setting_up",
-            investigators: (await initial.files("party")).map(investigatorView),
+            investigators: party.map(sheet => playerInvestigator(investigatorView(sheet))),
             clues: { discovered: [] },
             handouts: [],
             npcs: { journal: [] },
-            labels: await playerGlossary(context, language)
+            labels: playerInvestigatorLabels(await playerGlossary(context, language), party)
         };
+    }
     const { campaign, module } = await readCampaign(context, params, true, params.panel === 'clock'),
         { graph } = module,
         { world, turn } = campaign;
@@ -343,7 +369,7 @@ export async function tableView(context: KernelContext, params: Row): Promise<Ro
         // against the frozen historical oracle (`tests/extension/fixtures/oracle`), which is evidence
         // and not a shape to renegotiate for a new field.
         investigators: campaign.party.map(sheet => ({
-            ...publicSheet(world, investigatorView(sheet)),
+            ...playerInvestigator(publicSheet(world, investigatorView(sheet))),
             ...(prepareEquipment && equipmentPreparationRows(preparation,sheet,campaign.meta.active_worldline ?? null).length
                 ? {equipment_preparation:equipmentPreparationRows(preparation,sheet,campaign.meta.active_worldline ?? null)} : {}),
             incapacitated: incapacitatedBy(sheet.conditions)
@@ -354,7 +380,7 @@ export async function tableView(context: KernelContext, params: Row): Promise<Ro
         // card's `text`, so the handouts lane's projection answers both.
         handouts: evidence.handouts,
         npcs: { journal: await npcJournalSection(campaign, graph) },
-        labels: await playerGlossary(context, language)
+        labels: playerInvestigatorLabels(await playerGlossary(context, language), campaign.party)
     };
 }
 export function readHandlers(context: KernelContext, contributions: ReadContributions = {}): HandlerGroup {

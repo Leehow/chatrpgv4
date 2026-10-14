@@ -291,7 +291,7 @@ export function CocCharacterDraft({data,onRendered,onPresentation,onOverride,onC
         nominated column (§23.4); the kernel records which setting that column stood in for. The
         player was told only by a sentence the setup agent was asked to say once in prose, and
         `game-b4cebfe0`'s transcript never says it. The card carries the fact beside the numbers. */}
-    {sheet.finance?.substituted_for&&<p className="coc-draft-note">{t('finance_period')}: {cell(sheet.finance.period)} · {t('substituted_for')}: {cell(sheet.finance.substituted_for)}</p>}
+    {sheet.finance?.period&&<p className="coc-draft-note">{t('finance_period')}: {cell(sheet.finance.period)}</p>}
     <h3>{t('Background')}</h3><dl className="coc-draft-background">{Object.entries(sheet.backstory||{}).map(([key,value])=><div key={key}><dt>{t(key)}</dt><dd>{cell(value)}</dd></div>)}</dl>
     <p className="coc-draft-note">{t('Language')}: {t(sheet.own_language)}</p><p className="coc-draft-note">{t('Key connection')}: {cell(sheet.key_connection?.summary)}</p>
     <h3>{t('Equipment')}</h3><ul className="coc-draft-kit">{(sheet.equipment||[]).filter((item:string)=>!presentation.finance_equipment?.includes(item)).map((item:string,i:number)=><li key={i}>{t(item)}</li>)}</ul>

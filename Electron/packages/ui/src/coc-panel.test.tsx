@@ -162,19 +162,20 @@ describe('the credential is dated by the setting, not the finance table', () => 
     expect(container.querySelector('.coc-sheet-era')?.textContent).not.toBe('1920');
   });
 
-  it('keeps the authored setting in the book\'s own words when the module named no clock', async () => {
+  it('uses the public rulebook era when no public clock is available', async () => {
     // No stamp to derive a year from, and no licence to read one out of the sentence: the card
     // prints the setting it was given rather than a table key that is not the setting at all.
     const { container } = render(<Panel api={host(answer({ investigators: [substituted], clock: { minutes: 75 } }))} />);
     await screen.findByText(say('zh-Hans', 'sheet', 'identityTitle'));
-    expect(container.querySelector('.coc-sheet-era')?.textContent).toBe(substituted.setting_era);
+    expect(container.querySelector('.coc-sheet-era')?.textContent).toBe('1920');
+    expect(container.textContent).not.toContain(substituted.setting_era);
   });
 
-  it('still draws the rulebook era when nothing was substituted for it', async () => {
+  it('prefers the public clock without needing private substitution metadata', async () => {
     // The ordinary campaign: `era` is the setting, and the clock does not get to overrule it.
     const { container } = render(<Panel api={host(answer({ investigators: [{ ...investigator, era: '1920s' }], clock: { minutes: 75, at: '1925-06-02T09:30' } }))} />);
     await screen.findByText(say('zh-Hans', 'sheet', 'identityTitle'));
-    expect(container.querySelector('.coc-sheet-era')?.textContent).toBe('1920');
+    expect(container.querySelector('.coc-sheet-era')?.textContent).toBe('1925');
   });
 });
 
@@ -764,4 +765,15 @@ it('draws a carried weapon once, under the box its combat profile lives in', asy
   expect(screen.getAllByText('柯尔特.45自动手枪')).toHaveLength(1);
   // …and it is the weapons box it stayed in, not the inventory one.
   expect(screen.getByText('柯尔特.45自动手枪').closest('li')?.querySelector('dl')).toBeTruthy();
+});
+
+
+it('shows finance period without rendering retained private finance audit prose',async()=>{
+  const privateText='private-finance-audit-canary';
+  const sheet={...investigator,finance:{cash:{amount:9,currency:'USD'},assets:{amount:90,currency:'USD'},period:'1920s',substituted_for:privateText,note:privateText}};
+  const {container}=render(<Panel api={host({ok:true,data:{status:'ready',campaign:'c1',view:view({investigators:[sheet]})}})}/>);
+  await screen.findByText(say('zh-Hans','sheet','identityTitle'));
+  const finance=container.querySelector('[data-anchor="finance"]')!;
+  expect(finance.textContent).toContain('1920s');expect(finance.textContent).toContain('9 USD');
+  expect(finance.textContent).not.toContain(privateText);
 });

@@ -178,25 +178,20 @@ test('a row the rulebook prints no figure for draws the card\'s empty cell, neve
 	assert.ok(drawn.includes(`${SHEET_WORDS.cash}0.5 USD`), 'and a row the table does print keeps its figure');
 });
 
-test('a card built off a period the book is not set in says so where the numbers are', async (t) => {
+test('a substituted finance period qualifies the money without revealing the authored setting', async (t) => {
 	const era = '1895 (default); investigators then reach the night before the 1287 storm';
 	const game = await table(t, { contentRoot: await contentWithEra(era) });
 	const view = await game.view();
 	const finance = view.investigators[0].finance;
 	assert.equal(finance.period, '1920s', "the table's own nominated column stands in");
-	assert.equal(finance.substituted_for, era, 'and the card records what it stood in for');
-
+	const privateSheet = await game.call('table.look', { focus: 'investigator', name: view.investigators[0].id });
+	assert.equal(privateSheet.finance.substituted_for, era, 'the canonical private sheet retains the accounting audit');
+	assert.equal(finance.substituted_for, undefined, 'the player projection excludes the private authored setting');
+	assert.equal(view.investigators[0].setting_era, undefined);
 	const drawn = await drawSheet(view);
-	// Two halves, and they are separate on purpose (§23.4): the caption is the shipped one with the
-	// table's own word for the period, and the authored setting follows it verbatim as its own text.
-	// Splicing a source string into the middle of a play-language sentence reads as neither, so the
-	// test pins the two pieces rather than one template.
-	const said = SHEET_WORDS.financeStandsIn.replace('{period}', view.labels['1920s'] ?? '1920s');
-	const block = drawn.slice(drawn.indexOf(SHEET_WORDS.finance), drawn.indexOf(SHEET_WORDS.finance) + 600);
-	assert.ok(drawn.includes(said),
-		`the finance block never tells the player these figures are a stand-in:\n${block}`);
-	assert.ok(drawn.includes(`${said} ${era}`),
-		`the authored setting is not said in the book's own words beside the caption:\n${block}`);
+	const period = view.labels['1920s'] ?? '1920s';
+	assert.ok(drawn.includes(SHEET_WORDS.era + period), 'the used finance period stays beside the money');
+	assert.ok(!drawn.includes(era), 'the card does not disclose a later setting or undisclosed era change');
 });
 
 test('a book the rulebook does tabulate says nothing, so the note is a fact and not decoration', async (t) => {

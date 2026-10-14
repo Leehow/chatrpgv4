@@ -2,7 +2,7 @@ import { CocOnboardingHost, CocOnboardingRegistry, type CocOnboardingOptions } f
 import { timelineAnchors, transcriptPrefix } from './coc-timeline.js';
 import {readDefensePreference, writeDefensePreference, isDefenseChoice} from './coc-defense.js';
 export { CocOnboardingRegistry } from './coc-onboarding.js';
-import { readCocBinding, cocBindingOfRow, readColdSheet, callColdKernel, mechanicsEntry, draftPresentations, currentDraft, historySpeech, laneWords, laneProjection, laneLabels,
+import { readCocBinding, cocBindingOfRow, readColdSheet, callColdKernel, mechanicsEntry, draftPresentations, currentDraft, publicCharacterLabels, historySpeech, laneWords, laneProjection, laneLabels,
   laneLabelsLoaded, reloadLaneLabels, deliveryWords, handoutTitles, CocCardLedger, type CocCardPatch,
   cocContentRoot, cocForgetUiWords, cocPlayLanguage, cocUiWords, cocUiWordsLoaded, SHEET_LANES, type SheetLane, type CocBinding,
   type CocHistoryWords, type CocUiWords } from "./coc-view.js";
@@ -10653,7 +10653,8 @@ export class PiHostBackend implements HostBackend {
 
               }
               if(projection?.play_language===context.play_language) {
-                (view as any).labels={...projection.texts,...(view as any).labels};
+                const draft=await currentDraft(context);
+                if(isRecord(draft?.sheet))(view as any).labels=publicCharacterLabels({...projection.texts,...(view as any).labels},draft.sheet);
                 (view as any).finance_equipment=projection.finance_equipment;
               }
             } catch { /* A card can still be read before its text projection has been prepared. */ }

@@ -254,22 +254,24 @@ it('draws a money cell the rulebook printed no figure for the way it draws every
  * 1920s column, and the player saw only "9 美元": the contract asks the setup agent to say the
  * substitution once in prose and that transcript never says it. The fact belongs beside the numbers.
  */
-it('says beside the numbers which period they came from when it stood in for the authored setting',async()=>{
+it('shows the financial period and figures without private setup prose',async()=>{
  const era='1895 (default); investigators then reach the night before the 1287 storm';
  const finance={credit_rating:9,living_standard:'Poor',cash:{amount:9,currency:'USD',formula:'CR x 1'},assets:{amount:90,currency:'USD',formula:'CR x 10'},spending_level:{amount:2,currency:'USD'},period:'1920s',source:'cash-assets.periods.1920s',substituted_for:era};
  const texts={...zh,finance_period:'财务年代',substituted_for:'代替',[era]:'1895 年（默认）；随后是 1287 年暴风雨前夜'};
  const {container}=render(<CocCharacterDraft data={{revision:2,sheet:{...sheet,setting_era:era,finance},presentation:{texts,play_language:'zh-Hans'}}}/>);
  await screen.findByRole('region',{name:'角色草稿'});
  const note=container.querySelector('.coc-draft-finance')?.nextElementSibling?.textContent;
- expect(note).toBe('财务年代: 1920年代 · 代替: 1895 年（默认）；随后是 1287 年暴风雨前夜');
+ expect(note).toBe('财务年代: 1920年代');
+ expect(container.textContent).not.toContain(texts[era]);
+ expect(container.textContent).toContain('9 美元');expect(container.textContent).toContain('90 美元');
  expect(container.textContent).not.toMatch(/substituted_for|1287 storm/);
 })
 
-it('carries no substitution note on a card whose period the rulebook does tabulate',async()=>{
+it('shows the financial period even without a substitution',async()=>{
  const finance={credit_rating:30,living_standard:'Average',cash:{amount:60,currency:'USD'},assets:{amount:1500,currency:'USD'},spending_level:{amount:10,currency:'USD'},period:'1920s',source:'cash-assets.periods.1920s'};
  const {container}=render(<CocCharacterDraft data={{revision:2,sheet:{...sheet,finance},presentation:{texts:{...zh,finance_period:'财务年代',substituted_for:'代替'},play_language:'zh-Hans'}}}/>);
  await screen.findByRole('region',{name:'角色草稿'});
- expect(container.textContent).not.toMatch(/财务年代/);
+ expect(container.textContent).toContain('财务年代: 1920年代');
 })
 
 /**

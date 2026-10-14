@@ -1062,3 +1062,55 @@ it('a handout handed over this turn starts the handouts lane and redraws the doc
     expect(drawn[1].entry.presentation.details.labels[text]).toBe(projected);
   } finally {await backend.close();}
 },40000);
+
+
+it('keeps private setup metadata and its exact historical text associations outside draft projections',()=>{
+  const rawSheet=(tag:string)=>({name:'Public investigator',era:'1920s',setting_era:`private-era-${tag}`,
+    finance:{period:'1920s',cash:{amount:60,currency:'USD'},substituted_for:`private-substitute-${tag}`,note:`private-note-${tag}`},
+    creation:{finance:{cash:60,substituted_for:`private-creation-${tag}`,note:`private-creation-note-${tag}`},skills:{total:100}}});
+  const old=rawSheet('old'),now=rawSheet('current');
+  const sources=[old,now].flatMap(s=>[s.setting_era,s.finance.substituted_for,s.finance.note,s.creation.finance.substituted_for,s.creation.finance.note]);
+  const texts=Object.fromEntries([...sources.map(source=>[source,`translated:${source}`]),['1920s','Public period'],['Public term','Public translation']]);
+  const saved={texts,finance_equipment:[],play_language:'en'},inline={...saved,extra:'retained'};
+  const row={type:'custom',id:'privacy-draft',customType:'coc-character-draft',data:{revision:1,sheet:old,labels:texts,presentation:inline}};
+  const current={revision:2,sheet:now},before=JSON.stringify({row,current,saved});
+  for(const [active,presentations] of [[undefined,undefined],[current,new Map([[2,saved]])]] as const){
+    const details=mechanicsEntry(row,'en',presentations,{lanes:texts},active)!.presentation!.details as any;
+    expect(details.sheet).not.toHaveProperty('setting_era');
+    expect(details.sheet.finance).toEqual({period:'1920s',cash:{amount:60,currency:'USD'}});
+    expect(details.sheet.creation).toEqual({finance:{cash:60},skills:{total:100}});
+    expect(details.labels['Public term']).toBe('Public translation');
+    expect(details.presentation.texts['1920s']).toBe('Public period');
+    for(const source of active?sources:sources.slice(0,5)){
+      expect(details.labels).not.toHaveProperty(source);expect(details.presentation.texts).not.toHaveProperty(source);
+    }
+  }
+  expect(JSON.stringify({row,current,saved})).toBe(before);
+});
+
+
+it('the cold sheet handler keeps native labels when a saved presentation has lost its draft source',async()=>{
+  const fixture=await historicalSpeechFixture(),{backend,session,path}=fixture;
+  const binding=JSON.parse(await readFile(path+'.coc.json','utf8'));
+  const folder=join(binding.home,'.coc/campaigns',binding.campaign);
+  await writeFile(join(folder,'campaign.json'),JSON.stringify({setup:{draft_revision:2}}));
+  await mkdir(join(folder,'setup/presentations'),{recursive:true});
+  const projection={play_language:'en',texts:{'orphan-private-source-canary':'orphan-private-translation-canary'},finance_equipment:['Public equipment']};
+  await writeFile(join(folder,'setup/presentations/2-en.json'),JSON.stringify(projection));
+  expect(await currentDraft(binding)).toBeUndefined();
+  // This is the host merge seam; production-native projection/restart is tested separately.
+  const nativeLabels={STR:'Strength'};
+  const nativeRead=vi.spyOn(await import('../src/coc-view.js'),'readColdSheet').mockResolvedValue({labels:nativeLabels,investigators:[]});
+  vi.spyOn(backend as any,'cocAnswerWords').mockResolvedValue({});
+  vi.spyOn(backend as any,'cocMergeSheetLanes').mockResolvedValue(undefined);
+  vi.spyOn(backend as any,'startCocReferenceRecovery').mockImplementation(()=>{});
+  vi.spyOn(backend as any,'cocSheetWithIdentityArtwork').mockImplementation(async(answer:any)=>answer);
+  try {
+    const answer=await backend.handle('invokeExtension',['coc-keeper','sheet',{},{sessionId:session.id}]) as any;
+    expect(answer).toMatchObject({ok:true,data:{status:'ready',campaign:binding.campaign}});
+    expect(answer.data.view.labels).toEqual(nativeLabels);
+    expect(JSON.stringify(answer)).not.toContain('orphan-private-translation-canary');
+    expect(answer.data.view.finance_equipment).toEqual(['Public equipment']);
+    expect(await readFile(join(folder,'setup/presentations/2-en.json'),'utf8')).toBe(JSON.stringify(projection));
+  }finally{nativeRead.mockRestore();await backend.close();}
+});

@@ -6128,17 +6128,18 @@ card that draws money draws an absent amount the way it draws its other absent
 cells. A real table printed the literal word `null` beside a currency, and
 another printed a unit with no figure at all; both are the same defect.
 
-**A period that stood in is said where the numbers are.** When
-`sheet.finance.substituted_for` is present the figures were built from a column
-the book is not set in (§22.9), and both the character draft and the play-time
-sheet say so beside the money: the period the figures came from
-(`sheet.finance.period`) and the authored setting it stood in for, in the play
-language. The setup agent still states it once in its own words, but that
-sentence is prose in a transcript and scrolls away — a real 1895 campaign never
-said it at all, and its investigator then carried 1920s money unqualified for the
-whole campaign — so the card, which the player can reopen at any time, is where
-the fact is guaranteed. The authored setting travels as the book wrote it; it is
-never read for a year or rewritten into a table key.
+**The rulebook finance period is said where the numbers are.** The character
+draft and play-time sheet show the period the figures came from
+(`sheet.finance.period`) beside the money, in the play language. The private
+`setting_era`, `finance.substituted_for` and associated finance audit notes retain
+the authored setting exactly for Keeper/setup use, including their creation
+trace mirrors. They are not player material: an authored setting may describe
+future scenes or an undisclosed era change. Section237.65 removes these private
+properties from player projections without changing saved calculations. The
+identity card uses the existing public clock for its year when available and the
+existing rulebook era otherwise; it never extracts a year from authored prose.
+Showing the used finance column preserves the accounting qualification without
+quoting the book's full setting to a player.
 
 **Stated aptitude reaches the characteristics — when a package opens that door.**
 A player who describes this person as notably strong, frail, quick, slow, bright or
@@ -46380,3 +46381,15 @@ Verify the actual backend and RPC child seam: error message followed by retry ke
 The current official [Pi lifecycle documentation](https://github.com/earendil-works/pi/blob/main/packages/coding-agent/docs/extensions.md#respect-the-runtime-lifecycle) explicitly reserves agent_settled for integrations that need to know Pi will not continue automatically; its [notification lifecycle issue](https://github.com/earendil-works/pi/issues/7350) records the same distinction. These are one upstream implementation's evidence, consistent with our installed Pi finally paths, rather than a reason to patch Pi or invent another lifecycle.
 
 Section237.64 changes only the existing private-play terminal guard and observed successful-retry telemetry branch. Two valid original-source reds are retained independently. Backend/RPC child targeted50/50, existing UI waiting12/12, backend typecheck and diffcheck pass; independent review verifies the frozen six-file patch be4cdf13d67f and unchanged ordinary-chat/private assertions. Simulated child events test the real backend/FIFO, not a real provider outage. Installed-App adoption remains open, and the original two selected inputs and their two notebook appends remain unchanged.
+
+### 237.65 Keep authored era audit metadata behind the existing player projection
+
+The retained Amaranthine full player_view contains the same authored setting in setting_era, finance.substituted_for and creation.finance.substituted_for. The setup producer's corresponding finance notes embed that value too. These are raw scenario/setup audit strings, not an account of information delivered to the player. Native table.view currently copies them; the App finance panel prints substituted_for regardless of its public clock. Historical character-draft rows and their presentation text dictionaries are another existing reader path. Preserve the finding without repeating its private content to the player or using it for player decisions.
+
+Keep canonical sheets, private investigator look, setup calculation results and audit traces unchanged. At the existing player table.view projection, ready and setting_up, omit setting_era and the substituted_for/note fields in finance and creation.finance. Do not mutate shared nested sheet objects. Do not alter the frozen investigatorView/publicSheet primitives merely to change historical oracle outputs. At the existing App character-draft reader, project a copy under the same field policy before sending it to the renderer, including historical/current draft variants. Filter historical labels/presentation dictionaries by their explicit association with those private source strings, not by keyword, script, language or guessed secrecy; retain the original rows and cache files. The existing card-text collector stops requesting presentation of those authored audit strings. No new store, entity, DTO system, agent, model decision, review gate, migration or source interpretation.
+
+Both current sheet and character draft continue showing the existing rulebook finance period and all permitted financial amounts; amend the old complete-authored-setting display promise in23.4 accordingly. The identity card reads its year from the existing public clock when available, otherwise its existing rulebook era, never from the private authored sentence. Preserve player-authored background/equipment and all existing rules/state authority. This is a field-level projection repair, not a permission to hide arbitrary card data or sanitize transcripts after publication.
+
+Retain a failing original-source canary test. Verify actual native table.view in ready and setting_up, persistence/restart and private look: private metadata and audit notes stay on disk/private reads, disappear from player responses, and finance period/amounts plus public clock stay intact. Verify the actual App draft reader removes the same sources from details and old label dictionaries without changing its stored row or unrelated text. Keep setup calculation audit assertions and frozen oracle immutable. Verify current panel/draft display still shows its numeric financial basis and the public clock year. Build and real App acceptance remain separate from deterministic projection tests; source-path proof alone is not a pixel claim.
+
+[OWASP property-level authorization guidance](https://api-security.owasp.org/editions/2023/en/0xa3-broken-object-property-level-authorization/) recommends limiting returned properties to those the client is entitled to see; [Microsoft's response projection example](https://learn.microsoft.com/en-us/aspnet/web-api/overview/data/using-web-api-with-entity-framework/part-5) separates stored objects from public representations. Both support using our existing projections and leaving canonical data intact. Their general advice does not call for a new projection framework or permit semantic secret detection.

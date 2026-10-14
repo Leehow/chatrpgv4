@@ -834,26 +834,9 @@ export function createComponent(React) {
     const creditRating = sheet.credit_rating !== undefined ? sheet.credit_rating : finance.credit_rating;
     if (creditRating !== undefined) rows.push({ name: t("creditRating"), value: text(creditRating), numeric: true });
     if (finance.living_standard !== undefined) rows.push({ name: t("livingStandard"), value: term(text(finance.living_standard)) });
-    /**
-     * Where these figures came from, when they came from a period the book is not set in (§23.4).
-     *
-     * A book set in a year the rulebook never tabulated builds its card off the table's own nominated
-     * column, and the kernel records the swap in `finance.substituted_for` beside `finance.period`.
-     * Until now the only place that reached the player was a sentence the setup agent was asked to
-     * say once, in prose, at character creation -- `game-b4cebfe0`'s transcript never says it, and
-     * the numbers then stood on the card unqualified for the whole campaign. The fact belongs where
-     * the numbers are, because that is the one place it cannot fall out of.
-     */
-    const substituted = text(finance.substituted_for);
-    const note = substituted
-      ? h("p", { className: "coc-sheet-note", key: "stands-in" },
-          // The authored setting travels as the book wrote it (§23.4), so it is its own text node
-          // after the caption rather than a substitution inside it: a sentence in the play language
-          // with a source string spliced into the middle of it reads as neither.
-          fill(t("financeStandsIn"), { period: term(text(finance.period)) }), " ", substituted)
-      : null;
+    if (finance.period !== undefined) rows.push({ name: t("era"), value: term(text(finance.period)) });
     return rows.length
-      ? h(Section, { title: t("finance"), icon: "landmark", anchor: "finance" }, h(Lines, { kind: "finance", rows }), note)
+      ? h(Section, { title: t("finance"), icon: "landmark", anchor: "finance" }, h(Lines, { kind: "finance", rows }))
       : null;
   }
 
@@ -1141,22 +1124,10 @@ export function createComponent(React) {
             h("bdi", {className:"coc-sheet-tongue-value"}, language.value === null ? "" : text(language.value)))))]);
     }
     const concept = sheet && isRecord(sheet.backstory) ? term(text(sheet.backstory.concept)) : "";
-    // Canonical numeric era notation only, not a language detector or a guessed issue date.
-    //
-    // `sheet.era` is a rulebook table key, and §23.4 lets it stand in for a setting the rulebook
-    // never tabulated: a book set in 1895 builds its card off the `1920s` finance column and says
-    // so in `sheet.setting_era`. That substitution is an accounting fact about the money, so a
-    // credential headed `1920` beside a panel whose clock reads 25 January 1895 tells the player
-    // their own document is from the wrong century. Where the sheet admits the key is a stand-in, the
-    // dateline comes from `clock.at` instead — the kernel's own in-world stamp, canonical ISO, so
-    // nothing here reads the authored era sentence, which the contract forbids interpreting by
-    // string matching. A table with no clock keeps the authored setting in the book's own words.
+    // The public in-world clock dates the card; the rulebook era is the fallback.
     const era = text(sheet?.era);
-    const settingEra = text(sheet?.setting_era);
     const standing = storyTime(isRecord(view?.clock) ? view.clock.at : null);
-    const eraMark = settingEra
-      ? (standing ? String(standing.y) : term(settingEra))
-      : (/^(\d{4})s?$/.exec(era)?.[1] || term(era));
+    const eraMark = standing ? String(standing.y) : (/^(\d{4})s?$/.exec(era)?.[1] || term(era));
     const art = identityArt.current || {};
 
     return h("div", { className: "coc-sheet", role: "region", ref: sheetRoot, ...(props.title ? { "aria-label": props.title } : {}) },

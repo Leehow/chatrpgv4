@@ -562,6 +562,28 @@ function handoutHandle(row:any):any {
   const found=/^handout:(.+)-t\d+$/.exec(row.receipt);
   return found?{...row,handout:found[1]}:row;
 }
+/** Strip only private setup metadata at the player-facing reader boundary. */
+export function publicCharacterSheet(sheet:Record<string,any>):Record<string,any> {
+  const result={...sheet};delete result.setting_era;
+  if(isDetailsRecord(sheet.finance)) {
+    result.finance={...sheet.finance};delete result.finance.substituted_for;delete result.finance.note;
+  }
+  if(isDetailsRecord(sheet.creation)) {
+    result.creation={...sheet.creation};
+    if(isDetailsRecord(sheet.creation.finance)) {
+      result.creation.finance={...sheet.creation.finance};delete result.creation.finance.substituted_for;delete result.creation.finance.note;
+    }
+  }
+  return result;
+}
+export function publicCharacterLabels(texts:unknown,...sheets:unknown[]):Record<string,string> {
+  const privateTexts=new Set(sheets.filter(isDetailsRecord).flatMap(sheet=>[sheet.setting_era,
+    isDetailsRecord(sheet.finance)?sheet.finance.substituted_for:undefined,isDetailsRecord(sheet.finance)?sheet.finance.note:undefined,
+    isDetailsRecord(sheet.creation)&&isDetailsRecord(sheet.creation.finance)?sheet.creation.finance.substituted_for:undefined,
+    isDetailsRecord(sheet.creation)&&isDetailsRecord(sheet.creation.finance)?sheet.creation.finance.note:undefined])
+    .filter((value):value is string=>typeof value==='string'&&value.length>0));
+  return Object.fromEntries(Object.entries(wordTable(texts)).filter(([key])=>!privateTexts.has(key)));
+}
 export function mechanicsEntry(row:any, language?:string, presentations?:ReadonlyMap<number,Record<string,unknown>>,
   words:CocHistoryWords={}, current?:Record<string,unknown>, patches?:readonly CocCardPatch[]|CocObjectDetails, context?:CocBinding): HistoryEntry | undefined {
   const lanes=wordTable(words.lanes), chrome=words.ui?{ui:words.ui}:{};
@@ -572,9 +594,13 @@ export function mechanicsEntry(row:any, language?:string, presentations?:Readonl
     if(current)for(const key of ['revision','sheet','profile','play_language','limits'] as const)
       if(current[key]!==undefined)data[key]=current[key];
     const saved=presentations?.get(Number(data.revision));
-    const labels={...lanes,...wordTable(saved?.texts),...wordTable(row.data.labels)};
+    const sources=[row.data.sheet,current?.sheet];
+    const labels=publicCharacterLabels({...lanes,...wordTable(saved?.texts),...wordTable(row.data.labels)},...sources);
+    const projection=saved??data.presentation;
+    data.sheet=publicCharacterSheet(data.sheet);
+    if(isDetailsRecord(projection))data.presentation={...projection,texts:publicCharacterLabels(projection.texts,...sources)};
     return {id:row.id,role:'assistant',content:'',timestamp:Date.parse(row.timestamp)||0,
-      presentation:{renderer:'coc-character-draft',details:{...data,labels,...(saved?{presentation:saved}:{}),...chrome}}};
+      presentation:{renderer:'coc-character-draft',details:{...data,labels,...chrome}}};
   }
   if(row?.type==='custom'&&row.customType==='coc-choice'&&row.data?.kind==='story')return {id:row.id,role:'assistant',content:row.data.prompt||'',timestamp:Date.parse(row.timestamp)||0};
   if(row?.type==='custom' && row.customType==='coc-choice' && Array.isArray(row.data?.options)) {

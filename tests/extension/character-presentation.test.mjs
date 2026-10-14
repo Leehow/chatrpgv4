@@ -539,17 +539,9 @@ test('a fully known standing projection bypasses the runner and attempt creation
  await assert.rejects(readdir(join(directory,'attempts')),{code:'ENOENT'});
 });
 
-/**
- * A book set in a year the rulebook never tabulated builds its card off the table's own nominated
- * column, and the kernel records what that column stood in for (§23.4). The card says so beside the
- * numbers, which it can only do in the player's language if the projection is asked for the two
- * captions and for the book's own words -- the authored setting is prose, not a rules identifier,
- * so nothing else in the card's vocabulary carries it.
- */
-test('the card asks its projection for the substitution it has to say, and only when there is one',()=>{
- const era='1895 (default); investigators then reach the night before the 1287 storm';
- const asked=cardTexts({...sheet,finance:{...sheet.finance,period:'1920s',substituted_for:era}});
- for(const key of ['finance_period','substituted_for',era]) assert.ok(asked.includes(key),`the card cannot say ${key} in the play language`);
- assert.ok(!cardTexts(sheet).includes(era),'a card with no substitution does not carry another card\'s setting');
- assert.ok(cardTexts(sheet).includes('finance_period'),'the captions themselves are always projected, so a card never half-says it');
+test('the card projects public period without requesting private setup prose',()=>{
+ const era='private-authored-setting-canary',note='private-finance-note-canary';
+ const asked=cardTexts({...sheet,setting_era:era,finance:{...sheet.finance,period:'1920s',substituted_for:era,note},creation:{finance:{substituted_for:era,note}}});
+ assert.ok(asked.includes('finance_period'));assert.ok(asked.includes('1920s'));
+ assert.ok(!asked.includes(era));assert.ok(!asked.includes(note));
 });

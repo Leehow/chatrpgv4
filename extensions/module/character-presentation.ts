@@ -43,9 +43,7 @@ export function cardTexts(sheet:Row):string[] {
   for(const item of sheet.equipment||[])add(item);
   for(const weapon of sheet.weapons||[])for(const [key,value] of Object.entries(weapon)){add(key);if(Array.isArray(value))value.forEach(add);else add(value)}
   add(sheet.finance?.living_standard);
-  // The authored setting a substituted finance period stood in for is the book's own prose, so the
-  // card can only print it in the player's language if the projection is asked for it (§23.4).
-  add(sheet.finance?.substituted_for);
+  add(sheet.finance?.period);
   for(const key of ['cash','assets','spending_level'])add(sheet.finance?.[key]?.currency);
   return [...texts].sort();
 }
