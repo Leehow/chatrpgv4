@@ -92,6 +92,7 @@ export function foldIntent(item: Row, intent: Row, turn: number, receipt: unknow
     const list: Row[] = Array.isArray(item.intents) ? item.intents : (item.intents = []);
     const digest = onePerson ? intentParts(ref)?.digest : undefined;
     let found = list.find(entry => row(entry).ref === ref || (digest !== undefined && intentParts(row(entry).ref)?.digest === digest));
+    if (found && isSettled(found.status) && found.status === outcome) return;
     if (!found) {
         found = {ref, text, status: outcome, since_turn: turn, last_turn: turn, attempts: [], ...(generated ? {generated: true} : {})};
         list.push(found);

@@ -18,6 +18,7 @@ import {fauxAssistantMessage,fauxToolCall} from '@earendil-works/pi-ai';
 import {KernelClient} from '../../extensions/kernel/client.ts';
 import {COC_TOOLS,INTENT_RESULT_EXPLAINED} from '../../extensions/kernel/tools.ts';
 import {openTable,waitForIdle} from './harness.mjs';
+import {createHybridEngine} from '../../runtime/jev/hybrid-engine.ts';
 
 const root=resolve(import.meta.dirname,'../..'),evidence=join(root,'.pi/npc-implementation/intent-tests');
 await mkdir(evidence,{recursive:true});
@@ -88,6 +89,89 @@ test('a result settles an intention; a settled one is refused whether named by r
  }
  const other=await apply(client,'t3-c4',{intends:'Offer the key back if the visitor steps away from the desk.',outcome:'attempted'});
  assert.equal(other.receipts.length,1,'a different thing to try lands');
+});
+
+for(const outcome of ['done','failed','abandoned'])test(`same ${outcome} acknowledgment preserves the first settlement through native batch, restart and ledger rebuild`,async t=>{
+ const {client,connect,home}=await opened(t);await begin(client);
+ await client.call('table.resolve',{campaign,call_id:'t1-c1',action:{intent:'investigate',skill:'Spot Hidden',goal:'watch the doorway'}});
+ await client.call('table.apply',{campaign,call_id:'t1-c2',effects:[
+  {kind:'npc',name:KNOTT,intends:SHOUT,outcome:'planned',_generated:true},
+  {kind:'npc',name:KNOTT,intends:SHOUT,outcome:'attempted',_generated:true},
+  {kind:'time',minutes:3}]});
+ const ref=(await client.call('table.status',{campaign})).receipts.find(receipt=>receipt.intent?.text===SHOUT).intent.ref;
+ let earlyCall=2;
+ for(const result of ['done','failed'])await assert.rejects(apply(client,`t1-c${++earlyCall}`,{intent_ref:ref,outcome:result}),
+  error=>error.details?.reason==='table_act_unsettled','an unresolved generated action cannot be settled just by saying so');
+ await apply(client,'t1-c5',{intent_ref:ref,outcome,_generated:true});
+ await nextTurn(client,1,'I discuss what already happened.');
+ const original=structuredClone((await knottLedger(home)).intents.find(intent=>intent.ref===ref));
+ assert.equal(original.status,outcome);assert.equal(original.generated,true);assert.equal(original.attempts.length,3,'the first planned/attempted/settled receipts all fold');
+ const firstPath=join(home,'.coc/campaigns',campaign,'turns/0001.json'),firstBytes=await readFile(firstPath,'utf8');
+ const worldPath=join(home,'.coc/campaigns',campaign,'world.json'),worldBytes=await readFile(worldPath,'utf8');
+ const acknowledged=await client.call('table.apply',{campaign,call_id:'t2-c1',effects:[
+  {kind:'npc',name:KNOTT,intends:`  ${SHOUT}  `,outcome},
+  {kind:'npc',name:KNOTT,intent_ref:ref,intent_outcome:outcome}],
+  event:{name:`acknowledged-${outcome}`,summary:'The already settled result is discussed.',
+   knowledge:[{actor:KNOTT,statement:'No new attempt was made.',mode:'observed',state:'accurate'}]}});
+ assert.equal(acknowledged.receipts.length,3,'text, reference and event share the accepted batch');
+ assert.equal(await readFile(worldPath,'utf8'),worldBytes,'bookkeeping and cognition have no physical world effects');
+ const current=await client.call('table.status',{campaign});
+ assert.equal(current.receipts.filter(receipt=>receipt.kind==='roll'||receipt.kind==='time').length,0);
+ await nextTurn(client,2,'I ask about the result.');
+ assert.deepEqual((await knottLedger(home)).intents.find(intent=>intent.ref===ref),original,'acknowledgments do not replace the first status, turn, attempts or generated origin');
+ assert.equal(await readFile(firstPath,'utf8'),firstBytes,'the old roll and time receipt are not rewritten');
+ let ordinal=0;
+ for(const result of ['planned','attempted',...['done','failed','abandoned'].filter(value=>value!==outcome)])
+  await assert.rejects(apply(client,`t3-c${++ordinal}`,{intent_ref:ref,outcome:result}),error=>error.details?.reason==='intent_settled');
+ await assert.rejects(apply(client,`t3-c${++ordinal}`,{intent_ref:ref,outcome,spend_turn:true}),error=>error.details?.reason==='intent_settled');
+ await assert.rejects(apply(client,`t3-c${++ordinal}`,{intent_ref:ref,outcome,_generated:false}),error=>error.code==='invalid_params'&&error.details?.field==='npc._generated');
+ await assert.rejects(apply(client,`t3-c${++ordinal}`,{to:'away',intent_ref:ref,intent_outcome:outcome}),error=>error.details?.reason==='intent_settled');
+ await assert.rejects(client.call('table.resolve',{campaign,call_id:`t3-c${++ordinal}`,action:{actor:KNOTT,intent:'investigate',skill:'Spot Hidden',goal:'try again',intent_ref:ref}}),error=>error.details?.reason==='intent_settled');
+ assert.equal((await client.call('table.status',{campaign})).receipts.length,0,'the refused actions and combat spend have no receipts');
+ await client.close();
+ const fresh=connect();t.after(()=>fresh.close());await fresh.call('table.open',{campaign});
+ assert.deepEqual((await knottLedger(home)).intents.find(intent=>intent.ref===ref),original);
+ await fresh.close();await rm(join(home,'.coc/campaigns',campaign,'npc-ledger.json'));
+ const rebuilt=connect();t.after(()=>rebuilt.close());await rebuilt.call('table.open',{campaign});
+ assert.deepEqual((await knottLedger(home)).intents.find(intent=>intent.ref===ref),original,'derived ledger rebuild ignores same terminal acknowledgments');
+ const perspective=await rebuilt.call('npc.perspective',{campaign,name:KNOTT});
+ assert.ok(perspective.tried.some(intent=>intent.ref===ref&&intent.status===outcome));
+ assert.ok(perspective.cognition.some(item=>item.statement==='No new attempt was made.'));
+ assert.equal(await readFile(firstPath,'utf8'),firstBytes);
+});
+
+test('genuine Pi compact final record acknowledges a settled intention beside event and knowledge without rewriting it',async t=>{
+ let ref,oldIntent,authors=0;const frames=[];
+ const prepare=async workspace=>{
+  const steps=[['table.open',{}],['table.narrate',{call_id:'t0-c1',text:'The clerk waits beside the desk.'}],
+   ['table.player_input',{text:'I ask him to wait.'}],['table.apply',{call_id:'t1-c1',effects:[{kind:'npc',name:KNOTT,intends:SHOUT,outcome:'done'},{kind:'time',minutes:3}]}],
+   ['table.narrate',{call_id:'t1-c2',text:'The clerk has finished waiting.'}]];
+  const run=spawnSync(process.execPath,[join(root,'build/kernel/rpc.mjs'),'--workspace',workspace,'--content',join(root,'content')],{cwd:root,encoding:'utf8',
+   input:steps.map(([method,params],id)=>JSON.stringify({id:String(id),method,params:{campaign:'test-camp',...params}})).join('\n')+'\n'});
+  assert.equal(run.status,0,run.stderr);
+  for(const line of run.stdout.trim().split('\n')){const frame=JSON.parse(line);if(!frame.progress)assert.equal(frame.ok,true,JSON.stringify(frame));}
+  const saved=JSON.parse(await readFile(join(workspace,'.coc/campaigns/test-camp/npc-ledger.json'),'utf8'));
+  oldIntent=Object.entries(saved).find(([id])=>id.includes('knott'))[1].intents[0];ref=oldIntent.ref;
+ };
+ const engine=createHybridEngine({env:{...process.env,PI_COC_JEV_PRESELECT:'0'},decision:null,npcAct:null});
+ const text='The clerk remembers that this matter has already been settled.';
+ const table=await openTable({legacyDeliveryFixtures:false,realKernel:true,prepareWorkspace:prepare,runDriver:engine.runDriver,
+  env:{PI_COC_LOOP_ENGINE:'hybrid-v1'},extraExtensions:[{name:'driver',factory:engine.extension},
+   {name:'intent-stream',factory:pi=>pi.events.on('coc:final-delivery',frame=>frames.push(frame))}],
+  responses:[()=>{authors++;return fauxAssistantMessage(JSON.stringify({version:1,record:{effects:[
+   {kind:'npc',name:KNOTT,intends:SHOUT,outcome:'done'},{kind:'npc',name:KNOTT,intent_ref:ref,intent_outcome:'done'}],
+   event:{name:'old-result-discussed',summary:'The earlier result is acknowledged.',knowledge:[{actor:KNOTT,statement:'No new attempt was made.',mode:'observed',state:'accurate'}]}},text}));}]});
+ t.after(()=>table.dispose());await table.session.prompt('Is that matter still settled?');
+ assert.equal(authors,1);assert.deepEqual(table.extensionErrors,[]);
+ assert.equal(frames.filter(frame=>frame.event==='delta').map(frame=>frame.delta).join(''),text);
+ assert.equal(frames.filter(frame=>frame.status==='completed').length,1);
+ const turn=JSON.parse(await readFile(join(table.workspace,'.coc/campaigns/test-camp/turns/0002.json'),'utf8'));
+ assert.ok(turn.commit);assert.equal(turn.receipts.filter(receipt=>receipt.intent?.ref===ref).length,2);
+ assert.equal(turn.receipts.filter(receipt=>receipt.kind==='roll'||receipt.kind==='time'||receipt.kind==='move').length,0);
+ const saved=JSON.parse(await readFile(join(table.workspace,'.coc/campaigns/test-camp/npc-ledger.json'),'utf8'));
+ assert.deepEqual(Object.entries(saved).find(([id])=>id.includes('knott'))[1].intents[0],oldIntent);
+ assert.equal(JSON.parse(await readFile(join(table.workspace,'.coc/campaigns/test-camp/world.json'),'utf8')).clock.minutes,3);
+ assert.ok((await table.runtimeBridges().at(-1).call('npc.perspective',{campaign:'test-camp',name:KNOTT})).cognition.some(item=>item.statement==='No new attempt was made.'));
 });
 
 test('the writer refuses what is not an intention of this person, and the variant stands alone',async t=>{
