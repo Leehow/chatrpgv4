@@ -50,6 +50,11 @@ test('the real Keeper context supplies practical NPC knowledge and separates fir
     assert.ok(footer.includes('Never execute unchosen actions, infer state changes from prose, repeat settled effects or charge journey time twice.'));
     assert.ok(footer.includes('Future intentions use planned'));
     assert.ok(footer.includes('{{public}}'));
+    assert.ok(system.includes('bare JSON object in version, record, text order'));
+    assert.ok(system.includes('record.effects and record.event use the offered apply schemas; either key may be omitted.'));
+    assert.ok(footer.includes('bare JSON object in version, record, text order'));
+    assert.ok(footer.includes('record.effects and record.event use the offered apply schemas'));
+    assert.doesNotMatch(system+'\n'+footer,/No JSON wrapper/);
     const publicText=table.entries('coc-final-delivery').filter(frame=>frame.event==='delta').map(frame=>frame.delta).join('');
     assert.equal(publicText,'The conversation continues.','host responsibilities never enter the public stream');
     assert.ok(system.includes('speech material.text is the actual spoken line: retain it unchanged inside the matching say span'));

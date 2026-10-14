@@ -114,6 +114,108 @@ test('ordinary native prose uses one Keeper request and no JSON repair',async t=
   assert.deepEqual(table.extensionErrors,[]);
 });
 
+test('a rejected inline record returns the actual kernel correction without candidate public bytes',async t=>{
+  const bad={version:1,record:{effects:[{kind:'time',minutes:8}],event:{name:'answer',summary:'The clerk answers.',
+    knowledge:[{actor:'Unregistered fixture person',statement:'The clerk is present.',mode:'observed',state:'accurate'}]}},text:'REJECTED_PRIVATE_CANDIDATE'};
+  const good=structuredClone(bad);good.record.event.knowledge[0].actor='Thomas Hayes';good.text='The clerk is still present.';
+  let correction;
+  const {table,seen}=await directTable([fauxAssistantMessage(JSON.stringify(bad)),context=>{
+    assert.equal(seen.length,0,'the rejected record never starts a public stream');
+    correction=JSON.stringify(context.messages);
+    return fauxAssistantMessage(JSON.stringify(good));
+  }]);
+  t.after(()=>table.dispose());
+  await table.session.prompt('I wait eight minutes and watch the clerk.');
+  assert.ok(correction.includes('invalid_params'));
+  assert.ok(correction.includes('Invalid event unknown actor Unregistered fixture person'));
+  assert.ok(correction.includes('registered NPC name'));
+  assert.ok(correction.includes('actors')&&correction.includes('walk_on'));
+  assert.ok(!correction.includes('REJECTED_PRIVATE_CANDIDATE'));
+  assert.equal(seen.filter(frame=>frame.event==='delta').map(frame=>frame.delta).join(''),good.text);
+  assert.equal(seen.at(-1)?.status,'completed');
+  const turn=JSON.parse(readFileSync(join(table.workspace,'.coc/campaigns/test-camp/turns/0001.json'),'utf8'));
+  assert.equal(turn.world.clock.minutes,8,'the refused transaction is atomic');
+  assert.equal(turn.receipts.filter(row=>row.kind==='time').length,1);
+  const applies=table.telemetry().filter(row=>row.tool==='apply');
+  assert.deepEqual(applies.map(row=>row.ok),[false,true]);
+  assert.equal(applies[0].call_id,applies[1].call_id,'validation failure does not consume the run record identity');
+  assert.deepEqual(table.extensionErrors,[]);
+});
+
+test('an accepted inline prefix replays after a malformed body and refreshes the same Keeper state',async t=>{
+  const record={effects:[{kind:'time',minutes:8}],event:{name:'wait-once',summary:'The visitor waits.'}};
+  // The completed record reaches the kernel before a later streamed chunk supplies the bad separator.
+  const malformed='{"version":1,"record":'+JSON.stringify(record)+' '.repeat(80)+';"text":"UNDELIVERED_PRIVATE_CANDIDATE"}';
+  let stateAtFirstDelta,wireClocks=[],latestClock;
+  const {table,seen}=await directTable([fauxAssistantMessage(malformed),context=>{
+    assert.equal(seen.length,0,'the malformed separator precedes all public bytes');
+    const messages=context.messages.map(message=>typeof message.content==='string'?message.content
+      :(message.content??[]).filter(block=>block.type==='text').map(block=>block.text).join(''));
+    for(const text of messages){try{const value=JSON.parse(text);if(value.where?.clock)wireClocks.push(value.where.clock.minutes);
+      if(value.current_state?.where?.clock){latestClock=value.current_state.where.clock.minutes;wireClocks.push(latestClock);}}catch{}}
+    return fauxAssistantMessage(JSON.stringify({version:1,record,text:'After waiting, the visitor speaks again.'}));
+  }],{onFrame:frame=>{if(frame.event==='delta'&&stateAtFirstDelta===undefined)
+    stateAtFirstDelta=JSON.parse(readFileSync(join(table.workspace,'.coc/campaigns/test-camp/world.json'),'utf8')).clock.minutes;}});
+  t.after(()=>table.dispose());
+  await table.session.prompt('I wait eight minutes before speaking again.');
+  assert.equal(stateAtFirstDelta,8,'the record is settled before the first public delta');
+  assert.equal(latestClock,8,`the corrected inference receives current canonical clock, got ${JSON.stringify(wireClocks)}`);
+  const turn=JSON.parse(readFileSync(join(table.workspace,'.coc/campaigns/test-camp/turns/0001.json'),'utf8'));
+  assert.equal(turn.world.clock.minutes,8);
+  assert.equal(turn.receipts.filter(row=>row.kind==='time').length,1);
+  assert.equal(turn.receipts.filter(row=>row.kind==='event').length,1);
+  const applies=table.telemetry().filter(row=>row.tool==='apply'&&row.ok);
+  assert.equal(applies.length,2,'the second attempt is a kernel replay');
+  assert.equal(applies[0].call_id,applies[1].call_id);
+  assert.deepEqual(turn.calls[applies[0].call_id].result.receipts,turn.receipts.map(row=>row.id));
+  assert.ok(table.mechanics().some(card=>card.mechanics.some(row=>row.kind==='time')));
+  assert.equal(seen.at(-1)?.status,'completed');
+  assert.deepEqual(table.extensionErrors,[]);
+});
+
+test('changing an accepted inline record keeps the original settlement and returns idempotency conflict',async t=>{
+  const record={effects:[{kind:'time',minutes:8}]};
+  const malformed='{"version":1,"record":'+JSON.stringify(record)+' '.repeat(80)+';"text":"PRIVATE_FIRST_CANDIDATE"}';
+  const {table,seen}=await directTable([fauxAssistantMessage(malformed),fauxAssistantMessage(JSON.stringify({version:1,
+    record:{effects:[{kind:'time',minutes:9}]},text:'PRIVATE_CHANGED_CANDIDATE'}))]);
+  t.after(()=>table.dispose());
+  await table.session.prompt('I wait eight minutes.');
+  const world=JSON.parse(readFileSync(join(table.workspace,'.coc/campaigns/test-camp/world.json'),'utf8'));
+  const turn=JSON.parse(readFileSync(join(table.workspace,'.coc/campaigns/test-camp/turns/0001.json'),'utf8'));
+  assert.equal(world.clock.minutes,8);
+  assert.equal(turn.receipts.filter(row=>row.kind==='time').length,1);
+  const applies=table.telemetry().filter(row=>row.tool==='apply');
+  assert.deepEqual(applies.map(row=>row.ok),[true,false]);
+  assert.equal(applies[1].code,'idempotency_conflict');
+  assert.equal(applies[0].call_id,applies[1].call_id);
+  assert.equal(seen.length,0,'neither invalid reply is a public artifact');
+  assert.deepEqual(table.extensionErrors,[]);
+});
+
+test('an accepted physical move replays before arrival without repeating its travel time',async t=>{
+  const record={effects:[{kind:'move',to:'hall-of-records',via:'Walking to the Hall of Records.',travel_minutes:8}]};
+  const malformed='{"version":1,"record":'+JSON.stringify(record)+' '.repeat(80)+';"text":"PRIVATE_ARRIVAL_CANDIDATE"}';
+  let stateAtFirstDelta;
+  const {table,seen}=await directTable([fauxAssistantMessage(malformed),fauxAssistantMessage(JSON.stringify({version:1,
+    record,text:'You arrive at the Hall of Records.'}))],{onFrame:frame=>{if(frame.event==='delta'&&!stateAtFirstDelta)
+      stateAtFirstDelta=JSON.parse(readFileSync(join(table.workspace,'.coc/campaigns/test-camp/world.json'),'utf8'));}});
+  t.after(()=>table.dispose());
+  await table.session.prompt('I walk to the Hall of Records.');
+  const turn=JSON.parse(readFileSync(join(table.workspace,'.coc/campaigns/test-camp/turns/0001.json'),'utf8'));
+  const world=JSON.parse(readFileSync(join(table.workspace,'.coc/campaigns/test-camp/world.json'),'utf8'));
+  const movement=turn.receipts.filter(row=>row.kind==='move');
+  assert.equal(movement.length,1);
+  assert.equal(stateAtFirstDelta.active_scene,world.active_scene,'arrival is based on the settled move');
+  assert.equal(world.active_scene,'hall-of-records');
+  assert.equal(stateAtFirstDelta.clock.minutes,8);
+  assert.equal(turn.world.clock.minutes,8,'the replay does not charge the journey twice');
+  const applies=table.telemetry().filter(row=>row.tool==='apply'&&row.ok);
+  assert.equal(applies.length,2);
+  assert.equal(applies[0].call_id,applies[1].call_id);
+  assert.equal(seen.at(-1)?.status,'completed');
+  assert.deepEqual(table.extensionErrors,[]);
+});
+
 test('completed source consultations reach the same Keeper without another classifier or waiting stage',async t=>{
   let received=false;
   const {table,seen}=await directTable([context=>{

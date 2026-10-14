@@ -1487,8 +1487,8 @@ export default function (pi: ExtensionAPI, host: {capabilities?:RuntimeCapabilit
 	});
 	let runtime: HostRuntime | undefined;
 	let singleKeeper=false;
-	let keeperRun:{runId:string;inputRevision:string;signal?:AbortSignal}|undefined;
-	let keeperReply:{decoder:ArtifactTextStream;stream?:Awaited<ReturnType<typeof finalOutput.openStream>>;work:Promise<void>;error?:unknown;evidence?:Record<string,any>;run:string;raw:string}|undefined;
+	let keeperRun:{runId:string;inputRevision:string;signal?:AbortSignal;recordCallId?:string}|undefined;
+	let keeperReply:{decoder:ArtifactTextStream;stream?:Awaited<ReturnType<typeof finalOutput.openStream>>;work:Promise<void>;error?:unknown;evidence?:Record<string,any>;run:string;signal?:AbortSignal;raw:string}|undefined;
 	let finalHandoff: {campaign:string;turn:number;run:string;params:Record<string,unknown>} | undefined;
 	let activeFinalStream:{id:string;turn:number}|undefined;
 	const finalOutput = createFinalOutputOwner({runtime: () => runtime,
@@ -1508,18 +1508,25 @@ export default function (pi: ExtensionAPI, host: {capabilities?:RuntimeCapabilit
 				refused_recording:refused?.turn===table.turn,selected_recording:(table.documentRecording??0)>=DOCUMENT_RECORDING_INTENT_MIN,
 				note:'A held or previously refused act is not a completed result. Only matching canonical settled facts establish completion; intentions and proposals do not.'};
 		}});
-	pi.events.on('coc:keeper-run',(value:any)=>{keeperRun=value;});
+	pi.events.on('coc:keeper-run',(value:any)=>{
+		keeperRun={...value,...(keeperRun?.runId===value.runId&&keeperRun?.inputRevision===value.inputRevision
+			?{recordCallId:keeperRun.recordCallId}:{})};
+	});
 	pi.on('message_start',event=>{
 		if(!singleKeeper||event.message.role!=='assistant'||!table||!keeperRun)return;
-		const reply={decoder:undefined as unknown as ArtifactTextStream,work:Promise.resolve(),run:keeperRun.runId,raw:''} as NonNullable<typeof keeperReply>;
+		const owner=keeperRun,state=table,signal=owner.signal,ctx=sessionCtx;
+		const reply={decoder:undefined as unknown as ArtifactTextStream,work:Promise.resolve(),run:owner.runId,signal,raw:''} as NonNullable<typeof keeperReply>;
 		const enqueue=(job:()=>Promise<void>)=>{reply.work=reply.work.then(async()=>{if(!reply.error)await job();}).catch(error=>{reply.error=error;});};
 		reply.decoder=new ArtifactTextStream(record=>enqueue(async()=>{
-			if(!table)throw Error('The table is unavailable');
-			if(record.scope==='reference')table.interactionScope='reference';
+			if(signal?.aborted)throw Error('The Keeper response was cancelled');
+			if(record.scope==='reference')state.interactionScope='reference';
 			if(record.event!==undefined||Array.isArray(record.effects)&&record.effects.length){
-				const result=await runTool(COC_TOOLS.find(tool=>tool.name==='apply')!,`keeper:${reply.run}:record`,
-					{effects:record.effects??[],...(record.event!==undefined?{event:record.event}:{})},keeperRun?.signal,undefined,'explicit',sessionCtx);
-				if(result.details.coc_error)throw new Error(String((result.details.coc_error as any).message));
+				const toolCallId=`keeper:${reply.run}:record`;
+				owner.recordCallId??=mintCallId(state);
+				state.mintedCallIds.set(toolCallId,owner.recordCallId);
+				const result=await runTool(COC_TOOLS.find(tool=>tool.name==='apply')!,toolCallId,
+					{effects:record.effects??[],...(record.event!==undefined?{event:record.event}:{})},signal,undefined,'explicit',ctx);
+				if(result.details.coc_error)throw new KernelError(result.details.coc_error as ConstructorParameters<typeof KernelError>[0]);
 			}
 		}));
 		keeperReply=reply;
@@ -1532,7 +1539,7 @@ export default function (pi: ExtensionAPI, host: {capabilities?:RuntimeCapabilit
 			const text=reply.decoder.push(delta.delta);
 			if(text)reply.work=reply.work.then(async()=>{
 				if(reply.error||!table)return;
-				if(keeperRun?.signal?.aborted)throw Error('The Keeper response was cancelled');
+				if(reply.signal?.aborted)throw Error('The Keeper response was cancelled');
 				reply.stream??=await finalOutput.openStream(table.campaign,table.turn,reply.run);
 				reply.stream.push(text);
 			}).catch(error=>{reply.error=error;});
@@ -7966,11 +7973,13 @@ export default function (pi: ExtensionAPI, host: {capabilities?:RuntimeCapabilit
 				if(body.length>reply.raw.length){
 					const delta=reply.decoder.push(body.slice(reply.raw.length));
 					await reply.work;
+					if(reply.error)throw reply.error;
+					if(reply.signal?.aborted)throw Error('The Keeper response was cancelled');
 					if(delta){reply.stream??=await finalOutput.openStream(state.campaign,state.turn,reply.run);reply.stream.push(delta);}
 				}
 				await reply.work;
 				if(reply.error)throw reply.error;
-				if(keeperRun?.signal?.aborted)throw Error('The Keeper response was cancelled');
+				if(reply.signal?.aborted)throw Error('The Keeper response was cancelled');
 				if(['error','aborted','length'].includes(String(event.message.stopReason)))throw Error('The Keeper response was interrupted');
 				const result=reply.decoder.finish();
 				if(!reply.stream)throw Error('The Keeper produced no public text');
@@ -7986,12 +7995,12 @@ export default function (pi: ExtensionAPI, host: {capabilities?:RuntimeCapabilit
 				}else{
 					const spec=COC_TOOLS.find(tool=>tool.name==='output')!;
 					const params=choice?{choice:publication}:publication;
-					let delivered=await runTool(spec,`keeper:${reply.run}:publish`,params,keeperRun?.signal,undefined,'explicit',ctx,reply.run,written);
+					let delivered=await runTool(spec,`keeper:${reply.run}:publish`,params,reply.signal,undefined,'explicit',ctx,reply.run,written);
 					const refusal=delivered.details.coc_error as {code?:string;details?:{reason?:string;shared?:unknown;joined?:unknown}}|undefined;
 					const nameRecovery=refusal?.code==='invalid_params'&&refusal.details?.reason==='untold_name'
 						&&[refusal.details.shared,refusal.details.joined].every(value=>value===undefined||Array.isArray(value)&&value.length===0);
-					if((refusal?.code==='commit_failed'||nameRecovery)&&!keeperRun?.signal?.aborted)
-						delivered=await runTool(spec,`keeper:${reply.run}:publish`,params,keeperRun?.signal,undefined,'explicit',ctx,reply.run,written);
+					if((refusal?.code==='commit_failed'||nameRecovery)&&!reply.signal?.aborted)
+						delivered=await runTool(spec,`keeper:${reply.run}:publish`,params,reply.signal,undefined,'explicit',ctx,reply.run,written);
 					if(delivered.details.coc_error)throw new Error(String((delivered.details.coc_error as any).message));
 				}
 				state.renderedText=undefined;
@@ -8001,7 +8010,9 @@ export default function (pi: ExtensionAPI, host: {capabilities?:RuntimeCapabilit
                 else reply.stream?.interrupt();
 				await record({lane:'keeper-delivery',turn:state.turn,ok:false,reason:String(error),
                     private_reply:reply.raw,model:`${event.message.provider}/${event.message.model}`,stop_reason:event.message.stopReason});
-				if(!reply.stream)state.deliveryFix={kind:'result_protocol',text:'Start the final response with {{public}} and write public prose directly, or {{reference}} for a pure OOC answer. No JSON wrapper or output tool is needed. Keep settled effects; do not repeat them.'};
+				if(!reply.stream)state.deliveryFix=isKernelError(error)
+					?{kind:error.code,text:errorText(error)+(error.details?`\ndetails: ${JSON.stringify(error.details)}`:'')}
+					:{kind:'result_protocol',text:'Use a bare object in version, record, text order for pending ordinary changes, with the existing apply effects/event shapes; resubmit an accepted record unchanged. For an unchanged or already settled reply use {{public}}, or {{reference}} for pure OOC. Do not repeat settled effects through new calls.'};
 				else state.runAbandoned=true;
 				return{message:{...event.message,content:blocks.filter(b=>b.type!=='text')}};
 			}

@@ -511,16 +511,20 @@ export function createHybridEngine(options: HybridEngineOptions): {runDriver: Se
             const passages=carriedPassages(carried.views,taken?.texts);
             if(passages.length)api?.events.emit('coc:carried-text',{campaign:bridge.campaign,turn:scope.turn,run:context.runId,passages});
           }
+          const currentState={...capsule,mods:{...object(capsule.mods)}};
+          delete currentState.module;
+          delete currentState.mods.instructions;
+          delete currentState.mods.topics;
           messages.push({role:'custom',customType:CLERK_TYPE,display:false,timestamp:Date.now(),
-            content:JSON.stringify({authority:'Keeper-only current state and actor perspectives; no disclosure grant',people,
+            content:JSON.stringify({authority:'Keeper-only current state and actor perspectives; no disclosure grant',current_state:currentState,people,
               ...(enabled?{historical_reference:allowed?HISTORY_OFFER:HISTORY_UNAVAILABLE}:{}),
               ...(allowed?{native_search_scope:{run:context.runId,step:stepId}}:{}),
-              ...(carried?{sources:carriedSection(carried)}:{})}),details:{coc_host:true}});
+              ...(carried?{sources:carriedSection(carried)}:{})}),details:{coc_host:true,turn:scope.turn}});
         }
         messages.push({role:'custom',customType:'coc-host',display:false,timestamp:Date.now(),details:{coc_host:true,scope:'turn',campaign:bridge?.campaign,turn},content:
           'You are the sole Keeper and author. Use current state, actual dialogue, relevant evidence and each character\'s own knowledge. Choose and execute necessary rules through resolve/apply; never invent a roll or replace the player\'s action. Read missing material when needed. Ordinary speech needs no attempted task. Continue playable conversation through minor discrepancies; clarify naturally later. '
           +'look and lookup read evidence; they never move people. Party travel needs an apply move effect; NPC movement needs an npc effect. Wait for the result before describing arrival. Compare location, clock, ownership and settled receipts with prior prose; reconcile only an earlier missed action the player actually chose, once through existing effects. Never execute unchosen actions, infer state changes from prose, repeat settled effects or charge journey time twice. '
-          +'Use existing apply/resolve tools for actual changes, event records and rules; wait for their result. Future intentions use planned; ordinary speech is not an attempted task. When ready, start the final text with {{public}} and directly write the complete natural response, or {{reference}} for a pure OOC answer. No JSON wrapper, output tool, material handoff or coverage checklist. Never put this public marker or story text beside tool calls. '
+          +'Read missing evidence and resolve rule uncertainty first. For ordinary actual changes or event parameters already known, prefer one bare JSON object in version, record, text order: version is 1; record.effects and record.event use the offered apply schemas, with either optional; text is your complete public prose string. The host applies the private record before dependent public text. No code fences, invented changes or required event for unchanged conversation. Already settled effects are not repeated. Unchanged or already settled replies use {{public}}; pure OOC uses {{reference}} without state changes. Future intentions use planned; ordinary speech is not an attempted task. No second author, output tool, material handoff or coverage checklist. Never put public markers or story text beside tool calls. '
           +'Use the play language and {{say:Public Name}}...{{/say}} for NPC speech. Do not repeat the player\'s question merely to fill space. Public text contains no private plans, unrevealed facts or backstage explanation; NPCs do not know everything you know.'});
         record({lane:'run',event:'keeper_context',run:context.runId,step:stepId});
         return messages as any;
