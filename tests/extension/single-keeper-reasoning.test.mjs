@@ -7,7 +7,7 @@ import {fauxAssistantMessage,fauxProvider,fauxToolCall} from '@earendil-works/pi
 import {createAgentSession,DefaultResourceLoader,ModelRuntime,SessionManager,SettingsManager} from './pi.mjs';
 import thinkingSchedule from '../../extensions/thinking-schedule/index.ts';
 import {createHybridEngine} from '../../runtime/jev/hybrid-engine.ts';
-import {table} from './object-usages-fixture.mjs';
+import {table,api} from './object-usages-fixture.mjs';
 
 async function reasoningSession(t,{selected='high',profile}={}){
     const prior={mode:process.env.PI_COC_MODE,profile:process.env.PI_COC_TEST_MODEL};
@@ -18,6 +18,8 @@ async function reasoningSession(t,{selected='high',profile}={}){
         if(prior.profile===undefined)delete process.env.PI_COC_TEST_MODEL;else process.env.PI_COC_TEST_MODEL=prior.profile;
     });
     const game=await table(t),levels=[];
+    // Match the production JSONL boundary before host code receives internal numeric values.
+    const call=async(method,params)=>JSON.parse(api.pythonJsonDumps(await game.call(method,params)));
     const faux=fauxProvider();
     Object.assign(faux.models[0],{reasoning:true,thinkingLevelMap:{off:null,minimal:'minimal',low:'low',medium:'medium',high:'high'}});
     const stream=faux.provider.streamSimple;
@@ -35,12 +37,12 @@ async function reasoningSession(t,{selected='high',profile}={}){
     const resourceLoader=new DefaultResourceLoader({cwd:game.home,agentDir:join(game.home,'agent'),noContextFiles:true,settingsManager,
         extensionFactories:[{name:'thinking',factory:thinkingSchedule},{name:'driver',factory:engine.extension},
             {name:'ts-tool-boundary',factory:pi=>{
-                pi.events.emit('coc:kernel-bridge',{campaign:'c1',call:game.call});
+                pi.events.emit('coc:kernel-bridge',{campaign:'c1',call});
                 pi.registerTool({name:'resolve',label:'Resolve',description:'Perform the selected observation using the TS kernel.',parameters:Type.Object({}),
-                    async execute(){const result=await game.call('table.resolve',{call_id:game.next(),action:{intent:'investigate',skill:'Spot Hidden',goal:'Notice signs around the desk',method:'Look at the desk'}});
+                    async execute(){const result=await call('table.resolve',{call_id:game.next(),action:{intent:'investigate',skill:'Spot Hidden',goal:'Notice signs around the desk',method:'Look at the desk'}});
                         return{content:[{type:'text',text:JSON.stringify(result)}],details:result};}});
                 pi.registerTool({name:'apply',label:'Apply',description:'Record the selected wait using the TS kernel.',parameters:Type.Object({}),
-                    async execute(){const result=await game.apply([{kind:'time',minutes:1,why:'A selected wait.'}]);
+                    async execute(){const result=await call('table.apply',{call_id:game.next(),effects:[{kind:'time',minutes:1,why:'A selected wait.'}]});
                         return{content:[{type:'text',text:JSON.stringify(result)}],details:result};}});
             }}]});
     await resourceLoader.reload();
