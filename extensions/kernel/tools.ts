@@ -234,8 +234,8 @@ const ClueEffect = Type.Object({
 			"clue name; must be a clue obtainable in the current scene, or the one an owed row says the player was already told. An echo id from the capsule's worldlines.echoes (it starts with echo:) reveals what another worldline left standing here — you decide whether to show it and how to tell it, never what it says",
 	}),
 	establish: Type.Optional(Type.Object({summary: Type.String({description: "new evidence discovered in this scene, consistent with established causes and the holder's knowledge; include how it was obtained. Existing authored clues use their existing names without establish. This records a campaign fact, not a quotation from the module"})})),
-	how: Type.Optional(Sentence("how they got it")),
-	from: Type.Optional(Type.String({ description: "the NPC who handed it over, when someone did; it goes on their ledger as something they disclosed" })),
+	how: Type.Optional(Sentence("how this clue was actually obtained here, or under its issued owed row; ordinary remote NPC reports use event.knowledge with heard/source/state, without an additional investigator action")),
+	from: Type.Optional(Type.String({ description: "the NPC who supplied this obtainable-here or issued owed clue; attribution only, not permission to obtain a distant authored clue. Name the known speaker so the disclosure goes on their ledger. Ordinary remote reports use event.knowledge with mode heard and actual source/state; NPC answers need no separate player selection" })),
 	label: Type.Optional(Type.String({ description: "short name of this clue in the player's language; omitted means the clue name" })),
 	owed: OwedRef,
 });
