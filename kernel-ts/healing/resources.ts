@@ -4,7 +4,7 @@ import type { PythonRandom } from '../random.js';
 import { array, equal, integer, kebab, number, repr, row, string, truth, type Row } from '../read/values.js';
 import type { SettleContext } from '../resolve/context.js';
 import { rollExpression } from '../resolve/arithmetic.js';
-import { establishDamageWound, healingTimeTrigger, readHealingState, writeHealingState } from './session.js';
+import { DAY_MINUTES, establishDamageWound, healingTimeTrigger, readHealingState, writeHealingState } from './session.js';
 import { mpTimeTrigger } from './mp.js';
 export { gameDayOf, stageDayBoundary } from './day.js';
 export { INCAPACITATING_CONDITIONS, OUT_OF_FIGHT_CONDITIONS, incapacitatedBy } from './conditions.js';
@@ -171,6 +171,16 @@ export async function stageRecovery(context: SettleContext, minutes: number): Pr
     ]> = [], recovered: Row[] = [];
     if (minutes < 60 || !context.party().length)
         return { receipts: [], events, recovered };
+    if (minutes >= 360)
+        await context.snapshot.turnRecords();
+    const priorReceipts = minutes >= 360 ? context.allReceipts() : [], recoveryClocks = new Map<string, number>();
+    for (const receipt of priorReceipts) {
+        if (receipt.kind !== 'time' || !receipt.call_id || !Object.hasOwn(receipt, 'clock_after'))
+            continue;
+        const clock = number(receipt.clock_after), call = string(receipt.call_id);
+        if (Number.isFinite(clock))
+            recoveryClocks.set(call, Math.max(recoveryClocks.get(call) ?? clock, clock));
+    }
     const restore = async (id: string, resource: string, before: number, gained: number, ceiling: number) => {
         const after = ceiling > 0 ? Math.min(ceiling, before + gained) : before + gained;
         if (after === before)
@@ -186,7 +196,18 @@ export async function stageRecovery(context: SettleContext, minutes: number): Pr
             continue;
         const derived = row(sheet.derived), characteristics = row(sheet.characteristics), maximum = number(derived.HP || 10);
         if (minutes >= 360) {
-            const gained = await healingTimeTrigger(context.arithmetic, context, id, maximum, number(characteristics.CON || 50), minutes, context.rng);
+            let lastRecovery: number | undefined;
+            for (const receipt of priorReceipts) {
+                if (receipt.kind !== 'delta' || receipt.resource !== 'hp' || receipt.subject !== id
+                    || receipt.why !== 'rest' || number(receipt.after) <= number(receipt.before))
+                    continue;
+                const clock = recoveryClocks.get(string(receipt.call_id));
+                if (clock !== undefined)
+                    lastRecovery = Math.max(lastRecovery ?? clock, clock);
+            }
+            const ordinaryRecoveryCap = lastRecovery === undefined ? undefined
+                : Math.max(0, Math.floor((context.clockMinutes - lastRecovery) / DAY_MINUTES));
+            const gained = await healingTimeTrigger(context.arithmetic, context, id, maximum, number(characteristics.CON || 50), minutes, context.rng, false, ordinaryRecoveryCap);
             await restore(id, 'hp', number(sheet.current_hp || 0), gained, maximum);
             let healed = (await readHealingState(context, id)).conditions;
             if (Array.isArray(healed))

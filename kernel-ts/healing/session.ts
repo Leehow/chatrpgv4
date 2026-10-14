@@ -331,12 +331,13 @@ export class HealingSession {
     }
     private event(type: string, payload: Row): Row { const value = { event_type: type, eid: `hl${++this.eventCounter}`, ...payload }; this.events.push(value); return value; }
 }
-export async function healingTimeTrigger(arithmetic: CheckArithmetic, port: HealingSavePort, id: string, hpMax: number, con: number, minutes: number, rng: PythonRandom, hadMajorWound = false): Promise<number> {
+export async function healingTimeTrigger(arithmetic: CheckArithmetic, port: HealingSavePort, id: string, hpMax: number, con: number, minutes: number, rng: PythonRandom, hadMajorWound = false, ordinaryRecoveryCap?: number): Promise<number> {
     if (minutes <= 0)
         return 0;
     const session = await HealingSession.load(arithmetic, port, id, hpMax, con, rng), before = session.currentHp;
     if (hadMajorWound && !session.hasMajorWound)
         session.conditions.push('major_wound');
+    const ordinaryRecovery = !session.hasMajorWound;
     if (minutes >= 360) {
         let remaining = minutes;
         while (session.hasMajorWound && remaining >= WEEK_MINUTES) {
@@ -347,7 +348,7 @@ export async function healingTimeTrigger(arithmetic: CheckArithmetic, port: Heal
             let days = Math.floor(remaining / DAY_MINUTES);
             if (!days && remaining >= 360)
                 days = 1;
-            session.weeklyRecovery(days);
+            session.weeklyRecovery(ordinaryRecovery && ordinaryRecoveryCap !== undefined ? Math.min(days, ordinaryRecoveryCap) : days);
         }
     }
     session.resetDailyTreatments();
