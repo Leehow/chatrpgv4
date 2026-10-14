@@ -6974,6 +6974,7 @@ export default function (pi: ExtensionAPI, host: {capabilities?:RuntimeCapabilit
 					table.strandedTurn = true;
 					return;
 				}
+				if(await finalOutput.pendingPublication(campaign)){table.strandedTurn=true;return;}
 				const owed = (pending.owed ?? []).join(", ") || "narrate";
 				// The checkpoint's one line (contract §12.2) says where the last committed turn stopped;
 				// carrying it in the recovery message means the Keeper knows what he is following on from

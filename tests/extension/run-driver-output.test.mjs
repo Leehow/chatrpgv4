@@ -1,12 +1,12 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {readFileSync,readdirSync,writeFileSync,chmodSync,mkdtempSync,rmSync} from 'node:fs';
+import {readFileSync,readdirSync,writeFileSync,chmodSync,mkdtempSync,rmSync,cpSync,mkdirSync} from 'node:fs';
 import {join,resolve} from 'node:path';
 import {tmpdir} from 'node:os';
 import {spawnSync} from 'node:child_process';
 import {createHash} from 'node:crypto';
 import {fauxAssistantMessage,fauxToolCall} from '@earendil-works/pi-ai';
-import {openTable} from './harness.mjs';
+import {openTable,waitForIdle} from './harness.mjs';
 import {createHybridEngine} from '../../runtime/jev/hybrid-engine.ts';
 import {createFinalOutputOwner} from '../../extensions/kernel/final-output.ts';
 
@@ -388,6 +388,94 @@ test('native publication keeps an ambiguous protected name pending without retry
   assert.equal(later.receipts.filter(row=>row.kind==='time').length,1);
   assert.equal(seen.filter(frame=>frame.event==='delta').map(frame=>frame.delta).join(''),exposed,
     'the rejected recovery adds no new public text');
+});
+
+test('session startup preserves a sealed pending publication without another Keeper or settlement',async t=>{
+  const retained=mkdtempSync(join(tmpdir(),'publication-startup-fixture-'));
+  t.after(()=>rmSync(retained,{recursive:true,force:true,maxRetries:5,retryDelay:50}));
+  let firstAuthors=0,firstClosed=false;
+  const response={version:1,record:{effects:[
+    {kind:'person',who:'Mr. Dooley',name:'the newspaper seller'},
+    {kind:'person',who:'Arty Wilmot',name:'the editor'},
+    {kind:'time',minutes:8},
+  ]},text:'Alex watches you.'};
+  const {table:first}=await directTable([()=>{firstAuthors++;return fauxAssistantMessage(JSON.stringify(response));}],{
+    retainAt:retained,prepareWorkspace:workspace=>seedPrintedNames(workspace,true),
+  });
+  t.after(async()=>{if(!firstClosed)await first.dispose();});
+  await first.session.prompt('I wait beside the two men for eight minutes.');
+  assert.equal(firstAuthors,1);
+  const owner=createFinalOutputOwner({runtime:()=>({home:first.workspace}),call:async()=>({}),record:async()=>{}});
+  const pending=await owner.pendingPublication('test-camp');
+  assert.ok(pending);
+  assert.equal(pending.evidence.publication.call_id,'t1-c2');
+  const acceptedPath=join('.coc/delivery-writes',pending.evidence.packet,'accepted.json');
+  const accepted=readFileSync(join(first.workspace,acceptedPath),'utf8');
+  const prefix=(await owner.recoveries('test-camp'))[0].text;
+  const before=await first.runtimeBridges().at(-1).call('table.status',{campaign:'test-camp'});
+  assert.equal(before.state,'acting');
+  assert.equal(before.receipts.filter(row=>row.kind==='time').length,1);
+  await first.dispose();firstClosed=true;
+  let laterAuthors=0;
+  const {table:restarted,seen}=await directTable([()=>{
+    laterAuthors++;return fauxAssistantMessage(JSON.stringify({version:1,text:'UNAUTHORIZED_STARTUP_REAUTHOR'}));
+  }],{seedCampaign:false,prepareWorkspace:workspace=>{
+    // Copy only the explicit isolated fixture above; this is process-start integration, never gameplay.
+    cpSync(join(first.workspace,'.coc'),join(workspace,'.coc'),{recursive:true});
+  }});
+  t.after(()=>restarted.dispose());
+  await waitForIdle(restarted.session);
+  assert.equal(laterAuthors,0,'startup must leave the sealed packet to exact-publication recovery');
+  assert.equal(seen.length,0,'startup cannot expose a new author response');
+  assert.equal(readFileSync(join(restarted.workspace,acceptedPath),'utf8'),accepted);
+  const restoredOwner=createFinalOutputOwner({runtime:()=>({home:restarted.workspace}),call:async()=>({}),record:async()=>{}});
+  assert.deepEqual(await restoredOwner.pendingPublication('test-camp'),pending);
+  assert.equal((await restoredOwner.recoveries('test-camp'))[0].text,prefix);
+  const nameRefusalsBefore=restarted.telemetry().filter(row=>row.lane==='delivery'&&row.reason==='untold_name').length;
+  await restarted.session.prompt('I walk toward the gate.');
+  assert.equal(laterAuthors,0,'failed exact recovery must precede and stop the next player action');
+  assert.equal(restarted.telemetry().filter(row=>row.lane==='provider-call').length,
+    first.telemetry().filter(row=>row.lane==='provider-call').length);
+  assert.equal(readFileSync(join(restarted.workspace,acceptedPath),'utf8'),accepted);
+  assert.deepEqual(await restoredOwner.pendingPublication('test-camp'),pending);
+  const nameRefusals=restarted.telemetry().filter(row=>row.lane==='delivery'&&row.reason==='untold_name');
+  assert.equal(nameRefusals.length,nameRefusalsBefore+1,'the actual recovery retries the original publication');
+  assert.equal(nameRefusals.at(-1).call_id,pending.evidence.publication.call_id);
+  assert.equal(nameRefusals.at(-1).shared,1,'the original shared-name refusal remains authoritative');
+  const after=await restarted.runtimeBridges().at(-1).call('table.status',{campaign:'test-camp'});
+  assert.equal(after.turn,before.turn);
+  assert.equal(after.state,'acting');
+  assert.equal(after.receipts.filter(row=>row.kind==='time').length,1);
+  assert.equal(JSON.parse(readFileSync(join(restarted.workspace,'.coc/campaigns/test-camp/world.json'),'utf8')).clock.minutes,8);
+  assert.deepEqual(restarted.extensionErrors,[]);
+});
+
+test('a committed alternate canonical packet closes old recovery projections without changing their evidence',async t=>{
+  const home=mkdtempSync(join(tmpdir(),'publication-owner-fixture-'));
+  t.after(()=>rmSync(home,{recursive:true,force:true}));
+  const owner=createFinalOutputOwner({runtime:()=>({home}),record:async()=>{},call:async method=>{
+    if(method==='table.capsule')return {_context:{campaign:'test-camp',turn:1,worldline:'main',loop:'fixture-loop',
+      task_world_revision:'fixture-world',task_source_revision:'fixture-source'},turn:{player_text:'Fixture input'},present:[]};
+    if(method==='table.delivery.check')return {speakers:[]};
+    return {outcome:{public_materials:[]}};
+  }});
+  const stream=await owner.openStream('test-camp',1,'fixture-run');
+  stream.push('An already exposed fixture prefix.');
+  const sealed=await stream.finish('fixture/model','none',{call_id:'t1-c2'});
+  owner.finishStream(sealed.evidence,'publication_pending');
+  const directory=join(home,'.coc/delivery-writes',sealed.evidence.packet);
+  const accepted=readFileSync(join(directory,'accepted.json'),'utf8'),journal=readFileSync(join(directory,'delivery.jsonl'),'utf8');
+  const canonical=join(home,'.coc/campaigns/test-camp/turns/0001.json');mkdirSync(join(home,'.coc/campaigns/test-camp/turns'),{recursive:true});
+  const alternate={campaign:'test-camp',turn:1,delivery_evidence:{packet:'f'.repeat(64)}};
+  assert.notEqual(alternate.delivery_evidence.packet,sealed.evidence.packet);
+  writeFileSync(canonical,JSON.stringify(alternate));
+  assert.deepEqual(await owner.pendingPublication('test-camp'),sealed,'an uncommitted alternate does not close publication');
+  assert.equal((await owner.recoveries('test-camp')).length,1);
+  writeFileSync(canonical,JSON.stringify({...alternate,commit:'e'.repeat(40)}));
+  assert.equal(await owner.pendingPublication('test-camp'),undefined,'canonical commit closes the same turn even with another packet');
+  assert.deepEqual(await owner.recoveries('test-camp'),[],'obsolete prefix is not projected as active recovery');
+  assert.equal(readFileSync(join(directory,'accepted.json'),'utf8'),accepted);
+  assert.equal(readFileSync(join(directory,'delivery.jsonl'),'utf8'),journal,'old evidence is neither rewritten nor marked completed');
 });
 
 test('a planned intent survives the next response without becoming an attempted task',async t=>{

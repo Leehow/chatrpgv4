@@ -497,7 +497,7 @@ export function createFinalOutputOwner(deps: {runtime: () => HostRuntime | undef
         const frames=readDeliveryFrames(stream);
         if(frames.at(-1)?.status==='completed')continue;
         const canonical=join(root!,'.coc','campaigns',campaign,'turns',String(evidence.context.turn).padStart(4,'0')+'.json');
-        if(existsSync(canonical)){const record=JSON.parse(readFileSync(canonical,'utf8'));if(record.commit&&record.delivery_evidence?.packet===name)continue;}
+        if(existsSync(canonical)){const record=JSON.parse(readFileSync(canonical,'utf8'));if(record.turn===evidence.context.turn&&record.commit)continue;}
         const artifact=validateDeliveryArtifact(accepted.artifact,evidence.materials.map((row:Row)=>row.name),evidence.required);
         if(artifact.text!==evidence.artifact_text)throw error('Pending publication does not match its accepted artifact');
         return {text:artifact.text,evidence};
@@ -530,7 +530,7 @@ export function createFinalOutputOwner(deps: {runtime: () => HostRuntime | undef
         const turnPath=join(root,'.coc','campaigns',campaign,'turns',String(first.turn).padStart(4,'0')+'.json');
         if(existsSync(turnPath)){
           const turn=JSON.parse(readFileSync(turnPath,'utf8'));
-          if(turn.commit&&turn.delivery_evidence?.packet===first.delivery_id)continue;
+          if(turn.turn===first.turn&&turn.commit)continue;
         }
         out.push({turn:first.turn,delivery_id:first.delivery_id,status:last?.status==='publication_pending'?'publication_pending':'interrupted',text,
           note:'This prefix was exposed to the player but is not a completed delivery. Do not repeat settled effects or assume full intended speech was heard.'});
