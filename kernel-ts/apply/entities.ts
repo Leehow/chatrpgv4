@@ -519,7 +519,15 @@ export async function stageNpc(context:ApplyContext,effect:Row):Promise<StagedEf
     const presence=world.npc_presence??={};let moved:string|null=null;
     if(to!=null){
         if(typeof to!=='string'||!to.trim())throw new RpcError('invalid_params',"npc.to must be a scene name, 'here' or 'away'",{fix:'a scene name on the graph, or here / away',details:{field:'npc.to',options:['here','away']}});
-        if(to.trim()==='away'){delete presence[handle];moved='away';}else{moved=graph.handle(graph.scene(to.trim()==='here'?world.active_scene:to));presence[handle]=moved;}
+        if(to.trim()==='away'){delete presence[handle];moved='away';}else{
+            try{moved=graph.handle(graph.scene(to.trim()==='here'?world.active_scene:to));}
+            catch(error){
+                if(!(error instanceof RpcError))throw error;
+                throw new RpcError(error.code,error.message,{codeDetail:error.codeDetail,fix:error.fix,
+                    retryable:error.retryable,next:error.next,details:{...error.details,field:'npc.to'}});
+            }
+            presence[handle]=moved;
+        }
         // §192.3: one entry per thing -- a copy's older entry would stand in again once this one went away.
         for(const copy of graph.groupOf(node))if(copy!==node&&graph.handle(copy)!==handle)delete presence[graph.handle(copy)];
     }

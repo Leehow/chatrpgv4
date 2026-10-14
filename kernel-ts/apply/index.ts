@@ -388,6 +388,7 @@ export function createApplyHandlers(kernel: KernelContext, writer: ReturnType<ty
             // isolable refusals still refuses (there is nothing to land alone), and one non-isolable refusal beside an
             // isolable one still refuses the whole batch.
             const isolable = (entry: { index: number; error: RpcError }): boolean => entry.error.code === 'unknown_entity'
+                && entry.error.details?.field !== 'npc.to'
                 && isJsonObject(effects[entry.index]) && ['npc', 'person'].includes(string((effects[entry.index] as Row).kind));
             const allPersonEffects = effects.every(effect => isJsonObject(effect) && ['npc', 'person'].includes(string((effect as Row).kind)));
             // A proven memory reference has no write authority in the note ledger. Report that

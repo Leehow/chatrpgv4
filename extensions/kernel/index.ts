@@ -5627,6 +5627,7 @@ export default function (pi: ExtensionAPI, host: {capabilities?:RuntimeCapabilit
 		markNpcAct(spec.name, params, host);
 		// §161.1: a mood sharing its npc effect with another change is sent as the two effects the kernel's fix asks for.
 		const moodSplit = spec.name === "apply" && !host ? splitNpcMood(params.effects) : 0;
+		// Keep the historical event name; count describes structural NPC expansion, not emotional changes.
 		if (moodSplit) void record({ lane: "npc", event: "mood_split", turn: table?.turn ?? null, count: moodSplit });
 		// An object that adopts what its own batch defines, with `definition` left out: the host names the definition.
 		const definitionsFilled = spec.name === "apply" && !host ? fillObjectDefinitions(params.effects) : 0;

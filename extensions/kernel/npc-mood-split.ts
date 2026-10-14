@@ -13,7 +13,9 @@ import { MOOD_CONFLICTS } from "../../kernel-ts/npc/mood-conflicts.ts";
 
 type Effect = Record<string, unknown>;
 
-/** Splits, in place, each npc effect whose mood shares the effect with a conflicting change; returns how many it split. */
+const ORDINARY_KEYS = new Set(['kind','name','to','walk_on','why','activity','intends','outcome','_passage','_resolved_from']);
+
+/** Expands mood conflicts and ordinary explicit NPC combinations in place; returns how many input effects it split. */
 export function splitNpcMood(effects: unknown): number {
 	if (!Array.isArray(effects)) return 0;
 	let split = 0;
@@ -24,6 +26,25 @@ export function splitNpcMood(effects: unknown): number {
 		const { mood, ...rest } = effect;
 		effects.splice(index, 1, rest, { kind: "npc", name: effect.name, mood });
 		index++;
+		split++;
+	}
+	// The same structural adapter sends ordinary explicit changes to their existing owners. References and other
+	// variants keep their original shape: assigning their causal fields to a new owner would require judgement.
+	for (let index = 0; index < effects.length; index++) {
+		const effect = effects[index] as Effect | null;
+		if (!effect || typeof effect !== 'object' || effect.kind !== 'npc' || effect.to == null
+			|| Object.keys(effect).some(key=>!ORDINARY_KEYS.has(key))) continue;
+		const activity = effect.activity != null, undertaking = effect.intends != null || effect.outcome != null;
+		if (!activity && !undertaking) continue;
+		if (['activity','intends','outcome'].some(key=>Object.hasOwn(effect,key)&&effect[key]==null)) continue;
+		const {activity:_activity,intends:_intends,outcome:_outcome,...position}=effect;
+		const common={kind:'npc',name:effect.name,...(Object.hasOwn(effect,'why')?{why:effect.why}:{})};
+		const parts:Effect[]=[position];
+		if(activity)parts.push({...common,activity:effect.activity});
+		if(undertaking)parts.push({...common,...(Object.hasOwn(effect,'intends')?{intends:effect.intends}:{}),
+			...(Object.hasOwn(effect,'outcome')?{outcome:effect.outcome}:{})});
+		effects.splice(index,1,...parts);
+		index+=parts.length-1;
 		split++;
 	}
 	return split;
