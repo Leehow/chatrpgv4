@@ -33,9 +33,39 @@ readline.createInterface({ input: process.stdin }).on("line", line => {
     return;
   }
   if (command.type === "prompt") {
+    if (process.env.FAKE_PI_PROMPT_LOG) fs.appendFileSync(process.env.FAKE_PI_PROMPT_LOG, command.message + "\n");
     respond(command);
     isStreaming = true;
     if (command.message !== "opening-start-before-subscription") send({ type: "agent_start" });
+    if (["retry-recover", "retry-exhausted", "retry-stop", "retry-exit"].includes(command.message)) {
+      const message = { role: "assistant", content: [], stopReason: "error", errorMessage: "Provider unavailable 503" };
+      send({ type: "message_end", message });
+      send({ type: "agent_end", messages: [message], willRetry: true });
+      send({ type: "auto_retry_start", attempt: 1, maxAttempts: 1, delayMs: 400, errorMessage: message.errorMessage });
+      if (command.message === "retry-stop") return;
+      setTimeout(() => {
+        if (command.message === "retry-exit") process.exit(17);
+        if (command.message === "retry-exhausted") {
+          send({ type: "auto_retry_end", success: false, attempt: 1, finalError: message.errorMessage });
+          isStreaming = false;
+          send({ type: "agent_settled" });
+          send({ type: "agent_settled" });
+          return;
+        }
+        send({ type: "auto_retry_end", success: true, attempt: 1 });
+        const base = { version: 1, campaign: "c", turn: 1, worldline: "main", loop: 0, run: "same-run", input_revision: "input", delivery_id: "recovered", attempt_id: "accepted" };
+        for (const [index, frame] of [
+          { event: "start", status: "streaming" },
+          { event: "delta", delta: "The librarian " },
+          { event: "delta", delta: "answers your question." },
+          { event: "end", status: "completed" },
+        ].entries()) send({ type: "entry_appended", entry: { type: "custom", customType: "coc-final-delivery", id: `recovered-${index}`, data: { ...base, ...frame, sequence: index + 1, timestamp: Date.now() } } });
+        isStreaming = false;
+        send({ type: "agent_settled" });
+        send({ type: "agent_settled" });
+      }, 400);
+      return;
+    }
     if (command.message === "delayed-durable-terminal-agent-replay" || command.message === "terminal-rows-with-orphan-previews") {
       send({ type: "agent_event", event: {
         kind: "start", agentId: "root", runId: "root-run", parentId: null,

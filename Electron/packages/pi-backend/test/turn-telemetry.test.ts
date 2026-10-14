@@ -56,6 +56,38 @@ function finishPerformanceTurn(
 }
 
 describe("turn telemetry", () => {
+  it("retains a recovered provider error phase without marking the settled run as failed", async () => {
+    root = await mkdtemp(join(tmpdir(), "pipi-turn-retry-"));
+    let now = 10;
+    const telemetry = createTurnTelemetry({ agentDir: root, now: () => ++now });
+    telemetry.beginDispatch("s1", undefined);
+    telemetry.observeRpc("s1", { type: "agent_start" });
+    telemetry.observeRpc("s1", { type: "message_end", message: { role: "assistant", stopReason: "error" } });
+    telemetry.observeRpc("s1", { type: "auto_retry_start", attempt: 1 });
+    telemetry.observeRpc("s1", { type: "auto_retry_end", success: true, attempt: 1 });
+    telemetry.terminal("s1", "settled");
+    telemetry.flushTerminal("s1");
+    await telemetry.pending();
+    const [record] = await readRows(turnTelemetryPath(root));
+    expect(record.outcome).toBe("settled");
+    expect(record.phases.map(phase => phase.name)).toEqual(expect.arrayContaining(["error", "settled"]));
+    expect(record.phases.find(phase => phase.name === "error")!.at).toBeLessThan(record.phases.find(phase => phase.name === "settled")!.at);
+  });
+
+  it.each([undefined, false, "true", "later-error"])("retains a final provider failure without an unreversed observed recovery: %s", async recovery => {
+    root = await mkdtemp(join(tmpdir(), "pipi-turn-retry-failed-"));
+    const telemetry = createTurnTelemetry({ agentDir: root });
+    telemetry.beginDispatch("s1", undefined);
+    const failure = { type: "message_end", message: { role: "assistant", stopReason: "error" } };
+    telemetry.observeRpc("s1", failure);
+    if (recovery !== undefined) telemetry.observeRpc("s1", { type: "auto_retry_end", success: recovery === "later-error" ? true : recovery });
+    if (recovery === "later-error") telemetry.observeRpc("s1", failure);
+    telemetry.terminal("s1", "settled");
+    telemetry.flushTerminal("s1");
+    await telemetry.pending();
+    expect((await readRows(turnTelemetryPath(root)))[0].outcome).toBe("error");
+  });
+
   it("traces direct and queued turns with one safe id each and ordered observable phases", async () => {
     root = await mkdtemp(join(tmpdir(), "pipi-turn-telemetry-"));
     let now = 10;

@@ -592,6 +592,11 @@ export function createTurnTelemetry(options: TurnTelemetryOptions) {
       turn.outcome = "error";
       return;
     }
+    if (rpc.type === "auto_retry_end" && rpc.success === true) {
+      // Recovery changes the provisional outcome, not the retained error phase.
+      if (turn.outcome === "error") turn.outcome = undefined;
+      return;
+    }
     if (rpc.type === "message_update") {
       const update = rpc.assistantMessageEvent;
       if (!update || typeof update !== "object") return;

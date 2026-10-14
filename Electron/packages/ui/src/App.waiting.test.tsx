@@ -129,17 +129,21 @@ describe('active-turn waiting placeholder', () => {
 
     // …then the provider call fails and pi backs off: the retrying wait appears
     // with the attempt span and redacted provider error, instead of a silent gap.
+    act(() => { listener?.({ type: 'error', sessionId: 'layout', content: 'Codex error: transient 500' }) })
+    expect(screen.getAllByLabelText('停止生成').length).toBeGreaterThan(0)
     act(() => { listener?.({ type: 'auto_retry', sessionId: 'layout', phase: 'start', attempt: 2, maxAttempts: 5, delayMs: 4000, error: 'Codex error: transient 500' }) })
     const retrying = await screen.findByTestId('waiting-placeholder')
     expect(retrying.getAttribute('data-phase')).toBe('retrying')
     expect(retrying.textContent).toContain('连接中断，正在重试')
     expect(retrying.textContent).toContain('第 2/5 次重试')
     expect(retrying.textContent).toContain('Codex error: transient 500')
+    expect(screen.getAllByLabelText('停止生成').length).toBeGreaterThan(0)
 
     // The retry succeeds: the model restarts, so the wait reverts to thinking.
     act(() => { listener?.({ type: 'auto_retry', sessionId: 'layout', phase: 'end', success: true, attempt: 2 }) })
     await waitFor(() => expect(screen.getByTestId('waiting-placeholder').getAttribute('data-phase')).toBe('thinking'))
     expect(screen.getByTestId('waiting-placeholder').textContent).not.toContain('正在重试')
+    expect(screen.getAllByLabelText('停止生成').length).toBeGreaterThan(0)
 
     // The recovered completion streams and settles cleanly.
     act(() => { listener?.({ type: 'text', sessionId: 'layout', contentIndex: 0, delta: '重试后的答复' }) })
