@@ -150,7 +150,7 @@ export interface WriteContributions {
     mods?: {
         /** `playLanguage`: the campaign's declared tag, or null (contract §153.2). */
         initializeWorld(world: Row, playLanguage?: string | null): Promise<boolean>;
-        initializeCampaign(campaign: CampaignWriter, world: Row, options?: {pending?: boolean}): Promise<void>;
+        initializeCampaign(campaign: CampaignWriter, world: Row, options?: {pending?: boolean; follow?: boolean}): Promise<void>;
         validateWorld(world: Row): Promise<void>;
     };
 }
@@ -712,9 +712,9 @@ export function createWriteRuntime(context: KernelContext, contributions: WriteC
             module
         };
     }
-    async function initializeMods(campaign: CampaignWriter, snapshot: CampaignSnapshot, pending = false): Promise<void> {
+    async function initializeMods(campaign: CampaignWriter, snapshot: CampaignSnapshot, pending = false, follow = true): Promise<void> {
         if(contributions.mods){
-            await contributions.mods.initializeCampaign(campaign,snapshot.world,{pending});
+            await contributions.mods.initializeCampaign(campaign,snapshot.world,{pending,follow});
             snapshot.meta=await campaign.readCampaign();snapshot.party=await campaign.party();
             snapshot.jsonFiles.set('campaign.json',snapshot.meta);snapshot.jsonFiles.set('world.json',snapshot.world);
             for(const sheet of snapshot.party)snapshot.jsonFiles.set(join('party',`${sheet.id}.json`),sheet);
@@ -960,7 +960,13 @@ export function createWriteRuntime(context: KernelContext, contributions: WriteC
         if(!contributions.worldlines)await ensureMain(campaign, meta);
         const loaded = await load(params, { allowReady: true, requireTurn: false }), snapshot = loaded.snapshot;
         let module = loaded.module;
-        await initializeMods(campaign, snapshot);
+        let turn = await readableTurn(campaign);
+        const deferredModFollow = !turn;
+        if (turn) {
+            snapshot.turn = turn;
+            snapshot.jsonFiles.set('turn.json', turn);
+        }
+        await initializeMods(campaign, snapshot, false, !deferredModFollow);
         await validateOntology();
         // §185.6: a name-free campaign takes the book's handles at the table's opening, before anything here reads a handle;
         // never while a turn is open, which read its world already.
@@ -991,12 +997,17 @@ export function createWriteRuntime(context: KernelContext, contributions: WriteC
         if (!await context.snapshots.pathExists(campaign.path('npc-ledger.json')))
             await rebuildNpcLedger(campaign, module.graph);
         const [checkpoint, checkpointRebuilt] = await syncCheckpoint(campaign, tableSnapshot(snapshot, module.graph), activeName(snapshot.meta));
-        let turn = await readableTurn(campaign), rebuilt = checkpointRebuilt;
+        let rebuilt = checkpointRebuilt;
         if (!turn) {
             turn = await rebuildTurn(campaign, checkpoint);
             if (!turn)
                 throw new RpcError('campaign_not_ready', `campaign ${repr(campaign.id)} has no turn.json and no checkpoint to rebuild it from`);
             rebuilt = true;
+        }
+        if (deferredModFollow) {
+            snapshot.turn = turn;
+            snapshot.jsonFiles.set('turn.json', turn);
+            await initializeMods(campaign, snapshot);
         }
         // §176.1: the same fold at the table's opening, so the opening already calls people by their words. Only when no turn
         // is open: a turn in flight read its world already.

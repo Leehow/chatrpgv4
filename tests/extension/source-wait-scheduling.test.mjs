@@ -78,7 +78,7 @@ test('a foreground rejoin resets the shared wait and an explicit queue wake is i
  assert.equal((await background).state,'ready');assert.equal((await foreground).state,'ready');
 });
 
-test('an actually claimed source owner wakes its waiter when it completes during the capped delay',async t=>{
+test('an actually claimed source owner wakes its waiter when it completes during the capped delay',{timeout:5000},async t=>{
  const home=await mkdtemp(join(tmpdir(),'source-running-wait-')),module=join(home,'.coc/modules/book'),work=join(module,'work/read-1/attempt-1');
  await mkdir(work,{recursive:true});
  t.mock.timers.enable({apis:['setTimeout','setInterval','Date'],now:0});
@@ -110,7 +110,7 @@ test('an actually claimed source owner wakes its waiter when it completes during
  await drain(()=>started);await advance(t,7500);
  assert.deepEqual(requests,[0,300,900,2100,4500,7500]);
  assert.deepEqual(claims,[0,0],'the running pump does not receive an empty claim on every poll');
- release();await drain(()=>finished);
+ release();
  assert.equal((await pending).state,'ready');assert.equal(Date.now(),7500,'completion wakes before the 10500 ms polling deadline');
 });
 

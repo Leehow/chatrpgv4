@@ -121,9 +121,9 @@ async function writeWorld(game, value) {
 async function seedLegacy(game, {enabled = true, coarse = false, dossier = {[NPC]: CARD}, archived = {[NPC]: V1}, target = {}} = {}) {
 	const digests = await installOld(game);
 	const current = await world(game);
-	current.mods.active["narration-craft"] = {version: "1.6.0", digest: digests.narration, state_version: 1, enabled: true,
+	current.mods.active["narration-craft"] = {version: "1.6.0", version_policy: "pinned", digest: digests.narration, state_version: 1, enabled: true,
 		settings: {density_guide: "off"}};
-	current.mods.active["npc-voice"] = {version: "1.2.0", digest: digests.voice, state_version: 2, enabled, settings: {coarse_language: coarse}};
+	current.mods.active["npc-voice"] = {version: "1.2.0", version_policy: "pinned", digest: digests.voice, state_version: 2, enabled, settings: {coarse_language: coarse}};
 	current.mods.state["npc-voice"] = {dossier, legacy_voice_dossier: archived};
 	current.mods.state["narration-craft"] = {dossier: target};
 	await writeWorld(game, current);
