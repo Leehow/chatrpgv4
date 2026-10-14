@@ -1,7 +1,8 @@
 /** Ordinary plan outcomes use the existing intention transaction, not an intermediate attempted write. */
 import assert from 'node:assert/strict';
+import {join} from 'node:path';
 import {test} from 'node:test';
-import {kernel,openTurn,type Row} from './support.ts';
+import {campaignDir,kernel,openTurn,readJson,type Row} from './support.ts';
 
 const npc='Steven Knott';
 
@@ -23,8 +24,37 @@ for(const outcome of ['done','failed'])test(`an ordinary planned action can beco
   assert.deepEqual(await k.table('look',{focus:'investigator'}),before,'an intention result changes no rule-owned resource or condition');
   const situation=await k.ok('npc.situation',{campaign:'c1',name:npc});
   assert.equal(situation.done.find((intent:Row)=>intent.ref===plan.ref).status,outcome);
-  const repeated=await k.tableErr('apply',{call_id:'t2-c2',effects:[{kind:'npc',name:npc,...result}]});
-  assert.equal(repeated.details.reason,'intent_settled');assert.deepEqual((await k.table('status')).receipts,receipts);
+  await k.table('narrate',{call_id:'t2-c2',text:'Knott reports the appointment result.'});
+  await k.table('player_input',{text:'I confirm the same result without asking for another attempt.'});
+  const directory=campaignDir(k.workspace),intentRow=()=>Object.values(readJson(join(directory,'npc-ledger.json')))
+    .flatMap((entry:any)=>entry.intents??[]).find((intent:Row)=>intent.ref===plan.ref);
+  const original=structuredClone(intentRow()),priorTurn=readJson(join(directory,'turns/0002.json')),
+    priorWorld=readJson(join(directory,'world.json'));
+  assert.equal(original.status,outcome);assert.equal(original.last_turn,2);
+  const repeated=await k.table('apply',{call_id:'t3-c1',effects:[{kind:'npc',name:npc,...result}]});
+  assert.equal(repeated.receipts.length,1,'a same-outcome acknowledgment records only its bookkeeping receipt');
+  const acknowledgment=(await k.table('status')).receipts;
+  assert.equal(acknowledgment.length,1);assert.equal(acknowledgment[0].kind,'npc');
+  assert.equal(acknowledgment[0].intent.ref,plan.ref);assert.equal(acknowledgment[0].intent.outcome,outcome);
+  assert.deepEqual((await k.ok('npc.situation',{campaign:'c1',name:npc})).done.find((intent:Row)=>intent.ref===plan.ref),
+    situation.done.find((intent:Row)=>intent.ref===plan.ref),'acknowledgment does not rewrite the first intention result');
+  assert.deepEqual(await k.table('look',{focus:'investigator'}),before);
+  assert.deepEqual(readJson(join(directory,'world.json')),priorWorld,'acknowledgment executes no physical change');
+  for(const [index,effect] of [
+    {intent_ref:plan.ref,outcome:'attempted'},
+    {intent_ref:plan.ref,outcome:outcome==='done'?'failed':'done'},
+    {to:'away',intent_ref:plan.ref,intent_outcome:outcome},
+  ].entries()){
+    const rejected=await k.tableErr('apply',{call_id:`t3-c${index+2}`,effects:[{kind:'npc',name:npc,...effect}]});
+    assert.equal(rejected.details.reason,'intent_settled');
+    assert.deepEqual((await k.table('status')).receipts,acknowledgment);
+    assert.deepEqual(readJson(join(directory,'world.json')),priorWorld);
+  }
+  await k.table('narrate',{call_id:'t3-c5',text:'The same settled result stands.'});
+  await k.table('player_input',{text:'I turn to a different matter.'});
+  assert.deepEqual(intentRow(),original,'status, last turn, attempts and original fields survive receipt folding unchanged');
+  assert.deepEqual(readJson(join(directory,'turns/0002.json')),priorTurn,'the first settlement and its receipts are retained');
+  assert.deepEqual(await k.table('look',{focus:'investigator'}),before);
 });
 
 for(const status of ['planned','attempted'])test(`a generated ${status} action still rejects an unsupported intention result`,async t=>{

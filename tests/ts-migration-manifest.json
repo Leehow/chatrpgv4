@@ -24716,7 +24716,7 @@
           "counterpart": {
             "file": "tests/integration/rules-apply.test.ts",
             "name": "test_move_reachable_and_unreachable",
-            "sha256": "fe8b4ca73683bb15a6e887655136259a35fec7fe27745839aa73221faa6b2815"
+            "sha256": "919729da321380eb1b90ea5a6d9615d5874b38ddd42e25bacd876878227de0be"
           },
           "review": "statement-by-statement",
           "validation": {
@@ -24783,6 +24783,20 @@
               "evidence": ".coc/test-runs/npc-variation-amax-YZ4od66q/native-ts/evidence/integration-ts-N6JAON",
               "junit": ".coc/test-runs/npc-variation-amax-YZ4od66q/native-ts/evidence/integration-ts-N6JAON/results.xml",
               "review": "Original rule, dice, transaction and presentation assertions retained. Private NPC initialization dice are verified separately from ordinary action receipts; the existing dossier budget fixture disables this optional Mod, while the enabled crowd path is covered in npc-variation.test.ts."
+            },
+            "currentRevalidation": {
+              "result": "passed",
+              "tests": 23,
+              "evidence": ".tmp/amaranthine-system-20261013/full-f5-test-sync/frozen-counterpart-execution.json",
+              "retainedRun": "run.UHmnQ4dd",
+              "retainedRunOverallExitCode": 1,
+              "retainedNativeStageExitCode": 1,
+              "scope": "Only this file passed in the retained full run; the full run remains failed.",
+              "contracts": [
+                "237.44",
+                "237.45"
+              ],
+              "review": "Original case names, source inventory and assertion records are retained. The authorized section 237.44 night-rest adjustment keeps the first eight-hour HP gain, rejects another gain within that 24-hour interval, then proves the next gain after 16 additional hours. Section 237.45 adds real refusal, attributed knowledge, unchanged clue/world and restart coverage."
             }
           },
           "migrationNotes": "Original assertion statements and parameters reviewed; actual native RPC/disk/process/mechanics boundaries preserved."
@@ -24821,7 +24835,7 @@
           "counterpart": {
             "file": "tests/integration/rules-apply.test.ts",
             "name": "test_a_route_the_keeper_made_lands_and_says_it_was_off_the_graph",
-            "sha256": "fe8b4ca73683bb15a6e887655136259a35fec7fe27745839aa73221faa6b2815"
+            "sha256": "919729da321380eb1b90ea5a6d9615d5874b38ddd42e25bacd876878227de0be"
           },
           "review": "statement-by-statement",
           "validation": {
@@ -24888,6 +24902,20 @@
               "evidence": ".coc/test-runs/npc-variation-amax-YZ4od66q/native-ts/evidence/integration-ts-N6JAON",
               "junit": ".coc/test-runs/npc-variation-amax-YZ4od66q/native-ts/evidence/integration-ts-N6JAON/results.xml",
               "review": "Original rule, dice, transaction and presentation assertions retained. Private NPC initialization dice are verified separately from ordinary action receipts; the existing dossier budget fixture disables this optional Mod, while the enabled crowd path is covered in npc-variation.test.ts."
+            },
+            "currentRevalidation": {
+              "result": "passed",
+              "tests": 23,
+              "evidence": ".tmp/amaranthine-system-20261013/full-f5-test-sync/frozen-counterpart-execution.json",
+              "retainedRun": "run.UHmnQ4dd",
+              "retainedRunOverallExitCode": 1,
+              "retainedNativeStageExitCode": 1,
+              "scope": "Only this file passed in the retained full run; the full run remains failed.",
+              "contracts": [
+                "237.44",
+                "237.45"
+              ],
+              "review": "Original case names, source inventory and assertion records are retained. The authorized section 237.44 night-rest adjustment keeps the first eight-hour HP gain, rejects another gain within that 24-hour interval, then proves the next gain after 16 additional hours. Section 237.45 adds real refusal, attributed knowledge, unchanged clue/world and restart coverage."
             }
           },
           "migrationNotes": "Original assertion statements and parameters reviewed; actual native RPC/disk/process/mechanics boundaries preserved."
@@ -24946,7 +24974,7 @@
           "counterpart": {
             "file": "tests/integration/rules-apply.test.ts",
             "name": "test_move_retraces_the_trail",
-            "sha256": "fe8b4ca73683bb15a6e887655136259a35fec7fe27745839aa73221faa6b2815"
+            "sha256": "919729da321380eb1b90ea5a6d9615d5874b38ddd42e25bacd876878227de0be"
           },
           "review": "statement-by-statement",
           "validation": {
@@ -25013,6 +25041,20 @@
               "evidence": ".coc/test-runs/npc-variation-amax-YZ4od66q/native-ts/evidence/integration-ts-N6JAON",
               "junit": ".coc/test-runs/npc-variation-amax-YZ4od66q/native-ts/evidence/integration-ts-N6JAON/results.xml",
               "review": "Original rule, dice, transaction and presentation assertions retained. Private NPC initialization dice are verified separately from ordinary action receipts; the existing dossier budget fixture disables this optional Mod, while the enabled crowd path is covered in npc-variation.test.ts."
+            },
+            "currentRevalidation": {
+              "result": "passed",
+              "tests": 23,
+              "evidence": ".tmp/amaranthine-system-20261013/full-f5-test-sync/frozen-counterpart-execution.json",
+              "retainedRun": "run.UHmnQ4dd",
+              "retainedRunOverallExitCode": 1,
+              "retainedNativeStageExitCode": 1,
+              "scope": "Only this file passed in the retained full run; the full run remains failed.",
+              "contracts": [
+                "237.44",
+                "237.45"
+              ],
+              "review": "Original case names, source inventory and assertion records are retained. The authorized section 237.44 night-rest adjustment keeps the first eight-hour HP gain, rejects another gain within that 24-hour interval, then proves the next gain after 16 additional hours. Section 237.45 adds real refusal, attributed knowledge, unchanged clue/world and restart coverage."
             }
           },
           "migrationNotes": "Original assertion statements and parameters reviewed; actual native RPC/disk/process/mechanics boundaries preserved."
@@ -25059,7 +25101,7 @@
           "counterpart": {
             "file": "tests/integration/rules-apply.test.ts",
             "name": "test_a_clue_of_the_scene_left_this_turn_lands_at_that_scene",
-            "sha256": "fe8b4ca73683bb15a6e887655136259a35fec7fe27745839aa73221faa6b2815"
+            "sha256": "919729da321380eb1b90ea5a6d9615d5874b38ddd42e25bacd876878227de0be"
           },
           "review": "statement-by-statement",
           "validation": {
@@ -25126,6 +25168,20 @@
               "evidence": ".coc/test-runs/npc-variation-amax-YZ4od66q/native-ts/evidence/integration-ts-N6JAON",
               "junit": ".coc/test-runs/npc-variation-amax-YZ4od66q/native-ts/evidence/integration-ts-N6JAON/results.xml",
               "review": "Original rule, dice, transaction and presentation assertions retained. Private NPC initialization dice are verified separately from ordinary action receipts; the existing dossier budget fixture disables this optional Mod, while the enabled crowd path is covered in npc-variation.test.ts."
+            },
+            "currentRevalidation": {
+              "result": "passed",
+              "tests": 23,
+              "evidence": ".tmp/amaranthine-system-20261013/full-f5-test-sync/frozen-counterpart-execution.json",
+              "retainedRun": "run.UHmnQ4dd",
+              "retainedRunOverallExitCode": 1,
+              "retainedNativeStageExitCode": 1,
+              "scope": "Only this file passed in the retained full run; the full run remains failed.",
+              "contracts": [
+                "237.44",
+                "237.45"
+              ],
+              "review": "Original case names, source inventory and assertion records are retained. The authorized section 237.44 night-rest adjustment keeps the first eight-hour HP gain, rejects another gain within that 24-hour interval, then proves the next gain after 16 additional hours. Section 237.45 adds real refusal, attributed knowledge, unchanged clue/world and restart coverage."
             }
           },
           "migrationNotes": "Original assertion statements and parameters reviewed; actual native RPC/disk/process/mechanics boundaries preserved."
@@ -25152,7 +25208,7 @@
           "counterpart": {
             "file": "tests/integration/rules-apply.test.ts",
             "name": "test_a_move_then_the_old_scenes_clue_in_one_batch_lands",
-            "sha256": "fe8b4ca73683bb15a6e887655136259a35fec7fe27745839aa73221faa6b2815"
+            "sha256": "919729da321380eb1b90ea5a6d9615d5874b38ddd42e25bacd876878227de0be"
           },
           "review": "statement-by-statement",
           "validation": {
@@ -25219,6 +25275,20 @@
               "evidence": ".coc/test-runs/npc-variation-amax-YZ4od66q/native-ts/evidence/integration-ts-N6JAON",
               "junit": ".coc/test-runs/npc-variation-amax-YZ4od66q/native-ts/evidence/integration-ts-N6JAON/results.xml",
               "review": "Original rule, dice, transaction and presentation assertions retained. Private NPC initialization dice are verified separately from ordinary action receipts; the existing dossier budget fixture disables this optional Mod, while the enabled crowd path is covered in npc-variation.test.ts."
+            },
+            "currentRevalidation": {
+              "result": "passed",
+              "tests": 23,
+              "evidence": ".tmp/amaranthine-system-20261013/full-f5-test-sync/frozen-counterpart-execution.json",
+              "retainedRun": "run.UHmnQ4dd",
+              "retainedRunOverallExitCode": 1,
+              "retainedNativeStageExitCode": 1,
+              "scope": "Only this file passed in the retained full run; the full run remains failed.",
+              "contracts": [
+                "237.44",
+                "237.45"
+              ],
+              "review": "Original case names, source inventory and assertion records are retained. The authorized section 237.44 night-rest adjustment keeps the first eight-hour HP gain, rejects another gain within that 24-hour interval, then proves the next gain after 16 additional hours. Section 237.45 adds real refusal, attributed knowledge, unchanged clue/world and restart coverage."
             }
           },
           "migrationNotes": "Original assertion statements and parameters reviewed; actual native RPC/disk/process/mechanics boundaries preserved."
@@ -25301,7 +25371,7 @@
           "counterpart": {
             "file": "tests/integration/rules-apply.test.ts",
             "name": "test_clue_here_not_here_and_duplicate",
-            "sha256": "fe8b4ca73683bb15a6e887655136259a35fec7fe27745839aa73221faa6b2815"
+            "sha256": "919729da321380eb1b90ea5a6d9615d5874b38ddd42e25bacd876878227de0be"
           },
           "review": "statement-by-statement",
           "validation": {
@@ -25368,6 +25438,20 @@
               "evidence": ".coc/test-runs/npc-variation-amax-YZ4od66q/native-ts/evidence/integration-ts-N6JAON",
               "junit": ".coc/test-runs/npc-variation-amax-YZ4od66q/native-ts/evidence/integration-ts-N6JAON/results.xml",
               "review": "Original rule, dice, transaction and presentation assertions retained. Private NPC initialization dice are verified separately from ordinary action receipts; the existing dossier budget fixture disables this optional Mod, while the enabled crowd path is covered in npc-variation.test.ts."
+            },
+            "currentRevalidation": {
+              "result": "passed",
+              "tests": 23,
+              "evidence": ".tmp/amaranthine-system-20261013/full-f5-test-sync/frozen-counterpart-execution.json",
+              "retainedRun": "run.UHmnQ4dd",
+              "retainedRunOverallExitCode": 1,
+              "retainedNativeStageExitCode": 1,
+              "scope": "Only this file passed in the retained full run; the full run remains failed.",
+              "contracts": [
+                "237.44",
+                "237.45"
+              ],
+              "review": "Original case names, source inventory and assertion records are retained. The authorized section 237.44 night-rest adjustment keeps the first eight-hour HP gain, rejects another gain within that 24-hour interval, then proves the next gain after 16 additional hours. Section 237.45 adds real refusal, attributed knowledge, unchanged clue/world and restart coverage."
             }
           },
           "migrationNotes": "Original assertion statements and parameters reviewed; actual native RPC/disk/process/mechanics boundaries preserved."
@@ -25410,7 +25494,7 @@
           "counterpart": {
             "file": "tests/integration/rules-apply.test.ts",
             "name": "test_time_advances_the_clock",
-            "sha256": "fe8b4ca73683bb15a6e887655136259a35fec7fe27745839aa73221faa6b2815"
+            "sha256": "919729da321380eb1b90ea5a6d9615d5874b38ddd42e25bacd876878227de0be"
           },
           "review": "statement-by-statement",
           "validation": {
@@ -25477,6 +25561,20 @@
               "evidence": ".coc/test-runs/npc-variation-amax-YZ4od66q/native-ts/evidence/integration-ts-N6JAON",
               "junit": ".coc/test-runs/npc-variation-amax-YZ4od66q/native-ts/evidence/integration-ts-N6JAON/results.xml",
               "review": "Original rule, dice, transaction and presentation assertions retained. Private NPC initialization dice are verified separately from ordinary action receipts; the existing dossier budget fixture disables this optional Mod, while the enabled crowd path is covered in npc-variation.test.ts."
+            },
+            "currentRevalidation": {
+              "result": "passed",
+              "tests": 23,
+              "evidence": ".tmp/amaranthine-system-20261013/full-f5-test-sync/frozen-counterpart-execution.json",
+              "retainedRun": "run.UHmnQ4dd",
+              "retainedRunOverallExitCode": 1,
+              "retainedNativeStageExitCode": 1,
+              "scope": "Only this file passed in the retained full run; the full run remains failed.",
+              "contracts": [
+                "237.44",
+                "237.45"
+              ],
+              "review": "Original case names, source inventory and assertion records are retained. The authorized section 237.44 night-rest adjustment keeps the first eight-hour HP gain, rejects another gain within that 24-hour interval, then proves the next gain after 16 additional hours. Section 237.45 adds real refusal, attributed knowledge, unchanged clue/world and restart coverage."
             }
           },
           "migrationNotes": "Original assertion statements and parameters reviewed; actual native RPC/disk/process/mechanics boundaries preserved."
@@ -25527,7 +25625,7 @@
           "counterpart": {
             "file": "tests/integration/rules-apply.test.ts",
             "name": "test_batch_is_atomic",
-            "sha256": "fe8b4ca73683bb15a6e887655136259a35fec7fe27745839aa73221faa6b2815"
+            "sha256": "919729da321380eb1b90ea5a6d9615d5874b38ddd42e25bacd876878227de0be"
           },
           "review": "statement-by-statement",
           "validation": {
@@ -25594,6 +25692,20 @@
               "evidence": ".coc/test-runs/npc-variation-amax-YZ4od66q/native-ts/evidence/integration-ts-N6JAON",
               "junit": ".coc/test-runs/npc-variation-amax-YZ4od66q/native-ts/evidence/integration-ts-N6JAON/results.xml",
               "review": "Original rule, dice, transaction and presentation assertions retained. Private NPC initialization dice are verified separately from ordinary action receipts; the existing dossier budget fixture disables this optional Mod, while the enabled crowd path is covered in npc-variation.test.ts."
+            },
+            "currentRevalidation": {
+              "result": "passed",
+              "tests": 23,
+              "evidence": ".tmp/amaranthine-system-20261013/full-f5-test-sync/frozen-counterpart-execution.json",
+              "retainedRun": "run.UHmnQ4dd",
+              "retainedRunOverallExitCode": 1,
+              "retainedNativeStageExitCode": 1,
+              "scope": "Only this file passed in the retained full run; the full run remains failed.",
+              "contracts": [
+                "237.44",
+                "237.45"
+              ],
+              "review": "Original case names, source inventory and assertion records are retained. The authorized section 237.44 night-rest adjustment keeps the first eight-hour HP gain, rejects another gain within that 24-hour interval, then proves the next gain after 16 additional hours. Section 237.45 adds real refusal, attributed knowledge, unchanged clue/world and restart coverage."
             }
           },
           "migrationNotes": "Original assertion statements and parameters reviewed; actual native RPC/disk/process/mechanics boundaries preserved."
@@ -25632,7 +25744,7 @@
           "counterpart": {
             "file": "tests/integration/rules-apply.test.ts",
             "name": "test_reserved_and_unknown_effect_kinds",
-            "sha256": "fe8b4ca73683bb15a6e887655136259a35fec7fe27745839aa73221faa6b2815"
+            "sha256": "919729da321380eb1b90ea5a6d9615d5874b38ddd42e25bacd876878227de0be"
           },
           "review": "statement-by-statement",
           "validation": {
@@ -25699,6 +25811,20 @@
               "evidence": ".coc/test-runs/npc-variation-amax-YZ4od66q/native-ts/evidence/integration-ts-N6JAON",
               "junit": ".coc/test-runs/npc-variation-amax-YZ4od66q/native-ts/evidence/integration-ts-N6JAON/results.xml",
               "review": "Original rule, dice, transaction and presentation assertions retained. Private NPC initialization dice are verified separately from ordinary action receipts; the existing dossier budget fixture disables this optional Mod, while the enabled crowd path is covered in npc-variation.test.ts."
+            },
+            "currentRevalidation": {
+              "result": "passed",
+              "tests": 23,
+              "evidence": ".tmp/amaranthine-system-20261013/full-f5-test-sync/frozen-counterpart-execution.json",
+              "retainedRun": "run.UHmnQ4dd",
+              "retainedRunOverallExitCode": 1,
+              "retainedNativeStageExitCode": 1,
+              "scope": "Only this file passed in the retained full run; the full run remains failed.",
+              "contracts": [
+                "237.44",
+                "237.45"
+              ],
+              "review": "Original case names, source inventory and assertion records are retained. The authorized section 237.44 night-rest adjustment keeps the first eight-hour HP gain, rejects another gain within that 24-hour interval, then proves the next gain after 16 additional hours. Section 237.45 adds real refusal, attributed knowledge, unchanged clue/world and restart coverage."
             }
           },
           "migrationNotes": "Original assertion statements and parameters reviewed; actual native RPC/disk/process/mechanics boundaries preserved."
@@ -25741,7 +25867,7 @@
           "counterpart": {
             "file": "tests/integration/rules-apply.test.ts",
             "name": "test_damage_effect_rolls_the_dice_and_moves_hp",
-            "sha256": "fe8b4ca73683bb15a6e887655136259a35fec7fe27745839aa73221faa6b2815"
+            "sha256": "919729da321380eb1b90ea5a6d9615d5874b38ddd42e25bacd876878227de0be"
           },
           "review": "statement-by-statement",
           "validation": {
@@ -25808,6 +25934,20 @@
               "evidence": ".coc/test-runs/npc-variation-amax-YZ4od66q/native-ts/evidence/integration-ts-N6JAON",
               "junit": ".coc/test-runs/npc-variation-amax-YZ4od66q/native-ts/evidence/integration-ts-N6JAON/results.xml",
               "review": "Original rule, dice, transaction and presentation assertions retained. Private NPC initialization dice are verified separately from ordinary action receipts; the existing dossier budget fixture disables this optional Mod, while the enabled crowd path is covered in npc-variation.test.ts."
+            },
+            "currentRevalidation": {
+              "result": "passed",
+              "tests": 23,
+              "evidence": ".tmp/amaranthine-system-20261013/full-f5-test-sync/frozen-counterpart-execution.json",
+              "retainedRun": "run.UHmnQ4dd",
+              "retainedRunOverallExitCode": 1,
+              "retainedNativeStageExitCode": 1,
+              "scope": "Only this file passed in the retained full run; the full run remains failed.",
+              "contracts": [
+                "237.44",
+                "237.45"
+              ],
+              "review": "Original case names, source inventory and assertion records are retained. The authorized section 237.44 night-rest adjustment keeps the first eight-hour HP gain, rejects another gain within that 24-hour interval, then proves the next gain after 16 additional hours. Section 237.45 adds real refusal, attributed knowledge, unchanged clue/world and restart coverage."
             }
           },
           "migrationNotes": "Original assertion statements and parameters reviewed; actual native RPC/disk/process/mechanics boundaries preserved."
@@ -25842,7 +25982,7 @@
           "counterpart": {
             "file": "tests/integration/rules-apply.test.ts",
             "name": "test_damage_effect_takes_compound_rulebook_dice",
-            "sha256": "fe8b4ca73683bb15a6e887655136259a35fec7fe27745839aa73221faa6b2815"
+            "sha256": "919729da321380eb1b90ea5a6d9615d5874b38ddd42e25bacd876878227de0be"
           },
           "review": "statement-by-statement",
           "validation": {
@@ -25909,6 +26049,20 @@
               "evidence": ".coc/test-runs/npc-variation-amax-YZ4od66q/native-ts/evidence/integration-ts-N6JAON",
               "junit": ".coc/test-runs/npc-variation-amax-YZ4od66q/native-ts/evidence/integration-ts-N6JAON/results.xml",
               "review": "Original rule, dice, transaction and presentation assertions retained. Private NPC initialization dice are verified separately from ordinary action receipts; the existing dossier budget fixture disables this optional Mod, while the enabled crowd path is covered in npc-variation.test.ts."
+            },
+            "currentRevalidation": {
+              "result": "passed",
+              "tests": 23,
+              "evidence": ".tmp/amaranthine-system-20261013/full-f5-test-sync/frozen-counterpart-execution.json",
+              "retainedRun": "run.UHmnQ4dd",
+              "retainedRunOverallExitCode": 1,
+              "retainedNativeStageExitCode": 1,
+              "scope": "Only this file passed in the retained full run; the full run remains failed.",
+              "contracts": [
+                "237.44",
+                "237.45"
+              ],
+              "review": "Original case names, source inventory and assertion records are retained. The authorized section 237.44 night-rest adjustment keeps the first eight-hour HP gain, rejects another gain within that 24-hour interval, then proves the next gain after 16 additional hours. Section 237.45 adds real refusal, attributed knowledge, unchanged clue/world and restart coverage."
             }
           },
           "migrationNotes": "Original assertion statements and parameters reviewed; actual native RPC/disk/process/mechanics boundaries preserved."
@@ -25955,7 +26109,7 @@
           "counterpart": {
             "file": "tests/integration/rules-apply.test.ts",
             "name": "test_move_label_names_the_scene_from_then_on",
-            "sha256": "fe8b4ca73683bb15a6e887655136259a35fec7fe27745839aa73221faa6b2815"
+            "sha256": "919729da321380eb1b90ea5a6d9615d5874b38ddd42e25bacd876878227de0be"
           },
           "review": "statement-by-statement",
           "validation": {
@@ -26022,6 +26176,20 @@
               "evidence": ".coc/test-runs/npc-variation-amax-YZ4od66q/native-ts/evidence/integration-ts-N6JAON",
               "junit": ".coc/test-runs/npc-variation-amax-YZ4od66q/native-ts/evidence/integration-ts-N6JAON/results.xml",
               "review": "Original rule, dice, transaction and presentation assertions retained. Private NPC initialization dice are verified separately from ordinary action receipts; the existing dossier budget fixture disables this optional Mod, while the enabled crowd path is covered in npc-variation.test.ts."
+            },
+            "currentRevalidation": {
+              "result": "passed",
+              "tests": 23,
+              "evidence": ".tmp/amaranthine-system-20261013/full-f5-test-sync/frozen-counterpart-execution.json",
+              "retainedRun": "run.UHmnQ4dd",
+              "retainedRunOverallExitCode": 1,
+              "retainedNativeStageExitCode": 1,
+              "scope": "Only this file passed in the retained full run; the full run remains failed.",
+              "contracts": [
+                "237.44",
+                "237.45"
+              ],
+              "review": "Original case names, source inventory and assertion records are retained. The authorized section 237.44 night-rest adjustment keeps the first eight-hour HP gain, rejects another gain within that 24-hour interval, then proves the next gain after 16 additional hours. Section 237.45 adds real refusal, attributed knowledge, unchanged clue/world and restart coverage."
             }
           },
           "migrationNotes": "Original assertion statements and parameters reviewed; actual native RPC/disk/process/mechanics boundaries preserved."
@@ -26068,7 +26236,7 @@
           "counterpart": {
             "file": "tests/integration/rules-apply.test.ts",
             "name": "test_a_night_of_rest_gives_back_the_hit_point_the_rulebook_promises",
-            "sha256": "fe8b4ca73683bb15a6e887655136259a35fec7fe27745839aa73221faa6b2815"
+            "sha256": "919729da321380eb1b90ea5a6d9615d5874b38ddd42e25bacd876878227de0be"
           },
           "review": "statement-by-statement",
           "validation": {
@@ -26135,6 +26303,20 @@
               "evidence": ".coc/test-runs/npc-variation-amax-YZ4od66q/native-ts/evidence/integration-ts-N6JAON",
               "junit": ".coc/test-runs/npc-variation-amax-YZ4od66q/native-ts/evidence/integration-ts-N6JAON/results.xml",
               "review": "Original rule, dice, transaction and presentation assertions retained. Private NPC initialization dice are verified separately from ordinary action receipts; the existing dossier budget fixture disables this optional Mod, while the enabled crowd path is covered in npc-variation.test.ts."
+            },
+            "currentRevalidation": {
+              "result": "passed",
+              "tests": 23,
+              "evidence": ".tmp/amaranthine-system-20261013/full-f5-test-sync/frozen-counterpart-execution.json",
+              "retainedRun": "run.UHmnQ4dd",
+              "retainedRunOverallExitCode": 1,
+              "retainedNativeStageExitCode": 1,
+              "scope": "Only this file passed in the retained full run; the full run remains failed.",
+              "contracts": [
+                "237.44",
+                "237.45"
+              ],
+              "review": "Original case names, source inventory and assertion records are retained. The authorized section 237.44 night-rest adjustment keeps the first eight-hour HP gain, rejects another gain within that 24-hour interval, then proves the next gain after 16 additional hours. Section 237.45 adds real refusal, attributed knowledge, unchanged clue/world and restart coverage."
             }
           },
           "migrationNotes": "Original assertion statements and parameters reviewed; actual native RPC/disk/process/mechanics boundaries preserved."
@@ -26165,7 +26347,7 @@
           "counterpart": {
             "file": "tests/integration/rules-apply.test.ts",
             "name": "test_travel_time_is_a_trip_not_a_rest",
-            "sha256": "fe8b4ca73683bb15a6e887655136259a35fec7fe27745839aa73221faa6b2815"
+            "sha256": "919729da321380eb1b90ea5a6d9615d5874b38ddd42e25bacd876878227de0be"
           },
           "review": "statement-by-statement",
           "validation": {
@@ -26232,6 +26414,20 @@
               "evidence": ".coc/test-runs/npc-variation-amax-YZ4od66q/native-ts/evidence/integration-ts-N6JAON",
               "junit": ".coc/test-runs/npc-variation-amax-YZ4od66q/native-ts/evidence/integration-ts-N6JAON/results.xml",
               "review": "Original rule, dice, transaction and presentation assertions retained. Private NPC initialization dice are verified separately from ordinary action receipts; the existing dossier budget fixture disables this optional Mod, while the enabled crowd path is covered in npc-variation.test.ts."
+            },
+            "currentRevalidation": {
+              "result": "passed",
+              "tests": 23,
+              "evidence": ".tmp/amaranthine-system-20261013/full-f5-test-sync/frozen-counterpart-execution.json",
+              "retainedRun": "run.UHmnQ4dd",
+              "retainedRunOverallExitCode": 1,
+              "retainedNativeStageExitCode": 1,
+              "scope": "Only this file passed in the retained full run; the full run remains failed.",
+              "contracts": [
+                "237.44",
+                "237.45"
+              ],
+              "review": "Original case names, source inventory and assertion records are retained. The authorized section 237.44 night-rest adjustment keeps the first eight-hour HP gain, rejects another gain within that 24-hour interval, then proves the next gain after 16 additional hours. Section 237.45 adds real refusal, attributed knowledge, unchanged clue/world and restart coverage."
             }
           },
           "migrationNotes": "Original assertion statements and parameters reviewed; actual native RPC/disk/process/mechanics boundaries preserved."
@@ -26262,7 +26458,7 @@
           "counterpart": {
             "file": "tests/integration/rules-apply.test.ts",
             "name": "test_magic_points_come_back_over_an_hour_of_rest",
-            "sha256": "fe8b4ca73683bb15a6e887655136259a35fec7fe27745839aa73221faa6b2815"
+            "sha256": "919729da321380eb1b90ea5a6d9615d5874b38ddd42e25bacd876878227de0be"
           },
           "review": "statement-by-statement",
           "validation": {
@@ -26329,6 +26525,20 @@
               "evidence": ".coc/test-runs/npc-variation-amax-YZ4od66q/native-ts/evidence/integration-ts-N6JAON",
               "junit": ".coc/test-runs/npc-variation-amax-YZ4od66q/native-ts/evidence/integration-ts-N6JAON/results.xml",
               "review": "Original rule, dice, transaction and presentation assertions retained. Private NPC initialization dice are verified separately from ordinary action receipts; the existing dossier budget fixture disables this optional Mod, while the enabled crowd path is covered in npc-variation.test.ts."
+            },
+            "currentRevalidation": {
+              "result": "passed",
+              "tests": 23,
+              "evidence": ".tmp/amaranthine-system-20261013/full-f5-test-sync/frozen-counterpart-execution.json",
+              "retainedRun": "run.UHmnQ4dd",
+              "retainedRunOverallExitCode": 1,
+              "retainedNativeStageExitCode": 1,
+              "scope": "Only this file passed in the retained full run; the full run remains failed.",
+              "contracts": [
+                "237.44",
+                "237.45"
+              ],
+              "review": "Original case names, source inventory and assertion records are retained. The authorized section 237.44 night-rest adjustment keeps the first eight-hour HP gain, rejects another gain within that 24-hour interval, then proves the next gain after 16 additional hours. Section 237.45 adds real refusal, attributed knowledge, unchanged clue/world and restart coverage."
             }
           },
           "migrationNotes": "Original assertion statements and parameters reviewed; actual native RPC/disk/process/mechanics boundaries preserved."
@@ -26379,7 +26589,7 @@
           "counterpart": {
             "file": "tests/integration/rules-apply.test.ts",
             "name": "test_the_scene_underfoot_can_be_given_its_name",
-            "sha256": "fe8b4ca73683bb15a6e887655136259a35fec7fe27745839aa73221faa6b2815"
+            "sha256": "919729da321380eb1b90ea5a6d9615d5874b38ddd42e25bacd876878227de0be"
           },
           "review": "statement-by-statement",
           "validation": {
@@ -26446,6 +26656,20 @@
               "evidence": ".coc/test-runs/npc-variation-amax-YZ4od66q/native-ts/evidence/integration-ts-N6JAON",
               "junit": ".coc/test-runs/npc-variation-amax-YZ4od66q/native-ts/evidence/integration-ts-N6JAON/results.xml",
               "review": "Original rule, dice, transaction and presentation assertions retained. Private NPC initialization dice are verified separately from ordinary action receipts; the existing dossier budget fixture disables this optional Mod, while the enabled crowd path is covered in npc-variation.test.ts."
+            },
+            "currentRevalidation": {
+              "result": "passed",
+              "tests": 23,
+              "evidence": ".tmp/amaranthine-system-20261013/full-f5-test-sync/frozen-counterpart-execution.json",
+              "retainedRun": "run.UHmnQ4dd",
+              "retainedRunOverallExitCode": 1,
+              "retainedNativeStageExitCode": 1,
+              "scope": "Only this file passed in the retained full run; the full run remains failed.",
+              "contracts": [
+                "237.44",
+                "237.45"
+              ],
+              "review": "Original case names, source inventory and assertion records are retained. The authorized section 237.44 night-rest adjustment keeps the first eight-hour HP gain, rejects another gain within that 24-hour interval, then proves the next gain after 16 additional hours. Section 237.45 adds real refusal, attributed knowledge, unchanged clue/world and restart coverage."
             }
           },
           "migrationNotes": "Original assertion statements and parameters reviewed; actual native RPC/disk/process/mechanics boundaries preserved."
@@ -26468,7 +26692,7 @@
           "counterpart": {
             "file": "tests/integration/rules-apply.test.ts",
             "name": "test_a_naming_leaves_no_row_on_the_player_s_card",
-            "sha256": "fe8b4ca73683bb15a6e887655136259a35fec7fe27745839aa73221faa6b2815"
+            "sha256": "919729da321380eb1b90ea5a6d9615d5874b38ddd42e25bacd876878227de0be"
           },
           "review": "statement-by-statement",
           "validation": {
@@ -26535,6 +26759,20 @@
               "evidence": ".coc/test-runs/npc-variation-amax-YZ4od66q/native-ts/evidence/integration-ts-N6JAON",
               "junit": ".coc/test-runs/npc-variation-amax-YZ4od66q/native-ts/evidence/integration-ts-N6JAON/results.xml",
               "review": "Original rule, dice, transaction and presentation assertions retained. Private NPC initialization dice are verified separately from ordinary action receipts; the existing dossier budget fixture disables this optional Mod, while the enabled crowd path is covered in npc-variation.test.ts."
+            },
+            "currentRevalidation": {
+              "result": "passed",
+              "tests": 23,
+              "evidence": ".tmp/amaranthine-system-20261013/full-f5-test-sync/frozen-counterpart-execution.json",
+              "retainedRun": "run.UHmnQ4dd",
+              "retainedRunOverallExitCode": 1,
+              "retainedNativeStageExitCode": 1,
+              "scope": "Only this file passed in the retained full run; the full run remains failed.",
+              "contracts": [
+                "237.44",
+                "237.45"
+              ],
+              "review": "Original case names, source inventory and assertion records are retained. The authorized section 237.44 night-rest adjustment keeps the first eight-hour HP gain, rejects another gain within that 24-hour interval, then proves the next gain after 16 additional hours. Section 237.45 adds real refusal, attributed knowledge, unchanged clue/world and restart coverage."
             }
           },
           "migrationNotes": "Original assertion statements and parameters reviewed; actual native RPC/disk/process/mechanics boundaries preserved."
@@ -26569,7 +26807,7 @@
           "counterpart": {
             "file": "tests/integration/rules-apply.test.ts",
             "name": "test_environment_damage_records_zero_hp_conditions",
-            "sha256": "fe8b4ca73683bb15a6e887655136259a35fec7fe27745839aa73221faa6b2815"
+            "sha256": "919729da321380eb1b90ea5a6d9615d5874b38ddd42e25bacd876878227de0be"
           },
           "review": "statement-by-statement",
           "validation": {
@@ -26636,6 +26874,20 @@
               "evidence": ".coc/test-runs/npc-variation-amax-YZ4od66q/native-ts/evidence/integration-ts-N6JAON",
               "junit": ".coc/test-runs/npc-variation-amax-YZ4od66q/native-ts/evidence/integration-ts-N6JAON/results.xml",
               "review": "Original rule, dice, transaction and presentation assertions retained. Private NPC initialization dice are verified separately from ordinary action receipts; the existing dossier budget fixture disables this optional Mod, while the enabled crowd path is covered in npc-variation.test.ts."
+            },
+            "currentRevalidation": {
+              "result": "passed",
+              "tests": 23,
+              "evidence": ".tmp/amaranthine-system-20261013/full-f5-test-sync/frozen-counterpart-execution.json",
+              "retainedRun": "run.UHmnQ4dd",
+              "retainedRunOverallExitCode": 1,
+              "retainedNativeStageExitCode": 1,
+              "scope": "Only this file passed in the retained full run; the full run remains failed.",
+              "contracts": [
+                "237.44",
+                "237.45"
+              ],
+              "review": "Original case names, source inventory and assertion records are retained. The authorized section 237.44 night-rest adjustment keeps the first eight-hour HP gain, rejects another gain within that 24-hour interval, then proves the next gain after 16 additional hours. Section 237.45 adds real refusal, attributed knowledge, unchanged clue/world and restart coverage."
             }
           },
           "migrationNotes": "Original assertion statements and parameters reviewed; actual native RPC/disk/process/mechanics boundaries preserved."
@@ -26662,7 +26914,7 @@
           "counterpart": {
             "file": "tests/integration/rules-apply.test.ts",
             "name": "test_environment_major_wound_and_lethal_damage",
-            "sha256": "fe8b4ca73683bb15a6e887655136259a35fec7fe27745839aa73221faa6b2815"
+            "sha256": "919729da321380eb1b90ea5a6d9615d5874b38ddd42e25bacd876878227de0be"
           },
           "review": "statement-by-statement",
           "validation": {
@@ -26729,6 +26981,20 @@
               "evidence": ".coc/test-runs/npc-variation-amax-YZ4od66q/native-ts/evidence/integration-ts-N6JAON",
               "junit": ".coc/test-runs/npc-variation-amax-YZ4od66q/native-ts/evidence/integration-ts-N6JAON/results.xml",
               "review": "Original rule, dice, transaction and presentation assertions retained. Private NPC initialization dice are verified separately from ordinary action receipts; the existing dossier budget fixture disables this optional Mod, while the enabled crowd path is covered in npc-variation.test.ts."
+            },
+            "currentRevalidation": {
+              "result": "passed",
+              "tests": 23,
+              "evidence": ".tmp/amaranthine-system-20261013/full-f5-test-sync/frozen-counterpart-execution.json",
+              "retainedRun": "run.UHmnQ4dd",
+              "retainedRunOverallExitCode": 1,
+              "retainedNativeStageExitCode": 1,
+              "scope": "Only this file passed in the retained full run; the full run remains failed.",
+              "contracts": [
+                "237.44",
+                "237.45"
+              ],
+              "review": "Original case names, source inventory and assertion records are retained. The authorized section 237.44 night-rest adjustment keeps the first eight-hour HP gain, rejects another gain within that 24-hour interval, then proves the next gain after 16 additional hours. Section 237.45 adds real refusal, attributed knowledge, unchanged clue/world and restart coverage."
             }
           },
           "migrationNotes": "Original assertion statements and parameters reviewed; actual native RPC/disk/process/mechanics boundaries preserved."
@@ -26751,7 +27017,7 @@
           "counterpart": {
             "file": "tests/integration/rules-apply.test.ts",
             "name": "test_handout_display_name_prefers_delivery_over_underlying_asset",
-            "sha256": "fe8b4ca73683bb15a6e887655136259a35fec7fe27745839aa73221faa6b2815"
+            "sha256": "919729da321380eb1b90ea5a6d9615d5874b38ddd42e25bacd876878227de0be"
           },
           "review": "statement-by-statement",
           "validation": {
@@ -26818,6 +27084,20 @@
               "evidence": ".coc/test-runs/npc-variation-amax-YZ4od66q/native-ts/evidence/integration-ts-N6JAON",
               "junit": ".coc/test-runs/npc-variation-amax-YZ4od66q/native-ts/evidence/integration-ts-N6JAON/results.xml",
               "review": "Original rule, dice, transaction and presentation assertions retained. Private NPC initialization dice are verified separately from ordinary action receipts; the existing dossier budget fixture disables this optional Mod, while the enabled crowd path is covered in npc-variation.test.ts."
+            },
+            "currentRevalidation": {
+              "result": "passed",
+              "tests": 23,
+              "evidence": ".tmp/amaranthine-system-20261013/full-f5-test-sync/frozen-counterpart-execution.json",
+              "retainedRun": "run.UHmnQ4dd",
+              "retainedRunOverallExitCode": 1,
+              "retainedNativeStageExitCode": 1,
+              "scope": "Only this file passed in the retained full run; the full run remains failed.",
+              "contracts": [
+                "237.44",
+                "237.45"
+              ],
+              "review": "Original case names, source inventory and assertion records are retained. The authorized section 237.44 night-rest adjustment keeps the first eight-hour HP gain, rejects another gain within that 24-hour interval, then proves the next gain after 16 additional hours. Section 237.45 adds real refusal, attributed knowledge, unchanged clue/world and restart coverage."
             }
           },
           "migrationNotes": "Original assertion statements and parameters reviewed; actual native RPC/disk/process/mechanics boundaries preserved."
@@ -26864,7 +27144,7 @@
           "counterpart": {
             "file": "tests/integration/rules-apply.test.ts",
             "name": "test_a_batch_reports_every_effect_it_refused_not_only_the_first",
-            "sha256": "fe8b4ca73683bb15a6e887655136259a35fec7fe27745839aa73221faa6b2815"
+            "sha256": "919729da321380eb1b90ea5a6d9615d5874b38ddd42e25bacd876878227de0be"
           },
           "review": "statement-by-statement",
           "validation": {
@@ -26931,6 +27211,20 @@
               "evidence": ".coc/test-runs/npc-variation-amax-YZ4od66q/native-ts/evidence/integration-ts-N6JAON",
               "junit": ".coc/test-runs/npc-variation-amax-YZ4od66q/native-ts/evidence/integration-ts-N6JAON/results.xml",
               "review": "Original rule, dice, transaction and presentation assertions retained. Private NPC initialization dice are verified separately from ordinary action receipts; the existing dossier budget fixture disables this optional Mod, while the enabled crowd path is covered in npc-variation.test.ts."
+            },
+            "currentRevalidation": {
+              "result": "passed",
+              "tests": 23,
+              "evidence": ".tmp/amaranthine-system-20261013/full-f5-test-sync/frozen-counterpart-execution.json",
+              "retainedRun": "run.UHmnQ4dd",
+              "retainedRunOverallExitCode": 1,
+              "retainedNativeStageExitCode": 1,
+              "scope": "Only this file passed in the retained full run; the full run remains failed.",
+              "contracts": [
+                "237.44",
+                "237.45"
+              ],
+              "review": "Original case names, source inventory and assertion records are retained. The authorized section 237.44 night-rest adjustment keeps the first eight-hour HP gain, rejects another gain within that 24-hour interval, then proves the next gain after 16 additional hours. Section 237.45 adds real refusal, attributed knowledge, unchanged clue/world and restart coverage."
             }
           },
           "migrationNotes": "Original assertion statements and parameters reviewed; actual native RPC/disk/process/mechanics boundaries preserved."
@@ -26957,7 +27251,7 @@
           "counterpart": {
             "file": "tests/integration/rules-apply.test.ts",
             "name": "test_a_batch_with_one_bad_effect_still_reports_exactly_one",
-            "sha256": "fe8b4ca73683bb15a6e887655136259a35fec7fe27745839aa73221faa6b2815"
+            "sha256": "919729da321380eb1b90ea5a6d9615d5874b38ddd42e25bacd876878227de0be"
           },
           "review": "statement-by-statement",
           "validation": {
@@ -27024,6 +27318,20 @@
               "evidence": ".coc/test-runs/npc-variation-amax-YZ4od66q/native-ts/evidence/integration-ts-N6JAON",
               "junit": ".coc/test-runs/npc-variation-amax-YZ4od66q/native-ts/evidence/integration-ts-N6JAON/results.xml",
               "review": "Original rule, dice, transaction and presentation assertions retained. Private NPC initialization dice are verified separately from ordinary action receipts; the existing dossier budget fixture disables this optional Mod, while the enabled crowd path is covered in npc-variation.test.ts."
+            },
+            "currentRevalidation": {
+              "result": "passed",
+              "tests": 23,
+              "evidence": ".tmp/amaranthine-system-20261013/full-f5-test-sync/frozen-counterpart-execution.json",
+              "retainedRun": "run.UHmnQ4dd",
+              "retainedRunOverallExitCode": 1,
+              "retainedNativeStageExitCode": 1,
+              "scope": "Only this file passed in the retained full run; the full run remains failed.",
+              "contracts": [
+                "237.44",
+                "237.45"
+              ],
+              "review": "Original case names, source inventory and assertion records are retained. The authorized section 237.44 night-rest adjustment keeps the first eight-hour HP gain, rejects another gain within that 24-hour interval, then proves the next gain after 16 additional hours. Section 237.45 adds real refusal, attributed knowledge, unchanged clue/world and restart coverage."
             }
           },
           "migrationNotes": "Original assertion statements and parameters reviewed; actual native RPC/disk/process/mechanics boundaries preserved."
@@ -30682,7 +30990,7 @@
           "counterpart": {
             "file": "tests/integration/time-recovery.test.ts",
             "name": "test_a_day_of_rest_is_one_hit_point_not_three",
-            "sha256": "7b08f90820e6f8046b79cc65ae2443565da8436d63e493854d4a66875c0ab352"
+            "sha256": "3ce3d67a3899cfd696ae6f84cc001ffbd561740469879d5d03fe1208e269a2e4"
           },
           "review": "statement-by-statement",
           "validation": {
@@ -30743,6 +31051,19 @@
               },
               "fullCurrentSourceByteExact": false,
               "remainingSnapshotFilesExact": 1409
+            },
+            "currentRevalidation": {
+              "result": "passed",
+              "tests": 17,
+              "evidence": ".tmp/amaranthine-system-20261013/full-f5-test-sync/frozen-counterpart-execution.json",
+              "retainedRun": "run.UHmnQ4dd",
+              "retainedRunOverallExitCode": 1,
+              "retainedNativeStageExitCode": 1,
+              "scope": "Only this file passed in the retained full run; the full run remains failed.",
+              "contracts": [
+                "237.44"
+              ],
+              "review": "All 12 original case names, parameters and assertions remain unchanged. Five approved native cases add same-day limits, midnight/zero-gain behavior, complete later days, restart/replay and unconscious recovery; original MP and major-wound coverage remains."
             }
           }
         },
@@ -30768,7 +31089,7 @@
           "counterpart": {
             "file": "tests/integration/time-recovery.test.ts",
             "name": "test_the_day_turns_at_twenty_four_hours",
-            "sha256": "7b08f90820e6f8046b79cc65ae2443565da8436d63e493854d4a66875c0ab352"
+            "sha256": "3ce3d67a3899cfd696ae6f84cc001ffbd561740469879d5d03fe1208e269a2e4"
           },
           "review": "statement-by-statement",
           "validation": {
@@ -30829,6 +31150,19 @@
               },
               "fullCurrentSourceByteExact": false,
               "remainingSnapshotFilesExact": 1409
+            },
+            "currentRevalidation": {
+              "result": "passed",
+              "tests": 17,
+              "evidence": ".tmp/amaranthine-system-20261013/full-f5-test-sync/frozen-counterpart-execution.json",
+              "retainedRun": "run.UHmnQ4dd",
+              "retainedRunOverallExitCode": 1,
+              "retainedNativeStageExitCode": 1,
+              "scope": "Only this file passed in the retained full run; the full run remains failed.",
+              "contracts": [
+                "237.44"
+              ],
+              "review": "All 12 original case names, parameters and assertions remain unchanged. Five approved native cases add same-day limits, midnight/zero-gain behavior, complete later days, restart/replay and unconscious recovery; original MP and major-wound coverage remains."
             }
           }
         },
@@ -30858,7 +31192,7 @@
           "counterpart": {
             "file": "tests/integration/time-recovery.test.ts",
             "name": "test_a_week_of_rest_is_seven_hit_points",
-            "sha256": "7b08f90820e6f8046b79cc65ae2443565da8436d63e493854d4a66875c0ab352"
+            "sha256": "3ce3d67a3899cfd696ae6f84cc001ffbd561740469879d5d03fe1208e269a2e4"
           },
           "review": "statement-by-statement",
           "validation": {
@@ -30919,6 +31253,19 @@
               },
               "fullCurrentSourceByteExact": false,
               "remainingSnapshotFilesExact": 1409
+            },
+            "currentRevalidation": {
+              "result": "passed",
+              "tests": 17,
+              "evidence": ".tmp/amaranthine-system-20261013/full-f5-test-sync/frozen-counterpart-execution.json",
+              "retainedRun": "run.UHmnQ4dd",
+              "retainedRunOverallExitCode": 1,
+              "retainedNativeStageExitCode": 1,
+              "scope": "Only this file passed in the retained full run; the full run remains failed.",
+              "contracts": [
+                "237.44"
+              ],
+              "review": "All 12 original case names, parameters and assertions remain unchanged. Five approved native cases add same-day limits, midnight/zero-gain behavior, complete later days, restart/replay and unconscious recovery; original MP and major-wound coverage remains."
             }
           }
         },
@@ -30944,7 +31291,7 @@
           "counterpart": {
             "file": "tests/integration/time-recovery.test.ts",
             "name": "test_a_month_of_rest_is_as_long_as_the_month",
-            "sha256": "7b08f90820e6f8046b79cc65ae2443565da8436d63e493854d4a66875c0ab352"
+            "sha256": "3ce3d67a3899cfd696ae6f84cc001ffbd561740469879d5d03fe1208e269a2e4"
           },
           "review": "statement-by-statement",
           "validation": {
@@ -31005,6 +31352,19 @@
               },
               "fullCurrentSourceByteExact": false,
               "remainingSnapshotFilesExact": 1409
+            },
+            "currentRevalidation": {
+              "result": "passed",
+              "tests": 17,
+              "evidence": ".tmp/amaranthine-system-20261013/full-f5-test-sync/frozen-counterpart-execution.json",
+              "retainedRun": "run.UHmnQ4dd",
+              "retainedRunOverallExitCode": 1,
+              "retainedNativeStageExitCode": 1,
+              "scope": "Only this file passed in the retained full run; the full run remains failed.",
+              "contracts": [
+                "237.44"
+              ],
+              "review": "All 12 original case names, parameters and assertions remain unchanged. Five approved native cases add same-day limits, midnight/zero-gain behavior, complete later days, restart/replay and unconscious recovery; original MP and major-wound coverage remains."
             }
           }
         },
@@ -31042,7 +31402,7 @@
           "counterpart": {
             "file": "tests/integration/time-recovery.test.ts",
             "name": "test_a_major_wound_gets_no_weekly_roll_from_two_days_and_a_third",
-            "sha256": "7b08f90820e6f8046b79cc65ae2443565da8436d63e493854d4a66875c0ab352"
+            "sha256": "3ce3d67a3899cfd696ae6f84cc001ffbd561740469879d5d03fe1208e269a2e4"
           },
           "review": "statement-by-statement",
           "validation": {
@@ -31103,6 +31463,19 @@
               },
               "fullCurrentSourceByteExact": false,
               "remainingSnapshotFilesExact": 1409
+            },
+            "currentRevalidation": {
+              "result": "passed",
+              "tests": 17,
+              "evidence": ".tmp/amaranthine-system-20261013/full-f5-test-sync/frozen-counterpart-execution.json",
+              "retainedRun": "run.UHmnQ4dd",
+              "retainedRunOverallExitCode": 1,
+              "retainedNativeStageExitCode": 1,
+              "scope": "Only this file passed in the retained full run; the full run remains failed.",
+              "contracts": [
+                "237.44"
+              ],
+              "review": "All 12 original case names, parameters and assertions remain unchanged. Five approved native cases add same-day limits, midnight/zero-gain behavior, complete later days, restart/replay and unconscious recovery; original MP and major-wound coverage remains."
             }
           }
         },
@@ -31136,7 +31509,7 @@
           "counterpart": {
             "file": "tests/integration/time-recovery.test.ts",
             "name": "test_three_weeks_with_a_major_wound_roll_three_times",
-            "sha256": "7b08f90820e6f8046b79cc65ae2443565da8436d63e493854d4a66875c0ab352"
+            "sha256": "3ce3d67a3899cfd696ae6f84cc001ffbd561740469879d5d03fe1208e269a2e4"
           },
           "review": "statement-by-statement",
           "validation": {
@@ -31197,6 +31570,19 @@
               },
               "fullCurrentSourceByteExact": false,
               "remainingSnapshotFilesExact": 1409
+            },
+            "currentRevalidation": {
+              "result": "passed",
+              "tests": 17,
+              "evidence": ".tmp/amaranthine-system-20261013/full-f5-test-sync/frozen-counterpart-execution.json",
+              "retainedRun": "run.UHmnQ4dd",
+              "retainedRunOverallExitCode": 1,
+              "retainedNativeStageExitCode": 1,
+              "scope": "Only this file passed in the retained full run; the full run remains failed.",
+              "contracts": [
+                "237.44"
+              ],
+              "review": "All 12 original case names, parameters and assertions remain unchanged. Five approved native cases add same-day limits, midnight/zero-gain behavior, complete later days, restart/replay and unconscious recovery; original MP and major-wound coverage remains."
             }
           }
         },
@@ -31234,7 +31620,7 @@
           "counterpart": {
             "file": "tests/integration/time-recovery.test.ts",
             "name": "test_healing_clears_the_sheet_and_a_healed_wound_does_not_come_back",
-            "sha256": "7b08f90820e6f8046b79cc65ae2443565da8436d63e493854d4a66875c0ab352"
+            "sha256": "3ce3d67a3899cfd696ae6f84cc001ffbd561740469879d5d03fe1208e269a2e4"
           },
           "review": "statement-by-statement",
           "validation": {
@@ -31295,6 +31681,19 @@
               },
               "fullCurrentSourceByteExact": false,
               "remainingSnapshotFilesExact": 1409
+            },
+            "currentRevalidation": {
+              "result": "passed",
+              "tests": 17,
+              "evidence": ".tmp/amaranthine-system-20261013/full-f5-test-sync/frozen-counterpart-execution.json",
+              "retainedRun": "run.UHmnQ4dd",
+              "retainedRunOverallExitCode": 1,
+              "retainedNativeStageExitCode": 1,
+              "scope": "Only this file passed in the retained full run; the full run remains failed.",
+              "contracts": [
+                "237.44"
+              ],
+              "review": "All 12 original case names, parameters and assertions remain unchanged. Five approved native cases add same-day limits, midnight/zero-gain behavior, complete later days, restart/replay and unconscious recovery; original MP and major-wound coverage remains."
             }
           }
         }
@@ -31327,7 +31726,7 @@
           "counterpart": {
             "file": "tests/integration/time-recovery.test.ts",
             "name": "test_apply_time_five_minutes_leaves_mp_untouched",
-            "sha256": "7b08f90820e6f8046b79cc65ae2443565da8436d63e493854d4a66875c0ab352"
+            "sha256": "3ce3d67a3899cfd696ae6f84cc001ffbd561740469879d5d03fe1208e269a2e4"
           },
           "review": "statement-by-statement",
           "validation": {
@@ -31388,6 +31787,19 @@
               },
               "fullCurrentSourceByteExact": false,
               "remainingSnapshotFilesExact": 1409
+            },
+            "currentRevalidation": {
+              "result": "passed",
+              "tests": 17,
+              "evidence": ".tmp/amaranthine-system-20261013/full-f5-test-sync/frozen-counterpart-execution.json",
+              "retainedRun": "run.UHmnQ4dd",
+              "retainedRunOverallExitCode": 1,
+              "retainedNativeStageExitCode": 1,
+              "scope": "Only this file passed in the retained full run; the full run remains failed.",
+              "contracts": [
+                "237.44"
+              ],
+              "review": "All 12 original case names, parameters and assertions remain unchanged. Five approved native cases add same-day limits, midnight/zero-gain behavior, complete later days, restart/replay and unconscious recovery; original MP and major-wound coverage remains."
             }
           }
         },
@@ -31413,7 +31825,7 @@
           "counterpart": {
             "file": "tests/integration/time-recovery.test.ts",
             "name": "test_apply_time_sixty_minutes_grants_exactly_one_point",
-            "sha256": "7b08f90820e6f8046b79cc65ae2443565da8436d63e493854d4a66875c0ab352"
+            "sha256": "3ce3d67a3899cfd696ae6f84cc001ffbd561740469879d5d03fe1208e269a2e4"
           },
           "review": "statement-by-statement",
           "validation": {
@@ -31474,6 +31886,19 @@
               },
               "fullCurrentSourceByteExact": false,
               "remainingSnapshotFilesExact": 1409
+            },
+            "currentRevalidation": {
+              "result": "passed",
+              "tests": 17,
+              "evidence": ".tmp/amaranthine-system-20261013/full-f5-test-sync/frozen-counterpart-execution.json",
+              "retainedRun": "run.UHmnQ4dd",
+              "retainedRunOverallExitCode": 1,
+              "retainedNativeStageExitCode": 1,
+              "scope": "Only this file passed in the retained full run; the full run remains failed.",
+              "contracts": [
+                "237.44"
+              ],
+              "review": "All 12 original case names, parameters and assertions remain unchanged. Five approved native cases add same-day limits, midnight/zero-gain behavior, complete later days, restart/replay and unconscious recovery; original MP and major-wound coverage remains."
             }
           }
         },
@@ -31499,7 +31924,7 @@
           "counterpart": {
             "file": "tests/integration/time-recovery.test.ts",
             "name": "test_apply_time_ninety_minutes_grants_one_point_not_a_rounded_two",
-            "sha256": "7b08f90820e6f8046b79cc65ae2443565da8436d63e493854d4a66875c0ab352"
+            "sha256": "3ce3d67a3899cfd696ae6f84cc001ffbd561740469879d5d03fe1208e269a2e4"
           },
           "review": "statement-by-statement",
           "validation": {
@@ -31560,6 +31985,19 @@
               },
               "fullCurrentSourceByteExact": false,
               "remainingSnapshotFilesExact": 1409
+            },
+            "currentRevalidation": {
+              "result": "passed",
+              "tests": 17,
+              "evidence": ".tmp/amaranthine-system-20261013/full-f5-test-sync/frozen-counterpart-execution.json",
+              "retainedRun": "run.UHmnQ4dd",
+              "retainedRunOverallExitCode": 1,
+              "retainedNativeStageExitCode": 1,
+              "scope": "Only this file passed in the retained full run; the full run remains failed.",
+              "contracts": [
+                "237.44"
+              ],
+              "review": "All 12 original case names, parameters and assertions remain unchanged. Five approved native cases add same-day limits, midnight/zero-gain behavior, complete later days, restart/replay and unconscious recovery; original MP and major-wound coverage remains."
             }
           }
         },
@@ -31589,7 +32027,7 @@
           "counterpart": {
             "file": "tests/integration/time-recovery.test.ts",
             "name": "test_apply_time_two_separate_thirty_minute_advances_do_not_yet_accumulate",
-            "sha256": "7b08f90820e6f8046b79cc65ae2443565da8436d63e493854d4a66875c0ab352"
+            "sha256": "3ce3d67a3899cfd696ae6f84cc001ffbd561740469879d5d03fe1208e269a2e4"
           },
           "review": "statement-by-statement",
           "validation": {
@@ -31650,6 +32088,19 @@
               },
               "fullCurrentSourceByteExact": false,
               "remainingSnapshotFilesExact": 1409
+            },
+            "currentRevalidation": {
+              "result": "passed",
+              "tests": 17,
+              "evidence": ".tmp/amaranthine-system-20261013/full-f5-test-sync/frozen-counterpart-execution.json",
+              "retainedRun": "run.UHmnQ4dd",
+              "retainedRunOverallExitCode": 1,
+              "retainedNativeStageExitCode": 1,
+              "scope": "Only this file passed in the retained full run; the full run remains failed.",
+              "contracts": [
+                "237.44"
+              ],
+              "review": "All 12 original case names, parameters and assertions remain unchanged. Five approved native cases add same-day limits, midnight/zero-gain behavior, complete later days, restart/replay and unconscious recovery; original MP and major-wound coverage remains."
             }
           }
         },
@@ -31675,7 +32126,7 @@
           "counterpart": {
             "file": "tests/integration/time-recovery.test.ts",
             "name": "test_apply_time_long_rest_never_exceeds_the_pow_over_five_ceiling",
-            "sha256": "7b08f90820e6f8046b79cc65ae2443565da8436d63e493854d4a66875c0ab352"
+            "sha256": "3ce3d67a3899cfd696ae6f84cc001ffbd561740469879d5d03fe1208e269a2e4"
           },
           "review": "statement-by-statement",
           "validation": {
@@ -31736,6 +32187,19 @@
               },
               "fullCurrentSourceByteExact": false,
               "remainingSnapshotFilesExact": 1409
+            },
+            "currentRevalidation": {
+              "result": "passed",
+              "tests": 17,
+              "evidence": ".tmp/amaranthine-system-20261013/full-f5-test-sync/frozen-counterpart-execution.json",
+              "retainedRun": "run.UHmnQ4dd",
+              "retainedRunOverallExitCode": 1,
+              "retainedNativeStageExitCode": 1,
+              "scope": "Only this file passed in the retained full run; the full run remains failed.",
+              "contracts": [
+                "237.44"
+              ],
+              "review": "All 12 original case names, parameters and assertions remain unchanged. Five approved native cases add same-day limits, midnight/zero-gain behavior, complete later days, restart/replay and unconscious recovery; original MP and major-wound coverage remains."
             }
           }
         }

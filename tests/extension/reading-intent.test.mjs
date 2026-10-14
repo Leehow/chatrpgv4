@@ -206,7 +206,12 @@ test("a kernel refusal that points at details.clues_here shows the clues that ar
 	const [text] = toolResultTexts(table.session, "apply");
 	assert.ok(text, "the apply returned a tool result");
 	assert.match(text, /^not_here: /m);
-	assert.match(text, /^fix: discover one of details\.clues_here, or move first$/m);
+	assert.match(text, /^fix: A source reference does not obtain a distant clue\./m);
+	assert.match(text, /existing event\.knowledge/);
+	assert.match(text, /an attributed report is not established world truth/);
+	assert.match(text, /existing dossier path only for a record actually obtained locally/);
+	assert.match(text, /details\.clues_here, or move by the normal route only if the player chose to travel/);
+	assert.match(text, /Explanatory notes do not add fields to the closed event schema/);
 	const line = text.split("\n").find((row) => row.startsWith("clues_here: "));
 	assert.ok(line, `the clues here reach the model:\n${text}`);
 	// Graph handles, as the kernel's own list names them (the `clue-` prefix is the node id's, not the handle's).
