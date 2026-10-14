@@ -49,7 +49,7 @@ vi.mock('react-virtuoso', async () => {
   return { Virtuoso: React.forwardRef(({ data, itemContent, atBottomStateChange, startReached }: { data: unknown[]; itemContent: (index: number, item: never) => JSX.Element; atBottomStateChange?: (value: boolean) => void; startReached?: (index: number) => void }, ref) => { virtuosoHarness.atBottom = atBottomStateChange; virtuosoHarness.startReached = startReached; React.useImperativeHandle(ref, () => ({ scrollToIndex: virtuosoHarness.scrollToIndex })); return <div>{data.map((item, index) => <React.Fragment key={index}>{itemContent(index, item as never)}</React.Fragment>)}</div> }) }
 })
 
-vi.mock('streamdown', () => ({ Streamdown: ({ children }: { children: unknown }) => <>{children}</> }))
+vi.mock('streamdown', async importOriginal => ({ ...await importOriginal<typeof import('streamdown')>(), Streamdown: ({ children }: { children: unknown }) => <>{children}</> }))
 vi.mock('@streamdown/code', () => ({ code: {} }))
 
 vi.mock('@xterm/xterm', () => {

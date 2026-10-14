@@ -8,7 +8,7 @@ import { applyStreamEvent, historyMessages, transcriptFingerprint, type ChatMess
 import { TranscriptWords } from './transcript-words'
 import words from '../../../../content/ui/en/transcript.json'
 
-vi.mock('streamdown', () => ({ Streamdown: ({ children }: { children: unknown }) => <>{children}</> }))
+vi.mock('streamdown', async importOriginal => ({ ...await importOriginal<typeof import('streamdown')>(), Streamdown: ({ children }: { children: unknown }) => <>{children}</> }))
 vi.mock('@streamdown/code', () => ({ code: {} }))
 afterEach(cleanup)
 

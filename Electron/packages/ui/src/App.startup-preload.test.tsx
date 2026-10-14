@@ -10,7 +10,7 @@ vi.mock('react-virtuoso', async () => {
     return <div>{data.map((item, index) => <React.Fragment key={index}>{itemContent(index, item as never)}</React.Fragment>)}</div>
   }) }
 })
-vi.mock('streamdown', () => ({ Streamdown: ({ children }: { children: unknown }) => <>{children}</> }))
+vi.mock('streamdown', async importOriginal => ({ ...await importOriginal<typeof import('streamdown')>(), Streamdown: ({ children }: { children: unknown }) => <>{children}</> }))
 vi.mock('@streamdown/code', () => ({ code: {} }))
 
 import { App, LAST_SESSION_STORAGE_KEY } from './App'

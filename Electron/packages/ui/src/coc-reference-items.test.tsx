@@ -16,8 +16,6 @@ import enBoard from '../../../../content/ui/en/board.json';
 import enHandout from '../../../../content/ui/en/handout.json';
 import enPaper from '../../../../content/ui/en/paper.json';
 import enSheet from '../../../../content/ui/en/sheet.json';
-vi.mock('streamdown',()=>({Streamdown:({children}:{children:React.ReactNode})=><>{children}</>}));
-vi.mock('@streamdown/code',()=>({code:{}}));
 import {MessageView} from './Transcript';
 import type {ChatMessage} from './transcript-model';
 
