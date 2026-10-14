@@ -283,8 +283,9 @@ export function unrecordedPeople(graph: ModuleGraph, world: Row, scene: Row, rec
     const past = [...records].filter(record => number(record.turn) < turn).sort((a, b) => number(a.turn) - number(b.turn));
     let occupancy = 0;
     past.forEach((record, index) => {
-        if (array(record.receipts).some(receipt => string(row(receipt).kind) === "move"))
-            occupancy = index;
+        // Speech identifies its speaker, not their location within a travelling turn.
+        if (array(record.receipts).some(receipt => string(row(receipt).kind) === "move" && string(row(receipt).from) !== string(row(receipt).to)))
+            occupancy = index + 1;
     });
     for (const record of past.slice(occupancy).reverse())
         for (const span of array(record.speech)) {

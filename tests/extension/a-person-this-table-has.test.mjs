@@ -27,6 +27,7 @@ import {test} from 'node:test';
 import {readFile} from 'node:fs/promises';
 import {join} from 'node:path';
 import {table} from './object-usages-fixture.mjs';
+import {kernel, openTurn, RpcClient, campaignDir, readJson} from '../integration/support.ts';
 
 /** The doorman of turns 96–99, by the name that turn's `apply npc` actually used. */
 const DOORMAN = '门房';
@@ -323,6 +324,49 @@ test('a person the books already place in this room owes nothing', async t => {
 	await game.call('table.player_input', {text: 'I sit.'});
 	const capsule = await game.call('table.capsule', {});
 	assert.deepEqual((capsule.unrecorded ?? []).filter(row => row.npc), []);
+});
+
+test('arrival speech is not current-room evidence after native publication and restart', async t => {
+	const client = await kernel(t);
+	await openTurn(client);
+	const directory = campaignDir(client.workspace);
+	const origin = readJson(join(directory, 'world.json')).active_scene;
+	await client.table('apply', {call_id: 't1-c1', effects: [{kind: 'move', to: 'newspaper-morgue',
+		via: 'walk across town', travel_minutes: 5}]});
+	await client.table('narrate', {call_id: 't1-c2', text: '{{say:Steven Knott}}The keys are yours.{{/say}} You walk across town.'});
+	const arrival = readJson(join(directory, 'turns/0001.json'));
+	assert.ok(arrival.speech.some(span => span.who?.npc === 'steven-knott'), 'publication resolves the departure-side speaker');
+	assert.ok(arrival.receipts.some(receipt => receipt.kind === 'move' && receipt.from === origin && receipt.to === 'newspaper-morgue'),
+		'the published record retains a genuine cross-scene movement');
+	await client.table('player_input', {text: 'I inspect the room.'});
+	await client.close();
+	const resumed = new RpcClient(client.workspace);
+	t.after(() => resumed.close());
+	const gaps = async () => ((await resumed.table('capsule')).unrecorded ?? []).filter(entry => entry.npc === 'steven-knott');
+	assert.deepEqual(await gaps(), [], 'an arrival turn has no within-turn speaker location and cannot suggest a teleport');
+	assert.equal(readJson(join(directory, 'world.json')).npc_presence['steven-knott'], origin,
+		'reading after restart never changes explicit NPC location');
+
+	await resumed.table('narrate', {call_id: 't2-c1', text: '{{say:Steven Knott}}One more thing.{{/say}}'});
+	await resumed.table('player_input', {text: 'I listen.'});
+	assert.equal((await gaps())[0]?.turn, 2, 'subsequent stationary speech still exposes a real ledger disagreement');
+	await resumed.table('apply', {call_id: 't3-c1', effects: [{kind: 'move', to: 'newspaper-morgue', label: 'Records room'}]});
+	await resumed.table('narrate', {call_id: 't3-c2', text: 'You remain in the room.'});
+	await resumed.table('player_input', {text: 'I look at the files.'});
+	assert.equal((await gaps())[0]?.turn, 2, 'same-scene relabel does not erase earlier stationary disagreement');
+
+	await resumed.table('apply', {call_id: 't4-c1', effects: [{kind: 'move', to: origin, travel_minutes: 5}]});
+	await resumed.table('narrate', {call_id: 't4-c2', text: 'You return across town.'});
+	await resumed.table('player_input', {text: 'I speak to Knott.'});
+	assert.deepEqual(await gaps(), [], 'a later genuine occupancy boundary excludes earlier-room speech');
+	await resumed.table('apply', {call_id: 't5-c1', effects: [{kind: 'npc', name: 'Steven Knott', to: 'away', why: 'he steps out'}]});
+	await resumed.table('narrate', {call_id: 't5-c2', text: '{{say:Steven Knott}}Do not forget.{{/say}}'});
+	await resumed.table('player_input', {text: 'I turn around.'});
+	assert.equal((await gaps())[0]?.at, null, 'off-board stationary speech retains the existing gap');
+	await resumed.table('apply', {call_id: 't6-c1', effects: [{kind: 'move', to: 'newspaper-morgue', travel_minutes: 5}]});
+	await resumed.table('narrate', {call_id: 't6-c2', text: '{{say:Steven Knott}}Goodbye.{{/say}} You depart.'});
+	await resumed.table('player_input', {text: 'I inspect the room again.'});
+	assert.deepEqual(await gaps(), [], 'repeated arrival boundaries exclude both prior occupancy and ambiguous arrival speech');
 });
 
 test('a span that stayed a label is passed over, because who counts as a person is not the kernel to decide', async t => {
