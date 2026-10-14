@@ -8014,7 +8014,7 @@ export default function (pi: ExtensionAPI, host: {capabilities?:RuntimeCapabilit
                     private_reply:reply.raw,model:`${event.message.provider}/${event.message.model}`,stop_reason:event.message.stopReason});
 				if(!reply.stream)state.deliveryFix=isKernelError(error)
 					?{kind:error.code,text:errorText(error)+(error.details?`\ndetails: ${JSON.stringify(error.details)}`:'')}
-					:{kind:'result_protocol',text:'Use a bare object in version, record, text order for pending ordinary changes, with the existing apply effects/event shapes; resubmit an accepted record unchanged. For an unchanged or already settled reply use {{public}}, or {{reference}} for pure OOC. Do not repeat settled effects through new calls.'};
+					:{kind:'result_protocol',text:'record.text is invalid: put public prose in root.text as a sibling of record, never inside it. record permits only effects, event, scope, choice. Use a bare object in version, record, text order, for example {"version":1,"record":{"effects":[]},"text":"..."}, with existing apply effects/event shapes. Resubmit an accepted record unchanged. For an unchanged or already settled reply use {{public}}, or {{reference}} for pure OOC. Do not repeat settled effects through new calls.'};
 				else state.runAbandoned=true;
 				return{message:{...event.message,content:blocks.filter(b=>b.type!=='text')}};
 			}

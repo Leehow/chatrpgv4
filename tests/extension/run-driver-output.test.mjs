@@ -143,6 +143,38 @@ test('a rejected inline record returns the actual kernel correction without cand
   assert.deepEqual(table.extensionErrors,[]);
 });
 
+test('a misplaced record text receives the precise sibling correction before one settled public delivery',async t=>{
+  const effects=[{kind:'time',minutes:8}];
+  let requests=0,stateAtFirstDelta,correction,refused;
+  const {table,seen}=await directTable([()=>{requests++;return fauxAssistantMessage(JSON.stringify({version:1,
+    record:{effects,text:'PRIVATE_NESTED_CANDIDATE'}}));},context=>{
+    requests++;
+    const world=JSON.parse(readFileSync(join(table.workspace,'.coc/campaigns/test-camp/world.json'),'utf8'));
+    refused={publicFrames:seen.length,applies:table.telemetry().filter(row=>row.tool==='apply').length,minutes:world.clock.minutes};
+    correction=JSON.stringify(context.messages);
+    return fauxAssistantMessage(JSON.stringify({version:1,record:{effects},text:'You finish waiting.'}));
+  }],{onFrame:frame=>{if(frame.event==='delta'&&stateAtFirstDelta===undefined)
+    stateAtFirstDelta=JSON.parse(readFileSync(join(table.workspace,'.coc/campaigns/test-camp/world.json'),'utf8')).clock.minutes;}});
+  t.after(()=>table.dispose());
+  await table.session.prompt('I wait eight minutes.');
+  assert.equal(requests,2,'the same Keeper corrects its existing response');
+  assert.deepEqual(refused,{publicFrames:0,applies:0,minutes:0},'shape refusal precedes all effects and public bytes');
+  assert.ok(correction.includes('record.text')&&correction.includes('root.text'));
+  assert.ok(correction.includes('sibling'));
+  assert.ok(correction.includes('effects, event, scope, choice'));
+  assert.ok(!correction.includes('PRIVATE_NESTED_CANDIDATE'));
+  assert.equal(stateAtFirstDelta,8,'effects settle before public streaming');
+  assert.equal(seen.filter(frame=>frame.event==='delta').map(frame=>frame.delta).join(''),'You finish waiting.');
+  assert.equal(seen.at(-1)?.status,'completed');
+  assert.ok(!JSON.stringify(seen).includes('PRIVATE_NESTED_CANDIDATE'));
+  const turn=JSON.parse(readFileSync(join(table.workspace,'.coc/campaigns/test-camp/turns/0001.json'),'utf8'));
+  assert.equal(turn.world.clock.minutes,8);
+  assert.equal(turn.receipts.filter(row=>row.kind==='time').length,1);
+  assert.deepEqual(table.telemetry().filter(row=>row.tool==='apply').map(row=>row.ok),[true]);
+  assert.equal(table.telemetry().filter(row=>row.lane==='final-output'&&row.event==='start').length,0);
+  assert.deepEqual(table.extensionErrors,[]);
+});
+
 test('an accepted inline prefix replays after a malformed body and refreshes the same Keeper state',async t=>{
   const record={effects:[{kind:'time',minutes:8}],event:{name:'wait-once',summary:'The visitor waits.'}};
   // The completed record reaches the kernel before a later streamed chunk supplies the bad separator.
