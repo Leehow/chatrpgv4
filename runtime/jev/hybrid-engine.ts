@@ -505,7 +505,8 @@ export function createHybridEngine(options: HybridEngineOptions): {runDriver: Se
             worldline:object(capsule._context).worldline,loop:object(capsule._context).loop,
             run:context.runId,step:stepId,...(model?{model:`${model.provider}/${model.id}`}:{})});
           const people=await Promise.all(array(capsule.present).map(async person=>{
-            try{const full=object(await bridge!.call!('table.look',{campaign:bridge!.campaign,focus:'npc',name:person.name,_context_read:true}));
+            const identity=typeof person.id==='string'&&person.id.trim()?person.id:person.name;
+            try{const full=object(await bridge!.call!('table.look',{campaign:bridge!.campaign,focus:'npc',name:identity,_context_read:true}));
               const voice=array(capsule.voices).find(voice=>voice.name===person.name)??{};
               return Object.fromEntries(Object.entries(full).filter(([key,value])=>key==='name'
                 ||full.name!==person.name||![person,voice].some(supplied=>Object.hasOwn(supplied,key)&&JSON.stringify(supplied[key])===JSON.stringify(value))));}

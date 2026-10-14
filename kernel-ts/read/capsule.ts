@@ -830,12 +830,13 @@ export function npcEntry(graph: ModuleGraph, world: Row, node: Row, ledger: Row,
     const ledgerRow = row(ledger[node.node_id]), now = state || truth(ledgerRow.dead) ? null : currentNpcMood(graph,world,node,ledger,array(scope.current_receipts));
     const variation = npcVariation(graph,world,node,now);
     const entry: Row = {
+        id: graph.handle(node),
         name: graph.displayName(node),
         ...(graph.sourceNeeds(node,true).length?{runtime_inputs:graph.sourceNeeds(node,true)}:{}),
         // What this table calls them (§79), before the dossier for the same reason `state` is: the
         // Keeper writes a name into every line about this person, and the record that decides it has
         // to be in front of them on the turn they write it, not ranked into a memory section that
-        // ages out. `name` above stays the identity the Keeper hands back to `apply`.
+        // ages out. `id` above is the registered identity for operations; `name` remains display text.
         ...(calledBlock(world, graph.handle(node), graph.displayName(node)) ? {called: calledBlock(world, graph.handle(node), graph.displayName(node))} : {}),
         // And whether the player has been told it at all (§103), in the same seat for the same reason.
         ...(untold ? {untold} : {}),
