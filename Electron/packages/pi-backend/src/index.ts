@@ -2,7 +2,7 @@ import { CocOnboardingHost, CocOnboardingRegistry, type CocOnboardingOptions } f
 import { timelineAnchors, transcriptPrefix } from './coc-timeline.js';
 import {readDefensePreference, writeDefensePreference, isDefenseChoice} from './coc-defense.js';
 export { CocOnboardingRegistry } from './coc-onboarding.js';
-import { readCocBinding, cocBindingOfRow, readColdSheet, callColdKernel, mechanicsEntry, draftPresentations, currentDraft, historySpeech, historySceneNames, laneWords, laneProjection, laneLabels,
+import { readCocBinding, cocBindingOfRow, readColdSheet, callColdKernel, mechanicsEntry, draftPresentations, currentDraft, historySpeech, laneWords, laneProjection, laneLabels,
   laneLabelsLoaded, reloadLaneLabels, deliveryWords, handoutTitles, CocCardLedger, type CocCardPatch,
   cocContentRoot, cocForgetUiWords, cocPlayLanguage, cocUiWords, cocUiWordsLoaded, SHEET_LANES, type SheetLane, type CocBinding,
   type CocHistoryWords, type CocUiWords } from "./coc-view.js";
@@ -1770,7 +1770,11 @@ async function readHistoryFallback(
     if (wanted.has(entry?.id)) wantedRows.push(entry);
   }
   const speech=await historySpeech(cocBinding,wantedRows,cocHost?.repo);
-  const sceneNames=await historySceneNames(cocBinding,wantedRows,cocHost?.repo,cocHost?.contentRoot);
+  let sceneNames=new Map<string,Map<string,{from_label:string;to_label:string}>>();
+  if(cocHost)try {
+    const reader=await import(pathToFileURL(resolve(cocHost.repo,'build/runtime/host.mjs')).href);
+    sceneNames=await reader.historySceneNames(cocBinding,wantedRows,cocHost.repo,cocHost.contentRoot);
+  } catch { /* Missing or damaged context retains neutral public labels. */ }
   for (const entry of wantedRows) {
     const secrets = vaultDir && sessionId ? revealRedactionSecrets(vaultDir, sessionId) : [];
     const recovered=speech.get(entry?.id);
