@@ -188,7 +188,7 @@ export class ArtifactTextStream {
     if (this.phase !== 'tail' || this.pending) throw new Error('Incomplete final artifact text');
     // Inspect root keys before JSON.parse can hide duplicate properties.
     const keys: string[] = [];
-    let depth = 0, quoted = false, escaped = false, start = 0, previous = '';
+    let depth = 0, quoted = false, escaped = false, start = 0, previous = '', rootEnd = 0;
     for (let at = 0; at < this.raw.length; at++) {
       const char = this.raw[at];
       if (quoted) {
@@ -204,12 +204,13 @@ export class ArtifactTextStream {
         if (char === '{' || char === '[') depth++;
         if (char === '}' || char === ']') depth--;
         previous = char;
+        if(depth===0&&char==='}'){rootEnd=at+1;break;}
       }
     }
     const expected=this.record?['version','record','text']:['version','text'];
     if(keys.at(-1)==='coverage')expected.push('coverage');
     if (JSON.stringify(keys) !== JSON.stringify(expected)) throw new Error('Invalid or duplicate final artifact fields');
-    const value = JSON.parse(this.raw);
+    const value = JSON.parse(rootEnd&&this.raw.slice(rootEnd).trim()==='}'?this.raw.slice(0,rootEnd):this.raw);
     if (value.version !== 1 || value.text !== this.exposed || value.coverage!==undefined&&!Array.isArray(value.coverage)) throw new Error('Invalid final artifact');
     return {...value,coverage:value.coverage??[]};
   }

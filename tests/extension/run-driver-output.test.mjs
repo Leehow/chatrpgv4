@@ -91,6 +91,33 @@ function directTable(responses,extra={}) {
     responses,...options}).then(table=>({table,seen}));
 }
 
+test('one trailing brace publishes one Keeper body after settling its private record once',async t=>{
+  const text='You finish waiting. The office remains quiet. '.repeat(4);
+  const response={version:1,record:{effects:[{kind:'time',minutes:8}],event:{name:'one-brace-reply',summary:'PRIVATE_ONE_BRACE_CAUSE'}},text};
+  let authors=0,stateAtFirstDelta;
+  const {table,seen}=await directTable([()=>{authors++;return fauxAssistantMessage(JSON.stringify(response)+'}');}],{
+    onFrame:frame=>{if(frame.event==='delta'&&stateAtFirstDelta===undefined)
+      stateAtFirstDelta=JSON.parse(readFileSync(join(table.workspace,'.coc/campaigns/test-camp/world.json'),'utf8')).clock.minutes;},
+  });
+  t.after(()=>table.dispose());
+  await table.session.prompt('I wait eight minutes.');
+  assert.equal(authors,1);
+  assert.equal(stateAtFirstDelta,8);
+  assert.ok(seen.filter(frame=>frame.event==='delta').length>2);
+  assert.equal(seen.filter(frame=>frame.event==='delta').map(frame=>frame.delta).join(''),text);
+  assert.equal(seen.filter(frame=>frame.status==='completed').length,1);
+  assert.ok(!JSON.stringify(seen).includes('PRIVATE_ONE_BRACE_CAUSE'));
+  const turn=JSON.parse(readFileSync(join(table.workspace,'.coc/campaigns/test-camp/turns/0001.json'),'utf8'));
+  assert.ok(turn.commit);
+  assert.equal(turn.world.clock.minutes,8);
+  assert.equal(turn.receipts.filter(row=>row.kind==='time').length,1);
+  assert.equal(turn.receipts.filter(row=>row.kind==='event').length,1);
+  assert.deepEqual(table.telemetry().filter(row=>row.tool==='apply').map(row=>row.ok),[true]);
+  assert.equal(table.telemetry().filter(row=>row.lane==='kernel-rpc'&&row.method==='table.narrate'&&row.ok).length,1);
+  assert.equal(turn.delivery_evidence.artifact_text,text);
+  assert.deepEqual(table.extensionErrors,[]);
+});
+
 test('Keeper stream appears before its final message completes and contains no private record',async t=>{
   const {table,seen}=await directTable([fauxAssistantMessage(JSON.stringify({version:1,record:{event:{name:'quiet-reply',summary:'PRIVATE_CAUSAL_ACCOUNT'}},
     text:'The office remains quiet. You can continue asking the clerk about the house.'}))]);

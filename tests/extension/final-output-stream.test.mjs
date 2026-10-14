@@ -30,6 +30,33 @@ test('duplicate fields and incomplete metadata cannot become a completed artifac
   }
 });
 
+test('one trailing closing brace after a complete valid artifact preserves public bytes and one record',()=>{
+  const value={version:1,record:{event:{name:'fixture',summary:'PRIVATE { nested } "quoted" account.'}},
+    text:'Public } reply with "quotes" and 😀.',coverage:[{name:'reply',quote:'Public'}]};
+  for(const suffix of ['','}',' \n } \t']){
+    const raw=JSON.stringify(value)+suffix;
+    for(let cut=0;cut<=raw.length;cut++){
+      const records=[],stream=new ArtifactTextStream(record=>records.push(record));
+      const exposed=stream.push(raw.slice(0,cut))+stream.push(raw.slice(cut));
+      assert.equal(exposed,value.text);
+      assert.deepEqual(stream.finish(),value);
+      assert.deepEqual(records,[value.record]);
+    }
+  }
+});
+
+test('the single-brace exception does not repair other tails, duplicate keys or invalid roots',()=>{
+  const valid='{"version":1,"record":{},"text":"Visible","coverage":[]}';
+  const invalid=[...['}}',',','word','{}','\n```','}word','}{}',']'].map(suffix=>valid+suffix),
+    '```json\n'+valid+'\n```}', 'note '+valid+'}',
+    '{"version":1,"record":{},"text":"Visible","text":"Visible"}}',
+    '{"version":1,"record":{},"text":"Visible","unknown":null}}',
+    '{"version":1,"record":{},"text":"Visible","coverage":null}}',
+    '{"version":1,"record":{},"text":"Visible","coverage":[',
+    '{"version":1,"record":{},"text":"Visible"'];
+  for(const raw of invalid){const stream=new ArtifactTextStream(()=>{});assert.throws(()=>{stream.push(raw);stream.finish();});}
+});
+
 test('private records decode across every boundary and reject invalid shapes before exposing text',()=>{
   const value={version:1,record:{event:{name:'office',summary:'Private { nested } text with "quotes".'}},text:'Public reply.'};
   const raw=JSON.stringify(value);
