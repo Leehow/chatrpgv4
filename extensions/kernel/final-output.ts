@@ -447,9 +447,9 @@ export function createFinalOutputOwner(deps: {runtime: () => HostRuntime | undef
     return {
       push:(delta:string)=>{if(delta){text+=delta;journal.write('delta',{delta});}},
       interrupt:()=>{if(journal.frames.at(-1)?.status!=='interrupted')journal.write('end',{status:'interrupted'});},
-      finish:async(model:string,thinking:unknown,publication:Row)=>{
+      finish:async(model:string,thinking:unknown,publication:Row,declarations:unknown=[])=>{
         const snapshot=await deps.call('table.status',{campaign,_context_read:true});
-        const materials=(snapshot.outcome?.public_materials??[]).map((material:Row)=>({...material}));
+        const materials=(snapshot.outcome?.public_materials??[]).filter((material:Row)=>material.visibility==='player').map((material:Row)=>({...material}));
         const identity=(who:Row|undefined):string|undefined=>typeof who?.npc==='string'&&who.npc
           ?`npc:${who.npc}`:typeof who?.investigator==='string'&&who.investigator?`investigator:${who.investigator}`:undefined;
         const speakers=new Map<string,Speaker>((prepared.speakers??[]).filter((speaker:Row)=>identity(speaker.who))
@@ -464,18 +464,32 @@ export function createFinalOutputOwner(deps: {runtime: () => HostRuntime | undef
           for(const speaker of checked.speakers??[])speakers.set(speaker.name,speaker.who);
         }
         const ranges=rawRanges.map(range=>({...range,who:'label' in range.who?speakers.get(range.who.label)??range.who:range.who}));
-        // Bind an existing material only to its actual occurrence. An omitted or paraphrased
-        // material remains pending; this never blocks prose or requests another author.
+        const spoken=(material:Row,start:number,end:number)=>material.kind!=='speech'||(()=>{
+          const speaker=identity(speakers.get(material.speaker));
+          return !!speaker&&ranges.some(range=>range.start<=start&&end<=range.end&&identity(range.who)===speaker);
+        })();
+        // Optional author quotations bind only one current local material and its real speaker.
+        // Invalid or ambiguous declarations leave it pending without blocking already streamed prose.
+        const declared=Array.isArray(declarations)&&declarations.length<=128?declarations:[];
+        const quoted=declared.flatMap((entry:Row)=>{
+          if(!entry||typeof entry!=='object'||Array.isArray(entry)||typeof entry.name!=='string'||typeof entry.quote!=='string')return [];
+          const matches=materials.filter((material:Row)=>typeof material.event_ref==='string'&&material.name===`${material.event_ref}/${entry.name}`);
+          if(matches.length!==1)return [];
+          const material=matches[0];
+          try {
+            const artifact=validateDeliveryArtifact({version:1,text,coverage:[{...entry,name:material.name}]},[material.name],[]);
+            return artifact.coverage.filter(span=>spoken(material,span.start,span.end));
+          }catch{return [];}
+        });
+        // Preserve the exact occurrence fallback for native replies and undeclared materials.
         const coverage=materials.flatMap((material:Row)=>{
           if(typeof material.text!=='string'||!material.text.trim())return [];
           const start=text.indexOf(material.text),end=start+material.text.length;
           if(start<0||text.indexOf(material.text,end)>=0)return [];
-          if(material.kind==='speech'){
-            const speaker=identity(speakers.get(material.speaker));
-            if(!speaker||!ranges.some(range=>range.start<=start&&end<=range.end&&identity(range.who)===speaker))return [];
-          }
+          if(!spoken(material,start,end))return [];
           return [{name:material.name,start,end}];
         });
+        for(const span of quoted)if(!coverage.some(prior=>prior.name===span.name&&prior.start===span.start&&prior.end===span.end)&&coverage.length<128)coverage.push(span);
         const artifact=validateDeliveryArtifact({version:1,text,coverage},materials.map((m:Row)=>m.name),[]);
         const evidence={version:1,packet:key,binding,context,sources:[],materials,coverage:artifact.coverage,required:[],omitted:[],
           model,thinking,author:'keeper',artifact_text:text,publication,stream:{delivery_id:key,attempt_id:journal.frames[0].attempt_id}};

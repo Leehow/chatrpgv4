@@ -211,7 +211,7 @@ export class ArtifactTextStream {
     if(keys.at(-1)==='coverage')expected.push('coverage');
     if (JSON.stringify(keys) !== JSON.stringify(expected)) throw new Error('Invalid or duplicate final artifact fields');
     const value = JSON.parse(rootEnd&&this.raw.slice(rootEnd).trim()==='}'?this.raw.slice(0,rootEnd):this.raw);
-    if (value.version !== 1 || value.text !== this.exposed || value.coverage!==undefined&&!Array.isArray(value.coverage)) throw new Error('Invalid final artifact');
-    return {...value,coverage:value.coverage??[]};
+    if (value.version !== 1 || value.text !== this.exposed) throw new Error('Invalid final artifact');
+    return {...value,coverage:Array.isArray(value.coverage)&&value.coverage.length<=128?value.coverage:[]};
   }
 }

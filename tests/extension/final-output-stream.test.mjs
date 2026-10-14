@@ -51,10 +51,20 @@ test('the single-brace exception does not repair other tails, duplicate keys or 
     '```json\n'+valid+'\n```}', 'note '+valid+'}',
     '{"version":1,"record":{},"text":"Visible","text":"Visible"}}',
     '{"version":1,"record":{},"text":"Visible","unknown":null}}',
-    '{"version":1,"record":{},"text":"Visible","coverage":null}}',
     '{"version":1,"record":{},"text":"Visible","coverage":[',
     '{"version":1,"record":{},"text":"Visible"'];
   for(const raw of invalid){const stream=new ArtifactTextStream(()=>{});assert.throws(()=>{stream.push(raw);stream.finish();});}
+});
+
+test('invalid optional coverage containers cannot interrupt a valid public body or change private record validation',()=>{
+  for(const coverage of [null,{},'invalid',Array.from({length:129},()=>({name:'note',quote:'Visible'}))]){
+    const records=[],stream=new ArtifactTextStream(record=>records.push(record));
+    const value={version:1,record:{effects:[]},text:'Visible',coverage};
+    assert.equal(stream.push(JSON.stringify(value)),value.text);
+    assert.deepEqual(stream.finish(),{...value,coverage:[]});assert.deepEqual(records,[value.record]);
+  }
+  const stream=new ArtifactTextStream(()=>{});
+  assert.throws(()=>stream.push(JSON.stringify({version:1,record:{effects:{}},text:'Must stay private.',coverage:null})));
 });
 
 test('private records decode across every boundary and reject invalid shapes before exposing text',()=>{

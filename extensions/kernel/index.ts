@@ -7997,7 +7997,7 @@ export default function (pi: ExtensionAPI, host: {capabilities?:RuntimeCapabilit
 				const choice=result.record?.choice as Record<string,unknown>|undefined;
 				const publication={call_id:mintCallId(state),...(choice??{})};
 				const written=await reply.stream.finish(`${event.message.provider}/${event.message.model}`,pi.getThinkingLevel?.(),
-                    {...publication,...(result.record?.scope==='reference'?{interaction_scope:'reference'}:{})});
+                    {...publication,...(result.record?.scope==='reference'?{interaction_scope:'reference'}:{})},result.coverage);
                 reply.evidence=written.evidence;
 				if(result.record?.scope==='reference'){
 					const delivered=await state.kernel.call<Record<string,unknown>>('table.reference.answer',{campaign:state.campaign,...publication,text:result.text});

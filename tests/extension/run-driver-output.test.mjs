@@ -749,6 +749,72 @@ test('an unspoken material stays pending even when the same NPC speaks',async t=
   assert.ok(!memory.hits.some(row=>row.statement==='He went to a secret address.'&&row.authority==='canonical_event'));
 });
 
+test('optional Keeper quotations activate only the stated material across paragraphs and cold restart',async t=>{
+  const retained=mkdtempSync(join(tmpdir(),'keeper-coverage-fixture-'));
+  t.after(()=>rmSync(retained,{recursive:true,force:true,maxRetries:5,retryDelay:50}));
+  const text='{{say:Steven Knott}}I heard they went away.{{/say}}\n\n{{say:Steven Knott}}I was not there myself.{{/say}}';
+  const response={version:1,record:{effects:[{kind:'time',minutes:8}],event:{name:'split-answer',summary:'PRIVATE_SPLIT_ACCOUNT',
+    materials:[{name:'answer',text:'The family left; this is second-hand information.',kind:'speech',visibility:'player',speaker:'Steven Knott',audience:['Thomas Hayes']},
+      {name:'unspoken',text:'PRIVATE_UNSPOKEN_ADDRESS',kind:'speech',visibility:'player',speaker:'Steven Knott',audience:['Thomas Hayes']}],
+    knowledge:[{actor:'Thomas Hayes',statement:'The family left, according to Knott.',mode:'heard',state:'uncertain',source:'Steven Knott',material:'answer'},
+      {actor:'Thomas Hayes',statement:'The undisclosed address.',mode:'heard',state:'uncertain',source:'Steven Knott',material:'unspoken'}]}},text,
+    coverage:[{name:'answer',quote:'I heard they went away.'},{name:'answer',quote:'I was not there myself.'}]};
+  let authors=0,closed=false;
+  const {table,seen}=await directTable([()=>{authors++;return fauxAssistantMessage(JSON.stringify(response));}],{retainAt:retained});
+  t.after(async()=>{if(!closed)await table.dispose();});
+  await table.session.prompt('What did you hear about the family?');
+  assert.equal(authors,1);assert.deepEqual(table.extensionErrors,[]);
+  assert.equal(seen.at(-1)?.status,'completed');assert.equal(seen.filter(frame=>frame.event==='delta').map(frame=>frame.delta).join(''),text);
+  assert.ok(seen.filter(frame=>frame.event==='delta').length>2);
+  assert.ok(!JSON.stringify(seen).includes('PRIVATE_SPLIT_ACCOUNT'));assert.ok(!JSON.stringify(seen).includes('PRIVATE_UNSPOKEN_ADDRESS'));
+  const file=join(table.workspace,'.coc/campaigns/test-camp/turns/0001.json'),turn=JSON.parse(readFileSync(file,'utf8'));
+  assert.ok(turn.commit);assert.equal(turn.receipts.filter(row=>row.kind==='time').length,1);
+  assert.equal(turn.world.clock.minutes,8);assert.equal(turn.disclosures.length,1);
+  assert.deepEqual(turn.delivery_evidence.coverage.map(span=>turn.delivery_evidence.artifact_text.slice(span.start,span.end)),response.coverage.map(row=>row.quote));
+  assert.deepEqual(turn.outcome.knowledge_changes.map(row=>row.status),['active','pending']);
+  assert.deepEqual(table.telemetry().filter(row=>row.tool==='apply').map(row=>row.ok),[true]);
+  assert.equal(table.telemetry().filter(row=>row.lane==='kernel-rpc'&&row.method==='table.narrate'&&row.ok).length,1);
+  const original=readFileSync(file,'utf8');await table.dispose();closed=true;
+  let laterAuthors=0,request;
+  const {table:restarted}=await directTable([context=>{laterAuthors++;request=context;return fauxAssistantMessage('{{public}}The clerk waits for your next question.');}],
+    {seedCampaign:false,prepareWorkspace:workspace=>cpSync(join(table.workspace,'.coc'),join(workspace,'.coc'),{recursive:true})});
+  t.after(()=>restarted.dispose());
+  await restarted.session.prompt('I remember that account before asking another question.');
+  const bridge=restarted.runtimeBridges().at(-1),capsule=await bridge.call('table.capsule',{campaign:'test-camp',_context_read:true});
+  assert.equal(laterAuthors,1);assert.ok(JSON.stringify(request.messages).includes('The family left, according to Knott.'));
+  assert.deepEqual(capsule.player_knows.cognition.filter(row=>row.authority==='canonical_event').map(row=>row.statement),['The family left, according to Knott.']);
+  const memory=await bridge.call('table.recall',{campaign:'test-camp',what:'memory',about:['Thomas Hayes']});
+  assert.deepEqual(memory.hits.filter(row=>row.authority==='canonical_event').map(row=>row.statement),['The family left, according to Knott.']);
+  assert.equal(readFileSync(join(restarted.workspace,'.coc/campaigns/test-camp/turns/0001.json'),'utf8'),original);
+  assert.equal(JSON.parse(readFileSync(join(restarted.workspace,'.coc/campaigns/test-camp/world.json'),'utf8')).clock.minutes,8);
+});
+
+test('invalid optional quotations remain advisory without disclosing private or ambiguous materials',async t=>{
+  const speech=(name,text,visibility='player')=>({name,text,kind:'speech',visibility,speaker:'Steven Knott',audience:['Thomas Hayes']});
+  const heard=name=>({actor:'Thomas Hayes',statement:'Unconfirmed '+name,mode:'heard',state:'uncertain',source:'Steven Knott',material:name});
+  const text='{{say:Thomas Hayes}}That is my question.{{/say}}\n\n{{say:Steven Knott}}I have nothing else to add.{{/say}}';
+  const response={version:1,record:{event:{name:'second-account',summary:'PRIVATE_OPTIONAL_ACCOUNT',
+    materials:[speech('same','The second separate meaning.'),speech('wrong','The clerk supplied a different answer.'),speech('absent','An absent report.'),speech('secret','PRIVATE_OPTIONAL_SECRET','keeper')],
+    knowledge:['same','wrong','absent'].map(heard)}},text,
+    coverage:[{name:'same',quote:'I have nothing else to add.'},{name:'wrong',quote:'That is my question.'},
+      {name:'absent',quote:'These words never appear.'},{name:'secret',quote:'I have nothing else to add.'},
+      {name:'unknown',quote:'I have nothing else to add.'},null,{name:'wrong',quote:'I have nothing else to add.',start:0},
+      {name:'absent',quote:'I have nothing else to add.',occurrence:-1}]};
+  const {table,seen}=await directTable([fauxAssistantMessage([fauxToolCall('apply',{effects:[],event:{name:'first-account',
+    materials:[speech('same','The first separate meaning.')],knowledge:[heard('same')]}})],{stopReason:'toolUse'}),fauxAssistantMessage(JSON.stringify(response))]);
+  t.after(()=>table.dispose());await table.session.prompt('Please distinguish what you know from what I asked.');
+  assert.deepEqual(table.extensionErrors,[]);assert.equal(seen.at(-1)?.status,'completed');
+  assert.equal(seen.filter(frame=>frame.event==='delta').map(frame=>frame.delta).join(''),text);
+  const turn=JSON.parse(readFileSync(join(table.workspace,'.coc/campaigns/test-camp/turns/0001.json'),'utf8'));
+  assert.ok(turn.commit);assert.equal(turn.receipts.filter(row=>row.kind==='event').length,2,JSON.stringify(table.telemetry().filter(row=>row.ok===false)));
+  assert.deepEqual(turn.delivery_evidence.coverage,[]);assert.deepEqual(turn.disclosures,[]);
+  assert.equal(turn.delivery_evidence.materials.length,4);assert.ok(turn.delivery_evidence.materials.every(row=>row.visibility==='player'));
+  assert.ok(turn.outcome.knowledge_changes.every(row=>row.status==='pending'));assert.equal(turn.outcome.knowledge_changes.length,4);
+  assert.ok(!JSON.stringify(seen).includes('PRIVATE_OPTIONAL_SECRET'));assert.ok(!JSON.stringify(seen).includes('PRIVATE_OPTIONAL_ACCOUNT'));
+  assert.equal(turn.receipts.filter(row=>row.kind==='time'||row.kind==='move').length,0);
+  assert.equal(table.telemetry().filter(row=>row.lane==='kernel-rpc'&&row.method==='table.narrate'&&row.ok).length,1);
+});
+
 test('native speech aliases bind exact whole quotes to the same current actor across paragraphs',async t=>{
   const quotes=[
     ['public alias','I heard the family left.\n\nI did not see them leave.'],
@@ -801,6 +867,7 @@ test('speech occurrence resolution reuses prepared identities and bounds missing
     {name:'alias',kind:'speech',speaker:'PRIVATE_CANONICAL_NAME',text:'Alias words.'},
     {name:'ambiguous',kind:'speech',speaker:'PRIVATE_CANONICAL_NAME',text:'Shared words.'},
     {name:'overlong',kind:'speech',speaker:'L'.repeat(121),text:'Long name words.'}];
+  for(const material of materials)material.visibility='player';
   const owner=createFinalOutputOwner({runtime:()=>({home}),record:async()=>{},stream:frame=>seen.push(frame),call:async(method,params)=>{
     if(method==='table.capsule')return {_context:{campaign:'fixture',turn:1,worldline:'main',loop:0,task_world_revision:'world',task_source_revision:'source'},
       present:[{name:'Public clerk'}],turn:{player_text:'What did you hear?'}};
