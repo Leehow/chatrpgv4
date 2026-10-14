@@ -11,6 +11,7 @@ import {untoldView,untoldPeople} from './untold-view.ts';
 import {acquireWritingCache,writeWritingCache} from '../../runtime/final-output-cache.ts';
 import {createWritingSupportNames,publicSupportText,writingSupportBinding} from '../../runtime/writing-support.ts';
 import {ArtifactTextStream,DeliveryJournal,readDeliveryFrames,type DeliveryFrame} from '../../runtime/final-output-stream.ts';
+import {sayRanges,type Speaker} from '../../kernel-ts/write/speech-pass.ts';
 
 type Row = Record<string, any>;
 type Source = {name: string; revision: string; tool: string; material?:Row; binding?:Row};
@@ -447,6 +448,20 @@ export function createFinalOutputOwner(deps: {runtime: () => HostRuntime | undef
       finish:async(model:string,thinking:unknown,publication:Row)=>{
         const snapshot=await deps.call('table.status',{campaign,_context_read:true});
         const materials=(snapshot.outcome?.public_materials??[]).map((material:Row)=>({...material}));
+        const identity=(who:Row|undefined):string|undefined=>typeof who?.npc==='string'&&who.npc
+          ?`npc:${who.npc}`:typeof who?.investigator==='string'&&who.investigator?`investigator:${who.investigator}`:undefined;
+        const speakers=new Map<string,Speaker>((prepared.speakers??[]).filter((speaker:Row)=>identity(speaker.who))
+          .map((speaker:Row)=>[speaker.name,speaker.who]));
+        const speechMaterials=materials.filter((material:Row)=>material.kind==='speech');
+        const rawRanges=speechMaterials.length?sayRanges(text,name=>({label:name})):[];
+        const missing=[...new Set([...speechMaterials.map((material:Row)=>material.speaker),
+          ...rawRanges.map(range=>'label' in range.who?range.who.label:undefined)]
+          .filter((name):name is string=>typeof name==='string'&&name.length<=120&&!speakers.has(name)))];
+        for(let at=0;at<missing.length;at+=48){
+          const checked=await deps.call('table.delivery.check',{campaign,speakers:missing.slice(at,at+48)});
+          for(const speaker of checked.speakers??[])speakers.set(speaker.name,speaker.who);
+        }
+        const ranges=rawRanges.map(range=>({...range,who:'label' in range.who?speakers.get(range.who.label)??range.who:range.who}));
         // Bind an existing material only to its actual occurrence. An omitted or paraphrased
         // material remains pending; this never blocks prose or requests another author.
         const coverage=materials.flatMap((material:Row)=>{
@@ -454,11 +469,8 @@ export function createFinalOutputOwner(deps: {runtime: () => HostRuntime | undef
           const start=text.indexOf(material.text),end=start+material.text.length;
           if(start<0||text.indexOf(material.text,end)>=0)return [];
           if(material.kind==='speech'){
-            const person=(capsule.present??[]).find((person:Row)=>person.name===material.speaker||person.called?.name===material.speaker);
-            const aliases=[material.speaker,person?.called?.name].filter(Boolean);
-            const before=text.lastIndexOf('{{say:',start),close=before<0?-1:text.indexOf('}}',before);
-            if(before<0||close<0||!aliases.includes(text.slice(before+6,close).trim())
-              ||text.indexOf('{{/say}}',close+2)<end)return [];
+            const speaker=identity(speakers.get(material.speaker));
+            if(!speaker||!ranges.some(range=>range.start<=start&&end<=range.end&&identity(range.who)===speaker))return [];
           }
           return [{name:material.name,start,end}];
         });

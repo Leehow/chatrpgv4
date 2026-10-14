@@ -1,7 +1,8 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {readFileSync,readdirSync,writeFileSync,chmodSync} from 'node:fs';
+import {readFileSync,readdirSync,writeFileSync,chmodSync,mkdtempSync,rmSync} from 'node:fs';
 import {join,resolve} from 'node:path';
+import {tmpdir} from 'node:os';
 import {spawnSync} from 'node:child_process';
 import {createHash} from 'node:crypto';
 import {fauxAssistantMessage,fauxToolCall} from '@earendil-works/pi-ai';
@@ -342,6 +343,88 @@ test('an unspoken material stays pending even when the same NPC speaks',async t=
   const memory=await table.runtimeBridges().at(-1).call('table.recall',{campaign:'test-camp',what:'memory',about:['Thomas Hayes']});
   assert.ok(memory.hits.some(row=>row.statement==='The father left.'&&row.authority==='canonical_event'));
   assert.ok(!memory.hits.some(row=>row.statement==='He went to a secret address.'&&row.authority==='canonical_event'));
+});
+
+test('native speech aliases bind exact whole quotes to the same current actor across paragraphs',async t=>{
+  const quotes=[
+    ['public alias','I heard the family left.\n\nI did not see them leave.'],
+    ['short alias','The archive is open.'],
+    ['unknown speaker','This speaker is not registered.'],
+    ['different speaker','That is the visitor speaking.'],
+    ['split range','First fragment.{{/say}} {{say:steven-knott}}Second fragment.'],
+    ['duplicate','The clerk repeats this.'],
+    ['omitted','PRIVATE_UNSPOKEN_FACT'],
+  ];
+  const text='{{say:the office clerk}}'+quotes[0][1]+'{{/say}}\n\n'
+    +'{{say:steven-knott}}'+quotes[1][1]+'{{/say}}\n\n'
+    +'{{say:Unregistered speaker}}'+quotes[2][1]+'{{/say}}\n\n'
+    +'{{say:Thomas Hayes}}'+quotes[3][1]+'{{/say}}\n\n'
+    +'{{say:steven-knott}}'+quotes[4][1]+'{{/say}}\n\n'
+    +'{{say:steven-knott}}'+quotes[5][1]+' '+quotes[5][1]+'{{/say}}';
+  const response={version:1,record:{effects:[{kind:'person',who:'Steven Knott',name:'the office clerk'}],
+    event:{name:'alias-reply',summary:'PRIVATE_CAUSAL_ACCOUNT',
+      materials:quotes.map(([name,text])=>({name,text,kind:'speech',visibility:'player',speaker:'Steven Knott',audience:['Thomas Hayes']})),
+      knowledge:quotes.map(([name])=>({actor:'Thomas Hayes',statement:'Acquired '+name,mode:'heard',state:'uncertain',source:'Steven Knott',material:name}))}},text};
+  const {table,seen}=await directTable([fauxAssistantMessage(JSON.stringify(response)),fauxAssistantMessage('{{public}}The clerk waits for another question.')]);
+  t.after(()=>table.dispose());
+  await table.session.prompt('What did you hear, and can I use the archive?');
+  assert.deepEqual(table.extensionErrors,[]);
+  assert.equal(seen.at(-1)?.status,'completed',JSON.stringify(table.telemetry().filter(row=>row.ok===false||row.lane==='keeper-delivery')));
+  const turn=JSON.parse(readFileSync(join(table.workspace,'.coc/campaigns/test-camp/turns/0001.json'),'utf8'));
+  assert.ok(turn.commit);
+  assert.equal(turn.delivery_evidence.artifact_text,text,'identity resolution does not rewrite the author');
+  assert.deepEqual(turn.delivery_evidence.coverage.map(row=>row.name.split('/').at(-1)),['public alias','short alias']);
+  assert.equal(turn.speech.filter(row=>row.who.npc===turn.speech[0].who.npc)[0].text,quotes[0][1]);
+  assert.equal(seen.filter(frame=>frame.event==='delta').map(frame=>frame.delta).join(''),text);
+  assert.ok(!JSON.stringify(seen).includes('PRIVATE_CAUSAL_ACCOUNT'));
+  assert.ok(!JSON.stringify(seen).includes('PRIVATE_UNSPOKEN_FACT'));
+  assert.ok(!JSON.stringify(seen.filter(frame=>frame.event==='start')).includes('Steven Knott'),
+    'private canonical material names are not added to the public speaker roster');
+  await table.session.prompt('I remember those answers before asking anything else.');
+  const memory=await table.runtimeBridges().at(-1).call('table.recall',{campaign:'test-camp',what:'memory',about:['Thomas Hayes']});
+  assert.deepEqual(memory.hits.filter(row=>row.authority==='canonical_event').map(row=>row.statement).sort(),
+    ['Acquired public alias','Acquired short alias']);
+  assert.deepEqual(table.extensionErrors,[]);
+});
+
+test('speech occurrence resolution reuses prepared identities and bounds missing aliases without public names',async t=>{
+  const home=mkdtempSync(join(tmpdir(),'pi-coc-speech-identity-'));
+  t.after(()=>rmSync(home,{recursive:true,force:true}));
+  const seen=[],checks=[];
+  let statuses=0;
+  const who={npc:'clerk',name:'Public clerk'};
+  const materials=[{name:'known',kind:'speech',speaker:'Public clerk',text:'Known words.'},
+    {name:'alias',kind:'speech',speaker:'PRIVATE_CANONICAL_NAME',text:'Alias words.'},
+    {name:'ambiguous',kind:'speech',speaker:'PRIVATE_CANONICAL_NAME',text:'Shared words.'},
+    {name:'overlong',kind:'speech',speaker:'L'.repeat(121),text:'Long name words.'}];
+  const owner=createFinalOutputOwner({runtime:()=>({home}),record:async()=>{},stream:frame=>seen.push(frame),call:async(method,params)=>{
+    if(method==='table.capsule')return {_context:{campaign:'fixture',turn:1,worldline:'main',loop:0,task_world_revision:'world',task_source_revision:'source'},
+      present:[{name:'Public clerk'}],turn:{player_text:'What did you hear?'}};
+    if(method==='table.status'){statuses++;return {outcome:{public_materials:materials}};}
+    assert.equal(method,'table.delivery.check');
+    assert.ok(params.speakers.length<=48);
+    assert.ok(params.speakers.every(name=>name.length<=120));
+    checks.push(params.speakers);
+    return {speakers:params.speakers.map(name=>({name,who:['Public clerk','Alias 0','PRIVATE_CANONICAL_NAME'].includes(name)?who:{label:name}}))};
+  }});
+  const reply=await owner.openStream('fixture',1,'run');
+  const text='{{say:Public clerk}}Known words.{{/say}}{{say:Alias 0}}Alias words.{{/say}}'
+    +'{{say:Shared speaker}}Shared words.{{/say}}'
+    +'{{say:Alias 0}}Long name words.{{/say}}'
+    +Array.from({length:49},(_,index)=>'{{say:Unknown '+index+'}}Unbound '+index+'.{{/say}}').join('');
+  reply.push(text);
+  const result=await reply.finish('fixture/model','off',{});
+  assert.equal(result.text,text);
+  assert.deepEqual(result.evidence.coverage.map(row=>row.name),['known','alias']);
+  assert.equal(statuses,1);
+  assert.deepEqual(checks.map(names=>names.length),[1,48,4]);
+  assert.ok(checks.slice(1).every(names=>!names.includes('Public clerk')),'prepared canonical identity is reused');
+  assert.ok(!JSON.stringify(seen).includes('PRIVATE_CANONICAL_NAME'),'private resolution is not streamed');
+  materials.length=0;
+  const unchanged=await owner.openStream('fixture',1,'unchanged');
+  unchanged.push('{{say:Another label}}An unchanged reply.{{/say}}');
+  await unchanged.finish('fixture/model','off',{});
+  assert.deepEqual(checks.map(names=>names.length),[1,48,4,1],'an unbound reply needs no additional alias read');
 });
 
 test('a direct mechanical choice remains pending across an OOC response',async t=>{
