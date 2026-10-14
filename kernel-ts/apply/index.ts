@@ -190,7 +190,7 @@ export function createApplyHandlers(kernel: KernelContext, writer: ReturnType<ty
                 Object.assign(transaction.world, repaired.world);
             }
             const staged: Row = clone(transaction.world), taken = new Set(array(turn.receipts).map(value => string(value.id)));
-            const receipts: Row[] = [], events: DomainEvent[] = [], ids: string[] = [];
+            const receipts: Row[] = [], events: DomainEvent[] = [], ids: string[] = [], eventNotLanded:RpcError[]=[];
             const effectReceipts = new Map<number, Row[]>();
             const stagedSheets=new Map<string,Row>(),stagedNotes:Row[]=[],stagedRulings:Row[]=[],attachments:Row[]=[],mapViews:Row[]=[],already:string[]=[];
             const buffered=new StagedCampaignWriter(kernel,campaign.id),effectCampaign=buffered;
@@ -432,7 +432,7 @@ export function createApplyHandlers(kernel: KernelContext, writer: ReturnType<ty
                 snapshot.meta=await campaign.readCampaign();snapshot.turn=turn;
                 const receipt=stageEvent(params.event,{graph,world:staged,party:await effectCampaign.party() as Row[],meta:snapshot.meta,
                     campaign:campaign.id,turn:number(turn.turn),id:context.mint(`${started.callId}-event`),receipts,
-                    prior:array(turn.receipts),records:await snapshot.files('turns'),sources:array(params._event_sources)});
+                    prior:array(turn.receipts),records:await snapshot.files('turns'),sources:array(params._event_sources),notLanded:eventNotLanded});
                 receipts.push(receipt);ids.push(receipt.id);
                 events.push({type:'semantic-event',data:{name:receipt.event.name,event:receipt.event.ref},receipt:receipt.id});
             }
@@ -512,6 +512,8 @@ export function createApplyHandlers(kernel: KernelContext, writer: ReturnType<ty
             // §11.5.5 (SL-59): the lines this batch could not land alone, beside the ones that did (line-level, §32.12.3's shape).
             if (isolatedRefusals.length) result.not_landed = isolatedRefusals.map(({ index, error }) => ({ index, code: error.code, message: error.message,
                 ...(error.fix ? { fix: error.fix } : {}), ...(error.details ? { details: error.details } : {}) }));
+            if(eventNotLanded.length)result.not_landed=[...array(result.not_landed),...eventNotLanded.map(error=>({code:error.code,message:error.message,
+                ...(error.fix?{fix:error.fix}:{}),...(error.details?{details:error.details}:{})}))];
             if (receipts.some(receipt => receipt.kind === 'move' && receipt.renamed) && !receipts.some(receipt => receipt.kind === 'move' && !receipt.renamed))
                 result.location_note = `A rename changed only a display label. The actual scene remains ${graph.displayName(graph.scene(staged.active_scene))}. No arrival at a different place occurred. For an ordinary new player-chosen destination, apply move with establish:{summary} and via. Never narrate a different place as reached by a rename.`;
             if (receipts.some(receipt => receipt.kind === 'move' && !receipt.renamed)) {

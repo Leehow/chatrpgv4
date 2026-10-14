@@ -1517,16 +1517,19 @@ export default function (pi: ExtensionAPI, host: {capabilities?:RuntimeCapabilit
 		const owner=keeperRun,state=table,signal=owner.signal,ctx=sessionCtx;
 		const reply={decoder:undefined as unknown as ArtifactTextStream,work:Promise.resolve(),run:owner.runId,signal,raw:''} as NonNullable<typeof keeperReply>;
 		const enqueue=(job:()=>Promise<void>)=>{reply.work=reply.work.then(async()=>{if(!reply.error)await job();}).catch(error=>{reply.error=error;});};
-		reply.decoder=new ArtifactTextStream(record=>enqueue(async()=>{
+		reply.decoder=new ArtifactTextStream(privateRecord=>enqueue(async()=>{
 			if(signal?.aborted)throw Error('The Keeper response was cancelled');
-			if(record.scope==='reference')state.interactionScope='reference';
-			if(record.event!==undefined||Array.isArray(record.effects)&&record.effects.length){
+			if(privateRecord.scope==='reference')state.interactionScope='reference';
+			if(privateRecord.event!==undefined||Array.isArray(privateRecord.effects)&&privateRecord.effects.length){
 				const toolCallId=`keeper:${reply.run}:record`;
 				owner.recordCallId??=mintCallId(state);
 				state.mintedCallIds.set(toolCallId,owner.recordCallId);
 				const result=await runTool(COC_TOOLS.find(tool=>tool.name==='apply')!,toolCallId,
-					{effects:record.effects??[],...(record.event!==undefined?{event:record.event}:{})},signal,undefined,'explicit',ctx);
+					{effects:privateRecord.effects??[],...(privateRecord.event!==undefined?{event:privateRecord.event}:{})},signal,undefined,'explicit',ctx);
 				if(result.details.coc_error)throw new KernelError(result.details.coc_error as ConstructorParameters<typeof KernelError>[0]);
+				if(Array.isArray(result.details.not_landed)&&result.details.not_landed.length)
+					await record({lane:'keeper-delivery',turn:state.turn,ok:true,reason:'not_landed',
+						private_reply:reply.raw,not_landed:result.details.not_landed});
 			}
 		}));
 		keeperReply=reply;

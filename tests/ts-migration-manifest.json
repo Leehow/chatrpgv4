@@ -24716,7 +24716,7 @@
           "counterpart": {
             "file": "tests/integration/rules-apply.test.ts",
             "name": "test_move_reachable_and_unreachable",
-            "sha256": "919729da321380eb1b90ea5a6d9615d5874b38ddd42e25bacd876878227de0be"
+            "sha256": "7122d3eafd598c3a36dde0c8e2ae7b7d09c4e38c0b5f11337842ad10b28cc687"
           },
           "review": "statement-by-statement",
           "validation": {
@@ -24835,7 +24835,7 @@
           "counterpart": {
             "file": "tests/integration/rules-apply.test.ts",
             "name": "test_a_route_the_keeper_made_lands_and_says_it_was_off_the_graph",
-            "sha256": "919729da321380eb1b90ea5a6d9615d5874b38ddd42e25bacd876878227de0be"
+            "sha256": "7122d3eafd598c3a36dde0c8e2ae7b7d09c4e38c0b5f11337842ad10b28cc687"
           },
           "review": "statement-by-statement",
           "validation": {
@@ -24974,7 +24974,7 @@
           "counterpart": {
             "file": "tests/integration/rules-apply.test.ts",
             "name": "test_move_retraces_the_trail",
-            "sha256": "919729da321380eb1b90ea5a6d9615d5874b38ddd42e25bacd876878227de0be"
+            "sha256": "7122d3eafd598c3a36dde0c8e2ae7b7d09c4e38c0b5f11337842ad10b28cc687"
           },
           "review": "statement-by-statement",
           "validation": {
@@ -25101,7 +25101,7 @@
           "counterpart": {
             "file": "tests/integration/rules-apply.test.ts",
             "name": "test_a_clue_of_the_scene_left_this_turn_lands_at_that_scene",
-            "sha256": "919729da321380eb1b90ea5a6d9615d5874b38ddd42e25bacd876878227de0be"
+            "sha256": "7122d3eafd598c3a36dde0c8e2ae7b7d09c4e38c0b5f11337842ad10b28cc687"
           },
           "review": "statement-by-statement",
           "validation": {
@@ -25208,7 +25208,7 @@
           "counterpart": {
             "file": "tests/integration/rules-apply.test.ts",
             "name": "test_a_move_then_the_old_scenes_clue_in_one_batch_lands",
-            "sha256": "919729da321380eb1b90ea5a6d9615d5874b38ddd42e25bacd876878227de0be"
+            "sha256": "7122d3eafd598c3a36dde0c8e2ae7b7d09c4e38c0b5f11337842ad10b28cc687"
           },
           "review": "statement-by-statement",
           "validation": {
@@ -25371,7 +25371,7 @@
           "counterpart": {
             "file": "tests/integration/rules-apply.test.ts",
             "name": "test_clue_here_not_here_and_duplicate",
-            "sha256": "919729da321380eb1b90ea5a6d9615d5874b38ddd42e25bacd876878227de0be"
+            "sha256": "7122d3eafd598c3a36dde0c8e2ae7b7d09c4e38c0b5f11337842ad10b28cc687"
           },
           "review": "statement-by-statement",
           "validation": {
@@ -25494,7 +25494,7 @@
           "counterpart": {
             "file": "tests/integration/rules-apply.test.ts",
             "name": "test_time_advances_the_clock",
-            "sha256": "919729da321380eb1b90ea5a6d9615d5874b38ddd42e25bacd876878227de0be"
+            "sha256": "7122d3eafd598c3a36dde0c8e2ae7b7d09c4e38c0b5f11337842ad10b28cc687"
           },
           "review": "statement-by-statement",
           "validation": {
@@ -25625,7 +25625,7 @@
           "counterpart": {
             "file": "tests/integration/rules-apply.test.ts",
             "name": "test_batch_is_atomic",
-            "sha256": "919729da321380eb1b90ea5a6d9615d5874b38ddd42e25bacd876878227de0be"
+            "sha256": "7122d3eafd598c3a36dde0c8e2ae7b7d09c4e38c0b5f11337842ad10b28cc687"
           },
           "review": "statement-by-statement",
           "validation": {
@@ -25744,7 +25744,7 @@
           "counterpart": {
             "file": "tests/integration/rules-apply.test.ts",
             "name": "test_reserved_and_unknown_effect_kinds",
-            "sha256": "919729da321380eb1b90ea5a6d9615d5874b38ddd42e25bacd876878227de0be"
+            "sha256": "7122d3eafd598c3a36dde0c8e2ae7b7d09c4e38c0b5f11337842ad10b28cc687"
           },
           "review": "statement-by-statement",
           "validation": {
@@ -25867,7 +25867,7 @@
           "counterpart": {
             "file": "tests/integration/rules-apply.test.ts",
             "name": "test_damage_effect_rolls_the_dice_and_moves_hp",
-            "sha256": "919729da321380eb1b90ea5a6d9615d5874b38ddd42e25bacd876878227de0be"
+            "sha256": "7122d3eafd598c3a36dde0c8e2ae7b7d09c4e38c0b5f11337842ad10b28cc687"
           },
           "review": "statement-by-statement",
           "validation": {
@@ -25982,7 +25982,7 @@
           "counterpart": {
             "file": "tests/integration/rules-apply.test.ts",
             "name": "test_damage_effect_takes_compound_rulebook_dice",
-            "sha256": "919729da321380eb1b90ea5a6d9615d5874b38ddd42e25bacd876878227de0be"
+            "sha256": "7122d3eafd598c3a36dde0c8e2ae7b7d09c4e38c0b5f11337842ad10b28cc687"
           },
           "review": "statement-by-statement",
           "validation": {
@@ -26109,7 +26109,7 @@
           "counterpart": {
             "file": "tests/integration/rules-apply.test.ts",
             "name": "test_move_label_names_the_scene_from_then_on",
-            "sha256": "919729da321380eb1b90ea5a6d9615d5874b38ddd42e25bacd876878227de0be"
+            "sha256": "7122d3eafd598c3a36dde0c8e2ae7b7d09c4e38c0b5f11337842ad10b28cc687"
           },
           "review": "statement-by-statement",
           "validation": {
@@ -26236,7 +26236,7 @@
           "counterpart": {
             "file": "tests/integration/rules-apply.test.ts",
             "name": "test_a_night_of_rest_gives_back_the_hit_point_the_rulebook_promises",
-            "sha256": "919729da321380eb1b90ea5a6d9615d5874b38ddd42e25bacd876878227de0be"
+            "sha256": "7122d3eafd598c3a36dde0c8e2ae7b7d09c4e38c0b5f11337842ad10b28cc687"
           },
           "review": "statement-by-statement",
           "validation": {
@@ -26347,7 +26347,7 @@
           "counterpart": {
             "file": "tests/integration/rules-apply.test.ts",
             "name": "test_travel_time_is_a_trip_not_a_rest",
-            "sha256": "919729da321380eb1b90ea5a6d9615d5874b38ddd42e25bacd876878227de0be"
+            "sha256": "7122d3eafd598c3a36dde0c8e2ae7b7d09c4e38c0b5f11337842ad10b28cc687"
           },
           "review": "statement-by-statement",
           "validation": {
@@ -26458,7 +26458,7 @@
           "counterpart": {
             "file": "tests/integration/rules-apply.test.ts",
             "name": "test_magic_points_come_back_over_an_hour_of_rest",
-            "sha256": "919729da321380eb1b90ea5a6d9615d5874b38ddd42e25bacd876878227de0be"
+            "sha256": "7122d3eafd598c3a36dde0c8e2ae7b7d09c4e38c0b5f11337842ad10b28cc687"
           },
           "review": "statement-by-statement",
           "validation": {
@@ -26589,7 +26589,7 @@
           "counterpart": {
             "file": "tests/integration/rules-apply.test.ts",
             "name": "test_the_scene_underfoot_can_be_given_its_name",
-            "sha256": "919729da321380eb1b90ea5a6d9615d5874b38ddd42e25bacd876878227de0be"
+            "sha256": "7122d3eafd598c3a36dde0c8e2ae7b7d09c4e38c0b5f11337842ad10b28cc687"
           },
           "review": "statement-by-statement",
           "validation": {
@@ -26692,7 +26692,7 @@
           "counterpart": {
             "file": "tests/integration/rules-apply.test.ts",
             "name": "test_a_naming_leaves_no_row_on_the_player_s_card",
-            "sha256": "919729da321380eb1b90ea5a6d9615d5874b38ddd42e25bacd876878227de0be"
+            "sha256": "7122d3eafd598c3a36dde0c8e2ae7b7d09c4e38c0b5f11337842ad10b28cc687"
           },
           "review": "statement-by-statement",
           "validation": {
@@ -26807,7 +26807,7 @@
           "counterpart": {
             "file": "tests/integration/rules-apply.test.ts",
             "name": "test_environment_damage_records_zero_hp_conditions",
-            "sha256": "919729da321380eb1b90ea5a6d9615d5874b38ddd42e25bacd876878227de0be"
+            "sha256": "7122d3eafd598c3a36dde0c8e2ae7b7d09c4e38c0b5f11337842ad10b28cc687"
           },
           "review": "statement-by-statement",
           "validation": {
@@ -26914,7 +26914,7 @@
           "counterpart": {
             "file": "tests/integration/rules-apply.test.ts",
             "name": "test_environment_major_wound_and_lethal_damage",
-            "sha256": "919729da321380eb1b90ea5a6d9615d5874b38ddd42e25bacd876878227de0be"
+            "sha256": "7122d3eafd598c3a36dde0c8e2ae7b7d09c4e38c0b5f11337842ad10b28cc687"
           },
           "review": "statement-by-statement",
           "validation": {
@@ -27017,7 +27017,7 @@
           "counterpart": {
             "file": "tests/integration/rules-apply.test.ts",
             "name": "test_handout_display_name_prefers_delivery_over_underlying_asset",
-            "sha256": "919729da321380eb1b90ea5a6d9615d5874b38ddd42e25bacd876878227de0be"
+            "sha256": "7122d3eafd598c3a36dde0c8e2ae7b7d09c4e38c0b5f11337842ad10b28cc687"
           },
           "review": "statement-by-statement",
           "validation": {
@@ -27144,7 +27144,7 @@
           "counterpart": {
             "file": "tests/integration/rules-apply.test.ts",
             "name": "test_a_batch_reports_every_effect_it_refused_not_only_the_first",
-            "sha256": "919729da321380eb1b90ea5a6d9615d5874b38ddd42e25bacd876878227de0be"
+            "sha256": "7122d3eafd598c3a36dde0c8e2ae7b7d09c4e38c0b5f11337842ad10b28cc687"
           },
           "review": "statement-by-statement",
           "validation": {
@@ -27251,7 +27251,7 @@
           "counterpart": {
             "file": "tests/integration/rules-apply.test.ts",
             "name": "test_a_batch_with_one_bad_effect_still_reports_exactly_one",
-            "sha256": "919729da321380eb1b90ea5a6d9615d5874b38ddd42e25bacd876878227de0be"
+            "sha256": "7122d3eafd598c3a36dde0c8e2ae7b7d09c4e38c0b5f11337842ad10b28cc687"
           },
           "review": "statement-by-statement",
           "validation": {
@@ -175430,6 +175430,31 @@
           "persistentLog": ".tmp/amaranthine-system-20261013/driver-privacy-23730/green-rules-play-driver.log"
         },
         "limitation": "This focused transport validation is not gameplay or a whole-suite claim."
+      }
+    },
+    {
+      "file": "tests/integration/rules-apply.test.ts",
+      "prior_sha256": "919729da321380eb1b90ea5a6d9615d5874b38ddd42e25bacd876878227de0be",
+      "current_sha256": "7122d3eafd598c3a36dde0c8e2ae7b7d09c4e38c0b5f11337842ad10b28cc687",
+      "contract": "docs/kernel-rpc.md §237.48",
+      "basis": "Public source headings remain confidential; raw canonical movement labels remain unchanged. Existing current-TS assertions are adjusted at the public projection only.",
+      "behaviorAmendments": [
+        "The unestablished keeper-only origin heading becomes Scene only in public mechanics; the raw receipt still equals Knott's Office.",
+        "A non-null TypeScript assertion on the existing last movement receipt changes no runtime assertion."
+      ],
+      "historicalValidationRetained": "All original source/case hashes, assertion inventories, parameters and exceptions remain unchanged; previous execution evidence remains separately retained.",
+      "currentValidation": {
+        "command": "/Users/haoli/.local/opt/node-v24.19.0-darwin-arm64/bin/node --test tests/integration/rules-apply.test.ts",
+        "result": "passed",
+        "passed": 23,
+        "failed": 0,
+        "exitCode": 0,
+        "durationApproximateMs": 36950,
+        "evidence": {
+          "kind": "actual native TypeScript JSONL execution",
+          "persistentLog": ".tmp/amaranthine-system-20261013/full-f5-test-sync/rules-public-label-final.log"
+        },
+        "limitation": "The original public-label failure and integration type-check failure remain separate evidence. This focused file is not a full-suite or live play claim."
       }
     }
   ]

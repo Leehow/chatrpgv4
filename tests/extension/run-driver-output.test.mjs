@@ -9,7 +9,7 @@ import {fauxAssistantMessage,fauxText,fauxToolCall} from '@earendil-works/pi-ai'
 import {openTable,waitForIdle} from './harness.mjs';
 import {createHybridEngine} from '../../runtime/jev/hybrid-engine.ts';
 import {createFinalOutputOwner} from '../../extensions/kernel/final-output.ts';
-import {importSource} from '../integration/support.ts';
+import {importSource,RpcClient,rpcCommand} from '../integration/support.ts';
 import {writeSourceMetadata} from '../integration/module-support.ts';
 
 const root=resolve(import.meta.dirname,'../..');
@@ -92,6 +92,112 @@ function directTable(responses,extra={}) {
     extraExtensions:[{name:'capture-stream',factory:pi=>pi.events.on('coc:final-delivery',frame=>{seen.push(frame);onFrame?.(frame);})},{name:'driver',factory:engine.extension},...extraExtensions],
     responses,...options}).then(table=>({table,seen}));
 }
+
+test('one Keeper omits a reverse speech binding and publishes valid time, inventory, notes and hearing once',async t=>{
+  let authors=0,closed=false;
+  const retained=mkdtempSync(join(tmpdir(),'keeper-binding-fixture-'));
+  t.after(()=>rmSync(retained,{recursive:true,force:true,maxRetries:5,retryDelay:50}));
+  const text='You finish waiting beside the desk. {{say:Steven Knott}}The office is open.{{/say}}';
+  const response={version:1,record:{effects:[{kind:'time',minutes:8},{kind:'item',name:'Loose test slips',quantity:1},
+    {kind:'object',name:'Notebook',from:'Thomas Hayes',to:'Thomas Hayes',document:{action:'append',text:'B'},why:'Write the chosen note.'}],
+    event:{name:'notes-and-answer',summary:'PRIVATE_VALID_ACCOUNT',
+      materials:[{name:'reply',kind:'speech',visibility:'player',speaker:'Steven Knott',audience:['Thomas Hayes'],text:'The office is open.'},
+        {name:'unspoken',kind:'speech',visibility:'player',speaker:'Steven Knott',audience:['Thomas Hayes'],text:'PRIVATE_UNSPOKEN_ACCOUNT'}],
+      knowledge:[{actor:'Steven Knott',source:'Thomas Hayes',statement:'PRIVATE_OMITTED_REVERSE_BINDING',mode:'heard',state:'accurate',material:'reply'},
+        {actor:'Thomas Hayes',source:'Steven Knott',statement:'Knott says the office is open.',mode:'heard',state:'uncertain',material:'reply'},
+        {actor:'Thomas Hayes',source:'Steven Knott',statement:'PRIVATE_VALID_PENDING',mode:'heard',state:'uncertain',material:'unspoken'}]}},text,
+    coverage:[{name:'reply',quote:'The office is open.'}]};
+  const raw=JSON.stringify(response),command=JSON.stringify(rpcCommand());
+  const {table,seen}=await directTable([()=>{authors++;return fauxAssistantMessage(raw);}],{
+    retainAt:retained,
+    env:{PI_COC_LOOP_ENGINE:'hybrid-v1',PI_COC_KERNEL_CMD:command},
+    prepareWorkspace:async workspace=>{
+      const kernel=new RpcClient(workspace);
+      try{
+        const draft={name:'Notebook',category:'item',description:'An ordinary writable carrier.',basis:'Ordinary fixture paper.',
+          parameters:{charges:null,effects:[]},document:{text:'A',presentation:'notebook'},player_view:{description:'A notebook.',fields:[]}};
+        const job=await kernel.ok('mods.job',{campaign:'test-camp',role:'create',input:{name:draft.name,category:draft.category,description:draft.description}});
+        writeFileSync(join(job.cwd,'result.json'),JSON.stringify(draft));
+        const accepted=await kernel.ok('mods.accept',{campaign:'test-camp',job:job.job});
+        await kernel.ok('table.open',{campaign:'test-camp'});
+        await kernel.ok('table.apply',{campaign:'test-camp',call_id:'t0-c1',effects:[
+          {kind:'define',name:draft.name,category:draft.category,description:draft.description,_definition:accepted.definition,_provenance:accepted.provenance},
+          {kind:'object',name:'Notebook',to:'Thomas Hayes'}]});
+        await kernel.ok('table.narrate',{campaign:'test-camp',call_id:'t0-c2',text:'You wait in the office with your notebook.'});
+      }finally{await kernel.close();}
+      process.env.PI_COC_KERNEL_CMD=JSON.stringify([...rpcCommand(),'--workspace',workspace,'--content',join(root,'content')]);
+    },
+  });
+  t.after(async()=>{if(!closed)await table.dispose();});
+  await table.session.prompt('I append B to my notebook, take a loose slip from the desk, wait eight minutes, and ask whether the office is open.');
+  assert.equal(authors,1);assert.deepEqual(table.extensionErrors,[]);
+  assert.equal(seen.filter(frame=>frame.event==='delta').map(frame=>frame.delta).join(''),text,
+    JSON.stringify(table.telemetry().filter(row=>row.ok===false||row.lane==='keeper-delivery')));
+  assert.ok(seen.filter(frame=>frame.event==='delta').length>2);assert.equal(seen.at(-1)?.status,'completed');
+  assert.ok(!JSON.stringify(seen).includes('PRIVATE_'));
+  const telemetry=table.telemetry(),omitted=telemetry.find(row=>row.lane==='keeper-delivery'&&row.reason==='not_landed');
+  assert.equal(omitted?.ok,true);assert.equal(omitted.not_landed[0].details.field,'event.knowledge[0].material');
+  assert.ok(omitted.private_reply.startsWith(raw.slice(0,raw.indexOf(',"text":'))),'the complete original private record bytes are retained');
+  assert.ok(omitted.private_reply.includes('PRIVATE_OMITTED_REVERSE_BINDING'));
+  assert.deepEqual(telemetry.filter(row=>row.tool==='apply').map(row=>row.ok),[true]);
+  assert.equal(telemetry.filter(row=>row.lane==='provider-call').length,1);
+  assert.equal(telemetry.filter(row=>row.lane==='kernel-rpc'&&row.method==='table.narrate'&&row.ok).length,1);
+  assert.equal(telemetry.filter(row=>row.lane==='keeper-delivery'&&row.ok===false).length,0);
+  const turn=JSON.parse(readFileSync(join(table.workspace,'.coc/campaigns/test-camp/turns/0001.json'),'utf8'));
+  assert.ok(turn.commit);assert.equal(turn.world.clock.minutes,8);
+  assert.equal(turn.receipts.filter(row=>row.kind==='time').length,1);
+  assert.equal(turn.receipts.filter(row=>row.writing_result).length,1);
+  assert.deepEqual(turn.outcome.knowledge_changes.map(row=>[row.statement,row.status]),[
+    ['Knott says the office is open.','active'],['PRIVATE_VALID_PENDING','pending']]);
+  assert.equal(turn.disclosures.length,1);
+  const bridge=table.runtimeBridges().at(-1),memory=await bridge.call('memory.job',{campaign:'test-camp',turn:1});
+  assert.equal(JSON.stringify(memory).includes('PRIVATE_OMITTED_REVERSE_BINDING'),false);
+  const original=readFileSync(join(table.workspace,'.coc/campaigns/test-camp/turns/0001.json'),'utf8');
+  const workspace=table.workspace;await table.dispose();closed=true;const restarted=new RpcClient(workspace);
+  t.after(()=>restarted.close());
+  const capsule=await restarted.ok('table.capsule',{campaign:'test-camp'});
+  assert.equal(capsule.where.clock.minutes,8);
+  assert.ok(capsule.player_knows.cognition.some(row=>row.statement==='Knott says the office is open.'));
+  assert.equal(JSON.stringify(capsule.player_knows).includes('PRIVATE_VALID_PENDING'),false);
+  assert.equal(JSON.stringify(await restarted.ok('npc.perspective',{campaign:'test-camp',name:'Steven Knott'})).includes('PRIVATE_OMITTED_REVERSE_BINDING'),false);
+  const sheet=JSON.parse(readFileSync(join(workspace,'.coc/campaigns/test-camp/party/thomas-hayes.json'),'utf8'));
+  assert.equal(sheet.equipment.find(row=>row.name==='Loose test slips').quantity,1);
+  assert.equal(sheet.equipment.filter(row=>row.name==='Notebook').length,1);
+  assert.equal((await restarted.ok('mods.document.view',{campaign:'test-camp',actor:'Thomas Hayes',name:'Notebook'})).text,'AB');
+  assert.equal(JSON.stringify(await restarted.ok('table.recall',{campaign:'test-camp',what:'memory',about:['Steven Knott','Thomas Hayes']})).includes('PRIVATE_OMITTED_REVERSE_BINDING'),false);
+  await restarted.close();
+
+  let laterAuthors=0,request;
+  const {table:continued,seen:laterSeen}=await directTable([context=>{
+    laterAuthors++;request=context;
+    return fauxAssistantMessage(JSON.stringify({version:1,record:{event:{name:'repeated-question',
+      summary:'The investigator repeats the earlier question.',
+      knowledge:[{actor:'Steven Knott',source:'Thomas Hayes',statement:'PRIVATE_OMITTED_REVERSE_BINDING',mode:'heard',state:'accurate'}]}},
+      text:'{{say:Steven Knott}}I heard your question.{{/say}}'}));
+  }],{seedCampaign:false,env:{PI_COC_LOOP_ENGINE:'hybrid-v1',PI_COC_KERNEL_CMD:command},prepareWorkspace:continuedWorkspace=>{
+    cpSync(join(workspace,'.coc'),join(continuedWorkspace,'.coc'),{recursive:true});
+    process.env.PI_COC_KERNEL_CMD=JSON.stringify([...rpcCommand(),'--workspace',continuedWorkspace,'--content',join(root,'content')]);
+  }});
+  t.after(()=>continued.dispose());
+  await continued.session.prompt('I repeat my earlier question to Knott: is the office open?');
+  assert.equal(laterAuthors,1);assert.deepEqual(continued.extensionErrors,[]);
+  assert.ok(JSON.stringify(request.messages).includes('Knott says the office is open.'));
+  assert.equal(JSON.stringify(request.messages).includes('PRIVATE_OMITTED_REVERSE_BINDING'),false,'the next real Pi request cannot acquire omitted cognition from history or its actor projection');
+  assert.equal(laterSeen.at(-1)?.status,'completed');assert.equal(JSON.stringify(laterSeen).includes('PRIVATE_'),false);
+  const laterBridge=continued.runtimeBridges().at(-1),pov=await laterBridge.call('npc.perspective',{campaign:'test-camp',name:'Steven Knott'});
+  assert.equal(pov.cognition.filter(row=>row.statement==='PRIVATE_OMITTED_REVERSE_BINDING'&&row.authority==='canonical_event').length,1,
+    'a later genuine input establishes the hearing through the existing event path');
+  const recall=await laterBridge.call('table.recall',{campaign:'test-camp',what:'memory',about:['Steven Knott']});
+  assert.equal(recall.hits.filter(row=>row.statement==='PRIVATE_OMITTED_REVERSE_BINDING'&&row.authority==='canonical_event').length,1);
+  assert.equal((await laterBridge.call('mods.document.view',{campaign:'test-camp',actor:'Thomas Hayes',name:'Notebook'})).text,'AB');
+  const laterCapsule=await laterBridge.call('table.capsule',{campaign:'test-camp',_context_read:true});
+  assert.equal(laterCapsule.where.clock.minutes,8);
+  assert.equal(laterCapsule.player_knows.cognition.filter(row=>row.statement==='Knott says the office is open.'&&row.authority==='canonical_event').length,1);
+  assert.equal(JSON.stringify(laterCapsule.player_knows).includes('PRIVATE_VALID_PENDING'),false,'the later hearing neither erases the earlier public fact nor activates undisclosed material');
+  assert.equal(JSON.parse(readFileSync(join(continued.workspace,'.coc/campaigns/test-camp/party/thomas-hayes.json'),'utf8')).equipment.find(row=>row.name==='Loose test slips').quantity,1);
+  assert.equal(readFileSync(join(continued.workspace,'.coc/campaigns/test-camp/turns/0001.json'),'utf8'),original);
+  assert.equal(continued.telemetry().filter(row=>row.lane==='kernel-rpc'&&row.method==='table.narrate'&&row.ok&&row.turn===2).length,1);
+});
 
 // Publish a generation fixture through the existing metadata fixture/manifest seam; never gameplay.
 async function sourceAppendFixture(workspace) {

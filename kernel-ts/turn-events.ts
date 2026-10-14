@@ -72,7 +72,7 @@ export function publishedEventRecord(record:Row,turn:Row):Row{
   return {...record,disclosures:record.pending_disclosures,outcome:eventOutcome(array(record.receipts),record.pending_disclosures)};
 }
 export function stageEvent(raw:unknown,input:{graph:ModuleGraph;world:Row;party:Row[];meta:Row;campaign:string;turn:number;id:string;
-  receipts:Row[];prior:Row[];records:Row[];sources?:Row[]}):Row{
+  receipts:Row[];prior:Row[];records:Row[];sources?:Row[];notLanded?:RpcError[]}):Row{
   const value=shape(raw,['name','summary','causes','materials','knowledge','relationships','corrects','material'],'record');
   if(Buffer.byteLength(JSON.stringify(value),'utf8')>32000)invalid('record exceeds 32 KiB');
   if(!word(value.name,120)||value.summary!==undefined&&!word(value.summary))invalid('name/summary');
@@ -115,21 +115,26 @@ export function stageEvent(raw:unknown,input:{graph:ModuleGraph;world:Row;party:
     if(!found||found.visibility!=='player')invalid('material binding must name a permitted public component');
     return found.name;
   };
-  const knowledge=list(value.knowledge,'knowledge').map((raw,index)=>{
+  const checkedKnowledge=list(value.knowledge,'knowledge').map((raw,index)=>{
     const item=shape(raw,['actor','statement','mode','source','state','material'],`knowledge[${index}]`);
     if(!word(item.statement)||!modes.includes(item.mode)||!states.includes(item.state))invalid('knowledge');
     const who=actor(item.actor),source=item.source===undefined?undefined:actor(item.source);
     if(item.mode==='heard'&&!source)invalid('heard source');
+    if(item.mode==='belief'&&who.kind==='investigator')invalid('player belief requires the existing player assertion owner');
     const binding=material(item.material),bound=materials.find(m=>m.name===binding);
+    return {item,index,who,source,binding,bound};
+  });
+  const knowledge=checkedKnowledge.flatMap(({item,index,who,source,binding,bound})=>{
     if(bound?.kind==='speech'&&(item.mode!=='heard'||source?.id!==row(bound.speaker).id||!array(bound.audience).some(a=>a.id===who.id))){
       const audience=array(bound.audience);
-      invalid('speech cognition must match actual speaker and audience','This material is a future speech-delivery binding, not generic evidence. For a prospective hearing use the expected mode and speaker as source, with the acquiring actor in the actual audience. Do not rewrite the genuine speaker or audience to match earlier knowledge. For already acquired player-input knowledge, physical reading or observation, omit this knowledge row\'s material; retain the row independently. Valid prospective non-speech bindings remain allowed.',
-        {field:`event.knowledge[${index}].material`,knowledge_index:index,material_index:materials.indexOf(bound),
+      input.notLanded?.push(new RpcError('invalid_params','Invalid event speech cognition must match actual speaker and audience',
+        {fix:'This knowledge row was omitted; the other valid event rows and effects remain. A speech-delivery binding requires heard mode, its actual speaker as source and an acquiring actor in its audience. Already acquired input, reading or observation can be recorded independently in a later event without this optional binding. Do not change the genuine speaker or audience to fit earlier knowledge.',
+        details:{field:`event.knowledge[${index}].material`,knowledge_index:index,material_index:materials.indexOf(bound),
           mismatches:[...(item.mode!=='heard'?['mode']:[]),...(source?.id!==row(bound.speaker).id?['source']:[]),...(!audience.some(a=>a.id===who.id)?['audience']:[])],
-          expected:{mode:'heard',source:row(bound.speaker).name,actor_in_audience:audience.map(a=>a.name)}});
+          expected:{mode:'heard',source:row(bound.speaker).name,actor_in_audience:audience.map(a=>a.name)}}}));
+      return [];
     }
-    if(item.mode==='belief'&&who.kind==='investigator')invalid('player belief requires the existing player assertion owner');
-    return {actor:who,statement:item.statement,mode:item.mode,state:item.state,...(source?{source}:{}),...(binding?{material:binding}:{})};
+    return [{actor:who,statement:item.statement,mode:item.mode,state:item.state,...(source?{source}:{}),...(binding?{material:binding}:{})}];
   });
   const relationships=list(value.relationships,'relationships').map((raw,index)=>{
     const item=shape(raw,['actor','toward','statement','material'],`relationships[${index}]`);
