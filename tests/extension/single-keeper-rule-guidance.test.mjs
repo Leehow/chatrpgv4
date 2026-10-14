@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import {test} from 'node:test';
 import {join} from 'node:path';
 import {readFile} from 'node:fs/promises';
-import {fauxAssistantMessage,getCurrentSystemPrompt} from '@earendil-works/pi-ai';
+import {fauxAssistantMessage,fauxToolCall,getCurrentSystemPrompt} from '@earendil-works/pi-ai';
 import {openTable} from './harness.mjs';
 import {api,root} from './object-usages-fixture.mjs';
 import {createHybridEngine} from '../../runtime/jev/hybrid-engine.ts';
@@ -66,4 +66,34 @@ test('the real Keeper context supplies practical NPC knowledge and separates fir
     const bytes=instructions.reduce((total,row)=>total+Buffer.byteLength(row.instruction,'utf8'),0);
     t.diagnostic(`Default package instructions: ${bytes} of 65536 bytes`);
     assert.ok(bytes<=65536);
+});
+
+test('the single Keeper can read necessary evidence beyond the legacy per-tool quota',async t=>{
+    const engine=createHybridEngine({env:{...process.env,PI_COC_JEV_PRESELECT:'0'},decision:null});
+    const table=await openTable({legacyDeliveryFixtures:false,realKernel:true,runDriver:engine.runDriver,
+        env:{PI_COC_LOOP_ENGINE:'hybrid-v1'},
+        async prepareWorkspace(workspace){
+            const context=await api.createKernelContext({workspace,content:join(root,'content'),seed:'read-quota',
+                locks:api.createAdvisoryLocks(async()=>{}),env:{...process.env,GIT_CONFIG_GLOBAL:'/dev/null',GIT_CONFIG_NOSYSTEM:'1'}});
+            const runtime=api.createKernelRuntime(context);
+            try{await runtime.handlers['table.open']({campaign:'test-camp'});
+                await runtime.handlers['table.narrate']({campaign:'test-camp',call_id:'t0-c1',text:'You wait in the office.'});
+            }finally{await runtime.close();}
+        },extraExtensions:[{name:'driver',factory:engine.extension}],responses:[
+            ...Array.from({length:10},()=>fauxAssistantMessage([fauxToolCall('look',{focus:'scene'})],{stopReason:'toolUse'})),
+            fauxAssistantMessage('{{public}}The office remains quiet.')
+        ]});
+    t.after(()=>table.dispose());
+    await table.session.prompt('I study the surroundings before deciding what to do.');
+    const reads=table.telemetry().filter(row=>row.tool==='look');
+    assert.equal(reads.length,10);
+    assert.ok(reads.every(row=>row.ok),'necessary reads reach the real kernel');
+    assert.ok(!table.telemetry().some(row=>row.reason==='look_budget'));
+    const status=await table.runtimeBridges().at(-1).call('table.status',{campaign:'test-camp'});
+    assert.equal(status.state,'awaiting_player');
+    const capsule=await table.runtimeBridges().at(-1).call('table.capsule',{campaign:'test-camp'});
+    assert.equal(capsule.where.clock.minutes,0,'reads settle no physical changes');
+    const publicText=table.entries('coc-final-delivery').filter(frame=>frame.event==='delta').map(frame=>frame.delta).join('');
+    assert.equal(publicText,'The office remains quiet.');
+    assert.deepEqual(table.extensionErrors,[]);
 });

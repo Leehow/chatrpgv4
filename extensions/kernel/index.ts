@@ -7807,10 +7807,11 @@ export default function (pi: ExtensionAPI, host: {capabilities?:RuntimeCapabilit
 			}
 			return { block: true, reason: blocked >= RUNAWAY_STOP_AT ? `${shut} Call no further tool and write nothing more.` : shut };
 		}
+		// Contract §237.29: the single-Keeper RunDriver owns its run bound; the legacy read gate remains below.
 		// Contract §34.12's look budget addendum (SL-72): past the per-turn budget, `look`/`lookup`/`recall`
 		// are answered by the host, without a kernel read, naming what the run already carries. `narrate`,
 		// `apply`, `resolve` and `ask` are never counted or blocked here.
-		if (LOOK_BUDGET_TOOLS.has(name) && state.looksThisTurn >= await lookBudget()
+		if (!singleKeeper && LOOK_BUDGET_TOOLS.has(name) && state.looksThisTurn >= await lookBudget()
             &&!(name==='look'&&state.documentReadCoverage?.permits(input))) {
 			const carried = [...new Set(readsOfTurn(state).filter((read) => read.ok).map((read) => {
 				const args = read.args as Record<string, unknown>;
