@@ -33,8 +33,8 @@
       "brief": "beside an established anomaly, put strange beside plain; keep facts available"
     },
     "carry-through": {
-      "full": "carry the action through what needs no choice; stop at the first outcome, obstacle, risk or fork",
-      "brief": "carry the action to its first outcome, obstacle, risk or fork"
+      "full": "carry selected steps per resolve/apply; stop at completed goal, failed prerequisite or unchosen consequential choice",
+      "brief": "carry selected steps via actual resolve/apply; stop at a completed goal, failed prerequisite or unchosen consequential decision"
     },
     "return-by-change": {
       "full": "lead with what changed; omit gratuitous repetition",

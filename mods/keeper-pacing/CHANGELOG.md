@@ -1,5 +1,11 @@
 # Keeper Pacing
 
+## 1.3.3
+
+- Align selected connected acts, dependencies, conditions and prohibitions with the single Keeper's actual `resolve`/`apply` results (§237.67). Intermediate outcomes do not force a handoff; unselected consequential choices and failed prerequisites still bound play.
+- Replace the stale Idea Jev/clerk execution roles with the existing Keeper-called `resolve` path and kernel arithmetic/receipt authority. Keep clarification free, supported clues on either settled result, and the bans on unasked rolls, rerolls and invented settlement.
+- Preserve all other pacing guidance, state, settings, capabilities and sections. Adoption uses the existing immutable package upgrade path and retains pinned versions and prior failed-play evidence.
+
 ## 1.3.2
 - "A stuck or confused player": the Idea roll now exists in the product (contract §222.3: `decision:coc7:core-check:idea-roll`, offered by the host's check catalog when the player asks for a way forward, selected by Jev, rolled against the highest INT). The paragraph says who owns it -- the host calls it, the clerk's receipt and note say how the clue arrives -- and keeps the rulebook's two outcomes: woven in on a pass, in the thick of it on a failure. The Keeper never rolls it, never withholds the clue, never invents one unasked.
 

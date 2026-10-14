@@ -56,7 +56,7 @@ test('a new place owes an establishing reply once: the opening, an arrival, neve
   assert.deepEqual(item.place, {id: 'commission-briefing', name: item.place.name}, 'the place the party stands in');
   assert.deepEqual(item.why, ['opening']);
   assert.deepEqual(item.owes.map(owe => owe.key), OWES, 'the prose package says what establishing owes');
-  assert.deepEqual(item.package, {mod: 'narration-craft', version: '2.5.0'});
+  assert.deepEqual(item.package, {mod: 'narration-craft', version: '2.5.1'});
   assert.ok(opening.head.endsWith(api.HEAD_ESTABLISH), 'the head says what the item is, only when it is there');
 
   await game.call('table.narrate', {call_id: game.next(0), text: '你推开诺特事务所的门。'});

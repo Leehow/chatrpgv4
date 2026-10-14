@@ -1,5 +1,11 @@
 # Narration Craft
 
+## 2.5.1
+
+- Align the full instruction and both carry-through style forms with the single Keeper's selected-action boundary (§237.67): continue connected selected steps through actual rule and state results; an intermediate arrival, answer or roll is not an automatic handoff.
+- Permit plausible ordinary occupational and local knowledge while keeping specific history, eyewitness claims, secrets, observer knowledge and receipt authority distinct. Missing book detail does not prove absence.
+- Preserve the remaining prose guidance, state, settings, capabilities and section declarations. Adopt through the existing immutable package upgrade path; retained App T40 and Amaranthine T111 failures are not rewritten or counted as new-version acceptance.
+
 ## 2.5.0
 - Owner, 2026-10-08, after TR-F2 run 3 (The Haunting, luna, 2.4.0; arrivals 140 characters median): 「这次测试整个团都很空洞，没有任何环境描写和角色神态描写，也没有参考历史的情景描写」; 「我们的mod系统后面出现了大改之后每个mod都可以有自己的长描述了，完全不需要压缩」. Contract §203.
 - Full guidance, no compression. "Sentences and paragraphs" and "Scene and detail" are 2.2.4's text with 2.2.6/2.2.7's sensory relations and unknown-absence rule, plus 2.4.0's knowledge boundaries. Restored are "Prefer what is seen, heard and said", the sensory and material relations that carry texture, the anomaly beside its ordinary neighbour, the look or movement at the centre, and "show where you stand, what that route permits you to see, hear, smell, or touch". "The people here" is 2.4.0's verbatim, plus one paragraph: a person the book gives no looks gets one on first meeting.

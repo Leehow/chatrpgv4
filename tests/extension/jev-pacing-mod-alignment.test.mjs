@@ -9,9 +9,9 @@ import {build} from "esbuild";
 
 const ROOT=resolve(import.meta.dirname,"../..");
 const PACKAGES={
-	"keeper-pacing":{version:"1.3.2",state_version:1,requires:["context.pacing.v1","mods.package-files.v1","instructions.sections.v1"],settings:{stall_turns:2},
+	"keeper-pacing":{version:"1.3.3",state_version:1,requires:["context.pacing.v1","mods.package-files.v1","instructions.sections.v1"],settings:{stall_turns:2},
 		settings_schema:{stall_turns:{minimum:1,maximum:6}}},
-	"narration-craft":{version:"2.5.0",state_version:2,requires:["mods.package-files.v1","context.style.v1","npc.voice.generation.v2","npc.voice.consolidation.v1","graph.vocabulary.v1","graph.vocabulary.table.v1","context.npc.v1","npc.mood.v1","instructions.sections.v1","context.establish.v1"],settings:{density_guide:"off",coarse_language:true},
+	"narration-craft":{version:"2.5.1",state_version:2,requires:["mods.package-files.v1","context.style.v1","npc.voice.generation.v2","npc.voice.consolidation.v1","graph.vocabulary.v1","graph.vocabulary.table.v1","context.npc.v1","npc.mood.v1","instructions.sections.v1","context.establish.v1"],settings:{density_guide:"off",coarse_language:true},
 		settings_schema:{coarse_language:{title:{["zh-Hans"]:"允许粗话",en:"Coarse language"}},density_guide:{enum:["off","on"]}}},
 };
 
@@ -30,9 +30,11 @@ async function kernel(t){
 const byId=capsule=>new Map(capsule.mods.instructions.map(row=>[row.mod,row]));
 function aligned(id,text){
 	if(id==="narration-craft"){
-		// docs/specs/prose-mod.md §6: the prose package states the same boundary in a writer's words.
+		// §237.67: intermediate outcomes do not end a still-selected connected chain.
 		assert.match(text,/carry the (?:chosen )?action/i,`${id} carries the chosen action`);
-		assert.match(text,/(?:stop at|to its) (?:the )?first outcome, obstacle, (?:gated )?risk or (?:real )?fork|stop at a completed goal/i,`${id} stops at the first real fork`);
+		assert.match(text,/selected goal is complete/i,`${id} stops at the completed goal`);
+		assert.match(text,/unchosen consequential decision/i,`${id} returns an unselected choice`);
+		assert.doesNotMatch(text,/stop at the first outcome/i,`${id} retires automatic first-outcome handoff`);
 		assert.match(text,/enough (?:on the page|seen) to judge/i,`${id} supplies a judgment basis`);
 	}else{
 		assert.match(text,/still-valid selected goal/i,`${id} keeps the selected-goal boundary`);
