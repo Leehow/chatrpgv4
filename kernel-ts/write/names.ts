@@ -21,14 +21,15 @@ export const nameToken = (who: string): string => `{{name:${who}}}`;
 export interface NamedText { text: string; named: string[]; unresolved: string[] }
 
 /** `text` with every `{{name:<who>}}` replaced by the book's name for that person; the handles named, and the words that named nobody. */
-export function withNames(text: string, speakers: SpeakerResolver, graph: ModuleGraph): NamedText {
+export function withNames(text: string, speakers: SpeakerResolver, graph: ModuleGraph,
+    unresolvedWord: (who: string) => string = who => who): NamedText {
     const named: string[] = [], unresolved: string[] = [];
     const out = text.replace(NAME_TOKEN, (_token, who: string) => {
         const said = who.trim(), speaker = speakers(said) as Row, handle = typeof speaker.npc === 'string' ? speaker.npc : '';
         const node = handle ? graph.find(handle, ['npc']) : null;
         if (!node) {
             unresolved.push(said);
-            return said;
+            return unresolvedWord(said);
         }
         if (!named.includes(handle)) named.push(handle);
         return graph.displayName(node);

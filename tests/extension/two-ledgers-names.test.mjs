@@ -314,6 +314,29 @@ const worldOf = async h => JSON.parse(await readFile(join(h.home, '.coc', 'campa
 const GAPON = {node_id: 'npc-gapon', node_kind: 'npc', name: '鲍里斯·加庞', summary: 'Keeper: hid the failed harvest.',
 	properties: {relationship_to_investigators: 'the farm\'s production supervisor'}};
 
+test('a pending first name grants no disclosure authority and commits only with its actual introduction', async t => {
+  const h = await farm(t);
+  await addNodes(h, [GAPON]);
+  await h.call('table.player_input', {text: 'Who reported this?'});
+  const staged = await h.call('table.apply', {call_id: 't1-c1', effects: [{kind: 'person', who: GAPON.name, name: GAPON.name}]});
+  assert.ok(staged.names_pending_delivery);
+  const before = (await worldOf(h)).person_labels;
+  const refused = await refusalOf(h.call('table.narrate', {call_id: 't1-c2', text: `${GAPON.name} wrote the report.`}));
+  assert.equal(refused?.details?.reason, 'untold_name');
+  assert.deepEqual((await worldOf(h)).person_labels, before);
+  await h.call('table.narrate', {call_id: 't1-c3', text: `{{say:Captain Aganin}}The supervisor is ${GAPON.name}.{{/say}}`});
+  assert.ok(Object.values((await worldOf(h)).person_labels ?? {}).some(row => row.name === GAPON.name));
+});
+
+test('introducing somebody else cannot publish a pending name', async t => {
+  const h = await farm(t);
+  await addNodes(h, [GAPON]);
+  await h.call('table.player_input', {text: 'Who else was there?'});
+  await h.call('table.apply', {call_id: 't1-c1', effects: [{kind: 'person', who: GAPON.name, name: GAPON.name}]});
+  await h.call('table.narrate', {call_id: 't1-c2', text: '{{say:Captain Aganin}}Andrei Nikitin was there.{{/say}}'});
+  assert.ok(!Object.values((await worldOf(h)).person_labels ?? {}).some(row => row.name === GAPON.name));
+});
+
 test('§194.5: a name spoken in a line of someone other than the investigator is delivered and tells that person, as {{name:}} does', async t => {
 	const h = await farm(t);
 	await addNodes(h, [GAPON]);
@@ -409,6 +432,12 @@ test('shared public words require committed canonical NPC speech, not other deli
 	const record = (await records(h)).find(row => row.turn === 1);
 	const {graph} = await api.loadCampaignModule(h.context, h.mid, await worldOf(h), CAMPAIGN);
 	assert.deepEqual(api.publicSpokenSharedNames(graph, [record]), [word]);
+	const keeperBody = {...record, speech: [], rendered_text: word, told_text: '', delivery_evidence: {author: 'keeper'}};
+	assert.deepEqual(api.publicSpokenSharedNames(graph, [keeperBody]), [word], 'the same Keeper owns actual canonical public wording');
+	for (const candidate of [{...keeperBody, commit: null}, {...keeperBody, closed_by: 'ask'},
+		{...keeperBody, rendered_text: '', delivery_evidence: {author: 'keeper', artifact_text: word}},
+		{...keeperBody, delivery_evidence: {author: 'writer'}}])
+		assert.deepEqual(api.publicSpokenSharedNames(graph, [candidate]), [], 'private, uncommitted and legacy bodies are not new public evidence');
 	const line = record.speech[0];
 	assert.deepEqual(api.publicSpokenSharedNames(graph, [{...record, speech: [{...line, text: 'The Kravchuk family left.'}]}]),
 		['Kravchuk'], 'the same exact shared pieces offered by the roster are covered');

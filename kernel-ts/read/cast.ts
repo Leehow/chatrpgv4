@@ -403,7 +403,7 @@ export function protectedNames(graph: ModuleGraph, world: Row, journal: Row, rec
     return [...new Set(words.map(text).filter(Boolean))];
 }
 
-/** A committed NPC line can make a shared literal public without identifying any of its owners. */
+/** Committed NPC speech or the same Keeper's public body can expose a shared literal without identifying an owner. */
 export function publicSpokenSharedNames(graph: ModuleGraph, records: Iterable<Row>): string[] {
     const owners = new Map<string, Set<CastPerson>>();
     for (const person of bookCast(graph)) for (const name of [...person.names, ...namePieces(person.names)]) {
@@ -413,6 +413,8 @@ export function publicSpokenSharedNames(graph: ModuleGraph, records: Iterable<Ro
     const shared = [...owners].filter(([, people]) => people.size > 1).map(([name]) => name), spoken = new Set<string>();
     for (const record of records) {
         if (record.closed_by !== 'narrate' || !record.commit) continue;
+        if (row(record.delivery_evidence).author === 'keeper' && typeof record.rendered_text === 'string')
+            for (const place of prosePlaces(record.rendered_text, shared)) spoken.add(place.name);
         for (const line of array(record.speech)) {
             const who = row(row(line).who);
             if (typeof who.npc !== 'string' || !who.npc || Object.hasOwn(who, 'investigator') || typeof row(line).text !== 'string') continue;

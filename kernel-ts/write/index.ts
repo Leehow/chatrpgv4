@@ -24,7 +24,7 @@ import {initializeNpcVariations} from '../resolve/npc-variation.js';
 import { SessionView } from '../read/session-view.js';
 import { standingStates } from '../read/standing.js';
 import { authoredMapWords, presentPublishedArrivalMaps } from '../read/maps.js';
-import { clockSection, openingPeopleView, sceneLabel, untoldBlock, untoldRosterNames } from '../read/capsule.js';
+import { clockSection, joinedWord, openingPeopleView, sceneLabel, untoldBlock, untoldRosterNames } from '../read/capsule.js';
 import { SHARED_FIX, candidatesOf, joinedWritten, sharedNames, sharedNotice } from './shared-untold.js';
 import { tableSnapshot, playerGlossary, unsupported, type ReadContributions } from '../read/handlers.js';
 import { playLanguages, playLanguageOf, declaredPlayLanguage } from '../read/languages.js';
@@ -271,12 +271,12 @@ const UNTOLD_FIX = 'where someone other than the investigator says that name alo
     + 'instead; otherwise call them by the word present[] shows, and give a newcomer a word that carries nobody\'s name. Change only those words and deliver again';
 async function untoldNamesGate(snapshot: CampaignSnapshot, campaign: CampaignWriter, turn: Row, graph: ModuleGraph, text: string,
     speakers: SpeakerResolver, callId: string, implicit: boolean, cleared: ReadonlySet<string> = new Set(),
-    documents: DocumentTold = NOTHING_TOLD): Promise<{ text: string; replaced: string[]; told?: string; spoken: SpokenTells }> {
+    documents: DocumentTold = NOTHING_TOLD, advisory = false): Promise<{ text: string; replaced: string[]; told?: string; spoken: SpokenTells }> {
     const { said, places, publicPlaces, guarded, journal, records } = await untoldPlaces(snapshot, graph, text, speakers, documents.record);
     // §188.8: the roster as its builder gives it, each owner's word apart: a name several untold people share is never one
     // person's, and the joined word the request shows it by (§177.4) is nobody's name.
     const roster = untoldRosterNames(graph, snapshot.world, journal, records), shared = sharedNames(roster);
-    const joined = joinedWritten(text, roster).map(entry => candidatesOf(graph, snapshot.world, journal, entry));
+    const joinedRows = joinedWritten(text, roster), joined = joinedRows.map(entry => candidatesOf(graph, snapshot.world, journal, entry));
     if (!said.length && !joined.length) return { text, replaced: [], spoken: NOTHING_SPOKEN,
         ...(publicPlaces.length ? { told: replacePlaces(text, publicPlaces, place => '\u25a2'.repeat([...place.name].length)) } : {}) };
     // §194.5 (owner ruling 2026-10-08): a name inside a line someone other than the investigator speaks is the fiction saying it.
@@ -322,6 +322,17 @@ async function untoldNamesGate(snapshot: CampaignSnapshot, campaign: CampaignWri
     const key = [...left].sort().join('\n'), first = left.length > 0 && string(row(turn.untold_gate).words) !== key;
     const sharedLeft = left.flatMap(name => shared.has(name) ? [candidatesOf(graph, snapshot.world, journal, shared.get(name)!)] : []);
     const counts = { cleared: places.length - open.length - spokenPlaces.length, ...(spokenPlaces.length ? { spoken: spokenPlaces.length } : {}) };
+    if (advisory) {
+        await campaign.telemetry({ lane: 'delivery', turn: number(turn.turn), ok: true, reason: 'untold_name', outcome: 'diagnostic',
+            call_id: callId, implicit, words: left.length, ...counts, ...(sharedLeft.length ? { shared: sharedLeft.length } : {}),
+            ...(joined.length ? { joined: joined.length } : {}) }).catch(() => undefined);
+        // Public words are already exposed. Unresolved wording cannot silently identify a private cast owner.
+        const joinedNames = joinedRows.map(entry => joinedWord(entry.shown));
+        const told = withNames(replacePlaces(text, [...toldPlaces, ...prosePlaces(text, joinedNames)].sort((a,b) => (b.end-b.start)-(a.end-a.start)),
+            place => blank(place) ?? (open.includes(place) || joinedNames.includes(place.name) ? '\u25a2'.repeat([...place.name].length) : undefined)),
+            speakers, graph, who => replacePlaces(who, prosePlaces(who, [...left, ...joinedNames]), place => '\u25a2'.repeat([...place.name].length))).text;
+        return { text, replaced: [], told, spoken };
+    }
     // §188.8: a shared name or a joined word is held every time, never replaced: no single word stands for a name two people share.
     if (first || sharedLeft.length || joined.length) {
         if (first) await campaign.writeTurn({ ...turn, untold_gate: { words: key, call_id: callId } });
@@ -1346,14 +1357,19 @@ export function createWriteRuntime(context: KernelContext, contributions: WriteC
 					|| (evidence.input_text??evidence.artifact_text)!==params.text || Buffer.byteLength(JSON.stringify(evidence),'utf8') > 128000) throw Error('Invalid delivery evidence');
 				validateDeliveryArtifact({version:1,text:evidence.artifact_text,coverage:evidence.coverage}, evidence.materials.map((m:Row)=>m.name), evidence.required);
 			} catch {throw new RpcError('invalid_params','Invalid host final-output evidence');}
-			const expected=row(evidence.context),active=await activeMods(context,snapshot.world);
-			const source=await sourceRevision(snapshot,module,{mods:{active:active.map(mod=>({id:mod.id}))}});
+			const expected=row(evidence.context);
 			if(expected.campaign!==snapshot.id||expected.turn!==snapshot.turn.turn
 				|| expected.worldline!==(snapshot.meta.active_worldline??'main')
 				|| expected.loop!==number(row(row(snapshot.meta.worldlines)[expected.worldline]).loop)
-				|| expected.world_revision!==taskWorldRevision(snapshot.world,snapshot.party,snapshot.turn.receipts,snapshot.turn.pending_choice)
-				|| expected.source_revision!==source.task_source_revision)
+				|| expected.world_revision!==taskWorldRevision(snapshot.world,snapshot.party,snapshot.turn.receipts,snapshot.turn.pending_choice))
 				throw new RpcError('revision_conflict','The selected final writing no longer matches the publication owner');
+			// The same Keeper's settled world owns publication; background source preparation does not replace its consumed context.
+			if(evidence.author!=='keeper'){
+				const active=await activeMods(context,snapshot.world);
+				const source=await sourceRevision(snapshot,module,{mods:{active:active.map(mod=>({id:mod.id}))}});
+				if(expected.source_revision!==source.task_source_revision)
+					throw new RpcError('revision_conflict','The selected final writing no longer matches the publication owner');
+			}
 		}
     }
     async function checkDelivery(params:Row):Promise<Row> {
@@ -1407,7 +1423,8 @@ export function createWriteRuntime(context: KernelContext, contributions: WriteC
         const askCleared = clearedPlaces(params.untold_cleared);
         // §194.3: an ask closes the turn too, so the documents it hands over tell their names at it; §194.5: before its gate.
         const askDocuments = await documentsTold(context, snapshot, module, receipts, askCleared);
-        const gated = text ? await untoldNamesGate(snapshot, campaign, turn, module.graph, askPrices.text, askSpeakers, started.callId, false, askCleared, askDocuments) : null;
+        const gated = text ? await untoldNamesGate(snapshot, campaign, turn, module.graph, askPrices.text, askSpeakers, started.callId, false, askCleared, askDocuments,
+            row(params._delivery_evidence).author === 'keeper') : null;
         const asked = gated ? withNames(gated.text, askSpeakers, module.graph) : null;
         const { placed, ...delivery } = deliveryText(asked ? asked.text : text, receipts, askSpeakers);
         await refuseRepeatedLine(snapshot, campaign, delivery.speech);
@@ -1539,7 +1556,8 @@ export function createWriteRuntime(context: KernelContext, contributions: WriteC
         // §194.3: a document this turn hands the player tells the names it prints, at this delivery. §194.5 (TR-F2 turn 2): before
         // the gate reads the text, so a name the delivery's own handouts tell is not refused in it.
         const documents = reference ? NOTHING_TOLD : await documentsTold(context, snapshot, module, receipts, cleared);
-        const gated = await untoldNamesGate(snapshot, campaign, turn, module.graph, priceBinding.text, speakers, started.callId, truth(params.implicit), cleared, documents);
+        const gated = await untoldNamesGate(snapshot, campaign, turn, module.graph, priceBinding.text, speakers, started.callId, truth(params.implicit), cleared, documents,
+            row(params._delivery_evidence).author === 'keeper');
         const naming = withNames(gated.text, speakers, module.graph);
         let text = naming.text;
         // §103.8: someone untold is named in this delivery, so from now on the table calls them by the book's name -- the sync

@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {readFileSync,readdirSync,writeFileSync,chmodSync,mkdtempSync,rmSync,cpSync,mkdirSync} from 'node:fs';
-import {join,resolve} from 'node:path';
+import {join,resolve,relative} from 'node:path';
 import {tmpdir} from 'node:os';
 import {spawnSync} from 'node:child_process';
 import {createHash} from 'node:crypto';
@@ -9,6 +9,8 @@ import {fauxAssistantMessage,fauxToolCall} from '@earendil-works/pi-ai';
 import {openTable,waitForIdle} from './harness.mjs';
 import {createHybridEngine} from '../../runtime/jev/hybrid-engine.ts';
 import {createFinalOutputOwner} from '../../extensions/kernel/final-output.ts';
+import {importSource} from '../integration/support.ts';
+import {writeSourceMetadata} from '../integration/module-support.ts';
 
 const root=resolve(import.meta.dirname,'../..');
 const plan={version:1,materials:[
@@ -90,6 +92,111 @@ function directTable(responses,extra={}) {
     extraExtensions:[{name:'capture-stream',factory:pi=>pi.events.on('coc:final-delivery',frame=>{seen.push(frame);onFrame?.(frame);})},{name:'driver',factory:engine.extension},...extraExtensions],
     responses,...options}).then(table=>({table,seen}));
 }
+
+// Publish a generation fixture through the existing metadata fixture/manifest seam; never gameplay.
+async function sourceAppendFixture(workspace) {
+  const [{createKernelContext},{graphManifest},{scopedModuleRoot}]=await Promise.all([
+    importSource('kernel-ts/context.ts'),importSource('kernel-ts/write/source.ts'),
+    importSource('kernel-ts/modules/campaign-scope.ts'),
+  ]);
+  const context=await createKernelContext({workspace,content:join(root,'content')});
+  const scoped=await scopedModuleRoot(context,'test-camp','the-haunting');
+  const directory=join(scoped??join(workspace,'.coc/modules'),'the-haunting'),file=join(directory,'module.json');
+  return ()=>{
+    const meta=JSON.parse(readFileSync(file,'utf8')),before=meta.generation;
+    const graph=JSON.parse(readFileSync(join(directory,meta.graph_file??'module-graph.json'),'utf8'));
+    graph.nodes.push({node_id:'clue-published-append',node_kind:'clue',name:'Deferred source detail',
+      properties:{description:'PRIVATE_APPENDED_SOURCE_DETAIL'},source_refs:[]});
+    const generation=Number(before)+1,folder=join(directory,'generations',`generation-${generation}-fixture`);
+    mkdirSync(folder,{recursive:true});const path=join(folder,'module-graph.json');
+    writeFileSync(path,JSON.stringify(graph));
+    writeFileSync(join(folder,'module-graph-manifest.json'),JSON.stringify(graphManifest(graph,'the-haunting',generation)));
+    writeSourceMetadata(file,{...meta,generation,graph_file:relative(directory,path),
+      graph_digest:createHash('sha256').update(readFileSync(path)).digest('hex')});
+    return {before,after:generation};
+  };
+}
+
+test('same Keeper publication survives a source append while retaining its original world and source binding',async t=>{
+  let authors=0,advance,publish,worldBefore;
+  const text='You finish waiting in the quiet office. '.repeat(4);
+  const response={version:1,record:{effects:[{kind:'time',minutes:8}],event:{name:'source-append-reply',summary:'PRIVATE_SETTLED_CAUSE'}},text};
+  const {table,seen}=await directTable([()=>{authors++;return fauxAssistantMessage(JSON.stringify(response));}],{
+    onFrame:frame=>{if(frame.event==='delta'&&!advance){
+      worldBefore=readFileSync(join(table.workspace,'.coc/campaigns/test-camp/world.json'),'utf8');
+      advance=publish();
+      assert.equal(readFileSync(join(table.workspace,'.coc/campaigns/test-camp/world.json'),'utf8'),worldBefore);
+    }},
+  });
+  t.after(()=>table.dispose());
+  publish=await sourceAppendFixture(table.workspace);
+  const bridge=table.runtimeBridges().at(-1);
+  const before=await bridge.call('table.capsule',{campaign:'test-camp',_context_read:true});
+  await table.session.prompt('I wait eight minutes.');
+  assert.equal(authors,1);assert(advance.after>advance.before);
+  const packet=seen.find(frame=>frame.event==='start').delivery_id;
+  const {evidence}=JSON.parse(readFileSync(join(table.workspace,'.coc/delivery-writes',packet,'accepted.json'),'utf8'));
+  const current=await bridge.call('table.capsule',{campaign:'test-camp',_context_read:true});
+  assert.equal(evidence.context.source_revision,before._context.task_source_revision);
+  assert.notEqual(current._context.task_source_revision,evidence.context.source_revision);
+  assert.equal(seen.filter(frame=>frame.status==='completed').length,1);
+  assert.equal(seen.filter(frame=>frame.event==='delta').map(frame=>frame.delta).join(''),text);
+  assert.ok(!JSON.stringify(seen).includes('PRIVATE_APPENDED_SOURCE_DETAIL'));
+  assert.ok(!JSON.stringify(seen).includes('PRIVATE_SETTLED_CAUSE'));
+  const turn=JSON.parse(readFileSync(join(table.workspace,'.coc/campaigns/test-camp/turns/0001.json'),'utf8'));
+  assert.ok(turn.commit);assert.equal(turn.receipts.filter(row=>row.kind==='time').length,1);
+  assert.equal(turn.delivery_evidence.context.source_revision,evidence.context.source_revision,'source provenance is not rebound to unseen material');
+  assert.equal(turn.delivery_evidence.publication.call_id,evidence.publication.call_id);
+  assert.equal(JSON.parse(readFileSync(join(table.workspace,'.coc/campaigns/test-camp/world.json'),'utf8')).clock.minutes,8);
+});
+
+test('a sealed source-append packet survives restart while legacy and owner conflicts remain refused',async t=>{
+  const retained=mkdtempSync(join(tmpdir(),'source-append-owner-fixture-'));
+  t.after(()=>rmSync(retained,{recursive:true,force:true,maxRetries:5,retryDelay:50}));
+  const {table:first}=await directTable([],{retainAt:retained});let firstClosed=false;
+  t.after(async()=>{if(!firstClosed)await first.dispose();});
+  const firstBridge=first.runtimeBridges().at(-1);
+  await firstBridge.call('table.player_input',{campaign:'test-camp',text:'I wait eight minutes.'});
+  await firstBridge.call('table.apply',{campaign:'test-camp',call_id:'t1-c1',effects:[{kind:'time',minutes:8}]});
+  const owner=createFinalOutputOwner({runtime:()=>({home:first.workspace}),call:firstBridge.call.bind(firstBridge),record:async()=>{}});
+  const stream=await owner.openStream('test-camp',1,'sealed-source-fixture');stream.push('The office remains quiet.');
+  const sealed=await stream.finish('fixture/keeper','low',{call_id:'t1-c2'});
+  owner.finishStream(sealed.evidence,'publication_pending');
+  const acceptedPath=join('.coc/delivery-writes',sealed.evidence.packet,'accepted.json');
+  const accepted=readFileSync(join(first.workspace,acceptedPath),'utf8');
+  const world=readFileSync(join(first.workspace,'.coc/campaigns/test-camp/world.json'),'utf8');
+  (await sourceAppendFixture(first.workspace))();
+  assert.equal(readFileSync(join(first.workspace,'.coc/campaigns/test-camp/world.json'),'utf8'),world);
+  await first.dispose();firstClosed=true;
+  let authors=0;
+  const copy=workspace=>cpSync(join(first.workspace,'.coc'),join(workspace,'.coc'),{recursive:true});
+  const {table:restarted}=await directTable([()=>{authors++;return fauxAssistantMessage('UNAUTHORIZED_REAUTHOR');}],{
+    seedCampaign:false,prepareWorkspace:copy,
+  });t.after(()=>restarted.dispose());await waitForIdle(restarted.session);
+  assert.equal(authors,0);assert.equal(readFileSync(join(restarted.workspace,acceptedPath),'utf8'),accepted);
+  const bridge=restarted.runtimeBridges().at(-1);
+  const pending=await createFinalOutputOwner({runtime:()=>({home:restarted.workspace}),call:bridge.call.bind(bridge),record:async()=>{}}).pendingPublication('test-camp');
+  assert.deepEqual(pending,sealed);
+  const params=evidence=>({campaign:'test-camp',...sealed.evidence.publication,text:sealed.text,_delivery_evidence:evidence});
+  const legacy=structuredClone(sealed.evidence);delete legacy.author;
+  await assert.rejects(bridge.call('table.narrate',params(legacy)),error=>error.code==='revision_conflict');
+  for(const [field,value] of [['campaign','another-campaign'],['turn',2],['worldline','another-line'],['loop',1]]){
+    const changed=structuredClone(sealed.evidence);changed.context[field]=value;
+    await assert.rejects(bridge.call('table.narrate',params(changed)),error=>error.code==='revision_conflict',field);
+  }
+  const result=await bridge.call('table.narrate',params(sealed.evidence));assert.ok(result.commit);
+  await bridge.call('table.narrate',params(sealed.evidence));
+  const turn=JSON.parse(readFileSync(join(restarted.workspace,'.coc/campaigns/test-camp/turns/0001.json'),'utf8'));
+  assert.ok(turn.commit);assert.equal(turn.receipts.filter(row=>row.kind==='time').length,1);
+  assert.deepEqual(turn.delivery_evidence.context,sealed.evidence.context);
+  assert.equal(readFileSync(join(restarted.workspace,acceptedPath),'utf8'),accepted);assert.equal(authors,0);
+  // A separately copied pending fixture exercises a real later world write, never a rollback of the recovered one.
+  const {table:changedWorld}=await directTable([],{seedCampaign:false,prepareWorkspace:copy});
+  t.after(()=>changedWorld.dispose());const changedBridge=changedWorld.runtimeBridges().at(-1);
+  await changedBridge.call('table.apply',{campaign:'test-camp',call_id:'t1-c3',effects:[{kind:'flag',name:'fixture-world-change',value:true}]});
+  await assert.rejects(changedBridge.call('table.narrate',params(sealed.evidence)),error=>error.code==='revision_conflict');
+  assert.equal(JSON.parse(readFileSync(join(changedWorld.workspace,'.coc/campaigns/test-camp/world.json'),'utf8')).clock.minutes,8);
+});
 
 test('one trailing brace publishes one Keeper body after settling its private record once',async t=>{
   const text='You finish waiting. The office remains quiet. '.repeat(4);
@@ -324,7 +431,7 @@ test('publication retries the same Keeper bytes without another author or state 
   assert.equal(table.telemetry().filter(row=>row.lane==='provider-call').length,1);
 });
 
-test('native publication completes the existing protected-name replacement without another author or action',async t=>{
+test('native name diagnostics preserve Keeper bytes without another author, action or inferred identity',async t=>{
   let authors=0;
   const text='Mr. Dooley waits beside you.';
   const response={version:1,record:{effects:[
@@ -338,14 +445,15 @@ test('native publication completes the existing protected-name replacement witho
   await table.session.prompt('I wait beside the newspaper seller for eight minutes.');
   assert.equal(authors,1,'the same completed author response is published');
   const names=table.telemetry().filter(row=>row.lane==='delivery'&&row.reason==='untold_name');
-  assert.deepEqual(names.map(row=>row.outcome),['refused','replaced']);
+  assert.deepEqual(names.map(row=>row.outcome),['diagnostic']);
   const turn=JSON.parse(readFileSync(join(table.workspace,'.coc/campaigns/test-camp/turns/0001.json'),'utf8'));
   assert.ok(turn.commit,'the current turn finishes without requiring another player input');
-  assert.equal(turn.rendered_text,'the newspaper seller waits beside you.');
+  assert.equal(turn.rendered_text,text);
+  assert.ok(!turn.told_text.includes('Mr. Dooley'),'a narrative word alone does not identify its hidden owner');
+  assert.equal(turn.told_lines,undefined);
   assert.equal(turn.world.clock.minutes,8,'the settled time is not applied twice');
   assert.equal(turn.receipts.filter(row=>row.kind==='time').length,1);
   assert.equal(table.telemetry().filter(row=>row.tool==='apply'&&row.ok).length,1);
-  assert.equal(names[0].call_id,names[1].call_id,'the publication keeps its original identity');
   assert.equal(turn.delivery_evidence.publication.call_id,names[0].call_id);
   assert.equal(turn.delivery_evidence.artifact_text,text,'the sealed author artifact is unchanged');
   assert.equal(seen.filter(frame=>frame.event==='start').length,1);
@@ -354,10 +462,51 @@ test('native publication completes the existing protected-name replacement witho
   assert.equal(seen.at(-1).status,'completed');
   assert.equal(table.telemetry().filter(row=>row.reason==='turn_unfinished_notice').length,0);
   const untold=await table.runtimeBridges().at(-1).call('table.untold',{campaign:'test-camp'});
-  assert.ok(untold.people.some(person=>person.name==='Mr. Dooley'),'replacement does not introduce the private name');
+  assert.ok(untold.people.some(person=>person.name==='Mr. Dooley'),'diagnostics do not introduce the private identity');
 });
 
-test('native publication keeps an ambiguous protected name pending without retrying or re-inferring',async t=>{
+test('a same-Keeper shared word commits and survives reopen without identifying either owner',async t=>{
+  let authors=0;
+  const response={version:1,record:{effects:[{kind:'person',who:'Mr. Dooley',name:'the newspaper seller'},
+    {kind:'person',who:'Arty Wilmot',name:'the editor'},{kind:'time',minutes:8}]},text:'Alex watches you.'};
+  const {table,seen}=await directTable([()=>{authors++;return fauxAssistantMessage(JSON.stringify(response));}],{
+    prepareWorkspace:workspace=>seedPrintedNames(workspace,true),
+  });t.after(()=>table.dispose());
+  await table.session.prompt('I wait beside the two men for eight minutes.');
+  assert.equal(authors,1);assert.equal(seen.at(-1).status,'completed');
+  const turn=JSON.parse(readFileSync(join(table.workspace,'.coc/campaigns/test-camp/turns/0001.json'),'utf8'));
+  assert.ok(turn.commit);assert.equal(turn.rendered_text,response.text);
+  assert.equal(turn.world.clock.minutes,8);assert.equal(turn.receipts.filter(row=>row.kind==='time').length,1);
+  assert.ok(!turn.told_text.includes('Alex'));assert.equal(turn.told_lines,undefined);
+  const bridge=table.runtimeBridges().at(-1);await bridge.call('table.open',{campaign:'test-camp'});
+  const untold=await bridge.call('table.untold',{campaign:'test-camp'});
+  assert.ok(untold.protected.includes('Alex'));
+  assert.ok(untold.people.some(person=>person.name==='Mr. Dooley'));
+  assert.ok(untold.people.some(person=>person.name==='Arty Wilmot'));
+  assert.deepEqual((await bridge.call('table.untold_spans',{campaign:'test-camp',text:'Alex is the word you heard.'})).spans,[]);
+  assert.deepEqual(table.telemetry().filter(row=>row.lane==='delivery'&&row.reason==='untold_name').map(row=>({outcome:row.outcome,shared:row.shared})),
+    [{outcome:'diagnostic',shared:1}]);
+});
+
+test('an explicit introduction survives beside an unresolved shared-name marker',async t=>{
+  const response={version:1,record:{effects:[{kind:'person',who:'Steven Knott',name:'the clerk'}]},
+    text:'{{name:the clerk}} introduces himself. {{name:Alex}} remains unidentified.'};
+  const {table,seen}=await directTable([fauxAssistantMessage(JSON.stringify(response))],{
+    prepareWorkspace:workspace=>seedPrintedNames(workspace,true),
+  });t.after(()=>table.dispose());
+  await table.session.prompt('I ask the clerk to introduce himself, then recall the unclear name.');
+  assert.equal(seen.at(-1).status,'completed');
+  const turn=JSON.parse(readFileSync(join(table.workspace,'.coc/campaigns/test-camp/turns/0001.json'),'utf8'));
+  assert.ok(turn.commit);assert.ok(turn.rendered_text.includes('Steven Knott'));
+  assert.ok(turn.told_text.includes('Steven Knott'),'the explicit introduction remains identity evidence');
+  assert.ok(!turn.told_text.includes('Alex'),'the unresolved word identifies neither owner');
+  const untold=await table.runtimeBridges().at(-1).call('table.untold',{campaign:'test-camp'});
+  assert.ok(!untold.people.some(person=>person.name==='Steven Knott'));
+  assert.ok(untold.people.some(person=>person.name==='Mr. Dooley'));
+  assert.ok(untold.people.some(person=>person.name==='Arty Wilmot'));
+});
+
+test('a real publication failure holds settled state and stops another Keeper inference',async t=>{
   let authors=0;
   const response={version:1,record:{effects:[
     {kind:'person',who:'Mr. Dooley',name:'the newspaper seller'},
@@ -367,13 +516,18 @@ test('native publication keeps an ambiguous protected name pending without retry
   const {table,seen}=await directTable([()=>{authors++;return fauxAssistantMessage(JSON.stringify(response));},()=>{
     authors++;return fauxAssistantMessage(JSON.stringify({version:1,record:{effects:[{kind:'time',minutes:3}]},text:'UNACCEPTED_NEW_ACTION'}));
   }],{
-    prepareWorkspace:workspace=>seedPrintedNames(workspace,true),
+    prepareWorkspace:workspace=>{
+      seedPrintedNames(workspace,true);
+      const hook=join(workspace,'.coc/repos/test-camp.git/hooks/pre-commit');
+      writeFileSync(hook,'#!/bin/sh\nexit 1\n');chmodSync(hook,0o700);
+    },
   });
   t.after(()=>table.dispose());
   await table.session.prompt('I wait beside the two men for eight minutes.');
   assert.equal(authors,1);
   const names=table.telemetry().filter(row=>row.lane==='delivery'&&row.reason==='untold_name');
-  assert.deepEqual(names.map(row=>({outcome:row.outcome,shared:row.shared})),[{outcome:'refused',shared:1}]);
+  assert.ok(names.length>0);assert.ok(names.every(row=>row.outcome==='diagnostic'&&row.shared===1));
+  assert.ok(table.telemetry().some(row=>row.tool&&row.ok===false&&row.code==='commit_failed'));
   assert.equal(seen.at(-1).status,'publication_pending');
   assert.equal(table.telemetry().filter(row=>row.tool==='apply'&&row.ok).length,1);
   const status=await table.runtimeBridges().at(-1).call('table.status',{campaign:'test-camp'});
@@ -400,7 +554,11 @@ test('session startup preserves a sealed pending publication without another Kee
     {kind:'time',minutes:8},
   ]},text:'Alex watches you.'};
   const {table:first}=await directTable([()=>{firstAuthors++;return fauxAssistantMessage(JSON.stringify(response));}],{
-    retainAt:retained,prepareWorkspace:workspace=>seedPrintedNames(workspace,true),
+    retainAt:retained,prepareWorkspace:workspace=>{
+      seedPrintedNames(workspace,true);
+      const hook=join(workspace,'.coc/repos/test-camp.git/hooks/pre-commit');
+      writeFileSync(hook,'#!/bin/sh\nexit 1\n');chmodSync(hook,0o700);
+    },
   });
   t.after(async()=>{if(!firstClosed)await first.dispose();});
   await first.session.prompt('I wait beside the two men for eight minutes.');
@@ -431,17 +589,18 @@ test('session startup preserves a sealed pending publication without another Kee
   const restoredOwner=createFinalOutputOwner({runtime:()=>({home:restarted.workspace}),call:async()=>({}),record:async()=>{}});
   assert.deepEqual(await restoredOwner.pendingPublication('test-camp'),pending);
   assert.equal((await restoredOwner.recoveries('test-camp'))[0].text,prefix);
-  const nameRefusalsBefore=restarted.telemetry().filter(row=>row.lane==='delivery'&&row.reason==='untold_name').length;
+  const failuresBefore=restarted.telemetry().filter(row=>row.tool&&row.ok===false&&row.code==='commit_failed').length;
   await restarted.session.prompt('I walk toward the gate.');
   assert.equal(laterAuthors,0,'failed exact recovery must precede and stop the next player action');
   assert.equal(restarted.telemetry().filter(row=>row.lane==='provider-call').length,
     first.telemetry().filter(row=>row.lane==='provider-call').length);
   assert.equal(readFileSync(join(restarted.workspace,acceptedPath),'utf8'),accepted);
   assert.deepEqual(await restoredOwner.pendingPublication('test-camp'),pending);
-  const nameRefusals=restarted.telemetry().filter(row=>row.lane==='delivery'&&row.reason==='untold_name');
-  assert.equal(nameRefusals.length,nameRefusalsBefore+1,'the actual recovery retries the original publication');
-  assert.equal(nameRefusals.at(-1).call_id,pending.evidence.publication.call_id);
-  assert.equal(nameRefusals.at(-1).shared,1,'the original shared-name refusal remains authoritative');
+  const failures=restarted.telemetry().filter(row=>row.tool&&row.ok===false&&row.code==='commit_failed');
+  assert.ok(failures.length>failuresBefore,'the actual recovery retries the original publication');
+  assert.ok(failures.length<=failuresBefore+2,'the existing retry allowance is not enlarged');
+  assert.equal(failures.at(-1).call_id,pending.evidence.publication.call_id);
+  assert.equal(failures.at(-1).code,'commit_failed','a real transaction failure remains authoritative');
   const after=await restarted.runtimeBridges().at(-1).call('table.status',{campaign:'test-camp'});
   assert.equal(after.turn,before.turn);
   assert.equal(after.state,'acting');
