@@ -286,7 +286,9 @@ export default function (pi: ExtensionAPI) {
 		campaign: string,
 		call: KernelCall,
 		note: (row: Record<string, unknown>) => Promise<void>,
-	): Promise<{ ok: true; candidates: number; model: string; story?: StoryAssessment } | { ok: false; reason: string; detail: string }> {
+	): Promise<{ ok: true; candidates: number; model: string; story?: StoryAssessment } | { ok: false; reason: string; detail: string; feedback?: string }> {
+		const rejectedStages = new Set<'candidates' | 'story'>();
+		let acceptedShape = false;
 		const lane = await runLane<MemoryExtraction>({
 			ctx: scheduler.ctx as ExtensionContext,
 			envName: "PI_COC_MEMORY_MODEL",
@@ -297,17 +299,36 @@ export default function (pi: ExtensionAPI) {
 			systemPrompt: systemPrompt(packet),
 			input: userInput(packet),
 			signal: scheduler.signal,
-			shape: (parsed) => shapeExtraction(parsed, packet),
+			shape: (parsed) => {
+				const value = shapeExtraction(parsed, packet);
+				if (value !== undefined) acceptedShape = true;
+				else rejectedStages.add(shapeCandidates(parsed, packet) === undefined ? 'candidates' : 'story');
+				return value;
+			},
 		});
 		if (!lane.ok) {
-			return { ok: false, reason: lane.reason === "model_unavailable" ? "lane_error" : "model_error", detail: lane.detail };
+			// Reply evidence stays private and never becomes an outage detail or another failed job.
+			const stage = !acceptedShape && rejectedStages.size === 1 ? [...rejectedStages][0] : 'extraction';
+			if (lane.reason === 'bad_output') await note({turn: packet.turn, job_id: jobId,
+				event: 'malformed_reply', stage, reason: lane.reason, ...(lane.reply ? {reply: lane.reply} : {})});
+			return { ok: false, reason: lane.reason === "model_unavailable" ? "lane_error" : "model_error", detail: lane.detail,
+				...(lane.reason === 'bad_output' ? {feedback: lane.reply?.objects === 0
+					? `The memory ${stage} reply held no JSON object; return the requested structure.`
+					: `The memory ${stage} structure did not match the requested shape.`} : {}) };
 		}
         if (packet.task !== 'reconcile_correction' && packet.attribution_policy === MEMORY_ATTRIBUTION_POLICY) {
             const review = await runLane<AttributionReview>({ctx: scheduler.ctx as ExtensionContext, envName: 'PI_COC_MEMORY_MODEL',
                 lane: 'memory', record: row => note({turn: packet.turn, job_id: jobId, task: 'attribution_review', ...row}),
                 systemPrompt: ATTRIBUTION_REVIEW_INSTRUCTION, input: attributionReviewInput(packet, lane.value.candidates),
                 signal: scheduler.signal, shape: value => shapeAttributionReview(value, packet, lane.value.candidates.length)});
-            if (!review.ok) return {ok: false, reason: review.reason === 'model_unavailable' ? 'lane_error' : 'model_error', detail: review.detail};
+            if (!review.ok) {
+                if (review.reason === 'bad_output') await note({turn: packet.turn, job_id: jobId,
+                    event: 'malformed_reply', stage: 'attribution_review', reason: review.reason, ...(review.reply ? {reply: review.reply} : {})});
+                return {ok: false, reason: review.reason === 'model_unavailable' ? 'lane_error' : 'model_error', detail: review.detail,
+                    ...(review.reason === 'bad_output' ? {feedback: review.reply?.objects === 0
+                        ? 'The memory attribution_review reply held no JSON object; return the requested structure.'
+                        : 'The memory attribution_review structure did not match the requested shape.'} : {})};
+            }
             await note({turn: packet.turn, job_id: jobId, event: 'attribution_review', verdict: review.value.verdict,
                 issues: review.value.issues.length, attribution_issues: review.value.issues, candidate_reports: lane.value.candidates});
             if (review.value.verdict === 'repair') return {ok: false, reason: 'invalid', detail: JSON.stringify({
@@ -404,7 +425,7 @@ export default function (pi: ExtensionAPI) {
 				return;
 			}
 			last = outcome;
-			if (outcome.reason === 'invalid' || outcome.reason === 'model_error') packet = {...packet, validation_feedback: outcome.detail};
+			if (outcome.reason === 'invalid' || outcome.reason === 'model_error') packet = {...packet, validation_feedback: outcome.feedback ?? outcome.detail};
 		}
 		if (scheduler.stopped) return;
 		const failure = last ?? { reason: "lane_error", detail: "the lane never started" };
