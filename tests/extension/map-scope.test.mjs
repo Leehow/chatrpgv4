@@ -388,5 +388,11 @@ test('§39.4 the reader of a map-scope job runs under its own short instructions
 	const result = await runtimeCapabilities.runTask(context, {kind: 'reader', request: {cwd, brief: 'Say the kind.', model: 'fixture/model', thinking: 'low',
 		prompt: {phase: 'read', visual: 'scope'}, eventLog: join(cwd, 'events.jsonl')}}, new AbortController().signal);
 	assert.equal(result.ok, true, JSON.stringify(result));
-	assert.equal(await readFile(join(cwd, 'instructions-read.md'), 'utf8'), await readFile(join(CONTENT, 'setup', 'visual-map-scope.md'), 'utf8'));
+	const instructions = await readFile(join(cwd, 'instructions-read.md'), 'utf8');
+	const own = await readFile(join(CONTENT, 'setup', 'visual-map-scope.md'), 'utf8');
+	assert.equal(instructions.slice(-own.length), own, 'the map-scope instructions are retained byte for byte');
+	const boundary = instructions.slice(0, -own.length);
+	assert.match(boundary, /bash accepts only the exact host-generated source checker command/);
+	assert(!boundary.includes('## Source access'), 'the short reader does not inherit the common source/graph policy');
+	assert(Buffer.byteLength(boundary) <= 1200, 'only the concise capability boundary precedes this phase');
 });

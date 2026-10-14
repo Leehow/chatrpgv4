@@ -1,5 +1,5 @@
 /** Module publication owns provenance; campaign publication owns adoption. */
-import {jsonDigest, compareUnicode} from '../json.js';
+import {jsonDigest, compareUnicode, pythonJsonDumps} from '../json.js';
 import {array, clone, row, string, type Row} from '../read/values.js';
 import {checkedCharacterProfile} from '../modules/character-profile-shape.js';
 import type {ModuleGraph} from '../read/module-graph.js';
@@ -13,7 +13,7 @@ export function profileSourceRevision(raw: Row, node: Row): string {
   relations: array(raw.relations).filter(r => !r.campaign_origin && (r.from_node_id === node.node_id || r.to_node_id === node.node_id))
    .map(r => ({kind: r.relation_kind, from: r.from_node_id, to: r.to_node_id, properties: r.properties ?? {}, claim: r.claim_id ?? null,
        evidence: array(raw.claims).find(c => c.claim_id === r.claim_id) ?? null}))
-   .sort((a,b) => compareUnicode(JSON.stringify(a), JSON.stringify(b)))});
+   .sort((a,b) => compareUnicode(pythonJsonDumps(a,{compact:true}), pythonJsonDumps(b,{compact:true})))});
 }
 export function moduleCharacterProfile(graph: ModuleGraph, node: Row): Row | null {
  if (!graph.isPerson(node)) return null;

@@ -2,7 +2,7 @@
  * Contract §187.5.3: a reader child's instructions, assembled per purpose. The source reader's instructions are the
  * directory `content/setup/visual-reader/`: the phase's own files first, then `common.md` -- `index.md` for the
  * index author, `read.md` and the purpose's file (`skeleton.md`, `opening.md`, `detail.md`) for a reading author, then a
- * detail material's own file (`pregens.md`, §207.3), and `review.md` for a reviewer. Visual, guidance, answer and reference jobs keep their own single files.
+ * detail material's own file (`pregens.md`, §207.3), and `review.md` for a reviewer. Single-file jobs share only the common capability paragraph.
  */
 import { readFile } from "node:fs/promises";
 import { join } from "node:path";
@@ -32,10 +32,12 @@ export async function readerInstructionText(contentRoot: string, prompt: ReaderP
 	const { phase, guidance, answer, reference, visual } = prompt;
 	if (!["index", "read", "verify"].includes(phase)) throw new Error("Unknown reader instruction phase");
 	const setup = join(contentRoot, "setup");
-	if (visual && phase === "read") return readFile(join(setup, visual === "asset" ? "visual-assets.md" : visual === "scope" ? "visual-map-scope.md" : "visual-discovery.md"), "utf8");
-	if (reference) return readFile(join(setup, "source-reference-guidance.md"), "utf8");
-	if (answer) return readFile(join(setup, "source-answer.md"), "utf8");
-	if (guidance) return readFile(join(setup, "visual-guidance.md"), "utf8");
+	const single = visual && phase === "read" ? visual === "asset" ? "visual-assets.md" : visual === "scope" ? "visual-map-scope.md" : "visual-discovery.md"
+		: reference ? "source-reference-guidance.md" : answer ? "source-answer.md" : guidance ? "visual-guidance.md" : null;
+	if (single) {
+		const [common, own] = await Promise.all([readFile(join(setup, VISUAL_READER_DIR, "common.md"), "utf8"), readFile(join(setup, single), "utf8")]);
+		return common.split('\n## Source access\n')[0] + '\n\n' + own;
+	}
 	const parts = await Promise.all(visualReaderFiles(phase, prompt.purpose, prompt.material).map(async name => {
 		const text = await readFile(join(setup, VISUAL_READER_DIR, name), "utf8");
 		return phase === 'index' && name === 'common.md' ? text.split('\n## Module reference policy: logic and campaign continuity\n')[0] : text;

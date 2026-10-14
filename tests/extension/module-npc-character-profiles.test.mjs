@@ -15,7 +15,8 @@ await symlink(join(root,'node_modules'),join(dir,'node_modules'),'dir');
 await symlink(join(root,'mods'),join(dir,'mods'),'dir');
 await build({stdin:{contents:`export {checkDraft,checkReview,assembleVisual} from './kernel-ts/modules/visual.ts';
 export {loadModuleContract} from './kernel-ts/modules/contract.ts'; export {snapshots} from './kernel-ts/snapshots.ts';
-export {ModuleGraph} from './kernel-ts/read/module-graph.ts'; export {moduleCharacterProfile,publishCharacterProfiles} from './kernel-ts/npc/profile.ts';
+export {ModuleGraph} from './kernel-ts/read/module-graph.ts'; export {moduleCharacterProfile,publishCharacterProfiles,profileSourceRevision} from './kernel-ts/npc/profile.ts';
+export {parsePythonJson,PythonFloat} from './kernel-ts/json.ts';
 export {personalityView,sourceRelationships} from './kernel-ts/npc/material.ts'; export {npcPerspective} from './kernel-ts/npc/perspective.ts';
 export {fitSituation} from './kernel-ts/npc/situation.ts';
 export {buildPacket} from './kernel-ts/voice/jobs.ts';`,resolveDir:root,loader:'ts'},outfile:join(dir,'api.mjs'),bundle:true,packages:'external',platform:'node',format:'esm',logLevel:'silent'});
@@ -102,6 +103,25 @@ test('source relationship evidence stays directed and attributed, and its own re
  assert(api.moduleCharacterProfile(g,node));raw.claims[0].known_by_ids=['npc-friend'];
  assert.deepEqual(api.sourceRelationships(g,node),[]);assert.equal(api.moduleCharacterProfile(g,node),null);
 });
+test('fractional profile evidence preserves publication identity through parsed reload and relation permutations',()=>{
+ const d=draft(),{filled,r}=review(d);api.checkReview(d,filled,r,2,new Set([1]));
+ const raw=api.assembleVisual(null,filled,{id:'profile-book',title:'Book'},contract),node=raw.nodes.find(n=>n.node_id==='npc-witness');
+ raw.relations.push(...['trusts','knows'].map((kind,i)=>({relation_id:`relation-fraction-${i}`,relation_kind:kind,
+  from_node_id:node.node_id,to_node_id:node.node_id,claim_id:`claim-fraction-${i}`,properties:{}})));
+ raw.claims.push(...[0,1].map(i=>({claim_id:`claim-fraction-${i}`,subject_id:node.node_id,predicate:'knows',
+  object:{node_id:node.node_id},truth_status:'authored-fact',source_refs:[{source_id:'pdf:profile-book',pdf_index:0,box:[0.1,0.2,0.3,0.4]}]})));
+ api.publishCharacterProfiles(raw,filled.nodes,{model:'test/reader'});
+ const published=api.profileSourceRevision(raw,node),reloaded=api.parsePythonJson(JSON.stringify(raw));
+ const loadedNode=reloaded.nodes.find(n=>n.node_id===node.node_id);
+ assert(reloaded.claims[0].source_refs[0].box[0] instanceof api.PythonFloat);
+ assert.equal(api.profileSourceRevision(reloaded,loadedNode),published,'native parsed numeric evidence retains its published revision');
+ const graph=()=>new api.ModuleGraph('profile-book',reloaded,'',contract.graph.actor_dossier);
+ assert.deepEqual(api.moduleCharacterProfile(graph(),loadedNode).profile,card().profile);
+ reloaded.relations.reverse();assert.equal(api.profileSourceRevision(reloaded,loadedNode),published);
+ reloaded.claims[0].source_refs[0].box[0]=api.parsePythonJson('0.15');
+ assert.notEqual(api.profileSourceRevision(reloaded,loadedNode),published);
+ assert.equal(api.moduleCharacterProfile(graph(),loadedNode),null,'changed source evidence still invalidates local interpretation');
+});
 test('optional profile failure cannot bypass an unsupported source summary through a grouped review row',()=>{
  const d=draft(),{filled,r}=review(d);r.checked.push({paths:['/nodes/0/properties/character_profile','/nodes/0/summary'],verdict:'unsupported',source_refs:[{page:1}],reason:'Bad source summary as well as bad profile.'});
  assert.throws(()=>api.checkReview(d,filled,r,2,new Set([1])),/unsupported/);
@@ -123,13 +143,17 @@ test('optional derived guidance is cut before immediate facts or player context 
 });
 
 await build({entryPoints:[join(root,'kernel-ts/rpc.ts')],outfile:join(dir,'rpc.mjs'),bundle:true,packages:'external',platform:'node',format:'esm',logLevel:'silent'});
-async function opened(t){
+async function opened(t,fractional=false){
  const home=await mkdtemp(join(dir,'campaign-')),content=await mkdtemp(join(dir,'content-'));
  for(const name of await readdir(join(root,'content')))if(name!=='starters')await symlink(join(root,'content',name),join(content,name));
  await mkdir(join(content,'starters','the-haunting'),{recursive:true});
  for(const name of await readdir(join(root,'content/starters/the-haunting')))if(name!=='module-graph.json')await symlink(join(root,'content/starters/the-haunting',name),join(content,'starters/the-haunting',name));
  const raw=JSON.parse(await readFile(join(root,'content/starters/the-haunting/module-graph.json'),'utf8'));
  const n=raw.nodes.find(n=>n.name==='Steven Knott');n.properties.character_profile=card();
+ if(fractional){
+  const related=raw.relations.filter(r=>r.from_node_id===n.node_id||r.to_node_id===n.node_id);assert(related.length>=2);
+  raw.claims.find(c=>c.claim_id===related[0].claim_id).source_refs=[{source_id:`pdf:${raw.module_id}`,pdf_index:0,box:[0.1,0.2,0.3,0.4]}];
+ }
  api.publishCharacterProfiles(raw,[n],{model:'test/reader'});
  await writeFile(join(content,'starters/the-haunting/module-graph.json'),JSON.stringify(raw));
  const connect=()=>new KernelClient({command:[process.execPath,join(dir,'rpc.mjs'),'--workspace',home,'--content',content],cwd:root,env:{...process.env,GIT_CONFIG_NOSYSTEM:'1',GIT_CONFIG_GLOBAL:'/dev/null'},timeoutMs:30000});
@@ -146,6 +170,31 @@ test('real NPC adoption skips authorship, survives reload and matches capsule/ac
  await client.close();const fresh=connect();t.after(()=>fresh.close());assert.deepEqual((await fresh.call('table.look',{...params,focus:'npc'})).personality.profile,card().profile);
  assert.equal((await fresh.call('npc.job',params)).adopted,undefined);
  const world=JSON.parse(await readFile(join(home,'.coc/campaigns/profile-test/world.json'),'utf8'));assert(Object.values(world.npc_character).some(x=>x.personality.origin==='module_derived'));
+});
+test('native fractional profile evidence reaches all NPC consumers and survives cold restart',async t=>{
+ const {client,connect,home}=await opened(t,true),params={campaign:'profile-test',name:'Steven Knott'};
+ const before=await client.call('table.look',{...params,focus:'npc'});assert.deepEqual(before.personality.profile,card().profile);
+ const adopted=await client.call('npc.job',params);assert.equal(adopted.job_id,null);assert.equal(adopted.adopted,true);
+ const capsule=await client.call('table.capsule',{campaign:params.campaign});
+ assert.deepEqual((capsule.capsule??capsule).present.find(p=>p.name===params.name).personality.profile,card().profile);
+ assert.deepEqual((await client.call('npc.perspective',params)).personality.profile,card().profile);
+ assert.deepEqual((await client.call('npc.situation',params)).who.personality.profile,card().profile);
+ const voice=await client.call('voice.job',{campaign:params.campaign});assert(voice.job_id);assert.deepEqual(voice.npc.personality.profile,card().profile);
+ await client.close();const fresh=connect();t.after(()=>fresh.close());
+ assert.deepEqual((await fresh.call('table.look',{...params,focus:'npc'})).personality.profile,card().profile);
+ const restored=await fresh.call('table.capsule',{campaign:params.campaign});
+ assert.deepEqual((restored.capsule??restored).present.find(p=>p.name===params.name).personality.profile,card().profile);
+ assert.equal((await fresh.call('npc.job',params)).adopted,undefined);
+ const world=JSON.parse(await readFile(join(home,'.coc/campaigns/profile-test/world.json'),'utf8'));
+ assert(Object.values(world.npc_character).some(x=>x.personality.origin==='module_derived'));
+ const turnPath=join(home,'.coc/campaigns/profile-test/turn.json');
+ assert.equal(JSON.parse(await readFile(turnPath,'utf8')).turn,0);
+ const input='I ask the witness what happened.',prepared=await fresh.call('table.player_input',{campaign:params.campaign,text:input});
+ assert.equal(prepared.turn,1);assert.equal(prepared.state,'open');
+ assert.deepEqual(prepared.capsule.present.find(p=>p.name===params.name).personality.profile,card().profile);
+ const cursor=JSON.parse(await readFile(turnPath,'utf8'));
+ assert.equal(cursor.turn,1);assert.equal(cursor.state,'open');assert.equal(cursor.player_text,input);
+ assert.deepEqual(cursor.receipts,[]);assert.deepEqual(cursor.calls,{});
 });
 
 test('real voice job reads played relationship and promise evidence from its campaign scope',async t=>{

@@ -2,21 +2,60 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import {createHash} from 'node:crypto';
 
-import { mkdtemp, mkdir, readFile, rm, symlink, writeFile } from "node:fs/promises";
+import { chmod, mkdtemp, mkdir, readFile, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import readerContext, { boundImages, confineReaderEnvironment, createReaderToolGuard } from "../../extensions/module/reader-context.ts";
 import { readingImageBudget, resetReadingImageBudgetCache } from "../../runtime/jev/host-budgets.ts";
+import {createAgentSession,createBashTool,DefaultResourceLoader,ModelRuntime,SessionManager,SettingsManager} from './pi.mjs';
+import {fauxProvider,fauxAssistantMessage,fauxToolCall,getCurrentTools} from '@earendil-works/pi-ai';
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "../..");
 
 const quote = value => "'" + value.replaceAll("'", "'\\''") + "'";
 
+test('real Pi source requests declare one confined bash and preserve checker execution and general-shell refusal', async t => {
+  const fixture=await confinementFixture(t),marker=join(fixture.cwd,'checker-ran'),forbidden=join(fixture.cwd,'forbidden-output');
+  await writeFile(fixture.wrapper,`#!/bin/sh\nprintf checked > ${quote(marker)}\n`);await chmod(fixture.wrapper,0o755);
+  const priorPath=process.env.PATH;process.env.PATH=fixture.env.PATH;
+  t.after(()=>{if(priorPath===undefined)delete process.env.PATH;else process.env.PATH=priorPath;});
+  const faux=fauxProvider({api:'openai-completions',provider:'reader-fixture',models:[{id:'confined'}]});
+  const schema=createBashTool(fixture.cwd).parameters,requests=[];
+  faux.setResponses([
+    context=>{const tools=getCurrentTools(context.messages);requests.push(tools);
+      return fauxAssistantMessage([fauxToolCall('bash',{command:`touch ${quote(forbidden)}`})],{stopReason:'toolUse'});},
+    context=>{const result=context.messages.find(message=>message.role==='toolResult');assert.equal(result.isError,true);
+      assert.match(JSON.stringify(result.content),/Reader confinement blocked bash/);
+      requests.push(getCurrentTools(context.messages));
+      return fauxAssistantMessage([fauxToolCall('bash',{command:fixture.checker})],{stopReason:'toolUse'});},
+    context=>{const results=context.messages.filter(message=>message.role==='toolResult');assert.equal(results.at(-1).isError,false);
+      requests.push(getCurrentTools(context.messages));return fauxAssistantMessage('Checked.');}]);
+  const modelRuntime=await ModelRuntime.create({authPath:join(fixture.home,'auth.json'),modelsPath:null,
+    modelsStorePath:join(fixture.home,'models.json'),refreshOnCreate:false});modelRuntime.registerNativeProvider(faux.provider);
+  const settingsManager=SettingsManager.inMemory({compaction:{enabled:false},retry:{enabled:false}});
+  const resourceLoader=new DefaultResourceLoader({cwd:fixture.cwd,agentDir:join(fixture.home,'agent'),noContextFiles:true,
+    noSkills:true,noExtensions:true,settingsManager,systemPrompt:'Perform only the fixture source check.',
+    extensionFactories:[{name:'source-context',factory:pi=>readerContext(pi,{cwd:fixture.cwd,env:fixture.env})}]});
+  await resourceLoader.reload();
+  const {session,extensionsResult}=await createAgentSession({cwd:fixture.cwd,agentDir:join(fixture.home,'agent'),
+    resourceLoader,modelRuntime,model:faux.getModel(),tools:['read','write','edit','bash'],thinkingLevel:'off',
+    settingsManager,sessionManager:SessionManager.inMemory()});
+  t.after(()=>session.dispose());assert.deepEqual(extensionsResult.errors,[]);
+  await session.bindExtensions({mode:'print'});await session.prompt('Inspect the available source tools.');
+  assert.equal(requests.length,3);
+  for(const tools of requests){const bash=tools.filter(tool=>tool.name==='bash');assert.equal(bash.length,1);
+    assert.match(bash[0].description,/task\.commands\.check/);
+    assert.deepEqual(bash[0].parameters,JSON.parse(JSON.stringify(schema)));}
+  assert.equal(await readFile(marker,'utf8'),'checked');await assert.rejects(readFile(forbidden),{code:'ENOENT'});
+});
+
 test('final writing tools expose only the approved packet and draft, including command and symlink guards', async t => {
   const fixture=await confinementFixture(t);
   const env={...fixture.env,PI_COC_FINAL_OUTPUT:'1'};
   delete env.PI_COC_READER_SOURCE;
+  readerContext({on() {},registerTool(){assert.fail('a non-source final author keeps its original bash declaration');}},
+    {cwd:fixture.cwd,env});
   const guard=createReaderToolGuard(fixture.cwd,env);
   for(const toolName of ['pdf','image_gen','web_search','resolve','apply'])
     assert.ok(guard({toolName,input:{}})?.block,'the author cannot invoke '+toolName);
@@ -175,7 +214,7 @@ test("the extension installs the guard and confines shell startup environment wi
 	const handlers = new Map();
 	const env = {...fixture.env, BASH_ENV: "/Users/example/.bashrc", ENV: "/Users/example/.profile", CDPATH: "/Users/example",
 		PI_CODING_AGENT_DIR: join(fixture.home, "agent") };
-	readerContext({ on(name, handler) { handlers.set(name, handler); } }, {cwd:fixture.cwd,env});
+	readerContext({ registerTool() {}, on(name, handler) { handlers.set(name, handler); } }, {cwd:fixture.cwd,env});
 	assert.equal(env.HOME, fixture.cwd);
 	assert.equal(env.BASH_ENV, undefined);
 	assert.equal(env.ENV, undefined);
@@ -294,7 +333,7 @@ test('a host-projected original page receives an identity-bound receipt only aft
  const digest=value=>createHash('sha256').update(value).digest('hex');
  const sourceSha=digest(await readFile(fixture.source)),log=join(fixture.cwd,'host-images.jsonl');
  const env={...fixture.env,PI_COC_READER_SOURCE:JSON.stringify({pdf:fixture.source,cache:fixture.cache,file_sha256:sourceSha}),PI_COC_READER_IMAGES_LOG:log};
- const hooks={};readerContext({on(name,fn){hooks[name]=fn;}},{cwd:fixture.cwd,env});
+ const hooks={};readerContext({registerTool() {},on(name,fn){hooks[name]=fn;}},{cwd:fixture.cwd,env});
  const message={role:'custom',customType:'coc-source-navigation',display:false,details:{kind:'host_source_pages',source_sha256:sourceSha,
   pages:[{page:1,path:imagePath,image_sha256:digest(bytes),box:[0,0,1,1]}]},content:[{type:'text',text:'Original page 1'},
   {type:'image',mimeType:'image/jpeg',data:bytes.toString('base64')}]};

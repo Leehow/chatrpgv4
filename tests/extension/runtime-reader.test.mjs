@@ -12,9 +12,25 @@ import { runtimeCapabilities, runCheck } from "../../runtime/tasks.ts";
 import { readerCommand, runReader } from "../../extensions/module/reader.ts";
 import modsExtension from "../../extensions/mods/index.ts";
 import { LANE_THINKING_DEFAULT } from "../../pipicoc/settings-lane-model.js";
+import {readerInstructionText} from '../../runtime/reader-instructions.ts';
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "../..");
 const active = () => new AbortController().signal;
+
+test('single-file source instructions keep the shared capability paragraph without the graph policy', async () => {
+  const common = await readFile(join(ROOT,'content/setup/visual-reader/common.md'),'utf8');
+  const boundary = common.split('\n## Source access\n')[0];
+  for(const [prompt,file] of [[{phase:'read',visual:'scan'},'visual-discovery.md'],[{phase:'read',visual:'asset'},'visual-assets.md'],
+    [{phase:'read',visual:'scope'},'visual-map-scope.md'],[{phase:'read',reference:'guidance'},'source-reference-guidance.md'],
+    [{phase:'read',answer:true},'source-answer.md'],[{phase:'read',guidance:true},'visual-guidance.md']]){
+    const text = await readerInstructionText(join(ROOT,'content'),prompt);
+    const own = await readFile(join(ROOT,'content/setup',file),'utf8');
+    assert.ok(text.startsWith(boundary), JSON.stringify(prompt));
+    assert.equal(text.slice(boundary.length+2),own,'the own instructions stay unchanged');
+    assert.ok(!text.slice(0,boundary.length).includes('## Module reference policy: logic and campaign continuity'));
+    if(prompt.visual)assert.ok(Buffer.byteLength(text)<15000,'visual instructions stay bounded');
+  }
+});
 const json = (path, value) => writeFile(path, JSON.stringify(value) + "\n");
 async function temporary(t) {
   const dir = await mkdtemp(join(tmpdir(), "coc runtime reader "));

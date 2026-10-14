@@ -1,5 +1,6 @@
 import {installChildProviderBudget, outputFieldPath, withOutputRoom} from "../../runtime/jev/provider-budget.ts";
 import {READING_STAGE_BUDGET} from "../../runtime/jev/reading-stage-budget.ts";
+import {createBashTool} from '@earendil-works/pi-coding-agent';
 /** Keep page-image history bounded without changing the recorded reader transcript. */
 import { appendFileSync, lstatSync, readFileSync, realpathSync } from "node:fs";
 import {createHash} from 'node:crypto';
@@ -232,6 +233,10 @@ export default function readerContext(pi: any, options: { cwd?: string; env?: No
 		confineReaderEnvironment(cwd, env);
 		const guard = createReaderToolGuard(cwd, env);
 		pi.on("tool_call", (event: ToolCall) => guard(event));
+		if (env.PI_COC_READER_SOURCE) pi.registerTool({...createBashTool(cwd),
+			description: 'Run only the exact host-issued task.commands.check command. Other shell commands are unavailable. Use read for task JSON and retained files, and pdf for source navigation and page images.',
+			promptSnippet: 'Run the exact task.commands.check only; use read or pdf for inspection.',
+			promptGuidelines: ['Copy task.commands.check exactly when a checker is needed. If it is absent, bash is unavailable. Do not list directories or search files through shell commands.']});
 	}
 	pi.on("before_provider_request", (event: any, ctx: any) => {
 		if (maxRequests !== null && providerRequests >= maxRequests) {
