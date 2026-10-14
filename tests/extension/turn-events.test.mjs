@@ -207,13 +207,32 @@ test('a repaired exchange separates earlier player speech from the pending NPC r
     knowledge:[acquired,{actor:'Thomas Hayes',statement:'Knott claimed the office is open.',mode:'heard',source:npc,state:'uncertain',material:'reply'}]};
   const bad={...event,knowledge:[{...acquired,material:'reply'},event.knowledge[1]]};
   const table=await openTable({legacyDeliveryFixtures:false,realKernel:true,prepareWorkspace:seedOpening,env:eventWriterEnv,
-    responses:[tool('apply',{effects:[],event:bad}),tool('apply',{effects:[],event}),tool('output',{delivery:{version:1,sources:[alias],required:[alias]}})]});
+    responses:[tool('apply',{effects:[],event:bad}),tool('output',{delivery:{version:1,sources:[alias],required:[alias]}})]});
   t.after(()=>table.dispose());await table.session.prompt('I tell Knott the office is open and ask him to repeat that.');
-  assert.equal(errors(table).length,1);
+  assert.deepEqual(errors(table),[]);
+  const accepted=table.session.messages.find(m=>m.role==='toolResult'&&m.toolName==='apply');
+  assert.equal(accepted.isError,false);
+  assert.equal(accepted.details.not_landed.length,1);
+  assert.equal(accepted.details.not_landed[0].details.field,'event.knowledge[0].material');
+  assert.deepEqual(accepted.details.not_landed[0].details.mismatches,['source','audience']);
   const bridge=table.runtimeBridges().at(-1),npcView=await bridge.call('table.look',{campaign,focus:'npc',name:npc});
-  assert.ok(npcView.cognition.some(row=>row.statement===acquired.statement&&row.mode==='heard'));
+  assert.ok(!npcView.cognition.some(row=>row.statement===acquired.statement));
   const capsule=await bridge.call('table.capsule',{campaign});
   assert.equal(capsule.player_knows.cognition.filter(row=>row.statement==='Knott claimed the office is open.').length,1);
+  const record=JSON.parse(readFileSync(join(table.workspace,'.coc/campaigns/test-camp/turns/0001.json'),'utf8'));
+  assert.equal(record.outcome.events.length,1);
+  assert.equal(record.outcome.events[0].knowledge.length,1);
+  assert.equal(record.outcome.events[0].knowledge[0].statement,event.knowledge[1].statement);
+  assert.equal(table.committed().length,1,'the optional omission needs no repeated event or rewrite');
+
+  table.faux.setResponses([tool('apply',{effects:[],event:{name:'later player statement',summary:'Hayes repeats the office status to Knott.',knowledge:[acquired]}}),tool('output',{delivery:plan})]);
+  await table.session.prompt('I repeat to Knott that the office is open.');
+  assert.deepEqual(errors(table),[]);
+  const laterNpc=await bridge.call('table.look',{campaign,focus:'npc',name:npc});
+  assert.equal(laterNpc.cognition.filter(row=>row.statement===acquired.statement&&row.mode==='heard').length,1);
+  const later=await bridge.call('table.capsule',{campaign});
+  assert.equal(later.player_knows.cognition.filter(row=>row.statement==='Knott claimed the office is open.').length,1,'later input does not supersede the valid earlier reply');
+  assert.equal(table.committed().length,2);
 });
 
 test('canonical event cognition and directed relationship survive output without a memory worker',async t=>{

@@ -5,7 +5,7 @@ import { canonicalJson, compareUnicode, isJsonObject, type JsonValue } from "../
 import { entries, values, array, row, truth, string, repr, integer, normalize, normalizeText, kebab, stripPrefix, sorted, similarity, words, chars, pick, type Row } from "./values.js";
 import { SHAPE_KINDS } from "../modules/mechanics-catalog.js";
 import { SurvivorMap, VISUAL_KINDS, pairKey, type IdentityConflict } from "./survivors.js";
-import { personNamedLocations } from "./places.js";
+import { isPlace, personNamedLocations } from "./places.js";
 export const TEMPLATE_NOTE = "the book's pregenerated investigator, not at this table; the table's investigators are in the capsule's known.investigator";
 /** Contract §185.4: a name-free campaign's map from a book node's id to its handle (`world.node_handles`). */
 export type NodeHandles = ReadonlyMap<string, string>;
@@ -1173,7 +1173,15 @@ export class ModuleGraph {
         return result;
     }
     scenePlaces(scene: Row): Row[] {
-        return this.listedNodes(this.groupOut(scene).filter(r => r.relation_kind === "occurs-at").flatMap(r => (this.incoming.get(r.to_node_id) ?? []).filter(inner => inner.relation_kind === "located-in").map(inner => this.survivorId(string(inner.from_node_id)))));
+        const children=(place:Row):string[]=>[
+            ...this.groupIncoming(place).filter(rel=>['located-in','part-of'].includes(rel.relation_kind)).map(rel=>this.survivorId(string(rel.from_node_id))),
+            ...this.groupOut(place).filter(rel=>rel.relation_kind==='contains').map(rel=>this.survivorId(string(rel.to_node_id)))];
+        const direct=[...children(scene),...this.groupOut(scene).filter(rel=>rel.relation_kind==='occurs-at').flatMap(rel=>{
+            const place=this.nodes.get(string(rel.to_node_id));return place?children(place):[];
+        })].filter(id=>id!==scene.node_id&&isPlace(this,this.nodes.get(id)));
+        const legacy=this.groupOut(scene).filter(rel=>rel.relation_kind==='occurs-at').flatMap(rel=>(this.incoming.get(rel.to_node_id)??[])
+            .filter(inner=>inner.relation_kind==='located-in').map(inner=>this.survivorId(string(inner.from_node_id))));
+        return this.listedNodes([...new Set([...direct,...legacy])]);
     }
     /**
      * The scene's `uses-rule` rows; `extra` adds the keys a caller projects from each node (the capsule's `mech`, §136.11).

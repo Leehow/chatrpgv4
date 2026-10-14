@@ -15,8 +15,9 @@ export async function test_narrate_facts_are_sentences_from_receipts_and_world(k
 let opening:any,committed:any,receipts:any,roll:any,_:any,dice:any,delta:any,text:any,result:any,verdict:any,keeper_only:any,record:any;
 (await create_campaign(kernel));
 opening=(await narrate_opening(kernel));
+assert.equal(pyAt(pyAt((await kernel.table("capsule")),"where"),"display_name"),"Knott's Office","the public location fact does not erase the Keeper heading");
 committed=pyAt(pyAt(opening,"facts"),"committed");
-assert.ok(pyBool(pyEqual(committed,["Location: Knott's Office","Present: Steven Knott"])),"tests/kernel/test_facts_warn.py:22 assert committed == [\"Location: Knott's Office\", \"Present: Steven Knott\"]");
+assert.ok(pyBool(pyEqual(committed,["Location: Scene","Present: Steven Knott"])),"tests/kernel/test_facts_warn.py:22 assert committed == [\"Location: Knott's Office\", \"Present: Steven Knott\"]");
 assert.ok(pyBool((await pyAny((await (async()=>{const __rows:any[]=[];for(const line of pyIterable(pyAt(pyAt(opening,"facts"),"keeper_only"))){if(pyBool(true))__rows.push((await pyMethod(line,"startswith",["Undiscovered clue: knott-keys -- "],{})));}return __rows;})())))),"tests/kernel/test_facts_warn.py:23 assert any(line.startswith(\"Undiscovered clue: knott-keys -- \") for line in opening[\"facts\"][\"keeper_only\"])");
 assert.ok(pyBool(pyEqual(pyAt(opening,"extraction"),({["job_id"]:"extract:c1:t0"}))),"tests/kernel/test_facts_warn.py:24 assert opening[\"extraction\"] == {\"job_id\": \"extract:c1:t0\"}");
 (await pyMethod(kernel,"table",["player_input"],{"text":"我翻看桌上的文件。"}));

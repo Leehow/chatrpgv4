@@ -33391,7 +33391,7 @@
           "counterpart": {
             "file": "tests/integration/campaign.test.ts",
             "name": "test_hello_lists_content",
-            "sha256": "970cddecee315ff61a6d8c34932ec67c35f516dc7a6a5acf05824b9fc1b0d768"
+            "sha256": "a1b6bce50f3a0a8e9006ba5621c2409cfafd25eba971a1864c5375a0e75eccfe"
           },
           "review": "statement-by-statement",
           "validation": {
@@ -33513,7 +33513,7 @@
           "counterpart": {
             "file": "tests/integration/campaign.test.ts",
             "name": "test_create_and_list",
-            "sha256": "970cddecee315ff61a6d8c34932ec67c35f516dc7a6a5acf05824b9fc1b0d768"
+            "sha256": "a1b6bce50f3a0a8e9006ba5621c2409cfafd25eba971a1864c5375a0e75eccfe"
           },
           "review": "statement-by-statement",
           "validation": {
@@ -33603,7 +33603,7 @@
           "counterpart": {
             "file": "tests/integration/campaign.test.ts",
             "name": "test_a_telemetry_only_directory_does_not_block_creating_the_campaign",
-            "sha256": "970cddecee315ff61a6d8c34932ec67c35f516dc7a6a5acf05824b9fc1b0d768"
+            "sha256": "a1b6bce50f3a0a8e9006ba5621c2409cfafd25eba971a1864c5375a0e75eccfe"
           },
           "review": "statement-by-statement",
           "validation": {
@@ -33717,7 +33717,7 @@
           "counterpart": {
             "file": "tests/integration/campaign.test.ts",
             "name": "test_create_writes_layout_and_first_commit",
-            "sha256": "970cddecee315ff61a6d8c34932ec67c35f516dc7a6a5acf05824b9fc1b0d768"
+            "sha256": "a1b6bce50f3a0a8e9006ba5621c2409cfafd25eba971a1864c5375a0e75eccfe"
           },
           "review": "statement-by-statement",
           "validation": {
@@ -33863,7 +33863,7 @@
           "counterpart": {
             "file": "tests/integration/campaign.test.ts",
             "name": "test_open_reports_opening_needed_then_turn_zero_commits",
-            "sha256": "970cddecee315ff61a6d8c34932ec67c35f516dc7a6a5acf05824b9fc1b0d768"
+            "sha256": "a1b6bce50f3a0a8e9006ba5621c2409cfafd25eba971a1864c5375a0e75eccfe"
           },
           "review": "statement-by-statement",
           "validation": {
@@ -33961,7 +33961,7 @@
           "counterpart": {
             "file": "tests/integration/campaign.test.ts",
             "name": "test_skipping_the_opening_closes_turn_zero_implicitly",
-            "sha256": "970cddecee315ff61a6d8c34932ec67c35f516dc7a6a5acf05824b9fc1b0d768"
+            "sha256": "a1b6bce50f3a0a8e9006ba5621c2409cfafd25eba971a1864c5375a0e75eccfe"
           },
           "review": "statement-by-statement",
           "validation": {
@@ -34075,7 +34075,7 @@
           "counterpart": {
             "file": "tests/integration/campaign.test.ts",
             "name": "test_language_shape_and_closed_vocabulary_refusals_are_actionable",
-            "sha256": "970cddecee315ff61a6d8c34932ec67c35f516dc7a6a5acf05824b9fc1b0d768"
+            "sha256": "a1b6bce50f3a0a8e9006ba5621c2409cfafd25eba971a1864c5375a0e75eccfe"
           },
           "review": "statement-by-statement",
           "validation": {
@@ -42744,7 +42744,7 @@
           "counterpart": {
             "file": "tests/integration/world-continuation.test.ts",
             "name": "test_checkpoint_is_written_after_the_commit",
-            "sha256": "c3a2d9ab0930907408f8b8ee5414e4d975be164a7ebeb552bba0050af1844536"
+            "sha256": "334b698c3245114eb3374ae053010b3e99abb5e0499052d2a65b069c5b614613"
           },
           "review": "statement-by-statement",
           "validation": {
@@ -42846,7 +42846,7 @@
           "counterpart": {
             "file": "tests/integration/world-continuation.test.ts",
             "name": "test_open_returns_resume_and_the_first_capsule_carries_it_once",
-            "sha256": "c3a2d9ab0930907408f8b8ee5414e4d975be164a7ebeb552bba0050af1844536"
+            "sha256": "334b698c3245114eb3374ae053010b3e99abb5e0499052d2a65b069c5b614613"
           },
           "review": "statement-by-statement",
           "validation": {
@@ -42956,7 +42956,7 @@
           "counterpart": {
             "file": "tests/integration/world-continuation.test.ts",
             "name": "test_head_ahead_of_checkpoint_rebuilds_it_from_head",
-            "sha256": "c3a2d9ab0930907408f8b8ee5414e4d975be164a7ebeb552bba0050af1844536"
+            "sha256": "334b698c3245114eb3374ae053010b3e99abb5e0499052d2a65b069c5b614613"
           },
           "review": "statement-by-statement",
           "validation": {
@@ -43042,7 +43042,7 @@
           "counterpart": {
             "file": "tests/integration/world-continuation.test.ts",
             "name": "test_missing_checkpoint_is_rebuilt_from_head",
-            "sha256": "c3a2d9ab0930907408f8b8ee5414e4d975be164a7ebeb552bba0050af1844536"
+            "sha256": "334b698c3245114eb3374ae053010b3e99abb5e0499052d2a65b069c5b614613"
           },
           "review": "statement-by-statement",
           "validation": {
@@ -43150,7 +43150,7 @@
           "counterpart": {
             "file": "tests/integration/world-continuation.test.ts",
             "name": "test_lost_turn_json_is_rebuilt_from_the_checkpoint",
-            "sha256": "c3a2d9ab0930907408f8b8ee5414e4d975be164a7ebeb552bba0050af1844536"
+            "sha256": "334b698c3245114eb3374ae053010b3e99abb5e0499052d2a65b069c5b614613"
           },
           "review": "statement-by-statement",
           "validation": {
@@ -43241,7 +43241,7 @@
           "counterpart": {
             "file": "tests/integration/world-continuation.test.ts",
             "name": "test_lost_turn_json_after_an_ask_restores_the_pending_choice",
-            "sha256": "c3a2d9ab0930907408f8b8ee5414e4d975be164a7ebeb552bba0050af1844536"
+            "sha256": "334b698c3245114eb3374ae053010b3e99abb5e0499052d2a65b069c5b614613"
           },
           "review": "statement-by-statement",
           "validation": {
@@ -43331,7 +43331,7 @@
           "counterpart": {
             "file": "tests/integration/world-continuation.test.ts",
             "name": "test_lost_turn_json_before_any_narrate_is_turn_zero",
-            "sha256": "c3a2d9ab0930907408f8b8ee5414e4d975be164a7ebeb552bba0050af1844536"
+            "sha256": "334b698c3245114eb3374ae053010b3e99abb5e0499052d2a65b069c5b614613"
           },
           "review": "statement-by-statement",
           "validation": {
@@ -43429,7 +43429,7 @@
           "counterpart": {
             "file": "tests/integration/world-continuation.test.ts",
             "name": "test_pending_turn_keeps_the_last_checkpoint_as_resume",
-            "sha256": "c3a2d9ab0930907408f8b8ee5414e4d975be164a7ebeb552bba0050af1844536"
+            "sha256": "334b698c3245114eb3374ae053010b3e99abb5e0499052d2a65b069c5b614613"
           },
           "review": "statement-by-statement",
           "validation": {
@@ -50695,7 +50695,7 @@
           "counterpart": {
             "file": "tests/integration/world-facts-warn.test.ts",
             "name": "test_narrate_facts_are_sentences_from_receipts_and_world",
-            "sha256": "a763bc12d8a612521a1b7b2a236ed5795cc3f07c00015131d36d6662c4b966a9"
+            "sha256": "00c022beeb55ae6295fb9049a423cd920d724fcf0b74524760b88e6520d5442e"
           },
           "review": "statement-by-statement",
           "validation": {
@@ -50793,7 +50793,7 @@
           "counterpart": {
             "file": "tests/integration/world-facts-warn.test.ts",
             "name": "test_keeper_only_lists_present_npc_secrets_and_drops_discovered_clues",
-            "sha256": "a763bc12d8a612521a1b7b2a236ed5795cc3f07c00015131d36d6662c4b966a9"
+            "sha256": "00c022beeb55ae6295fb9049a423cd920d724fcf0b74524760b88e6520d5442e"
           },
           "review": "statement-by-statement",
           "validation": {
@@ -50919,7 +50919,7 @@
           "counterpart": {
             "file": "tests/integration/world-facts-warn.test.ts",
             "name": "test_warn_anchors_quotes_as_substrings_and_drops_the_rest",
-            "sha256": "a763bc12d8a612521a1b7b2a236ed5795cc3f07c00015131d36d6662c4b966a9"
+            "sha256": "00c022beeb55ae6295fb9049a423cd920d724fcf0b74524760b88e6520d5442e"
           },
           "review": "statement-by-statement",
           "validation": {
@@ -51017,7 +51017,7 @@
           "counterpart": {
             "file": "tests/integration/world-facts-warn.test.ts",
             "name": "test_warn_locates_a_quote_whose_quotation_marks_were_retyped",
-            "sha256": "a763bc12d8a612521a1b7b2a236ed5795cc3f07c00015131d36d6662c4b966a9"
+            "sha256": "00c022beeb55ae6295fb9049a423cd920d724fcf0b74524760b88e6520d5442e"
           },
           "review": "statement-by-statement",
           "validation": {
@@ -51107,7 +51107,7 @@
           "counterpart": {
             "file": "tests/integration/world-facts-warn.test.ts",
             "name": "test_warn_files_the_verifiers_play_language_finding",
-            "sha256": "a763bc12d8a612521a1b7b2a236ed5795cc3f07c00015131d36d6662c4b966a9"
+            "sha256": "00c022beeb55ae6295fb9049a423cd920d724fcf0b74524760b88e6520d5442e"
           },
           "review": "statement-by-statement",
           "validation": {
@@ -51193,7 +51193,7 @@
           "counterpart": {
             "file": "tests/integration/world-facts-warn.test.ts",
             "name": "test_warn_files_an_investigator_identity_mismatch_without_classifying_it",
-            "sha256": "a763bc12d8a612521a1b7b2a236ed5795cc3f07c00015131d36d6662c4b966a9"
+            "sha256": "00c022beeb55ae6295fb9049a423cd920d724fcf0b74524760b88e6520d5442e"
           },
           "review": "statement-by-statement",
           "validation": {
@@ -51287,7 +51287,7 @@
           "counterpart": {
             "file": "tests/integration/world-facts-warn.test.ts",
             "name": "test_warnings_reach_the_next_capsule_only_for_the_latest_committed_turn",
-            "sha256": "a763bc12d8a612521a1b7b2a236ed5795cc3f07c00015131d36d6662c4b966a9"
+            "sha256": "00c022beeb55ae6295fb9049a423cd920d724fcf0b74524760b88e6520d5442e"
           },
           "review": "statement-by-statement",
           "validation": {
@@ -51385,7 +51385,7 @@
           "counterpart": {
             "file": "tests/integration/world-facts-warn.test.ts",
             "name": "test_capsule_memory_section_is_the_ranked_head_within_budget",
-            "sha256": "a763bc12d8a612521a1b7b2a236ed5795cc3f07c00015131d36d6662c4b966a9"
+            "sha256": "00c022beeb55ae6295fb9049a423cd920d724fcf0b74524760b88e6520d5442e"
           },
           "review": "statement-by-statement",
           "validation": {
@@ -51475,7 +51475,7 @@
           "counterpart": {
             "file": "tests/integration/world-facts-warn.test.ts",
             "name": "test_capsule_memory_section_takes_six_ranked_hits",
-            "sha256": "a763bc12d8a612521a1b7b2a236ed5795cc3f07c00015131d36d6662c4b966a9"
+            "sha256": "00c022beeb55ae6295fb9049a423cd920d724fcf0b74524760b88e6520d5442e"
           },
           "review": "statement-by-statement",
           "validation": {
@@ -51569,7 +51569,7 @@
           "counterpart": {
             "file": "tests/integration/world-facts-warn.test.ts",
             "name": "test_capsule_warnings_section_budget",
-            "sha256": "a763bc12d8a612521a1b7b2a236ed5795cc3f07c00015131d36d6662c4b966a9"
+            "sha256": "00c022beeb55ae6295fb9049a423cd920d724fcf0b74524760b88e6520d5442e"
           },
           "review": "statement-by-statement",
           "validation": {
@@ -51675,7 +51675,7 @@
           "counterpart": {
             "file": "tests/integration/world-facts-warn.test.ts",
             "name": "test_narrate_facts_carry_what_the_player_was_already_told",
-            "sha256": "a763bc12d8a612521a1b7b2a236ed5795cc3f07c00015131d36d6662c4b966a9"
+            "sha256": "00c022beeb55ae6295fb9049a423cd920d724fcf0b74524760b88e6520d5442e"
           },
           "review": "statement-by-statement",
           "validation": {
@@ -117022,7 +117022,7 @@
           "counterpart": {
             "file": "tests/integration/scene-material-views.test.ts",
             "name": "test_compact_previews_admit_truncation_and_full_scene_retains_spatial_conditions",
-            "sha256": "9929527a69fed35d2aff4375ee2b840f6a0cfa72e045d8e750bc8c4009930ffa"
+            "sha256": "fd87a4204146c8542ef4285ed782e7686e4341800fbdef6bd6d1e783b277a68b"
           },
           "review": "statement-by-statement",
           "validation": {
@@ -117112,7 +117112,7 @@
           "counterpart": {
             "file": "tests/integration/scene-material-views.test.ts",
             "name": "test_scene_finds_maps_of_its_authored_location_once_without_unrelated_maps",
-            "sha256": "9929527a69fed35d2aff4375ee2b840f6a0cfa72e045d8e750bc8c4009930ffa"
+            "sha256": "fd87a4204146c8542ef4285ed782e7686e4341800fbdef6bd6d1e783b277a68b"
           },
           "review": "statement-by-statement",
           "validation": {
@@ -117218,7 +117218,7 @@
           "counterpart": {
             "file": "tests/integration/scene-material-views.test.ts",
             "name": "test_table_scene_look_is_full_while_turn_capsule_stays_bounded",
-            "sha256": "9929527a69fed35d2aff4375ee2b840f6a0cfa72e045d8e750bc8c4009930ffa"
+            "sha256": "fd87a4204146c8542ef4285ed782e7686e4341800fbdef6bd6d1e783b277a68b"
           },
           "review": "statement-by-statement",
           "validation": {
@@ -137961,7 +137961,7 @@
           "counterpart": {
             "file": "tests/integration/system-language.test.ts",
             "name": "test_no_cjk_character_anywhere_in_code_or_system_content",
-            "sha256": "a1f5f54408ded0a47c1d9e2f7e71e369bd9016bdfddd5b03b632613b454dcb78"
+            "sha256": "20ea01fb52b2248db0f469ced1f211fa57599218c3003b3defed163102f035bf"
           },
           "review": "statement-by-statement",
           "validation": {
@@ -138093,7 +138093,7 @@
           "counterpart": {
             "file": "tests/integration/system-language.test.ts",
             "name": "test_a_zh_hans_turn_is_delivered_verbatim_with_every_receipt_projected",
-            "sha256": "a1f5f54408ded0a47c1d9e2f7e71e369bd9016bdfddd5b03b632613b454dcb78"
+            "sha256": "20ea01fb52b2248db0f469ced1f211fa57599218c3003b3defed163102f035bf"
           },
           "review": "statement-by-statement",
           "validation": {
@@ -138189,7 +138189,7 @@
           "counterpart": {
             "file": "tests/integration/system-language.test.ts",
             "name": "test_story_is_separate_from_roll_and_clock_json",
-            "sha256": "a1f5f54408ded0a47c1d9e2f7e71e369bd9016bdfddd5b03b632613b454dcb78"
+            "sha256": "20ea01fb52b2248db0f469ced1f211fa57599218c3003b3defed163102f035bf"
           },
           "review": "statement-by-statement",
           "validation": {
@@ -138289,7 +138289,7 @@
           "counterpart": {
             "file": "tests/integration/system-language.test.ts",
             "name": "test_no_player_facing_field_is_refused_by_its_script",
-            "sha256": "a1f5f54408ded0a47c1d9e2f7e71e369bd9016bdfddd5b03b632613b454dcb78"
+            "sha256": "20ea01fb52b2248db0f469ced1f211fa57599218c3003b3defed163102f035bf"
           },
           "review": "statement-by-statement",
           "validation": {
@@ -138401,7 +138401,7 @@
           "counterpart": {
             "file": "tests/integration/system-language.test.ts",
             "name": "test_any_tag_shaped_play_language_opens_a_table_and_a_malformed_one_names_the_shape",
-            "sha256": "a1f5f54408ded0a47c1d9e2f7e71e369bd9016bdfddd5b03b632613b454dcb78"
+            "sha256": "20ea01fb52b2248db0f469ced1f211fa57599218c3003b3defed163102f035bf"
           },
           "review": "statement-by-statement",
           "validation": {
@@ -175455,6 +175455,91 @@
           "persistentLog": ".tmp/amaranthine-system-20261013/full-f5-test-sync/rules-public-label-final.log"
         },
         "limitation": "The original public-label failure and integration type-check failure remain separate evidence. This focused file is not a full-suite or live play claim."
+      }
+    },
+    {
+      "file": "tests/integration/scene-material-views.test.ts",
+      "prior_sha256": "9929527a69fed35d2aff4375ee2b840f6a0cfa72e045d8e750bc8c4009930ffa",
+      "current_sha256": "fd87a4204146c8542ef4285ed782e7686e4341800fbdef6bd6d1e783b277a68b",
+      "contract": "docs/kernel-rpc.md §237.52",
+      "basis": "Existing three legacy counterparts are unchanged; new direct-inner navigation and legacy object retention regressions exercise the same production projection and native RPC.",
+      "historicalValidationRetained": "Original source and case hashes, assertions, parameters, exceptions and historical validation are unchanged; original full-suite red remains independently retained.",
+      "currentValidation": {
+        "command": "node --test tests/integration/scene-material-views.test.ts",
+        "result": "passed",
+        "passed": 6,
+        "failed": 0,
+        "exitCode": 0,
+        "evidence": ".tmp/amaranthine-system-20261013/current-inner-scenes-23752/result-final.json",
+        "limitation": "Focused real native execution is not fresh full-suite, installed App or live play acceptance."
+      }
+    },
+    {
+      "file": "tests/integration/campaign.test.ts",
+      "prior_sha256": "970cddecee315ff61a6d8c34932ec67c35f516dc7a6a5acf05824b9fc1b0d768",
+      "current_sha256": "a1b6bce50f3a0a8e9006ba5621c2409cfafd25eba971a1864c5375a0e75eccfe",
+      "contract": "docs/kernel-rpc.md §237.48",
+      "basis": "Approved public projection amendments replace only public keeper-only heading literals; private current scene and raw movement receipt remain separately asserted.",
+      "historicalValidationRetained": "Original source and case hashes, assertions, parameters, exceptions and historical validation are unchanged; original full-suite red remains independently retained.",
+      "currentValidation": {
+        "command": "LAN native subset: campaign.test.ts system-language.test.ts world-continuation.test.ts world-facts-warn.test.ts",
+        "result": "passed",
+        "passed": 32,
+        "failed": 0,
+        "exitCode": 0,
+        "evidence": ".tmp/amaranthine-system-20261013/public-projection-regressions-23748-51/results.json",
+        "limitation": "Focused real native execution is not fresh full-suite, installed App or live play acceptance."
+      }
+    },
+    {
+      "file": "tests/integration/system-language.test.ts",
+      "prior_sha256": "a1f5f54408ded0a47c1d9e2f7e71e369bd9016bdfddd5b03b632613b454dcb78",
+      "current_sha256": "20ea01fb52b2248db0f469ced1f211fa57599218c3003b3defed163102f035bf",
+      "contract": "docs/kernel-rpc.md §237.48",
+      "basis": "Approved public projection amendments replace only public keeper-only heading literals; private current scene and raw movement receipt remain separately asserted.",
+      "historicalValidationRetained": "Original source and case hashes, assertions, parameters, exceptions and historical validation are unchanged; original full-suite red remains independently retained.",
+      "currentValidation": {
+        "command": "LAN native subset: campaign.test.ts system-language.test.ts world-continuation.test.ts world-facts-warn.test.ts",
+        "result": "passed",
+        "passed": 32,
+        "failed": 0,
+        "exitCode": 0,
+        "evidence": ".tmp/amaranthine-system-20261013/public-projection-regressions-23748-51/results.json",
+        "limitation": "Focused real native execution is not fresh full-suite, installed App or live play acceptance."
+      }
+    },
+    {
+      "file": "tests/integration/world-continuation.test.ts",
+      "prior_sha256": "c3a2d9ab0930907408f8b8ee5414e4d975be164a7ebeb552bba0050af1844536",
+      "current_sha256": "334b698c3245114eb3374ae053010b3e99abb5e0499052d2a65b069c5b614613",
+      "contract": "docs/kernel-rpc.md §237.48",
+      "basis": "Approved public projection amendments replace only public keeper-only heading literals; private current scene and raw movement receipt remain separately asserted.",
+      "historicalValidationRetained": "Original source and case hashes, assertions, parameters, exceptions and historical validation are unchanged; original full-suite red remains independently retained.",
+      "currentValidation": {
+        "command": "LAN native subset: campaign.test.ts system-language.test.ts world-continuation.test.ts world-facts-warn.test.ts",
+        "result": "passed",
+        "passed": 32,
+        "failed": 0,
+        "exitCode": 0,
+        "evidence": ".tmp/amaranthine-system-20261013/public-projection-regressions-23748-51/results.json",
+        "limitation": "Focused real native execution is not fresh full-suite, installed App or live play acceptance."
+      }
+    },
+    {
+      "file": "tests/integration/world-facts-warn.test.ts",
+      "prior_sha256": "a763bc12d8a612521a1b7b2a236ed5795cc3f07c00015131d36d6662c4b966a9",
+      "current_sha256": "00c022beeb55ae6295fb9049a423cd920d724fcf0b74524760b88e6520d5442e",
+      "contract": "docs/kernel-rpc.md §237.48",
+      "basis": "Approved public projection amendments replace only public keeper-only heading literals; private current scene and raw movement receipt remain separately asserted.",
+      "historicalValidationRetained": "Original source and case hashes, assertions, parameters, exceptions and historical validation are unchanged; original full-suite red remains independently retained.",
+      "currentValidation": {
+        "command": "LAN native subset: campaign.test.ts system-language.test.ts world-continuation.test.ts world-facts-warn.test.ts",
+        "result": "passed",
+        "passed": 32,
+        "failed": 0,
+        "exitCode": 0,
+        "evidence": ".tmp/amaranthine-system-20261013/public-projection-regressions-23748-51/results.json",
+        "limitation": "Focused real native execution is not fresh full-suite, installed App or live play acceptance."
       }
     }
   ]

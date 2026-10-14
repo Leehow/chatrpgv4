@@ -199,6 +199,60 @@ test('one Keeper omits a reverse speech binding and publishes valid time, invent
   assert.equal(continued.telemetry().filter(row=>row.lane==='kernel-rpc'&&row.method==='table.narrate'&&row.ok&&row.turn===2).length,1);
 });
 
+test('the single Keeper reads a current inner scene and settles only the selected entry before its local clue',async t=>{
+  let requests=0,firstRequest;
+  const publicText='You enter the permitted front room and inspect the visible mark.';
+  const {table,seen}=await directTable([
+    context=>{requests++;firstRequest=context;return fauxAssistantMessage([fauxToolCall('look',{focus:'scene'})],{stopReason:'toolUse'});},
+    context=>{
+      requests++;
+      const result=context.messages.filter(message=>message.role==='toolResult').at(-1);
+      const view=JSON.parse(result.content.filter(block=>block.type==='text').map(block=>block.text).join(''));
+      const selected=view.where.places.find(place=>place.name==='PRIVATE_INNER_NAVIGATION_TITLE');
+      assert.ok(selected,'the actual scene read carries the registered inner destination');
+      return fauxAssistantMessage(JSON.stringify({version:1,record:{effects:[{kind:'move',to:selected.name},
+        {kind:'clue',clue:'inner-fixture-mark',label:'Visible room mark',how:'Inspected during the chosen entry.'}],
+        event:{name:'selected-room-inspection',summary:'The investigator enters and inspects the permitted front room.',
+          knowledge:[{actor:'Thomas Hayes',statement:'A visible mark was inspected in the front room.',mode:'observed',state:'accurate'}]}},text:publicText}));
+    }
+  ],{seedCampaign:false,env:{PI_COC_LOOP_ENGINE:'hybrid-v1',PI_COC_KERNEL_CMD:JSON.stringify(rpcCommand())},prepareWorkspace:async workspace=>{
+    const content=join(workspace,'inner-content');cpSync(join(root,'content'),content,{recursive:true});
+    const path=join(content,'starters/the-haunting/module-graph.json'),data=JSON.parse(readFileSync(path,'utf8'));
+    for(const node of data.nodes)if(node.properties?.runtime_projection?.record?.is_start)node.properties.runtime_projection.record.is_start=false;
+    data.nodes.push(...[
+      {node_id:'scene-inner-fixture-house',node_kind:'scene',name:'Fixture house',properties:{runtime_projection:{kind:'scene',record:{scene_id:'inner-fixture-house',is_start:true}}}},
+      {node_id:'scene-inner-fixture-room',node_kind:'scene',name:'PRIVATE_INNER_NAVIGATION_TITLE',properties:{}},
+      {node_id:'clue-inner-fixture-mark',node_kind:'clue',name:'Visible room mark',properties:{}}
+    ].map(node=>({...node,summary:node.name,visibility:'keeper-only',source_refs:[{source_id:'fixture',pdf_index:0}]})));
+    data.relations.push({relation_id:'inner-fixture-room-in-house',from_node_id:'scene-inner-fixture-room',relation_kind:'located-in',to_node_id:'scene-inner-fixture-house',properties:{}},
+      {relation_id:'inner-fixture-mark-in-room',from_node_id:'clue-inner-fixture-mark',relation_kind:'discoverable-at',to_node_id:'scene-inner-fixture-room',properties:{}});
+    writeFileSync(path,JSON.stringify(data));
+    const client=new RpcClient(workspace,{content});
+    try{
+      await client.ok('campaign.create',{id:'test-camp',module:'the-haunting',pregen:'thomas-hayes',play_language:'en'});
+      await client.ok('table.narrate',{campaign:'test-camp',call_id:'t0-c1',text:'You stand in the house with permission to enter the front room.'});
+    }finally{await client.close();}
+    process.env.PI_COC_KERNEL_CMD=JSON.stringify([...rpcCommand(),'--workspace',workspace,'--content',content]);
+  }});
+  t.after(()=>table.dispose());
+  await table.session.prompt('I enter the permitted front room and examine its visible marks.');
+  assert.equal(requests,2);assert.deepEqual(table.extensionErrors,[]);
+  assert.ok(JSON.stringify(firstRequest.messages).includes('PRIVATE_INNER_NAVIGATION_TITLE'));
+  assert.equal(seen.filter(frame=>frame.event==='delta').map(frame=>frame.delta).join(''),publicText);
+  assert.ok(seen.filter(frame=>frame.event==='delta').length>2);assert.equal(seen.at(-1)?.status,'completed');
+  assert.equal(JSON.stringify(seen).includes('PRIVATE_INNER_NAVIGATION_TITLE'),false);
+  const turn=JSON.parse(readFileSync(join(table.workspace,'.coc/campaigns/test-camp/turns/0001.json'),'utf8'));
+  assert.ok(turn.commit);
+  assert.deepEqual(turn.receipts.filter(receipt=>receipt.kind==='move'||receipt.kind==='clue').map(receipt=>receipt.kind),['move','clue']);
+  assert.equal(turn.receipts.find(receipt=>receipt.kind==='move').to,'inner-fixture-room');
+  assert.equal(turn.receipts.find(receipt=>receipt.kind==='move').minutes,0);
+  assert.equal(turn.receipts.find(receipt=>receipt.kind==='clue').scene,'inner-fixture-room');
+  assert.equal(JSON.stringify(turn.mechanics).includes('PRIVATE_INNER_NAVIGATION_TITLE'),false);
+  assert.deepEqual(table.telemetry().filter(row=>row.tool==='apply').map(row=>row.ok),[true]);
+  assert.equal(table.telemetry().filter(row=>row.lane==='kernel-rpc'&&row.method==='table.narrate'&&row.ok).length,1);
+  assert.equal(table.telemetry().some(row=>row.lane==='keeper-delivery'&&row.ok===false),false);
+});
+
 // Publish a generation fixture through the existing metadata fixture/manifest seam; never gameplay.
 async function sourceAppendFixture(workspace) {
   const [{createKernelContext},{graphManifest},{scopedModuleRoot}]=await Promise.all([

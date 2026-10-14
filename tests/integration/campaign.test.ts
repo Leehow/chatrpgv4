@@ -43,7 +43,8 @@ test('test_create_writes_layout_and_first_commit',async t=>{
 test('test_open_reports_opening_needed_then_turn_zero_commits',async t=>{
   const k=await kernel(t);await createCampaign(k);const opened=await k.table('open');assert.equal(opened.opening_needed,true);
   assert.deepEqual(opened.turn,{number:0,state:'awaiting_player'});assert.equal(opened.pending_turn,null);
-  assert.deepEqual(opened.scene,{name:OPENING_SCENE,display_name:"Knott's Office"});const investigator=opened.investigators[0];
+  assert.deepEqual(opened.scene,{name:OPENING_SCENE,display_name:'Scene'});
+  assert.equal((await k.table('capsule')).where.display_name,"Knott's Office",'the public fallback does not rename the Keeper scene');const investigator=opened.investigators[0];
   assert.equal(investigator.id,PREGEN);assert.deepEqual([investigator.hp,investigator.san,investigator.mp,investigator.luck],[12,55,11,50]);
   assert.equal((await k.tableErr('resolve',{call_id:'t0-c1',action:{intent:'idle'}})).code,'turn_state');
   const text='波士顿，1920 年代。\n\n诺特先生的办公室。';const result=await k.table('narrate',{call_id:'t0-c1',text});

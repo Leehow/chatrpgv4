@@ -79,6 +79,12 @@ export const WITHIN_MOVES = 12;
  */
 function movesWithin(graph:ModuleGraph,scene:Row):Array<[Row,Row]>{
     const out:Array<[Row,Row]>=[],seen=new Set(samePlace(graph,scene).map(node=>string(node.node_id)));
+    for(const place of graph.scenePlaces(scene)){
+        const node=graph.find(string(place.name)),target=node&&isPlace(graph,node)?sceneOfPlace(graph,node):null;
+        if(out.length>=WITHIN_MOVES)return out;
+        if(!target||seen.has(string(target.node_id)))continue;
+        seen.add(string(target.node_id));out.push([target,scene]);
+    }
     for(const container of containers(graph,scene)){
         for(const node of [container,...placesWithin(graph,container,scene,WITHIN_MOVES)]){
             const target=sceneOfPlace(graph,node);
