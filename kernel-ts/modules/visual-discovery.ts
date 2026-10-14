@@ -15,6 +15,19 @@ export function checkIndexDraftShape(draft:any,pageCount?:number):void {
             if(!(1<=start&&start<=end)||pageCount!==undefined&&end>pageCount)
                 throw new Error(`${range} must satisfy 1 <= start <= end${pageCount===undefined?'':` <= original page_count (${pageCount})`}`);
         }
+        if(Object.hasOwn(section,'source_refs')){
+            const references=`${path}.source_refs`;
+            if(!Array.isArray(section.source_refs))throw new Error(`${references} must be an array of objects with a positive integer page`);
+            for(const [referenceIndex,reference] of section.source_refs.entries()){
+                const referencePath=`${references}[${referenceIndex}]`;
+                if(!isJsonObject(reference))throw new Error(`${referencePath} must be an object with a positive integer page`);
+                const page=reference.page;
+                if(typeof page!=='bigint'&&!(typeof page==='number'&&Number.isInteger(page)))
+                    throw new Error(`${referencePath}.page must be a positive integer physical page`);
+                if(!(Number(page)>=1)||pageCount!==undefined&&Number(page)>pageCount)
+                    throw new Error(`${referencePath}.page must satisfy 1 <= page${pageCount===undefined?'':` <= original page_count (${pageCount})`}`);
+            }
+        }
     }
 }
 export type VisualScan = {first:number; last:number};

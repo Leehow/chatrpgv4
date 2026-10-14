@@ -6,7 +6,7 @@ import {tmpdir} from 'node:os';
 import {spawnSync} from 'node:child_process';
 import {createHash} from 'node:crypto';
 import {fauxAssistantMessage,fauxText,fauxToolCall} from '@earendil-works/pi-ai';
-import {openTable,waitForIdle} from './harness.mjs';
+import {customMessages,openTable,waitForIdle} from './harness.mjs';
 import {createHybridEngine} from '../../runtime/jev/hybrid-engine.ts';
 import {createFinalOutputOwner} from '../../extensions/kernel/final-output.ts';
 import {importSource,RpcClient,rpcCommand} from '../integration/support.ts';
@@ -635,6 +635,52 @@ test('a misplaced record text receives the precise sibling correction before one
   assert.deepEqual(table.extensionErrors,[]);
 });
 
+test('an unmarked final response receives the public-marker correction after its effects settled once',async t=>{
+  // The provider is deterministic; Pi, RunDriver and the native kernel are real, not live-play acceptance.
+  const rejected='PRIVATE_UNMARKED_FINAL_CANDIDATE',text='You finish waiting beside the desk.';
+  let requests=0,correction,stateAtFirstDelta,firstReply,carriedUserText;
+  const {table,seen}=await directTable([()=>{
+    requests++;
+    return fauxAssistantMessage([fauxToolCall('apply',{effects:[{kind:'time',minutes:8}]})],{stopReason:'toolUse'});
+  },context=>{
+    requests++;
+    carriedUserText=new Set(context.messages.filter(message=>message.role==='user').flatMap(message=>
+      typeof message.content==='string'?[message.content]:message.content.filter(block=>block.type==='text').map(block=>block.text)));
+    firstReply={publicFrames:seen.length,minutes:JSON.parse(readFileSync(join(table.workspace,'.coc/campaigns/test-camp/world.json'),'utf8')).clock.minutes};
+    return fauxAssistantMessage(rejected);
+  },context=>{
+    requests++;
+    correction=context.messages.filter(message=>message.role==='user').flatMap(message=>
+      typeof message.content==='string'?[message.content]:message.content.filter(block=>block.type==='text').map(block=>block.text))
+      .filter(text=>!carriedUserText.has(text)&&text.includes('{{public}}')).join('\n');
+    return fauxAssistantMessage('{{public}}'+text);
+  }],{onFrame:frame=>{if(frame.event==='delta'&&stateAtFirstDelta===undefined)
+    stateAtFirstDelta=JSON.parse(readFileSync(join(table.workspace,'.coc/campaigns/test-camp/world.json'),'utf8')).clock.minutes;}});
+  t.after(()=>table.dispose());
+  await table.session.prompt('I wait eight minutes beside the desk.');
+  assert.match(correction,/public marker/i,'the real correction identifies the missing public marker');
+  assert.match(correction,/\{\{public\}\}/);
+  assert.doesNotMatch(correction,/record\.text is invalid/,'ordinary unmarked prose is not a nested-record error');
+  assert.ok(!correction.includes(rejected),'the correction does not quote the private rejected candidate');
+  assert.equal(requests,3,'one tool inference, one rejected final and the existing single correction');
+  assert.deepEqual(firstReply,{publicFrames:0,minutes:8});
+  assert.equal(stateAtFirstDelta,8);
+  assert.ok(seen.filter(frame=>frame.event==='delta').length>2,'the corrected prose streams incrementally');
+  assert.equal(seen.filter(frame=>frame.event==='delta').map(frame=>frame.delta).join(''),text);
+  assert.ok(!JSON.stringify(seen).includes(rejected));
+  assert.equal(seen.at(-1)?.status,'completed');
+  const turn=JSON.parse(readFileSync(join(table.workspace,'.coc/campaigns/test-camp/turns/0001.json'),'utf8'));
+  assert.ok(turn.commit);assert.equal(turn.world.clock.minutes,8);
+  assert.equal(turn.receipts.filter(row=>row.kind==='time').length,1);
+  const telemetry=table.telemetry();
+  assert.deepEqual(telemetry.filter(row=>row.tool==='apply').map(row=>row.ok),[true]);
+  assert.equal(telemetry.filter(row=>row.lane==='provider-call').length,3);
+  assert.equal(telemetry.filter(row=>row.lane==='keeper-delivery'&&row.ok===false).length,1);
+  assert.equal(telemetry.filter(row=>row.lane==='turn'&&row.event==='turn_close'&&row.status==='steer').length,1);
+  assert.equal(telemetry.filter(row=>row.lane==='final-output'&&row.event==='start').length,0,'no separate author is invoked');
+  assert.deepEqual(table.extensionErrors,[]);
+});
+
 test('an accepted inline prefix replays after a malformed body and refreshes the same Keeper state',async t=>{
   const record={effects:[{kind:'time',minutes:8}],event:{name:'wait-once',summary:'The visitor waits.'}};
   // The completed record reaches the kernel before a later streamed chunk supplies the bad separator.
@@ -1190,9 +1236,27 @@ test('the final provider request retains current prepended Keeper instructions a
 });
 
 test('a rejected reply remains private and preserves its original bytes for diagnosis',async t=>{
- const rejected='UNMARKED_PRIVATE_DIAGNOSTIC';
- const {table,seen}=await directTable([fauxAssistantMessage(rejected),fauxAssistantMessage(rejected)]);
+ const rejected='UNMARKED_PRIVATE_DIAGNOSTIC',second='UNMARKED_PRIVATE_SECOND_DIAGNOSTIC';
+ let authors=0;
+ const {table,seen}=await directTable([()=>{authors++;return fauxAssistantMessage(rejected);},()=>{
+   authors++;return fauxAssistantMessage(second);
+ },()=>{authors++;return fauxAssistantMessage('{{public}}UNAUTHORIZED_THIRD_AUTHOR');}]);
  t.after(()=>table.dispose());await table.session.prompt('I wait for the answer.');
  assert.equal(seen.length,0);
  assert.ok(table.telemetry().some(row=>row.lane==='keeper-delivery'&&row.private_reply===rejected));
+ assert.ok(table.telemetry().some(row=>row.lane==='keeper-delivery'&&row.private_reply===second));
+ assert.equal(authors,2,'a second unmarked final cannot buy another author or correction');
+ assert.equal(table.telemetry().filter(row=>row.lane==='provider-call').length,2);
+ assert.equal(table.telemetry().filter(row=>row.lane==='turn'&&row.event==='turn_close'&&row.status==='steer').length,1);
+ assert.equal(table.telemetry().filter(row=>row.lane==='turn'&&row.event==='turn_close'&&row.reason==='steer_spent').length,1);
+ const notices=customMessages(table.session,'coc-delivery').filter(message=>message.details?.turn_unfinished);
+ assert.equal(notices.length,1,'the existing unfinished notice ends the input');
+ assert.ok(!JSON.stringify(notices).includes(rejected));
+ assert.ok(!JSON.stringify(notices).includes(second));
+ assert.ok(!JSON.stringify(notices).includes('UNAUTHORIZED_THIRD_AUTHOR'));
+ const turn=JSON.parse(readFileSync(join(table.workspace,'.coc/campaigns/test-camp/turns/0001.json'),'utf8'));
+ assert.equal(turn.commit,null);assert.equal(turn.receipts.length,0);
+ assert.equal(turn.world.clock.minutes,0);
+ assert.equal(table.telemetry().filter(row=>row.lane==='final-output'&&row.event==='start').length,0);
+ assert.deepEqual(table.extensionErrors,[]);
 });

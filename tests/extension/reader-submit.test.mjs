@@ -49,6 +49,91 @@ async function setup(t,reviewing=false,purpose="guidance",extraTask={}){
  return {tool,see,overview,dir};
 }
 
+test('inline navigation references fail at their field before replacing the saved draft',async t=>{
+ const {tool,dir}=await setup(t,false,'index');
+ const before=await readFile(join(dir,'draft.json'));
+ const navigation={sections:[{name:'Opening',pages:[[1,2]],source_refs:['physical page 1']}]};
+ await assert.rejects(tool.execute('malformed-reference',{draft:navigation}),/sections\[0\]\.source_refs\[0\].*object.*page/);
+ assert.deepEqual(await readFile(join(dir,'draft.json')),before,'an invalid inline reference must not overwrite the saved artifact');
+ const corrected={sections:[{...navigation.sections[0],source_refs:[{page:1}]}]};
+ assert.equal((await tool.execute('corrected-reference',{draft:corrected})).terminate,true);
+ assert.deepEqual(JSON.parse(await readFile(join(dir,'draft.json'),'utf8')),corrected);
+});
+
+test('the index submission schema describes optional bounded original-page reference objects',async t=>{
+ const {tool}=await setup(t,false,'index');
+ const section={name:'Opening',pages:[[1,2]]};
+ assert.equal(Check(tool.parameters,{draft:{sections:[section]}}),true,'omitted references retain the native full-range fallback');
+ for(const source_refs of [[],[{page:1,note:'Observed heading'}]]){
+  assert.equal(Check(tool.parameters,{draft:{sections:[{...section,source_refs}]}}),true);
+ }
+ for(const source_refs of [null,'page 1',[1],['page 1'],[null],[{}],[{page:'1'}],[{page:0}],[{page:1.5}],[{page:3}]]){
+  assert.equal(Check(tool.parameters,{draft:{sections:[{...section,source_refs}]}}),false,`invalid reference shape ${JSON.stringify(source_refs)}`);
+ }
+});
+
+for(const written of [false,true])test(`malformed ${written?'file-backed':'inline'} index references preserve the artifact for correction`,async t=>{
+ const {tool,dir}=await setup(t,false,'index');
+ const valid={sections:[{name:'Opening',pages:[[1,2]],source_refs:[{page:1,note:'Observed heading'}]}]};
+ await json(join(dir,'draft.json'),valid);
+ for(const source_refs of [null,'page 1',[1],['page 1'],[null],[{}],[{page:'1'}],[{page:0}],[{page:1.5}],[{page:3}]]){
+  const invalid={sections:[{...valid.sections[0],source_refs}]};
+  if(written)await json(join(dir,'draft.json'),invalid);
+  const before=await readFile(join(dir,'draft.json'));
+  await assert.rejects(tool.execute('invalid-reference',written?{}:{draft:invalid}),/sections\[0\]\.source_refs/);
+  assert.deepEqual(await readFile(join(dir,'draft.json')),before,'failed submission leaves the retained file unchanged');
+ }
+ for(const source_refs of [undefined,[],[{page:1,note:'Observed heading'}]]){
+  const section={...valid.sections[0]};if(source_refs===undefined)delete section.source_refs;else section.source_refs=source_refs;
+  const corrected={sections:[section]};
+  assert.equal((await tool.execute('corrected-reference',{draft:corrected})).terminate,true);
+  assert.deepEqual(JSON.parse(await readFile(join(dir,'draft.json'),'utf8')),corrected);
+ }
+ await assert.rejects(tool.execute('cancelled-reference',{draft:valid},AbortSignal.abort()),/cancelled/);
+});
+
+for(const written of [false,true])test(`the same Pi loop corrects ${written?'file-backed':'inline'} navigation references before terminating`,async t=>{
+ const {tool,dir}=await setup(t,false,'index');
+ const invalid={sections:[{name:'Opening',pages:[[1,2]],source_refs:['physical page 1']}]};
+ if(written)await json(join(dir,'draft.json'),invalid);
+ const corrected={sections:[{...invalid.sections[0],source_refs:[{page:1,note:'Observed heading'}]}]};
+ let requests=0;const model={id:'fixture',provider:'fixture',api:'openai-completions'};
+ const agent=new Agent({initialState:{model,tools:[tool]},streamFn(){
+  const stream=createAssistantMessageEventStream(),first=requests++===0;
+  const message={role:'assistant',model:'fixture',provider:'fixture',api:'openai-completions',timestamp:Date.now(),
+   usage:{input:0,output:0,cacheRead:0,cacheWrite:0,totalTokens:0,cost:{input:0,output:0,cacheRead:0,cacheWrite:0,total:0}},stopReason:'toolUse',
+   content:[{type:'toolCall',id:`reference-${requests}`,name:'submit_reading',arguments:first?(written?{}:{draft:invalid}):{draft:corrected}}]};
+  queueMicrotask(()=>{stream.push({type:'done',reason:'toolUse',message});stream.end();});return stream;
+ }});
+ await agent.prompt('Save navigation references using observed physical page objects.');
+ assert.equal(requests,2,'only the corrected artifact ends the actual Pi tool loop');
+ const results=agent.state.messages.filter(message=>message.role==='toolResult');
+ assert.equal(results[0].isError,true);assert.match(results[0].content[0].text,/source_refs/);
+ assert.equal(results[1].isError,false);
+ assert.deepEqual(JSON.parse(await readFile(join(dir,'draft.json'),'utf8')),corrected);
+});
+
+test('a shape-correct navigation citation still requires the original native viewed-page authority',async t=>{
+ const {dir}=await setup(t,false,'index');
+ const {RpcClient}=await import('../integration/support.ts');
+ const native=new RpcClient(dir);t.after(()=>native.close());
+ const pdf=join(dir,'original.pdf'),bytes=Buffer.from('%PDF-1.7\nNavigation evidence fixture\n%%EOF\n');await writeFile(pdf,bytes);
+ const sourceSha=createHash('sha256').update(bytes).digest('hex');
+ const {module_id}=await native.ok('module.source.bind',{source:{path:pdf,page_count:2,file_sha256:sourceSha}});
+ await native.ok('module.read.request',{module_id,purpose:'index'});
+ const job=await native.ok('module.read.claim',{module_id,owner:'navigation-reference-test'});
+ await json(join(job.work_dir,'task.json'),{purpose:'index',source:{page_count:2}});
+ let tool;process.chdir(job.work_dir);await readerSubmit({on(){},registerTool(value){tool=value}});
+ const navigation={language:'en',sections:[{name:'Opening',pages:[[1,2]],source_refs:[{page:2}]}]};
+ assert.equal((await tool.execute('save-unseen-reference',{draft:navigation})).terminate,true,'shape submission does not grant source acceptance');
+ await json(join(job.work_dir,'observations.json'),{file_sha256:sourceSha,read_pages:[1],full_pages:[1],review_pages:[]});
+ const publish={module_id,job_id:job.job_id,lease:job.lease,outcome:'completed',draft_path:join(job.work_dir,'draft.json')};
+ const refused=await native.err('module.read.finish',publish);
+ assert.equal(refused.message,'navigation references must have been viewed');
+ await json(join(job.work_dir,'observations.json'),{file_sha256:sourceSha,read_pages:[1,2],full_pages:[1,2],review_pages:[]});
+ assert.equal((await native.ok('module.read.finish',publish)).state,'preparing','the same citation publishes only after its original page is observed');
+});
+
 test('small reader input is supplied up front while oversized input retains file access',()=>{
  assert.match(readerInput({task:{source:{bookmarks:[]}}}),/input_json/);
  assert.match(readerInput({task:'x'.repeat(50000)}),/^Read task.json/);

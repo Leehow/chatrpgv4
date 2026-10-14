@@ -41,7 +41,8 @@ export default function npcExtension(pi:ExtensionAPI):void {
         if(!model.ok){await record(job.campaign,{ok:false,reason:'model_unavailable'});return;}
         const view=object(await bridge.call('table.look',{campaign:job.campaign,focus:'npc'}));
         const names=[...new Set((Array.isArray(view.present)?view.present:[]).flatMap(value=>{
-            const row=object(value);return typeof row.name==='string'?[row.name]:[];
+            const row=object(value),name=typeof row.id==='string'&&row.id.trim()?row.id:row.name;
+            return typeof name==='string'?[name]:[];
         }))] as string[];
         let next=0;
         // Independent authors never own the campaign writer lock while their tool-enabled model task is running.

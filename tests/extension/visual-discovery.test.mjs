@@ -3,8 +3,31 @@ import {test} from 'node:test';
 import {mkdtemp,writeFile,rm} from 'node:fs/promises';
 import {tmpdir} from 'node:os';
 import {join} from 'node:path';
-import {visualScanRanges,validVisualScan,requireVisualOverview} from '../../kernel-ts/modules/visual-discovery.ts';
+import {checkIndexDraftShape,visualScanRanges,validVisualScan,requireVisualOverview} from '../../kernel-ts/modules/visual-discovery.ts';
 import {createSourceReaderDriver} from '../../runtime/jev/source-reader-driver.ts';
+
+test('index references retain optional full-range fallback and preserve bounded original-page objects',()=>{
+ const section={name:'Opening',pages:[[1,2]],navigation_note:'Keep this field.'};
+ for(const extra of [{},{source_refs:[]},{source_refs:[{page:1,note:'Observed heading'}]},{source_refs:[{page:2n}]}]){
+  const draft={sections:[{...section,...extra}]},before=structuredClone(draft);
+  assert.doesNotThrow(()=>checkIndexDraftShape(draft,2));
+  assert.deepEqual(draft,before,'shape validation never rewrites navigation or citations');
+ }
+ assert.doesNotThrow(()=>checkIndexDraftShape({sections:[{...section,source_refs:[{page:999}]}]}),'an absent bound does not invent a page count');
+});
+
+test('index reference errors name the exact array, item or physical-page field',()=>{
+ const section={name:'Opening',pages:[[1,2]]};
+ for(const source_refs of [null,'page 1',1,{}]){
+  assert.throws(()=>checkIndexDraftShape({sections:[{...section,source_refs}]},2),/sections\[0\]\.source_refs must be an array/);
+ }
+ for(const reference of ['page 1',1,null,[]]){
+  assert.throws(()=>checkIndexDraftShape({sections:[{...section,source_refs:[{page:1},reference]}]},2),/sections\[0\]\.source_refs\[1\] must be an object.*page/);
+ }
+ for(const reference of [{},{page:null},{page:'1'},{page:0},{page:-1},{page:1.5},{page:NaN},{page:Infinity},{page:3},{page:3n}]){
+  assert.throws(()=>checkIndexDraftShape({sections:[{...section,source_refs:[{page:1},reference]}]},2),/sections\[0\]\.source_refs\[1\]\.page/);
+ }
+});
 
 test('visual navigation covers every physical page independently of text availability',()=>{
  const ranges=visualScanRanges(43);

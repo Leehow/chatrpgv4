@@ -107,7 +107,7 @@ export default async function readerSubmit(pi: any) {
 		name: "submit_reading", label: "Submit source artifacts",
 		executionMode: "sequential",
 		description: indexTask
-			? "Save a navigation index with a required sections array in draft.json, then finish without another model reply. Each section has name and pages as nested physical page pairs [[start,end],...], never a flat [start,end]. Use sections, not entries. Supply draft or omit it if already written. A shape error requires correction and resubmission in this child. Existing host completeness and source publication still decide acceptance. Call alone."
+			? "Save a navigation index with a required sections array in draft.json, then finish without another model reply. Each section has name and pages as nested physical page pairs [[start,end],...], never a flat [start,end]. Optional source_refs is an array of objects with a positive integer physical page, for example [{page:1}], never strings or bare numbers. Use sections, not entries. Supply draft or omit it if already written. A shape error requires correction and resubmission in this child. Existing host completeness and source publication still decide acceptance. Call alone."
 			: reviewing
 			? "Save and check review.json, then finish without another model reply. Supply review or omit it if already written. Never modify the candidate files. Call alone after viewing the original cited pages."
 			: answerTask ? "Save and check the scoped source answer in draft.json, then finish without another model reply. Supply draft or omit it if already written. Use only status, answer, source_refs and limitations; no graph fields. Call alone after viewing every cited original page."
@@ -118,7 +118,9 @@ export default async function readerSubmit(pi: any) {
 		parameters: reviewing ? Type.Object({review:Type.Optional(moduleLogicReview(task)?logicReviewSchema:guidanceTask?guidanceReview:Type.Any())})
 			: guidanceProjection ? Type.Object({guidance:Type.Optional(guidanceSchema),public_fields:Type.Optional(publicSchema)},{additionalProperties:false})
 			: Type.Object({draft:Type.Optional(indexTask?Type.Object({sections:Type.Array(Type.Object({name:Type.String(),
-                pages:Type.Array(Type.Tuple([Type.Integer({minimum:1}),Type.Integer({minimum:1})]),{minItems:1,description:'Nested physical page ranges [[start,end],...], bounded by the original PDF.'})
+                pages:Type.Array(Type.Tuple([Type.Integer({minimum:1}),Type.Integer({minimum:1})]),{minItems:1,description:'Nested physical page ranges [[start,end],...], bounded by the original PDF.'}),
+                source_refs:Type.Optional(Type.Array(Type.Object({page:Type.Integer({minimum:1,...(typeof task.source?.page_count==='number'?{maximum:task.source.page_count}:{})})},{additionalProperties:true}),
+                    {description:'Observed original physical page references as objects, for example [{page:1}]. Omit or leave empty only for the existing full-range observation fallback.'}))
             },{additionalProperties:true}),{description:'Navigation rows with name, nested physical page ranges in pages and observed source_refs.'})},{additionalProperties:true}):guidanceTask?Type.Object({nodes:Type.Array(Type.Any()),claims:Type.Array(Type.Any()),
 				node_refs:Type.Array(Type.Any()),coverage:Type.Object({},{additionalProperties:Type.Any()}),dependencies:Type.Array(Type.Any()),
 				critical:Type.Array(Type.String()),ready_nodes:Type.Array(Type.String())},{additionalProperties:true}):Type.Any()),

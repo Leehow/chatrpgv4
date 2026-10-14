@@ -8,13 +8,18 @@
 import assert from 'node:assert/strict';
 import {test} from 'node:test';
 import {EventEmitter} from 'node:events';
-import {mkdir,mkdtemp,readFile} from 'node:fs/promises';
+import {mkdir,mkdtemp,readFile,writeFile} from 'node:fs/promises';
 import {join,resolve} from 'node:path';
 import {pathToFileURL} from 'node:url';
 import {build} from 'esbuild';
+import {cpSync,readFileSync,writeFileSync} from 'node:fs';
+import {fauxAssistantMessage} from '@earendil-works/pi-ai';
 import npc from '../../extensions/npc/index.ts';
 import {supportWire} from './support-agent-helpers.mjs';
 import {PRESELECT_ALLOWANCE_MAX_MS} from '../../extensions/jev/agent/config.js';
+import {openTable,waitFor} from './harness.mjs';
+import {createHybridEngine} from '../../runtime/jev/hybrid-engine.ts';
+import {RpcClient,rpcCommand} from '../integration/support.ts';
 
 const root=resolve(import.meta.dirname,'../..'),evidence=join(root,'.pi/npc-prescreen-integration/tests');
 await mkdir(evidence,{recursive:true});
@@ -107,4 +112,99 @@ test('a replaced player input cannot resume old discovery on the new cancellatio
  for(const fn of session.hooks.get('input')??[])await fn({text:'I pause at the door.'});
  release.resolve();await pending;
  assert.equal(dispatches,0,'a retired request cannot spend the new input\'s provider capacity');
+});
+
+async function personalityIdentityTable(t,{legacy}={}){
+ const calls=[],outcomes=[],tasks=[],frames=[];
+ let handles,offstage;
+ const engine=createHybridEngine({env:{...process.env,PI_COC_JEV_PRESELECT:'0'},decision:null,npcAct:null});
+ const table=await openTable({legacyDeliveryFixtures:false,realKernel:true,seedCampaign:false,
+  runDriver:engine.runDriver,env:{PI_COC_LOOP_ENGINE:'hybrid-v1',PI_COC_KERNEL_CMD:JSON.stringify(rpcCommand()),
+   PI_COC_NPC_BACKFILL:'1',PI_COC_NPC_MODEL:undefined},
+  prepareWorkspace:async workspace=>{
+   const content=join(workspace,'personality-content');cpSync(join(root,'content'),content,{recursive:true});
+   const file=join(content,'starters/the-haunting/module-graph.json'),graph=JSON.parse(readFileSync(file,'utf8'));
+   for(const node of graph.nodes)if(node.properties?.runtime_projection?.record?.is_start)node.properties.runtime_projection.record.is_start=false;
+   graph.nodes.push(
+    {node_id:'scene-personality-office',node_kind:'scene',name:'Personality office',summary:'A public office.',visibility:'public',
+     properties:{runtime_projection:{kind:'scene',record:{scene_id:'personality-office',is_start:true}}}},
+    {node_id:'scene-personality-offstage',node_kind:'scene',name:'Separate office',summary:'A separate office.',visibility:'keeper-only',properties:{}},
+    ...['first','second','offstage'].map((role,index)=>({node_id:'npc-personality-'+role,node_kind:'npc',
+     name:legacy===undefined?'Avery':['First clerk','Second clerk','Absent clerk'][index],summary:role==='offstage'?'PRIVATE_OFFSTAGE_PERSONALITY':'A clerk attending the public office.',visibility:'keeper-only',
+     properties:{runtime_projection:{kind:'npc',record:{npc_id:'personality-'+role,display_name:legacy===undefined?'Avery':['First clerk','Second clerk','Absent clerk'][index]}}}})));
+   graph.relations.push(...['first','second','offstage'].map(role=>({relation_id:'personality-location-'+role,
+    from_node_id:'npc-personality-'+role,relation_kind:'present-in',to_node_id:role==='offstage'?'scene-personality-offstage':'scene-personality-office',properties:{}})));
+   writeFileSync(file,JSON.stringify(graph));
+   const client=new RpcClient(workspace,{content});
+   try{
+    await client.ok('campaign.create',{id:'test-camp',module:'the-haunting',pregen:'thomas-hayes',play_language:'en'});
+    const present=await client.ok('table.look',{campaign:'test-camp',focus:'npc'});
+    assert.equal(present.present.length,2);
+    handles=present.present.map(person=>person.id);
+    offstage=(await client.ok('table.look',{campaign:'test-camp',focus:'npc',name:'npc-personality-offstage'})).id;
+    if(legacy===undefined){
+     const ambiguous=await client.call('npc.job',{campaign:'test-camp',name:'Avery'});
+     assert.equal(ambiguous.ok,false);assert.equal(ambiguous.error.code,'unknown_entity');
+     assert.equal(ambiguous.error.details.candidates.length,3,'an explicit ambiguous native request never chooses a person');
+    }
+    await client.ok('table.narrate',{campaign:'test-camp',call_id:'t0-c1',text:'You wait in the public office.'});
+   }finally{await client.close();}
+   process.env.PI_COC_KERNEL_CMD=JSON.stringify([...rpcCommand(),'--workspace',workspace,'--content',content]);
+  },
+  extraExtensions:[{name:'personality-identity-driver',factory:engine.extension},
+   {name:'personality-identity-stream',factory:pi=>pi.events.on('coc:final-delivery',frame=>frames.push(frame))},
+   {name:'personality-identity-background',factory:pi=>{
+    // Only the external tool-enabled author task is doubled; Pi and every native job/claim/publication remain real.
+    const events={...pi.events,on:(name,listener)=>pi.events.on(name,name==='coc:kernel-bridge'?binding=>{
+     if(!binding?.call||!binding.runtime)return listener(binding);
+     const call=async(method,params,...rest)=>{
+      if(method==='npc.job')calls.push(params.name);
+      const value=await binding.call(method,params,...rest);
+      if(method!=='table.look'||params.focus!=='npc'||params.name!==undefined||legacy===undefined)return value;
+      return {...value,present:value.present.map(person=>{const row={...person};
+       if(legacy==='missing')delete row.id;else row.id=legacy==='spaced'?' '+person.id+' ':legacy;return row;})};
+     };
+     listener({...binding,call,runtime:{home:binding.runtime.home,runTask:async task=>{
+      tasks.push(task);await writeFile(join(task.request.cwd,'draft.json'),JSON.stringify({personality:{description:'Careful with commitments, but willing to explain practical details.'}}));
+      return {ok:true,code:0,timedOut:false,ms:1,stderr:'',command:['deterministic-author-boundary']};
+     }}});
+    }:listener)};
+    npc({...pi,events,appendEntry:(type,row)=>{if(type==='coc-telemetry'&&row.lane==='npc'&&typeof row.ok==='boolean')outcomes.push(row);return pi.appendEntry(type,row);}});
+   }}],responses:[fauxAssistantMessage('{{public}}You wait quietly in the office.')]});
+ t.after(()=>table.dispose());
+ await waitFor(()=>outcomes.length>0,{timeoutMs:5000,label:'native personality attempt finishes'});
+ return {table,calls,outcomes,tasks,frames,handles,offstage};
+}
+
+test('the real Pi background personality bridge preserves distinct present identities with the same display name',async t=>{
+ const {table,calls,outcomes,tasks,frames,handles,offstage}=await personalityIdentityTable(t);
+ assert.deepEqual([...new Set(calls)].sort(),[...handles].sort(),'each present person uses its supplied identity before deduplication');
+ assert.equal(calls.includes('Avery'),false);assert.equal(calls.includes(offstage),false);
+ await waitFor(()=>outcomes.filter(row=>row.ok&&row.kind==='personality').length===2,{timeoutMs:5000})
+  .catch(()=>assert.fail(JSON.stringify({calls,outcomes,tasks:tasks.length})));
+ assert.equal(tasks.length,2);
+ assert.ok(tasks.every(task=>task.request.tools==='read,write,edit,bash'&&task.request.priority==='background'));
+ for(const task of tasks)assert.equal((await readFile(join(task.request.cwd,'packet.json'),'utf8')).includes('PRIVATE_OFFSTAGE_PERSONALITY'),false);
+ const native=table.runtimeBridges().at(-1);
+ for(const name of handles){const full=await native.call('table.look',{campaign:'test-camp',focus:'npc',name});
+  assert.equal(full.personality.description,'Careful with commitments, but willing to explain practical details.');}
+ const world=JSON.parse(await readFile(join(table.workspace,'.coc/campaigns/test-camp/world.json'),'utf8'));
+ assert.equal(world.npc_character?.['npc-personality-offstage'],undefined,'the offstage person has no published personality');
+ await table.session.prompt('I wait quietly in the office.');
+ assert.equal(tasks.length,2,'already accepted personalities are not authored again');
+ assert.equal(JSON.stringify(frames).includes('PRIVATE_OFFSTAGE_PERSONALITY'),false);
+ assert.equal(frames.at(-1)?.status,'completed');assert.deepEqual(table.extensionErrors,[]);
+});
+
+for(const [label,legacy]of [['missing','missing'],['empty',''],['whitespace','   '],['spaced','spaced']])
+test(`the real Pi background personality bridge preserves ${label} identity compatibility`,async t=>{
+ const {table,calls,outcomes,tasks,handles,offstage}=await personalityIdentityTable(t,{legacy});
+ const expected=legacy==='spaced'?handles.map(id=>' '+id+' '):['First clerk','Second clerk'];
+ assert.deepEqual([...new Set(calls)].sort(),expected.sort(),'legacy rows keep names and nonempty identities remain verbatim');
+ assert.equal(calls.includes(offstage),false);
+ await waitFor(()=>outcomes.filter(row=>row.ok&&row.kind==='personality').length===2,{timeoutMs:5000})
+  .catch(()=>assert.fail(JSON.stringify({calls,outcomes,tasks:tasks.length})));
+ assert.equal(tasks.length,2);
+ assert.equal(outcomes.some(row=>row.ok===false),false);
+ assert.deepEqual(table.extensionErrors,[]);
 });
