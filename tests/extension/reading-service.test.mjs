@@ -875,6 +875,7 @@ async function childActivityFixture(t, phase = 'read') {
  const rows=[],finishes=[];let child,queued=true,waitTimer;
  const runtime={contentRoot:join(ROOT,'content'),async check(){return {ok:true,required_review:['/nodes/0']};},
   async runTask({request},signal){
+   signal.throwIfAborted();
    if(request.prompt.phase==='read'&&phase==='verify'){
     await writeFile(join(work,'draft.json'),JSON.stringify(openingDraft())+'\n');
     const image=join(cache,'page-4.png'),call='author-page';
