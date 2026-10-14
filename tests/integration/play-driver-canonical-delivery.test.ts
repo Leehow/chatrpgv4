@@ -1,8 +1,12 @@
 /** Driver transport regressions, not live acceptance or Keeper decisions. */
 import assert from 'node:assert/strict';
 import {test} from 'node:test';
+import {readFileSync,rmSync} from 'node:fs';
+import {join} from 'node:path';
+import {randomUUID} from 'node:crypto';
 import {replay_turn} from './rules-driver-support.ts';
-import {player_mechanics} from '../play/driver.ts';
+import * as driver from '../play/driver.ts';
+const {player_mechanics}=driver;
 
 const entry=(customType:string,data:Record<string,unknown>,extra:Record<string,unknown>={})=>
   ({type:'entry_appended',entry:{type:'custom',customType,data,...extra}});
@@ -113,4 +117,115 @@ test('an earlier empty acknowledgement cannot prevent the accepted stream from b
     [.1,start()],[.2,delta()],[.3,end()],[.4,footer()],[.5,{type:'agent_settled'}]]);
   assert.equal(result.final_text,'The visitor listens to your request.');
   assert.equal(result.delivery.rendered_text,result.final_text);
+});
+
+test('private play assistant deltas and records without display flags stay private at the 300-second deadline',async()=>{
+  for(const display of [undefined,true,false]){
+    const message={role:'assistant',...(display===undefined?{}:{display}),content:[{type:'text',text:'PRIVATE_RECORD_BODY'}]};
+    const result=await replay_turn([[0,{type:'agent_start'}],
+      [.1,{type:'message_update',message,assistantMessageEvent:{type:'text_delta',delta:'PRIVATE_PLAN'}}],
+      [.2,{type:'message_end',message}]],300);
+    assert.equal(result.final_text,'');
+    assert.equal(result.stop_reason,'timeout');
+    assert.equal(result.settle_class,'timeout');
+    assert.equal(result.wall_seconds,300);
+    assert.doesNotMatch(JSON.stringify(result),/PRIVATE_PLAN|PRIVATE_RECORD_BODY/);
+  }
+});
+
+test('private play assistant text cannot become delivery at agent end or settled',async()=>{
+  for(const terminal of ['agent_end','agent_settled']){
+    const result=await replay_turn([[0,{type:'agent_start'}],
+      [.1,{type:'message_update',assistantMessageEvent:{type:'text_delta',delta:'PRIVATE_DELTA'}}],
+      [.2,{type:'message_end',message:{role:'assistant',content:[{type:'text',text:'PRIVATE_RECORD'}]}}],
+      [.3,{type:terminal}]]);
+    assert.equal(result.final_text,'');
+    assert.equal(result.stop_reason,terminal);
+    assert.equal(result.settle_class,'empty');
+    assert.doesNotMatch(JSON.stringify(result),/PRIVATE_DELTA|PRIVATE_RECORD/);
+  }
+});
+
+test('a dying private play process cannot publish assistant text in the durable turn summary',async()=>{
+  const id='fixture-private-death-'+randomUUID();
+  const daemon=new driver.Daemon(id,'fixture-private-death');
+  const pending=[{type:'agent_start'},
+    {type:'message_update',assistantMessageEvent:{type:'text_delta',delta:'PRIVATE_PLAN'}},
+    {type:'message_end',message:{role:'assistant',content:[{type:'text',text:'PRIVATE_RECORD'}]}}];
+  daemon.pi={begin_turn:()=>({get:()=>pending.shift()}),end_turn(){},alive:()=>pending.length>0,
+    call:()=>({success:true})};
+  daemon._await_quiet=async()=>true;
+  try{
+    const result=await daemon._run_turn('Fixture input',10);
+    assert.equal(result.summary.final_text,'');
+    assert.equal(result.summary.stop_reason,'pi_died');
+    assert.equal(result.summary.settle_class,'empty');
+    const persisted=JSON.parse(readFileSync(join(daemon.dir,'turn-1.json'),'utf8'));
+    assert.deepEqual(persisted,result.summary);
+    assert.doesNotMatch(JSON.stringify(persisted),/PRIVATE_PLAN|PRIVATE_RECORD/);
+  }finally{rmSync(daemon.dir,{recursive:true,force:true});}
+});
+
+test('completed public delivery remains selected when raw private assistant content follows it',async()=>{
+  const result=await replay_turn([[0,{type:'agent_start'}],[.1,start()],[.2,delta()],[.3,footer()],[.4,end()],
+    [.5,{type:'message_update',assistantMessageEvent:{type:'text_delta',delta:'PRIVATE_PLAN'}}],
+    [.6,{type:'message_end',message:{role:'assistant',content:[{type:'text',text:'PRIVATE_RECORD'}]}}],
+    [.7,{type:'agent_settled'}]]);
+  assert.equal(result.final_text,'The visitor listens to your request.');
+  assert.equal(result.delivery.rendered_text,result.final_text);
+  assert.doesNotMatch(JSON.stringify(result),/PRIVATE_PLAN|PRIVATE_RECORD/);
+});
+
+test('an unfinished public stream at timeout is not replaced by private assistant text',async()=>{
+  const result=await replay_turn([[0,{type:'agent_start'}],[.1,start()],[.2,delta()],[.3,footer()],
+    [.4,{type:'message_end',message:{role:'assistant',content:[{type:'text',text:'PRIVATE_RECORD'}]}}]],300);
+  assert.equal(result.final_text,'');
+  assert.equal(result.stop_reason,'timeout');
+  assert.doesNotMatch(JSON.stringify(result),/PRIVATE_RECORD|The visitor listens/);
+});
+
+test('explicit setup transport retains ordinary assistant output and suppresses hidden assistant content',async()=>{
+  for(const events of [
+    [[.1,{type:'message_update',assistantMessageEvent:{type:'text_delta',delta:'Your occupation?'}}]],
+    [[.1,{type:'message_end',message:{role:'assistant',content:[{type:'text',text:'Your occupation?'}]}}]],
+  ]){
+    const result=await replay_turn([[0,{type:'agent_start'}],...events,[.2,{type:'agent_settled'}]],10,true);
+    assert.equal(result.final_text,'Your occupation?');
+    assert.equal(result.settle_class,'settled');
+  }
+  const hidden=await replay_turn([[0,{type:'agent_start'}],
+    [.1,{type:'message_update',message:{display:false},assistantMessageEvent:{type:'text_delta',delta:'PRIVATE_SETUP'}}],
+    [.2,{type:'message_end',message:{role:'assistant',display:false,content:[{type:'text',text:'PRIVATE_SETUP'}]}}],
+    [.3,{type:'agent_settled'}]],10,true);
+  assert.equal(hidden.final_text,'');
+});
+
+test('the actual startup owner grants setup fallback only to the resolved canonical setup launcher',async()=>{
+  const originalFactory=driver.runtime.processFactory, originalEnv=process.env.PI_COC_LAUNCHER;
+  const created:string[]=[];
+  driver.runtime.processFactory=class {
+    proc={pid:process.pid};
+    async call(){return {success:true,data:{}};}
+    alive(){return true;}
+  } as any;
+  try{
+    for(const [launcher,environment,expected] of [
+      [join(driver.REPO_ROOT,'bin/pi-coc-setup'),undefined,true],
+      ['bin/pi-coc-setup',undefined,true],
+      [null,undefined,false],
+      [join(driver.REPO_ROOT,'tests/play/fixtures/fake-pi-rpc.mjs'),undefined,false],
+      [null,join(driver.REPO_ROOT,'bin/pi-coc-setup'),true],
+      [join(driver.REPO_ROOT,'bin/pi-coc'),join(driver.REPO_ROOT,'bin/pi-coc-setup'),false],
+    ] as const){
+      if(environment===undefined)delete process.env.PI_COC_LAUNCHER;
+      else process.env.PI_COC_LAUNCHER=environment;
+      const id='fixture-private-transport-'+randomUUID();created.push(driver.run_dir(id));
+      const daemon=await driver.Daemon.create(id,'fixture-private-transport',launcher);
+      assert.equal(daemon.setup_transport,expected);
+    }
+  }finally{
+    driver.runtime.processFactory=originalFactory;
+    if(originalEnv===undefined)delete process.env.PI_COC_LAUNCHER;else process.env.PI_COC_LAUNCHER=originalEnv;
+    for(const directory of created)rmSync(directory,{recursive:true,force:true});
+  }
 });

@@ -58,7 +58,7 @@ export async function test_notice_cannot_shadow_confirmed_implicit_narration(){
 let notice:any,accepted:any,result:any;
 notice=(await review_notice(({"details":({["coc_delivery"]:true,["turn"]:1,["check_selection_unresolved"]:true})})));
 for(accepted of pyIterable([true,false])){
-result=(await replay_turn([[0,({["type"]:"agent_start"})],[.1,({["type"]:"message_end",["message"]:notice})],[.2,({["type"]:"message_end",["message"]:({["role"]:"assistant",["content"]:[({["type"]:"text",["text"]:"The door is open."})]})})],[.3,({["type"]:"entry_appended",["entry"]:({["customType"]:"coc-telemetry",["data"]:({["tool"]:"narrate",["implicit"]:true,["ok"]:accepted})})})],[.4,({["type"]:"agent_settled"})]]));
+result=(await replay_turn([[0,({["type"]:"agent_start"})],[.1,({["type"]:"message_end",["message"]:notice})],[.2,({["type"]:"message_end",["message"]:accepted?({["role"]:"custom",["customType"]:"coc-delivery",["display"]:true,["content"]:"The door is open.",["details"]:({["coc_delivery"]:true})}):({["role"]:"assistant",["content"]:[({["type"]:"text",["text"]:"The door is open."})]})})],[.3,({["type"]:"entry_appended",["entry"]:({["customType"]:"coc-telemetry",["data"]:({["tool"]:"narrate",["implicit"]:true,["ok"]:accepted})})})],[.4,({["type"]:"agent_settled"})]]));
 assert.ok(pyBool(pyEqual(pyAt(result,"final_text"),((pyBool(accepted)?"The door is open.":pyAt(notice,"content"))))),"tests/play/test_driver.py:131 assert result[\"final_text\"] == (\"The door is open.\" if accepted else notice[\"content\"])");
 assert.ok(pyBool(pyEqual(pyAt(result,"notices"),[({["content"]:pyAt(notice,"content"),["details"]:pyAt(notice,"details")})])),"tests/play/test_driver.py:132 assert result[\"notices\"] == [{\"content\": notice[\"content\"], \"details\": notice[\"details\"]}]");
 }
@@ -67,7 +67,7 @@ if(process.argv[1]===import.meta.filename)for(const [index,row] of ([{}]).entrie
 export async function test_late_provider_notice_preserves_confirmed_implicit_narration(accepted:any,event_type:any,field:any){
 let notice:any,result:any;
 notice=(await review_notice(({"content":"The request failed after 72 seconds and was retried.","details":({["coc_delivery"]:true,["turn"]:1,["provider_outage"]:true,["terminal"]:false})})));
-result=(await replay_turn([[0,({["type"]:"agent_start"})],[.1,({["type"]:"entry_appended",["entry"]:({["customType"]:"coc-telemetry",["data"]:({["tool"]:"narrate",["implicit"]:true,["ok"]:accepted})})})],[.2,({["type"]:"message_end",["message"]:({["role"]:"assistant",["content"]:[({["type"]:"text",["text"]:"The librarian takes the request to the closed stacks."})]})})],[.3,({["type"]:event_type,[field]:notice})],[.4,({["type"]:"agent_settled"})]]));
+result=(await replay_turn([[0,({["type"]:"agent_start"})],[.1,({["type"]:"entry_appended",["entry"]:({["customType"]:"coc-telemetry",["data"]:({["tool"]:"narrate",["implicit"]:true,["ok"]:accepted})})})],[.2,({["type"]:"message_end",["message"]:accepted?({["role"]:"custom",["customType"]:"coc-delivery",["display"]:true,["content"]:"The librarian takes the request to the closed stacks.",["details"]:({["coc_delivery"]:true})}):({["role"]:"assistant",["content"]:[({["type"]:"text",["text"]:"The librarian takes the request to the closed stacks."})]})})],[.3,({["type"]:event_type,[field]:notice})],[.4,({["type"]:"agent_settled"})]]));
 assert.ok(pyBool(pyEqual(pyAt(result,"final_text"),((pyBool(accepted)?"The librarian takes the request to the closed stacks.":pyAt(notice,"content"))))),"tests/play/test_driver.py:149 assert result[\"final_text\"] == (\"The librarian takes the request to the closed stacks.\" if accepted else notice[\"content\"])");
 assert.ok(pyBool(pyEqual(pyAt(result,"notices"),[({["content"]:pyAt(notice,"content"),["details"]:pyAt(notice,"details")})])),"tests/play/test_driver.py:150 assert result[\"notices\"] == [{\"content\": notice[\"content\"], \"details\": notice[\"details\"]}]");
 }
@@ -120,7 +120,7 @@ export async function test_setup_opening_shown_by_the_host_reaches_the_turn_and_
 let opening:any,result:any,spec:any,module:any,out:any;
 
 opening=(await setup_opening_message());
-result=(await replay_turn((await setup_opening_turn(opening))));
+result=(await replay_turn((await setup_opening_turn(opening)),10,true));
 assert.ok(pyBool(pyEqual(pyAt(result,"setup_opening"),pyAt(opening,"content"))),pyStr("once, although it arrived as a message and as an entry"));
 assert.ok(pyBool(pyEqual(pyAt(result,"final_text"),"What do you do for a living?")),pyStr("final_text stays the guide's reply"));
 assert.ok(pyBool(pyEqual(pyAt(result,"settle_class"),"settled")),"tests/play/test_driver.py:243 assert result[\"settle_class\"] == \"settled\"");
@@ -135,7 +135,7 @@ assert.ok(pyBool(pyLess((await pyMethod(out,"index",[pyAt(opening,"content")],{}
 if(process.argv[1]===import.meta.filename)for(const [index,row] of ([{}]).entries())test("test_setup_opening_shown_by_the_host_reaches_the_turn_and_its_printout"+(([{}]).length>1?' ['+index+']':''),async(t)=>{const temporary=temporaryPath(t);resetDriver(t);await test_setup_opening_shown_by_the_host_reaches_the_turn_and_its_printout(pyMonkeypatch(t),captureOutput(t));});
 export async function test_hidden_or_other_custom_messages_are_not_a_setup_opening(overrides:any){
 let result:any;
-result=(await replay_turn((await setup_opening_turn((await setup_opening_message(({...overrides})))))));
+result=(await replay_turn((await setup_opening_turn((await setup_opening_message(({...overrides}))))),10,true));
 assert.ok(pyBool(!pyContains(result,"setup_opening")),"tests/play/test_driver.py:258 assert \"setup_opening\" not in result");
 }
 if(process.argv[1]===import.meta.filename)for(const [index,row] of (pyCartesian([{}],pyParametrize("overrides",[({["display"]:false}),({["customType"]:"coc-capsule"}),({["content"]:""}),({["content"]:[({["type"]:"text",["text"]:"Not string content"})]})]))).entries())test("test_hidden_or_other_custom_messages_are_not_a_setup_opening"+((pyCartesian([{}],pyParametrize("overrides",[({["display"]:false}),({["customType"]:"coc-capsule"}),({["content"]:""}),({["content"]:[({["type"]:"text",["text"]:"Not string content"})]})]))).length>1?' ['+index+']':''),async(t)=>{const temporary=temporaryPath(t);resetDriver(t);await test_hidden_or_other_custom_messages_are_not_a_setup_opening(row["overrides"]);});

@@ -171,6 +171,7 @@ export class Daemon {
     thinking: string | null;
     first_step_thinking: boolean;
     expected_engine: string | null;
+    setup_transport = false;
     dir: string;
     log: DriverLog;
     events_path: string;
@@ -197,7 +198,7 @@ export class Daemon {
             await d.pi.terminate();
         throw error;
     } }
-    async _start_pi(launcher_arg: string | null, campaign: string, model: string | null) { const launcher = resolve_launcher(launcher_arg); if (!existsSync(launcher))
+    async _start_pi(launcher_arg: string | null, campaign: string, model: string | null) { const launcher = resolve_launcher(launcher_arg); this.setup_transport = launcher === resolve(REPO_ROOT, 'bin/pi-coc-setup'); if (!existsSync(launcher))
         throw new DriverError('launcher not found: ' + launcher + ' (pass --launcher, set PI_COC_LAUNCHER, or wait for bin/pi-coc to exist)'); const entry = join(REPO_ROOT, 'build/kernel/rpc.mjs'); if (launcher === resolve(DEFAULT_LAUNCHER) && !existsSync(join(REPO_ROOT, 'deployment.json')) && existsSync(entry) && !process.env.PI_COC_KERNEL_CMD)
         this.player_view_command = [process.env.PI_COC_NODE_EXECUTABLE || process.execPath, entry, '--workspace', coc_home(), '--content', resolve(process.env.PI_COC_CONTENT_ROOT || join(REPO_ROOT, 'content'))]; const testThinking=model==='grok-build/grok-4.5'?'low':model===DEFAULT_MODEL?'high':null; const args = ['--campaign', campaign, '--mode', 'rpc', '--no-session', '--thinking', testThinking||this.thinking || DEFAULT_THINKING]; if (model) {
         if (!model.includes('/'))
@@ -356,7 +357,7 @@ export class Daemon {
                 }
                 if (type === 'message_update') {
                     const ev = event.assistantMessageEvent || {};
-                    if (ev.type === 'text_delta' && event.message?.display !== false)
+                    if (this.setup_transport === true && ev.type === 'text_delta' && event.message?.display !== false)
                         text_parts.push(ev.delta || '');
                 }
                 else if (type === 'message_end') {
@@ -371,7 +372,7 @@ export class Daemon {
                         final_parts = [];
                         text_parts.length = 0;
                     }
-                    else if (msg.role === 'assistant')
+                    else if (this.setup_transport === true && msg.role === 'assistant')
                         final_parts = (msg.content ?? []).filter((b: Row) => b?.type === 'text').map((b: Row) => b.text || '');
                 }
                 else if (type === 'tool_execution_start') {
@@ -484,9 +485,9 @@ export class Daemon {
                 }
             }
             let final = delivered.trim();
-            if (!final && !rejected)
+            if (this.setup_transport === true && !final && !rejected)
                 final = final_parts.join('').trim();
-            if (!final && !rejected)
+            if (this.setup_transport === true && !final && !rejected)
                 final = text_parts.join('').trim();
             const records = order.filter(id => tools.has(id)).map(id => tools.get(id)!);
             if (reference_replies.length)

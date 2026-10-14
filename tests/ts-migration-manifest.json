@@ -161426,7 +161426,7 @@
           "counterpart": {
             "file": "tests/integration/rules-play-driver.test.ts",
             "name": "test_repair_agent_clears_end_fallback_and_delivered_text_wins",
-            "sha256": "eabc85dbc97f766e52b11b9cf80c4dacfc09653dffdba690c932eda3b5310586"
+            "sha256": "f5a38b70c7d3ff3e8b6044c25fa40cc2a45206d9187bf0fc65e5e3b98194feae"
           },
           "review": "statement-by-statement",
           "validation": {
@@ -161513,7 +161513,7 @@
           "counterpart": {
             "file": "tests/integration/rules-play-driver.test.ts",
             "name": "test_rejected_implicit_draft_is_not_a_final_response",
-            "sha256": "eabc85dbc97f766e52b11b9cf80c4dacfc09653dffdba690c932eda3b5310586"
+            "sha256": "f5a38b70c7d3ff3e8b6044c25fa40cc2a45206d9187bf0fc65e5e3b98194feae"
           },
           "review": "statement-by-statement",
           "validation": {
@@ -161612,7 +161612,7 @@
           "counterpart": {
             "file": "tests/integration/rules-play-driver.test.ts",
             "name": "test_check_notice_does_not_replace_embedded_apply_narration",
-            "sha256": "eabc85dbc97f766e52b11b9cf80c4dacfc09653dffdba690c932eda3b5310586"
+            "sha256": "f5a38b70c7d3ff3e8b6044c25fa40cc2a45206d9187bf0fc65e5e3b98194feae"
           },
           "review": "statement-by-statement",
           "validation": {
@@ -161699,7 +161699,7 @@
           "counterpart": {
             "file": "tests/integration/rules-play-driver.test.ts",
             "name": "test_notice_cannot_shadow_confirmed_implicit_narration",
-            "sha256": "eabc85dbc97f766e52b11b9cf80c4dacfc09653dffdba690c932eda3b5310586"
+            "sha256": "f5a38b70c7d3ff3e8b6044c25fa40cc2a45206d9187bf0fc65e5e3b98194feae"
           },
           "review": "statement-by-statement",
           "validation": {
@@ -161789,7 +161789,7 @@
           "counterpart": {
             "file": "tests/integration/rules-play-driver.test.ts",
             "name": "test_late_provider_notice_preserves_confirmed_implicit_narration",
-            "sha256": "eabc85dbc97f766e52b11b9cf80c4dacfc09653dffdba690c932eda3b5310586"
+            "sha256": "f5a38b70c7d3ff3e8b6044c25fa40cc2a45206d9187bf0fc65e5e3b98194feae"
           },
           "review": "statement-by-statement",
           "validation": {
@@ -161879,7 +161879,7 @@
           "counterpart": {
             "file": "tests/integration/rules-play-driver.test.ts",
             "name": "test_implicit_confirmation_does_not_survive_a_repair_run",
-            "sha256": "eabc85dbc97f766e52b11b9cf80c4dacfc09653dffdba690c932eda3b5310586"
+            "sha256": "f5a38b70c7d3ff3e8b6044c25fa40cc2a45206d9187bf0fc65e5e3b98194feae"
           },
           "review": "statement-by-statement",
           "validation": {
@@ -161996,7 +161996,7 @@
           "counterpart": {
             "file": "tests/integration/rules-play-driver.test.ts",
             "name": "test_failed_narrate_then_visible_review_notice_is_settled",
-            "sha256": "eabc85dbc97f766e52b11b9cf80c4dacfc09653dffdba690c932eda3b5310586"
+            "sha256": "f5a38b70c7d3ff3e8b6044c25fa40cc2a45206d9187bf0fc65e5e3b98194feae"
           },
           "review": "statement-by-statement",
           "validation": {
@@ -162091,7 +162091,7 @@
           "counterpart": {
             "file": "tests/integration/rules-play-driver.test.ts",
             "name": "test_hidden_or_unmarked_custom_messages_are_not_delivery",
-            "sha256": "eabc85dbc97f766e52b11b9cf80c4dacfc09653dffdba690c932eda3b5310586"
+            "sha256": "f5a38b70c7d3ff3e8b6044c25fa40cc2a45206d9187bf0fc65e5e3b98194feae"
           },
           "review": "statement-by-statement",
           "validation": {
@@ -162207,7 +162207,7 @@
           "counterpart": {
             "file": "tests/integration/rules-play-driver.test.ts",
             "name": "test_setup_opening_shown_by_the_host_reaches_the_turn_and_its_printout",
-            "sha256": "eabc85dbc97f766e52b11b9cf80c4dacfc09653dffdba690c932eda3b5310586"
+            "sha256": "f5a38b70c7d3ff3e8b6044c25fa40cc2a45206d9187bf0fc65e5e3b98194feae"
           },
           "review": "statement-by-statement",
           "validation": {
@@ -162292,7 +162292,7 @@
           "counterpart": {
             "file": "tests/integration/rules-play-driver.test.ts",
             "name": "test_hidden_or_other_custom_messages_are_not_a_setup_opening",
-            "sha256": "eabc85dbc97f766e52b11b9cf80c4dacfc09653dffdba690c932eda3b5310586"
+            "sha256": "f5a38b70c7d3ff3e8b6044c25fa40cc2a45206d9187bf0fc65e5e3b98194feae"
           },
           "review": "statement-by-statement",
           "validation": {
@@ -162388,7 +162388,7 @@
           "counterpart": {
             "file": "tests/integration/rules-play-driver.test.ts",
             "name": "test_other_event_shapes_are_not_notice_delivery",
-            "sha256": "eabc85dbc97f766e52b11b9cf80c4dacfc09653dffdba690c932eda3b5310586"
+            "sha256": "f5a38b70c7d3ff3e8b6044c25fa40cc2a45206d9187bf0fc65e5e3b98194feae"
           },
           "review": "statement-by-statement",
           "validation": {
@@ -162491,7 +162491,7 @@
           "counterpart": {
             "file": "tests/integration/rules-play-driver.test.ts",
             "name": "test_successful_delivery_overrides_earlier_notice",
-            "sha256": "eabc85dbc97f766e52b11b9cf80c4dacfc09653dffdba690c932eda3b5310586"
+            "sha256": "f5a38b70c7d3ff3e8b6044c25fa40cc2a45206d9187bf0fc65e5e3b98194feae"
           },
           "review": "statement-by-statement",
           "validation": {
@@ -162610,7 +162610,7 @@
           "counterpart": {
             "file": "tests/integration/rules-play-driver.test.ts",
             "name": "test_host_publication_preserves_structured_story",
-            "sha256": "eabc85dbc97f766e52b11b9cf80c4dacfc09653dffdba690c932eda3b5310586"
+            "sha256": "f5a38b70c7d3ff3e8b6044c25fa40cc2a45206d9187bf0fc65e5e3b98194feae"
           },
           "review": "statement-by-statement",
           "validation": {
@@ -162715,7 +162715,7 @@
           "counterpart": {
             "file": "tests/integration/rules-play-driver.test.ts",
             "name": "test_host_narrative_without_tool_result",
-            "sha256": "eabc85dbc97f766e52b11b9cf80c4dacfc09653dffdba690c932eda3b5310586"
+            "sha256": "f5a38b70c7d3ff3e8b6044c25fa40cc2a45206d9187bf0fc65e5e3b98194feae"
           },
           "review": "statement-by-statement",
           "validation": {
@@ -162815,7 +162815,7 @@
           "counterpart": {
             "file": "tests/integration/rules-play-driver.test.ts",
             "name": "test_closed_notice_markers_preserve_nested_details",
-            "sha256": "eabc85dbc97f766e52b11b9cf80c4dacfc09653dffdba690c932eda3b5310586"
+            "sha256": "f5a38b70c7d3ff3e8b6044c25fa40cc2a45206d9187bf0fc65e5e3b98194feae"
           },
           "review": "statement-by-statement",
           "validation": {
@@ -162936,7 +162936,7 @@
           "counterpart": {
             "file": "tests/integration/rules-play-driver.test.ts",
             "name": "test_multiple_notices_preserve_first_primary_and_persist_in_order",
-            "sha256": "eabc85dbc97f766e52b11b9cf80c4dacfc09653dffdba690c932eda3b5310586"
+            "sha256": "f5a38b70c7d3ff3e8b6044c25fa40cc2a45206d9187bf0fc65e5e3b98194feae"
           },
           "review": "statement-by-statement",
           "validation": {
@@ -163023,7 +163023,7 @@
           "counterpart": {
             "file": "tests/integration/rules-play-driver.test.ts",
             "name": "test_resumed_work_that_never_finishes_times_out",
-            "sha256": "eabc85dbc97f766e52b11b9cf80c4dacfc09653dffdba690c932eda3b5310586"
+            "sha256": "f5a38b70c7d3ff3e8b6044c25fa40cc2a45206d9187bf0fc65e5e3b98194feae"
           },
           "review": "statement-by-statement",
           "validation": {
@@ -165611,7 +165611,7 @@
           "counterpart": {
             "file": "tests/integration/rules-play-driver.test.ts",
             "name": "test_mixed_reference_reply_survives_later_story_and_duplicate_custom_projection",
-            "sha256": "eabc85dbc97f766e52b11b9cf80c4dacfc09653dffdba690c932eda3b5310586"
+            "sha256": "f5a38b70c7d3ff3e8b6044c25fa40cc2a45206d9187bf0fc65e5e3b98194feae"
           },
           "review": "statement-by-statement",
           "validation": {
@@ -174207,6 +174207,30 @@
           "persistentLog": null
         },
         "limitation": "The earlier full run does not establish execution of these three later-added cases. This record claims the reported focused five-case execution only."
+      }
+    },
+    {
+      "file": "tests/integration/rules-play-driver.test.ts",
+      "prior_sha256": "eabc85dbc97f766e52b11b9cf80c4dacfc09653dffdba690c932eda3b5310586",
+      "current_sha256": "f5a38b70c7d3ff3e8b6044c25fa40cc2a45206d9187bf0fc65e5e3b98194feae",
+      "contract": "docs/kernel-rpc.md §237.30",
+      "basis": "Transport fixture events now use the existing explicitly public delivery channel. Only the explicit setup fixture enables setup assistant fallback; all 70 original assertion lines are byte-identical.",
+      "behaviorAmendments": [
+        "Accepted play fixtures publish their existing body through coc-delivery; private raw assistants remain private.",
+        "The canonical setup fixture explicitly selects the existing setup transport."
+      ],
+      "historicalValidationRetained": "All original source and case hashes, assertions, parameters, exceptions, entry.review and entry.validation are unchanged. Only the current counterpart hash is refreshed; its prior identity is preserved here.",
+      "currentValidation": {
+        "command": "/Users/haoli/.local/opt/node-v24.19.0-darwin-arm64/bin/node --test tests/integration/rules-play-driver.test.ts",
+        "result": "passed",
+        "passed": 65,
+        "failed": 0,
+        "exitCode": 0,
+        "evidence": {
+          "kind": "actual focused execution",
+          "persistentLog": ".tmp/amaranthine-system-20261013/driver-privacy-23730/green-rules-play-driver.log"
+        },
+        "limitation": "This focused transport validation is not gameplay or a whole-suite claim."
       }
     }
   ]
