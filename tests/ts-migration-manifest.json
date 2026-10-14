@@ -85926,7 +85926,7 @@
           "counterpart": {
             "file": "tests/integration/world-narrate.test.ts",
             "name": "test_labels_ride_on_the_projection_and_the_text_is_verbatim",
-            "sha256": "54f6be04d80df757c17ddbc69e9f79b5e75622784f91add16844e67b2070de44"
+            "sha256": "e94db9cad07ea9d5d87a7a7e8c3d4f4a4a6c4228acf5aa3021c2634a28972c8e"
           },
           "review": "statement-by-statement",
           "validation": {
@@ -85993,6 +85993,15 @@
               "evidence": ".coc/test-runs/npc-variation-amax-YZ4od66q/native-ts/evidence/integration-ts-N6JAON",
               "junit": ".coc/test-runs/npc-variation-amax-YZ4od66q/native-ts/evidence/integration-ts-N6JAON/results.xml",
               "review": "Original rule, dice, transaction and presentation assertions retained. Private NPC initialization dice are verified separately from ordinary action receipts; the existing dossier budget fixture disables this optional Mod, while the enabled crowd path is covered in npc-variation.test.ts."
+            },
+            "currentRevalidation": {
+              "command": "node --test tests/integration/world-narrate.test.ts",
+              "result": "passed",
+              "tests": 10,
+              "evidence": ".tmp/amaranthine-system-20261013/private-scene-label-23748/green-native-final.log",
+              "results": ".tmp/amaranthine-system-20261013/private-scene-label-23748/results.json",
+              "contract": "237.48",
+              "review": "All nine original case names, parameters and assertion inventory records are retained. The approved original-label fixture explicitly establishes its public office name through native same-scene move.label before the original travel; original labels, numeric values, public-row and verbatim text assertions remain, with only corresponding call ordinals advanced. One native real-RPC publication/restart case additionally separates private source titles from public labels while preserving canonical receipts."
             }
           }
         },
@@ -86078,7 +86087,7 @@
           "counterpart": {
             "file": "tests/integration/world-narrate.test.ts",
             "name": "test_every_receipt_is_projected_and_the_turn_closes",
-            "sha256": "54f6be04d80df757c17ddbc69e9f79b5e75622784f91add16844e67b2070de44"
+            "sha256": "e94db9cad07ea9d5d87a7a7e8c3d4f4a4a6c4228acf5aa3021c2634a28972c8e"
           },
           "review": "statement-by-statement",
           "validation": {
@@ -86145,6 +86154,15 @@
               "evidence": ".coc/test-runs/npc-variation-amax-YZ4od66q/native-ts/evidence/integration-ts-N6JAON",
               "junit": ".coc/test-runs/npc-variation-amax-YZ4od66q/native-ts/evidence/integration-ts-N6JAON/results.xml",
               "review": "Original rule, dice, transaction and presentation assertions retained. Private NPC initialization dice are verified separately from ordinary action receipts; the existing dossier budget fixture disables this optional Mod, while the enabled crowd path is covered in npc-variation.test.ts."
+            },
+            "currentRevalidation": {
+              "command": "node --test tests/integration/world-narrate.test.ts",
+              "result": "passed",
+              "tests": 10,
+              "evidence": ".tmp/amaranthine-system-20261013/private-scene-label-23748/green-native-final.log",
+              "results": ".tmp/amaranthine-system-20261013/private-scene-label-23748/results.json",
+              "contract": "237.48",
+              "review": "All nine original case names, parameters and assertion inventory records are retained. The approved original-label fixture explicitly establishes its public office name through native same-scene move.label before the original travel; original labels, numeric values, public-row and verbatim text assertions remain, with only corresponding call ordinals advanced. One native real-RPC publication/restart case additionally separates private source titles from public labels while preserving canonical receipts."
             }
           }
         },
@@ -86182,7 +86200,7 @@
           "counterpart": {
             "file": "tests/integration/world-narrate.test.ts",
             "name": "test_system_numbers_are_only_required_in_json",
-            "sha256": "54f6be04d80df757c17ddbc69e9f79b5e75622784f91add16844e67b2070de44"
+            "sha256": "e94db9cad07ea9d5d87a7a7e8c3d4f4a4a6c4228acf5aa3021c2634a28972c8e"
           },
           "review": "statement-by-statement",
           "validation": {
@@ -86249,6 +86267,15 @@
               "evidence": ".coc/test-runs/npc-variation-amax-YZ4od66q/native-ts/evidence/integration-ts-N6JAON",
               "junit": ".coc/test-runs/npc-variation-amax-YZ4od66q/native-ts/evidence/integration-ts-N6JAON/results.xml",
               "review": "Original rule, dice, transaction and presentation assertions retained. Private NPC initialization dice are verified separately from ordinary action receipts; the existing dossier budget fixture disables this optional Mod, while the enabled crowd path is covered in npc-variation.test.ts."
+            },
+            "currentRevalidation": {
+              "command": "node --test tests/integration/world-narrate.test.ts",
+              "result": "passed",
+              "tests": 10,
+              "evidence": ".tmp/amaranthine-system-20261013/private-scene-label-23748/green-native-final.log",
+              "results": ".tmp/amaranthine-system-20261013/private-scene-label-23748/results.json",
+              "contract": "237.48",
+              "review": "All nine original case names, parameters and assertion inventory records are retained. The approved original-label fixture explicitly establishes its public office name through native same-scene move.label before the original travel; original labels, numeric values, public-row and verbatim text assertions remain, with only corresponding call ordinals advanced. One native real-RPC publication/restart case additionally separates private source titles from public labels while preserving canonical receipts."
             }
           }
         },
@@ -86282,7 +86309,7 @@
           "counterpart": {
             "file": "tests/integration/world-narrate.test.ts",
             "name": "test_placement_is_ignored_and_the_text_stays_verbatim",
-            "sha256": "54f6be04d80df757c17ddbc69e9f79b5e75622784f91add16844e67b2070de44"
+            "sha256": "e94db9cad07ea9d5d87a7a7e8c3d4f4a4a6c4228acf5aa3021c2634a28972c8e"
           },
           "review": "statement-by-statement",
           "validation": {
@@ -86349,6 +86376,15 @@
               "evidence": ".coc/test-runs/npc-variation-amax-YZ4od66q/native-ts/evidence/integration-ts-N6JAON",
               "junit": ".coc/test-runs/npc-variation-amax-YZ4od66q/native-ts/evidence/integration-ts-N6JAON/results.xml",
               "review": "Original rule, dice, transaction and presentation assertions retained. Private NPC initialization dice are verified separately from ordinary action receipts; the existing dossier budget fixture disables this optional Mod, while the enabled crowd path is covered in npc-variation.test.ts."
+            },
+            "currentRevalidation": {
+              "command": "node --test tests/integration/world-narrate.test.ts",
+              "result": "passed",
+              "tests": 10,
+              "evidence": ".tmp/amaranthine-system-20261013/private-scene-label-23748/green-native-final.log",
+              "results": ".tmp/amaranthine-system-20261013/private-scene-label-23748/results.json",
+              "contract": "237.48",
+              "review": "All nine original case names, parameters and assertion inventory records are retained. The approved original-label fixture explicitly establishes its public office name through native same-scene move.label before the original travel; original labels, numeric values, public-row and verbatim text assertions remain, with only corresponding call ordinals advanced. One native real-RPC publication/restart case additionally separates private source titles from public labels while preserving canonical receipts."
             }
           }
         },
@@ -86370,7 +86406,7 @@
           "counterpart": {
             "file": "tests/integration/world-narrate.test.ts",
             "name": "test_no_receipts_renders_text_verbatim",
-            "sha256": "54f6be04d80df757c17ddbc69e9f79b5e75622784f91add16844e67b2070de44"
+            "sha256": "e94db9cad07ea9d5d87a7a7e8c3d4f4a4a6c4228acf5aa3021c2634a28972c8e"
           },
           "review": "statement-by-statement",
           "validation": {
@@ -86437,6 +86473,15 @@
               "evidence": ".coc/test-runs/npc-variation-amax-YZ4od66q/native-ts/evidence/integration-ts-N6JAON",
               "junit": ".coc/test-runs/npc-variation-amax-YZ4od66q/native-ts/evidence/integration-ts-N6JAON/results.xml",
               "review": "Original rule, dice, transaction and presentation assertions retained. Private NPC initialization dice are verified separately from ordinary action receipts; the existing dossier budget fixture disables this optional Mod, while the enabled crowd path is covered in npc-variation.test.ts."
+            },
+            "currentRevalidation": {
+              "command": "node --test tests/integration/world-narrate.test.ts",
+              "result": "passed",
+              "tests": 10,
+              "evidence": ".tmp/amaranthine-system-20261013/private-scene-label-23748/green-native-final.log",
+              "results": ".tmp/amaranthine-system-20261013/private-scene-label-23748/results.json",
+              "contract": "237.48",
+              "review": "All nine original case names, parameters and assertion inventory records are retained. The approved original-label fixture explicitly establishes its public office name through native same-scene move.label before the original travel; original labels, numeric values, public-row and verbatim text assertions remain, with only corresponding call ordinals advanced. One native real-RPC publication/restart case additionally separates private source titles from public labels while preserving canonical receipts."
             }
           }
         },
@@ -86462,7 +86507,7 @@
           "counterpart": {
             "file": "tests/integration/world-narrate.test.ts",
             "name": "test_the_kernel_no_longer_polices_markers_only_numbers",
-            "sha256": "54f6be04d80df757c17ddbc69e9f79b5e75622784f91add16844e67b2070de44"
+            "sha256": "e94db9cad07ea9d5d87a7a7e8c3d4f4a4a6c4228acf5aa3021c2634a28972c8e"
           },
           "review": "statement-by-statement",
           "validation": {
@@ -86529,6 +86574,15 @@
               "evidence": ".coc/test-runs/npc-variation-amax-YZ4od66q/native-ts/evidence/integration-ts-N6JAON",
               "junit": ".coc/test-runs/npc-variation-amax-YZ4od66q/native-ts/evidence/integration-ts-N6JAON/results.xml",
               "review": "Original rule, dice, transaction and presentation assertions retained. Private NPC initialization dice are verified separately from ordinary action receipts; the existing dossier budget fixture disables this optional Mod, while the enabled crowd path is covered in npc-variation.test.ts."
+            },
+            "currentRevalidation": {
+              "command": "node --test tests/integration/world-narrate.test.ts",
+              "result": "passed",
+              "tests": 10,
+              "evidence": ".tmp/amaranthine-system-20261013/private-scene-label-23748/green-native-final.log",
+              "results": ".tmp/amaranthine-system-20261013/private-scene-label-23748/results.json",
+              "contract": "237.48",
+              "review": "All nine original case names, parameters and assertion inventory records are retained. The approved original-label fixture explicitly establishes its public office name through native same-scene move.label before the original travel; original labels, numeric values, public-row and verbatim text assertions remain, with only corresponding call ordinals advanced. One native real-RPC publication/restart case additionally separates private source titles from public labels while preserving canonical receipts."
             }
           }
         },
@@ -86558,7 +86612,7 @@
           "counterpart": {
             "file": "tests/integration/world-narrate.test.ts",
             "name": "test_opening_choice_has_ascii_identity_and_player_labels",
-            "sha256": "54f6be04d80df757c17ddbc69e9f79b5e75622784f91add16844e67b2070de44"
+            "sha256": "e94db9cad07ea9d5d87a7a7e8c3d4f4a4a6c4228acf5aa3021c2634a28972c8e"
           },
           "review": "statement-by-statement",
           "validation": {
@@ -86625,6 +86679,15 @@
               "evidence": ".coc/test-runs/npc-variation-amax-YZ4od66q/native-ts/evidence/integration-ts-N6JAON",
               "junit": ".coc/test-runs/npc-variation-amax-YZ4od66q/native-ts/evidence/integration-ts-N6JAON/results.xml",
               "review": "Original rule, dice, transaction and presentation assertions retained. Private NPC initialization dice are verified separately from ordinary action receipts; the existing dossier budget fixture disables this optional Mod, while the enabled crowd path is covered in npc-variation.test.ts."
+            },
+            "currentRevalidation": {
+              "command": "node --test tests/integration/world-narrate.test.ts",
+              "result": "passed",
+              "tests": 10,
+              "evidence": ".tmp/amaranthine-system-20261013/private-scene-label-23748/green-native-final.log",
+              "results": ".tmp/amaranthine-system-20261013/private-scene-label-23748/results.json",
+              "contract": "237.48",
+              "review": "All nine original case names, parameters and assertion inventory records are retained. The approved original-label fixture explicitly establishes its public office name through native same-scene move.label before the original travel; original labels, numeric values, public-row and verbatim text assertions remain, with only corresponding call ordinals advanced. One native real-RPC publication/restart case additionally separates private source titles from public labels while preserving canonical receipts."
             }
           }
         },
@@ -86674,7 +86737,7 @@
           "counterpart": {
             "file": "tests/integration/world-narrate.test.ts",
             "name": "test_ending_commits_campaign_status_and_remains_readable",
-            "sha256": "54f6be04d80df757c17ddbc69e9f79b5e75622784f91add16844e67b2070de44"
+            "sha256": "e94db9cad07ea9d5d87a7a7e8c3d4f4a4a6c4228acf5aa3021c2634a28972c8e"
           },
           "review": "statement-by-statement",
           "validation": {
@@ -86741,6 +86804,15 @@
               "evidence": ".coc/test-runs/npc-variation-amax-YZ4od66q/native-ts/evidence/integration-ts-N6JAON",
               "junit": ".coc/test-runs/npc-variation-amax-YZ4od66q/native-ts/evidence/integration-ts-N6JAON/results.xml",
               "review": "Original rule, dice, transaction and presentation assertions retained. Private NPC initialization dice are verified separately from ordinary action receipts; the existing dossier budget fixture disables this optional Mod, while the enabled crowd path is covered in npc-variation.test.ts."
+            },
+            "currentRevalidation": {
+              "command": "node --test tests/integration/world-narrate.test.ts",
+              "result": "passed",
+              "tests": 10,
+              "evidence": ".tmp/amaranthine-system-20261013/private-scene-label-23748/green-native-final.log",
+              "results": ".tmp/amaranthine-system-20261013/private-scene-label-23748/results.json",
+              "contract": "237.48",
+              "review": "All nine original case names, parameters and assertion inventory records are retained. The approved original-label fixture explicitly establishes its public office name through native same-scene move.label before the original travel; original labels, numeric values, public-row and verbatim text assertions remain, with only corresponding call ordinals advanced. One native real-RPC publication/restart case additionally separates private source titles from public labels while preserving canonical receipts."
             }
           }
         },
@@ -86762,7 +86834,7 @@
           "counterpart": {
             "file": "tests/integration/world-narrate.test.ts",
             "name": "test_narration_mechanics_include_existing_skill_glossary",
-            "sha256": "54f6be04d80df757c17ddbc69e9f79b5e75622784f91add16844e67b2070de44"
+            "sha256": "e94db9cad07ea9d5d87a7a7e8c3d4f4a4a6c4228acf5aa3021c2634a28972c8e"
           },
           "review": "statement-by-statement",
           "validation": {
@@ -86829,6 +86901,15 @@
               "evidence": ".coc/test-runs/npc-variation-amax-YZ4od66q/native-ts/evidence/integration-ts-N6JAON",
               "junit": ".coc/test-runs/npc-variation-amax-YZ4od66q/native-ts/evidence/integration-ts-N6JAON/results.xml",
               "review": "Original rule, dice, transaction and presentation assertions retained. Private NPC initialization dice are verified separately from ordinary action receipts; the existing dossier budget fixture disables this optional Mod, while the enabled crowd path is covered in npc-variation.test.ts."
+            },
+            "currentRevalidation": {
+              "command": "node --test tests/integration/world-narrate.test.ts",
+              "result": "passed",
+              "tests": 10,
+              "evidence": ".tmp/amaranthine-system-20261013/private-scene-label-23748/green-native-final.log",
+              "results": ".tmp/amaranthine-system-20261013/private-scene-label-23748/results.json",
+              "contract": "237.48",
+              "review": "All nine original case names, parameters and assertion inventory records are retained. The approved original-label fixture explicitly establishes its public office name through native same-scene move.label before the original travel; original labels, numeric values, public-row and verbatim text assertions remain, with only corresponding call ordinals advanced. One native real-RPC publication/restart case additionally separates private source titles from public labels while preserving canonical receipts."
             }
           }
         }

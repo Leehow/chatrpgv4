@@ -20,7 +20,7 @@ import { buildCapsule } from "./assemble.js";
 import { lastExchange, lastInteraction } from "./exchange.js";
 import { contextBinding } from "./context.js";
 import { workspaceRead } from "./workspace.js";
-import { clockSection, sceneLabel, personLabel, clueLabel, npcNode, personNode, npcsPresent, cluesHere, whereSection, presentSection, npcView, creatureView, investigatorView, fittedModuleSection, untoldRoster, personRecord } from "./capsule.js";
+import { clockSection, sceneLabel, publicSceneLabel, personLabel, clueLabel, npcNode, personNode, npcsPresent, cluesHere, whereSection, presentSection, npcView, creatureView, investigatorView, fittedModuleSection, untoldRoster, personRecord } from "./capsule.js";
 import { castPersonNamed, protectedNames, tellGuard } from './cast.js';
 import { containers, isPlace, personPlaces, placeRelation } from './places.js';
 import { tableWord } from './person-words.js';
@@ -154,7 +154,7 @@ export function tableSnapshot(campaign: CampaignSnapshot, graph: ModuleGraph): R
     return {
         scene: {
             name: graph.handle(scene),
-            display_name: sceneLabel(graph, campaign.world, scene)
+            display_name: publicSceneLabel(graph, campaign.world, scene)
         },
         clock: { minutes: number(row(campaign.world.clock).minutes) },
         present: npcsPresent(graph, campaign.world, scene).map(node => graph.displayName(node)),
@@ -316,7 +316,7 @@ export async function tableView(context: KernelContext, params: Row): Promise<Ro
         { graph } = module,
         { world, turn } = campaign;
     if (params.panel === 'clock') return {clock:clockSection(graph,world),
-        scene:{display_name:sceneLabel(graph,world,graph.scene(world.active_scene))},turn:turn.turn};
+        scene:{display_name:publicSceneLabel(graph,world,graph.scene(world.active_scene))},turn:turn.turn};
     const snapshot = tableSnapshot(campaign, graph);
     const preparation = await equipmentPreparation(context,campaign.id);
     const prepareEquipment = (await activeMods(context,world)).some(mod=>truth(mod.contributes.materializer));
@@ -414,7 +414,7 @@ export function readHandlers(context: KernelContext, contributions: ReadContribu
                 state: turn.state,
                 receipts,
                 outcome:params._context_read===true?eventOutcome(receipts,array(turn.disclosures)):module.graph.shownIds(eventOutcome(receipts,array(turn.disclosures))),
-                mechanics: mechanics(receipts, {}, await campaign.handoutTexts(receipts), campaign.world),
+                mechanics: mechanics(receipts, {}, await campaign.handoutTexts(receipts), campaign.world, module.graph),
                 // §50: the same glossary a delivery hands its card (§16.2). A turn that could not be
                 // delivered is read back from here, and without the words it would be the one card in
                 // the campaign drawn in the system language.

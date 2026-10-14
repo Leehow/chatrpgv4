@@ -24,7 +24,7 @@ import {initializeNpcVariations} from '../resolve/npc-variation.js';
 import { SessionView } from '../read/session-view.js';
 import { standingStates } from '../read/standing.js';
 import { authoredMapWords, presentPublishedArrivalMaps } from '../read/maps.js';
-import { clockSection, joinedWord, openingPeopleView, sceneLabel, untoldBlock, untoldRosterNames } from '../read/capsule.js';
+import { clockSection, joinedWord, openingPeopleView, sceneLabel, publicSceneLabel, untoldBlock, untoldRosterNames } from '../read/capsule.js';
 import { SHARED_FIX, candidatesOf, joinedWritten, sharedNames, sharedNotice } from './shared-untold.js';
 import { tableSnapshot, playerGlossary, unsupported, type ReadContributions } from '../read/handlers.js';
 import { playLanguages, playLanguageOf, declaredPlayLanguage } from '../read/languages.js';
@@ -1089,7 +1089,7 @@ export function createWriteRuntime(context: KernelContext, contributions: WriteC
             })),
             scene: {
                 name: module.graph.handle(scene),
-                display_name: sceneLabel(module.graph, snapshot.world, scene)
+                display_name: publicSceneLabel(module.graph, snapshot.world, scene)
             },
             pending_turn: pending,
             session: new SessionView(snapshot, module.graph, snapshot.party, snapshot.world).activeSession(),
@@ -1437,7 +1437,7 @@ export function createWriteRuntime(context: KernelContext, contributions: WriteC
             binds,
             kind
         };
-        const rendered = delivery.rendered_text, projected = mechanics(receipts, placed, await snapshot.handoutTexts(receipts), snapshot.world), labels = await playerGlossary(context, language);
+        const rendered = delivery.rendered_text, projected = mechanics(receipts, placed, await snapshot.handoutTexts(receipts), snapshot.world, module.graph), labels = await playerGlossary(context, language);
         const quoteDrafts=quotationDrafts(params.quotes,n,snapshot.meta,snapshot.party);
         discloseCashRequests(quoteDrafts,params._cash_requests,{world:snapshot.world,graph:module.graph},snapshot.party);
         projected.push(...quoteDrafts.map(pendingQuotation));
@@ -1639,7 +1639,7 @@ export function createWriteRuntime(context: KernelContext, contributions: WriteC
         // are in the play language is the verifier lane's finding, not a refusal (section 23).
         await stanceTable(context);
         report?.('validate');
-        const projected = mechanics(receipts, placed, await snapshot.handoutTexts(receipts), snapshot.world), n = number(turn.turn), receipt = `turn:${n}`, world = tableSnapshot(snapshot, module.graph);
+        const projected = mechanics(receipts, placed, await snapshot.handoutTexts(receipts), snapshot.world, module.graph), n = number(turn.turn), receipt = `turn:${n}`, world = tableSnapshot(snapshot, module.graph);
         const quoteDrafts=reference?[]:quotationDrafts(params.quotes,n,snapshot.meta,snapshot.party);
         if(!reference)discloseCashRequests(quoteDrafts,params._cash_requests,{world:snapshot.world,graph:module.graph},snapshot.party);
         projected.push(...quoteDrafts.map(pendingQuotation));

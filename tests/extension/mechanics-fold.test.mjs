@@ -109,6 +109,16 @@ const plain = (mechanics) => ({ ui: { tag: "en", words: { mechanics: WORDS } }, 
 
 const LOST = { kind: "item", receipt: "item:t4-c4", name: "Pen", quantity: -1, to: "investigator", to_label: "Shen", call: "t4-c4" };
 const CLUE = { kind: "clue", receipt: "clue:shelf-t4", clue: "shelf-scratches", label: "Scratches", call: "t4-c5" };
+test("a scene card never substitutes internal handles for absent public labels", () => {
+  const view=createReact(),details=plain([{kind:'scene',from:'private-source-origin',to:'private-source-destination',minutes:20}]);
+  let tree=view.render(details);toggleOf(tree).props.onClick();tree=view.tree;const body=texts(tree);
+  assert.ok(!body.includes('private-source-origin'));
+  assert.ok(!body.includes('private-source-destination'));
+  assert.ok(body.includes(WORDS['kind.scene']));
+  assert.ok(body.includes('20'));
+  tree=view.render(plain([{kind:'scene',from:'private-source-origin',to:'private-source-destination',from_label:'Public office',to_label:'Public records room',minutes:20}]));
+  const named=texts(tree);assert.ok(named.includes('Public office'));assert.ok(named.includes('Public records room'));
+});
 
 test("a marked delivery folds only its unplaced rows, under what they are, shut until the toggle", () => {
 	const view = createReact();

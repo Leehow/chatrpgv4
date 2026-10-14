@@ -3,6 +3,8 @@ import { array, row, number, integer, truth, type Row } from "./values.js";
 import { publicDefinition } from "../mods/public-definition.js";
 import { queuedDefinition } from "../mods/queue.js";
 import { handoutBody } from "./handout-document.js";
+import type { ModuleGraph } from './module-graph.js';
+import {publicSceneLabel} from './capsule.js';
 /**
  * A roll receipt's visibility tier (§16.5). Three, not two.
  *
@@ -367,12 +369,18 @@ function adoptionRow(receipt: Row, world: Row | undefined): Row | null {
         objectDetails(out, world, receipt.instance);
     return out;
 }
-export function mechanics(receipts: Row[], placed: Row = {}, texts: ReadonlyMap<string, string> = new Map(), world?: Row): Row[] {
+export function mechanics(receipts: Row[], placed: Row = {}, texts: ReadonlyMap<string, string> = new Map(), world?: Row, graph?: ModuleGraph): Row[] {
     const byReceipt = new Map(Object.entries(placed).map(([marker, id]) => [id, marker]));
     return receipts.flatMap(receipt => {
         const out = receipt.kind === "definition" ? adoptionRow(receipt, world) : mechanicsOf(receipt, texts);
         if (!out)
             return [];
+        if (out.kind === 'scene' && graph) {
+            for (const [handle, label] of [['from', 'from_label'], ['to', 'to_label']]) {
+                const scene = typeof receipt[handle] === 'string' ? graph.sceneByHandle(receipt[handle]) : null;
+                out[label] = scene ? publicSceneLabel(graph, world ?? {}, scene) : 'Scene';
+            }
+        }
         if (receipt.kind === "item")
             objectDetails(out, world, receipt.instance);
         for (const [from, to] of [["call_id", "call"], ["family", "family"]])

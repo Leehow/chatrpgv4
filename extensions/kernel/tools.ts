@@ -222,7 +222,7 @@ const MoveEffect = Type.Object({
 	travel_minutes: Type.Optional(Type.Integer({ description: "minutes spent on the way; omitted means the road's own minutes (the book's, or the ones this table already travelled it in). The move itself advances the clock by the journey: add no time effect for the same journey. Give them (or travel_band) for a way no road has timed yet, or the clock does not move for it" })),
 	travel_band: Type.Optional(StringEnum(["adjacent", "local_travel", "long_travel"] as const, { description: "instead of travel_minutes: adjacent for two parts of one building or place (0 minutes), local_travel within one town or just outside it, long_travel between towns; the kernel takes the row's usual minutes and keeps them as this road's length" })),
 	via: Type.Optional(Type.String({ description: "how they got there when the way is not one of the exits you were given — through an unlatched upper window, down a coal chute, following someone in. Say it and the move lands; without it an unlisted destination is refused, and then the world stays where it was while your narration moves on" })),
-	label: Type.Optional(Type.String({ description: "a display name for the SAME registered gameplay locus in the player's language. It cannot substitute a different locus. Omitted means the existing name" })),
+	label: Type.Optional(Type.String({ description: "a public display name for the SAME registered gameplay locus in the player's language. Use only what the player has learned; a private source heading is not a public name. Omitted reuses the recorded public label or an explicitly public source identity, otherwise a neutral scene caption. It cannot substitute a different locus" })),
 	owed: OwedRef,
 });
 

@@ -1,7 +1,7 @@
 /** Keeper and player read projections preserve the existing authored/state boundary. */
 import { pythonJsonDumps, compareUnicode, isJsonObject } from "../json.js";
 import { RpcError } from "../errors.js";
-import { ModuleGraph, recordOf, moduleDeclaration, describeCondition, conditionStatus, dossierLabels, isAmbiguity } from "./module-graph.js";
+import { ModuleGraph, recordOf, moduleDeclaration, describeCondition, conditionStatus, dossierLabels, isAmbiguity, destinationIdentity, destinationAccess } from "./module-graph.js";
 import { entries, values, array, row, number, integer, truth, string, normalize, chars, length, words, clone, repr, type Row } from "./values.js";
 import { clueGate, structureType } from "./director.js";
 import { incapacitatedBy } from "../healing/conditions.js";
@@ -39,6 +39,15 @@ export const placeLabel = (world: Row, handle: string, authored: string): string
 /** A campaign label first, then what the module calls the place, and the handle's slug only when
  *  the module named it nothing else (contract §32, the place layer). */
 export const sceneLabel = (graph: ModuleGraph, world: Row, scene: Row): string => placeLabel(world, graph.handle(scene), string(graph.placeName(scene)));
+/** Public naming is explicit; a private source heading remains available only to the Keeper. */
+export function publicSceneLabel(graph: ModuleGraph, world: Row, scene: Row): string {
+    const label = row(world.scene_labels)[graph.handle(scene)];
+    if (typeof label === 'string' && label.trim()) return label;
+    const identity = destinationIdentity(scene), access = destinationAccess(scene);
+    if (access?.discoverability === 'public' && typeof identity?.canonical_name === 'string')
+        return identity.canonical_name;
+    return scene.visibility === 'keeper-only' && !graph.isTableEntity(scene) ? 'Scene' : sceneLabel(graph, world, scene);
+}
 /**
  * What this table calls a person, by the id a receipt names them with (contract §79).
  *

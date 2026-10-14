@@ -1287,11 +1287,13 @@ export function createComponent(React) {
           // infers anything from one.
           blocked ? h(Stamp, { tone: "fail" }, t("cannotAct")) : null);
       }
-      case "scene":
+      case "scene": {
+        const place = value => text(value) === 'Scene' ? kindLabel : term(text(value)) || kindLabel;
         return h(Row, { key, kindKey: "scene", kindLabel, family },
           h("span", { className: "coc-mech-body" },
-            term(text(row.from_label || row.from)), ` ${t("arrow")} `, term(text(row.to_label || row.to))),
+            place(row.from_label), ` ${t("arrow")} `, place(row.to_label)),
           num(row.minutes) ? h("span", { className: "coc-mech-faces" }, fill(t("minutes"), { n: row.minutes })) : null);
+      }
       case "clue": {
         const name = term(text(row.label || row.clue));
         const account = term(text(row.how));
