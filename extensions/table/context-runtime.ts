@@ -256,6 +256,8 @@ export function installContextPolicy(pi: ExtensionAPI, writeTelemetry: (row: Row
     pi.events.on('coc:capsule', data => {
         const value = object(data);
         const previousEpoch=inputEpoch,nextEpoch=typeof value.epoch==='string'?value.epoch:undefined;
+        const sameInput=singleKeeper&&previousEpoch!==undefined&&previousEpoch===nextEpoch;
+        if(sameInput&&JSON.stringify(capsule)===JSON.stringify(value.capsule)&&JSON.stringify(rawBinding)===JSON.stringify(value.context))return;
         inputPending = false;
         capsule = value.capsule ? structuredClone(value.capsule) : undefined;
         rawBinding = value.context;
@@ -265,8 +267,9 @@ export function installContextPolicy(pi: ExtensionAPI, writeTelemetry: (row: Row
         if(previousEpoch!==nextEpoch){resetPreparation();prescreenDeadlineAt=0;prescreenProviderBudget=preparationProviderBudget();
             prescreenMemo=undefined;reusablePrescreen=undefined;}
         answering = Array.isArray(value.answering) ? value.answering.filter((entry: unknown) => typeof entry === 'string') : undefined;
-        sourceCalls.clear(); invalidate();
-        if(capsule&&call&&campaign)expression.observe(capsule,{...object(rawBinding),campaign,turn:observedTurn??0},inputLifetime.signal);
+        if(sameInput){generation++;prepared=undefined;preparing=undefined;}
+        else{sourceCalls.clear();invalidate();}
+        if(!sameInput&&capsule&&call&&campaign)expression.observe(capsule,{...object(rawBinding),campaign,turn:observedTurn??0},inputLifetime.signal);
         if(previousEpoch!==nextEpoch)turnCalls=emptyCalls();
         const sectionBinding=bindingOf(rawBinding);
         if(capsule&&call&&sectionBinding)modSections.observe(capsule,sectionBinding,inputLifetime.signal);
@@ -398,12 +401,18 @@ export function installContextPolicy(pi: ExtensionAPI, writeTelemetry: (row: Row
             const began = Date.now();
             let binding = bindingOf(rawBinding), current = capsule;
             let rehydrated = false, reads = 0, readBytes = 0;
+            const acceptedEpoch=inputEpoch;
+            const hostView=(read:Row):Row=>{
+                const prior=singleKeeper&&acceptedEpoch!==undefined&&acceptedEpoch===inputEpoch
+                    ?current??(turnMaterial?.epoch===inputEpoch?turnMaterial.capsule:undefined):undefined;
+                return {...Object.fromEntries(['skills','delivery_recovery'].filter(key=>!Object.hasOwn(read,key)&&Object.hasOwn(object(prior),key)).map(key=>[key,prior?.[key]])),...read};
+            };
             const rpc = async (method: string, params: Row): Promise<Row> => object(await bridge(method, {campaign: owner, ...params}));
             try {
                 if (!binding || !current) {
                     const result = await rpc('table.capsule', {rehydrate: true});
                     if (ticket !== generation || signal.aborted) return undefined;
-                    const {_context, ...read} = result, view = firstSightView(owner, read);
+                    const {_context, ...read} = result, view = firstSightView(owner, hostView(read));
                     binding = bindingOf(_context); current = view;
                     if (!binding) return fail('context_binding_unavailable');
                     rawBinding = _context; capsule = view; rehydrated = true;
@@ -422,7 +431,7 @@ export function installContextPolicy(pi: ExtensionAPI, writeTelemetry: (row: Row
                     if (!rehydrated) {
                         const result = await rpc('table.capsule', {rehydrate: true});
                         if (ticket !== generation || signal.aborted) return undefined;
-                        const {_context, ...read} = result, view = firstSightView(owner, read);
+                        const {_context, ...read} = result, view = firstSightView(owner, hostView(read));
                         const actual = bindingOf(_context);
                         if (!actual || actual.campaign !== binding.campaign || actual.worldline !== binding.worldline
                             || actual.loop !== binding.loop || actual.turn !== binding.turn) return fail('rehydration_binding_changed');
@@ -774,7 +783,7 @@ export function installContextPolicy(pi: ExtensionAPI, writeTelemetry: (row: Row
         let workspace=snapshot.workspaceMode==='on'?snapshot.workspace:undefined,prescreen:Row|undefined;
         // §184.2: the single-loop engine's order puts the turn's capsule ahead of the history; the legacy engine's is unchanged.
         const project=(budget:number,optional:{workspace?:Row;prescreen?:Row}={})=>projectedMessages({messages:selected,binding:snapshot.binding,
-            history:snapshot.history,brief:briefSent,answering:snapshot.answering,budget,...optional,...(runOwnsPrescreen?{capsuleFirst:true}:{})});
+            history:snapshot.history,brief:briefSent,answering:snapshot.answering,budget,...optional,...(runOwnsPrescreen?{capsuleFirst:true}:{}),singleKeeper});
         let messageBudget=room,baseline=project(room,{workspace});
         // §219.3: a projection a newer generation or a cancelled preparation overtook still goes to the provider as its
         // bounded baseline, so it still has its `context/request` row.

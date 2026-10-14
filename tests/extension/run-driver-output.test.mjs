@@ -153,7 +153,8 @@ test('an accepted inline prefix replays after a malformed body and refreshes the
     const messages=context.messages.map(message=>typeof message.content==='string'?message.content
       :(message.content??[]).filter(block=>block.type==='text').map(block=>block.text).join(''));
     for(const text of messages){try{const value=JSON.parse(text);if(value.where?.clock)wireClocks.push(value.where.clock.minutes);
-      if(value.current_state?.where?.clock){latestClock=value.current_state.where.clock.minutes;wireClocks.push(latestClock);}}catch{}}
+      const where=value.kind==='capsule_update'?value.sections?.where:value.where;
+      if(where?.clock){latestClock=where.clock.minutes;wireClocks.push(latestClock);}}catch{}}
     return fauxAssistantMessage(JSON.stringify({version:1,record,text:'After waiting, the visitor speaks again.'}));
   }],{onFrame:frame=>{if(frame.event==='delta'&&stateAtFirstDelta===undefined)
     stateAtFirstDelta=JSON.parse(readFileSync(join(table.workspace,'.coc/campaigns/test-camp/world.json'),'utf8')).clock.minutes;}});

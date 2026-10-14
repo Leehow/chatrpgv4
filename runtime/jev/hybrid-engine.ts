@@ -386,6 +386,7 @@ export function createHybridEngine(options: HybridEngineOptions): {runDriver: Se
   keeperCallCapMs: number | (() => Promise<number>); onKeeperCallCap: (phase:'first_byte'|'streaming',capMs:number)=>void} {
   let bridge:KernelBridge|undefined,closer:TurnClosePort|undefined,consultations:SourceAnswersPort|undefined,api:any,gateway:OperationGateway|undefined;
   let current:{runId:string;inputRevision:string;rawInput:string}|undefined, model:any;
+  let acceptedCapsule:Row|undefined;
   let runSignal:AbortSignal|undefined,closed=false;
   const queries=new Set<AbortController>();
   let steer:Row|undefined;
@@ -480,6 +481,7 @@ export function createHybridEngine(options: HybridEngineOptions): {runDriver: Se
           artifact:{kind:'turn_close',verdict}};
       }},
       projection:{project:async({stepId,signal})=>{
+        const active=current,accepted=acceptedCapsule,bound=bridge;
         runSignal=signal;
         api?.events.emit('coc:keeper-run',{...current,signal});
         api?.events.emit('coc:model-infer',{run:context.runId,step:stepId});
@@ -488,15 +490,25 @@ export function createHybridEngine(options: HybridEngineOptions): {runDriver: Se
         if(steer){messages.push({role:'custom',...steer,timestamp:Date.now()});steer=undefined;}
         if(bridge?.call&&bridge.campaign){
           const capsule=object(await bridge.call('table.capsule',{campaign:bridge.campaign,_context_read:true}));
+          const scope=object(capsule._context),acceptedScope=object(accepted?.context);
+          if(active===current&&active?.runId===context.runId&&bound===bridge&&accepted===acceptedCapsule&&!signal.aborted
+            &&accepted?.campaign===bridge.campaign&&typeof accepted.epoch==='string'
+            &&['campaign','worldline','loop','turn'].every(key=>scope[key]===acceptedScope[key])){
+            const refreshed={...capsule};
+            for(const key of ['skills','delivery_recovery'])if(!Object.hasOwn(refreshed,key)&&Object.hasOwn(object(accepted.capsule),key))refreshed[key]=accepted.capsule[key];
+            api?.events.emit('coc:capsule',{...accepted,capsule:refreshed,context:scope});
+          }
           const enabled=historyEnabled(capsule),allowed=enabled&&!!nativeSearchCapability(model);
           api?.events.emit('coc:native-search-policy',{enabled,allowed,campaign:bridge.campaign,
             worldline:object(capsule._context).worldline,loop:object(capsule._context).loop,
             run:context.runId,step:stepId,...(model?{model:`${model.provider}/${model.id}`}:{})});
           const people=await Promise.all(array(capsule.present).map(async person=>{
-            try{return await bridge!.call!('table.look',{campaign:bridge!.campaign,focus:'npc',name:person.name,_context_read:true});}
+            try{const full=object(await bridge!.call!('table.look',{campaign:bridge!.campaign,focus:'npc',name:person.name,_context_read:true}));
+              const voice=array(capsule.voices).find(voice=>voice.name===person.name)??{};
+              return Object.fromEntries(Object.entries(full).filter(([key,value])=>key==='name'
+                ||full.name!==person.name||![person,voice].some(supplied=>Object.hasOwn(supplied,key)&&JSON.stringify(supplied[key])===JSON.stringify(value))));}
             catch{return{name:person.name,coverage:'unavailable; use look if needed'};}
           }));
-          const scope=object(capsule._context);
           turn=scope.turn;
           let taken:ReturnType<SourceAnswersPort['take']>|undefined;
           try{if(consultations&&(!consultations.campaign||consultations.campaign===bridge.campaign))
@@ -511,15 +523,11 @@ export function createHybridEngine(options: HybridEngineOptions): {runDriver: Se
             const passages=carriedPassages(carried.views,taken?.texts);
             if(passages.length)api?.events.emit('coc:carried-text',{campaign:bridge.campaign,turn:scope.turn,run:context.runId,passages});
           }
-          const currentState={...capsule,mods:{...object(capsule.mods)}};
-          delete currentState.module;
-          delete currentState.mods.instructions;
-          delete currentState.mods.topics;
           messages.push({role:'custom',customType:CLERK_TYPE,display:false,timestamp:Date.now(),
-            content:JSON.stringify({authority:'Keeper-only current state and actor perspectives; no disclosure grant',current_state:currentState,people,
+            content:JSON.stringify({authority:'Keeper-only current state and actor perspectives; no disclosure grant',people,
               ...(enabled?{historical_reference:allowed?HISTORY_OFFER:HISTORY_UNAVAILABLE}:{}),
               ...(allowed?{native_search_scope:{run:context.runId,step:stepId}}:{}),
-              ...(carried?{sources:carriedSection(carried)}:{})}),details:{coc_host:true,turn:scope.turn}});
+              ...(carried?{sources:carriedSection(carried)}:{})}),details:{coc_host:true,campaign:bridge.campaign,turn:scope.turn}});
         }
         messages.push({role:'custom',customType:'coc-host',display:false,timestamp:Date.now(),details:{coc_host:true,scope:'turn',campaign:bridge?.campaign,turn},content:
           'You are the sole Keeper and author. Use current state, actual dialogue, relevant evidence and each character\'s own knowledge. Choose and execute necessary rules through resolve/apply; never invent a roll or replace the player\'s action. Read missing material when needed. Ordinary speech needs no attempted task. Continue playable conversation through minor discrepancies; clarify naturally later. '
@@ -534,6 +542,7 @@ export function createHybridEngine(options: HybridEngineOptions): {runDriver: Se
   }};
   const extension=(pi:any)=>{
     api=pi;
+    pi.events.on('coc:capsule',(value:Row)=>{if(typeof value?.epoch==='string'&&value.capsule)acceptedCapsule=value;});
     pi.events.on('coc:kernel-bridge',(value:KernelBridge)=>{bridge=value?.call?value:undefined;bindMemorySearch();});
     pi.events.on('coc:operation-dispatcher',(value:OperationGateway|undefined)=>{gateway=value;bindMemorySearch();});
     pi.events.on('coc:turn-close',(value:TurnClosePort)=>{closer=value;});

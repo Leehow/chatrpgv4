@@ -264,6 +264,7 @@ export function projectedMessages(input: {
     workspace?: Row; prescreen?: Row;
     /** Contract §184.2 (single-loop engine): the turn's capsule leads the fixed part after the brief, ahead of `coc-history`. */
     capsuleFirst?: boolean;
+    singleKeeper?: boolean;
 }): Projection {
     const {messages, binding} = input, budget = input.budget ?? requestBudget();
     const fallback = (degraded: string): Projection => {
@@ -276,7 +277,15 @@ export function projectedMessages(input: {
     if (input.answering?.length) start = olderAskStart(messages, start, binding);
     let unknown: Row[] = [];
     for (const message of messages.slice(0, start)) if (!closedNoise(message)) unknown.push(message);
-    const tail = messages.slice(start);
+    let tail = messages.slice(start);
+    if(input.singleKeeper){
+        const latest=new Map<string,Row>();
+        const eligible=(message:Row)=>message.role==='custom'&&[CLERK_TYPE,CAPSULE_UPDATE_TYPE].includes(message.customType)
+            &&object(message.details).coc_host===true&&object(message.details).turn===binding.turn
+            &&(!object(message.details).campaign||object(message.details).campaign===binding.campaign);
+        for(const message of tail)if(eligible(message))latest.set(message.customType,message);
+        tail=tail.filter(message=>!eligible(message)||latest.get(message.customType)===message);
+    }
     // Full static package/book context is carried once, outside the rolling history allocation.
     const brief = input.brief ? [customMessage(BRIEF_TYPE, input.brief)] : [];
     const history = customMessage(HISTORY_TYPE, input.history);
@@ -295,6 +304,7 @@ export function projectedMessages(input: {
     const room = (extra: Row[]): number => Math.max(0, budget - requestSize(fixed(extra)));
     while (unknown.length && requestSize(unknown) > Math.min(UNCLASSIFIED_BYTES, budget)) {unknown = unknown.slice(1); droppedUnknown++;}
     let cut = boundedTail(working, room([]));
+    if(input.singleKeeper)while(unknown.length&&cut.dropped){unknown=unknown.slice(1);droppedUnknown++;cut=boundedTail(working,room([]));}
     // The optional workspace joins only when it displaces no current material: if this turn's own
     // traffic is already being cut, or would have to be cut to fit it, the workspace is omitted.
     // Current capsule, the player's words, pending context, tool pairing and the ceiling all
