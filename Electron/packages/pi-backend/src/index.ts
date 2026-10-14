@@ -7345,8 +7345,11 @@ export class PiHostBackend implements HostBackend {
         // agent_settled idempotent.
         this.projectTurnTerminal(live, "stopped");
       }
+      // A private-play stop can be a refused record followed by another
+      // inference in the same run. Only the run lifecycle may release its FIFO.
       if (
-        message.role === "assistant"
+        !privatePlay
+        && message.role === "assistant"
         && message.stopReason === "stop"
         && !((Array.isArray(message.content) ? message.content : []).some((part: any) =>
           part?.type === "toolCall" || part?.type === "tool_call" || part?.type === "tool_use"))
