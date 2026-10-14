@@ -155611,7 +155611,7 @@
           "counterpart": {
             "file": "tests/integration/npc-voice-bench.test.ts",
             "name": "test_the_bench_opens_on_nine_people_and_the_capsule_keeps_every_name",
-            "sha256": "dc1bf4ed1b65bd15fba9461ec9114170bdcf40f3996ba7e37c4c18b730c858f6"
+            "sha256": "05ea99766d29ac5848c9f20546e32b02702e31d934c008c9b88d25b9c4a94515"
           },
           "review": "statement-by-statement",
           "validation": {
@@ -155678,6 +155678,42 @@
               "evidence": ".coc/test-runs/npc-variation-amax-YZ4od66q/native-ts/evidence/integration-ts-N6JAON",
               "junit": ".coc/test-runs/npc-variation-amax-YZ4od66q/native-ts/evidence/integration-ts-N6JAON/results.xml",
               "review": "Original rule, dice, transaction and presentation assertions retained. Private NPC initialization dice are verified separately from ordinary action receipts; the existing dossier budget fixture disables this optional Mod, while the enabled crowd path is covered in npc-variation.test.ts."
+            },
+            "identityProjectionRevalidation": {
+              "contract": "237.57",
+              "counterpartSha256": "05ea99766d29ac5848c9f20546e32b02702e31d934c008c9b88d25b9c4a94515",
+              "evidence": ".tmp/amaranthine-system-20261013/npc-context-identity-23757/identity-budget/result-final.json",
+              "historicalValidationPreserved": true,
+              "originalAssertionsUnchanged": true,
+              "originalFullDossierFloor": 4,
+              "independentlyCheckedIdentityExcludedOnlyFromHistoricalStubKeyComparison": true,
+              "focusedNativeFirstCase": {
+                "pass": 1,
+                "fail": 0
+              },
+              "currentFullLAN": {
+                "result": "passed",
+                "run": "run.nlXimFa8",
+                "evidence": ".tmp/amaranthine-system-20261013/full-23758-23759-final/remote-all.log",
+                "junit": "/home/leehow/leehow/code/wt/codex-tests/.pytest-runs/chatrpgv4-wt-pi-coc-v2/run.nlXimFa8/native-ts/evidence/integration-ts-jKctzs/results.xml",
+                "extension": {
+                  "registered": 5578,
+                  "passed": 5577,
+                  "failed": 0,
+                  "skipped": 1
+                },
+                "native": {
+                  "passed": 2166,
+                  "failed": 0
+                },
+                "routing": {
+                  "passed": 12,
+                  "failed": 0
+                },
+                "exit_code": 0,
+                "wall_seconds": 957,
+                "note": "Exact production/test freeze. This revalidation metadata was recorded after completion; historical validation and failed runs remain unchanged."
+              }
             }
           },
           "migrationNotes": "All original assertions, parameter rows, seeded RPC sequence, disk reads and teardown preserved. Only language-level syntax/helpers are translated; product behavior runs current TS RPC."
@@ -155716,7 +155752,7 @@
           "counterpart": {
             "file": "tests/integration/npc-voice-bench.test.ts",
             "name": "test_the_lane_is_offered_the_room_one_person_at_a_time_with_the_masks_taken",
-            "sha256": "dc1bf4ed1b65bd15fba9461ec9114170bdcf40f3996ba7e37c4c18b730c858f6"
+            "sha256": "05ea99766d29ac5848c9f20546e32b02702e31d934c008c9b88d25b9c4a94515"
           },
           "review": "statement-by-statement",
           "validation": {
@@ -155783,6 +155819,42 @@
               "evidence": ".coc/test-runs/npc-variation-amax-YZ4od66q/native-ts/evidence/integration-ts-N6JAON",
               "junit": ".coc/test-runs/npc-variation-amax-YZ4od66q/native-ts/evidence/integration-ts-N6JAON/results.xml",
               "review": "Original rule, dice, transaction and presentation assertions retained. Private NPC initialization dice are verified separately from ordinary action receipts; the existing dossier budget fixture disables this optional Mod, while the enabled crowd path is covered in npc-variation.test.ts."
+            },
+            "identityProjectionRevalidation": {
+              "contract": "237.57",
+              "counterpartSha256": "05ea99766d29ac5848c9f20546e32b02702e31d934c008c9b88d25b9c4a94515",
+              "evidence": ".tmp/amaranthine-system-20261013/npc-context-identity-23757/identity-budget/result-final.json",
+              "historicalValidationPreserved": true,
+              "originalAssertionsUnchanged": true,
+              "originalFullDossierFloor": 4,
+              "independentlyCheckedIdentityExcludedOnlyFromHistoricalStubKeyComparison": true,
+              "focusedNativeFirstCase": {
+                "pass": 1,
+                "fail": 0
+              },
+              "currentFullLAN": {
+                "result": "passed",
+                "run": "run.nlXimFa8",
+                "evidence": ".tmp/amaranthine-system-20261013/full-23758-23759-final/remote-all.log",
+                "junit": "/home/leehow/leehow/code/wt/codex-tests/.pytest-runs/chatrpgv4-wt-pi-coc-v2/run.nlXimFa8/native-ts/evidence/integration-ts-jKctzs/results.xml",
+                "extension": {
+                  "registered": 5578,
+                  "passed": 5577,
+                  "failed": 0,
+                  "skipped": 1
+                },
+                "native": {
+                  "passed": 2166,
+                  "failed": 0
+                },
+                "routing": {
+                  "passed": 12,
+                  "failed": 0
+                },
+                "exit_code": 0,
+                "wall_seconds": 957,
+                "note": "Exact production/test freeze. This revalidation metadata was recorded after completion; historical validation and failed runs remain unchanged."
+              }
             }
           },
           "migrationNotes": "All original assertions, parameter rows, seeded RPC sequence, disk reads and teardown preserved. Only language-level syntax/helpers are translated; product behavior runs current TS RPC."

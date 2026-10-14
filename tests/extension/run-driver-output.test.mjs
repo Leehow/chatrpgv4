@@ -588,7 +588,8 @@ test('a rejected inline record returns the actual kernel correction without cand
   await table.session.prompt('I wait eight minutes and watch the clerk.');
   assert.ok(correction.includes('invalid_params'));
   assert.ok(correction.includes('Invalid event unknown actor Unregistered fixture person'));
-  assert.ok(correction.includes('registered NPC name'));
+  assert.ok(correction.includes('exact supplied id'));
+  assert.ok(correction.includes('semantic handle'));
   assert.ok(correction.includes('actors')&&correction.includes('walk_on'));
   assert.ok(!correction.includes('REJECTED_PRIVATE_CANDIDATE'));
   assert.equal(seen.filter(frame=>frame.event==='delta').map(frame=>frame.delta).join(''),good.text);

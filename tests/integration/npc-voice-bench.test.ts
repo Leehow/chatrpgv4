@@ -17,10 +17,17 @@ await kernel.ok('mods.configure',{campaign:CAMPAIGN,id:'natural-npc',enabled:fal
 let capsule:any=pyAt((await pyMethod(kernel,"table",["player_input"],{"text":"我找个空位坐下，先看看屋里都有谁。"})),"capsule");
 assert.ok(pyBool(pyEqual(pyAt(pyAt(capsule,"where"),"scene"),"sanyi-teahouse")),"tests/kernel/test_voice_bench.py:18 assert capsule[\"where\"][\"scene\"] == \"sanyi-teahouse\"");
 let present:any=pyAt(capsule,"present");
+const fullLook = (await kernel.table('look', {focus:'npc'})).present;
+for (const person of present) {
+  const full = fullLook.find((row:any) => row.name === person.name);
+  assert.ok(full, 'Every original present actor remains available through the full native look');
+  assert.equal(person.id, full.id, 'Budget fitting retains the registered native identity');
+}
 assert.ok(pyBool(pyEqual((await pySorted((await (async()=>{const __rows:any[]=[];for(const p of pyIterable(present)){if(pyBool(true))__rows.push(pyAt(p,"name"));}return __rows;})()))),(await pySorted(CAST)))),"tests/kernel/test_voice_bench.py:20 assert sorted(p[\"name\"] for p in present) == sorted(CAST)");
 let full:any=(await (async()=>{const __rows:any[]=[];for(const p of pyIterable(present)){if(pyBool(!pyBool((await pyMethod(p,"get",["truncated"],{})))))__rows.push(p);}return __rows;})());
 let stubs:any=(await (async()=>{const __rows:any[]=[];for(const p of pyIterable(present)){if(pyBool((await pyMethod(p,"get",["truncated"],{}))))__rows.push(p);}return __rows;})());
-assert.ok(pyBool((await (async()=>{const __left=(await (async()=>{const __left=pyLessEqual(4,(await pyLen(full)));return pyBool(__left)?stubs:__left})());return pyBool(__left)?(await pyAll((await (async()=>{const __rows:any[]=[];for(const p of pyIterable(stubs)){if(pyBool(true))__rows.push(pyEqual((await pySet(p)),new Set(["name","truncated","untold","activity"])));}return __rows;})()))):__left})())),"tests/kernel/test_voice_bench.py:25 assert len(full) >= 4 and stubs and all(set(p) == {\"name\", \"truncated\", \"untold\", \"activity\"} for p in stubs)");
+const legacyStubs = stubs.map(({id,...person}:any) => person);
+assert.ok(pyBool((await (async()=>{const __left=(await (async()=>{const __left=pyLessEqual(4,(await pyLen(full)));return pyBool(__left)?stubs:__left})());return pyBool(__left)?(await pyAll((await (async()=>{const __rows:any[]=[];for(const p of pyIterable(legacyStubs)){if(pyBool(true))__rows.push(pyEqual((await pySet(p)),new Set(["name","truncated","untold","activity"])));}return __rows;})()))):__left})())),"tests/kernel/test_voice_bench.py:25 assert len(full) >= 4 and stubs and all(set(p) == {\"name\", \"truncated\", \"untold\", \"activity\"} for p in stubs)");
 assert.ok(pyBool((await pyAll((await (async()=>{const __rows:any[]=[];for(const p of pyIterable(present)){if(pyBool(true))__rows.push(pyEqual(pyAt(p,"activity"),({["current"]:false,["review_required"]:true,["review_reasons"]:["unassessed"]})));}return __rows;})())))),"tests/kernel/test_voice_bench.py:26 assert all(p[\"activity\"] == {\"current\": False, \"review_required\": True, \"review_reasons\": [\"unassessed\"]} for p in present)");
 assert.ok(pyBool((await pyAll((await (async()=>{const __rows:any[]=[];for(const p of pyIterable(stubs)){if(pyBool(true))__rows.push((await (async()=>{const __left=(await pyMethod(pyAt(pyAt(p,"untold"),"say_name"),"startswith",["{{name:"],{}));return pyBool(__left)?!pyContains(pyAt(p,"untold"),"use"):__left})()));}return __rows;})())))),"tests/kernel/test_voice_bench.py:27 assert all(p[\"untold\"][\"say_name\"].startswith(\"{{name:\") and \"use\" not in p[\"untold\"] for p in stubs)");
 assert.ok(pyBool(pyContains(pyAt(capsule,"truncated"),"present")),"tests/kernel/test_voice_bench.py:28 assert \"present\" in capsule[\"truncated\"]");

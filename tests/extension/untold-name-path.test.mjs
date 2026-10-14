@@ -65,8 +65,9 @@ test('§176.8: a person the budget cuts keeps the name path, through the Keeper\
   for (const stub of stubs) {
     const word = words.get(handleOf(stub.name));
     assert.ok(word, stub.name);
-    assert.deepEqual(stub, {name: stub.name, activity: {current: false, review_required: true, review_reasons: ['unassessed']}, truncated: true, untold: {label: word, id: handleOf(stub.name), say_name: `{{name:${word}}}`}},
+    assert.deepEqual(stub, {name: stub.name, id: handleOf(stub.name), activity: {current: false, review_required: true, review_reasons: ['unassessed']}, truncated: true, untold: {label: word, id: handleOf(stub.name), say_name: `{{name:${word}}}`}},
       'a stub keeps who is untold and the token that says their name, without the line');
+    assert.equal((await call('table.look', {focus:'npc',name:stub.id})).id, stub.id, 'the native stub identity is the existing full-view identity');
   }
   for (const person of present.filter(person => !person.truncated))
     assert.equal(person.untold.say_name, `{{name:${person.untold.label}}}`, 'a whole row carries the same token from the kernel');
@@ -90,8 +91,9 @@ test('§176.8: a person the budget cuts keeps the name path, through the Keeper\
   assert.deepEqual(result.content, [{type: 'text', text: JSON.stringify({answer: excerpt})}], 'the excerpt as the book wrote it, no note');
   const capsule = JSON.parse(sent.find(message => message.customType === 'coc-capsule').content);
   const shown = capsule.present.find(person => person.name === word);
-  assert.deepEqual(shown, {name: word, book_name: cut.name, activity: {current: false, review_required: true, review_reasons: ['unassessed']}, truncated: true, untold: {label: word, say_name: `{{name:${word}}}`, use: api.UNTOLD_VIEW_USE}},
+  assert.deepEqual(shown, {name: word, id: word, book_name: cut.name, activity: {current: false, review_required: true, review_reasons: ['unassessed']}, truncated: true, untold: {label: word, say_name: `{{name:${word}}}`, use: api.UNTOLD_VIEW_USE}},
     JSON.stringify(capsule.present));
+  assert.equal((await call('table.look', {focus:'npc',name:shown.id})).id, cut.id, 'the request-visible table word resolves to the same registered person');
 
   // Copied where the fiction has him say it, the token says the book's name, and from then on he is told.
   const said = await call('table.narrate', {call_id: `t${input._context.turn}-c1`,
@@ -106,13 +108,14 @@ test('§176.8: a person the budget cuts keeps the name path, through the Keeper\
 test('§176.8: a stub of someone told stays bare', async t => {
   const {call} = await bench(t);
   await worded(call);
-  const names = (await call('table.look', {focus: 'npc'})).present.map(person => person.name);
+  const people = (await call('table.look', {focus: 'npc'})).present;
+  const names = people.map(person => person.name);
   assert.equal(names.length, 9);
   await call('table.narrate', {call_id: 't0-c1', text: `雨夜。${names.join('、')}都在三义茶馆里。`});
   const input = await call('table.player_input', {text: '我找个空位坐下。'});
   const stubs = input.capsule.present.filter(person => person.truncated);
   assert.ok(stubs.length, JSON.stringify(input.capsule.present.map(person => person.name)));
-  for (const stub of stubs) assert.deepEqual(stub, {name: stub.name, activity: {current: false, review_required: true, review_reasons: ['unassessed']}, truncated: true}, 'temporal status stays; nobody untold, no name path to keep');
+  for (const stub of stubs) assert.deepEqual(stub, {name: stub.name, id: people.find(person=>person.name===stub.name).id, activity: {current: false, review_required: true, review_reasons: ['unassessed']}, truncated: true}, 'temporal status stays; nobody untold, no name path to keep');
 });
 
 test('§176.8: the people cut are found by position, so two people the book gives one name both keep a row', () => {

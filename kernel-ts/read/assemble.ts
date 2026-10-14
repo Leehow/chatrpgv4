@@ -439,10 +439,12 @@ export function fitPresent(rows: Row[], budget: number): boolean {
     // §180.4: `kind`, the host's one way to tell a person from a creature, rides outside it the same way, after `name`.
     // Counted, it too cost the nine-person bench its fourth dossier.
     const kinds = new Map<Row, unknown>();
+    const identities = new Map<Row, string>();
     for (const entry of all) {
         const untold = entry.untold;
         if (untold && typeof untold === "object" && "say_name" in untold) { tokens.set(entry, untold.say_name); delete untold.say_name; }
         if (Object.hasOwn(entry, "kind")) { kinds.set(entry, entry.kind); delete entry.kind; }
+        if (typeof entry.id === "string" && entry.id.trim()) { identities.set(entry, entry.id); delete entry.id; }
     }
     const policy = {atomic, minimum};
     let cut = fitBudget(rows, budget, "oldest", policy) || relationshipCut;
@@ -456,9 +458,10 @@ export function fitPresent(rows: Row[], budget: number): boolean {
         stubbed.unshift(rows.pop()!);
     for (const [entry, token] of tokens) entry.untold.say_name = token;
     const kindBack = (entry: Row): Row => {
-        if (!kinds.has(entry)) return entry;
+        if (!kinds.has(entry) && !identities.has(entry)) return entry;
         const { name, ...rest } = entry;
-        return { name, kind: kinds.get(entry), ...rest };
+        return { name, ...(kinds.has(entry) ? { kind: kinds.get(entry) } : {}),
+            ...(identities.has(entry) ? { id: identities.get(entry) } : {}), ...rest };
     };
     rows.splice(0, rows.length, ...rows.map(kindBack), ...stubbed.map(entry => presentStub(kindBack(entry))));
     return cut;
@@ -504,7 +507,8 @@ function stubRelationships(entry: Row): Row {
 function presentStub(entry: Row): Row {
     const { use: _line, ...untold } = row(entry.untold);
     // §180.4: a stub keeps what the row was, a person or a creature, so a cut creature never reads to the host as a person.
-    return { name: string(entry.name), ...(typeof entry.kind === "string" ? { kind: entry.kind } : {}), truncated: true,
+    return { name: string(entry.name), ...(typeof entry.id === "string" && entry.id.trim() ? { id: entry.id } : {}),
+        ...(typeof entry.kind === "string" ? { kind: entry.kind } : {}), truncated: true,
         ...stubRelationships(entry), ...(Object.keys(untold).length ? { untold } : {}) };
 }
 export function evidenceAnchors(graph: ModuleGraph, world: Row, records: Row[], limit = 4): string[] {

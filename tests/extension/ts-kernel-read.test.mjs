@@ -590,8 +590,13 @@ test('NPC dossiers and public object views preserve their different secrecy boun
     })};
     return legacy;
   };
-  same({entry:dossier(api.npcEntry(graph,world,doctor,ledger,new Map(memories.map(m=>[m.id,m])))),view:dossier(api.npcView(graph,world,doctor,ledger)),
-    present:api.presentSection(graph,world,scene,ledger,memories).map(dossier),investigator:api.investigatorView(party[0])},expected,'NPC/public investigator projections');
+  const compactDossier = (value, node) => {
+    assert.equal(value.id, graph.handle(node), 'The compact identity matches the existing registered full-view identity');
+    const {id, ...legacy} = dossier(value);
+    return legacy;
+  };
+  same({entry:compactDossier(api.npcEntry(graph,world,doctor,ledger,new Map(memories.map(m=>[m.id,m]))),doctor),view:dossier(api.npcView(graph,world,doctor,ledger)),
+    present:api.presentSection(graph,world,scene,ledger,memories).map(value=>compactDossier(value,graph.find(value.id,['npc']))),investigator:api.investigatorView(party[0])},expected,'NPC/public investigator projections');
   const definitions={case:{id:'case',name:'Case',category:'item',description:'Private compartment',basis:'Source',parameters:{},traits:[],player_view:{description:'A leather case',fields:[]}},
     paper:{id:'paper',name:'Letter',category:'item',description:'Hidden source provenance',basis:'Source',parameters:{},traits:[],player_view:{description:'A folded letter',fields:[]}},
     pistol:{id:'pistol',name:'Pistol',category:'weapon',description:'Secret tuning',basis:'Source',parameters:{damage:'1D10',magazine:6,hidden_modifier:9},traits:[{name:'visible'},{name:'secret'}],player_view:{description:'A pistol',fields:['damage','magazine'],traits:['visible']}}};

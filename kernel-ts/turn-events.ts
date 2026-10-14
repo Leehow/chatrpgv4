@@ -88,9 +88,9 @@ export function stageEvent(raw:unknown,input:{graph:ModuleGraph;world:Row;party:
       let present:Row[]=[];try{present=npcsPresent(input.graph,input.world,input.graph.scene(input.world.active_scene));}catch{present=[];}
       const actors=[...input.party.map(sheet=>({name:sheet.name})),...present.map(node=>{
         const shown=input.graph.displayName(node),called=tableWord(input.world,input.graph.handle(node));
-        return {name:shown,...(called&&called!==shown?{called}:{})};
+        return {name:shown,id:input.graph.handle(node),...(called&&called!==shown?{called}:{})};
       })];
-      invalid(`unknown actor ${name}`,'Use an existing investigator or registered NPC name; details.actors lists current party and present actors, including registered called aliases. If a new persistent person is needed, complete details.walk_on with the actual npc effect variant, such as to: "here" only when that person is present, and put it in effects before this event in the same apply. An incidental description needs no actor registration: use summary or a non-speech material, omitting actor, speaker, audience and related cognition fields.',
+      invalid(`unknown actor ${name}`,'Use an investigator\'s registered name or an NPC\'s exact supplied id from details.actors, its existing semantic handle; name and called are display labels. Copy that id for an existing NPC instead of registering the person again. If a new persistent person is needed, complete details.walk_on with the actual npc effect variant, such as to: "here" only when that person is present, and put it in effects before this event in the same apply. An incidental description needs no actor registration: use summary or a non-speech material, omitting actor, speaker, audience and related cognition fields.',
         {actors,walk_on:{kind:'npc',name:name.trim(),walk_on:true}});
     }
     return {kind:'npc',id:input.graph.handle(node),name:input.graph.displayName(node)};
