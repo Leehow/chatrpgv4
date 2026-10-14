@@ -6,7 +6,7 @@ import { CHARACTERISTICS, SkillResolver } from '../rules/skills.js';
 import { array, clone, number, repr, row, string, truth, values, type Row } from '../read/values.js';
 import { nowIso } from '../write/store.js';
 import { SettleContext, type SettlementExecutor } from './context.js';
-import { npcCheck } from './bindings.js';
+import { npcCheck, rulebookSkillDefault } from './bindings.js';
 import { socialDifficulty, psychologyCheckContract, psychologyPolicy } from './social.js';
 /** Which row a group skill rolls, and the refusal when the card has not answered that yet (§52).
  *
@@ -91,8 +91,13 @@ async function resolveTarget(context: SettleContext, args: Row): Promise<[
                 }
             }
         });
-    if (args.target != null)
-        return [label, number(args.target), npc ? 'npc' : Object.hasOwn(row(sheet.skills), label) ? 'sheet' : 'rulebook_base', 'skill_check'];
+    if (args.target != null) {
+        const target = number(args.target);
+        const npcFallback = npc && await context.actorSkillValue(actor, label) === null
+            && await rulebookSkillDefault(context, label) === target;
+        return [label, target, npc ? npcFallback ? 'rulebook_base' : 'npc'
+            : Object.hasOwn(row(sheet.skills), label) ? 'sheet' : 'rulebook_base', 'skill_check'];
+    }
     const resolver = await SkillResolver.create(context.tables, sheet);
     const requested = resolver.resolveExplicit(label) || label;
     const canonical = npc ? requested : groupSkill(resolver, requested);
@@ -234,7 +239,9 @@ export const executeCheck: SettlementExecutor = async (context, args, plan) => {
     });
     const hints: string[] = [];
     if (targetSource === 'rulebook_base')
-        hints.push(`${label} is not listed on the investigator sheet; used the canonical rulebook base chance ${target}%`);
+        hints.push(npcActing
+            ? `${label} has no authored or pinned NPC value; used its canonical common-skill base. If related context establishes this NPC's training, record it with apply npc.skill for subsequent checks.`
+            : `${label} is not listed on the investigator sheet; used the canonical rulebook base chance ${target}%`);
     if (data.outcome === 'critical')
         hints.push('critical success: realize a source-bound benefit in the fiction');
     if (data.outcome === 'fumble')

@@ -15,6 +15,8 @@ import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { build } from 'esbuild';
+import { RpcClient } from '../integration/support.ts';
+import { player_mechanics } from '../play/driver.ts';
 
 const root = resolve(import.meta.dirname, '../..');
 import { pinContactImpression } from './natural-npc-contact.mjs';
@@ -22,7 +24,7 @@ const temporary = await mkdtemp(join(tmpdir(), 'npc-actor-'));
 after(() => rm(temporary, { recursive: true, force: true }));
 await symlink(join(root, 'node_modules'), join(temporary, 'node_modules'), 'dir');
 await build({
-	stdin: { contents: "export * from './kernel-ts/testing/api.ts';", resolveDir: root, sourcefile: 'npc-actor-api.ts' },
+	stdin: { contents: "export * from './kernel-ts/testing/api.ts'; export {executeCheck} from './kernel-ts/resolve/basic.ts'; export {RuleTables} from './kernel-ts/rules/tables.ts'; export {CheckArithmetic} from './kernel-ts/resolve/arithmetic.ts';", resolveDir: root, sourcefile: 'npc-actor-api.ts' },
 	outfile: join(temporary, 'api.mjs'), bundle: true, packages: 'external', format: 'esm', platform: 'node',
 	target: 'node22', logLevel: 'silent',
 });
@@ -90,6 +92,7 @@ test('an NPC actor with a pinned skill rolls it, Keeper-side, and never touches 
 	const rolls = (await game.receipts()).filter((row) => row.kind === 'roll' && row.id === result.receipt);
 	assert.equal(rolls.length, 1);
 	const [roll] = rolls;
+	assert.equal(roll.check.target_source, 'npc');
 	assert.equal(roll.actor, handle, 'the receipt names the guard as the actor');
 	assert.equal(roll.actor_is_investigator, false, 'never the investigator');
 	assert.equal(roll.visibility, 'keeper', 'Keeper-side by default: no name and no number reaches the player');
@@ -109,6 +112,86 @@ test('an NPC actor with no pinned or authored skill rolls the skill\'s rulebook 
 	// Call of Cthulhu 7e's printed base chance for Spot Hidden is 25%: the same deterministic number an
 	// investigator's own unlisted skill already falls back to (`resolveTarget`'s `rulebook_base`).
 	assert.equal(result.outcome.target, 25);
+	assert.equal((await game.receipts()).find(receipt => receipt.id === result.receipt).check.target_source, 'rulebook_base');
+	const hint = result.hints.find(text => text.includes('canonical common-skill base'));
+	assert.ok(hint, 'the same Keeper is told this is a missing NPC skill fallback');
+	assert.match(hint, /apply npc\.skill/);
+	assert.doesNotMatch(hint, /\d|investigator sheet/);
+});
+
+test('native RPC preserves fallback evidence, then consumes a later NPC skill pin after restart', async t => {
+	const home = await mkdtemp(join(temporary, 'rpc-home-'));
+	let client = new RpcClient(home);
+	t.after(() => client.close());
+	await client.ok('campaign.create', { id: 'c1', module: 'the-haunting', pregen: 'thomas-hayes', play_language: 'en' });
+	await client.table('open');
+	await client.table('narrate', { call_id: 't0-c1', text: 'The guard waits beside the vehicle.' });
+	await client.table('player_input', { text: 'I ask the guard to drive over the muddy road.' });
+	await client.table('apply', { call_id: 't1-c1', effects: [{ kind: 'npc', name: GUARD, to: 'here', walk_on: true, why: 'The guard is present.' }] });
+	const partyDir = join(home, '.coc/campaigns/c1/party');
+	const sheetPath = join(partyDir, (await readdir(partyDir)).find(name => name.endsWith('.json')));
+	const before = await readFile(sheetPath, 'utf8');
+	const currentRoll = async id => JSON.parse(await readFile(join(home, '.coc/campaigns/c1/turn.json'), 'utf8')).receipts.find(receipt => receipt.id === id);
+	const action = { intent: 'move', actor: GUARD, skill: 'Drive Auto', goal: 'cross the muddy road', method: 'drive slowly' };
+	const fallback = await client.table('resolve', { call_id: 't1-c2', action });
+	assert.equal(fallback.outcome.target, 20);
+	assert.equal((await currentRoll(fallback.receipt)).check.target_source, 'rulebook_base');
+	assert.ok(fallback.hints.some(text => text.includes('canonical common-skill base')));
+	const error = await client.tableErr('resolve', { call_id: 't1-c3', action: { ...action, skill: 'Animal Handling' } });
+	assert.equal(error.code, 'needs');
+	assert.equal(error.details.needs.field, 'npc.skill');
+	await client.table('apply', { call_id: 't1-c4', effects: [{ kind: 'npc', name: GUARD, skill: { name: 'Drive Auto', value: 60 }, why: 'His previous training is established at the table.' }] });
+	const pinned = await client.table('resolve', { call_id: 't1-c5', action });
+	assert.equal(pinned.outcome.target, 60, 'an in-flight pin already overrides the fallback');
+	assert.equal((await currentRoll(pinned.receipt)).check.target_source, 'npc');
+	const delivered = await client.table('narrate', { call_id: 't1-c6', text: 'The guard tries to guide the vehicle through the mud.' });
+	assert.ok(delivered.mechanics.some(item => item.receipt === fallback.receipt && item.visibility === 'keeper'));
+	assert.ok(player_mechanics(delivered.mechanics).every(item => item.kind !== 'roll'), 'hidden NPC checks produce no public die card');
+	assert.equal(await readFile(sheetPath, 'utf8'), before);
+	const recordPath = join(home, '.coc/campaigns/c1/turns/0001.json');
+	const recordBytes = await readFile(recordPath, 'utf8');
+	const oldRoll = JSON.parse(recordBytes).receipts.find(receipt => receipt.id === fallback.receipt);
+	assert.equal(oldRoll.check.target_source, 'rulebook_base');
+	assert.equal(oldRoll.target, 20);
+	assert.equal(oldRoll.visibility, 'keeper');
+	await client.close();
+	client = new RpcClient(home);
+	await client.table('open');
+	await client.table('player_input', { text: 'I ask the same guard to drive the next stretch.' });
+	const restarted = await client.table('resolve', { call_id: 't2-c1', action });
+	assert.equal(restarted.outcome.target, 60);
+	assert.equal((await currentRoll(restarted.receipt)).check.target_source, 'npc');
+	assert.ok((restarted.hints ?? []).every(text => !text.includes('canonical common-skill base')));
+	const investigator = await client.table('resolve', { call_id: 't2-c2', action: { intent: 'investigate', skill: 'Spot Hidden', goal: 'watch the roadside' } });
+	assert.equal(investigator.outcome.target, JSON.parse(before).skills['Spot Hidden']);
+	assert.equal((await currentRoll(investigator.receipt)).check.target_source, 'sheet');
+	assert.equal(await readFile(sheetPath, 'utf8'), before);
+	assert.equal(await readFile(recordPath, 'utf8'), recordBytes, 'restart and the later check do not rewrite or reroll the old result');
+});
+
+test('an authored NPC skill remains NPC provenance without a fallback hint', async t => {
+	const game = await table(t);
+	const result = await game.resolve({ intent: 'investigate', actor: 'Walter Corbitt', skill: 'Listen', goal: 'hear the approaching footsteps' });
+	assert.equal(result.outcome.target, 60);
+	assert.equal((await game.receipts()).find(receipt => receipt.id === result.receipt).check.target_source, 'npc');
+	assert.ok((result.hints ?? []).every(text => !text.includes('canonical common-skill base')));
+});
+
+test('legacy NPC explicit targets with no matching common base keep their original provenance', async t => {
+	const context = await api.createKernelContext({ workspace: await mkdtemp(join(temporary, 'explicit-home-')), content: join(root, 'content'), seed: 'npc-explicit-target' });
+	const tables = new api.RuleTables(context), arithmetic = await api.CheckArithmetic.create(tables);
+	const explicit = { actorId: GUARD, tables, arithmetic, rng: context.rng,
+		sheetById: () => null, npcNode: () => ({ node_id: 'npc-guard' }), actorSkillValue: async () => null, addRoll: () => 'legacy-roll' };
+	for (const skill of ['Drive Auto', 'Unlisted legacy ability', 'Animal Handling']) {
+		const result = await api.executeCheck(explicit, { skill, target: 37 }, {});
+		assert.equal(result.data.target, 37);
+		assert.equal(result.data.target_source, 'npc');
+		assert.ok(result.hints.every(text => !text.includes('canonical common-skill base')));
+	}
+	const investigator = { ...explicit, actorId: 'investigator', npcNode: () => null, sheetById: () => ({ skills: {} }) };
+	const base = await api.executeCheck(investigator, { skill: 'Spot Hidden', target: 25 }, {});
+	assert.equal(base.data.target_source, 'rulebook_base');
+	assert.ok(base.hints.includes('Spot Hidden is not listed on the investigator sheet; used the canonical rulebook base chance 25%'));
 });
 
 /**
