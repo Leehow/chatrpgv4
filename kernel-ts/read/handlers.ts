@@ -502,7 +502,7 @@ export function readHandlers(context: KernelContext, contributions: ReadContribu
                 if (!graph.isPerson(node))
                     return creatureView(graph, world, node, ledger, row(await campaign.optional("save/combat.json")), await dispositionTable(context), campaign.chainReads());
                 const records=await campaign.files('turns'),scope=eventScope(campaign.meta,campaign.id,number(campaign.turn.turn));
-                const view=npcView(graph,world,node,ledger,journal,records,await campaign.log('memory/candidates.jsonl'),{worldline:scope.worldline,loop:scope.loop},
+                const view=npcView(graph,world,node,ledger,journal,records,await campaign.log('memory/candidates.jsonl'),{worldline:scope.worldline,loop:scope.loop,current_receipts:array(campaign.turn.receipts)},
                     row(await campaign.optional('save/combat.json')),await dispositionTable(context),campaign.chainReads());
                 const semantic=actorEventView(canonicalEvents(records,array(campaign.turn.receipts),scope),graph.nameKeys(node),{...scope,across_loops:remembersAcrossLoops(graph,node)});
                 return {...view,cognition:semantic.cognition,semantic_coverage:{...semantic.coverage,read:{what:'memory',about:[graph.displayName(node)]}},

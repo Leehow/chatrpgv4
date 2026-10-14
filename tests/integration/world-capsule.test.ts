@@ -2,6 +2,7 @@
 import assert from 'node:assert/strict';
 import {test} from 'node:test';
 import {kernel} from './support.ts';
+import {ordinaryReceipts} from './npc-support.ts';
 import {narrate,OPENING_SCENE,PREGEN,campaign_dir,open_turn,read_json,OPENING_SCENE as _OPENING,campaign_dir as _dir,open_turn as _open_turn,read_json as _read,os,subprocess,stat,pyInvoke,pyStr,pyLen,pyBool,pyInt,pyList,pySet,pyDict,pySorted,pyRange,pyEnumerate,pyIsInstance,pyAny,pyAll,pySum,pyNext,pyFormat,pyAt,pySlice,pyEqual,pyContains,pyDivide,pyAdd,pyMultiply,pyUnion,pyIntersection,pySubtract,pyLess,pyLessEqual,pyCompare,pyMethod,pyIterable,pyMin,pyMax,pyZip,pyParametrize,pyCartesian,acquireFixture,temporaryPath,pyMonkeypatch,json,re,hashlib,shutil,Path,deepcopy,copy,pyRound,Counter} from "./world-native-support.ts";
 const __file__=new URL('../../tests/kernel/test_capsule.py',import.meta.url).pathname;
 
@@ -50,7 +51,10 @@ assert.ok(pyBool(pyEqual(pyAt(investigator,"sex"),"M")),pyStr("the keeper reads 
 assert.ok(pyBool(pyEqual(pyAt(investigator,"age"),34)),"tests/kernel/test_capsule.py:56 assert investigator[\"age\"] == 34");
 assert.ok(pyBool(!pyContains(investigator,"appearance")),pyStr("this pregen writes no description and the capsule invents none"));
 assert.ok(pyBool(pyContains(pyAt(investigator,"skills_of_note"),({["name"]:"Spot Hidden",["value"]:55}))),"tests/kernel/test_capsule.py:58 assert {\"name\": \"Spot Hidden\", \"value\": 55} in investigator[\"skills_of_note\"]");
-assert.ok(pyBool(pyEqual(pyAt(capsule,"recent"),[({["turn"]:0,["player"]:null,["keeper"]:"开场。\n\n诺特把钥匙拍在桌上。",["closed"]:"explicit",["receipts"]:0})])),"tests/kernel/test_capsule.py:61 assert capsule[\"recent\"] == [{\"turn\": 0, \"player\": None, \"keeper\": \"开场。\\n\\n诺特把钥匙拍在桌上。\", \"closed\": \"explicit\", \"receipts\": 0}]");
+const openingReceipts=read_json(pyDivide(pyDivide(campaign_dir(kernel.workspace),"turns"),"0000.json")).receipts;
+assert.equal(ordinaryReceipts(openingReceipts).length,0,'The opening has no ordinary action receipt');
+assert.equal(openingReceipts.filter((receipt:any)=>receipt.family==='npc-variation').length,1,'The private initialization remains in raw history');
+assert.ok(pyBool(pyEqual(pyAt(capsule,"recent"),[({["turn"]:0,["player"]:null,["keeper"]:"开场。\n\n诺特把钥匙拍在桌上。",["closed"]:"explicit",["receipts"]:openingReceipts.length})])),"tests/kernel/test_capsule.py:61 assert capsule[\"recent\"] == [{\"turn\": 0, \"player\": None, \"keeper\": \"开场。\\n\\n诺特把钥匙拍在桌上。\", \"closed\": \"explicit\", \"receipts\": 0}]");
 reading=pyAt(capsule,"reading");
 assert.ok(pyBool((pyAt(reading,"index_complete")===true)),"tests/kernel/test_capsule.py:65 assert reading[\"index_complete\"] is True");
 assert.ok(pyBool(pyEqual(pyAt(pyAt(pyAt(reading,"sections"),0),"name"),"Knott's Office")),"tests/kernel/test_capsule.py:66 assert reading[\"sections\"][0][\"name\"] == \"Knott's Office\"");

@@ -1,4 +1,5 @@
 {"schema_version": 1, "sections": [
+  {"heading": "Individuality and current state", "kind": "resident"},
   {"heading": "First impression", "kind": "situational", "topics": ["speaks_to_person"], "gates": ["present_without_history"]},
   {"heading": "The impression in play", "kind": "resident"},
   {"heading": "Asking for something", "kind": "situational", "topics": ["asks_favour"]},

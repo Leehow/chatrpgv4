@@ -20,6 +20,7 @@ import { RuleObservations } from '../read/rule-facts.js';
 import { buildCapsule } from '../read/assemble.js';
 import { contextBinding } from '../read/context.js';
 import { mechanics } from '../read/mechanics.js';
+import {initializeNpcVariations} from '../resolve/npc-variation.js';
 import { SessionView } from '../read/session-view.js';
 import { standingStates } from '../read/standing.js';
 import { authoredMapWords, presentPublishedArrivalMaps } from '../read/maps.js';
@@ -1029,6 +1030,16 @@ export function createWriteRuntime(context: KernelContext, contributions: WriteC
         } : null;
         const opening = number(turn.turn) === 0 && turn.state === 'awaiting_player', resume = opening ? null : resumeView(checkpoint, rebuilt);
         seedTurn(context, snapshot.meta, number(turn.turn));
+        const variations = await initializeNpcVariations(context, module.graph, snapshot.world, turn, array(turn.receipts),
+            !['open','acting'].includes(string(turn.state)), campaign.id);
+        if (variations.length) {
+            await campaign.writeWorld(snapshot.world);
+            turn.receipts = [...array(turn.receipts), ...variations];
+            await campaign.writeTurn(turn);
+            snapshot.turn = turn;
+            snapshot.jsonFiles.set('turn.json', turn);
+            if (pending) pending.receipts = module.graph.shownIds(array(turn.receipts));
+        }
         if (resume)
             resumes.set(campaign.id, resume);
         else
@@ -1226,8 +1237,9 @@ export function createWriteRuntime(context: KernelContext, contributions: WriteC
         const folded = await foldPersonWords(campaign, module.graph, snapshot.world, row(await snapshot.optional('npc-journal.json')),
             snapshot.records.length ? snapshot.records : await snapshot.files('turns'));
         seedTurn(context, snapshot.meta, next);
-        if (refolded || folded || lateMaps.length || JSON.stringify(array(snapshot.world.map_arrivals_pending)) !== awaited) await campaign.writeWorld(snapshot.world);
-        cursor.receipts = [...array(cursor.receipts), ...lateMaps.map(item => item.receipt)];
+        const variations = await initializeNpcVariations(context, module.graph, snapshot.world, cursor, array(cursor.receipts), true, campaign.id);
+        if (refolded || folded || lateMaps.length || variations.length || JSON.stringify(array(snapshot.world.map_arrivals_pending)) !== awaited) await campaign.writeWorld(snapshot.world);
+        cursor.receipts = [...array(cursor.receipts), ...lateMaps.map(item => item.receipt), ...variations];
         await campaign.writeTurn(cursor);
         await campaign.appendTranscript(next, 'player', text);
         await campaign.appendEvent(next, {

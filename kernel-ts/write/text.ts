@@ -12,6 +12,7 @@ import { RECOVERY_TAKES } from '../read/offer.js';
 import { array, chars, integer, kebab, normalize, number, row, string, truth, values, words, type Row } from '../read/values.js';
 import { SAY_TOKENS, isSayMarker } from './speech.js';
 import { isStakesRoll } from '../npc/stakes-receipt.js';
+import {isNpcVariationRoll} from '../npc/variation.js';
 export const asciiSlug = (text: string, limit = 24): string => text.normalize('NFKD').replace(/[^\x00-\x7f]/g, '').toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim().split(/\s+/).join('-').slice(0, limit).replace(/-+$/, '');
 const MARKER = /\{\{([a-z0-9][a-z0-9:_-]*)\}\}/g;
 function markerName(receipt: Row): string | null {
@@ -164,7 +165,7 @@ export function committedFacts(receipts: Row[], snapshot: Row, label: (id: any) 
         committed.push(`Player declared: ${words(player)}`);
     for (const r of receipts) {
         // §143.8: the stakes die is no check anyone made; no fact is committed from it.
-        if (isStakesRoll(r))
+        if (isStakesRoll(r) || isNpcVariationRoll(r))
             continue;
         if (r.kind === 'roll') {
             const actor = r.actor_label || label(r.actor), skill = string(r.skill ?? null);

@@ -8,6 +8,7 @@ import {reunionView} from './reunion.js';
 import {observedDocuments} from '../mods/document-visibility.js';
 import {canonicalEvents,actorEventView} from '../turn-events.js';
 import {remembersAcrossLoops} from '../read/worldline.js';
+import {currentNpcMood, npcVariation} from './variation.js';
 
 function namesOf(graph:ModuleGraph,node:Row):Set<string>{
     return new Set(graph.nameKeys(node).map(normalize));
@@ -48,7 +49,7 @@ export function npcCommitments(graph:ModuleGraph,node:Row,memory:Row[],scope:Row
         .sort((a,b)=>number(b.valid_from_turn??b.turn)-number(a.valid_from_turn??a.turn))
         .map(value=>({subject:value.subject,entities:array(value.entities),...report(value)}));
 }
-export function npcPerspective(graph:ModuleGraph,world:Row,node:Row,memory:Row[],records:Row[],scope:Row):Row {
+export function npcPerspective(graph:ModuleGraph,world:Row,node:Row,memory:Row[],records:Row[],scope:Row,ledger:Row={}):Row {
     const names=namesOf(graph,node),profile=graph.npcProfile(node);
     const reports=memory.filter(value=>current(value,scope)&&['knowledge','belief'].includes(value.kind)
         &&array(value.knowers).some(name=>names.has(normalize(string(name))))&&typeof value.statement==='string')
@@ -57,7 +58,9 @@ export function npcPerspective(graph:ModuleGraph,world:Row,node:Row,memory:Row[]
     const semantic=actorEventView(canonicalEvents(records,array(scope.current_receipts),scope),graph.nameKeys(node),
         {...scope,across_loops:remembersAcrossLoops(graph,node)});
     const documents=observedDocuments(world,string(node.node_id));
+    const now=currentNpcMood(graph,world,node,ledger,array(scope.current_receipts)),variation=npcVariation(graph,world,node,now);
     const view={name:graph.displayName(node),personality:personalityView(graph,world,node),
+        ...(now?{now}:{}),...(variation?{variation}:{}),
         goals:profile.agenda??null,fears:profile.fear??null,
         authored_knowledge:[...graph.npcKnows(node).map(item=>({name:item.handle,statement:item.node.summary||item.node.name,authority:'source_authored'})),
             ...graph.authoredLines(node,'knowledge').map(statement=>({statement,authority:'source_authored'}))],

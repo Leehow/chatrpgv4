@@ -27,6 +27,7 @@ import { LANGUAGE_ADDENDUM_CAPABILITY, LANGUAGE_BRIEF_BUDGET_CAPABILITY, validat
 import { SPEECH_EDIT_LANE_CAPABILITY, validateSpeechEditLaneDeclaration } from "../speech/lane.js";
 import {HISTORY_CAPABILITY, validHostSettings} from '../mods/host-settings.js';
 import {MOOD_CAPABILITY} from '../npc/mood.js';
+import {VARIATION_CAPABILITY, variationTables} from '../npc/variation.js';
 import {EXPRESSION_REFERENCE_CAPABILITY,expressionCards,expressionCatalogRevision} from './expression-reference.js';
 import { ESTABLISH_CAPABILITY, ESTABLISH_REVIEW_CAPABILITY, validateEstablishDeclaration, establishProvider, establishItem } from "./establish.js";
 import { SECTIONS_CAPABILITY, DISCOVERY_CAPABILITY, validateSectionsDeclaration, validateSectionsContribution, packageSections, sectioned, sectionKey, instructionBudget, residentText, topicList, annotateGates, sceneFacts, type TurnFacts } from "./sections.js";
@@ -58,6 +59,7 @@ MOD_CAPABILITIES.add(SPEECH_EDIT_LANE_CAPABILITY);
 MOD_CAPABILITIES.add(HISTORY_CAPABILITY);
 /** Contract §161.6: the kernel writes and projects what a person feels right now (`apply npc mood`, `present[].now`). */
 MOD_CAPABILITIES.add(MOOD_CAPABILITY);
+MOD_CAPABILITIES.add(VARIATION_CAPABILITY);
 /** Contract §183.1: a package declares the sections of its instruction, so a table over the instruction budget can index it. */
 MOD_CAPABILITIES.add(SECTIONS_CAPABILITY);
 MOD_CAPABILITIES.add(DISCOVERY_CAPABILITY);
@@ -332,7 +334,7 @@ export function manifestFrom(files: ReadonlyMap<string, Buffer>): Row {
         invalid("Game interface v1 settings are scalar values");
     if (!plain(manifest.settings_schema ?? {}))
         invalid("settings_schema must be an object");
-    if (Object.keys(manifest.contributes).some(k => !["instructions", "setup_instructions", "setup_slots", "checks", "materializer", "auditor", "audit_on_decisions", "audit_slot", "brief", "document_editor", "vocabulary", "craft_reference", "style", "voice_lane", "voice_lane_addendum", "speech_edit_lane", "expression_cards", "sections", "establish", "establish_review","temporal_context", "pushed_roll"].includes(k)))
+    if (Object.keys(manifest.contributes).some(k => !["instructions", "setup_instructions", "setup_slots", "checks", "materializer", "auditor", "audit_on_decisions", "audit_slot", "brief", "document_editor", "vocabulary", "craft_reference", "style", "voice_lane", "voice_lane_addendum", "speech_edit_lane", "expression_cards", "sections", "establish", "establish_review","temporal_context", "pushed_roll", "npc_variation"].includes(k)))
         invalid("Unknown Mod contribution in game interface v1");
     // Contract §28.9. A name this build does not know is recorded on the manifest and makes the
     // package incompatible -- exactly what an unknown capability in `requires` already does five
@@ -357,7 +359,7 @@ export function manifestFrom(files: ReadonlyMap<string, Buffer>): Row {
             invalid(`contributes.${field} must name a package Markdown file`);
     }
     if (scoped) {
-        for (const field of ["instructions", "brief", "setup_instructions", "setup_slots", "materializer", "auditor", "voice_lane", "voice_lane_addendum", "speech_edit_lane", "pushed_roll"]) {
+        for (const field of ["instructions", "brief", "setup_instructions", "setup_slots", "materializer", "auditor", "voice_lane", "voice_lane_addendum", "speech_edit_lane", "pushed_roll", "npc_variation"]) {
             const name = manifest.contributes[field];
             if (typeof name === "string" && !declared.includes(name))
                 invalid(`package_files must include contributes.${field}`);
@@ -379,6 +381,7 @@ export function manifestFrom(files: ReadonlyMap<string, Buffer>): Row {
     // Contract §183.1: the sections of the instruction, against its own headings.
     validateSectionsDeclaration(manifest, files);
     temporalItems(manifest,files);
+    variationTables(manifest,files);
     if (manifest.contributes.pushed_roll != null) {
         const path = manifest.contributes.pushed_roll;
         if (!array(manifest.requires).includes(PUSH_CAPABILITY) || typeof path !== 'string' || !path.endsWith('.json') || !files.has(path))

@@ -72,7 +72,7 @@ test('test_legacy_hidden_first_impression_is_reused_without_disclosing_or_reroll
   const k=await kernel(t);await createCampaign(k);const receipt:Row={schema_version:1,receipt_id:'legacy-first-impression',campaign_id:CAMPAIGN,investigator_id:'thomas-hayes',npc_id:'npc-steven-knott',app:60,credit_rating:30,governing_value:60,disposition:'helpful',concealed_roll:7,rule_ref:'legacy'};
   const canonical=JSON.stringify(Object.fromEntries(Object.keys(receipt).sort().map(key=>[key,receipt[key]])));receipt.integrity_digest='sha256:'+createHash('sha256').update(canonical).digest('hex');
   const path=join(campaignDir(k.workspace),'save/npc-first-impressions.json');mkdirSync(join(campaignDir(k.workspace),'save'),{recursive:true});writeJson(path,{receipts:{pair:receipt}});
-  await k.table('open');await close(k,'t0-c1');assert.deepEqual(readJson(join(campaignDir(k.workspace),'turns/0000.json')).receipts.filter((row:Row)=>row.kind==='roll'),[]);
+  await k.table('open');await close(k,'t0-c1');assert.deepEqual(readJson(join(campaignDir(k.workspace),'turns/0000.json')).receipts.filter((row:Row)=>row.kind==='roll'&&row.decision==='natural-npc:first-impression'),[]);
   await k.table('player_input',{text:'我仔细观察诺特。'});const result=await k.table('resolve',{call_id:'t1-c1',action:{intent:'social',decision:'natural-npc:first-impression',target:'Steven Knott'}});
   assert.equal(result.reused,true);assert.equal(result.outcome.impression.disposition,'helpful');assert.ok(!('roll' in result.outcome));assert.deepEqual((await k.table('status')).receipts,[]);
 });

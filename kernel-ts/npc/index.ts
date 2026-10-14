@@ -14,6 +14,7 @@ import {array,clone,number,row,string,type Row} from '../read/values.js';
 import {readNpcLedger} from '../write/contributions.js';
 import {personalitySources,personalitySourceRevision,personalityView} from './material.js';
 import {moduleCharacterProfile} from './profile.js';
+import {npcVariation} from './variation.js';
 import {npcViews} from './read.js';
 import {createSituationHandlers} from './situation.js';
 import {createStakesHandlers} from './stakes.js';
@@ -22,6 +23,7 @@ import {createThreadsHandlers} from './threads.js';
 
 const INSTRUCTION='Describe this person\'s stable values, habits of judgment and nuanced tradeoffs in two or three concise sentences. ' +
     'Use the supplied authored descriptions first. Where they are silent, a compatible personality supplement may add variety. ' +
+    'Reuse npc.variation.stable as the already accepted individual seed where compatible; do not reroll it. Initial emotion/social prompts are temporary, not stable traits. ' +
     'Do not invent biography, relatives, secrets, knowledge, possessions, abilities, statistics or relationships. ' +
     'Do not prescribe catchphrases or force the same response on every occasion. Personality guides behavior; the situation still matters. ' +
     'Write English Keeper-facing material, not player dialogue. Return only {"personality":{"description":"..."}}.';
@@ -91,7 +93,8 @@ export function createNpcHandlers(context:KernelContext,writer:ReturnType<typeof
             const path=jobPath(id),existing=await context.snapshots.isFile(campaign.path(path))?await campaign.read(path):null;
             if(existing&&existing.status==='open')return clone(row(existing.packet));
             const claim=randomUUID();
-            const packet={job_id:`npc:${id}`,claim,npc:{name:graph.displayName(node),sources:personalitySources(graph,node)},
+            const packet={job_id:`npc:${id}`,claim,npc:{name:graph.displayName(node),sources:personalitySources(graph,node),
+                ...(npcVariation(graph,world,node)?{variation:npcVariation(graph,world,node)}:{})},
                 play_language:await playLanguageOf(context,meta),instruction:INSTRUCTION};
             await campaign.write(path,{job_id:packet.job_id,claim,kind:'personality',npc:node.node_id,scope,source_revision,
                 status:'open',opened_at:nowIso(),attempts:number(existing?.attempts)+1,packet});

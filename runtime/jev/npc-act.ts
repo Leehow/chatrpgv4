@@ -58,7 +58,7 @@ export type NpcActUnavailable = 'model_unavailable' | 'model_error' | 'bad_outpu
 export interface NpcSituation {
   npc: {handle: string; name: string};
   /** A subset of `npcPerspective.view`, shapes unchanged. */
-  who: {personality?: unknown; goals?: unknown; fears?: unknown; commitments?: unknown; relationships?: unknown};
+  who: {personality?: unknown; variation?: unknown; now?: unknown; goals?: unknown; fears?: unknown; commitments?: unknown; relationships?: unknown};
   /** Short code-composed sentences: what was done or said to this person this turn and the last. */
   happened: string[];
   state: {hp: number | null; hp_max: number | null; conditions: string[]; stance: string | null; in_session: boolean; my_turn: boolean};

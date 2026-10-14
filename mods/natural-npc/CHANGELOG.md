@@ -1,4 +1,12 @@
+## 1.7.1
+
+Keep incidental speakers on the existing person-establishment path before dialogue. Portrayal dice remain private initialization, separate from NPC actions, played relationships and story facts; resident guidance stays compact.
+
 # Natural NPC
+
+## 1.7.0
+- Adds five twelve-row random tables for every human NPC, including people improvised at the table. Temperament, values and speech habits are stable seeds; emotion and social manner are initial state. The kernel initializes them once, preserves them in campaign state and projects them to the Keeper and personality author.
+- Adds resident guidance for expressing individuality through motives, listening and speech without forcing longer answers or constant emotional gestures. Authored and accepted personality take precedence; current recorded mood replaces initial emotion and may change through the existing NPC mood effect. Package state_version stays 1; existing package locks remain immutable until an explicit upgrade.
 
 ## 1.6.4
 - Removes the obsolete language-script rejection claim while preserving foreign-speech guidance. Guidance only; state_version stays 1, no state migration is needed, and existing package locks remain immutable.

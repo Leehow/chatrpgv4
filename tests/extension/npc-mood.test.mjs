@@ -97,7 +97,7 @@ test('the next turn\'s present card carries now after the identity, before the d
 	assert.equal(Object.hasOwn(unset, 'now'), false, 'no mood written: no now key');
 	await apply(client, 't1-c1', {mood: SWEAT, why: 'the heat and the questions'});
 	const sameTurn = knottCard((await capsuleOf(client)));
-	assert.equal(Object.hasOwn(sameTurn, 'now'), false, 'the projection reads the committed ledger: this turn the Keeper has just written it');
+	assert.deepEqual(sameTurn.now, {feels: SWEAT, since_turn: null}, 'the current receipt supplies mood before the committed ledger catches up');
 	const card = knottCard(await nextTurn(client, 1));
 	assert.deepEqual(card.now, {feels: SWEAT, since_turn: 1});
 	const keys = Object.keys(card), at = keys.indexOf('now');

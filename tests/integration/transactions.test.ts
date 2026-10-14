@@ -2,6 +2,7 @@
 import assert from 'node:assert/strict';
 import {test} from 'node:test';
 import {kernel} from './support.ts';
+import {ordinaryMechanics} from './npc-support.ts';
 import {RpcClient,campaign_dir,create_campaign,narrate,narrate_opening,open_turn,read_json,read_jsonl,repo_dir,pyStr,pyLen,pyBool,pyInt,pyList,pySet,pyDict,pySorted,pyRange,pyEnumerate,pyIsInstance,pyAny,pyAll,pySum,pyNext,pyFormat,pyAt,pySlice,pyEqual,pyContains,pyDivide,pyAdd,pyMultiply,pyUnion,pyIntersection,pySubtract,pyLess,pyLessEqual,pyCompare,pyMethod,pyIterable,pyMin,pyMax,pyZip,pyParametrize,pyCartesian,acquireFixture,temporaryPath,pyMonkeypatch,json,re,hashlib,shutil,Path,deepcopy,Counter,copy,pyReversed,math} from "./setup-native-support.ts";
 
 
@@ -82,7 +83,7 @@ assert.ok(pyBool(pyEqual(receipts,[({...pyAt(receipts,0),["id"]:`choice:${pyAt(p
 (await pyMethod(kernel,"table",["apply"],{"call_id":"t2-c2","effects":[({["kind"]:"move",["to"]:"newspaper-morgue"})]}));
 narrated=(await pyMethod(kernel,"table",["narrate"],{"call_id":"t2-c3","text":"你们出发去报社。"}));
 assert.ok(pyBool(pyEqual(pyAt(narrated,"rendered_text"),"你们出发去报社。")),"tests/kernel/test_transactions.py:98 assert narrated[\"rendered_text\"] == \"你们出发去报社。\"");
-assert.ok(pyBool(pyEqual((await (async()=>{const __rows:any[]=[];for(const m of pyIterable(pyAt(narrated,"mechanics"))){__rows.push([pyAt(m,"kind"),(await pyMethod(m,"get",["option"],{})),(await pyMethod(m,"get",["to"],{}))]);}return __rows;})()),[["choice","报社档案",null],["scene",null,"newspaper-morgue"]])),"tests/kernel/test_transactions.py:100 assert [(m[\"kind\"], m.get(\"option\"), m.get(\"to\")) for m in narrated[\"mechanics\"]] == [\n        (\"choice\", \"报社档案\", None), (\"scene\", None, \"newspaper-morgue\")]");
+assert.ok(pyBool(pyEqual((await (async()=>{const __rows:any[]=[];for(const m of pyIterable(ordinaryMechanics(pyAt(narrated,"mechanics"),read_json(pyDivide(pyDivide(campaign_dir(kernel.workspace),"turns"),"0002.json")).receipts))){__rows.push([pyAt(m,"kind"),(await pyMethod(m,"get",["option"],{})),(await pyMethod(m,"get",["to"],{}))]);}return __rows;})()),[["choice","报社档案",null],["scene",null,"newspaper-morgue"]])),"tests/kernel/test_transactions.py:100 assert [(m[\"kind\"], m.get(\"option\"), m.get(\"to\")) for m in narrated[\"mechanics\"]] == [\n        (\"choice\", \"报社档案\", None), (\"scene\", None, \"newspaper-morgue\")]");
 }
 if(process.argv[1]===import.meta.filename)for(const [index,row] of ([{}]).entries())test("test_ask_closes_turn_and_pending_choice_carries_over"+(([{}]).length>1?' ['+index+']':''),async(t)=>{const temporary=temporaryPath(t);await test_ask_closes_turn_and_pending_choice_carries_over(await kernel(t,{}));});
 export async function test_pending_turn_survives_a_crash(tmp_path:any){

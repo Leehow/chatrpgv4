@@ -11,6 +11,8 @@ return (await pyMethod(client,"ok",["campaign.create",({["id"]:CAMPAIGN,["module
 }
 export async function test_the_bench_opens_on_nine_people_and_the_capsule_keeps_every_name(kernel:any){
 (await create(kernel));
+// This baseline measures the original dossiers; enabled portrayal tables have their own crowded-room test.
+await kernel.ok('mods.configure',{campaign:CAMPAIGN,id:'natural-npc',enabled:false});
 (await narrate_opening(kernel,"雨夜。三义茶馆里坐满了人。"));
 let capsule:any=pyAt((await pyMethod(kernel,"table",["player_input"],{"text":"我找个空位坐下，先看看屋里都有谁。"})),"capsule");
 assert.ok(pyBool(pyEqual(pyAt(pyAt(capsule,"where"),"scene"),"sanyi-teahouse")),"tests/kernel/test_voice_bench.py:18 assert capsule[\"where\"][\"scene\"] == \"sanyi-teahouse\"");

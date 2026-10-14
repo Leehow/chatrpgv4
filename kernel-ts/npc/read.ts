@@ -24,7 +24,7 @@ export async function npcViews(input:{campaign:string;graph:ModuleGraph;world:Ro
         // Contract §142.3: what this person already set out to do and where each stands, from the ledger. (The response
         // bank this view also carried, §142.4, is retired: §143.6.)
         const entry=row(ledger[string(node.node_id)]);
-        const projected=npcPerspective(graph,world,node,memory,records,scope);
+        const projected=npcPerspective(graph,world,node,memory,records,scope,ledger);
         const tried=intentsView(entry,graph.handle(node));
         const currentInput={turn:turn.turn,player_input:documentEditInput(turn.player_text)?null:turn.player_text??null,state:turn.state,
             authority:'Privileged author context, not this person perception. Private writing becomes observed knowledge only through observed_documents.'},handle=graph.handle(node);

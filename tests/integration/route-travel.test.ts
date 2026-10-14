@@ -4,6 +4,7 @@ import assert from 'node:assert/strict';
 import {join} from 'node:path';
 import {kernel,CONTENT_DIR,campaignDir,createCampaign,readJson,readJsonl,writeJson,type RpcClient,type Row} from './support.ts';
 import {indexed,opening,finish,request,claim,observed} from './module-support.ts';
+import {ordinaryReceipts} from './npc-support.ts';
 const STARTERS=['the-haunting','mystery-house','voice-bench','the-haunting-rulebook'];
 const costs=readJson(join(CONTENT_DIR,'rulesets/coc7/rules-json/time-costs.json')).categories,LOCAL=costs.local_travel.default,LONG=costs.long_travel.default;
 const shipped=(id:string)=>readJson(join(CONTENT_DIR,'starters',id,'module-graph.json'));
@@ -28,7 +29,7 @@ test('test_a_move_to_a_filled_exit_lands_with_the_roads_minutes',async t=>{
   assert.equal(minutes,LOCAL);assert.equal(road[0].properties.travel.band,'local_travel');await createCampaign(k);await k.table('open');await k.table('narrate',{call_id:'t0-c1',text:'Knott puts the keys on the desk.'});
   const capsule=(await k.table('player_input',{text:'我去档案馆。'})).capsule;assert.equal(capsule.where.exits.find((row:Row)=>row.to==='hall-of-records').travel_minutes,minutes);
   const moved=await k.table('apply',{call_id:'t1-c1',effects:[{kind:'move',to:'hall-of-records'}]});assert.deepEqual(moved.world.clock,{minutes});
-  const receipts=readJson(join(campaignDir(k.workspace),'turn.json')).receipts.filter((r:Row)=>r.trigger!=='presence');
+  const receipts=ordinaryReceipts(readJson(join(campaignDir(k.workspace),'turn.json')).receipts).filter((r:Row)=>r.trigger!=='presence');
   assert.deepEqual(receipts.map((r:Row)=>r.kind),['move']);assert.equal(receipts[0].minutes,minutes);
   assert.equal(readJsonl(join(campaignDir(k.workspace),'events.jsonl')).filter(row=>row.type==='scene-moved').at(-1)!.data.minutes,minutes);
   assert.deepEqual((await k.table('apply',{call_id:'t1-c2',effects:[{kind:'move',to:'commission-briefing',travel_minutes:5}]})).world.clock,{minutes:minutes+5});

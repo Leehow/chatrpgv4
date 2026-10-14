@@ -36,6 +36,7 @@ import {emptyLedgerEntry, foldNpcTurn, stanceTable} from '../write/contributions
 import {intentsOf, isSettled, receiptGenerated, shownIntentRef} from './intents.js';
 import {npcPerspective} from './perspective.js';
 import {isStakesRoll, stakesView} from './stakes-receipt.js';
+import {isNpcVariationRoll} from './variation.js';
 
 /** The packet's size bound when `host-budgets.json` names none (`npc_situation.max_bytes`). */
 export const SITUATION_MAX_BYTES = 6144;
@@ -86,7 +87,7 @@ function gaveUp(receipt: Row, me: Person): string | null {
 /** The one clause a receipt of this person's contributes, or null when the receipt is not about them. */
 function clause(receipt: Row, me: Person, world: Row): string | null {
     // The stakes die (§143.8) is not something done to or by this person; the packet carries it as `stakes`.
-    if (isStakesRoll(receipt)) return null;
+    if (isStakesRoll(receipt) || isNpcVariationRoll(receipt)) return null;
     const done = kindClause(receipt, me, world), gave = gaveUp(receipt, me);
     if (!gave) return done;
     // The intention variant has no clause of its own, so the writer's why rides on the giving up.
@@ -514,7 +515,7 @@ export function createSituationHandlers(context: KernelContext): HandlerGroup {
             // §180.3: a person's perspective (personality, goals, fears, commitments, relationships, speech) is a person's;
             // a creature has none of it.
             const view = person ? row(npcPerspective(graph,world,node,memory,campaign.records,
-                {...eventScope(campaign.meta,campaign.id,number(turn.turn)),current_receipts:array(turn.receipts)}).view) : {};
+                {...eventScope(campaign.meta,campaign.id,number(turn.turn)),current_receipts:array(turn.receipts)},ledger).view) : {};
             const session = new SessionView(campaign, graph, party, world).activeSession();
             const {place, constraints} = await placedConstraints(context, campaign, graph, me);
             const happened = happenedSentences(me, world, party, turn, previous, heard);
@@ -539,6 +540,7 @@ export function createSituationHandlers(context: KernelContext): HandlerGroup {
                 // §180.3: the act author's material -- a person's personality and the rest of their perspective; for a
                 // creature, what the book says it is, its habits and the Keeper's note.
                 who: person ? {personality: view.personality ?? null, goals: view.goals ?? null, fears: view.fears ?? null,
+                    ...(view.variation?{variation:view.variation}:{}),...(view.now?{now:view.now}:{}),
                     commitments: view.commitments ?? [], relationships: view.relationships ?? [],
                     ...(array(view.cognition).length ? {cognition: view.cognition} : {}),
                     ...(array(view.cognition).length || number(row(view.coverage).cognition_omitted)

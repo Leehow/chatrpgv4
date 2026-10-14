@@ -35,6 +35,11 @@ or extra knowledge. Its priorities inform a choice, not something this person mu
 Current directed relationships, commitments, source facts and immediate purpose take precedence.
 `who.source_relationships` are initial source ties, separate from actual played relationship evidence.
 Permit reasonable adjustment after apology, topic change or shared experience without rerolling identity.
+`who.variation.stable` is this person's accepted random individuality seed, available even before
+their full personality is prepared. Use its temperament, values and speech habits where compatible
+with authored facts and accepted personality. `who.now` is their current played feeling; it overrides
+`who.variation.initial`, the first encounter's emotion and exchange prompt. These guide a proportionate
+reaction to what just happened, never a new fact, knowledge grant, forced catchphrase or player choice.
 `canonical_context` carries the current place, the previous delivered narration
 and the player's exact declaration. Preserve the established scope and stakes
 of this interaction. A mutually agreed exercise is not a deadly ambush without

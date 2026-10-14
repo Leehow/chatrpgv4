@@ -77,9 +77,9 @@ test('test_mod_list_never_projects_engineering_changelogs',async t=>{
 
 test('test_scoped_package_freezes_only_declared_runtime_files',async t=>{
   const k=await kernel(t),root=packageAt(k);
-  change(root,m=>{m.requires=[...new Set([...m.requires,'mods.package-files.v1'])];m.package_files=['agent.md','sections.json','auditor.md'];});
+  change(root,m=>{m.requires=[...new Set([...m.requires,'mods.package-files.v1'])];m.package_files=['agent.md','sections.json','auditor.md','character-tables.json'];});
   const installed=await k.ok('mods.install',{path:root}),frozen=frozenPath(k);
-  assert.deepEqual(readdirSync(frozen).sort(),['agent.md','auditor.md','mod.json','sections.json']);assert.ok(!existsSync(join(frozen,'CHANGELOG.md')));
+  assert.deepEqual(readdirSync(frozen).sort(),['agent.md','auditor.md','character-tables.json','mod.json','sections.json']);assert.ok(!existsSync(join(frozen,'CHANGELOG.md')));
   writeFileSync(join(root,'CHANGELOG.md'),'Engineering note from another acceptance run.\n');
   assert.deepEqual(await k.ok('mods.install',{path:root}),{id:'natural-npc',version:NEXT,reused:true});assert.equal(installed.digest.length,64);
 });

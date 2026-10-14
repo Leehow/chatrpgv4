@@ -288,7 +288,8 @@ test('§180.3: the act author reads a creature\'s body -- what it is and the Kee
   assert.deepEqual(rats.recent_speech, []);
   const warden = await call('npc.situation', {name: WARDEN});
   assert.equal(warden.npc.kind, 'npc');
-  assert.deepEqual(Object.keys(warden.who).sort(), ['commitments', 'fears', 'goals', 'personality', 'relationships']);
+  assert.deepEqual(Object.keys(warden.who).sort(), ['commitments', 'fears', 'goals', 'personality', 'relationships', 'variation']);
+  assert.equal(warden.who.variation.origin, 'table_random');
 });
 
 /** The act step over a kernel that answers for one being: `kind` on its situation and options, a surprise allowed. */

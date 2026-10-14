@@ -20,6 +20,8 @@ import { readCalledPeople } from '../resolve/pipeline.js';
 import { npcPatient } from '../healing/patient.js';
 import { requirePatientBlock } from '../combat/stat-block.js';
 import { markersOf } from '../resolve/projection.js';
+import {initializeNpcVariations} from '../resolve/npc-variation.js';
+import {isNpcVariationRoll} from '../npc/variation.js';
 import { createWriteRuntime } from '../write/index.js';
 import { nowIso } from '../write/store.js';
 import { advanceClock, stageClock } from './clock.js';
@@ -478,6 +480,8 @@ export function createApplyHandlers(kernel: KernelContext, writer: ReturnType<ty
             // §129.4: a definition that replaced a placeholder changed what instances already on a sheet read.
             if(effects.some(effect=>isJsonObject(effect)&&['object','usage'].includes(string(effect.kind)))||receipts.some(receipt=>receipt.replaced_placeholder===true))
                 await contributions.mods!.projectInventory(effectCampaign as CampaignWriter,staged);
+            const variations = await initializeNpcVariations(kernel, graph, staged, turn, [...array(turn.receipts), ...receipts], true, campaign.id);
+            receipts.push(...variations);
             await buffered.commit();
             await campaign.writeWorld(staged);
             await settleOwed(kernel, campaign.id, graph, staged, receipts, nowIso(), await campaign.party());
@@ -497,8 +501,9 @@ export function createApplyHandlers(kernel: KernelContext, writer: ReturnType<ty
                 }
             }
             const material = module.material(graph.scene(staged.active_scene).node_id);
-            for(const receipt of receipts)if(receipt.kind==='event')receipt.event.effects=receipts.filter(item=>item!==receipt).map(item=>item.id);
-            const result: Row = { receipts: ids, markers: markersOf({ ...turn, receipts: [...array(turn.receipts), ...receipts] }, receipts), world: { active_scene: staged.active_scene, clock: staged.clock }, material_ready: material === 'ready', material };
+            const ordinaryReceipts = receipts.filter(receipt => !isNpcVariationRoll(receipt));
+            for(const receipt of receipts)if(receipt.kind==='event')receipt.event.effects=ordinaryReceipts.filter(item=>item!==receipt).map(item=>item.id);
+            const result: Row = { receipts: ids, markers: markersOf({ ...turn, receipts: [...array(turn.receipts).filter(receipt=>!isNpcVariationRoll(receipt)), ...ordinaryReceipts] }, ordinaryReceipts), world: { active_scene: staged.active_scene, clock: staged.clock }, material_ready: material === 'ready', material };
             if(params.event!==undefined)result.outcome=graph.shownIds(eventOutcome([...array(turn.receipts),...receipts]));
             const paidCash=receipts.filter(receipt=>receipt.kind==='cash'&&receipt.settlement!=='quote');
             if(paidCash.length)result._cash_settlements=paidCash;

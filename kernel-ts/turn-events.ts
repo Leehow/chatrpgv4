@@ -6,6 +6,7 @@ import {personNode,npcsPresent} from './read/capsule.js';
 import {tableWord} from './read/person-words.js';
 import {array,clone,normalize,number,row,string,type Row} from './read/values.js';
 import {sayRanges,type SpeakerResolver} from './write/speech-pass.js';
+import {isNpcVariationRoll} from './npc/variation.js';
 
 const modes=['observed','heard','read','belief'],states=['accurate','uncertain','distorted'];
 const word=(value:unknown,max=1200):value is string=>typeof value==='string'&&!!value.trim()&&[...value].length<=max;
@@ -180,7 +181,7 @@ export function eventOutcome(receipts:Row[],disclosures:Row[]=[]):Row{
   const publicMaterials=events.filter(event=>event.status!=='corrected').flatMap(event=>array(event.materials).filter(item=>item.visibility==='player')
     .map(item=>({...clone(item),authority:'canonical_event',event_material:item.name,event_ref:event.ref,revision:jsonDigest(event),
       ...(item.kind==='speech'?{speaker:row(item.speaker).name,audience:array(item.audience).map(a=>a.name)}:{})})));
-  return {version:1,events:events.filter(event=>event.status==='active'),world_effects:receipts.filter(r=>r.kind!=='event'&&r.kind!=='npc'),
+  return {version:1,events:events.filter(event=>event.status==='active'),world_effects:receipts.filter(r=>r.kind!=='event'&&r.kind!=='npc'&&!isNpcVariationRoll(r)),
     npc_effects:[...receipts.filter(r=>r.kind==='npc'),...events.flatMap(event=>array(event.relationships).map(item=>({...item,event:event.ref})))],
     knowledge_changes:events.flatMap(event=>array(event.knowledge).map(item=>({...item,event:event.ref}))),
     intent_changes:receipts.filter(r=>r.intent).map(r=>({npc:r.npc??row(r.intent).npc,...row(r.intent)})),

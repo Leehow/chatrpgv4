@@ -364,14 +364,16 @@ export function unconfirmedRecordings(shown: Row[]): Row[] {
  *  them, and each person cut comes back as a stub; if the stubs themselves do not fit, more full rows give
  *  way to stubs until they do. Returns whether anything was cut. */
 export function fitPresent(rows: Row[], budget: number): boolean {
-    if (rows.some(entry => entry.activity)) {
-        // Temporal authority must survive a dossier cut without displacing the existing dossier allowance.
+    if (rows.some(entry => entry.activity || entry.state)) {
+        // Physical and temporal authority must survive an optional dossier cut under the existing allowance.
         const activities = rows.map(entry => entry.activity);
-        const dossiers = rows.map(({activity: _activity, ...entry}) => entry);
+        const states = rows.map(entry => entry.state);
+        const dossiers = rows.map(({activity: _activity, state: _state, ...entry}) => entry);
         const cut = fitPresent(dossiers, budget);
         rows.splice(0, rows.length, ...dossiers.map((entry, index) => {
             const {name, kind, ...rest} = entry;
             return {name, ...(Object.hasOwn(entry, 'kind') ? {kind} : {}),
+                ...(states[index] ? {state: states[index]} : {}),
                 ...(activities[index] ? {activity: activities[index]} : {}), ...rest};
         }));
         return cut;

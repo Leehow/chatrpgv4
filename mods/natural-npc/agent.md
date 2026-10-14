@@ -1,5 +1,9 @@
 # Natural NPC
 
+## Individuality and current state
+
+All human NPCs keep variation.stable traits; reuse, never reroll. Source/accepted personality wins; now replaces variation.initial. Establish incidental speakers with apply npc walk_on before dialogue; look focus:"npc" by name if guidance is missing. Seeds guide portrayal, not facts. Let motives, listening, rhythm or humor carry feeling; useful answers stay clear, richer need not be longer. No forced gestures or catchphrases. Record changed feeling with apply npc mood and why.
+
 ## First impression
 
 Decide whether the initial impression matters to this approach. If it does, call `resolve` with

@@ -15,7 +15,7 @@ import {canonicalEvents,actorEventView} from '../turn-events.js';
 import {remembersAcrossLoops} from './worldline.js';
 import {personalityView,sourceRelationships} from '../npc/material.js';
 import { intentsView, shownIntentRef } from '../npc/intents.js';
-import { moodNow } from '../npc/mood.js';
+import {currentNpcMood, npcVariation} from '../npc/variation.js';
 import {npcRelationships,npcRecentSpeech,npcCommitments} from '../npc/perspective.js';
 import {reunionView} from '../npc/reunion.js';
 import {cardAction,cardTactic} from '../combat/standing.js';
@@ -818,7 +818,8 @@ export function npcEntry(graph: ModuleGraph, world: Row, node: Row, ledger: Row,
     const state = npcState(graph, world, node), untold = untoldBlock(graph, world, journal, node, records);
     // Contract §161.3: what this person feels right now, from the committed ledger -- not for one who cannot act (the
     // body's `state`, or a death the ledger records), and absent when no mood was ever written.
-    const ledgerRow = row(ledger[node.node_id]), now = state || truth(ledgerRow.dead) ? null : moodNow(ledgerRow);
+    const ledgerRow = row(ledger[node.node_id]), now = state || truth(ledgerRow.dead) ? null : currentNpcMood(graph,world,node,ledger,array(scope.current_receipts));
+    const variation = npcVariation(graph,world,node,now);
     const entry: Row = {
         name: graph.displayName(node),
         ...(graph.sourceNeeds(node,true).length?{runtime_inputs:graph.sourceNeeds(node,true)}:{}),
@@ -837,6 +838,7 @@ export function npcEntry(graph: ModuleGraph, world: Row, node: Row, ledger: Row,
         // After `state`, before the dossier (§161.3): present[] is cut from the bottom, and this is what decides how
         // the next line sounds.
         ...(now ? {now} : {}),
+        ...(variation ? {variation} : {}),
         ...dossier(graph, world, node, seat),
         ...(personalityView(graph, world, node) ? {personality: personalityView(graph, world, node)} : {}),
         ...(sourceRelationships(graph, node).length ? {source_relationships: sourceRelationships(graph, node)} : {})
@@ -954,6 +956,8 @@ export function presentSection(graph: ModuleGraph, world: Row, scene: Row, ledge
     ];
 }
 export function npcView(graph: ModuleGraph, world: Row, node: Row, ledger: Row = {}, journal: Row = {}, records: Row[] = [], memory:Row[] = [], scope:Row = {}, combat: Row | null = null, dispositions: Row | null = null, reads: ChainReads = {}): Row {
+    const now = npcState(graph,world,node) || truth(row(ledger[node.node_id]).dead) ? null : currentNpcMood(graph,world,node,ledger,array(scope.current_receipts));
+    const variation = npcVariation(graph,world,node,now);
     const untold = untoldBlock(graph, world, journal, node, records), handle = graph.handle(node),
         view: Row = {
         kind: "npc",
@@ -971,6 +975,8 @@ export function npcView(graph: ModuleGraph, world: Row, node: Row, ledger: Row =
         summary: node.summary ?? null,
         visibility: node.visibility ?? null,
         ...(npcState(graph, world, node) ? {state: npcState(graph, world, node)} : {}),
+        ...(now ? {now} : {}),
+        ...(variation ? {variation} : {}),
         ...dossier(graph, world, node),
         ...(personalityView(graph, world, node) ? {personality: personalityView(graph, world, node)} : {}),
         ...(sourceRelationships(graph, node).length ? {source_relationships: sourceRelationships(graph, node)} : {})

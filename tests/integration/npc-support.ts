@@ -36,7 +36,22 @@ export async function narrate_opening(client:any,text='开场。\n\n诺特把钥
 export const resolve=(client:any,call_id:string,action:any={})=>client.table('resolve',{call_id,action});
 export const resolve_err=(client:any,call_id:string,action:any={})=>client.tableErr('resolve',{call_id,action});
 export const walk_to_confrontation=walkToConfrontation;
-export const written=(rows:any[])=>rows.filter(x=>x.trigger!=='presence');
+/** Keep every genuine action receipt, including hidden checks; portrayal initialization is technical context. */
+export const ordinaryReceipts=(rows:Row[])=>rows.filter(receipt=>receipt.family!=='npc-variation');
+export const written=(rows:any[])=>ordinaryReceipts(rows).filter(x=>x.trigger!=='presence');
+/** Ordinary card assertions retain the complete audit separately and hide only exact initialization ids. */
+export function ordinaryMechanics(mechanics:Row[],receipts:Row[]):Row[]{
+  const initialization=receipts.filter(receipt=>receipt.family==='npc-variation');
+  const ids=new Set(initialization.map(receipt=>receipt.id));
+  for(const receipt of initialization){assert.equal(receipt.kind,'roll');assert.equal(receipt.visibility,'keeper');}
+  const portrayal=mechanics.filter(card=>ids.has(card.receipt));
+  assert.deepEqual(portrayal.map(card=>card.receipt).sort(),initialization.map(receipt=>receipt.id).sort(),
+    'Every canonical portrayal initialization retains its private audit card');
+  for(const card of portrayal){assert.equal(card.family,'npc-variation');assert.equal(card.visibility,'keeper');}
+  assert.ok(mechanics.filter(card=>card.family==='npc-variation').every(card=>ids.has(card.receipt)),
+    'No portrayal card may lack its canonical initialization receipt');
+  return mechanics.filter(card=>!ids.has(card.receipt));
+}
 export const git_log=(workspace:any,campaign=CAMPAIGN)=>execFileSync('git',[`--git-dir=${repo_dir(workspace,campaign)}`,'log','--format=%s'],{encoding:'utf8'}).trim().split('\n').filter(Boolean);
 export function temporaryPath(t:any){const p=nativeStorageFixture(t);return Path(p)}
 export const pyStr=(value:any)=>typeof value==='string'?value:value instanceof TestPath?value.value:typeof value==='object'?JSON.stringify(value):String(value);
