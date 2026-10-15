@@ -603,6 +603,44 @@ test('a rejected inline record returns the actual kernel correction without cand
   assert.deepEqual(table.extensionErrors,[]);
 });
 
+test('a refused legacy final can recover through native tools without spending another final correction',async t=>{
+  const rejected='PRIVATE_REFUSED_FINAL',text='You finish waiting beside the desk.';
+  let requests=0,refusalReturned=false;
+  const {table,seen}=await directTable([
+    ()=>{requests++;return fauxAssistantMessage(JSON.stringify({version:1,record:{effects:[{kind:'time',minutes:-1}]},text:rejected}));},
+    context=>{
+      requests++;
+      assert.ok(JSON.stringify(context.messages).includes('apply/resolve tools'));
+      assert.equal(seen.length,0);
+      return fauxAssistantMessage([fauxToolCall('apply',{effects:[{kind:'time',minutes:-1}]})],{stopReason:'toolUse'});
+    },
+    context=>{
+      requests++;
+      refusalReturned=context.messages.some(message=>message.role==='toolResult'&&message.isError===true);
+      assert.ok(refusalReturned,'the same Keeper receives the actual native refusal');
+      return fauxAssistantMessage([fauxToolCall('apply',{effects:[{kind:'time',minutes:8}]})],{stopReason:'toolUse'});
+    },
+    context=>{
+      requests++;
+      assert.ok(context.messages.some(message=>message.role==='toolResult'&&message.isError!==true));
+      return fauxAssistantMessage('{{public}}'+text);
+    },
+  ]);
+  t.after(()=>table.dispose());
+  await table.session.prompt('I wait eight minutes beside the desk.');
+  assert.equal(requests,4);
+  assert.deepEqual(table.telemetry().filter(row=>row.tool==='apply').map(row=>row.ok),[false,false,true]);
+  const turn=JSON.parse(readFileSync(join(table.workspace,'.coc/campaigns/test-camp/turns/0001.json'),'utf8'));
+  assert.ok(turn.commit);
+  assert.equal(turn.world.clock.minutes,8);
+  assert.equal(turn.receipts.filter(row=>row.kind==='time').length,1);
+  assert.equal(seen.filter(frame=>frame.event==='delta').map(frame=>frame.delta).join(''),text);
+  assert.equal(seen.at(-1)?.status,'completed');
+  assert.ok(!JSON.stringify(seen).includes(rejected));
+  assert.equal(table.telemetry().filter(row=>row.lane==='turn'&&row.event==='turn_close'&&row.status==='steer').length,1);
+  assert.deepEqual(table.extensionErrors,[]);
+});
+
 test('a misplaced record text receives the precise sibling correction before one settled public delivery',async t=>{
   const effects=[{kind:'time',minutes:8}];
   let requests=0,stateAtFirstDelta,correction,refused;
@@ -1278,6 +1316,10 @@ test('the final provider request retains current prepended Keeper instructions a
  const text=JSON.stringify(request.messages);
  assert.match(text,/You are the sole Keeper and author/);
  assert.match(text,/Keeper-only current state and actor perspectives/);
+ assert.equal(/return one bare JSON object in version, record, text order/.test(text),false,
+   'the actual higher-priority request must not redirect unsettled actions into final delivery');
+ assert.equal(/Example:.*version.*record.*effects/.test(text),false,
+   'the actual request must not supply the retired inline-settlement example');
 });
 
 test('a rejected reply remains private and preserves its original bytes for diagnosis',async t=>{
