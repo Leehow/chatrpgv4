@@ -513,6 +513,18 @@ export function whereSection(graph: ModuleGraph, world: Row, scene: Row, materia
     });
     const notes = typeof record.keeper_notes === "string" ? [record.keeper_notes] : array(record.keeper_notes).map(string);
     notes.push(...array(record.allowed_improvisation).map(string));
+    // Source possibilities are private references, not occurrences or scheduling instructions.
+    const seenEvents = new Set<string>();
+    for (const id of [...graph.groupOut(scene).map(edge => edge.to_node_id),
+        ...graph.groupIncoming(scene).map(edge => edge.from_node_id)]) {
+        const event = graph.nodes.get(graph.survivorId(string(id)));
+        if (!event || event.node_kind !== "event" || seenEvents.has(event.node_id)) continue;
+        seenEvents.add(event.node_id);
+        notes.push("Source event reference, not an occurrence or an obligation; not authorization for disclosure: " + JSON.stringify({
+            ref: graph.handle(event), summary: graph.summary(event),
+            properties: recordOf(event), source_refs: array(event.source_refs)
+        }));
+    }
     if (Array.isArray(record.tone) && record.tone.length)
         notes.push("tone: " + record.tone.map(string).join(", "));
     const beat = graph.sceneBeat(scene);
