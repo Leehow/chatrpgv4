@@ -393,10 +393,10 @@ test('§152.4 existing duplicates: the read-ahead queues their review, and a sam
 	assert.deepEqual((await b.graph()).regionCorrespondence((await b.graph()).nodes.get(MAP_B.node_id), survivor), {'inn-b': 'inn'});
 });
 
-test('§152.4 survivor walk: follows variant-of between printed visuals only, composes correspondences, and survives a cycle', () => {
+test('§152.4 survivor walk: follows reviewed identity between printed visuals, composes correspondences, and survives a cycle', () => {
 	const node = (id, kind = 'handout') => ({node_id: id, node_kind: kind, name: id, properties: {}});
-	const rel = (from, to, correspondence) => ({relation_id: `rel-${from}-${to}`, relation_kind: 'variant-of', from_node_id: from, to_node_id: to,
-		properties: correspondence ? {region_correspondence: correspondence} : {}});
+	const rel = (from, to, correspondence) => ({relation_id: from.startsWith('npc-')||to.startsWith('npc-') ? `rel-${from}-${to}` : `rel-identity-${from}-to-${to}`, relation_kind: 'variant-of', from_node_id: from, to_node_id: to,
+		properties: {identity_review:{key:'reviewed-print'},...(correspondence ? {region_correspondence: correspondence} : {})}});
 	const chain = new api.ModuleGraph('book', {nodes: [node('handout-a'), node('handout-b'), node('asset-c', 'asset'), node('npc-d', 'npc'), node('npc-e', 'npc'), node('handout-f')],
 		relations: [rel('handout-b', 'asset-c', {x: 'y'}), rel('asset-c', 'handout-a', {y: 'z', w: 'v'}), rel('npc-e', 'npc-d'), rel('handout-f', 'npc-d')]}, '', {});
 	assert.equal(chain.isVariant(chain.nodes.get('handout-f')), false, 'a print is a variant only of another print');
@@ -472,4 +472,36 @@ test('§152.4 handouts: a variant is handed over as its survivor, and a handout 
 	const shared = {...CARD_B, name: CARD_A.name};
 	const onlyShared = new api.ModuleGraph(b.mid, {...graph.raw, nodes: graph.raw.nodes.map(node => node.node_id === CARD_B.node_id ? shared : node)}, '', {});
 	assert.equal(api.handoutNode(onlyShared, CARD_A.name).node_id, CARD_A.node_id);
+});
+
+
+test('alternate visual versions keep their exact handout selection until a kernel identity verdict joins them', () => {
+ const a={node_id:'handout-original',node_kind:'handout',name:'Original letter',visibility:'player-safe',properties:{asset_ref:'original.png',media_type:'image/png'}};
+ const b={node_id:'handout-translation',node_kind:'handout',name:'Translated letter',visibility:'player-safe',properties:{asset_ref:'translation.png',media_type:'image/png'}};
+ const relation={relation_id:'rel-handout-original-variant-of-handout-translation',relation_kind:'variant-of',from_node_id:a.node_id,to_node_id:b.node_id,properties:{}};
+ const graph=new api.ModuleGraph('book',{nodes:[a,b],relations:[relation]},'',{});
+ assert.equal(api.handoutNode(graph,a.name).node_id,a.node_id);
+ assert.equal(api.handoutNode(graph,b.name).node_id,b.node_id);
+ assert.equal(graph.survivorOf(graph.nodes.get(a.node_id)).node_id,a.node_id);
+ assert.ok(graph.out.get(a.node_id).some(row=>row.relation_id===relation.relation_id),'the version association remains available');
+});
+
+test('a reviewed crop refresh publishes the new image declaration and PNG together while preserving unrelated canon',async()=>{
+ const b=await book('crop-refresh');
+ const id='handout-two-page-letter',base={node_id:id,node_kind:'handout',name:'Two page letter',visibility:'player-safe',summary:'The established summary.',source_refs:REFS};
+ const publish=async(sources,summary,color)=>{
+  const job=await claimDetail(b,`two page letter ${color}`);
+  const canvas=createCanvas(8,8),ctx=canvas.getContext('2d');ctx.fillStyle=color;ctx.fillRect(0,0,8,8);
+  const bytes=canvas.toBuffer('image/png'),path=join(job.work_dir,'letter.png'),sha256=createHash('sha256').update(bytes).digest('hex');await writeFile(path,bytes);
+  await b.publish(job,delta([{...base,summary,properties:{image_sources:sources}}]),{assets:[{node_id:id,path,sha256}]});
+  return {path,sha256,bytes};
+ };
+ const original=[{page:1,box:[0,0,1,1]}],updated=[{page:1,box:[0,0,1,1]},{page:2,box:[0,0,1,1]}];
+ await publish(original,base.summary,'red');
+ const image=await publish(updated,'A replacement summary that must not overwrite canon.','green');
+ const node=(await b.raw()).nodes.find(row=>row.node_id===id);
+ assert.deepEqual(node.properties.image_sources,updated);
+ assert.equal(node.summary,base.summary);assert.equal(node.properties.asset_digest,image.sha256);
+ const result=await b.call('module.asset',{name:id});
+ assert.equal(result.asset.path,image.path);assert.deepEqual(await readFile(result.asset.path),image.bytes);
 });

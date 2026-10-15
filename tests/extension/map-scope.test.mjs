@@ -225,8 +225,8 @@ test('§39.4 read-ahead: one background job for the lowest-page map without a ki
 	const b = await book('read-ahead');
 	await publishMaps(b, CELLAR, VILLAGE, COPY);
 	// Before the ruling: no map has a kind, and the copy is already recorded as a print of the village map.
-	await b.beforeTheRuling([CELLAR.node_id, VILLAGE.node_id, COPY.node_id], raw => raw.relations.push({relation_id: 'rel-identity-copy', relation_kind: 'variant-of',
-		from_node_id: COPY.node_id, to_node_id: VILLAGE.node_id, properties: {}}));
+	await b.beforeTheRuling([CELLAR.node_id, VILLAGE.node_id, COPY.node_id], raw => raw.relations.push({relation_id: `rel-identity-${COPY.node_id}-to-${VILLAGE.node_id}`, relation_kind: 'variant-of',
+		from_node_id: COPY.node_id, to_node_id: VILLAGE.node_id, properties: {identity_review:{key:'same-village-print'}}}));
 	await b.call('module.read.ahead', {});
 	let jobs = await b.scopeJobs();
 	assert.equal(jobs.length, 1, 'one map at a time');

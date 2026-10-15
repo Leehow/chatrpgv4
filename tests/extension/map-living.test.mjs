@@ -63,8 +63,8 @@ const RAW = {
         {relation_id: 'r4', relation_kind: 'located-in', from_node_id: 'location-harbor', to_node_id: 'location-village'},
         {relation_id: 'r5', relation_kind: 'depicts', from_node_id: 'asset-composed-map', to_node_id: 'scene-green'},
         {relation_id: 'r6', relation_kind: 'depicts', from_node_id: 'asset-village-print-2', to_node_id: 'location-village'},
-        {relation_id: 'r7', relation_kind: 'variant-of', from_node_id: 'asset-village-print-2', to_node_id: 'asset-village-map',
-            properties: {region_correspondence: {'v-inn': 'r-inn'}}},
+        {relation_id: 'rel-identity-asset-village-print-2-to-asset-village-map', relation_kind: 'variant-of', from_node_id: 'asset-village-print-2', to_node_id: 'asset-village-map',
+            properties: {identity_review:{key:'same-village-print'},region_correspondence: {'v-inn': 'r-inn'}}},
     ],
 };
 // Through the kernel's own JSON reader, so authored boxes carry the numeric identity a loaded graph has.

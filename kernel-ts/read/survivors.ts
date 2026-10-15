@@ -7,10 +7,9 @@
  * its survivor, from three sources:
  *
  * - kernel identity relations, `rel-identity-<later>-to-<earlier>` with `properties.identity_review`, as §152.4's
- *   `writeVariants` writes them and `modules/identity.ts` writes them for every kind. For a kind that is no printed visual,
- *   only these hops count: a reader-authored `variant-of` claim states a state (Dust to Dust's revived Virginia), never an
- *   identity;
- * - §152.4's `variant-of` between two printed visuals (`asset`, `handout`), whoever wrote it;
+ *   `writeVariants` writes them and `modules/identity.ts` writes them for every kind. Only reviewed identity hops count:
+ *   a reader-authored `variant-of` claim states a state or version (including a translated visual), never an identity;
+ * - §152.4's reviewed identity between printed visuals (`asset`, `handout`), including cross-kind pairs;
  * - §188.2's cast fold for people (`castFold`, installed by the campaign loader from `bookCast`), which never joins two nodes a
  *   recorded `different` verdict keeps apart (`apartPairs`; lead ruling 2026-10-07).
  *
@@ -78,8 +77,8 @@ export class SurvivorMap {
     constructor(private readonly graph: SurvivorSource) { }
 
     /**
-     * The relation a node leaves by, the first in relation order: between two printed visuals any `variant-of` (§152.4); for
-     * every other node only a kernel identity relation to a node of the same book kind (§192.3).
+     * The first reviewed kernel identity relation: between printed visuals (§152.4), or the same book kind (§192.3).
+     * An authored version association cannot replace the requested visual representation (§237.101).
      */
     private hop(node: Row): Row | undefined {
         const from = string(node.node_id), visual = VISUAL_KINDS.includes(node.node_kind);
@@ -87,8 +86,8 @@ export class SurvivorMap {
             if (rel.relation_kind !== "variant-of" || rel.to_node_id === from) return false;
             const target = this.graph.nodes.get(string(rel.to_node_id));
             if (!target) return false;
-            if (visual && VISUAL_KINDS.includes(target.node_kind)) return true;
-            return isIdentityRelation(rel) && this.graph.bookKind(target) === this.graph.bookKind(node);
+            return isIdentityRelation(rel) && ((visual && VISUAL_KINDS.includes(target.node_kind))
+                || this.graph.bookKind(target) === this.graph.bookKind(node));
         });
     }
 
