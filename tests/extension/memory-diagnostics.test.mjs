@@ -72,7 +72,7 @@ test('malformed attempts retain bounded private stages without changing retries,
     assert.ok(Buffer.byteLength(row.reply.tail??'')<=REPLY_EVIDENCE_BYTES);
     assert.ok(JSON.stringify(row.reply).includes(privateMarker));
   }
-  for(const [index,stage] of [[1,'candidates'],[3,'story'],[6,'attribution_review']]){
+  for(const [index,stage] of [[1,'candidates'],[3,'story'],[6,'attribution_review'],[7,'attribution_review']]){
     const feedback=requests[index].split('[Previous attempt failed:')[1];
     assert.ok(feedback?.includes(stage),'retry names the structural stage');
     assert.ok(!feedback.includes(privateMarker),'retry feedback never quotes the reply');
