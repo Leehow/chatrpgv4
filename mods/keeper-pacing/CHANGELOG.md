@@ -1,5 +1,10 @@
 # Keeper Pacing
 
+## 1.3.4
+
+- Clarify that dependent selected steps use the existing `resolve`/`apply` tools before final prose. Recover refused batches through that same tool loop without dropping still-selected steps or replaying settled effects (§237.67 live follow-up).
+- Retain the final inline format, native validation and sole final correction. No runtime, queue, plan state, agent or gate changes.
+
 ## 1.3.3
 
 - Align selected connected acts, dependencies, conditions and prohibitions with the single Keeper's actual `resolve`/`apply` results (§237.67). Intermediate outcomes do not force a handoff; unselected consequential choices and failed prerequisites still bound play.
