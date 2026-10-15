@@ -473,9 +473,12 @@ export function createApplyHandlers(kernel: KernelContext, writer: ReturnType<ty
             const passedTurns: Row[] = [];
             for (const receipt of receipts)
                 if (receipt.kind === 'npc' && isJsonObject(receipt.passes_turn)) {
-                    const passed = await passNpcTurn(await context.settlement(), string(receipt.handle));
+                    let passed = passedTurns.find(value => value.passed === receipt.handle);
+                    if (!passed) {
+                        passed = await passNpcTurn(await context.settlement(), string(receipt.handle));
+                        passedTurns.push(passed);
+                    }
                     receipt.passes_turn = { ...receipt.passes_turn, turn_of: passed.turn_of ?? null };
-                    passedTurns.push(passed);
                 }
             // §129.4: a definition that replaced a placeholder changed what instances already on a sheet read.
             if(effects.some(effect=>isJsonObject(effect)&&['object','usage'].includes(string(effect.kind)))||receipts.some(receipt=>receipt.replaced_placeholder===true))
