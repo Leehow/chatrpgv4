@@ -110,7 +110,7 @@ export function createApplyHandlers(kernel: KernelContext, writer: ReturnType<ty
     const tables = new RuleTables(kernel);
     return { 'table.apply': async (params) => {
             const transaction = await writer.transaction(params, { repairLegacyTrail: false, preload: false }), { campaign, turn } = transaction;
-            const effects = params.effects;
+            const effects = Array.isArray(params.effects) ? params.effects.map(effect => isJsonObject(effect) ? {...effect} : effect) : params.effects;
             const callParams = Array.isArray(effects) ? { ...params, effects: effects.map(effect => isJsonObject(effect) ? Object.fromEntries(entries(effect).filter(([key]) => !key.startsWith('_'))) : effect) } : params;
             // §198.3: beside the preparations the opening already admits, an npc effect shaped as a seat (stageNpc decides whether
             // it is one: a person the book places in the opening scene whom nobody has placed yet).
@@ -172,6 +172,11 @@ export function createApplyHandlers(kernel: KernelContext, writer: ReturnType<ty
                 let existing: Row | null = null;
                 try { existing = personNode(graph, transaction.world, effect.name); } catch { existing = null; }
                 if (existing) continue;
+                // An exact unread cast identity arrives through its existing source landing, never as a duplicate newcomer.
+                if (effect.creature == null && castPersonNamed(graph, transaction.world, effect.name)) {
+                    effect.walk_on = false;
+                    continue;
+                }
                 const refusal = newcomerRefusal(graph, transaction.world, effect.name);
                 if (refusal) throw atIndex(new RpcError('invalid_params', refusal.message, { fix: refusal.fix, details: { field: 'npc.name', reason: 'book_name', query: effect.name } }), index);
             }

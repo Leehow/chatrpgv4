@@ -411,8 +411,9 @@ test('§177.3: a newcomer may not take or carry a name of anyone the book names,
 	for (const name of ['Jonah', 'old Jonah', "Mae's cousin", 'Silas Marsh', 'the lamp keeper']) {
 		const answer = await walkOn(name);
 		assert.equal(answer.ok, false, `${name} is refused`);
-		assert.equal(answer.error.details?.reason, 'book_name', `${name}: ${answer.error.message}`);
-		assert.ok(!/Silas Marsh|Old Mae|Jonah drowned/.test(answer.error.message.replace(JSON.stringify(name), '')), `the refusal names nobody: ${answer.error.message}`);
+		const exact = ['Jonah', 'Silas Marsh', 'the lamp keeper'].includes(name);
+		assert.equal(answer.error.details?.reason, exact ? 'material_pending' : 'book_name', `${name}: ${answer.error.message}`);
+		if (!exact) assert.ok(!/Silas Marsh|Old Mae|Jonah drowned/.test(answer.error.message.replace(JSON.stringify(name), '')), `the refusal names nobody: ${answer.error.message}`);
 	}
 	// A space is not punctuation (§103.8): the book prints only "Silas Marsh", so "Silas" alone is no name it gives anyone.
 	assert.equal((await walkOn('Silas the boatwright')).ok, true);
@@ -447,6 +448,23 @@ test('§177.6/§177.7: lookup finds a person by the table\'s word; an unread per
 	assert.deepEqual(landed.result.person_text, [{person: 'the drowned boy', focus: 'Jonah', pages: [3], passage}]);
 	const entry = (await h.world()).table_people.find(row => row.name === 'the drowned boy');
 	assert.equal(entry?.cast_id, jonahId, 'registered under the table\'s word, with the row it came from');
+});
+
+test('an exact unread cast identity with walk_on reuses its source landing rather than asking for a renamed newcomer',async t=>{
+ const h=await harbor(t);await readCast(h);
+ const jonahId=(await h.call('table.untold')).people.find(row=>row.name==='Jonah').id;
+ await h.call('epithets.submit',{entries:[{id:jonahId,word:'the drowned boy'}]});
+ await h.call('table.player_input',{text:'I wait by the cellar.'});
+ const effects=[{kind:'npc',name:'the drowned boy',to:'here',walk_on:true,why:'The existing person arrives.'}];
+ const held=await h.attempt('table.apply',{call_id:'t1-c1',effects});
+ assert.equal(held.ok,false);assert.equal(held.error.details?.reason,'material_pending');
+ assert.equal(effects[0].walk_on,true,'normalization must not rewrite the caller input');
+ const passage={scene:null,page:3,label:null,sentence:"Mae's boy Jonah drowned there last spring."};
+ const landed=await h.attempt('table.apply',{call_id:'t1-c1',effects,_land_on_text:[{key:'the drowned boy',passage}]});
+ assert.equal(landed.ok,true,JSON.stringify(landed.error));
+ const people=(await h.world()).table_people;
+ assert.equal(people.length,1);assert.equal(people[0].cast_id,jonahId);
+ assert.equal(effects[0].walk_on,true);
 });
 
 test('§177.6: once the reader publishes the person, the landed entry is replaced by the cast row\'s id, though its word is no book name', () => {
