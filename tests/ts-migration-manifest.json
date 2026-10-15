@@ -42447,7 +42447,7 @@
           "counterpart": {
             "file": "tests/integration/rules-combat-refusal.test.ts",
             "name": "test_an_investigators_refused_fight_action_names_no_other_fight_decision",
-            "sha256": "4259fa95fe3f6cfcf1b952ea36a0c5bbb09ddb7063e7cca525de7ff114ec5d7f"
+            "sha256": "b46380659674a8c2fdf77feb9f3451818cb9bfe947d3fecb2293b6123f2db0ac"
           },
           "review": "statement-by-statement",
           "validation": {
@@ -42513,6 +42513,13 @@
               },
               "fullCurrentSourceByteExact": false,
               "remainingSnapshotFilesExact": 1409
+            },
+            "currentRevalidation": {
+              "command": "node --test tests/integration/rules-combat-refusal.test.ts",
+              "result": "passed",
+              "tests": 9,
+              "evidence": ".tmp/amaranthine-system-20261013/thinking-23769/combat-offers-green-final.log",
+              "review": "All original migrated assertions retained unchanged; one new real RPC case reads issued combat choices and resolves a maneuver with the existing NPC defense, then ends combat."
             }
           },
           "migrationNotes": "All original assertions and parameter rows reviewed; native production RPC, disk persistence and refusal boundaries retained. Query reads additionally verify fresh process exit, complete file bytes and SQLite snapshot invariance."
@@ -42547,7 +42554,7 @@
           "counterpart": {
             "file": "tests/integration/rules-combat-refusal.test.ts",
             "name": "test_the_maneuver_refusal_still_names_the_four_and_changes_nothing",
-            "sha256": "4259fa95fe3f6cfcf1b952ea36a0c5bbb09ddb7063e7cca525de7ff114ec5d7f"
+            "sha256": "b46380659674a8c2fdf77feb9f3451818cb9bfe947d3fecb2293b6123f2db0ac"
           },
           "review": "statement-by-statement",
           "validation": {
@@ -42608,6 +42615,13 @@
               },
               "fullCurrentSourceByteExact": false,
               "remainingSnapshotFilesExact": 1409
+            },
+            "currentRevalidation": {
+              "command": "node --test tests/integration/rules-combat-refusal.test.ts",
+              "result": "passed",
+              "tests": 9,
+              "evidence": ".tmp/amaranthine-system-20261013/thinking-23769/combat-offers-green-final.log",
+              "review": "All original migrated assertions retained unchanged; one new real RPC case reads issued combat choices and resolves a maneuver with the existing NPC defense, then ends combat."
             }
           },
           "migrationNotes": "All original assertions and parameter rows reviewed; native production RPC, disk persistence and refusal boundaries retained. Query reads additionally verify fresh process exit, complete file bytes and SQLite snapshot invariance."
@@ -42634,7 +42648,7 @@
           "counterpart": {
             "file": "tests/integration/rules-combat-refusal.test.ts",
             "name": "test_an_npcs_held_flight_still_names_his_way_free",
-            "sha256": "4259fa95fe3f6cfcf1b952ea36a0c5bbb09ddb7063e7cca525de7ff114ec5d7f"
+            "sha256": "b46380659674a8c2fdf77feb9f3451818cb9bfe947d3fecb2293b6123f2db0ac"
           },
           "review": "statement-by-statement",
           "validation": {
@@ -42695,6 +42709,13 @@
               },
               "fullCurrentSourceByteExact": false,
               "remainingSnapshotFilesExact": 1409
+            },
+            "currentRevalidation": {
+              "command": "node --test tests/integration/rules-combat-refusal.test.ts",
+              "result": "passed",
+              "tests": 9,
+              "evidence": ".tmp/amaranthine-system-20261013/thinking-23769/combat-offers-green-final.log",
+              "review": "All original migrated assertions retained unchanged; one new real RPC case reads issued combat choices and resolves a maneuver with the existing NPC defense, then ends combat."
             }
           },
           "migrationNotes": "All original assertions and parameter rows reviewed; native production RPC, disk persistence and refusal boundaries retained. Query reads additionally verify fresh process exit, complete file bytes and SQLite snapshot invariance."

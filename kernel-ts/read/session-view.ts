@@ -4,6 +4,7 @@ import { CampaignSnapshot } from "./campaign.js";
 import { entries, array, row, number, truth, string, integer, type Row } from "./values.js";
 import { OUT_OF_FIGHT_CONDITIONS } from "../healing/conditions.js";
 import { standingAction, standingDefense, stanceNow, type Standing, type StandingAction } from "../combat/standing.js";
+import { VALID_OUTCOMES, MANEUVER_GOALS } from "../combat/catalog.js";
 import { fleeBlockers } from "../combat/flee-footing.js";
 export const active = (snapshot: Row | null): boolean => snapshot?.status === "active";
 export const boutActive = (snapshot: Row | null): boolean => truth(snapshot?.bout_active);
@@ -81,7 +82,9 @@ export class SessionView {
         actions.push({
             decision: "combat:maneuver",
             actor,
-            targets
+            targets,
+            weapons,
+            goals: [...MANEUVER_GOALS].sort()
         });
         // §142.10: anyone whose turn it is can try to get away -- an NPC's standing action can be `flee`, and before
         // this the view issued no action it could bind to. §143.9: except a person the ruleset's flight rules block
@@ -96,7 +99,8 @@ export class SessionView {
             });
         actions.push({
             decision: "combat:end",
-            actor
+            actor,
+            outcomes: [...VALID_OUTCOMES].filter(outcome => outcome !== null).sort()
         });
         return actions;
     }

@@ -695,7 +695,7 @@ const ResolveAction = Type.Object({
 		] as const,
 		{ description: "which class this action belongs to; the kernel picks the rule family from it" },
 	),
-	goal: Type.String({ description: "one sentence: what the player wants to achieve" }),
+	goal: Type.String({ description: "one sentence: what the player wants to achieve, except combat:maneuver requires one of the closed goals supplied by session.actions.goals or needs.options; describe the physical intent in method" }),
 	method: Type.String({ description: "one sentence: how he does it; usually names a skill" }),
 	target: Type.Optional(Type.String({ description: "against whom or what: an NPC name or an object name. For treatment it is the patient — First Aid or Medicine with an NPC here is settled on that NPC's hit points and conditions, not on the rescuer's" })),
 	stakes: Type.Optional(Type.String({ description: "one sentence: what failure costs" })),
@@ -718,7 +718,7 @@ const ResolveAction = Type.Object({
 	weapon: Type.Optional(
 		Type.String({
 			description:
-				"Compatible alias for action.object when attacking; bare hands is unarmed. If object and weapon are both supplied they must identify the same physical object, otherwise the kernel refuses",
+				"For combat:attack or combat:maneuver, select the held weapon from session.actions.weapons; bare hands is unarmed. Compatible alias for action.object when attacking. If object and weapon are both supplied they must identify the same physical object, otherwise the kernel refuses",
 		}),
 	),
 	spell: Type.Optional(Type.String({ description: "spell name; give it when casting (intent cast) or when learning a spell from a tome" })),

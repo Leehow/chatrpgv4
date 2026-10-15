@@ -7,6 +7,27 @@ async function decisions(k:any){const names=[...new Set<string>((await k.ok('tab
 const escapeRegex=(value:string)=>value.replace(/[.*+?^${}()|[\]\\]/g,'\\$&');
 const named=(fix:string,names:string[])=>names.filter(name=>fix.includes(name)||new RegExp(`\\b${escapeRegex(name.split(':')[1])}\\b`,'i').test(fix)).sort();
 const demand={intent:'combat',decision:'combat:maneuver',goal:'挥拳威逼，逼他把钱交出来',method:'一拳逼他把钱交出来',target:'Walter Corbitt',weapon:'unarmed'};
+test('current combat action offers carry the closed parameters a real maneuver and end require',async t=>{
+ const k=await clientFor(t),n=await hayesTurn(k),session=(await k.table('look',{focus:'session'})).session;
+ const maneuver=session.actions.find((action:any)=>action.decision==='combat:maneuver');
+ assert.deepEqual(maneuver.goals,['disarm','escape','ongoing_disadvantage','push']);
+ assert.ok(maneuver.weapons.includes('unarmed'));
+ assert.deepEqual(session.actions.find((action:any)=>action.decision==='combat:end').outcomes,['fled','investigators_win','monsters_win','stalemate']);
+ const proposed=await resolve(k,`t1-c${n}`,{intent:'combat',decision:maneuver.decision,actor:maneuver.actor,
+  goal:maneuver.goals.find((goal:string)=>goal==='push'),weapon:maneuver.weapons.find((weapon:string)=>weapon==='unarmed'),
+  target:maneuver.targets[0],method:'Move the opponent away from the doorway without a damaging blow'});
+ assert.equal(proposed.decision,'combat:maneuver');
+ assert.equal(proposed.outcome.status,'resolved');
+ assert.ok(proposed.outcome.rolls.length>=2);
+ assert.equal(proposed.session.pending_defense,null);
+ assert.equal(proposed.session.turn_of,CORBITT);
+ assert.ok(proposed.session.participants.find((person:any)=>person.name===CORBITT).conditions.includes('prone'));
+ const ending=proposed.session.actions.find((action:any)=>action.decision==='combat:end');
+ const ended=await resolve(k,`t1-c${n+1}`,{intent:'combat',decision:ending.decision,actor:ending.actor,
+  outcome:ending.outcomes.find((outcome:string)=>outcome==='stalemate'),goal:'Both sides stop fighting',method:'End the exchange'});
+ assert.equal(ended.outcome.combat_outcome,'stalemate');
+ assert.equal((await k.table('look',{focus:'session'})).session,null);
+});
 const cases:Record<string,(k:any)=>Promise<[string,any]>>={
  maneuver_whose_goal_is_the_demand:async k=>['combat:maneuver',await resolveErr(k,`t1-c${await hayesTurn(k)}`,demand)],
  defence_with_nothing_to_answer:async k=>['combat:defend',await resolveErr(k,`t1-c${await hayesTurn(k)}`,{intent:'combat',decision:'combat:defend',defense:'dodge',goal:'躲开',method:'侧身'})],

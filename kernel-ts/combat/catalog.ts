@@ -1,7 +1,9 @@
-/** The captured rulebook weapon catalog and its existing module overlays. */
+/** Captured combat choices, rulebook weapons and existing module overlays. */
 import { isJsonObject, orderedObject } from '../json.js';
 import { array, clone, entries, number, repr, row, string, truth, type Row } from '../read/values.js';
 import type { RuleTables } from '../rules/tables.js';
+export const VALID_OUTCOMES = new Set<string | null>(['investigators_win', 'monsters_win', 'fled', 'stalemate', null]);
+export const MANEUVER_GOALS = new Set(['disarm', 'ongoing_disadvantage', 'escape', 'push']);
 export class UnknownWeaponError extends Error {
     override name = 'UnknownWeaponError';
     constructor(readonly weaponId: string) { super(`unknown_weapon: ${repr(weaponId)}`); }
