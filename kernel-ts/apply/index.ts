@@ -375,7 +375,7 @@ export function createApplyHandlers(kernel: KernelContext, writer: ReturnType<ty
                 for (const line of timeLines) if (line.minutes > 0 && !line.exempt)
                     refused.push({ index: line.index, error: new RpcError('invalid_params',
                         `the move in this batch already advanced the clock ${travelled} minutes for the journey to ${where}; this time effect advances it another ${line.minutes} minutes`, {
-                            fix: `Remove this time effect and send the batch again: the move already advanced the clock for the journey. Only if these ${line.minutes} minutes pass beyond the journey (after arriving or before setting out), keep the time effect and add beyond_travel: true to it.`,
+                            fix: `Remove this time effect and send the batch again: effects[${line.index}] is the refused time effect (zero-based index); the move already advanced the clock for the journey. Only if these ${line.minutes} minutes pass beyond the journey (after arriving or before setting out), keep effects[${line.index}] and add beyond_travel: true to that same effect.`,
                             details: { field: 'beyond_travel', reason: 'travel_time_duplicated', minutes: line.minutes, travel_minutes: travelled,
                                 moves: travelLines.map(({ index, to, minutes }) => ({ index, to, minutes })) } }) });
                 refused.sort((a, b) => a.index - b.index);
