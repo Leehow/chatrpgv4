@@ -103,10 +103,11 @@ export function parallelReadBatch(calls: readonly {operation: string; params?: u
     if (!isPlainRecord(call.params)) return false;
     const args = call.params;
     if (Object.keys(args).some(key => ['using_skill', 'workpad_patch', '_context_read'].includes(key))) return false;
-    if (call.operation === 'look') return ['npc', 'investigator', 'time', 'session'].includes(String(args.focus))
+    if (call.operation === 'look') return ['npc', 'investigator', 'time', 'session', 'clues'].includes(String(args.focus))
       && Object.keys(args).every(key => ['focus', 'name'].includes(key));
     if (call.operation === 'lookup') return ['module', 'rule', 'catalog', 'secret', 'continuity'].includes(String(args.kind))
-      && Object.keys(args).every(key => ['kind', 'query', 'kinds', 'limit', 'scope', 'anchors'].includes(key));
+      && Object.keys(args).every(key => ['kind', 'query', 'kinds', 'limit', 'scope', 'anchors', 'expected_kind'].includes(key))
+      && (!Object.hasOwn(args,'expected_kind') || args.kind==='module' && ['npc','clue','object','handout'].includes(String(args.expected_kind)));
     if (call.operation === 'recall') return ['memory', 'transcript', 'history'].includes(String(args.what))
       && !['query', 'read', 'detail', 'page'].some(key => Object.hasOwn(args, key));
     return false;

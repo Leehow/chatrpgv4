@@ -71,7 +71,8 @@ export class ArtifactTextStream {
   private bytes = 0;
   private prefix = '{"version":1,';
   private at = 0;
-  private phase: 'prefix' | 'field' | 'record' | 'separator' | 'text' | 'tail' = 'prefix';
+  private phase: 'prefix' | 'field' | 'record' | 'separator' | 'marker' | 'text' | 'tail' = 'prefix';
+  private scanned = 0;
   private field = '';
   private recordText = '';
   private recordBytes = 0;
@@ -108,6 +109,8 @@ export class ArtifactTextStream {
     let text = '';
     if(this.native)text=chunk;
     else for (const char of chunk) {
+      this.scanned+=char.length;
+      if(this.native){text+=char;continue;}
       if (this.phase === 'tail') continue;
       if (this.phase === 'prefix') {
         if (/\s/.test(char)) continue;
@@ -150,8 +153,20 @@ export class ArtifactTextStream {
         }
       } else if(this.phase==='separator') {
         if(/\s/.test(char))continue;
+        if(char==='}'){
+          const prelude=JSON.parse(this.raw.slice(0,this.scanned));
+          if(JSON.stringify(Object.keys(prelude))!==JSON.stringify(['version','record'])
+            ||prelude.version!==1||JSON.stringify(prelude.record)!==JSON.stringify(this.record))
+            throw new Error('Invalid private prelude');
+          this.phase='marker';this.field='';continue;
+        }
         if(char!==',')throw new Error('Public text must follow the turn record');
         this.phase='field';
+      } else if(this.phase==='marker') {
+        if(!this.field&&/\s/.test(char))continue;
+        this.field+=char;
+        if(!'{{public}}'.startsWith(this.field))throw new Error('Invalid public stream marker');
+        if(this.field==='{{public}}')this.native=true;
       } else if (this.unicode !== undefined) {
         if (!/^[0-9a-f]$/i.test(char)) throw new Error('Invalid artifact Unicode escape');
         this.unicode += char;

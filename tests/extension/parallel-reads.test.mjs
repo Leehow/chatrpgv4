@@ -61,10 +61,12 @@ test('a mixed native batch retains sequential execution and the dependent reques
 
 test('parallel eligibility follows closed operation branches across scenarios, not entity words',()=>{
   const baseline={operation:'look',params:{focus:'time'}};
-  for(const params of [{focus:'npc',name:'Any existing person'},{focus:'investigator'},{focus:'session'}])
+  for(const params of [{focus:'npc',name:'Any existing person'},{focus:'investigator'},{focus:'session'},{focus:'clues'}])
     assert.equal(parallelReadBatch([baseline,{operation:'look',params}]),true);
   for(const kind of ['module','rule','catalog','secret','continuity'])
     assert.equal(parallelReadBatch([baseline,{operation:'lookup',params:{kind,query:'An independent question'}}]),true);
+  for(const expected_kind of ['npc','clue','object','handout'])
+    assert.equal(parallelReadBatch([baseline,{operation:'lookup',params:{kind:'module',query:'An independent entity',expected_kind}}]),true);
   for(const what of ['memory','transcript','history'])
     assert.equal(parallelReadBatch([baseline,{operation:'recall',params:{what}}]),true);
   for(const params of [{focus:'scene'},{focus:'object',name:'A notebook'},{focus:'map'},{focus:'knowledge'},
@@ -78,6 +80,19 @@ test('parallel eligibility follows closed operation branches across scenarios, n
     assert.equal(parallelReadBatch([baseline,{operation:'recall',params}]),false);
   for(const operation of ['apply','resolve','ask','output','narrate','unknown'])
     assert.equal(parallelReadBatch([baseline,{operation,params:{}}]),false);
+});
+
+test('typed module lookups overlap with native views through the real dispatcher',{timeout:15000},async t=>{
+  const calls=[reads[0],call('typed-module','lookup',{kind:'module',query:'Steven Knott',expected_kind:'npc'}),reads[1]];
+  const {table,requests,intervals}=await fixture(t,calls);
+  await table.session.prompt('I compare the clerk and the available records.');
+  const [slow,typed,fast]=calls.map(call=>intervals.find(row=>row.id===call.id));
+  assert(slow&&typed&&fast);
+  assert(typed.start<slow.end&&fast.start<slow.end,'an explicit non-scene kind must not serialize the whole read batch');
+  const results=requests[0].filter(row=>row.role==='toolResult'&&calls.some(c=>c.id===row.toolCallId));
+  assert.deepEqual(results.map(row=>row.toolCallId),calls.map(c=>c.id));
+  assert(results.every(row=>!row.isError));
+  assert.deepEqual(table.extensionErrors,[]);
 });
 
 test('native validation and an after-hook failure keep successful siblings and exact ordered pairs',{timeout:15000},async t=>{

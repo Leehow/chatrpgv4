@@ -92,6 +92,36 @@ test('native public prose streams without a JSON wrapper at every marker boundar
   }
 });
 
+test('a closed private prelude accepts only its following public marker at every boundary',()=>{
+  const record={effects:[],event:{name:'prelude',summary:'PRIVATE {{public}} is not a boundary.'}};
+  const text='Public "quotes", braces } and 😀.\nAnother paragraph.';
+  const prefix=JSON.stringify({version:1,record})+'\n{{public}}';
+  const raw=prefix+text;
+  for(let cut=0;cut<=raw.length;cut++){
+    const records=[],stream=new ArtifactTextStream(value=>records.push(value));
+    assert.equal(stream.push(raw.slice(0,cut))+stream.push(raw.slice(cut)),text);
+    assert.deepEqual(stream.finish(),{version:1,record,text,coverage:[]});
+    assert.deepEqual(records,[record]);
+  }
+  const stream=new ArtifactTextStream(()=>{});
+  assert.equal(stream.push(prefix),'');
+  assert.equal(stream.push('Public first.'),'Public first.');
+  assert.equal(stream.push(' Public second.'),' Public second.');
+  assert.equal(stream.finish().text,'Public first. Public second.');
+  for(const raw of [
+    '{"version":1,"record":{}} {{pub',
+    '{"version":1,"record":{}} {{reference}}Hidden',
+    '{"version":1,"record":{}} {{unknown}}Hidden',
+    '{"version":1,"record":{},"record":{}} {{public}}Hidden',
+    '{"version":1,"record":{},"other":0} {{public}}Hidden',
+    '{"ver sion":1,"record":{}} {{public}}Hidden',
+    '{"version":1,"record":{"effects":{}}} {{public}}Hidden',
+  ]){
+    const invalid=new ArtifactTextStream(()=>{});
+    assert.throws(()=>{assert.equal(invalid.push(raw),'');invalid.finish();});
+  }
+});
+
 test('delivery recovery retains complete frames when a crash tears the final append',async()=>{
   const {mkdtempSync,readFileSync,writeFileSync,rmSync}=await import('node:fs');
   const {tmpdir}=await import('node:os');

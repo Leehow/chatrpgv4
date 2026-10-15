@@ -438,11 +438,12 @@ test('a sealed source-append packet survives restart while legacy and owner conf
   assert.equal(JSON.parse(readFileSync(join(changedWorld.workspace,'.coc/campaigns/test-camp/world.json'),'utf8')).clock.minutes,8);
 });
 
-test('one trailing brace publishes one Keeper body after settling its private record once',async t=>{
+for(const form of ['trailing brace','closed prelude'])test(`${form} publishes one Keeper body after settling its private record once`,async t=>{
   const text='You finish waiting. The office remains quiet. '.repeat(4);
   const response={version:1,record:{effects:[{kind:'time',minutes:8}],event:{name:'one-brace-reply',summary:'PRIVATE_ONE_BRACE_CAUSE'}},text};
   let authors=0,stateAtFirstDelta;
-  const {table,seen}=await directTable([()=>{authors++;return fauxAssistantMessage(JSON.stringify(response)+'}');}],{
+  const {table,seen}=await directTable([()=>{authors++;return fauxAssistantMessage(form==='trailing brace'
+    ?JSON.stringify(response)+'}':JSON.stringify({version:1,record:response.record})+'\n{{public}}'+text);}],{
     onFrame:frame=>{if(frame.event==='delta'&&stateAtFirstDelta===undefined)
       stateAtFirstDelta=JSON.parse(readFileSync(join(table.workspace,'.coc/campaigns/test-camp/world.json'),'utf8')).clock.minutes;},
   });
