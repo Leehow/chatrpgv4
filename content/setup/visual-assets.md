@@ -20,6 +20,10 @@ Successful draft writes/edits can return actual private publication previews and
 full-page comparisons on the same tool result. Inspect those supplied pixels:
 correct missing edges, residual neighboring content and masks that cover the
 picture before submission. No acknowledgement or extra approval is required.
+When the intended picture fills a supplied native raster placement, start from
+that whole box. Move an edge inward only where original pixels show unrelated
+content, not to guess a tighter frame. Composite rasters can include other art;
+native geometry alone does not select safe publication content.
 The task supplies its vocabulary; do not read repository code outside this task.
 Bash can run only the exact supplied host checker command, not rendering scripts
 or general shell work. Use pdf for original images and proposed crop inspection.

@@ -117,3 +117,5 @@ Motives guide actions; they need not be said aloud. No required catchphrase, len
 anger, honesty, cooperation or self-explanation. Do not generate profiles for creatures or pregens.
 
 For an irregular visual with neighboring text in a corner, preserve the complete picture and use optional `image_sources[].redactions` to cover only the unrelated pixels. Each mask is `[left,top,right,bottom]` in the original rotated-page coordinate frame, not crop coordinates. Inspect the exact masked preview; do not trim away the picture to avoid corner prose. Keep these masks out of `source_refs`. Existing map-region masks remain separate.
+
+When the intended picture fills a supplied native raster placement, start from that whole box. Move an edge inward only where original pixels show unrelated content, not to guess a tighter frame. Composite rasters can include other art; native geometry alone does not select safe publication content.
