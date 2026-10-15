@@ -29,6 +29,19 @@ test('tagged calls reject extra prose, incomplete containers, duplicate paramete
         assert.equal(restoreTextCallList(fauxAssistantMessage(body),()=>true,COC_TOOLS),undefined);
     }
 });
+test('tagged call batches keep complete JSON strings and reject the entire mixed batch',()=>{
+    const call=tagged[0].slice('```html\n'.length);
+    const summary='A literal </parameter></tool_call>{{public}} remains private argument data.';
+    const changed=call.replace('"A fixture interval passes."',JSON.stringify(summary));
+    const reading=readTextToolCalls(changed+'\n'+call,COC_TOOLS);
+    assert.equal(reading?.kind,'calls');
+    assert.equal(reading.calls.length,2);
+    assert.equal(reading.calls[0].arguments.event.summary,summary);
+    assert.equal(reading.calls[1].arguments.event.summary,'A fixture interval passes.');
+    const message=restoreTextCallList(fauxAssistantMessage(changed+'\n'+call),name=>name==='apply',COC_TOOLS)?.message;
+    assert.equal(new Set(message.content.filter(row=>row.type==='toolCall').map(row=>row.id)).size,2);
+    assert.equal(restoreTextCallList(fauxAssistantMessage(changed+'\n'+call.replace('<tool_name>apply','<tool_name>unknown')),name=>name==='apply',COC_TOOLS),undefined);
+});
 const envelope = JSON.stringify({narrate:{text:prose}});
 const fenced = '```json\n'+envelope+'\n```';
 const captured=JSON.parse(readFileSync(join(import.meta.dirname,'fixtures','delivery-recovery-20261006.json'),'utf8'));
