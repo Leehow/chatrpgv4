@@ -58,6 +58,30 @@ test('the owned document row supplies a working append route after crowded inven
   assert.equal(entry.append.from,'Study chair');
 });
 
+test('owned document write routes survive preview pressure within the existing capsule budget',async t=>{
+  const game=await paper(t),sheet=JSON.parse(await readFile(game.sheetPath,'utf8'));
+  sheet.backstory=Object.fromEntries(Array.from({length:8},(_,index)=>[`category_${index}`,'An established investigator background detail. '.repeat(4)]));
+  await writeFile(game.sheetPath,JSON.stringify(sheet));
+  await game.apply([game.doc({action:'append',text:'A retained old observation. '.repeat(30)})]);
+  for(const name of ['Complaint copy','Resident list']){
+    const job=await game.call('mods.job',{role:'create',input:{name,category:'item',description:'An owned written sheet.'}});
+    const definition={name,category:'item',description:'An owned written sheet.',basis:'Issued with the case papers.',
+      parameters:{charges:null,effects:[]},traits:[],player_view:{description:'An owned written sheet.',fields:[]},
+      document:{text:'A long established record. '.repeat(40),presentation:'notebook'}};
+    await writeFile(join(job.cwd,'result.json'),JSON.stringify(definition));const accepted=await game.call('mods.accept',{job:job.job});
+    await game.apply([{kind:'define',name,category:'item',_definition:accepted.definition,_provenance:accepted.provenance},
+      {kind:'object',name,definition:name,to:game.sheet.name}]);
+  }
+  const own=(await game.call('table.capsule')).own;
+  assert.deepEqual(own.documents.map(value=>value.name).sort(),['Complaint copy','Pocket notebook','Resident list']);
+  assert.ok(Buffer.byteLength(JSON.stringify(own))<=2048,'the section keeps its existing byte limit');
+  assert.equal(own.documents_omitted,undefined);
+  assert.ok(own.documents.some(value=>value.cut&&value.text.length<200),'optional previews yield before operation routes');
+  const notebook=own.documents.find(value=>value.name==='Pocket notebook'),before=await game.view();
+  await game.apply([{...notebook.append,document:{...notebook.append.document,text:'New observed fact.\n'},why:'The investigator writes the selected new observation.'}]);
+  assert.equal((await game.view()).text,before.text+'New observed fact.\n','the projected route still performs the real append');
+});
+
 test('story append reaches the same current paper and an unshown NPC cannot acquire its writing',async t=>{
   const game=await paper(t);
   await game.apply([game.doc({action:'append',text:'Plate LICENSE-A7.\nPrivate route SECRET-R9.'},'The investigator writes the selected notes with their pencil.')]);

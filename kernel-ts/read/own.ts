@@ -62,7 +62,11 @@ export function ownSection(sheet: Row | undefined, records: readonly Row[], wind
             marks:(document.marks??[]).slice(-1).map((mark:Row)=>({method:mark.method,legibility:mark.legibility,description:chars(mark.description,80)}))}));
         section.document_authority='Current writing wins over historical words. A remembered fact is not automatically written on a page.';
         if(documents.length>4)section.documents_omitted=documents.length-4;
-        while(jsonSize({...section,said:[]})>budget&&section.documents.length){section.documents.pop();section.documents_omitted=(section.documents_omitted??0)+1;}
+        // Optional excerpts yield before an entire carrier and its existing read/write routes.
+        while(jsonSize({...section,said:[]})>budget&&section.documents.some((document:Row)=>length(document.text)>0)){
+            const document=section.documents.reduce((a:Row,b:Row)=>length(a.text)>length(b.text)?a:b);
+            document.text=chars(document.text,Math.max(0,length(document.text)-20));document.cut=true;
+        }
     }
     // A card longer than the section itself gives up characters from its longest category, never a category.
     while (jsonSize({...section, said: []}) > budget&&Object.keys(held).length) {
@@ -70,6 +74,7 @@ export function ownSection(sheet: Row | undefined, records: readonly Row[], wind
         if (length(value) <= 20) break;
         held[key] = chars(value, length(value) - 20);
     }
+    while(jsonSize({...section,said:[]})>budget&&section.documents?.length){section.documents.pop();section.documents_omitted=(section.documents_omitted??0)+1;}
     const shut = new Set(window.map(Number));
     const earlier = records.filter(record => text(record.player_text) && !shut.has(Number(record.turn))).map(line);
     section.said = [];
