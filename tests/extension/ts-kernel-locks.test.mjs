@@ -18,18 +18,13 @@ await build({entryPoints: [join(root, 'kernel-ts/native-locks.ts')], outfile: jo
   bundle: true, packages: 'external', platform: 'node', format: 'esm', target: 'node22', logLevel: 'silent'});
 const {nativeAdvisoryLocks} = await import(pathToFileURL(join(directory, 'locks.mjs')).href);
 
-async function pythonLock(t, path, mode) {
-  const child = spawn('uv', ['run', '--frozen', 'python', '-u', '-c', `
-import fcntl, sys
-with open(sys.argv[1], 'a+') as handle:
-    try:
-        fcntl.flock(handle, (fcntl.LOCK_SH if sys.argv[2] == 'shared' else fcntl.LOCK_EX) | fcntl.LOCK_NB)
-    except BlockingIOError:
-        print('busy', flush=True)
-    else:
-        print('acquired', flush=True)
-        sys.stdin.read()
-`, path, mode], {cwd: root, env: {...process.env, UV_NO_SYNC: '1', UV_OFFLINE: '1'}, stdio: ['pipe', 'pipe', 'pipe']});
+async function nodeLock(t, path, mode) {
+  const child = spawn(process.execPath, ['--input-type=module', '-e', `
+import {nativeAdvisoryLocks} from ${JSON.stringify(pathToFileURL(join(directory,'locks.mjs')).href)};
+const lease=await nativeAdvisoryLocks().acquire(process.argv[1],process.argv[2],{nonblocking:true});
+console.log(lease?'acquired':'busy');
+if(lease){process.stdin.resume();process.stdin.once('end',()=>lease.release());}
+`, path, mode], {cwd: root, env: process.env, stdio: ['pipe', 'pipe', 'pipe']});
   const closed = once(child, 'close');
   async function stop() { if (child.exitCode === null && child.signalCode === null) child.kill('SIGKILL'); await closed; }
   t.after(stop);
@@ -45,34 +40,34 @@ with open(sys.argv[1], 'a+') as handle:
   } finally { clearTimeout(timeout); lines.close(); }
 }
 
-test('Python exclusive locks block TypeScript and process exit releases the same descriptor lock', async t => {
-  const path = join(directory, 'python exclusive.lock');
-  const python = await pythonLock(t, path, 'exclusive');
-  assert.equal(python.state, 'acquired');
+test('Node exclusive locks block another process and exit releases the same descriptor lock', async t => {
+  const path = join(directory, 'node exclusive.lock');
+  const holder = await nodeLock(t, path, 'exclusive');
+  assert.equal(holder.state, 'acquired');
   const locks = nativeAdvisoryLocks();
   assert.equal(await locks.acquire(path, 'shared', {nonblocking: true}), null);
   assert.equal(await locks.acquire(path, 'exclusive', {nonblocking: true}), null);
-  await python.stop();
+  await holder.stop();
   const lease = await locks.acquire(path, 'exclusive', {nonblocking: true});
   assert.ok(lease);
   await lease.release();
   await lease.release();
 });
 
-test('TypeScript shared locks coexist with Python shared locks and exclude either writer', async t => {
+test('TypeScript shared locks coexist across Node processes and exclude either writer', async t => {
   const path = join(directory, 'shared.lock');
   const locks = nativeAdvisoryLocks();
   const lease = await locks.acquire(path, 'shared');
   t.after(() => lease.release());
-  const shared = await pythonLock(t, path, 'shared');
+  const shared = await nodeLock(t, path, 'shared');
   assert.equal(shared.state, 'acquired');
-  assert.equal((await pythonLock(t, path, 'exclusive')).state, 'busy');
+  assert.equal((await nodeLock(t, path, 'exclusive')).state, 'busy');
   await lease.release();
   assert.equal(await locks.acquire(path, 'exclusive', {nonblocking: true}), null);
   await shared.stop();
   const writer = await locks.acquire(path, 'exclusive');
   t.after(() => writer.release());
-  assert.equal((await pythonLock(t, path, 'shared')).state, 'busy');
+  assert.equal((await nodeLock(t, path, 'shared')).state, 'busy');
   await writer.release();
 });
 

@@ -24,7 +24,7 @@ const nativeFiles=[...new Set(originals.map(entry=>entry.file))];
 const escape=name=>name.replace(/[.*+?^${}()|[\]\\]/g,'\\$&');
 const nativePattern=`^(?:${originals.map(entry=>escape(entry.name)).join('|')})(?:\\s*\\[.*\\])?$`;
 const direct=[...new Set(manifest.groups.map(g=>g.direct))];
-const env={...process.env,UV_OFFLINE:'1',UV_PYTHON_DOWNLOADS:'never',COC_TEST_NODE:process.execPath,
+const env={...process.env,COC_TEST_NODE:process.execPath,
   COC_RESOURCE_PILOT_API:'',COC_TEST_STORAGE_MODE:'disk',
   COC_TEST_KERNEL_CMD:JSON.stringify([process.execPath,join(root,'build/kernel/rpc.mjs')])};
 const hashes=()=>Object.fromEntries([...new Set([...manifest.groups.map(g=>g.source),...direct,...nativeFiles,

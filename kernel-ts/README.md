@@ -119,25 +119,11 @@ The wrapper opens the existing lock inode with `a+`, closes descriptors on faile
 acquisition, returns `null` only for nonblocking `EAGAIN`/`EWOULDBLOCK`, and releases
 exactly once on `lease.release()`. It never unlinks lock files. A missing native
 capability fails before creating a lock directory/file. `native-locks.ts` binds
-`fs-ext` at the RPC entrypoint. Real Python/TypeScript contention tests verify
-shared/exclusive interoperation, release after process death, and filesystem
-progress with more waiters than the default Node thread pool. The addon must be
-rebuilt for the managed Node ABI at packaging time; it is not an interpreter.
-Unit tests with an injected descriptor operation verify lifecycle only.
+`fs-ext` at the RPC entrypoint. Separate Node processes verify shared/exclusive exclusion, release after process death and filesystem progress with more waiters than the default thread pool. The same addon source is built directly by scripts/build-native.mjs for the managed Node headers, without Python or node-gyp. Unit tests with an injected descriptor operation verify lifecycle only.
 
 ## Verification and precedent
 
-Regenerate reference evidence only with the locked interpreter:
-
-```sh
-uv run --frozen python tests/generate_python_reference.py
-node --test tests/extension/ts-kernel-foundation.test.mjs
-```
-
-The generator records Python 3.14.6 outputs, including 22 seed forms, 2,000-word
-streams per seed, 13 JSON cases, 512 float bit patterns, actual hello/list results
-and current malformed-request envelopes. It is test tooling, absent from the
-product import graph. None of these tests constitute COC gameplay acceptance.
+Run Node tests against the current TS kernel. Captured historical outcomes and original test sources are immutable audit evidence; tests never export or execute the retired implementation.
 
 Implementation was checked against [CPython's random implementation](https://github.com/python/cpython/blob/3.14/Modules/_randommodule.c)
 and [its documented seed semantics](https://docs.python.org/3/library/random.html).

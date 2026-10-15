@@ -9,6 +9,7 @@ import { fileURLToPath } from 'node:url';
 import { homedir } from 'node:os';
 import { agentExtensionManifests } from '../runtime/deployment.mjs';
 import { assemblySignals, assemblyStagingRoots, createAssemblyWorkspace } from './assembly-workspace.mjs';
+import { buildNative } from './build-native.mjs';
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const MANIFEST = 'pipicoc/runtime-dependencies.json';
@@ -160,20 +161,18 @@ async function copyResources(repo, resource, manifest) {
     }
   }
 }
-function installEnvironment(nodeRoot, work, python) {
+function installEnvironment(nodeRoot, work) {
   const nodeBin = join(nodeRoot, 'bin');
   return { PATH: [nodeBin, '/usr/bin', '/bin', '/usr/sbin', '/sbin'].join(delimiter), HOME: join(work, 'home'), TMPDIR: join(work, 'tmp'),
     LC_ALL: 'C', LANG: 'C', CI: '1', PI_OFFLINE: '1', npm_config_cache: resolve(process.env.PIPICOC_NPM_CACHE || join(homedir(), '.npm')), npm_config_offline: 'true', npm_config_userconfig: join(work, 'npmrc'), npm_config_globalconfig: join(work, 'global-npmrc'),
     npm_config_nodedir: nodeRoot, npm_config_target: '24.19.0', npm_config_runtime: 'node', npm_config_arch: 'arm64', npm_config_platform: 'darwin',
-    npm_config_python: python, PYTHON: python, NODE_GYP_FORCE_PYTHON: python, npm_config_audit: 'false', npm_config_fund: 'false',
+    npm_config_audit: 'false', npm_config_fund: 'false',
     npm_config_update_notifier: 'false', npm_config_progress: 'false' };
 }
 async function productionInstall(repo, resource, manifest, nodeRoot, work, packageBytes, lockBytes, workspace) {
   const install = join(work, 'dependencies'); await mkdir(install, { recursive: true });
   await writeFile(join(install, 'package.json'), packageBytes); await writeFile(join(install, 'package-lock.json'), lockBytes);
-  const pythonResult = await run('uv', ['run', '--frozen', 'python', '-c', 'import sys; print(sys.executable)'], { cwd: repo, env: process.env, log: join(work, 'python-build-tool.log'), workspace });
-  const python = pythonResult.stdout.trim(); if (!isAbsolute(python)) throw new Error('The locked project Python did not return an absolute executable');
-  const environment = installEnvironment(nodeRoot, work, python);
+  const environment = installEnvironment(nodeRoot, work);
   for (const path of [environment.HOME, environment.TMPDIR, environment.npm_config_cache]) await mkdir(path, { recursive: true });
   await writeFile(environment.npm_config_userconfig, ''); await writeFile(environment.npm_config_globalconfig, '');
   const node = join(nodeRoot, 'bin/node'), npm = join(nodeRoot, 'lib/node_modules/npm/bin/npm-cli.js');
@@ -184,12 +183,9 @@ async function productionInstall(repo, resource, manifest, nodeRoot, work, packa
     const installed = await json(join(install, 'node_modules', name, 'package.json'));
     if (installed.version !== version) throw new Error(`Installed ${name} differs from its runtime pin`);
   }
-  // Compile only the addon that needs a Node ABI build; no global script policy is changed.
-  const nodeGyp = join(nodeRoot, 'lib/node_modules/npm/node_modules/node-gyp/bin/node-gyp.js');
-  await requiredFile(nodeGyp, 'managed Node node-gyp CLI');
-  await run(node, [nodeGyp, 'rebuild', '--nodedir=' + nodeRoot, '--python=' + python], {
-    cwd: join(install, 'node_modules/fs-ext'), env: environment, log: join(work, 'fs-ext-build.log'), workspace,
-  });
+  // Only the existing file-lock addon needs compilation; dependency lifecycle scripts stay disabled.
+  await buildNative({packageRoot:install,nodeRoot,nodeExecutable:node,force:true,signal:workspace.signal,
+    run:(command,args,options)=>run(command,args,{...options,env:environment,workspace}),log:join(work,'fs-ext-build.log')});
   await requiredFile(join(install, 'node_modules/fs-ext/build/Release/fs_ext.node'), 'managed Node fs-ext addon');
   await copyTree(join(install, 'node_modules'), join(resource, 'node_modules'), path => {
     if (path.startsWith('fs-ext/build/')) return path === 'fs-ext/build/Release/fs_ext.node';

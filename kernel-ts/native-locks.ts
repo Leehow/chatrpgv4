@@ -4,7 +4,7 @@ import { createAdvisoryLocks, type FlockOperation } from "./locks.js";
 
 type NativeFlock = { flockSync(fd: number, operation: FlockOperation): void };
 
-/** Native descriptor locks interoperate with existing Python writers. */
+/** Process-owned descriptor locks release when their holder exits. */
 export function nativeAdvisoryLocks() {
   const native = createRequire(import.meta.url)("fs-ext") as NativeFlock;
   if (typeof native.flockSync !== "function") throw new Error("The native advisory lock backend is unavailable");

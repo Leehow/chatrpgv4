@@ -1,8 +1,6 @@
 import {expected as outcome, withoutPostFreezeSanity} from './oracle-fixture.mjs';
-import {pythonOracleRoot} from "../python-oracle.mjs";
 import assert from 'node:assert/strict';
 import { after, test } from 'node:test';
-import { spawnSync } from 'node:child_process';
 import { writeFile } from 'node:fs/promises';
 import { join, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
@@ -141,12 +139,7 @@ async function execute(input) {
   throw new Error('Unknown oracle case');
 }
 async function compare(name, cases, t) {
-  const captured = outcome('healing-' + name, () => {
-    const reference = spawnSync('uv', ['run', '--frozen', 'python', '-c', PYTHON], { cwd: ROOT, input: api.pythonJsonDumps({ cases, evidence, content: join(ROOT, 'content') }), encoding: 'utf8', timeout: 30000,
-      env: { ...process.env, PYTHONPATH: join(pythonOracleRoot(), "kernel"), PYTHONDONTWRITEBYTECODE: '1' } });
-    assert.equal(reference.status, 0, reference.stderr);
-    return reference.stdout;
-  }, PYTHON);
+  const captured = outcome('healing-' + name, PYTHON);
   const expected = api.parsePythonJson(captured), actual = [];
   for (const c of cases) actual.push(await capture(() => execute(c)));
   await writeFile(join(evidence, name + '-input.json'), api.pythonJsonDumps(cases));

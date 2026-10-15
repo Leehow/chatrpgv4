@@ -7,12 +7,11 @@
  * The cases and the outcome each case is owed are a file now: the coverage is the same, and a
  * change in what an input is owed has to be made deliberately, in a diff.
  *
- * Set `PI_COC_REFREEZE_ORACLE=1` to rewrite a fixture from `produce`, which is only meaningful
- * while a checkout still has the retired implementation available.
+ * Captures are immutable evidence; tests never execute a producer or rewrite them.
  */
-import {mkdirSync, readFileSync, writeFileSync} from 'node:fs';
+import {readFileSync} from 'node:fs';
 import {createHash} from 'node:crypto';
-import {dirname, join, resolve} from 'node:path';
+import {join, resolve} from 'node:path';
 
 /**
  * The recovery metadata this kernel grew after the freeze: `retryable` and `next`, carried by every
@@ -188,32 +187,18 @@ const readSources = key => {
  * The captured outcome as the text it was printed as, so each suite parses it with the same reader
  * it parses a live answer with. A number too large for a double survives as itself that way.
  *
- * `source` is the reference program `produce` runs. Pass it, and a capture taken from a different
+ * `source` is the historical reference program. Pass it, and a capture taken from a different
  * program fails rather than answering.
  */
-export function expected(key, produce, source) {
+export function expected(key, source) {
   const path = join(FIXTURES, key + '.json');
-  if (!process.env.PI_COC_REFREEZE_ORACLE) {
-    let text;
-    try {
-      text = readFileSync(path, 'utf8');
-    } catch (error) {
-      throw new Error(`Missing captured outcome ${key}; regenerate with PI_COC_REFREEZE_ORACLE=1`, {cause: error});
-    }
-    if (source !== undefined) {
-      const recorded = readSources(key)[key];
-      if (recorded !== digestOf(source))
-        throw new Error(`Captured outcome ${key} came from a different reference program (recorded ${recorded ?? 'nothing'}, now ${digestOf(source)}); regenerate with PI_COC_REFREEZE_ORACLE=1`);
-    }
-    return text;
-  }
-  const text = produce();
-  mkdirSync(dirname(path), {recursive: true});
-  writeFileSync(path, text.endsWith('\n') ? text : text + '\n');
+  let text;
+  try { text = readFileSync(path, 'utf8'); }
+  catch (error) { throw new Error(`Missing immutable captured outcome ${key}`, {cause: error}); }
   if (source !== undefined) {
-    const sources = {...readSources(key), [key]: digestOf(source)};
-    const ordered = Object.fromEntries(Object.keys(sources).sort().map(name => [name, sources[name]]));
-    writeFileSync(sourcesPath(key), JSON.stringify(ordered, null, 2) + '\n');
+    const recorded = readSources(key)[key];
+    if (recorded !== digestOf(source))
+      throw new Error(`Captured outcome ${key} came from a different reference program (recorded ${recorded ?? 'nothing'}, now ${digestOf(source)})`);
   }
   return text;
 }

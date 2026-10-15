@@ -1,8 +1,6 @@
 import {expected} from "./oracle-fixture.mjs";
-import {pythonOracleRoot} from "../python-oracle.mjs";
 import assert from 'node:assert/strict';
 import { after, test } from 'node:test';
-import { spawnSync } from 'node:child_process';
 import { writeFile } from 'node:fs/promises';
 import { join, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
@@ -64,11 +62,7 @@ print(json.dumps(out,ensure_ascii=False))
 `;
 async function compare(name, cases) {
   const input = { content: join(ROOT, 'content'), cases };
-  const reference = api.parsePythonJson(expected('resolve-' + name, () => {
-    const run = spawnSync('uv', ['run', '--frozen', 'python', '-c', PYTHON], { cwd: ROOT, env: { ...globalThis.process.env, PYTHONPATH: join(pythonOracleRoot(), "kernel"), PYTHONDONTWRITEBYTECODE: '1' }, input: api.pythonJsonDumps(input), encoding: 'utf8', maxBuffer: 20 * 1024 * 1024 });
-    assert.equal(run.status, 0, run.stderr);
-    return run.stdout;
-  }, PYTHON));
+  const reference = api.parsePythonJson(expected('resolve-' + name, PYTHON));
   const candidate = [];
   for (const item of cases) {
     const rng = new api.PythonRandom(item.seed ?? 'checks'), args = item.args ?? [];

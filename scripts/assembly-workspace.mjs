@@ -7,7 +7,7 @@ import { setTimeout as delay } from 'node:timers/promises';
 
 const DIAGNOSTIC_NAMES = [
   'result.json', 'failure.json',
-  'python-build-tool.log', 'npm-ci.log', 'fs-ext-build.log', 'native-smoke.log', 'git-smoke.log',
+  'npm-ci.log', 'fs-ext-build.log', 'native-smoke.log', 'git-smoke.log',
 ];
 export const DIAGNOSTIC_LIMIT_BYTES = 256 * 1024;
 const STOP_GRACE_MS = 2_000;

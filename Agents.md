@@ -8,8 +8,8 @@
 
 - **缺失的 Python 文件是有意删除，不是仓库缺文件。** `kernel/coc/`、旧规则包的 Python 实现和 `scripts/starter_graph.py` 都已退役。遇到旧路径，按 RPC 方法名和当前契约定位 TS 实现；定位不到就报告当前实现缺口，不能恢复旧内核代替修复。
 - **当前功能开发与修复，不去历史 Git 或旧 worktree 找 Python 实现继续改。** 不因文件不存在就用 `git show`、历史检出、复制或 cherry-pick 找回旧 Python；不重建 `kernel/`、不重新接入 Python 后端或启动旧 Python 内核。只有用户明确要求历史考古或兼容性调查时才只读查阅历史，调查结果仍不能成为恢复生产 Python 的理由。
-- **冻结对照不是第二套开发树。** `tests/python-oracle.json` 与 `.cache/python-oracle/` 只服务历史兼容性测试；不能修改缓存、解除只读，或通过更换历史提交、改造对照输出来配合当前 TS 功能。新功能的断言直接检查 TS；不得通过“同步两套内核”或改历史预期把回归刷绿。
-- Python 测试控制器和原生扩展构建工具可以保留；运行了 Python 测试，不代表产品还应有 Python 实现，也不代表测试覆盖了当前 TS 行为。玩家安装包不依赖 Python/uv。
+- **冻结对照不是第二套开发树。** 历史测试原文、冻结结果与既有 `.cache/python-oracle/` 仅为不可执行的迁移证据；不导出、不启动旧内核，不修改缓存、解除只读或改造对照结果配合当前 TS 功能。新功能的断言直接检查 TS；不得通过“同步两套内核”或改历史预期把回归刷绿。
+- 开发、测试、构建、打包和玩家运行均不调用 Python/uv；所有现行测试执行 TS。原始 Python 测试只作不可执行的迁移审计证据。
 - 委派 worker 时必须传递这条边界。旧分支、旧工单、历史文档与记忆中的 Python 路径均不是当前维护入口；以下旧树参照说明不授予默认回溯 Python 的许可。
 
 ## 分支地图（先看这个，别搞混）
@@ -161,13 +161,11 @@ Grok 系模型屡次把「交付」当目标、把意图当配菜，也屡次静
 
 源码模式的 Pi 隔离在仓库内：游玩用 `{repo}/.pi/coc-agent`（`PI_CODING_AGENT_DIR`），编码用 `{repo}/.pi/agent`。独立 App 的 Pi home、凭据与会话位于 App 自有 userData，资源包保持只读。两种模式都不用 `~/.pi/*`，不把 COC 包装进全局 settings，不把 home 软链回 `~/.pi`。`auth.json`/`models.json` 永不提交或打入安装包。
 
-## 开发与对照用 Python 解释器契约
+## 无 Python 的开发、测试与打包（2026-10-15 用户裁定）
 
-生产内核、检查器和准备入口使用发出的 JavaScript；Python 仅供显式开发对照与原生模块构建工具使用。
+只使用当前 TypeScript 内核、Node 测试与 JavaScript 构建工具。不得调用 Python、uv 或 node-gyp，不保留可重新执行旧 Python 对照的入口，也不恢复解释器环境描述。历史原始测试和冻结结果保留为不可执行的审计证据；不要改写它们。
 
-当前内核实现只在 `kernel-ts/` 维护。旧 Python 内核已退役；测试通过 `tests/python-oracle.json` 指定的 Git 提交导出只读对照缓存。该缓存只验证历史兼容性，不同步新功能、不修补其实现。普通 RPC 测试默认启动 TS；Python 实现内部的测试只证明固定历史版本。历史文档中的 `kernel/coc/` 路径不是默认查阅入口；是否查历史遵守开头的重构边界。
-
-唯一环境由 `.python-version`、`pyproject.toml` 与提交的 `uv.lock` 定义。所有 Python 命令从仓库根以 `uv run --frozen python …` 运行（别处加 `--project <repo>`）；子进程用 `sys.executable`；不从 `PATH` 挑 `python`。升级 Python 或依赖是一次跨 `.python-version`/`pyproject`/`uv.lock`/文档的原子改动。
+依赖安装遵守项目 .npmrc 的 ignore-scripts。现有 fs-ext 文件锁由 scripts/build-native.mjs 用 C++ 编译器和对应 Node 头文件直接编译，源码构建与打包复用它；不得为省掉编译而更换锁语义或退回 Python。Electron 使用随依赖提供的平台预编译模块，缺失时明确报错，不启动 Python 源码回退。
 
 ## 打包只有一个落点
 

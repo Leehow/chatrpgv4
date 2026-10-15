@@ -1,8 +1,6 @@
 import {expected as outcome, withFreezeTimeBeings, withFreezeTimeWords, withoutPostFreezeIdentity, withoutPostFreezeNodes, withoutPostFreezeRecovery} from "./oracle-fixture.mjs";
-import {pythonOracleRoot} from "../python-oracle.mjs";
 import assert from 'node:assert/strict';
 import { after, test } from 'node:test';
-import { spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
@@ -145,13 +143,7 @@ function oracle(operation,data) {
     .replaceAll(ROOT,'<root>').replace(/\/(?:private\/)?(?:tmp|var)\/[^"']*/g,'<temp>')
     .replace(/\b[0-9a-f]{8}-?[0-9a-f]{4}-?[0-9a-f]{4}-?[0-9a-f]{4}-?[0-9a-f]{12}\b/g,'<id>');
   const key=`read-${operation}-${createHash('sha256').update(question).digest('hex').slice(0,16)}`;
-  return api.parsePythonJson(outcome(key,()=>{
-    const result=spawnSync('uv',['run','--frozen','python','-c',REFERENCE],{cwd:ROOT,
-      env:{...process.env,PYTHONPATH: join(pythonOracleRoot(), "kernel"),PYTHONDONTWRITEBYTECODE:'1',UV_OFFLINE:'1',UV_NO_SYNC:'1'},
-      input:api.pythonJsonDumps({operation,graph_path:graphPath,content:CONTENT,...data}),encoding:'utf8',maxBuffer:8*1024*1024,timeout:30000});
-    assert.equal(result.status,0,result.stderr||String(result.error));
-    return result.stdout;
-  },REFERENCE));
+  return api.parsePythonJson(outcome(key, REFERENCE));
 }
 function captured(run) {try{return {value:run()};}catch(error){if(typeof error.toJson==='function')return withoutPostFreezeRecovery({error:error.toJson()});throw error;}}
 function same(actual,expected,label) {assert.equal(api.canonicalJson(actual),api.canonicalJson(expected),label);}

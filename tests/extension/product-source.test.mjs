@@ -100,12 +100,12 @@ test("the current resource allow-list excludes old embedded runtimes and defers 
 	for (const excluded of ["pi-coc", "pipiui-runtime", "pipiui-embedded", "pi-ext", "pi-philosophy", "swift-extensions"]) {
 		assert.equal(config.extraResources.some(entry => entry.to === excluded), false);
 	}
-	assert.deepEqual(config.files, ["out/**/*", "package.json", "!node_modules/**/*", "node_modules/node-pty/**/*", "node_modules/@xterm/headless/**/*", "node_modules/@xterm/addon-serialize/**/*"]);
+	assert.deepEqual(config.files, ["out/**/*", "package.json", "!node_modules/**/*", "node_modules/node-pty/lib/**/*.js", "node_modules/node-pty/package.json", "node_modules/node-pty/LICENSE", "node_modules/node-pty/prebuilds/darwin-arm64/**/*", "node_modules/@xterm/headless/**/*", "node_modules/@xterm/addon-serialize/**/*"]);
 	assert.equal(config.forceCodeSigning, false);
 	assert.equal(config.mac.identity, null);
 	assert.equal(config.mac.binaries, undefined);
 	assert.deepEqual(config.mac.target, ["dir"]);
-	assert.equal(config.npmRebuild, true);
+	assert.equal(config.npmRebuild, false);
 });
 
 test("the default bundle has one canonical install path, a back-link, and run-owned staging", () => {

@@ -47,7 +47,7 @@ const CODE_EXT = new Set(['.ts', '.mts', '.mjs', '.js', '.cjs']);
 /** Changes that never reach a test run. */
 const INERT = [/^docs\//, /^\.claude\//, /^\.github\//, /\.md$/i];
 /** Changes no static analysis can place: run everything. */
-const GLOBAL = [/^package(-lock)?\.json$/, /^Electron\/package(-lock)?\.json$/, /^uv\.lock$/, /^pyproject\.toml$/,
+const GLOBAL = [/^package(-lock)?\.json$/, /^Electron\/package(-lock)?\.json$/, /^\.npmrc$/, /^Electron\/\.npmrc$/,
   /^tsconfig[^/]*\.json$/, /^scripts\/build-[^/]*\.mjs$/, /^scripts\/test-extension\.mjs$/, /^vendor\//,
   /^pipicoc\/runtime-dependencies\.json$/, /^runtime\/deployment\.(m?js|d\.mts)$/];
 

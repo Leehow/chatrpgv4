@@ -14,10 +14,10 @@ export function createPackageRecipe({ repo, stage, product, version, userHome, a
     appId: product.appId,
     productName: product.name,
     forceCodeSigning: false,
-    npmRebuild: true,
+    npmRebuild: false,
     extraMetadata: { version },
     directories: { output: join(stage, 'output') },
-    files: ['out/**/*', 'package.json', '!node_modules/**/*', 'node_modules/node-pty/**/*', 'node_modules/@xterm/headless/**/*', 'node_modules/@xterm/addon-serialize/**/*'],
+    files: ['out/**/*', 'package.json', '!node_modules/**/*', 'node_modules/node-pty/lib/**/*.js', 'node_modules/node-pty/package.json', 'node_modules/node-pty/LICENSE', 'node_modules/node-pty/prebuilds/darwin-arm64/**/*', 'node_modules/@xterm/headless/**/*', 'node_modules/@xterm/addon-serialize/**/*'],
     extraResources: [
       { from: join(stage, 'product.json'), to: 'product.json' },
       { from: join(stage, 'pi-coc-runtime.json'), to: 'pi-coc-runtime.json' },
