@@ -62,6 +62,24 @@ test('the extension module loads unbundled, as the harness loads the kernel exte
   assert.equal(typeof direct.splitNpcMood, 'function');
 });
 
+test('explicit arrival and reunion expand without dropping either change or reinterpreting causal fields',()=>{
+  const reunion={background:['He sorted correspondence.'],reports:[],open_threads:[]};
+  const effects=[{kind:'npc',name:'Steven Knott',to:'here',reunion,why:'The investigator returns.'}];
+  assert.equal(splitNpcMood(effects),1);
+  assert.deepEqual(effects,[{kind:'npc',name:'Steven Knott',to:'here',why:'The investigator returns.'},
+    {kind:'npc',name:'Steven Knott',reunion,why:'The investigator returns.'}]);
+  assert.equal(splitNpcMood(effects),0);
+  const combined=[{kind:'npc',name:'Steven Knott',to:'here',reunion,intends:'Read a later letter.',outcome:'planned'}];
+  assert.equal(splitNpcMood(combined),1);
+  assert.deepEqual(combined,[{kind:'npc',name:'Steven Knott',to:'here'},
+    {kind:'npc',name:'Steven Knott',reunion},
+    {kind:'npc',name:'Steven Knott',intends:'Read a later letter.',outcome:'planned'}]);
+  for(const extra of [{intent_ref:'intent:steven-knott:123456789abc'},{unrecognized:'value'},{reunion:null}]){
+    const original={kind:'npc',name:'Steven Knott',to:'here',reunion,...extra},input=[structuredClone(original)];
+    assert.equal(splitNpcMood(input),0);assert.deepEqual(input,[original]);
+  }
+});
+
 test('explicit ordinary position, activity and undertaking expand in one ordered batch without inventing fields',()=>{
   const activity={summary:'He is awake at his desk.',basis:'observed',wakefulness:'awake',review_after_minutes:10};
   const combined={kind:'npc',name:'Steven Knott',to:'here',walk_on:true,activity,
@@ -88,7 +106,7 @@ test('explicit ordinary position, activity and undertaking expand in one ordered
 test('causal references and nonordinary NPC variants keep their original fields and guards',()=>{
   for(const extra of [{intent_ref:'existing',intent_outcome:'done'},{intent_ref:undefined},{owed:'issued'},
     {skill:{name:'Listen',value:30}},{conditions:{gained:['unconscious']}},{dead:true},{defense:'dodge'},
-    {action:'hold'},{reunion:{}},{stance:'wary'},{spend_turn:true},{_generated:true},{unrecognized:'value'}]){
+    {action:'hold'},{stance:'wary'},{spend_turn:true},{_generated:true},{unrecognized:'value'}]){
     const effects=[{kind:'npc',name:'Steven Knott',to:'here',intends:'Check appointments.',outcome:'planned',...extra}];
     const before=structuredClone(effects);
     assert.equal(splitNpcMood(effects),0,JSON.stringify(extra));

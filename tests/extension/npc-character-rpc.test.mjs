@@ -6,6 +6,7 @@ import {createHash} from 'node:crypto';
 import {join,resolve} from 'node:path';
 import {build} from 'esbuild';
 import {KernelClient} from '../../extensions/kernel/client.ts';
+import {splitNpcMood} from '../../extensions/kernel/npc-mood-split.ts';
 
 const root=resolve(import.meta.dirname,'../..'),evidence=join(root,'.pi/npc-implementation/rpc-tests');
 await mkdir(evidence,{recursive:true});
@@ -124,9 +125,19 @@ test('a reunion is generated at an actual return, accepted once, and survives re
  await client.call('table.apply',{campaign,call_id:'t2-c1',effects:[{kind:'move',to:'commission-briefing',travel_minutes:60}]});
  const before=await client.call('table.look',{campaign,focus:'npc',name:'Steven Knott'});
  assert.equal(before.reunion.status,'needed');assert.equal(before.reunion.elapsed_minutes,120);
- await client.call('table.apply',{campaign,call_id:'t2-c2',effects:[{kind:'npc',name:'Steven Knott',reunion:continuity}]});
+ const arrival=[{kind:'npc',name:'Steven Knott',to:'here',reunion:continuity,why:'The investigator returns to his office.'}];
+ assert.equal(splitNpcMood(arrival),1);
+ const params={campaign,call_id:'t2-c2',effects:arrival};
+ await client.call('table.apply',params);
+ assert.equal((await client.call('table.apply',params)).replayed,true);
  const accepted=await client.call('table.look',{campaign,focus:'npc',name:'Steven Knott'});
  assert.equal(accepted.reunion.status,'established');assert.deepEqual(accepted.reunion.background,continuity.background);
+ const invalid=[{kind:'time',minutes:7},{kind:'npc',name:'Steven Knott',to:'Missing destination',reunion:{extend:true,reports:['A report that must not land.']}}];
+ splitNpcMood(invalid);
+ const beforeInvalid=await client.call('table.status',{campaign});
+ await assert.rejects(client.call('table.apply',{campaign,call_id:'t2-c20',effects:invalid}));
+ assert.deepEqual((await client.call('table.status',{campaign})).receipts,beforeInvalid.receipts);
+ assert.deepEqual((await client.call('table.look',{campaign,focus:'npc',name:'Steven Knott'})).reunion,accepted.reunion);
  await assert.rejects(client.call('table.apply',{campaign,call_id:'t2-c3',effects:[{kind:'npc',name:'Steven Knott',reunion:{...continuity,background:['A different invented past.']}}]}),e=>e.code==='idempotency_conflict');
  await client.call('table.apply',{campaign,call_id:'t2-c4',effects:[{kind:'npc',name:'Steven Knott',reunion:{extend:true,reports:['He says he has finished reading a routine letter.']}}]});
  assert.deepEqual((await client.call('table.look',{campaign,focus:'npc',name:'Steven Knott'})).reunion.background,continuity.background,'an addition never requires recopying or replacing the original background');

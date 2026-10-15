@@ -13,7 +13,7 @@ import { MOOD_CONFLICTS } from "../../kernel-ts/npc/mood-conflicts.ts";
 
 type Effect = Record<string, unknown>;
 
-const ORDINARY_KEYS = new Set(['kind','name','to','walk_on','why','activity','intends','outcome','_passage','_resolved_from']);
+const ORDINARY_KEYS = new Set(['kind','name','to','walk_on','why','activity','reunion','intends','outcome','_passage','_resolved_from']);
 
 /** Expands mood conflicts and ordinary explicit NPC combinations in place; returns how many input effects it split. */
 export function splitNpcMood(effects: unknown): number {
@@ -34,13 +34,15 @@ export function splitNpcMood(effects: unknown): number {
 		const effect = effects[index] as Effect | null;
 		if (!effect || typeof effect !== 'object' || effect.kind !== 'npc' || effect.to == null
 			|| Object.keys(effect).some(key=>!ORDINARY_KEYS.has(key))) continue;
-		const activity = effect.activity != null, undertaking = effect.intends != null || effect.outcome != null;
-		if (!activity && !undertaking) continue;
-		if (['activity','intends','outcome'].some(key=>Object.hasOwn(effect,key)&&effect[key]==null)) continue;
-		const {activity:_activity,intends:_intends,outcome:_outcome,...position}=effect;
+		const activity = effect.activity != null, reunion = effect.reunion != null,
+			undertaking = effect.intends != null || effect.outcome != null;
+		if (!activity && !reunion && !undertaking) continue;
+		if (['activity','reunion','intends','outcome'].some(key=>Object.hasOwn(effect,key)&&effect[key]==null)) continue;
+		const {activity:_activity,reunion:_reunion,intends:_intends,outcome:_outcome,...position}=effect;
 		const common={kind:'npc',name:effect.name,...(Object.hasOwn(effect,'why')?{why:effect.why}:{})};
 		const parts:Effect[]=[position];
 		if(activity)parts.push({...common,activity:effect.activity});
+		if(reunion)parts.push({...common,reunion:effect.reunion});
 		if(undertaking)parts.push({...common,...(Object.hasOwn(effect,'intends')?{intends:effect.intends}:{}),
 			...(Object.hasOwn(effect,'outcome')?{outcome:effect.outcome}:{})});
 		effects.splice(index,1,...parts);
