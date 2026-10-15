@@ -5,8 +5,13 @@ import {join, resolve} from 'node:path';
 import {tmpdir} from 'node:os';
 import {buildNative} from '../../scripts/build-native.mjs';
 import {createPackageRecipe} from '../../pipicoc/package-config.mjs';
+import {resourceRootFrom} from '../../runtime/deployment.mjs';
 
 const root=resolve(import.meta.dirname,'../..');
+test('source extensions locate the Node resource root without Python environment files',()=>{
+  assert.equal(resourceRootFrom(new URL('../../extensions/module/index.ts',import.meta.url),{}),root);
+  assert.equal(resourceRootFrom(new URL('../../extensions/onboarding/index.ts',import.meta.url),{}),root);
+});
 test('fresh native addon compiles and locks without a generator or interpreter', async t=>{
   const dir=await mkdtemp(join(tmpdir(),'coc-python-free-'));
   t.after(()=>rm(dir,{recursive:true,force:true}));

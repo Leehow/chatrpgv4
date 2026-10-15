@@ -148,7 +148,8 @@ export function resourceRootFrom(moduleUrl, env = process.env) {
   let path = dirname(fileURLToPath(moduleUrl));
   for (;;) {
     if (existsSync(join(path, 'deployment.json')) ||
-        (existsSync(join(path, 'pyproject.toml')) && existsSync(join(path, 'content')))) return path;
+        (existsSync(join(path, 'package.json')) && existsSync(join(path, 'pipicoc/runtime-dependencies.json'))
+          && existsSync(join(path, 'content')))) return path;
     const parent = dirname(path);
     if (parent === path) throw new Error('Cannot locate the COC resource root');
     path = parent;
