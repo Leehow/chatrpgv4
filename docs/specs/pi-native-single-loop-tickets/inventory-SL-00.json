@@ -1040,12 +1040,12 @@
       "symbol": "attempt",
       "kind": "lane",
       "callee": "runLane",
-      "count": 2,
-      "owner": "memory ext: extraction and attribution validation",
+      "count": 1,
+      "owner": "memory ext: extraction",
       "path": "app-play",
       "role": "leaf",
       "trace": "observed: 4 memory rows",
-      "note": "Committed-turn extraction plus independent short participant/direction verdict for new attribution-policy jobs (§231); both background after commit, within the existing two-attempt retry. No statement/actor repair by code.",
+      "note": "Section237.121 removes the independent model attribution veto. One committed-turn extraction submits attributed candidates through the existing native shape/reference checks and bounded malformed-output retry; no statement/actor repair by code.",
       "lines_at_0b729e8fb": [
         280
       ]
