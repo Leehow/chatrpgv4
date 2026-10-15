@@ -10,7 +10,7 @@ import type { TranscriptReader } from "./transcript-store.ts";
 
 const require = createRequire(import.meta.url);
 const pdfRoot = dirname(require.resolve("pdfjs-dist/package.json"));
-export const sourceRenderVersion = `pdfjs-${version}:canvas-${require("@napi-rs/canvas/package.json").version}:page-v3`;
+export const sourceRenderVersion = `pdfjs-${version}:canvas-${require("@napi-rs/canvas/package.json").version}:page-v4`;
 export const sourceOverviewVersion = `${sourceRenderVersion}:overview-v1`;
 export const sourceTextVersion = `pdfjs-${version}:native-text-v1`;
 export type Box = [number, number, number, number];
@@ -506,14 +506,15 @@ async function renderSourcePage(pdf: string, cache: string, page: number, option
 			const factory = document.canvasFactory as PdfCanvasFactory;
 			const canvas = factory.create(Math.max(1, Math.ceil(width * scale)), Math.max(1, Math.ceil(height * scale)));
 			try {
-				const fullPage=box[0]===0&&box[1]===0&&box[2]===1&&box[3]===1;
+				// PDF.js retains the first image tracker on the page: do not seed it from contact-sheet thumbnails.
+				const detailedFullPage=box[0]===0&&box[1]===0&&box[2]===1&&box[3]===1&&pixels>=2000;
 				await pdfPage.render({ canvas: canvas.canvas as unknown as HTMLCanvasElement,
 					canvasContext: canvas.context as unknown as CanvasRenderingContext2D, viewport,
-					recordImages:fullPage,
+					recordImages:detailedFullPage,
 					transform: [1, 0, 0, 1, -base.width * box[0] * scale, -base.height * box[1] * scale] }).promise;
 				const nativeImageBoxes:number[][]=[];
 				// PDF.js records three transformed corners per raster, normalized to this canvas.
-				const coordinates=fullPage?pdfPage.imageCoordinates:null;
+				const coordinates=detailedFullPage?pdfPage.imageCoordinates:null;
 				for(let index=0;coordinates&&index+5<coordinates.length;index+=6){
 					const [ax,ay,bx,by,cx,cy]=Array.from(coordinates.slice(index,index+6)) as number[];
 					const xs=[ax,bx,cx,bx+cx-ax],ys=[ay,by,cy,by+cy-ay];
@@ -522,7 +523,7 @@ async function renderSourcePage(pdf: string, cache: string, page: number, option
 				}
 				const bytes = format === "jpeg" ? canvas.canvas.toBuffer("image/jpeg", 92) : canvas.canvas.toBuffer("image/png");
 				result = { path, page, box, width: canvas.canvas.width, height: canvas.canvas.height,
-					...(fullPage?{native_image_boxes:nativeImageBoxes}:{}),
+					...(detailedFullPage?{native_image_boxes:nativeImageBoxes}:{}),
 					file_sha256: sha256, image_sha256: createHash("sha256").update(bytes).digest("hex"), reused: false };
 				const temporary = `${path}.${process.pid}.${randomUUID()}.tmp`;
 				await writeFile(temporary, bytes);

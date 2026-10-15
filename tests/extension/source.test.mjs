@@ -394,10 +394,12 @@ test('full source pages carry native raster bounds in the rotated crop-box frame
   let tool;readerPdf({on(){},registerTool(value){tool=value;}});
   for(const [rotation,expected] of [[0,[25/300,100/240,225/300,200/240]],[90,[40/240,25/300,140/240,225/300]]]) {
     const {file,cache}=await fixture(t);await writeFile(file,rasterPdf(rotation));
-    const full=await sourcePage(file,cache,1,{pixels:512});
+    const thumbnail=await sourcePage(file,cache,1,{pixels:256});
+    assert.equal(thumbnail.native_image_boxes,undefined,'thumbnail rounding must not seed detailed original-page geometry');
+    const full=await sourcePage(file,cache,1,{pixels:2000});
     assert.equal(full.native_image_boxes?.length,1,'the complete embedded picture has a supplied geometry anchor');
     full.native_image_boxes[0].forEach((n,i)=>assert.ok(Math.abs(n-expected[i])<0.003,`${rotation} coordinate ${i}: ${n}`));
-    const again=await sourcePage(file,cache,1,{pixels:512});assert.equal(again.reused,true);assert.deepEqual(again.native_image_boxes,full.native_image_boxes);
+    const again=await sourcePage(file,cache,1,{pixels:2000});assert.equal(again.reused,true);assert.deepEqual(again.native_image_boxes,full.native_image_boxes);
     process.env.PI_COC_READER_SOURCE=JSON.stringify({pdf:file,cache});
     const shown=await tool.execute('original',{pages:[1]},new AbortController().signal);
     assert.match(shown.content.find(x=>x.type==='text').text,/Native raster placement boxes.*Geometry hints only/);
