@@ -1,6 +1,7 @@
 /** Optional kind-qualified semantic names disambiguate source roles, without opaque IDs. */
 import { RpcError } from '../errors.js';
-import { ModuleGraph } from './module-graph.js';
+import { ModuleGraph, isAmbiguity } from './module-graph.js';
+import { calledPerson } from './capsule.js';
 import { array, normalize, row, string, type Row } from './values.js';
 
 export const referenceName = (graph: ModuleGraph, node: Row): string => `${node.node_kind}: ${graph.handle(node)}`;
@@ -23,7 +24,7 @@ const candidateNode = (graph: ModuleGraph, candidate: unknown): Row | null => {
     if (!kind || !key) return null;
     return graph.kind(kind).find(node => normalize(graph.handle(node)) === key) ?? null;
 };
-export function resolveReference(graph: ModuleGraph, value: unknown, kinds?: string[]): Row {
+export function resolveReference(graph: ModuleGraph, value: unknown, kinds?: string[], world?: Row): Row {
     if (typeof value !== 'string' || !value.trim()) throw new RpcError('invalid_params', 'Use a semantic entity name');
     let name = value.trim(), selected = kinds;
     const colon = name.indexOf(':'), prefix = colon < 0 ? '' : name.slice(0, colon).trim();
@@ -37,6 +38,10 @@ export function resolveReference(graph: ModuleGraph, value: unknown, kinds?: str
     try { return graph.resolve(name, selected); }
     catch (error) {
         if (!(error instanceof RpcError) || error.code !== 'unknown_entity') throw error;
+        if (world && (!selected || selected.includes('npc')) && !isAmbiguity(error)) {
+            const called = calledPerson(graph, world, name);
+            if (called) return called;
+        }
         let nodes = array(error.details?.candidates).flatMap(candidate => {const node = candidateNode(graph, candidate); return node ? [node] : [];});
         if (!nodes.length) nodes = (selected ?? ['scene', 'npc', 'clue']).flatMap(kind => graph.kind(kind)).slice(0, 8);
         throw new RpcError('unknown_entity', error.message, {

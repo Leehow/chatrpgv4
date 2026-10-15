@@ -49,7 +49,7 @@ export function continuityView(graph: ModuleGraph, world: Row, records: Row[] = 
     if (options.anchors != null && (!Array.isArray(options.anchors) || options.anchors.length > 12 || options.anchors.some((v: any) => typeof v !== 'string' || !v.trim())))
         throw new RpcError('invalid_params', 'Continuity anchors must be at most twelve entity names');
     const named = [...array(options.anchors), ...(options.query ? [options.query] : [])];
-    const anchorNodes = named.length ? named.map(name => resolveReference(graph, name)) : [
+    const anchorNodes = named.length ? named.map(name => resolveReference(graph, name, undefined, world)) : [
         ...array(world.discovered_clues).slice(-4).reverse().flatMap(name => { const node = graph.find(name, ['clue']); return node ? [node] : []; }),
         graph.scene(world.active_scene),
         ...Object.entries(row(world.npc_presence)).filter(([, at]) => at === world.active_scene).flatMap(([name]) => { const node = graph.find(name, ['npc']); return node ? [node] : []; })
