@@ -3,6 +3,9 @@ import {spawn} from 'node:child_process';
 import {mkdirSync,mkdtempSync,writeFileSync} from 'node:fs';
 import {join} from 'node:path';
 import {fileURLToPath} from 'node:url';
+import {buildNative} from './build-native.mjs';
+
+await buildNative();
 
 const root=fileURLToPath(new URL('..',import.meta.url)),parent=join(root,'.coc/test-runs');
 mkdirSync(parent,{recursive:true});

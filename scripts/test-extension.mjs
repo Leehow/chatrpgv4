@@ -3,8 +3,10 @@ import { spawn } from "node:child_process";
 import { resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 import { globalSetup, globalTeardown } from "../tests/extension/playtests-guard.mjs";
+import { buildNative } from "./build-native.mjs";
 
 export async function runExtensionTests(args) {
+  await buildNative();
   await globalSetup();
   let child;
   const forward = (signal) => child?.kill(signal);
