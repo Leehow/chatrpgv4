@@ -292,10 +292,10 @@ const TimeEffect = Type.Object({
 		either_half: Type.Optional(Type.Boolean({ description: "true when the time was named on a twelve-hour clock and nothing says which half of the day: give the twelve-hour reading (01:00-12:59, twelve o'clock as 12:MM) and no days; the kernel takes whichever of that time and twelve hours later the clock reaches first" })),
 		journeys: Type.Optional(StringEnum(["before", "after"] as const, { description: "the player's order of this time against this turn's journeys: before when they travel first and the time is reached after arriving (a later move this turn is inside it and moves the clock no further), after when they travel after the time (the journeys already landed this turn are counted after it)" })),
 	}, { description: "instead of minutes, for a skip to a time of day (the next morning, that evening): the kernel counts the minutes from the clock" })),
-	minutes: Type.Optional(Type.Integer({ description: "required unless stated, band or until gives them: minutes advanced. Six hours or more is a day of rest and the party heals for it (1 HP a day with no major wound), an hour or more regenerates magic points; the result lists what came back in recovered, and your narration owes those numbers like any other change" })),
+	minutes: Type.Optional(Type.Integer({ description: "required unless stated, band or until gives them: additional minutes for activity or waiting outside any journey, which its move already counts. Six hours or more is a day of rest and the party heals for it (1 HP a day with no major wound), an hour or more regenerates magic points; the result lists what came back in recovered, and your narration owes those numbers like any other change" })),
 	why: Type.Optional(Sentence("where the time went")),
-	// §156: the Keeper's declaration; the kernel refuses a clock-advancing time beside a travelling move without it.
-	beyond_travel: Type.Optional(Type.Boolean({ description: "true only when this time is in the same batch as a move and passes beyond that move's journey (after arriving or before setting out); without it such a batch is refused, because the move already counts the journey" })),
+	// §237.102: compatibility metadata; explicit time is additional to a move's journey.
+	beyond_travel: Type.Optional(Type.Boolean({ description: "Optional compatibility marker for additional activity outside travel. A move already counts its journey; do not repeat that journey as a time effect. Additional activity needs no marker." })),
 	owed: OwedRef,
 });
 
