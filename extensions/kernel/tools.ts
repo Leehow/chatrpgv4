@@ -787,7 +787,7 @@ const ResolveAction = Type.Object({
 			option: Type.String({ description: "the option the player picked" }),
 		}),
 	),
-	decision: Type.Optional(Type.String({ description: "when the kernel reports needs_choice, the name of the candidate you pick" })),
+	decision: Type.Optional(Type.String({ description: "the existing rule decision you choose, including on the first call; also resolves needs_choice. For diagnosis, examination or observation without treatment, use core-check:ordinary-check with Medicine or First Aid as appropriate; healing decisions treat a patient and require their body state. The skill name alone does not mean treatment" })),
 	rule: Type.Optional(
 		Type.String({
 			description:

@@ -112,6 +112,45 @@ async function pin(game) {
 	return { handle: receipt.handle, maximum: receipt.profile.derived.HP };
 }
 
+for (const skill of ['Medicine', 'First Aid']) {
+	test(`${skill} observation uses the selected ordinary rule without inventing a patient's body`, async (t) => {
+		const game = await table(t);
+		await game.apply({ kind: 'npc', name: BYSTANDER, to: 'here', why: 'he is in the room' });
+		const before = await game.world();
+		const rescuer = await game.investigator();
+		const result = await game.call('table.resolve', {
+			call_id: game.next(),
+			action: { intent: 'investigate', actor: rescuer.name, target: BYSTANDER, skill,
+				decision: 'core-check:ordinary-check', goal: 'identify the visible marks without treatment',
+				method: 'look with a flashlight without touching the body', stakes: 'the cause remains uncertain' },
+		});
+		assert.equal(result.decision, 'core-check:ordinary-check');
+		const receipts = await game.receipts();
+		const roll = receipts.find((receipt) => receipt.id === result.receipt);
+		assert.equal(roll?.actor, rescuer.id);
+		assert.equal(roll?.roll_kind, 'skill_check');
+		assert.deepEqual((await game.world()).npc_resources, before.npc_resources);
+		assert.deepEqual(await game.investigator().then((sheet) => [sheet.current_hp, sheet.conditions ?? []]),
+			[rescuer.current_hp, rescuer.conditions ?? []]);
+		assert.ok(!receipts.some((receipt) => receipt.kind === 'delta' || receipt.kind === 'condition'));
+	});
+}
+
+test('a selected treatment still requires the actual patient body before rolling', async (t) => {
+	const game = await table(t);
+	await game.apply({ kind: 'npc', name: BYSTANDER, to: 'here', why: 'he is in the room' });
+	const before = { receipts: await game.receipts(), world: await game.world(), investigator: await game.investigator() };
+	await assert.rejects(game.call('table.resolve', {
+		call_id: game.next(),
+		action: { intent: 'investigate', actor: before.investigator.name, target: BYSTANDER,
+			skill: 'First Aid', decision: 'healing:first-aid-ordinary',
+			goal: 'treat the wound', method: 'clean and bandage it', stakes: 'the wound remains untreated' },
+	}), (error) => error.code === 'needs' && error.details?.needs?.field === 'npc.archetype');
+	assert.deepEqual(await game.receipts(), before.receipts);
+	assert.deepEqual(await game.world(), before.world);
+	assert.deepEqual(await game.investigator(), before.investigator);
+});
+
 test('a person the book gave no numbers is refused by naming the verb that gives them some', async (t) => {
 	const game = await table(t);
 	await game.apply({ kind: 'npc', name: BYSTANDER, to: 'here', why: 'he is in the room' });

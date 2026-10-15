@@ -370,6 +370,8 @@ export function createResolveRuntime(kernel: KernelContext, writer: ResolveWrite
             let healing = false;
             try { healing = actionSkills(action, resolver).some(skill => skill === 'First Aid' || skill === 'Medicine'); }
             catch (error) { if (!(error instanceof RpcError)) throw error; }
+            if (action.decision != null)
+                healing = row(observations.nodes.get(fullDecisionRef(string(action.decision)))?.properties).family_id === 'healing';
             if (healing && typeof action.target === 'string' && action.target.trim()) {
                 // §180.6 (CK-F2): a patient whose block lacks what its hit points are read from is refused with its completion.
                 if (!target)
