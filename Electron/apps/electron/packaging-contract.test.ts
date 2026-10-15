@@ -202,9 +202,13 @@ describe('standalone PipiCOC packaging contract', () => {
   it('keeps only the node_modules the compiled main bundle actually requires, after the blanket exclusion', () => {
     const files: string[] = recipe.config.files
     expect(files).toContain('!node_modules/**/*')
-    const reincluded = files.filter(pattern => pattern.startsWith('node_modules/'))
-      .map(pattern => pattern.replace(/^node_modules\//, '').replace(/\/\*\*\/\*$/, ''))
-    for (const name of reincluded) expect(files.indexOf('!node_modules/**/*')).toBeLessThan(files.indexOf(`node_modules/${name}/**/*`))
+    const inclusions = files.filter(pattern => pattern.startsWith('node_modules/'))
+    const reincluded = [...new Set(inclusions.map(pattern => pattern.match(/^node_modules\/(@[^/]+\/[^/]+|[^/]+)/)![1]))]
+    for (const pattern of inclusions) expect(files.indexOf('!node_modules/**/*')).toBeLessThan(files.indexOf(pattern))
+    expect(inclusions.filter(pattern => pattern.startsWith('node_modules/node-pty/'))).toEqual([
+      'node_modules/node-pty/lib/**/*.js', 'node_modules/node-pty/package.json', 'node_modules/node-pty/LICENSE', 'node_modules/node-pty/prebuilds/darwin-arm64/**/*',
+    ])
+    expect(files).not.toContain('node_modules/node-pty/**/*')
     const externals = bundledExternals()
     expect([...externals.app].sort()).toEqual(reincluded.sort())
     // Do not silently ignore a new non-app resolver. Each explicit root needs an owner check.
@@ -234,7 +238,7 @@ describe('standalone PipiCOC packaging contract', () => {
 
   it('retains build/dev tooling without exposing the obsolete product packager in npm scripts', () => {
     expect(workspacePackage.scripts.build).toContain('npm run build -w @pipiui/electron')
-    expect(workspacePackage.scripts.dev).toBe('npm run dev -w @pipiui/electron')
+    expect(workspacePackage.scripts.dev).toBe('npm --prefix .. run build:runtime && npm run dev -w @pipiui/electron')
     expect(packageJSON.scripts.build).toContain('electron-vite build')
     expect(packageJSON.scripts.dev).toBe('electron-vite dev')
     for (const manifest of [rootPackage, workspacePackage, packageJSON]) {
