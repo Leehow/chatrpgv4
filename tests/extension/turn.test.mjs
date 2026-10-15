@@ -860,10 +860,12 @@ test("隐式交付被拒：原稿不留在屏幕上，回合仍等着被关掉",
 });
 
 test("host map assembly does not collapse receipt-less maps, but dedupes identical views", async t => {
+	// Known-region fallbacks remain cards; empty discovery metadata is not an attachment (§237.109).
+	const entry = [{ id: "entry", label: "Entry" }];
 	const maps = [
-		{ map: "house", name: "House", view_id: "v-house", regions: [] },
-		{ map: "grounds", name: "Grounds", view_id: "v-grounds", regions: [] },
-		{ map: "house", name: "House", view_id: "v-house", regions: [] }
+		{ map: "house", name: "House", view_id: "v-house", regions: entry },
+		{ map: "grounds", name: "Grounds", view_id: "v-grounds", regions: [{ id: "yard", label: "Yard" }] },
+		{ map: "house", name: "House", view_id: "v-house", regions: entry }
 	];
 	const table = await openTable({ env: { FAKE_KERNEL_LOOK_MAPS: JSON.stringify(maps) }, responses: [
 		fauxAssistantMessage([fauxToolCall("look", { focus: "map" })], { stopReason: "toolUse" }),
@@ -873,7 +875,7 @@ test("host map assembly does not collapse receipt-less maps, but dedupes identic
 	await table.session.prompt("Show me the maps");
 	const mechanics = table.entries("coc-mechanics").at(-1)?.mechanics ?? [];
 	assert.equal(mechanics.filter(row => row.kind === "map").length, 2);
-	assert.deepEqual(mechanics.find(row => row.map === "house").regions, []);
+	assert.deepEqual(mechanics.find(row => row.map === "house").regions, entry);
 });
 
 /**
