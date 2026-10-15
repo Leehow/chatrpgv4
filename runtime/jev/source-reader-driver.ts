@@ -31,7 +31,7 @@ import {TRANSCRIPT_VERSION} from '../../extensions/module/page-transcript.ts';
  * stored transcript, which every navigation text of this driver reads instead (`navigationText`).
  */
 type Page = {page:number;text:string;label?:string|null;text_status?:'available'|'empty'|'error'|'unavailable';reading?:string};
-type ImagePage = {page:number;path:string;image_sha256:string;box:number[];data:string};
+type ImagePage = {page:number;path:string;image_sha256:string;box:number[];data:string;native_image_boxes?:number[][]};
 type SourceBinding = {pdf:string;cache:string;file_sha256?:string};
 type State = {catalog:boolean;located:boolean;projected:boolean;submitted:boolean;fallback:boolean;inferred:boolean;needsAssessment?:boolean;
  /** §151.4: the answered check of a need task has run; the need settled without a reader. */
@@ -842,7 +842,8 @@ export async function createSourceReaderDriver(options:{cwd:string;env:NodeJS.Pr
              const rendered=await sourcePage(source.pdf,source.cache,page,{format:'jpeg'});
              const bytes=await readFile(rendered.path);
              if(sha(bytes)!==rendered.image_sha256)throw new Error('Original source image changed before projection');
-             projectedImages.push({page,path:rendered.path,image_sha256:rendered.image_sha256,box:rendered.box,data:bytes.toString('base64')});
+             projectedImages.push({page,path:rendered.path,image_sha256:rendered.image_sha256,box:rendered.box,data:bytes.toString('base64'),
+               ...(Array.isArray(rendered.native_image_boxes)?{native_image_boxes:rendered.native_image_boxes}:{} )});
            }
            trace({kind:'source_projected',runId,pages:projectedImages.map(row=>({page:row.page,image_sha256:row.image_sha256})),partial});
            return {status:'ok',artifact:{kind:'projected',pages:candidates,original_images:projectedImages.length}};
@@ -872,7 +873,9 @@ export async function createSourceReaderDriver(options:{cwd:string;env:NodeJS.Pr
          visual_coverage:{status:'unassessed',physical_ranges:[[1,info.page_count]],original_pages_supplied_in_this_message:projectedImages.map(row=>row.page),
            note:'Text presence does not assess visual content. Supplied originals count as observed only after successful inference, and only for this requested use; no whole-page semantic completeness is claimed.'},
          instruction:projectedImages.length?'The following are actual original PDF page images from this source. Use them directly for the brief; use pdf for additional or closer views. submit_reading checks successful delivery.':'Native excerpts are navigation leads only. Inspect original PDF pages with the pdf tool before writing facts. Use request_source for a concrete missing dependency.'})}];
-       for(const row of projectedImages)content.push({type:'text',text:'Original physical page '+row.page},{type:'image',mimeType:'image/jpeg',data:row.data});
+       for(const row of projectedImages)content.push({type:'text',text:'Original physical page '+row.page+
+         (row.native_image_boxes?`. Native raster placement boxes in full rotated-page coordinates: ${JSON.stringify(row.native_image_boxes)}. Geometry hints only: a raster can include neighboring content, and vector pictures need no raster. Verify the complete intended visual against these pixels.`:'')},
+         {type:'image',mimeType:'image/jpeg',data:row.data});
        return [{role:'custom',customType:'coc-source-navigation',display:false,timestamp:Date.now(),
          details:{kind:projectedImages.length?'host_source_pages':'navigation_only',source_sha256:info.file_sha256,
            pages:projectedImages.map(({page,path,image_sha256,box})=>({page,path,image_sha256,box}))},content}] as any;

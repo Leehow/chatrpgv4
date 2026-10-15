@@ -9,6 +9,7 @@ import { sourceAsset, sourceInfo, sourceOverview, sourcePage, sourceSearch, clos
 import {mapReviewPreviews,reviewedMapNodes} from '../../extensions/module/map-review-preview.ts';
 import {reviewCandidate} from '../../extensions/module/reader-review.ts';
 import {publicationImageSources} from '../../extensions/module/map-publication.ts';
+import readerPdf from '../../extensions/module/reader-pdf.ts';
 
 function pdf(rotation = 0) {
 	const stream = "1 0 0 rg 0 0 100 100 re f 0 0 1 rg 100 0 100 100 re f";
@@ -373,4 +374,35 @@ test('publication previews and final crops preserve both source and map masks in
  const pixel=x=>Array.from(ctx.getImageData(Math.floor(x*raster.width),Math.floor(raster.height/2),1,1).data);
  assert.deepEqual(pixel(.05),[255,255,255,255]);assert.deepEqual(pixel(.95),[255,255,255,255]);
  assert.deepEqual(pixel(.3),[255,0,0,255]);assert.deepEqual(pixel(.7),[0,0,255,255]);
+});
+
+function rasterPdf(rotation=0) {
+  const stream='q 200 0 0 100 75 70 cm /Im0 Do Q',rgb='ff000000ff000000ffffffff>';
+  const objects=['<< /Type /Catalog /Pages 2 0 R >>','<< /Type /Pages /Kids [3 0 R] /Count 1 >>',
+    `<< /Type /Page /Parent 2 0 R /MediaBox [0 0 400 300] /CropBox [50 30 350 270] /Rotate ${rotation} /Resources << /XObject << /Im0 5 0 R >> >> /Contents 4 0 R >>`,
+    `<< /Length ${stream.length} >>\nstream\n${stream}\nendstream`,
+    `<< /Type /XObject /Subtype /Image /Width 2 /Height 2 /ColorSpace /DeviceRGB /BitsPerComponent 8 /Filter /ASCIIHexDecode /Length ${rgb.length} >>\nstream\n${rgb}\nendstream`];
+  let text='%PDF-1.7\n';const offsets=[0];
+  for(const [i,object] of objects.entries()){offsets.push(Buffer.byteLength(text));text+=`${i+1} 0 obj\n${object}\nendobj\n`;}
+  const xref=Buffer.byteLength(text),size=objects.length+1;
+  return text+`xref\n0 ${size}\n0000000000 65535 f \n${offsets.slice(1).map(n=>String(n).padStart(10,'0')+' 00000 n ').join('\n')}\ntrailer\n<< /Size ${size} /Root 1 0 R >>\nstartxref\n${xref}\n%%EOF\n`;
+}
+
+test('full source pages carry native raster bounds in the rotated crop-box frame, including cache reuse',async t=>{
+  const previous=process.env.PI_COC_READER_SOURCE;
+  t.after(()=>{if(previous===undefined)delete process.env.PI_COC_READER_SOURCE;else process.env.PI_COC_READER_SOURCE=previous;});
+  let tool;readerPdf({on(){},registerTool(value){tool=value;}});
+  for(const [rotation,expected] of [[0,[25/300,100/240,225/300,200/240]],[90,[40/240,25/300,140/240,225/300]]]) {
+    const {file,cache}=await fixture(t);await writeFile(file,rasterPdf(rotation));
+    const full=await sourcePage(file,cache,1,{pixels:512});
+    assert.equal(full.native_image_boxes?.length,1,'the complete embedded picture has a supplied geometry anchor');
+    full.native_image_boxes[0].forEach((n,i)=>assert.ok(Math.abs(n-expected[i])<0.003,`${rotation} coordinate ${i}: ${n}`));
+    const again=await sourcePage(file,cache,1,{pixels:512});assert.equal(again.reused,true);assert.deepEqual(again.native_image_boxes,full.native_image_boxes);
+    process.env.PI_COC_READER_SOURCE=JSON.stringify({pdf:file,cache});
+    const shown=await tool.execute('original',{pages:[1]},new AbortController().signal);
+    assert.match(shown.content.find(x=>x.type==='text').text,/Native raster placement boxes.*Geometry hints only/);
+    assert.equal(shown.content.filter(x=>x.type==='image').length,1,'hints accompany actual original pixels');
+    const crop=await sourcePage(file,cache,1,{box:[0.1,0.2,0.8,0.9],pixels:512});
+    assert.equal(crop.native_image_boxes,undefined,'zoom coordinates cannot impersonate full-page geometry');
+  }
 });

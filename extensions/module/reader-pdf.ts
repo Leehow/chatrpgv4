@@ -51,7 +51,7 @@ export default function readerPdf(pi: any) {
 			for (const row of rows) {
 				const bytes = await readFile(row.path as string);
 				if (createHash("sha256").update(bytes).digest("hex") !== row.image_sha256) throw new Error("Source image changed before delivery; retry this page");
-				content.push({ type: "text", text: `Original physical page ${row.page}; region ${JSON.stringify(row.box)}.` },
+				content.push({ type: "text", text: `Original physical page ${row.page}; region ${JSON.stringify(row.box)}.${Array.isArray(row.native_image_boxes)?` Native raster placement boxes in full rotated-page coordinates: ${JSON.stringify(row.native_image_boxes)}. Geometry hints only: a raster can include neighboring content, and vector pictures need no raster. Verify the complete intended visual against these pixels.`:''}` },
 				{ type: "image", mimeType: "image/jpeg", data: bytes.toString("base64") });
 			}
 			return { content, details: { kind: "source_pages", observations: rows } };
