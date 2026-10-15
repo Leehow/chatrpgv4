@@ -1,5 +1,9 @@
 # Keeper Pacing
 
+## 1.3.5
+
+- Carry an explicit wait-until choice through routine pending states and causal NPC follow-through. Earlier pending state is not a permanent prohibition; durable unresolved outcomes remain possible. No automatic progression, new queue, gate or forced ending.
+
 ## 1.3.4
 
 - Clarify that dependent selected steps use the existing `resolve`/`apply` tools before final prose. Recover refused batches through that same tool loop without dropping still-selected steps or replaying settled effects (§237.67 live follow-up).
