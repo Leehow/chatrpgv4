@@ -25,7 +25,6 @@ import { resolveLaneModel, runLane } from "../lanes/subsession.ts";
 import { createLaneQueue, type KernelCall, type LaneJob } from "../lanes/queue.ts";
 import { createLaneTelemetry } from "../lanes/telemetry.ts";
 import {MEMORY_ATTRIBUTION_INSTRUCTION, MEMORY_ATTRIBUTION_POLICY} from '../../kernel-ts/memory/attribution.ts';
-import {ATTRIBUTION_REVIEW_INSTRUCTION, attributionReviewInput, shapeAttributionReview, type AttributionReview} from './attribution-review.ts';
 
 /** The closed fields and closed enums of a candidate assertion (contract §12.3). No extra field is ever sent to the kernel. */
 const CANDIDATE_KINDS: ReadonlySet<string> = new Set([
@@ -137,7 +136,7 @@ function systemPrompt(packet: JobPacket): string {
 		"- write no key other than the ones listed above, and in particular no turn number, commit, receipt id or entry id.",
 		packet.task === 'reconcile_correction'
 			? "- Return exactly one candidate copying the supplied correction unchanged and attaching corrects. This repairs links only, not the prior statement."
-			: `- at most ${maxCandidates} rows; do not repeat anything already in the existing candidates; with nothing new, answer {"candidates":[]}.`,
+			: `- at most ${maxCandidates} rows; do not repeat anything already in the existing candidates; with nothing new, use an empty candidates array${packet.story_context?.threads?.length ? ' and still include the required story object' : ''}.`,
 		...(packet.story_context?.threads?.length ? [
 			"Story assessment rules:",
 			"- Assess the player's expressed causal frame, not activity, distance, brevity or compliance with an expected route.",
@@ -316,24 +315,7 @@ export default function (pi: ExtensionAPI) {
 					? `The memory ${stage} reply held no JSON object; return the requested structure.`
 					: `The memory ${stage} structure did not match the requested shape.`} : {}) };
 		}
-        if (packet.task !== 'reconcile_correction' && packet.attribution_policy === MEMORY_ATTRIBUTION_POLICY) {
-            const review = await runLane<AttributionReview>({ctx: scheduler.ctx as ExtensionContext, envName: 'PI_COC_MEMORY_MODEL',
-                lane: 'memory', record: row => note({turn: packet.turn, job_id: jobId, task: 'attribution_review', ...row}),
-                systemPrompt: ATTRIBUTION_REVIEW_INSTRUCTION, input: attributionReviewInput(packet, lane.value.candidates),
-                signal: scheduler.signal, shape: value => shapeAttributionReview(value, packet, lane.value.candidates.length)});
-            if (!review.ok) {
-                if (review.reason === 'bad_output') await note({turn: packet.turn, job_id: jobId,
-                    event: 'malformed_reply', stage: 'attribution_review', reason: review.reason, ...(review.reply ? {reply: review.reply} : {})});
-                return {ok: false, reason: review.reason === 'model_unavailable' ? 'lane_error' : 'model_error', detail: review.detail,
-                    ...(review.reason === 'bad_output' ? {feedback: review.reply?.objects === 0
-                        ? 'The memory attribution_review reply held no JSON object; return the requested structure.'
-                        : 'The memory attribution_review structure did not match the requested shape.'} : {})};
-            }
-            await note({turn: packet.turn, job_id: jobId, event: 'attribution_review', verdict: review.value.verdict,
-                issues: review.value.issues.length, attribution_issues: review.value.issues, candidate_reports: lane.value.candidates});
-            if (review.value.verdict === 'repair') return {ok: false, reason: 'invalid', detail: JSON.stringify({
-                attribution_issues: review.value.issues, previous_candidates: lane.value.candidates})};
-        }
+
 		try {
 			await call("memory.submit", { campaign, job_id: jobId, candidates: lane.value.candidates,
 				...(lane.value.story ? {story: lane.value.story} : {}) });

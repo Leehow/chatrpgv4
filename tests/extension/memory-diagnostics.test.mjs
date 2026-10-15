@@ -21,8 +21,7 @@ const outcomeRows=table=>table.telemetry().filter(row=>row.lane==='memory'&&type
 test('malformed attempts retain bounded private stages without changing retries, submits or outage accounting',{timeout:20000},async t=>{
   const badCandidates=JSON.stringify({marker:privateMarker,candidates:privateMarker+'é'.repeat(600)});
   const badStory=JSON.stringify({candidates:[candidate],story:{marker:privateMarker,padding:'é'.repeat(600)}});
-  const badReview=JSON.stringify({marker:privateMarker,verdict:'supported',issues:[],padding:'é'.repeat(600)});
-  const requests=[],replies=[badCandidates,badCandidates,badStory,badStory,JSON.stringify({candidates:[candidate]}),badReview,JSON.stringify({candidates:[candidate]}),badReview];
+  const requests=[],replies=[badCandidates,badCandidates,badStory,badStory,badCandidates,badCandidates];
   const statuses=[],statusEvents=[];
   const engine=createHybridEngine({env:{...process.env,PI_COC_JEV_PRESELECT:'0'},decision:null,npcAct:null});
   const table=await openTable({legacyDeliveryFixtures:false,realKernel:true,runDriver:engine.runDriver,
@@ -52,7 +51,7 @@ test('malformed attempts retain bounded private stages without changing retries,
     await waitFor(()=>outcomeRows(table).length===turn);
     if(turn===2)assert.equal(table.entries('coc-lane-status').length,0,'diagnostics do not double-count attempts');
   }
-  assert.equal(requests.length,8,'two extraction tries, with review only after accepted extraction');
+  assert.equal(requests.length,6,'two extraction tries per malformed job, without a second model verdict');
   assert.equal(submits.length,0);
   assert.equal(fails.length,3);
   assert.ok(fails.every(row=>row.reason==='model_error'&&row.detail==='the JSON is not the shape this lane asked for'));
@@ -60,7 +59,7 @@ test('malformed attempts retain bounded private stages without changing retries,
   assert.equal(diagnostics.length,6,'first and retry failures are both retained');
   assert.deepEqual(table.entries('coc-telemetry').filter(row=>row.lane==='memory'&&row.event==='malformed_reply'),diagnostics,
     'the existing session and campaign private telemetry retain the same evidence');
-  assert.deepEqual(diagnostics.map(row=>row.stage),['candidates','candidates','story','story','attribution_review','attribution_review']);
+  assert.deepEqual(diagnostics.map(row=>row.stage),['candidates','candidates','story','story','candidates','candidates']);
   for(const row of diagnostics){
     assert.equal(row.reason,'bad_output');
     assert.equal(Object.hasOwn(row,'ok'),false);
@@ -72,7 +71,7 @@ test('malformed attempts retain bounded private stages without changing retries,
     assert.ok(Buffer.byteLength(row.reply.tail??'')<=REPLY_EVIDENCE_BYTES);
     assert.ok(JSON.stringify(row.reply).includes(privateMarker));
   }
-  for(const [index,stage] of [[1,'candidates'],[3,'story'],[6,'attribution_review'],[7,'attribution_review']]){
+  for(const [index,stage] of [[1,'candidates'],[3,'story'],[5,'candidates']]){
     const feedback=requests[index].split('[Previous attempt failed:')[1];
     assert.ok(feedback?.includes(stage),'retry names the structural stage');
     assert.ok(!feedback.includes(privateMarker),'retry feedback never quotes the reply');
@@ -86,11 +85,10 @@ test('malformed attempts retain bounded private stages without changing retries,
   assert.deepEqual(table.extensionErrors,[]);
 });
 
-test('successful candidate, story and attribution review retain the original submission and outcome',{timeout:10000},async t=>{
+test('successful candidate and story retain the original submission in one extraction',{timeout:10000},async t=>{
   const submits=[],fails=[];
   const table=await openTable({env:{PI_COC_MEMORY_BACKFILL:'0'},laneResponses:{memory:[
-    fauxAssistantMessage(JSON.stringify({candidates:[candidate],story})),
-    fauxAssistantMessage(JSON.stringify({verdict:'supported',issues:[]}))]}});
+    fauxAssistantMessage(JSON.stringify({candidates:[candidate],story}))]}});
   t.after(()=>table.dispose());
   table.emit('coc:kernel-bridge',{campaign:'test-camp',call:async(method,params)=>{
     if(method==='memory.job')return packet(1,{attribution_policy:MEMORY_ATTRIBUTION_POLICY,story_context:{threads:[{thread:'appointment'}]}});
@@ -102,10 +100,10 @@ test('successful candidate, story and attribution review retain the original sub
   await waitFor(()=>outcomeRows(table).length===1);
   assert.deepEqual(submits,[{campaign:'test-camp',job_id:'extract:test-camp:t1',candidates:[candidate],story}]);
   assert.deepEqual(fails,[]);
-  assert.equal(table.telemetry().filter(row=>row.lane==='lane-call'&&row.phase==='start'&&row.subsession==='memory').length,2);
+  assert.equal(table.telemetry().filter(row=>row.lane==='lane-call'&&row.phase==='start'&&row.subsession==='memory').length,1);
   assert.equal(outcomeRows(table)[0].ok,true);
   assert.equal(outcomeRows(table)[0].story_status,'unclear');
-  assert.equal(table.telemetry().filter(row=>row.event==='attribution_review').length,1);
+  assert.equal(table.telemetry().filter(row=>row.event==='attribution_review').length,0);
   assert.equal(table.telemetry().filter(row=>row.event==='malformed_reply').length,0);
   assert.deepEqual(table.extensionErrors,[]);
 });

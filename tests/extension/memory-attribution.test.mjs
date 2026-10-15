@@ -8,7 +8,6 @@ import {build} from 'esbuild';
 import {fauxAssistantMessage} from '@earendil-works/pi-ai';
 import {openTable, waitFor} from './harness.mjs';
 import {MEMORY_ATTRIBUTION_POLICY, MEMORY_ATTRIBUTION_INSTRUCTION} from '../../kernel-ts/memory/attribution.ts';
-import {shapeAttributionReview} from '../../extensions/memory/attribution-review.ts';
 import {npcMemoryPayloadDigests} from '../../extensions/npc/profile-observation.ts';
 const root=resolve(import.meta.dirname,'../..'),parent=join(root,'.pi/memory-attribution-tests');
 await mkdir(parent,{recursive:true});const directory=await mkdtemp(join(parent,'run-'));
@@ -63,37 +62,36 @@ test('a retained legacy packet can finish without rewriting its old attribution 
 });
 test('the real extraction extension retries omitted promise attribution and preserves the corrected hearer',async t=>{
  const bad={...pledge};delete bad.knowers;
- const game=await openTable({retainAt:directory,env:{PI_COC_MEMORY_BACKFILL:'0'},laneResponses:{memory:[fauxAssistantMessage(JSON.stringify({candidates:[bad]})),fauxAssistantMessage(JSON.stringify({candidates:[pledge,relation]})),fauxAssistantMessage(JSON.stringify({verdict:'supported',issues:[]}))]}});t.after(()=>game.dispose());
+ const game=await openTable({retainAt:directory,env:{PI_COC_MEMORY_BACKFILL:'0'},laneResponses:{memory:[fauxAssistantMessage(JSON.stringify({candidates:[bad]})),fauxAssistantMessage(JSON.stringify({candidates:[pledge,relation]}))]}});t.after(()=>game.dispose());
  const submitted=[],packet={job_id:'extract:fixture:t1',turn:1,attribution_policy:MEMORY_ATTRIBUTION_POLICY,present:['Steven Knott'],investigators:[{name:'Thomas Hayes'}],known_entities:[{name:'Thomas Hayes',kind:'investigator'},{name:'Steven Knott',kind:'npc'}],player_text:'I will bring you the verified report after investigating.',keeper_text:'Knott acknowledged the reporting promise.',instruction:MEMORY_ATTRIBUTION_INSTRUCTION};
  game.emit('coc:kernel-bridge',{campaign:'fixture',call:async(method,params)=>{if(method==='memory.job')return packet;if(method==='memory.submit'){submitted.push(params);return {candidates:2};}return {};}});
  game.emit('coc:turn-committed',{campaign:'fixture',turn:1});await waitFor(()=>submitted.length===1);
  assert.deepEqual(submitted[0].candidates.map(x=>x.knowers),[pledge.knowers,relation.knowers]);
 });
 
-test('independent review rejects reversed direction and a missing pledge before canonical publication',async t=>{
- for(const missing of [false,true]){
-  const source_quote=missing?'I will bring you a verified report.':'I believe your account';
-  const wrong={...relation,subject:'Thomas Hayes',entities:['Steven Knott'],statement:'Thomas Hayes trusts Steven Knott because Knott believed his account.'};
-  const issue={candidate:missing?'missing':'candidate 1',source_quote,reason:missing?'The delivered conditional reporting promise was omitted.':'Knott expressed trust toward Hayes, not Hayes toward Knott.'};
-  const responses=[{candidates:missing?[]:[wrong]},{verdict:'repair',issues:[issue]},{candidates:missing?[pledge]:[relation]},{verdict:'supported',issues:[]}].map(x=>fauxAssistantMessage(JSON.stringify(x)));
-  const game=await openTable({retainAt:directory,env:{PI_COC_MEMORY_BACKFILL:'0'},laneResponses:{memory:responses}});t.after(()=>game.dispose());
-  const submits=[],packet={job_id:'extract:fixture:t1',turn:1,attribution_policy:MEMORY_ATTRIBUTION_POLICY,
-   player_text:'I will bring you a verified report.',keeper_text:"Knott said: I believe your account; you did not invent a story.",
-   known_entities:[{name:'Thomas Hayes',kind:'investigator'},{name:'Steven Knott',kind:'npc'}],instruction:MEMORY_ATTRIBUTION_INSTRUCTION};
-  game.emit('coc:kernel-bridge',{campaign:'fixture',call:async(method,params)=>{if(method==='memory.job')return packet;if(method==='memory.submit'){submits.push(params);return {};}return {};}});
-  game.emit('coc:turn-committed',{campaign:'fixture',turn:1});await waitFor(()=>submits.length===1);
-  assert.deepEqual(submits[0].candidates,missing?[pledge]:[relation]);
-  await game.dispose();
- }
+test('valid attributed reports reach native storage and NPC perspective without a second model veto',async t=>{
+ const native=await table();
+ await native.call('table.player_input',{text:'I will bring you a verified report after investigating.'});
+ await native.call('table.narrate',{call_id:'t1-c1',text:'Thomas Hayes made a conditional reporting promise to Steven Knott, who heard and acknowledged it.'});
+ const packet=await native.call('memory.job',{turn:1});
+ const extracted={candidates:[pledge,relation],...(packet.story_context?.threads?.length?{story:{status:'unclear',thread:null,frame:null,bridge_delivered:false,delivery_quote:null}}:{})},mistakenReview={verdict:'repair',issues:[{
+  candidate:'candidate 1',source_quote:'Thomas Hayes made a conditional reporting promise',reason:'The promisor is missing from knowers.'}]};
+ const game=await openTable({retainAt:directory,env:{PI_COC_MEMORY_BACKFILL:'0'},laneResponses:{memory:
+  [extracted,mistakenReview,extracted,mistakenReview].map(value=>fauxAssistantMessage(JSON.stringify(value)))}});
+ t.after(()=>game.dispose());
+ game.emit('coc:kernel-bridge',{campaign:'c1',call:(method,params)=>method==='memory.job'?packet:native.call(method,params)});
+ game.emit('coc:turn-committed',{campaign:'c1',turn:1});
+ await waitFor(()=>game.telemetry('c1').some(row=>row.lane==='memory'&&typeof row.ok==='boolean'));
+ assert.equal(game.telemetry('c1').find(row=>row.lane==='memory'&&typeof row.ok==='boolean').ok,true);
+ const rows=(await readFile(join(native.base,'memory/candidates.jsonl'),'utf8')).trim().split('\n').map(JSON.parse);
+ assert.equal(rows.length,2);
+ const view=await native.call('npc.perspective',{name:'Steven Knott'});
+ assert.equal(view.commitments[0].statement,pledge.statement);
+ assert.equal(view.relationships[0].evidence[0].statement,relation.statement);
+ assert.equal(game.telemetry('c1').filter(row=>row.lane==='lane-call'&&row.phase==='start'&&row.subsession==='memory').length,1);
+ assert.equal(JSON.parse(await readFile(join(native.base,'memory/jobs',packet.job_id+'.json'),'utf8')).status,'done');
 });
-test('attribution verdicts must refer to their own issued candidate and actual source quote',()=>{
- const source={player_text:'A pledge was heard.',keeper_text:'Knott acknowledged it.'};
- const issue={candidate:'candidate 1',source_quote:'Knott acknowledged it.',reason:'The listener must be retained.'};
- assert(shapeAttributionReview({verdict:'repair',issues:[issue]},source,1));
- assert.equal(shapeAttributionReview({verdict:'repair',issues:[{...issue,candidate:'candidate 2'}]},source,1),undefined);
- assert.equal(shapeAttributionReview({verdict:'repair',issues:[{...issue,source_quote:'Invented response'}]},source,1),undefined);
- assert.equal(shapeAttributionReview({verdict:'supported',issues:[issue]},source,1),undefined);
-});
+
 test('actual adapter observation binds statement digests to the NPC receiving them without logging prose',()=>{
  const view={name:'Steven Knott',commitments:[pledge],relationships:[{toward:'Thomas Hayes',evidence:[relation]}]},before=structuredClone(view);
  const observed=npcMemoryPayloadDigests({messages:[{role:'tool',content:JSON.stringify(view)}]});
