@@ -366,5 +366,6 @@ test('an Idea roll remains available after all visited scene clues are already k
     const rolls = records.filter(receipt => receipt.kind === 'roll');
     assert.equal(rolls.length, 1);
     assert.equal(rolls[0].roll_kind, 'idea_roll');
+    assert.equal(rolls[0].check.push_eligible, false);
     assert.equal(rolls[0].clue, undefined);
 });

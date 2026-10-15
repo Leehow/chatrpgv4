@@ -328,7 +328,7 @@ export async function settleBasic(context: SettleContext, runtime: RuleGraph, se
             const roll = context.receipts.find(receipt => receipt.id === data.roll_id);
             if (roll) {
                 roll.roll_kind = 'idea_roll';
-                if (roll.check && typeof roll.check === 'object') Object.assign(roll.check as Row, {kind: 'idea_roll'});
+                if (roll.check && typeof roll.check === 'object') Object.assign(roll.check as Row, {kind: 'idea_roll', push_eligible: false});
             }
             landed = {clue: null, receipt: null, note: data.passed === true ? IDEA_CONNECTION_NOTE.passed : IDEA_CONNECTION_NOTE.failed};
         }
