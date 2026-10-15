@@ -39,6 +39,26 @@ test('an unfinished service notice preserves evidence without counting as delive
   assert.equal(completed.final_text,'{{name:Visitor}} listens to your request.');
 });
 
+test('a terminal provider outage without turn_unfinished is not delivered play',async()=>{
+  const notice=entry('coc-delivery',{}, {display:true,content:'A localized connection failure.',
+    details:{coc_delivery:true,provider_outage:true,terminal:true,turn:7}});
+  for(const worked of [false,true]){
+    const tools=worked?[
+      [.1,{type:'tool_execution_start',toolCallId:'check',toolName:'resolve',args:{}}],
+      [.2,{type:'tool_execution_end',toolCallId:'check',isError:false,result:{content:[{type:'text',text:'{}'}]}}],
+    ]:[];
+    const result=await replay_turn([[0,{type:'agent_start'}],...tools,[.3,notice],[.5,{type:'agent_settled'}]]);
+    assert.equal(result.final_text,'A localized connection failure.');
+    assert.equal(result.delivery.details.provider_outage,true);
+    assert.equal(result.settle_class,worked?'undelivered_with_tools':'empty');
+    assert.equal(result.tools.length,worked?1:0);
+  }
+  const completed=await replay_turn([[0,{type:'agent_start'}],[.1,notice],[.2,start()],
+    [.3,delta()],[.4,end()],[.5,{type:'agent_settled'}]]);
+  assert.equal(completed.settle_class,'settled');
+  assert.equal(completed.final_text,'{{name:Visitor}} listens to your request.');
+});
+
 test('the actual driver selects the canonical public footer before stream completion',async()=>{
   const result=await replay_turn([[0,{type:'agent_start'}],[.1,start()],[.2,delta()],[.3,footer()],
     [.4,end()],[.5,{type:'agent_settled'}]]);

@@ -46728,6 +46728,8 @@ The existing Keeper Pacing Mod carries an explicit wait-until choice through rou
 
 The real RPC play driver preserves a public coc-delivery service notice with turn_unfinished:true, but classifies a notice-only end as empty (no tool work) or undelivered_with_tools (tool work retained), using existing classes and exit codes. Any actually accepted later story delivery supersedes the notice normally. No prose parsing, automatic player action or Keeper replacement. Existing historical turn files remain unchanged; retained Luna saturation evidence illustrates why a nonempty service sentence cannot prove delivered play.
 
+The same classification covers the existing terminal provider_outage:true notice even when it does not also carry turn_unfinished. Real Luna document-budget T1 had six upstream503 failures, zero tools and only this terminal service notice, yet the driver recorded settled. Preserve that original record; later runs must not count this closed structured failure as a completed story.
+
 #### 237.112 Voice author file work uses the existing Node runtime
 
 The tool-enabled NPC voice author uses read/write/edit directly. If it needs JSON processing or character counts, its existing task brief supplies the running Node executable. Python and uv are unavailable and must not be invoked. This corrects a retained real voice-author bash attempt to count strings with python3; it does not add a tool filter, review gate or another author. The original refused attempt remains evidence, separate from production runtime dependencies.

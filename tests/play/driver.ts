@@ -499,7 +499,8 @@ export class Daemon {
                 if (projected_choice != null)
                     delivery.pending_choice = projected_choice;
             }
-            const unfinished = delivery?.kind === 'notice' && delivery.details?.turn_unfinished === true;
+            const unfinished = delivery?.kind === 'notice' && (delivery.details?.turn_unfinished === true
+                || delivery.details?.provider_outage === true && delivery.details?.terminal === true);
             const settled = reason === 'timeout' ? 'timeout' : reason === 'settled_before_any_work' ? 'empty'
                 : unfinished ? records.length ? 'undelivered_with_tools' : 'empty'
                 : final ? 'settled' : records.length ? 'undelivered_with_tools' : 'empty';
