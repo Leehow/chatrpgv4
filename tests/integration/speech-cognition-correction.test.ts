@@ -124,7 +124,6 @@ test('optional speech omissions cannot hide hard event constraints or create an 
     ['unknown field',{...wrong,extra:true},/knowledge\[1\]/],
     ['private binding',{...wrong,material:'secret'},/permitted public component/],
     ['unknown binding',{...wrong,material:'absent'},/permitted public component/],
-    ['player belief',{...wrong,actor:'Thomas Hayes',mode:'belief'},/player belief/],
   ];
   const before=readJson(join(campaignDir(k.workspace),'world.json')),receipts=(await k.table('status')).receipts;
   for(const [name,knowledge,expected]of cases){
@@ -138,4 +137,10 @@ test('optional speech omissions cannot hide hard event constraints or create an 
   const invalidEffect=await k.tableErr('apply',{call_id:'t1-c1',effects:[{kind:'time',minutes:-1}],event:{name:'Wrong physical effect',summary:'A reply.',materials:[material],knowledge:[wrong]}});
   assert.equal(invalidEffect.code,'invalid_params');assert.equal(invalidEffect.details.index,0);
   assert.deepEqual(readJson(join(campaignDir(k.workspace),'world.json')),before);assert.deepEqual((await k.table('status')).receipts,receipts);
+  const accepted=await k.table('apply',{call_id:'t1-c1',effects:[{kind:'time',minutes:5}],event:{name:'Optional cognition omitted',summary:'The reply takes five minutes.',
+    materials:[material],knowledge:[wrong,{actor:'Thomas Hayes',statement:'UNOWNED_PLAYER_BELIEF',mode:'belief',state:'uncertain'}]}});
+  assert.equal(accepted.not_landed.length,2);
+  assert.equal(accepted.not_landed[1].details.field,'event.knowledge[1].mode');
+  assert.equal(readJson(join(campaignDir(k.workspace),'world.json')).clock.minutes,5);
+  assert.equal(accepted.outcome.events[0].knowledge.length,0);
 });
