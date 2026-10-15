@@ -38,6 +38,31 @@ const errors=table=>table.session.messages.filter(m=>m.role==='toolResult'&&m.de
 const eventWriterEnv={...writerEnv,PI_COC_READER_CMD:JSON.stringify([process.execPath,join(root,'tests/extension/fixtures/turn-event-writer.mjs')])};
 const reconnect=workspace=>new KernelClient({command:[process.execPath,rpc,'--workspace',workspace,'--content',join(root,'content')],cwd:root,env:process.env});
 
+test('an unsupported player belief leaves valid time, NPC effects and other cognition intact across publication and restart',async t=>{
+  const table=await openTable({legacyDeliveryFixtures:false,realKernel:true,prepareWorkspace:seedOpening,env:writerEnv});t.after(()=>table.dispose());
+  const bridge=table.runtimeBridges().at(-1);
+  await bridge.call('table.player_input',{campaign,text:'I consider the evidence while Knott leaves.'});
+  const belief='Hayes has decided that the case is solved.',observed='The visitor remained seated when I left.';
+  const params={campaign,call_id:'t1-c1',effects:[{kind:'time',minutes:8},{kind:'npc',name:npc,to:'away'}],
+    event:{name:'consideration and departure',summary:'Knott leaves after eight minutes.',knowledge:[
+      {actor:'Thomas Hayes',statement:belief,mode:'belief',state:'uncertain'},
+      {actor:npc,statement:observed,mode:'observed',state:'accurate'}]}};
+  const result=await bridge.call('table.apply',params);
+  assert.equal(result.not_landed.length,1);
+  assert.equal(result.not_landed[0].details.field,'event.knowledge[0].mode');
+  assert.equal(result.outcome.events[0].knowledge.length,1);
+  assert.equal(result.outcome.events[0].knowledge[0].statement,observed);
+  assert.equal((await bridge.call('table.apply',params)).replayed,true);
+  await bridge.call('table.narrate',{campaign,call_id:'t1-c2',text:'Knott leaves while you consider the evidence.'});
+  const fresh=reconnect(table.workspace);t.after(()=>fresh.close());
+  const capsule=await fresh.call('table.capsule',{campaign});
+  assert.equal(capsule.where.clock.minutes,8);
+  assert.ok(!capsule.present.some(person=>person.name===npc));
+  assert.ok(!capsule.player_knows.cognition.some(item=>item.statement===belief));
+  const view=await fresh.call('table.look',{campaign,focus:'npc',name:npc});
+  assert.ok(view.cognition.some(item=>item.statement===observed));
+});
+
 for(const refusal of ['event','dependent effect'])test(`a refused ${refusal} leaves previously staged damage, healing state and receipts unchanged`,async t=>{
   const table=await openTable({legacyDeliveryFixtures:false,realKernel:true,prepareWorkspace:seedOpening,env:writerEnv});t.after(()=>table.dispose());
   const bridge=table.runtimeBridges().at(-1);await bridge.call('table.player_input',{campaign,text:'I test the door carefully.'});

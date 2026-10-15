@@ -120,11 +120,16 @@ export function stageEvent(raw:unknown,input:{graph:ModuleGraph;world:Row;party:
     if(!word(item.statement)||!modes.includes(item.mode)||!states.includes(item.state))invalid('knowledge');
     const who=actor(item.actor),source=item.source===undefined?undefined:actor(item.source);
     if(item.mode==='heard'&&!source)invalid('heard source');
-    if(item.mode==='belief'&&who.kind==='investigator')invalid('player belief requires the existing player assertion owner');
     const binding=material(item.material),bound=materials.find(m=>m.name===binding);
     return {item,index,who,source,binding,bound};
   });
   const knowledge=checkedKnowledge.flatMap(({item,index,who,source,binding,bound})=>{
+    if(item.mode==='belief'&&who.kind==='investigator'){
+      input.notLanded?.push(new RpcError('invalid_params','Player belief requires the existing player assertion owner',
+        {fix:'This knowledge row was omitted; the other valid event rows and effects remain. The Keeper may offer a connection but cannot decide what the investigator believes. Record an actual player assertion through its existing owner; do not relabel an inferred belief as observed or heard.',
+        details:{field:`event.knowledge[${index}].mode`,knowledge_index:index,actor:who.name}}));
+      return [];
+    }
     if(bound?.kind==='speech'&&(item.mode!=='heard'||source?.id!==row(bound.speaker).id||!array(bound.audience).some(a=>a.id===who.id))){
       const audience=array(bound.audience);
       input.notLanded?.push(new RpcError('invalid_params','Invalid event speech cognition must match actual speaker and audience',

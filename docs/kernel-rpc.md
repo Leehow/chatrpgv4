@@ -46732,6 +46732,10 @@ The real RPC play driver preserves a public coc-delivery service notice with tur
 
 The tool-enabled NPC voice author uses read/write/edit directly. If it needs JSON processing or character counts, its existing task brief supplies the running Node executable. Python and uv are unavailable and must not be invoked. This corrects a retained real voice-author bash attempt to count strings with python3; it does not add a tool filter, review gate or another author. The original refused attempt remains evidence, separate from production runtime dependencies.
 
+#### 237.116 Unsupported player belief does not discard unrelated established events
+
+An otherwise valid event cognition row with mode belief and an investigator actor is omitted through the existing event not_landed feedback, just like an unsupported speech cognition binding. Its feedback points to the existing player assertion owner; the Keeper cannot assign the player's belief. Other valid cognition rows, event data and effects keep their ordinary atomic transaction. Invalid actor references, malformed event shapes and invalid world effects still reject the batch. No semantic classification, extra review, automatic player assertion or new persistence owner is introduced. This addresses real Amara Idea recovery: a rejected optional investigator belief discarded eight minutes and arriving NPCs, while the Keeper continued with prose describing those arrivals.
+
 #### 237.115 Memory subjects reuse issued semantic handles
 
 recall.about names one identity per entry. Reuse an issued semantic handle from a current view id or continuity anchor; do not append display aliases for that same person. An ambiguous alias may refer to different surviving source people, so a unique full name beside it does not make the alias safe. Existing ambiguity validation, source identities, survivor relations and memory authority remain unchanged. This is tool guidance only, with no resolver heuristic, merge, extra agent or review gate. Real Amara turns repeated an exact full name plus ambiguous alias despite an already supplied unique continuity anchor.
