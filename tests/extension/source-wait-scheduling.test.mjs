@@ -113,7 +113,7 @@ test('an actually claimed source owner wakes its waiter when it completes during
  assert.equal((await pending).state,'ready');assert.equal(Date.now(),7500,'completion wakes before the 10500 ms polling deadline');
 });
 
-test('an idle waiter reclaims the same reading after its external descriptor owner releases the lock',async t=>{
+test('an idle waiter reclaims the same reading after its external descriptor owner releases the lock',{timeout:5000},async t=>{
  const root=resolve(import.meta.dirname,'../..'),temporary=playtestScratch('source-wait-lock-recovery');
  const entry=join(temporary,'api.mjs');
  await build({stdin:{contents:"export {createKernelContext} from './kernel-ts/context.ts'; export {nativeAdvisoryLocks} from './kernel-ts/native-locks.ts'; export {createKernelRuntime} from './kernel-ts/registry.ts';",resolveDir:root},
@@ -126,14 +126,15 @@ test('an idle waiter reclaims the same reading after its external descriptor own
  const owned=await foreign.ok('module.read.claim',{module_id:book.mid,owner:'external-reader'});
  assert.equal(owned.job_id,requested.job_id);
  t.mock.timers.enable({apis:['setTimeout','Date'],now:0});
- const requests=[],claims=[],failures=[];let claiming=0;
+ const requests=[],claims=[],failures=[];let claiming=0,recovered;
+ const claimReturned=new Promise(resolve=>{recovered=resolve;});
  const service=new ReadingService({home:book.home,model:()=>({id:'fixture/reader',vision:true,thinking:'off'}),progress(){},record(){},
   runtime:{contentRoot:join(root,'content'),async runTask(){throw Error('Fixture author stops after the recovered claim');}},
   async call(method,args){if(method==='module.read.claim')claiming++;
    let result;try{result=await book.raw(method,args);}catch(error){failures.push({method,message:error.message});throw error;}
    finally{if(method==='module.read.claim')claiming--;}
    if(method==='module.read.request')requests.push({at:Date.now(),state:result.state,job:result.job_id});
-   if(method==='module.read.claim')claims.push({at:Date.now(),...result});return result;
+   if(method==='module.read.claim'){claims.push({at:Date.now(),...result});if(result.job_id===owned.job_id)recovered();}return result;
   }});
  const pending=service.ensure(book.mid,params);pending.catch(()=>undefined);
  t.after(async()=>{await service.close();await advance(t,3000);await pending.catch(()=>undefined);});
@@ -143,6 +144,8 @@ test('an idle waiter reclaims the same reading after its external descriptor own
  await advance(t,300);await drain(()=>requests.length>=2);await flush();await drain(()=>claiming===0);
  await foreign.close();await advance(t,600);await drain(()=>requests.length>=3);
  assert.deepEqual(requests.slice(0,3).map(x=>[x.at,x.state,x.job]),[[0,'reading',owned.job_id],[300,'reading',owned.job_id],[900,'reading',owned.job_id]],'lock release alone does not change request progress');
+ // Native claim preparation uses real I/O; observe its return before checking the callback ledger.
+ await claimReturned;
  await drain(()=>claims.some(x=>x.job_id===owned.job_id));
  const reclaimed=claims.find(x=>x.job_id===owned.job_id);
  assert.notEqual(reclaimed.lease,owned.lease);assert.equal(reclaimed.attempts,owned.attempts+1);
