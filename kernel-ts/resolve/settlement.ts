@@ -381,6 +381,9 @@ export async function settleBasic(context: SettleContext, runtime: RuleGraph, se
         const feasibility = string(data.feasibility || '');
         if (feasibility === 'roll') {
             const derived = socialBoundPlan(plan, data);
+            if(context.actingId!==context.actorId)
+                Object.assign(row(row(derived.command).payload),await hostLocked(context,runtime,
+                    {decision_ref:ORDINARY,semantic_inputs:{skill:data.approach_skill}},null));
             const bound = await execute(derived);
             warnings = [...warnings, ...bound.warnings];
             hints = [...hints, ...bound.hints];

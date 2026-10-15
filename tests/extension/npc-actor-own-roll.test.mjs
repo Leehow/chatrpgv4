@@ -119,6 +119,33 @@ test('an NPC actor with no pinned or authored skill rolls the skill\'s rulebook 
 	assert.doesNotMatch(hint, /\d|investigator sheet/);
 });
 
+test('a derived social roll uses the NPC actor skill and keeper receipt rather than the investigator',async t=>{
+  const game=await table(t),handle=await place(game),otherHandle=await place(game,OTHER);
+  await game.apply({kind:'npc',name:GUARD,skill:{name:'Fast Talk',value:73},why:'An established negotiator.'});
+  await game.apply({kind:'npc',name:OTHER,skill:{name:'Psychology',value:10},why:'The listener has little social training.'});
+  const otherId=(await game.receipts()).find(r=>r.handle===otherHandle).npc;
+  const ledgerFile=join(game.home,'.coc/campaigns/c1/npc-ledger.json');
+  await game.call('table.narrate',{call_id:game.next(),text:'Two clerks wait beside the door.'});
+  const stanceBefore=JSON.parse(await readFile(ledgerFile,'utf8'))[otherId].stance;
+  await game.say('I wait while the clerks speak.');
+  const before=await game.investigatorRaw();
+  const result=await game.resolve({intent:'social',actor:GUARD,target:OTHER,skill:'Fast Talk',
+    goal:'Engage the listener in ordinary conversation.',method:'Ask the listener to discuss the visitor.',
+    motive:{direction:'neutral',intensity:0}});
+  assert.equal(result.outcome.feasibility,'roll');
+  assert.equal(result.outcome.target,73);
+  const roll=(await game.receipts()).find(r=>r.id===result.receipt);
+  assert.equal(roll.actor,handle);assert.equal(roll.actor_is_investigator,false);
+  assert.equal(roll.check.target_source,'npc');assert.equal(roll.visibility,'keeper');
+  assert.equal(roll.actor_label,GUARD);
+  assert.equal(await game.investigatorRaw(),before);
+  assert.equal(player_mechanics([{kind:'roll',...roll}]).length,0);
+  await game.call('table.narrate',{call_id:game.next(),text:'The clerks finish speaking.'});
+  const targetEntry=JSON.parse(await readFile(ledgerFile,'utf8'))[otherId];
+  assert.deepEqual(targetEntry.stance,stanceBefore,'an NPC-to-NPC attempt does not change the listener stance toward the party');
+  assert.ok(targetEntry.interactions.some(r=>r.receipt===roll.id));
+});
+
 test('native RPC preserves fallback evidence, then consumes a later NPC skill pin after restart', async t => {
 	const home = await mkdtemp(join(temporary, 'rpc-home-'));
 	let client = new RpcClient(home);

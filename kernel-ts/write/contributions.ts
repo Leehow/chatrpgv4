@@ -238,6 +238,9 @@ export function foldNpcTurn(ledger: Row, graph: ModuleGraph, record: Row, table:
                     continue;
                 if (family !== 'social' && !(typeof approach === 'string' && Object.hasOwn(row(table.social), approach)))
                     continue;
+                // An NPC speaking to another NPC is no change in the listener's stance toward the party.
+                if (family === 'social' && actor)
+                    continue;
                 const raw = row(row(table.social)[string(approach || '')])[string(receipt.level || '')];
                 let delta = intLike(raw) ? number(raw) : 0;
                 if (delta)
