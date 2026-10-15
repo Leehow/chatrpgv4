@@ -254,7 +254,9 @@ export function validateCandidates(index: EntityIndex, candidates: any, referenc
     const names = index.allowed === null ? index : new EntityIndex(index.graph, index.party, index.labels, null, index.world);
     const storedName = (key: string): string => {
         const label = index.canonicalName(key), matches = names.matches(label);
-        return matches.length === 1 && matches[0] === key ? label : index.referenceName(key);
+        if (matches.length === 1 && matches[0] === key) return label;
+        const reference = index.referenceName(key), resolved = names.matches(reference);
+        return resolved.length === 1 && resolved[0] === key ? reference : label;
     };
     if (!Array.isArray(candidates))
         throw new RpcError('invalid_params', 'params.candidates must be a list');
