@@ -59,7 +59,11 @@ test('the real Keeper context supplies practical NPC knowledge and separates fir
     }
     const publicText=table.entries('coc-final-delivery').filter(frame=>frame.event==='delta').map(frame=>frame.delta).join('');
     assert.equal(publicText,'The conversation continues.','host responsibilities never enter the public stream');
-    assert.ok(system.includes('speech material.text may be a semantic brief')&&system.includes('optional quotation coverage for changed wording or multiple say spans')&&system.includes('existing fallback without a declaration'));
+    for(const guidance of [system,footer]){
+        assert.ok(guidance.includes('For prospective heard knowledge, speech material.text contains the exact public words you will use'));
+        assert.ok(guidance.includes('reuse those words verbatim inside the actual speaker\'s say span'));
+        assert.doesNotMatch(guidance,/optional root coverage|optional quotation coverage/);
+    }
     assert.ok(system.includes('Already acquired knowledge needs no material binding.'));
     assert.ok(delivered.includes('Keep hidden motives, undisclosed source facts, private thoughts, tool arguments and hosting explanations out of public prose'));
     const capsule=await table.runtimeBridges().at(-1).call('table.capsule',{campaign:'test-camp'});

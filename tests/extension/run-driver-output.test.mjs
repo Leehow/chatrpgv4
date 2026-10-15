@@ -1238,6 +1238,31 @@ test('native speech aliases bind exact whole quotes to the same current actor ac
   assert.deepEqual(table.extensionErrors,[]);
 });
 
+test('native public prose activates only the exact attributed speech settled by its preceding real apply',async t=>{
+  const material=(name,text,visibility='player')=>({name,text,kind:'speech',visibility,speaker:'Steven Knott',audience:['Thomas Hayes']});
+  const heard=name=>({actor:'Thomas Hayes',source:'Steven Knott',statement:'Heard '+name,mode:'heard',state:'uncertain',material:name});
+  const text='{{say:Steven Knott}}I only heard that the family left.{{/say}}\n\n'
+    +'{{say:Steven Knott}}The archive can help you.{{/say}}';
+  const {table,seen}=await directTable([
+    fauxAssistantMessage([fauxToolCall('apply',{effects:[],event:{name:'native-account',summary:'PRIVATE_NATIVE_CAUSE',
+      materials:[material('exact','I only heard that the family left.'),material('changed','You should consult the archive.'),material('private','PRIVATE_NATIVE_SECRET','keeper')],
+      knowledge:[heard('exact'),heard('changed')]}})],{stopReason:'toolUse'}),
+    fauxAssistantMessage('{{public}}'+text),
+  ]);
+  t.after(()=>table.dispose());await table.session.prompt('What can you actually tell me?');
+  assert.deepEqual(table.extensionErrors,[]);assert.equal(seen.at(-1)?.status,'completed');
+  assert.equal(seen.filter(frame=>frame.event==='delta').map(frame=>frame.delta).join(''),text);
+  assert.ok(!JSON.stringify(seen).includes('PRIVATE_NATIVE_CAUSE'));
+  assert.ok(!JSON.stringify(seen).includes('PRIVATE_NATIVE_SECRET'));
+  const turn=JSON.parse(readFileSync(join(table.workspace,'.coc/campaigns/test-camp/turns/0001.json'),'utf8'));
+  assert.ok(turn.commit);assert.equal(turn.receipts.filter(row=>row.kind==='event').length,1);
+  assert.deepEqual(turn.delivery_evidence.coverage.map(row=>row.name.split('/').at(-1)),['exact']);
+  assert.deepEqual(turn.outcome.knowledge_changes.map(row=>({statement:row.statement,status:row.status})),
+    [{statement:'Heard exact',status:'active'},{statement:'Heard changed',status:'pending'}]);
+  const memory=await table.runtimeBridges().at(-1).call('table.recall',{campaign:'test-camp',what:'memory',about:['Thomas Hayes']});
+  assert.deepEqual(memory.hits.filter(row=>row.authority==='canonical_event').map(row=>row.statement),['Heard exact']);
+});
+
 test('the first native stream catalog includes safe earlier-scene speech without disclosing private or corrected people',async t=>{
   const {table}=await directTable([],{prepareWorkspace:workspace=>{
     seedPrintedNames(workspace,true);
