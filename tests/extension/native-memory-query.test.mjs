@@ -16,7 +16,7 @@ function decide(batch){
         return [question.key,{status:'answered',type:'choice',choice}];
     })),{inputTokens:1,outputTokens:1,costUsd:0});
 }
-async function native(t,{decision,responses,observe,onSearch}={}){
+async function native(t,{decision,responses,observe,onSearch,onRevision}={}){
     const engine=createHybridEngine({env:{...process.env,PI_COC_JEV_PRESELECT:'0'},decision});
     const table=await openTable({legacyDeliveryFixtures:false,realKernel:true,runDriver:engine.runDriver,
         env:{PI_COC_LOOP_ENGINE:'hybrid-v1',PI_COC_MEMORY_BACKFILL:'0',PI_COC_JEV_PRESELECT:'0'},
@@ -27,12 +27,13 @@ async function native(t,{decision,responses,observe,onSearch}={}){
             try{await runtime.handlers['table.open']({campaign:'test-camp'});
                 await runtime.handlers['table.narrate']({campaign:'test-camp',call_id:'t0-c1',text:retained});
             }finally{await runtime.close();}
-        },extraExtensions:[...((observe||onSearch)?[{name:'memory-evidence-observer',factory(pi){
+        },extraExtensions:[...((observe||onSearch||onRevision)?[{name:'memory-evidence-observer',factory(pi){
         pi.events.on('coc:typed-memory-search',value=>onSearch?.(value));
         pi.events.on('coc:kernel-bridge',bridge=>{
             if(!bridge?.call)return;
             const call=bridge.call;
-            bridge.call=async(method,params)=>{const result=await call(method,params);if(method==='memory.evidence')await observe(params,result);return result;};
+            bridge.call=async(method,params)=>{const result=await call(method,params);if(method==='memory.evidence')await observe?.(params,result);
+                if(method==='table.capsule'&&params._revision_only===true)onRevision?.();return result;};
         });}}]:[]),{name:'native-driver',factory:engine.extension}],responses});
     t.after(()=>table.dispose());return table;
 }
@@ -53,9 +54,9 @@ test('native unconfigured recall omits query and refuses a retained explicit que
 });
 
 test('native configured recall reaches production evidence originals and returns bounded attributed text',async t=>{
-    let offered;const evidence=[];const batches=[];
+    let offered,revisionReads=0;const evidence=[];const batches=[];
     const table=await native(t,{decision:{decide:async batch=>{batches.push(batch);return decide(batch);}},
-        observe:(params,result)=>evidence.push({params:structuredClone(params),result:structuredClone(result)}),responses:[context=>{
+        onRevision:()=>revisionReads++,observe:(params,result)=>evidence.push({params:structuredClone(params),result:structuredClone(result)}),responses:[context=>{
             offered=getCurrentTools(context.messages).find(tool=>tool.name==='recall');
             return fauxAssistantMessage([fauxToolCall('recall',{what:'memory',query:'What condition was stated about the blue envelope?',turns:[0,0],include_superseded:true})],{stopReason:'toolUse'});
         },fauxAssistantMessage('{{reference}}The earlier report retains its condition.') ]});
@@ -66,6 +67,7 @@ test('native configured recall reaches production evidence originals and returns
     assert.equal(result.isError,false,JSON.stringify(result.details));
     assert.ok(evidence.some(row=>row.params.action==='original'));
     assert.ok(evidence.some(row=>row.params.action==='finish'));
+    assert.ok(revisionReads<=evidence.length+batches.length+2,`Repeated revision reads: ${revisionReads} for ${evidence.length} owner operations`);
     assert.ok(batches.length>0&&batches.every(batch=>batch.family==='memory-read'));
     assert.ok(evidence.filter(row=>row.params.action==='snapshot').every(row=>JSON.stringify(row.params.filters)===JSON.stringify({turns:[0,0],include_superseded:true})));
     assert.ok(evidence.every(row=>row.params.scope.audience==='keeper'&&row.params.scope.worldline==='main'&&row.params.scope.loop===0));

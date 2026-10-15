@@ -404,8 +404,11 @@ export function createHybridEngine(options: HybridEngineOptions): {runDriver: Se
         queries.add(controller);
         const combined=AbortSignal.any([controller.signal,...(signal?[signal]:[]),...(runSignal?[runSignal]:[])]);
         const inputResource=`input:${active.runId}`;
-        const currentRead=async(intent?:IntentBinding)=>{
+        const assertOwner=()=>{
           if(closed||active!==current||bound!==bridge||owner!==gateway||combined.aborted)throw new ContractError('memory_query_scope_stale');
+        };
+        const currentRead=async(intent?:IntentBinding)=>{
+          assertOwner();
           const capsule=object(await bound.call!('table.capsule',{campaign:bound.campaign,_revision_only:true})),context=object(capsule._context);
           if(closed||active!==current||bound!==bridge||owner!==gateway||combined.aborted
             ||context.campaign!==bound.campaign||!Number.isSafeInteger(context.turn)||typeof context.source_revision!=='string'||typeof context.world_revision!=='string'
@@ -426,13 +429,23 @@ export function createHybridEngine(options: HybridEngineOptions): {runDriver: Se
           const intent:IntentBinding={id:randomUUID(),rawInput,scope,turn:context.turn,inputRevision:active.inputRevision,limits:['read_only']};
           const records=new Map<string,TaskRecord>();
           const operations=createCanonicalOperationDispatcher();
-          runtime=new TaskRuntime({decision,domains:[createMemoryReadDomain()],maxSteps:MEMORY_READ_STEP_LIMIT,...(options.clock?{clock:options.clock}:{}),
+          let checkedReadSet:ReadSet|undefined=readSet;
+          const checkedCurrentRead=async()=>{
+            assertOwner();
+            return checkedReadSet??=(await currentRead(intent)).readSet;
+          };
+          runtime=new TaskRuntime({decision:{decide:async(batch,lease)=>{
+            try{return await decision.decide(batch,lease);}finally{checkedReadSet=undefined;}
+          }},domains:[createMemoryReadDomain()],maxSteps:MEMORY_READ_STEP_LIMIT,...(options.clock?{clock:options.clock}:{}),
             store:{load:async id=>structuredClone(records.get(id)),save:async value=>{records.set(value.checkpoint.context.id,structuredClone(value));}},
-            operations:{validate:async()=> (await currentRead(intent)).readSet,
-              dispatch:(proposal,task,journal)=>operations.dispatch(proposal,{task,journal,validateCurrent:async()=>{
-                if(task.revalidate((await currentRead(intent)).readSet).status!=='current')throw new ContractError('task_read_set_stale');
-              },recover:async()=>{throw new ContractError('memory_query_has_no_world_settlement');},
-                trace:event=>record({lane:'memory_query',...event})})}});
+            operations:{validate:checkedCurrentRead,
+              dispatch:async(proposal,task,journal)=>{
+                try{return await operations.dispatch(proposal,{task,journal,validateCurrent:async()=>{
+                  if(task.revalidate(await checkedCurrentRead()).status!=='current')throw new ContractError('task_read_set_stale');
+                },recover:async()=>{throw new ContractError('memory_query_has_no_world_settlement');},
+                  trace:event=>record({lane:'memory_query',...event})});
+                }finally{checkedReadSet=undefined;}
+              }}});
           leaf=createMemoryReadOwner({registerOwned:(name,value)=>operations.registerOwned(name,value),runtime:()=>runtime!,
             call:async(method,params)=>object(await bound.call!(method,params))});
           const result=await leaf.search({query:request.query,filters:request.filters},{operationId:request.toolCallId,intent,
