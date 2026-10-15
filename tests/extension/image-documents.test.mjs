@@ -188,3 +188,14 @@ for(const wrapperName of [null,'Investigator entrance sketch','Retained second-p
  assert.ok(red>0);assert.equal(blue,0,'unknown living-room pixels cannot become an image item');
  await writeFile(path,PNG);assert.deepEqual(await readFile(view.image.path),retained,'an acquired snapshot is immutable');
 });
+
+test('a document carrier accepts the same revealed handout reference as display without bypassing disclosure',async t=>{
+ const game=await pictured(t),source='handout-the-haunting-corbitt-house-investigator-map';
+ const document={handout:source,presentation:'image'};
+ await assert.rejects(game.apply([{kind:'object',name:'Unrevealed copy',to:game.sheet.name,document}]),/already revealed/);
+ await game.apply([{kind:'handout',name:source},
+  {kind:'object',name:'Issued reference copy',to:game.sheet.name,document,why:'Take the document that was just handed over.'}]);
+ const view=await game.call('mods.document.view',{actor:game.sheet.id,name:'Issued reference copy'});
+ assert.equal(view.editing,'read_only');assert.deepEqual(await readFile(view.image.path),PNG);
+ await assert.rejects(game.apply([{kind:'object',name:'Unknown copy',to:game.sheet.name,document:{handout:'nonexistent-handout',presentation:'image'}}]),/already revealed/);
+});

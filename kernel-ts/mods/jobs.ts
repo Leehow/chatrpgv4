@@ -121,7 +121,9 @@ export class ModJobs {
         let seed = validateDocumentSeed(value);
         if (Object.hasOwn(seed, 'image')) throw new RpcError('invalid_params','Image paths and bytes are host-owned; name a revealed handout');
         if (Object.hasOwn(seed, 'handout')) {
-            const matches = (await this.knownHandouts(graph, world)).filter(item => normalize(item.name) === normalize(seed.handout));
+            const named = graph.find(seed.handout, ['handout', 'asset']);
+            const names = new Set([normalize(seed.handout), ...(named ? [normalize(graph.displayName(named))] : [])]);
+            const matches = (await this.knownHandouts(graph, world)).filter(item => names.has(normalize(item.name)));
             if (matches.length !== 1) throw new RpcError('invalid_params', 'Document source must name one already revealed handout');
             const source=matches[0];
             if (['map','image'].includes(seed.presentation)) {
