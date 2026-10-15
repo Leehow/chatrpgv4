@@ -129,9 +129,11 @@ export function assertTaskRecord(value: unknown): asserts value is TaskRecord {
       if (row.result.elapsedMs !== undefined && (!Number.isFinite(row.result.elapsedMs) || row.result.elapsedMs < 0)
         || row.result.attempts !== undefined && !count(row.result.attempts)) fail();
       if (row.result.failure !== undefined) {
-        object(row.result.failure, ['code', 'retryable']);
+        object(row.result.failure, ['code', 'retryable', 'status']);
         if (!['disabled', 'unconfigured', 'timeout', 'cancelled', 'rate_limited', 'service_error', 'schema_error', 'budget_exhausted', 'packing_limit'].includes(row.result.failure.code)
           || typeof row.result.failure.retryable !== 'boolean') fail();
+        const status = row.result.failure.status;
+        if (status !== undefined && !(text(status) || Number.isInteger(status) && status >= 100 && status <= 599)) fail();
       }
     }
     for (const [id, identity] of Object.entries(value.identities)) {

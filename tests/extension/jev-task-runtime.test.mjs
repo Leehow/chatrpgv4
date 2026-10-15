@@ -4,6 +4,8 @@ import { ContractError } from "../../runtime/jev/contracts.ts";
 import { TaskRuntime } from "../../runtime/jev/task-runtime.ts";
 import { assertTaskRecord } from "../../runtime/jev/task-record.ts";
 import { createTaskProviderBudget } from "../../runtime/jev/provider-budget.ts";
+import {createDecisionAdapter} from '../../runtime/jev/decision-adapter.ts';
+import {JEV_MODEL} from '../../runtime/jev/question-packing.ts';
 
 class FakeClock {
 	value = 0;
@@ -207,6 +209,31 @@ test("a nested provider grant persists every charged ancestor before dispatch an
 	await recovered.runtime.resume(rootId, { authorize: record => record.intent.id === intent().id, currentReadSet: initialReadSet });
 	assert.equal(recovered.runtime.lease(rootId).context.budget.remainingInputTokens, 80);
 	await recovered.runtime.shutdown(); await setup.runtime.shutdown();
+});
+
+test('real adapter transport failures remain valid task evidence instead of invalid_task_record', async () => {
+    for (const status of ['network_error',503]) {
+        const clock=new FakeClock();let calls=0;
+        const decision=createDecisionAdapter({apiKey:'controlled-fixture',now:()=>clock.now(),fetcher:async()=>{
+            calls++;if(status==='network_error')throw new TypeError('controlled transport failure');
+            return new Response('',{status});
+        }});
+        const domain={id:'transport-failure',version:'1',capabilities:['look'],completion:'artifact',next(view){
+            if(view.decisions.length)return{kind:'finish',status:'partial',remainingNeeds:['Provider evidence is unavailable.']};
+            const next=question('read-evidence');next.batch.model=JEV_MODEL;return next;
+        }};
+        const setup=runtime({domain,decision,clock});
+        const id=await setup.runtime.begin({domain:domain.id,intent:intent(),lease:lease(clock,{capabilities:['look'],budget:{...budget(),remainingInputTokens:10000,remainingOutputTokens:10000}})});
+        const result=await setup.runtime.submit(id,plan());
+        assert.equal(calls,1);
+        assert.equal(result.status,'partial',JSON.stringify(result));
+        const record=setup.runtime.snapshot(id);
+        assert.equal(record.decisions[0].result.failure.status,status);
+        assert.doesNotThrow(()=>assertTaskRecord(record));
+        const malformed=structuredClone(record);malformed.decisions[0].result.failure.status={nested:'invalid'};
+        assert.throws(()=>assertTaskRecord(malformed),/invalid_task_record/);
+        await setup.runtime.shutdown();
+    }
 });
 
 test("a decision can authorize an actual operation whose observation informs a later decision", async () => {
