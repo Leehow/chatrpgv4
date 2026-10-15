@@ -147246,8 +147246,8 @@
           "status": "validated",
           "counterpart": {
             "file": "tests/integration/travel-time-once.test.ts",
-            "name": "test_a_time_beside_a_travelling_move_is_refused_with_a_literal_fix",
-            "sha256": "a777c9c3a08f23272e83804a00edfb15230cccecb2701009d2bab30f68b080bf"
+            "name": "equal but independent activity and travel durations both count",
+            "sha256": "cfcff9bb417434fb640ed58ca3221a2152bea76a814954eda05f2543c08e4502"
           },
           "review": "statement-by-statement",
           "validation": {
@@ -147308,6 +147308,13 @@
               },
               "fullCurrentSourceByteExact": false,
               "remainingSnapshotFilesExact": 1409
+            },
+            "contract_amendment": {
+              "section": "237.102",
+              "reason": "Retire travel/time co-occurrence refusal after ten independent false rejections. The original assertion inventory remains unchanged; the first four native counterparts now assert the explicitly superseding ordered-additive contract.",
+              "command": "node --test --test-concurrency=2 tests/integration/travel-time-once.test.ts tests/integration/travel-time-recovery.test.ts",
+              "result": "12 passed, 0 failed",
+              "evidence": ".tmp/python-free-20261015/travel-composition-final-green.log"
             }
           }
         },
@@ -147328,8 +147335,8 @@
           "status": "validated",
           "counterpart": {
             "file": "tests/integration/travel-time-once.test.ts",
-            "name": "test_the_edge_default_travel_counts_and_order_does_not_matter",
-            "sha256": "a777c9c3a08f23272e83804a00edfb15230cccecb2701009d2bab30f68b080bf"
+            "name": "activity before a default journey counts in the declared order",
+            "sha256": "cfcff9bb417434fb640ed58ca3221a2152bea76a814954eda05f2543c08e4502"
           },
           "review": "statement-by-statement",
           "validation": {
@@ -147390,6 +147397,13 @@
               },
               "fullCurrentSourceByteExact": false,
               "remainingSnapshotFilesExact": 1409
+            },
+            "contract_amendment": {
+              "section": "237.102",
+              "reason": "Retire travel/time co-occurrence refusal after ten independent false rejections. The original assertion inventory remains unchanged; the first four native counterparts now assert the explicitly superseding ordered-additive contract.",
+              "command": "node --test --test-concurrency=2 tests/integration/travel-time-once.test.ts tests/integration/travel-time-recovery.test.ts",
+              "result": "12 passed, 0 failed",
+              "evidence": ".tmp/python-free-20261015/travel-composition-final-green.log"
             }
           }
         },
@@ -147405,8 +147419,8 @@
           "status": "validated",
           "counterpart": {
             "file": "tests/integration/travel-time-once.test.ts",
-            "name": "test_amounts_the_kernel_binds_are_guarded_too",
-            "sha256": "a777c9c3a08f23272e83804a00edfb15230cccecb2701009d2bab30f68b080bf"
+            "name": "a bound activity band adds to its journey without a boolean declaration",
+            "sha256": "cfcff9bb417434fb640ed58ca3221a2152bea76a814954eda05f2543c08e4502"
           },
           "review": "statement-by-statement",
           "validation": {
@@ -147467,6 +147481,13 @@
               },
               "fullCurrentSourceByteExact": false,
               "remainingSnapshotFilesExact": 1409
+            },
+            "contract_amendment": {
+              "section": "237.102",
+              "reason": "Retire travel/time co-occurrence refusal after ten independent false rejections. The original assertion inventory remains unchanged; the first four native counterparts now assert the explicitly superseding ordered-additive contract.",
+              "command": "node --test --test-concurrency=2 tests/integration/travel-time-once.test.ts tests/integration/travel-time-recovery.test.ts",
+              "result": "12 passed, 0 failed",
+              "evidence": ".tmp/python-free-20261015/travel-composition-final-green.log"
             }
           }
         },
@@ -147482,8 +147503,8 @@
           "status": "validated",
           "counterpart": {
             "file": "tests/integration/travel-time-once.test.ts",
-            "name": "test_an_until_before_the_move_is_guarded",
-            "sha256": "a777c9c3a08f23272e83804a00edfb15230cccecb2701009d2bab30f68b080bf"
+            "name": "until before travel reaches the time first and then counts the journey",
+            "sha256": "cfcff9bb417434fb640ed58ca3221a2152bea76a814954eda05f2543c08e4502"
           },
           "review": "statement-by-statement",
           "validation": {
@@ -147544,6 +147565,13 @@
               },
               "fullCurrentSourceByteExact": false,
               "remainingSnapshotFilesExact": 1409
+            },
+            "contract_amendment": {
+              "section": "237.102",
+              "reason": "Retire travel/time co-occurrence refusal after ten independent false rejections. The original assertion inventory remains unchanged; the first four native counterparts now assert the explicitly superseding ordered-additive contract.",
+              "command": "node --test --test-concurrency=2 tests/integration/travel-time-once.test.ts tests/integration/travel-time-recovery.test.ts",
+              "result": "12 passed, 0 failed",
+              "evidence": ".tmp/python-free-20261015/travel-composition-final-green.log"
             }
           }
         },
@@ -147573,7 +147601,7 @@
           "counterpart": {
             "file": "tests/integration/travel-time-once.test.ts",
             "name": "test_beyond_travel_lands_and_the_clock_advances_by_both",
-            "sha256": "a777c9c3a08f23272e83804a00edfb15230cccecb2701009d2bab30f68b080bf"
+            "sha256": "cfcff9bb417434fb640ed58ca3221a2152bea76a814954eda05f2543c08e4502"
           },
           "review": "statement-by-statement",
           "validation": {
@@ -147634,6 +147662,13 @@
               },
               "fullCurrentSourceByteExact": false,
               "remainingSnapshotFilesExact": 1409
+            },
+            "contract_amendment": {
+              "section": "237.102",
+              "reason": "Retire travel/time co-occurrence refusal after ten independent false rejections. The original assertion inventory remains unchanged; the first four native counterparts now assert the explicitly superseding ordered-additive contract.",
+              "command": "node --test --test-concurrency=2 tests/integration/travel-time-once.test.ts tests/integration/travel-time-recovery.test.ts",
+              "result": "12 passed, 0 failed",
+              "evidence": ".tmp/python-free-20261015/travel-composition-final-green.log"
             }
           }
         },
@@ -147659,7 +147694,7 @@
           "counterpart": {
             "file": "tests/integration/travel-time-once.test.ts",
             "name": "test_a_move_alone_advances_once",
-            "sha256": "a777c9c3a08f23272e83804a00edfb15230cccecb2701009d2bab30f68b080bf"
+            "sha256": "cfcff9bb417434fb640ed58ca3221a2152bea76a814954eda05f2543c08e4502"
           },
           "review": "statement-by-statement",
           "validation": {
@@ -147720,6 +147755,13 @@
               },
               "fullCurrentSourceByteExact": false,
               "remainingSnapshotFilesExact": 1409
+            },
+            "contract_amendment": {
+              "section": "237.102",
+              "reason": "Retire travel/time co-occurrence refusal after ten independent false rejections. The original assertion inventory remains unchanged; the first four native counterparts now assert the explicitly superseding ordered-additive contract.",
+              "command": "node --test --test-concurrency=2 tests/integration/travel-time-once.test.ts tests/integration/travel-time-recovery.test.ts",
+              "result": "12 passed, 0 failed",
+              "evidence": ".tmp/python-free-20261015/travel-composition-final-green.log"
             }
           }
         },
@@ -147745,7 +147787,7 @@
           "counterpart": {
             "file": "tests/integration/travel-time-once.test.ts",
             "name": "test_a_time_alone_is_unchanged",
-            "sha256": "a777c9c3a08f23272e83804a00edfb15230cccecb2701009d2bab30f68b080bf"
+            "sha256": "cfcff9bb417434fb640ed58ca3221a2152bea76a814954eda05f2543c08e4502"
           },
           "review": "statement-by-statement",
           "validation": {
@@ -147806,6 +147848,13 @@
               },
               "fullCurrentSourceByteExact": false,
               "remainingSnapshotFilesExact": 1409
+            },
+            "contract_amendment": {
+              "section": "237.102",
+              "reason": "Retire travel/time co-occurrence refusal after ten independent false rejections. The original assertion inventory remains unchanged; the first four native counterparts now assert the explicitly superseding ordered-additive contract.",
+              "command": "node --test --test-concurrency=2 tests/integration/travel-time-once.test.ts tests/integration/travel-time-recovery.test.ts",
+              "result": "12 passed, 0 failed",
+              "evidence": ".tmp/python-free-20261015/travel-composition-final-green.log"
             }
           }
         },
@@ -147839,7 +147888,7 @@
           "counterpart": {
             "file": "tests/integration/travel-time-once.test.ts",
             "name": "test_forms_that_add_no_elapsed_time_are_not_refused",
-            "sha256": "a777c9c3a08f23272e83804a00edfb15230cccecb2701009d2bab30f68b080bf"
+            "sha256": "cfcff9bb417434fb640ed58ca3221a2152bea76a814954eda05f2543c08e4502"
           },
           "review": "statement-by-statement",
           "validation": {
@@ -147900,6 +147949,13 @@
               },
               "fullCurrentSourceByteExact": false,
               "remainingSnapshotFilesExact": 1409
+            },
+            "contract_amendment": {
+              "section": "237.102",
+              "reason": "Retire travel/time co-occurrence refusal after ten independent false rejections. The original assertion inventory remains unchanged; the first four native counterparts now assert the explicitly superseding ordered-additive contract.",
+              "command": "node --test --test-concurrency=2 tests/integration/travel-time-once.test.ts tests/integration/travel-time-recovery.test.ts",
+              "result": "12 passed, 0 failed",
+              "evidence": ".tmp/python-free-20261015/travel-composition-final-green.log"
             }
           }
         },
@@ -147921,7 +147977,7 @@
           "counterpart": {
             "file": "tests/integration/travel-time-once.test.ts",
             "name": "test_the_clerk_s_separate_time_write_after_a_move_still_lands",
-            "sha256": "a777c9c3a08f23272e83804a00edfb15230cccecb2701009d2bab30f68b080bf"
+            "sha256": "cfcff9bb417434fb640ed58ca3221a2152bea76a814954eda05f2543c08e4502"
           },
           "review": "statement-by-statement",
           "validation": {
@@ -147982,6 +148038,13 @@
               },
               "fullCurrentSourceByteExact": false,
               "remainingSnapshotFilesExact": 1409
+            },
+            "contract_amendment": {
+              "section": "237.102",
+              "reason": "Retire travel/time co-occurrence refusal after ten independent false rejections. The original assertion inventory remains unchanged; the first four native counterparts now assert the explicitly superseding ordered-additive contract.",
+              "command": "node --test --test-concurrency=2 tests/integration/travel-time-once.test.ts tests/integration/travel-time-recovery.test.ts",
+              "result": "12 passed, 0 failed",
+              "evidence": ".tmp/python-free-20261015/travel-composition-final-green.log"
             }
           }
         },
@@ -148007,7 +148070,7 @@
           "counterpart": {
             "file": "tests/integration/travel-time-once.test.ts",
             "name": "test_beyond_travel_must_be_a_boolean",
-            "sha256": "a777c9c3a08f23272e83804a00edfb15230cccecb2701009d2bab30f68b080bf"
+            "sha256": "cfcff9bb417434fb640ed58ca3221a2152bea76a814954eda05f2543c08e4502"
           },
           "review": "statement-by-statement",
           "validation": {
@@ -148068,6 +148131,13 @@
               },
               "fullCurrentSourceByteExact": false,
               "remainingSnapshotFilesExact": 1409
+            },
+            "contract_amendment": {
+              "section": "237.102",
+              "reason": "Retire travel/time co-occurrence refusal after ten independent false rejections. The original assertion inventory remains unchanged; the first four native counterparts now assert the explicitly superseding ordered-additive contract.",
+              "command": "node --test --test-concurrency=2 tests/integration/travel-time-once.test.ts tests/integration/travel-time-recovery.test.ts",
+              "result": "12 passed, 0 failed",
+              "evidence": ".tmp/python-free-20261015/travel-composition-final-green.log"
             }
           }
         }
