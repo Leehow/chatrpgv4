@@ -129,6 +129,18 @@ test('cash transfers stay cash and the legacy cash selector cannot debit a cover
   assert.deepEqual((await game.receipts()).map(r=>r.delta),[0,-2,0.1]);
 });
 
+test('an itemized refundable hold and return move real cash without consumption coverage',async t=>{
+  const game=await table(t),before=await game.sheet();
+  await game.call('apply',{call_id:'t1-c1',effects:[spend(0.25,'transfer',{items:[{name:'Refundable lantern hold',quantity:1,unit_price:0.25}]})]});
+  assert.equal((await game.sheet()).finance.cash.amount,before.finance.cash.amount-0.25);
+  assert.deepEqual((await game.sheet()).finance.daily_spending,before.finance.daily_spending);
+  await game.restart();
+  await game.call('apply',{call_id:'t1-c2',effects:[{kind:'cash',delta:0.25,source:'found',category:'transfer',with:'Steven Knott',why:'The undamaged loan is returned and the actual cash hold is refunded.'}]});
+  assert.equal((await game.sheet()).finance.cash.amount,before.finance.cash.amount);
+  assert.deepEqual((await game.sheet()).finance.daily_spending,before.finance.daily_spending);
+  assert.deepEqual((await game.receipts()).map(value=>value.delta),[-0.25,0.25]);
+});
+
 test('a printed-price quote needs no invented NPC identity',async t=>{
   const game=await table(t);
   const book=JSON.parse(await readFile(join(CONTENT,'rulesets/coc7/rules-json/equipment.json'),'utf8'));
