@@ -339,7 +339,7 @@ describe("PiHostBackend first-prose seam (§135.11.5)", () => {
     }
   });
 
-  it("never counts private play text, thinking or final assistant text as visible prose",async()=>{
+  it("retains inspectable Thinking without counting it or private play text as visible prose",async()=>{
     const {backend,rpc,streams,open,close}=await fixture();
     try{
       await open("private-play");
@@ -347,8 +347,10 @@ describe("PiHostBackend first-prose seam (§135.11.5)", () => {
       rpc({type:"message_update",assistantMessageEvent:{type:"thinking_delta",contentIndex:1,delta:"PRIVATE_REASONING"}});
       rpc({type:"message_end",message:{role:"assistant",content:[{type:"text",text:"PRIVATE_FINAL_TEXT"}],stopReason:"stop"}});
       const record=await close("private-play");
-      expect(JSON.stringify(streams)).not.toContain("PRIVATE_");
-      expect(streams.some(row=>row.event.type==="text"||row.event.type==="thinking")).toBe(false);
+      expect(JSON.stringify(streams)).not.toContain("PRIVATE_PROCESS_TEXT");
+      expect(JSON.stringify(streams)).not.toContain("PRIVATE_FINAL_TEXT");
+      expect(streams.some(row=>row.event.type==="text")).toBe(false);
+      expect(streams.filter(row=>row.event.type==="thinking").map(row=>row.event.delta)).toEqual(["PRIVATE_REASONING"]);
       expect(record.durations).not.toHaveProperty("firstProseMs");
       expect(record).not.toHaveProperty("firstProseVia");
       expect(record.phases.map(item=>item.name)).not.toContain("first_prose");

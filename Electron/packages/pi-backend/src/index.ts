@@ -1574,10 +1574,11 @@ function visibleHistoryEntry(entry: any, secrets: RevealedSecret[] = [], languag
     if(projected&&binding?.mode==='play'&&(projected.role==='assistant'||projected.role==='tool')) {
       projected.content=projected.role==='tool'
         ?publicPlayToolResult(entry.message?.toolName,{details:entry.message?.details},entry.message?.isError).content:'';
-      delete projected.thinking;delete projected.details;delete projected.images;
+      delete projected.details;delete projected.images;
       if(projected.tools)projected.tools=projected.tools.map(tool=>({...tool,input:''}));
-      if(projected.activities)projected.activities=projected.activities.filter(item=>item.type==='tool')
-        .map(item=>({...item,tool:{...(item as any).tool,input:''}}));
+      if(projected.activities)projected.activities=projected.activities.filter(item=>item.type==='tool'||item.type==='thinking')
+        .map(item=>item.type==='tool'?{...item,tool:{...(item as any).tool,input:''}}
+          :{...item,content:redactText(item.content,secrets)});
     }
     return projected;
   }
@@ -7126,7 +7127,7 @@ export class PiHostBackend implements HostBackend {
           delta,
         });
       }
-      if (d.type === "thinking_delta" && !privatePlay) {
+      if (d.type === "thinking_delta") {
         const delta = redactor("thinking", d.contentIndex ?? 0).push(d.delta ?? "");
         live.streamedAssistantThinking = (live.streamedAssistantThinking ?? "") + delta;
         // Thinking arriving is the only evidence that the dial was ever consulted. A route
@@ -7267,7 +7268,7 @@ export class PiHostBackend implements HostBackend {
         // thinking_delta (kimi k3 silent thinking) left the live turn without its
         // thinking card until a history reload. Diff the final blocks the same way;
         // redacted blocks read "[Reasoning redacted]", matching history rendering.
-        const thinkingBlocks = (!privatePlay&&Array.isArray(endedMessage.content) ? (endedMessage.content as { type?: string; thinking?: string; index?: number }[]) : [])
+        const thinkingBlocks = (Array.isArray(endedMessage.content) ? (endedMessage.content as { type?: string; thinking?: string; index?: number }[]) : [])
           .map((part, contentIndex) =>
             part?.type === "thinking"
               ? { index: typeof part.index === "number" ? part.index : contentIndex, text: part.thinking ?? "" }
