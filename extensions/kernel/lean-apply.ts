@@ -18,6 +18,7 @@
 
 import type { CocToolSpec } from "./tools.ts";
 import { SENTENCE_MAX } from "./tools.ts";
+import { readJevApiKey } from "../jev/agent/config.js";
 
 export const LEAN_APPLY_ENV = "PI_COC_LEAN_APPLY";
 
@@ -128,6 +129,12 @@ export function leanTools(tools: readonly CocToolSpec[]): readonly CocToolSpec[]
 /** The tools this process offers the Keeper. */
 export function offeredTools(tools: readonly CocToolSpec[], env: Readonly<Record<string, string | undefined>> = process.env,
   capabilities:{memoryQueryAvailable?:boolean}={}): readonly CocToolSpec[] {
+  if(!readJevApiKey(env))tools=tools.map(spec=>{
+    if(spec.name!=='lookup')return spec;
+    const parameters=cloneSchema(spec.parameters) as Record<string,any>;
+    parameters.properties.kind.enum=parameters.properties.kind.enum.filter((kind:string)=>kind!=='support');
+    return {...spec,parameters,description:`${spec.description} Jev support is unavailable in this session and is not an offered kind; use direct lookup and recall.`};
+  });
 	if(capabilities.memoryQueryAvailable===false)tools=tools.map(spec=>{
     if(spec.name!=='recall')return spec;
     const parameters=cloneSchema(spec.parameters) as Record<string,any>;

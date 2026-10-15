@@ -37,7 +37,7 @@ function markers(value, path = "", out = {}) {
 
 test("on by default; off (only an explicit 0) is the ordinary tool list itself", () => {
 	// On by default (2026-09-29): only an explicit 0 turns it off.
-	for (const env of [{ [LEAN_APPLY_ENV]: "0" }, { [LEAN_APPLY_ENV]: " 0 " }]) {
+	for (const env of [{ [LEAN_APPLY_ENV]: "0", EXT_JEV_APIKEY: "fixture-configured-key" }, { [LEAN_APPLY_ENV]: " 0 ", EXT_JEV_APIKEY: "fixture-configured-key" }]) {
 		assert.equal(leanApplyEnabled(env), false, JSON.stringify(env));
 		assert.equal(offeredTools(COC_TOOLS, env), COC_TOOLS, "off registers the very same specs, not a copy");
 	}

@@ -1,7 +1,7 @@
 /** Actual Pi tool -> shared Jev loop -> next request. Controlled Keeper decisions, not gameplay. */
 import assert from 'node:assert/strict';
 import {test} from 'node:test';
-import {fauxAssistantMessage,fauxToolCall} from '@earendil-works/pi-ai';
+import {fauxAssistantMessage,fauxToolCall,getCurrentTools} from '@earendil-works/pi-ai';
 import {openTable,waitFor} from './harness.mjs';
 import {supportWire} from './support-agent-helpers.mjs';
 import {validateKeeperSupport} from '../../runtime/jev/keeper-support-contract.ts';
@@ -37,4 +37,21 @@ test('Keeper explicitly requests support with preload off, receives the fixed pa
   const ordinary=results.find(row=>row.toolName==='lookup'&&row!==support);assert(ordinary);assert(!ordinary.content[0].text.includes('keeper_support'));
   assert(results.some(row=>row.toolName==='recall'));assert(!results.some(row=>['resolve','apply'].includes(row.toolName)));
   assert(table.telemetry().some(row=>row.lane==='keeper-support'&&row.event==='prepared'));assert.deepEqual(table.extensionErrors,[]);
+});
+
+test('an unconfigured support provider is absent from the actual Pi request tool kinds',async t=>{
+  const payloads=[];
+  const table=await openTable({env:{EXT_JEV_APIKEY:'',TYPESAFE_API_KEY:''},responses:[context=>{
+    payloads.push(getCurrentTools(context.messages));
+    return tool('output',{text:'The ordinary desk remains available.'});
+  },fauxAssistantMessage('The ordinary desk remains available.')]});
+  t.after(()=>table.dispose());
+  await table.session.prompt('I ask about the office.');
+  await waitFor(()=>delivered(table.session,'The ordinary desk remains available.'),{timeoutMs:120_000,label:'the ordinary delivery'});
+  const lookup=payloads.find(row=>row.some(tool=>tool.name==='lookup'))?.find(tool=>tool.name==='lookup');
+  assert(lookup,'the actual model request must contain lookup');
+  assert(!lookup.parameters.properties.kind.enum.includes('support'),'a missing provider must not be an offered kind');
+  for(const kind of ['module','source','rule','catalog','continuity'])assert(lookup.parameters.properties.kind.enum.includes(kind),kind);
+  assert.match(lookup.description,/support is unavailable in this session/);
+  assert.deepEqual(table.extensionErrors,[]);
 });
