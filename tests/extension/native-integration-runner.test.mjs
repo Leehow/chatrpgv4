@@ -1,9 +1,10 @@
 import assert from 'node:assert/strict';
 import {spawnSync} from 'node:child_process';
-import {mkdtempSync,mkdirSync,readFileSync,writeFileSync,rmSync,readdirSync} from 'node:fs';
+import {mkdtempSync,mkdirSync,readFileSync,writeFileSync,rmSync,readdirSync,symlinkSync} from 'node:fs';
 import {tmpdir} from 'node:os';
 import {join,dirname} from 'node:path';
 import {test} from 'node:test';
+import {fileURLToPath} from 'node:url';
 
 const runner=readFileSync(new URL('../../scripts/test-integration-ts.mjs',import.meta.url),'utf8');
 function run(t,args){
@@ -11,6 +12,8 @@ function run(t,args){
   t.after(()=>rmSync(root,{recursive:true,force:true}));
   const write=(file,text)=>{mkdirSync(dirname(join(root,file)),{recursive:true});writeFileSync(join(root,file),text);};
   write('scripts/test-integration-ts.mjs',runner);
+  write('scripts/build-native.mjs',readFileSync(new URL('../../scripts/build-native.mjs',import.meta.url),'utf8'));
+  symlinkSync(fileURLToPath(new URL('../../node_modules',import.meta.url)),join(root,'node_modules'),'dir');
   write('scripts/test-storage.mjs',`import {spawnSync} from 'node:child_process';import {writeFileSync} from 'node:fs';
 const args=process.argv.slice(process.argv.indexOf('--')+1),env={...process.env};delete env.NODE_TEST_CONTEXT;
 writeFileSync('arguments.json',JSON.stringify(args));

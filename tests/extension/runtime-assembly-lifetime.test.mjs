@@ -319,7 +319,7 @@ test('stop-confirmation timeout is explicit and does not delete live work; a lat
 
 async function signalSandbox(t, route, orphan = false, diagnosticWriteCode) {
   const repo = await assemblerFixture(t);
-  for (const path of ['scripts/assembly-workspace.mjs', 'scripts/package-runtime.mjs', 'pipicoc/package.mjs', 'pipicoc/package-config.mjs', 'runtime/deployment.mjs', 'pipicoc/product.json']) {
+  for (const path of ['scripts/assembly-workspace.mjs', 'scripts/package-runtime.mjs', 'scripts/build-native.mjs', 'pipicoc/package.mjs', 'pipicoc/package-config.mjs', 'runtime/deployment.mjs', 'pipicoc/product.json']) {
     await mkdir(dirname(join(repo, path)), { recursive: true });
     await copyFile(join(REPO, path), join(repo, path));
   }
