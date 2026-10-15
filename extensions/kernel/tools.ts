@@ -695,7 +695,7 @@ const ResolveAction = Type.Object({
 		] as const,
 		{ description: "which class this action belongs to; the kernel picks the rule family from it" },
 	),
-	goal: Type.String({ description: "one sentence: what the player wants to achieve, except combat:maneuver requires one of the closed goals supplied by session.actions.goals or needs.options; describe the physical intent in method" }),
+	goal: Type.String({ description: "For combat:maneuver, use exactly disarm, ongoing_disadvantage, escape or push, never a sentence; put the full physical intent in method. For other decisions, one sentence describing what the actor wants to achieve" }),
 	method: Type.String({ description: "one sentence: how he does it; usually names a skill" }),
 	target: Type.Optional(Type.String({ description: "against whom or what: an NPC name or an object name. For treatment it is the patient — First Aid or Medicine with an NPC here is settled on that NPC's hit points and conditions, not on the rescuer's" })),
 	stakes: Type.Optional(Type.String({ description: "one sentence: what failure costs" })),
