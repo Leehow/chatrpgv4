@@ -14,6 +14,7 @@ import { noAvailableDecision, selectAvailableDecision, throwPlanningFailure } fr
 import { campaignEffectiveOptionalRules, disabledDecisionGates, OptionalRuleError } from '../rules/options.js';
 import { APPROACH_BY_SKILL, SOCIAL_APPROACH_SKILLS } from './arithmetic.js';
 import { SettleContext, latestCheckReceipt, recordSkillTicks } from './context.js';
+import { ideaClues } from '../read/clue-check.js';
 import { BASIC_DECISIONS, COMBINED, IDEA, LUCK, LUCK_ROLL, OBSERVE, OPPOSED, ORDINARY, PUSH, REALIZE, SOCIAL, psychologyBinding, psychologyRealizeBinding, socialBinding } from './bindings.js';
 import { settleBasic, settleFamily } from './settlement.js';
 import { familyBinding, type FixedFamilies } from './families.js';
@@ -212,16 +213,16 @@ export class ResolvePipeline {
     /**
      * §222.3: the clue an Idea roll gets the investigation back to -- `action.clue`, an undiscovered clue of the active scene
      * or of the trail (the places the party has stood). The choice is the host's (Jev's, from the catalog's closed options);
-     * the kernel only checks it names such a clue.
+     * the kernel only checks it names such a clue. If none is eligible, the same roll needs no clue attachment.
      */
-    ideaClue(): string {
+    ideaClue(): string | null {
         const graph = this.context.graph, world = this.context.world;
-        const scenes = [world.active_scene, ...[...array(world.scene_trail)].reverse()].map(handle => graph.find(string(handle), ['scene'])).filter((node): node is Row => !!node);
         const found = new Set(array(world.discovered_clues).map(String));
-        const options = [...new Set(scenes.flatMap(scene => graph.sceneClueIds(scene).map(id => graph.handle(graph.nodes.get(id)!))))].filter(handle => !found.has(handle));
+        const options = ideaClues(graph, world).map(node => graph.handle(node));
         const name = typeof this.action.clue === 'string' ? this.action.clue.trim() : '';
         const refuse = (message: string) => new RpcError('needs', message, { fix: 'set action.clue to one of details.needs.options: the undiscovered clue the Idea roll gets the investigation back to',
             details: { needs: { field: 'clue', options } } });
+        if (!name && !options.length) return null;
         if (!name) throw refuse('an Idea roll names the clue it gets the investigation back to');
         let node: Row;
         try { node = graph.clue(name); } catch (error) { if (error instanceof RpcError) throw refuse(`${repr(name)} is not a clue of this book`); throw error; }
@@ -489,7 +490,7 @@ export class ResolvePipeline {
             };
             if (skill !== null)
                 semantic[Object.hasOwn(CHARACTERISTICS, skill) ? 'characteristic' : 'skill'] = skill;
-            if (clue !== null)
+            if (ref === IDEA)
                 semantic.clue = clue;
             if (bonus)
                 semantic.bonus = bonus;

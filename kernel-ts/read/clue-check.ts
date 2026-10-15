@@ -22,6 +22,20 @@
 import type { ModuleGraph } from './module-graph.js';
 import { array, normalize, row, string, type Row } from './values.js';
 
+/** Existing undiscovered clue attachments, current scene first and then the visited trail. */
+export function ideaClues(graph: ModuleGraph, world: Row): Row[] {
+    const found = new Set(array(world.discovered_clues).map(String)), candidates = new Map<string, Row>();
+    for (const name of [world.active_scene, ...[...array(world.scene_trail)].reverse()]) {
+        const scene = graph.find(string(name), ['scene']);
+        if (!scene) continue;
+        for (const id of graph.sceneClueIds(scene)) {
+            const node = graph.nodes.get(id);
+            if (node && !found.has(graph.handle(node))) candidates.set(graph.handle(node), node);
+        }
+    }
+    return [...candidates.values()];
+}
+
 /** The book's check for a clue, when the book makes finding it a check of a named skill. */
 export interface ClueCheck { skill: string; difficulty?: string }
 

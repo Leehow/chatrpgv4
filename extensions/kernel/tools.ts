@@ -752,7 +752,7 @@ const ResolveAction = Type.Object({
 	// SAN roll or an Idea roll is about). The Keeper does not call resolve in the driven engine;
 	// the host's own resolve goes through this same schema, so every key the catalog binds must be here.
 	bout: Type.Optional(Type.String({ description: "with sanity:check: the bout of madness to use if this roll drives the investigator insane, or roll to roll the table" })),
-	clue: Type.Optional(Type.String({ description: "with sanity:check, the filed clue whose stated loss this roll is for; with core-check:idea-roll, the undiscovered clue the roll lands" })),
+	clue: Type.Optional(Type.String({ description: "with sanity:check, the filed clue whose stated loss this roll is for; with core-check:idea-roll, use a clue from needs.options or the current action catalog when one is offered; omit when no eligible clue is offered, so the same INT roll supports a connection from known facts without granting a new clue" })),
 	// §224.7 (Enhanced Items, weapons.improvised.v1): the host's first blow with a held object whose own attack usage is not prepared yet: the weapons-table row it is rolled as.
 	improvised: Type.Optional(Type.String({ description: "with combat:attack and weapon naming a held object: the weapons-table row (id) that object is rolled as, an improvised weapon (Keeper Rulebook p.104); set by the host where the Enhanced Items Mod is enabled" })),
 	outcome: Type.Optional(

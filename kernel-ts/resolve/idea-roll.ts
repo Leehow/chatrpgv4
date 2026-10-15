@@ -13,6 +13,12 @@ import { clueCheck } from '../read/clue-check.js';
 import { array, row, string, type Row } from '../read/values.js';
 import type { SettleContext } from './context.js';
 
+/** No source attachment is required to connect facts the investigators already know. */
+export const IDEA_CONNECTION_NOTE = Object.freeze({
+    passed: 'Idea roll passed: give a concrete investigative connection or direction from known facts or actually read material, woven into the story without additional danger. No new clue has been granted; persist any new occurrence or information through existing apply effects before public prose.',
+    failed: 'Idea roll failed: still give a concrete investigative connection or direction from known facts or actually read material, with trouble grounded in the established situation. No new clue has been granted; settle any resulting time, occurrence or information through existing apply effects before public prose.',
+});
+
 /** The clerk's note for each way the die fell: the rulebook's own two outcomes, paraphrased. */
 export const IDEA_ROLL_NOTE = Object.freeze({
     passed: 'Idea roll passed: the clue it names is landed and the investigators make the connection. Deliver what it states woven into the story, '

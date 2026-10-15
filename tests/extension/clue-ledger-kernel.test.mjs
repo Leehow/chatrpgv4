@@ -299,6 +299,7 @@ test('§222.3: the Idea roll is offered for the highest INT over the scene\'s un
     assert.deepEqual(idea.parameters.map(parameter => parameter.name), ['clue', 'difficulty']);
     const clueParameter = idea.parameters[0];
     assert.ok(clueParameter.options.some(option => option.value === 'house-built-1835' && /1835/.test(option.label)), 'the clue parameter lists the scene\'s undiscovered clues by summary');
+    assert.ok(clueParameter.options.some(option => option.value === 'knott-keys'), 'the catalog offers the same visited-trail clues the resolver accepts');
     assert.equal(idea.parameters[1].default.value, 'regular');
     assert.ok(options.selection.coverage.find(entry => entry.decision === 'core-check:idea-roll').executable);
     // Refusals: no clue, a clue of another scene, a found clue.
@@ -331,4 +332,39 @@ test('§222.3: the Idea roll is offered for the highest INT over the scene\'s un
     assert.equal(clue.how, 'by the Idea roll');
     assert.equal(result.receipts.length, 2, JSON.stringify(result.receipts));
     assert.equal(receipts.filter(entry => entry.kind === 'clue').length, 1, 'the second landing of a found clue is a no-op and leaves no receipt');
+});
+
+
+test('an Idea roll remains available after all visited scene clues are already known without inventing another clue', async () => {
+    const game = await table();
+    await game.call('table.player_input', {text: 'I take the offered keys and review the research directions.'});
+    await game.call('table.apply', {call_id: game.id(1), effects: ['knott-commission', 'knott-keys', 'knott-macario-summary', 'knott-research-leads'].map(clue => ({kind: 'clue', clue}))});
+    await game.call('table.narrate', {call_id: game.id(1), text: 'The keys and directions are already known.'});
+    await game.call('table.player_input', {text: 'I am stuck. I ask for an Idea roll based on what I already know.'});
+    const before = game.world().discovered_clues;
+    const options = await game.call('table.resolve.options');
+    const idea = options.selection.options.find(option => option.action.decision === 'core-check:idea-roll');
+    assert.ok(idea, 'missing source attachments do not make the rule unavailable');
+    assert.ok(options.selection.coverage.find(entry => entry.decision === 'core-check:idea-roll').executable);
+    assert.equal(idea.parameters.some(parameter => parameter.name === 'clue'), false);
+    const result = await game.call('table.resolve', {call_id: game.id(2), action: {intent: 'investigate', decision: idea.action.decision, actor: idea.action.actor, goal: 'Find an investigative direction', method: 'The requested Idea roll'}});
+    assert.equal(result.outcome.idea_roll, true);
+    assert.equal(result.outcome.skill, 'INT');
+    assert.equal(result.outcome.target, 70);
+    assert.equal(result.outcome.clue, null);
+    assert.equal(result.outcome.clue_receipt, null);
+    assert.match(result.outcome.note, /known facts|read material/);
+    assert.deepEqual(game.world().discovered_clues, before);
+    assert.equal(result.outcome.pushed, false);
+    const nextOptions = (await game.call('table.resolve.options')).selection.options;
+    assert.equal(nextOptions.some(option => option.needs.length === 0 && option.action.decision === 'push-luck:luck-spend'), false);
+    const push = nextOptions.find(option => option.action.decision === 'push-luck:pushed-roll');
+    if (push) assert.equal(push.facts.push_refusal, 'procedure_roll');
+    await game.call('table.narrate', {call_id: game.id(2), text: 'The existing evidence suggests a direction to investigate.'});
+    const records = game.record(2).receipts;
+    assert.equal(records.filter(receipt => receipt.kind === 'clue').length, 0);
+    const rolls = records.filter(receipt => receipt.kind === 'roll');
+    assert.equal(rolls.length, 1);
+    assert.equal(rolls[0].roll_kind, 'idea_roll');
+    assert.equal(rolls[0].clue, undefined);
 });

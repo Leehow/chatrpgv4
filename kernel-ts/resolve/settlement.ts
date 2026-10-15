@@ -8,7 +8,7 @@ import type { FixedFamilyBinding } from './families.js';
 import { COMBINED, IDEA, LUCK, LUCK_ROLL, OBSERVE, ORDINARY, PUSH, REALIZE, SOCIAL, executorArgs, hostLocked } from './bindings.js';
 import { nowIso } from '../write/store.js';
 import {preparePush, pushedRollProvider} from '../mods/pushed-roll.js';
-import { landIdeaClue } from './idea-roll.js';
+import { landIdeaClue, IDEA_CONNECTION_NOTE } from './idea-roll.js';
 export interface SettlementPort {
     execute(plan: Row, selected: Row): Promise<ExecutionResult>;
     beforeExecute?(): Promise<void>;
@@ -319,7 +319,19 @@ export async function settleBasic(context: SettleContext, runtime: RuleGraph, se
     else if (ref === IDEA) {
         // §222.3: the Idea roll decides how the clue comes, never whether (Keeper Rulebook pp. 199-200): the clue it names lands
         // in this same call, and the note tells the Keeper how it arrives.
-        const landed = await landIdeaClue(context, string(payload.clue), data, nowIso());
+        let landed: {clue: string | null; receipt: string | null; note: string};
+        if (typeof payload.clue === 'string' && payload.clue)
+            landed = await landIdeaClue(context, payload.clue, data, nowIso());
+        else {
+            data.kind = 'idea_roll';
+            data.push_eligible = false;
+            const roll = context.receipts.find(receipt => receipt.id === data.roll_id);
+            if (roll) {
+                roll.roll_kind = 'idea_roll';
+                if (roll.check && typeof roll.check === 'object') Object.assign(roll.check as Row, {kind: 'idea_roll'});
+            }
+            landed = {clue: null, receipt: null, note: data.passed === true ? IDEA_CONNECTION_NOTE.passed : IDEA_CONNECTION_NOTE.failed};
+        }
         result = {
             bound_check: clone(data),
             outcome: string(data.outcome || ''),
