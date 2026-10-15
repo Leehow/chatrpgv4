@@ -369,6 +369,28 @@ function telemetryIn(home, campaign) {
 	return existsSync(path) ? readFileSync(path, "utf8").split("\n").filter(line => line.trim()).map(line => JSON.parse(line)) : [];
 }
 
+test("an empty discovery view does not become a blank map attachment", async t => {
+	const home = await mkdtemp(join(tmpdir(), "map-empty-discovery-"));
+	const known = { ...ARRIVAL_VIEW, words: KEEPER_MAP_WORDS };
+	const table = await openTable({
+		env: { PI_COC_HOME: home, FAKE_KERNEL_LOOK_MAPS: JSON.stringify([
+			{ ...known, view_id: "unrevealed", regions: [] }, known,
+			{ ...known, map: "another-map", view_id: "unrevealed", regions: [] },
+		]) },
+		responses: [
+			fauxAssistantMessage([fauxToolCall("look", { focus: "map" })], { stopReason: "toolUse" }),
+			fauxAssistantMessage([fauxToolCall("output", { text: "You examine the known entrance." })], { stopReason: "toolUse" }),
+			fauxAssistantMessage("You examine the known entrance."),
+		],
+	});
+	t.after(() => table.dispose());
+	await table.session.prompt("I examine the entrance map.");
+	const maps = table.entries("coc-mechanics").flatMap(entry => entry.mechanics ?? []).filter(row => row.kind === "map");
+	assert.equal(maps.length, 1, "only the known-region fallback is a useful player card");
+	assert.equal(maps[0].map, known.map);
+	assert.deepEqual(maps[0].regions, known.regions);
+});
+
 test("a first-arrival card reaches the player in the campaign's play language", async t => {
 	const home = await mkdtemp(join(tmpdir(), "map-words-table-"));
 	const digest = await mapWordsDigest();

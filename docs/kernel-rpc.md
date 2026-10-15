@@ -46715,3 +46715,7 @@ After a successful write/edit of draft.json, or an already-failed source submiss
 #### 237.108 Explicit map preparation and crop repair reuse source lookup
 
 `lookup kind:source, source_mode:prepare` accepts optional `material:map` and the existing `retry:true`. It forwards the existing map descriptor to the existing reading service and bypasses the plain-place reference shortcut; a visual asset request must not be answered by materializing an ordinary place or returning text excerpts. Preserve the caller's focus/question and retry semantics. Material is part of the existing source-consultation identity, so map preparation cannot join a running place request or reuse its cached original envelope. A missing/empty map question gets an English preparation question. This exposes the existing backend material field, not a new agent, job type or approval gate; image changes still use the existing source publication path.
+
+#### 237.109 Empty map discovery views are not delivery attachments
+
+A map lookup can return an unissued view with no image and no known regions before a later apply reveals that same map. Keep that metadata in the Keeper tool result, but do not enqueue its empty shell as a player attachment. Existing receipt-bearing cards, update rows, usable images and known-region fallback cards remain deliverable. The existing attachment collector owns this closed-shape distinction; no model call, entity, review or visibility expansion is added. This prevents an empty duplicate disclosure beneath an actual map image in the same turn.

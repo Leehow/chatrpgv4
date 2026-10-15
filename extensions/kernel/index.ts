@@ -2434,7 +2434,9 @@ export default function (pi: ExtensionAPI, host: {capabilities?:RuntimeCapabilit
 		}
 		delete result.map_views;
 		if(prepared.length){
-			state.mapAttachments.push(...prepared);
+			// An unissued discovery with neither pixels nor known regions is metadata, not a player card.
+			state.mapAttachments.push(...prepared.filter(map => map.receipt || map.presentation === 'update'
+				|| map.document !== MAP_DOCUMENT_NONE || (Array.isArray(map.regions) && map.regions.length > 0)));
 			// Whatever the open-time warm did not cover -- a map published after it, a label the
 			// catalog did not carry -- is asked for now, so the next card is right even when this
 			// one goes out authored.
