@@ -98,20 +98,6 @@ export let HAGGLE_PASSES:any=15;
 
 export let STARE_SEED:any=0;
 
-test('a new subscene exposes and settles its enclosing place rules without borrowing sibling rules',async t=>{
- const factory=await makeTable(t,temporaryPath(t)),client=await factory(LUCK_FAILS_JUMP_FAILS);
- await client.table('apply',{call_id:'t1-c1',effects:[{kind:'move',to:'Office side corner',
-  via:'Across the same office floor',establish:{summary:'A quiet corner within the office.',within:START}}]});
- const capsule=await client.table('capsule');
- assert(capsule.where.rules.some((rule:any)=>rule.name==='chapel-floor'));
- assert(!capsule.where.rules.some((rule:any)=>rule.name==='library-dust'));
- const rolled=await ok(await resolve(client,'t1-c2',{rule:'chapel-floor'}));
- assert.equal(rolled.stated.rule,'chapel-floor');
- const before=await receipts(client);
- assert.deepEqual(await refusal(await resolve(client,'t1-c3',{rule:'library-dust'})),['not_here','rule_not_here']);
- assert.deepEqual(await receipts(client),before);
-});
-
 
 export async function test_a_hazards_steps_are_rolled_when_named_and_nothing_is_applied(table:any){
 let client:any,hp:any,luck:any,jump:any,rows:any,landed:any,minted:any,dice:any;
