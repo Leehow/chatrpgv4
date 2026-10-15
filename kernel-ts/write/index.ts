@@ -1566,7 +1566,7 @@ export function createWriteRuntime(context: KernelContext, contributions: WriteC
         // the gate reads the text, so a name the delivery's own handouts tell is not refused in it.
         const documents = reference ? NOTHING_TOLD : await documentsTold(context, snapshot, module, receipts, cleared);
         const gated = await untoldNamesGate(snapshot, campaign, turn, module.graph, priceBinding.text, speakers, started.callId, truth(params.implicit), cleared, documents,
-            row(params._delivery_evidence).author === 'keeper');
+            reference || row(params._delivery_evidence).author === 'keeper');
         const naming = withNames(gated.text, speakers, module.graph);
         let text = naming.text;
         // §103.8: someone untold is named in this delivery, so from now on the table calls them by the book's name -- the sync
@@ -1576,7 +1576,7 @@ export function createWriteRuntime(context: KernelContext, contributions: WriteC
             ...documents.introduced, ...gated.spoken.introduced].map(node => [string(node.node_id), node] as [string, Row])).values()];
         let { placed, ...delivery } = deliveryText(text, receipts, speakers), rendered = delivery.rendered_text;
         // §177.15: the delivery as the told check reads it, the cleared places blanked (`told_text` on the record).
-        const toldText = gated.told === undefined ? undefined : string(deliveryText(withNames(gated.told, speakers, module.graph).text, receipts, speakers).rendered_text);
+        const toldText = reference ? '' : gated.told === undefined ? undefined : string(deliveryText(withNames(gated.told, speakers, module.graph).text, receipts, speakers).rendered_text);
         if (reference) delivery.speech = [];
         const hostRepeats = reference ? [] : await refuseRepeatedLine(snapshot, campaign, delivery.speech, hostAttributed(params, delivery.speech));
         // Contract §143.24 (ticket 25): the host asked Jev §143.14's purpose question of the lines the Keeper gives a person

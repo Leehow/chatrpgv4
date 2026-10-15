@@ -310,6 +310,38 @@ const investigatorName = async h => {
 };
 const worldOf = async h => JSON.parse(await readFile(join(h.home, '.coc', 'campaigns', CAMPAIGN, 'world.json'), 'utf8'));
 
+test('OOC reference names do not block the next input or introduce the referenced people in-world',async t=>{
+ const h=await farm(t);
+ await h.call('table.player_input',{text:'Explain the source document without advancing the story.'});
+ const before=await untoldNames(h),world=await worldOf(h);
+ const text='The source document lists 克拉夫楚克; this is a reference answer, not an introduction.';
+ const answer=await h.call('table.reference.answer',{call_id:'t1-c1',text});
+ assert.equal(answer.rendered_text??answer.text,text);
+ assert.deepEqual(await untoldNames(h),before,'OOC words do not introduce either person sharing the printed surname');
+ assert.deepEqual(await worldOf(h),world,'reference publication does not alter world facts');
+ const opened=await h.call('table.player_input',{text:'I return to the office.'});
+ assert.equal(opened.state,'open');
+ await assert.rejects(h.call('table.narrate',{call_id:'t2-c1',text:'克拉夫楚克 enters the office.'}),
+  error=>error?.details?.reason==='untold_name','the existing in-world publication boundary still applies');
+ const record=(await records(h)).find(row=>row.turn===1);
+ assert.equal(record.interaction_scope,'reference');
+});
+
+test('OOC name and speech examples remain outside investigator name history',async t=>{
+ const h=await farm(t);await addNodes(h,[GAPON]);
+ await h.call('table.player_input',{text:'Explain name and dialogue markup as examples, not actions.'});
+ const card=await h.call('table.look',{focus:'npc',name:GAPON.name});
+ assert.ok(card.untold?.say_name);
+ const before=await untoldNames(h),world=await worldOf(h);
+ const text=`Reference example: ${card.untold.say_name}. {{say:Captain Aganin}}Andrei Nikitin wrote the note.{{/say}}`;
+ await h.call('table.reference.answer',{call_id:'t1-c1',text});
+ const record=(await records(h)).find(row=>row.turn===1);
+ assert.equal(record.told_text,'');assert.deepEqual(record.speech,[]);
+ assert.deepEqual(await untoldNames(h),before);assert.deepEqual(await worldOf(h),world);
+ await h.call('table.player_input',{text:'I look at the doorway.'});
+ assert.deepEqual(await untoldNames(h),before,'the next capsule cannot turn an OOC example into a meeting');
+});
+
 /** The supervisor as a graph person too: the reader reached him, and his node joins his cast row by his full name. */
 const GAPON = {node_id: 'npc-gapon', node_kind: 'npc', name: '鲍里斯·加庞', summary: 'Keeper: hid the failed harvest.',
 	properties: {relationship_to_investigators: 'the farm\'s production supervisor'}};
