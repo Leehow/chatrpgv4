@@ -61,6 +61,26 @@ test('houses and rooms carry containment; sibling travel is one move without a d
   assert(lookup.entities[0].inside.length >= 2);
 });
 
+test('enclosing rule scope is deduplicated and never inherits neighboring rules or automatic rewards', () => {
+  const nodes = [
+    {node_id:'scene-child',node_kind:'scene',name:'Child room'},
+    {node_id:'scene-parent',node_kind:'scene',name:'Parent area'},
+    {node_id:'location-parent',node_kind:'location',name:'Area'},
+    {node_id:'scene-sibling',node_kind:'scene',name:'Other room'},
+    {node_id:'rule-parent',node_kind:'rule',name:'Area rule',properties:{mechanics:{reward:{cash:30}}}},
+    {node_id:'rule-sibling',node_kind:'rule',name:'Other room rule'},
+  ];
+  const relations = [
+    ['scene-child','located-in','location-parent'],['scene-parent','occurs-at','location-parent'],
+    ['scene-sibling','located-in','location-parent'],['scene-parent','uses-rule','rule-parent'],
+    ['location-parent','uses-rule','rule-parent'],['scene-sibling','uses-rule','rule-sibling'],
+  ].map(([from_node_id,relation_kind,to_node_id],i)=>({relation_id:'scope-'+i,from_node_id,relation_kind,to_node_id,properties:{}}));
+  const graph = new api.ModuleGraph('book',{nodes,relations,claims:[]},'',{}),child=graph.nodes.get('scene-child');
+  assert.deepEqual(graph.sceneRules(child).map(rule=>rule.name),['Area rule']);
+  assert.deepEqual(graph.statedRewards(child),[],'ending settlement cannot inherit a parent reward');
+  assert.equal(graph.statedRewards(graph.nodes.get('scene-parent')).length,1);
+});
+
 test('binding changes no world state, persists exact excerpts, and the first binding stands', async t => {
   const game = await table(t), place = await game.mint('Northern house');
   const before = await game.world();

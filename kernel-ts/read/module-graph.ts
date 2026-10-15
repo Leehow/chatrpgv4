@@ -5,7 +5,7 @@ import { canonicalJson, compareUnicode, isJsonObject, type JsonValue } from "../
 import { entries, values, array, row, truth, string, repr, integer, normalize, normalizeText, kebab, stripPrefix, sorted, similarity, words, chars, pick, type Row } from "./values.js";
 import { SHAPE_KINDS } from "../modules/mechanics-catalog.js";
 import { SurvivorMap, VISUAL_KINDS, pairKey, type IdentityConflict } from "./survivors.js";
-import { isPlace, personNamedLocations } from "./places.js";
+import { area, isPlace, personNamedLocations } from "./places.js";
 export const TEMPLATE_NOTE = "the book's pregenerated investigator, not at this table; the table's investigators are in the capsule's known.investigator";
 /** Contract §185.4: a name-free campaign's map from a book node's id to its handle (`world.node_handles`). */
 export type NodeHandles = ReadonlyMap<string, string>;
@@ -1188,7 +1188,17 @@ export class ModuleGraph {
      * §192.3: the rules every copy of the scene uses, each as the node that stands for it.
      */
     sceneRules(scene: Row, extra?: (node: Row) => Row): Row[] {
-        return this.listedNodes(this.groupOf(scene).flatMap(each => this.ruleNodes(each)).map(node => this.survivorId(string(node.node_id))), extra);
+        return this.listedNodes(this.sceneRuleNodes(scene).map(node => string(node.node_id)), extra);
+    }
+    /** Stated rules in this scene's existing place scope; never descend into sibling rooms. */
+    sceneRuleNodes(scene: Row): Row[] {
+        const rules = new Map<string, Row>();
+        for (const place of area(this, scene)) for (const each of this.groupOf(place))
+            for (const rule of this.ruleNodes(each)) {
+                const survivor = this.survivorOf(rule);
+                rules.set(string(survivor.node_id), survivor);
+            }
+        return [...rules.values()];
     }
     /** The nodes a node links by `uses-rule`, in relation order. */
     ruleNodes(node: Row): Row[] {

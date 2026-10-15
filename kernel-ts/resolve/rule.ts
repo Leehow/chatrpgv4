@@ -41,17 +41,17 @@ export interface RuleClaim {
 /** The rows the capsule's `where.rules` lists here that a `resolve` can name: those stating a check or a hazard. */
 function hereCandidates(graph: ModuleGraph, world: Row): string[] {
     const scene = activeScene(graph, world);
-    return scene ? graph.ruleNodes(scene).filter(node => statedCheck(graph, node, null)).map(node => graph.handle(node)) : [];
+    return scene ? graph.sceneRuleNodes(scene).filter(node => statedCheck(graph, node, null)).map(node => graph.handle(node)) : [];
 }
 
 /**
- * Where the node may be named from (spec D6.3): linked from the active scene by `uses-rule`; a tome, object or
+ * Where the node may be named from (spec D6.3, section237.122): linked by `uses-rule` in the scene's place scope; a tome, object or
  * artifact also when it is among the scene's assets or a party sheet holds it (an equipment entry of its name).
  */
 function ruleHere(graph: ModuleGraph, world: Row, party: Row[], node: Row): boolean {
     const scene = activeScene(graph, world);
     if (!scene) return false;
-    if (graph.ruleNodes(scene).some(rule => rule.node_id === node.node_id)) return true;
+    if (graph.sceneRuleNodes(scene).some(rule => rule.node_id === node.node_id)) return true;
     if (!['tome', 'object', 'artifact'].includes(string(node.node_kind))) return false;
     if (graph.sceneAssetNodes(scene).some(asset => asset.node_id === node.node_id)) return true;
     return party.some(sheet => array(sheet.equipment).some(item => typeof row(item).name === 'string' && graph.find(row(item).name, [string(node.node_kind)])?.node_id === node.node_id));
