@@ -104,7 +104,7 @@ test("every outcome a session can settle on, and every resource a mod moves, has
 		return [...line[1].matchAll(/'([^']+)'/g)].map(([, value]) => value);
 	};
 	const outcomes = [
-		...declared("kernel-ts/combat/engine.ts", "VALID_OUTCOMES"),
+		...declared("kernel-ts/combat/catalog.ts", "VALID_OUTCOMES"),
 		...declared("kernel-ts/chase/model.ts", "CHASE_OUTCOMES"),
 	];
 	assert.ok(outcomes.length >= 6, `the outcome sets were found (${outcomes.length})`);

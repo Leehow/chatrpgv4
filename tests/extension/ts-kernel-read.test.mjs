@@ -551,10 +551,22 @@ test('saved session views match Python without constructing engine writers',asyn
     }
   }
   const expected=oracle('sessions',{cases});
-  // The frozen oracle predates §142.10: an NPC's own turn now issues `combat:flee` too. Compare everything else; the new
-  // action is asserted in tests/kernel/test_npc_round_operation.py.
-  const npcTurnFlee=session=>session&&Array.isArray(session.actions)&&session.turn_of&&session.turn_of!=='alice'
-    ?{...session,actions:session.actions.filter(action=>action.decision!=='combat:flee')}:session;
+  // The frozen oracle predates the NPC flee offer and §237.80's additive combat parameter choices.
+  // Assert those current choices directly, then compare every original field without changing the oracle.
+  const npcTurnFlee=session=>!session||!Array.isArray(session.actions)?session:{...session,actions:session.actions
+    .filter(action=>!(session.turn_of&&session.turn_of!=='alice'&&action.decision==='combat:flee'))
+    .map(action=>{
+      if(action.decision==='combat:maneuver'){
+        assert.deepEqual(action.goals,['disarm','escape','ongoing_disadvantage','push']);
+        assert.deepEqual(action.weapons,combat.participants.find(person=>person.actor_id===action.actor)?.weapons??[]);
+        const {goals,weapons,...original}=action;return original;
+      }
+      if(action.decision==='combat:end'){
+        assert.deepEqual(action.outcomes,['fled','investigators_win','monsters_win','stalemate']);
+        const {outcomes,...original}=action;return original;
+      }
+      return action;
+    })};
   await rows(t,cases,expected,async c=>{
     const saved=new api.CampaignSnapshot(context,c.id);await saved.preload();const view=new api.SessionView(saved,graph,party,world);
     return {active:npcTurnFlee(view.activeSession()),pending:view.pendingChoice(),combat:npcTurnFlee(view.combatView()),chase:view.chaseView(),facts:view.facts('alice',60)};
