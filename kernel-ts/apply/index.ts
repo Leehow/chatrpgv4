@@ -227,7 +227,9 @@ export function createApplyHandlers(kernel: KernelContext, writer: ReturnType<ty
                         await requirePatientBlock(kernel, graph, staged, subject);
                     const patient = typeof subject === 'string' && snapshot.party.length ? npcPatient(graph, staged, subject) : null;
                     const sheet = patient ? snapshot.party[0] : selectActor(snapshot.party, subject);
-                    return new SettleContext(kernel, { ...transaction, campaign:effectCampaign,world: staged }, snapshot, module, tables, await CheckArithmetic.create(tables), await RuleObservations.load(kernel), started.callId, started.ordinal, sheet, patient ?? sheet, {});
+                    const settlement = new SettleContext(kernel, { ...transaction, campaign:effectCampaign,world: staged }, snapshot, module, tables, await CheckArithmetic.create(tables), await RuleObservations.load(kernel), started.callId, started.ordinal, sheet, patient ?? sheet, {});
+                    settlement.mint = base => context.mint(base);
+                    return settlement;
                 }
             };
             let timeEffects = 0, restMinutes = 0;
