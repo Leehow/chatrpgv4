@@ -1310,13 +1310,14 @@ test('a failed reference publication recovers its exact text without turning int
 
 test('the final provider request retains current prepended Keeper instructions and actor context',async t=>{
  let request;
- const {table}=await directTable([context=>{request=context;return fauxAssistantMessage('{{public}}The clerk answers.');}]);
+ const {table}=await directTable([context=>{request=context;return fauxAssistantMessage('{{public}}The clerk answers.');}],
+   {systemPrompt:readFileSync(join(root,'prompts/keeper.md'),'utf8')});
  t.after(()=>table.dispose());
  await table.session.prompt('I ask the clerk what happened.');
  const text=JSON.stringify(request.messages);
  assert.match(text,/You are the sole Keeper and author/);
  assert.match(text,/Keeper-only current state and actor perspectives/);
- assert.equal(/return one bare JSON object in version, record, text order/.test(text),false,
+ assert.equal(/bare JSON object in version, record, text order/.test(text),false,
    'the actual higher-priority request must not redirect unsettled actions into final delivery');
  assert.equal(/Example:.*version.*record.*effects/.test(text),false,
    'the actual request must not supply the retired inline-settlement example');
@@ -1346,4 +1347,52 @@ test('a rejected reply remains private and preserves its original bytes for diag
  assert.equal(turn.world.clock.minutes,0);
  assert.equal(table.telemetry().filter(row=>row.lane==='final-output'&&row.event==='start').length,0);
  assert.deepEqual(table.extensionErrors,[]);
+});
+
+test('the real next Keeper request retains its whole native success and refusal batch under background pressure',async t=>{
+  const measure=await importSource('extensions/table/context-policy.ts');
+  const engine=createHybridEngine({env:{...process.env,PI_COC_JEV_PRESELECT:'0'},decision:null});
+  let firstBytes=0,ceiling=0,expectedResults,expectedCalls,secondRequest,sourceBefore;
+  const pressureDriver={...engine.runDriver,prepare:async context=>{
+    const plan=await engine.runDriver.prepare(context),original=plan.ports.projection;
+    return {...plan,ports:{...plan.ports,projection:{project:async request=>{
+      const rows=await original.project(request);
+      const operated=[...request.view.observations].reverse().find(row=>row.kind==='operate'&&row.toolResults?.length);
+      if(!operated)return rows;
+      expectedResults=operated.toolResults;
+      expectedCalls=[...request.view.observations].reverse().find(row=>row.kind==='infer')?.message.content;
+      sourceBefore=JSON.stringify(expectedResults);
+      const batchBytes=measure.requestSize([{role:'assistant',content:expectedCalls},...expectedResults]);
+      const hostBytes=measure.requestSize(rows.filter(row=>row.customType==='coc-host'));
+      const padding=ceiling-firstBytes-hostBytes-Math.floor(batchBytes/2);
+      assert(padding>0,'fixed context alone fits the unchanged ceiling');
+      return rows.map(row=>row.customType!=='coc-clerk'?row:{...row,content:JSON.stringify({
+        ...JSON.parse(row.content),background_fixture:'PRIVATE_REFRESHED_BACKGROUND '+ 'x'.repeat(padding)})});
+    }}}};
+  }};
+  const publicText='You finish checking the desk and hear no new answer.';
+  const seen=[];
+  const table=await openTable({legacyDeliveryFixtures:false,realKernel:true,prepareWorkspace:seedOpening,
+    runDriver:pressureDriver,env:{PI_COC_LOOP_ENGINE:'hybrid-v1'},
+    extraExtensions:[{name:'driver',factory:engine.extension},{name:'capture',factory:pi=>pi.events.on('coc:final-delivery',row=>seen.push(row))}],
+    responses:[context=>{
+      firstBytes=measure.requestSize(context.messages);
+      return fauxAssistantMessage([fauxToolCall('look',{focus:'scene'}),
+        fauxToolCall('look',{focus:'npc',name:'Missing fixture person'})],{stopReason:'toolUse'});
+    },context=>{secondRequest=context;return fauxAssistantMessage('{{public}}'+publicText);}]
+  });
+  t.after(()=>table.dispose());ceiling=measure.requestBudget(table.faux.getModel().contextWindow);
+  await table.session.prompt('I check the desk and ask whether that unfamiliar person is here.');
+  assert(secondRequest,'the same Keeper makes its normal continuation');
+  assert.equal(expectedResults.length,2);assert(expectedResults.some(row=>row.isError));assert(expectedResults.some(row=>!row.isError));
+  const native=secondRequest.messages.filter(row=>row.role==='toolResult');
+  assert.deepEqual(native.map(row=>({id:row.toolCallId,content:row.content,isError:row.isError})),
+    expectedResults.map(row=>({id:row.toolCallId,content:row.content,isError:row.isError})),
+    'the actual provider sees both original results, including refusal guidance');
+  assert.deepEqual(secondRequest.messages.find(row=>row.role==='assistant')?.content,expectedCalls);
+  assert(measure.pairedTools(secondRequest.messages));assert(measure.requestSize(secondRequest.messages)<=ceiling);
+  assert.equal(JSON.stringify(expectedResults),sourceBefore,'projection does not mutate the original results');
+  for(const result of expectedResults)assert(table.session.messages.some(row=>row.role==='toolResult'&&row.toolCallId===result.toolCallId));
+  assert.equal(seen.filter(row=>row.event==='delta').map(row=>row.delta).join(''),publicText);
+  assert(!JSON.stringify(seen).includes('PRIVATE_REFRESHED_BACKGROUND'));assert.deepEqual(table.extensionErrors,[]);assert.equal(table.telemetry().filter(row=>row.lane==='provider-call').length,2);
 });

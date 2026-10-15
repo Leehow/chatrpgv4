@@ -277,7 +277,7 @@ export function projectedMessages(input: {
     if (input.answering?.length) start = olderAskStart(messages, start, binding);
     let unknown: Row[] = [];
     for (const message of messages.slice(0, start)) if (!closedNoise(message)) unknown.push(message);
-    let tail = messages.slice(start);
+    let tail = messages.slice(start),background:Row|undefined;
     if(input.singleKeeper){
         const latest=new Map<string,Row>();
         const eligible=(message:Row)=>message.role==='custom'&&[CLERK_TYPE,CAPSULE_UPDATE_TYPE].includes(message.customType)
@@ -285,6 +285,7 @@ export function projectedMessages(input: {
             &&(!object(message.details).campaign||object(message.details).campaign===binding.campaign);
         for(const message of tail)if(eligible(message))latest.set(message.customType,message);
         tail=tail.filter(message=>!eligible(message)||latest.get(message.customType)===message);
+        background=latest.get(CLERK_TYPE);
     }
     // Full static package/book context is carried once, outside the rolling history allocation.
     const brief = input.brief ? [customMessage(BRIEF_TYPE, input.brief)] : [];
@@ -293,7 +294,8 @@ export function projectedMessages(input: {
     // The player's own words and this turn's capsule are never compressible; only the tool traffic
     // the turn has since accumulated is, and the kernel stays authoritative for what it drops.
     const capsule = tail.findIndex(message => message.role === 'custom' && message.customType === 'coc-capsule');
-    const opening = tail.slice(0, capsule < 0 ? 1 : capsule + 1), working = tail.slice(opening.length);
+    const opening = tail.slice(0, capsule < 0 ? 1 : capsule + 1);
+    let working = tail.slice(opening.length);
     // §184.2: on the single-loop engine the capsule moves ahead of the history, which is rebuilt every turn, so the
     // capsule's stable head stays in the prefix the next turn's first request shares; the rest of the opening keeps its order.
     const lead = input.capsuleFirst && capsule >= 0 ? opening.slice(-1) : [];
@@ -305,6 +307,11 @@ export function projectedMessages(input: {
     while (unknown.length && requestSize(unknown) > Math.min(UNCLASSIFIED_BYTES, budget)) {unknown = unknown.slice(1); droppedUnknown++;}
     let cut = boundedTail(working, room([]));
     if(input.singleKeeper)while(unknown.length&&cut.dropped){unknown=unknown.slice(1);droppedUnknown++;cut=boundedTail(working,room([]));}
+    if(cut.dropped&&background&&working.includes(background)){
+        // Regenerated background yields before the native results the Keeper just requested.
+        working=[background,...working.filter(message=>message!==background)];
+        cut=boundedTail(working,room([]));
+    }
     // The optional workspace joins only when it displaces no current material: if this turn's own
     // traffic is already being cut, or would have to be cut to fit it, the workspace is omitted.
     // Current capsule, the player's words, pending context, tool pairing and the ceiling all

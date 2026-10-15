@@ -613,3 +613,27 @@ test('previous native Keeper snapshots expire while current and unrelated contex
     assert.ok(result.messages.includes(unknown));
     assert.deepEqual(messages.slice(4, 6), [oldContext, oldInstruction], 'saved history remains unchanged');
 });
+
+test('single Keeper pressure gives up refreshed background before a requested whole native result batch',()=>{
+  const opening=group(2).slice(0,2),calls={role:'assistant',content:[
+    {type:'toolCall',id:'read-success',name:'look',arguments:{focus:'scene'}},
+    {type:'toolCall',id:'read-refusal',name:'look',arguments:{focus:'npc',name:'Absent fixture person'}}]};
+  const results=[{role:'toolResult',toolCallId:'read-success',toolName:'look',isError:false,content:[{type:'text',text:'CURRENT_EVIDENCE '.repeat(3000)}]},
+    {role:'toolResult',toolCallId:'read-refusal',toolName:'look',isError:true,content:[{type:'text',text:'Use the supplied unambiguous identity.'}]}];
+  const clerk={role:'custom',customType:api.CLERK_TYPE,content:'BACKGROUND '.repeat(10000),details:{coc_host:true,campaign:binding(2).campaign,turn:2}};
+  const host={role:'custom',customType:'coc-host',content:'Use actual tool results before final prose.',details:{coc_host:true,scope:'turn',campaign:binding(2).campaign,turn:2}};
+  const messages=[...opening,calls,...results,clerk,host],original=structuredClone(messages),history=api.historyView(binding(2),[]);
+  const budget=api.requestSize([...opening,api.customMessage(api.HISTORY_TYPE,history),clerk,host])+10000;
+  const projected=api.projectedMessages({messages,binding:binding(2),history,budget,singleKeeper:true});
+  assert.deepEqual(projected.messages.filter(row=>['assistant','toolResult'].includes(row.role)),[calls,...results]);
+  assert.equal(projected.messages.includes(clerk),false);
+  assert(projected.messages.includes(host));
+  assert(projected.messages.includes(opening[0]));assert(projected.messages.includes(opening[1]));
+  assert(api.pairedTools(projected.messages));assert(api.requestSize(projected.messages)<=budget);
+  assert.deepEqual(messages,original);
+  const legacy=api.projectedMessages({messages,binding:binding(2),history,budget});
+  assert(legacy.messages.includes(clerk),'legacy tail ordering remains unchanged');
+  assert.equal(legacy.messages.some(row=>row.role==='toolResult'),false);
+  const roomy=api.projectedMessages({messages,binding:binding(2),history,budget:api.requestSize(messages)+10000,singleKeeper:true});
+  assert.deepEqual(roomy.messages.slice(-messages.length),messages,'without pressure no message changes order');
+});

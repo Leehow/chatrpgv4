@@ -15,7 +15,7 @@ const directionRules=[
     "Positive delta enters subject's purse; negative delta leaves it.",
     "Returning an advance to its payer is negative for the investigator; receiving a merchant's refund is positive.",
     "source found identifies the amount's origin, not income.",
-    'Check the proposed direction against the actual chosen transfer before applying it or writing the final record.',
+    'Check the proposed direction against the actual chosen transfer before applying it.',
 ];
 
 function cashSchema(messages){

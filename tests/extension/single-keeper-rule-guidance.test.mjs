@@ -50,11 +50,13 @@ test('the real Keeper context supplies practical NPC knowledge and separates fir
     assert.ok(footer.includes('Never execute unchosen actions, infer state changes from prose, repeat settled effects or charge journey time twice.'));
     assert.ok(footer.includes('Future intentions use planned'));
     assert.ok(footer.includes('{{public}}'));
-    assert.ok(system.includes('bare JSON object in version, record, text order'));
-    assert.ok(system.includes('record.effects and record.event use the offered apply schemas; either key may be omitted.'));
-    assert.ok(footer.includes('bare JSON object in version, record, text order'));
-    assert.ok(footer.includes('record.effects and record.event use the offered apply schemas'));
-    assert.doesNotMatch(system+'\n'+footer,/No JSON wrapper/);
+    for(const guidance of [system,footer]){
+        assert.ok(guidance.includes('Settle actual changes and event records through the existing apply/resolve tools before writing dependent prose.'));
+        assert.ok(guidance.includes('Read each actual result, correct a refused proposal through those tools'));
+        assert.ok(guidance.includes('Do not place outstanding effects or event parameters in a final response.'));
+        assert.doesNotMatch(guidance,/bare JSON object in version, record, text order/);
+        assert.match(guidance,/No JSON wrapper/);
+    }
     const publicText=table.entries('coc-final-delivery').filter(frame=>frame.event==='delta').map(frame=>frame.delta).join('');
     assert.equal(publicText,'The conversation continues.','host responsibilities never enter the public stream');
     assert.ok(system.includes('speech material.text may be a semantic brief')&&system.includes('optional quotation coverage for changed wording or multiple say spans')&&system.includes('existing fallback without a declaration'));
