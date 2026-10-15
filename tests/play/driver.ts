@@ -499,7 +499,10 @@ export class Daemon {
                 if (projected_choice != null)
                     delivery.pending_choice = projected_choice;
             }
-            const settled = reason === 'timeout' ? 'timeout' : reason === 'settled_before_any_work' ? 'empty' : final ? 'settled' : records.length ? 'undelivered_with_tools' : 'empty';
+            const unfinished = delivery?.kind === 'notice' && delivery.details?.turn_unfinished === true;
+            const settled = reason === 'timeout' ? 'timeout' : reason === 'settled_before_any_work' ? 'empty'
+                : unfinished ? records.length ? 'undelivered_with_tools' : 'empty'
+                : final ? 'settled' : records.length ? 'undelivered_with_tools' : 'empty';
             timings.keeper_wait_seconds = rounded(time.monotonic() - ack_finished);
             return this._finalize_turn(n, text, stamp, started, records, final, settled, reason, { stale_settles, delivery, timings, ...(public_clock ? { public_clock } : {}), ...(notices.length ? { notices } : {}), ...(reference_replies.length ? { reference_replies } : {}), ...(setup_openings.length ? { setup_opening: setup_openings.join('\n\n') } : {}) });
         }

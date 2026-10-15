@@ -19,6 +19,26 @@ const end=(status='completed',sequence=3)=>entry('coc-final-delivery',{version:1
 const footer=()=>entry('coc-mechanics',{turn:7,final_stream_id:'delivery',mechanics:[],
   marked_text:'{{say:Visitor}}The visitor listens to your request.{{/say}}'});
 
+test('an unfinished service notice preserves evidence without counting as delivered play',async()=>{
+  const notice=entry('coc-delivery',{}, {display:true,content:'A localized service notice.',
+    details:{coc_delivery:true,turn_unfinished:true,turn:7}});
+  for(const worked of [false,true]){
+    const tools=worked?[
+      [.1,{type:'tool_execution_start',toolCallId:'check',toolName:'resolve',args:{}}],
+      [.2,{type:'tool_execution_end',toolCallId:'check',isError:false,result:{content:[{type:'text',text:'{}'}]}}],
+    ]:[];
+    const result=await replay_turn([[0,{type:'agent_start'}],...tools,[.3,notice],[.5,{type:'agent_settled'}]]);
+    assert.equal(result.final_text,'A localized service notice.');
+    assert.equal(result.delivery.details.turn_unfinished,true);
+    assert.equal(result.settle_class,worked?'undelivered_with_tools':'empty');
+    assert.equal(result.tools.length,worked?1:0);
+  }
+  const completed=await replay_turn([[0,{type:'agent_start'}],[.1,notice],[.2,start()],
+    [.3,delta()],[.4,end()],[.5,{type:'agent_settled'}]]);
+  assert.equal(completed.settle_class,'settled');
+  assert.equal(completed.final_text,'{{name:Visitor}} listens to your request.');
+});
+
 test('the actual driver selects the canonical public footer before stream completion',async()=>{
   const result=await replay_turn([[0,{type:'agent_start'}],[.1,start()],[.2,delta()],[.3,footer()],
     [.4,end()],[.5,{type:'agent_settled'}]]);
