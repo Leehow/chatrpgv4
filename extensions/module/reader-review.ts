@@ -427,7 +427,7 @@ export function checkAnswerReviewShape(review: Row, maxPage: number, viewed: Rea
 	if (error) throw new AnswerReviewShapeError(error);
 }
 
-const reviewProtocol = 'source-review-groups-v6-focused-detail';
+const reviewProtocol = 'source-review-groups-v7-publication-crops';
 const digest = (value: string | Buffer) => createHash('sha256').update(value).digest('hex');
 function canonical(value: any): string {
 	if (Array.isArray(value)) return '[' + value.map(canonical).join(',') + ']';
@@ -799,7 +799,7 @@ export async function reviewCandidate(options: {
 			const unitTask: Row = { ...taskContext, required_review: ask, ...(requiredPages.length ? {review_scope_pages: requiredPages} : {}) };
 			if (unitTask.commands?.check !== undefined) unitTask.commands = { ...unitTask.commands,
 				check: `coc-read-check --packet ${quote(join(cwd, "task.json"))} --draft ${quote(join(cwd, "draft.json"))}` };
-			const mapPreviews=options.task.visual_asset?await mapReviewPreviews({draft:options.draft,paths:ask,cwd,source:options.source}):[];
+			const mapPreviews=await mapReviewPreviews({draft:options.draft,paths:ask,cwd,source:options.source});
 			await writeFile(join(cwd, "task.json"), JSON.stringify(unitTask, null, 2) + "\n");
 			let detailInput: string | undefined;
 			if (['opening','detail'].includes(options.task.purpose)) {
@@ -819,6 +819,7 @@ export async function reviewCandidate(options: {
 				? " For map_regions, check classification, region-place correspondence, independently revealable units for the requested use, and annotation exclusion against original images. Region boxes select normalized coordinates in the cropped asset, not the full PDF page. Wrong location, crop, coordinate frame or private annotation leakage is a LOGIC finding, never an advisory parameter difference. A whole-map region is missing necessary current material when the source shows separately knowable areas. Uncertain geometry stays unavailable; do not widen a box. "
 					+(mapPreviews.length?` Read these private PNG review aids with the read tool: ${JSON.stringify(mapPreviews)}. Each red rectangle is exactly what its source_box selects in the rendered asset. Verify that each labelled box actually covers the named place. These aids do not replace original-page evidence. `:'')
 				: "";
+			const cropBrief = mapPreviews.length ? ` Private publication previews are available with read: ${JSON.stringify(mapPreviews)}. Compare the actual crop/stitch with its original pages: preserve the complete requested document, title, frame, edge text and any continuation; exclude unrelated Keeper material. If a document continues beyond the cited page, inspect that original continuation. These previews are candidate output, not source evidence. ` : '';
 			const scopeBrief = (ask.some(path => /^\/nodes\/\d+\/properties\/map_scope$/.test(path)) ? ` ${MAP_SCOPE_REVIEW} ` : "")
 				+ (ask.some(path => sheetReviewPath(path)) ? ` ${SHEET_REVIEW} ` : "");
 			try {
@@ -833,7 +834,7 @@ export async function reviewCandidate(options: {
 					: REVIEW_UNIT.trimStart() + (guidanceBytes ? REVIEW_SUBMIT_GUIDANCE : ['opening', 'detail'].includes(options.task.purpose) ? REVIEW_SUBMIT_DIRECT : "Write review.json. ")
 						+ (detailInput !== undefined ? REVIEW_DETAIL_INPUT.trimStart() + " " + detailInput
 							: guidanceBytes ? readerInput({draft:options.draft, guidance:JSON.parse(guidanceBytes),...(publicFields?{public_fields:publicFields}:{}), task:unitTask}) : readerInput({draft:options.draft, task:unitTask}))
-						+ " " + (requiredPages.length ? REVIEW_COVERAGE : "") + mapBrief + scopeBrief + (previousFailure ? REVIEW_RETRY : "") + "Finish this unit and stop.",
+						+ " " + (requiredPages.length ? REVIEW_COVERAGE : "") + mapBrief + cropBrief + scopeBrief + (previousFailure ? REVIEW_RETRY : "") + "Finish this unit and stop.",
 					onEvent(event) {
 						if(event.type==='tool_execution_start'&&event.toolName==='read'&&typeof event.args?.path==='string')
 							previewCalls.set(event.toolCallId,resolve(cwd,event.args.path));
@@ -854,6 +855,7 @@ export async function reviewCandidate(options: {
 				for(const id of delivered.toolCallIds)for(const row of imageCalls.get(id)??[])pages.add(row.page);
 				for(const row of delivered.hostPages)pages.add(row.page);
 				for(const preview of mapPreviews){
+					if(!options.task.visual_asset||!preview.regions.length)continue;
 					if(![...previewImages].some(id=>delivered.toolCallIds.has(id)&&previewCalls.get(id)===join(cwd,preview.file)))
 						throw new Error(`Review the actual region overlay with read before submitting: ${preview.file}`);
 					if(createHash('sha256').update(await readFile(join(cwd,preview.file))).digest('hex')!==preview.image_sha256)

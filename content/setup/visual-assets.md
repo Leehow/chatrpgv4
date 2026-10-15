@@ -42,7 +42,9 @@ reasoning. Never invent local paths, asset_ref or asset_digest.
 Asset/handout properties.image_sources is [{page,box:[x0,y0,x1,y1]}], normalized
 against each full original PDF page. The host crops these after independent review.
 Keep authored handouts separate. Preserve margins needed for legibility while
-excluding unrelated private prose. Use keeper-only for a source whose safe public
+excluding unrelated private prose. Retain the full title, frame and edge text;
+inspect an original continuation page when needed and append its safe region to
+the same ordered image_sources list. Use keeper-only for a source whose safe public
 crop is not established. Source refs alone do not authorize exposing a page.
 
 Claims link subject_id through a supplied predicate to object:{node_id}, with

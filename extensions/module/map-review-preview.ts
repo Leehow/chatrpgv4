@@ -1,6 +1,6 @@
 /** Private review aids: draw the exact normalized reveal boxes on their cropped source raster. */
 import {createCanvas,loadImage} from '@napi-rs/canvas';
-import {writeFile} from 'node:fs/promises';
+import {readFile,writeFile} from 'node:fs/promises';
 import {join} from 'node:path';
 import {createHash} from 'node:crypto';
 import {sourceAsset,validateBox} from './source.ts';
@@ -41,6 +41,14 @@ export async function mapReviewPreviews(input:{draft:Row;paths:string[];cwd:stri
             await writeFile(join(input.cwd,file),bytes);
             out.push({map:map.name,source_asset:id,file,image_sha256:createHash('sha256').update(bytes).digest('hex'),regions:labels});
         }
+    }
+    for(const [index,node] of (input.draft.nodes??[]).entries()){
+        if(!node.properties?.image_sources?.length||out.some(preview=>preview.source_asset===node.node_id))continue;
+        if(!input.paths.some(path=>path==='/coverage'||path===`/nodes/${index}`||path.startsWith(`/nodes/${index}/`)))continue;
+        const file=`source-crop-${out.length+1}.png`;
+        await sourceAsset(input.source.pdf,input.source.cache,node.properties.image_sources,join(input.cwd,file));
+        const bytes=await readFile(join(input.cwd,file));
+        out.push({source_asset:node.node_id,name:node.name,file,image_sha256:createHash('sha256').update(bytes).digest('hex'),regions:[]});
     }
     return out;
 }

@@ -7,6 +7,7 @@ import { createCanvas, loadImage } from "@napi-rs/canvas";
 import {createHash} from 'node:crypto';
 import { sourceAsset, sourceInfo, sourceOverview, sourcePage, sourceSearch, closeSourceDocuments } from "../../extensions/module/source.ts";
 import {mapReviewPreviews,reviewedMapNodes} from '../../extensions/module/map-review-preview.ts';
+import {reviewCandidate} from '../../extensions/module/reader-review.ts';
 
 function pdf(rotation = 0) {
 	const stream = "1 0 0 rg 0 0 100 100 re f 0 0 1 rg 100 0 100 100 re f";
@@ -295,4 +296,41 @@ test('map review shows the actual crop coordinate frame on record-root review as
  assert.ok(edge[0]>150&&edge[2]<100,'the red box is placed relative to the cropped blue half, not the full PDF');
  const clear=ctx.getImageData(Math.round(image.width*.8),Math.round(rasterHeight*.8),1,1).data;
  assert.ok(clear[2]>200&&clear[0]<30,'the crop preserves the original blue pixels away from the overlay');
+});
+
+test('ordinary handout review receives the exact ordered multi-part publication pixels',async t=>{
+ const dir=await mkdtemp(join(tmpdir(),'handout-review-crop-'));t.after(async()=>{await closeSourceDocuments();await rm(dir,{recursive:true,force:true})});
+ const file=join(dir,'source.pdf');await writeFile(file,pdf());
+ const parts=[{page:1,box:[0,0,.5,1]},{page:1,box:[.5,0,1,1]}];
+ const draft={nodes:[{node_id:'handout-letter',node_kind:'handout',name:'Letter',properties:{image_sources:parts}},
+  {node_id:'asset-unrelated',node_kind:'asset',name:'Unrelated',properties:{image_sources:[{page:1}]}}]};
+ const previews=await mapReviewPreviews({draft,paths:['/nodes/0'],cwd:dir,source:{pdf:file,cache:join(dir,'cache')}});
+ assert.equal(previews.length,1,'a normal handout needs a crop preview without map_regions or a visual discovery task');
+ const preview=previews[0];assert.equal(preview.source_asset,'handout-letter');assert.deepEqual(preview.regions,[]);
+ const expected=join(dir,'published.png');await sourceAsset(file,join(dir,'cache'),parts,expected);
+ assert.deepEqual(await readFile(join(dir,preview.file)),await readFile(expected),'review sees the actual publication bytes, including ordered continuation parts');
+ const image=await loadImage(expected),canvas=createCanvas(image.width,image.height),ctx=canvas.getContext('2d');ctx.drawImage(image,0,0);
+ assert.ok(ctx.getImageData(image.width/2,image.height/4,1,1).data[0]>200);
+ assert.ok(ctx.getImageData(image.width/2,image.height*3/4,1,1).data[2]>200);
+ assert.deepEqual(await mapReviewPreviews({draft,paths:['/claims/0'],cwd:dir,source:{pdf:file,cache:join(dir,'cache')}}),[]);
+});
+
+test('ordinary detail reviewer is offered its publication crop without another preview gate',async t=>{
+ const dir=await mkdtemp(join(tmpdir(),'handout-review-wiring-'));t.after(async()=>{await closeSourceDocuments();await rm(dir,{recursive:true,force:true})});
+ const file=join(dir,'source.pdf');await writeFile(file,pdf());
+ const draft={nodes:[{node_id:'handout-letter',node_kind:'handout',name:'Letter',source_refs:[{page:1}],properties:{image_sources:[{page:1,box:[0,0,.5,1]}]}}],claims:[]};
+ let previews=0,runs=0;
+ await reviewCandidate({cwd:dir,task:{purpose:'detail',pages:[1],source:{page_count:1}},draft,instructions:'unused',round:1,
+  model:{id:'fixture/vision'},source:{pdf:file,cache:join(dir,'cache')},signal:new AbortController().signal,record(){},progress(){},async run(request){
+   runs++;const task=JSON.parse(await readFile(join(request.cwd,'task.json'),'utf8'));
+   if(task.required_review.some(path=>path==='/nodes/0'||path.startsWith('/nodes/0/'))){
+    assert.match(request.brief,/Private publication previews/);assert.match(request.brief,/continuation/);
+    assert.ok((await readFile(join(request.cwd,'source-crop-1.png'))).length>0);previews++;
+   }
+   request.onEvent({type:'tool_execution_end',toolCallId:'page',isError:false,result:{details:{kind:'source_pages',observations:[{page:1}]}}});
+   await writeFile(request.eventLog+'.images.jsonl',JSON.stringify({included:['page']})+'\n');
+   await writeFile(join(request.cwd,'review.json'),JSON.stringify({checked:[{paths:task.required_review,verdict:'supported',source_refs:[{page:1}]}],missing:[]}));
+   return {ok:true,ms:1,stderr:''};
+  }});
+ assert.equal(previews,1);assert.equal(runs,1,'the existing reviewer handles the crop; no added call or mandatory preview-read retry');
 });
