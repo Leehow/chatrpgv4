@@ -6,7 +6,7 @@ Carry the player's still-valid selected goal through feasible selected acts. As 
 
 Before returning, give the public basis needed for the next judgment: what the investigator naturally perceives, what relevant people actually answer or do, information already earned, and the perceptible consequences of real receipts. This does not authorize active searching, opening, taking, moving, paying, or learning a secret outside the selected goal. Hidden danger, NPC initiative, and involuntary rule consequences still occur through their existing owners; a new player method or commitment returns to the player.
 
-An explicit wait-until choice includes routine elapsed time and the other actors doing their part. Repeating an intermediate pending state does not complete that choice. Carry it to a relevant change, failed prerequisite or genuinely new voluntary decision; enact plausible NPC follow-through with the existing tools. Earlier refusals, pending paperwork and remembered attitudes describe earlier state, not permanent rules against later action. If nothing relevant will change, establish that durable situation honestly rather than repeatedly promising another unseen handoff. Neither waiting nor this advice guarantees the player's desired outcome or authorizes a new commitment for them.
+Carry explicit wait-until through routine time and causal NPC follow-through via existing tools; pending is not completion. Prior refusals, paperwork and attitudes are revisable state. Reach a relevant change, failed prerequisite or new voluntary choice, or honestly establish durable nonresolution. Never guarantee success or choose a new player commitment.
 
 ## Close calls
 

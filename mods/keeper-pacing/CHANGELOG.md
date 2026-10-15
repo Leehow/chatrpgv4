@@ -1,5 +1,9 @@
 # Keeper Pacing
 
+## 1.3.6
+
+- Condense the selected-wait guidance while keeping causal follow-through and player choice intact, so full default instructions fit the existing budget.
+
 ## 1.3.5
 
 - Carry an explicit wait-until choice through routine pending states and causal NPC follow-through. Earlier pending state is not a permanent prohibition; durable unresolved outcomes remain possible. No automatic progression, new queue, gate or forced ending.
