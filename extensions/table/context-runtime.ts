@@ -26,7 +26,7 @@ import {createExpressionPreparation,EXPRESSION_MESSAGE,removeExpressionPayload} 
 import {createModSections,emptyCalls,noteCall,MOD_SECTIONS_MESSAGE} from './mod-sections.ts';
 import {createTemporalAdvice,TEMPORAL_ADVICE_MESSAGE} from './temporal-advice.ts';
 import {bindingOf, customMessage, epochOf, sourceOf, historyView, metadata, quoteView, briefForTurn, projectedMessages, foldPlan,
-    boundedTail, requestBudget, BYTES_PER_TOKEN, HISTORY_BYTES, POLICY_VERSION, DIAGNOSTIC_TYPE, WORKSPACE_TYPE, PRESCREEN_TYPE, entryMessage, object, sizeOf, requestSize,
+    boundedTail, retainsLatestToolBatch, requestBudget, BYTES_PER_TOKEN, HISTORY_BYTES, POLICY_VERSION, DIAGNOSTIC_TYPE, WORKSPACE_TYPE, PRESCREEN_TYPE, entryMessage, object, sizeOf, requestSize,
     capsuleUpdate, stableFirst, CAPSULE_UPDATE_TYPE, NPC_ADVICE_TYPE, CLERK_TYPE, BRIEF_TYPE,
     type ContextBinding, type Quote, type Row} from './context-policy.ts';
 /** §228.3: what a result carries when a write used detail it was not shown. */
@@ -782,8 +782,26 @@ export function installContextPolicy(pi: ExtensionAPI, writeTelemetry: (row: Row
         }
         let workspace=snapshot.workspaceMode==='on'?snapshot.workspace:undefined,prescreen:Row|undefined;
         // §184.2: the single-loop engine's order puts the turn's capsule ahead of the history; the legacy engine's is unchanged.
-        const project=(budget:number,optional:{workspace?:Row;prescreen?:Row}={})=>projectedMessages({messages:selected,binding:snapshot.binding,
-            history:snapshot.history,brief:briefSent,answering:snapshot.answering,budget,...optional,...(runOwnsPrescreen?{capsuleFirst:true}:{}),singleKeeper});
+        const project=(budget:number,optional:{workspace?:Row;prescreen?:Row}={})=>{
+            const input={messages:selected,binding:snapshot.binding,history:snapshot.history,brief:briefSent,
+                answering:snapshot.answering,budget,...optional,...(runOwnsPrescreen?{capsuleFirst:true}:{}),singleKeeper};
+            const fitted=projectedMessages(input);
+            if(!singleKeeper||!runOwnsPrescreen||retainsLatestToolBatch(selected,fitted.messages,snapshot.binding))return fitted;
+            const updates=turnTail.filter(message=>message.customType===CAPSULE_UPDATE_TYPE);
+            if(!updates.length)return fitted;
+            // Cache-prefix stability yields before current native answers. The kernel already
+            // supplied this materialized view; no model summary or canonical rewrite is needed.
+            const reclaimed=requestSize(turnTail)-requestSize(turnTail.filter(message=>!updates.includes(message)));
+            const current=selected.map(message=>{
+                const actual=bindingOf(object(message.details).context);
+                return message.role==='custom'&&message.customType==='coc-capsule'&&actual&&epochOf(actual)===snapshot.key
+                    ?{...message,content:JSON.stringify(stableFirst(view))}:message;
+            });
+            const consolidated=projectedMessages({...input,messages:rename(current),budget:budget+reclaimed});
+            return retainsLatestToolBatch(current,consolidated.messages,snapshot.binding)
+                ?{...consolidated,capsuleConsolidated:true}:fitted;
+        };
+        const projectedTail=(fitted:{capsuleConsolidated?:boolean})=>turnTail.filter(message=>!fitted.capsuleConsolidated||message.customType!==CAPSULE_UPDATE_TYPE);
         let messageBudget=room,baseline=project(room,{workspace});
         // §219.3: a projection a newer generation or a cancelled preparation overtook still goes to the provider as its
         // bounded baseline, so it still has its `context/request` row.
@@ -861,7 +879,7 @@ export function installContextPolicy(pi: ExtensionAPI, writeTelemetry: (row: Row
             // Reserve a diagnostic only when one is needed. An optional workspace must not be
             // displaced by a hypothetical notice on an otherwise healthy, within-budget request.
             if(notice)fitted=project(Math.max(0,messageBudget-reserve-requestSize([notice])),{workspace,prescreen});
-            return {fitted,messages:rename([...(notice?[notice,...fitted.messages.filter(message=>!(message.role==='custom'&&message.customType===DIAGNOSTIC_TYPE))]:fitted.messages),...turnTail]
+            return {fitted,messages:rename([...(notice?[notice,...fitted.messages.filter(message=>!(message.role==='custom'&&message.customType===DIAGNOSTIC_TYPE))]:fitted.messages),...projectedTail(fitted)]
                 .filter(message=>!(message.role==='custom'&&[EXPRESSION_MESSAGE,MOD_SECTIONS_MESSAGE,TEMPORAL_ADVICE_MESSAGE].includes(message.customType))))};
         };
         let {fitted:result,messages:outgoing}=assemble(0);
@@ -908,7 +926,7 @@ export function installContextPolicy(pi: ExtensionAPI, writeTelemetry: (row: Row
             if(!PACKAGE_OMISSIONS.has(code))throw error;
             omission={reason:code};
         }
-        const anchor=disclosure.count(outgoing.slice(0,outgoing.length-turnTail.length));
+        const anchor=disclosure.count(outgoing.slice(0,outgoing.length-projectedTail(result).length));
         const owed=disclosure.owed();
         const selectedRows=sectionRows(discoveryMessage);
         const owedKeys=owed.filter(key=>key.startsWith('section:')).map(key=>key.slice('section:'.length))
@@ -957,7 +975,7 @@ export function installContextPolicy(pi: ExtensionAPI, writeTelemetry: (row: Row
             ({fitted:result,messages:outgoing}=assemble(requestSize(packets),omission.reason));
             record({lane:'mod-discovery',event:'omitted',turn:snapshot.binding.turn,reason:omission.reason,...(omission.bytes?{bytes:omission.bytes}:{})});
         }
-        if(packets.length)outgoing=disclosure.place(outgoing,outgoing.length-turnTail.length);
+        if(packets.length)outgoing=disclosure.place(outgoing,outgoing.length-projectedTail(result).length);
         pendingDiscovery=fresh;
         // §183.5's sections are optional beside the disclosure: they join only when they still fit.
         if(sectionsMessage&&fits([...outgoing,sectionsMessage])){
@@ -1027,7 +1045,7 @@ export function installContextPolicy(pi: ExtensionAPI, writeTelemetry: (row: Row
             ...(omission?.bytes?{mod_discovery_omitted_bytes:omission.bytes}:{}),
             request_bytes: bytes, system_bytes: systemBytes, system_digest: systemDigest, local_token_estimate: estimatedTokens, context_window: window ?? null, ceiling_bytes: ceiling,
             ...(result.prescreenKept && prescreen ? {prescreen_bytes: requestSize([prescreen]), prescreen_injected: true} : {}),
-            ...(turnTail.length ? {tail_bytes: requestSize(turnTail), tail: turnTail.map(message => message.customType)} : {}),
+            ...(projectedTail(result).length ? {tail_bytes: requestSize(projectedTail(result)), tail: projectedTail(result).map(message => message.customType)} : {}),
             ...(result.workspaceKept && workspace ? {workspace_bytes: requestSize([workspace])} : {}),
             ...(result.workspaceKept && workspace ? {workspace_evidence_injected: JSON.parse(String(workspace.content)).evidence.length} : {}),
             ...(result.droppedTail ? {dropped_tail: result.droppedTail} : {}),

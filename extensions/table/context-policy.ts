@@ -253,6 +253,23 @@ function closedNoise(message: Row): boolean {
 export interface Projection {
     messages: Row[]; start: number; protectedBytes: number; unknownBytes: number;
     degraded?: string; droppedTail?: number; droppedUnknown?: number; overCeiling?: boolean; workspaceKept?: boolean; prescreenKept?: boolean;
+    capsuleConsolidated?: boolean;
+}
+
+/** Whether the latest complete native batch of this input still has every original result. */
+export function retainsLatestToolBatch(messages: Row[], projected: Row[], binding: ContextBinding): boolean {
+    const start = currentStart(messages, binding);
+    if (start < 0) return true;
+    const tail = messages.slice(start), last = tail.findLastIndex(message => message.role === 'toolResult');
+    if (last < 0) return true;
+    const call = tail.findLastIndex((message, index) => index < last && message.role === 'assistant'
+        && Array.isArray(message.content) && message.content.some((block: Row) => block.type === 'toolCall' && block.id === tail[last].toolCallId));
+    if (call < 0) return true;
+    const ids = tail[call].content.filter((block: Row) => block.type === 'toolCall').map((block: Row) => block.id);
+    const answered = new Set(tail.slice(call + 1, last + 1).filter(message => message.role === 'toolResult').map(message => message.toolCallId));
+    if (!ids.every((id: string) => answered.has(id))) return true;
+    const kept = new Set(projected.filter(message => message.role === 'toolResult').map(message => message.toolCallId));
+    return ids.every((id: string) => kept.has(id));
 }
 /**
  * The one request projection, and the one place the ceiling is enforced. Every exit fits
@@ -312,6 +329,12 @@ export function projectedMessages(input: {
         working=[background,...working.filter(message=>message!==background)];
         cut=boundedTail(working,room([]));
     }
+    let briefYielded = false;
+    if (input.singleKeeper && brief.length && !retainsLatestToolBatch(messages, cut.messages, binding)) {
+        // Rebuildable reference material yields before the answers just requested by this KP.
+        brief.length = 0; briefYielded = true;
+        cut = boundedTail(working, room([]));
+    }
     // The optional workspace joins only when it displaces no current material: if this turn's own
     // traffic is already being cut, or would have to be cut to fit it, the workspace is omitted.
     // Current capsule, the player's words, pending context, tool pairing and the ceiling all
@@ -336,7 +359,7 @@ export function projectedMessages(input: {
         ...(cut.dropped ? {droppedTail: cut.dropped} : {}), ...(droppedUnknown ? {droppedUnknown} : {}),
         ...(over ? {overCeiling: true} : {}),
         ...(unknown.length ? {degraded: 'unclassified_messages_retained'}
-            : cut.dropped || droppedUnknown ? {degraded: 'request_ceiling_reached'} : {})};
+            : cut.dropped || droppedUnknown || briefYielded ? {degraded: 'request_ceiling_reached'} : {})};
 }
 /**
  * Every suffix cut that keeps tool pairing. `safe[c]` means `messages.slice(c)` is pair-safe,

@@ -1529,3 +1529,68 @@ test('an opening html fence before the public marker needs no correction inferen
   assert.equal(table.telemetry().filter(row=>row.lane==='keeper-delivery'&&row.ok===false).length,0);
   assert.deepEqual(table.extensionErrors,[]);
 });
+
+for(const renameGrowth of [false,true])test('the next native request keeps six results ahead of a duplicated capsule and static brief'+(renameGrowth?' after handle expansion':''),async t=>{
+  const {installContextPolicy}=await importSource('extensions/table/context-runtime.ts');
+  const measure=await importSource('extensions/table/context-policy.ts');
+  const engine=createHybridEngine({env:{...process.env,PI_COC_JEV_PRESELECT:'0'},decision:null});
+  let expectedResults,sourceBefore,secondRequest,thirdRequest;
+  const telemetry=[];
+  const pressureDriver={...engine.runDriver,prepare:async context=>{
+    const plan=await engine.runDriver.prepare(context),original=plan.ports.operations;
+    const pad=result=>{
+      if(result.toolResult?.toolName==='look')result.toolResult.content.push({type:'text',text:'PRIVATE_NATIVE_RESULT '+ 'r'.repeat(26000)});
+      return result;
+    };
+    return {...plan,ports:{...plan.ports,operations:{...original,
+      execute:async(...args)=>pad(await original.execute(...args)),
+      executeBatch:async(...args)=>{const rows=await original.executeBatch(...args);return rows?.map(pad);}},
+      projection:{project:async request=>{
+        const rows=await plan.ports.projection.project(request);
+        const operated=[...request.view.observations].reverse().find(row=>row.kind==='operate'&&row.toolResults?.length===6);
+        if(operated){expectedResults=operated.toolResults;sourceBefore=JSON.stringify(expectedResults);}
+        return rows;
+      }}}};
+  }};
+  const inflate=capsule=>({...capsule,
+    module:{...capsule.module,fixture_static:'s'.repeat(2000)},
+    ...(renameGrowth?{fixture_handles:Array(500).fill('qx')}:{}),
+    fixture_current:(capsule.where?.clock?.minutes??0)+':'+ 'c'.repeat(45000)});
+  const seen=[];
+  const table=await openTable({legacyDeliveryFixtures:false,realKernel:true,prepareWorkspace:seedOpening,
+    runDriver:pressureDriver,env:{PI_COC_LOOP_ENGINE:'hybrid-v1'},
+    tableExtensionFactory:pi=>installContextPolicy({...pi,events:{...pi.events,on:(name,handler)=>pi.events.on(name,data=>{
+      if(name==='coc:capsule')return handler({...data,capsule:inflate(data.capsule)});
+      if(name==='coc:kernel-bridge'&&data.call)return handler({...data,call:async(method,...args)=>{
+        const result=await data.call(method,...args);
+        if(method==='table.untold'&&renameGrowth)return {...result,people:[...(result.people??[]),
+          {name:'qx',id:'qx',shown:'the unfamiliar worker waiting by the gate in a weathered long coat',handle:true}]};
+        return method==='table.capsule'?inflate(result):result;
+      }});
+      return handler(data);
+    })}},row=>telemetry.push(row)),
+    extraExtensions:[{name:'driver',factory:engine.extension},{name:'capture',factory:pi=>pi.events.on('coc:final-delivery',row=>seen.push(row))}],
+    responses:[()=>fauxAssistantMessage([fauxToolCall('apply',{effects:[{kind:'time',minutes:8}]})],{stopReason:'toolUse'}),
+      context=>{secondRequest=context;return fauxAssistantMessage(Array.from({length:6},()=>fauxToolCall('look',{focus:'investigator'})),{stopReason:'toolUse'});},
+      context=>{thirdRequest=context;return fauxAssistantMessage('{{public}}You finish checking the desk.');}]
+  });
+  t.after(()=>table.dispose());
+  // Match the real table's model window; the product's byte ceiling stays unchanged.
+  table.session.model.contextWindow=500000;
+  assert.equal(measure.requestBudget(table.session.model.contextWindow),measure.REQUEST_BYTES);
+  await table.session.prompt('I wait eight minutes and check my supplies.');
+  assert(secondRequest);assert(thirdRequest);
+  const actual=thirdRequest.messages.filter(row=>row.role==='toolResult'&&expectedResults.some(expected=>expected.toolCallId===row.toolCallId));
+  assert.deepEqual(actual.map(row=>({id:row.toolCallId,content:row.content,isError:row.isError})),
+    expectedResults.map(row=>({id:row.toolCallId,content:row.content,isError:row.isError})),'all six original read results reach the next provider request');
+  assert.equal(JSON.stringify(expectedResults),sourceBefore);
+  assert(measure.pairedTools(thirdRequest.messages));
+  assert(measure.requestSize(thirdRequest.messages)<=measure.requestBudget(table.faux.getModel().contextWindow));
+  const current=thirdRequest.messages.filter(row=>row.role==='user').flatMap(row=>row.content??[]).filter(row=>row.type==='text').map(row=>row.text).join('\n');
+  assert.ok(current.includes('8:'+ 'c'.repeat(100)),'the current materialized state replaces its obsolete duplicate');
+  if(renameGrowth)assert.ok(current.includes('the unfamiliar worker waiting by the gate in a weathered long coat'),'the fitted capsule includes the expanded handle');
+  assert.equal(telemetry.filter(row=>row.event==='request').length,3);
+  assert.equal(seen.filter(row=>row.event==='delta').map(row=>row.delta).join(''),'You finish checking the desk.');
+  assert.ok(!JSON.stringify(seen).includes('PRIVATE_NATIVE_RESULT'));
+  assert.deepEqual(table.extensionErrors,[]);
+});
