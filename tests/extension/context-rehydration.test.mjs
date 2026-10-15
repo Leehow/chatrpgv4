@@ -222,6 +222,31 @@ test('context identity resets on worldline fork while inherited memory and cover
     assert.equal(side._context.memory_coverage.gaps, 1);
 });
 
+test('revision-only capsule preserves binding identity without reading history or extracting coverage', async () => {
+    const t = await table();
+    await t.call('table.narrate', { call_id: 't0-c1', text: 'The entry hall settles.' });
+    const full = await t.call('table.capsule');
+    const reads = [], readJson = t.context.snapshots.readJson.bind(t.context.snapshots);
+    const monitored = api.createKernelRuntime({...t.context, snapshots: {...t.context.snapshots,
+        readJson: async path => { reads.push(String(path)); return readJson(path); }}});
+    closers.push(() => monitored.close());
+    const thin = await monitored.handlers['table.capsule']({ campaign:'c1', _revision_only:true });
+    assert.deepEqual(Object.keys(thin), ['_context']);
+    const fields = ['version', 'campaign', 'worldline', 'loop', 'turn', 'world_revision', 'task_world_revision', 'source_revision', 'task_source_revision'];
+    assert.deepEqual(Object.fromEntries(fields.map(key => [key, thin._context[key]])),
+        Object.fromEntries(fields.map(key => [key, full._context[key]])));
+    assert.equal(Object.hasOwn(thin._context, 'memory_coverage'), false);
+    assert.equal(Object.hasOwn(thin._context, 'brief_window'), false);
+    assert.deepEqual(reads.filter(path => /\/(turns|memory\/jobs)\//.test(path)), []);
+    await t.call('table.player_input', { text: 'Wait briefly.' });
+    await t.call('table.apply', { call_id: 't1-c1', effects: [{kind:'time',minutes:1}] });
+    const changed = await t.call('table.capsule', { _revision_only: true });
+    assert.notEqual(changed._context.task_world_revision, thin._context.task_world_revision);
+    assert.equal(changed._context.task_source_revision, thin._context.task_source_revision);
+    const ordinary = await t.call('table.capsule', { _context_read: true });
+    assert.ok(ordinary.turn && ordinary.known && ordinary._context.memory_coverage);
+});
+
 test('source_revision changes for effective source and active package locks but not empty dynamic state', async () => {
     const t = await table();
     const module = await api.loadModule(t.context, 'the-haunting');

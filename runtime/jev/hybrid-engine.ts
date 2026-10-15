@@ -19,9 +19,8 @@ import {KernelError} from '../../extensions/kernel/client.ts';
 import {readJevApiKey} from '../../extensions/jev/agent/config.js';
 import {createDecisionAdapter} from './decision-adapter.ts';
 import {createMemoryReadDomain,MEMORY_READ_POLICY_VERSION} from './memory-read-domain.ts';
-import {createMemoryReadOwner,presentMemoryEvidence} from './memory-read-owner.ts';
+import {createMemoryReadOwner,presentMemoryEvidence,memoryReadBudget,MEMORY_READ_STEP_LIMIT} from './memory-read-owner.ts';
 import {TaskRuntime,type TaskRecord} from './task-runtime.ts';
-import {PREPARATION_DECISION_BUDGET} from './preparation-budget.ts';
 import {issueSourceRef} from './source-ref.ts';
 import { NPC_REACTION_DECISION, type ConsequenceClass } from './candidates.ts';
 import { type GuardedDestination } from './route-compile.ts';
@@ -407,7 +406,7 @@ export function createHybridEngine(options: HybridEngineOptions): {runDriver: Se
         const inputResource=`input:${active.runId}`;
         const currentRead=async(intent?:IntentBinding)=>{
           if(closed||active!==current||bound!==bridge||owner!==gateway||combined.aborted)throw new ContractError('memory_query_scope_stale');
-          const capsule=object(await bound.call!('table.capsule',{campaign:bound.campaign,_context_read:true})),context=object(capsule._context);
+          const capsule=object(await bound.call!('table.capsule',{campaign:bound.campaign,_revision_only:true})),context=object(capsule._context);
           if(closed||active!==current||bound!==bridge||owner!==gateway||combined.aborted
             ||context.campaign!==bound.campaign||!Number.isSafeInteger(context.turn)||typeof context.source_revision!=='string'||typeof context.world_revision!=='string'
             ||intent&&(context.worldline!==intent.scope.worldline||context.loop!==intent.scope.loop||context.turn!==intent.turn))
@@ -427,7 +426,7 @@ export function createHybridEngine(options: HybridEngineOptions): {runDriver: Se
           const intent:IntentBinding={id:randomUUID(),rawInput,scope,turn:context.turn,inputRevision:active.inputRevision,limits:['read_only']};
           const records=new Map<string,TaskRecord>();
           const operations=createCanonicalOperationDispatcher();
-          runtime=new TaskRuntime({decision,domains:[createMemoryReadDomain()],...(options.clock?{clock:options.clock}:{}),
+          runtime=new TaskRuntime({decision,domains:[createMemoryReadDomain()],maxSteps:MEMORY_READ_STEP_LIMIT,...(options.clock?{clock:options.clock}:{}),
             store:{load:async id=>structuredClone(records.get(id)),save:async value=>{records.set(value.checkpoint.context.id,structuredClone(value));}},
             operations:{validate:async()=> (await currentRead(intent)).readSet,
               dispatch:(proposal,task,journal)=>operations.dispatch(proposal,{task,journal,validateCurrent:async()=>{
@@ -436,11 +435,9 @@ export function createHybridEngine(options: HybridEngineOptions): {runDriver: Se
                 trace:event=>record({lane:'memory_query',...event})})}});
           leaf=createMemoryReadOwner({registerOwned:(name,value)=>operations.registerOwned(name,value),runtime:()=>runtime!,
             call:async(method,params)=>object(await bound.call!(method,params))});
-          const budget=PREPARATION_DECISION_BUDGET;
           const result=await leaf.search({query:request.query,filters:request.filters},{operationId:request.toolCallId,intent,
             lease:{owner:'memory-read',goal:request.query,scope,capabilities:['recall'],readSet,signal:combined,
-              budget:{deadlineAt:(options.clock?.now()??Date.now())+turnBudgetMs(options.env),remainingActions:budget.actions,
-                remainingInputTokens:budget.inputTokens,remainingOutputTokens:budget.outputTokens,remainingCostUsd:budget.costUsd}}});
+              budget:memoryReadBudget((options.clock?.now()??Date.now())+turnBudgetMs(options.env))}});
           if(result.status!=='succeeded')throw new KernelError({code:'needs',message:'The memory query did not produce current evidence',
             details:{reason:text(object(result.result).code)||'memory_query_unavailable'}});
           return presentMemoryEvidence(result.result) as Row;

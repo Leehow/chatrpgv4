@@ -1,8 +1,18 @@
 /** Private memory-query operations reuse the kernel evidence owner and the current task runtime. */
-import {ContractError, isPlainRecord, type IntentBinding, type Json, type ObservationPacket, type OperationProposal} from './contracts.ts';
+import {ContractError, isPlainRecord, type IntentBinding, type Json, type ObservationPacket, type OperationProposal, type TaskBudget} from './contracts.ts';
+import {PREPARATION_DECISION_BUDGET} from './preparation-budget.ts';
+import {JEV_INPUT_USD_PER_MILLION} from './decision-adapter.ts';
 import type {OwnedOperation, HostOperationContext} from '../../extensions/kernel/canonical-operation-dispatcher.ts';
 import type {TaskRuntime} from './task-runtime.ts';
 import type {TaskLeaseOptions} from './task-context.ts';
+
+/** Local pages and typed decisions share this bounded read-only runtime, not a preparation step count. */
+export const MEMORY_READ_STEP_LIMIT = 256;
+export function memoryReadBudget(deadlineAt: number): TaskBudget {
+    const tokenCeiling = Math.floor(PREPARATION_DECISION_BUDGET.costUsd * 1_000_000 / JEV_INPUT_USD_PER_MILLION);
+    return {deadlineAt, remainingActions:MEMORY_READ_STEP_LIMIT, remainingInputTokens:tokenCeiling,
+        remainingOutputTokens:tokenCeiling, remainingCostUsd:PREPARATION_DECISION_BUDGET.costUsd};
+}
 
 /** Only semantic evidence reaches the Keeper. Original refs remain in host observation metadata. */
 export function presentMemoryEvidence(value: unknown): Json {

@@ -19,6 +19,7 @@ import { RuleObservations } from "./rule-facts.js";
 import { buildCapsule } from "./assemble.js";
 import { lastExchange, lastInteraction } from "./exchange.js";
 import { contextBinding } from "./context.js";
+import { activeMods } from "./mods.js";
 import { workspaceRead } from "./workspace.js";
 import { clockSection, sceneLabel, publicSceneLabel, personLabel, clueLabel, npcNode, personNode, npcsPresent, cluesHere, whereSection, presentSection, npcView, creatureView, investigatorView, fittedModuleSection, untoldRoster, personRecord } from "./capsule.js";
 import { castPersonNamed, protectedNames, tellGuard } from './cast.js';
@@ -466,9 +467,19 @@ export function readHandlers(context: KernelContext, contributions: ReadContribu
         "table.capsule": async (params) => {
             if (params.rehydrate != null && typeof params.rehydrate !== 'boolean')
                 throw new RpcError('invalid_params', 'params.rehydrate must be boolean when supplied');
+            if (params._revision_only != null && typeof params._revision_only !== 'boolean')
+                throw new RpcError('invalid_params', 'params._revision_only must be boolean when supplied');
+            const revisionsOnly = params._revision_only === true;
+            if (revisionsOnly && params.rehydrate === true)
+                throw new RpcError('invalid_params', 'A revision-only read cannot rehydrate narrative context');
             const rehydrate = params.rehydrate === true,
-                { campaign, module } = await readCampaign(context, params, false, false, contributions, rehydrate),
-                view = contributions.capsule
+                { campaign, module } = await readCampaign(context, params, false, revisionsOnly, contributions, rehydrate || revisionsOnly);
+            if (revisionsOnly) {
+                campaign.party = await campaign.files('party');
+                const active = await activeMods(context, campaign.world);
+                return {_context: await contextBinding(campaign, module, {mods:{active}}, {revisionsOnly:true})};
+            }
+            const view = contributions.capsule
                     ? await contributions.capsule(campaign, module, { rehydrate })
                     : await buildCapsule(campaign, module, rehydrate ? { styleFull: true, moduleBrief: true } : {});
             return { ...view, _context: await contextBinding(campaign, module, view) };

@@ -172,11 +172,12 @@ export function worldRevision(world: Row, party: Row[], receipts: unknown, pendi
 export function taskWorldRevision(world: Row, party: Row[], receipts: unknown, pendingChoice: unknown): string {
     return worldRevision(taskViews(world).world, party, receipts, pendingChoice);
 }
-export async function contextBinding(campaign: CampaignSnapshot, module: LoadedModule, capsule: Row): Promise<Row> {
+export async function contextBinding(campaign: CampaignSnapshot, module: LoadedModule, capsule: Row,
+    options: {revisionsOnly?: boolean} = {}): Promise<Row> {
     const worldline = string(campaign.meta.active_worldline || 'main'),
         source = await sourceRevision(campaign, module, capsule), views = taskViews(campaign.world),
         workspaceSettings = legacyWorkspaceSettings(campaign.world);
-    return {
+    const binding: Row = {
         version: 1,
         campaign: campaign.id,
         worldline,
@@ -186,7 +187,10 @@ export async function contextBinding(campaign: CampaignSnapshot, module: LoadedM
         task_world_revision: worldRevision(views.world, campaign.party, campaign.turn.receipts, campaign.turn.pending_choice),
         task_presentation_revisions: views.presentation,
         ...source,
-        ...(workspaceSettings ? {workspace_settings: workspaceSettings} : {}),
+        ...(workspaceSettings ? {workspace_settings: workspaceSettings} : {})
+    };
+    if (options.revisionsOnly) return binding;
+    return {...binding,
         // §187.4: the window the brief's rosters were ordered by; the host rebuilds the brief when it changes.
         brief_window: await briefWindow(campaign.context, module, campaign.world),
         memory_coverage: await memoryCoverage(campaign)
