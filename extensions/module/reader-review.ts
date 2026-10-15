@@ -799,7 +799,12 @@ export async function reviewCandidate(options: {
 			const unitTask: Row = { ...taskContext, required_review: ask, ...(requiredPages.length ? {review_scope_pages: requiredPages} : {}) };
 			if (unitTask.commands?.check !== undefined) unitTask.commands = { ...unitTask.commands,
 				check: `coc-read-check --packet ${quote(join(cwd, "task.json"))} --draft ${quote(join(cwd, "draft.json"))}` };
-			const mapPreviews=await mapReviewPreviews({draft:options.draft,paths:ask,cwd,source:options.source});
+			let mapPreviews:Row[]=[];
+			try {mapPreviews=await mapReviewPreviews({draft:options.draft,paths:ask,cwd,source:options.source});}
+			catch(error){
+				if(options.task.visual_asset)throw error;
+				options.record({lane:'reading',event:'review_preview_unavailable',unit:index+1,attempt,detail:String(error)});
+			}
 			await writeFile(join(cwd, "task.json"), JSON.stringify(unitTask, null, 2) + "\n");
 			let detailInput: string | undefined;
 			if (['opening','detail'].includes(options.task.purpose)) {

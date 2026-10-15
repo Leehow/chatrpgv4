@@ -1540,7 +1540,7 @@ export class ReadingService implements ReadingBridge {
 							} catch { /* no completed source reading to carry */ }
 							await writeFile(join(cwd, "baseline.json"), JSON.stringify(previousDraft ?? {}) + "\n");
 							delete task.visual_previews;
-							if(!job.map_scope&&previousDraft?.nodes?.some((node:Row)=>node.properties?.image_sources?.length)){
+							if(!job.map_scope&&previousDraft&&(draftHasMapRegions(previousDraft)||previousDraft.nodes?.some((node:Row)=>node.properties?.image_sources?.length))){
 								const binding=candidateDigest(previousDraft),relative=join('author-previews',binding),previewDir=join(cwd,relative);
 								try {
 									await mkdir(previewDir,{recursive:true});
