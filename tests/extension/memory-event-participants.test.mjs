@@ -1,4 +1,4 @@
-/** Real Pi, current TS RPC, conservative attribution review and next NPC perspective. */
+/** Real Pi orchestration, current TS RPC, attributed persistence and next NPC perspective. */
 import {test} from 'node:test';
 import assert from 'node:assert/strict';
 import {fauxAssistantMessage,fauxToolCall} from '@earendil-works/pi-ai';
@@ -42,7 +42,7 @@ test('the real memory lane can submit a canonical speaker omitted from the physi
   await waitFor(()=>table.telemetry().some(row=>row.lane==='memory'&&typeof row.ok==='boolean'),{timeoutMs:5000});
   assert.ok(table.telemetry().some(row=>row.lane==='memory'&&row.ok===true),JSON.stringify(table.telemetry().filter(row=>row.lane==='memory')));
   assert.deepEqual(table.extensionErrors,[]);
-  assert.equal(extractCalls,1);assert.equal(reviewCalls,1,'the existing attribution reviewer is still called');
+  assert.equal(extractCalls,1);assert.equal(reviewCalls,0,'attributed persistence must not wait for a second model verdict');
   assert.equal(table.telemetry().some(row=>row.lane==='memory'&&row.ok===false),false);
   const view=await table.runtimeBridges().at(-1).call('npc.perspective',{campaign,name:'Gabriela Macario'});
   assert.ok(view.knowledge_reports.some(row=>row.statement===statement));
