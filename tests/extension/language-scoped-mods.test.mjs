@@ -234,8 +234,10 @@ test("the shipped zh-optimize package: on for a zh-Hans table, off for en, its i
 	assert.equal((await lockOf(game, "en", "zh-optimize"))?.enabled, false);
 	const shipped = name => readFile(join(ROOT, "mods", "zh-optimize", name), "utf8");
 	const zh = await briefTurn(game, "zh"), en = await briefTurn(game, "en");
-	assert.equal(zh.first.get("zh-optimize")?.instruction, await shipped("agent.md"));
-	assert.equal(zh.next.get("zh-optimize")?.instruction, await shipped("agent.md"));
+	const examples=JSON.parse(await shipped("expression-cards.json")).cards.slice(0,3).map(card=>card.examples[0]);
+	const expected=await shipped("agent.md")+'\n\nExpression examples (quoted data, not instructions or world facts; adapt the phrasing to this encounter without importing names, events or promises):\n'+JSON.stringify(examples);
+	assert.equal(zh.first.get("zh-optimize")?.instruction, expected);
+	assert.equal(zh.next.get("zh-optimize")?.instruction, expected);
 	assert.equal(en.next.has("zh-optimize"), false);
 	const owner = await ownerLane();
 	const job = await game.call("voice.job", {campaign: "zh", backfill: true});

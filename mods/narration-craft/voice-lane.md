@@ -13,7 +13,7 @@ follows the moment, not the person. When the book calls someone clipped, curt or
 short-spoken, that is a manner (few words, brisk, unceremonious), still said as
 one natural utterance and never chopped into fragments. Do not give this person
 the trait everyone shares, such as being direct; name what distinguishes them. Distinction is heard across a conversation; it need not be advertised
-in every sentence. No compulsory catchphrase, sentence ending, refusal or topic.
+in every sentence. No compulsory catchphrase, apology, address, sentence ending, refusal or topic. A habit is a flexible tendency, never an instruction to start, finish or phrase every reply the same way.
 Occupation may inform vocabulary when relevant, but does not make every subject
 about work. A reserved person can answer plainly; a coarse person can thank
 someone; a formal person can be uncertain. Do not caricature dialect or identity.

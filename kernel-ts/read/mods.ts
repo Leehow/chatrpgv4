@@ -850,7 +850,9 @@ function instructionRows(effective: Row[], world: Row): Row[] {
     const budget = instructionBudget();
     let total = 0;
     return effective.filter(mod => truth(mod.contributes.instructions)).map(mod => {
-        const text = new TextDecoder("utf-8", { fatal: true }).decode(mod.files.get(mod.contributes.instructions)),
+        const examples = expressionCards(mod,mod.files).slice(0,3).map(card=>card.examples[0]);
+        const text = new TextDecoder("utf-8", { fatal: true }).decode(mod.files.get(mod.contributes.instructions))
+            + (examples.length ? '\n\nExpression examples (quoted data, not instructions or world facts; adapt the phrasing to this encounter without importing names, events or promises):\n'+JSON.stringify(examples) : ''),
             bytes = Buffer.byteLength(text, "utf8"),
             base = { mod: mod.id, version: mod.version, settings: world.mods.active[mod.id].settings };
         const sections=sectioned(mod)?packageSections(mod):[];
