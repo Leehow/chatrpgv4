@@ -184,6 +184,36 @@ test('a lower-scored possibility stays available without paying for every refine
   assert.ok(result.leads.find(row=>row.page===2).box);
 });
 
+test('ordinary map reads locate complete visual targets on text-bearing pages, including cached and repair candidates',async t=>{
+  const cwd=await mkdtemp(join(tmpdir(),'ordinary-map-visual-'));t.after(()=>rm(cwd,{recursive:true,force:true}));
+  const info=await sourceInfo(pdf),calls=[],cache=join(cwd,'cache');
+  for(const repair of [undefined,undefined,{kind:'targeted',pages:[2]}]){
+    await writeFile(join(cwd,'task.json'),JSON.stringify({purpose:'detail',material:'map',pages:[2],repair,source:{page_count:info.page_count}}));
+    const driver=await createSourceReaderDriver({cwd,env:{PI_COC_JEV_VISUAL:'on'},source:{pdf,cache},adapter:decisions(calls)});
+    const {ports}=await driver.prepare({runId:'ordinary-map',inputRevision:'v1',rawInput:'Read map',session:{}});
+    assert.equal((await ports.operations.execute({origin:'policy',operation:'source.catalog'},{signal:AbortSignal.timeout(10000)})).status,'ok');
+    await ports.decision.decide({purpose:'locate_source',question:{kind:'source_pages'},signal:AbortSignal.timeout(10000)});
+    assert.equal((await ports.operations.execute({origin:'policy',operation:'source.project'},{signal:AbortSignal.timeout(10000)})).status,'ok');
+    const packet=JSON.parse(ports.projection.project({})[0].content[0].text);
+    assert.ok(packet.advisory_visual_leads.some(lead=>lead.page===2&&lead.box),'ordinary map preparation must supply real visual geometry');
+    assert.ok(calls.filter(batch=>batch.family==='source-visual-funnel').some(batch=>batch.questions.some(q=>q.type==='box')));
+  }
+});
+
+test('ordinary map reads keep original pages available when visual localization is unavailable',async t=>{
+  const cwd=await mkdtemp(join(tmpdir(),'ordinary-map-unavailable-'));t.after(()=>rm(cwd,{recursive:true,force:true}));
+  await writeFile(join(cwd,'task.json'),JSON.stringify({purpose:'detail',material:'map',pages:[2],repair:{kind:'targeted',pages:[2]}}));
+  const driver=await createSourceReaderDriver({cwd,env:{PI_COC_JEV_VISUAL:'on'},source:{pdf,cache:join(cwd,'cache')},adapter:decisions([],{fail:true})});
+  const {ports}=await driver.prepare({runId:'ordinary-map-outage',inputRevision:'v1',rawInput:'Read map',session:{}});
+  await ports.operations.execute({origin:'policy',operation:'source.catalog'},{signal:AbortSignal.timeout(10000)});
+  await ports.decision.decide({purpose:'locate_source',question:{kind:'source_pages'},signal:AbortSignal.timeout(10000)});
+  assert.equal((await ports.operations.execute({origin:'policy',operation:'source.project'},{signal:AbortSignal.timeout(10000)})).status,'ok');
+  const message=ports.projection.project({})[0],packet=JSON.parse(message.content[0].text);
+  assert.equal(message.content.filter(row=>row.type==='image').length,1);
+  assert.deepEqual(message.details.pages.map(row=>row.page),[2]);
+  assert.equal(packet.advisory_visual_leads[0].status,'uncertain');
+});
+
 test('an image-only page with a negative visual decision cannot close a current source need without the original reader',async t=>{
   const cwd=await mkdtemp(join(tmpdir(),'visual-empty-text-'));t.after(()=>rm(cwd,{recursive:true,force:true}));
   const imagePdf=join(cwd,'source.pdf'),stream='q 0.8 0.8 0.8 rg 10 10 80 80 re f Q';

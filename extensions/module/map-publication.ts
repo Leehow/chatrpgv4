@@ -3,6 +3,15 @@ import { validateBox } from "./source.ts";
 
 type Row = Record<string, any>;
 
+/** Same original-page masks for private previews and the final publication. */
+export function publicationImageSources(draft:Row,node:Row):Row[]{
+	const masks=(draft.nodes??[]).flatMap((map:Row)=>(map.properties?.map_regions??[])
+		.filter((region:Row)=>typeof region.source_asset==='string'&&assetAliases(node.node_id).includes(region.source_asset))
+		.flatMap((region:Row)=>Array.isArray(region.redactions)?region.redactions:[]));
+	return (node.properties?.image_sources??[]).map((source:Row)=>({...source,
+		...(masks.length?{redactions:[...(source.redactions??[]),...masks]}:{})}));
+}
+
 export function assetAliases(id: string): string[] {
 	if (typeof id !== "string" || !id) return [];
 	return id.startsWith("asset-") ? [id, id.slice("asset-".length)] : [id];

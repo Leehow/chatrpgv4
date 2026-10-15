@@ -115,3 +115,5 @@ skills or secrets. Do not insert another person's private knowledge or a future 
 a tendency. Source voice, explicit silence and knowledge boundaries remain authoritative.
 Motives guide actions; they need not be said aloud. No required catchphrase, length, refusal,
 anger, honesty, cooperation or self-explanation. Do not generate profiles for creatures or pregens.
+
+For an irregular visual with neighboring text in a corner, preserve the complete picture and use optional `image_sources[].redactions` to cover only the unrelated pixels. Each mask is `[left,top,right,bottom]` in the original rotated-page coordinate frame, not crop coordinates. Inspect the exact masked preview; do not trim away the picture to avoid corner prose. Keep these masks out of `source_refs`. Existing map-region masks remain separate.

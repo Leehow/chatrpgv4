@@ -9,7 +9,7 @@ import type {DecisionPort} from './decision-port.ts';
 import {TaskLease} from './task-context.ts';
 import {JEV_VISUAL_MODEL} from './question-packing.ts';
 
-export const VISUAL_FUNNEL_VERSION = 'visual-funnel-v4';
+export const VISUAL_FUNNEL_VERSION = 'visual-funnel-v5';
 export const VISUAL_FUNNEL_PROFILE = `${VISUAL_FUNNEL_VERSION}:${JEV_VISUAL_MODEL}:${sourceRenderVersion}`;
 const SIDE = 1568, LABEL = 28, ABSENT = 0.1, REFINE = 0.35, EXISTS = 0.6, BOX_CONFIDENCE = 0.6;
 type Tile = {page: number; label: string; rect: Box};
@@ -132,7 +132,7 @@ export async function visualFunnel(options: VisualFunnelOptions): Promise<Visual
                 instructions: single ? 'Does this original page visibly contain the target described in requested_use? Judge the actual content of this page, not a text reference to an unseen target.'
                   : `Does the ${tile.label} tile visibly contain the target described in requested_use? Judge the actual content inside this tile, not another tile or a text reference to an unseen target. A mention of a map is not a visible map. Small-print reading is unnecessary for recognizing a visual target.`},
                 ...(size === 1 && options.boxes ? [{key: `box${tile.page}`, target: 'page', type: 'box' as const,
-                  instructions: 'Find the principal printed region matching requested_use in page.image. '+(padded ? 'Exclude the host white padding. ' : '')+'Locate only; do not decide whether the material may be published.'}] : [])])};
+                  instructions: 'Locate one complete printed visual matching requested_use in page.image. Enclose its full extent: title, frame, compass, outside-frame labels, line starts and line ends belong to the target. Do not box only the interior or the requested place within a map. Exclude neighboring prose, headings, page numbers and separate pictures. '+(padded ? 'Exclude the host white padding. ' : '')+'Locate only; do not decide whether the material may be published.'}] : [])])};
             const result = await options.decision.decide(batch, lease);
             calls += result.attempts ?? 0; inputTokens += result.usage?.inputTokens ?? 0; costUsd += result.usage?.costUsd ?? 0;
             if (result.status !== 'complete') partial = true;

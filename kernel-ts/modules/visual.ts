@@ -408,7 +408,20 @@ export function checkDraft(draft: any, packet: Row, contract: ModuleContract, se
                 records.note(refusal('asset_ref is owned by the host; declare image_sources instead of a local file path', `/nodes/${i}/properties/asset_ref`), { rule: 'asset_ref', value: props.asset_ref });
         }
         if (Object.hasOwn(props, 'image_sources'))
-            sourceRefs(records, props.image_sources, count, seen, `/nodes/${i}/properties/image_sources`);
+            records.run(() => {
+                const sources = props.image_sources;
+                if (!Array.isArray(sources) || !sources.length) reject('image_sources needs original-page regions');
+                for (const source of sources) {
+                    if (!object(source) || Object.keys(source).some(key => !['page','box','redactions'].includes(key)))
+                        reject('an image source contains page, optional box and optional redactions');
+                    const {redactions, ...reference} = source;
+                    references([reference], count, seen);
+                    if (redactions !== undefined) {
+                        if (!Array.isArray(redactions)) reject('image source redactions must be rectangles');
+                        for (const box of redactions) references([{page:source.page,box}], count, seen);
+                    }
+                }
+            }, {path:`/nodes/${i}/properties/image_sources`,rule:'image_sources'});
         if (['npc', 'creature'].includes(kind))
             records.run(() => actorNumbersLaw(props, i, contract), error => row(error.details).rule ? {} : { rule: 'stats_outside_profile' });
         if (!Object.hasOwn(node, 'visibility'))

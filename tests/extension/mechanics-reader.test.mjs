@@ -309,3 +309,16 @@ test('a draft that states no shape returns what the parent commit returned, byte
         assert.equal(result, item.result, item.name);
     }
 });
+
+test('publication masks preserve irregular complete visuals without expanding citation fields',()=>{
+    const draft={nodes:[{node_id:'handout-sketch',node_kind:'handout',name:'Sketch',visibility:'revealable',source_refs:page3,
+        properties:{image_sources:[{page:3,box:[.1,.2,.9,.9],redactions:[[.8,.2,.9,.3]]}]}}],claims:[],node_refs:[],coverage:{},critical:[],dependencies:[],ready_nodes:['handout-sketch']};
+    assert.equal(refusal(draft),null);
+    draft.nodes[0].source_refs=[{page:3,redactions:[[.8,.2,.9,.3]]}];
+    assert.ok(refusal(draft),'publication masks never become source citation metadata');
+    draft.nodes[0].source_refs=page3;
+    for(const mask of [[.9,.2,.8,.3],[0,0,2,1],[0,0,1],['0',0,1,1]]){
+        draft.nodes[0].properties.image_sources[0].redactions=[mask];
+        assert.ok(refusal(draft),'malformed masks are not publication coordinates');
+    }
+});

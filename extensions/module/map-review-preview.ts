@@ -4,7 +4,7 @@ import {readFile,writeFile} from 'node:fs/promises';
 import {join} from 'node:path';
 import {createHash} from 'node:crypto';
 import {sourceAsset,sourcePage,validateBox} from './source.ts';
-import {assetAliases} from './map-publication.ts';
+import {assetAliases,publicationImageSources} from './map-publication.ts';
 type Row=Record<string,any>;
 /** Keep the surroundings private: an outline alone cannot show what the final crop lost. */
 async function publicationComparison(input:{cwd:string;source:{pdf:string;cache:string}},parts:Row[],publication:string):Promise<string>{
@@ -54,7 +54,7 @@ export async function mapReviewPreviews(input:{draft:Row;paths:string[];cwd:stri
         for(const [id,regions] of groups){
             const source=input.draft.nodes.find((node:Row)=>node.node_id===id),ordinal=out.length+1;
             const base=join(input.cwd,`map-source-${ordinal}.png`),file=`map-regions-${ordinal}.png`;
-            await sourceAsset(input.source.pdf,input.source.cache,source.properties.image_sources,base);
+            await sourceAsset(input.source.pdf,input.source.cache,publicationImageSources(input.draft,source),base);
             const raster=await loadImage(base),scale=Math.min(1,1800/raster.width);
             const width=Math.ceil(raster.width*scale),height=Math.ceil(raster.height*scale);
             if(width*(height+regions.length*30+20)>20_000_000)throw new Error('Map review preview is too large; split the authored assets');
@@ -80,7 +80,7 @@ export async function mapReviewPreviews(input:{draft:Row;paths:string[];cwd:stri
         if(!node.properties?.image_sources?.length||out.some(preview=>preview.source_asset===node.node_id))continue;
         if(!input.paths.some(path=>path==='/coverage'||path===`/nodes/${index}`||path.startsWith(`/nodes/${index}/`)))continue;
         const file=`source-crop-${out.length+1}.png`;
-        await sourceAsset(input.source.pdf,input.source.cache,node.properties.image_sources,join(input.cwd,file));
+        await sourceAsset(input.source.pdf,input.source.cache,publicationImageSources(input.draft,node),join(input.cwd,file));
         const bytes=await readFile(join(input.cwd,file));
         const comparison=await publicationComparison(input,node.properties.image_sources,file)
             .then(comparison_file=>({comparison_file}),error=>({comparison_unavailable:String(error)}));

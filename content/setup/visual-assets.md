@@ -72,3 +72,5 @@ map that players are handed or see as a whole; "interior" for a building, floor
 plan, cellar, cave, ship or other enclosed place the investigators explore and
 uncover room by room. A title or a region name is not the answer by itself. A
 published map that already has map_scope keeps it.
+
+For an irregular visual with neighboring text in a corner, preserve the complete picture and use optional `image_sources[].redactions` to cover only the unrelated pixels. Each mask is `[left,top,right,bottom]` in the original rotated-page coordinate frame, not crop coordinates. Inspect the exact masked preview; do not trim away the picture to avoid corner prose. Keep these masks out of `source_refs`. Existing map-region masks remain separate.

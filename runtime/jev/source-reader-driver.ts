@@ -207,7 +207,7 @@ export async function createSourceReaderDriver(options:{cwd:string;env:NodeJS.Pr
  const {cwd,source,apiKey}=options;
  const visualEnabled=options.env.PI_COC_JEV_VISUAL!=='off'&&Boolean(apiKey||readJevApiKey(options.env)||options.adapter&&options.env.PI_COC_JEV_VISUAL==='on');
  const taskBytes=await readFile(join(cwd,'task.json'));
- const task=JSON.parse(taskBytes.toString()) as {visual_asset?:{page:number};visual_scan?:{first:number;last:number};source_reference_packet?:SourceReferencePacket;source_reference?:'guidance'|'lookup';materialize_place?:boolean;play_language?:string;review_policy?:string;purpose?:string;module_id?:string;focus?:string;question?:string;guidance_key?:string;known_nodes?:unknown[];
+ const task=JSON.parse(taskBytes.toString()) as {material?:string;visual_asset?:{page:number};visual_scan?:{first:number;last:number};source_reference_packet?:SourceReferencePacket;source_reference?:'guidance'|'lookup';materialize_place?:boolean;play_language?:string;review_policy?:string;purpose?:string;module_id?:string;focus?:string;question?:string;guidance_key?:string;known_nodes?:unknown[];
    source?:{page_count?:number};source_unit?:{section:string;first:number;last:number};pages?:number[];required_review?:unknown[];review_scope_pages?:number[];
    known_claims?:unknown[];source_need?:unknown;repair?:{kind?:string;pages?:unknown[]}};
  if(!['answer','guidance','opening','detail'].includes(task.purpose??''))throw new Error('Native source reader requires a checked source task');
@@ -777,6 +777,11 @@ export async function createSourceReaderDriver(options:{cwd:string;env:NodeJS.Pr
              const visual=await visualNavigate([task.visual_asset.page],
                'The principal printed map, player handout, letter, newspaper clipping or standalone illustration on this page.',invocation.signal,true);
              visualLeads=visual?.leads??[];
+           }
+           if(task.material==='map'&&!task.visual_asset&&!reviewing){
+             const visual=await visualNavigate(candidates,
+               'The complete printed map relevant to this request, including its title, outer frame, compass and labels outside the frame. Locate the whole map, not only the requested place or its interior. Context: '+pendingQuery,invocation.signal,true);
+             visualLeads=visual?.leads??visualLeads;
            }
            if(task.source_reference){
              if(!info)throw Error('Original source identity is unavailable');

@@ -20,7 +20,7 @@ import {successfulImageDeliveries} from './reader-image-delivery.ts';
 import {requireCheckedSourceReceipt} from './reader-source-receipt.ts';
 import {PUBLIC_GUIDANCE_FIELDS,validatePublicGuidance} from '../../kernel-ts/modules/public-guidance.ts';
 import {validateSourceNeeds} from '../../kernel-ts/modules/source-needs.ts';
-import { publishableAssetNodes, validateMapRegions, draftHasMapRegions } from "./map-publication.ts";
+import { publishableAssetNodes, validateMapRegions, draftHasMapRegions, publicationImageSources } from "./map-publication.ts";
 import type { HostRuntime } from "../../runtime/host.ts";
 import type {FreshSourceNavigator} from '../../runtime/jev/fresh-source-navigator.ts';
 import type {PublicationTravel, TravelFill} from './travel-fill.ts';
@@ -1867,11 +1867,7 @@ export class ReadingService implements ReadingBridge {
 						validateMapRegions(draft);
 						for (const node of publishableAssetNodes(draft, job.purpose)) {
 							if (typeof node.node_id !== "string" || !/^[a-z][a-z0-9-]{0,159}$/.test(node.node_id)) throw new Error("asset identifiers must be semantic kebab names");
-							const mapRedactions = (draft.nodes ?? []).flatMap((map: Row) => (map.properties?.map_regions ?? [])
-								.filter((region: Row) => typeof region.source_asset === "string" && [node.node_id, node.node_id.replace(/^asset-/, "")].includes(region.source_asset))
-								.flatMap((region: Row) => Array.isArray(region.redactions) ? region.redactions : []));
-							const imageSources = (node.properties.image_sources ?? []).map((region: Row) => ({ ...region,
-								...(mapRedactions.length ? { redactions: mapRedactions } : {}) }));
+							const imageSources = publicationImageSources(draft,node);
 							const asset = await sourceAsset(job.source.path, cache, imageSources, join(cwd, "assets", `${node.node_id}.png`));
 							assets.push({ node_id: node.node_id, ...asset });
 						}

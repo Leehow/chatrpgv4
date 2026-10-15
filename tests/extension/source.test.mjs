@@ -8,6 +8,7 @@ import {createHash} from 'node:crypto';
 import { sourceAsset, sourceInfo, sourceOverview, sourcePage, sourceSearch, closeSourceDocuments } from "../../extensions/module/source.ts";
 import {mapReviewPreviews,reviewedMapNodes} from '../../extensions/module/map-review-preview.ts';
 import {reviewCandidate} from '../../extensions/module/reader-review.ts';
+import {publicationImageSources} from '../../extensions/module/map-publication.ts';
 
 function pdf(rotation = 0) {
 	const stream = "1 0 0 rg 0 0 100 100 re f 0 0 1 rg 100 0 100 100 re f";
@@ -355,4 +356,21 @@ test('publication comparison preserves excluded source pixels beside the unchang
  const [fallback]=await mapReviewPreviews({draft,paths:['/nodes/0'],cwd:dir,source:{pdf:file,cache:join(dir,'cache')}});
  assert.ok(fallback.comparison_unavailable,'an unavailable comparison remains advisory instead of creating a new preview gate');
  assert.deepEqual(await readFile(join(dir,fallback.file)),await readFile(expected),'the existing publication preview survives context failure');
+});
+
+test('publication previews and final crops preserve both source and map masks in original-page coordinates',async t=>{
+ const cwd=await mkdtemp(join(tmpdir(),'publication-masks-'));t.after(()=>rm(cwd,{recursive:true,force:true}));
+ const file=join(cwd,'source.pdf');await writeFile(file,pdf());
+ const node={node_id:'asset-sketch',node_kind:'asset',name:'Sketch',properties:{image_sources:[{page:1,box:[.1,0,.9,1],redactions:[[.8,0,.9,1]]}],
+   map_regions:[{region_id:'place',name:'Place',source_asset:'sketch',source_box:[0,0,1,1],placement:[0,0,1,1],redactions:[[.1,0,.2,1]]}]}};
+ const draft={nodes:[node]},sources=publicationImageSources(draft,node),out=join(cwd,'final.png');
+ assert.deepEqual(sources[0].redactions,[[.8,0,.9,1],[.1,0,.2,1]]);
+ assert.deepEqual(node.properties.image_sources[0].redactions,[[.8,0,.9,1]],'combining masks never changes the authored draft');
+ await sourceAsset(file,join(cwd,'cache'),sources,out);
+ await mapReviewPreviews({draft,paths:['/nodes/0'],cwd,source:{pdf:file,cache:join(cwd,'cache')}});
+ assert.deepEqual(await readFile(join(cwd,'map-source-1.png')),await readFile(out),'the reviewer sees the actual publication pixels');
+ const raster=await loadImage(out),canvas=createCanvas(raster.width,raster.height),ctx=canvas.getContext('2d');ctx.drawImage(raster,0,0);
+ const pixel=x=>Array.from(ctx.getImageData(Math.floor(x*raster.width),Math.floor(raster.height/2),1,1).data);
+ assert.deepEqual(pixel(.05),[255,255,255,255]);assert.deepEqual(pixel(.95),[255,255,255,255]);
+ assert.deepEqual(pixel(.3),[255,0,0,255]);assert.deepEqual(pixel(.7),[0,0,255,255]);
 });
