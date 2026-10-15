@@ -3,9 +3,41 @@ import {createCanvas,loadImage} from '@napi-rs/canvas';
 import {readFile,writeFile} from 'node:fs/promises';
 import {join} from 'node:path';
 import {createHash} from 'node:crypto';
-import {sourceAsset,validateBox} from './source.ts';
+import {sourceAsset,sourcePage,validateBox} from './source.ts';
 import {assetAliases} from './map-publication.ts';
 type Row=Record<string,any>;
+/** Keep the surroundings private: an outline alone cannot show what the final crop lost. */
+async function publicationComparison(input:{cwd:string;source:{pdf:string;cache:string}},parts:Row[],publication:string):Promise<string>{
+    const width=1200,column=560,padding=20,header=44,limit=1500;
+    const original=await Promise.all(parts.map(async part=>{
+        const page=await sourcePage(input.source.pdf,input.source.cache,part.page,{pixels:1200});
+        return {part,image:await loadImage(await readFile(String(page.path)))};
+    }));
+    const raster=await loadImage(await readFile(join(input.cwd,publication)));
+    const rightScale=Math.min(column/raster.width,limit/raster.height);
+    const rowLimit=Math.max(1,limit/original.length-28);
+    const rows=original.map(row=>({...row,scale:Math.min(column/row.image.width,rowLimit/row.image.height)}));
+    const leftHeight=rows.reduce((sum,row)=>sum+28+row.image.height*row.scale,0);
+    const canvas=createCanvas(width,Math.ceil(header+Math.max(leftHeight,raster.height*rightScale)+padding)),ctx=canvas.getContext('2d');
+    ctx.fillStyle='white';ctx.fillRect(0,0,canvas.width,canvas.height);
+    ctx.fillStyle='black';ctx.font='bold 18px sans-serif';
+    ctx.fillText('Original pages; red = proposed crop',padding,26);
+    ctx.fillText('Actual publication crop / stitch',width/2+padding,26);
+    let y=header;
+    for(const [index,row] of rows.entries()){
+        const box=validateBox(row.part.box),w=row.image.width*row.scale,h=row.image.height*row.scale;
+        ctx.fillStyle='black';ctx.font='16px sans-serif';
+        ctx.fillText(`Part ${index+1}, physical page ${row.part.page}: ${JSON.stringify(box)}`,padding,y+18,column);
+        y+=28;ctx.drawImage(row.image,padding,y,w,h);
+        ctx.strokeStyle='#dc2626';ctx.lineWidth=2;
+        ctx.strokeRect(padding+box[0]*w,y+box[1]*h,(box[2]-box[0])*w,(box[3]-box[1])*h);
+        y+=h;
+    }
+    ctx.drawImage(raster,width/2+padding,header,raster.width*rightScale,raster.height*rightScale);
+    const file=publication.replace(/\.png$/,'-comparison.png');
+    await writeFile(join(input.cwd,file),canvas.toBuffer('image/png'));
+    return file;
+}
 export function reviewedMapNodes(draft:Row,paths:string[]):Row[]{
     return (draft.nodes??[]).filter((node:Row,index:number)=>Array.isArray(node.properties?.map_regions)&&node.properties.map_regions.length
         &&paths.some(path=>path==='/coverage'||path===`/nodes/${index}`||path.startsWith(`/nodes/${index}/`)));
@@ -39,7 +71,9 @@ export async function mapReviewPreviews(input:{draft:Row;paths:string[];cwd:stri
             });
             const bytes=canvas.toBuffer('image/png');
             await writeFile(join(input.cwd,file),bytes);
-            out.push({map:map.name,source_asset:id,file,image_sha256:createHash('sha256').update(bytes).digest('hex'),regions:labels});
+            const comparison=await publicationComparison(input,source.properties.image_sources,`map-source-${ordinal}.png`)
+                .then(comparison_file=>({comparison_file}),error=>({comparison_unavailable:String(error)}));
+            out.push({map:map.name,source_asset:id,file,...comparison,image_sha256:createHash('sha256').update(bytes).digest('hex'),regions:labels});
         }
     }
     for(const [index,node] of (input.draft.nodes??[]).entries()){
@@ -48,7 +82,9 @@ export async function mapReviewPreviews(input:{draft:Row;paths:string[];cwd:stri
         const file=`source-crop-${out.length+1}.png`;
         await sourceAsset(input.source.pdf,input.source.cache,node.properties.image_sources,join(input.cwd,file));
         const bytes=await readFile(join(input.cwd,file));
-        out.push({source_asset:node.node_id,name:node.name,file,image_sha256:createHash('sha256').update(bytes).digest('hex'),regions:[]});
+        const comparison=await publicationComparison(input,node.properties.image_sources,file)
+            .then(comparison_file=>({comparison_file}),error=>({comparison_unavailable:String(error)}));
+        out.push({source_asset:node.node_id,name:node.name,file,...comparison,image_sha256:createHash('sha256').update(bytes).digest('hex'),regions:[]});
     }
     return out;
 }

@@ -427,7 +427,7 @@ export function checkAnswerReviewShape(review: Row, maxPage: number, viewed: Rea
 	if (error) throw new AnswerReviewShapeError(error);
 }
 
-const reviewProtocol = 'source-review-groups-v7-publication-crops';
+const reviewProtocol = 'source-review-groups-v8-publication-boundaries';
 const digest = (value: string | Buffer) => createHash('sha256').update(value).digest('hex');
 function canonical(value: any): string {
 	if (Array.isArray(value)) return '[' + value.map(canonical).join(',') + ']';
@@ -824,7 +824,7 @@ export async function reviewCandidate(options: {
 				? " For map_regions, check classification, region-place correspondence, independently revealable units for the requested use, and annotation exclusion against original images. Region boxes select normalized coordinates in the cropped asset, not the full PDF page. Wrong location, crop, coordinate frame or private annotation leakage is a LOGIC finding, never an advisory parameter difference. A whole-map region is missing necessary current material when the source shows separately knowable areas. Uncertain geometry stays unavailable; do not widen a box. "
 					+(mapPreviews.length?` Read these private PNG review aids with the read tool: ${JSON.stringify(mapPreviews)}. Each red rectangle is exactly what its source_box selects in the rendered asset. Verify that each labelled box actually covers the named place. These aids do not replace original-page evidence. `:'')
 				: "";
-			const cropBrief = mapPreviews.length ? ` Private publication previews are available with read: ${JSON.stringify(mapPreviews)}. Compare the actual crop/stitch with its original pages: preserve the complete requested document, title, frame, edge text and any continuation; exclude unrelated Keeper material. If a document continues beyond the cited page, inspect that original continuation. A reprint or translation is an alternate version, not a continuation; do not approve a partial version stitched to its duplicate. Judge the visible edge text and frame, not just source association or plausible coordinates. These previews are candidate output, not source evidence. ` : '';
+			const cropBrief = mapPreviews.length ? ` Private publication previews are available with read: ${JSON.stringify(mapPreviews)}. The file is the actual crop/stitch; comparison_file places it beside full original pages with red proposed-crop outlines. Compare all four sides separately: LEFT and RIGHT retain outside-frame labels and complete line starts/ends; TOP retains the whole title and frame; BOTTOM retains the last line, signoff, frame and any continuation. Then check that neighboring headings, prose, page furniture and other assets have not entered the crop. State concrete edge findings in the existing reason rather than merely confirming the source page or plausible coordinates. If a document continues beyond the cited page, inspect that original continuation. A reprint or translation is an alternate version, not a continuation; use one complete version. A Jev principal-region hint may omit the printed outer extent. These private comparisons are candidate output, never replacement source evidence or public attachments. ` : '';
 			const scopeBrief = (ask.some(path => /^\/nodes\/\d+\/properties\/map_scope$/.test(path)) ? ` ${MAP_SCOPE_REVIEW} ` : "")
 				+ (ask.some(path => sheetReviewPath(path)) ? ` ${SHEET_REVIEW} ` : "");
 			try {

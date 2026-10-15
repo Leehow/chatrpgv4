@@ -1545,7 +1545,8 @@ export class ReadingService implements ReadingBridge {
 								try {
 									await mkdir(previewDir,{recursive:true});
 									task.visual_previews=(await mapReviewPreviews({draft:previousDraft,paths:['/coverage'],cwd:previewDir,source:{pdf:job.source.path,cache}}))
-										.map(preview=>({...preview,file:join(relative,preview.file),candidate_digest:binding}));
+										.map(preview=>({...preview,file:join(relative,preview.file),
+											...(preview.comparison_file?{comparison_file:join(relative,preview.comparison_file)}:{}),candidate_digest:binding}));
 								} catch(error) {
 									// A malformed refused candidate must still reach the author; previews never replace the source gates.
 									this.deps.record({lane:'reading',event:'author_preview_unavailable',module_id:job.module_id,job_id:job.job_id,round,campaign,
@@ -1680,7 +1681,7 @@ export class ReadingService implements ReadingBridge {
 							...(job.visual_scan?{maxRequests:3}:{}),
 							beforeProviderRequest:signal=>this.waitForPriority(job,key,signal,campaign),
 							...(readingImages ? {imageHistory:readingImages} : {}),
-							...(phase==='read'&&task.visual_previews?.length?{attachments:task.visual_previews.map((preview:Row)=>preview.file)}:{}),
+							...(phase==='read'&&task.visual_previews?.length?{attachments:task.visual_previews.flatMap((preview:Row)=>[preview.file,...(preview.comparison_file?[preview.comparison_file]:[])])}:{}),
 							// §186.2: every child of this round, author and review units alike, shares one cache identity.
 							cacheId: readingCacheId(job.module_id, job.job_id, round),
 							submission:["index","guidance","opening","detail","answer"].includes(job.purpose),

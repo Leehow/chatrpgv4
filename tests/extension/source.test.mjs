@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createCanvas, loadImage } from "@napi-rs/canvas";
@@ -325,7 +325,9 @@ test('ordinary detail reviewer is offered its publication crop without another p
    runs++;const task=JSON.parse(await readFile(join(request.cwd,'task.json'),'utf8'));
    if(task.required_review.some(path=>path==='/nodes/0'||path.startsWith('/nodes/0/'))){
     assert.match(request.brief,/Private publication previews/);assert.match(request.brief,/continuation/);
-    assert.ok((await readFile(join(request.cwd,'source-crop-1.png'))).length>0);previews++;
+    assert.ok((await readFile(join(request.cwd,'source-crop-1.png'))).length>0);
+    assert.match(request.brief,/comparison_file/);
+    assert.ok((await readFile(join(request.cwd,'source-crop-1-comparison.png'))).length>0);previews++;
    }
    request.onEvent({type:'tool_execution_end',toolCallId:'page',isError:false,result:{details:{kind:'source_pages',observations:[{page:1}]}}});
    await writeFile(request.eventLog+'.images.jsonl',JSON.stringify({included:['page']})+'\n');
@@ -333,4 +335,24 @@ test('ordinary detail reviewer is offered its publication crop without another p
    return {ok:true,ms:1,stderr:''};
   }});
  assert.equal(previews,1);assert.equal(runs,1,'the existing reviewer handles the crop; no added call or mandatory preview-read retry');
+});
+
+test('publication comparison preserves excluded source pixels beside the unchanged public crop',async t=>{
+ const dir=await mkdtemp(join(tmpdir(),'handout-edge-comparison-'));t.after(async()=>{await closeSourceDocuments();await rm(dir,{recursive:true,force:true})});
+ const file=join(dir,'source.pdf');await writeFile(file,pdf());
+ const parts=[{page:1,box:[.5,0,1,1]}];
+ const draft={nodes:[{node_id:'handout-blue',node_kind:'handout',name:'Blue panel',properties:{image_sources:parts}}]};
+ const [preview]=await mapReviewPreviews({draft,paths:['/nodes/0'],cwd:dir,source:{pdf:file,cache:join(dir,'cache')}});
+ assert.equal(preview.comparison_file,'source-crop-1-comparison.png');
+ const image=await loadImage(await readFile(join(dir,preview.comparison_file)));
+ const canvas=createCanvas(image.width,image.height),ctx=canvas.getContext('2d');ctx.drawImage(image,0,0);
+ const outside=ctx.getImageData(50,100,1,1).data;
+ assert.ok(outside[0]>200&&outside[2]<30,'the original red half excluded by the proposed crop stays visible in the private comparison');
+ const expected=join(dir,'public.png');await sourceAsset(file,join(dir,'cache'),parts,expected);
+ assert.deepEqual(await readFile(join(dir,preview.file)),await readFile(expected),'comparison aids never change publication pixels or widen the crop');
+ await rm(join(dir,preview.comparison_file));
+ await mkdir(join(dir,preview.comparison_file));
+ const [fallback]=await mapReviewPreviews({draft,paths:['/nodes/0'],cwd:dir,source:{pdf:file,cache:join(dir,'cache')}});
+ assert.ok(fallback.comparison_unavailable,'an unavailable comparison remains advisory instead of creating a new preview gate');
+ assert.deepEqual(await readFile(join(dir,fallback.file)),await readFile(expected),'the existing publication preview survives context failure');
 });
