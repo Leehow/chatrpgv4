@@ -908,7 +908,7 @@ export const COC_TOOLS: readonly CocToolSpec[] = [
 			),
 			about: Type.Optional(
 				Type.Array(Type.String(), {
-					description: "memory: each entry is one known name or registered unique alias, never keywords or a guessed truncation; defaults to those present plus the investigators. Use query for a semantic question only when that field is offered",
+					description: "memory: use one issued semantic handle per person, from a current view id or continuity anchor. Otherwise use one known unique name or registered unique alias. Do not add that person's display aliases as more entries: an ambiguous alias rejects the query even beside a unique full name. Never keywords or guessed truncations; defaults to those present plus investigators. Use query for a semantic question only when offered",
 				}),
 			),
 			kinds: Type.Optional(
