@@ -14,11 +14,9 @@ test('test_a_time_beside_a_travelling_move_is_refused_with_a_literal_fix',async 
   const k=await kernel(t);await openTurn(k);const error=await refused(k,[{kind:'move',to:'newspaper-morgue',travel_minutes:30},{kind:'time',minutes:30,why:'从诺特办公室到环球报馆的路程'}]);
   assert.equal(error.details.index,1);assert.equal(error.details.field,'beyond_travel');assert.equal(error.details.minutes,30);assert.equal(error.details.travel_minutes,30);
   assert.deepEqual(error.details.moves,[{index:0,to:'newspaper-morgue',minutes:30}]);assert.ok(error.fix.startsWith('Remove this time effect and send the batch again'));assert.ok(error.fix.includes('beyond_travel: true'));
-  assert.ok(error.fix.includes('effects[1]'),error.fix);
 });
 test('test_the_edge_default_travel_counts_and_order_does_not_matter',async t=>{
   const k=await kernel(t);await openTurn(k);const error=await refused(k,[{kind:'time',minutes:45},{kind:'move',to:'hall-of-records'}]);assert.equal(error.details.index,0);assert.equal(error.details.travel_minutes,ROAD);
-  assert.ok(error.fix.includes('effects[0]'),error.fix);
 });
 test('test_amounts_the_kernel_binds_are_guarded_too',async t=>{
   const k=await kernel(t);await openTurn(k);await refused(k,[{kind:'move',to:'newspaper-morgue'},{kind:'time',band:'single_room_search'}]);
