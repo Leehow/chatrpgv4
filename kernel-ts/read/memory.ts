@@ -168,6 +168,11 @@ export class EntityIndex {
         const matches = this.matches(name);
         return matches.length === 1 ? matches[0] : `name:${normalize(name)}`;
     }
+    referenceName(key: string): string {
+        if (key.startsWith('reserved:') || key.startsWith('investigator:')) return this.canonicalName(key);
+        const node = this.graph.nodes.get(key.slice(key.indexOf(':') + 1));
+        return node ? this.graph.handle(node) : this.canonicalName(key);
+    }
     canonicalName(key: string): string {
         const at = key.indexOf(":"), kind = key.slice(0, at), rest = key.slice(at + 1);
         if (kind === "reserved")

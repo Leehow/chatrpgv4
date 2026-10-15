@@ -251,6 +251,11 @@ function resolveName(index: EntityIndex, position: number, field: string, name: 
     return reject(position, `candidates[${position}].${field}: ${repr(name)} names ${found.length} entities`, 'say which one by id: ' + described.map(value => `${value.id} (${value.kind} ${value.name})`).join(', '), { field, name, candidates: described });
 }
 export function validateCandidates(index: EntityIndex, candidates: any, referenced = false, attributed = false): Row[] {
+    const names = index.allowed === null ? index : new EntityIndex(index.graph, index.party, index.labels, null, index.world);
+    const storedName = (key: string): string => {
+        const label = index.canonicalName(key), matches = names.matches(label);
+        return matches.length === 1 && matches[0] === key ? label : index.referenceName(key);
+    };
     if (!Array.isArray(candidates))
         throw new RpcError('invalid_params', 'params.candidates must be a list');
     if (candidates.length > 12)
@@ -310,7 +315,7 @@ export function validateCandidates(index: EntityIndex, candidates: any, referenc
             return reject(i, `candidates[${i}].state ${repr(state)}`, `one of: ${STATES.join(', ')}`);
         if (confidence !== null && (!numeric(confidence) || number(confidence) < 0 || number(confidence) > 1 || !Number.isFinite(number(confidence))))
             return reject(i, `candidates[${i}].confidence must be a number from 0 to 1`, 'omit it or give 0–1');
-        return { kind, subject: index.canonicalName(subject), knowers: knowerKeys.map(key => index.canonicalName(key)), entities: entityKeys.map(key => index.canonicalName(key)), statement: referenced ? statement : statement.trim(), privacy, state, confidence, _keys: { subject, entities: sorted(entityKeys) }, ...(corrects !== undefined ? {corrects} : {}), ...(droppedEntities.length ? { _dropped: droppedEntities } : {}) };
+        return { kind, subject: storedName(subject), knowers: knowerKeys.map(storedName), entities: entityKeys.map(storedName), statement: referenced ? statement : statement.trim(), privacy, state, confidence, _keys: { subject, entities: sorted(entityKeys) }, ...(corrects !== undefined ? {corrects} : {}), ...(droppedEntities.length ? { _dropped: droppedEntities } : {}) };
     });
 }
 export async function appendBacklog(campaign: CampaignWriter, id: string, turn: number, reason: string, detail: any): Promise<Row> {

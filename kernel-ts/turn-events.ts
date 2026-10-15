@@ -221,10 +221,12 @@ export function eventMemory(events:Row[],scope:Row):Row[]{
     if(event.status==='active'&&word(event.summary))result.push({...base,id:`${occurrence}:occurrence`,kind:'world_event',subject:'world',knowers:[],entities:[],statement:event.summary,state:'accurate'});
     if(!eligible(event,scope,true))continue;
     for(const [index,item] of array(event.knowledge).entries())if(item.status==='active')result.push({...base,id:`${occurrence}:knowledge:${index}`,
-      kind:item.mode==='belief'?'belief':'knowledge',subject:row(item.actor).name,knowers:[row(item.actor).name],entities:[],statement:item.statement,state:item.state,
+      kind:item.mode==='belief'?'belief':'knowledge',subject:row(item.actor).name,knowers:[row(item.actor).name],
+      entities:row(item.actor).kind==='npc'?[row(item.actor).id]:[],statement:item.statement,state:item.state,
       acquisition:item.mode,attributed_source:item.source??null});
     for(const [index,item] of array(event.relationships).entries())if(item.status==='active')result.push({...base,id:`${occurrence}:relationship:${index}`,
-      kind:'relationship',subject:row(item.actor).name,knowers:[row(item.actor).name],entities:[row(item.toward).name],statement:item.statement,state:'accurate'});
+      kind:'relationship',subject:row(item.actor).name,knowers:[row(item.actor).name],
+      entities:[row(item.toward).name,...[item.actor,item.toward].flatMap(actor=>row(actor).kind==='npc'?[row(actor).id]:[])],statement:item.statement,state:'accurate'});
   }
   return result;
 }

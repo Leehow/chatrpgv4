@@ -4,7 +4,19 @@ import assert from 'node:assert/strict';
 import {mkdtempSync,mkdirSync,readdirSync,symlinkSync,writeFileSync,readFileSync,rmSync} from 'node:fs';
 import {tmpdir} from 'node:os';
 import {join} from 'node:path';
-import {kernel,openTurn,CAMPAIGN,CONTENT_DIR,campaignDir,readJsonl} from './support.ts';
+import {kernel,openTurn,CAMPAIGN,CONTENT_DIR,campaignDir,readJsonl,importSource} from './support.ts';
+
+test('reserved and investigator references keep their namespace when graph node ids collide',async()=>{
+  const {EntityIndex}=await importSource('kernel-ts/read/memory.ts');
+  const {ModuleGraph}=await importSource('kernel-ts/read/module-graph.ts');
+  const graph=new ModuleGraph('fixture',{nodes:[{node_id:'world',node_kind:'rule',name:'Unrelated root'},
+    {node_id:'inv-1',node_kind:'rule',name:'Unrelated rule'}],relations:[],claims:[]},'digest',{});
+  const index=new EntityIndex(graph,[{id:'inv-1',name:'Pat'}]);
+  assert.equal(index.referenceName('reserved:world'),'world');
+  assert.equal(index.referenceName('investigator:inv-1'),'Pat');
+  assert.deepEqual(index.matches(index.referenceName('reserved:world')),['reserved:world']);
+  assert.deepEqual(index.matches(index.referenceName('investigator:inv-1')),['investigator:inv-1']);
+});
 
 test('committed event participants are issued and accepted by the same memory job',async t=>{
   const client=await kernel(t);await openTurn(client,'I call Gabriela and Vittorio from the office.');
@@ -53,6 +65,63 @@ test('registered table aliases resolve while unrelated and ambiguous subjects re
   }
   const accepted=await client.ok('memory.submit',{campaign:CAMPAIGN,job_id:packet.job_id,candidates:[candidate]});
   assert.equal(accepted.candidates,1);const stored=readJsonl(path).at(-1);assert.ok(stored);assert.equal(stored.subject,'Gabriela Macario');
+});
+
+test('ambiguous recall offers usable references and keeps an exact subject through hit filtering',async t=>{
+  const content=mkdtempSync(join(tmpdir(),'recall-reference-content-'));t.after(()=>rmSync(content,{recursive:true,force:true}));
+  for(const name of readdirSync(CONTENT_DIR))if(name!=='starters')symlinkSync(join(CONTENT_DIR,name),join(content,name));
+  mkdirSync(join(content,'starters'));for(const name of readdirSync(join(CONTENT_DIR,'starters')))
+    if(name!=='the-haunting')symlinkSync(join(CONTENT_DIR,'starters',name),join(content,'starters',name));
+  const starter=join(content,'starters','the-haunting');mkdirSync(starter);
+  for(const name of readdirSync(join(CONTENT_DIR,'starters','the-haunting')))if(name!=='module-graph.json')
+    symlinkSync(join(CONTENT_DIR,'starters','the-haunting',name),join(starter,name));
+  const graph=JSON.parse(readFileSync(join(CONTENT_DIR,'starters','the-haunting','module-graph.json'),'utf8'));
+  const first=graph.nodes.find((node:any)=>node.node_id==='npc-gabriela-macario');
+  first.aliases.push(first.name);first.name='Shared contact';first.properties.runtime_projection.record.name='Shared contact';
+  graph.nodes.find((node:any)=>node.node_id==='npc-vittorio-macario').aliases.push('Shared contact');
+  writeFileSync(join(starter,'module-graph.json'),JSON.stringify(graph));
+  const client=await kernel(t,{content});await openTurn(client,'I recall two distinct witnesses.');
+  await client.table('apply',{call_id:'t1-c1',effects:[],event:{name:'Distinct witness accounts',
+    knowledge:[{actor:'gabriela-macario',source:'vittorio-macario',statement:'FIRST_CANONICAL_MEMORY',mode:'heard',state:'accurate'},
+      {actor:'vittorio-macario',source:'gabriela-macario',statement:'SECOND_CANONICAL_MEMORY',mode:'heard',state:'accurate'}]}});
+  const delivered=await client.table('narrate',{call_id:'t1-c2',text:'You speak with the two distinct witnesses.'});
+  const job=await client.ok('memory.job',{campaign:CAMPAIGN,turn:delivered.turn});
+  const candidates=[['gabriela-macario','FIRST_WITNESS_MEMORY'],['vittorio-macario','SECOND_WITNESS_MEMORY']].map(([subject,statement])=>({
+    kind:'knowledge',subject,knowers:[subject],entities:[],statement,privacy:'keeper_only',state:'accurate',confidence:0.9}));
+  const accepted=await client.ok('memory.submit',{campaign:CAMPAIGN,job_id:job.job_id,candidates});
+  assert.equal(accepted.candidates,2);
+  const memoryPath=join(campaignDir(client.workspace),'memory/candidates.jsonl');
+  const before=readFileSync(memoryPath,'utf8');
+  await t.test('each advertised candidate is an exact existing reference',async()=>{
+    const error=await client.err('table.recall',{campaign:CAMPAIGN,what:'memory',about:['Shared contact']});
+    assert.equal(error.code,'unknown_entity');
+    assert.deepEqual(error.details.candidates,['gabriela-macario','vittorio-macario']);
+  });
+  await t.test('an exact reference retains its own hits despite an ambiguous display name',async()=>{
+    for(const [subject,statement,canonical] of [['gabriela-macario','FIRST_WITNESS_MEMORY','FIRST_CANONICAL_MEMORY'],
+      ['vittorio-macario','SECOND_WITNESS_MEMORY','SECOND_CANONICAL_MEMORY']]){
+      const result=await client.table('recall',{what:'memory',about:[subject]});
+      assert.deepEqual(result.hits.map((hit:any)=>hit.statement).sort(),[statement,canonical].sort());
+      assert.equal(result.hits.find((hit:any)=>hit.statement===canonical).authority,'canonical_event');
+      assert.deepEqual(result.about,[subject==='gabriela-macario'?'Shared contact':'Vittorio Macario']);
+    }
+  });
+  await t.test('a nonparticipating namesake cannot make a job-scoped label safe to persist',async()=>{
+    const solo=await kernel(t,{content});await openTurn(solo,'I speak with only the first witness.');
+    await solo.table('apply',{call_id:'t1-c1',effects:[],event:{name:'One witness account',
+      knowledge:[{actor:'gabriela-macario',source:'gabriela-macario',statement:'SOLO_CANONICAL_MEMORY',mode:'observed',state:'accurate'}]}});
+    const delivered=await solo.table('narrate',{call_id:'t1-c2',text:'You speak with only one witness.'});
+    const job=await solo.ok('memory.job',{campaign:CAMPAIGN,turn:delivered.turn});
+    assert.equal(job.known_entities.some((entity:any)=>entity.name==='Vittorio Macario'),false);
+    const rejected=await solo.err('memory.submit',{campaign:CAMPAIGN,job_id:job.job_id,candidates:[{kind:'knowledge',
+      subject:'vittorio-macario',statement:'UNISSUED_MEMORY',privacy:'keeper_only',state:'accurate'}]});
+    assert.equal(rejected.code,'invalid_params','the unrestricted label check must not expand job admission');
+    await solo.ok('memory.submit',{campaign:CAMPAIGN,job_id:job.job_id,candidates:[{kind:'knowledge',subject:'gabriela-macario',
+      knowers:['gabriela-macario'],statement:'SOLO_EXTRACTED_MEMORY',privacy:'keeper_only',state:'accurate',confidence:0.9}]});
+    const result=await solo.table('recall',{what:'memory',about:['gabriela-macario']});
+    assert.deepEqual(result.hits.map((hit:any)=>hit.statement).sort(),['SOLO_CANONICAL_MEMORY','SOLO_EXTRACTED_MEMORY']);
+  });
+  assert.equal(readFileSync(memoryPath,'utf8'),before,'a read must not rename or merge the stored witnesses');
 });
 
 test('an issued participant identity does not publish an undelivered speech or its pending knowledge',async t=>{

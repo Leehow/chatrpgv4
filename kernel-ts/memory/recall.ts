@@ -169,10 +169,11 @@ export async function candidatesFor(campaign: CampaignWriter, meta: Row, line: a
 }
 export async function recallMemory(campaign: CampaignWriter, graph: ModuleGraph, world: Row, params: Row): Promise<Row> {
     const party = await campaign.party(), index = new EntityIndex(graph, party, row(world.scene_labels)), narrow = params.about != null;
-    let about: string[];
-    if (!narrow)
+    let about: string[], queryAbout: string[] = [];
+    if (!narrow) {
         about = [...npcsPresent(graph, world, graph.scene(world.active_scene)).map(node => graph.displayName(node)), ...party.map(sheet => string(sheet.name))];
-    else {
+        queryAbout = about;
+    } else {
         if (!Array.isArray(params.about) || !params.about.every((value: any) => typeof value === 'string' && value.trim()))
             throw new RpcError('invalid_params', 'about must be a list of names');
         about = params.about.map((name: string) => {
@@ -182,11 +183,12 @@ export async function recallMemory(campaign: CampaignWriter, graph: ModuleGraph,
             // (turn 5) asked recall about the toothless trucker by his epithet and was refused, and the batch's other calls with it.
             const person = loose.length ? null : personNode(graph, world, name), found = person ? [`npc:${person.node_id}`] : loose;
             if (found.length !== 1) {
-                const names = found.length ? found.map(key => index.canonicalName(key)) : graph.candidates(name, ['npc', 'scene', 'clue']);
+                const names = found.length ? found.map(key => index.referenceName(key)) : graph.candidates(name, ['npc', 'scene', 'clue']);
                 throw new RpcError('unknown_entity', `${repr(name)} is ${found.length ? 'ambiguous' : 'not a known name'}`, {
                     fix: names.length ? `use one of ${repr(names)}` : 'use an investigator, NPC, scene or clue name, or world/party/keeper/player', details: { query: name, candidates: names }
                 });
             }
+            queryAbout.push(index.referenceName(found[0]));
             return index.canonicalName(found[0]);
         });
     }
@@ -211,10 +213,10 @@ export async function recallMemory(campaign: CampaignWriter, graph: ModuleGraph,
       canonical.push(...eventMemory(canonicalEvents([...(evidence.records??[]),...ancestors],[],scoped),scoped));
     }
     const distinct=[...new Map(canonical.map(value=>[value.id,value])).values()];
-    const canonicalHits=queryCandidates(distinct,index,about,{narrow,turns,kinds,limit:distinct.length})
+    const canonicalHits=queryCandidates(distinct,index,queryAbout,{narrow,turns,kinds,limit:distinct.length})
       .map(hit=>{const original=distinct.find(value=>value.id===hit.id)!;
         return {...hit,authority:'canonical_event',...(original.acquisition?{acquisition:original.acquisition}:{}),attributed_source:original.attributed_source??null};});
-    const hits = [...canonicalHits,...queryCandidates(rows,index,about,{narrow,turns,kinds,includeSuperseded:truth(params.include_superseded),limit:rows.length})];
+    const hits = [...canonicalHits,...queryCandidates(rows,index,queryAbout,{narrow,turns,kinds,includeSuperseded:truth(params.include_superseded),limit:rows.length})];
     const snapshot = await recallSnapshot(campaign, params, [rows,canonical,hits,line]);
     const query = {...params, page: {limit: number(limit), ...row(params.page)}};
     const base = {what: 'memory', about, line, _snapshot: snapshot};
