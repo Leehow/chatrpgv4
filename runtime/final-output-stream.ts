@@ -94,7 +94,17 @@ export class ArtifactTextStream {
     if (this.bytes > 128000) throw new Error('Final artifact exceeds its transport budget');
     this.raw += chunk;
     if(this.native===undefined){
-      const head=this.raw.trimStart();
+      let head=this.raw.trimStart();
+      // A presentation fence is not a visibility boundary. Only the existing marker
+      // may open the public stream, even when the model adds this optional prefix.
+      const fences=['```html\n','```html\r\n'];
+      if(fences.some(fence=>fence.startsWith(head)))return '';
+      const fence=fences.find(fence=>head.startsWith(fence));
+      if(fence){
+        head=head.slice(fence.length).trimStart();
+        if(head.length<2)return '';
+        if(!head.startsWith('{{'))throw new Error('Invalid public stream marker');
+      }
       if(head.length<2)return '';
       if(head.startsWith('{{')){
         const end=head.indexOf('}}');

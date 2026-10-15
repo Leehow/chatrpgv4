@@ -142,3 +142,24 @@ test('delivery recovery retains complete frames when a crash tears the final app
     assert.equal(readFileSync(file,'utf8').trim().split('\n').map(JSON.parse).length,3);
   }finally{rmSync(dir,{recursive:true,force:true});}
 });
+
+for(const newline of ['\n','\r\n'])for(const marker of ['{{public}}','{{reference}}'])
+test('opening html fence before '+marker+' streams across every '+JSON.stringify(newline)+' boundary',()=>{
+  const text='A visitor speaks. Unicode: \u03b1.',body='```html'+newline+marker+text;
+  for(let cut=0;cut<=body.length;cut++){
+    const decoder=new ArtifactTextStream(()=>{});
+    assert.equal(decoder.push(body.slice(0,cut))+decoder.push(body.slice(cut)),text);
+    assert.equal(decoder.finish().text,text);
+  }
+  const decoder=new ArtifactTextStream(()=>{});
+  assert.equal([...body].map(char=>decoder.push(char)).join(''),text);
+  assert.equal(decoder.finish().record?.scope,marker==='{{reference}}'?'reference':undefined);
+});
+test('an opening fence grants no public access to private records or tool markup',()=>{
+  for(const body of ['```html\n'+JSON.stringify({version:1,record:{effects:[]},text:'PRIVATE'}),
+    '```html\n<tool_call><tool_name>apply</tool_name></tool_call>',
+    '```json\n{{public}}PRIVATE','```html\n{{secret}}PRIVATE']){
+    const decoder=new ArtifactTextStream(()=>{});
+    assert.throws(()=>{decoder.push(body);decoder.finish();});
+  }
+});
