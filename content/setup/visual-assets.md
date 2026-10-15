@@ -44,7 +44,7 @@ against each full original PDF page. The host crops these after independent revi
 Keep authored handouts separate. Preserve margins needed for legibility while
 excluding unrelated private prose. Retain the full title, frame and edge text;
 inspect an original continuation page when needed and append its safe region to
-the same ordered image_sources list. Use keeper-only for a source whose safe public
+the same ordered image_sources list. A reprint or translation is an alternate version, not a continuation. Use one complete version per handout image; preserve its actual continuation and reuse the existing handout identity. Use keeper-only for a source whose safe public
 crop is not established. Source refs alone do not authorize exposing a page.
 
 Claims link subject_id through a supplied predicate to object:{node_id}, with
