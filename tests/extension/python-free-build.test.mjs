@@ -53,3 +53,14 @@ test('installation and canonical packaging disable generator fallback', async()=
   assert.doesNotMatch(source,/run\(['"]uv['"]|node-gyp|npm_config_python|NODE_GYP_FORCE_PYTHON/);
   assert.match(source,/buildNative\(/);
 });
+
+test('explicit developer commands retain preparation when lifecycle scripts are disabled',async()=>{
+  const electron=JSON.parse(await readFile(join(root,'Electron/package.json'),'utf8')).scripts;
+  for(const command of ['build','dev'])assert.ok(electron[command].startsWith('npm --prefix .. run build:runtime && '));
+  const backend=JSON.parse(await readFile(join(root,'Electron/packages/pi-backend/package.json'),'utf8')).scripts;
+  for(const command of ['build','test']){
+    assert.ok(backend[command].startsWith('node ../../../scripts/build-runtime.mjs && '));
+    assert.ok(backend[command].includes('node scripts/bundle-runtime-agents.mjs && '));
+    assert.equal(backend['pre'+command],undefined);
+  }
+});
