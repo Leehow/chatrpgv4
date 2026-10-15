@@ -188,14 +188,19 @@ test('ordinary map reads locate complete visual targets on text-bearing pages, i
   const cwd=await mkdtemp(join(tmpdir(),'ordinary-map-visual-'));t.after(()=>rm(cwd,{recursive:true,force:true}));
   const info=await sourceInfo(pdf),calls=[],cache=join(cwd,'cache');
   for(const repair of [undefined,undefined,{kind:'targeted',pages:[2]}]){
-    await writeFile(join(cwd,'task.json'),JSON.stringify({purpose:'detail',material:'map',pages:[2],repair,source:{page_count:info.page_count}}));
-    const driver=await createSourceReaderDriver({cwd,env:{PI_COC_JEV_VISUAL:'on'},source:{pdf,cache},adapter:decisions(calls)});
+    await writeFile(join(cwd,'task.json'),JSON.stringify({purpose:'detail',material:'map',pages:[],repair,source:{page_count:info.page_count}}));
+    const visuals=decisions(calls),adapter={async decide(batch,lease){
+      if(batch.family==='source-page-lead')return {status:'complete',answers:Object.fromEntries(batch.questions.map(q=>[q.key,{status:'answered',type:'noul',noul:0.01}])),attempts:1};
+      return visuals.decide(batch,lease);
+    }};
+    const driver=await createSourceReaderDriver({cwd,env:{PI_COC_JEV_VISUAL:'on'},source:{pdf,cache},adapter});
     const {ports}=await driver.prepare({runId:'ordinary-map',inputRevision:'v1',rawInput:'Read map',session:{}});
     assert.equal((await ports.operations.execute({origin:'policy',operation:'source.catalog'},{signal:AbortSignal.timeout(10000)})).status,'ok');
     await ports.decision.decide({purpose:'locate_source',question:{kind:'source_pages'},signal:AbortSignal.timeout(10000)});
     assert.equal((await ports.operations.execute({origin:'policy',operation:'source.project'},{signal:AbortSignal.timeout(10000)})).status,'ok');
-    const packet=JSON.parse(ports.projection.project({})[0].content[0].text);
+    const message=ports.projection.project({})[0],packet=JSON.parse(message.content[0].text);
     assert.ok(packet.advisory_visual_leads.some(lead=>lead.page===2&&lead.box),'ordinary map preparation must supply real visual geometry');
+    assert.ok(message.details.pages.some(page=>page.page===2),'the reader receives the actual map page omitted by native text');
     assert.ok(calls.filter(batch=>batch.family==='source-visual-funnel').some(batch=>batch.questions.some(q=>q.type==='box')));
   }
 });

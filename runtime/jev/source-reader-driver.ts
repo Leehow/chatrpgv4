@@ -779,9 +779,12 @@ export async function createSourceReaderDriver(options:{cwd:string;env:NodeJS.Pr
              visualLeads=visual?.leads??[];
            }
            if(task.material==='map'&&!task.visual_asset&&!reviewing){
-             const visual=await visualNavigate(candidates,
+             const bounded=!!task.source_unit||['targeted','append'].includes(task.repair?.kind??'');
+             const visual=await visualNavigate(bounded?candidates:pages.map(row=>row.page),
                'The complete printed map relevant to this request, including its title, outer frame, compass and labels outside the frame. Locate the whole map, not only the requested place or its interior. Context: '+pendingQuery,invocation.signal,true);
              visualLeads=visual?.leads??visualLeads;
+             if(visual)candidates=[...new Set([...visual.leads.filter(lead=>lead.status==='found').map(lead=>lead.page),
+               ...candidates,...visual.leads.filter(lead=>lead.status==='uncertain').map(lead=>lead.page)])].slice(0,20);
            }
            if(task.source_reference){
              if(!info)throw Error('Original source identity is unavailable');

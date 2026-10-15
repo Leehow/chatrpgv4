@@ -46701,7 +46701,7 @@ The source author uses the existing pdf pages/box view to inspect a proposed cro
 
 #### 237.105 Ordinary map candidates use the existing visual locator
 
-An ordinary `material: map` read supplies its selected original pages to the existing Jev visual funnel before author inference, including navigation-cache hits and targeted repairs. Text on a page does not exempt its printed map from visual localization. These existing advisory leads describe complete printed targets; the same reader still chooses publication crops, redactions and map regions. No additional agent, reviewer, approval condition or authoritative coordinate substitution is introduced. An unavailable visual locator retains original-page reading.
+An ordinary `material: map` read uses the existing Jev visual funnel over the original PDF before author inference, including navigation-cache hits. Native-text relevance cannot omit a printed map; found visual pages join the original pages supplied to the reader. Targeted/append repairs and indexed units retain their assigned page scope. Text on a page does not exempt its printed map from visual localization. These existing advisory leads describe complete printed targets; the same reader still chooses publication crops, redactions and map regions. No additional agent, reviewer, approval condition or authoritative coordinate substitution is introduced. An unavailable visual locator retains original-page reading.
 
 
 #### 237.106 Publication masks reuse the existing image renderer
