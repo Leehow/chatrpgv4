@@ -118,7 +118,10 @@ test('a closed private prelude accepts only its following public marker at every
     '{"version":1,"record":{"effects":{}}} {{public}}Hidden',
   ]){
     const invalid=new ArtifactTextStream(()=>{});
-    assert.throws(()=>{assert.equal(invalid.push(raw),'');invalid.finish();});
+    let exposed='',failure;
+    try {exposed=invalid.push(raw);invalid.finish();}catch(error){failure=error;}
+    assert.equal(exposed,'','invalid or incomplete framing exposes no public bytes');
+    assert.ok(failure,'invalid or incomplete framing cannot complete');
   }
 });
 
