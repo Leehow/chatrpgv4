@@ -1,8 +1,8 @@
 /** Durable, session-bound onboarding over the existing authenticated Host API. */
 import type { ChildProcessByStdio } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
-import { existsSync, readdirSync, mkdirSync, readFileSync, writeFileSync, renameSync, appendFileSync, statSync } from 'node:fs';
-import { extname, join, resolve } from 'node:path';
+import { existsSync, readdirSync, mkdirSync, readFileSync, writeFileSync, renameSync, appendFileSync, statSync, openSync, closeSync, fstatSync, readSync } from 'node:fs';
+import { basename, extname, isAbsolute, join, resolve } from 'node:path';
 import type { Readable } from 'node:stream';
 import { pathToFileURL } from 'node:url';
 
@@ -480,6 +480,30 @@ export class CocOnboardingHost {
       return this.withWords({...catalog, current_import: imports[0] ? this.snapshot(imports[0].job) : null},language);
     }
     mkdirSync(this.root, {recursive: true});
+    if(params.action==='import-path'){
+      const path=typeof params.path==='string'?params.path.trim():'';
+      if(!isAbsolute(path)||extname(path).toLowerCase()!=='.pdf')throw refuse('invalid_params','Enter an absolute PDF file path');
+      let fd:number|undefined,started:Row|undefined;
+      try {
+        if(!statSync(path).isFile())throw refuse('invalid_params','Choose a regular PDF file');
+        fd=openSync(path,'r');const source=fstatSync(fd);
+        if(!source.isFile())throw refuse('invalid_params','Choose a regular PDF file');
+        started=await this.invoke({action:'begin',name:basename(path),size:source.size,play_language:params.play_language},session,model);
+        const chunk=Buffer.alloc(Math.min(CHUNK,source.size));
+        for(let offset=0;offset<source.size;){
+          const expected=Math.min(chunk.length,source.size-offset),count=readSync(fd,chunk,0,expected,offset);
+          if(count!==expected)throw refuse('upload_size_mismatch','The source file changed during import');
+          await this.invoke({action:'chunk',id:started.id,offset,data:chunk.subarray(0,count).toString('base64')},session,model);
+          offset+=count;
+        }
+        if(fstatSync(fd).size!==source.size)throw refuse('upload_size_mismatch','The source file changed during import');
+        return await this.invoke({action:'finish',id:started.id},session,model);
+      }catch(error){
+        if(started)try{await this.invoke({action:'pause',id:started.id},session,model);}catch{/* Keep the original import failure. */}
+        if(typeof error.errno==='number')throw refuse('document_unavailable',error.message);
+        throw error;
+      }finally{if(fd!==undefined)closeSync(fd);}
+    }
     if (params.action === 'begin' || params.action === 'select') {
       if (params.action === 'begin' && (!Number.isSafeInteger(params.size) || params.size < 5 || params.size > MAX_FILE ||
         typeof params.name !== 'string' || !params.name.toLowerCase().endsWith('.pdf'))) throw refuse('upload_too_large', 'Choose a PDF of up to 128 MiB');

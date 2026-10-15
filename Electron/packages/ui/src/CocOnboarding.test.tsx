@@ -21,6 +21,19 @@ const DEFAULT=playLanguages.default;
 const answer=(data:Row,tag=DEFAULT)=>({ok:true,data:{ui:ui(tag),...data}});
 
 afterEach(()=>{cleanup();localStorage.clear()});
+it('submits a typed absolute PDF path without opening the native file chooser',async()=>{
+ const projected=ui(DEFAULT);projected.words.onboarding['source.pdf.path']='Import using a typed path';
+ const invokeExtension=vi.fn(async(_id:any,_method:any,params:any)=>({ok:true,data:{ui:projected,
+  ...(params.action==='import-path'?{id:'path-job',name:'scenario.pdf',source:'pdf',state:'preparing',stage:'guidance'}:{presets:[],modules:[]})}}));
+ render(<CocOnboarding host={{invokeExtension} as any} sessionId="path-session"/>);
+ fireEvent.click(await screen.findByRole('button',{name:'Import using a typed path'}));
+ const input=screen.getByRole('textbox',{name:'Import using a typed path'});
+ fireEvent.change(input,{target:{value:' /tmp/module with spaces.pdf '}});
+ fireEvent.submit(input.closest('form')!);
+ await waitFor(()=>expect(invokeExtension).toHaveBeenCalledWith('coc-keeper','onboarding',
+  {action:'import-path',path:'/tmp/module with spaces.pdf',play_language:DEFAULT},{sessionId:'path-session'}));
+ expect(invokeExtension.mock.calls.some(call=>call[2].action==='begin'||call[2].action==='chunk')).toBe(false);
+});
 it('shows three scenario entries and an honest empty prepared library',async()=>{
   const invokeExtension=vi.fn(async()=>answer({presets:[],modules:[],occupations:[]}));
   render(<CocOnboarding host={{invokeExtension} as any} sessionId="new"/>);

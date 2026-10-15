@@ -80,5 +80,6 @@
   "title.start": "从一份剧本开始",
   "uploadFirst": "上传第一份 PDF",
   "uploadProgress": "上传进度",
-  "uploaded": "已上传 {done} / {total} MB"
+  "uploaded": "已上传 {done} / {total} MB",
+  "source.pdf.path": "从绝对路径导入"
 }

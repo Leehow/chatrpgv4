@@ -107,6 +107,7 @@ export function CocOnboarding({host, sessionId}: Props) {
   const query=useMemo(()=>api.observe!('onboarding',{action:'current',play_language:language}),[api,language])
   const current=useSyncExternalStore(query.subscribe,query.snapshot,query.snapshot)
   const [section,setSection] = useState<'home'|'starter'|'module'|'pdf'>('home')
+  const [showPath,setShowPath]=useState(false),[sourcePath,setSourcePath]=useState('')
   const [catalog,setCatalog] = useState<Row | null>(null)
   const [job,setJob] = useState<Row | null>(null)
   const [busy,setBusy] = useState(false), [error,setError] = useState<Failure | null>(null)
@@ -232,6 +233,14 @@ export function CocOnboarding({host, sessionId}: Props) {
       if(!cancelled.current&&started)try{remember(await call({action:'pause',id:started.id}))}catch{/* the host reports the stall on its own clock */}
     } finally {uploadRunning.current=false;setBusy(false)}
   }
+  async function importPath() {
+    if(busy||uploadRunning.current||!sourcePath.trim())return
+    uploadRunning.current=true
+    setBusy(true);setError(null);chosen.current=null
+    try {remember(await call({action:'import-path',path:sourcePath.trim(),play_language:language}))}
+    catch(error){setError(uploadFailure(error,ui))}
+    finally{uploadRunning.current=false;setBusy(false)}
+  }
   /** Continue an interrupted upload with the file still in hand; false when there is nothing to send. */
   function continueUpload():boolean {
     const file=chosen.current
@@ -291,6 +300,13 @@ export function CocOnboarding({host, sessionId}: Props) {
         <button className={section==='module'?'selected':''} onClick={()=>setSection('module')}><span className="coc-source-symbol">▤</span><strong>{t('source.module.title')}</strong><span>{t('source.module.hint')}</span><b>{t('source.module.action')}</b></button>
       </div>
       {section==='pdf' && <button className="coc-drop-zone" onClick={()=>chooser.current?.click()} onDragOver={e=>e.preventDefault()} onDrop={e=>{e.preventDefault();void upload(e.dataTransfer.files?.[0])}}>{t('drop')}<span>{t('dropHint')}</span></button>}
+      {(section==='home'||section==='pdf')&&<div className="coc-path-import">
+        <button type="button" aria-expanded={showPath} onClick={()=>setShowPath(!showPath)}>{t('source.pdf.path')}</button>
+        {showPath&&<form onSubmit={e=>{e.preventDefault();void importPath()}}>
+          <input aria-label={t('source.pdf.path')} placeholder="/absolute/path/scenario.pdf" value={sourcePath} onChange={e=>setSourcePath(e.target.value)} disabled={busy} autoFocus/>
+          <button type="submit" disabled={busy||!sourcePath.trim()}>{t('select')}</button>
+        </form>}
+      </div>}
       {(section==='starter'||section==='module') && <section className="coc-source-list" aria-label={section==='starter'?t('list.starter'):t('list.module')}>
         {!catalog?<p role="status">{t('catalogLoading')}</p>:(section==='starter'?catalog.presets:catalog.modules).length===0?<div className="coc-empty-library"><p>{t('emptyLibrary')}</p><button onClick={()=>chooser.current?.click()}>{t('uploadFirst')}</button></div>:
           (section==='starter'?catalog.presets:catalog.modules).map((item:Row)=><button disabled={busy} key={item.id||item.module_id} onClick={()=>void act({action:'select',source:section,module_id:item.id||item.module_id,name:item.title})}><strong>{item.title}</strong><span>{section==='starter'?item.blurb:t('moduleBlurb')}</span><b>{t('select')}</b></button>)}

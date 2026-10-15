@@ -15,6 +15,30 @@ async function service(){
 }
 afterEach(()=>{for(const host of services.splice(0))host.dispose()});
 const model={id:'test/no-provider',thinking:'low',vision:true};
+it('imports an absolute PDF path through the existing durable preparation with original bytes intact',async()=>{
+ const {host,home}=await service();
+ const source=join(home,'module with spaces.pdf'),bytes=Buffer.from('%PDF-1.7\noriginal local source\n%%EOF');await writeFile(source,bytes);
+ const prepare=vi.spyOn(host as any,'prepare').mockImplementation(()=>{});
+ const run=vi.spyOn(host as any,'run').mockImplementation(async(action:any,data:any)=>{
+  expect(action).toBe('inspect');expect(await readFile(data.pdf)).toEqual(bytes);
+  expect(data.pdf).not.toBe(source);return {module_id:'book-path',page_count:2};
+ });
+ const job=await host.invoke({action:'import-path',path:source,play_language:'en'},'path-session',model);
+ expect(job.name).toBe('module with spaces.pdf');
+ expect(JSON.parse(await readFile(join(home,'.coc/imports',job.id,'job.json'),'utf8')).module_id).toBe('book-path');
+ expect(await readFile(source)).toEqual(bytes);
+ expect(await readFile(join(home,'.coc/imports',job.id,'source.pdf'))).toEqual(bytes);
+ expect(run).toHaveBeenCalledTimes(1);expect(prepare).toHaveBeenCalledTimes(1);
+ await expect(host.invoke({action:'status',id:job.id},'another-session',model)).rejects.toMatchObject({code:'import_other_session'});
+});
+it('rejects invalid local PDF paths before creating an import',async()=>{
+ const {host,home}=await service();
+ const empty=join(home,'empty.pdf'),other=join(home,'other.txt');await writeFile(empty,'');await writeFile(other,'%PDF-test');
+ const run=vi.spyOn(host as any,'run');
+ for(const path of ['relative.pdf',join(home,'missing.pdf'),home,empty,other])
+  await expect(host.invoke({action:'import-path',path,play_language:'en'},'one',model)).rejects.toBeTruthy();
+ expect(run).not.toHaveBeenCalled();
+});
 /** The host's own English for a worker that stopped before it answered (§48). */
 const PREPARATION_STOPPED='The preparation stopped before it answered. Your source is saved; retry this preparation.';
 it('polls document reading once per revision and language without repeating edits',async()=>{

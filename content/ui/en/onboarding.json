@@ -58,6 +58,7 @@
   "source.module.hint": "Reuse a preparation and open a new investigation",
   "source.module.title": "Choose a prepared scenario",
   "source.pdf.action": "Choose a file →",
+  "source.pdf.path": "Import from absolute path",
   "source.pdf.hint": "Bring your own module; it is read on demand",
   "source.pdf.title": "Upload a PDF",
   "source.pdfKind": "PDF scenario",
