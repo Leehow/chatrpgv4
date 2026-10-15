@@ -143,6 +143,7 @@ export interface SourceAnswersPort {
 /** The kernel extension's canonical operation gateway (`coc:operation-dispatcher`). */
 export interface OperationGateway {
   dispatch(proposal: OperationProposal, context: HostOperationContext): Promise<ObservationPacket>;
+  canParallelize?(calls: readonly {operation: string; params?: unknown}[]): boolean;
 }
 
 export interface HybridEngineOptions {
@@ -468,7 +469,12 @@ export function createHybridEngine(options: HybridEngineOptions): {runDriver: Se
     const ports:RunDriverPorts={
       record:{record:event=>record({lane:'run',...event})},
       clock:options.clock?{now:()=>options.clock!.now()}:{now:options.now??Date.now},
-      operations:{execute:async(proposal,invocation)=>{
+      operations:{executeBatch:async(proposals,invocation)=>{
+        if(!gateway?.canParallelize?.(proposals)||invocation.signal.aborted)return;
+        for(const proposal of proposals)api?.events.emit('coc:model-step',{run:context.runId,step:invocation.stepId,toolCallId:proposal.toolCall?.id,purpose:'adjudicate'});
+        const results=await invocation.executeModelTools();
+        return results.map(toolResult=>({status:toolResult.isError?'refused' as const:'ok' as const,toolResult}));
+      },execute:async(proposal,invocation)=>{
         if(proposal.origin==='model'&&invocation.executeModelTool){
           api?.events.emit('coc:model-step',{run:context.runId,step:invocation.stepId,toolCallId:proposal.toolCall?.id,purpose:'adjudicate'});
           const toolResult=await invocation.executeModelTool();

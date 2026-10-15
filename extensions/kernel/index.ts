@@ -50,7 +50,7 @@ import { decodeSerializedStrings } from "./encoded-string-argument.ts";
 import type {TaskProviderBudget} from '../../runtime/jev/provider-budget.ts';
 import type {Prepared as ReviewPrepared, ReviewMode} from '../mods/index.ts';
 import { markNpcAct } from "./npc-act-marks.ts";
-import { createCanonicalOperationDispatcher } from './canonical-operation-dispatcher.ts';
+import { createCanonicalOperationDispatcher, parallelReadBatch } from './canonical-operation-dispatcher.ts';
 import { RecallPages } from "./recall-pages.ts";
 import {lookupKeeperSupport} from '../table/keeper-support-lookup.ts';
 import { workspaceSettingsOf } from '../table/workspace/projection.ts';
@@ -6537,7 +6537,7 @@ export default function (pi: ExtensionAPI, host: {capabilities?:RuntimeCapabilit
 				}
 				return preparePriceArguments(spec.name,embedded.args) as never;
 			},
-			// The actions of a turn are ordered: run them serially, so the calls after narrate in the same batch can be stopped.
+			// Keep the legacy loop and mixed batches ordered. The RunDriver owner may batch audited independent reads.
 			executionMode: "sequential",
 			execute: async (toolCallId, params, signal, onUpdate, ctx) => dispatcher.execute(spec, toolCallId,
 				params as Record<string, unknown>, signal, onUpdate, ctx),
@@ -6834,6 +6834,9 @@ export default function (pi: ExtensionAPI, host: {capabilities?:RuntimeCapabilit
             if(open.quote_turns?.length)quotationQueue(table).schedule();
 			const operationGate = bridgeGate;
 			pi.events.emit('coc:operation-dispatcher', Object.freeze({
+				canParallelize: (calls: Parameters<typeof parallelReadBatch>[0]) => operationGate.open && singleKeeper && !!table
+					&& ['open', 'acting'].includes(table.state) && table.inputEnded?.turn !== table.turn
+					&& table.session?.pending_defense?.for !== 'player' && parallelReadBatch(calls),
 				bindIncumbentScope: (...args: Parameters<typeof dispatcher.bindIncumbentScope>) => {
 					if (!operationGate.open) throw new KernelError({ code: 'internal', message: 'The operation dispatcher is closed' });
 					return dispatcher.bindIncumbentScope(...args);

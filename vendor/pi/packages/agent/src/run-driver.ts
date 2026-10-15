@@ -172,6 +172,10 @@ export interface OperationOutcome {
 }
 export interface OperationsPort {
 	execute(proposal: OperationProposal, invocation: OperationInvocation): Promise<OperationOutcome>;
+	/** Return undefined without executing anything to retain the ordinary sequential path. */
+	executeBatch?(proposals: readonly OperationProposal[], invocation: Omit<OperationInvocation, "operationId" | "executeModelTool"> & {
+		executeModelTools(): Promise<ToolResultMessage[]>;
+	}): Promise<OperationOutcome[] | undefined>;
 }
 /** Read-only operations (`operation: "read"`); a read publishes nothing. */
 export interface ReadPort {
@@ -218,6 +222,8 @@ export interface InferEngine {
 	}): Promise<AssistantMessage>;
 	/** Run one real model tool call through the agent's tool pipeline and return its result. */
 	executeModelTool(proposal: OperationProposal, signal: AbortSignal): Promise<ToolResultMessage>;
+	/** Host-approved independent model calls, using the same native tool pipeline. */
+	executeModelTools?(proposals: readonly OperationProposal[], signal: AbortSignal): Promise<ToolResultMessage[]>;
 	/** Answer a real model tool call with an explicit refusal that states it was not executed. */
 	refuseModelTool(proposal: OperationProposal, reason: string): Promise<ToolResultMessage>;
 	/** Close the model turn (the response and all its results are in). Returns what the turn boundary asked for. */
@@ -508,12 +514,24 @@ export async function runDriver<S>(options: RunDriverOptions<S>): Promise<Driven
 				const outcomes: OperationOutcome[] = [];
 				const toolResults: ToolResultMessage[] = [];
 				let aborted = false;
+				const prepare = async (proposal: OperationProposal, index: number, parallelRead = false) => send({ type: "operation_prepared", operationId: `${stepId}/op${index + 1}`, operation: proposal.operation, readOnly: parallelRead || proposal.readOnly === true, ...(proposal.label ? { label: proposal.label } : {}), ...(proposal.toolCall ? { toolCallId: proposal.toolCall.id } : {}) },
+					{ stepId, origin: proposal.origin, visibility: proposal.origin === "model" ? "keeper" : "internal" });
+				const batch = !signal.aborted && engine.executeModelTools && ports.operations?.executeBatch && request.proposals.length > 1
+					&& request.proposals.every(proposal => proposal.origin === "model" && proposal.executable !== false)
+					? await ports.operations.executeBatch(request.proposals, { runId: input.runId, stepId, origin: "model", inputRevision: input.inputRevision, scopeId: scopeId(), signal,
+						executeModelTools: async () => {
+							for (const [index, proposal] of request.proposals.entries()) await prepare(proposal, index, true);
+							return engine.executeModelTools!(request.proposals, signal);
+						} }) : undefined;
+				if (batch && batch.length !== request.proposals.length) throw new PolicyViolation("model batch returned incomplete outcomes");
+				if (batch && signal.aborted) aborted = true;
 				for (const [index, proposal] of request.proposals.entries()) {
 					const operationId = `${stepId}/op${index + 1}`;
 					const meta = { stepId, origin: proposal.origin, visibility: (proposal.origin === "model" ? "keeper" : "internal") as StepVisibility };
-					await send({ type: "operation_prepared", operationId, operation: proposal.operation, readOnly: proposal.readOnly === true, ...(proposal.label ? { label: proposal.label } : {}), ...(proposal.toolCall ? { toolCallId: proposal.toolCall.id } : {}) }, meta);
+					if (!batch) await prepare(proposal, index);
 					let outcome: OperationOutcome | typeof ABORTED;
-					if (aborted || signal.aborted) outcome = ABORTED;
+					if (batch) outcome = batch[index];
+					else if (aborted || signal.aborted) outcome = ABORTED;
 					else if (proposal.origin === "model" && proposal.executable === false) {
 						outcome = { status: "refused", reason: "output_limit", toolResult: await engine.refuseModelTool(proposal, `Tool call "${proposal.operation}" was not executed: the response hit the output token limit, so its arguments may be truncated. Re-issue the tool call with complete arguments.`) };
 					} else {

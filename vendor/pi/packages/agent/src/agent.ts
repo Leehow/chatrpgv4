@@ -21,6 +21,7 @@ import {
 	emitToolExecutionEnd,
 	emitToolResultMessage,
 	executePreparedToolCall,
+	executeToolCallsParallel,
 	type FinalizedToolCallOutcome,
 	finalizeExecutedToolCall,
 	prepareToolCall,
@@ -591,6 +592,56 @@ export class Agent {
 				const toolCall = proposal.toolCall!;
 				await emit({ type: "tool_execution_start", toolCallId: toolCall.id, toolName: toolCall.name, args: toolCall.arguments });
 				return answer(proposal, { toolCall, result: createErrorToolResult(reason), isError: true });
+			},
+			executeModelTools: async (proposals, stepSignal) => {
+				// Only the product operation owner may select this path. Registration and the legacy loop stay unchanged.
+				const starts = new Set<string>();
+				const batchEmit = async (event: AgentEvent) => {
+					if (event.type === "tool_execution_start") starts.add(event.toolCallId);
+					if (event.type === "tool_execution_update" && stepSignal.aborted) return;
+					await emit(event);
+				};
+				const tools = context.tools?.map(tool => ({ ...tool, execute: async (...args: Parameters<typeof tool.execute>) => {
+					if (stepSignal.aborted) return { ...createErrorToolResult("Operation aborted"), isError: true };
+					return new Promise<Awaited<ReturnType<typeof tool.execute>>>((resolve, reject) => {
+						let settled = false;
+						const finish = (result: Awaited<ReturnType<typeof tool.execute>>, error?: unknown) => {
+							if (settled) return;
+							settled = true;
+							stepSignal.removeEventListener("abort", abort);
+							if (error !== undefined) reject(error); else resolve(result);
+						};
+						const abort = () => finish({ ...createErrorToolResult("Operation aborted"), isError: true });
+						stepSignal.addEventListener("abort", abort, { once: true });
+						if (stepSignal.aborted) { abort(); return; }
+						const update = args[3];
+						args[3] = result => { if (!settled && !stepSignal.aborted) update?.(result); };
+						Promise.resolve().then(() => stepSignal.aborted ? { ...createErrorToolResult("Operation aborted"), isError: true } : tool.execute(...args))
+							.then(result => finish(result), error => finish(createErrorToolResult("Tool failed"), error));
+					});
+				} }));
+				let finalization: Promise<unknown> = Promise.resolve();
+				const batchConfig = { ...config, afterToolCall: (...args: Parameters<NonNullable<typeof config.afterToolCall>>) => {
+					const result = finalization.then(() => stepSignal.aborted ? undefined : config.afterToolCall?.(...args));
+					finalization = result.catch(() => undefined);
+					return result;
+				} };
+				const message = proposals[0].assistantMessage!;
+				const batch = await executeToolCallsParallel({ ...context, tools }, message, proposals.map(proposal => proposal.toolCall!), batchConfig, stepSignal, batchEmit);
+				const results = [...batch.messages];
+				for (const proposal of proposals) {
+					if (results.some(result => result.toolCallId === proposal.toolCall!.id)) continue;
+					const toolCall = proposal.toolCall!;
+					if (!starts.has(toolCall.id)) await batchEmit({ type: "tool_execution_start", toolCallId: toolCall.id, toolName: toolCall.name, args: toolCall.arguments });
+					const finalized = { toolCall, result: createErrorToolResult("Operation aborted before execution"), isError: true };
+					await emitToolExecutionEnd(finalized, emit);
+					const result = createToolResultMessage(finalized);
+					await emitToolResultMessage(result, emit);
+					results.push(result);
+				}
+				context.messages.push(...results);
+				newMessages.push(...results);
+				return results;
 			},
 			closeTurn: async (message, toolResults) => {
 				lastCompletedTurn = { message, toolResults, context, newMessages };

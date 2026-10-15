@@ -1,0 +1,133 @@
+diff --git a/vendor/pi/packages/agent/src/agent-loop.ts b/vendor/pi/packages/agent/src/agent-loop.ts
+index c46207b35..258338205 100644
+--- a/vendor/pi/packages/agent/src/agent-loop.ts
++++ b/vendor/pi/packages/agent/src/agent-loop.ts
+@@ -583,7 +583,7 @@ async function executeToolCallsSequential(
+ 	};
+ }
+ 
+-async function executeToolCallsParallel(
++export async function executeToolCallsParallel(
+ 	currentContext: AgentContext,
+ 	assistantMessage: AssistantMessage,
+ 	toolCalls: AgentToolCall[],
+diff --git a/vendor/pi/packages/agent/src/agent.ts b/vendor/pi/packages/agent/src/agent.ts
+index b6ae84aef..9eb3ac323 100644
+--- a/vendor/pi/packages/agent/src/agent.ts
++++ b/vendor/pi/packages/agent/src/agent.ts
+@@ -21,6 +21,7 @@ import {
+ 	emitToolExecutionEnd,
+ 	emitToolResultMessage,
+ 	executePreparedToolCall,
++	executeToolCallsParallel,
+ 	type FinalizedToolCallOutcome,
+ 	finalizeExecutedToolCall,
+ 	prepareToolCall,
+@@ -592,6 +593,56 @@ export class Agent {
+ 				await emit({ type: "tool_execution_start", toolCallId: toolCall.id, toolName: toolCall.name, args: toolCall.arguments });
+ 				return answer(proposal, { toolCall, result: createErrorToolResult(reason), isError: true });
+ 			},
++			executeModelTools: async (proposals, stepSignal) => {
++				// Only the product operation owner may select this path. Registration and the legacy loop stay unchanged.
++				const starts = new Set<string>();
++				const batchEmit = async (event: AgentEvent) => {
++					if (event.type === "tool_execution_start") starts.add(event.toolCallId);
++					if (event.type === "tool_execution_update" && stepSignal.aborted) return;
++					await emit(event);
++				};
++				const tools = context.tools?.map(tool => ({ ...tool, execute: async (...args: Parameters<typeof tool.execute>) => {
++					if (stepSignal.aborted) return { ...createErrorToolResult("Operation aborted"), isError: true };
++					return new Promise<Awaited<ReturnType<typeof tool.execute>>>((resolve, reject) => {
++						let settled = false;
++						const finish = (result: Awaited<ReturnType<typeof tool.execute>>, error?: unknown) => {
++							if (settled) return;
++							settled = true;
++							stepSignal.removeEventListener("abort", abort);
++							if (error !== undefined) reject(error); else resolve(result);
++						};
++						const abort = () => finish({ ...createErrorToolResult("Operation aborted"), isError: true });
++						stepSignal.addEventListener("abort", abort, { once: true });
++						if (stepSignal.aborted) { abort(); return; }
++						const update = args[3];
++						args[3] = result => { if (!settled && !stepSignal.aborted) update?.(result); };
++						Promise.resolve().then(() => stepSignal.aborted ? { ...createErrorToolResult("Operation aborted"), isError: true } : tool.execute(...args))
++							.then(result => finish(result), error => finish(createErrorToolResult("Tool failed"), error));
++					});
++				} }));
++				let finalization: Promise<unknown> = Promise.resolve();
++				const batchConfig = { ...config, afterToolCall: (...args: Parameters<NonNullable<typeof config.afterToolCall>>) => {
++					const result = finalization.then(() => stepSignal.aborted ? undefined : config.afterToolCall?.(...args));
++					finalization = result.catch(() => undefined);
++					return result;
++				} };
++				const message = proposals[0].assistantMessage!;
++				const batch = await executeToolCallsParallel({ ...context, tools }, message, proposals.map(proposal => proposal.toolCall!), batchConfig, stepSignal, batchEmit);
++				const results = [...batch.messages];
++				for (const proposal of proposals) {
++					if (results.some(result => result.toolCallId === proposal.toolCall!.id)) continue;
++					const toolCall = proposal.toolCall!;
++					if (!starts.has(toolCall.id)) await batchEmit({ type: "tool_execution_start", toolCallId: toolCall.id, toolName: toolCall.name, args: toolCall.arguments });
++					const finalized = { toolCall, result: createErrorToolResult("Operation aborted before execution"), isError: true };
++					await emitToolExecutionEnd(finalized, emit);
++					const result = createToolResultMessage(finalized);
++					await emitToolResultMessage(result, emit);
++					results.push(result);
++				}
++				context.messages.push(...results);
++				newMessages.push(...results);
++				return results;
++			},
+ 			closeTurn: async (message, toolResults) => {
+ 				lastCompletedTurn = { message, toolResults, context, newMessages };
+ 				const decision = await config.finishTurn?.(lastCompletedTurn, signal);
+diff --git a/vendor/pi/packages/agent/src/run-driver.ts b/vendor/pi/packages/agent/src/run-driver.ts
+index 8bcf3ad66..613107341 100644
+--- a/vendor/pi/packages/agent/src/run-driver.ts
++++ b/vendor/pi/packages/agent/src/run-driver.ts
+@@ -172,6 +172,10 @@ export interface OperationOutcome {
+ }
+ export interface OperationsPort {
+ 	execute(proposal: OperationProposal, invocation: OperationInvocation): Promise<OperationOutcome>;
++	/** Return undefined without executing anything to retain the ordinary sequential path. */
++	executeBatch?(proposals: readonly OperationProposal[], invocation: Omit<OperationInvocation, "operationId" | "executeModelTool"> & {
++		executeModelTools(): Promise<ToolResultMessage[]>;
++	}): Promise<OperationOutcome[] | undefined>;
+ }
+ /** Read-only operations (`operation: "read"`); a read publishes nothing. */
+ export interface ReadPort {
+@@ -218,6 +222,8 @@ export interface InferEngine {
+ 	}): Promise<AssistantMessage>;
+ 	/** Run one real model tool call through the agent's tool pipeline and return its result. */
+ 	executeModelTool(proposal: OperationProposal, signal: AbortSignal): Promise<ToolResultMessage>;
++	/** Host-approved independent model calls, using the same native tool pipeline. */
++	executeModelTools?(proposals: readonly OperationProposal[], signal: AbortSignal): Promise<ToolResultMessage[]>;
+ 	/** Answer a real model tool call with an explicit refusal that states it was not executed. */
+ 	refuseModelTool(proposal: OperationProposal, reason: string): Promise<ToolResultMessage>;
+ 	/** Close the model turn (the response and all its results are in). Returns what the turn boundary asked for. */
+@@ -508,12 +514,24 @@ export async function runDriver<S>(options: RunDriverOptions<S>): Promise<Driven
+ 				const outcomes: OperationOutcome[] = [];
+ 				const toolResults: ToolResultMessage[] = [];
+ 				let aborted = false;
++				const prepare = async (proposal: OperationProposal, index: number, parallelRead = false) => send({ type: "operation_prepared", operationId: `${stepId}/op${index + 1}`, operation: proposal.operation, readOnly: parallelRead || proposal.readOnly === true, ...(proposal.label ? { label: proposal.label } : {}), ...(proposal.toolCall ? { toolCallId: proposal.toolCall.id } : {}) },
++					{ stepId, origin: proposal.origin, visibility: proposal.origin === "model" ? "keeper" : "internal" });
++				const batch = !signal.aborted && engine.executeModelTools && ports.operations?.executeBatch && request.proposals.length > 1
++					&& request.proposals.every(proposal => proposal.origin === "model" && proposal.executable !== false)
++					? await ports.operations.executeBatch(request.proposals, { runId: input.runId, stepId, origin: "model", inputRevision: input.inputRevision, scopeId: scopeId(), signal,
++						executeModelTools: async () => {
++							for (const [index, proposal] of request.proposals.entries()) await prepare(proposal, index, true);
++							return engine.executeModelTools!(request.proposals, signal);
++						} }) : undefined;
++				if (batch && batch.length !== request.proposals.length) throw new PolicyViolation("model batch returned incomplete outcomes");
++				if (batch && signal.aborted) aborted = true;
+ 				for (const [index, proposal] of request.proposals.entries()) {
+ 					const operationId = `${stepId}/op${index + 1}`;
+ 					const meta = { stepId, origin: proposal.origin, visibility: (proposal.origin === "model" ? "keeper" : "internal") as StepVisibility };
+-					await send({ type: "operation_prepared", operationId, operation: proposal.operation, readOnly: proposal.readOnly === true, ...(proposal.label ? { label: proposal.label } : {}), ...(proposal.toolCall ? { toolCallId: proposal.toolCall.id } : {}) }, meta);
++					if (!batch) await prepare(proposal, index);
+ 					let outcome: OperationOutcome | typeof ABORTED;
+-					if (aborted || signal.aborted) outcome = ABORTED;
++					if (batch) outcome = batch[index];
++					else if (aborted || signal.aborted) outcome = ABORTED;
+ 					else if (proposal.origin === "model" && proposal.executable === false) {
+ 						outcome = { status: "refused", reason: "output_limit", toolResult: await engine.refuseModelTool(proposal, `Tool call "${proposal.operation}" was not executed: the response hit the output token limit, so its arguments may be truncated. Re-issue the tool call with complete arguments.`) };
+ 					} else {

@@ -583,7 +583,7 @@ async function executeToolCallsSequential(
 	};
 }
 
-async function executeToolCallsParallel(
+export async function executeToolCallsParallel(
 	currentContext: AgentContext,
 	assistantMessage: AssistantMessage,
 	toolCalls: AgentToolCall[],

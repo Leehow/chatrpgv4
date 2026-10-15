@@ -97,6 +97,22 @@ export function operationCapability(name: string, args: Record<string, unknown>)
   return `lookup.${args.kind}`;
 }
 
+/** Scheduling only. Unknown or effectful branches retain the existing serial dispatcher. */
+export function parallelReadBatch(calls: readonly {operation: string; params?: unknown}[]): boolean {
+  return calls.length > 1 && calls.every(call => {
+    if (!isPlainRecord(call.params)) return false;
+    const args = call.params;
+    if (Object.keys(args).some(key => ['using_skill', 'workpad_patch', '_context_read'].includes(key))) return false;
+    if (call.operation === 'look') return ['npc', 'investigator', 'time', 'session'].includes(String(args.focus))
+      && Object.keys(args).every(key => ['focus', 'name'].includes(key));
+    if (call.operation === 'lookup') return ['module', 'rule', 'catalog', 'secret', 'continuity'].includes(String(args.kind))
+      && Object.keys(args).every(key => ['kind', 'query', 'kinds', 'limit', 'scope', 'anchors'].includes(key));
+    if (call.operation === 'recall') return ['memory', 'transcript', 'history'].includes(String(args.what))
+      && !['query', 'read', 'detail', 'page'].some(key => Object.hasOwn(args, key));
+    return false;
+  });
+}
+
 export function createCanonicalOperationDispatcher(stages?: Stages) {
   const frames = new Map<string, Frame>();
   const pending = new Set<string>();
@@ -115,6 +131,7 @@ export function createCanonicalOperationDispatcher(stages?: Stages) {
     },
     async execute(...args: Parameters<Stages['execute']>) {
       if (!stages) throw new ContractError('gameplay_owner_unavailable');
+      if (args[3]?.aborted) throw new Error('Operation aborted before execution');
       const result = await stages.execute(...args);
       return result.details.coc_error ? { ...result, isError: true } : result;
     },

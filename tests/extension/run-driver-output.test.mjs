@@ -1349,7 +1349,7 @@ test('a rejected reply remains private and preserves its original bytes for diag
  assert.deepEqual(table.extensionErrors,[]);
 });
 
-test('the real next Keeper request retains its whole native success and refusal batch under background pressure',async t=>{
+for(const parallel of [false,true])test('the real next Keeper request retains its whole native success and refusal batch under background pressure'+(parallel?' with parallel reads':''),async t=>{
   const measure=await importSource('extensions/table/context-policy.ts');
   const engine=createHybridEngine({env:{...process.env,PI_COC_JEV_PRESELECT:'0'},decision:null});
   let firstBytes=0,ceiling=0,expectedResults,expectedCalls,secondRequest,sourceBefore;
@@ -1377,7 +1377,7 @@ test('the real next Keeper request retains its whole native success and refusal 
     extraExtensions:[{name:'driver',factory:engine.extension},{name:'capture',factory:pi=>pi.events.on('coc:final-delivery',row=>seen.push(row))}],
     responses:[context=>{
       firstBytes=measure.requestSize(context.messages);
-      return fauxAssistantMessage([fauxToolCall('look',{focus:'scene'}),
+      return fauxAssistantMessage([fauxToolCall('look',{focus:parallel?'investigator':'scene'}),
         fauxToolCall('look',{focus:'npc',name:'Missing fixture person'})],{stopReason:'toolUse'});
     },context=>{secondRequest=context;return fauxAssistantMessage('{{public}}'+publicText);}]
   });
