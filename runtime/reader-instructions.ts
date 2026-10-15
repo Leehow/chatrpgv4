@@ -33,6 +33,7 @@ export async function readerInstructionText(contentRoot: string, prompt: ReaderP
 	if (!["index", "read", "verify"].includes(phase)) throw new Error("Unknown reader instruction phase");
 	const setup = join(contentRoot, "setup");
 	const single = visual && phase === "read" ? visual === "asset" ? "visual-assets.md" : visual === "scope" ? "visual-map-scope.md" : "visual-discovery.md"
+		: phase === 'read' && prompt.purpose === 'detail' && prompt.material === 'map' ? 'visual-assets.md'
 		: reference ? "source-reference-guidance.md" : answer ? "source-answer.md" : guidance ? "visual-guidance.md" : null;
 	if (single) {
 		const [common, own] = await Promise.all([readFile(join(setup, VISUAL_READER_DIR, "common.md"), "utf8"), readFile(join(setup, single), "utf8")]);

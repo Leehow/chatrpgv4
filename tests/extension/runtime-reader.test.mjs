@@ -21,7 +21,7 @@ test('single-file source instructions keep the shared capability paragraph witho
   const common = await readFile(join(ROOT,'content/setup/visual-reader/common.md'),'utf8');
   const boundary = common.split('\n## Source access\n')[0];
   for(const [prompt,file] of [[{phase:'read',visual:'scan'},'visual-discovery.md'],[{phase:'read',visual:'asset'},'visual-assets.md'],
-    [{phase:'read',visual:'scope'},'visual-map-scope.md'],[{phase:'read',reference:'guidance'},'source-reference-guidance.md'],
+    [{phase:'read',visual:'scope'},'visual-map-scope.md'],[{phase:'read',purpose:'detail',material:'map'},'visual-assets.md'],[{phase:'read',reference:'guidance'},'source-reference-guidance.md'],
     [{phase:'read',answer:true},'source-answer.md'],[{phase:'read',guidance:true},'visual-guidance.md']]){
     const text = await readerInstructionText(join(ROOT,'content'),prompt);
     const own = await readFile(join(ROOT,'content/setup',file),'utf8');
