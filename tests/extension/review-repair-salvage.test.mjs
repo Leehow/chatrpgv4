@@ -500,10 +500,12 @@ test('map repair attaches candidate-bound overlays as real files while independe
   async onRequest(request,task){
    if(request.prompt.phase==='read'){
     if(!task.visual_previews){assert.equal(request.attachments,undefined);return;}
-    assert.deepEqual(request.attachments,task.visual_previews.map(p=>p.file));
+    assert.deepEqual(request.attachments,task.visual_previews.flatMap(p=>[p.file,...(p.comparison_file?[p.comparison_file]:[])]));
     for(const preview of task.visual_previews){
      assert.match(preview.file,/^author-previews\/[a-f0-9]{64}\/map-regions-1\.png$/);
      assert.equal(createHash('sha256').update(await readFile(join(request.cwd,preview.file))).digest('hex'),preview.image_sha256);
+     assert.equal(preview.comparison_file,preview.file.replace('map-regions-1.png','map-source-1-comparison.png'),'both aids belong to the same refused candidate');
+     assert.equal((await readFile(join(request.cwd,preview.comparison_file))).toString('ascii',1,4),'PNG','the existing author receives a real comparison image');
      delivered.push(preview);
     }
    }else assert.equal(task.visual_previews,undefined,'author overlays are not independent review evidence');
