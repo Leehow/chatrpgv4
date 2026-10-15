@@ -94,6 +94,61 @@ function directTable(responses,extra={}) {
     responses,...options}).then(table=>({table,seen}));
 }
 
+for(const [form,minutes] of [['nested',4],['html',5]])test(`tagged ${form} calls settle through native Pi before the same Keeper streams prose`,async t=>{
+  const body=readFileSync(join(import.meta.dirname,'fixtures',`tagged-apply-${form}.txt`),'utf8');
+  const text='You finish waiting beside the desk. '.repeat(50);
+  let requests=0,sawResult=false,stateAtFirstDelta;
+  const {table,seen}=await directTable([()=>{requests++;return fauxAssistantMessage(body);},context=>{
+    requests++;
+    const results=context.messages.filter(row=>row.role==='toolResult'&&row.toolName==='apply');
+    assert.equal(results.length,1);
+    assert.equal(results[0].isError,false);
+    const calls=context.messages.filter(row=>row.role==='assistant').flatMap(row=>row.content).filter(row=>row.type==='toolCall'&&row.name==='apply');
+    assert.equal(calls.length,1);
+    assert.equal(results[0].toolCallId,calls[0].id);
+    sawResult=true;
+    return fauxAssistantMessage('{{public}}'+text);
+  }],{onFrame:frame=>{
+    if(frame.event==='delta'&&stateAtFirstDelta===undefined){
+      stateAtFirstDelta=JSON.parse(readFileSync(join(table.workspace,'.coc/campaigns/test-camp/world.json'),'utf8')).clock.minutes;
+    }
+  }});
+  t.after(()=>table.dispose());
+  await table.session.prompt('I wait quietly beside the desk for a few minutes.');
+  assert.equal(requests,2,'one native-call response and one public response, without a repair inference');
+  assert.ok(sawResult);
+  assert.equal(stateAtFirstDelta,minutes);
+  const turn=JSON.parse(readFileSync(join(table.workspace,'.coc/campaigns/test-camp/turns/0001.json'),'utf8'));
+  assert.equal(turn.world.clock.minutes,minutes);
+  assert.ok(turn.commit);
+  assert.equal(turn.receipts.filter(row=>row.kind==='event').length,1);
+  assert.equal(seen.filter(row=>row.event==='delta').map(row=>row.delta).join(''),text);
+  assert.ok(seen.filter(row=>row.event==='delta').length>2);
+  assert.equal(seen.at(-1)?.status,'completed');
+  assert.deepEqual(table.extensionErrors,[]);
+});
+
+for(const form of ['unknown','converted'])test(`a tagged ${form} call cannot mutate the native table or publish its parameters`,async t=>{
+  const original=readFileSync(join(import.meta.dirname,'fixtures','tagged-apply-nested.txt'),'utf8');
+  const body=form==='unknown'?original.replace('<tool_name>apply','<tool_name>unknown')
+    :original.replace('"minutes": 1','"minutes": "1"');
+  let requests=0;
+  const text='You remain beside the desk.';
+  const {table,seen}=await directTable([()=>{requests++;return fauxAssistantMessage(body);},context=>{
+    requests++;
+    assert.equal(context.messages.filter(row=>row.role==='toolResult').length,0);
+    return fauxAssistantMessage('{{public}}'+text);
+  }]);
+  t.after(()=>table.dispose());
+  await table.session.prompt('I wait beside the desk.');
+  const turn=JSON.parse(readFileSync(join(table.workspace,'.coc/campaigns/test-camp/turns/0001.json'),'utf8'));
+  assert.equal(turn.world.clock.minutes,0);
+  assert.equal(turn.receipts.filter(row=>row.kind==='event'||row.kind==='time').length,0);
+  assert.equal(requests,2,'the existing correction is the only recovery');
+  assert.equal(seen.filter(row=>row.event==='delta').map(row=>row.delta).join(''),text);
+  assert.deepEqual(table.extensionErrors,[]);
+});
+
 test('one Keeper omits a reverse speech binding and publishes valid time, inventory, notes and hearing once',async t=>{
   let authors=0,closed=false;
   const retained=mkdtempSync(join(tmpdir(),'keeper-binding-fixture-'));

@@ -1,0 +1,33 @@
+```html
+<tool_call>
+<tool_name>apply</tool_name>
+<parameter><name>effects</name>
+<parameter type="json">[
+  {
+    "kind": "time",
+    "minutes": 1
+  },
+  {
+    "kind": "time",
+    "minutes": 1
+  },
+  {
+    "kind": "time",
+    "minutes": 1
+  },
+  {
+    "kind": "time",
+    "minutes": 1
+  }
+]</parameter>
+</parameter>
+<parameter><name>event</name>
+<parameter type="json">{
+  "name": "fixture-event",
+  "summary": "A fixture interval passes.",
+  "knowledge": [],
+  "relationships": [],
+  "materials": []
+}</parameter>
+</parameter>
+</tool_call>

@@ -9,6 +9,26 @@ import {openTable, waitForIdle, customMessages, assistantTexts} from './harness.
 import {createHybridEngine} from './hybrid-engine-fixture.mjs';
 
 const prose = 'You name the address. The clerk slides the register across the counter.\n\nThe ink is still wet.';
+const tagged = ['nested','html'].map(form => readFileSync(join(import.meta.dirname,'fixtures',`tagged-apply-${form}.txt`),'utf8'));
+for (const [index,body] of tagged.entries()) test(`closed tagged apply dialect ${index+1} restores unchanged native arguments`,()=>{
+    const reading=readTextToolCalls(body,COC_TOOLS);
+    assert.equal(reading?.kind,'calls');
+    assert.equal(reading.calls.length,1);
+    assert.equal(reading.calls[0].name,'apply');
+    assert.equal(reading.calls[0].arguments.effects.length,index+4);
+    const restored=restoreTextCallList(fauxAssistantMessage(body),name=>name==='apply',COC_TOOLS);
+    assert.equal(restored?.message.stopReason,'toolUse');
+    assert.deepEqual(restored.message.content.filter(row=>row.type==='toolCall').map(({name,arguments:args})=>({name,arguments:args})),reading.calls);
+});
+test('tagged calls reject extra prose, incomplete containers, duplicate parameters, unknown and converted arguments',()=>{
+    for(const body of [tagged[0]+'\nPRIVATE_CANDIDATE',tagged[0].replace('</tool_call>',''),
+        tagged[0].replace('</tool_call>','<parameter><name>effects</name><parameter type="json">[]</parameter></parameter></tool_call>'),
+        tagged[0].replace('<tool_name>apply','<tool_name>unknown'),tagged[0].replace('"minutes": 1','"minutes": "1"'),
+        tagged[1].replace('<title>apply</title>','<script>apply</script>'),tagged[1].replace('</html>','')]) {
+        assert.equal(textToolCalls(body,COC_TOOLS),undefined);
+        assert.equal(restoreTextCallList(fauxAssistantMessage(body),()=>true,COC_TOOLS),undefined);
+    }
+});
 const envelope = JSON.stringify({narrate:{text:prose}});
 const fenced = '```json\n'+envelope+'\n```';
 const captured=JSON.parse(readFileSync(join(import.meta.dirname,'fixtures','delivery-recovery-20261006.json'),'utf8'));

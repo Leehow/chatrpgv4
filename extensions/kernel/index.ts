@@ -1474,8 +1474,9 @@ export default function (pi: ExtensionAPI, host: {capabilities?:RuntimeCapabilit
 		const restored = restoreTextualToolCalls(event.message as any, name => active.includes(name));
 		const message = event.message as any;
 		if (!restored) {
-			// §160.4.1: setup has no table, so a reply whose whole text is a call list is restored here, and Pi answers each call.
-			const list = cocMode() === "setup" ? restoreTextCallList(message, name => active.includes(name)) : undefined;
+			// Restore complete call bodies before final decoding; play retains unchanged closed-schema validation.
+			const list = cocMode() === "setup" ? restoreTextCallList(message, name => active.includes(name))
+				: singleKeeper ? restoreTextCallList(message, name => active.includes(name), COC_TOOLS) : undefined;
 			if (!list) return undefined;
 			void record({ lane: "model-output", event: "text_call_list", restored: list.restored, forms: list.forms,
 				provider: message?.provider ?? null, model: message?.model ?? null, stop_reason: message?.stopReason ?? null });

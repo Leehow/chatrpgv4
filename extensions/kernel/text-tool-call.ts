@@ -6,6 +6,7 @@
  * non-empty array of envelopes. An envelope is `{"<tool>": {arguments}}`, `{"name": "<tool>", "arguments": ...}` or
  * `{"name": "<tool>", "parameters": ...}`. Every envelope must name an offered tool and validate unchanged against its
  * closed schema, or nothing is routed; a body of this form that cannot be routed is still a call list, not prose.
+ * Closed tagged parameter spellings share this reader; they never enter a separate execution path.
  */
 import {randomUUID} from 'node:crypto';
 import {validateToolArguments} from '@earendil-works/pi-ai';
@@ -90,8 +91,60 @@ function route(found: Envelope, tools: typeof COC_TOOLS): {call: Call} | {error:
 const FENCE = /```(?:json)?[ \t]*\n([\s\S]*?)\n[ \t]*```/g;
 const LABEL = /^([A-Za-z_][A-Za-z0-9_.-]*):\s*/;
 
+/** Closed tagged call syntax only. Markup never becomes public text or an executable document. */
+function taggedCalls(text: string): Envelope[] | undefined {
+    let body = text.trim();
+    const fence = /^```html[ \t]*\r?\n/.exec(body);
+    if (fence) {
+        body = body.slice(fence[0].length).trim();
+        body = body.replace(/\r?\n[ \t]*```$/, '').trim();
+    }
+    if (body.startsWith('<!DOCTYPE html>')) body = body.slice('<!DOCTYPE html>'.length).trim();
+    if (body.startsWith('<html>')) {
+        const document = /^<html>\s*<head>\s*(?:<meta charset="UTF-8">\s*)?<title>[^<>]*<\/title>\s*<\/head>\s*<body>([\s\S]*)<\/body>\s*<\/html>$/.exec(body);
+        if (!document) return;
+        body = document[1].trim();
+    }
+    const take = (pattern: RegExp): RegExpExecArray | undefined => {
+        const match = pattern.exec(body);
+        if (!match) return;
+        body = body.slice(match[0].length).trimStart();
+        return match;
+    };
+    const found: Envelope[] = [];
+    while (take(/^<tool_call>\s*/)) {
+        const wrapped = !!take(/^<function_call>\s*/);
+        const name = take(wrapped ? /^<name>([A-Za-z_][\w-]*)<\/name>\s*/ : /^<tool_name>([A-Za-z_][\w-]*)<\/tool_name>\s*/)?.[1];
+        if (!name) return;
+        const args: Record<string, unknown> = Object.create(null);
+        while (!body.startsWith(wrapped ? '</function_call>' : '</tool_call>')) {
+            const parameter = take(wrapped ? /^<parameter name="([A-Za-z_][\w-]*)">\s*/
+                : /^<parameter>\s*<name>([A-Za-z_][\w-]*)<\/name>\s*<parameter type="json">\s*/)?.[1];
+            if (!parameter || Object.hasOwn(args, parameter)) return;
+            // Try complete JSON prefixes, so a tag inside a JSON string cannot terminate a value.
+            let end = body.indexOf('</parameter>'), parsed = false;
+            while (end !== -1) {
+                try {
+                    args[parameter] = JSON.parse(body.slice(0, end));
+                    body = body.slice(end + '</parameter>'.length).trimStart();
+                    parsed = true;
+                    break;
+                } catch { end = body.indexOf('</parameter>', end + 1); }
+            }
+            if (!parsed || (!wrapped && !take(/^<\/parameter>\s*/))) return;
+        }
+        if (wrapped && !take(/^<\/function_call>\s*/)) return;
+        if (!take(/^<\/tool_call>\s*/)) return;
+        found.push({name, args: {...args}, form: {label: null, array: false, key: 'parameters'}});
+    }
+    if (body.trim() || !found.length) return;
+    return found;
+}
+
 /** The envelopes a complete assistant text body is, in written order, or `undefined` when it is not only a call list. */
 function textCallList(text: string): Envelope[] | undefined {
+    const tagged = taggedCalls(text);
+    if (tagged) return tagged;
     let body = text.trim();
     const label = LABEL.exec(body);
     if (label) body = body.slice(label[0].length);
@@ -149,14 +202,14 @@ export function textToolCallFix(envelopes: Array<{tool: string; error?: string}>
 type Block = {type: string; text?: string; [key: string]: unknown};
 
 /**
- * Setup's reading (§160.4.1): a message whose whole text is a call list naming only active tools, with no call of its
+ * Complete-call restoration (§160.4.1, §237.79): a message whose whole text is a call list naming only active tools, with no call of its
  * own, carries those calls in written order in place of its text, and `stop` becomes `toolUse`, as §160.3 restores its
- * calls. The arguments are not validated here: Pi answers each restored call as it answers a native one. `undefined`
+ * calls. Setup retains native Pi validation; play supplies tools to require unchanged closed-schema arguments first. `undefined`
  * when the message is not such a list. A name that is not an active tool (a bare arguments object such as
  * `{"profile": {...}}` reads as one) leaves the message as it was, as §160.3 does.
  */
 export function restoreTextCallList<T extends {role?: string; content?: unknown; stopReason?: string}>(message: T,
-    isTool: (name: string) => boolean): {message: T; restored: string[]; forms: TextCallForm[]} | undefined {
+    isTool: (name: string) => boolean, tools?: typeof COC_TOOLS): {message: T; restored: string[]; forms: TextCallForm[]} | undefined {
     if (message?.role !== 'assistant' || !Array.isArray(message.content)) return;
     if (['error', 'aborted', 'length'].includes(String(message.stopReason))) return;
     const blocks = message.content as Block[];
@@ -164,6 +217,7 @@ export function restoreTextCallList<T extends {role?: string; content?: unknown;
     const text = blocks.filter(block => block?.type === 'text').map(block => String(block.text ?? '')).join('');
     const found = text.trim() ? textCallList(text) : undefined;
     if (!found || !found.every(item => !item.error && isTool(item.name))) return;
+    if (tools && found.some(item => 'error' in route(item, tools))) return;
     const calls = found.map(item => ({type: 'toolCall', id: `textcall_${randomUUID().replace(/-/g, '').slice(0, 24)}`, name: item.name,
         arguments: isObject(item.args) ? item.args : {}}));
     return {

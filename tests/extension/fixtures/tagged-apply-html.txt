@@ -1,0 +1,44 @@
+```html
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="UTF-8">
+<title>apply</title>
+</head>
+<body>
+<tool_call>
+<function_call>
+<name>apply</name>
+<parameter name="effects">[
+  {
+    "kind": "time",
+    "minutes": 1
+  },
+  {
+    "kind": "time",
+    "minutes": 1
+  },
+  {
+    "kind": "time",
+    "minutes": 1
+  },
+  {
+    "kind": "time",
+    "minutes": 1
+  },
+  {
+    "kind": "time",
+    "minutes": 1
+  }
+]</parameter>
+<parameter name="event">{
+  "name": "fixture-event",
+  "summary": "A fixture interval passes.",
+  "knowledge": [],
+  "materials": [],
+  "relationships": []
+}</parameter>
+</function_call>
+</tool_call>
+</body>
+</html>
