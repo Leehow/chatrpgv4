@@ -386,3 +386,21 @@ test('§160.4.1 through a real setup process: the recorded reply runs setup star
     assert.ok(shown(table).includes('Which book would you like to play?'));
     assert.deepEqual(table.entries('coc-telemetry').filter(row=>row.event==='text_call_list').map(row=>row.restored),[['setup']]);
 });
+
+const parameterDialects = ['paired', 'attributed'];
+function parameterCall(form, args) {
+    return '```html\n<tool_call><tool_name>apply</tool_name>' + Object.entries(args).map(([key,value]) => form === 'paired'
+        ? '<parameter_name>'+key+'</parameter_name><parameter_value>'+JSON.stringify(value)+'</parameter_value>'
+        : '<parameter name="'+key+'">'+JSON.stringify(value)+'</parameter>').join('') + '</tool_call>';
+}
+
+for (const form of parameterDialects) test('tagged tool-name '+form+' parameters preserve JSON and reject invalid envelopes',()=>{
+    const args={effects:[{kind:'time',minutes:8}],event:{name:'Wait',summary:'A literal </parameter_value></parameter> remains argument data.'}};
+    const body=parameterCall(form,args);
+    assert.deepEqual(textToolCalls(body,COC_TOOLS),[{name:'apply',arguments:args}]);
+    for (const invalid of [body+'\nPublic prose',body.replace('</tool_call>',''),
+        body.replace('</tool_call>',parameterCall(form,{effects:[]}).split('</tool_name>')[1]),
+        parameterCall(form,{...args,extra:true}),parameterCall(form,{...args,effects:[{kind:'time',minutes:'8'}]}),
+        body.replace('<tool_name>apply','<tool_name>unknown')])
+        assert.equal(textToolCalls(invalid,COC_TOOLS),undefined);
+});

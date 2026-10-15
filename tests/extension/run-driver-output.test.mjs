@@ -1477,3 +1477,38 @@ for(const parallel of [false,true])test('the real next Keeper request retains it
   assert.equal(seen.filter(row=>row.event==='delta').map(row=>row.delta).join(''),publicText);
   assert(!JSON.stringify(seen).includes('PRIVATE_REFRESHED_BACKGROUND'));assert.deepEqual(table.extensionErrors,[]);assert.equal(table.telemetry().filter(row=>row.lane==='provider-call').length,2);
 });
+
+const parameterDialects = ['paired', 'attributed'];
+function parameterCall(form, args) {
+    return '```html\n<tool_call><tool_name>apply</tool_name>' + Object.entries(args).map(([key,value]) => form === 'paired'
+        ? '<parameter_name>'+key+'</parameter_name><parameter_value>'+JSON.stringify(value)+'</parameter_value>'
+        : '<parameter name="'+key+'">'+JSON.stringify(value)+'</parameter>').join('') + '</tool_call>';
+}
+
+for (const form of parameterDialects) test('tagged tool-name '+form+' settles before native final framing',async t=>{
+    let requests=0,stateAtFirstDelta;
+    const text='You finish waiting beside the desk. '.repeat(10);
+    const {table,seen}=await directTable([()=>{requests++;return fauxAssistantMessage(parameterCall(form,
+        {effects:[{kind:'time',minutes:8}],event:{name:'Wait',summary:'The visitor waited eight minutes.'}}));},context=>{
+        requests++;
+        const results=context.messages.filter(row=>row.role==='toolResult'&&row.toolName==='apply');
+        assert.equal(results.length,1,'the serialized call executes through native Pi');
+        assert.equal(results[0].isError,false);
+        return fauxAssistantMessage('{{public}}'+text);
+    }],{onFrame:frame=>{if(frame.event==='delta'&&stateAtFirstDelta===undefined)
+        stateAtFirstDelta=JSON.parse(readFileSync(join(table.workspace,'.coc/campaigns/test-camp/world.json'),'utf8')).clock.minutes;}});
+    t.after(()=>table.dispose());
+    await table.session.prompt('I wait eight minutes beside the desk.');
+    assert.equal(requests,2);
+    assert.equal(stateAtFirstDelta,8);
+    const turn=JSON.parse(readFileSync(join(table.workspace,'.coc/campaigns/test-camp/turns/0001.json'),'utf8'));
+    assert.ok(turn.commit);
+    assert.equal(turn.receipts.filter(row=>row.kind==='time').length,1);
+    assert.equal(turn.receipts.filter(row=>row.kind==='event').length,1);
+    assert.equal(seen.filter(row=>row.event==='delta').map(row=>row.delta).join(''),text);
+    assert.ok(seen.filter(row=>row.event==='delta').length>2);
+    assert.equal(seen.at(-1)?.status,'completed');
+    assert.equal(table.telemetry().filter(row=>row.lane==='keeper-delivery'&&row.ok===false).length,0);
+    assert.equal(table.telemetry().filter(row=>row.lane==='final-output'&&row.event==='start').length,0);
+    assert.deepEqual(table.extensionErrors,[]);
+});

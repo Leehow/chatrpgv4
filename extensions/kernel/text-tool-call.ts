@@ -118,20 +118,25 @@ function taggedCalls(text: string): Envelope[] | undefined {
         if (!name) return;
         const args: Record<string, unknown> = Object.create(null);
         while (!body.startsWith(wrapped ? '</function_call>' : '</tool_call>')) {
-            const parameter = take(wrapped ? /^<parameter name="([A-Za-z_][\w-]*)">\s*/
-                : /^<parameter>\s*<name>([A-Za-z_][\w-]*)<\/name>\s*<parameter type="json">\s*/)?.[1];
+            const attributed = take(/^<parameter name="([A-Za-z_][\w-]*)">\s*/);
+            const paired = !wrapped && !attributed
+                ? take(/^<parameter_name>([A-Za-z_][\w-]*)<\/parameter_name>\s*<parameter_value>\s*/) : undefined;
+            const nested = !wrapped && !attributed && !paired
+                ? take(/^<parameter>\s*<name>([A-Za-z_][\w-]*)<\/name>\s*<parameter type="json">\s*/) : undefined;
+            const parameter = (attributed ?? paired ?? nested)?.[1];
             if (!parameter || Object.hasOwn(args, parameter)) return;
             // Try complete JSON prefixes, so a tag inside a JSON string cannot terminate a value.
-            let end = body.indexOf('</parameter>'), parsed = false;
+            const close = paired ? '</parameter_value>' : '</parameter>';
+            let end = body.indexOf(close), parsed = false;
             while (end !== -1) {
                 try {
                     args[parameter] = JSON.parse(body.slice(0, end));
-                    body = body.slice(end + '</parameter>'.length).trimStart();
+                    body = body.slice(end + close.length).trimStart();
                     parsed = true;
                     break;
-                } catch { end = body.indexOf('</parameter>', end + 1); }
+                } catch { end = body.indexOf(close, end + 1); }
             }
-            if (!parsed || (!wrapped && !take(/^<\/parameter>\s*/))) return;
+            if (!parsed || (nested && !take(/^<\/parameter>\s*/))) return;
         }
         if (wrapped && !take(/^<\/function_call>\s*/)) return;
         if (!take(/^<\/tool_call>\s*/)) return;
