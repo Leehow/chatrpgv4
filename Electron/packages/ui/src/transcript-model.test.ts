@@ -1,7 +1,33 @@
 import { describe, expect, it, vi } from 'vitest'
-import { appendLiveUserMessage, applySecretRedact, applyStreamEvent, assistantEndedAwaitingModel, assistantLooksSettled, finishStreamingMessage, historyMessages, PENDING_THINKING_ID, planTranscriptSegments, reconcileHistorySnapshot, reopenAssistantForNextCompletion, safeHttpsFileUrl, type ChatMessage } from './transcript-model'
+import { appendLiveUserMessage, applySecretRedact, applyStreamEvent, assistantEndedAwaitingModel, assistantLooksSettled, finishStreamingMessage, foldMarkedDeliveries, historyMessages, PENDING_THINKING_ID, planTranscriptSegments, reconcileHistorySnapshot, reopenAssistantForNextCompletion, safeHttpsFileUrl, type ChatMessage } from './transcript-model'
 
 describe('transcript model', () => {
+  it.each(['stream', 'canonical'])('ends trailing process display after completed %s prose without changing its source records', kind => {
+    const activity = (id: string): ChatMessage => ({ id, role: 'assistant', content: '', thinking: id,
+      tools: [{ id: `tool-${id}`, name: 'look', input: '{}', result: 'done', startedAt: 1, finished: true }] });
+    const body: ChatMessage = { id: 'body', role: 'assistant', content: '', presentation: kind === 'stream'
+      ? { renderer: 'coc-stream', details: { status: 'completed', chunks: ['Delivered prose.'] } }
+      : { renderer: 'coc-mechanics', details: { final_stream_id: 'd', marked_text: 'Delivered prose.', mechanics: [] } } };
+    const before=activity('before'),after=activity('after'),next=activity('next');
+    const messages: ChatMessage[] = [{id:'u',role:'user',content:'Act.'},before,body,after,
+      {id:'dice',role:'assistant',content:'',presentation:{renderer:'coc-mechanics',details:{mechanics:[{kind:'time',minutes:5}]}}},
+      {id:'notice',role:'assistant',content:'A service notice.',placedByHost:true},
+      {id:'u2',role:'user',content:'Continue.'},next];
+    expect(foldMarkedDeliveries(messages).map(message=>message.id)).toEqual(['u','before','body','dice','notice','u2','next']);
+    expect(after.thinking).toBe('after');
+    expect(after.tools).toHaveLength(1);
+    expect(messages).toHaveLength(8);
+  });
+
+  it.each(['streaming', 'interrupted'])('retains process steps after %s or empty output and in a console', status => {
+    const after: ChatMessage = {id:'after',role:'assistant',content:'',thinking:'Original thought'};
+    for(const body of [
+      {id:'body',role:'assistant' as const,content:'',presentation:{renderer:'coc-stream',details:{status,chunks:['Partial prose.']}}},
+      {id:'empty',role:'assistant' as const,content:'',presentation:{renderer:'coc-stream',details:{status:'completed',chunks:[]}}},
+      {id:'console',role:'assistant' as const,content:'Console answer.'},
+    ]) expect(foldMarkedDeliveries([body,after])).toEqual([body,after]);
+  });
+
   it('copies user history images onto ChatMessage without rewriting content', () => {
     const messages = historyMessages([
       { id: 'user-img', role: 'user', content: '看图', timestamp: 1, images: [{ data: 'abc123', mimeType: 'image/png' }] },

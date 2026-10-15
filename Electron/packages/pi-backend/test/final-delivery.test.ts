@@ -79,11 +79,12 @@ it('forwards real delivery frames immediately and restores one interrupted prefi
     for(let at=0;at<100&&!(backend as any).live.get('s1');at++)await new Promise(resolve=>setTimeout(resolve,10));
     const live=(backend as any).live.get('s1');
     for(const type of ['text_delta','thinking_delta','toolcall_delta'])
-      (backend as any).rpcEvent(live,{type:'message_update',assistantMessageEvent:{type,contentIndex:0,delta:'HIDDEN_CONTROL_RECORD'}});
+      (backend as any).rpcEvent(live,{type:'message_update',assistantMessageEvent:{type,contentIndex:0,delta:type==='thinking_delta'?'ORIGINAL_THINKING':'HIDDEN_CONTROL_RECORD'}});
     (backend as any).rpcEvent(live,{type:'tool_execution_end',toolCallId:'private-tool',result:{content:[{type:'text',text:'HIDDEN_TOOL_RESULT'}],details:{secret:'HIDDEN_TOOL_DETAILS'}}});
     expect(JSON.stringify(publicFrames)).not.toContain('HIDDEN_');
+    expect(publicFrames.some(frame=>frame.type==='thinking'&&frame.delta==='ORIGINAL_THINKING')).toBe(true);
     const privateRow={type:'message',id:'private-row',parentId:'binding',message:{role:'assistant',content:[
-      {type:'text',text:'HIDDEN_CONTROL_RECORD'},{type:'thinking',thinking:'HIDDEN_THOUGHT'},
+      {type:'text',text:'HIDDEN_CONTROL_RECORD'},{type:'thinking',thinking:'ORIGINAL_THOUGHT'},
       {type:'toolCall',id:'private-tool',name:'apply',arguments:{secret:'HIDDEN_ARGUMENT'}}]}};
     await appendFile(file,JSON.stringify(privateRow)+'\n');
     await appendFile(file,JSON.stringify({type:'compaction',id:'private-compaction',parentId:'private-row',summary:'HIDDEN_COMPACTION',firstKeptEntryId:'binding',tokensBefore:1000})+'\n');
@@ -97,6 +98,7 @@ it('forwards real delivery frames immediately and restores one interrupted prefi
     }
     const history=await backend.handle('getSessionHistory',['s1',0,50]) as any[];
     expect(JSON.stringify(history)).not.toContain('HIDDEN_');
+    expect(history.find(row=>row.id==='private-row')?.thinking).toBe('ORIGINAL_THOUGHT');
     const entries=history.filter(row=>row.presentation?.renderer==='coc-stream');
     expect(entries).toHaveLength(1);
     expect(entries[0].id).toBe('coc-final:delivery');

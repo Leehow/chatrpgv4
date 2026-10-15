@@ -288,12 +288,22 @@ export function foldMarkedDeliveries(messages: readonly ChatMessage[]): ChatMess
       if (typeof marked === 'string' && marked) drawn.add(withoutMechanicsMarkers(marked))
     }
   }
-  if (!drawn.size) return messages as ChatMessage[]
-  return messages.filter(message =>
-    message.presentation
-    || message.role !== 'assistant'
-    || !message.content
-    || !drawn.has(message.content.trim()))
+  let delivered = false
+  const visible = messages.filter(message => {
+    if (message.role === 'user') delivered = false
+    const details = message.presentation?.details as Record<string, unknown> | undefined
+    const marked = details?.marked_text || details?.rendered_text
+    if (message.presentation?.renderer === 'coc-stream' && details?.status === 'completed'
+      && Array.isArray(details.chunks) && details.chunks.some(chunk => typeof chunk === 'string' && chunk.trim())) delivered = true
+    if (message.presentation?.renderer === 'coc-mechanics' && details?.final_stream_id
+      && typeof marked === 'string' && withoutMechanicsMarkers(marked).trim()) delivered = true
+    // Close only the display below delivered prose; retain original process records and earlier cards.
+    if (delivered && message.role === 'assistant' && !message.presentation && !message.content
+      && !message.error && !message.placedByHost
+      && (message.thinking || message.tools?.length || message.activities?.some(activity => activity.type !== 'text'))) return false
+    return Boolean(message.presentation || message.role !== 'assistant' || !message.content || !drawn.has(message.content.trim()))
+  })
+  return visible.length === messages.length ? messages as ChatMessage[] : visible
 }
 
 /**
