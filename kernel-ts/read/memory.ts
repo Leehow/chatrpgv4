@@ -98,7 +98,13 @@ export class EntityIndex {
         for (const sheet of options.investigators === false ? [] : this.party)
             if ([normalize(sheet.id), normalize(sheet.name)].includes(key))
                 found.push(`investigator:${string(sheet.id)}`);
-        for (const id of sorted(this.graph.names.get(key) ?? [])) {
+        const kinds = [...(options.kinds ?? ["npc", "scene", "clue"])];
+        const named = sorted(this.graph.names.get(key) ?? []);
+        const resolved = named.length > 1 ? this.graph.find(name, kinds) : undefined;
+        // Reuse the graph's current/exact-handle priority; a source alias cannot steal it.
+        const graphIds = resolved && normalize(this.graph.handle(resolved)) === key
+            ? [string(resolved.node_id)] : named;
+        for (const id of graphIds) {
             const node = this.graph.nodes.get(id)!;
             if ((options.kinds ?? ["npc", "scene", "clue"]).includes(node.node_kind) && (this.allowed === null || this.allowed.includes(id)))
                 found.push(`${node.node_kind}:${id}`);
