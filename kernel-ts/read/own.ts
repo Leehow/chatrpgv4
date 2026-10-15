@@ -57,6 +57,7 @@ export function ownSection(sheet: Row | undefined, records: readonly Row[], wind
     if(documents.length){
         section.documents=documents.slice(0,4).map(document=>({name:document.name,revision:document.revision,text:chars(document.text,200),
             cut:document.truncated===true||length(document.text)>200,open:document.open,
+            ...(text(document.owner)?{owner:document.owner,append:{kind:'object',name:document.name,from:document.owner,to:document.owner,document:{action:'append'}}}:{}),
             next:'Focused reading: look object with document_query for exact words, or document_page 1 for meaning; follow next at its revision. NPC reading still needs show/observe receipts.',
             marks:(document.marks??[]).slice(-1).map((mark:Row)=>({method:mark.method,legibility:mark.legibility,description:chars(mark.description,80)}))}));
         section.document_authority='Current writing wins over historical words. A remembered fact is not automatically written on a page.';

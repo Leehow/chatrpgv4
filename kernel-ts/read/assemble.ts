@@ -659,7 +659,7 @@ export async function buildCapsule(campaign: CampaignSnapshot, module: LoadedMod
         // §179.2: the card's own words and the player's, hung on the investigator rather than on who is present.
         // `ownSection` keeps it within OWN_BUDGET itself (earliest and latest words), so no generic fit below touches
         // it; a table without an investigator has no such section.
-        ...(party.length ? { own: ownSection(party[0], told, shown.map(record => number(record.turn)), OWN_BUDGET,currentOwnedDocuments(world,string(party[0].id))) } : {}),
+        ...(party.length ? { own: ownSection(party[0], told, shown.map(record => number(record.turn)), OWN_BUDGET,currentOwnedDocuments(world,party[0])) } : {}),
         // §158.4: what the player was told and the ledger still lacks; the clerk lands it first, the Keeper never re-tells it.
         owed: capsuleOwed(graph, world, campaign.jsonFiles.get("owed.json"), party),
         warnings: capsuleWarnings(campaign.records, warningRecord, number(turn.turn)),

@@ -15,9 +15,10 @@ export function readableWriting(world:Row,item:Row):string {
     return [text,...marks.map(mark=>mark.writing)].filter(value=>value.length).join('\n');
 }
 
-export function currentOwnedDocuments(world:Row,actor:string):Row[] {
+export function currentOwnedDocuments(world:Row,actor:Row):Row[] {
     return values(row(row(world.objects).instances)).filter(item=>item.document&&!item.document.image&&rootObjectOwner(world,item).kind==='investigator'
-        &&rootObjectOwner(world,item).id===actor).map(item=>({name:item.name,revision:row(item.document).revision,
+        &&rootObjectOwner(world,item).id===actor.id).map(item=>({name:item.name,revision:row(item.document).revision,
+            owner:row(item.owner).kind==='investigator'?actor.name:row(row(row(world.objects).instances)[string(row(item.owner).id)]).name,
             text:chars(row(item.document).text,400),truncated:string(row(item.document).text).length>400,
             open:documentSurface(world,item).open===true,
             marks:array(documentSurface(world,item).marks).slice(-3).map(mark=>({method:mark.method,description:mark.description,

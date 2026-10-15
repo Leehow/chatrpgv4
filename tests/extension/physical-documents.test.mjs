@@ -3,7 +3,7 @@ import {test} from 'node:test';
 import assert from 'node:assert/strict';
 import {readFile,writeFile} from 'node:fs/promises';
 import {join} from 'node:path';
-import {table} from './object-usages-fixture.mjs';
+import {table,api,root} from './object-usages-fixture.mjs';
 
 async function paper(t){
   const game=await table(t),sheet=JSON.parse(await readFile(game.sheetPath,'utf8'));
@@ -26,6 +26,37 @@ async function paper(t){
   const request=async text=>{const value=await view();return game.call('mods.document.request',{actor:game.sheet.id,name:value.name,version:value.version,action:'save',text});};
   return {...game,apply,doc,view,next,request};
 }
+
+test('the owned document row supplies a working append route after crowded inventory and nested ownership',async t=>{
+  const game=await paper(t);
+  await game.apply(Array.from({length:25},(_,index)=>({kind:'object',name:`Frame ${index}`,definition:'Chair frame',to:game.sheet.name})));
+  for(const holder of [game.sheet.name,'Study chair']){
+    if(holder!==game.sheet.name)await game.apply([{kind:'object',name:'Pocket notebook',from:game.sheet.name,to:holder}]);
+    const capsule=await game.call('table.capsule'),entry=capsule.own.documents.find(value=>value.name==='Pocket notebook');
+    assert.ok(entry,'the old owned document is still discoverable');
+    assert.equal(entry.owner,holder);
+    assert.deepEqual(entry.append,{kind:'object',name:'Pocket notebook',from:holder,to:holder,document:{action:'append'}});
+    const before=await game.view(),suffix=`Recorded while held by ${holder}.\n`;
+    const effect={...entry.append,document:{...entry.append.document,text:suffix},why:'The investigator writes the selected observation with their pencil.'};
+    await assert.rejects(game.apply([{...effect,from:'Steven Knott'}]),error=>error.code==='invalid_params');
+    assert.equal((await game.view()).text,before.text);
+    await game.apply([effect]);
+    const after=await game.view();
+    assert.equal(after.text,before.text+suffix);
+    assert.equal((await game.call('table.capsule')).own.documents.find(value=>value.name==='Pocket notebook').revision,entry.revision+1);
+    const world=await game.world(),item=Object.values(world.objects.instances).find(value=>value.name==='Pocket notebook');
+    assert.equal(item.document.text,after.text,'the same carrier is persisted');
+    const receipts=(await game.call('table.status')).receipts;
+    assert.ok(receipts.some(value=>value.kind==='definition'&&value.name==='Pocket notebook'&&value.writing_result?.operation==='append'),'writing has a kernel receipt');
+  }
+  const context=await api.createKernelContext({workspace:game.home,content:join(root,'content'),seed:'usage-rpc',locks:api.createAdvisoryLocks(async()=>{}),
+    env:{...process.env,GIT_CONFIG_GLOBAL:'/dev/null',GIT_CONFIG_NOSYSTEM:'1'}});
+  const restarted=api.createKernelRuntime(context);t.after(()=>restarted.close());
+  const persisted=await restarted.handlers['mods.document.view']({campaign:'c1',actor:game.sheet.id,name:'Pocket notebook'});
+  assert.equal(persisted.text,(await game.view()).text);
+  const entry=(await restarted.handlers['table.capsule']({campaign:'c1'})).own.documents[0];
+  assert.equal(entry.append.from,'Study chair');
+});
 
 test('story append reaches the same current paper and an unshown NPC cannot acquire its writing',async t=>{
   const game=await paper(t);
