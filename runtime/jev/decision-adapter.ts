@@ -2,7 +2,7 @@
 import { ContractError, bindDecisionAnswers, isPlainRecord, probabilityMassValid, type DecisionBatch, type DecisionResult } from './contracts.ts';
 import type { DecisionPort } from './decision-port.ts';
 import type { TaskLease } from './task-context.ts';
-import { JEV_MODEL, PackingError, packDecisionBatch, type PackingEstimate } from './question-packing.ts';
+import { JEV_IMAGE_HEADER, JEV_LONG_CONTEXT_HEADER, PackingError, packDecisionBatch, type PackingEstimate } from './question-packing.ts';
 import { readJevApiKey } from '../../extensions/jev/agent/config.js';
 
 export const JEV_ENDPOINT = 'https://api.typesafe.ai/v1/systemone';
@@ -220,9 +220,9 @@ function retryDelay(response: Response, fallback: number, now: number): number {
 function nonnegativeInteger(value: unknown): value is number {
   return typeof value === 'number' && Number.isSafeInteger(value) && value >= 0;
 }
-function strictEnvelope(raw: unknown): raw is { model: string; answers: Record<string, unknown>; usage: { input_tokens: number; output_tokens: number } } {
+function strictEnvelope(raw: unknown, model: string): raw is { model: string; answers: Record<string, unknown>; usage: { input_tokens: number; output_tokens: number } } {
   return isPlainRecord(raw) && Object.keys(raw).length === 3 && Object.keys(raw).every(key => ['model', 'answers', 'usage'].includes(key))
-    && raw.model === JEV_MODEL && isPlainRecord(raw.answers) && isPlainRecord(raw.usage)
+    && raw.model === model && isPlainRecord(raw.answers) && isPlainRecord(raw.usage)
     && Object.keys(raw.usage).length === 2 && Object.keys(raw.usage).every(key => ['input_tokens', 'output_tokens'].includes(key))
     && nonnegativeInteger(raw.usage.input_tokens) && nonnegativeInteger(raw.usage.output_tokens);
 }
@@ -233,6 +233,9 @@ function vendorAnswer(question: DecisionBatch['questions'][number], value: unkno
     && typeof value.choice === 'string' && typeof value.confidence === 'number' && isPlainRecord(value.probabilities);
   if (question.type === 'noul') return Object.keys(value).length === 2
     && Object.keys(value).every(key => ['type', 'noul'].includes(key)) && typeof value.noul === 'number';
+  if (question.type === 'box') return Object.keys(value).length === 3
+    && Object.keys(value).every(key => ['type', 'box', 'confidence'].includes(key))
+    && isPlainRecord(value.box) && typeof value.confidence === 'number';
   return Object.keys(value).length === 5
     && Object.keys(value).every(key => ['type', 'score', 'confidence', 'legend', 'probabilities'].includes(key))
     && typeof value.score === 'number' && typeof value.confidence === 'number'
@@ -251,10 +254,13 @@ function answerSchemaDiagnostics(batch: DecisionBatch, raw: Record<string, unkno
     const answer: Record<string, unknown> | undefined = isPlainRecord(candidate) ? candidate : undefined;
     const fieldNames = answer ? Object.keys(answer).sort() : [];
     const expectedKeys = question.type === 'choice' ? Object.keys(question.criteria)
-      : question.type === 'score' ? question.criteria.map((_, index) => String(index)) : ['noul'];
+      : question.type === 'score' ? question.criteria.map((_, index) => String(index))
+      : question.type === 'box' ? ['left', 'top', 'right', 'bottom'] : ['noul'];
     let actualKeys: string[] = [], values: unknown[] = [];
     if (question.type === 'noul') {
       if (answer && Object.hasOwn(answer, 'noul')) { actualKeys = ['noul']; values = [answer.noul]; }
+    } else if (question.type === 'box') {
+      if (answer && isPlainRecord(answer.box)) {actualKeys = Object.keys(answer.box); values = Object.values(answer.box);}
     } else {
       const probabilities: Record<string, unknown> | undefined = answer && isPlainRecord(answer.probabilities) ? answer.probabilities : undefined;
       if (probabilities) {
@@ -277,7 +283,7 @@ function answerSchemaDiagnostics(batch: DecisionBatch, raw: Record<string, unkno
       missingProbabilityKeyCount,
       extraProbabilityKeyCount,
       probabilitySum,
-      probabilitySumValid: question.type === 'noul' ? null
+      probabilitySumValid: question.type === 'noul' || question.type === 'box' ? null
         : numeric && probabilityMassValid(values as number[]),
       probabilityRangeValid,
     };
@@ -368,7 +374,9 @@ export function createDecisionAdapter(options: DecisionAdapterOptions = {}): Dec
             attempted = attempt;
             const body = JSON.stringify(packed.request);
             response = await hedgedSend(signal => fetcher(JEV_ENDPOINT, { method: 'POST', redirect: 'error', signal,
-              headers: { Authorization: `Bearer ${apiKey}`, 'Content-Type': 'application/json' }, body }), attemptSignal, retry.hedgeAfterMs, () => {
+              headers: { Authorization: `Bearer ${apiKey}`, 'Content-Type': 'application/json',
+                ...(batch.assets ? {[JEV_IMAGE_HEADER]: 'true'} : {}),
+                ...(batch.longContext ? {[JEV_LONG_CONTEXT_HEADER]: 'true'} : {}) }, body }), attemptSignal, retry.hedgeAfterMs, () => {
               hedges += 1;
               trace({ kind: 'retry', batchId: batch.id, attempt, delayMs: retry.hedgeAfterMs!, reason: 'hedge' });
             });
@@ -413,7 +421,7 @@ export function createDecisionAdapter(options: DecisionAdapterOptions = {}): Dec
           try { raw = await response.json(); } catch { return settleUnknown('schema_error', false, attempt); }
           try { attemptSignal.throwIfAborted(); lease.assertActive(); }
           catch { return settleUnknown(now() >= lease.context.budget.deadlineAt ? 'timeout' : 'cancelled', false, attempt); }
-          if (!strictEnvelope(raw)) return settleUnknown('schema_error', false, attempt);
+          if (!strictEnvelope(raw, batch.model)) return settleUnknown('schema_error', false, attempt);
           const costUsd = raw.usage.input_tokens * JEV_INPUT_USD_PER_MILLION / 1_000_000;
           const priorUnknownInput = packed.estimate.totalUpperBound * (attempt - 1 + hedges);
           const priorUnknownOutput = outputPerAttemptBound * (attempt - 1 + hedges);

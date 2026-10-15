@@ -90,7 +90,10 @@ export type DecisionQuestion = QuestionBase & (
   | { type: 'choice'; criteria: Record<string, DecisionDescriptor> }
   | { type: 'noul'; criteria?: { true: DecisionDescriptor; false: DecisionDescriptor } }
   | { type: 'score'; criteria: DecisionDescriptor[] }
+  | { type: 'box' }
 );
+/** Host-created assets; dimensions describe the encoded pixels, not PDF points. */
+export interface DecisionImage { type: 'image'; format: 'png' | 'jpg'; data_base64: string; width: number; height: number }
 export interface DecisionBatch {
   id: string;
   model: string;
@@ -100,12 +103,15 @@ export interface DecisionBatch {
   readSet: ReadSet;
   state: Json;
   questions: DecisionQuestion[];
+  assets?: Record<string, DecisionImage>;
+  longContext?: boolean;
 }
 export interface DecisionUsage { inputTokens: number; outputTokens: number; costUsd?: number }
 export type DecisionAnswer =
   | { status: 'answered'; type: 'choice'; choice: string; confidence?: number; probabilities?: Record<string, number> }
   | { status: 'answered'; type: 'noul'; noul: number }
   | { status: 'answered'; type: 'score'; score: number; confidence: number; legend: Record<string, DecisionDescriptor>; probabilities: Record<string, number> }
+  | { status: 'answered'; type: 'box'; box: {left: number; top: number; right: number; bottom: number}; confidence: number }
   | { status: 'unknown' | 'rejected' };
 export interface DecisionIssue { key: string; code: 'missing_answer' | 'invalid_answer' | 'unknown_answer' | 'rejected_answer' | 'unexpected_answer' }
 export interface DecisionResult {
@@ -179,6 +185,12 @@ export function bindDecisionAnswers(batch: DecisionBatch, raw: unknown, usage?: 
         }
       } else if (question.type === 'noul') {
         valid &&= hasOnly(answer, ['status', 'type', 'noul']) && probability(answer.noul);
+      } else if (question.type === 'box') {
+        valid &&= hasOnly(answer, ['status', 'type', 'box', 'confidence']) && probability(answer.confidence)
+          && object(answer.box) && Object.keys(answer.box).length === 4
+          && hasOnly(answer.box, ['left', 'top', 'right', 'bottom'])
+          && Object.values(answer.box).every(probability)
+          && answer.box.left < answer.box.right && answer.box.top < answer.box.bottom;
       } else {
         const keys = question.criteria.map((_, index) => String(index));
         valid &&= hasOnly(answer, ['status', 'type', 'score', 'confidence', 'legend', 'probabilities']) && finite(answer.score)

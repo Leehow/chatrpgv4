@@ -46483,6 +46483,10 @@ Owner approval: resized images are sufficient for judgment and localization; com
 
 Collages filter sixteen pages, then four, then single pages with independent Nouls. Image requests reserve the configured context maximum, because image token counts have no published upper-bound estimator; body bytes remain independently bounded. Cache identities include the visual model and policy. Text page batches preserve complete page text and split when even long context cannot pack; an oversized page is explicitly unanswered. Component experiments retain adverse attempts and are not gameplay acceptance.
 
+### 239.2 Approved stress-driven refinement (2026-10-14)
+
+Page identification stops at an existing found judgment when no Box is needed. When localization is needed, found pages skip intermediate reclassification and go directly to an original-aspect single-page image; only ambiguous or missing judgments need the intermediate collage. Single-page images have no printed host label or square padding unless the API minimum side requires padding, in which case the host retains exact geometry. No confidence threshold or source-need completion gate changes. Whole text fills ordinary-context groups first, at most sixteen pages; an individually oversized page is isolated before trying long context and remains unanswered if that also fails. Navigation cache identities change with these policies. The original full page, tool-enabled source author and independent review remain authoritative. The retained multi-corpus stress report is `.coc/experiments/jev-stress-20261014-multicorpus/report.md`; component speedups do not establish full reader or App savings.
+
 ### 237.76 Demand-driven parallel native reads
 
 Owner approval: implement the general concurrency plan, not a campaign-specific shortcut. The same Keeper batches independent calls whose arguments are already known. Reads that require an earlier result remain later model steps. No extra model, gameplay gate, persistent queue or alternate engine is introduced.
