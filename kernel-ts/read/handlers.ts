@@ -19,7 +19,6 @@ import { RuleObservations } from "./rule-facts.js";
 import { buildCapsule } from "./assemble.js";
 import { lastExchange, lastInteraction } from "./exchange.js";
 import { contextBinding } from "./context.js";
-import { activeMods } from "./mods.js";
 import { workspaceRead } from "./workspace.js";
 import { clockSection, sceneLabel, publicSceneLabel, personLabel, clueLabel, npcNode, personNode, npcsPresent, cluesHere, whereSection, presentSection, npcView, creatureView, investigatorView, fittedModuleSection, untoldRoster, personRecord } from "./capsule.js";
 import { castPersonNamed, protectedNames, tellGuard } from './cast.js';
