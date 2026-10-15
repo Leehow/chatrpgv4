@@ -137,3 +137,13 @@ test('completed original reuse stays within the existing entry and byte bounds',
     const before = calls; await f.owner.lookup({...large, question: 'Large A'});
     assert.equal(calls, before + 1, 'combined original envelopes cannot exceed the 64 KiB bound');
 });
+
+test('map preparation cannot reuse or join a plain-place reference with the same question',async t=>{
+ const f=fixture(t),input={...f.input,mode:'prepare',focus:'Camp map',question:'Prepare this source.',reference:async()=>original('A place reference.')};
+ await f.owner.lookup(input);let maps=0;
+ const ready=await f.owner.lookup({...input,material:'map',reference:async()=>undefined,fallback:async()=>{maps++;return {state:'ready',map_prepared:true};}});
+ assert.equal(maps,1);assert.equal(ready.map_prepared,true);
+ const held=deferred(),ongoing=f.owner.lookup({...input,question:'New request',reference:()=>held.promise});await tick();
+ const separate=await f.owner.lookup({...input,question:'New request',material:'map',reference:async()=>undefined,fallback:async()=>({state:'ready',map_prepared:true})});
+ assert.equal(separate.map_prepared,true);held.resolve(original('A slow place reference.'));await ongoing;
+});

@@ -6,7 +6,7 @@ type Wait = {pending: boolean; reference?: Reference; key?: string};
 type Reference = {controller: AbortController; waits: Set<Wait>; retained: boolean; blocking: boolean; task: Promise<Row | undefined>; value?: Row; bytes: number};
 export interface SourceConsultation {
     campaign: string; moduleId: string; worldline?: string; loop?: number;
-    focus: string; question: string; mode: 'answer' | 'prepare'; retry?: boolean;
+    focus: string; question: string; mode: 'answer' | 'prepare'; material?: 'map'; retry?: boolean;
     allowanceMs: number; signal?: AbortSignal;
     binding(signal: AbortSignal): Promise<string>;
     accepted?(signal: AbortSignal): Promise<Row | undefined>;
@@ -42,7 +42,7 @@ export class SourceConsultations {
                 controller.signal.throwIfAborted();
                 if (accepted) {note('accepted_cache'); return accepted;}
             }
-            const key = JSON.stringify([input.campaign, input.moduleId, input.worldline, input.loop, revision, input.mode, input.focus, input.question]);
+            const key = JSON.stringify([input.campaign, input.moduleId, input.worldline, input.loop, revision, input.mode, input.material ?? null, input.focus, input.question]);
             let reference = this.references.get(key);
             if (reference?.value && input.retry) reference = undefined;
             if (reference?.value) {

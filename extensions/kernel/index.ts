@@ -5888,7 +5888,11 @@ export default function (pi: ExtensionAPI, host: {capabilities?:RuntimeCapabilit
 					if (!readingModule || !reading && !(answerOnly && nativeSource)) throw new KernelError({ code: "needs", message: "the source reading service is unavailable",
 						fix: "reopen the table with its module reading extension available", details: { reason: "reading_failed" } });
 					const askedAt = state.scene?.handle, askedTurn = state.turn, askedScope = state.sourceAnswerScope ? {...state.sourceAnswerScope} : undefined;
-					const sourceRead = { purpose: answerOnly ? "answer" : "detail", focus: params.query, question: params.question ?? "" };
+					const mapPreparation = !answerOnly && params.material === 'map';
+					const sourceQuestion = mapPreparation && (typeof params.question !== 'string' || !params.question.trim())
+						? `Prepare source-backed map images and independently revealable regions for ${String(params.query)}.` : params.question ?? '';
+					const sourceRead = { purpose: answerOnly ? "answer" : "detail", focus: params.query, question: sourceQuestion,
+						...(mapPreparation ? {material:'map'} : {}) };
 					let memoEnvelope = false;
 					// §217.2: an answer that landed at this scene while this run was deciding, and was not handed to it yet, answers
 					// the lookup first (as the memo does), so a lookup that raced the landing never starts a second reading. The
@@ -5908,8 +5912,9 @@ export default function (pi: ExtensionAPI, host: {capabilities?:RuntimeCapabilit
 						// competing with background work for a slot the way a demoted answer is.
 						const consult = answerOnly && !nativeSource;
 						const response = await sourceConsultations.lookup({campaign: state.campaign, moduleId: readingModule,
-                            ...askedScope, focus: String(params.query), question: String(params.question ?? ''),
+                            ...askedScope, focus: String(params.query), question: String(sourceQuestion),
                             mode: answerOnly ? 'answer' : 'prepare', retry: params.retry === true,
+                            ...(mapPreparation ? {material:'map' as const} : {}),
                             allowanceMs: sourceAnswerAllowanceMs(), signal,
                             binding: async workSignal => {
                                 workSignal.throwIfAborted();
@@ -5929,7 +5934,7 @@ export default function (pi: ExtensionAPI, host: {capabilities?:RuntimeCapabilit
                                     cache_only: true, foreground: false});
                                 return cached.state === 'ready' ? cached : undefined;
                             },
-                            reference: (workSignal, priority) => reading?.reference?.(readingModule,
+                            reference: (workSignal, priority) => mapPreparation ? Promise.resolve(undefined) : reading?.reference?.(readingModule,
                                 {...sourceRead, campaign: state.campaign, ...(!answerOnly ? {materialize_place: true} : {})}, workSignal, priority) ?? Promise.resolve(undefined),
                             fallback: (workSignal, options) => answerOnly && nativeSource
                                 ? nativeSource({moduleId: readingModule, campaign: state.campaign, toolCallId, question: String(params.question)}, workSignal)

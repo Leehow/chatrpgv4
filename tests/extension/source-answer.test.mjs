@@ -91,3 +91,18 @@ test('actual source retry keeps consultation memo only on answer, never on detai
   assert.ok(result&&!result.isError,JSON.stringify(result));
  }
 });
+
+test('explicit map crop repair reaches the existing material reader rather than the place shortcut',async t=>{
+ const table=await openTable({responses:[
+  fauxAssistantMessage([fauxToolCall('lookup',{kind:'source',source_mode:'prepare',material:'map',retry:true,query:'Camp map',question:'Correct the clipped edge and unrelated corner text in the original image.'})],{stopReason:'toolUse'}),
+  fauxAssistantMessage([fauxToolCall('output',{text:'The map preparation request was submitted.'})],{stopReason:'toolUse'}),
+  fauxAssistantMessage('The map preparation request was submitted.')
+ ]});t.after(()=>table.dispose());const requests=[];let references=0;
+ table.emit('coc:reading-bridge',{async reference(){references++;return {state:'ready',scene:'Camp'};},
+   async ensure(_mid,params){requests.push(params);return {state:'ready'};}});
+ await table.session.prompt('Please repair the original map crop.');
+ assert.equal(references,0,'a ready place is not a prepared map image');assert.equal(requests.length,1);
+ assert.equal(requests[0].purpose,'detail');assert.equal(requests[0].material,'map');assert.equal(requests[0].retry,true);
+ assert.equal(requests[0].focus,'Camp map');assert.match(requests[0].question,/clipped edge/);
+ const result=table.session.messages.find(m=>m.role==='toolResult'&&m.toolName==='lookup');assert.ok(result&&!result.isError);
+});

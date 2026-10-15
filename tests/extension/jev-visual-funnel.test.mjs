@@ -251,3 +251,37 @@ test('an image-only page with a negative visual decision cannot close a current 
   assert.ok(calls.some(batch=>batch.family==='source-visual-funnel'));
   assert.equal(state.needSettled,false);assert.equal(state.projected,true);
 });
+
+test('the source author sees actual private candidate pixels on its own write result without a preview gate',async t=>{
+ const cwd=await mkdtemp(join(tmpdir(),'source-author-pixels-'));t.after(()=>rm(cwd,{recursive:true,force:true}));
+ await writeFile(join(cwd,'task.json'),JSON.stringify({purpose:'detail',material:'map'}));
+ const driver=await createSourceReaderDriver({cwd,env:{PI_COC_JEV_VISUAL:'off'},source:{pdf,cache:join(cwd,'cache')}});
+ let hook;driver.registerSourceRequest({registerTool(){},on(name,handler){if(name==='tool_result')hook=handler;}});
+ assert.equal(typeof hook,'function','preview feedback must enter Pi before its canonical tool-result message is appended');
+ const {ports}=await driver.prepare({runId:'author-pixels',inputRevision:'1',rawInput:'Prepare image',session:{}});
+ const draft={nodes:[{node_id:'handout-view',node_kind:'handout',name:'View',properties:{image_sources:[{page:2,box:[.1,.2,.9,.8]}]}}]};
+ const write=async name=>ports.operations.execute({origin:'model',toolCall:{name,arguments:{path:'draft.json'}}},{signal:AbortSignal.timeout(10000),executeModelTool:async()=>{
+   await writeFile(join(cwd,'draft.json'),JSON.stringify(draft));const native={content:[{type:'text',text:'Draft saved.'}],details:{kind:'native_write'}};
+   const replacement=await hook({type:'tool_result',toolName:name,input:{path:'draft.json'},isError:false,...native});
+   return {...native,...replacement};
+ }});
+ const first=await write('write');
+ assert.equal(first.status,'ok');assert.equal(first.toolResult.content.filter(c=>c.type==='image').length,2);
+ assert.equal(first.toolResult.details.kind,'native_write','candidate feedback never becomes original-page viewing evidence');
+ assert.ok(first.toolResult.details.visual_previews[0].comparison_file.startsWith('author-previews/'));
+ assert.equal((await write('edit')).toolResult.content.filter(c=>c.type==='image').length,0,'unchanged geometry is not repeatedly attached');
+ draft.nodes[0].properties.image_sources[0].redactions=[[.7,.2,.9,.3]];
+ assert.equal((await write('edit')).toolResult.content.filter(c=>c.type==='image').length,2,'changed masks produce actual new feedback');
+ draft.nodes[0].node_id='asset-view';draft.nodes[0].node_kind='asset';
+ draft.nodes.push({node_id:'handout-map',node_kind:'handout',properties:{map_regions:[{region_id:'camp',name:'Camp',source_asset:'view',source_box:[0,0,1,1],placement:[0,0,1,1],redactions:[[.1,.2,.2,.3]]}]}});
+ await write('edit');draft.nodes[1].properties.map_regions[0].redactions=[[.1,.2,.3,.3]];
+ assert.equal((await write('edit')).toolResult.content.filter(c=>c.type==='image').length,2,'masks on a separate map node also invalidate the candidate preview');
+ draft.nodes[0].properties.image_sources[0].page=99999;
+ const unavailable=await write('edit');assert.equal(unavailable.status,'ok');assert.equal(unavailable.toolResult.content.length,1,'an unavailable preview adds no gate');
+ draft.nodes[0].properties.image_sources[0].page=2;draft.nodes[0].properties.image_sources[0].box=[.1,.1,.9,.9];
+ await writeFile(join(cwd,'draft.json'),JSON.stringify(draft));
+ const native={isError:true,content:[{type:'text',text:'Correct the existing draft finding.'}]};
+ const replacement=await hook({type:'tool_result',toolName:'submit_reading',input:{},...native});
+ assert.equal({...native,...replacement}.isError,true,'feedback never changes the existing submission outcome');
+ assert.equal(replacement.content.filter(c=>c.type==='image').length,2,'an already-failed inline submission also receives its actual pixels');
+});

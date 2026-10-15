@@ -2,11 +2,12 @@
 import {appendFileSync} from 'node:fs';
 import {mkdir,readFile,rename,writeFile} from 'node:fs/promises';
 import {createHash,randomUUID} from 'node:crypto';
-import {dirname,join} from 'node:path';
+import {dirname,join,resolve} from 'node:path';
 import {Type} from 'typebox';
 import type {SessionRunDriver} from '@earendil-works/pi-coding-agent';
 import type {RunDriverPorts,RunPolicy} from '@earendil-works/pi-agent-core';
 import {sourceInfo,sourcePage,sourceSearch,sourceText,sourceTextVersion} from '../../extensions/module/source.ts';
+import {mapReviewPreviews} from '../../extensions/module/map-review-preview.ts';
 import {createDecisionAdapter} from './decision-adapter.ts';
 import type {DecisionPort} from './decision-port.ts';
 import {TaskLease} from './task-context.ts';
@@ -217,7 +218,9 @@ export async function createSourceReaderDriver(options:{cwd:string;env:NodeJS.Pr
  const adapter=options.adapter??createDecisionAdapter({apiKey,env:options.env,maxConcurrency:8,retryPolicies:Object.fromEntries(['source-need-answered','source-guidance-sections','source-guidance-child-sections','source-search-scope','source-page-lead','source-need-kind','source-reference-spans','source-reference-entrances','source-reference-entrance-evidence','source-reference-era','source-reference-guide-check','source-reference-place'].map(family=>[family,{maxRetries:1,backoffInitialMs:250,backoffMaxMs:1000}])),trace:event=>trace({kind:'jev_transport',event})});
  let sourceRequest:((request:SourceRequest)=>Promise<void>)|undefined;
  let submitReference:((text:string,signal:AbortSignal)=>Promise<any>)|undefined;
+ let sourcePreview:((event:any)=>Promise<any>)|undefined;
  return {engine:'coc-source-v1',registerSourceRequest(pi:any){
+   pi.on?.('tool_result',async(event:any)=>sourcePreview?.(event));
    if(task.source_reference==='guidance')pi.registerTool({name:'submit_reference_guidance',label:'Submit final source guidance',executionMode:'sequential',
      description:'Submit only the final player-language creation introduction and question. The host checks public orientation, advisory wording and spoiler safety. No graph or duplicate metadata is needed. Call alone.',
      parameters:Type.Object({text:Type.String({minLength:1,maxLength:4000})},{additionalProperties:false}),
@@ -234,6 +237,39 @@ export async function createSourceReaderDriver(options:{cwd:string;env:NodeJS.Pr
    const runId=context.runId,scope:ScopeBinding={owner:'source-reader:'+String(task.module_id||'module'),audience:'keeper'};
    let info:Awaited<ReturnType<typeof sourceInfo>>|undefined,pages:Page[]=[],candidates:number[]=[],partial=false,projectedOnce=false;
    let visualLeads:VisualLead[]=[];
+   let lastAuthorPreview='';
+   const authorPreview=async(result:any)=>{
+     if(reviewing||task.purpose==='answer'||task.purpose==='guidance')return result;
+     try{
+       const draft=JSON.parse(await readFile(join(cwd,'draft.json'),'utf8'));
+       const nodes=Array.isArray(draft.nodes)?draft.nodes:[];
+       if(!nodes.some((node:any)=>Array.isArray(node?.properties?.image_sources)))return result;
+       const digest=sha(JSON.stringify(nodes.filter((node:any)=>node?.properties?.image_sources||node?.properties?.map_regions).map((node:any)=>({id:node.node_id,name:node.name,
+         image_sources:node.properties.image_sources,map_regions:node.properties.map_regions}))));
+       if(digest===lastAuthorPreview)return result;
+       const relative=join('author-previews',digest),folder=join(cwd,relative);await mkdir(folder,{recursive:true});
+       const previews=await mapReviewPreviews({draft,paths:['/coverage'],cwd:folder,source});
+       const content:any[]=[];
+       for(const preview of previews.slice(0,3))for(const field of ['comparison_file','file'])if(typeof preview[field]==='string'){
+         content.push({type:'text',text:`Private candidate ${field}: ${join(relative,preview[field])}`},
+           {type:'image',mimeType:'image/png',data:(await readFile(join(folder,preview[field]))).toString('base64')});
+       }
+       const paths=previews.map(preview=>({...preview,file:join(relative,preview.file),
+         ...(preview.comparison_file?{comparison_file:join(relative,preview.comparison_file)}:{})}));
+       lastAuthorPreview=digest;
+       if(!content.length)return result;
+       trace({kind:'source_author_preview',runId,digest,previews:paths});
+       return {...result,content:[...(result.content??[]),{type:'text',text:'Actual candidate publication pixels and map-region overlays follow. Compare with the full original: repair clipped target edges, remaining neighboring content or masks covering the target before submitting. These private derivatives are feedback, not original-page evidence or a new approval step.'},...content],
+         details:{...(result.details??{}),visual_previews:paths}};
+     }catch(error){trace({kind:'source_author_preview_unavailable',runId,error:String(error)});return result;}
+   };
+   sourcePreview=async event=>{
+     const path=event.input?.path??event.input?.file_path;
+     if(!(['write','edit'].includes(event.toolName)&&!event.isError&&typeof path==='string'&&resolve(cwd,path)===join(cwd,'draft.json'))
+       &&!(event.toolName==='submit_reading'&&event.isError))return;
+     const patched=await authorPreview(event);
+     if(patched!==event)return {content:patched.content,details:patched.details};
+   };
    const visualNavigate=async(numbers:number[],question:string,signal:AbortSignal,boxes=false)=>{
      if(!visualEnabled||!info||!numbers.length)return undefined;
      return visualFunnel({pdf:source.pdf,cache:source.cache,sourceSha:info.file_sha256,pages:numbers,question,
