@@ -79,6 +79,29 @@ test('native configured recall reaches production evidence originals and returns
     assert.ok(!table.activeTools().includes('submit_plan_packet'));
 });
 
+test('semantic recall and an independent native view overlap without losing ordered evidence results',{timeout:30000},async t=>{
+    const started=Promise.withResolvers(),release=Promise.withResolvers(),lookFinished=Promise.withResolvers();
+    let held=true,lookWhileHeld=false;const evidence=[];
+    const table=await native(t,{decision:{decide:async batch=>{started.resolve();await release.promise;return decide(batch);}},
+        observe:params=>evidence.push(params.action),responses:[fauxAssistantMessage([
+            fauxToolCall('recall',{what:'memory',query:'Recall the retained condition.',turns:[0,0]},{id:'semantic-read'}),
+            fauxToolCall('look',{focus:'investigator'},{id:'independent-view'})],{stopReason:'toolUse'}),
+            fauxAssistantMessage('{{reference}}The earlier report retains its condition.')]});
+    const tool=table.session.agent.state.tools.find(tool=>tool.name==='look'),execute=tool.execute;
+    tool.execute=async(...args)=>{const result=await execute(...args);lookWhileHeld=held;lookFinished.resolve();return result;};
+    const running=table.session.prompt('I recall the earlier condition and check my own sheet.');
+    try{
+        await started.promise;
+        await Promise.race([lookFinished.promise,new Promise(resolve=>{const timer=setTimeout(resolve,2000);timer.unref();})]);
+    }finally{held=false;release.resolve();await running;}
+    assert.equal(lookWhileHeld,true,'the sheet read must finish while the independent semantic decision is still held');
+    const results=table.session.messages.filter(message=>message.role==='toolResult'&&['semantic-read','independent-view'].includes(message.toolCallId));
+    assert.deepEqual(results.map(row=>[row.toolCallId,row.isError]),[['semantic-read',false],['independent-view',false]]);
+    assert.ok(evidence.includes('original')&&evidence.includes('finish'));
+    assert.ok(JSON.stringify(results[0].content).includes(retained));
+    assert.deepEqual(table.extensionErrors,[]);
+});
+
 test('native read-set invalidation refuses stale evidence before canonical finish',async t=>{
     let table,changed=false;const evidence=[];
     table=await native(t,{decision:{decide:async batch=>decide(batch)},observe:async params=>{

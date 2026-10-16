@@ -108,8 +108,12 @@ export function parallelReadBatch(calls: readonly {operation: string; params?: u
     if (call.operation === 'lookup') return ['module', 'rule', 'catalog', 'secret', 'continuity'].includes(String(args.kind))
       && Object.keys(args).every(key => ['kind', 'query', 'kinds', 'limit', 'scope', 'anchors', 'expected_kind'].includes(key))
       && (!Object.hasOwn(args,'expected_kind') || args.kind==='module' && ['npc','clue','object','handout'].includes(String(args.expected_kind)));
-    if (call.operation === 'recall') return ['memory', 'transcript', 'history'].includes(String(args.what))
-      && !['query', 'read', 'detail', 'page'].some(key => Object.hasOwn(args, key));
+    if (call.operation === 'recall') {
+      if (Object.hasOwn(args, 'query')) return args.what === 'memory' && typeof args.query === 'string'
+        && Object.keys(args).every(key => ['what', 'query', 'turns', 'about', 'kinds', 'include_superseded', 'limit'].includes(key));
+      return ['memory', 'transcript', 'history'].includes(String(args.what))
+        && !['read', 'detail', 'page'].some(key => Object.hasOwn(args, key));
+    }
     return false;
   });
 }

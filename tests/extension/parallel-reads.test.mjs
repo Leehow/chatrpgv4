@@ -69,13 +69,15 @@ test('parallel eligibility follows closed operation branches across scenarios, n
     assert.equal(parallelReadBatch([baseline,{operation:'lookup',params:{kind:'module',query:'An independent entity',expected_kind}}]),true);
   for(const what of ['memory','transcript','history'])
     assert.equal(parallelReadBatch([baseline,{operation:'recall',params:{what}}]),true);
+  assert.equal(parallelReadBatch([baseline,{operation:'recall',params:{what:'memory',query:'A retained condition',turns:[0,2],about:['A person'],include_superseded:true}}]),true);
   for(const params of [{focus:'scene'},{focus:'object',name:'A notebook'},{focus:'map'},{focus:'knowledge'},
     {focus:'npc',name:'Any existing person',using_skill:'read papers'}])
     assert.equal(parallelReadBatch([baseline,{operation:'look',params}]),false);
   for(const params of [{kind:'source'},{kind:'support'},{kind:'adaptation'},{kind:'capability'},
     {kind:'module',query:'A destination',expected_kind:'scene'}])
     assert.equal(parallelReadBatch([baseline,{operation:'lookup',params}]),false);
-  for(const params of [{what:'memory',query:'semantic question'},{what:'transcript',read:{turn:1}},
+  for(const params of [{what:'transcript',query:'semantic question'},{what:'memory',query:'question',page:{offset:0}},
+    {what:'memory',query:'question',unknown:true},{what:'transcript',read:{turn:1}},
     {what:'history',page:{offset:20}},{what:'history',detail:{section:'events'}}])
     assert.equal(parallelReadBatch([baseline,{operation:'recall',params}]),false);
   for(const operation of ['apply','resolve','ask','output','narrate','unknown'])
