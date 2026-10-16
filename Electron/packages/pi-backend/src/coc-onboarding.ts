@@ -500,7 +500,7 @@ export class CocOnboardingHost {
         return await this.invoke({action:'finish',id:started.id},session,model);
       }catch(error){
         if(started)try{await this.invoke({action:'pause',id:started.id},session,model);}catch{/* Keep the original import failure. */}
-        if(typeof error.errno==='number')throw refuse('document_unavailable',error.message);
+        if(error instanceof Error && 'errno' in error && typeof error.errno==='number')throw refuse('document_unavailable',error.message);
         throw error;
       }finally{if(fd!==undefined)closeSync(fd);}
     }
