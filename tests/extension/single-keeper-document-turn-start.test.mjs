@@ -12,6 +12,9 @@ import {createHybridEngine} from '../../runtime/jev/hybrid-engine.ts';
 const CAMPAIGN='test-camp',NAME='Retained interview notebook',EQUIPMENT='notebook and stub pencil';
 const INITIAL='An existing note retained from the acquisition.\n';
 const read=async path=>JSON.parse(await readFile(path,'utf8'));
+// These tests isolate physical writing, not the independent post-delivery readers.
+// Their deferred requests must not race the next test's fetch assertion.
+const WRITING_ENV={PI_COC_LOOP_ENGINE:'hybrid-v1',PI_COC_TOLD_POSITION:'off',PI_COC_TOLD_CLUE:'off',PI_COC_TOLD_TIME:'off'};
 
 async function seedReadyHistoricalRegistration(workspace,{ready=true}={}){
   const context=await api.createKernelContext({workspace,content:join(root,'content'),seed:'turn-start-registration',
@@ -49,7 +52,7 @@ test('ready historical notebook registration is promoted before the Keeper recei
   const engine=createHybridEngine({env:{...process.env,PI_COC_JEV_PRESELECT:'0'},decision:null});
   const results=[],capsules=[];
   const table=await openTable({legacyDeliveryFixtures:false,realKernel:true,prepareWorkspace:seedReadyHistoricalRegistration,
-    runDriver:engine.runDriver,env:{PI_COC_LOOP_ENGINE:'hybrid-v1'},
+    runDriver:engine.runDriver,env:WRITING_ENV,
     extraExtensions:[{name:'mods',factory:modsExtension},{name:'driver',factory:engine.extension},
       {name:'turn-start-observer',factory:pi=>{
         pi.events.on('coc:capsule',value=>capsules.push(value));
@@ -86,7 +89,7 @@ test('one Keeper writes the chosen suffix without append binding and the kernel 
   const effect=owner=>({kind:'object',name:NAME,from:owner,to:owner,document:{action:'append',text:suffix},
     why:'The investigator writes the player-selected note in the carried notebook.'});
   const table=await openTable({legacyDeliveryFixtures:false,realKernel:true,prepareWorkspace:seedReadyHistoricalRegistration,
-    runDriver:engine.runDriver,env:{PI_COC_LOOP_ENGINE:'hybrid-v1',TYPESAFE_API_KEY:'test-only-writing-seam'},
+    runDriver:engine.runDriver,env:{...WRITING_ENV,TYPESAFE_API_KEY:'test-only-writing-seam'},
     extraExtensions:[{name:'mods',factory:modsExtension},{name:'driver',factory:engine.extension},
       {name:'writing-observer',factory:pi=>pi.on('tool_result',event=>{if(event.toolName==='apply')results.push(event);})}],
     responses:[fauxAssistantMessage([fauxToolCall('apply',{effects:[effect('Thomas Hayes')]})],{stopReason:'toolUse'}),
@@ -112,7 +115,7 @@ test('a held unfinished creator does not delay the Keeper request at the new-tur
   let keeperAnswered=false;
   const table=await openTable({legacyDeliveryFixtures:false,realKernel:true,
     prepareWorkspace:workspace=>seedReadyHistoricalRegistration(workspace,{ready:false}),runDriver:engine.runDriver,
-    env:{PI_COC_LOOP_ENGINE:'hybrid-v1'},extraExtensions:[
+    env:WRITING_ENV,extraExtensions:[
       {name:'controlled-mod-creator',factory:pi=>{
         modsExtension(pi);
         let controlled;
