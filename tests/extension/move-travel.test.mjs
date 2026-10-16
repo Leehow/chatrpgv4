@@ -24,6 +24,9 @@ before(async()=>{
         "export {createKernelRuntime} from './kernel-ts/registry.ts';",
         "export {nativeAdvisoryLocks} from './kernel-ts/native-locks.ts';",
         "export {CampaignWriter} from './kernel-ts/write/store.ts';",
+        "export {exitRows} from './kernel-ts/read/capsule.ts';",
+        "export {ModuleGraph} from './kernel-ts/read/module-graph.ts';",
+        "export {roadKey} from './kernel-ts/read/places.ts';",
         "export {COC_TOOLS} from './extensions/kernel/tools.ts';",
         "export {ROUTE_TRAVEL_ROWS,TRAVEL_ADJACENT} from './kernel-ts/modules/route-travel.ts';",
     ].join('\n'),resolveDir:root,sourcefile:'move-travel-entry.ts'},outfile:join(bundle,'api.mjs'),bundle:true,packages:'external',platform:'node',format:'esm',logLevel:'silent'});
@@ -36,10 +39,31 @@ async function table(name,t){
     t.after(()=>runtime.close());
     const call=(method,params={})=>runtime.handlers[method]({campaign:'c1',...params});
     await call('campaign.create',{id:'c1',module:'the-haunting',pregen:'thomas-hayes',play_language:'en'});await call('table.open');
-    return {call,campaign:new api.CampaignWriter(kernel,'c1')};
+    return {call,home,campaign:new api.CampaignWriter(kernel,'c1')};
 }
 const lastMove=async call=>(await call('table.status')).receipts.filter(r=>r.kind==='move').at(-1);
 const LODGING={kind:'move',to:'rooming-house',establish:{summary:'A cheap rooming house a short walk from the commission office.'},via:'Walking down the hill to the rooming house.'};
+
+test('known return minutes reach the Keeper capsule after reopening the runtime',async t=>{
+    const {call,home}=await table('move-capsule-return',t);
+    await call('table.player_input',{text:'I travel to my lodging.'});
+    await call('table.apply',{call_id:'t1-c1',effects:[{...LODGING,travel_band:'long_travel'}]});
+    const context=await api.createKernelContext({workspace:home,content:join(root,'content'),seed:'reopened',locks:api.nativeAdvisoryLocks(),env:{...process.env,GIT_CONFIG_GLOBAL:'/dev/null',GIT_CONFIG_NOSYSTEM:'1'}});
+    const reopened=api.createKernelRuntime(context);t.after(()=>reopened.close());
+    const result=await reopened.handlers['table.capsule']({campaign:'c1'});
+    const capsule=result.capsule??result;
+    assert.equal(capsule.where.back.find(row=>row.to==='commission-briefing')?.travel_minutes,360);
+});
+
+test('untimed book exits project the existing table road without replacing authored times',()=>{
+    const nodes=['a','b'].map(name=>({node_id:`scene-${name}`,node_kind:'scene',name,properties:{}}));
+    const raw={nodes,relations:[{relation_id:'road',relation_kind:'route-to',from_node_id:'scene-a',to_node_id:'scene-b',properties:{}}]};
+    const graph=new api.ModuleGraph('road-fixture',raw,'fixture',{}),scene=graph.scene('a');
+    const world={table_roads:{[api.roadKey('a','b')]:{minutes:360,basis:'banded',turn:1}}};
+    assert.equal(api.exitRows(graph,world,scene,()=>'' )[0].travel_minutes,360);
+    raw.relations[0].properties.travel_minutes=15;
+    assert.equal(api.exitRows(graph,world,scene,()=>'' )[0].travel_minutes,15);
+});
 
 test('§218.3 a road walked with minutes is walked back with them, and an improvised walk on it takes them too',async t=>{
     const {call,campaign}=await table('move-travel-kept',t);

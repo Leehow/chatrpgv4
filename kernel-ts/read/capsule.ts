@@ -22,7 +22,7 @@ import {cardAction,cardTactic} from '../combat/standing.js';
 import {mechRow} from './mech-line.js';
 import { MASK_KEY } from '../voice/fields.js';
 import { weaknessChain, type ChainReads } from "./weaknesses.js";
-import { containers, placesWithin, personNamedLocations } from "./places.js";
+import { containers, placesWithin, personNamedLocations, roadMinutes } from "./places.js";
 import {npcActivityView,sceneTemporalView} from './temporal.js';
 export const jsonSize = (value: any): number => Buffer.byteLength(pythonJsonDumps(value), "utf8");
 /**
@@ -420,18 +420,21 @@ function contestedRows(graph: ModuleGraph, scene: Row): Row[] {
 }
 /** The scene's exits as `where.exits` renders them (also `where.within.exits`, §187.2.2, and §212.1's move rows). */
 export function exitRows(graph: ModuleGraph, world: Row, scene: Row, material: (name: string) => string): Row[] {
-    return graph.sceneExits(scene).map(exit => ({
+    return graph.sceneExits(scene).map(exit => {
+        const minutes = roadMinutes(graph, world, scene, graph.scene(exit.to));
+        return {
         to: exit.to,
         // The way out was named by its handle alone, so a Keeper reading the capsule saw a slug and
         // wrote the player a slug; the place the module named was one lookup away and never taken.
         ...(sceneLabel(graph, world, graph.scene(exit.to)) !== exit.to ? { display_name: sceneLabel(graph, world, graph.scene(exit.to)) } : {}),
-        ...(Object.hasOwn(exit, "travel_minutes") ? { travel_minutes: exit.travel_minutes } : {}),
+        ...(minutes !== null ? { travel_minutes: minutes } : {}),
         ...(truth(exit.when) && row(exit.when).kind !== "always" ? { unlock_when: {
                 condition: describeCondition(exit.when),
                 met: conditionStatus(exit.when, world, graph)
             } } : {}),
         material: material(graph.scene(exit.to).node_id)
-    }));
+        };
+    });
 }
 /** Contract §187.2.2: the budget of `where.within`, fitted like `where`. */
 export const WITHIN_BUDGET = 2048;
@@ -545,9 +548,11 @@ export function whereSection(graph: ModuleGraph, world: Row, scene: Row, materia
         back: [...array(world.scene_trail)].reverse().map(value => {
             const handle = string(value),
                 node = graph.find(handle, ["scene"]);
+            const minutes = node ? roadMinutes(graph, world, scene, node) : null;
             return {
                 to: handle,
-                ...(node ? { display_name: sceneLabel(graph, world, node) } : {})
+                ...(node ? { display_name: sceneLabel(graph, world, node) } : {}),
+                ...(minutes !== null ? { travel_minutes: minutes } : {})
             };
         }),
         affordances,
