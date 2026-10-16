@@ -366,9 +366,11 @@ async function runOwnedReader(request: ReaderRequest, context: RuntimeContext): 
 	if(request.imageHistory)env.PI_COC_READER_IMAGE_HISTORY=String(request.imageHistory);else delete env.PI_COC_READER_IMAGE_HISTORY;
 	if (request.finalOutput) {
 		env.PI_COC_FINAL_OUTPUT = '1';
+		// Informational: the model the host chose for this author, so a substitute child can report it (tests).
+		if (request.model) env.PI_COC_FINAL_OUTPUT_MODEL = request.model; else delete env.PI_COC_FINAL_OUTPUT_MODEL;
 		env.PI_COC_READER_CHECK = join(request.cwd, 'host-bin', 'coc-read-check');
 		env.PATH = join(request.cwd, 'host-bin') + ':' + (env.PATH ?? '');
-	} else delete env.PI_COC_FINAL_OUTPUT;
+	} else {delete env.PI_COC_FINAL_OUTPUT; delete env.PI_COC_FINAL_OUTPUT_MODEL;}
 	if (request.source) env.PI_COC_READER_SOURCE = JSON.stringify(request.source);
 	else delete env.PI_COC_READER_SOURCE;
 	// The subprocess is not a table: it must not think it should open one.

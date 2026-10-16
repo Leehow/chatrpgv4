@@ -380,6 +380,8 @@ interface ForcedPlayerChoiceCue {
 interface TableState {
   /** §163: a scope Jev could not settle plays as `world`; only a settled out-of-fiction request is `reference`. */
   interactionScope?: 'world' | 'reference';
+  /** §233.10: `world` came from a settled verdict (Jev authorized a world action, or a document edit), not a fallback. */
+  interactionScopeSettled?: boolean;
 	/** §163.9: the current turn's withheld player choices and Jev's bounded review port. */
 	forcedPlayerChoiceCue?: ForcedPlayerChoiceCue;
 	forcedPlayerChoiceCueChecked?: { turn: number; draftHash: string };
@@ -970,6 +972,8 @@ const FLOOR_STEER =
 	"Use the ordinary narrate or mechanics ask delivery path for this response. Complete only the player's already selected goal. " +
 	"A quiet exchange, clarification, informed refusal or completed goal may return without a new effect, event or question. " +
 	"Do not choose a new destination, action, cost or risk for the player.";
+/** The closed direct-reply frame (§233.11): protocol syntax the Keeper writes, never a reading of the words. */
+const OOC_FRAME = /\{\{ooc\}\}([\s\S]*?)\{\{\/ooc\}\}/g;
 /**
  * §135.11.1 (SL-50 re-ruling): the steer beside a dropped draft. It names the rule and the kinds of the calls the prose sat
  * beside (host words, English; the kinds are the tool names). Nothing here reads the prose.
@@ -1649,6 +1653,7 @@ export default function (pi: ExtensionAPI, host: {capabilities?:RuntimeCapabilit
 		if (!table || value?.campaign !== table.campaign || value.turn !== table.turn
 			|| value.player_text !== table.playerText || !['world', 'reference'].includes(value.mode)) return;
         table.interactionScope = documentEditInput(table.playerText)?'world':value.mode;
+        table.interactionScopeSettled = documentEditInput(table.playerText) || value.mode==='world'&&value.reason==='world_action_authorized';
     table.documentRecording = typeof value.documentRecording === 'number' && Number.isFinite(value.documentRecording)
       && value.documentRecording >= 0 && value.documentRecording <= 1 ? value.documentRecording : undefined;
 	});
@@ -7398,6 +7403,7 @@ export default function (pi: ExtensionAPI, host: {capabilities?:RuntimeCapabilit
 			// A new player input is a new context (contract §32.4): no verdict outlives it.
 			state.playerText = text;
 			state.interactionScope = undefined;
+			state.interactionScopeSettled = undefined;
 			state.selectedWriting = false;
             state.referenceReplies = new Set();
 			// §71: a hold belongs to the turn that was running when it arrived and never outlives it.
@@ -7953,6 +7959,32 @@ export default function (pi: ExtensionAPI, host: {capabilities?:RuntimeCapabilit
 		}
 	}
 
+	/** A closed {{ooc}} span goes to the player on the direct channel once per input; it closes no turn and is no story. */
+	function sendDirectReply(state: TableState, text: string): void {
+		const seen = state.referenceReplies ??= new Set<string>();
+		if (seen.has(text)) return;
+		pi.sendMessage({customType:'coc-delivery',content:text,display:true,
+			details:{coc_delivery:true,turn:state.turn,reference_reply:true}},{triggerTurn:false});
+		seen.add(text);
+		void record({lane:'delivery',turn:state.turn,ok:true,reason:'direct_reference_reply',published:false});
+	}
+	/**
+	 * §233.10: whether this turn owes a story publication, so bare assistant text may not close it as a reference answer.
+	 * Read from structure only -- the opening, a settled world verdict, receipts the kernel holds for the open turn --
+	 * never from the words. Unconfigured or unsettled scope with nothing landed stays a direct reply (§233.11).
+	 */
+	async function owesStoryPublication(state: TableState): Promise<string | false> {
+		if (state.openingPending) return 'opening';
+		if (state.interactionScope === 'world' && state.interactionScopeSettled) return 'world_scope';
+		try {
+			const status = await state.kernel.call<Record<string, unknown>>('table.status', {campaign: state.campaign});
+			if (Array.isArray(status.receipts) && status.receipts.length > 0) return 'receipts';
+		} catch {
+			if (state.landed.length > 0) return 'receipts';
+		}
+		return false;
+	}
+
 	pi.on("message_end", async (event, ctx) => {
 		const observationRequest = event.message?.role === 'assistant' ? flushProviderObservation('message_end', event.message) : undefined;
 		// How long the Keeper's own call actually took. The two rows above bracket the request and the
@@ -8157,20 +8189,12 @@ export default function (pi: ExtensionAPI, host: {capabilities?:RuntimeCapabilit
 		if (hasToolCalls) {
 			// Explicit reply framing is a separate visible conversation channel, independent of scope scores.
 			const direct = blocks.filter(b=>b.type==='text')
-				.flatMap(b=>[...String(b.text??'').matchAll(/\{\{ooc\}\}([\s\S]*?)\{\{\/ooc\}\}/g)].map(m=>m[1].trim())).filter(Boolean).join('\n\n');
+				.flatMap(b=>[...String(b.text??'').matchAll(OOC_FRAME)].map(m=>m[1].trim())).filter(Boolean).join('\n\n');
 			// An assistant message with tool calls keeps only the calls: the Keeper's process talk before a
 			// call ("let me check the clues first") is not a line, and player-visible text comes only from
 			// narrate and ask.
 			const withoutText = blocks.filter((b) => b.type !== "text");
-            if(direct) {
-                const seen=state.referenceReplies??=new Set<string>();
-                if(!seen.has(direct)) {
-                    pi.sendMessage({customType:'coc-delivery',content:direct,display:true,
-                        details:{coc_delivery:true,turn:state.turn,reference_reply:true}},{triggerTurn:false});
-                    seen.add(direct);
-                    void record({lane:'delivery',turn:state.turn,ok:true,reason:'direct_reference_reply',published:false});
-                }
-            }
+            if(direct) sendDirectReply(state, direct);
 			if (withoutText.length !== blocks.length) {
 				// §135.11.1 (SL-50): the row waits for the calls' outcomes (it names the step and each call's kind and outcome).
 				besideDrop = { turn: state.turn, dropped: blocks.length - withoutText.length, step: inferStep ?? null,
@@ -8216,8 +8240,20 @@ export default function (pi: ExtensionAPI, host: {capabilities?:RuntimeCapabilit
 			// A reference answer is direct conversation, never an automatic final-writing invocation.
 			if (!hasToolCalls && !failedLeg && !state.selectedWriting) {
 				const rawAnswer = blocks.filter(b => b.type === 'text').map(b => String(b.text ?? '')).join('');
-                const framed=rawAnswer.trim().match(/^\{\{ooc\}\}([\s\S]*?)\{\{\/ooc\}\}$/);
-                const answer=framed?framed[1].trim():rawAnswer;
+				// The closed {{ooc}} transport frame is protocol syntax: its spans are the direct reply, never story material.
+				const framedReply = [...rawAnswer.matchAll(OOC_FRAME)].map(m => m[1].trim()).filter(Boolean).join('\n\n');
+				const outside = rawAnswer.replace(OOC_FRAME, '').trim();
+				// §233.10: a turn that owes a story publication -- the opening, a settled world verdict, or receipts this
+				// turn already landed -- is never closed by bare assistant text. Only explicit output publishes its story.
+				const storyTurn = !unselectedDeliveryPlan(rawAnswer.trim()) && (framedReply || outside)
+					? await owesStoryPublication(state) : false;
+				if (storyTurn) {
+					if (framedReply) sendDirectReply(state, framedReply);
+					state.deliveryFix = {kind: 'text-tool-call', text: `Story prose is still a private draft. To author and publish it, ${finalDeliveryAction()}, or keep an OOC reply inside {{ooc}}...{{/ooc}}. Do not repeat settled effects.`};
+					return dropText(outside ? 'explicit_output_not_selected' : 'story_publication_owed',
+						{owed: storyTurn, ...(framedReply ? {direct_reply: true} : {})});
+				}
+				const answer = [framedReply, outside].filter(Boolean).join('\n\n');
 				if (answer.trim()&&!unselectedDeliveryPlan(answer)) {
                     try {await guardTaskDelivery(event.message);await guardTaskDelivery(event.message,'committing');}
                     catch {return dropText('task_delivery_blocked');}
@@ -8230,7 +8266,8 @@ export default function (pi: ExtensionAPI, host: {capabilities?:RuntimeCapabilit
                     state.deliveryToolCallId=undefined;
                     state.floorDraft=undefined;
                     state.deliveryFix=undefined;
-					return {message:{...event.message, content:framed?[{type:'text',text:answer}]:blocks}};
+					// What the player reads is what the kernel recorded: no frame or speech token survives on screen.
+					return {message:{...event.message, content:[{type:'text',text:asString(result.rendered_text) ?? answer}]}};
 				}
 			}
 			if(state.selectedWriting)return dropText('selected_final_output_not_published');

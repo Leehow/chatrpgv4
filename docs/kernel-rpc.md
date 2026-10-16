@@ -47328,3 +47328,20 @@ Successful complete assistant responses, including thinking blocks, join the jou
 The isolated final author remains a fresh tool-enabled child receiving only its selected brief. Its public context hook omits the random attempt-directory system section, while filesystem tools and guards retain the real private cwd. It reuses the active-cache policy and raw usage observer; no prior author packet, Keeper history or extra warmup request is introduced.
 
 Validation follows MiniMax and Anthropic's documented prefix hierarchy and exact-match rule. Assert the actual SDK payload prefix across state/history/clerk changes and native tool continuations, plus reset, boundedness, current-state reconstruction and author isolation. Live M3.1/medium cache counters remain separate from deterministic prefix evidence; missing write counters remain unknown.
+
+### Earlier remote output corrections (2026-10-13; merged 2026-10-16)
+
+The following records preserve the remote branch corrections. Their original section numbers overlap later local additions. The 2026-10-16 Model settings contract above supersedes the earlier same-Keeper-model requirement: independent author selection and explicit test profiles remain authoritative. Actual-model verification and model-bound cache identity remain required.
+
+#### Remote 233.19 Bare assistant text on a turn that owes a story publication
+
+Review finding (2026-10-13): a text-only assistant message was always closed through `table.reference.answer`, so story prose written without `output` -- including a world turn whose receipts had already landed -- was published as an out-of-fiction answer. The player read the raw `{{say:...}}` tokens, the turn record carried `interaction_scope: reference` with no `facts`/extraction job, the NPC ledger was not updated and the delivery guards never ran. That contradicts §233.10 ("Pure world-assistant prose must not auto-publish without `output`").
+
+Rule: a text-only assistant message is a direct reference answer only when the turn owes no story publication. A turn owes one when any of these structural facts holds -- it is the table's opening; the input's interaction scope is `world` from a settled verdict (Jev's `world_action_authorized`, or a document-edit input), not the unanswered/unclear fallback; or the kernel's open turn already holds receipts. On such a turn the host publishes nothing from bare text: closed `{{ooc}}...{{/ooc}}` spans go out on the existing direct reply channel (`coc-delivery`, `reference_reply: true`, no turn close), the remaining text is dropped (`lane: delivery`, `reason: explicit_output_not_selected` or `story_publication_owed`, `owed: opening|world_scope|receipts`), and the turn-close steer asks for an explicit `output`. No words are read and no classifier is added; an unconfigured or unsettled scope with nothing landed keeps §233.11's visible direct answer.
+
+A direct reference answer is shown as the kernel recorded it (`rendered_text`): `{{ooc}}` frames are removed, every framed span plus any unframed text forms the one answer, and no speech token reaches the screen.
+
+
+#### Remote 233.20 The selected author runs on the Keeper's model (owner, 2026-10-13; amends §233.4's model line)
+
+Owner ruling: the final author must not be pinned to `grok-build/grok-4.5`; it runs on the same model as the table's Keeper. The host reads the Keeper's live `provider/id` from the session context it already holds (the tool call's context, else the last provider request) and launches the author on it with the session's current thinking level. No separate setting, no fallback model. When no Keeper model is known the selected writing task is refused (`needs`) and nothing is published. The actual-model check stays: every assistant message of the author must report that same `provider/id`, or the artifact is refused. The writer model joins the frozen packet's cache key and is recorded as `delivery_evidence.model`, so an artifact written under one model is never reused as another's. Grok 4.5 low in §233.4 and in the spec's "model assumption" is historical.

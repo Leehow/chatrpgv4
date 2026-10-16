@@ -17,5 +17,7 @@ if(!bad&&packet.commands?.check) {
   const checked=spawnSync(packet.commands.check,{shell:true,encoding:'utf8'});
   if(checked.status!==0)throw Error(checked.stderr);
 }
-process.stdout.write(JSON.stringify({type: 'message_end', message: {role: 'assistant', provider: 'grok-build', model: 'grok-4.5', stopReason: 'stop',
-  content:packet.commands?.check?[]:[{type:'text',text:readFileSync('draft.json','utf8')}]}}) + '\n');
+// Report the model the host launched this author on, as a real child's message_end would.
+const launched = String(process.env.PI_COC_TEST_WRITER_ACTUAL ?? process.env.PI_COC_FINAL_OUTPUT_MODEL ?? '');
+const slash = launched.indexOf('/');
+process.stdout.write(JSON.stringify({type: 'message_end', message: {role: 'assistant', provider: launched.slice(0, slash), model: launched.slice(slash + 1), stopReason: 'stop', content:packet.commands?.check?[]:[{type:'text',text:readFileSync('draft.json','utf8')}]}}) + '\n');

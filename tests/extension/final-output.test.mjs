@@ -328,7 +328,7 @@ test('a restarted writing owner reuses the accepted artifact before canonical pu
   t.after(()=>table.dispose());
   const bridge=table.runtimeBridges().at(-1),events=[];
   await bridge.call('table.player_input',{campaign:'test-camp',text:'I look around.'});
-  const deps={runtime:()=>bridge.runtime,call:bridge.call,record:async row=>events.push(row)};
+  const deps={runtime:()=>bridge.runtime,call:bridge.call,record:async row=>events.push(row),model:()=>({provider:'test',id:'writer'})};
   const first=await createFinalOutputOwner(deps).write('test-camp',1,plan);
   const recovered=await createFinalOutputOwner(deps).write('test-camp',1,plan);
   assert.deepEqual(recovered,first);
@@ -362,7 +362,7 @@ test('a settled change during inference rejects the frozen draft and preserves t
     await bridge.call('table.apply',{campaign:'test-camp',call_id:'t1-c1',effects:[{kind:'time',minutes:1}]});
     return outcome;
   }};
-  const owner=createFinalOutputOwner({runtime:()=>runtime,call:bridge.call,record:async()=>{}});
+  const owner=createFinalOutputOwner({runtime:()=>runtime,call:bridge.call,record:async()=>{},model:()=>({provider:'test',id:'writer'})});
   await assert.rejects(owner.write('test-camp',1,plan),/snapshot changed/);
   const status=await bridge.call('table.status',{campaign:'test-camp'});
   assert.equal(status.receipts.filter(row=>row.kind==='time').length,1);
@@ -394,4 +394,99 @@ test('material checking refuses changed canonical speech before accepting a fina
   assert.equal(accepted,0);
   await owner.check('c',1,{version:1,utterances:[utterance]});
   assert.equal(accepted,1);
+});
+
+const writerEnv={PI_COC_READER_CMD:JSON.stringify([process.execPath,join(root,'tests/extension/fixtures/final-output-writer.mjs')])};
+const shownTexts=table=>table.session.messages.filter(m=>m.role==='assistant').flatMap(m=>(m.content??[]).filter(c=>c.type==='text').map(c=>c.text));
+test('bare story prose after settled effects is never published as a reference answer (§233.10)', async t => {
+  const prose='BARE_STORY_PROSE You wait. {{say:Knott}}"Sit down."{{/say}}';
+  const table=await openTable({legacyDeliveryFixtures:false,realKernel:true,prepareWorkspace:seedOpening,env:writerEnv,
+    responses:[fauxAssistantMessage([fauxToolCall('apply',{effects:[{kind:'time',minutes:1}]})],{stopReason:'toolUse'}),
+      fauxAssistantMessage(prose),fauxAssistantMessage([fauxToolCall('output',{delivery:plan})],{stopReason:'toolUse'})]});
+  t.after(()=>table.dispose());
+  await table.session.prompt('I wait one minute.');
+  assert.deepEqual(table.extensionErrors,[]);
+  assert.ok(!shownTexts(table).some(text=>text.includes('BARE_STORY_PROSE')),'the unselected prose never reaches the player');
+  assert.ok(table.telemetry().some(row=>row.lane==='delivery'&&row.reason==='explicit_output_not_selected'&&row.owed==='receipts'));
+  const record=JSON.parse(readFileSync(join(table.workspace,'.coc/campaigns/test-camp/turns/0001.json'),'utf8'));
+  assert.equal(record.interaction_scope,undefined,'the world turn is not recorded as an out-of-fiction answer');
+  assert.equal(record.rendered_text,'The room is chilly.');
+  assert.equal(record.receipts.filter(r=>r.kind==='time').length,1);
+  assert.ok(record.facts,'the settled turn keeps its fact path for memory');
+  assert.ok(!JSON.stringify(record).includes('BARE_STORY_PROSE'));
+});
+
+test('a settled world verdict keeps bare prose private even before any effect lands', async t => {
+  // Exercise the existing settled-scope bus without restoring the retired adjudication driver.
+  const input='I walk over to Knott and greet him.';
+  const table=await openTable({legacyDeliveryFixtures:false,realKernel:true,prepareWorkspace:seedOpening,
+    env:writerEnv,extraExtensions:[{name:'settled-scope',factory:pi=>{
+      pi.on('before_agent_start',()=>{pi.events.emit('coc:interaction-scope',{
+        campaign:'test-camp',turn:1,player_text:input,mode:'world',reason:'world_action_authorized'});});
+    }}],responses:[fauxAssistantMessage('BARE_WORLD_PROSE Knott looks up from his desk.')]});
+  t.after(()=>table.dispose());
+  await table.session.prompt('I walk over to Knott and greet him.');
+  assert.deepEqual(table.extensionErrors,[]);
+  assert.ok(!shownTexts(table).some(text=>text.includes('BARE_WORLD_PROSE')));
+  assert.ok(table.telemetry().some(row=>row.lane==='delivery'&&row.reason==='explicit_output_not_selected'&&row.owed==='world_scope'));
+  const path=join(table.workspace,'.coc/campaigns/test-camp/turns/0001.json');
+  if(existsSync(path))assert.notEqual(JSON.parse(readFileSync(path,'utf8')).interaction_scope,'reference');
+});
+
+test('a framed reply with story text beside it shows the reply alone, frame and tokens removed', async t => {
+  const explanation='Pushing repeats the attempt with harsher consequences.';
+  const table=await openTable({legacyDeliveryFixtures:false,realKernel:true,prepareWorkspace:seedOpening,env:writerEnv,
+    responses:[fauxAssistantMessage([fauxToolCall('apply',{effects:[{kind:'time',minutes:1}]})],{stopReason:'toolUse'}),
+      fauxAssistantMessage(`{{ooc}}${explanation}{{/ooc}}\nFRAMED_STORY {{say:Knott}}"Go on."{{/say}}`),
+      fauxAssistantMessage([fauxToolCall('output',{delivery:plan})],{stopReason:'toolUse'})]});
+  t.after(()=>table.dispose());
+  await table.session.prompt('What does pushing do? I wait one minute.');
+  assert.deepEqual(table.extensionErrors,[]);
+  const shown=shownTexts(table);
+  assert.ok(!shown.some(text=>/\{\{(ooc|\/ooc|say:)/.test(text)),JSON.stringify(shown));
+  assert.ok(!shown.some(text=>text.includes('FRAMED_STORY')));
+  assert.equal(table.session.messages.filter(m=>m.customType==='coc-delivery'&&m.details?.reference_reply&&m.content===explanation).length,1);
+  const record=JSON.parse(readFileSync(join(table.workspace,'.coc/campaigns/test-camp/turns/0001.json'),'utf8'));
+  assert.equal(record.rendered_text,'The room is chilly.');
+});
+
+test('an unframed direct answer is shown as the kernel recorded it, never with raw tokens', async t => {
+  const table=await openTable({legacyDeliveryFixtures:false,realKernel:true,prepareWorkspace:seedOpening,
+    responses:[fauxAssistantMessage('{{ooc}}A bonus die keeps the better tens digit.{{/ooc}}')]});
+  t.after(()=>table.dispose());
+  await table.session.prompt('Pause. How do bonus dice work?');
+  assert.deepEqual(table.extensionErrors,[]);
+  const shown=shownTexts(table);
+  assert.deepEqual(shown,['A bonus die keeps the better tens digit.']);
+  const record=JSON.parse(readFileSync(join(table.workspace,'.coc/campaigns/test-camp/turns/0001.json'),'utf8'));
+  assert.equal(record.interaction_scope,'reference');
+  assert.deepEqual(record.receipts,[]);
+});
+
+test('the selected author records the configured author profile independently of the Keeper', async t => {
+  let keeper;
+  const table=await openTable({legacyDeliveryFixtures:false,realKernel:true,prepareWorkspace:seedOpening,env:writerEnv,
+    responses:[context=>fauxAssistantMessage([fauxToolCall('output',{delivery:plan})],{stopReason:'toolUse'})]});
+  t.after(()=>table.dispose());
+  await table.session.prompt('I look around without touching anything.');
+  assert.deepEqual(table.extensionErrors,[]);
+  keeper=`${table.session.model.provider}/${table.session.model.id}`;
+  assert.notEqual(keeper,'grok-build/grok-4.5');
+  const start=table.telemetry().find(row=>row.lane==='final-output'&&row.event==='start');
+  assert.equal(start.model,finalAuthorProfile().model);
+  const record=JSON.parse(readFileSync(join(table.workspace,'.coc/campaigns/test-camp/turns/0001.json'),'utf8'));
+  assert.equal(record.rendered_text,'The room is chilly.');
+  assert.equal(record.delivery_evidence.model,finalAuthorProfile().model);
+});
+
+test('an author that ran on another model than the selected author profile is refused', async t => {
+  const table=await openTable({legacyDeliveryFixtures:false,realKernel:true,prepareWorkspace:seedOpening,
+    env:{...writerEnv,PI_COC_TEST_WRITER_ACTUAL:'test-provider/wrong-author'},
+    responses:[fauxAssistantMessage([fauxToolCall('output',{delivery:plan})],{stopReason:'toolUse'})]});
+  t.after(()=>table.dispose());
+  await table.session.prompt('I look around without touching anything.');
+  assert.deepEqual(table.extensionErrors,[]);
+  assert.ok(table.session.messages.some(m=>m.role==='toolResult'&&m.content?.some(c=>c.type==='text'&&c.text.includes('did not verify the expected model'))));
+  const path=join(table.workspace,'.coc/campaigns/test-camp/turns/0001.json');
+  if(existsSync(path))assert.ok(!JSON.parse(readFileSync(path,'utf8')).commit);
 });
