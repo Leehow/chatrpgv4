@@ -21570,6 +21570,11 @@ append to logs, so the stamp is the change signal; a file rewritten in place wit
 its mtime. The cache is bounded (128 MB of decoded text, 4096 entries, least recently used evicted) and
 `forgetParsedFiles()` empties it. A read still costs one `stat`.
 
+`CampaignSnapshot.open` takes a structural copy of the saved world for operation-local projections.
+When a published book person replaces a provisional passage person, the projection may re-key that
+copy's person maps; it never mutates the shared frozen parse or persists a read. A subsequent ordinary
+write remains responsible for committing the replacement. Concurrent recalls receive independent copies.
+
 `RuleObservations.load` (`kernel-ts/read/rule-facts.ts`) keeps one index per distinct frozen graph object,
 so the canonical digest check and the index build run once per process per graph; a changed file is a new
 object and a new index. `readPublishedGraph` (`kernel-ts/read/published-graph.ts`) keeps the bytes digest
