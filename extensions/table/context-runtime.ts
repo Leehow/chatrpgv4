@@ -612,7 +612,9 @@ export function installContextPolicy(pi: ExtensionAPI, writeTelemetry: (row: Row
         return preparing;
     }
 
-    const diagnostic = (reason: string, note = 'Some context could not be safely reduced and was retained. Preserve authoritative state and pending choices; do not invent missing history. This host notice is not a story event or a new obligation.'): Row => customMessage(DIAGNOSTIC_TYPE, {
+    const diagnostic = (reason: string, note = reason === 'latest_tool_batch_omitted'
+        ? 'The latest complete tool-result batch was not sent because it could not fit this request. Do not repeat that oversized batch. Retrieve only the next missing body you need, use its result, then decide whether another read is necessary. Independent reads may still run together when they fit. Preserve authoritative state and pending choices; do not invent omitted results. This is host capacity information, not a story event or a new obligation.'
+        : 'Some context was omitted or retained within the request limit. Preserve authoritative state and pending choices; do not invent missing history. This host notice is not a story event or a new obligation.'): Row => customMessage(DIAGNOSTIC_TYPE, {
         kind: 'context_diagnostic', reason, note,
     });
     // Contract §209.13: package detail the request could not carry is omitted whole and said so.
@@ -875,10 +877,17 @@ export function installContextPolicy(pi: ExtensionAPI, writeTelemetry: (row: Row
             reserve+=hintBytes;
             let fitted=reserve||omission?project(Math.max(0,messageBudget-reserve),{workspace,prescreen}):initial;
             const why=omission??fitted.degraded??(Math.ceil((requestSize(fitted.messages)+reserve+systemBytes)/BYTES_PER_TOKEN)>available?'request_window_estimate':undefined);
-            const notice=why?diagnostic(why,...(omission?[PACKAGE_OMITTED_NOTE]:[])):undefined;
+            let notice=why?diagnostic(why,...(omission?[PACKAGE_OMITTED_NOTE]:[])):undefined;
             // Reserve a diagnostic only when one is needed. An optional workspace must not be
             // displaced by a hypothetical notice on an otherwise healthy, within-budget request.
-            if(notice)fitted=project(Math.max(0,messageBudget-reserve-requestSize([notice])),{workspace,prescreen});
+            if(notice){
+                fitted=project(Math.max(0,messageBudget-reserve-requestSize([notice])),{workspace,prescreen});
+                if(!omission&&fitted.degraded==='latest_tool_batch_omitted'&&why!==fitted.degraded){
+                    notice=diagnostic(fitted.degraded);
+                    fitted=project(Math.max(0,messageBudget-reserve-requestSize([notice])),{workspace,prescreen});
+                }
+            }
+
             return {fitted,messages:rename([...(notice?[notice,...fitted.messages.filter(message=>!(message.role==='custom'&&message.customType===DIAGNOSTIC_TYPE))]:fitted.messages),...projectedTail(fitted)]
                 .filter(message=>!(message.role==='custom'&&[EXPRESSION_MESSAGE,MOD_SECTIONS_MESSAGE,TEMPORAL_ADVICE_MESSAGE].includes(message.customType))))};
         };

@@ -358,7 +358,8 @@ export function projectedMessages(input: {
         protectedBytes: requestSize(opening) + requestSize(cut.messages) + (brief.length ? requestSize(brief) : 0), unknownBytes: unknown.length ? requestSize(unknown) : 0,
         ...(cut.dropped ? {droppedTail: cut.dropped} : {}), ...(droppedUnknown ? {droppedUnknown} : {}),
         ...(over ? {overCeiling: true} : {}),
-        ...(unknown.length ? {degraded: 'unclassified_messages_retained'}
+        ...(input.singleKeeper && !retainsLatestToolBatch(messages, projected, binding) ? {degraded: 'latest_tool_batch_omitted'}
+            : unknown.length ? {degraded: 'unclassified_messages_retained'}
             : cut.dropped || droppedUnknown || briefYielded ? {degraded: 'request_ceiling_reached'} : {})};
 }
 /**

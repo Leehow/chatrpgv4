@@ -40,4 +40,5 @@ test('legacy projection and a genuinely unfit native batch retain their bounded 
   const small=api.projectedMessages({messages,binding,history:{},budget:40000,singleKeeper:true});
   assert(api.requestSize(small.messages)<=40000);assert(api.pairedTools(small.messages));
   assert.equal(api.retainsLatestToolBatch(messages,small.messages,binding),false);
+  assert.equal(small.degraded,'latest_tool_batch_omitted','the Keeper must be told that the just-requested results did not reach this request');
 });

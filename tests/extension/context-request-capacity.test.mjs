@@ -107,6 +107,30 @@ function withCeiling(t) {
     t.after(() => {for (const name of names) if (old[name] === undefined) delete process.env[name]; else process.env[name] = old[name];});
 }
 
+test('an oversized current read batch has an honest native notice and a smaller follow-up recovers',async t=>{
+    withCeiling(t);
+    const fixture=table({capsuleBytes:8192,sectionBytes:512}),messages=branch(fixture,{workingPairs:0}),errors=[];
+    open(fixture);
+    fixture.bus.get('coc:loop-engine')({engine:'hybrid-v1',prescreen:'run',singleKeeper:true});
+    const calls={role:'assistant',content:['scene','person'].map(id=>({type:'toolCall',id,name:'look',arguments:{focus:id==='scene'?'scene':'npc'}})),stopReason:'toolUse',timestamp:200};
+    const results=['scene','person'].map(id=>({role:'toolResult',toolCallId:id,toolName:'look',content:[{type:'text',text:filler(id,40000)}],isError:false,timestamp:201}));
+    messages.push(calls,...results);
+    const original=structuredClone(messages),projected=await infer(fixture,messages,errors);
+    const notice=JSON.parse(projected.find(message=>message.customType===api.DIAGNOSTIC_TYPE).content);
+    assert.equal(notice.reason,'latest_tool_batch_omitted');
+    assert.match(notice.note,/not sent/);
+    assert.match(notice.note,/Do not repeat/);
+    assert(providerBytes(projected)<=CEILING);assert(api.pairedTools(projected));
+    assert.deepEqual(messages,original);
+    const oneCall={role:'assistant',content:[{type:'toolCall',id:'focused',name:'look',arguments:{focus:'session'}}],stopReason:'toolUse',timestamp:202};
+    const oneResult={role:'toolResult',toolCallId:'focused',toolName:'look',content:[{type:'text',text:'Current native fact.'}],isError:false,timestamp:203};
+    const recovered=await infer(fixture,[...messages,oneCall,oneResult],errors);
+    assert(recovered.some(message=>message.role==='toolResult'&&message.toolCallId==='focused'));
+    const nextNotice=recovered.find(message=>message.customType===api.DIAGNOSTIC_TYPE);
+    assert.notEqual(nextNotice&&JSON.parse(nextNotice.content).reason,'latest_tool_batch_omitted');
+    assert(providerBytes(recovered)<=CEILING);assert(api.pairedTools(recovered));assert.deepEqual(errors,[]);
+});
+
 test('required package detail that no longer fits beside the turn traffic is reserved, not thrown at Pi', async t => {
     withCeiling(t);
     const fixture = table(), messages = branch(fixture), errors = [];
