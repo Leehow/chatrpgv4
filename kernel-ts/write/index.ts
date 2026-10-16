@@ -1433,7 +1433,7 @@ export function createWriteRuntime(context: KernelContext, contributions: WriteC
         // §194.3: an ask closes the turn too, so the documents it hands over tell their names at it; §194.5: before its gate.
         const askDocuments = await documentsTold(context, snapshot, module, receipts, askCleared);
         const gated = text ? await untoldNamesGate(snapshot, campaign, turn, module.graph, askPrices.text, askSpeakers, started.callId, false, askCleared, askDocuments,
-            row(params._delivery_evidence).author === 'keeper') : null;
+            ['keeper','isolated-expression'].includes(row(params._delivery_evidence).author)) : null;
         const asked = gated ? withNames(gated.text, askSpeakers, module.graph) : null;
         const { placed, ...delivery } = deliveryText(asked ? asked.text : text, receipts, askSpeakers);
         await refuseRepeatedLine(snapshot, campaign, delivery.speech);
@@ -1566,7 +1566,7 @@ export function createWriteRuntime(context: KernelContext, contributions: WriteC
         // the gate reads the text, so a name the delivery's own handouts tell is not refused in it.
         const documents = reference ? NOTHING_TOLD : await documentsTold(context, snapshot, module, receipts, cleared);
         const gated = await untoldNamesGate(snapshot, campaign, turn, module.graph, priceBinding.text, speakers, started.callId, truth(params.implicit), cleared, documents,
-            reference || row(params._delivery_evidence).author === 'keeper');
+            reference || ['keeper','isolated-expression'].includes(row(params._delivery_evidence).author));
         const naming = withNames(gated.text, speakers, module.graph);
         let text = naming.text;
         // §103.8: someone untold is named in this delivery, so from now on the table calls them by the book's name -- the sync
