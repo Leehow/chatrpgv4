@@ -332,3 +332,20 @@ test('an ordinary Charm check with an NPC actor and no target is that NPC\'s own
 	assert.equal(roll.visibility, 'keeper');
 	assert.equal(await game.investigatorRaw(), before);
 });
+
+
+test('NPC failures do not advise player Push or Luck; investigator failures retain eligible guidance', async t => {
+  const game = await table(t);
+  await place(game);
+  await game.apply({kind:'npc',name:GUARD,skill:{name:'Electrical Repair',value:1},why:'an inexperienced repairer'});
+  const npc = await game.resolve({intent:'investigate',actor:GUARD,skill:'Electrical Repair',goal:'repair the broken wire'});
+  assert.equal(npc.outcome.level,'failure');
+  assert.deepEqual(npc.continuations,[]);
+  assert.ok((npc.hints??[]).every(hint => !hint.includes('player-declared final attempt') && !hint.includes('player may spend Luck')),
+    'only applicable player continuations may produce player-option advice');
+  const playerGame = await table(t);
+  const pc = await playerGame.resolve({intent:'investigate',actor:'Thomas Hayes',skill:'Electrical Repair',difficulty:'extreme',goal:'repair a different broken wire'});
+  assert.equal(pc.outcome.level,'failure');
+  assert.ok(pc.continuations.length>0,'the investigator retains real continuation grants');
+  assert.ok(pc.hints.some(hint=>hint.includes('player-declared final attempt')||hint.includes('player may spend Luck')));
+});

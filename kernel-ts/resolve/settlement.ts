@@ -2,7 +2,7 @@
 import { isJsonObject } from '../json.js';
 import { RuleGraph } from '../rules/graph.js';
 import { array, clone, integer, number, repr, row, string, truth, type Row } from '../read/values.js';
-import { SettleContext, type ExecutionResult } from './context.js';
+import { SettleContext, continuableCheck, type ExecutionResult } from './context.js';
 import { BASIC_EXECUTORS } from './basic.js';
 import type { FixedFamilyBinding } from './families.js';
 import { COMBINED, IDEA, LUCK, LUCK_ROLL, OBSERVE, ORDINARY, PUSH, REALIZE, SOCIAL, executorArgs, hostLocked } from './bindings.js';
@@ -297,7 +297,12 @@ export async function settleBasic(context: SettleContext, runtime: RuleGraph, se
         };
         if (data.outcome === 'failure') {
             result.next_continuations = continuationsAfterCheck(runtime, selected, data, context.callId, pushEnabled);
-            hints = [...hints, pushEnabled && data.push_eligible !== false ? 'ordinary failure: a player-declared final attempt is owned by the active Pushed Roll Mod. Do not prompt or request another method or risk confirmation. Push and Luck are mutually exclusive.' : 'ordinary failure: the player may spend Luck when permitted'];
+            if (context.sheetById(context.actorId) && context.receipts.some(receipt => continuableCheck(receipt, context.actorId))) {
+                if (array(result.next_continuations).includes(PUSH))
+                    hints = [...hints, 'ordinary failure: a player-declared final attempt is owned by the active Pushed Roll Mod. Do not prompt or request another method or risk confirmation. Push and Luck are mutually exclusive.'];
+                else if (array(result.next_continuations).includes(LUCK))
+                    hints = [...hints, 'ordinary failure: the player may spend Luck when permitted'];
+            }
         }
         else {
             result.next_continuations = continuationsAfterCheck(runtime, selected, data, context.callId, pushEnabled);

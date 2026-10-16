@@ -19,20 +19,20 @@ test('compressed context supplies facts but never the player-facing sentence pat
   assert.ok(craft.includes('The player\'s words this turn are what the investigator does'));
   assert.ok(craft.includes('Their sentence is never pasted back in'));
   // Contract section 40.9: the whole encounter and immediate danger supersede unconditional answer-first.
-  assert.ok(craft.includes('respond to the whole encounter, what was done as well as said'));
-  assert.ok(craft.includes('Immediate danger takes priority over conducting business'));
-  assert.ok(craft.includes('rather than automatically answering it as a request for information'));
-  assert.ok(craft.includes('Answer a genuine question directly when the situation permits'));
-  assert.ok(craft.includes('and the NPC chooses to, with natural connected speech'));
+  assert.ok(craft.includes('reacts to this whole encounter, what was done as well as said'));
+  assert.ok(craft.includes('Immediate danger takes priority over ordinary business'));
+  assert.ok(craft.includes('uncertainty, evasion, refusal, warmth, silence or a longer explanation follow their knowledge, purpose, relationship and present feeling'));
+  assert.ok(craft.includes('A willing informed person answers the actual question'));
+  assert.ok(craft.includes('Keep the thought connected and the meaning easy to hear'));
   assert.equal(craft.includes('Answer the actual question first, with natural connected speech'), false);
   const peopleAt = craft.indexOf('\n## The people here\n');
   assert.ok(peopleAt >= 0, 'the full instruction keeps its people section');
   const people = craft.slice(peopleAt, craft.indexOf('\n## ', peopleAt + 1));
-  assert.ok(craft.includes('Same thought, two mouths'));
+  assert.ok(craft.includes('say that in their own register'));
   assert.equal(craft.includes('do not begin with what the investigator did'), false);
-  assert.ok(craft.includes("Keep each person's facts and position"));
-  assert.ok(craft.includes('Repetition may test patience, persuade, clarify, or change nothing'));
-  assert.ok(craft.includes('Sarcasm, contempt and insult may colour what they offer next, but do not force offence'));
+  assert.ok(craft.includes("Preserve source facts, private knowledge and the player\'s choices"));
+  assert.ok(craft.includes('earlier wording is a record, not a style template'));
+  assert.ok(craft.includes('An insult need not cause anger, a request need not earn agreement'));
   // prose-mod-c (2026-09-26): two of fifteen turns narrated the investigator in the third person; the instruction states the viewpoint
   // (the brief that also said it is retired, §183).
   assert.ok(craft.includes('The investigator is always "you"'));
