@@ -12,9 +12,10 @@ import {createHybridEngine} from '../../runtime/jev/hybrid-engine.ts';
 const CAMPAIGN='test-camp',NAME='Retained interview notebook',EQUIPMENT='notebook and stub pencil';
 const INITIAL='An existing note retained from the acquisition.\n';
 const read=async path=>JSON.parse(await readFile(path,'utf8'));
-// These tests isolate physical writing, not the independent post-delivery readers.
-// Their deferred requests must not race the next test's fetch assertion.
-const WRITING_ENV={PI_COC_LOOP_ENGINE:'hybrid-v1',PI_COC_TOLD_POSITION:'off',PI_COC_TOLD_CLUE:'off',PI_COC_TOLD_TIME:'off'};
+// These tests isolate physical writing, not optional context selection or post-delivery readers.
+// Neither family may contaminate the assertion that writing itself needs no decision request.
+const WRITING_ENV={PI_COC_LOOP_ENGINE:'hybrid-v1',PI_COC_MATERIAL_SCREEN:'0',
+  PI_COC_TOLD_POSITION:'off',PI_COC_TOLD_CLUE:'off',PI_COC_TOLD_TIME:'off'};
 
 async function seedReadyHistoricalRegistration(workspace,{ready=true}={}){
   const context=await api.createKernelContext({workspace,content:join(root,'content'),seed:'turn-start-registration',
