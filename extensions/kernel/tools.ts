@@ -818,7 +818,7 @@ export const COC_TOOLS: readonly CocToolSpec[] = [
 					description: "which side to look at; defaults to scene",
 				}),
 			),
-			name: Type.Optional(Type.String({ description: "the entity name to look at when focus is npc, object, or map" })),
+			name: Type.Optional(Type.String({ description: "The entity to look at when focus is npc, object, or map. For an NPC prefer its id from the current view, or an exact candidate name returned by an ambiguity error; use a display alias only when unique" })),
             knowledge_page: Type.Optional(Type.Object({offset:Type.Integer({minimum:0}),limit:Type.Integer({minimum:1,maximum:4096}),context:Type.Object({turn:Type.Integer(),view:Type.Integer(),line:Type.String(),loop:Type.Integer()})},{description:"Public knowledge only: issued catalogue or original-text continuation. Follow returned context and offset; stale reads require refreshing the catalogue"})),
             document_query: Type.Optional(Type.String({minLength:1,maxLength:256,description:"Object documents only: one exact case-sensitive literal to locate in ALL current readable writing, with original surrounding passages. No match means literal absence only; use document_page for a semantic question"})),
             document_page: Type.Optional(Type.Integer({minimum:1,description:"Object documents only: bounded current text page, or result page with document_query. Start at 1; follow the returned next call. Do not claim semantic absence from incomplete page coverage"})),
