@@ -164750,7 +164750,7 @@
           "counterpart": {
             "file": "tests/integration/rules-play-driver-model.test.ts",
             "name": "test_silence_and_a_stale_settle_do_not_end_a_busy_opening",
-            "sha256": "a452e3de5011891a1f464f787f3f1000f16cfbf05e38606275904426393b44fd"
+            "sha256": "5716496cc501a65d7e83668500a441900a58019249f8ad24a28096371c4d72c6"
           },
           "review": "statement-by-statement",
           "validation": {
@@ -165814,7 +165814,7 @@
           "counterpart": {
             "file": "tests/integration/rules-play-driver-model.test.ts",
             "name": "test_thinking_off_reaches_the_launcher_args",
-            "sha256": "a452e3de5011891a1f464f787f3f1000f16cfbf05e38606275904426393b44fd"
+            "sha256": "5716496cc501a65d7e83668500a441900a58019249f8ad24a28096371c4d72c6"
           },
           "review": "statement-by-statement",
           "validation": {
@@ -165897,7 +165897,7 @@
           "counterpart": {
             "file": "tests/integration/rules-play-driver-model.test.ts",
             "name": "test_thinking_omitted_falls_back_to_default",
-            "sha256": "a452e3de5011891a1f464f787f3f1000f16cfbf05e38606275904426393b44fd"
+            "sha256": "5716496cc501a65d7e83668500a441900a58019249f8ad24a28096371c4d72c6"
           },
           "review": "statement-by-statement",
           "validation": {
@@ -166004,7 +166004,7 @@
           "counterpart": {
             "file": "tests/integration/rules-play-driver-model.test.ts",
             "name": "test_luna_test_profile_reaches_both_keeper_and_final_author",
-            "sha256": "a452e3de5011891a1f464f787f3f1000f16cfbf05e38606275904426393b44fd"
+            "sha256": "5716496cc501a65d7e83668500a441900a58019249f8ad24a28096371c4d72c6"
           },
           "review": "statement-by-statement",
           "validation": {
@@ -166099,7 +166099,7 @@
           "counterpart": {
             "file": "tests/integration/rules-play-driver-model.test.ts",
             "name": "test_first_step_thinking_sets_the_launcher_env",
-            "sha256": "a452e3de5011891a1f464f787f3f1000f16cfbf05e38606275904426393b44fd"
+            "sha256": "5716496cc501a65d7e83668500a441900a58019249f8ad24a28096371c4d72c6"
           },
           "review": "statement-by-statement",
           "validation": {
@@ -166182,7 +166182,7 @@
           "counterpart": {
             "file": "tests/integration/rules-play-driver-model.test.ts",
             "name": "test_first_step_thinking_omitted_leaves_env_untouched",
-            "sha256": "a452e3de5011891a1f464f787f3f1000f16cfbf05e38606275904426393b44fd"
+            "sha256": "5716496cc501a65d7e83668500a441900a58019249f8ad24a28096371c4d72c6"
           },
           "review": "statement-by-statement",
           "validation": {
@@ -166274,7 +166274,7 @@
           "counterpart": {
             "file": "tests/integration/rules-play-driver-model.test.ts",
             "name": "test_engine_acceptance_requires_actual_current_process_handshake",
-            "sha256": "a452e3de5011891a1f464f787f3f1000f16cfbf05e38606275904426393b44fd"
+            "sha256": "5716496cc501a65d7e83668500a441900a58019249f8ad24a28096371c4d72c6"
           },
           "review": "statement-by-statement",
           "validation": {
@@ -175854,6 +175854,28 @@
         }
       },
       "limitation": "This is the scoped source RPC regression; LAN focused and installed-App acceptance are separate."
+    },
+    {
+      "file": "tests/integration/rules-play-driver-model.test.ts",
+      "prior_sha256": "a452e3de5011891a1f464f787f3f1000f16cfbf05e38606275904426393b44fd",
+      "current_sha256": "5716496cc501a65d7e83668500a441900a58019249f8ad24a28096371c4d72c6",
+      "contract": "docs/kernel-rpc.md MiniMax test profile and tests/extension/test-tiers.test.mjs counterpart validation",
+      "basis": "An appended MiniMax medium profile regression changed the full-file digest; all pre-existing counterpart bytes remain exact.",
+      "historicalValidationRetained": "Original source/case hashes, assertions, parameters, exceptions, review and validation records remain unchanged. Only the current counterpart identity is refreshed with this separate verification.",
+      "currentValidation": {
+        "command": "node scripts/test-integration-ts.mjs tests/integration/rules-play-driver-model.test.ts",
+        "result": "passed",
+        "passed": 9,
+        "failed": 0,
+        "exitCode": 0,
+        "evidence": {
+          "run": ".coc/test-runs/integration-ts-HSii6f/run.json",
+          "junit": ".coc/test-runs/integration-ts-HSii6f/results.xml",
+          "sourceHashes": ".coc/test-runs/integration-ts-HSii6f/source-sha256.txt",
+          "assertionReview": ".coc/test-runs/integration-ts-HSii6f/counterpart-review.json"
+        }
+      },
+      "limitation": "Scoped deterministic TS driver probes; no live model calls, full-suite or installed-App acceptance claimed."
     }
   ]
 }
