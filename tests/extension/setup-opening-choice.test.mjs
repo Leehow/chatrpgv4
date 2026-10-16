@@ -20,7 +20,7 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { test } from "node:test";
 import { fauxAssistantMessage, fauxToolCall, getCurrentSystemPrompt } from "@earendil-works/pi-ai";
-import { openTable, waitForIdle } from "./harness.mjs";
+import { openTable, waitFor, waitForIdle } from "./harness.mjs";
 
 const setupCall = (params) => fauxAssistantMessage([fauxToolCall("setup", params)], { stopReason: "toolUse" });
 
@@ -129,14 +129,24 @@ test("a choice made while its opening is still being read is recorded when it is
 
 	// The reading lands; the guide rejoins once more, then creates the campaign.
 	rmSync(gate);
+	// Releasing the reader does not complete its retained polling task. Rejoin the same
+	// choice until it lands; a loaded runner may outlast the foreground allowance.
+	let rejoined;
+	await waitFor(async () => {
+		table.faux.setResponses([setupCall({ step: "prepare-module" }), fauxAssistantMessage("Checking the chosen opening.")]);
+		await table.session.prompt("Is the chosen opening ready now?");
+		await waitForIdle(table.session);
+		rejoined = setupResults(table.session).at(-1);
+		if (!rejoined.ok) assert.equal(rejoined.details?.reason, "reading_timeout", JSON.stringify(rejoined));
+		return rejoined.ok;
+	}, { label: "the retained chosen opening to finish reading" });
 	table.faux.setResponses([
-		setupCall({ step: "prepare-module" }),
 		setupCall({ step: "create-campaign", id: "two-door-table", title: "Two doors", play_language: "en" }),
 		fauxAssistantMessage("Tell me who you are."),
 	]);
 	await table.session.prompt("OK, I'll wait.");
 	await waitForIdle(table.session);
-	const [rejoined, created] = setupResults(table.session).slice(4);
+	const created = setupResults(table.session).at(-1);
 	assert.equal(rejoined.ok, true, `the rejoined preparation keeps the choice: ${JSON.stringify(rejoined)}`);
 	const openingReads = table.kernelRequests().filter((row) => row.method === "module.read.request" && row.params.purpose === "opening");
 	assert.equal(openingReads.at(-1).params.focus, "tower", "the rejoin reads the opening the player chose");
