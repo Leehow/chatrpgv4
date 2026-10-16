@@ -8066,7 +8066,10 @@ export default function (pi: ExtensionAPI, host: {capabilities?:RuntimeCapabilit
 				return{message:{...event.message,content:blocks.filter(b=>b.type!=='text')}};
 			}catch(error){
 				if(reply.evidence)finalOutput.finishStream(reply.evidence,'publication_pending');
-                else reply.stream?.interrupt();
+                else if(reply.stream){
+                    reply.stream.interrupt();
+                    endInput(state,'public_stream_interrupted',ctx);
+                }
 				await record({lane:'keeper-delivery',turn:state.turn,ok:false,reason:String(error),
                     private_reply:reply.raw,model:`${event.message.provider}/${event.message.model}`,stop_reason:event.message.stopReason});
 				const framingError=error instanceof Error&&['Final artifact must begin with version and text','Invalid public stream marker'].includes(error.message);
