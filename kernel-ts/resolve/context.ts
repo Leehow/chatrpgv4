@@ -65,6 +65,8 @@ export function npcProfileOf(graph: LoadedModule['graph'], world: Row, handle: s
     for (const key of ['current_mp', 'conditions', 'characteristics'])
         if (Object.hasOwn(resources, key))
             result[key] = clone(resources[key]);
+    if (isJsonObject(resources.derived))
+        result.derived = { ...row(result.derived), ...clone(resources.derived) };
     return result;
 }
 export class SettleContext {

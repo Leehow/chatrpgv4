@@ -5,7 +5,7 @@ import { array, equal, integer, kebab, number, repr, row, string, truth, type Ro
 import type { SettleContext } from '../resolve/context.js';
 import { rollExpression } from '../resolve/arithmetic.js';
 import { DAY_MINUTES, establishDamageWound, healingTimeTrigger, readHealingState, writeHealingState } from './session.js';
-import { mpTimeTrigger } from './mp.js';
+import { MPool, mpTimeTrigger } from './mp.js';
 export { gameDayOf, stageDayBoundary } from './day.js';
 export { INCAPACITATING_CONDITIONS, OUT_OF_FIGHT_CONDITIONS, incapacitatedBy } from './conditions.js';
 export const TRANSIENT_COMBAT_CONDITIONS = new Set(['prone', 'grappled', 'surprised', 'outnumbered', 'fled']);
@@ -161,19 +161,31 @@ export async function stageDamage(context: SettleContext, rolled: Row, effect: R
     if (resource === 'pow') {
         const before = number(sheet.characteristics.POW), after = Math.max(0, before - number(rolled.total));
         context.addDelta('pow', id, before, after, { source_receipt: rollId });
+        const profile = context.sheetById(id) ? sheet : context.npcProfile(id) ?? sheet;
+        const pool = await MPool.load(context.tables, context, id, before, { currentMp: sheet.current_mp ?? profile.current_mp, currentHp: sheet.current_hp });
+        const mpBefore = pool.currentMp;
+        pool.mpMax = new MPool(id, after, { economy: pool.economy }).mpMax;
+        pool.currentMp = Math.min(pool.currentMp, pool.mpMax);
+        if (pool.currentMp !== mpBefore)
+            context.addDelta('mp', id, mpBefore, pool.currentMp, { source_receipt: rollId, why: 'POW ceiling' });
+        await pool.save(context);
         sheet.characteristics = { ...sheet.characteristics, POW: after };
+        sheet.derived = { ...row(sheet.derived), MP: pool.mpMax };
+        sheet.current_mp = pool.currentMp;
         if (context.sheetById(id))
             await context.writeSheet(sheet);
         else {
             const resources = ((context.world.npc_resources ??= {})[id] ??= {});
             resources.characteristics = { ...sheet.characteristics };
+            resources.derived = { ...row(resources.derived), MP: pool.mpMax };
+            resources.current_mp = pool.currentMp;
             await context.transaction.campaign.writeWorld(context.world);
         }
         const combat = row(await context.readSave('combat.json'));
         if (combat.status === 'active') {
             for (const participant of array(combat.participants))
                 if (participant.actor_id === id)
-                    participant.characteristics = { ...row(participant.characteristics), POW: after };
+                    Object.assign(participant, { characteristics: { ...row(participant.characteristics), POW: after }, magic_points: pool.currentMp });
             await context.writeSave('combat.json', combat);
         }
         return { receipts: context.receipts.slice(start), event: ['resource-changed', { resource, subject: id, before, after, dice: effect.dice, total: rolled.total, why }] };
@@ -256,7 +268,7 @@ export async function stageRecovery(context: SettleContext, minutes: number): Pr
                 context.addEffect('condition', id, prior, healed);
             }
         }
-        const gained = await mpTimeTrigger(context.tables, context, id, number(characteristics.POW || 50), minutes, { currentMp: sheet.current_mp });
+        const gained = await mpTimeTrigger(context.tables, context, id, number(characteristics.POW ?? 50), minutes, { currentMp: sheet.current_mp });
         await restore(id, 'mp', number(sheet.current_mp || 0), gained, number(derived.MP || 0));
     }
     return { receipts: context.receipts.slice(start), events, recovered };
