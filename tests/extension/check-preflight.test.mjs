@@ -66,7 +66,7 @@ test('real resolve options prepare one advisory ordinary check without settling 
   globalThis.fetch=async(_url,request)=>{const sent=JSON.parse(request.body);decisions.push(sent);
     return Response.json(supportWire(sent,candidate=>candidate.kind==='investigator'?'necessary':'skip',
       {check:'ordinary',difficulty:'hard',bonus:'one',skill:'Spot Hidden'}));};
-  api.installContextPolicy({on:(name,fn)=>hooks.set(name,fn),events:{on:(name,fn)=>bus.set(name,fn)},getActiveTools:()=>[],getAllTools:()=>[]},event=>events.push(event));
+  api.installContextPolicy({on:(name,fn)=>hooks.set(name,fn),events:{on:(name,fn)=>bus.set(name,fn),emit:(name,value)=>bus.get(name)?.(value)},getActiveTools:()=>[],getAllTools:()=>[]},event=>events.push(event));
   t.after(()=>hooks.get('session_shutdown')());
   const {_context:binding,...capsule}=await call('table.capsule',{rehydrate:true});
   const start=calls.length;

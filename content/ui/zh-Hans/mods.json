@@ -1,6 +1,6 @@
 {
   "add": "安装",
-  "availableVersions": "可用版本",
+  "availableVersions": "已安装版本",
   "campaign": "本战役已启用",
   "core": "核心",
   "defaults": "在新战役中启用",
@@ -36,5 +36,9 @@
   "title": "模组",
   "unbound": "选择一场战役以更改其模组。",
   "update": "使用此版本",
-  "version": "版本"
+  "version": "版本",
+  "currentVersion": "当前使用",
+  "followLatest": "跟随最新版本",
+  "latestVersion": "最新兼容",
+  "updateUnavailable": "无法自动更新；保留当前版本"
 }

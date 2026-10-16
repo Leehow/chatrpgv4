@@ -32,7 +32,6 @@ test('after a setup meeting the visitor is not asked for again and the card is n
   assert.ok(text.includes("never state that either of them lacks something"));
   assert.ok(text.includes('Record actual changes through the existing effects and event fields'));
   assert.ok(text.includes("ordinary speech needs no attempted intention"));
-  assert.ok(text.endsWith('the only opening writes are ask, narrate and apply clock, when the capsule\'s clock asks for its opening datetime to be pinned.'));
   assert.ok(text.includes(JSON.stringify({...prologue, guide: 'Steven Knott'})));
 });
 

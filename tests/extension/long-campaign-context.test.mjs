@@ -72,7 +72,8 @@ test('campaign length never reaches the provider: the branch outgrows the ceilin
     // 2026-10-08 (§203): full craft 2.5.0 makes the protected source/tool floor exceed 208 KiB.
     // The current trace explicitly reports request_ceiling_exceeded at 220,073 B after dropping history.
     // Keep this pressure fixture above that floor; its stored branch still has to outgrow the ceiling.
-    const ceiling = 224 * 1024, turns = 6;
+    // §235: the event schema and prompt raise the protected floor to 231,753 B; 224 KiB cannot fit it.
+    const ceiling = 240 * 1024, turns = 6;
     const table = await openTable({realKernel: true, campaign: 'long-campaign-ceiling', retainAt: directory,
         env: {PI_COC_COMPACT_AT: '100', PI_COC_REQUEST_BYTES: String(ceiling)}, settings: {compaction: {enabled: false}},
         responses: [...keeperTurn(long(0)), ...Array.from({length: turns}, (_, turn) => keeperTurn(long(turn + 1))).flat()]});
@@ -132,7 +133,8 @@ test('a turn the policy cannot prepare is bounded, not answered with the whole s
     // (1,637 B situational -> 4,010 B on every request) and the Keeper tools gained the document operations, so the
     // degraded request (prompt and tool checkpoint plus the diagnostic) measured 98,290 B on the Mac against 98,304,
     // and crossed it on the Linux box.
-    const ceiling = 104 * 1024;
+    // §235: the system/tool floor alone is 108,852 B; the degraded request is 109,234 B, above 104 KiB.
+    const ceiling = 120 * 1024;
     const table = await openTable({realKernel: true, campaign: 'long-campaign-degraded', retainAt: directory,
         env: {PI_COC_COMPACT_AT: '100', PI_COC_REQUEST_BYTES: String(ceiling)}, settings: {compaction: {enabled: false}},
         responses: [...keeperTurn(long(0)), ...Array.from({length: 4}, (_, turn) => keeperTurn(long(turn + 1))).flat()]});
@@ -175,7 +177,8 @@ test('a turn with more tool traffic than the ceiling allows keeps the newest evi
     // (+2,373 B on every request) and the document tool fields put the squeezed requests at 208,020-208,235 B on the
     // Mac against 204,800: the floor again. The squeeze still has to bind at 212 KiB.
     // 2026-10-08 (§203): the same protected full-guidance floor needs 224 KiB; no production budget changes.
-    const ceiling = 224 * 1024;
+    // §235: after dropping old traffic, the protected request is 231,601 B, above the previous 224 KiB.
+    const ceiling = 240 * 1024;
     const table = await openTable({realKernel: true, campaign: 'long-campaign-squeeze', retainAt: directory,
         env: {PI_COC_COMPACT_AT: '100', PI_COC_REQUEST_BYTES: String(ceiling)}, settings: {compaction: {enabled: false}},
         responses: [...keeperTurn(long(0)), ...Array.from({length: 3}, (_, turn) => busyTurn(long(turn + 1), 14)).flat()]});

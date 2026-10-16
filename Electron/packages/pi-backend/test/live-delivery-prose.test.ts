@@ -9,11 +9,12 @@ import { createPiHostBackend } from "../src/index.js";
 import { turnTelemetryPath, type TurnTelemetryRecord } from "../src/turn-telemetry.js";
 
 /**
- * Contract §171: the Keeper's delivery is drawn as the story while its arguments stream.
+ * Contract §233.11 supersedes §171's host argument previews: selected material remains private.
  *
  * Driven through the host's own reader (`rpcEvent`) with the event shapes Pi's RPC mode emits: a
  * `toolcall_start` that names the tool, raw JSON deltas, a `toolcall_end` with the parsed call, and
- * the kernel's `coc-mechanics` card appended once the delivery lands.
+ * the kernel's accepted `coc-mechanics` card as the only story publication. Positive legacy grammar
+ * streaming remains covered by live-prose.test.ts with an explicit test-only field mapping.
  */
 
 let root = "";
@@ -107,71 +108,82 @@ async function telemetryRows(agentDir: string): Promise<TurnTelemetryRecord[]> {
 }
 
 const prose = "土路把皮卡颠进镇口。{{say:棚下的加油站老板}}“要加油就直说。”{{/say}}你熄了火。";
-const shown = "土路把皮卡颠进镇口。“要加油就直说。”你熄了火。";
-
-describe("PiHostBackend live delivery prose (§171)", () => {
-  it("draws narrate's prose as it streams, then puts the delivered card in its place, counting first prose from the draft", async () => {
+describe("PiHostBackend accepted delivery prose (§233.11)", () => {
+  it("keeps streamed narrate materials private and publishes the accepted card once, counting first prose from publication", async () => {
     const { backend, drawn, open, close, call, card } = await fixture();
     try {
       await open("live-turn");
       await call("narrate", { text: prose });
-      const drafts = drawn.filter(item => item.draft);
-      expect(drafts.length).toBeGreaterThan(1);
-      expect(new Set(drafts.map(item => item.id)).size).toBe(1);
-      // It grows, it never shows a brace, and once the call is complete it holds the whole prose.
-      for (let i = 1; i < drafts.length; i += 1) expect(drafts[i].marked!.startsWith(drafts[i - 1].marked!)).toBe(true);
-      for (const item of drafts) expect(item.marked).not.toMatch(/[{}]/);
-      expect(drafts.at(-1)!.marked).toBe(shown);
-      const firstDraw = drafts[0].at;
+      expect(drawn).toEqual([]);
 
+      const publicationAt = Date.now();
       card("card-1", prose);
+      expect(drawn).toHaveLength(1);
       const delivered = drawn.find(item => item.id === "card-1")!;
-      expect(delivered.replacesDraft).toBe(drafts[0].id);
+      expect(delivered).toMatchObject({ id: "card-1", draft: false, marked: prose });
+      expect(delivered.replacesDraft).toBeUndefined();
       const record = await close("live-turn");
-      expect(record.firstProseVia).toBe("draft");
-      const at = record.phases.find(item => item.name === "first_prose")!.at;
-      expect(at).toBeGreaterThanOrEqual(firstDraw - 5);
-      expect(at).toBeLessThan(delivered.at);
+      expect(drawn).toHaveLength(1);
+      expect(record.firstProseVia).toBe("mechanics");
+      const phases = record.phases.filter(item => item.name === "first_prose");
+      expect(phases).toHaveLength(1);
+      expect(phases[0].at).toBeGreaterThanOrEqual(publicationAt);
+      expect(phases[0].at).toBeLessThanOrEqual(delivered.at + 5);
+      expect(record.phases.find(item => item.name === "first_stream")!.at).toBeLessThan(phases[0].at);
     } finally {
       await backend.close();
     }
   });
 
-  it("reads apply's narrate past its effects, and follows no other tool", async () => {
+  it("never previews private narrate, apply, ask or output parameters, and follows no other tool", async () => {
     const { backend, drawn, open, close, call } = await fixture();
     try {
       await open("apply-turn");
       await call("look", { focus: "npc", name: "book-4-lars-williams" });
-      expect(drawn.filter(item => item.draft)).toEqual([]);
+      expect(drawn).toEqual([]);
+      await call("narrate", { text: prose });
+      expect(drawn).toEqual([]);
       await call("apply", { effects: [{ kind: "person", who: "book-4-lars-williams", name: "棚下的加油站老板", why: "首次看见" }], narrate: prose });
-      expect(drawn.filter(item => item.draft).at(-1)?.marked).toBe(shown);
-      await close("apply-turn");
+      expect(drawn).toEqual([]);
+      await call("ask", { text: prose, kind: "mechanics", options: ["accept", "push"] });
+      expect(drawn).toEqual([]);
+      await call("output", { text: prose });
+      expect(drawn).toEqual([]);
+      await call("output", { delivery: { version: 1, materials: [{ name: "candidate", text: prose, kind: "description", visibility: "player" }] } });
+      expect(drawn).toEqual([]);
+      const record = await close("apply-turn");
+      expect(record).not.toHaveProperty("firstProseVia");
+      expect(record.phases.some(item => item.name === "first_prose")).toBe(false);
     } finally {
       await backend.close();
     }
   });
 
-  it("keeps the draft when a refused delivery is resent unchanged, and replaces it in place when it is not", async () => {
+  it("publishes no refused or resent candidate, including changed text, until an accepted card arrives", async () => {
     const { backend, drawn, rpc, open, close, call, card } = await fixture();
     try {
       await open("resend-turn");
-      await call("narrate", { text: prose });
-      const id = drawn.find(item => item.draft)!.id;
-      const before = drawn.length;
-      // The kernel refused it (no card); the Keeper sends the same prose again: the screen does not change.
-      await call("narrate", { text: prose });
-      expect(drawn.length).toBe(before);
-      // A different text changes nothing while it streams and takes the draft's place once complete.
+      await call("output", { text: prose });
+      rpc({ type: "tool_execution_end", toolCallId: "call-output", toolName: "output", isError: true,
+        result: { content: [{ type: "text", text: "needs: publication refused" }], details: { coc_error: { code: "needs" } } } });
+      expect(drawn).toEqual([]);
+      // No accepted card exists: neither an identical retry nor a revised candidate is player prose.
+      await call("output", { text: prose });
+      expect(drawn).toEqual([]);
       const changed = "你熄了火，棚下没人抬头。";
-      rpc({ type: "message_update", assistantMessageEvent: { type: "toolcall_start", contentIndex: 0, id: "c3", toolName: "narrate" } });
+      rpc({ type: "message_update", assistantMessageEvent: { type: "toolcall_start", contentIndex: 0, id: "c3", toolName: "output" } });
       rpc({ type: "message_update", assistantMessageEvent: { type: "toolcall_delta", contentIndex: 0, delta: JSON.stringify({ text: changed }).slice(0, 12) } });
       await sleep(80);
-      expect(drawn.length).toBe(before);
-      rpc({ type: "message_update", assistantMessageEvent: { type: "toolcall_end", contentIndex: 0, toolCall: { type: "toolCall", id: "c3", name: "narrate", arguments: { text: changed } } } });
-      expect(drawn.at(-1)).toMatchObject({ id, draft: true, draftReplaced: true, marked: changed });
+      expect(drawn).toEqual([]);
+      rpc({ type: "message_update", assistantMessageEvent: { type: "toolcall_end", contentIndex: 0, toolCall: { type: "toolCall", id: "c3", name: "output", arguments: { text: changed } } } });
+      expect(drawn).toEqual([]);
       card("card-2", changed);
-      expect(drawn.at(-1)).toMatchObject({ id: "card-2", replacesDraft: id });
-      await close("resend-turn");
+      expect(drawn).toHaveLength(1);
+      expect(drawn[0]).toMatchObject({ id: "card-2", draft: false, marked: changed });
+      expect(drawn[0].replacesDraft).toBeUndefined();
+      const record = await close("resend-turn");
+      expect(drawn).toHaveLength(1);
+      expect(record.firstProseVia).toBe("mechanics");
     } finally {
       await backend.close();
     }
@@ -191,15 +203,25 @@ describe("PiHostBackend live delivery prose (§171)", () => {
     }
   });
 
-  it("draws a new table's delivery once setup hands off to play in the same child", async () => {
-    const { backend, drawn, rpc, open, close, call } = await fixture("setup");
+  it("keeps parameters private across setup-to-play handoff and draws the accepted delivery once in the same child", async () => {
+    const { backend, drawn, rpc, open, close, call, card } = await fixture("setup");
     try {
       await open("handoff-turn");
+      await call("narrate", { text: prose });
+      expect(drawn).toEqual([]);
       rpc({ type: "entry_appended", entry: { type: "custom", customType: "coc-session", id: "rebind",
         data: { campaign: "campaign-1", home: root, play_language: "zh-Hans", mode: "play" } } });
       await call("narrate", { text: prose });
-      expect(drawn.filter(item => item.draft).at(-1)?.marked).toBe(shown);
-      await close("handoff-turn");
+      expect(drawn).toEqual([]);
+      await call("output", { text: prose });
+      expect(drawn).toEqual([]);
+      card("handoff-card", prose);
+      expect(drawn).toHaveLength(1);
+      expect(drawn[0]).toMatchObject({ id: "handoff-card", draft: false, marked: prose });
+      expect(drawn[0].replacesDraft).toBeUndefined();
+      const record = await close("handoff-turn");
+      expect(drawn).toHaveLength(1);
+      expect(record.firstProseVia).toBe("mechanics");
     } finally {
       await backend.close();
     }

@@ -147,7 +147,7 @@ export async function piLaunch(input: string[], options: RuntimeHostOptions = {}
   return {command: context.nodeExecutable,
     args: [engine === 'hybrid-v1' ? context.entrypoints.piHybrid : context.entrypoints.pi, '--no-builtin-tools', '--no-context-files', '--system-prompt', prompt, ...session, ...mounts, ...forwarded],
     // image-gen owns image_gen/image_edit; Pi refuses duplicate tool names, so grok-build-oauth is told not to register its own.
-    cwd: context.resourceRoot, env: withHostNotices({...context.env, PI_COC_MODE: mode, PI_GROK_BUILD_IMAGE_TOOLS: '0', PI_COC_LOOP_ENGINE: engine}, notices)};
+    cwd: context.resourceRoot, env: withHostNotices({...context.env, PI_COC_MODE: mode, PI_GROK_BUILD_IMAGE_TOOLS: '0', PI_COC_LOOP_ENGINE: engine, PI_COC_ISOLATED_OUTPUT:mode==='play'&&engine==='hybrid-v1'?'1':'0'}, notices)};
 }
 
 export async function launchMain(args: string[]): Promise<number> {

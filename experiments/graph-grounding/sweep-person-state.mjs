@@ -1,3 +1,4 @@
+import {shareTestTree} from '../../scripts/test-workspace.mjs';
 /**
  * The §199 sweep with the same check the verify round runs: the person-state reading (`extensions/module/person-state.ts`) over
  * every person summary of a published Cold Harvest generation (cp -c clone of the App library), live readers on
@@ -18,7 +19,7 @@ const APP = join(homedir(), 'Library/Application Support/Pipi/pipicoc/pi-coc');
 const home = join(out, 'home'), lib = join(home, '.coc/modules/book-2');
 await rm(out, {recursive: true, force: true});
 await mkdir(join(home, '.coc/modules'), {recursive: true});
-execFileSync('cp', ['-c', '-R', join(APP, '.coc/modules/book-2'), lib]);
+shareTestTree(join(APP, '.coc/modules/book-2'), lib);
 const gen = (await readdir(join(lib, 'generations'))).find(name => name.startsWith(`generation-${generation}-`));
 const graph = JSON.parse(await readFile(join(lib, 'generations', gen, 'module-graph.json'), 'utf8'));
 const pageRefs = refs => [...new Set((refs ?? []).map(ref => Number(ref.pdf_index) + 1))].sort((a, b) => a - b).map(page => ({page}));

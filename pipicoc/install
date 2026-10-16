@@ -1,5 +1,5 @@
 #!/bin/bash
-# Install compiled UI entries into the bound Pi profile without changing account configuration.
+# Install compiled UI entries and model corrections without changing credentials.
 set -euo pipefail
 root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 export PI_COC_RESOURCE_ROOT="$root"
@@ -19,16 +19,22 @@ import {accessSync,chmodSync,constants,copyFileSync,existsSync,lstatSync,mkdirSy
 import {join} from 'node:path';
 import {pathToFileURL} from 'node:url';
 const root=process.argv[2];
-const {composeRuntimeContext,agentExtensionManifests}=await import(pathToFileURL(join(root,'build/runtime/host.mjs')).href);
+const {composeRuntimeContext,agentExtensionManifests,applyProviderModelCorrections}=await import(pathToFileURL(join(root,'build/runtime/host.mjs')).href);
 const compiled=existsSync(join(root,'deployment.json'));
 if(compiled&&(!process.env.PI_COC_HOME||!process.env.PI_CODING_AGENT_DIR))throw new Error('Standalone installation requires its writable profile and COC home');
 const context=composeRuntimeContext({owner:'preparation',home:process.env.PI_COC_HOME||root},{resourceRoot:root,
   agentHome:compiled?process.env.PI_CODING_AGENT_DIR:join(root,'.pi/coc-agent')});
+mkdirSync(context.agentHome,{recursive:true});
+await applyProviderModelCorrections(context.agentHome,join(context.contentRoot,'providers','model-corrections.json'));
 const fast=agentExtensionManifests(root).find(({name})=>name==='openai-fast');
 if(!fast)throw new Error('The OpenAI Fast profile extension is missing.');
 const codexRelay=agentExtensionManifests(root).find(({name})=>name==='codex-relay');
 if(!codexRelay)throw new Error('The Codex Relay profile extension is missing.');
-for(const path of [context.entrypoints.agent,context.entrypoints.deepseek,context.entrypoints.grokBuild,context.entrypoints.imageGen,context.entrypoints.rerank,context.entrypoints.jev,fast.entry,codexRelay.entry])accessSync(path,constants.R_OK);
+const activeCache=agentExtensionManifests(root).find(({name})=>name==='anthropic-cache');
+if(!activeCache)throw new Error('The Anthropic Active Cache profile extension is missing.');
+const minimax=agentExtensionManifests(root).find(({name})=>name==='minimax-enhanced');
+if(!minimax)throw new Error('The MiniMax Enhanced profile extension is missing.');
+for(const path of [context.entrypoints.agent,context.entrypoints.deepseek,context.entrypoints.grokBuild,context.entrypoints.imageGen,context.entrypoints.rerank,context.entrypoints.jev,fast.entry,codexRelay.entry,activeCache.entry,minimax.entry])accessSync(path,constants.R_OK);
 function generatedDirectory(path){
   if(existsSync(path)&&lstatSync(path).isSymbolicLink())throw new Error(`Generated asset directory must not be a symbolic link: ${path}`);
   mkdirSync(path,{recursive:true});chmodSync(path,0o755);
@@ -71,9 +77,10 @@ copyGeneratedFile(context.entrypoints.deepseek,join(provider,'agent/provider.js'
 const providerManifest=JSON.parse(readFileSync(join(provider,'pipiui-extension.json'),'utf8'));
 providerManifest.agent.extension='agent/index.mjs';
 writeGeneratedManifest(join(provider,'pipiui-extension.json'),providerManifest);
-for(const [name,entrypoint] of [['grok-build-oauth',context.entrypoints.grokBuild],['image-gen',context.entrypoints.imageGen],['rerank',context.entrypoints.rerank],['jev',context.entrypoints.jev],['openai-fast',fast.entry],['codex-relay',codexRelay.entry]]){
+for(const [name,entrypoint] of [['grok-build-oauth',context.entrypoints.grokBuild],['image-gen',context.entrypoints.imageGen],['rerank',context.entrypoints.rerank],['jev',context.entrypoints.jev],['openai-fast',fast.entry],['codex-relay',codexRelay.entry],['anthropic-cache',activeCache.entry],['minimax-enhanced',minimax.entry]]){
   const dest=join(context.agentHome,'extensions',name);
   copyGeneratedTree(join(root,'extensions',name),dest);
+  generatedDirectory(join(dest,'agent'));
   copyGeneratedFile(entrypoint,join(dest,'agent/index.mjs'));
   const m=JSON.parse(readFileSync(join(dest,'pipiui-extension.json'),'utf8'));
   m.agent.extension='agent/index.mjs';

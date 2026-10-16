@@ -20,11 +20,11 @@ import {JEV_MODEL, packDecisionBatch, PackingError} from './question-packing.ts'
 import {splitSourceText} from './source-ref.ts';
 import type {DecisionBatch, DecisionDescriptor, DecisionQuestion, DecisionResult, Json, ReadSet, ScopeBinding} from './contracts.ts';
 import type {TaskLease} from './task-context.ts';
-import {PLAYER_EXECUTION_CHOICE_NOTE} from './action-field-semantics.ts';
+import {PLAYER_EXECUTION_CHOICE_NOTE, NPC_DISCLOSURE_ADMISSION_NOTE} from './action-field-semantics.ts';
 
 export const ADMISSION_JEV_FAMILY = 'action-admission';
 // 3 (contract §197.4): the execution-choice rule says both directions.
-export const ADMISSION_JEV_VERSION = '4';
+export const ADMISSION_JEV_VERSION = '5';
 export const ADMISSION_JEV_MODEL = JEV_MODEL;
 export const ADMISSION_VERDICT_SET = ['authorized', 'entailed', 'not_player_action', 'not_authorized', 'uncertain'] as const;
 export type AdmissionJevVerdict = typeof ADMISSION_VERDICT_SET[number];
@@ -95,6 +95,7 @@ interface Passage {alias: string; text: string; where: string}
  */
 export const ADMISSION_JEV_RULES: readonly string[] = [
   PLAYER_EXECUTION_CHOICE_NOTE,
+  NPC_DISCLOSURE_ADMISSION_NOTE,
   'Judge only from playerWords, unfinishedDeclaration and told. The proposal text (goal, method, stakes) is the Keeper describing its own proposal and is never evidence of the player\'s consent. A Keeper suggestion in earlier narration is not acceptance.',
   'unfinishedDeclaration is context from a turn that ended without delivery, not automatic authorization: current words may resume, narrow, replace or withdraw it.',
   'Interest in a subject is not a trip to a place. Picking one of the options a delivery named is a choice of that option, travel included; where the delivery named no such place, the same words choose nothing. Neither reaches the situation waiting there: a gatekeeper, a price or a danger is a separate proposal.',

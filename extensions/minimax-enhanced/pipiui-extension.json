@@ -1,0 +1,13 @@
+{
+  "id": "minimax-enhanced",
+  "name": "MiniMax Enhanced",
+  "version": "0.1.0",
+  "category": "integration",
+  "description": "MiniMax tool-thinking continuity, granted native search, image generation and asynchronous video tasks using existing accounts.",
+  "defaultEnabled": true,
+  "capabilities": ["invoke.agent"],
+  "agent": {"extension": "agent/index.js"},
+  "host": {"entry": "agent/host.js", "description": "Shared MiniMax image and video client; uses the supplied Pi model registry."},
+  "app": {"ui": {"settingsSections": [{"id": "minimax-media", "title": "MiniMax", "description": "Choose a MiniMax image model and create or check a video task in the active chat.", "entry": "app/control.js"}]}},
+  "lifecycle": {"onDisable": "dispose-app-immediate; unmount-agent-on-next-session"}
+}

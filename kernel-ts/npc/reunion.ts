@@ -29,7 +29,9 @@ export function reunionInterval(graph:ModuleGraph,world:Row,node:Row,records:Row
     const arrival=history.slice(absent+1).find(r=>presence(row(r.world),handle,names));
     const minutes=number(row((arrival?row(arrival.world):world).clock).minutes)-number(row(row(last.world).clock).minutes);
     if(minutes<=0)return null;
-    const at={from_turn:number(last.turn),last_absent_turn:number(history[absent].turn),scope};
+    // The encounter identity retains only the original branch/circuit scope, including absent keys.
+    const stableScope=Object.fromEntries(['worldline','loop'].filter(key=>Object.hasOwn(scope,key)).map(key=>[key,scope[key]]));
+    const at={from_turn:number(last.turn),last_absent_turn:number(history[absent].turn),scope:stableScope};
     return {...at,key:jsonDigest({npc:node.node_id,...at}),elapsed_minutes:minutes,
         last_words:array(last.speech).filter(line=>row(line.who).npc===handle).map(line=>string(line.text))};
 }

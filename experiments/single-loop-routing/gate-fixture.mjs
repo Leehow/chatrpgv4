@@ -22,7 +22,9 @@
  * only when the replay's own clerk did not (the replay drops a recorded call the run already carried out), so a run whose
  * clerk misses it still reaches the live state, with the extra model step counted.
  */
-import {cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync} from 'node:fs';
+import {existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync,realpathSync} from 'node:fs';
+import {shareTestTree} from '../../scripts/test-workspace.mjs';
+import {publishTestFixture} from '../../scripts/test-fixture-store.mjs';
 import {tmpdir} from 'node:os';
 import {join, resolve} from 'node:path';
 import {spawnSync} from 'node:child_process';
@@ -55,11 +57,11 @@ if (!module) throw new Error('campaign.json names no module');
 
 // The shared workspace: a scratch copy, positioned at the last recorded turn, then tarred.
 const last = commitOf(Math.max(...turns));
-const stage = mkdtempSync(join(tmpdir(), 'single-loop-gate-fixture-'));
+const stage = mkdtempSync(join(realpathSync(tmpdir()), 'single-loop-gate-fixture-'));
 try {
   for (const [root, entry] of [['campaigns', campaign], ['repos', `${campaign}.git`], ['modules', module], ['mods', 'packages'],
     ...(fork ? [['module-campaigns', campaign]] : [])])
-    cpSync(join(coc, root, entry), join(stage, '.coc', root, entry), {recursive: true});
+    shareTestTree(join(coc, root, entry), join(stage, '.coc', root, entry));
   if (queueAt) {
     const path = join(stage, '.coc/module-campaigns', campaign, 'modules', module, 'deepen-queue.json'), at = Date.parse(queueAt);
     const queue = JSON.parse(readFileSync(path, 'utf8')), then = [];
@@ -83,8 +85,7 @@ try {
   const assets = join(stage, '.coc/modules', module, 'assets');
   if (existsSync(assets)) removeTree(assets);
   mkdirSync(join(FIXTURES, name), {recursive: true});
-  const tar = spawnSync('tar', ['-czf', join(FIXTURES, name, 'workspace.tar.gz'), '-C', stage, '.coc'], {encoding: 'utf8'});
-  if (tar.status !== 0) throw new Error(`tar failed: ${tar.stderr}`);
+  publishTestFixture(stage,join(FIXTURES,name));
 } finally { removeTree(stage); }
 
 const events = readFileSync(join(playtest, 'events.jsonl'), 'utf8').split('\n').filter(Boolean).map(line => JSON.parse(line));
@@ -169,7 +170,7 @@ for (const turn of turns) {
   const dir = join(FIXTURES, `${name}-t${turn}`);
   mkdirSync(dir, {recursive: true});
   writeFileSync(join(dir, 'turn.json'), JSON.stringify({campaign, module, turn, commit_before: commitBefore, commit_after: commitAfter, player_input: input,
-    tarball: `../${name}/workspace.tar.gz`, source: {campaign: `${coc}/campaigns/${campaign}`, playtest},
+    workspace: `../${name}/workspace`, source: {campaign: `${coc}/campaigns/${campaign}`, playtest},
     ...(queueAt ? {queue_at: queueAt, completed_after_queue_at: kept} : {})}, null, 1) + '\n');
   writeFileSync(join(dir, 'baseline.json'), JSON.stringify(baseline, null, 1) + '\n');
   console.log(JSON.stringify({turn, commit_before: commitBefore, commit_after: commitAfter, llm_calls: calls.length, tools: tools.map(tool => `${tool.tool}${tool.ok ? '' : '!'}${tool.clerk_live ? '(clerk)' : ''}`), admissions: admissions.length}));

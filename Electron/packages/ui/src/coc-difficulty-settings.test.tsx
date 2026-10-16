@@ -34,7 +34,7 @@ function renderSection(host: ReturnType<typeof hostWith>) {
 
 describe('registration (contract §33.5)', () => {
   it('admits coc-difficulty into the host whitelist right after extensions', () => {
-    expect(HOST_SETTINGS_TAB_IDS).toEqual(['models', 'extensions', 'coc-difficulty', 'coc-lane-model', 'image-model', 'rerank', 'jev', 'themes', 'updates']);
+    expect(HOST_SETTINGS_TAB_IDS).toEqual(['models', 'extensions', 'coc-difficulty', 'coc-lane-model', 'image-model', 'minimax-media', 'rerank', 'jev', 'themes', 'updates']);
   });
   it('carries a nav hint', () => {
     expect(typeof SETTINGS_NAV_HINTS['coc-difficulty']).toBe('string');

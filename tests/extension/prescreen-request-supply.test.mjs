@@ -424,7 +424,7 @@ test('real committed memory owner reaches provider payload without private refs 
   t.after(()=>{if(oldFlag===undefined)delete process.env.PI_COC_JEV_PRESELECT;else process.env.PI_COC_JEV_PRESELECT=oldFlag;
     if(oldKey===undefined)delete process.env.TYPESAFE_API_KEY;else process.env.TYPESAFE_API_KEY=oldKey;globalThis.fetch=oldFetch;});
   globalThis.fetch=async(_url,options)=>{return Response.json(supportWire(JSON.parse(options.body),c=>c.kind==='memory'?'necessary':'skip'));};
-  const hooks=new Map(),bus=new Map(),events=[];api.installContextPolicy({on:(key,fn)=>hooks.set(key,fn),events:{on:(key,fn)=>bus.set(key,fn)},
+  const hooks=new Map(),bus=new Map(),events=[];api.installContextPolicy({on:(key,fn)=>hooks.set(key,fn),events:{on:(key,fn)=>bus.set(key,fn),emit:(name,value)=>bus.get(name)?.(value)},
     getActiveTools:()=>[],getAllTools:()=>[]},event=>events.push(event));
   bus.get('coc:kernel-bridge')({campaign:'c1',call});bus.get('coc:table-open')({campaign:'c1',open:opened});
   bus.get('coc:capsule')({capsule,context:_context,epoch:input.epoch??'real-memory'});
@@ -451,7 +451,7 @@ test('actual context and provider hooks recover material dropped with an oversiz
     authority:'module_source',coverage:{status:'complete'},body:'Exact archive material.'}],coverage:{inspected:1,emitted:1,omitted:0,unavailable:0}}};
   const current={...capsule};
   const hooks=new Map(),bus=new Map(),events=[];
-  api.installContextPolicy({on:(key,fn)=>hooks.set(key,fn),events:{on:(key,fn)=>bus.set(key,fn)},getActiveTools:()=>[],getAllTools:()=>[]},event=>events.push(event));
+  api.installContextPolicy({on:(key,fn)=>hooks.set(key,fn),events:{on:(key,fn)=>bus.set(key,fn),emit:(name,value)=>bus.get(name)?.(value)},getActiveTools:()=>[],getAllTools:()=>[]},event=>events.push(event));
   const call=async(method,params)=>{
     if(method==='table.capsule')return {...current,_context:binding};
     if(method==='table.recall')return params.what==='transcript'?{cards:[],_snapshot:'history'}:{hits:[]};
@@ -497,7 +497,7 @@ test('successful dynamic read replaces the unread placeholder in the final provi
   const dynamic={key:'read:npc:Knott',kind:'npc',label:'Steven Knott',summary:'Current NPC dossier',authority:'current_read',
     coverage:{status:'partial',omitted:['material_not_read']},method:'table.look',params:{focus:'npc',name:'Steven Knott'}},view={...snapshot,
     materials:{version:2,candidates:[dynamic],coverage:{npc:{inspected:1,emitted:1,omitted:0,unavailable:0,status:'complete'}}}},hooks=new Map(),bus=new Map(),events=[];
-  api.installContextPolicy({on:(key,fn)=>hooks.set(key,fn),events:{on:(key,fn)=>bus.set(key,fn)},getActiveTools:()=>[],getAllTools:()=>[]},event=>events.push(event));
+  api.installContextPolicy({on:(key,fn)=>hooks.set(key,fn),events:{on:(key,fn)=>bus.set(key,fn),emit:(name,value)=>bus.get(name)?.(value)},getActiveTools:()=>[],getAllTools:()=>[]},event=>events.push(event));
   const call=async(method,params)=>{if(method==='table.capsule')return {...capsule,_context:binding};
     if(method==='table.recall')return params.what==='transcript'?{cards:[],_snapshot:'history'}:{hits:[]};
     if(method==='table.workspace.read')return view;if(method==='table.look')return {name:'Steven Knott',journal:'Actual dynamic body.',
@@ -522,7 +522,7 @@ test('first eligible context arms one allowance after delayed mandatory work and
   const candidate={key:'graph:delayed',kind:'graph_entity',label:'Delayed evidence',summary:'Delayed evidence',authority:'module_source',
     coverage:{status:'complete'},body:'Material after mandatory work.'},view={...snapshot,materials:{version:2,candidates:[candidate],
       coverage:{graph_entity:{inspected:1,emitted:1,omitted:0,unavailable:0,status:'complete'}}}},hooks=new Map(),bus=new Map(),events=[];
-  api.installContextPolicy({on:(key,fn)=>hooks.set(key,fn),events:{on:(key,fn)=>bus.set(key,fn)},getActiveTools:()=>[],getAllTools:()=>[]},event=>events.push(event));
+  api.installContextPolicy({on:(key,fn)=>hooks.set(key,fn),events:{on:(key,fn)=>bus.set(key,fn),emit:(name,value)=>bus.get(name)?.(value)},getActiveTools:()=>[],getAllTools:()=>[]},event=>events.push(event));
   const call=async(method,params)=>{if(method==='table.capsule')return {...capsule,_context:binding};
     if(method==='table.recall')return params.what==='transcript'?{cards:[],_snapshot:'history'}:{hits:[]};
     if(method==='table.workspace.read')return view;throw Error(`unexpected ${method}`);};
@@ -552,7 +552,7 @@ test('earlier validated material reaches the provider when the next agent decisi
   const candidates=Array.from({length:17},(_,index)=>({key:`graph:${index}`,kind:'graph_entity',label:`Evidence ${index}`,summary:`Evidence ${index}`,
     authority:'module_source',coverage:{status:'complete'},body:`Provider evidence ${index}.`})),view={...snapshot,materials:{version:2,candidates,
       coverage:{graph_entity:{inspected:17,emitted:17,omitted:0,unavailable:0,status:'complete'}}}},hooks=new Map(),bus=new Map(),events=[];
-  api.installContextPolicy({on:(key,fn)=>hooks.set(key,fn),events:{on:(key,fn)=>bus.set(key,fn)},getActiveTools:()=>[],getAllTools:()=>[]},event=>events.push(event));
+  api.installContextPolicy({on:(key,fn)=>hooks.set(key,fn),events:{on:(key,fn)=>bus.set(key,fn),emit:(name,value)=>bus.get(name)?.(value)},getActiveTools:()=>[],getAllTools:()=>[]},event=>events.push(event));
   const call=async(method,params)=>{if(method==='table.capsule')return {...capsule,_context:binding};
     if(method==='table.recall')return params.what==='transcript'?{cards:[],_snapshot:'history'}:{hits:[]};
     if(method==='table.workspace.read')return view;throw Error(`unexpected ${method}`);};
@@ -577,7 +577,7 @@ test('unchanged graph material survives while volatile memory is dropped for ref
     coverage:{status:'complete'},body:'Stable authored archive material.',locator:'scene:Archive'};
   const memoryRoute={key:'read-memory',kind:'memory',label:'Memory',summary:'Memory evidence',authority:'conversation_report',coverage:{status:'partial'},
     method:'memory.evidence',params:{action:'snapshot',query:capsule.turn.player_text,filters:{}}};
-  const hooks=new Map(),bus=new Map();api.installContextPolicy({on:(key,fn)=>hooks.set(key,fn),events:{on:(key,fn)=>bus.set(key,fn)},
+  const hooks=new Map(),bus=new Map();api.installContextPolicy({on:(key,fn)=>hooks.set(key,fn),events:{on:(key,fn)=>bus.set(key,fn),emit:(name,value)=>bus.get(name)?.(value)},
     getActiveTools:()=>[],getAllTools:()=>[]},()=>{});
   const view=()=>({...snapshot,binding:{...snapshot.binding,stateStamp:`state-${hp}`},materials:{version:2,candidates:[graphCandidate,memoryRoute],
     coverage:{graph_entity:{inspected:1,emitted:1,omitted:0,unavailable:0,status:'complete'},memory:{inspected:1,emitted:1,omitted:0,unavailable:0,status:'complete'}}}});
@@ -620,7 +620,7 @@ test('same-generation memo rechecks NPC journal revision before provider deliver
   globalThis.fetch=async(_url,options)=>{decisions++;return Response.json(supportWire(JSON.parse(options.body)));};
   const key='read:["npc","Knott"]',candidate=()=>({key,kind:'npc',label:'Knott',summary:'Current NPC dossier',authority:'current_read',
     coverage:{status:'complete'},data:{name:'Knott',journal:note}}),hooks=new Map(),bus=new Map();
-  api.installContextPolicy({on:(name,fn)=>hooks.set(name,fn),events:{on:(name,fn)=>bus.set(name,fn)},getActiveTools:()=>[],getAllTools:()=>[]},()=>{});
+  api.installContextPolicy({on:(name,fn)=>hooks.set(name,fn),events:{on:(name,fn)=>bus.set(name,fn),emit:(name,value)=>bus.get(name)?.(value)},getActiveTools:()=>[],getAllTools:()=>[]},()=>{});
   const view=()=>({...snapshot,binding:{...snapshot.binding,npc_revision:revision,memory_revision:'m',records_revision:'r',catalog_revision:'c'},
     materials:{version:2,candidates:[candidate()],coverage:{npc:{inspected:1,emitted:1,omitted:0,unavailable:0,status:'complete'}}}});
   const call=async(method,params)=>{if(method==='table.capsule')return {...capsule,_context:binding};if(method==='table.recall')return params.what==='transcript'?{cards:[],_snapshot:'h'}:{hits:[]};

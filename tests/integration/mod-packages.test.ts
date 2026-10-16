@@ -19,6 +19,10 @@ const modsPath=(k:RpcClient)=>join(campaignDir(k.workspace),'world.json');
 const frozenPath=(k:RpcClient)=>join(k.workspace,'.coc/mods/packages/natural-npc',NEXT);
 const stop=async(k:RpcClient)=>{await openTurn(k);await k.table('narrate',{call_id:'t1-c1',text:'We stop here.'});};
 const retirementRows=(k:RpcClient)=>readJsonl(join(campaignDir(k.workspace),'telemetry.jsonl')).filter(row=>row.lane==='mods');
+function retainedState(k:RpcClient){
+  const world=readJson(modsPath(k));world.mods.state['natural-npc']={retained:{turns:[1,2]}};
+  writeJson(modsPath(k),world);return world.mods;
+}
 
 // One stored ZIP entry, including its central directory, lets the real importer inspect a hostile name.
 function storedZip(name:string,body:string){
@@ -123,8 +127,181 @@ test('test_a_retiring_upgrade_staged_during_a_busy_turn_lands_at_the_safe_bounda
   const k=await kernel(t);await openTurn(k);const root=packageAt(k);change(root,m=>{m.settings={};m.settings_schema={};});
   await k.ok('mods.install',{path:root});await k.ok('mods.configure',{campaign:CAMPAIGN,id:'natural-npc',version:NEXT});
   const staged=readJson(modsPath(k)).mods;assert.equal(staged.active['natural-npc'].version,SHIPPED);
-  assert.deepEqual(staged.pending['natural-npc'],{id:'natural-npc',version:NEXT,enabled:true,settings:{}});
+  assert.deepEqual(staged.pending['natural-npc'],{id:'natural-npc',version:NEXT,enabled:true,settings:{},version_policy:'pinned'});
   await k.table('narrate',{call_id:'t1-c1',text:'We stop here.'});await k.table('player_input',{text:'Continue.'});
   const mods=readJson(modsPath(k)).mods;assert.equal(mods.active['natural-npc'].version,NEXT);assert.deepEqual(mods.active['natural-npc'].settings,{});
   assert.ok(!('natural-npc' in mods.pending));const rows=retirementRows(k);assert.equal(rows.length,1);assert.deepEqual(rows[0].keys,['language_mixing']);assert.equal(rows[0].to,NEXT);
+});
+
+test('latest follows installed packages at idle boundaries, while concrete selection stays pinned',async t=>{
+  const k=await kernel(t);await stop(k);const root=packageAt(k);await k.ok('mods.install',{path:root});
+  await k.table('open');
+  let lock=readJson(modsPath(k)).mods.active['natural-npc'];assert.equal(lock.version,NEXT);assert.equal(lock.version_policy,undefined);
+  await k.ok('mods.configure',{campaign:CAMPAIGN,id:'natural-npc',version:SHIPPED});
+  await k.table('open');lock=readJson(modsPath(k)).mods.active['natural-npc'];
+  assert.equal(lock.version,SHIPPED);assert.equal(lock.version_policy,'pinned');
+  await k.ok('mods.configure',{campaign:CAMPAIGN,id:'natural-npc',enabled:false});
+  lock=readJson(modsPath(k)).mods.active['natural-npc'];assert.equal(lock.version,SHIPPED);assert.equal(lock.version_policy,'pinned');
+  await k.ok('mods.configure',{campaign:CAMPAIGN,id:'natural-npc',version:'latest'});
+  lock=readJson(modsPath(k)).mods.active['natural-npc'];assert.equal(lock.version,NEXT);assert.equal(lock.version_policy,undefined);assert.equal(lock.enabled,false);
+  const rows=(await k.ok('mods.list',{campaign:CAMPAIGN})).mods.filter((r:Row)=>r.id==='natural-npc');
+  assert.deepEqual(rows.map((r:Row)=>[r.version,r.latest,r.version_policy]),[[SHIPPED,false,'latest'],[NEXT,true,'latest']]);
+});
+
+test('automatic upgrades wait for the next idle input and do not turn replayed latest into a pin',async t=>{
+  const k=await kernel(t);await openTurn(k);const root=packageAt(k);await k.ok('mods.install',{path:root,campaign:CAMPAIGN});
+  await k.table('open');assert.equal(readJson(modsPath(k)).mods.active['natural-npc'].version,SHIPPED);
+  await k.ok('mods.configure',{campaign:CAMPAIGN,id:'natural-npc',version:'latest'});
+  assert.equal(readJson(modsPath(k)).mods.pending['natural-npc'].version_policy,'latest');
+  await k.table('narrate',{call_id:'t1-c1',text:'We stop here.'});await k.table('player_input',{text:'Continue.'});
+  const mods=readJson(modsPath(k)).mods;assert.equal(mods.active['natural-npc'].version,NEXT);
+  assert.equal(mods.active['natural-npc'].version_policy,undefined);assert.equal(mods.pending['natural-npc'],undefined);
+});
+
+test('an installed update follows automatically after delivery and an explicit queued pin takes precedence',async t=>{
+  const k=await kernel(t);await openTurn(k);const root=packageAt(k);await k.ok('mods.install',{path:root,campaign:CAMPAIGN});
+  assert.equal(readJson(modsPath(k)).mods.active['natural-npc'].version,SHIPPED);
+  await k.table('narrate',{call_id:'t1-c1',text:'We stop here.'});await k.table('player_input',{text:'Continue.'});
+  assert.equal(readJson(modsPath(k)).mods.active['natural-npc'].version,NEXT);
+  await k.ok('mods.configure',{campaign:CAMPAIGN,id:'natural-npc',version:SHIPPED});
+  const newest=packageAt(k,{version:`${major}.${minor+2}.0`});await k.ok('mods.install',{path:newest,campaign:CAMPAIGN});
+  await k.table('narrate',{call_id:'t2-c1',text:'We stop again.'});await k.table('player_input',{text:'Continue.'});
+  const lock=readJson(modsPath(k)).mods.active['natural-npc'];assert.equal(lock.version,SHIPPED);assert.equal(lock.version_policy,'pinned');
+});
+
+test('following skips a newer incompatible package and preserves custom settings and enablement',async t=>{
+  const k=await kernel(t);await stop(k);
+  await k.ok('mods.configure',{campaign:CAMPAIGN,id:'natural-npc',enabled:false,settings:{language_mixing:'off'}});
+  const root=packageAt(k);await k.ok('mods.install',{path:root});
+  const incompatible=packageAt(k,{version:`${major}.${minor+2}.0`});change(incompatible,m=>m.requires.push('unsupported.future.v1'));
+  await k.ok('mods.install',{path:incompatible});await k.table('open');
+  const lock=readJson(modsPath(k)).mods.active['natural-npc'];assert.equal(lock.version,NEXT);assert.equal(lock.enabled,false);
+  assert.deepEqual(lock.settings,{language_mixing:'off'});
+});
+
+test('automatic migration refusal preserves play and reports its target without repeated diagnostics',async t=>{
+  const k=await kernel(t);await stop(k);const root=packageAt(k,{state_version:2});await k.ok('mods.install',{path:root});
+  const before=readJson(modsPath(k)).mods;await k.table('open');await k.table('open');
+  const mods=readJson(modsPath(k)).mods;assert.deepEqual(mods.active,before.active);assert.deepEqual(mods.state,before.state);
+  assert.equal(mods.update_errors['natural-npc'].version,NEXT);
+  const entry=(await k.ok('mods.list',{campaign:CAMPAIGN})).mods.find((r:Row)=>r.id==='natural-npc');
+  assert.match(entry.update_error.message,/No state migration/);
+  assert.equal(retirementRows(k).filter(r=>r.event==='automatic_update_refused').length,1);
+});
+
+test('a queued return to latest keeps play available when its upgrade cannot migrate',async t=>{
+  const k=await kernel(t);await stop(k);await k.ok('mods.configure',{campaign:CAMPAIGN,id:'natural-npc',version:SHIPPED});
+  await k.table('player_input',{text:'Continue.'});const root=packageAt(k,{state_version:2});await k.ok('mods.install',{path:root});
+  await k.ok('mods.configure',{campaign:CAMPAIGN,id:'natural-npc',version:'latest'});
+  await k.table('narrate',{call_id:'t2-c1',text:'We stop here.'});await k.table('player_input',{text:'Continue.'});
+  const mods=readJson(modsPath(k)).mods;assert.equal(mods.active['natural-npc'].version,SHIPPED);
+  assert.equal(mods.active['natural-npc'].version_policy,undefined);assert.equal(mods.pending['natural-npc'],undefined);
+  assert.equal(mods.update_errors['natural-npc'].version,NEXT);
+});
+
+test('an idle return to latest releases the pin even when the resolved upgrade is refused',async t=>{
+  const k=await kernel(t);await stop(k);await k.ok('mods.configure',{campaign:CAMPAIGN,id:'natural-npc',version:SHIPPED});
+  const root=packageAt(k,{state_version:2});await k.ok('mods.install',{path:root});
+  const view=await k.ok('mods.configure',{campaign:CAMPAIGN,id:'natural-npc',version:'latest'});
+  const entry=view.mods.find((r:Row)=>r.id==='natural-npc');assert.equal(entry.version_policy,'latest');
+  assert.equal(entry.active.version,SHIPPED);assert.equal(entry.active.version_policy,undefined);assert.equal(entry.update_error.version,NEXT);
+  await k.table('open');assert.equal(readJson(modsPath(k)).mods.active['natural-npc'].version,SHIPPED);
+  assert.equal(retirementRows(k).filter(r=>r.event==='automatic_update_refused').length,1);
+});
+
+test('pinning the already current version prevents a later automatic update across a restart',async t=>{
+  const k=await kernel(t);await stop(k);
+  await k.ok('mods.configure',{campaign:CAMPAIGN,id:'natural-npc',version:SHIPPED});
+  const root=packageAt(k);await k.ok('mods.install',{path:root,campaign:CAMPAIGN});await k.table('open');
+  assert.equal(readJson(modsPath(k)).mods.active['natural-npc'].version,SHIPPED);
+  await k.ok('mods.configure',{campaign:CAMPAIGN,id:'natural-npc',version:'latest'});
+  const nextRoot=packageAt(k,{version:`${major}.${minor+2}.0`});await k.ok('mods.install',{path:nextRoot});
+  const {RpcClient}=await import('./support.ts');const restarted=new RpcClient(k.workspace);t.after(()=>restarted.close());
+  await restarted.table('open');assert.equal(readJson(modsPath(k)).mods.active['natural-npc'].version,`${major}.${minor+2}.0`);
+});
+
+for(const explicitLatest of [false,true]){
+  const selection=explicitLatest?{version:'latest'}:{};
+  test(`floating controls remain editable when an installed upgrade cannot migrate (${explicitLatest?'explicit latest':'retained policy'})`,async t=>{
+    const k=await kernel(t);await stop(k);const root=packageAt(k,{state_version:2});await k.ok('mods.install',{path:root});
+    const before=retainedState(k);
+    await k.ok('mods.configure',{campaign:CAMPAIGN,id:'natural-npc',...selection,enabled:false});
+    await k.ok('mods.configure',{campaign:CAMPAIGN,id:'natural-npc',...selection,settings:{language_mixing:'off'}});
+    let mods=readJson(modsPath(k)).mods,lock=mods.active['natural-npc'];
+    assert.equal(lock.version,SHIPPED);assert.equal(lock.enabled,false);assert.equal(lock.version_policy,undefined);
+    assert.equal(lock.state_version,before.active['natural-npc'].state_version);
+    assert.deepEqual(lock.settings,{language_mixing:'off'});assert.deepEqual(mods.state,before.state);
+    await k.table('open');mods=readJson(modsPath(k)).mods;lock=mods.active['natural-npc'];
+    assert.equal(lock.version,SHIPPED);assert.equal(lock.enabled,false);assert.deepEqual(lock.settings,{language_mixing:'off'});
+    assert.deepEqual(mods.state,before.state);assert.equal(mods.update_errors['natural-npc'].version,NEXT);
+    const entry=(await k.ok('mods.list',{campaign:CAMPAIGN})).mods.find((r:Row)=>r.id==='natural-npc');
+    assert.equal(entry.version_policy,'latest');assert.match(entry.update_error.message,/No state migration/);
+  });
+
+  test(`floating controls queued during play survive a refused upgrade (${explicitLatest?'explicit latest':'retained policy'})`,async t=>{
+    const k=await kernel(t);await openTurn(k);const root=packageAt(k,{state_version:2});await k.ok('mods.install',{path:root});
+    const before=retainedState(k);
+    await k.ok('mods.configure',{campaign:CAMPAIGN,id:'natural-npc',...selection,enabled:false,settings:{language_mixing:'off'}});
+    const pending=readJson(modsPath(k)).mods.pending['natural-npc'];
+    assert.equal(pending.version,SHIPPED);assert.equal(pending.enabled,false);assert.equal(pending.version_policy,'latest');
+    assert.deepEqual(pending.settings,{language_mixing:'off'});
+    assert.deepEqual(pending.requested_controls,{enabled:false,settings:{language_mixing:'off'}});
+    await k.table('narrate',{call_id:'t1-c1',text:'We stop here.'});await k.table('player_input',{text:'Continue.'});
+    const mods=readJson(modsPath(k)).mods,lock=mods.active['natural-npc'];
+    assert.equal(lock.version,SHIPPED);assert.equal(lock.enabled,false);assert.equal(lock.version_policy,undefined);
+    assert.deepEqual(lock.settings,{language_mixing:'off'});assert.deepEqual(mods.state,before.state);
+    assert.equal(mods.pending['natural-npc'],undefined);assert.equal(mods.update_errors['natural-npc'].version,NEXT);
+  });
+}
+
+test('a version-only floating replay ignores target defaults when its upgrade cannot migrate',async t=>{
+  const k=await kernel(t);await openTurn(k);const root=packageAt(k,{state_version:2});
+  change(root,m=>{m.settings={tone:'balanced'};m.settings_schema={tone:{enum:['balanced','restrained']}};});
+  await k.ok('mods.install',{path:root});retainedState(k);await k.ok('mods.configure',{campaign:CAMPAIGN,id:'natural-npc',version:'latest'});
+  await k.table('narrate',{call_id:'t1-c1',text:'We stop here.'});
+  const before=readJson(modsPath(k)).mods;
+  assert.deepEqual(before.pending['natural-npc'].requested_controls,{});
+  await k.table('player_input',{text:'Continue.'});
+  const after=readJson(modsPath(k)).mods;
+  assert.equal(after.pending['natural-npc'],undefined);assert.deepEqual(after.active,before.active);assert.deepEqual(after.state,before.state);
+  assert.equal(after.update_errors['natural-npc'].version,NEXT);
+});
+
+test('a legacy floating user-settings replay preserves its request when the actual package rejects it',async t=>{
+  const k=await kernel(t);await openTurn(k);const root=packageAt(k,{state_version:2});
+  change(root,m=>{m.settings={tone:'balanced'};m.settings_schema={tone:{enum:['balanced','restrained']}};});
+  await k.ok('mods.install',{path:root});await k.ok('mods.configure',{campaign:CAMPAIGN,id:'natural-npc',version:'latest'});
+  // Older runtimes admitted these user settings against the target and stored no control provenance.
+  const world=readJson(modsPath(k));delete world.mods.pending['natural-npc'].requested_controls;
+  world.mods.pending['natural-npc'].settings={tone:'restrained'};writeJson(modsPath(k),world);
+  await k.table('narrate',{call_id:'t1-c1',text:'We stop here.'});
+  const before=readJson(modsPath(k)).mods;
+  const error=await k.tableErr('player_input',{text:'Continue.'});assert.equal(error.code,'invalid_params');
+  const after=readJson(modsPath(k)).mods;
+  assert.deepEqual(after.pending,before.pending);assert.deepEqual(after.active,before.active);assert.deepEqual(after.state,before.state);
+});
+
+test('a previously saved floating control request lands on the actual package after its upgrade fails',async t=>{
+  const k=await kernel(t);await openTurn(k);const root=packageAt(k,{state_version:2});await k.ok('mods.install',{path:root});
+  retainedState(k);
+  await k.ok('mods.configure',{campaign:CAMPAIGN,id:'natural-npc',version:'latest',enabled:false,settings:{language_mixing:'off'}});
+  // Prior builds resolved controls to the new version before persisting this same queue shape.
+  const world=readJson(modsPath(k));world.mods.pending['natural-npc'].version=NEXT;
+  delete world.mods.pending['natural-npc'].requested_controls;writeJson(modsPath(k),world);
+  await k.table('narrate',{call_id:'t1-c1',text:'We stop here.'});await k.table('player_input',{text:'Continue.'});
+  const mods=readJson(modsPath(k)).mods,lock=mods.active['natural-npc'];
+  assert.equal(lock.version,SHIPPED);assert.equal(lock.enabled,false);assert.equal(lock.version_policy,undefined);
+  assert.deepEqual(lock.settings,{language_mixing:'off'});assert.deepEqual(mods.state,world.mods.state);
+  assert.equal(mods.pending['natural-npc'],undefined);assert.equal(mods.update_errors['natural-npc'].version,NEXT);
+});
+
+test('a concrete queued version keeps its exact request when migration fails',async t=>{
+  const k=await kernel(t);await openTurn(k);const root=packageAt(k,{state_version:2});await k.ok('mods.install',{path:root});
+  await k.ok('mods.configure',{campaign:CAMPAIGN,id:'natural-npc',version:NEXT,enabled:false});
+  await k.table('narrate',{call_id:'t1-c1',text:'We stop here.'});
+  const before=readJson(modsPath(k)).mods;
+  assert.equal(before.pending['natural-npc'].version_policy,'pinned');
+  const error=await k.tableErr('player_input',{text:'Continue.'});assert.match(error.message,/No state migration/);
+  const after=readJson(modsPath(k)).mods;
+  assert.deepEqual(after.pending,before.pending);assert.deepEqual(after.active,before.active);assert.deepEqual(after.state,before.state);
 });

@@ -80,7 +80,6 @@ export function createComponent(React) {
     const [error, setError] = useState(null);
     const [path, setPath] = useState("");
     const [importing, setImporting] = useState(false);
-    const [selected, setSelected] = useState({});
     const generation = useRef(0);
     const ui = answer?.ui;
     const t = (key, fallback) => word(ui, "mods", key, fallback);
@@ -148,8 +147,13 @@ export function createComponent(React) {
       ...groups.map(({id, versions}) => {
         const active = versions.find(v=>v.active)?.active;
         const pending = versions.find(v=>v.pending)?.pending;
-        const available = versions.filter(v=>v.version !== active?.version).map(v=>v.version);
-        const row = versions.find(v=>v.version === (selected[id] ?? active?.version)) ?? versions.at(-1);
+        const latest = versions.find(v=>v.latest) ?? versions.filter(v=>v.compatible).at(-1);
+        const preference = pending ?? active;
+        const policy = preference?.version_policy ?? versions[0]?.version_policy ?? 'latest';
+        const selection = policy === 'pinned' ? preference.version : 'latest';
+        const row = (selection === 'latest' ? latest : versions.find(v=>v.version === selection)) ?? versions.at(-1);
+        const versionCaption = v => `${v.version}${v.version === active?.version ? ` · ${t('currentVersion')}` : ''}${v.version === latest?.version ? ` · ${t('latestVersion')}` : ''}`;
+        const available = versions.map(versionCaption);
         const name = authored(row.name, ui?.tag) || id;
         const description = authored(row.description, ui?.tag);
         const displaced=Object.entries(answer?.providers||{}).filter(([,providers])=>providers.includes(id)&&providers.at(-1)!==id);
@@ -166,23 +170,25 @@ export function createComponent(React) {
           row.voice_handover && h("details", null, h("summary", null, word(ui,"errors","details")),
             h("pre", {style:{whiteSpace:"pre-wrap",fontSize:11}}, JSON.stringify(row.voice_handover,null,2))),
           h("div", {style:{display:"flex", gap:8, alignItems:"center", marginBottom:10}},
-            h("label", null, t("version"), " ", h("select", {"aria-label":`${name} ${t("version")}`, disabled:busy,
-              value:row.version, onChange:e=>setSelected(s=>({...s,[id]:e.target.value}))},
-              ...versions.map(v=>h("option", {key:v.version, value:v.version}, v.version)))),
+            h("label", null, t("version"), " ", h("select", {"aria-label":`${name} ${t("version")}`, disabled:busy || !answer.campaign,
+              value:selection, onChange:e=>void mutate('mods.configure', {id, version:e.target.value})},
+              h('option', {value:'latest'}, `${t('followLatest')}${latest ? ` · ${latest.version}` : ''}`),
+              ...versions.map(v=>h("option", {key:v.version, value:v.version, disabled:!v.compatible}, versionCaption(v))))),
             h("span", {style:{color:"var(--subtle)"}}, row.author)),
           answer.campaign && h("p", {role:"status"}, t(!active ? "notAdded" : active.enabled ? "enabled" : "disabled")),
-          active && h("p", {style:{color:"var(--muted)"}}, `${t("lockedVersion")}: ${active.version}`),
+          active && h("p", {style:{color:"var(--muted)"}}, `${t("currentVersion")}: ${active.version}`),
+          active?.version_policy === 'pinned' && h("p", {style:{color:"var(--muted)"}}, `${t("lockedVersion")}: ${active.version}`),
           available.length > 0 && h("p", {style:{color:"var(--muted)"}}, `${t("availableVersions")}: ${available.join(", ")}`),
+          row.update_error && h('p', {role:'status'}, `${t('updateUnavailable')}: ${row.update_error.version}`,
+            h('details', null, h('summary', null, word(ui,'errors','details')), row.update_error.message)),
           !row.compatible && h("p", {role:"status"}, t("incompatible")),
           h("label", {style:{display:"block", marginBottom:8}},
             h("input", {type:"checkbox", checked:!!active?.enabled, disabled:busy || !answer.campaign || !row.compatible,
-              onChange:e=>void mutate("mods.configure", {id, version:row.version, enabled:e.target.checked})}), " ", t("campaign")),
+              onChange:e=>void mutate("mods.configure", {id, version:selection, enabled:e.target.checked})}), " ", t("campaign")),
           h("label", {style:{display:"block", marginBottom:8}},
             h("input", {type:"checkbox", checked:row.default_enabled, disabled:busy || !row.compatible || !!row.default_suppressed_by,
               ...(row.default_suppressed_by ? {title:`→ ${displayName(row.default_suppressed_by)}`} : {}),
               onChange:e=>void mutate("mods.defaults", {id, enabled:e.target.checked})}), " ", t("defaults")),
-          active && active.version !== row.version && h("button", {type:"button", disabled:busy || !row.compatible,
-            onClick:()=>void mutate("mods.configure", {id, version:row.version})}, t("update")),
           pending && h("p", {role:"status", style:{color:"var(--accent)"}},
             `${t("pending")}: ${pending.version} · ${t(pending.enabled ? "enabled" : "disabled")}`),
           h("details", null, h("summary", {style:{cursor:"pointer", color:"var(--muted)"}}, t("settings")),
@@ -191,7 +197,7 @@ export function createComponent(React) {
             ...Object.entries(row.settings ?? {}).map(([key, fallback]) => {
               const current = active?.version === row.version ? (active.settings?.[key] ?? fallback) : fallback;
               const schema = row.settings_schema?.[key] ?? {};
-              const change = value => void mutate("mods.configure", {id, version:row.version,
+              const change = value => void mutate("mods.configure", {id, version:selection,
                 settings:{...row.settings, ...(active?.version === row.version ? active.settings : {}), [key]:value}});
               const attributes = {"aria-label":key, disabled:busy || !answer.campaign, style:{maxWidth:"100%"}};
               // A setting's caption belongs to the Mod that declares it, so it comes from JSON

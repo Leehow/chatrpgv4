@@ -17,6 +17,11 @@ existing local coding relay's Codex authentication instead of Pi OAuth.
 - The standard Responses adapter owns streaming, function calls, tool-result
   replay, cancellation and provider telemetry. Model compat disables unsupported
   output-token and cache-retention parameters and preserves `strict:false` tools.
+- Luna uses the existing OpenAI Fast composer control. Its final request hook
+  uses `gpt-6-luna-fast` on the wire when enabled, which this relay maps to Luna
+  plus priority. Off uses plain Luna. Canonical session identity and reasoning
+  remain unchanged; actual terminal tier, not the requested alias, determines
+  whether the UI reports effective Fast. See `docs/pi-host-contract.md`.
 - The profile installer materializes the manifest and compiled agent alongside
   the provider module before App discovery. It preserves model selections,
   existing credentials and grants; Grok 4.5/low remains the default.

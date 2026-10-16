@@ -399,6 +399,7 @@ body{overscroll-behavior:none}
 .markdown > * { margin: 0 0 var(--md-block); }
 .markdown > :first-child { margin-top: 0; }
 .markdown > :last-child { margin-bottom: 0; }
+.coc-markdown > div { display: contents; }
 
 .markdown h1, .markdown h2, .markdown h3, .markdown h4 {
   margin: 1.85em 0 .65em;

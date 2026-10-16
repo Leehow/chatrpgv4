@@ -7,7 +7,7 @@ import {EventEmitter} from 'node:events';
 
 const words = {mods: JSON.parse(await readFile(new URL('../../content/ui/en/mods.json', import.meta.url), 'utf8'))};
 const captions = {...words.mods, notAdded:'Not added to this campaign', disabled:'Disabled in this campaign',
-  enabled:'Enabled in this campaign', lockedVersion:'Locked version', availableVersions:'Available versions'};
+  enabled:'Enabled in this campaign', lockedVersion:'Locked version'};
 const row = (version, active = null, pending = null) => ({id:'test-mod', name:'Test Mod', description:'A test package',
   version, active, pending, compatible:true, default_enabled:false, settings:{tone:'plain'}, settings_schema:{}});
 const answerFor = (mods, campaign = 'selected') => ({campaign, mods, order:['test-mod'], ui:{tag:'en', words:{mods:captions}}});
@@ -54,14 +54,13 @@ test('campaign absence, explicit disable and enable have different visible statu
 });
 
 test('pending belongs to the package, survives version selection and does not pretend the lock changed', async () => {
-  const active = {version:'1.0.0',enabled:false};
-  const pending = {version:'2.0.0',enabled:true};
+  const active = {version:'1.0.0',enabled:false,version_policy:'pinned'};
+  const pending = {version:'2.0.0',enabled:true,version_policy:'pinned'};
   const view = panel(answerFor([row('1.0.0',active,pending),row('2.0.0')]));
   await view.flush();
-  control(view,'select','Test Mod Version').props.onChange({target:{value:'2.0.0'}});
-  await view.flush();
   assert.match(text(view.tree), /Locked version: 1\.0\.0/);
-  assert.match(text(view.tree), /Available versions: 2\.0\.0/);
+  assert.match(text(view.tree), /Installed versions: 1\.0\.0 · Currently used, 2\.0\.0 · Latest compatible/);
+  assert.equal(control(view,'select','Test Mod Version').props.value, '2.0.0');
   assert.ok(nodes(view.tree,node=>node.props.role === 'status').map(text).includes(captions.disabled));
   const notice = nodes(view.tree,node=>node.props.role === 'status').map(text).find(value=>value.includes(captions.pending));
   assert.ok(notice, 'pending must remain visible when the selected row has no pending field');
@@ -88,16 +87,15 @@ test('joining, upgrading and settings use the existing bound adapter; install an
     campaignToggle(view).props.onChange({target:{checked:true}});
     await view.flush();
     assert.deepEqual(kernelCalls.find(call=>call.method === 'mods.configure').params,
-      {campaign:'selected',id:'test-mod',version:'2.0.0',enabled:true});
+      {campaign:'selected',id:'test-mod',version:'latest',enabled:true});
     answer = answerFor([row('1.0.0',{version:'1.0.0',enabled:false}),row('2.0.0')]);
     control(view,'button',captions.refresh).props.onClick(); await view.flush();
     control(view,'select','Test Mod Version').props.onChange({target:{value:'2.0.0'}}); await view.flush();
-    control(view,'button',captions.update).props.onClick(); await view.flush();
     assert.deepEqual(kernelCalls.filter(call=>call.method === 'mods.configure').at(-1).params,
       {campaign:'selected',id:'test-mod',version:'2.0.0'}, 'upgrading must not override an explicit disable');
     control(view,'input','tone').props.onBlur({target:{value:'warm'}}); await view.flush();
     assert.deepEqual(kernelCalls.filter(call=>call.method === 'mods.configure').at(-1).params,
-      {campaign:'selected',id:'test-mod',version:'2.0.0',settings:{tone:'warm'}});
+      {campaign:'selected',id:'test-mod',version:'latest',settings:{tone:'warm'}});
     nodes(view.tree,node=>node.type === 'input' && node.props.type === 'checkbox')[1].props.onChange({target:{checked:true}});
     await view.flush();
     assert.equal(kernelCalls.filter(call=>call.method === 'mods.defaults').at(-1).params.enabled,true);
@@ -114,6 +112,24 @@ test('an unbound panel does not call a package absent from a campaign or permit 
   assert.ok(text(view.tree).includes(captions.unbound));
   assert.equal(text(view.tree).includes(captions.notAdded),false);
   assert.equal(campaignToggle(view).props.disabled,true);
+});
+
+test('every installed version is marked and choosing the current version pins it until latest is selected', async () => {
+  const active = {version:'1.0.0',enabled:true};
+  const view = panel(answerFor([row('1.0.0',active), {...row('2.0.0'),latest:true}, {...row('3.0.0'),compatible:false}]));
+  await view.flush();
+  const select = control(view,'select','Test Mod Version');
+  assert.equal(select.props.value,'latest');
+  const options = nodes(select,node=>node.type === 'option');
+  assert.deepEqual(options.map(option=>option.props.value),['latest','1.0.0','2.0.0','3.0.0']);
+  assert.equal(text(options[1]),'1.0.0 · Currently used');
+  assert.equal(text(options[2]),'2.0.0 · Latest compatible');
+  assert.equal(options[3].props.disabled,true);
+  assert.ok(!text(view.tree).includes('Locked version:'));
+  select.props.onChange({target:{value:'1.0.0'}}); await view.flush();
+  assert.deepEqual(view.calls.filter(call=>call.method === 'mods.configure').at(-1).params,{id:'test-mod',version:'1.0.0'});
+  control(view,'select','Test Mod Version').props.onChange({target:{value:'latest'}}); await view.flush();
+  assert.deepEqual(view.calls.filter(call=>call.method === 'mods.configure').at(-1).params,{id:'test-mod',version:'latest'});
 });
 
 test('compatibility rows hide only on an explicit false flag, and moves still send the full order', async () => {

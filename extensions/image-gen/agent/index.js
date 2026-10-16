@@ -8,12 +8,10 @@
  *      the Codex adapter, everything else to the vendor adapter its model id
  *      names. Credentials and base URL come from ctx.modelRegistry — auth.json
  *      is never read directly.
- *   2. Otherwise Codex, when usable: the player's ChatGPT subscription through
- *      Pi's built-in openai-codex login, on a paid plan (§172.2).
- *   3. Otherwise grok-build, when its OAuth credential is usable: generation
- *      and editing delegate to its host library (broker, tier gate, reference
- *      containment, SessionImageWriter).
- *   4. Otherwise the `image_model_unconfigured` refusal.
+ *   2. Otherwise Automatic follows ctx.model: Grok, MiniMax, or OpenAI.
+ *      Without a supported selected provider, usable Codex then Grok remain
+ *      the fallback. Credentials always belong to the selected image account.
+ *   3. Otherwise the `image_model_unconfigured` refusal.
  *   A failure on the route taken surfaces as-is — no silent fall-through to
  *   another paid lane in either direction, quota exhaustion included.
  *
@@ -31,8 +29,28 @@ import { imageResult } from "./result.js";
 import { CODEX_IMAGE_MODEL, CODEX_MODEL_REF, CODEX_PROVIDER, codexRefusal, inspectCodex } from "./codex.js";
 import { parseModelSpec, readConfiguredModel, writeConfiguredModel } from "./config.js";
 import { routeImageModel, VENDOR_ADAPTERS, VENDOR_DEFAULT_BASE_URLS } from "./vendors.js";
+import { automaticImageModel, imageModelOptions } from "./selection.js";
+import { enabledInHost as minimaxEnabled } from "../../minimax-enhanced/agent/config.js";
 
 const CONFIG_HINT = "sign in to OpenAI Codex or grok-build, or run /image-gen:model <provider/model> to choose one (e.g. /image-gen:model openai/gpt-image-1)";
+
+async function automaticModel(ctx, grok) {
+	const providers = new Set();
+	if ((await inspectCodex(ctx)).state === "usable") providers.add(CODEX_PROVIDER);
+	if (await grok.usable()) providers.add("grok-build");
+	const provider = ctx?.model?.provider;
+	for (const id of new Set([provider, ...(ctx?.model?.id?.startsWith("gpt-") ? ["openai"] : [])])) {
+		if (!id || id === CODEX_PROVIDER || id === "grok-build") continue;
+		if ((id === "minimax" || id === "minimax-cn") && !minimaxEnabled()) continue;
+		try {
+			if (await ctx?.modelRegistry?.getApiKeyForProvider?.(id)) providers.add(id);
+		} catch (error) {
+			if (id === provider) throw error;
+		}
+	}
+	const models = ctx?.modelRegistry?.getAll?.() ?? [];
+	return automaticImageModel(ctx?.model, imageModelOptions(models, providers));
+}
 
 /** The explicit choice for one dispatch, when there is one: the call's own parameter, else the configured model. */
 function explicitModel(readModel, modelParam) {
@@ -56,31 +74,43 @@ async function resolveVendorTarget(ctx, spec) {
 	if (!apiKey) {
 		throw new Error(`no API key is configured for provider "${provider}" — add one (pi /login ${provider}) and retry`);
 	}
+	const endpoint = entry ?? ctx.modelRegistry.getAll?.().find(model => model.provider === provider);
 	return {
 		vendor,
 		modelId,
 		creds: {
 			apiKey,
-			baseUrl: entry?.baseUrl ?? VENDOR_DEFAULT_BASE_URLS[vendor],
-			headers: entry?.headers ?? {},
+			baseUrl: endpoint?.baseUrl ?? VENDOR_DEFAULT_BASE_URLS[vendor],
+			provider,
+			headers: endpoint?.headers ?? {},
 		},
 	};
 }
 
 /**
  * The dispatch half both the tools and host lanes share (§172.1): an explicit model
- * choice wins, otherwise a usable Codex login, otherwise a usable grok-build login
+ * choice wins, otherwise the selected chat provider, with the legacy Codex/Grok fallback
  * (its host library saves the session attachment itself), otherwise the refusal.
  * Bytes, not a file, so a caller with its own storage -- the sheet's portrait mount
  * (contract §22.7) -- reuses the same path without a session attachment it never asked for.
  */
 async function dispatchImageOp(deps, ctx, op, signal) {
 	const fetchImpl = deps.fetchImpl ?? fetch;
-	const spec = explicitModel(deps.readModel, op.model);
+	const spec = explicitModel(deps.readModel, op.model) ?? await automaticModel(ctx, deps.grok);
 	let target;
 	if (spec) {
-		const { provider } = parseModelSpec(spec);
-		if (provider === CODEX_PROVIDER) {
+		const { provider, modelId } = parseModelSpec(spec);
+		if (provider === "grok-build") {
+			if (modelId !== "grok-imagine-image") throw new Error(`unsupported grok-build image model: ${modelId}`);
+			if (!await deps.grok.usable()) {
+				const error = new Error("the selected Grok image model needs a usable grok-build login");
+				error.code = "image_model_unconfigured";
+				throw error;
+			}
+			return op.kind === "gen"
+				? await deps.grok.generate({ prompt: op.prompt, aspectRatio: op.aspectRatio, signal })
+				: await deps.grok.edit({ prompt: op.prompt, images: op.refs, aspectRatio: op.aspectRatio, signal });
+		} else if (provider === CODEX_PROVIDER) {
 			// Chosen explicitly: an unusable Codex is an error, never a reason to try another lane.
 			const codex = await inspectCodex(ctx);
 			if (codex.state !== "usable") throw codexRefusal(codex);
@@ -89,20 +119,10 @@ async function dispatchImageOp(deps, ctx, op, signal) {
 			target = await resolveVendorTarget(ctx, spec);
 		}
 	} else {
-		const codex = await inspectCodex(ctx);
-		if (codex.state === "usable") {
-			target = codexTarget(codex);
-		} else if (await deps.grok.usable()) {
-			return op.kind === "gen"
-				? await deps.grok.generate({ prompt: op.prompt, aspectRatio: op.aspectRatio, signal })
-				: await deps.grok.edit({ prompt: op.prompt, images: op.refs, aspectRatio: op.aspectRatio, signal });
-		} else {
-			// A stable code lets host lanes tell "go configure a model" from a vendor
-			// failure without matching on this sentence.
-			const error = new Error(`no image model is configured and neither OpenAI Codex nor grok-build is usable — ${CONFIG_HINT}`);
-			error.code = "image_model_unconfigured";
-			throw error;
-		}
+		// A stable code lets host lanes distinguish configuration from vendor failures.
+		const error = new Error(`no image model is configured for the selected provider — ${CONFIG_HINT}`);
+		error.code = "image_model_unconfigured";
+		throw error;
 	}
 	const images = op.kind === "edit"
 		? await Promise.all(op.refs.map((ref) => resolveImageReference(ref)))
@@ -176,7 +196,7 @@ export function createImageGenExtension(deps = {}) {
 				routed = "unsupported";
 			}
 		}
-		return { grokReady, codexState: codex.state, codexPlan: codex.plan, configuredModel: spec, vendor: routed };
+		return { grokReady, codexState: codex.state, codexPlan: codex.plan, configuredModel: spec, vendor: routed, autoModel: await automaticModel(ctx, grok) };
 	}
 
 	/** One status line for the Codex half; the token never leaves inspectCodex's caller. */
@@ -188,7 +208,9 @@ export function createImageGenExtension(deps = {}) {
 					? status.vendor === "codex"
 						? `OpenAI Codex: signed in (${plan}) — active as the configured model`
 						: `OpenAI Codex: signed in (${plan}), idle while another model is configured`
-					: `OpenAI Codex: signed in (${plan}) — the default while no model is configured`;
+					: status.autoModel === CODEX_MODEL_REF
+						? `OpenAI Codex: signed in (${plan}) — the default while no model is configured`
+						: `OpenAI Codex: signed in (${plan}), idle while Automatic follows ${status.autoModel ?? "no available provider"}`;
 			case "plan_excluded":
 				return `OpenAI Codex: signed in (${plan}), but the plan does not include image generation`;
 			case "account_missing":
@@ -202,7 +224,7 @@ export function createImageGenExtension(deps = {}) {
 		pi.registerTool({
 			name: "image_gen",
 			label: "Image Generation image_gen",
-			description: "Generate a new image from a text description. Uses the image model configured with /image-gen:model or the settings picker (OpenAI Codex as openai-codex/gpt-image-2, or an OpenAI, xAI, Ark Seedream, Gemini or DashScope family model routed by model id); when none is configured, uses OpenAI Codex (gpt-image-2 on the player's ChatGPT subscription) if that login is usable on a paid plan, else Grok Imagine if the grok-build login is usable. Returns a typed image plus the saved file's absolute path under the session attachments directory. When telling the user where it was saved, refer to the short path. To produce multiple images, emit multiple tool calls with distinct prompts.",
+			description: "Generate a new image from a text description. Uses the image model configured with /image-gen:model or the settings picker (OpenAI Codex as openai-codex/gpt-image-2, or a Grok, MiniMax, OpenAI, xAI, Ark Seedream, Gemini or DashScope image model); Automatic follows the selected chat model's provider. Without a supported selected provider it uses a usable OpenAI Codex login, then Grok Imagine. Returns a typed image plus the saved file's absolute path under the session attachments directory. When telling the user where it was saved, refer to the short path. To produce multiple images, emit multiple tool calls with distinct prompts.",
 			promptSnippet: "Generate images after the user confirms",
 			parameters: {
 				type: "object",
@@ -214,7 +236,7 @@ export function createImageGenExtension(deps = {}) {
 					},
 					model: {
 						type: "string",
-						description: "Optional image model override as <provider>/<model-id> or a bare model id. Wins over the configured image model (and over the automatic OpenAI Codex / grok-build route) for this call; openai-codex/gpt-image-2 pins OpenAI Codex.",
+						description: "Optional image model override as <provider>/<model-id> or a bare model id. Wins over the configured image model (and over the automatic provider route) for this call; openai-codex/gpt-image-2 pins OpenAI Codex.",
 					},
 				},
 				required: ["prompt"],
@@ -229,7 +251,7 @@ export function createImageGenExtension(deps = {}) {
 		pi.registerTool({
 			name: "image_edit",
 			label: "Image Generation image_edit",
-			description: "Edit or transform existing image(s); use instead of image_gen for image-to-image work (preserve likeness, transfer style, remix). Each `image` entry is a data:image/...;base64,... URL or a path to a JPEG/PNG ≤400KB inside the current workspace or the session attachments directory (arbitrary absolute paths are rejected). Backend dispatch is the same as image_gen (configured model, else OpenAI Codex, else grok-build); OpenAI Codex takes at most 5 reference images. Returns a typed image plus the saved file's absolute path.",
+			description: "Edit or transform existing image(s); use instead of image_gen for image-to-image work (preserve likeness, transfer style, remix). Each `image` entry is a data:image/...;base64,... URL or a path to a JPEG/PNG ≤400KB inside the current workspace or the session attachments directory (arbitrary absolute paths are rejected). Backend dispatch is the same as image_gen (configured model, else Automatic follows the selected chat provider); OpenAI Codex takes at most 5 reference images. MiniMax image-01 and image-01-live use character subject references for regeneration, not mask editing. Returns a typed image plus the saved file's absolute path.",
 			promptSnippet: "Edit images after the user confirms",
 			parameters: {
 				type: "object",
@@ -246,7 +268,7 @@ export function createImageGenExtension(deps = {}) {
 					},
 					model: {
 						type: "string",
-						description: "Optional image model override as <provider>/<model-id> or a bare model id. Wins over the configured image model (and over the automatic OpenAI Codex / grok-build route) for this call; openai-codex/gpt-image-2 pins OpenAI Codex.",
+						description: "Optional image model override as <provider>/<model-id> or a bare model id. Wins over the configured image model (and over the automatic provider route) for this call; openai-codex/gpt-image-2 pins OpenAI Codex.",
 					},
 				},
 				required: ["prompt", "image"],
@@ -259,13 +281,13 @@ export function createImageGenExtension(deps = {}) {
 		});
 
 		pi.registerCommand("image-gen:model", {
-			description: `Set or show the image model (<provider>/<model-id>, e.g. ${CODEX_MODEL_REF} or openai/gpt-image-1); a choice overrides the automatic OpenAI Codex / grok-build route`,
+			description: `Set or show the image model (<provider>/<model-id>, e.g. ${CODEX_MODEL_REF} or openai/gpt-image-1); a choice overrides the automatic provider route`,
 			handler: async (args, ctx) => {
 				const spec = typeof args === "string" ? args.trim() : "";
 				if (!spec) {
 					const current = readModel()?.model;
 					ctx.ui.notify(current
-						? `image model: ${current} (overrides the automatic OpenAI Codex / grok-build route)`
+						? `image model: ${current} (overrides the automatic provider route)`
 						: `no image model configured — ${CONFIG_HINT}`, "info");
 					return;
 				}
@@ -273,7 +295,7 @@ export function createImageGenExtension(deps = {}) {
 					const { provider, modelId } = parseModelSpec(spec);
 					const vendor = routeImageModel(provider, modelId);
 					writeModel(spec);
-					ctx.ui.notify(`image model set to ${spec} (adapter: ${vendor}); it overrides the automatic OpenAI Codex / grok-build route.`, "info");
+					ctx.ui.notify(`image model set to ${spec} (adapter: ${vendor}); it overrides the automatic provider route.`, "info");
 				} catch (error) {
 					ctx.ui.notify(error instanceof Error ? error.message : String(error), "error");
 				}
@@ -281,21 +303,24 @@ export function createImageGenExtension(deps = {}) {
 		});
 
 		pi.registerCommand("image-gen:status", {
-			description: "Show image-generation dispatch status (the configured model first, then OpenAI Codex, then grok-build)",
+			description: "Show image-generation dispatch status (the configured model and the automatic provider route)",
 			handler: async (_args, ctx) => {
 				const status = await statusSnapshot(ctx);
-				const codexDefault = !status.configuredModel && status.codexState === "usable";
+				const codexDefault = !status.configuredModel && status.autoModel === CODEX_MODEL_REF;
 				const lines = [
 					status.configuredModel
 						? `configured model: ${status.configuredModel} (adapter: ${status.vendor}) — used for every generation`
 						: `configured model: none — ${CONFIG_HINT}`,
 					codexLine(status),
+					`automatic model: ${status.autoModel ?? "none"}`,
 					status.grokReady
 						? status.configuredModel
 							? "grok-build: logged in, idle while a model is configured"
 							: codexDefault
 								? "grok-build: logged in, idle while OpenAI Codex is usable"
-								: "grok-build: logged in — the default while no model is configured and OpenAI Codex is not usable"
+								: status.autoModel?.startsWith("grok-build/")
+								? "grok-build: logged in — the default while no model is configured and OpenAI Codex is not usable"
+								: "grok-build: logged in, idle while Automatic follows another provider"
 						: "grok-build: not usable",
 				];
 				ctx.ui.notify(lines.join("; "), "info");

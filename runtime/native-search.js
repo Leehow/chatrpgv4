@@ -11,6 +11,13 @@ export const NATIVE_SEARCH_ENTRY = 'coc-native-search';
 export function nativeSearchState() {
   return globalThis[KEY] ??= {policy: undefined, records: [], pending: undefined, carry: [], routes: new Set(), closedRuns: new Set(), persist: undefined, report: undefined};
 }
+/** Extension-owned capabilities share the existing grant, journal and replay path. */
+export function registerNativeSearchCapability(provider, capability) {
+  const registry = nativeSearchState().capabilities ??= new Map();
+  const entry = clone(capability);
+  registry.set(provider, entry);
+  return () => { if (registry.get(provider) === entry) registry.delete(provider); };
+}
 export function setNativeSearchPolicy(policy) {
   const state=nativeSearchState();
   if (state.policy?.run !== policy?.run) {state.routes.clear();state.closedRuns.clear();state.carry=[];}
@@ -22,6 +29,12 @@ export function clearNativeSearchState() {
 }
 export function nativeSearchCapability(model) {
   const api = model?.api, provider = model?.provider;
+  const extension = nativeSearchState().capabilities?.get(provider);
+  if (extension && api === extension.api) {
+    if (extension.models && !extension.models.includes(model.id)) return;
+    try { if (!extension.origins.includes(new URL(model.baseUrl).origin)) return; } catch { return; }
+    return {api, tools: ['web_search'], declaration: clone(extension.declaration), exactReplay: extension.exactReplay === true};
+  }
   const origins={'deepseek-extended':['https://api.deepseek.com'],'openai':['https://api.openai.com'],'openai-codex':['https://chatgpt.com','https://api.openai.com'],'google':['https://generativelanguage.googleapis.com'],'anthropic':['https://api.anthropic.com'],'grok-build':['https://api.x.ai']};
   if (model?.baseUrl) {try {if (!origins[provider]?.includes(new URL(model.baseUrl).origin)) return;} catch {return;}}
   if (provider === 'deepseek-extended' && api === 'openai-responses' && model.capabilities?.nativeSearch?.tools?.includes('web_search')) return {api: 'anthropic-messages', tools: ['web_search'], route: 'deepseek-messages'};
@@ -62,9 +75,11 @@ function withoutLocalSearch(tools) {
     .filter(tool => !Array.isArray(tool.functionDeclarations) || tool.functionDeclarations.length);
 }
 function canonicalArguments(value) {if (typeof value !== 'string') return value;try {return JSON.parse(value);} catch {return value;}}
-function fingerprint(content, api) {
+function fingerprint(content, api, exact = false) {
   const rows=content??[];
   if (api === 'anthropic-messages') {
+    if (exact) return digest(rows.filter(b => b.type === 'tool_use' || b.type === 'text' && b.text?.trim())
+      .map(b => b.type === 'tool_use' ? ['tool', b.id, b.name, b.input] : ['text', b.text]));
     const calls=rows.filter(b=>b.type==='tool_use');
     return digest(calls.length ? calls.map(b=>['tool',b.id,b.name,b.input]) : rows.filter(b=>b.type==='text').map(b=>['text',b.text]));
   }
@@ -73,6 +88,7 @@ function fingerprint(content, api) {
     : rows.filter(b=>b.type==='message').map(b=>['text',(b.content??[]).filter(p=>p.type==='output_text').map(p=>p.text).join('')]));
 }
 function protocolBlocks(record, current) {
+  if (record.exactReplay) return clone(record.content);
   if (record.api === 'anthropic-messages') {
     const original=record.content.filter(b=>['thinking','redacted_thinking','server_tool_use','web_search_tool_result'].includes(b.type));
     return [...clone(original),...current.filter(b=>!['thinking','redacted_thinking'].includes(b.type))];
@@ -88,13 +104,28 @@ function protocolBlocks(record, current) {
   });
   return [...clone(prefix),...rest];
 }
+function completeExactProtocol(record) {
+  if (!record.terminal || !record.content.some(block => block.type === 'tool_use' || block.type === 'text' && block.text?.trim())) return false;
+  const calls = new Set(), results = new Set();
+  for (const block of record.content) {
+    if (block.type === 'server_tool_use') {
+      if (!block.id || calls.has(block.id)) return false;
+      calls.add(block.id);
+    }
+    if (block.type === 'web_search_tool_result') {
+      if (!calls.has(block.tool_use_id) || results.has(block.tool_use_id)) return false;
+      results.add(block.tool_use_id);
+    }
+  }
+  return calls.size === results.size;
+}
 function restore(payload, api, model, binding) {
-  const records = nativeSearchState().records.filter(r => r.api === api && r.model === `${model.provider}/${model.id}` && r.campaign === binding?.campaign && r.worldline === binding?.worldline && r.loop === binding?.loop);
+  const records = nativeSearchState().records.filter(r => r.api === api && r.model === `${model.provider}/${model.id}` && r.campaign === binding?.campaign && r.worldline === binding?.worldline && r.loop === binding?.loop && (!r.exactReplay || completeExactProtocol(r)));
   if (!records.length) return payload;
   if (api === 'anthropic-messages') return {...payload, messages: (payload.messages ?? []).map(message => {
     if (message.role !== 'assistant') return message;
     const content = typeof message.content === 'string' ? [{type: 'text', text: message.content}] : message.content;
-    const key = fingerprint(content, api), record = records.findLast(r => r.fingerprint === key);
+    const record = records.findLast(r => r.fingerprint === fingerprint(content, api, r.exactReplay));
     if (record) nativeSearchState().report?.({event:'restored',api,model:record.model,run:binding?.run,response_id:record.responseId,server_blocks:record.content.filter(b=>b.type==='server_tool_use'||b.type==='web_search_tool_result').length});
     return record ? {...message, content: protocolBlocks(record, content)} : message;
   })};
@@ -127,13 +158,13 @@ export function nativeSearchPayload(payload, model) {
   const declared = google ? body.config?.tools : body.tools;
   const tools = withoutLocalSearch(declared).filter(tool => !searchTool(tool));
   if (allowed) {
-    tools.push(google ? {googleSearch: {}} : api === 'anthropic-messages'
-      ? {type: 'web_search_20250305', name: 'web_search', max_uses: 2} : {type: 'web_search'});
+    tools.push(capability.declaration ?? (google ? {googleSearch: {}} : api === 'anthropic-messages'
+      ? {type: 'web_search_20250305', name: 'web_search', max_uses: 2} : {type: 'web_search'}));
   }
   if (google) body = {...body, config: {...body.config, tools}};
   else body = {...body, tools};
   state.pending = {api, model: `${model.provider}/${model.id}`, campaign: policy?.campaign, worldline: policy?.worldline, loop: policy?.loop, run: policy?.run, step: policy?.step,
-    enabled: allowed, blocks: [], items: new Map(), inputJson: new Map(), startedAt: Date.now()};
+    enabled: allowed, exactReplay: capability.exactReplay === true, blocks: [], items: new Map(), inputJson: new Map(), startedAt: Date.now()};
   state.report?.({event: 'request', api, model: state.pending.model, enabled: allowed, run: policy?.run, step: policy?.step});
   return body;
 }
@@ -148,12 +179,17 @@ function retain(pending, content, terminal, responseId) {
   const native = content.some(b => ['server_tool_use','web_search_tool_result','web_search_call','x_search_call'].includes(b.type));
   const combined = [...state.carry, ...content];
   if (!native && !state.carry.length || !pending.campaign) return;
+  if (pending.exactReplay && !completeExactProtocol({content:combined,terminal})) {
+    state.report?.({event:'unavailable',reason:'incomplete_server_protocol',run:pending.run,step:pending.step});
+    state.closedRuns.add(JSON.stringify([pending.campaign,pending.worldline,pending.loop,pending.run,...pending.model.split('/')]));state.carry=[];return;
+  }
   if (Buffer.byteLength(JSON.stringify(combined)) > 1_048_576) {
     state.report?.({event:'unavailable',reason:'protocol_retention_bound',run:pending.run,step:pending.step});
     state.closedRuns.add(JSON.stringify([pending.campaign,pending.worldline,pending.loop,pending.run,...pending.model.split("/")]));state.carry=[];return;
   }
   const record = {api: pending.api, model: pending.model, campaign: pending.campaign, worldline: pending.worldline, loop: pending.loop, run: pending.run,
-    responseId, fingerprint: fingerprint(content, pending.api), content: clone(combined), terminal};
+    responseId, fingerprint: fingerprint(content, pending.api, pending.exactReplay), content: clone(combined), terminal,
+    ...(pending.exactReplay ? {exactReplay: true} : {})};
   state.records.push(record); if (state.records.length > 64) state.records.shift();
   state.persist?.(record);
   state.report?.({event: 'response', api: pending.api, model: pending.model, run: pending.run, step: pending.step,

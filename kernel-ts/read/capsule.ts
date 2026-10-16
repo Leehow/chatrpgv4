@@ -1347,6 +1347,11 @@ export function fittedModuleSection(graph: ModuleGraph, budget = 2048, window?: 
     let section = moduleSection(graph, 120, window),
         cut = false,
         lineSize = 120;
+    const bookCreatures = windowOrder(rosterNodes(graph, "creature"), window);
+    const completeCreatures = bookCreatures.map(node => ({ name: graph.displayName(node), line: oneLine(graph, node, lineSize) }));
+    const complete = { ...section, ...(completeCreatures.length ? { creatures: completeCreatures } : {}) };
+    if (jsonSize(complete) <= budget)
+        return [complete, false];
     for (const size of [80, 40, 20, 0]) {
         if (jsonSize(section) <= budget)
             break;
@@ -1358,7 +1363,7 @@ export function fittedModuleSection(graph: ModuleGraph, budget = 2048, window?: 
     // §180.4: the book's creatures, in the same roster form as its people, ride only on what the fit above leaves. They
     // are cut first and never cost a person, a place or an ending its line, and the roster is absent when the book has
     // none or none fits.
-    const creatures: Row[] = [], bookCreatures = windowOrder(rosterNodes(graph, "creature"), window);
+    const creatures: Row[] = [];
     for (const node of bookCreatures) {
         const entry = { name: graph.displayName(node), line: oneLine(graph, node, lineSize) };
         if (jsonSize({ ...section, creatures: [...creatures, entry] }) > budget) {
@@ -1367,15 +1372,29 @@ export function fittedModuleSection(graph: ModuleGraph, budget = 2048, window?: 
         }
         creatures.push(entry);
     }
-    if (creatures.length)
-        section.creatures = creatures;
-    // §187.4: how many lines of each roster the fit removed, so the Keeper knows the book holds more than it shows.
-    const more = {
-        people: rosterNodes(graph, "npc").length - array(section.people).length,
-        places: rosterNodes(graph, "location").length - array(section.places).length,
-        creatures: bookCreatures.length - creatures.length
-    };
-    if (more.people > 0 || more.places > 0 || more.creatures > 0)
-        section.more = more;
-    return [section, cut];
+    // Counters are mandatory budgeted metadata. Creature admission never grows after their cost is paid.
+    while (true) {
+        const more = {
+            people: rosterNodes(graph, "npc").length - array(section.people).length,
+            places: rosterNodes(graph, "location").length - array(section.places).length,
+            creatures: bookCreatures.length - creatures.length
+        };
+        const omitted = more.people > 0 || more.places > 0 || more.creatures > 0;
+        const fitted = {
+            ...section,
+            ...(creatures.length ? { creatures: [...creatures] } : {}),
+            ...(omitted ? { more } : {})
+        };
+        if (jsonSize(fitted) <= budget)
+            return [fitted, cut];
+        if (creatures.length) {
+            creatures.pop();
+            cut = true;
+            continue;
+        }
+        const counterBytes = omitted ? jsonSize({ ...section, more }) - jsonSize(section) : 0;
+        if (!fitBudget(section, budget - counterBytes, "last"))
+            return [fitted, cut]; // As in fitBudget, an irreducible scalar envelope survives an undersized caller budget.
+        cut = true;
+    }
 }

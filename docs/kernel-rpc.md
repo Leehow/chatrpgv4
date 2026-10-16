@@ -4826,6 +4826,12 @@ per-unit evidence isolation stay intact.
 
 ## 23. PipiCOC local frontend (2026-09-07)
 
+### Host decision: renderer subscriptions end with their WebContents (2026-10-12)
+
+The Electron IPC bridge removes a renderer's event subscription when its WebContents emits `destroyed`, and checks `isDestroyed()` before forwarding a frame. If destruction races a send, the bridge drops only that destroyed recipient and continues delivering to live renderers; unrelated send errors retain their existing failure behavior. A dead window must not turn a successful onboarding operation or binding announcement into an engine refusal. Reopening a window registers its own sender and projection session without inheriting the old recipient.
+
+Producer: Electron owns the WebContents lifecycle. Reader: the IPC subscription registry checks that lifecycle. Actor: the bridge removes obsolete recipients and forwards the same event to live ones. Campaign writes, onboarding state, provider/model selection and event projection rules are unchanged. The lifecycle follows Electron's [WebContents destruction contract](https://www.electronjs.org/docs/latest/api/web-contents/); transport regressions cover destruction notification, stale recipients and destruction during send.
+
 ### Host decision: cold timeline reads carry the bound conversation phase (2026-10-09)
 
 A successful cold `timeline.graph` response for a COC-bound conversation includes its validated `setup` or `play` binding mode as `phase`, beside the existing graph, anchors, sessions and projected UI words. The UI selects the matching model-projected composer caption from this phase. Graph absence, an unbound conversation or a failed read must retain its existing explicit outcome; the host does not infer a phase from text or invent a binding.
@@ -6836,7 +6842,8 @@ covers all files in the immutable legacy format, or, under §101's
 `mods.package-files.v1`, covers `mod.json` plus the explicit runtime allowlist.
 Local directory/ZIP installation rejects escaping paths, symlinks, executable
 payloads, oversized archives and replacement of existing
-versions with different bytes. Installation does not activate or upgrade a save.
+versions with different bytes. Installation publishes a package; campaign version policy determines
+whether it becomes active at the next safe boundary.
 
 Host-only methods: `mods.list {campaign?}`, `mods.install {path}`,
 `mods.configure {campaign, id, enabled?, version?, settings?}`,
@@ -6852,8 +6859,52 @@ only the keys the target version declares; the keys it drops are written once to
 `telemetry.jsonl` as `{"lane": "mods", "event": "settings_retired", "mod", "from", "to", "keys"}`,
 and the new lock shows the target version's settings (2026-09-10, #70, §30.12; until then the
 panel's version-only Update was refused whenever the target version had removed a setting). A save
-pins version, digest, settings and state version in `world.mods`; no automatic latest-version
-selection.
+records the actual version, digest, settings and state version in `world.mods`.
+
+**Version policy (owner 2026-10-13).** New and legacy campaign entries default to following the latest
+compatible installed version. `mods.configure.version: "latest"` selects that policy; an explicit
+`major.minor.patch` selects a fixed version, including selecting the currently used version. An omitted
+version preserves the current policy. Only explicit pins persist `version_policy: "pinned"` on the
+active entry; absence means `latest`. Pending changes carry their policy explicitly so replaying a
+resolved version does not accidentally create a pin. Returning to `latest` removes the pin even when
+the resolved upgrade is refused; the actual package remains usable and the refusal is shown.
+
+The producer is campaign initialization/configuration; `mods.list` exposes the policy, each row's
+`latest` marker and any `update_error`; the panel acts through session-bound `mods.configure`.
+Initialization at an idle table boundary follows updated built-ins and installed packages using the
+existing migration, settings-retirement, dependency/conflict and digest checks. Open/acting turns,
+pending choices and active subsystem sessions retain their actual version. Queued user changes take
+precedence. Automatic upgrade refusal retains the actual package/state, records the target and reason
+under `world.mods.update_errors`, and remains visible without preventing play. Package bytes and
+historical receipts remain immutable. Legacy entries lack evidence of manual selection and therefore
+use the new default rather than being inferred as pins.
+
+**Configuration repair (2026-10-15).** Enable/setting edits under a floating policy
+apply to the currently usable package and retain that policy, including when the panel
+echoes `version: "latest"`. Following a newer package is a separate idle-boundary step;
+a refused upgrade must not prevent disabling the actual package or changing its valid
+settings. An explicit concrete version still requests that exact version atomically.
+Queued enable/setting changes retain the same behavior at replay. A failed replay must
+preserve an unapplied user request instead of reporting an empty queue; a version-only
+return to `latest` may retain the actual package and report the upgrade refusal.
+Floating pending rows also retain `requested_controls`, containing only the `enabled`
+and `settings` fields explicitly submitted by the caller. `configure` writes this
+provenance and `applyPending` reads it when a resolved upgrade fails: target-version
+defaults are not user edits and must not be replayed against the retained package.
+An empty object denotes a version-only request. Legacy pending rows without this
+field conservatively retain and validate their stored controls; failed validation
+preserves the complete original queue. Concrete pinned requests keep their existing
+shape and atomic refusal behavior.
+
+The panel displays all installed versions, including the actual version, with `currentVersion` and
+`latestVersion` captions. Its selector contains `latest` plus every installed concrete version;
+selecting a policy applies it immediately or queues it at the existing safe boundary. Enable/setting
+changes retain that selection. Caption sources remain English and other tags use the presenter.
+This separates a floating selector from its resolved package as in
+[Gradle dynamic resolution](https://docs.gradle.org/current/userguide/dependency_graph_resolution.html),
+and exposes auto-update versus a concrete selection as in
+[VS Code extension management](https://code.visualstudio.com/docs/configure/extensions/extension-marketplace).
+Unlike those systems, resolution is local-only and switching waits for the table's transaction boundary.
 During background opening preparation, before world.json exists, that same lock is
 staged in campaign.mods_pending. table.open promotes it after the world is ready;
 later default changes do not alter the already-created campaign's choices.
@@ -7817,6 +7868,54 @@ the locked production dependency closure, licenses, native ABI/architecture and
 dependency hashes before signing; relocation and GUI acceptance remain separate
 from that build proof.
 
+### 27.11 Test scratch retention (owner 2026-10-15)
+
+The native storage runner owns fixture paths recorded by storageFixture and reads
+the actual terminal outcomes from its reporter. After the child has exited, even
+when another case failed, it removes only fixtures whose exact case identity has
+an explicit successful terminal outcome and no failed outcome. Missing, ambiguous
+or interrupted outcomes retain their fixtures. Cleanup is confined to direct case
+directories under the invocation's ordinary root or disk process root; symlink
+ancestors and paths outside those roots are refused. Logs, collection, outcomes,
+source hashes, exit status and failure/interruption evidence remain durable.
+
+The LAN runner compacts only its completed invocation, after evidence collection.
+Bulky scratch payloads are replaced with lossless gzip tar archives only after
+GNU tar compares metadata and contents against the original tree successfully.
+A manifest records source-relative paths, archive SHA-256, size and restore
+instructions. An archive or verification failure keeps the original tree and
+reports a cleanup warning without rewriting the test exit code. Existing archive
+files are never overwritten. Logs and result metadata outside payload roots stay
+directly readable. No age/count policy silently discards failure evidence.
+
+Explicit maintenance of old test archives uses the same compactor, requires a
+terminal result.exit and skips recently settled or incomplete invocations. It
+never removes a run directory, source checkout, live campaign or unrelated cache.
+The writer is the fixture/reporter pair and LAN finalizer; the readers are the
+storage report and compaction manifest; the action is successful-fixture cleanup
+or verified replacement of an immutable payload by a recoverable archive.
+
+Implementation: failed native invocations remove only explicitly passed owned
+fixtures, retaining symlink dependencies and unknown/conflicting outcomes. Pure
+disk mode also retains ordinary failed fixtures, previously removed incorrectly.
+Both local LAN runner copies ship the same standalone compactor and preserve the
+original test exit when compaction fails. Linux verification is retained at
+`.coc/test-runs/storage-retention-fnbvih/`: all 11 tests pass without skips, four
+original counterpart blocks and all original helpers/imports are byte-exact,
+and negative finalizer probes preserve exits 0, 1 and 143 while recording cleanup
+warnings. Historical validation is retained in the migration inventory; only its
+four storage counterpart identities receive the new reviewed execution record.
+Old leehow-pc archive compaction was started with low I/O priority; the machine
+became unavailable before final receipts could be retrieved. No reclaimed-byte
+or completed-cleanup claim is made without reading those receipts after reconnect.
+Focused LAN run `run.U3U1rywu` on frozen `d0fb31b46` plus its captured working
+tree exits 0 in 976 seconds: extension 4363 passed/1 skipped across 510 files,
+native integration 2189 passed and routing 12 passed. Its real finalizer leaves
+no ordinary/disk/RAM fixture payload and no cleanup warning; the prior workspace
+is verified and compressed to 348 bytes. Receipts are retained under the review
+evidence directory's `focused/`. This snapshot does not validate later unrelated
+commits or prove the offline leehow-pc maintenance batch completed.
+
 ## 28. Mod vocabulary and the build boundary (proposed 2026-09-09)
 
 ### 28.1 The four closed doors
@@ -8726,6 +8825,22 @@ prefix and is unchanged. `tests/extension/ts-kernel-name-phrase.test.mjs` gains 
 carrying a person's name in its middle, and asks for that person as a clue.
 
 ## 32. Action admission and the local relation projection (2026-09-11)
+
+### 32.20 NPC disclosure and opening information (2026-10-12)
+
+Admission judges the investigator's voluntary action and commitments, not permission to hear an NPC's answer. Ordinary NPC speech, unsolicited information and recording the clue it gives are world responses. A handout displays information without taking a physical object or transferring ownership; showing it does not call for an extra item effect or a player choice to acquire it. A short follow-up is read against the preceding public exchange; names and details first supplied by the answer need not have been known or chosen by the player. A disclosure does not authorize a new search, trip, payment, bargain, attack or other investigator act; those components and unsettled prerequisites still require their own choice. The same semantic boundary is supplied to the lane and typed reviewers, with no scenario names, language matching or content-specific exemptions.
+
+The opening may record an ordinary clue and a mood for an existing person already present, including one batch containing both. The host and kernel share the structural opening-information shape; NPC creation, movement, mechanical profile changes and investigator actions retain their existing guards. Normal clue validation still enforces source identity, scene availability and required discovery checks. An opening information write keeps turn 0 awaiting its opening; only its subsequent narrate/ask delivers and closes it, and the next actual player input opens turn 1.
+
+Opening shape validation ignores host-internal underscore-prefixed fields, just as
+the transaction's public call identity does. In particular, a successful name-resolution
+retry may carry `_resolved_from` on an NPC mood or person label without losing opening
+eligibility; the receipt still records its provenance. Additional public effect fields
+remain subject to the same whitelist, presence checks and atomic refusal rules.
+
+Producer: the Keeper's ordinary apply clue/npc mood writes receipts. Reader: the canonical clue ledger and NPC ledger project them to subsequent capsules and views. Actor: the Keeper narrates the disclosure and continues using the recorded knowledge; registration never requires the player to repeat the question or preselect the answer's new names. The existing told-clue reconciliation remains available for information delivered before registration. This change neither censors NPC dialogue nor substitutes prose for transactions.
+
+Precedent: [Dialogflow's contextual follow-ups](https://docs.cloud.google.com/dialogflow/es/docs/contexts-overview) confirm that incomplete references need their preceding exchange. TypeSafe's [narrow decision guidance](https://docs.typesafe.ai/concepts/how-to-build-with-system-one) supports separating actor choice from response content. Their implementations do not supply this game's transaction or source authority; the existing kernel and boundary tests remain authoritative.
 
 The spec `docs/specs/graph-backed-play-experience.md` starts from two retained turns of The Haunting: a
 player asking "科比特是什么？" after a setup that had already introduced Corbitt, and "那看看报纸" turning
@@ -16098,6 +16213,16 @@ trip earlier that says nothing; and a `look` after close that still says nothing
 
 ## 79. A person has a name here (2026-09-17, amends §22, §40.1 and §76.3)
 
+### Host/kernel decision: first public names commit with disclosure (2026-10-12)
+
+An apply person naming an untold NPC by one of that person's complete printed names stages the requested public name on a keeper-only receipt instead of refusing the batch or changing world.person_labels. Its apply result lists names_pending_delivery so the Keeper knows that actual disclosure is still required. The opening also admits this name/address bookkeeping through the shared structural information shape, preserving its opening state until delivery. Other effects, including independent clue registration, use their normal validation and commit path. Partial names, names belonging to another untold person, invalid labels and ambiguous identities retain their existing guards.
+
+Only a successful delivery that actually introduces this person through the existing spoken-name, name-token or document disclosure path publishes the staged name and optional address. The publication runs at the same commit point as the existing name-known update. A failed delivery, a delivery that never names them, or an introduction of someone else leaves their public label and name-known state unchanged. The staged receipt is evidence of the request, never evidence that the player knows a name, and it is not carried forward as a naming obligation after the turn closes. Replay and restart use the existing persisted receipts and delivery transaction.
+
+Producer: apply person stages deferred_name/deferred_address on its receipt. Reader: the existing delivery introduction publisher reads matching receipts for the introduced identity. Actor: the Keeper supplies the actual introduction; the delivery commits both the public label and the name-known evidence. Internal npc.name, clue.from and person.who references remain canonical identity references and do not disclose names.
+
+This follows the visibility boundary of [committed transactions](https://www.postgresql.org/docs/current/transaction-iso.html) and the separation of an event's occurrence from its processing in [domain events](https://martinfowler.com/eaaDev/DomainEvent.html). These precedents confirm the staging/publication split; the game's existing disclosure detection remains the authority for whether a name was actually told.
+
 ```
 a place  ->  world.scene_labels   (apply move with a label)
 a clue   ->  world.clue_labels    (apply clue with a label)
@@ -20450,6 +20575,8 @@ The existing apply transaction writes one core character reunion record and a ca
 
 Reunion extend true appends only new compatible detail while retaining every already accepted line; the host performs the merge, so the Keeper never copies old prose to preserve it. Ordinary establishment with different content for the same interval still refuses. Each receipt states reuse or extension without fabricating intermediate events.
 
+The reunion interval identity uses only the stable worldline/loop scope. Wider event-read scopes may carry campaign, turn and current receipt context, but those transient fields never change the accepted interval key. The reader and apply writer use the same identity projection, so immediate reads and reloads reuse the established interval.
+
 The automatic input supplement asks only the closed Choice and candidate-premise judgments required to offer a response. Diagnostic personality/relationship Scores remain batched in an explicit evaluate_responses read or diagnostic run; a score nobody consumes is not made a foreground dependency. A no-fit result requests one background candidate refresh per NPC/input, using the person's updated limited perspective after delivery, without making the Keeper wait. A repeated host continuation does not start another automatic evaluation for the same canonical input.
 
 ## 124. Jev preselection supplies actual material before the Keeper request (#108)
@@ -21217,8 +21344,9 @@ Sources: https://docs.bullmq.io/guide/workers/stalled-jobs and https://docs.temp
 
 ### 129.7 Carried equipment is prepared beside play (owner ruling 2026-10-07)
 
-Opening or reopening a writable play session queues its unmanaged carried equipment
-under the active materializer. The host runs the existing tool-enabled creator in
+Opening or reopening a writable play session queues only unmanaged carried equipment
+with an already supplied document capability, rule parameters, traits, usages or
+non-default physical state under the active materializer. The host runs the existing tool-enabled creator in
 the background; neither opening prose nor player input waits for it. The kernel
 issues the exact row, owner and worldline binding. Names are structural handles;
 the creator decides readable/writable capability semantically and may return null
@@ -21238,7 +21366,7 @@ player turn. Stale completions cannot resurrect removed or transferred equipment
 Pending work resumes with its retained job; failures remain explicit until retry.
 
 `table.view` projects `equipment_preparation: [{name,status}]` on each investigator
-for pending or failed rows. Such a row is already expandable: while open it shows
+for eligible pending or failed rows. Such a row is already expandable: while open it shows
 the existing preparation animation, or an explicit retry control. Successful
 publication replaces that same row in place, preserving its expanded state; a
 document then offers the ordinary view/save/reset editor. No editing is enabled
@@ -21249,6 +21377,30 @@ Writers: the host's tool-enabled materializer and the guarded apply staging owne
 Readers: the existing owned-item/document views and inventory preparation projection.
 Actor: the player opens the row, waits if necessary, then reads or writes through
 the existing editor. Background failures do not block play.
+
+**Background possessions (owner ruling 2026-10-13).** A carried row with only a
+name, quantity and optional descriptive prose is already complete. The inventory
+prints its name and quantity without a disclosure or description. Description
+alone and the default object condition `intact` do not create a detail capability;
+weapons, documents, public rule fields, traits, usages and non-default physical
+state retain their existing details. Eligibility follows supplied structure, never
+a semantic item-name classifier or a new model call. Opening, reopening, refresh
+and retry must not enqueue or resume a creator just to enrich a background row.
+Old preparation entries and artifacts remain evidence, but are not projected or
+resumed for ineligible rows; late publication rechecks eligibility before accepting
+the result. A later explicitly established capability still uses the existing
+definition/adoption path. Writers: canonical inventory and capability owners.
+Readers: equipment job eligibility and the inventory renderer. Actor: the player
+reads the background name/count directly; only a supplied detail capability offers
+an interaction. This narrows the earlier blanket automatic enrichment rule.
+
+Cross-check: the HTML disclosure definition
+(https://www.w3.org/TR/2017/REC-html52-20171214/interactive-elements.html)
+and Carbon's non-interactive list guidance
+(https://www.carbondesignsystem.com/building-blocks/core/components/contained-list/guidelines)
+both support a plain row when there is no additional content or control to open.
+Neither defines this product's model scheduling: the supplied-capability eligibility
+rule above, rather than a presentation pattern, owns that decision.
 
 Precedent: Jupyter's Contents API preserves entity metadata while content is loaded
 separately (https://jupyter-server.readthedocs.io/en/latest/developers/contents.html);
@@ -34095,6 +34247,10 @@ The first presentation the host streams whose prose counts under §135.11.5 carr
 
 ### 171.5 Limits
 
+**Markdown on the COC reading surface (owner request, 2026-10-13).** Both final-author stream frames and delivered `coc-mechanics` prose use the host's existing Streamdown engine. Parse a continuous Markdown body before decorating speech; headings, emphasis, lists, links and code must not become literal syntax because a speaker or receipt interrupts a run. The controlled delivery renderer supplies text runs, resolved speaker ink/title/kind and already-rendered receipt nodes to a host-only `renderProse` callback. Speaker ranges decorate parsed text, and host-created receipt slots insert the original cards at their marker positions, including inside a list item. This callback grants no state or publication authority, and keeps Markdown sanitization. Streaming holds incomplete COC markers and renders incomplete Markdown; completed delivery renders the full body without repeating it. Reveal budgets still gate prose and cards. Older hosts without the callback retain the existing text rendering.
+
+Writer: final-stream marker decoding and the controlled delivery renderer's existing `splitDelivery`/speech binding. Reader: the host COC Markdown surface (`Electron/packages/ui/src/CocMarkdown.tsx`), injected by the controlled component loader. Actor: the player reads formatted prose, colored speech and receipt cards in their original order. Completed stream blocks remain memoized and only the open tail is parsed again; final delivery reparses the full source. `Electron/packages/ui/src/coc-markdown.test.tsx` covers chunk-split syntax, open lists/fences, source offsets after escapes/entities, speech spanning blocks, reveal budgets, hidden receipts and receipt positions inside Markdown; source checks do not claim installed-App acceptance.
+
 - **A draft that is never delivered.** If a stretch ends with no delivery after its draft (every resend refused and the turn closed by a notice), the draft stays on the live screen. It is not in the transcript file, so a later reading of history shows what the kernel delivered and not the draft.
 - **Other Keepers.** A Keeper whose provider sends arguments in one delta (grok) gets one draw at `toolcall_end`, about a second before its card. That is no gain, and no cost.
 
@@ -34119,11 +34275,18 @@ The image-gen extension spends the player's ChatGPT subscription through Pi's bu
 The shared dispatch behind `image_gen`, `image_edit`, the portrait mount (§22.7) and illustrations (§35.4) resolves one route per call:
 
 1. **Explicit choice**: the tool's `model` parameter, else the configured model.
-2. **Codex**, when usable (§172.2).
-3. **grok-build**, when usable.
+2. **Automatic follows the selected session model's provider** (owner, 2026-10-16):
+   `grok-build` uses Grok Imagine through its host library, `xai` uses its image
+   API, `minimax-cn` / `minimax` use `image-01`, `openai-codex` uses Codex,
+   and `openai` uses its registered image model or `gpt-image-1`.
+   GPT models on a text relay use a configured Codex or OpenAI image account;
+   a text relay key alone never implies image API access.
+3. Without a matching supported provider, preserve the usable Codex, then
+   grok-build fallback. A selected supported provider without credentials fails
+   explicitly; it never silently switches to a different provider.
 4. Otherwise the existing `image_model_unconfigured` error.
 
-A failure on the route taken surfaces as it is. Nothing falls through to another lane in either direction, including on quota exhaustion. Where §22.7 and §35.4 say "grok-build the default", read "Codex, then grok-build, the default".
+A failure on the route taken surfaces as it is. Nothing falls through to another lane in either direction, including on quota exhaustion. Where §22.7 and §35.4 describe a default, read the automatic provider policy above.
 
 ### 172.2 Codex usability
 
@@ -34169,12 +34332,33 @@ There is no quality option (owner ruling, 2026-10-03: "如果不能设置画质�
 ### 172.6 Settings and host invoke
 
 - `<agentHome>/image-model.json` keeps its shape `{ "model": string }`. `clear` deletes it as before.
-- The app-level `image-gen` / `model` invoke answers `{ current, grokDefault, codexSignedIn, autoRoute }`:
+- The app-level `image-gen` / `model` invoke accepts optional `selectedModel`
+  (the settings context's current model) and answers
+  `{ current, grokDefault, codexSignedIn, autoRoute, autoModel, models }`:
   - `codexSignedIn` is true when auth.json holds an `openai-codex` entry with an access token;
-  - `autoRoute ∈ {"codex", "grok-build", "none"}` applies §172.1 steps 2–4. The host decodes the stored access token's claims only for the plan check and never logs them.
+  - `autoModel` is the provider/model ref chosen by the shared automatic policy,
+    or null. `autoRoute` names its adapter or `none`. No credentials leave the host.
+  - `models` lists credential-backed image options independently of chat-model
+    visibility. It includes synthetic Codex, Grok Imagine, OpenAI, xAI and
+    MiniMax image rows when those providers have credentials; MiniMax requires
+    its enhancement extension enabled. Other supported registered image models
+    remain available. The host reads credential metadata through Pi's runtime
+    and stored login state; API entitlement is checked by the eventual request.
 - The settings section adds:
   - a "Codex (gpt-image-2)" row (ref `openai-codex/gpt-image-2`) whenever `codexSignedIn`;
-  - an Automatic-row subtitle naming `autoRoute`.
+  - an Automatic-row subtitle naming `autoModel`, refreshed when the selected
+    chat model changes. Every returned image model remains manually selectable,
+    regardless of the current chat provider. Explicit choices keep priority.
+
+The settings host writes the available options and automatic preview; the
+settings component reads them and persists manual choices. The shared image
+dispatch reads the same provider policy against `ctx.model` at call time and
+the selected route's existing adapter produces the image result. No new
+credential store or image-generation implementation is introduced. External
+checks: [xAI image documentation](https://docs.x.ai/developers/model-capabilities/images/generation)
+and [MiniMax's maintained image client](https://github.com/MiniMax-AI/skills/blob/main/skills/frontend-dev/scripts/minimax_image.py)
+both use dedicated image model IDs and provider credentials, separately from
+text-model catalogs; neither implies that a text subscription grants image API access.
 
 ### 172.7 Errors
 
@@ -37326,7 +37510,18 @@ more than the brief shows (`lookup kind=module` reaches them). A book without a 
 for a book without `page_count` or one at or under `reading.whole_book_max_pages` (read whole, so book order), else
 §182.3's window on `bookAnchor`'s pages, chapters from the outline or, with the index complete, the index sections.
 The order is a stable partition, so a window every entry lies inside is book order. `more` counts the roster lines the
-fit dropped and is present only when one is non-zero; its few bytes ride beside the 2,048-byte fit. The kernel puts
+fit dropped and is present only when one is non-zero; its bytes are included in the 2,048-byte fit.
+**Migration regression decision (2026-10-13).** Fit the core first and admit optional creatures only from its
+original remaining space. Include the exact omission counters inside the same budget; if they exceed that space,
+remove optional creatures before trimming trailing core rows. Recompute the counters after each cut and never
+readmit creatures from space created by a metadata-driven core cut. An unchanged complete brief needs no
+reservation. As with `fitBudget`, an arbitrary budget below the irreducible scalar envelope cannot remove those
+required scalar fields; ordinary caller budgets and their regression boundaries include that envelope.
+The owner approved adapting the two incompatible frozen whole-core comparisons on2026-10-13. Historical
+outputs remain immutable; compatible budgets still compare exactly. Where mandatory counters exceed the old
+remaining room, current checks retain exact scalar fields and trailing-prefix roster content, enforce the byte
+budget and exact omission counts, and keep creatures subordinate to the original core fit. Original migrated
+Python assertions are unchanged. The kernel puts
 the window on the capsule's host-only `_context` as `brief_window: {first, last, chapters} | null`, and the host's
 `briefingKey` adds it only when non-null, so a book without a window keeps the key it always had.
 
@@ -45547,6 +45742,25 @@ Real installed and GUI evidence: oldInstalled covered real G45low setup and offi
 
 Honest quality and memory limitations: two same-material diagnostics structurally passed—one text identical, the other narrative shortened with identical NPC dialogue. There is no claim of naturalness superiority; front meaning still often complete speech despite brief guidance, and there is no deterministic semantic fidelity proof. This record does not claim a pristine full-run pass, no errors, whole scenario ending, or NPC naturalness improvement, and it invents neither acceptance nor new architecture.
 
+### 233.19 Confirmed support references and expression handoff (2026-10-13)
+
+The existing support owner supplies immutable input-local semantic material names and
+preserves exact content, provenance, coverage and source authority. Automatic support
+becomes an output reference only after the exact support packet survives provider
+conversion. Explicit support lookup uses the same registration path. A source name is
+not a disclosure grant: a delivery material may omit text only for an explicitly
+player-visible plain-text owner result. Private or unclassified source material still
+requires a Keeper-authored permitted excerpt. Missing, stale or unconfirmed required
+references fail before authoring. Resolved source identity participates in writer cache
+identity. Reference reuse never repeats retrieval or grants settlement authority.
+
+Pure expression example packets go to the selected output owner, without entering or
+adding a wait to the Keeper request. Rule instructions, NPC personality/relationships,
+temporal reasoning and all Mod gates remain in the Keeper context. No automatic output
+or additional classifier is introduced. Context/lookup writes and confirms references;
+output reads and validates them; the Keeper selects the material and accepted artifact
+coverage records its expression. Counts are diagnostic, not future-turn obligations.
+Implementation and fresh validation are tracked in docs/specs/keeper-output-material-handoff.md.
 
 ### 233.20 Owner's test-model profile (2026-10-13)
 
@@ -45932,6 +46146,7 @@ Verify the actual Pi/RunDriver and TS publication seam: one author response and 
 
 [AWS redrive](https://docs.aws.amazon.com/step-functions/latest/dg/redrive-executions.html) preserves successful stages, while [Stripe's idempotency contract](https://docs.stripe.com/api/idempotent_requests) distinguishes refused validation from an executed cached request. Both support retrying only an eligible failed stage with the same input. Our existing name guard deliberately records its first refusal before the second replacement; the native kernel evidence, not an external retry policy, determines this narrow eligibility.
 
+
 ### 237.24 Restore the existing NPC effect instructions without adding a gate
 
 Three retained natural-play calls mixed npc.activity with another change, and three mixed npc.intends with position across the retained App and source runs. The ordinary schema already explains standalone variants, but the default lean intends description replaces that constraint. Restore it in the existing description. Explain that the same NPC may have position, activity and undertaking effects in one apply batch, in that order when place changes; separate effects do not mean separate calls or a second author. Ordinary conversation still needs no intention or activity record. Preserve current schemas, atomic guards, rules and state authority. No new store, agent, reviewer, effect normalization or inference is introduced.
@@ -45939,6 +46154,7 @@ Three retained natural-play calls mixed npc.activity with another change, and th
 Also remove Natural NPC's obsolete claim that the kernel rejects text based on its language script. Keep the existing play-language and limited foreign-speech advice; this is not a new detector or semantic check and does not claim to fix all author language slips. Existing open-language and narrator rules remain controlling. Changed Mod bytes require a new immutable package version through the existing upgrade path, with state_version unchanged. The first live attempt during this source edit refused conflicting bytes for 1.6.3 and failed its next projection; preserve it as an engineering environment failure, without modifying the frozen registry or relaxing integrity. These are bounded corrections to established instructions, so an additional internet design investigation is disproportionate; the native schema and actual kernel refusal are the authoritative precedent.
 
 Verify that lean and ordinary tool shapes remain identical, that the guidance preserves one-batch operation and routine-dialogue discretion, and run existing NPC activity/intention and prose regressions. Continue measuring recurrence in the real campaign. Do not convert description tests into a claim that the real model has stopped making mistakes.
+
 
 ### 237.25 Keep physical progression grounded in the existing canonical state
 
@@ -46005,7 +46221,6 @@ Keep only the latest current scoped host-owned clerk and capsule update in the r
 Genuine T34's two valid JSON replies both put text inside record instead of beside it at the root. The current decoder correctly refused before apply or public streaming; the existing one-shot result_protocol steer only repeated generic field order, so the same author repeated the mistake. Three tool calls included one unrelated unknown recall query; these two decoder errors are not two additional tool errors or a provider outage. Preserve the original no-delivery attempt and unchanged clock.
 
 Change only the existing private protocol correction: identify record.text as invalid, require root.text as a sibling, list the current allowed record keys and include the existing bare version/record/text example. Preserve native public/reference forms and replay rules. Do not expose the private candidate/error values, add a retry, accept misplaced prose or change the parser: waiting until an entire nested prose field closes would lose the existing settle-before-stream ordering. Test through the existing real Pi/TS seam that the first nested candidate has zero effects/public bytes, the same Keeper receives the precise correction, the corrected root form settles the selected effect once before the first public delta, and original replay/privacy cases remain. This is correction feedback for a known closed schema, not a new semantic gate or design layer; further external research is disproportionate for this bounded existing error-message repair.
-
 ### 237.33 Recover one surplus terminal brace after a complete single-Keeper object
 
 Retained genuine turn35 corrected the nested record.text error after the existing precise feedback, then emitted a complete valid root object plus one extra closing brace. The upstream done value exactly matches the concatenated deltas. The already accepted record settled eight minutes and nine receipts once, and 611 public characters streamed before finish rejected the trailing byte. Preserve this failed delivery and its raw evidence; neither the settled record nor its time may be re-executed.
@@ -46018,6 +46233,7 @@ Verify incremental decoding at chunk boundaries, one apply before public text an
 
 [CPython's JSONDecoder.raw_decode](https://docs.python.org/3.13/library/json.html#json.JSONDecoder.raw_decode) demonstrates separating a complete document and its end offset; [simdjson's stream parsing](https://github.com/simdjson/simdjson/blob/master/doc/iterate_many.md) also treats document boundaries explicitly. Neither accepts a stray brace as legal JSON. Their boundary handling supports the local implementation approach, while this application's one-byte compatibility decision remains deliberately narrower than general document recovery. Production keeps the existing TypeScript implementation and adds no Python parser.
 
+
 ### 237.34 Preserve recovery and global installation boundaries under default Mod following
 
 The retained full94e3063eb snapshot has thirteen failures. A same-source serial rerun reproduces twelve: five checkpoint recoveries are blocked because Mod initialization reads a missing or corrupt turn before the existing recovery runs; three audit preparations fail because global package installation opens a campaign which has not been created; four voice fixtures unintentionally follow latest before their deliberately staged legacy handover. The source-wait test passes serial and has separate I/O scheduling evidence, not a proven production timeout regression. Preserve both original runs and concurrent owners' source changes.
@@ -46029,7 +46245,6 @@ The legacy voice fixture intentionally selects an old immutable package for hand
 Verify original corrupt/lost turn, pending ask and turn-zero recovery; global install before creation and normal existing-campaign following; all busy handover and in-flight voice cases. Use scoped partial patches to preserve unrelated dirty work. Add no agent, reviewer, semantic detector, entity or production gate. Continue real play while these isolated offline failures are repaired, then rerun the stable complete snapshot before claiming the full gate.
 
 [SQLite's recovery order](https://www.sqlite.org/lockingv3.html#dealing_with_hot_journals) establishes recovery before dependent state reads; [npm's global installation scope](https://docs.npmjs.com/cli/install/#global) separates package installation from a particular project. These confirm the ordering and namespace principles, not this kernel's implementation details. The existing TypeScript checkpoint and Mod transactions remain authoritative.
-
 ### 237.35 Repeat a publicly spoken shared word without disclosing either identity
 
 The retained Amaranthine T47 artifact is held by the shared-name guard although the exact shared word already appeared in a committed T46 NPC line. That line named neither owner by identity; the existing gate is consistent with 188.8, but treats an already public word as a new disclosure whenever narration repeats it. This is an unnecessary lexical obstruction. The next input also exposes a separate rejected move plus positive time batch, with zero additional effects; it is not a replay of the prior accepted 288 minutes. Preserve the rejected artifacts, errors and original receipts.
@@ -46041,7 +46256,6 @@ The producer is the existing committed speech row; protectedNames and the existi
 Verify canonical NPC speech then later narration across save/reopen, unchanged public text, neither owner's full name becoming told, request rename protection, and the negative evidence cases above. Verify longer hidden full names and joined labels remain refused, including when they contain the newly public word. Continue the real saved table after rebuilding; a fixture is not gameplay acceptance. Keep record rejection feedback and the exposed-stream lifecycle as separate issues rather than claiming this change repairs every refusal.
 
 [W3C RDF concepts](https://www.w3.org/TR/rdf11-concepts/) distinguish a string literal from the entity it names; [PostgreSQL constraints](https://www.postgresql.org/docs/current/ddl-constraints.html) likewise require an actual identity key rather than assuming an ordinary value uniquely identifies a row. These support the word/identity distinction, not automatic story disclosure. The existing kernel identity and canonical publication authorities remain in place.
-
 ### 237.36 Stop an already ended input before a new Keeper inference
 
 The retained T13 input ends at pending_publication_failed before table.player_input accepts a new action, but the subsequently created single-Keeper run still infers and submits a new private record. The record happens to be rejected atomically for travel_time_duplicated; that rejection is not an authorization boundary. An earlier abort before a RunDriver exists does not stop the later RunDriver.
@@ -46051,7 +46265,6 @@ Reuse the existing turn-close port and inputEnded state to report whether the cu
 Verify two real Pi/native inputs: the first accepts one time prefix and leaves a previously unspoken shared name pending; the next exact publication retry fails, makes zero new provider requests, effects or deltas, and retains the same pending artifact. Retain the existing successful reference/commit recovery and rejected-record correction cases. This is a control-flow repair, not permission to regenerate an exposed artifact or weaken a name guard. Preserve original failed attempts and continue the real table after the separate public-word repair.
 
 [Anthropic's effective-agent guidance](https://www.anthropic.com/engineering/building-effective-agents) calls for actual environment feedback during execution; [OpenAI function calling](https://developers.openai.com/api/docs/guides/function-calling) likewise returns executed tool outcomes to the model. The local terminal input outcome must first reach the driver policy; neither source justifies bypassing a terminal outcome or creating another author.
-
 ### 237.37 Preserve a sealed publication through process startup and honor canonical closure
 
 The real public-word-2 startup committed a different new Keeper packet under t47-c2 while the original exposed packet remained pending. Its next natural player input then retried the old packet against that already occupied call and stopped with idempotency_conflict. Section237.35 did protect the publicly spoken word and kept both identities untold;237.36 stopped further inference and effects. Preserve all original packets and the actual canonical T47 record; never replace that record with a preferred older draft.
@@ -46063,6 +46276,22 @@ A canonical committed record for the artifact's same campaign and turn closes th
 Verify process-start behavior through the existing real Pi/native harness with a retained sealed packet: zero startup re-authoring, unchanged packet/call/prefix and settled receipts, exact recovery before later player action. Verify a same-turn committed alternate canonical packet suppresses old pending retry and interrupted-prefix re-projection, while an uncommitted record does not. Keep normal no-artifact recovery, failed reference recovery, cancellation and idempotency conflict tests. Then continue the original real campaign and perform formal App viewport acceptance; tests or copied fixtures are not gameplay.
 
 [SQLite transactions](https://www.sqlite.org/lang_transaction.html) and [PostgreSQL transaction isolation](https://www.postgresql.org/docs/current/transaction-iso.html) both distinguish committed authority from unfinished work. They support treating canonical closure as final; their database mechanisms are not substituted for this kernel's existing transaction and artifact stores.
+
+### 237.38 Source-reader tool descriptions match their existing confinement
+
+Cold Harvest's genuine source preparation recorded eight rejected bash calls across six tasks and eight children (two attempts of one task remain one episode). All requested general directory/text search instead of the exact already-issued checker command; seven children subsequently submitted successfully. The existing guard correctly refused them. Two visual children received an early-return prompt without the shared capability paragraph; ordinary children received that paragraph but the builtin bash declaration still advertised general shell execution. Reader request metadata proves Grok4.5/low, not archived on-wire tool descriptions.
+
+Reuse the opening capability paragraph of `visual-reader/common.md` for the existing visual, reference, answer and guidance single-file branches, without copying the later graph/review policy. In the existing source-bound `reader-context` owner, describe the same `bash` name as execution of the exact `task.commands.check` only, using Pi's public `createBashTool` executor and unchanged parameter shape. Keep the original captured-command and immutable-wrapper guard, source read/write/edit/pdf boundary, phase budgets and no-source/final-output behavior. No new agent, gate, tool name, retry layer, entity or graph material is introduced. The producer is host task generation plus the shared capability paragraph and same-name tool declaration; the consumer is the actual child Pi provider request; the actor is the same source reader choosing pdf/read/checker before its existing submission.
+
+Validate actual Pi tool declaration and execution on the real existing extension seam; retain original command-negative/unchanged-wrapper/non-source tests and ensure the short visual branch stays short. Subsequent fresh source jobs must be audited for recurrence; passing a fixture cannot establish live adherence. External precedent: [Anthropic's tool-design analysis](https://www.anthropic.com/engineering/writing-tools-for-agents) supports correcting ambiguous descriptions when observed agent calls expose affordance errors; [OpenAI's sandbox capability documentation](https://developers.openai.com/api/docs/guides/agents/sandboxes) separates tools from enforced environment boundaries. Their broader shell access differs from this source-only task and does not justify relaxing the existing checker boundary.
+
+### 237.39 Fractional source references survive NPC profile consumers
+
+Cold Harvest's first real native opening failed before any Keeper request: `table.player_input`, startup look/capsule and voice.job encountered `PythonFloat requires pythonJsonDumps; JSON.stringify erases Python numeric identity`. Read-only actual `sceneView`/`buildCapsule` reproduce `npcEntry -> personalityView -> moduleCharacterProfile -> profileSourceRevision -> relations.sort -> JSON.stringify -> PythonFloat.toJSON`; loading the module/snapshot itself succeeds. The input cursor was already written as turn1/open, with zero calls/receipts and clock0. Preserve that pending input and let the existing formal startup/continuation owner recover it after the repair; do not rewrite saves or submit a second synthetic opening.
+
+`profileSourceRevision` must compare the same existing relation projection using `pythonJsonDumps(value,{compact:true})` and its existing `compareUnicode`. The kernel's existing codec retains fractional source-reference identity, object field order and deterministic digests. Leave the outer `jsonDigest`, provenance, relation membership, numeric wrapper, optional-profile validation, actor/knowledge rules and transaction owners unchanged. Producer: original source references published into relation/claim evidence. Reader: current NPC personality projection in capsule/scene/voice. Actor: the same Keeper consumes that projection after successful preparation. No broad codec rewrite, Python backend, new projection, entity, gate or author is added.
+
+Regression uses at least two related relations (one relation never invokes the comparator), legal fractional crop references and the existing native adoption/look/capsule/perspective/situation/cold-restart seam. Retain all original profile-authority and unrelated-change assertions; verify plain numeric publication and parsed numeric reload agree, relation permutations remain deterministic, and changed evidence still invalidates local freshness. A live same-home restart is required after focused/full checks; the original failed opening remains separate evidence. [ECMAScript serialization](https://tc39.es/ecma262/multipage/structured-data.html#sec-serializejsonproperty) confirms native stringify invokes a value's toJSON hook; [RFC8259 numbers](https://www.rfc-editor.org/rfc/rfc8259#section-6) permits fractional JSON numbers. These support using the current kernel codec at this consumer, not deleting its intentional numeric guard or reverting the retired backend.
 
 ## 238. Natural NPC individuality before the first exchange (2026-10-14)
 
@@ -46107,22 +46336,6 @@ The shared full run reproduces `rescue-reaches-the-rules`: after an accepted HP 
 [Microsoft's history reducers](https://learn.microsoft.com/en-us/semantic-kernel/concepts/ai-services/chat-completion/chat-history) preserve essential system context during reduction; [Anthropic context engineering](https://www.anthropic.com/engineering/effective-context-engineering-for-ai-agents) favors selective context and on-demand detail. These support prioritizing authoritative physical state over optional dossiers; the existing capsule budget and detailed-read owner remain the local mechanisms.
 
 Validation after the state restoration: the original native rescue file passed5/5 (`.coc/test-runs/npc-variation-rescue-final-20261014.log`); new budget/actual cash guidance/system-language checks passed8/8 (`.coc/test-runs/cash-direction-final-guidance-20261014.log`); the fast layer passed130/130 again. The final LAN NPC variation/capsule/recall run passed22/22 on leehow-pc (`.coc/test-runs/cash-direction-final-reader-lan-20261014.log`, remote `run.JY4APkUs`). Shared amax all run `run.BXf5FOhu` included the exact cash source and new direction test, which passed; its extension phase retained the original rescue failure and a separate setup-reading timeout. The latter is outside this repair, and the complete shared run is not claimed green. The LAN route to amax became unavailable; its running workflow was not interrupted. Final targeted verification used the reachable idle leehow-pc instead.
-
-### 237.38 Source-reader tool descriptions match their existing confinement
-
-Cold Harvest's genuine source preparation recorded eight rejected bash calls across six tasks and eight children (two attempts of one task remain one episode). All requested general directory/text search instead of the exact already-issued checker command; seven children subsequently submitted successfully. The existing guard correctly refused them. Two visual children received an early-return prompt without the shared capability paragraph; ordinary children received that paragraph but the builtin bash declaration still advertised general shell execution. Reader request metadata proves Grok4.5/low, not archived on-wire tool descriptions.
-
-Reuse the opening capability paragraph of `visual-reader/common.md` for the existing visual, reference, answer and guidance single-file branches, without copying the later graph/review policy. In the existing source-bound `reader-context` owner, describe the same `bash` name as execution of the exact `task.commands.check` only, using Pi's public `createBashTool` executor and unchanged parameter shape. Keep the original captured-command and immutable-wrapper guard, source read/write/edit/pdf boundary, phase budgets and no-source/final-output behavior. No new agent, gate, tool name, retry layer, entity or graph material is introduced. The producer is host task generation plus the shared capability paragraph and same-name tool declaration; the consumer is the actual child Pi provider request; the actor is the same source reader choosing pdf/read/checker before its existing submission.
-
-Validate actual Pi tool declaration and execution on the real existing extension seam; retain original command-negative/unchanged-wrapper/non-source tests and ensure the short visual branch stays short. Subsequent fresh source jobs must be audited for recurrence; passing a fixture cannot establish live adherence. External precedent: [Anthropic's tool-design analysis](https://www.anthropic.com/engineering/writing-tools-for-agents) supports correcting ambiguous descriptions when observed agent calls expose affordance errors; [OpenAI's sandbox capability documentation](https://developers.openai.com/api/docs/guides/agents/sandboxes) separates tools from enforced environment boundaries. Their broader shell access differs from this source-only task and does not justify relaxing the existing checker boundary.
-
-### 237.39 Fractional source references survive NPC profile consumers
-
-Cold Harvest's first real native opening failed before any Keeper request: `table.player_input`, startup look/capsule and voice.job encountered `PythonFloat requires pythonJsonDumps; JSON.stringify erases Python numeric identity`. Read-only actual `sceneView`/`buildCapsule` reproduce `npcEntry -> personalityView -> moduleCharacterProfile -> profileSourceRevision -> relations.sort -> JSON.stringify -> PythonFloat.toJSON`; loading the module/snapshot itself succeeds. The input cursor was already written as turn1/open, with zero calls/receipts and clock0. Preserve that pending input and let the existing formal startup/continuation owner recover it after the repair; do not rewrite saves or submit a second synthetic opening.
-
-`profileSourceRevision` must compare the same existing relation projection using `pythonJsonDumps(value,{compact:true})` and its existing `compareUnicode`. The kernel's existing codec retains fractional source-reference identity, object field order and deterministic digests. Leave the outer `jsonDigest`, provenance, relation membership, numeric wrapper, optional-profile validation, actor/knowledge rules and transaction owners unchanged. Producer: original source references published into relation/claim evidence. Reader: current NPC personality projection in capsule/scene/voice. Actor: the same Keeper consumes that projection after successful preparation. No broad codec rewrite, Python backend, new projection, entity, gate or author is added.
-
-Regression uses at least two related relations (one relation never invokes the comparator), legal fractional crop references and the existing native adoption/look/capsule/perspective/situation/cold-restart seam. Retain all original profile-authority and unrelated-change assertions; verify plain numeric publication and parsed numeric reload agree, relation permutations remain deterministic, and changed evidence still invalidates local freshness. A live same-home restart is required after focused/full checks; the original failed opening remains separate evidence. [ECMAScript serialization](https://tc39.es/ecma262/multipage/structured-data.html#sec-serializejsonproperty) confirms native stringify invokes a value's toJSON hook; [RFC8259 numbers](https://www.rfc-editor.org/rfc/rfc8259#section-6) permits fractional JSON numbers. These support using the current kernel codec at this consumer, not deleting its intentional numeric guard or reverting the retired backend.
 
 ### 237.40 Single Keeper publication uses settled world authority, with source freshness as provenance
 
@@ -46399,6 +46612,14 @@ Retain a failing original-source canary test. Verify actual native table.view in
 
 [OWASP property-level authorization guidance](https://api-security.owasp.org/editions/2023/en/0xa3-broken-object-property-level-authorization/) recommends limiting returned properties to those the client is entitled to see; [Microsoft's response projection example](https://learn.microsoft.com/en-us/aspnet/web-api/overview/data/using-web-api-with-entity-framework/part-5) separates stored objects from public representations. Both support using our existing projections and leaving canonical data intact. Their general advice does not call for a new projection framework or permit semantic secret detection.
 
+### 237.66 Preserve the existing reveal cursor and prose-only receipt assertions
+
+The complete Electron comparison, followed by a direct unchanged eight-case typewriter run, exposes two new failures against the current working Markdown path. Metadata-only patches preserve the original typewriter identity and revealed prefix, but MarkdownProse omits the existing cursor. Unicode graphemes remain whole and the receipt appears at its proper budget; that test's prose helper now includes nested inline receipt text because the existing Markdown structure nests it under the paragraph. Retain both original red results and the unrelated full-suite failures; do not edit a baseline to hide them.
+
+Reuse the existing reveal budget, grapheme endpoints and cursor class in the current Markdown branch, only while some prose remains unrevealed. Preserve final/history/reduced-motion behavior, frozen prefix, speech color, Markdown parsing and inline receipt position. In the existing test helper, exclude the existing receipt subtree when reading prose; retain every original Unicode, timer, identity, prefix and receipt assertion. No new animation state, parser, agent, feature or test case that merely mirrors this implementation. The settled foreign Markdown work is preserved byte for byte outside the owned patch; this correction does not authorize absorbing or committing its unsubmitted prerequisites.
+
+The existing streaming-markdown-pipeline skill's cursor/frozen-prefix guidance is applied only to this bounded regression. Its broader rendering architecture is not introduced. The existing source and exact failing assertions suffice for this local repair; additional Internet research would not validate the observed missing span more directly. Focused rendering tests and the complete unchanged UI baseline comparison remain separate; real visible incremental App evidence must still come from original screenshots.
+
 ### 237.67 Align existing Mod instructions with the single Keeper's selected-action boundary
 
 Owner approval follows the retained App turn40 and Amaranthine turn111 omissions: the player selected several connected acts, but narration stopped after an intermediate arrival. Existing keeper-pacing and capsule guidance already carries the selected goal to completion; narration-craft full guidance and its full/brief carry-through directives still stop at the first outcome. This contradictory instruction is a confirmed system risk, not proof of the model's sole internal cause.
@@ -46480,26 +46701,6 @@ Reuse existing semantic graph handles for entity candidates in the unchanged str
 
 PostgreSQL's qualified column references (https://www.postgresql.org/docs/current/sql-expressions.html#SQL-SYNTAX-COLUMN-REFS) and Neo4j's explicit uniqueness constraints (https://neo4j.com/docs/cypher-manual/current/schema/constraints/create-constraints/) confirm the general distinction between a readable label and an unambiguous reference. Neither grants permission to join people in this game; existing bound identity decisions remain authoritative.
 
-### 237.79 Restore closed tagged tool calls before final-body decoding
-
-Cold Harvest native-followup T5 repeats the textual tool dialect seen in an earlier episode: two successful provider responses contain a complete apply proposal as tagged parameters, zero native tool blocks and no public marker. Both existing restoration readers miss it, so the final-body decoder consumes the one correction and still delivers nothing. No effects were committed. Preserve that failed turn; do not replay its rejected candidate.
-
-Extend the existing complete-call reader to recognize only closed tool_call containers with JSON parameter values, in the two observed structural spellings. An optional html fence and inert, closed html/head/title/meta/body wrapper are transport syntax; no arbitrary HTML, entity expansion, script execution, mixed prose or partial parameter recovery. Every parameter name is unique, every JSON value is complete, and the whole body must be consumed. Reuse existing closed tool-schema validation without coercion and the active-tool list. Restore approved calls at the existing early message_end hook in single-Keeper play, before final-body decoding, through native Pi argument hooks and the existing RunDriver. This narrowly supersedes the no-XML-execution limit of 237.77; it does not create an XML executor, author, retry or publication path. Public output still requires the same Keeper's later explicit public marker after actual results.
-
-Regression uses neutral structural reproductions of both retained provider messages, real Pi plus TS kernel, one actual mutation and one commit, exact result pairing, and incremental public delivery after settlement. Unknown tools, invalid or coerced arguments, duplicate parameters, unclosed markup and extra prose must not execute. Preserve original JSON-list and recipient-header behavior. Qwen's function-call templates (https://qwen.readthedocs.io/en/stable/framework/function_call.html) and vLLM's Hermes parser (https://github.com/vllm-project/vllm/blob/main/vllm/tool_parsers/hermes_tool_parser.py) confirm mechanical tagged-call normalization as established practice; neither implements these exact observed dialects nor authorizes treating markup as public prose.
-
-## 239. Jev visual navigation funnel and demand-driven long context (2026-10-14)
-
-Owner approval: resized images are sufficient for judgment and localization; compose multiple images and narrow them in a funnel. Implementation contract: `docs/specs/jev-visual-funnel.md`. Existing text decisions retain jev-1.13.0; visual batches pin jev-1.14.0 with explicit image assets and the images request header. Box questions carry a separate existence Noul. Whole page text may opt into the long-context header only when normal packing fails. The host owns source/image identity, montage geometry, padding, leases, cancellation and coordinate mapping. Unknown judgments remain leads. The source reader consumes navigation hints; source facts, image publication, redactions, completeness and visual proof still require the existing original-page author and independent review. Visual scan hints do not replace successful full-overview delivery.
-
-### 239.1 Implementation decisions
-
-Collages filter sixteen pages, then four, then single pages with independent Nouls. Image requests reserve the configured context maximum, because image token counts have no published upper-bound estimator; body bytes remain independently bounded. Cache identities include the visual model and policy. Text page batches preserve complete page text and split when even long context cannot pack; an oversized page is explicitly unanswered. Component experiments retain adverse attempts and are not gameplay acceptance.
-
-### 239.2 Approved stress-driven refinement (2026-10-14)
-
-Page identification stops at an existing found judgment when no Box is needed. When localization is needed, found pages skip intermediate reclassification and go directly to an original-aspect single-page image; only ambiguous or missing judgments need the intermediate collage. Single-page images have no printed host label or square padding unless the API minimum side requires padding, in which case the host retains exact geometry. No confidence threshold or source-need completion gate changes. Whole text fills ordinary-context groups first, at most sixteen pages; an individually oversized page is isolated before trying long context and remains unanswered if that also fails. Navigation cache identities change with these policies. The original full page, tool-enabled source author and independent review remain authoritative. The retained multi-corpus stress report is `.coc/experiments/jev-stress-20261014-multicorpus/report.md`; component speedups do not establish full reader or App savings.
-
 ### 237.76 Demand-driven parallel native reads
 
 Owner approval: implement the general concurrency plan, not a campaign-specific shortcut. The same Keeper batches independent calls whose arguments are already known. Reads that require an earlier result remain later model steps. No extra model, gameplay gate, persistent queue or alternate engine is introduced.
@@ -46528,6 +46729,26 @@ Repeated genuine background failures include non-contiguous source quotes. The e
 
 The original actual-Pi malformed-reply regression must additionally inspect the retry review request, stay RED without feedback propagation, and retain its original diagnostic, privacy, outage-count and submission assertions. Preserve successful attribution and next-perspective cases. [Pydantic AI retries](https://pydantic.dev/docs/ai/core-concepts/retries/) demonstrate returning the existing validation failure to the model; [Zod error customization](https://zod.dev/error-customization#include-input-in-issues) warns against unintended input logging. Neither warrants a dependency, new retry loop or public draft capture here. Genuine memory outcomes after runtime adoption remain separate evidence from deterministic prompt transport.
 
+### 237.79 Restore closed tagged tool calls before final-body decoding
+
+Cold Harvest native-followup T5 repeats the textual tool dialect seen in an earlier episode: two successful provider responses contain a complete apply proposal as tagged parameters, zero native tool blocks and no public marker. Both existing restoration readers miss it, so the final-body decoder consumes the one correction and still delivers nothing. No effects were committed. Preserve that failed turn; do not replay its rejected candidate.
+
+Extend the existing complete-call reader to recognize only closed tool_call containers with JSON parameter values, in the two observed structural spellings. An optional html fence and inert, closed html/head/title/meta/body wrapper are transport syntax; no arbitrary HTML, entity expansion, script execution, mixed prose or partial parameter recovery. Every parameter name is unique, every JSON value is complete, and the whole body must be consumed. Reuse existing closed tool-schema validation without coercion and the active-tool list. Restore approved calls at the existing early message_end hook in single-Keeper play, before final-body decoding, through native Pi argument hooks and the existing RunDriver. This narrowly supersedes the no-XML-execution limit of 237.77; it does not create an XML executor, author, retry or publication path. Public output still requires the same Keeper's later explicit public marker after actual results.
+
+Regression uses neutral structural reproductions of both retained provider messages, real Pi plus TS kernel, one actual mutation and one commit, exact result pairing, and incremental public delivery after settlement. Unknown tools, invalid or coerced arguments, duplicate parameters, unclosed markup and extra prose must not execute. Preserve original JSON-list and recipient-header behavior. Qwen's function-call templates (https://qwen.readthedocs.io/en/stable/framework/function_call.html) and vLLM's Hermes parser (https://github.com/vllm-project/vllm/blob/main/vllm/tool_parsers/hermes_tool_parser.py) confirm mechanical tagged-call normalization as established practice; neither implements these exact observed dialects nor authorizes treating markup as public prose.
+
+## 239. Jev visual navigation funnel and demand-driven long context (2026-10-14)
+
+Owner approval: resized images are sufficient for judgment and localization; compose multiple images and narrow them in a funnel. Implementation contract: `docs/specs/jev-visual-funnel.md`. Existing text decisions retain jev-1.13.0; visual batches pin jev-1.14.0 with explicit image assets and the images request header. Box questions carry a separate existence Noul. Whole page text may opt into the long-context header only when normal packing fails. The host owns source/image identity, montage geometry, padding, leases, cancellation and coordinate mapping. Unknown judgments remain leads. The source reader consumes navigation hints; source facts, image publication, redactions, completeness and visual proof still require the existing original-page author and independent review. Visual scan hints do not replace successful full-overview delivery.
+
+### 239.1 Implementation decisions
+
+Collages filter sixteen pages, then four, then single pages with independent Nouls. Image requests reserve the configured context maximum, because image token counts have no published upper-bound estimator; body bytes remain independently bounded. Cache identities include the visual model and policy. Text page batches preserve complete page text and split when even long context cannot pack; an oversized page is explicitly unanswered. Component experiments retain adverse attempts and are not gameplay acceptance.
+
+### 239.2 Approved stress-driven refinement (2026-10-14)
+
+Page identification stops at an existing found judgment when no Box is needed. When localization is needed, found pages skip intermediate reclassification and go directly to an original-aspect single-page image; only ambiguous or missing judgments need the intermediate collage. Single-page images have no printed host label or square padding unless the API minimum side requires padding, in which case the host retains exact geometry. No confidence threshold or source-need completion gate changes. Whole text fills ordinary-context groups first, at most sixteen pages; an individually oversized page is isolated before trying long context and remains unanswered if that also fails. Navigation cache identities change with these policies. The original full page, tool-enabled source author and independent review remain authoritative. The retained multi-corpus stress report is `.coc/experiments/jev-stress-20261014-multicorpus/report.md`; component speedups do not establish full reader or App savings.
+
 ### 237.80 Expose existing combat parameter choices on existing action offers
 
 Genuine Amara tagged-native T1 and T2 both supply action.goal, yet receive needs/goal because the tool advertises a prose sentence while combat:maneuver requires one of four closed rulebook goals. The existing action offer omits those goals and its required weapon; combat:end similarly omits its existing outcomes. This is an interface contradiction, not missing model intent or permission to infer a different action.
@@ -46535,6 +46756,7 @@ Genuine Amara tagged-native T1 and T2 both supply action.goal, yet receive needs
 Reuse session.actions: maneuver rows carry goals from the existing MANEUVER_GOALS and the same weapons as attack; end rows carry non-null VALID_OUTCOMES. Keep these two vocabularies in the existing read-safe combat catalog, with existing engine exports preserved, so SessionView still loads no engine writer. Correct the existing goal/weapon descriptions to distinguish mechanical choices from prose method. Add no field to saved combat, action input, agent, retry or gate; preserve all arithmetic, declared-action restrictions, aliases and refusal behavior. Producer: SessionView builds current offers from authoritative actor/weapon state and the existing rule vocabularies. Reader: current look/resolve/capsule session projection. Actor: the same Keeper selects a supplied choice in resolve, which creates the existing combat receipt.
 
 A real TS RPC regression must read these offers and settle the offered maneuver/defense, with valid existing choices and no needs retry; retain the original invalid-goal refusal and unchanged-state assertions. The registered tool description must stop demanding a prose goal for combat:maneuver. JSON Schema enums (https://json-schema.org/understanding-json-schema/reference/enum) and MCP tool definitions (https://modelcontextprotocol.io/specification/2025-06-18/server/tools) distinguish allowed parameter values from explanatory descriptions; this repair applies that distinction to existing dynamic combat offers, without importing either framework or classifying intent in code. Genuine adoption and subsequent error rates remain separate from deterministic proof.
+
 
 ### 237.81 Idea rolls do not require an undiscovered scene-clue attachment
 
@@ -46698,6 +46920,22 @@ The fresh PDF App turn successfully addresses handouts by their issued semantic 
 
 Resolve the supplied reference through the existing ModuleGraph names/handles, then match its display name against the existing knownHandouts collection, retaining the original display-name form too. This accepts existing aliases without guessing meaning or granting access to another source. A source not in knownHandouts remains unavailable, and raster snapshots still use the same public-image checks and immutable custody path. No new field, entity, agent, parser or gate. This is a narrow reuse of the existing name resolver, so external design research adds no new implementation constraint. Verify same-batch reveal and physical acquisition by the issued reference, retained bytes, and refusal for unrevealed/unknown sources through the real TS kernel.
 
+### 237.106 Preserve page-pair semantics in the source index tool schema (2026-10-15)
+
+Additional owner approval follows the retained genuine onboarding run: Grok rejects the index tool before inference because its array-valued `items` is not a supported schema. Change only the existing index submission declaration from a tuple of two identical positive-integer schemas to one positive-integer item schema with minItems and maxItems both 2. Preserve the nested ranges, all source observations, page bounds and deterministic index publication checks. Do not coerce values, accept extra endpoints or change provider adapters, retry policy or source semantics. Verify the actual registered tool's serialized schema and rejection of malformed ranges, then retry the same failed source preparation through the real setup owner; retain the original failure and card.
+
+[JSON Schema array validation](https://json-schema.org/understanding-json-schema/reference/array) defines single-schema items and minItems/maxItems for homogeneous fixed-length arrays. [TypeBox's maintained implementation](https://github.com/sinclairzx81/typebox) exposes these same array constraints. These support an equivalent two-integer range declaration without a general schema converter or dependency change.
+
+### 237.105 Make PDF onboarding understandable from the delivered prose (2026-10-15)
+
+The retained Cursed Be the City setup extracted the era, investigator premise and involvement, but its approved prologue omitted the prehistoric character premise and ended with an ambiguous identity/motivation question. Public preparation fields and internal advice/handoff do not establish player understanding. This is an onboarding information-delivery failure, not permission to rewrite this module or disclose its hidden plot.
+
+Reuse both existing PDF guidance owners: the visual guidance author and independent reviewer, and the source-reference guide and its existing semantic check. Their public introduction must establish the source-supported time/place, the proposed public character role and relevant everyday context, why that character is here and personally involved, and what the player is being asked to do at this phase. Character creation asks clearly for a name and role/concept; it does not silently start an investigation. A present guide may ask naturally; without one the host asks directly rather than inventing a greeter. The shared starting premise is explained, not returned as a motivation puzzle. Optional personal ties remain the player's choice. Source recommendations stay advisory, unavailable facts stay uncertain, and future answers stay private.
+
+The existing reviewer judges the delivered opening on its own, without relying on public panels, internal advice or handoff. The existing reference orientation criterion covers the same omissions and ambiguous phase request, using model judgment rather than language lists, keyword checks or prescribed prose. Keep existing review/repair budgets and artifact shapes. The existing source-bound guidance fingerprint already includes both changed PDF prompts, so future preparation regenerates guidance while committed prologues and original evidence remain unchanged. No new field, agent, state, action menu or review stage is introduced. Producer: the existing tool-enabled source reader. Consumer: the current reviewed opening/reference introduction delivered verbatim by onboarding. Actor: the player creates a situated investigator, then responds freely to the formal Keeper opening through normal state receipts.
+
+Keeper Rulebook printed pp186-187 explicitly advises a pre-creation premise covering date/place, opening situation, suitable professions and investigator relationships; p199 distinguishes information in the Keeper's head from information actually delivered. Chaosium's [Dead Boarder](https://www.chaosium.com/content/FreePDFs/CoC/Cult%20of%20Chaos%20Scenarios/Dead%20Boarder.pdf), pp8-9, demonstrates common circumstances and reasons to be present before the actionable scene. Justin Alexander's [Getting the Players to Care](https://thealexandrian.net/wordpress/4124/roleplaying-games/random-gm-tips-getting-the-players-to-care-collected) supports explicit, short, personally relevant information. These confirm delivery and involvement rather than longer exposition or a prescribed action. Validate normal source dispatch, failed semantic verdict propagation and prompt-bound cache invalidation mechanically; separately validate fresh genuine PDF setup, character creation, formal opening and a natural player response with the live driver. Mechanical checks alone do not establish prose clarity.
+
 ### 237.104 Compare publication boundaries in the existing visual reading path
 
 Fresh original-PDF reads locate the right page but still publish clipped outer labels, frames and illustrations, or include a neighboring heading. The existing exact publication PNG is necessary but insufficient context for seeing what its edges excluded. Jev's principal-region box is a navigation hint, not a complete publication boundary. Coordinate conversion has been checked against actual answers and is not the observed cause.
@@ -46705,7 +46943,6 @@ Fresh original-PDF reads locate the right page but still publish clipped outer l
 Reuse the current private visual_previews: alongside the unchanged exact crop/stitch, render a comparison_file showing each full original page with the proposed image_sources rectangle and the actual publication image beside it. Keep this derivative private to the existing reader/reviewer and existing repair path; never write it as asset_ref or widen, mask or replace the public crop automatically. Use the same normalized rotated-page frame. The existing reviewer compares each of the four sides for missing title, frame, outside-frame labels or continuation and unrelated neighboring material, using its current verdict and reason. No new agent, model call, required verdict field, preview-read gate or publication condition. Ordinary unavailable previews keep the existing advisory fallback. Invalidate the existing review cache version because its input has changed.
 
 The source author uses the existing pdf pages/box view to inspect a proposed crop instead of treating plausible coordinates or a coarse Jev box as exact geometry. Distinct visuals on one page remain distinct; preserve their complete printed extent and one complete document version. TypeSafe's Box documentation distinguishes one target per box and reports that cropped edge questions detect more cuts than an outline alone (https://docs.typesafe.ai/primitives/box); PDF.js documents the viewport transform rather than semantic object boundaries (https://mozilla.github.io/pdf.js/examples/). These support explicit crop/original comparison, not automatic padding or a new review service. Verify private excluded pixels remain visible for comparison, public bytes remain exact and unchanged, existing review/repair consumption adds no calls or gates, then inspect newly generated original-PDF assets in the canonical App. Synthetic comparison tests are not semantic accuracy acceptance.
-
 <!-- Ordinary map navigation follow-up, 2026-10-15. -->
 
 #### 237.105 Ordinary map candidates use the existing visual locator
@@ -46806,6 +47043,51 @@ Narration Craft owns responsive dialogue and readable connected sentences. Chine
 
 Producer: active locked Mod instructions and their validated example catalog. Reader: instructionRows, current capsule and the existing context brief. Actor: the same Keeper uses those references to write its one public response; no output rewriting. Verify native capsule inclusion without extra calls and actual outgoing final-context hashes, then inspect continuous real App dialogue for clarity, fitting register, responsive emotion and fact/agency preservation. Source checks cannot certify natural Chinese or erase failed historical samples.
 
+
+### NPC dialogue composition at the existing speech binding (2026-10-16)
+
+The owner approves a bounded dialogue repair and real-play trial after the 48-interaction Pro audit. Current single-Keeper runs contain no second final author. Retained A24 speech material and public dialogue match exactly; this is required occurrence binding, not proof of an unwanted writer. The separate spoken-guidance repair already supplies Mod examples and reached actual requests, with naturalness still unaccepted. Do not duplicate that rollout or restore its retired selector.
+
+Clarify the existing creation point: the same Keeper composes its response for the actual listener, knowledge, stance and conversation chronology before recording the exact prospective speech. Internal evidence, permission and player-precaution constraints remain controlling without becoming a mandatory speaking agenda. Material.text is the intended public utterance, not a report of those constraints or a summary to copy into dialogue. Existing exact-word occurrence activation, actor/audience binding, privacy, transactions and publication remain unchanged. No semantic classifier, reviewer, rewrite agent, new field or automatic knowledge activation is added.
+
+Producer: the Keeper fills the existing event speech material. Reader: the existing apply schema, system instructions and current per-inference footer carry the same composition responsibility. Actor: the same Keeper publishes those selected words in the existing say span; only actual accepted occurrence activates heard knowledge. Verify the real outgoing system/footer/tool schema and unchanged exact-quote activation. Prompt transport is not linguistic acceptance. A clean four-case tool-enabled Grok diagnostic shows fluent connected speech is possible but loses some fact qualifiers; preserve it as diagnostic only. Luna/high failed with actual upstream concurrency saturation. Compare fact fidelity and conversational quality in fresh real driver play; do not rewrite or interfere with the other session's campaigns.
+
+Targeted precedent: Microsoft Research's Grounded Conversational Characters reports factual errors, inconsistent persona and recency bias (https://www.microsoft.com/en-us/research/project/grounded-conversational-characters/in-depth/); Li et al., ACL 2020 separate meaning/slot fidelity from human NLG evaluation (https://aclanthology.org/2020.acl-main.10/). They support measuring both speech and fidelity, not relaxing this kernel's occurrence authority or adopting their architectures.
+
+Trial record: the real Pi/native outgoing request regression was red before the guidance change and green after it (2 tests); language/cognition checks passed 10 tests and speech/current-context/event checks passed 21. The LAN build on leehow-pc exited0. The fast suite was interrupted by an unrelated new untracked prototype missing from the control-flow inventory; it is not reported green and was not edited here. A fresh isolated Haunting starter commission conversation completed 4 genuine driver turns with 10 recorded tools under the verified Grok/low fallback after Luna saturation. Actual key/cash handoff landed. Dialogue still repeats the offer and uses awkward wording, so naturalness remains unaccepted; this is a limited trial, not full-scenario or App acceptance. No other campaign or canonical App was changed. Evidence: .tmp/npc-dialogue-diagnostic-20261016/trial-findings.json and .coc/playtests/npc-spoken-trial-grok-20261016/.
+
+Second bounded trial: the current host already keeps unmarked tool-side text private, while the active instructions categorically prohibit story text beside tools. Permit a short spoken-words draft at that existing private seam before freezing prospective speech in apply. This is the same Keeper completion, not a new author, request, review, artifact or publication channel. The draft grants no effects, knowledge or disclosure. Actual tool results still precede the one final public response; the existing exact material/speaker/audience occurrence rule remains controlling. Keep public markers out of tool-bearing messages. Verify private draft plus actual tool execution yields only the final public body, then inspect genuine continuation separately. This is a candidate workflow repair, not an established cause of the historical language defects.
+
+Second-trial outcome: two genuine Grok/low continuation turns, five tools,93.7s, show a readable receptionist exchange. Actual text deltas before tool calls contain operational summaries, not the requested spoken-word draft. This does not establish adoption or a causal benefit. The private-draft instruction and its trial-only test variation were withdrawn; source retains only the bounded composition-before-binding clarification. Original failed and successful records remain. No App packaging occurred. Do not claim NPC naturalness fixed.
+
+Owner-directed follow-up: use Grok and compare; then remove NPC wording guidance in an isolated experiment and explicitly decide signal, goal, emotion and personality before realization. Complete fixed-input evidence is in `.tmp/npc-dialogue-diagnostic-20261016/{grok-ab,intent-first,intent-realization,intent-v2}/`. Short clean-context baselines already produce readable lines, so these trials do not reproduce the full historical request or establish instruction overload as its cause. Fresh realization still introduces malformed wording, unsupported exclusions and increased hostility despite the supplied communicative plan. Planning can also repackage background constraints as intended speech. Assigned diagnostic personalities are not module canon. These tool-enabled Pi language prototypes are not gameplay or acceptance, and their independent realizers are not a new production author path.
+
+The composition-before-binding clarification and its own test additions were also withdrawn after the Grok comparison showed no persuasive gain. Each of the four affected files matches its preserved before-trial bytes; pre-existing shared changes remain. Three focused guidance/speech checks pass after withdrawal. No further live campaign or App package is claimed. The owner requested consultation with the existing Pro discussion and primary-source research before selecting the next actual-context experiment; no new production lane, schema, rule relaxation or phrase blacklist is authorized by these diagnostic results.
+
+Consultation completed in the owner's existing Pro conversation, including primary-source comparison and a second discussion of actual request evidence. One additional genuine Grok/low driver turn in this task's isolated campaign used an observer-only extension; two provider bodies were captured, with no request transformation. The receptionist's accepted variation and personality contain host agency/reliability instructions, including an initial emotion line about not inventing private history. Exact table strings reach the outgoing request through the stable-seed/personality path. This is a confirmed presentation mixture, not proof that it caused the historical language failures; this new reply was readable. Preserve original accepted traits, seeds, records and quotations. Any future separation must distinguish character meaning from authoring policy semantically, not strip keywords. The diagnostic's malformed English hand/driver role is another input contaminant; correcting only that role in four further draws did not establish a gain. Research supports inspecting content selection and realization separately, not treating additional planning fields or an independent realizer as a demonstrated repair. Evidence and complete consultation are under `/Users/haoli/Downloads/PipiCOC-NPC-dialogue-20261015/`; no further production change or App acceptance is claimed.
+
+
+## 240. Request-local material screening with the complete tool registry
+
+Owner-approved implementation: docs/specs/jev-material-screening.md (2026-10-15).
+The locked Mod instruction producer supplies digest-bound resident/situational character offsets to the request-local table reader. The reader always strips host metadata, keeps resident/unclassified instructions and current actor cognition/relationships/active commitments, and uses pinned Jev 1.14 only to screen optional sections and terminal historical evidence. The same Keeper receives exact retained source slices and omission/read routes. All canonical tools and their validators remain unchanged. Missing, failed, stale or late answers retain full material; a single bounded preparation allowance is shared by requests of one player input. This view never writes world state, changes source truth, grants knowledge, or replaces the Keeper. Actual Grok consumption and whole-turn latency require genuine driver play, with complete provider usage and preserved failed evidence.
+
+## 241. Isolated expression after Keeper settlement (2026-10-15)
+
+The optional `writing` preference may be a string or a JSON object. Live Keepers supply named register, scene-establishment and attribution preferences; the transport preserves that object unchanged rather than rejecting an otherwise valid brief. This is format handling only, with no semantic verdict or corrective model request.
+
+Before the isolated author's first byte, the existing delivery owner prepares the brief's selected speaker labels together with current scene speakers through `table.delivery.check`. The same kernel resolver owns identities and colors; the host does not infer aliases or rewrite speech.
+
+The live renderer retains an unlisted say-token name as a colored label, matching the existing final renderer and section 40 speech behavior. It does not guess an NPC identity. A novel generated label therefore remains highlighted; identity continuity still requires the canonical resolver's exact match.
+
+The host takes `play_language` from the opened campaign's session state, populated by `table.open.campaign.play_language`. The capsule has no equivalent root field. A real non-English campaign test guards this seam; an earlier English fallback failure is retained without rewriting the delivered prose.
+
+The owner approved `docs/specs/isolated-expression-output.md`. Hybrid play keeps its existing single-Keeper operation/transaction path and enables a fresh final expression author. The Keeper's private `{{compose}}` JSON contains scene, selected narrative content, and NPC intent/personality/emotion, plus optional writing preferences. The host supplies play language. Only this packet enters the tool-enabled `opencode-go/deepseek-v4.1-flash` / off author; no inherited Keeper prompt, Mods, tools, memories or full history. The author receives writing instructions only and returns public prose to the existing durable delivery stream and publisher. `{{reference}}` remains direct OOC. No semantic checker, coverage obligation, factual correction or prose-regeneration loop is added. Author failures preserve evidence rather than publishing Keeper notes. Existing canonical transaction checks and exact heard-occurrence behavior remain; actual authored speech is retained in transcript and speech history. The explicitly requested Grok-Keeper/DeepSeek-author tests override the otherwise uniform acceptance-model profile for these two scenario trials only.
+
+### 241.1. Keeper selection before isolated realization (owner 2026-10-16)
+
+The Keeper selects the NPC's message and conversational aim in response to the player's current words. Adjudication, disclosure decisions, checks and reasons for choosing the content stay in the Keeper's decision/tool context; they are not automatically selected as utterances. A character's actual answer about a boundary may still communicate that boundary. The brief's narrative content remains selected visible scene/action material. Only the two existing Keeper instruction producers change; packet shape, accepted personality/emotion data, author instruction, model defaults and first-draft delivery remain unchanged. No semantic filtering, brief repair, sentence checker or retry is introduced.
+
 ### 241.2. Publish exposed expression bytes through the existing name diagnostics
 
 The existing delivery owner writes `author: isolated-expression` on the same sealed artifact and public stream used by Keeper output. Both narrate and ask treat that closed author identity as advisory at the existing untold-name boundary, just as already-exposed Keeper prose. Preserve the exact artifact, publication context, world revision and transaction checks. Shared or unresolved names remain blanked in narrate's existing epistemic `told_text`; ask retains its existing rule that prose does not introduce names. They never identify a private cast owner merely because the public prose contains the word. No replacement author, semantic review, new identity or repeated settlement is introduced. Legacy unexposed draft handling is unchanged. Source-revision validation is unchanged because the observed failure passed it.
@@ -46815,8 +47097,6 @@ The real isolated Cold fork exposed221deltas/730characters before the old author
 ### 241.3. Use issued NPC handles in look
 
 Three independent Amaranthine inputs30-32 query the same ambiguous display name despite current `present[].id`, the exact two refusal candidates and successful subsequent handle reads all reaching the actual provider. The existing graph has two surviving entities sharing that alias; this does not authorize merging them. Align the existing `look.name` parameter description with `recall.about`: prefer the current view's id or the exact refusal candidate name, and use a display alias only when unique. No resolver, graph, extra field or selection gate changes. This is a small stable tool-description clarification, so additional Internet research or implementation-mirroring tests would not establish behavioral adoption; retain the live failures, run existing schema/language checks and verify later genuine calls separately.
-
-The first guidance-only trial did not reliably separate content: both selected intent and narrative rows still included no-crime/no-list boundaries. The bounded follow-up provides an explicit optional `keeper_only: string[]` in the same private composition packet. The Keeper writes its unselected adjudication/background/reasons there. `expressionBrief` reads and structurally validates it; the existing expression adapter records it in private telemetry, then projects the author packet without that field. The author acts only on the selected scene/narrative/NPC fields as before. No semantic classifier chooses or deletes individual propositions, no additional model call runs, and no generated plan or prose is repaired. Canonical personality data, author instruction and production off profile are unchanged. The visibility test checks the exact author request and task.json, not semantic compliance.
 
 ### 241.4. End an interrupted exposed response before provider recovery
 
@@ -46843,3 +47123,208 @@ The native RPC regression must prove POW rather than HP changes, NPC/investigato
 ### 241.7 Capacity recovery must identify an omitted current tool batch
 
 Real Amaranthine406 repeats the same independent read batch seventeen times: its whole pair-safe batch cannot fit beside the protected context and tool schemas. The requests omit every new tool result, but the existing diagnostic incorrectly says material was retained. The old native-result priority and capsule consolidation remain first choices. If the latest complete batch still cannot fit, the same context diagnostic reports latest_tool_batch_omitted and explains that the Keeper did not receive those results. It advises retrieving only the next needed body rather than repeating that oversized batch. This is request-capacity information, not a new tool error, semantic gate, execution limit, extra model or global serial-read policy. Ordinary independent reads remain parallel when they fit; original evidence remains untouched. Verify the actual outbound native-Pi context notice, tool pairing and unchanged byte ceiling; live follow-up is needed before claiming the repeated-read behavior solved. Anthropic's context-engineering guidance discusses clearing old tool results after use, whereas Google's function-calling flow sends fresh function results back before the next decision. Neither supports treating a newly omitted result as received (https://www.anthropic.com/engineering/effective-context-engineering-for-ai-agents; https://ai.google.dev/gemini-api/docs/function-calling).
+
+### 241.8 MiniMax preview catalog and adaptive effort
+
+The product correction layer may add missing models through Pi's existing
+`providers.<id>.models` array, in addition to field overrides. Add a definition
+only when the user has not already defined that exact model id; preserve the
+provider's credentials, endpoint, other models and overrides. Apply this same
+layer during profile installation before the App reads its catalog, as well as
+normal launcher preparation. Repeated installation must be byte-idempotent.
+
+Register `minimax-cn/MiniMax-M3.1-Flash-Preview` on the existing authenticated
+provider using the Anthropic messages API, 1,000,000 context tokens and 512,000
+maximum output tokens. Pi supports text/image input here; do not advertise video
+through an unsupported transport. Declare `forceAdaptiveThinking: true` and map
+low, medium, high, xhigh and max to those exact effort values. Hide off and
+minimal with null map entries; unset effort leaves the provider default intact,
+and must never emit disabled thinking. Existing Pi request serialization sends
+`thinking.type: adaptive` and `output_config.effort`; no provider SDK patch or
+new credential store is needed. Do not fabricate pay-as-you-go rates for this
+subscription preview. Verify the resolved model and actual serialized request,
+then use the stored key for a minimal real call without logging credentials.
+
+Sources checked 2026-10-16: MiniMax's official model invocation documentation
+(https://platform.minimax.cn/docs/guides/text-generation) and the installed Pi
+1.0 provider composer / Anthropic request implementation. The upstream Pi
+minimax-cn catalog still lacks this preview; refreshing it alone cannot add it.
+
+### 241.9 Anthropic active cache extension
+
+The `anthropic-cache` product extension owns explicit cache placement on foreground
+`anthropic-messages` requests for `minimax-cn` and `minimax` only. Provider identity
+and API, not a model-name heuristic, select the initial policy. Future providers
+require a deliberate policy entry and protocol tests. Mount it after the table
+context projection in source sessions, compiled sessions and the desktop profile.
+It registers no tool, model, credential store, extra inference or refresh timer.
+Managed desktop sessions also require `anthropic-cache` in the host's existing
+`PIPIUI_MOUNTED_EXTENSIONS` list; a disabled/unmounted extension cannot be revived
+by the shared COC mount. Source CLI sessions enable the policy by default.
+
+The table writes the existing `coc-context-brief` message. The extension observes
+that exact typed message in `context_with_system`; its final provider hook locates
+one exact matching text block in the serialized request. Mark only an unambiguous
+match; absent, changed or duplicated text has no guessed replacement. It never
+reorders, splits, drops, summarizes or freezes context, tools, signed thinking or
+tool pairs. The API consumes the resulting prefix boundaries. Canonical state
+and receipt authority remain unchanged.
+
+With caching already enabled by Pi, canonicalize at most four direct block
+breakpoints: the last tool (unless its model forbids tool cache controls), the
+last system text, the exact brief, and the last cacheable conversation block.
+Deduplicate overlapping positions. MiniMax uses `{type:"ephemeral"}` without a
+one-hour TTL. Preserve the caller's cache-off request (no block markers), unknown
+providers/APIs, mismatched wire model and request-level cache-control policies
+unchanged. Existing eligible block markers are replaced by this policy, not
+accumulated. Do not enable proactive warming or silently retry rejected requests.
+
+The extension writes private `coc-telemetry` session entries with lane
+`anthropic-cache`: request ordinal, provider/model, selected block positions and
+brief-match status; then actual raw response usage and completion/error status.
+The request hook writes placement; raw provider events write reported usage;
+the session journal is the diagnostic reader. Cache-read ratio is read divided
+by read + write + uncached input, only when all three are reported. Missing usage
+is unknown, never invented zero or claimed support. No prompt, response prose,
+tool arguments, headers or credentials enter these rows. SDK cost estimates and
+subscription quota are not rewritten. Preview model capability and savings need
+real service-side usage; offline tests prove transport only.
+
+Precedent checked 2026-10-16: MiniMax's active-cache documentation
+(https://platform.minimax.cn/docs/api-reference/anthropic-api-compatible-cache)
+specifies five-minute refresh-on-hit, a twenty-block lookback and four explicit
+breakpoints. Anthropic's prompt-cache documentation
+(https://platform.claude.com/docs/en/build-with-claude/prompt-caching) confirms
+that reads find previously written boundaries, rather than arbitrary stable
+text. Its request-level automatic caching and one-hour TTL are not assumed to
+exist on MiniMax. The installed Pi serializer supplies three initial markers;
+the extension adds the missing stable-brief boundary through public hooks.
+
+### 241.10 MiniMax enhancement extension
+
+`minimax-enhanced` adds host capabilities to Pi's native `minimax-cn` and `minimax`
+providers. It owns no credentials, replacement catalog or Keeper verb. A stream-only
+Anthropic override preserves unsigned thinking through `allowEmptySignature` while
+retaining the selected model, effort and budgets. Other providers are unchanged.
+Managed sessions require the extension in PIPIUI_MOUNTED_EXTENSIONS; explicit
+MiniMax media dispatch also respects this boundary. The independent Anthropic
+active-cache extension remains the sole owner of cache-breakpoint placement.
+
+The extension registers an official-origin, Anthropic-specific native-search
+capability with the existing adapter. The RunDriver reads it and issues the existing
+Historical Reference campaign/worldline/loop/run/step grant. The final request
+hook declares only the documented web_search_20250305/name tool, without assuming
+undocumented max_uses support. The existing raw stream journal writes search
+protocol records; subsequent matching assistant requests read them. MiniMax records
+use the complete visible text/tool sequence as their fingerprint and restore exact
+original block order, including thinking, server tools/results and citations.
+Modified or unmatched context never receives a guessed old protocol. No separate
+search model, query lane or unconditional search declaration is added.
+
+MiniMax image-01 and image-01-live reuse image_gen/image_edit, image-model.json and
+the portrait/illustration host path. Explicit selection uses registry credentials
+and a verified MiniMax HTTPS API root. The automatic provider policy in §172 also
+selects MiniMax when the session uses MiniMax; other image adapters stay unchanged.
+Request one base64 image, preserve the prompt, and use the documented
+character subject_reference for image-to-image. Do not advertise mask editing.
+The existing session image writer owns local images and ordinary image receipts.
+
+The extension exposes video-create and video-status through its existing command
+and host invoke surfaces, with H3/H3-Max model-specific duration/resolution checks.
+Submission writes a private minimax-media task receipt; UI/commands read its ID to
+query the same provider account. The result is a status and HTTPS video URL, not
+fictional truth or a new kernel receipt. There is no polling loop, create retry,
+automatic cancellation/deletion or video download. Authentication and billing
+errors are surfaced without switching accounts or models. Keys, arbitrary headers
+and raw error bodies are never returned. No actual media request runs merely by
+loading the extension or reading status. Source and compiled launches and profile
+installation mount the same implementation.
+
+The design follows the existing Grok host-library, image-dispatch and native-search
+boundaries. Official MiniMax sources and the independent Anthropic continuation
+comparison are recorded in docs/exec-plans/active/minimax-enhanced.md. Verify real
+Pi serialization/replay, grant denial, model/account isolation, task receipt and
+both image operations with network-free transports; live service entitlement and
+desktop GUI/package acceptance remain separate evidence.
+
+### 241.11 Explicit MiniMax live acceptance profile
+
+For the owner's requested MiniMax acceptance, the real-play driver binds
+minimax-cn/MiniMax-M3.1-Flash-Preview with medium effort to the Keeper and final
+author through the existing test-only PI_COC_TEST_MODEL port. Both the legacy
+final writer and current isolated-expression writer consume that same exact
+profile; request metadata and actual author events must agree. Ordinary product
+author defaults and independent lane choices remain unchanged. Existing Luna/high
+and Grok/low test profiles retain their previous behavior. This is a closed
+configuration extension of the existing test path, not a new model loop or tool.
+
+The MiniMax media settings section is also admitted as minimax-media in the
+host's explicit settings-tab registry. A manifest alone does not make a top-level
+settings pane reachable; verify the shipped App's actual navigation.
+
+Real MiniMax acceptance observed an unfinished server call beside a local tool,
+followed by a result-only stream without a terminal reason. Exact MiniMax replay
+requires a terminal response, visible text/local-tool identity and complete ordered
+server-call/result pairs. Incomplete protocol records are unavailable, close hosted
+search for that run and are not persisted or replayed. The same check excludes old
+incomplete journal rows without deleting evidence. Game tools and other providers
+retain their existing behavior; no guessed block, extra retry or query is added.
+
+### 241.12 Cache accounting and retained prefix boundaries (owner 2026-10-16)
+
+The active-cache hook retains hashes of the last successfully completed request's
+direct blocks and marked prefixes for at most the documented five-minute TTL.
+When a previously marked conversation prefix is still byte-identical but lies
+outside the new tail's twenty-block lookback, keep that boundary explicitly.
+Reuse the tool slot when necessary and when a system boundary already covers
+the tools. Preserve the stable brief and tail, the four-marker ceiling, cache
+opt-out and all actual request content. A failed response cannot replace the last
+successful prefix. Model, tool-choice, thinking or tool changes invalidate the
+affected prefix; never freeze tools or game state to manufacture cache hits.
+Private request diagnostics identify the first changed block and matching block
+count from hashes, without persisting text or credentials.
+
+MiniMax Enhanced's existing status reader summarizes the active-cache session
+journal. Its settings pane displays reported read/write tokens, the coverage of
+each counter and recent requests. Missing write counts are null/unreported, not
+zero; sums of reported counts include coverage and are never presented as a
+complete total when requests omitted the field. A complete read ratio requires
+read, write and input on every counted request. Provider-reported zero is retained
+as reported zero, not evidence that the server did not write a cache entry.
+No additional request is sent to retrieve or estimate missing usage, and SDK
+billing data is not rewritten. Real 2026-10-16 M3.1 probes omitted write counts in
+streaming and returned zero in non-streaming even on a cold unique prefix.
+High reuse is an acceptance target for identical warm prefixes within TTL, not
+a guarantee against server eviction, changed content or tool availability.
+Each physical stream's message_stop closes its own usage row, including a
+pause_turn followed by another HTTP request within one logical Pi message;
+message_end is only the fallback for errors or missing terminal events. Do not
+overwrite earlier physical usage with the continuation. The separate reported
+read share is read / (input + read), explicitly excludes write counts and is not
+the complete cache-hit ratio when writes are unreported.
+
+MiniMax's explicit image selection feeds the same character-sheet portrait and
+narration-row illustration controls as Grok. Scene illustration retains the
+tool-enabled prompt writer and passes an eligible stored portrait as a character
+subject reference. Acceptance must exercise those host controls and stored
+results, not count a bare image-adapter call or a Keeper refusal as full coverage.
+
+### Model settings: fast lanes and prose author (owner 2026-10-16)
+
+The existing `coc-lane-model` settings entry is now Model settings. Keep the fast-lane keys and behavior unchanged. Add independent app-scoped `ext.coc-keeper.authorModel` (`{model: provider/id}`) and `ext.coc-keeper.authorThinking` (`{level}`) choices for the isolated prose author. The settings host writes these keys through its existing extension-settings transaction. The author reads them from the runtime's captured agent home at each new composition, without copying them into session spawn variables. An absent choice retains the existing author profile; the explicit test-model override retains its existing priority. Fast lanes never read author keys.
+
+Both roles use controlled model and effort dropdowns. The host supplies its existing `thinkingLevelsForModel` capability function to the controlled settings surface, so full maps, null entries, fixed-thinking models and standard fallbacks match the composer. On model change retain an effort only when supported; otherwise save the role default if supported or the first supported effort, or clear it for a fixed model. Persist model and adjusted effort together. Missing catalog entries remain visible as saved selections rather than silently selecting another model. English UI source words are projected through the existing presenter; no language-specific product strings are authored.
+
+Producer: extension settings UI. Reader: fast-model reader and independent author-model reader. Actor: the next corresponding task uses the selected provider/model and effort. Verify model-change option filtering and atomic writes in rendered UI tests, and two author invocations with a settings change between them against the actual task request. Do not change author instructions, personality, content planning or add posterior correction.
+
+### 241.13 Append-only agent requests (owner 2026-10-16)
+
+For the MiniMax single-Keeper path, request-local context uses a bounded append-only journal across inputs, rather than replacing the capsule/history ahead of tool traffic. The context owner writes the journal after its ordinary admission, visibility and capacity checks; the provider hook commits only the candidate actually submitted. The Keeper reads the initial typed snapshots and subsequent tail revisions: changed top-level sections replace earlier values, removed sections disappear, and retired transient snapshots no longer supply current instructions. Original player messages, tool calls and results remain ordered, paired and unique. Reference disclosures and search scopes retain their native transport shape. No revision changes canonical state or adds a settlement.
+
+The journal resets explicitly on campaign/worldline/loop/module/model/system identity changes, backward turns, changed native messages, degraded projection or capacity. Ordinary source revisions and moving brief windows are updates, not new identities: retain the original typed brief for cache placement and append its changed values. A revision may use RFC 6902 add/remove/replace operations instead of whole sections when their encoded representation is smaller; arrays retain their exact order and contents. No semantic summarization occurs. A reset uses the existing bounded current projection, never an unbounded transcript. Telemetry records reset reasons, retained/appended bytes and the final request size. Cache-off requests still do not enable cache annotations. Other providers retain their existing path pending separate acceptance.
+
+Successful complete assistant responses, including thinking blocks, join the journal before the next input. Tool-call responses join with their admitted results; an incomplete call is never retained on its own. Oversized completions cause an explicit capacity checkpoint rather than unbounded retained memory. This follows MiniMax's full-response replay requirement (https://platform.minimax.cn/docs/guides/text-m3-function-call); revision encoding follows RFC 6902 (https://www.rfc-editor.org/rfc/rfc6902).
+
+The isolated final author remains a fresh tool-enabled child receiving only its selected brief. Its public context hook omits the random attempt-directory system section, while filesystem tools and guards retain the real private cwd. It reuses the active-cache policy and raw usage observer; no prior author packet, Keeper history or extra warmup request is introduced.
+
+Validation follows MiniMax and Anthropic's documented prefix hierarchy and exact-match rule. Assert the actual SDK payload prefix across state/history/clerk changes and native tool continuations, plus reset, boundedness, current-state reconstruction and author isolation. Live M3.1/medium cache counters remain separate from deterministic prefix evidence; missing write counters remain unknown.

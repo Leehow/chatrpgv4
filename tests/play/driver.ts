@@ -1,5 +1,6 @@
 import {round,fixed} from './numeric.ts';
 import {withoutMechanicsMarkers} from '../../shared/delivery-markers.js';
+import {createTestWorkspace,checkTestWorkspaceBudget} from '../../scripts/test-workspace.mjs';
 /** Native Pi RPC transport and durable live evidence. It performs no Keeper decisions. */
 import { spawn, spawnSync, type ChildProcessWithoutNullStreams } from 'node:child_process';
 import { existsSync, mkdirSync, readFileSync, writeFileSync, appendFileSync, renameSync, rmSync, readdirSync, openSync, closeSync, statSync, lstatSync, chmodSync } from 'node:fs';
@@ -198,14 +199,14 @@ export class Daemon {
             await d.pi.terminate();
         throw error;
     } }
-    async _start_pi(launcher_arg: string | null, campaign: string, model: string | null) { const launcher = resolve_launcher(launcher_arg); this.setup_transport = launcher === resolve(REPO_ROOT, 'bin/pi-coc-setup'); if (!existsSync(launcher))
+    async _start_pi(launcher_arg: string | null, campaign: string, model: string | null) { checkTestWorkspaceBudget(coc_home(), this.dir); const launcher = resolve_launcher(launcher_arg); this.setup_transport = launcher === resolve(REPO_ROOT, 'bin/pi-coc-setup'); if (!existsSync(launcher))
         throw new DriverError('launcher not found: ' + launcher + ' (pass --launcher, set PI_COC_LAUNCHER, or wait for bin/pi-coc to exist)'); const entry = join(REPO_ROOT, 'build/kernel/rpc.mjs'); if (launcher === resolve(DEFAULT_LAUNCHER) && !existsSync(join(REPO_ROOT, 'deployment.json')) && existsSync(entry) && !process.env.PI_COC_KERNEL_CMD)
         this.player_view_command = [process.env.PI_COC_NODE_EXECUTABLE || process.execPath, entry, '--workspace', coc_home(), '--content', resolve(process.env.PI_COC_CONTENT_ROOT || join(REPO_ROOT, 'content'))]; const testThinking=model==='grok-build/grok-4.5'?'low':model===DEFAULT_MODEL?'high':null; const args = ['--campaign', campaign, '--mode', 'rpc', '--no-session', '--thinking', testThinking||this.thinking || DEFAULT_THINKING]; if (model) {
         if (!model.includes('/'))
             throw new DriverError("--model must be 'provider/modelId', got " + model);
         const i = model.indexOf('/');
         args.push('--provider', model.slice(0, i), '--model', model.slice(i + 1));
-    } this.log.write('spawning ' + launcher + ' ' + args.join(' ') + (this.first_step_thinking ? ' (COC_FIRST_STEP_THINKING=1)' : '')); let env: any = this.first_step_thinking || this.expected_engine || testThinking ? { ...process.env } : undefined; if (testThinking) {
+    } const miniMaxTest=model==='minimax-cn/MiniMax-M3.1-Flash-Preview'&&this.thinking==='medium'; this.log.write('spawning ' + launcher + ' ' + args.join(' ') + (this.first_step_thinking ? ' (COC_FIRST_STEP_THINKING=1)' : '')); let env: any = this.first_step_thinking || this.expected_engine || testThinking || miniMaxTest ? { ...process.env } : undefined; if (testThinking) {
         env.PI_COC_TEST_MODEL = model;
         env.PI_COC_KEEPER_CALL_CAP_FLOOR_MS ??= '60000';
         for (const name of TEST_LANE_MODEL_ENVS) {
@@ -214,6 +215,7 @@ export class Daemon {
             env[name.replace(/_MODEL$/, '') + '_THINKING'] = testThinking;
         }
     }
+    else if (miniMaxTest) env.PI_COC_TEST_MODEL=model;
     else if (env)
         delete env.PI_COC_TEST_MODEL; if (this.first_step_thinking)
         env.COC_FIRST_STEP_THINKING = '1'; if (this.expected_engine)
@@ -262,7 +264,7 @@ export class Daemon {
             return true;
     } }
     async handle_turn(text: string, timeout: number) { if (this.turn_in_progress)
-        return { ok: false, error: 'a turn is already in progress on this run' }; this.turn_in_progress = true; try {
+        return { ok: false, error: 'a turn is already in progress on this run' }; try { checkTestWorkspaceBudget(coc_home(), this.dir); } catch (error) { return { ok: false, error: String(error) }; } this.turn_in_progress = true; try {
         this.active_turn = this._run_turn(text, timeout);
         return await this.active_turn;
     }
@@ -613,7 +615,7 @@ export function create_pregen_campaign(campaign: string, pregen: string, module:
     }
     catch { } if (!response?.ok)
     throw Error('campaign.create failed: ' + JSON.stringify(response?.error || result.stderr.trim().slice(-400) || result.stdout.trim().slice(-400))); }
-export async function cmd_start(args: Row) { const campaign = args.campaign; if (args.pregen) {
+export async function cmd_start(args: Row) { const campaign = args.campaign; if (args.seed_home && args.pregen) { console.error('error: --seed-home and --pregen are separate starting positions'); return 1; } if (args.pregen) {
     if (existsSync(join(coc_home(), '.coc/campaigns', campaign)))
         console.error(`campaign ${campaign} already exists; --pregen ignored`);
     else {
@@ -639,6 +641,10 @@ export async function cmd_start(args: Row) { const campaign = args.campaign; if 
     }
     const i = pair.indexOf('=');
     env[pair.slice(0, i)] = pair.slice(i + 1);
+} if (args.seed_home) {
+    if ((args.env ?? []).some((pair: string) => pair.startsWith('PI_COC_HOME='))) { console.error('error: --seed-home owns PI_COC_HOME'); return 1; }
+    try { const workspace = join(dir, 'workspace'); createTestWorkspace({ seed: resolve(REPO_ROOT, args.seed_home), destination: workspace, campaign }); env.PI_COC_HOME = workspace; }
+    catch (error) { console.error('error: test workspace admission failed: ' + String(error)); return 1; }
 } const fd = openSync(join(dir, 'daemon-stdout.log'), 'a'); try {
     spawn(process.execPath, command, { cwd: REPO_ROOT, env, stdio: ['ignore', fd, fd], detached: true }).unref();
 }
@@ -713,6 +719,7 @@ export function build_parser() { return { parse_args(argv: string[]) { const a: 
             a.env.push(argv[++i]);
         else if (key.startsWith('--')) {
             const k = key.slice(2).replaceAll('-', '_');
+            if (k === 'seed_home' && (!argv[i + 1] || argv[i + 1].startsWith('--'))) throw new DriverError('--seed-home requires a retained workspace path');
             a[k] = ['timeout', 'tail'].includes(k) ? Number(argv[++i]) : argv[++i];
         }
         else
@@ -723,7 +730,7 @@ export function build_parser() { return { parse_args(argv: string[]) { const a: 
         throw new DriverError('invalid thinking level'); return a; } }; }
 export async function main(argv = process.argv.slice(2)) {
  if(argv.includes('--help')||argv.includes('-h')){const command=argv[0],common='--run RUN';
- const lines:Row={start:'--campaign ID [--run RUN] [--model provider/modelId] [--thinking off|minimal|low|medium|high] [--launcher PATH] [--first-step-thinking] [--expect-engine legacy|hybrid-v1] [--pregen PREGEN] [--module MODULE] [--play-language TAG] [--no-default-run] [--env KEY=VALUE]',turn:'TEXT [--run RUN] [--timeout SECONDS]',stop:'[--run RUN]',log:'[--run RUN] [--tail N]',status:'[--run RUN]',_daemon:'--campaign ID --run RUN [--model provider/modelId] [--thinking LEVEL] [--launcher PATH] [--first-step-thinking] [--expect-engine legacy|hybrid-v1]'};
+ const lines:Row={start:'--campaign ID [--run RUN] [--seed-home PATH] [--model provider/modelId] [--thinking off|minimal|low|medium|high] [--launcher PATH] [--first-step-thinking] [--expect-engine legacy|hybrid-v1] [--pregen PREGEN] [--module MODULE] [--play-language TAG] [--no-default-run] [--env KEY=VALUE]',turn:'TEXT [--run RUN] [--timeout SECONDS]',stop:'[--run RUN]',log:'[--run RUN] [--tail N]',status:'[--run RUN]',_daemon:'--campaign ID --run RUN [--model provider/modelId] [--thinking LEVEL] [--launcher PATH] [--first-step-thinking] [--expect-engine legacy|hybrid-v1]'};
  console.log(lines[command]?'usage: driver.ts '+command+' '+lines[command]:'usage: driver.ts {start,turn,stop,log,status} [arguments]');return 0;
  }
  try {

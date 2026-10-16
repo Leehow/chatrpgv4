@@ -19,6 +19,7 @@ export const COMPILED_ENTRIES = Object.freeze({
   grokBuild: 'build/extensions/grok-build-oauth/agent/index.mjs',
   rerank: 'build/extensions/rerank/agent/index.mjs',
   jev: 'build/extensions/jev/agent/index.mjs',
+  minimaxEnhanced: 'build/extensions/minimax-enhanced/agent/index.mjs',
   characterGuidance: 'build/extensions/module/character-guidance.mjs',
   characterPresentation: 'build/extensions/module/character-presentation.mjs',
   documentPresentation: 'build/extensions/mods/document-presentation.mjs',
@@ -42,7 +43,7 @@ export const PI_ENTRIES = Object.freeze({ pi: `${PI_PACKAGE_ROOT}/dist/cli.js`, 
 // tool and installs nothing in setup mode, but it must be here or it never runs at a table.
 // `npc-epithets` (§176.3) runs in both modes: it words the cast during character creation, before the opening.
 // `node-handles` (§185.5) runs in both modes too: it names a reader-built book's nodes before the Keeper is shown them.
-export const COC_EXTENSIONS = Object.freeze(['kernel', 'native-search', 'mods', 'onboarding', 'module', 'memory', 'npc', 'table', 'npc-journal', 'npc-voice', 'npc-epithets', 'node-handles', 'speech-edit', 'thinking-schedule']);
+export const COC_EXTENSIONS = Object.freeze(['kernel', 'native-search', 'mods', 'onboarding', 'module', 'memory', 'npc', 'table', 'npc-journal', 'npc-voice', 'npc-epithets', 'node-handles', 'speech-edit', 'thinking-schedule', 'anthropic-cache']);
 /**
  * The extensions that register a model provider, read from the manifests that already declare it.
  *
@@ -98,7 +99,7 @@ export const HOST_MOUNTS = Object.freeze({
   'prompt-observer': 'kernel/pipiui-prompt-observer.mjs',
 });
 
-const sessionExtensionGroups = entrypoints => [entrypoints.extensions, entrypoints.providerExtensions, [entrypoints.imageGen], [entrypoints.rerank], [entrypoints.jev]];
+const sessionExtensionGroups = entrypoints => [entrypoints.extensions, entrypoints.providerExtensions, [entrypoints.imageGen], [entrypoints.rerank], [entrypoints.jev], [entrypoints.minimaxEnhanced]];
 export function sessionExtensionPaths(entrypoints) { return Object.freeze(sessionExtensionGroups(entrypoints).flat()); }
 export function desktopSessionExtensionPaths(entrypoints) {
   // Everything after the first two groups is a single-entrypoint capability mount (image

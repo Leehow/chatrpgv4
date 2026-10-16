@@ -1,6 +1,8 @@
 import {installChildProviderBudget, outputFieldPath, withOutputRoom} from "../../runtime/jev/provider-budget.ts";
 import {READING_STAGE_BUDGET} from "../../runtime/jev/reading-stage-budget.ts";
 import {createBashTool} from '@earendil-works/pi-coding-agent';
+import {getCurrentSystemMessage} from '@earendil-works/pi-ai';
+import activeCache from '../anthropic-cache/index.js';
 /** Keep page-image history bounded without changing the recorded reader transcript. */
 import { appendFileSync, lstatSync, readFileSync, realpathSync } from "node:fs";
 import {createHash} from 'node:crypto';
@@ -212,6 +214,16 @@ export function boundImages(messages: any[], delivered: ReadonlySet<string> = ne
 
 export default function readerContext(pi: any, options: { cwd?: string; env?: NodeJS.ProcessEnv } = {}) {
 	const cwd = options.cwd ?? process.cwd(), env = options.env ?? process.env;
+	if(env.PI_COC_FINAL_OUTPUT==='1'){
+		// The real cwd still confines tools. A random attempt path is not writing material.
+		pi.on('context_with_system',(event:any)=>{
+			const system=getCurrentSystemMessage(event.messages);
+			if(!system?.sections||!Object.hasOwn(system.sections,'cwd'))return;
+			const {cwd:_privateAttempt,...sections}=system.sections;
+			return{messages:[{...system,sections},...event.messages.filter((message:any)=>message.role!=='system')]};
+		});
+		activeCache(pi,env);
+	}
 	const configuredRequests = Number(env.PI_COC_READER_MAX_REQUESTS);
 	const maxRequests = Number.isInteger(configuredRequests) && configuredRequests > 0 ? configuredRequests : null;
 	let providerRequests = 0;

@@ -217,7 +217,9 @@ test("the header the merge used to write is dropped on the next launch; the oper
 	const written = readFileSync(path, "utf8");
 	assert.doesNotMatch(written, /^\/\//m, "no comment line survives");
 	const parsed = JSON.parse(written);
-	assert.deepEqual(parsed.providers, operator.providers, "every provider and override the operator had is kept as read");
+	for (const [provider, value] of Object.entries(operator.providers))
+		assert.deepEqual(parsed.providers[provider], value, "every existing provider and override is kept as read");
+	assert.equal(parsed.providers['minimax-cn'].models[0].id, 'MiniMax-M3.1-Flash-Preview');
 	assert.ok(Array.isArray(parsed[PRODUCT_NOTE_KEY]));
 	assert.deepEqual(await applyProviderModelCorrections(home, REAL_CORRECTIONS), { status: "unchanged" });
 });
@@ -237,7 +239,7 @@ test("an operator's own comments leave the file byte for byte untouched and repo
 	writeFileSync(path, commented);
 	assert.deepEqual(await applyProviderModelCorrections(home, REAL_CORRECTIONS), {
 		status: "left_untouched", reason: "operator_comments",
-		missing: [{ provider: "opencode-go", model: "deepseek-v4-flash" }],
+		missing: [{ provider: "minimax-cn", model: "MiniMax-M3.1-Flash-Preview" }, { provider: "opencode-go", model: "deepseek-v4-flash" }],
 	}, "only the correction the operator lacks is reported");
 	assert.equal(readFileSync(path, "utf8"), commented);
 
@@ -252,7 +254,7 @@ test("an operator's own comments leave the file byte for byte untouched and repo
 test("an operator's comments with every correction already present report nothing missing", async t => {
 	const home = scratch(t);
 	const path = join(home, "models.json");
-	const commented = `// mine\n${JSON.stringify({ providers: { "opencode-go": { modelOverrides: {
+	const commented = `// mine\n${JSON.stringify({ providers: { 'minimax-cn': { models: [{ id: 'MiniMax-M3.1-Flash-Preview' }] }, "opencode-go": { modelOverrides: {
 		"deepseek-v4.1-flash": { thinkingLevelMap: { off: null } },
 		"deepseek-v4-flash": { thinkingLevelMap: { off: "off" } },
 	} } } }, null, 2)}\n`;
@@ -458,8 +460,10 @@ async function launchNotices(t, root, inherited = {}) {
 /** The provider/model pairs the shipped corrections name, in their own order. */
 function correctedPairs() {
 	const { providers } = JSON.parse(readFileSync(REAL_CORRECTIONS, "utf8"));
-	return Object.entries(providers).flatMap(([provider, entry]) => Object.keys(entry.modelOverrides ?? {})
-		.filter(model => !model.startsWith("$")).map(model => `${provider}/${model}`));
+	return Object.entries(providers).flatMap(([provider, entry]) => [
+		...(entry.models ?? []).map(model => `${provider}/${model.id}`),
+		...Object.keys(entry.modelOverrides ?? {}).filter(model => !model.startsWith("$")).map(model => `${provider}/${model}`),
+	]);
 }
 
 function parseError(text) {

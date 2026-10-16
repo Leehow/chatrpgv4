@@ -19,7 +19,11 @@ const delivery = (marked: string) => ({ id: 'delivery', role: 'assistant' as con
   presentation: { renderer: 'coc-mechanics', details: { marked_text: marked, mechanics: [], ui: ui('en') } } })
 const live = (marked = ORIGINAL) => applyStreamEvent([], { type: 'presentation', entry: delivery(marked) } as never)[0]
 const view = (message: ChatMessage) => <AssistantKeepsSecrets value><MessageView message={message} onCopy={async () => {}} onResend={() => {}} resendDisabled={false} /></AssistantKeepsSecrets>
-const prose = (root: HTMLElement) => Array.from(root.querySelectorAll('.coc-mech-para')).map(node => node.textContent).join('')
+const prose = (root: HTMLElement) => Array.from(root.querySelectorAll('.coc-mech-para')).map(node => {
+  const paragraph = node.cloneNode(true) as Element
+  paragraph.querySelectorAll('.coc-mech-here').forEach(receipt => receipt.remove())
+  return paragraph.textContent
+}).join('')
 
 beforeEach(async () => {
   vi.useFakeTimers()

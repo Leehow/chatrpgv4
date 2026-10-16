@@ -8,8 +8,10 @@ import {preparePriceArguments} from './price-arguments.ts';
 import {patchCard} from "../table/card-patch.ts";
 import { SINGLE_PASS_NARRATION } from '../../kernel-ts/runtime/narration-policy.ts';
 import {ArtifactTextStream} from '../../runtime/final-output-stream.ts';
+import {ExpressionPlanStream,writeIsolatedExpression} from '../../runtime/isolated-expression.ts';
 import {documentEditInput} from '../../runtime/document-edit-input.ts';
 import {DocumentReadCoverage} from './document-read-coverage.ts';
+import {openingInformationShape} from '../../runtime/opening-information.ts';
 import {writingDigest,canonicalWritingResult,matchWritingResult,completesRefusedAddition,type WritingMatch,type WritingCompletion} from '../../runtime/jev/document-completion.ts';
 import {RefusedDocumentOutcome, REFUSED_DOCUMENT_OUTCOME_FAMILY, REFUSED_DOCUMENT_OUTCOME_REASON, documentOutcomeDigest, type DocumentOutcomeVerdict} from '../../runtime/jev/refused-document-outcome.ts';
 import {HeldActOutcome, HELD_ACT_OUTCOME_FAMILY, HELD_ACT_OUTCOME_REASON, receiptLine} from '../../runtime/jev/held-act-outcome.ts';
@@ -1488,8 +1490,9 @@ export default function (pi: ExtensionAPI, host: {capabilities?:RuntimeCapabilit
 	});
 	let runtime: HostRuntime | undefined;
 	let singleKeeper=false;
+	let isolatedOutput=false;
 	let keeperRun:{runId:string;inputRevision:string;signal?:AbortSignal;recordCallId?:string}|undefined;
-	let keeperReply:{decoder:ArtifactTextStream;stream?:Awaited<ReturnType<typeof finalOutput.openStream>>;work:Promise<void>;error?:unknown;evidence?:Record<string,any>;run:string;signal?:AbortSignal;raw:string}|undefined;
+	let keeperReply:{decoder:ArtifactTextStream|ExpressionPlanStream;stream?:Awaited<ReturnType<typeof finalOutput.openStream>>;work:Promise<void>;error?:unknown;evidence?:Record<string,any>;run:string;signal?:AbortSignal;raw:string}|undefined;
 	let finalHandoff: {campaign:string;turn:number;run:string;params:Record<string,unknown>} | undefined;
 	let activeFinalStream:{id:string;turn:number}|undefined;
 	const finalOutput = createFinalOutputOwner({runtime: () => runtime,
@@ -1518,7 +1521,7 @@ export default function (pi: ExtensionAPI, host: {capabilities?:RuntimeCapabilit
 		const owner=keeperRun,state=table,signal=owner.signal,ctx=sessionCtx;
 		const reply={decoder:undefined as unknown as ArtifactTextStream,work:Promise.resolve(),run:owner.runId,signal,raw:''} as NonNullable<typeof keeperReply>;
 		const enqueue=(job:()=>Promise<void>)=>{reply.work=reply.work.then(async()=>{if(!reply.error)await job();}).catch(error=>{reply.error=error;});};
-		reply.decoder=new ArtifactTextStream(privateRecord=>enqueue(async()=>{
+		reply.decoder=isolatedOutput?new ExpressionPlanStream():new ArtifactTextStream(privateRecord=>enqueue(async()=>{
 			if(signal?.aborted)throw Error('The Keeper response was cancelled');
 			if(privateRecord.scope==='reference')state.interactionScope='reference';
 			if(privateRecord.event!==undefined||Array.isArray(privateRecord.effects)&&privateRecord.effects.length){
@@ -1541,6 +1544,7 @@ export default function (pi: ExtensionAPI, host: {capabilities?:RuntimeCapabilit
 		try{
 			reply.raw+=delta.delta;
 			const text=reply.decoder.push(delta.delta);
+			if(table&&reply.decoder.record?.scope==='reference')table.interactionScope='reference';
 			if(text)reply.work=reply.work.then(async()=>{
 				if(reply.error||!table)return;
 				if(reply.signal?.aborted)throw Error('The Keeper response was cancelled');
@@ -1635,6 +1639,7 @@ export default function (pi: ExtensionAPI, host: {capabilities?:RuntimeCapabilit
 		const engine = value && typeof value === "object" ? (value as { engine?: unknown }).engine : undefined;
 		drivenEngine = typeof engine === "string" && engine !== "legacy";
 		singleKeeper=(value as any)?.singleKeeper===true;
+		isolatedOutput=(value as any)?.isolatedOutput===true;
 	});
     pi.events.on('coc:knowledge-context',(value:any)=>{
         if(!table||value?.campaign!==table.campaign||value.turn!==table.turn||value.player_text!==table.playerText)return;
@@ -1750,7 +1755,7 @@ export default function (pi: ExtensionAPI, host: {capabilities?:RuntimeCapabilit
 		if (!held || held.steered || tool === "narrate" || tool === "ask" || !held.calls.some((entry) => entry.id === toolCallId)) return undefined;
 		held.steered = tool;
 		const beside = [...new Set(held.calls.map((entry) => entry.tool))];
-		return { beside, steer: singleKeeper?'Tool-side prose is private. Continue from these results, then begin the final public response with {{public}}. No output tool or JSON wrapper is needed.':besideSteer(beside) };
+		return { beside, steer: singleKeeper?(isolatedOutput?'Tool-side prose is private. Continue from these results, then return the private {{compose}} expression brief.':'Tool-side prose is private. Continue from these results, then begin the final public response with {{public}}. No output tool or JSON wrapper is needed.'):besideSteer(beside) };
 	}
 	async function flushBeside(): Promise<void> {
 		const held = besideDrop;
@@ -5541,7 +5546,7 @@ export default function (pi: ExtensionAPI, host: {capabilities?:RuntimeCapabilit
         const publicName=spec.name;
         const finalSelection=publicName==='output';
         if(singleKeeper&&finalSelection&&!recoveredOutput)
-            throw new KernelError({code:'invalid_params',message:'The Keeper authors the public response directly; an independent output author is unavailable.'});
+            throw new KernelError({code:'invalid_params',message:isolatedOutput?'Return the private {{compose}} expression brief; the host invokes the isolated author.':'The Keeper authors the public response directly; an independent output author is unavailable.'});
         if(singleKeeper&&!finalSelection){
             params={...params};
             delete params.handoff;
@@ -5861,6 +5866,7 @@ export default function (pi: ExtensionAPI, host: {capabilities?:RuntimeCapabilit
 				if(Object.keys(params).some(key=>!['kind','query'].includes(key)))throw new KernelError({code:'invalid_params',message:'Support lookup accepts only kind and query'});
 				dispatcher.requireCapability(toolCallId,'lookup.support');
 				supportAnswer=await lookupKeeperSupport({campaign:state.campaign,query:params.query as string,
+					prepared:(binding,packet)=>finalOutput.prepareSupport(binding,packet),
 					call:(method,args)=>state.kernel.call(method,args),signal,record:event=>{void record(event);},parent:providerBudget,
 					...(runtime&&readingModule?{source:{moduleId:readingModule,runtime}}:{})});
 			}
@@ -7865,6 +7871,9 @@ export default function (pi: ExtensionAPI, host: {capabilities?:RuntimeCapabilit
 		// (2026-10-02), 30 s before the prose. A batch of clocks alone needs no Mod layer.
 		const openingClockOnly = state.openingPending && state.state === "awaiting_player" && name === "apply"
 			&& Array.isArray(input.effects) && input.effects.length > 0 && input.effects.every((e:any) => e?.kind === "clock");
+        const openingInformation = state.openingPending && state.state === "awaiting_player" && name === "apply"
+            && Array.isArray(input.effects) && input.effects.length > 0
+            && input.effects.every((effect:any) => openingInformationShape(effect) || effect?.kind === 'clock');
 		const openingModShape = state.openingPending && state.state === "awaiting_player" && (
 			(name === "resolve" && typeof (input.action as any)?.decision === "string") ||
 			(name === "apply" && Array.isArray(input.effects) && input.effects.length > 0 && input.effects.every((e:any) => ["define","object","ability","clock"].includes(e?.kind))));
@@ -7874,13 +7883,13 @@ export default function (pi: ExtensionAPI, host: {capabilities?:RuntimeCapabilit
 		// still owed: a write that is not the opening's own is refused, the reads named below really are
 		// available, and narrate and ask really are the doors (§67, §70). The sentence must stay true of
 		// that turn -- it is the only place it ever was.
-		if (!openingNarrate && !openingMod && CLOSED_STATES.has(state.state)) {
+		if (!openingNarrate && !openingMod && !openingInformation && CLOSED_STATES.has(state.state)) {
 			const bridgePending = openingModShape && !mods;
 			const reason = bridgePending
 				? "the Mod layer has not announced itself yet, so this opening Mod call cannot be judged: retry the same call; the opening's Mod checks become available as soon as it does"
 				// Only the opening reaches this line (§86). The generic "use only look, lookup and recall" had the installed App's
 				// Keeper (Blood Road, 2026-10-02) try to pin the book's start hour twice, 20 s of round trips before the prose.
-				: `the turn state is ${state.state} and this is the table's opening: until the player first speaks only narrate, the active final-delivery surface, ask, apply clock (pinning an opening datetime the book left open) and the opening's Mod definitions are accepted; the scene and everything else stay as the table opened them, so put whatever you meant to change into the prose and ${finalDeliveryAction()}`;
+				: `the turn state is ${state.state} and this is the table's opening: narrate, the active final-delivery surface, ask, apply clue, person name/address registration, a present person's npc mood, apply clock and the opening's Mod definitions are accepted; investigator actions wait for player input. Record ordinary disclosures with apply clue, then ${finalDeliveryAction()}`;
 			await record({ tool: name, started_at: new Date().toISOString(), ok: false, code: "turn_state", reason, ...(bridgePending ? { cause: "mods_bridge_pending" } : {}) });
 			// A refusal the host issued is still a refusal (§67). Without this the
 			// Keeper could be told "wait for the player" forever inside its own turn.
@@ -8040,11 +8049,20 @@ export default function (pi: ExtensionAPI, host: {capabilities?:RuntimeCapabilit
 				if(reply.error)throw reply.error;
 				if(reply.signal?.aborted)throw Error('The Keeper response was cancelled');
 				if(['error','aborted','length'].includes(String(event.message.stopReason)))throw Error('The Keeper response was interrupted');
-				const result=reply.decoder.finish();
+				let result=reply.decoder.finish();
+				let authorModel=`${event.message.provider}/${event.message.model}`,authorThinking:unknown=pi.getThinkingLevel?.();
+				if('expression' in result&&result.expression){
+					if(!runtime)throw Error('The expression runtime is unavailable');
+					reply.stream=await finalOutput.openStream(state.campaign,state.turn,reply.run,'isolated-expression',result.expression.npc_turns.map(person=>person.speaker));
+					const authored=await writeIsolatedExpression({runtime,campaign:state.campaign,turn:state.turn,run:reply.run,
+						brief:result.expression,language:state.playLanguage||'en',
+						signal:reply.signal,stream:reply.stream,record});
+					result=authored;authorModel=authored.model;authorThinking=authored.thinking;
+				}
 				if(!reply.stream)throw Error('The Keeper produced no public text');
 				const choice=result.record?.choice as Record<string,unknown>|undefined;
 				const publication={call_id:mintCallId(state),...(choice??{})};
-				const written=await reply.stream.finish(`${event.message.provider}/${event.message.model}`,pi.getThinkingLevel?.(),
+				const written=await reply.stream.finish(authorModel,authorThinking,
                     {...publication,...(result.record?.scope==='reference'?{interaction_scope:'reference'}:{})},result.coverage);
                 reply.evidence=written.evidence;
 				if(result.record?.scope==='reference'){
@@ -8073,7 +8091,8 @@ export default function (pi: ExtensionAPI, host: {capabilities?:RuntimeCapabilit
 				await record({lane:'keeper-delivery',turn:state.turn,ok:false,reason:String(error),
                     private_reply:reply.raw,model:`${event.message.provider}/${event.message.model}`,stop_reason:event.message.stopReason});
 				const framingError=error instanceof Error&&['Final artifact must begin with version and text','Invalid public stream marker'].includes(error.message);
-				if(!reply.stream)state.deliveryFix=isKernelError(error)
+				if(isolatedOutput)state.runAbandoned=true;
+				else if(!reply.stream)state.deliveryFix=isKernelError(error)
 					?{kind:error.code,text:'Correct the outstanding proposal through the existing apply/resolve tools and use their actual results before final prose. Do not repeat already settled effects or place another outstanding record in the final response. Then begin the public response with {{public}}.\n'+errorText(error)+(error.details?`\ndetails: ${JSON.stringify(error.details)}`:'')}
 					:framingError?{kind:'result_protocol',text:'The final reply lacks a supported public marker or private-record envelope. Commit outstanding changes through the existing apply/resolve tools, read their actual results, then begin with {{public}} followed immediately by public prose. Use {{reference}} for pure OOC. Do not quote the rejected draft or repeat already settled effects through new calls.'}
 					:{kind:'result_protocol',text:'The final response framing is invalid. In a legacy envelope, record.text is invalid: root.text is its sibling; record permits only effects, event, scope, choice. Keep private records out of public prose. Correct outstanding proposals through existing apply/resolve tools and read their actual results; then begin with {{public}} followed immediately by public prose, or {{reference}} for pure OOC. Do not repeat already accepted records, settled effects or rolls. Previously exposed prose must not be rewritten.'};

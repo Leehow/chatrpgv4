@@ -18,9 +18,47 @@ const draft=(job, document)=>({name:job.input.name,category:'item',description:'
   parameters:{charges:null,effects:[]},traits:[],player_view:{description:'Existing carried equipment.',fields:[]},
   ...(document?{document:{presentation:'notebook',text:'The acquired original.\nSecond line.'}}:{})});
 
+test('background names, counts and prose never enqueue, resume or publish a detail creator',async t=>{
+  const equipment=['Camera',{name:'Badge',quantity:2,description:'A badge with a worn ribbon.'},
+    {name:'Blank notebook',quantity:1},{name:'Flashlight',quantity:1,condition:'intact'}];
+  const game=await gear(t,equipment),before=await game.call('table.status');
+  const file=join(game.directory,'save/equipment-preparation.json');
+  const entries={pending:{actor:game.sheet.id,row:equipment[0],name:'Camera',worldline:null,job:'legacy-pending',status:'pending'},
+    failed:{actor:game.sheet.id,row:equipment[1],name:'Badge',worldline:null,job:'legacy-failed',status:'failed'}};
+  await writeFile(file,JSON.stringify({entries}));
+  for(let pass=0;pass<2;pass++){
+    assert.deepEqual((await game.call('mods.equipment.prepare')).jobs,[]);
+    assert.equal((await game.call('table.view')).investigators[0].equipment_preparation,undefined);
+  }
+  await assert.rejects(game.call('mods.equipment.retry',{actor:game.sheet.id,name:'Badge'}),error=>error.code==='unknown_entity');
+  assert.equal((await game.call('mods.equipment.publish',{job:'legacy-pending'})).status,'stale');
+  const retained=JSON.parse(await readFile(file,'utf8'));
+  assert.equal(retained.entries.failed.status,'failed');
+  assert.equal(retained.entries.pending.job,'legacy-pending');
+  assert.deepEqual(JSON.parse(await readFile(game.sheetPath,'utf8')).equipment,equipment);
+  assert.deepEqual(await game.call('table.status'),before);
+});
+
+test('session startup makes no model task for background-only equipment',async t=>{
+  const game=await gear(t,['Badge',{name:'Flashlight',quantity:2,description:'Carried since the opening.'}]),
+    events=new EventEmitter(),hooks=new Map();
+  let requests=0,prepared;
+  const settled=new Promise(resolve=>{prepared=resolve;});
+  modsExtension({events,on:(name,fn)=>hooks.set(name,fn),appendEntry:()=>{}});
+  t.after(async()=>{await hooks.get('session_shutdown')?.();});
+  events.emit('coc:kernel-bridge',{call:async(method,params)=>{
+    const result=await game.call(method,params);if(method==='mods.equipment.prepare')prepared();return result;
+  },runtime:{async check(){return {ok:true};},async runTask(){requests++;throw new Error('Background enrichment must not run');}}});
+  events.emit('coc:table-open',{campaign:'c1'});
+  await hooks.get('session_start')({}, {hasUI:false});
+  await settled;
+  await new Promise(resolve=>setImmediate(resolve));
+  assert.equal(requests,0);
+});
+
 test('background publication keeps the turn and inventory position, then the paper can save and reset immediately',async t=>{
   const game=await gear(t),before=await game.call('table.status'),prepared=await game.call('mods.equipment.prepare');
-  assert.equal(prepared.jobs.length,2);
+  assert.equal(prepared.jobs.length,1);
   const again=await game.call('mods.equipment.prepare');assert.deepEqual(again.jobs.map(job=>job.job),prepared.jobs.map(job=>job.job));
   assert.equal((await game.call('table.view')).investigators[0].equipment_preparation[0].status,'pending');
   const job=prepared.jobs[0];await writeFile(join(job.cwd,'result.json'),JSON.stringify(draft(job,true)));
@@ -54,24 +92,24 @@ test('failed work is retained for explicit retry, while a removed row cannot be 
   assert.equal(Object.values((await game.world()).objects.instances).some(value=>value.name==='Pocket record'),false);
 });
 
-test('a model-selected financial placeholder is skipped without acquiring an object',async t=>{
-  const game=await gear(t,['Allowance']),{jobs:[job]}=await game.call('mods.equipment.prepare');
+test('an explicitly prepared capability can be declined without acquiring an object',async t=>{
+  const game=await gear(t,[{name:'Allowance',document:{presentation:'paper'}}]),{jobs:[job]}=await game.call('mods.equipment.prepare');
   await writeFile(join(job.cwd,'result.json'),'null');
   assert.equal((await game.call('mods.equipment.publish',{job:job.job})).status,'skipped');
   assert.equal((await game.call('mods.equipment.prepare')).jobs.length,0);
   assert.equal((await game.call('table.view')).investigators[0].equipment_preparation,undefined);
-  assert.deepEqual(JSON.parse(await readFile(game.sheetPath,'utf8')).equipment,['Allowance']);
+  assert.deepEqual(JSON.parse(await readFile(game.sheetPath,'utf8')).equipment,[{name:'Allowance',document:{presentation:'paper'}}]);
 });
 
 test('a retained preparation crosses player turns and recovers a world-only publication in place',async t=>{
-  const game=await gear(t,['Pocket record','Camera']),{jobs}=await game.call('mods.equipment.prepare'),job=jobs[0];
+  const game=await gear(t,[{name:'Pocket record',document:{presentation:'paper'}},'Camera']),{jobs}=await game.call('mods.equipment.prepare'),job=jobs[0];
   await game.call('table.narrate',{call_id:game.next(),text:'The investigation continues.'});
   await game.call('table.player_input',{text:'I look at the desk.'});
   assert.equal((await game.call('mods.equipment.prepare')).jobs[0].job,job.job);
   await writeFile(join(job.cwd,'result.json'),JSON.stringify(draft(job,true)));
   assert.equal((await game.call('mods.equipment.publish',{job:job.job})).status,'ready');
   // Interrupt recovery: the canonical world landed, but the old sheet and pending marker survived.
-  const sheet=JSON.parse(await readFile(game.sheetPath,'utf8'));sheet.equipment=['Pocket record','Camera'];
+  const sheet=JSON.parse(await readFile(game.sheetPath,'utf8'));sheet.equipment=[{name:'Pocket record',document:{presentation:'paper'}},'Camera'];
   await writeFile(game.sheetPath,JSON.stringify(sheet));
   const file=join(game.directory,'save/equipment-preparation.json'),ledger=JSON.parse(await readFile(file,'utf8'));
   Object.values(ledger.entries).find(value=>value.job===job.job).status='pending';await writeFile(file,JSON.stringify(ledger));
@@ -84,7 +122,7 @@ test('a retained preparation crosses player turns and recovers a world-only publ
 });
 
 test('session startup returns before a held creator, then publishes without another player input',async t=>{
-  const game=await gear(t,['Pocket record']),events=new EventEmitter(),hooks=new Map(),records=[];
+  const game=await gear(t,[{name:'Pocket record',document:{presentation:'paper'}}]),events=new EventEmitter(),hooks=new Map(),records=[];
   let release,started=false;
   const held=new Promise(resolve=>{release=resolve;});
   const pi={events,on:(name,fn)=>hooks.set(name,fn),appendEntry:()=>{}};

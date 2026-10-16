@@ -1,6 +1,30 @@
 {
-  "$comment": "Provider model data the product knows to be wrong, corrected as data (contract §135.27.1, SL-61). Shape: Pi's models.json `providers.<id>.modelOverrides.<modelId>` (see @earendil-works/pi-coding-agent's core/model-config.js ModelOverrideSchema). Merged into the agent home's models.json at host preparation (runtime/host.ts mergeProviderModelCorrections, called from runtime/launch.ts's piLaunch) -- a user's own override for the same provider+model always wins and is never touched; other providers and fields in the user's file are untouched.",
+  "$comment": "Provider model data corrected through Pi's models.json providers.<id>.models and modelOverrides shapes (contract sections 135.27.1 and 241.8). Applied during profile installation and launcher preparation. Existing same-id model definitions and user override fields win; credentials and unrelated configuration stay untouched.",
   "providers": {
+    "minimax-cn": {
+      "models": [
+        {
+          "$comment": "Official MiniMax model invocation docs, checked 2026-10-16: https://platform.minimax.cn/docs/guides/text-generation . M Plan subscription preview; no published pay-as-you-go price. Pi's native Anthropic adapter supports text/image input and adaptive effort. Keep the existing provider's auth and endpoint.",
+          "id": "MiniMax-M3.1-Flash-Preview",
+          "name": "MiniMax-M3.1-Flash-Preview",
+          "api": "anthropic-messages",
+          "reasoning": true,
+          "input": ["text", "image"],
+          "contextWindow": 1000000,
+          "maxTokens": 512000,
+          "thinkingLevelMap": {
+            "off": null,
+            "minimal": null,
+            "low": "low",
+            "medium": "medium",
+            "high": "high",
+            "xhigh": "xhigh",
+            "max": "max"
+          },
+          "compat": { "forceAdaptiveThinking": true }
+        }
+      ]
+    },
     "opencode-go": {
       "modelOverrides": {
         "deepseek-v4.1-flash": {

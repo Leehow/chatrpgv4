@@ -1,3 +1,4 @@
+import {shareTestTree} from '../../scripts/test-workspace.mjs';
 /** BP-05: the existing visual reader/reviewer over an APFS clone; never writes the App or deletes prior evidence. */
 import {readFile, writeFile, appendFile, mkdir, mkdtemp, copyFile, chmod, rm} from 'node:fs/promises';
 import {join, resolve} from 'node:path';
@@ -34,8 +35,8 @@ await writeFile(join(out, 'PREREGISTER.json'), JSON.stringify({version: 1, model
   source_pages: [38,39,40,41,42], attempts: 'one ordinary reading job; its existing in-job repairs only', maxWallMs: 1200000,
   exclusions: 'No old npc retirement, independent second numeric transcription, campaign.create book pregen, or gameplay claim.'}, null, 2)+'\n');
 await mkdir(join(home, '.coc/modules'), {recursive: true});
-execFileSync('cp', ['-c', '-R', join(app, '.coc/modules/book-2'), lib]);
-execFileSync('cp', ['-c', '-R', join(app, '.coc/source-transcripts'), join(home, '.coc/source-transcripts')]);
+shareTestTree(join(app, '.coc/modules/book-2'), lib);
+shareTestTree(join(app, '.coc/source-transcripts'), join(home, '.coc/source-transcripts'));
 }
 const agent = await mkdtemp(join(tmpdir(), 'pipicoc-book-pregens-agent-')); await chmod(agent, 0o700);
 let runtime, kernel, reading, rowWrites = Promise.resolve();

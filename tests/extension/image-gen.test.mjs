@@ -840,23 +840,97 @@ function renderSettings(data, catalog = []) {
 	return { rows: rows.map((row) => ({ key: row.props["data-testid"].slice("image-model-row-".length), text: text(row), click: row.props.onClick })), invokes };
 }
 
-test("settings section: a Codex row whenever codexSignedIn, and the Automatic subtitle names autoRoute", async () => {
-	const signedIn = renderSettings({ current: null, grokDefault: true, codexSignedIn: true, autoRoute: "codex" },
-		[{ provider: "openai", id: "gpt-image-1", name: "GPT Image 1" }]);
+test("dispatch: Automatic follows Grok even with a paid Codex login", async () => {
+	const { tools, api } = fakePi();
+	let called = false;
+	createImageGenExtension({
+		grok: { usable: async () => true, generate: async () => {
+			called = true;
+			return { path: "/tmp/grok/image.jpg", mime: "image/jpeg", b64: JPEG_B64, backend: "grok-build" };
+		} },
+		readConfiguredModel: () => undefined,
+		fetchImpl: async () => { throw Error("Automatic must follow the selected Grok provider"); },
+	})(api);
+	await tools.get("image_gen").execute("auto", { prompt: "portrait" }, undefined, undefined,
+		{ ...fakeCtx({ codexToken: CODEX_TOKEN }), model: { provider: "grok-build", id: "grok-4.5" } });
+	assert.equal(called, true);
+});
+
+test("dispatch: Automatic follows GPT accounts, and manual Grok selection overrides them", async () => {
+	for (const provider of ["openai", "openai-codex"]) {
+		const { tools, api } = fakePi();
+		const { calls, fetchImpl } = recordingFetch(codexResponse());
+		createImageGenExtension({ grok: grokThatMustNotRun, readConfiguredModel: () => undefined, makeWriter: savingWriter, fetchImpl })(api);
+		await tools.get("image_gen").execute("auto", { prompt: "portrait" }, undefined, undefined,
+			{ ...fakeCtx({ codexToken: CODEX_TOKEN }), model: { provider, id: "gpt-5" } });
+		assert.equal(calls[0].url, provider === "openai" ? "https://api.openai.com/v1/images/generations" : "https://chatgpt.com/backend-api/codex/images/generations");
+	}
+	const { tools, api } = fakePi();
+	createImageGenExtension({ grok: { usable: async () => true, generate: async () => ({ path: "/tmp/grok/pinned.jpg", mime: "image/jpeg", b64: JPEG_B64, backend: "grok-build" }) },
+		readConfiguredModel: () => ({ model: "grok-build/grok-imagine-image" }), fetchImpl: async () => { throw Error("manual Grok must win"); } })(api);
+	const result = await tools.get("image_gen").execute("manual", { prompt: "portrait" }, undefined, undefined,
+		{ ...fakeCtx({ codexToken: CODEX_TOKEN }), model: { provider: "openai-codex", id: "gpt-5" } });
+	assert.equal(result.details.backend, "grok-build");
+});
+
+test("dispatch: missing MiniMax credentials never sends the image to a different account", async () => {
+	const { tools, api } = fakePi();
+	createImageGenExtension({ grok: grokThatMustNotRun, readConfiguredModel: () => undefined,
+		fetchImpl: async () => { throw Error("no image request is authorized without the selected provider's key"); } })(api);
+	await assert.rejects(tools.get("image_gen").execute("auto", { prompt: "portrait" }, undefined, undefined,
+		{ ...fakeCtx({ apiKey: undefined, codexToken: CODEX_TOKEN }),
+			modelRegistry: { getAll: () => [], find: () => undefined, getApiKeyForProvider: async provider => provider === "openai-codex" ? CODEX_TOKEN : undefined },
+			model: { provider: "minimax-cn", id: "MiniMax-M2.5" } }), /no API key is configured for provider "minimax-cn"/);
+});
+
+test("dispatch: Automatic follows MiniMax with both image operations and does not call Codex", async () => {
+	for (const kind of ["image_gen", "image_edit"]) {
+		const { tools, api } = fakePi();
+		const { calls, fetchImpl } = recordingFetch(jsonResponse({ base_resp: { status_code: 0 }, data: { image_base64: [PNG_B64] } }));
+		createImageGenExtension({ grok: grokThatMustNotRun, readConfiguredModel: () => undefined, makeWriter: savingWriter, fetchImpl })(api);
+		const ctx = { ...fakeCtx({ codexToken: CODEX_TOKEN, models: [{ provider: "minimax-cn", id: "MiniMax-M2.5", baseUrl: "https://api.minimax.cn/anthropic" }] }),
+			model: { provider: "minimax-cn", id: "MiniMax-M2.5" } };
+		await tools.get(kind).execute("auto", { prompt: "portrait", ...(kind === "image_edit" ? { image: [`data:image/png;base64,${PNG_B64}`] } : {}) }, undefined, undefined, ctx);
+		assert.equal(calls[0].url, "https://api.minimax.cn/v1/image_generation");
+		assert.equal(JSON.parse(calls[0].init.body).model, "image-01");
+	}
+});
+
+test("settings section: credential-backed image options include Grok and MiniMax outside the chat catalog", async () => {
+	const rendered = renderSettings({ current: null, autoModel: "minimax-cn/image-01", models: [
+		{ provider: "grok-build", id: "grok-imagine-image", name: "Grok Imagine" },
+		{ provider: "minimax-cn", id: "image-01", name: "MiniMax Image 01" },
+		{ provider: "minimax-cn", id: "image-01-live", name: "MiniMax Image 01 Live" },
+	] });
+	assert.deepEqual(rendered.rows.map(row => row.key), ["auto", "grok-build/grok-imagine-image", "minimax-cn/image-01", "minimax-cn/image-01-live"]);
+	assert.match(rendered.rows[0].text, /minimax-cn\/image-01/);
+	rendered.rows[1].click();
+	await new Promise(resolve => setImmediate(resolve));
+	assert.deepEqual(rendered.invokes.at(-1).params, { op: "set", model: "grok-build/grok-imagine-image" });
+});
+
+test("settings section: renders the host's complete image catalog and automatic preview", async () => {
+	const signedIn = renderSettings({ current: null, autoModel: "openai-codex/gpt-image-2", models: [
+		{ provider: "openai-codex", id: "gpt-image-2", name: "Codex (gpt-image-2)" },
+		{ provider: "openai", id: "gpt-image-1", name: "GPT Image 1" },
+	] });
 	assert.deepEqual(signedIn.rows.map((row) => row.key), ["auto", "openai-codex/gpt-image-2", "openai/gpt-image-1"]);
-	assert.match(signedIn.rows[0].text, /OpenAI Codex/);
+	assert.match(signedIn.rows[0].text, /openai-codex\/gpt-image-2/);
 	assert.match(signedIn.rows[1].text, /Codex \(gpt-image-2\)/);
 	signedIn.rows[1].click();
 	await new Promise((resolve) => setImmediate(resolve));
 	assert.deepEqual(signedIn.invokes.at(-1), { method: "model", params: { op: "set", model: "openai-codex/gpt-image-2" } });
 
-	const grokOnly = renderSettings({ current: null, grokDefault: true, codexSignedIn: false, autoRoute: "grok-build" },
-		[{ provider: "openai", id: "gpt-image-1" }]);
-	assert.deepEqual(grokOnly.rows.map((row) => row.key), ["auto", "openai/gpt-image-1"], "no Codex row without the login");
-	assert.match(grokOnly.rows[0].text, /grok-build is signed in/);
+	const grokOnly = renderSettings({ current: null, autoModel: "grok-build/grok-imagine-image", models: [
+		{ provider: "grok-build", id: "grok-imagine-image", name: "Grok Imagine" },
+	] }, [{ provider: "openai", id: "gpt-image-1" }]);
+	assert.deepEqual(grokOnly.rows.map((row) => row.key), ["auto", "grok-build/grok-imagine-image"], "only credential-backed host options are shown");
+	assert.match(grokOnly.rows[0].text, /grok-build\/grok-imagine-image/);
 
-	const freePlan = renderSettings({ current: "openai-codex/gpt-image-2", grokDefault: false, codexSignedIn: true, autoRoute: "none" });
+	const freePlan = renderSettings({ current: "openai-codex/gpt-image-2", autoModel: null, models: [
+		{ provider: "openai-codex", id: "gpt-image-2", name: "Codex (gpt-image-2)" },
+	] });
 	assert.deepEqual(freePlan.rows.map((row) => row.key), ["auto", "openai-codex/gpt-image-2"]);
-	assert.match(freePlan.rows[0].text, /No model selected/);
+	assert.match(freePlan.rows[0].text, /No image model is available/);
 	assert.match(freePlan.rows[1].text, /Current/, "the pinned Codex ref shows as current");
 });

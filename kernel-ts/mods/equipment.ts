@@ -18,6 +18,19 @@ import type {ModJobs} from './jobs.js';
 
 export const EQUIPMENT_PREPARATION = 'equipment-preparation.json';
 
+/** Supplied capabilities only: names and descriptive prose never justify model enrichment. */
+export function equipmentNeedsPreparation(value: unknown): boolean {
+    const item = row(value), present = (field: unknown): boolean => field !== null && field !== undefined && field !== ''
+        && (Array.isArray(field) ? field.length > 0 : typeof field !== 'object' || Object.keys(field).length > 0);
+    const state = row(item.state);
+    return present(item.document) || array(item.traits).length > 0 || array(item.usages).length > 0
+        || Object.entries(row(item.parameters)).some(([key,field]) => key !== 'description' && present(field))
+        || ['damage_die','damage','base_range_yards','range','uses_per_round','attacks','magazine','ammo','malfunction','skill','adds_damage_bonus','special','charges']
+            .some(key => present(item[key]))
+        || [item.condition,state.condition].some(condition => present(condition) && condition !== 'intact')
+        || [state.ammo,state.charges].some(present);
+}
+
 /** A read projection contains status only, never unfinished document text. */
 export async function equipmentPreparation(context: KernelContext, campaign: string): Promise<Row> {
     const path = join(context.campaignsRoot, campaign, 'save', EQUIPMENT_PREPARATION);
@@ -25,11 +38,11 @@ export async function equipmentPreparation(context: KernelContext, campaign: str
 }
 
 export function equipmentPreparationRows(ledger: Row, sheet: Row, worldline: unknown): Row[] {
-    const entries = values(row(ledger.entries)).filter(entry => entry.actor === sheet.id && entry.worldline === worldline
+    const entries = values(row(ledger.entries)).filter(entry => equipmentNeedsPreparation(entry.row) && entry.actor === sheet.id && entry.worldline === worldline
         && array(sheet.equipment).some(value => equal(value,entry.row)));
     const recorded = entries.filter(entry => ['pending','failed'].includes(entry.status))
         .map(entry => ({name:entry.name,status:entry.status}));
-    return [...recorded,...unregisteredEquipment([sheet]).filter(candidate => !entries.some(entry => equal(entry.row,candidate.row)))
+    return [...recorded,...unregisteredEquipment([sheet]).filter(candidate => equipmentNeedsPreparation(candidate.row) && !entries.some(entry => equal(entry.row,candidate.row)))
         .map(candidate=>({name:candidate.name,status:'pending'}))];
 }
 
@@ -49,7 +62,7 @@ export class EquipmentJobs {
             if (item && item.equipment_actor === entry.actor && row(item.owner).id === entry.actor
                 && row(row(row(world.objects).definitions)[item.definition]).provenance?.job === entry.job) entry.status = 'ready';
         }
-        for (const candidate of unregisteredEquipment(party,claimedEquipment(world))) {
+        for (const candidate of unregisteredEquipment(party,claimedEquipment(world)).filter(candidate => equipmentNeedsPreparation(candidate.row))) {
             const actor = selectActor(party,candidate.owner), binding = {actor:actor.id,row:clone(candidate.row),worldline:meta.active_worldline ?? null},
                 key = jsonDigest([binding,provider.id,provider.digest]);
             let entry = entries[key];
@@ -89,7 +102,7 @@ export class EquipmentJobs {
             actor = selectActor(party,params.actor), ledger = row(await campaign.readSave(EQUIPMENT_PREPARATION));
         const entry = values(row(ledger.entries)).find(value => value.actor === actor.id && value.name === params.name
             && value.worldline === (meta.active_worldline ?? null) && value.status === 'failed'
-            && array(actor.equipment).some(item => equal(item,value.row)));
+            && equipmentNeedsPreparation(value.row) && array(actor.equipment).some(item => equal(item,value.row)));
         if (!entry || !array(actor.equipment).some(value => equal(value,entry.row)))
             throw new RpcError('unknown_entity','No failed preparation for this owned equipment row');
         entry.status = 'pending'; delete entry.code;
@@ -103,7 +116,7 @@ export class EquipmentJobs {
         if (!entry || entry.status === 'ready' || entry.status === 'skipped') return {status:entry?.status ?? 'stale'};
         const meta = await campaign.readCampaign(), party = await campaign.party() as Row[], actor = party.find(value => value.id === entry.actor),
             index = actor ? array(actor.equipment).findIndex(value => equal(value,entry.row)) : -1;
-        if (meta.status !== 'active' || entry.worldline !== (meta.active_worldline ?? null) || !actor || index < 0
+        if (!equipmentNeedsPreparation(entry.row) || meta.status !== 'active' || entry.worldline !== (meta.active_worldline ?? null) || !actor || index < 0
             || !unregisteredEquipment(party,claimedEquipment(world)).some(value => value.owner === actor.name && equal(value.row,entry.row))) {
             entry.status = 'stale'; await campaign.writeSave(EQUIPMENT_PREPARATION,ledger); return {status:'stale'};
         }

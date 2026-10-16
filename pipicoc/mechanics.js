@@ -899,6 +899,31 @@ export function createComponent(React) {
     return h(RevealText, { key: start, value, start, ends });
   };
 
+  /** Markdown uses the same reveal budget as the receipt surface; hidden cards stay hidden. */
+  function MarkdownProse({ runs, renderProse, streaming }) {
+    const budget = Reveal ? React.useContext(Reveal) : null;
+    const visible = runs.flatMap(run => {
+      if (budget === null) return [run];
+      if (run.node !== undefined) return budget >= run.at ? [run] : [];
+      const count = Math.max(0, Math.min(run.ends.length, budget - run.at));
+      return count ? [{ ...run, text: run.text.slice(0, run.ends[count - 1]) }] : [];
+    });
+    const unfinished = budget !== null && runs.some(run => run.node === undefined && budget < run.at + run.ends.length);
+    return h(React.Fragment, null, renderProse(visible, streaming || budget !== null),
+      unfinished ? h("span", { className: "coc-typewriter-cursor", "aria-hidden": true }) : null);
+  }
+  const markdownRuns = (runs, progress) => {
+    let at = progress?.total ?? 0;
+    const prepared = runs.map(run => {
+      const start = at;
+      const ends = Array.from(graphemes.segment(run.text || ""), part => part.index + part.segment.length);
+      at += ends.length;
+      return { ...run, at: start, ends };
+    });
+    if (progress) progress.total = at;
+    return prepared;
+  };
+
   /**
    * §155.8: the host call and the words a pictured handout's control needs, handed from the card to
    * its rows by context rather than by a parameter threaded through every `renderRow`. The value is
@@ -1639,6 +1664,35 @@ export function createComponent(React) {
       // One open span for the whole delivery, and one running count of spans, because both cross
       // the cards that interrupt them (§40.4).
       const state = { span: null, spans: 0 };
+      if (typeof props.renderProse === "function") {
+        const runs = [];
+        const append = value => {
+          const clean = value.replace(LOOSE_TOKEN, "");
+          if (clean) runs.push({ text: clean, ...(state.span ? { speaker: speaker(state.span) } : {}) });
+        };
+        for (const [index, part] of parts.entries()) {
+          if (part.row) {
+            runs.push({ node: h("div", { className: "coc-mech-here", key: `row:${index}` }, renderRow(part.row, t, term, index, sheet, open)) });
+            continue;
+          }
+          let last = 0;
+          SAY_TOKEN.lastIndex = 0;
+          for (let match = SAY_TOKEN.exec(part.text); match; match = SAY_TOKEN.exec(part.text)) {
+            append(part.text.slice(last, match.index));
+            if (match[1] === undefined) state.span = null;
+            else {
+              const name = match[1].trim();
+              state.span = name ? { name, order: state.spans++ } : null;
+            }
+            last = match.index + match[0].length;
+          }
+          append(part.text.slice(last));
+        }
+        const body = h(MarkdownProse, { runs: markdownRuns(runs, progress), renderProse: props.renderProse, streaming: details.draft === true });
+        const tail = [folds(unplaced, (rows, key) => rows.map((row, i) => renderRow(row, t, term, `${key}:${i}`, sheet, open))), help ? h(HelpFold, { help }) : null];
+        return h("div", { className: "coc-mech coc-mech-inline" }, body,
+          ...(progress ? [h(RevealBlock, { at: progress.total }, ...tail)] : tail));
+      }
       return h("div", { className: "coc-mech coc-mech-inline" },
         parts.map((part, index) => {
           if (!part.row) return proseBlocks(part.text, `text:${index}`, state, speaker, progress);
@@ -1655,7 +1709,9 @@ export function createComponent(React) {
     // Nothing of ours to add: let the host draw its default card rather than an empty one.
     if (!prose && !rows.length && !help) return null;
 
-    const body = prose ? h("div", { className: "coc-mech-prose" }, progressiveText(prose, progress)) : null;
+    const body = prose ? typeof props.renderProse === "function"
+      ? h(MarkdownProse, { runs: markdownRuns([{ text: prose }], progress), renderProse: props.renderProse, streaming: details.draft === true })
+      : h("div", { className: "coc-mech-prose" }, progressiveText(prose, progress)) : null;
     const tail = [help ? h(HelpFold, { help }) : null,
       folds(rows, (foldRows, key) =>
             groupRows(foldRows).map((group, index) => group.call && group.rows.length > 1
@@ -1686,7 +1742,7 @@ export function createComponent(React) {
       return drawCard(props, progress);
     };
     // Cursor ticks retain the parsed paragraphs, speech spans and receipt positions.
-    const card = typeof React.useMemo === "function" ? React.useMemo(draw, [props.details, props.content, props.onOpenPanel, enabled]) : draw();
+    const card = typeof React.useMemo === "function" ? React.useMemo(draw, [props.details, props.content, props.onOpenPanel, props.renderProse, enabled]) : draw();
     if (!card || !HostCall) return card;
     const invoke = typeof props.onInvoke === "function" ? props.onInvoke : null;
     const ui = isRecord(props.details) ? props.details.ui : null;

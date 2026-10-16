@@ -12,6 +12,7 @@ const codex={provider:'openai-codex',id:'gpt-6.1-sol',api:'openai-codex-response
   reasoning:true,input:['text'],contextWindow:128000,maxTokens:8192,thinkingLevelMap:{low:'low'},
   cost:{input:2,output:8,cacheRead:0.2,cacheWrite:0}};
 const flap={...codex,provider:'flapcode',api:'openai-responses',samplingParams:{service_tier:'fast'}};
+const relay={...flap,provider:'codex-relay',id:'gpt-6-luna'};
 const payload={model:codex.id,reasoning:{effort:'low'},service_tier:'fast'};
 function fixture(model=codex) {
   const root=mkdtempSync(join(tmpdir(),'openai-fast-offline-'));
@@ -26,11 +27,33 @@ function fixture(model=codex) {
     if(old.root===undefined)delete process.env.PIPIUI_PROJECT_ROOT;else process.env.PIPIUI_PROJECT_ROOT=old.root;
     if(old.sid===undefined)delete process.env.PIPIUI_SESSION_ID;else process.env.PIPIUI_SESSION_ID=old.sid;}};
 }
-test('capabilities show Codex and explicit Flapcode OpenAI identities only',()=>{
+test('capabilities show Codex, Relay Luna and explicit Flapcode OpenAI identities only',()=>{
   assert.equal(visible(codex),true);assert.equal(visible(flap),true);
+  assert.equal(visible(relay),true);assert.equal(capable(relay),true);
+  assert.equal(visible({...relay,id:'gpt-6-sol'}),false);
   assert.equal(visible({...flap,id:'claude-fast'}),false);
   assert.equal(visible({...codex,provider:'openai'}),false);
   assert.equal(capable({...codex,api:'other'}),false);
+});
+test('Relay Fast uses its priority wire alias while preserving canonical identity, effort and tools',()=>{
+  const f=fixture(relay),body={model:relay.id,reasoning:{effort:'high'},tools:[{type:'function',name:'test'}]};
+  try {
+    const hook=f.handlers.before_provider_request;
+    assert.equal(hook({payload:body},{model:relay}).model,relay.id);
+    f.preference(true);
+    const captured=hook({payload:body},{model:relay});
+    assert.equal(captured.model,'gpt-6-luna-fast');assert.equal(captured.service_tier,'priority');
+    assert.equal(captured.reasoning,body.reasoning);assert.equal(captured.tools,body.tools);
+    f.preference(false);
+    assert.equal(captured.model,'gpt-6-luna-fast');
+    const off=hook({payload:body},{model:relay});
+    assert.equal(off.model,relay.id);assert.equal(off.service_tier,'default');
+    f.preference(true);hook({payload:body},{model:relay});
+    f.handlers.provider_stream_event({provider:relay.provider,model:relay.id,data:{type:'response.completed',response:{model:relay.id,service_tier:'default'}}});
+    const final=f.handlers.message_end({message:{role:'assistant',provider:relay.provider,model:relay.id,content:[],usage:{cost:{total:0}}}}).message;
+    assert.equal(final.model,relay.id);assert.equal(final.fastMode.requested,true);assert.equal(final.fastMode.status,'default');
+    assert.equal(JSON.parse(readFileSync(join(f.root,preferencePath('session-a',relay)+'.status.json'),'utf8')).model,'codex-relay/gpt-6-luna');
+  }finally{f.cleanup();}
 });
 test('on overrides samplingParams; off forces default; unrelated provider and effort are unchanged',()=>{
   for(const model of [codex,flap]) {
@@ -101,9 +124,10 @@ if(process.env.FAST_SDK_ROOT) {
   const adapters = {
     'openai-codex': await import(pathToFileURL(join(process.env.FAST_SDK_ROOT,'@earendil-works/pi-ai/dist/api/openai-codex-responses.js'))),
     flapcode: await import(pathToFileURL(join(process.env.FAST_SDK_ROOT,'@earendil-works/pi-ai/dist/api/openai-responses.js'))),
+    'codex-relay': await import(pathToFileURL(join(process.env.FAST_SDK_ROOT,'@earendil-works/pi-ai/dist/api/openai-responses.js'))),
   };
   const syntheticJwt='x.'+Buffer.from(JSON.stringify({'https://api.openai.com/auth':{chatgpt_account_id:'mock-account'}})).toString('base64url')+'.x';
-  for(const [model,transports] of [[codex,['sse','websocket']],[flap,['sse']]])
+  for(const [model,transports] of [[codex,['sse','websocket']],[flap,['sse']],[relay,['sse']]])
   for(const transport of transports) for(const enabled of [true,false])
   test(`${model.provider} pinned SDK ${transport}: ${enabled?'on':'off'} passes hook to serialized wire and actual default to message-end`,async()=>{
     const f=fixture(model),originalWs=globalThis.WebSocket,originalFetch=globalThis.fetch;
@@ -126,13 +150,14 @@ if(process.env.FAST_SDK_ROOT) {
     try {
       f.preference(enabled);
       const context={systemPrompt:'Synthetic offline contract',messages:[{role:'user',content:[{type:'text',text:'test'}],timestamp:0}]};
-      const stream=adapters[model.provider].streamSimple(model,context,{apiKey:model.provider==='flapcode'?'mock-key':syntheticJwt,
+      const stream=adapters[model.provider].streamSimple(model,context,{apiKey:model.provider==='openai-codex'?syntheticJwt:'mock-key',
         reasoning:'low',transport,fetch,maxRetries:0,timeoutMs:2000,websocketConnectTimeoutMs:1000,env:{},
         onPayload:body=>f.handlers.before_provider_request({payload:body},{model}),
         onProviderStreamEvent:data=>f.handlers.provider_stream_event({provider:model.provider,model:model.id,data})});
       const result=await stream.result();
       assert.notEqual(result.stopReason,'error',result.errorMessage);
       assert.equal(wires.length,1);assert.equal(wires[0].service_tier,enabled?'priority':'default');
+      assert.equal(wires[0].model,model.provider==='codex-relay'&&enabled?'gpt-6-luna-fast':model.id);
       assert.equal(wires[0].reasoning.effort,'low');
       const final=f.handlers.message_end({message:result}).message;
       assert.equal(final.fastMode.effectiveTier,'default');
@@ -160,7 +185,7 @@ if(process.env.FAST_SDK_ROOT) {
   const module = async path => import(pathToFileURL(join(process.env.FAST_SDK_ROOT,'@earendil-works/pi-coding-agent/dist/core',path)));
   const [{createAgentSession},{SessionManager},{SettingsManager},{createExtensionRuntime,loadExtensionFromFactory},{createEventBus}] = await Promise.all([
     module('sdk.js'),module('session-manager.js'),module('settings-manager.js'),module('extensions/loader.js'),module('event-bus.js')]);
-  for(const model of [codex,flap]) test(`${model.provider}: real Pi SDK/AgentSession hooks and persisted message honor requested priority versus actual default`,async()=>{
+  for(const model of [codex,flap,relay]) test(`${model.provider}: real Pi SDK/AgentSession hooks and persisted message honor requested priority versus actual default`,async()=>{
     const f=fixture(model),wires=[];
     let session;
     try {
@@ -173,8 +198,8 @@ if(process.env.FAST_SDK_ROOT) {
         getSystemPrompt:()=> 'Synthetic offline contract',getAppendSystemPrompt:()=>[],getSystemPromptSource:()=>undefined,
         getAppendSystemPromptSources:()=>[],extendResources:()=>{},reload:async()=>{}};
       const syntheticJwt='x.'+Buffer.from(JSON.stringify({'https://api.openai.com/auth':{chatgpt_account_id:'mock-account'}})).toString('base64url')+'.x';
-      const apiKey=model.provider==='flapcode'?'mock-key':syntheticJwt;
-      const adapter=await import(pathToFileURL(join(process.env.FAST_SDK_ROOT,'@earendil-works/pi-ai/dist/api',model.provider==='flapcode'?'openai-responses.js':'openai-codex-responses.js')));
+      const apiKey=model.provider==='openai-codex'?syntheticJwt:'mock-key';
+      const adapter=await import(pathToFileURL(join(process.env.FAST_SDK_ROOT,'@earendil-works/pi-ai/dist/api',model.provider==='openai-codex'?'openai-codex-responses.js':'openai-responses.js')));
       const fetch=async(_url,init)=>{
         const body=typeof init.body==='string'?init.body:zstdDecompressSync(init.body).toString();wires.push(JSON.parse(body));
         const event={type:'response.completed',response:{id:'mock-response',status:'completed',output:[],service_tier:'default',usage:{input_tokens:11,output_tokens:5,input_tokens_details:{cached_tokens:0},output_tokens_details:{reasoning_tokens:0}}}};
@@ -193,9 +218,11 @@ if(process.env.FAST_SDK_ROOT) {
       const visible=[];session.subscribe(event=>{if(event.type==='message_end'&&event.message.role==='assistant')visible.push({...event.message});});
       await session.prompt('Synthetic offline payload', {expandPromptTemplates:false});
       assert.equal(wires.length,1);assert.equal(wires[0].service_tier,'priority');assert.equal(wires[0].reasoning.effort,'low');
+      assert.equal(wires[0].model,model.provider==='codex-relay'?'gpt-6-luna-fast':model.id);
       const persisted=manager.getEntries().findLast(entry=>entry.type==='message'&&entry.message.role==='assistant').message;
       assert.equal(visible.length,1);assert.equal(visible[0].fastMode.status,'default');
       assert.equal(persisted.fastMode.effectiveTier,'default');assert.equal(persisted.fastMode.requested,true);
+      assert.equal(persisted.model,model.id);
       assert.ok(Math.abs(persisted.usage.cost.total-(11*2+5*8)/1e6)<1e-15);
     }finally{session?.dispose();f.cleanup();}
   });

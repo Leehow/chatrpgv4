@@ -788,6 +788,10 @@ export function createComponent(React) {
           for(const trait of object.traits || []) line.details.push({key:`trait:${trait.name}`,label:term(trait.name),value:`${term(text(trait.value))}${trait.unit?' '+term(trait.unit):''}`});
           for(const key of ['condition','charges']) if(object.state?.[key]!==null&&object.state?.[key]!==undefined) line.details.push({key,value:object.state[key]});
         }
+        // Prose and an unchanged default condition are background, not a reason to disclose details.
+        // Preparation is projected only for rows with an already supplied capability (§129.7).
+        const detailed=props.anchor==='weapons'||object?.category==='weapon'||!!writable||!!preparation||usages.length>0||line.details.some(({key,value})=>
+          key!=='description'&&!(key==='condition'&&value==='intact'));
         const nameNode=writable && props.onOpenDocument
           ? h("button",{type:"button",className:"coc-inventory-document",onClick:event=>{
               // On a folded line the paper's own click must not also toggle the fold.
@@ -811,8 +815,8 @@ export function createComponent(React) {
         ].filter(Boolean);
         // Keyed by name so an entry that changes place is drawn afresh (closed) rather than
         // inheriting the open fold of whatever stood at its index before.
-        return h("li",{className:"coc-inventory-entry",key:object?.equipment_name || item?.equipment_name || name,"data-detailed":line.details.length>0||usages.length>0||!!preparation?"true":"false"},
-          body.length
+        return h("li",{className:"coc-inventory-entry",key:object?.equipment_name || item?.equipment_name || name,"data-detailed":detailed?"true":"false"},
+          detailed&&body.length
             ? h("details",{className:"coc-inventory-fold"},
                 h("summary",{className:"coc-inventory-heading"},nameNode,h("span",{className:"coc-inventory-trail"},quantity)),
                 h("div",{className:"coc-inventory-body"},body))

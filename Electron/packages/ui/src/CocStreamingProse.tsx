@@ -1,25 +1,25 @@
-import React,{memo,useEffect,useRef} from 'react';
+import {useEffect,useRef} from 'react';
+import {CocMarkdown,type CocProseRun} from './CocMarkdown';
 // @ts-expect-error -- shared packaged renderer owns speaker colors.
 import {speakerInk,SPEAKER_CSS} from '../../../../pipicoc/mechanics.js';
 
 type Speaker={name:string;who:Record<string,unknown>};
 export type StreamingProseDetails={chunks:string[];speakers?:Speaker[];status?:string;delivery_id?:string};
 type Piece={text:string;who?:Record<string,unknown>};
-const PieceView=memo(({piece}:{piece:Piece})=>{
+const proseRun=(piece:Piece):CocProseRun=>{
   const who=piece.who;
-  if(!who)return <>{piece.text}</>;
+  if(!who)return {text:piece.text};
   const kind=who.npc?'npc':who.investigator?'investigator':'label';
   const anchor=String(who.npc??who.investigator??who.label??'');
   const name=String(who.shown??who.name??who.label??'');
-  return <span className="coc-say" data-who={kind} title={name}
-    style={{'--coc-say-ink':speakerInk(anchor,kind)} as React.CSSProperties}>{piece.text}</span>;
-});
+  return {text:piece.text,speaker:{who:kind,title:name,ink:speakerInk(anchor,kind)}};
+};
 
 /** Append-only markup decoding; unfinished marker syntax is never rendered. */
 export function CocStreamingProse({details}:{details:StreamingProseDetails}) {
   const state=useRef({count:0,tail:'',pieces:[] as Piece[],who:undefined as Record<string,unknown>|undefined});
   const firstPaint=useRef(false);
-  const prose=useRef<HTMLParagraphElement>(null);
+  const prose=useRef<HTMLDivElement>(null);
   useEffect(()=>{
     if(document.getElementById('coc-stream-speaker-style'))return;
     const style=document.createElement('style');style.id='coc-stream-speaker-style';
@@ -71,13 +71,14 @@ export function CocStreamingProse({details}:{details:StreamingProseDetails}) {
       else if(token.startsWith('say:')){
         const raw=token.slice(4).trim();
         const name=raw.startsWith('{{name:')&&raw.endsWith('}}')?raw.slice(7,-2):raw;
-        current.who=details.speakers?.find(speaker=>speaker.name===name||speaker.who.name===name||speaker.who.shown===name)?.who;
+        current.who=details.speakers?.find(speaker=>speaker.name===name||speaker.who.name===name||speaker.who.shown===name)?.who
+          ??(name?{label:name}:undefined);
       }
       current.tail=current.tail.slice(end+2);
     }
   }
   return <div className="coc-streaming-prose" data-delivery-status={details.status}>
-    <p ref={prose} style={{whiteSpace:'pre-wrap'}}>{current.pieces.map((piece,index)=><PieceView key={index} piece={piece}/>)}</p>
+    <div ref={prose}><CocMarkdown runs={current.pieces.map(proseRun)} streaming={!['completed','interrupted'].includes(details.status??'')}/></div>
     {details.status==='interrupted'?<span role="status">⏸</span>:details.status==='publication_pending'?<span role="status">…</span>:null}
   </div>;
 }

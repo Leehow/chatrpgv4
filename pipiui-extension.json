@@ -54,6 +54,16 @@
             "type": "object",
             "title": "Beginner hints",
             "description": "Whether a short explanation opens by itself the first time this desk meets a moment a new player may not understand (the guide's first question, the Keeper's opening). Off leaves the \"?\" buttons and opens nothing."
+          },
+          "ext.coc-keeper.authorModel": {
+            "type": "object",
+            "title": "Prose model",
+            "description": "Independent isolated prose author provider/model. Read when each composition starts."
+          },
+          "ext.coc-keeper.authorThinking": {
+            "type": "object",
+            "title": "Prose model reasoning effort",
+            "description": "Independent reasoning effort for the prose author."
           }
         }
       }
@@ -68,8 +78,8 @@
         },
         {
           "id": "coc-lane-model",
-          "title": "Fast model",
-          "description": "One quick model for all of the Keeper's background work",
+          "title": "Model settings",
+          "description": "Fast background work and prose composition",
           "entry": "pipicoc/settings-lane-model.js"
         },
         {

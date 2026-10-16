@@ -23,6 +23,37 @@ export function preserveRam(ordinary,destination){
   }}}
   walk(destination);return relocated;
 }
+export function removePassedFixtures(paths,outcomes,{ordinary,disk}){
+  const results=new Map(),byPath=new Map(),removed=[];
+  for(const row of outcomes){const values=results.get(row.nodeid)??[];values.push(row.outcome);results.set(row.nodeid,values);}
+  for(const row of paths){
+    if(!isAbsolute(row.path))throw new Error('Fixture path must be absolute');
+    const path=resolve(row.path),parent=dirname(path),root=row.storage==='disk'?disk:ordinary;
+    const direct=row.storage==='disk'?dirname(parent)===disk&&/^\d+$/.test(parent.slice(disk.length+1)):parent===ordinary;
+    if(!direct||!/^case-[a-f0-9]{16}-/.test(path.slice(parent.length+1)))throw new Error('Fixture path escaped its owned root');
+    for(const ancestor of new Set([root,parent,path]))if(existsSync(ancestor)&&lstatSync(ancestor).isSymbolicLink())throw new Error('Fixture ancestor became a symlink');
+    const rows=byPath.get(path)??[];rows.push(row);byPath.set(path,rows);
+  }
+  const candidates=new Set([...byPath].filter(([,rows])=>rows.every(row=>{
+    const values=results.get(row.nodeid);return values?.length&&values.every(value=>value==='passed');
+  })).map(([path])=>path));
+  // A retained case can depend on another case through a symlink. Keep that dependency too.
+  const pending=[...byPath.keys()].filter(path=>!candidates.has(path)),seen=new Set();
+  function links(directory){
+    if(!existsSync(directory))return;
+    for(const entry of readdirSync(directory,{withFileTypes:true})){
+      const path=join(directory,entry.name);
+      if(entry.isDirectory())links(path);
+      else if(entry.isSymbolicLink()){
+        const target=resolve(directory,readlinkSync(path));
+        for(const candidate of candidates){const rel=relative(candidate,target);if(rel===''||(!isAbsolute(rel)&&rel!=='..'&&!rel.startsWith('..'+sep))){candidates.delete(candidate);pending.push(candidate);}}
+      }
+    }
+  }
+  while(pending.length){const path=pending.pop();if(!seen.has(path)){seen.add(path);links(path);}}
+  for(const path of candidates){removeOwned(path);removed.push(path);}
+  return removed;
+}
 export async function runStorage(runDir,args,{mode='hybrid',ramParent='/dev/shm',cwd=process.cwd(),env=process.env}={}){
   if(!['hybrid','disk'].includes(mode))throw new Error('Unsupported storage mode');
   runDir=resolve(runDir);mkdirSync(runDir,{recursive:true});
@@ -50,9 +81,11 @@ export async function runStorage(runDir,args,{mode='hybrid',ramParent='/dev/shm'
     Object.assign(metadata,{exit_code:exitCode,node_process_seconds:(performance.now()-start)/1000,status:exitCode===0?'passed':'failed'});
     const reports=readdirSync(runDir).filter(file=>/^storage-\d+\.json$/.test(file)).map(file=>JSON.parse(readFileSync(join(runDir,file),'utf8')));
     const events=existsSync(join(runDir,'storage-events.json'))?JSON.parse(readFileSync(join(runDir,'storage-events.json'),'utf8')):null;
-    writeFileSync(join(runDir,'storage-main.json'),JSON.stringify({collected:events?.collected??reports.flatMap(report=>report.collected),paths:reports.flatMap(report=>report.paths),reports:events?.reports??reports.flatMap(report=>report.reports),exit_code:exitCode},null,2)+'\n');
+    const summary={collected:events?.collected??reports.flatMap(report=>report.collected),paths:reports.flatMap(report=>report.paths),reports:events?.reports??reports.flatMap(report=>report.reports),exit_code:exitCode};
+    writeFileSync(join(runDir,'storage-main.json'),JSON.stringify(summary,null,2)+'\n');
+    if(exitCode!==0){try{metadata.removed_passed_fixtures=removePassedFixtures(summary.paths,summary.reports,{ordinary,disk});}catch(error){metadata.fixture_cleanup_error=String(error);}}
     if(exitCode!==0&&effectiveMode==='hybrid'){try{metadata.relocated_links=preserveRam(ordinary,join(runDir,'ram-evidence'));}catch(error){metadata.ram_preservation_error=String(error);metadata.ram_retained=ordinary;}}
-    try{if(!metadata.ram_retained)removeOwned(ordinary);if(exitCode===0)removeOwned(disk);}catch(error){metadata.cleanup_error=String(error);}
+    try{if(!metadata.ram_retained&&(exitCode===0||effectiveMode==='hybrid'))removeOwned(ordinary);if(exitCode===0)removeOwned(disk);}catch(error){metadata.cleanup_error=String(error);}
     for(const [signal,handler]of handlers)process.off(signal,handler);
     metadata.total_seconds=(performance.now()-start)/1000;writeFileSync(join(runDir,'run.json'),JSON.stringify(metadata,null,2)+'\n');
     console.log(`Native storage result: exit=${exitCode} evidence=${runDir}`);

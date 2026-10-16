@@ -4,6 +4,8 @@
 
 ## 工具
 
+Before creating comparison/retry workspaces, follow [the bounded test storage contract](specs/test-data-storage.md). Use `start --seed-home PATH` to reuse a quiescent retained seed with private CoW state, per-file provenance and admission limits. Keep the run's results and raw evidence; inspect actual free space independently of logical directory sizes.
+
 若 Codex Relay 报并发已满，本次测试回退到 `grok-build/grok-4.5` / `low`，包括最终作者和辅助车道；保留 Luna 失败记录，后续测试默认仍为 Luna/high（2026-10-13 用户补充裁定）。
 
 - 驾驭器 `tests/play/driver.ts`：`node tests/play/driver.ts start --campaign <id> --run <run_id> [--launcher bin/pi-coc-setup]` 起一个守护进程与 `pi --mode rpc`；`turn "<玩家原文>" --run <run_id> --timeout <秒>` 发一条玩家输入并打印交付；`stop`；`status`；`log`。证据落在 `.coc/playtests/<run_id>/`（每回合 `turn-N.json`、`events.jsonl`、`pi-stderr.log`）。
@@ -68,6 +70,12 @@ does not reconstruct a long campaign's published graph. Missing-copy startup
 failures are environment evidence, never successful gameplay or Jev verdicts.
 
 ## Uniform live acceptance profile
+
+Owner override for MiniMax cache/search/image acceptance (2026-10-16): explicitly
+select minimax-cn/MiniMax-M3.1-Flash-Preview with medium reasoning for both Keeper
+and final author. The driver passes the existing test-only model binding to both
+author paths; verify actual model events and request effort. Other test defaults,
+ordinary product author choice and independent lanes remain unchanged.
 
 The live driver profile is explicit: Luna/high normally, Grok 4.5/low only after actual upstream concurrency saturation. PI_COC_TEST_MODEL is a test-only process binding. When it selects either approved profile, actual single-completion lane effort and tool-enabled build-worker effort must use that same profile even where a normal caller has an off/low default. The final author already uses this binding. Outside these two exact test profiles, existing caller and lane/environment precedence remains unchanged. Telemetry must report the same effective options carried by the request, not merely inherited environment values. Retain mismatched earlier runs as diagnostic evidence.
 

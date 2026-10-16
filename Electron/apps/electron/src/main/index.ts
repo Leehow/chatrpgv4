@@ -39,11 +39,17 @@ import { createRemoteDebugService, resolveRemoteDebugStaticDir } from './remote-
 import { normalizeEventProjectionSession, shouldForwardRendererEvent } from './renderer-event-projection.js'
 export { createPtyTerminalBackend, resolveTerminalCwd, resolveTerminalShell } from './terminal-host.js'
 
+interface RendererSenderLike {
+  send(channel: string, frame: HostWireFrame): void
+  isDestroyed?(): boolean
+  once?(event: 'destroyed', listener: () => void): unknown
+}
+
 export interface IpcMainLike {
   handle(
     channel: string,
     listener: (
-      event: { sender: { send(channel: string, frame: HostWireFrame): void } },
+      event: { sender: RendererSenderLike },
       request: HostRequest
     ) => Promise<HostResponse>
   ): void
@@ -55,16 +61,28 @@ export function registerPipiHostIpc(
   backend: HostBackend,
   channel = PIPI_HOST_IPC_CHANNEL
 ): void {
-  type RendererSender = { send(channel: string, frame: HostWireFrame): void }
-  const renderers = new Map<RendererSender, string | undefined>()
+  const renderers = new Map<RendererSenderLike, string | undefined>()
   backend.subscribe((frame) => {
     if (process.env.PIPIUI_STREAM_DEBUG) console.log(`[stream-debug] ipc-send ch=${(frame as { channel?: string }).channel} t=${Date.now()}`)
     for (const [renderer, selectedSession] of renderers) {
-      if (shouldForwardRendererEvent(frame, selectedSession)) renderer.send(channel, { type: 'event', ...frame })
+      if (renderer.isDestroyed?.()) {
+        renderers.delete(renderer)
+        continue
+      }
+      if (shouldForwardRendererEvent(frame, selectedSession)) {
+        try { renderer.send(channel, { type: 'event', ...frame }) }
+        catch (error) {
+          if (!renderer.isDestroyed?.()) throw error
+          renderers.delete(renderer)
+        }
+      }
     }
   })
   ipc.handle(channel, async (event, request) => {
-    if (!renderers.has(event.sender)) renderers.set(event.sender, undefined)
+    if (!renderers.has(event.sender)) {
+      renderers.set(event.sender, undefined)
+      event.sender.once?.('destroyed', () => renderers.delete(event.sender))
+    }
     if (request.protocolVersion !== PIPI_HOST_PROTOCOL_VERSION || request.type !== 'request') {
       return { protocolVersion: PIPI_HOST_PROTOCOL_VERSION, id: request.id ?? '', type: 'response', ok: false, error: 'unsupported protocol' }
     }

@@ -50,6 +50,13 @@ test('test_disk_mode_keeps_all_fixtures_on_disk_and_rejects_run_reuse',async(t)=
   const meta=json(join(run,'run.json'));assert.ok(meta.mode==='disk'&&inside(meta.ordinary,run));const original=readFileSync(join(run,'run.json'));
   result=await finish(start(project,env,run,'disk'));assert.ok(result.code!==0&&result.output.includes('cannot reuse'));assert.deepEqual(readFileSync(join(run,'run.json')),original);
 });
+test('test_failed_run_removes_passed_cases_and_retains_the_failed_fixture',async(t)=>{
+  const tmp=scratch(t),{project,env}=sandbox(tmp,"writeFileSync(join(tmp_path,'value'),'failed case');assert.fail('controlled failure');","writeFileSync(join(tmp_path,'passed-only'),'passed case');"),run=join(tmp,'run');
+  const {code,output}=await finish(start(project,env,run,'disk'));assert.equal(code,1,output);
+  const report=json(join(run,'storage-main.json')),passed=report.paths.find((row:any)=>row.nodeid==='test_disk.ts::test_fixture'),failed=report.paths.find((row:any)=>row.nodeid==='test_ordinary.ts::test_fixture');
+  assert.ok(passed&&failed,output);assert.ok(!existsSync(passed.path),'A different failed case must not retain successful scratch');
+  assert.equal(readFileSync(join(failed.path,'value'),'utf8'),'failed case');assert.deepEqual(json(join(run,'run.json')).removed_passed_fixtures,[passed.path]);
+});
 test('test_interruption_preserves_ram_after_stopping_the_owned_child',{skip:!existsSync('/dev/shm')&&'Linux shared memory is required'},async(t)=>{
   const tmp=scratch(t),ready=join(tmp,'ready'),body=`writeFileSync(join(tmp_path,'value'),'interrupted');writeFileSync(${JSON.stringify(ready)},'');while(true)await delay(50);`,{project,env}=sandbox(tmp,body),run=join(tmp,'run'),proc=start(project,env,run),finished=finish(proc);
   try{

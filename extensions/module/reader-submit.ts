@@ -118,7 +118,7 @@ export default async function readerSubmit(pi: any) {
 		parameters: reviewing ? Type.Object({review:Type.Optional(moduleLogicReview(task)?logicReviewSchema:guidanceTask?guidanceReview:Type.Any())})
 			: guidanceProjection ? Type.Object({guidance:Type.Optional(guidanceSchema),public_fields:Type.Optional(publicSchema)},{additionalProperties:false})
 			: Type.Object({draft:Type.Optional(indexTask?Type.Object({sections:Type.Array(Type.Object({name:Type.String(),
-                pages:Type.Array(Type.Tuple([Type.Integer({minimum:1}),Type.Integer({minimum:1})]),{minItems:1,description:'Nested physical page ranges [[start,end],...], bounded by the original PDF.'}),
+                pages:Type.Array(Type.Array(Type.Integer({minimum:1}),{minItems:2,maxItems:2}),{minItems:1,description:'Nested physical page ranges [[start,end],...], bounded by the original PDF.'}),
                 source_refs:Type.Optional(Type.Array(Type.Object({page:Type.Integer({minimum:1,...(typeof task.source?.page_count==='number'?{maximum:task.source.page_count}:{})})},{additionalProperties:true}),
                     {description:'Observed original physical page references as objects, for example [{page:1}]. Omit or leave empty only for the existing full-range observation fallback.'}))
             },{additionalProperties:true}),{description:'Navigation rows with name, nested physical page ranges in pages and observed source_refs.'})},{additionalProperties:true}):guidanceTask?Type.Object({nodes:Type.Array(Type.Any()),claims:Type.Array(Type.Any()),

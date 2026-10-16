@@ -59,7 +59,7 @@ async function requestMaterials(t,table,query,select){
     for(const key of Object.keys(sent.questions))if(/^names_s\d+$/.test(key))wire.answers[key]={type:'noul',noul:1};
     return Response.json(wire);
   };
-  api.installContextPolicy({on:(name,fn)=>hooks.set(name,fn),events:{on:(name,fn)=>bus.set(name,fn)},getActiveTools:()=>[],getAllTools:()=>[]},event=>events.push(event));
+  api.installContextPolicy({on:(name,fn)=>hooks.set(name,fn),events:{on:(name,fn)=>bus.set(name,fn),emit:(name,value)=>bus.get(name)?.(value)},getActiveTools:()=>[],getAllTools:()=>[]},event=>events.push(event));
   bus.get('coc:kernel-bridge')({campaign:opened.campaign?.id??capsuleResult._context.campaign,call:table.call});
   bus.get('coc:table-open')({campaign:capsuleResult._context.campaign,open:opened});
   bus.get('coc:capsule')({capsule,context:_context,epoch:input.epoch??`${_context.campaign}:${_context.turn}`});

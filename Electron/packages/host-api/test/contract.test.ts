@@ -1,4 +1,6 @@
 import { fileURLToPath } from 'node:url'
+import { EventEmitter } from 'node:events'
+import { PIPI_HOST_PROTOCOL_VERSION } from '../src/index.js'
 import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest'
 import WebSocket from 'ws'
 import { bindHostBackend, createHostBackendSession, createIpcHost, createWsHost, encodePipiuiUpdateEvaluationIntent, parseHostWireFrame, PIPIUI_UPDATE_EVALUATION_INTENT_PREFIX, PIPIUI_UPDATE_EVALUATION_INTENT_VERSION, resolveThinkingLevel, thinkingLevelsForHydratedModel, thinkingLevelsForModel, TRANSPORT_DISCONNECTED, TRANSPORT_TIMEOUT, type ExtEvent, type ExtInvokeErrorCode, type ExtInvokeResult, type ExtUiEvent, type ExtensionContributions, type ExtensionDescriptor, type HostBackend, type HostEvent, type HostWireFrame, type IpcRendererLike, type PipiHostAPI, type SidebarSessionPreferences, type StreamEvent, type WebSocketLike } from '../src/index.js'
@@ -563,6 +565,56 @@ function contract(name: string, factory: Factory, expectedCapabilities: Record<s
     })
   })
 }
+
+describe('IPC renderer lifecycle', () => {
+  it.each(['destroyed event', 'stale recipient', 'destruction during send'] as const)(
+    'keeps a reopened renderer and its request working after %s', async mode => {
+      let handler: any
+      let publish: (event: HostEvent) => void = () => {}
+      let oldDestroyed = false, oldSends = 0, oldChecks = 0
+      const received: HostWireFrame[] = []
+      const frame: HostEvent = { protocolVersion: PIPI_HOST_PROTOCOL_VERSION, channel: 'ext.coc-keeper', event: { type: 'sheet_changed', payload: {} } }
+      const backend = {
+        subscribe(listener: (event: HostEvent) => void) { publish = listener; return () => {} },
+        async handle() { publish(frame); return 'operation complete' },
+      } as unknown as HostBackend
+      registerPipiHostIpc({ handle(_channel, callback) { handler = callback } }, backend)
+      const old = Object.assign(new EventEmitter(), {
+        isDestroyed() { oldChecks++; return oldDestroyed },
+        send() {
+          oldSends++
+          if (mode === 'destruction during send' && oldSends > 1) oldDestroyed = true
+          if (oldDestroyed) throw new Error('Object has been destroyed')
+        },
+      })
+      const fresh = { isDestroyed: () => false, send(_channel: string, event: HostWireFrame) { received.push(event) } }
+      const request = { protocolVersion: PIPI_HOST_PROTOCOL_VERSION, type: 'request', id: 'lifecycle', method: 'operation', params: [] }
+      await handler({ sender: old }, request)
+      expect(old.listenerCount('destroyed')).toBe(1)
+      if (mode !== 'destruction during send') oldDestroyed = true
+      if (mode === 'destroyed event') old.emit('destroyed')
+      const checksBeforeReopen = oldChecks
+      expect(await handler({ sender: fresh }, request)).toMatchObject({ ok: true, result: 'operation complete' })
+      expect(received).toEqual([{ type: 'event', ...frame }])
+      if (mode === 'destroyed event') expect(oldChecks).toBe(checksBeforeReopen)
+      const sendsAfterReopen = oldSends, checksAfterReopen = oldChecks
+      expect(() => publish(frame)).not.toThrow()
+      expect(received).toHaveLength(2)
+      expect(oldSends).toBe(sendsAfterReopen)
+      expect(oldChecks).toBe(checksAfterReopen)
+    },
+  )
+
+  it('retains unrelated failures from a live renderer', async () => {
+    let handler: any
+    let publish: (event: HostEvent) => void = () => {}
+    const backend = { subscribe(listener: (event: HostEvent) => void) { publish = listener; return () => {} }, async handle() {} } as unknown as HostBackend
+    registerPipiHostIpc({ handle(_channel, callback) { handler = callback } }, backend)
+    await handler({ sender: { isDestroyed: () => false, send() { throw new Error('serialization failed') } } },
+      { protocolVersion: PIPI_HOST_PROTOCOL_VERSION, type: 'request', id: 'live', method: 'operation', params: [] })
+    expect(() => publish({ protocolVersion: PIPI_HOST_PROTOCOL_VERSION, channel: 'ext.coc-keeper', event: { type: 'sheet_changed', payload: {} } })).toThrow('serialization failed')
+  })
+})
 
 function ipcFactory(): Promise<{ host: PipiHostAPI; close(): Promise<void> }> {
   const backend = createContractMockBackend()

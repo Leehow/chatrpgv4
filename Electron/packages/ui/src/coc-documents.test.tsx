@@ -109,6 +109,31 @@ test('inventory clicks use the document capability rather than an item-name keyw
   await waitFor(()=>expect(invoke).toHaveBeenCalledWith('mods.document.view',{name:'Folded leaf',actor:'i'}));
 });
 
+test('background possessions show only their names and counts while real capabilities retain details',async()=>{
+  const invoke=vi.fn(async(_method:string)=>({ok:true,data:{campaign:'c1',ui:ui('en'),view:{play_language:'en',investigators:[{
+    id:'i',name:'Investigator',weapons:[],equipment:[
+      {name:'Badge',quantity:2,description:'A background badge.'},{name:'Flashlight',quantity:1},
+      {name:'Rule tool',quantity:1},{name:'Damaged tool',quantity:1}],objects:[
+      {name:'Badge',category:'item',description:'A background badge.',parameters:{},traits:[],state:{condition:'intact'}},
+      {name:'Flashlight',category:'item',description:'Ordinary carried equipment.',parameters:{description:'Ordinary carried equipment.'},state:{condition:'intact'}},
+      {name:'Rule tool',category:'item',parameters:{special:'Established rule'},state:{condition:'intact'}},
+      {name:'Damaged tool',category:'item',parameters:{},state:{condition:'damaged'}}]}]}}}));
+  render(<Panel api={{invoke}}/>);
+  for(const name of ['Badge','Flashlight']){
+    const row=(await screen.findByText(name)).closest('li')!;
+    expect(row.querySelector('details')).toBeNull();
+    expect(row.querySelector('.coc-inventory-body')).toBeNull();
+    expect(row.querySelector('.coc-inventory-quantity')?.textContent).toBe(name==='Badge'?'x2':'x1');
+    expect(row.getAttribute('data-detailed')).toBe('false');
+    fireEvent.click(screen.getByText(name));
+  }
+  expect(screen.queryByText('A background badge.')).toBeNull();
+  expect(screen.queryByText('Ordinary carried equipment.')).toBeNull();
+  expect(screen.getByText('Rule tool').closest('details')).toBeTruthy();
+  expect(screen.getByText('Damaged tool').closest('details')).toBeTruthy();
+  expect(invoke.mock.calls.every(([method])=>['sheet','mods.document.references'].includes(method))).toBe(true);
+});
+
 test('a pending inventory fold stays open when the background paper becomes readable and writable',async()=>{
   let ready=false,notify=()=>{},written='The acquired writing.';
   const invoke=vi.fn(async(method:string,params:any)=>{

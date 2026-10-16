@@ -173,8 +173,9 @@ export class ModRuntime {
     }
     return [...array(preferred).filter(name => ids.has(name)), ...sorted([...ids].filter(name => !array(preferred).includes(name)))];
   }
-  lock(mod: Row, enabled: boolean, settings: Row | null = null): Row {
-    return {version: mod.version, digest: mod.digest, state_version: mod.state_version, enabled, settings: clone(merged(mod.settings, settings ?? {}))};
+  lock(mod: Row, enabled: boolean, settings: Row | null = null, policy = 'latest'): Row {
+    return {version: mod.version, digest: mod.digest, state_version: mod.state_version, enabled, settings: clone(merged(mod.settings, settings ?? {})),
+      ...(policy === 'pinned' ? {version_policy: 'pinned'} : {})};
   }
   /** A fresh world locks every compatible package at its default. `playLanguage` is the tag the campaign was declared
    *  with (`declaredPlayLanguage`), or null when it carries none: a package scoped by `play_languages` is on by default
@@ -215,7 +216,18 @@ export class ModRuntime {
    *  an unknown key is refused as before. */
   async configure(world: Row, change: Row, busy: boolean, playLanguage: string | null = null): Promise<{retired: string[], from: string | null, to: string}> {
     await this.initializeWorld(world, playLanguage);
-    const id = change.id, old = row(world.mods.active[id]), version = present(change, 'version', old.version), catalog = await this.catalog();
+    const id = change.id, old = row(world.mods.active[id]), catalog = await this.catalog();
+    const policy = Object.hasOwn(change, 'version_policy') ? change.version_policy
+      : Object.hasOwn(change, 'version') ? change.version === 'latest' ? 'latest' : 'pinned'
+      : old.version_policy ?? 'latest';
+    if (!['latest', 'pinned'].includes(policy)) return invalid('Choose latest or pinned Mod version policy');
+    // Controls address the usable package; following its floating policy is a separate idle-boundary step.
+    // A concrete version, including one already resolved in the pending queue, remains an exact request.
+    const controls = Object.hasOwn(change, 'enabled') || Object.hasOwn(change, 'settings');
+    const concrete = Object.hasOwn(change, 'version') && change.version !== 'latest';
+    const version = controls && policy === 'latest' && !concrete && typeof old.version === 'string' ? old.version
+      : change.version === 'latest' || !Object.hasOwn(change, 'version') && policy === 'latest'
+      ? this.latest(catalog).get(id)?.version : present(change, 'version', old.version);
     const pendingExpression = row(row(world.mods.pending)[EXPRESSION_MOD]);
     if (id === LEGACY_VOICE_MOD && truth(pendingExpression.enabled)
         && isUnifiedExpression(catalog.get(`${EXPRESSION_MOD}\0${pendingExpression.version}`)))
@@ -240,7 +252,7 @@ export class ModRuntime {
         if (!(atMost(schemaGet(schema, 'minimum', -Infinity), value) && atMost(value, schemaGet(schema, 'maximum', Infinity)))) return invalid(`Setting ${key} is outside its declared range`);
       }
     }
-    const staged = clone(world); staged.mods.active[id] = this.lock(mod, enabled, settings);
+    const staged = clone(world); staged.mods.active[id] = this.lock(mod, enabled, settings, policy);
     stageVoiceOwner(staged, mod);
     // Contract §137.4: enabling a second style provider is refused, naming the one already enabled.
     if (enabled && providesStyle(mod)) {
@@ -249,7 +261,12 @@ export class ModRuntime {
       if (existing) throw secondProvider(mod, existing);
     }
     staged.mods.order = await this.order(staged); await this.active(staged);
-    if (busy) { world.mods.pending[id] = {id, version, enabled, settings}; return outcome; }
+    if (busy) {
+      world.mods.pending[id] = {id, version, enabled, settings, version_policy: policy,
+        ...(policy === 'latest' ? {requested_controls: clone(Object.fromEntries(['enabled', 'settings']
+          .filter(key => Object.hasOwn(change, key)).map(key => [key, change[key]])))} : {})};
+      return outcome;
+    }
     let state = clone(present(staged.mods.state, id, {}));
     if (isUnifiedExpression(mod) && !isJsonObject(state)) return invalid('Target expression state is malformed; no handover was applied');
     let before = BigInt(present(old, 'state_version', mod.state_version));
@@ -270,8 +287,33 @@ export class ModRuntime {
     }
     staged.mods.state[id] = state;
     handoverVoiceState(staged, world, mod);
+    if (staged.mods.update_errors) delete staged.mods.update_errors[id];
     delete staged.mods.pending[id]; world.mods = staged.mods;
     return outcome;
+  }
+  /** Follow local packages only at the campaign owner's idle boundary; a refusal never destroys the old state. */
+  async followLatest(world: Row): Promise<{changed: boolean; updates: Row[]}> {
+    const before = clone(world.mods), latest = this.latest(await this.catalog()), updates: Row[] = [];
+    for (const [id, lock] of entries(row(world.mods.active))) {
+      if (id === RETIRED_WORKSPACE_MOD || lock.version_policy === 'pinned' || Object.hasOwn(row(world.mods.pending), id)) continue;
+      const mod = latest.get(id);
+      if (!mod) continue;
+      if (mod.version === lock.version) {
+        if (world.mods.update_errors) delete world.mods.update_errors[id];
+        continue;
+      }
+      try {
+        const change = await this.configure(world, {id, version: 'latest'}, false);
+        updates.push({mod: id, ...change});
+      } catch (error) {
+        if (!(error instanceof RpcError)) throw error;
+        const failure = {version: mod.version, code: error.code, message: error.message};
+        world.mods.update_errors ??= {};
+        if (!equal(world.mods.update_errors[id], failure)) updates.push({mod: id, error: failure});
+        world.mods.update_errors[id] = failure;
+      }
+    }
+    return {changed: !equal(before, world.mods), updates};
   }
   async applyPending(world: Row): Promise<boolean> {
     const pending = row(row(world.mods).pending);
@@ -282,7 +324,21 @@ export class ModRuntime {
     // pending handover and is rejected; earlier queued legacy settings must not block themselves.
     staged.mods.pending = Object.hasOwn(pending, RETIRED_WORKSPACE_MOD) ? {[RETIRED_WORKSPACE_MOD]: clone(pending[RETIRED_WORKSPACE_MOD])} : {};
     if (order != null) await this.reorder(staged, order);
-    for (const change of changes) await this.configure(staged, change, false);
+    for (const change of changes) {
+      const policy = change.version_policy ?? 'latest';
+      try { await this.configure(staged, {...change, version_policy: policy}, false); }
+      catch (error) {
+        if (policy !== 'latest' || !(error instanceof RpcError)) throw error;
+        // Target defaults are not user controls. Older queues lack that provenance, so validate
+        // their full controls conservatively rather than discard an accepted request. If this
+        // also fails, leave the original world and its complete pending queue untouched.
+        const actual = row(staged.mods.active)[change.id];
+        if (!actual) throw error;
+        const requested = isJsonObject(change.requested_controls) ? change.requested_controls
+          : {enabled: change.enabled, settings: merged(row(actual.settings), row(change.settings))};
+        await this.configure(staged, {id: change.id, version: actual.version, version_policy: policy, ...requested}, false);
+      }
+    }
     if (changes.length || order != null) world.mods = staged.mods;
     return Boolean(changes.length) || order != null;
   }
@@ -297,6 +353,9 @@ export class ModRuntime {
       // Contract §153.2: `default_enabled` is the catalog default; a scoped package applies it only where it names the campaign's tag.
       ...(declaresLanguages(mod) ? {play_languages: [...mod.play_languages]} : {}),
       active: row(locks.active)[mod.id] ?? null, pending: row(locks.pending)[mod.id] ?? null,
+      latest: latest.get(mod.id)?.version === mod.version,
+      version_policy: row(row(locks.active)[mod.id]).version_policy ?? 'latest',
+      update_error: row(locks.update_errors)[mod.id] ?? null,
       settings_schema: mod.compatible ? mod.settings_schema ?? {} : {},
       host_settings: mod.compatible ? hostSettingsView(mod.host_settings) : [],
     });

@@ -1,6 +1,10 @@
 {
   "add": "Install",
-  "availableVersions": "Available versions",
+  "availableVersions": "Installed versions",
+  "currentVersion": "Currently used",
+  "latestVersion": "Latest compatible",
+  "followLatest": "Follow latest version",
+  "updateUnavailable": "Automatic update unavailable; current version retained",
   "campaign": "Enabled in this campaign",
   "core": "Core",
   "defaults": "Enable in new campaigns",

@@ -8,7 +8,7 @@ import { createPiHostBackend } from "../src/index.js";
  * The app-level image-gen/model branch (no session): the extension's settings-section picker
  * reads and writes <agentDir>/image-model.json through it; the agent reads that file per call.
  */
-async function harness() {
+async function harness(catalog: Array<{ provider: string; id: string; name?: string }> = [], minimax = false) {
   const root = await mkdtemp(join(tmpdir(), "image-gen-model-"));
   const agentDir = join(root, "profile");
   const pack = join(agentDir, "extensions", "image-gen");
@@ -17,10 +17,18 @@ async function harness() {
     id: "image-gen", name: "Image Generation", version: "0.1.0",
     capabilities: ["invoke.agent"], defaultEnabled: true,
   }));
+  if (minimax) {
+    const media = join(agentDir, "extensions", "minimax-enhanced");
+    await mkdir(media, { recursive: true });
+    await writeFile(join(media, "pipiui-extension.json"), JSON.stringify({
+      id: "minimax-enhanced", name: "MiniMax", version: "0.1.0", defaultEnabled: true, capabilities: ["invoke.agent"],
+    }));
+  }
   const backend = createPiHostBackend({
     agentDir,
     sessionsRoot: join(root, "sessions"),
     spawn: () => { throw new Error("the model branch must not start a session"); },
+    authRuntime: { getAvailable: async () => catalog, getProviders: async () => [], login: async () => {}, logout: async () => {} },
   } as never);
   const dispose = () => rm(root, { recursive: true, force: true, maxRetries: 10, retryDelay: 25 });
   return { root, agentDir, backend, dispose };
@@ -31,7 +39,7 @@ it("get answers the saved choice and the grok-build default", async () => {
   try {
     await (await import("node:fs/promises")).mkdir(agentDir, { recursive: true });
     let result = await backend.handle("invokeExtension", ["image-gen", "model", { op: "get" }]) as any;
-    expect(result).toEqual({ ok: true, data: { current: null, grokDefault: false, codexSignedIn: false, autoRoute: "none" } });
+    expect(result).toEqual({ ok: true, data: { current: null, grokDefault: false, codexSignedIn: false, autoRoute: "none", autoModel: null, models: [] } });
     await writeFile(join(agentDir, "auth.json"), JSON.stringify({ "grok-build": { access: "x" } }));
     result = await backend.handle("invokeExtension", ["image-gen", "model", { op: "get" }]) as any;
     expect(result.data.grokDefault).toBe(true);
@@ -100,15 +108,51 @@ it("get reports codexSignedIn and autoRoute (Codex on a paid plan, then grok-bui
       if (auth) await writeFile(join(agentDir, "auth.json"), JSON.stringify(auth));
       else await rm(join(agentDir, "auth.json"), { force: true });
       const result = await backend.handle("invokeExtension", ["image-gen", "model", { op: "get" }]) as any;
-      expect({ label, ...result.data }).toEqual({ label, current: null, ...expected });
+      expect({ label, ...result.data }).toMatchObject({ label, current: null, ...expected });
     }
     // set and clear answer the same routing fields.
     await writeFile(join(agentDir, "auth.json"), JSON.stringify({ "openai-codex": codexEntry({ chatgpt_account_id: "acct", chatgpt_plan_type: "pro" }) }));
     const set = await backend.handle("invokeExtension", ["image-gen", "model", { op: "set", model: "openai-codex/gpt-image-2" }]) as any;
-    expect(set.data).toEqual({ current: "openai-codex/gpt-image-2", grokDefault: false, codexSignedIn: true, autoRoute: "codex" });
+    expect(set.data).toMatchObject({ current: "openai-codex/gpt-image-2", grokDefault: false, codexSignedIn: true, autoRoute: "codex" });
     const clear = await backend.handle("invokeExtension", ["image-gen", "model", { op: "clear" }]) as any;
-    expect(clear.data).toEqual({ current: null, grokDefault: false, codexSignedIn: true, autoRoute: "codex" });
+    expect(clear.data).toMatchObject({ current: null, grokDefault: false, codexSignedIn: true, autoRoute: "codex" });
   } finally {
     await dispose();
   }
+});
+
+it("lists all credential-backed image providers and previews the selected chat provider", async () => {
+  const { agentDir, backend, dispose } = await harness([
+    { provider: "minimax-cn", id: "MiniMax-M2.5" },
+    { provider: "openai", id: "gpt-5" },
+    { provider: "google", id: "gemini-image", name: "Gemini Image" },
+  ], true);
+  try {
+    await writeFile(join(agentDir, "auth.json"), JSON.stringify({
+      "grok-build": { access: "x" },
+      "openai-codex": codexEntry({ chatgpt_account_id: "acct", chatgpt_plan_type: "plus" }),
+    }));
+    for (const [provider, id, autoModel] of [
+      ["grok-build", "grok-4.5", "grok-build/grok-imagine-image"],
+      ["minimax-cn", "MiniMax-M2.5", "minimax-cn/image-01"],
+      ["openai-codex", "gpt-5", "openai-codex/gpt-image-2"],
+      ["openai", "gpt-5", "openai/gpt-image-1"],
+    ]) {
+      const result = await backend.handle("invokeExtension", ["image-gen", "model", { op: "get", selectedModel: { provider, id } }]) as any;
+      expect(result.data.autoModel).toBe(autoModel);
+      expect(result.data.models.map((row: any) => `${row.provider}/${row.id}`)).toEqual(expect.arrayContaining([
+        "openai-codex/gpt-image-2", "grok-build/grok-imagine-image", "minimax-cn/image-01", "minimax-cn/image-01-live", "openai/gpt-image-1", "google/gemini-image",
+      ]));
+      expect(result.data.models.some((row: any) => row.provider === "xai")).toBe(false);
+      expect(JSON.stringify(result.data)).not.toContain("refresh-token");
+    }
+  } finally { await dispose(); }
+});
+
+it("does not offer MiniMax media when its enhancement extension is unavailable", async () => {
+  const { backend, dispose } = await harness([{ provider: "minimax-cn", id: "MiniMax-M2.5" }]);
+  try {
+    const result = await backend.handle("invokeExtension", ["image-gen", "model", { op: "get" }]) as any;
+    expect(result.data.models).toEqual([]);
+  } finally { await dispose(); }
 });

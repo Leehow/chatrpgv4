@@ -25,6 +25,21 @@ test('guide quality failures carry actionable criteria rather than authoring ano
  const result=await checkReferenceGuide({packet:{},text:'An introduction',signal:AbortSignal.timeout(1000),decide:async batch=>({status:'complete',answers:Object.fromEntries(batch.questions.map(q=>[q.key,{status:'answered',type:'noul',noul:q.key==='plot_disclosure'?.95:.02}]))})});
  assert.equal(result.approved,false);assert.deepEqual(result.issues.map(x=>x.key),['plot_disclosure']);assert.match(result.issues[0].instruction,/hidden antagonist/);
 });
+test('orientation review judges the delivered guide even when its source already supplies the missing premise',async()=>{
+ const source='1925, Harbor. You are local fishers returning home to a silent quay.',text='Harbor, 1925. Who are you, and why would you come here?';
+ let captured;
+ const result=await checkReferenceGuide({packet:{excerpts:[{id:'premise',page:1,text:source}],fields:{premise:['premise']}},text,signal:AbortSignal.timeout(1000),decide:async batch=>{
+  captured=batch;
+  return{status:'complete',answers:Object.fromEntries(batch.questions.map(q=>[q.key,q.type==='choice'?{status:'answered',type:'choice',choice:'none',confidence:.95}:{status:'answered',type:'noul',noul:q.key==='wrong_orientation'?.95:.02}]))};
+ }});
+ assert.equal(captured.state.guide,text);
+ assert.deepEqual(captured.state.source,[{page:1,text:source}]);
+ const question=captured.questions.find(q=>q.key==='wrong_orientation');
+ for(const requirement of ['delivered guide alone','character role','why that character is here','current situation','character name and role','shared starting premise'])assert.ok(question.instructions.includes(requirement),requirement);
+ assert.equal(result.approved,false);
+ assert.deepEqual(result.issues.map(row=>row.key),['wrong_orientation']);
+ assert.equal(result.issues[0].instruction,question.instructions,'the same actionable finding reaches the existing repair');
+});
 test('the real native source driver exposes a text-only final guidance tool for reference tasks',async t=>{
  const cwd=await mkdtemp(join(tmpdir(),'source-reference-driver-'));t.after(()=>rm(cwd,{recursive:true,force:true}));
  await writeFile(join(cwd,'task.json'),JSON.stringify({purpose:'guidance',source_reference:'guidance',module_id:'book',source:{page_count:1}}));

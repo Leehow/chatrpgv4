@@ -16,7 +16,7 @@ import { calledPerson, personRecord, untoldBlock } from '../read/capsule.js';
 import { CampaignSnapshot } from '../read/campaign.js';
 import { occurs } from '../journal/naming.js';
 import { tableWord, untoldPieces } from '../read/person-words.js';
-import { tellGuard } from '../read/cast.js';
+import { bookCast, tellGuard } from '../read/cast.js';
 import { prepareNameHistory } from '../journal/name-history.js';
 import { normalize, repr, row, string, type Row } from '../read/values.js';
 import { nowIso, required } from '../write/store.js';
@@ -89,15 +89,23 @@ function word(effect: Row, field: string): string | null {
  * of anyone still untold, not only this person's. Table 21's journal lane wrote biographies that name the neighbours, and
  * a word like "Steve's neighbour" tells Steve's name. A piece a told person also carries does not count.
  */
-async function refuseUntoldName(context: ApplyContext, handle: string, name: string): Promise<void> {
+async function deferUntoldName(context: ApplyContext, handle: string, name: string): Promise<boolean> {
     const { graph } = context, node = graph.find(handle, ['npc']);
-    if (!node || graph.isTablePerson(node)) return;
+    if (!node || graph.isTablePerson(node)) return false;
     const snapshot = new CampaignSnapshot(context.kernel, context.campaign.id);
     const journal = row(await snapshot.optional('npc-journal.json'));
     // §188.1: who is untold is read with the told guard, as the roster reads it.
     const records = prepareNameHistory(await snapshot.files('turns'), tellGuard(graph, context.world, journal));
     const said = normalize(name);
-    if (!untoldPieces(graph, journal, records).some(piece => occurs(said, piece))) return;
+    if (!untoldPieces(graph, journal, records).some(piece => occurs(said, piece))) return false;
+    const cast = bookCast(graph);
+    const own = cast.find(person => person.node
+        && graph.survivorId(string(person.node.node_id)) === graph.survivorId(string(node.node_id)));
+    const printedNames = [...(own?.printed ?? []), graph.displayName(node), string(node.name)];
+    const shared = cast.some(person => person !== own && person.printed.some(printed => normalize(printed) === said))
+        || graph.kind('npc').some(other => graph.survivorId(string(other.node_id)) !== graph.survivorId(string(node.node_id))
+            && [graph.displayName(other), string(other.name)].some(printed => normalize(printed) === said));
+    if (!shared && printedNames.some(printed => normalize(printed) === said)) return true;
     // NR-08b (real table nr08-blood-road-1): the person's own token, ready to copy -- the sanctioned path when the fiction has
     // them give their name. Asked to "write {{name:<their name field>}}", the Keeper kept applying the name instead.
     const sayName = string(row(untoldBlock(graph, context.world, journal, node, records)).say_name || '');
@@ -110,7 +118,7 @@ async function refuseUntoldName(context: ApplyContext, handle: string, name: str
 /** The fields a person effect carries (extensions/kernel/tools.ts `PersonEffect`, plus `owed` on any effect); `_` keys are the host's. */
 const PERSON_FIELDS = ['kind', 'who', 'name', 'address', 'why', 'intent_ref', 'intent_outcome', 'owed'];
 
-export async function stagePerson(context: ApplyContext, effect: Row): Promise<{ receipt: Row; event: DomainEvent }> {
+export async function stagePerson(context: ApplyContext, effect: Row): Promise<{ receipt: Row; event: DomainEvent | null }> {
     const { world, callId, turn, ordinal } = context;
     // §103.7: a field the effect does not have was dropped without a word. Table 16 (2026-10-03): the Keeper put the epithet
     // in `label` and the handle in `name`, and the handle became what the table calls the person.
@@ -140,7 +148,8 @@ export async function stagePerson(context: ApplyContext, effect: Row): Promise<{
     // §103.8 (owner, 2026-10-03: every name but the trucker's leaked): table 20's Keeper wrote the veteran's book name and the
     // owner's nickname as their epithets, and the prose then used them. While a book person is untold, the word the table
     // calls them carries none of the book's names for them, nor a piece of one. The refusal names no name: it would tell it.
-    if (name != null && person.is_investigator !== true) await refuseUntoldName(context, string(person.id), name);
+    const deferred = name != null && person.is_investigator !== true
+        ? await deferUntoldName(context, string(person.id), name) : false;
     if (name != null && person.is_investigator === true)
         throw new RpcError('invalid_params', `${person.name} carries their own name on their sheet`, {
             fix: 'set address for how they are spoken to; a name a player chose is not renamed at the table',
@@ -164,8 +173,8 @@ export async function stagePerson(context: ApplyContext, effect: Row): Promise<{
             });
     }
     const before = personRecord(world, string(person.id));
-    const record = { ...before, ...(name != null ? { name } : {}), ...(address != null ? { address } : {}) };
-    (world.person_labels ??= {})[string(person.id)] = record;
+    const record = deferred ? before : { ...before, ...(name != null ? { name } : {}), ...(address != null ? { address } : {}) };
+    if (!deferred) (world.person_labels ??= {})[string(person.id)] = record;
     // §11.5.6 (SL-62): the host's `_resolved_from` -- the name the Keeper wrote, once a fan-out question against the
     // scene's known people cleared it to this person's handle and the host rewrote `who` before the retry.
     const resolvedFrom = typeof effect._resolved_from === 'string' && effect._resolved_from.trim() ? effect._resolved_from.trim() : undefined;
@@ -181,10 +190,11 @@ export async function stagePerson(context: ApplyContext, effect: Row): Promise<{
             name: person.name,
             label: string(record.name || person.name),
             address: record.address ?? null,
+            ...(deferred ? { deferred_name: name, ...(address != null ? { deferred_address: address } : {}) } : {}),
             why,
             visibility: 'keeper',
             at: nowIso(),
         },
-        event: { type: 'person-named', data: { who: person.id, name: record.name ?? null, address: record.address ?? null } },
+        event: deferred ? null : { type: 'person-named', data: { who: person.id, name: record.name ?? null, address: record.address ?? null } },
     };
 }

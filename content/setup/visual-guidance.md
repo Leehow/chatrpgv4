@@ -61,7 +61,8 @@ guidance.json. Use write/edit and then submit_reading with no arguments only
 when a bounded object needs repair or cannot fit in one call.
 If submission fails, repair the specific findings or view missing pages and submit
 again. Keep advice under 180 words and the
-opening to a brief meeting and one question. Avoid exhaustive profession lists.
+opening to concise orientation and one clear character-creation question. Avoid
+exhaustive profession lists.
 
 Your scope is the minimum material needed to create an appropriate investigator:
 era, place, public premise, involvement, authored character-creation advice or
@@ -108,8 +109,9 @@ that opening's era, place, premise and constraints in scene.properties.investiga
 and use those exact facts in guidance. Do not overwrite another entrance's facts.
 
 Also write guidance.json with exactly five bounded strings:
-- opening: a short, spoiler-free meeting in task.play_language, ending with one
-  natural question about the investigator's identity. No dice or generated stats.
+- opening: a source-grounded introduction in task.play_language that a newcomer
+  can understand on its own, followed by one clear character-creation question.
+  Follow the player orientation requirements below. No dice or generated stats.
 - advice: English internal advice using the module's public facts and catalog
   occupations. Put consequential authored character advice or warnings first,
   with the source value when supplied; then explain relevant profession, language,
@@ -119,6 +121,37 @@ Also write guidance.json with exactly five bounded strings:
 - scene: the selected scene's exact source name.
 - guide: the meeting person's exact source name, or empty if none is needed.
 - handoff: English internal context preserving the meeting for the later Keeper.
+
+## Player orientation
+
+Write for a player who knows nothing about this book or its setting. Before
+atmosphere, establish when and where this is, what sort of person the source
+suggests they play, and why that person is here. Explain the everyday context
+needed to inhabit that role and the character's relationship to the people or
+place involved, using supported public facts rather than unexplained names.
+Make the starting situation concrete: what has brought the character here, what
+they expected, and what is happening or noticeably different now, when the source
+supports these facts. Do not merely put dates and geography in a separate panel
+or describe scenery while leaving the character premise in internal advice.
+Keep uncertain facts uncertain and character recommendations advisory.
+
+This is the introduction before character creation. End by clearly inviting the
+player to give their character's name and role or a rough concept within the
+explained premise; they may entrust missing details. If a guide is physically
+present, let that person's natural speech carry the question. If nobody is there,
+ask directly as the host after the scene paragraph; do not invent a speaker or
+force an identity interview into the fiction. Explain the common premise instead
+of asking why the character would participate in it. An optional personal tie can
+deepen that premise, but never impose a spouse, family, feelings or personal goal.
+Do not ask for an adventure action before the character exists, narrate their
+choice, or offer an action menu. The later Keeper continues this same situation
+after creation and leaves the first adventure action to the player.
+
+Use enough connected prose to make the situation understandable, without a lore
+lecture, a checklist or arbitrary sentence/name quotas. A reader must be able to
+answer from opening alone: when and where am I, what am I being invited to play,
+why am I here and involved, what is happening now, and what response is wanted
+from me at this stage? Hidden causes and future discoveries are not orientation.
 
 Do not reveal Keeper secrets or give the guide knowledge they lack. A public
 premise may motivate character creation; it cannot grant clues, gear or rewards.
@@ -143,6 +176,16 @@ and does not invent source requirements or rewards. Reject a source condition
 rendered as a forced card-confirmation rule; the warning must keep the book's
 actual value while respecting the player's choice. advice and handoff must be
 English. scene and guide must match the source shard or known nodes.
+
+Also review Player orientation from the delivered opening alone. Do not credit
+facts found only in advice, handoff, the graph or public_fields as though the
+player read them in the opening. A missing public character premise, unexplained
+involvement or an ambiguous request that leaves a newcomer unable to create a
+suitable character is an onboarding logic failure, not a stylistic preference.
+Record the concrete omission in guidance.issues and use guidance.approved:false
+so the existing author repair can address it. Do not require particular wording,
+an NPC when none is present, an exact date the source leaves open, or private plot
+answers. Do not reject ordinary improvisation or differences in descriptive style.
 
 Submit review with checked:[{paths:["/nodes/0"],verdict:"supported",
 source_refs:[{page:5}],reason:"source evidence"}], missing:[], and

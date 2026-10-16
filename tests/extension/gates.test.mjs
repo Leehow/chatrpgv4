@@ -245,6 +245,21 @@ test("narrate 之后，同一批次余下的调用被拒", async (t) => {
 	assert.deepEqual(table.mechanics(), []);
 });
 
+test('opening NPC disclosure reaches the kernel before delivery without inventing player input', async t => {
+  const effects = [{kind: 'npc', name: 'Captain Elin', mood: 'Willing to explain the missing shipment.'},
+    {kind: 'clue', clue: 'missing-shipment', how: 'The captain volunteers what happened.'}];
+  const table = await openTable({env: {FAKE_KERNEL_OPENING: '1'}, responses: [
+    fauxAssistantMessage([fauxToolCall('apply', {effects})], {stopReason: 'toolUse'}),
+    fauxAssistantMessage([fauxToolCall('narrate', {text: 'The captain explains what happened and waits for your response.'})], {stopReason: 'toolUse'}),
+  ]});
+  t.after(() => table.dispose());
+  await waitForIdle(table.session);
+  const methods = table.kernelRequests();
+  assert.equal(methods.filter(row => row.method === 'table.player_input').length, 0);
+  assert.deepEqual(methods.find(row => row.method === 'table.apply')?.params.effects, effects);
+  assert.equal(toolResults(table.session, 'apply')[0]?.isError, false);
+});
+
 test("开桌回合：awaiting_player 拒写，但 narrate 放行", async (t) => {
 	const table = await openTable({
 		env: { FAKE_KERNEL_OPENING: "1" },

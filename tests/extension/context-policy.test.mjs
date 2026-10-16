@@ -319,7 +319,7 @@ function runtimeFixture(turn = 0, branch = [], records = []) {
     const cap = () => ({turn: {number: turn, player_text: 'Input'}, recent: [], module: {title: 'Book'}, style: {floor: ['World response']},
         mods: {instructions: state.instructions ?? [{form: 'full', instruction: `rule-${state.revision[0]}`}]}});
     const meta = () => ({...binding(turn), source_revision: state.available ? state.revision : null, unavailable: !state.available});
-    const pi = {on: (name, handler) => hooks.set(name, handler), events: {on: (name, handler) => bus.set(name, handler)}, sendMessage() {}};
+    const pi = {on: (name, handler) => hooks.set(name, handler), events: {on: (name, handler) => bus.set(name, handler),emit:(name,value)=>bus.get(name)?.(value)}, sendMessage() {}};
     api.installContextPolicy(pi, row => rows.push(row));
     bus.get('coc:kernel-bridge')({campaign: 'test-campaign', call: async (method, params) => {
         state.calls++;
@@ -338,8 +338,25 @@ function runtimeFixture(turn = 0, branch = [], records = []) {
     const messages = group(turn); messages[1].details.epoch = 'fixture-input';
     const ctx = {model: {contextWindow: 1000000}, getContextUsage: () => ({percent: 1, contextWindow: 1000000}),
         sessionManager: {getBranch: () => branch}, compact: options => {state.compacts++; options.onComplete();}};
-    return {hooks, bus, rows, state, messages, ctx, cap};
+    return {hooks, bus, rows, state, messages, ctx, cap, setTurn(value){turn=value;}};
 }
+
+test('MiniMax single-Keeper runtime commits only submitted candidates and keeps the whole request prefix across inputs',async()=>{
+    const t=runtimeFixture(2);
+    Object.assign(t.ctx.model,{provider:'minimax-cn',id:'MiniMax-M3.1-Flash-Preview',api:'anthropic-messages'});
+    t.bus.get('coc:loop-engine')({engine:'hybrid-v1',prescreen:'run',singleKeeper:true});
+    await t.hooks.get('before_agent_start')({},t.ctx);
+    const first=await t.hooks.get('context')({messages:t.messages},t.ctx);
+    t.hooks.get('before_provider_request')({payload:{model:t.ctx.model.id,messages:[]}});
+    await t.hooks.get('input')({},t.ctx);t.setTurn(3);t.state.revision='b'.repeat(64);
+    t.bus.get('coc:capsule')({capsule:t.cap(),context:binding(3),epoch:'next-input'});
+    await t.hooks.get('before_agent_start')({},t.ctx);
+    const second=await t.hooks.get('context')({messages:group(3)},t.ctx);
+    assert.deepEqual(second.messages.slice(0,first.messages.length),first.messages);
+    assert.ok(second.messages.some(message=>message.customType==='coc-context-revision'));
+    assert.equal(t.rows.filter(row=>row.event==='request_journal').at(-1).reset,undefined);
+    assert.ok(api.pairedTools(second.messages));
+});
 
 test('§184.2 and §184.3 on the hook: the single-loop engine sends the capsule after the brief with its stable sections first; every request row is fingerprinted', async () => {
     const short = value => createHash('sha256').update(JSON.stringify(value)).digest('hex').slice(0, 12);

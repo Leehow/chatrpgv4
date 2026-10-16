@@ -972,6 +972,21 @@ function handle(method, params) {
 		}
 		case "table.capsule":
 			return { ok: true, result: capsule(null, params) };
+        case "table.untold": {
+            // Read-only roster contract from kernel-ts/read/handlers.ts; use the fixture's actual name state.
+            const roster=process.env.FAKE_KERNEL_ROSTER?JSON.parse(process.env.FAKE_KERNEL_ROSTER):[];
+            const rows=[...capsule(null).present,...roster],people=[],protectedNames=new Set([INVESTIGATOR]);
+            for(const person of rows){
+                const names=[person.name,...(Array.isArray(person.aliases)?person.aliases:[])].filter(name=>typeof name==='string'&&name.trim());
+                const untold=person.untold;
+                if(!untold||typeof untold!=='object'||!Object.keys(untold).length){for(const name of names)protectedNames.add(name);continue;}
+                const shown=person.called?.name||untold.label||untold.id;
+                if(typeof shown!=='string'||!shown.trim())continue;
+                for(const name of names)if(!people.some(row=>row.name===name&&row.id===untold.id))people.push({name,shown,
+                    ...(typeof untold.id==='string'?{id:untold.id}:{}),...(untold.handle===true?{handle:true}:{})});
+            }
+            return {ok:true,result:{people,protected:[...protectedNames]}};
+        }
         case "table.delivery.check":
             return {ok:true,result:{checked:true,turn,state,published:false}};
 		case "table.workspace.read": {

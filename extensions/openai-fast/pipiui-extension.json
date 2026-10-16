@@ -3,7 +3,7 @@
   "name": "OpenAI Fast",
   "version": "0.1.0",
   "category": "integration",
-  "description": "Session/model Fast request control for OpenAI Codex and explicit Flapcode OpenAI models. Off by default; actual server tier shown separately.",
+  "description": "Session/model Fast request control for OpenAI Codex, Codex Relay Luna and explicit Flapcode OpenAI models. Off by default; actual server tier shown separately.",
   "defaultEnabled": true,
   "capabilities": ["data.read", "data.write"],
   "agent": {"extension": "agent/index.js"},

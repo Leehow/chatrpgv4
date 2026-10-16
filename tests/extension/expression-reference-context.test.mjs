@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';import {test,after} from 'node:test';
 import {mkdtemp,writeFile,rm,symlink}from'node:fs/promises';import{tmpdir}from'node:os';import{join,resolve}from'node:path';import{pathToFileURL}from'node:url';import{build}from'esbuild';
 const ROOT=resolve(import.meta.dirname,'../..'),temp=await mkdtemp(join(tmpdir(),'expression-context-'));after(()=>rm(temp,{recursive:true,force:true}));await symlink(join(ROOT,'node_modules'),join(temp,'node_modules'),'dir');
 await build({stdin:{contents:"export {installContextPolicy} from './extensions/table/context-runtime.ts';",resolveDir:ROOT},outfile:join(temp,'api.mjs'),bundle:true,packages:'external',format:'esm',platform:'node',logLevel:'silent'});const api=await import(pathToFileURL(join(temp,'api.mjs')).href);
-for(const closePath of ['narrate','embedded'])test(`actual provider content and stale withdrawal preserve the ${closePath} delivery snapshot`,async()=>{
+for(const closePath of ['narrate','embedded'])test(`expression examples stay with output and stale guidance is withdrawn for ${closePath}`,async()=>{
  const originalFetch=globalThis.fetch,originalKey=process.env.EXT_JEV_APIKEY;process.env.EXT_JEV_APIKEY='fixture-key';
  globalThis.fetch=async(_url,options)=>{const body=JSON.parse(options.body);await new Promise(r=>setTimeout(r,25));return new Response(JSON.stringify({model:body.model,answers:Object.fromEntries(Object.entries(body.questions).map(([key,q])=>[key,{type:q.type,noul:key.startsWith('conflict_')?.01:.99}])),usage:{input_tokens:100,output_tokens:1}}),{status:200});};
  try{
@@ -14,15 +14,29 @@ for(const closePath of ['narrate','embedded'])test(`actual provider content and 
  bus.get('coc:capsule')({epoch:'e1',capsule:cap,context:binding});
  const ctx={model:{contextWindow:100000},getContextUsage:()=>({percent:1}),sessionManager:{getBranch:()=>[]}};
  const messages=[{role:'user',content:[{type:'text',text:'Hello'}]},{role:'custom',customType:'coc-capsule',content:JSON.stringify(cap),details:{epoch:'e1',context:binding}}];
- const projected=await hooks.get('context')({messages},ctx),advice=projected.messages.find(m=>m.customType==='coc-expression-reference');assert.ok(advice);assert.ok(advice.content.includes(card.examples[0].reply));
- assert.ok(!JSON.stringify(projected.messages).includes('expression_exchange'),'selector-only history is never copied into the protected capsule');
+ const projected=await hooks.get('context')({messages},ctx);
+ assert.ok(!projected.messages.some(m=>m.customType==='coc-expression-reference'));
+ assert.ok(!JSON.stringify(projected.messages).includes(card.examples[0].reply),'writer examples never consume Keeper request bytes');
+ assert.ok(!rows.some(row=>row.lane==='expression'&&row.event==='first_request_wait'),'the Keeper does not wait for writer examples');
+ assert.ok(!JSON.stringify(projected.messages).includes('expression_exchange'));
  const {convertToLlm,ExtensionRunner,createExtensionRuntime}=await import('../../build/node_modules/@earendil-works/pi-coding-agent/dist/index.js');const payload={messages:convertToLlm(projected.messages)};
  const runner=new ExtensionRunner([{path:'expression-conformance',handlers:new Map([['before_provider_request',[hooks.get('before_provider_request')]]])}],createExtensionRuntime(),ROOT,{},{});runner.bindCore({}, {getModel:()=>ctx.model,abort(){}});
- assert.ok(JSON.stringify(payload).includes(cap.voices[0].mask),'published voice remains in the actual SDK-converted writing request');
- await runner.emitBeforeProviderRequest(payload);assert.equal(rows.filter(r=>r.lane==='expression'&&r.event==='delivered').at(-1).delivered,true);
- const again=await hooks.get('context')({messages},ctx),old=again.messages.find(m=>m.customType==='coc-expression-reference');assert.ok(old);
- bus.get('coc:source-published')({campaign:'c'});const stale={messages:convertToLlm(again.messages)};
- const replacement=await runner.emitBeforeProviderRequest(stale);assert.ok(replacement?.messages);assert.equal(replacement.payload,undefined);assert.equal(JSON.stringify(replacement).includes(old.content),false);
+ assert.ok(JSON.stringify(payload).includes(cap.voices[0].mask),'personality and authored voice remain with the Keeper');
+ await runner.emitBeforeProviderRequest(payload);
+ await new Promise(resolve=>setTimeout(resolve,60));
+ let advice;
+ bus.get('coc:writing-reference-request')({campaign:'c',capsule:{...cap,_context:binding},accept:value=>{advice=value;}});
+ advice=await advice;
+ assert.ok(advice?.content.includes(card.examples[0].reply),'the selected writer can obtain current prepared examples');
+ assert.equal(rows.filter(row=>row.lane==='expression'&&row.event==='handoff').at(-1).destination,'output');
+ const catalogReads=reads.filter(method=>method==='mods.expression').length;
+ bus.get('coc:source-published')({campaign:'c'});
+ let stale;
+ bus.get('coc:writing-reference-request')({campaign:'c',capsule:{...cap,_context:binding},accept:value=>{stale=value;}});
+ assert.equal(stale instanceof Promise,true,'only the selected writer waits for replacement guidance');
+ stale=await stale;
+ assert.ok(reads.filter(method=>method==='mods.expression').length>catalogReads,'source publication revalidates the expression catalog');
+ assert.ok(!stale||stale.content.includes(card.examples[0].reply),'a replacement is obtained through a fresh current selection');
  await hooks.get('context')({messages},ctx);const beforeClose=reads.filter(m=>m==='table.capsule').length;
  const closeTool=closePath==='embedded'?'apply':'narrate';
  await hooks.get('tool_call')({toolName:closeTool,toolCallId:'close',input:{text:'Hello.'}});

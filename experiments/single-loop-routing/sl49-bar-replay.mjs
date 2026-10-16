@@ -22,7 +22,8 @@
  * refusal, the scene's index row and the note's views with their sizes; the note itself (book text) is written only to
  * `--out`. No model is called. Nothing under the live table's home is written.
  */
-import {cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync} from 'node:fs';
+import {existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync,realpathSync} from 'node:fs';
+import {shareTestTree} from '../../scripts/test-workspace.mjs';
 import {tmpdir} from 'node:os';
 import {join} from 'node:path';
 import {REPO, startKernel} from './kernel.mjs';
@@ -36,14 +37,14 @@ const out = arg('--out');
 const json = path => JSON.parse(readFileSync(path, 'utf8'));
 const save = (path, value) => writeFileSync(path, JSON.stringify(value));
 
-const live = join(home, '.coc'), ws = mkdtempSync(join(tmpdir(), 'sl49-bar-replay-'));
+const live = join(home, '.coc'), ws = mkdtempSync(join(realpathSync(tmpdir()), 'sl49-bar-replay-'));
 const fork = join(ws, '.coc/module-campaigns', campaign, 'modules');
 try {
   // The table's own files, copied (APFS clones where it can); never written in place.
   for (const part of [join('campaigns', campaign), join('module-campaigns', campaign), join('repos', `${campaign}.git`), join('mods', 'packages')])
-    if (existsSync(join(live, part))) cpSync(join(live, part), join(ws, '.coc', part), {recursive: true});
+    if (existsSync(join(live, part))) shareTestTree(join(live, part), join(ws, '.coc', part));
   const meta0 = json(join(live, 'campaigns', campaign, 'campaign.json')), mid = meta0.module_id;
-  if (existsSync(join(live, 'modules', mid))) cpSync(join(live, 'modules', mid), join(ws, '.coc/modules', mid), {recursive: true});
+  if (existsSync(join(live, 'modules', mid))) shareTestTree(join(live, 'modules', mid), join(ws, '.coc/modules', mid));
   const moduleDir = join(fork, mid), attempt = join(moduleDir, 'work', jobId, 'attempt-1');
   const worldPath = join(ws, '.coc/campaigns', campaign, 'world.json'), world = json(worldPath);
   const record = json(join(ws, '.coc/campaigns', campaign, 'turns', `${String(turn).padStart(4, '0')}.json`));

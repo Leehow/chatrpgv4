@@ -111,13 +111,15 @@ async function project(t,f,onFirst,trigger,select){
   process.env.PI_COC_JEV_PRESELECT='1';process.env.TYPESAFE_API_KEY='deterministic-request-test';globalThis.fetch=deterministicFetch(onFirst,trigger,select);
   t.after(()=>{if(oldFlag===undefined)delete process.env.PI_COC_JEV_PRESELECT;else process.env.PI_COC_JEV_PRESELECT=oldFlag;
     if(oldKey===undefined)delete process.env.TYPESAFE_API_KEY;else process.env.TYPESAFE_API_KEY=oldKey;globalThis.fetch=oldFetch;});
-  const hooks=new Map(),bus=new Map(),events=[];api.installContextPolicy({on:(name,handler)=>hooks.set(name,handler),events:{on:(name,handler)=>bus.set(name,handler)},
+  const hooks=new Map(),bus=new Map(),events=[],supplied=[];
+  bus.set('coc:writing-support',value=>supplied.push(value));
+  api.installContextPolicy({on:(name,handler)=>hooks.set(name,handler),events:{on:(name,handler)=>bus.set(name,handler),emit:(name,value)=>bus.get(name)?.(value)},
     getActiveTools:()=>[],getAllTools:()=>[]},event=>events.push(event));
   assert.equal(api.prescreenEnabled(),true);
   bus.get('coc:kernel-bridge')({campaign:'c1',call:f.call,runtime:f.source});bus.get('coc:table-open')({campaign:'c1',open:f.opened});
   bus.get('coc:capsule')({capsule:f.capsule,context:f.binding,epoch:f.input.epoch??'source-request'});
   const projected=await hooks.get('context')({type:'context',messages:[{role:'user',content:f.capsule.turn.player_text}]},{model:{contextWindow:1000000},getSystemPrompt:()=>''});
-  return{hooks,events,projected};
+  return{hooks,events,projected,supplied};
 }
 
 test('current native PDF and checked answer evidence reach the actual provider payload with their authority intact',async t=>{
@@ -134,7 +136,11 @@ test('current native PDF and checked answer evidence reach the actual provider p
   assert(!packet.content.includes(f.fileSha));assert(!packet.content.includes('selector'),packet.content);
   const input=api.convertToLlm(structuredClone(result.projected.messages)),payload={model:'fixture',input};
   assert.match(JSON.stringify(payload),/ORIGINAL NOTICE: The harbor bell rings at midnight/);assert.match(JSON.stringify(payload),/The harbor bell rings at midnight\./);
+  assert.equal(result.supplied.length,0,'unconfirmed evidence is not a writing source');
   await result.hooks.get('before_provider_request')({type:'before_provider_request',payload},{});
+  assert.equal(result.supplied.length,1);
+  assert.equal(result.supplied[0].binding.campaign,'c1');
+  assert.deepEqual(result.supplied[0].materials,content.materials,'the writing owner receives the exact confirmed materials');
   const delivered=result.events.findLast(row=>row.lane==='prescreen'&&row.event==='delivered');assert.equal(delivered?.delivered,true,JSON.stringify(result.events));
   assert(delivered.retained.some(row=>row.coverage.status==='complete'&&row.coverage.supported===true&&row.coverage.derived===false));
   assert(delivered.retained.some(row=>row.coverage.status==='complete'&&row.coverage.supported===true));

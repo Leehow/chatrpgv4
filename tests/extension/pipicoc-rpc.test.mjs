@@ -53,11 +53,12 @@ test('UI transport survives while coding persona and tools cannot replace the Ke
   const mounted = result.flatMap((value, index) => value === '-e' ? [result[index + 1]] : []);
   assert.deepEqual(mounted, [
     '/repo/build/host/runtime/kernel/pipiui-ext-invoke.mjs',
-    ...['kernel','native-search','mods','onboarding','module','memory','npc','table','npc-journal','npc-voice','npc-epithets','node-handles','speech-edit','thinking-schedule'].map(name => `/repo/build/extensions/${name}/index.mjs`),
+    ...['kernel','native-search','mods','onboarding','module','memory','npc','table','npc-journal','npc-voice','npc-epithets','node-handles','speech-edit','thinking-schedule','anthropic-cache'].map(name => `/repo/build/extensions/${name}/index.mjs`),
     '/repo/build/pipicoc/agent.mjs',
     '/repo/build/extensions/image-gen/agent/index.mjs',
     '/repo/build/extensions/rerank/agent/index.mjs',
     '/repo/build/extensions/jev/agent/index.mjs',
+    '/repo/build/extensions/minimax-enhanced/agent/index.mjs',
   ]);
   assert.ok(!result.some(value => value.startsWith('/repo/') && value.endsWith('.ts')));
   // The thinking schedule (host contract §3.7, kernel contract §135.27) reaches the App's Keeper through this same

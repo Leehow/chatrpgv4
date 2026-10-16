@@ -78238,7 +78238,7 @@
           "counterpart": {
             "file": "tests/integration/mod-packages.test.ts",
             "name": "test_install_does_not_upgrade_save_and_missing_migration_retains_old_lock",
-            "sha256": "4506792863682f4a9219f47ee14f8925acae11d2ce4d20a859d5fc8215ef33b9"
+            "sha256": "71be6d5270991d9a0a30cbe92110d3a8aada31c6d38fa0331982329c5ef928fc"
           },
           "review": "statement-by-statement",
           "validation": {
@@ -78300,15 +78300,21 @@
               "fullCurrentSourceByteExact": false,
               "remainingSnapshotFilesExact": 1409
             },
+            "currentRevalidation": {
+              "command": "node scripts/test-integration-ts.mjs tests/integration/mod-packages.test.ts",
+              "result": "passed",
+              "tests": 20,
+              "evidence": ".coc/test-runs/integration-ts-ybCjnv",
+              "junit": ".coc/test-runs/integration-ts-ybCjnv/results.xml",
+              "review": "Original assertions retained; queued explicit selection additionally asserts version_policy pinned. Eight new policy lifecycle cases cover follow, pin, restart, safe boundaries, compatibility, idle/queued return to latest and refusal."
+            },
             "npcVariationRevalidation": {
               "command": "node scripts/test-integration-ts.mjs tests/integration/mod-packages.test.ts",
               "result": "passed",
               "tests": 20,
               "evidence": ".coc/test-runs/integration-ts-RDlbgf",
               "junit": ".coc/test-runs/integration-ts-RDlbgf/results.xml",
-              "review": "Original assertions retained. The scoped-package test now includes the newly referenced character-tables.json in its declared runtime allowlist and exact frozen-file assertion.",
-              "testedCounterpartSha256": "e4c8381835c2708c64d2b2421ff4ae4367057524b5cd063ec06ad44f67a64923",
-              "committedCounterpartReview": "The retained run includes concurrent version-policy tests. This commit retains the original cases and changes only the character-tables.json runtime allowlist and exact frozen-file assertion; the scoped counterpart hash is computed from these committed bytes, not relabeled as the tested full working-tree file."
+              "review": "Original assertions retained. The scoped-package test now includes the newly referenced character-tables.json in its declared runtime allowlist and exact frozen-file assertion."
             }
           }
         },
@@ -78338,7 +78344,7 @@
           "counterpart": {
             "file": "tests/integration/mod-packages.test.ts",
             "name": "test_explicit_migration_runs_once_and_old_package_stays_available",
-            "sha256": "4506792863682f4a9219f47ee14f8925acae11d2ce4d20a859d5fc8215ef33b9"
+            "sha256": "71be6d5270991d9a0a30cbe92110d3a8aada31c6d38fa0331982329c5ef928fc"
           },
           "review": "statement-by-statement",
           "validation": {
@@ -78400,15 +78406,21 @@
               "fullCurrentSourceByteExact": false,
               "remainingSnapshotFilesExact": 1409
             },
+            "currentRevalidation": {
+              "command": "node scripts/test-integration-ts.mjs tests/integration/mod-packages.test.ts",
+              "result": "passed",
+              "tests": 20,
+              "evidence": ".coc/test-runs/integration-ts-ybCjnv",
+              "junit": ".coc/test-runs/integration-ts-ybCjnv/results.xml",
+              "review": "Original assertions retained; queued explicit selection additionally asserts version_policy pinned. Eight new policy lifecycle cases cover follow, pin, restart, safe boundaries, compatibility, idle/queued return to latest and refusal."
+            },
             "npcVariationRevalidation": {
               "command": "node scripts/test-integration-ts.mjs tests/integration/mod-packages.test.ts",
               "result": "passed",
               "tests": 20,
               "evidence": ".coc/test-runs/integration-ts-RDlbgf",
               "junit": ".coc/test-runs/integration-ts-RDlbgf/results.xml",
-              "review": "Original assertions retained. The scoped-package test now includes the newly referenced character-tables.json in its declared runtime allowlist and exact frozen-file assertion.",
-              "testedCounterpartSha256": "e4c8381835c2708c64d2b2421ff4ae4367057524b5cd063ec06ad44f67a64923",
-              "committedCounterpartReview": "The retained run includes concurrent version-policy tests. This commit retains the original cases and changes only the character-tables.json runtime allowlist and exact frozen-file assertion; the scoped counterpart hash is computed from these committed bytes, not relabeled as the tested full working-tree file."
+              "review": "Original assertions retained. The scoped-package test now includes the newly referenced character-tables.json in its declared runtime allowlist and exact frozen-file assertion."
             }
           }
         },
@@ -78438,7 +78450,7 @@
           "counterpart": {
             "file": "tests/integration/mod-packages.test.ts",
             "name": "test_import_rejects_escaping_archive_and_different_bytes_for_a_version",
-            "sha256": "4506792863682f4a9219f47ee14f8925acae11d2ce4d20a859d5fc8215ef33b9"
+            "sha256": "71be6d5270991d9a0a30cbe92110d3a8aada31c6d38fa0331982329c5ef928fc"
           },
           "review": "statement-by-statement",
           "validation": {
@@ -78500,15 +78512,21 @@
               "fullCurrentSourceByteExact": false,
               "remainingSnapshotFilesExact": 1409
             },
+            "currentRevalidation": {
+              "command": "node scripts/test-integration-ts.mjs tests/integration/mod-packages.test.ts",
+              "result": "passed",
+              "tests": 20,
+              "evidence": ".coc/test-runs/integration-ts-ybCjnv",
+              "junit": ".coc/test-runs/integration-ts-ybCjnv/results.xml",
+              "review": "Original assertions retained; queued explicit selection additionally asserts version_policy pinned. Eight new policy lifecycle cases cover follow, pin, restart, safe boundaries, compatibility, idle/queued return to latest and refusal."
+            },
             "npcVariationRevalidation": {
               "command": "node scripts/test-integration-ts.mjs tests/integration/mod-packages.test.ts",
               "result": "passed",
               "tests": 20,
               "evidence": ".coc/test-runs/integration-ts-RDlbgf",
               "junit": ".coc/test-runs/integration-ts-RDlbgf/results.xml",
-              "review": "Original assertions retained. The scoped-package test now includes the newly referenced character-tables.json in its declared runtime allowlist and exact frozen-file assertion.",
-              "testedCounterpartSha256": "e4c8381835c2708c64d2b2421ff4ae4367057524b5cd063ec06ad44f67a64923",
-              "committedCounterpartReview": "The retained run includes concurrent version-policy tests. This commit retains the original cases and changes only the character-tables.json runtime allowlist and exact frozen-file assertion; the scoped counterpart hash is computed from these committed bytes, not relabeled as the tested full working-tree file."
+              "review": "Original assertions retained. The scoped-package test now includes the newly referenced character-tables.json in its declared runtime allowlist and exact frozen-file assertion."
             }
           }
         },
@@ -78534,7 +78552,7 @@
           "counterpart": {
             "file": "tests/integration/mod-packages.test.ts",
             "name": "test_incompatible_mod_is_listed_but_not_activated",
-            "sha256": "4506792863682f4a9219f47ee14f8925acae11d2ce4d20a859d5fc8215ef33b9"
+            "sha256": "71be6d5270991d9a0a30cbe92110d3a8aada31c6d38fa0331982329c5ef928fc"
           },
           "review": "statement-by-statement",
           "validation": {
@@ -78596,15 +78614,21 @@
               "fullCurrentSourceByteExact": false,
               "remainingSnapshotFilesExact": 1409
             },
+            "currentRevalidation": {
+              "command": "node scripts/test-integration-ts.mjs tests/integration/mod-packages.test.ts",
+              "result": "passed",
+              "tests": 20,
+              "evidence": ".coc/test-runs/integration-ts-ybCjnv",
+              "junit": ".coc/test-runs/integration-ts-ybCjnv/results.xml",
+              "review": "Original assertions retained; queued explicit selection additionally asserts version_policy pinned. Eight new policy lifecycle cases cover follow, pin, restart, safe boundaries, compatibility, idle/queued return to latest and refusal."
+            },
             "npcVariationRevalidation": {
               "command": "node scripts/test-integration-ts.mjs tests/integration/mod-packages.test.ts",
               "result": "passed",
               "tests": 20,
               "evidence": ".coc/test-runs/integration-ts-RDlbgf",
               "junit": ".coc/test-runs/integration-ts-RDlbgf/results.xml",
-              "review": "Original assertions retained. The scoped-package test now includes the newly referenced character-tables.json in its declared runtime allowlist and exact frozen-file assertion.",
-              "testedCounterpartSha256": "e4c8381835c2708c64d2b2421ff4ae4367057524b5cd063ec06ad44f67a64923",
-              "committedCounterpartReview": "The retained run includes concurrent version-policy tests. This commit retains the original cases and changes only the character-tables.json runtime allowlist and exact frozen-file assertion; the scoped counterpart hash is computed from these committed bytes, not relabeled as the tested full working-tree file."
+              "review": "Original assertions retained. The scoped-package test now includes the newly referenced character-tables.json in its declared runtime allowlist and exact frozen-file assertion."
             }
           }
         },
@@ -78630,7 +78654,7 @@
           "counterpart": {
             "file": "tests/integration/mod-packages.test.ts",
             "name": "test_future_contributions_do_not_break_the_current_catalog",
-            "sha256": "4506792863682f4a9219f47ee14f8925acae11d2ce4d20a859d5fc8215ef33b9"
+            "sha256": "71be6d5270991d9a0a30cbe92110d3a8aada31c6d38fa0331982329c5ef928fc"
           },
           "review": "statement-by-statement",
           "validation": {
@@ -78692,15 +78716,21 @@
               "fullCurrentSourceByteExact": false,
               "remainingSnapshotFilesExact": 1409
             },
+            "currentRevalidation": {
+              "command": "node scripts/test-integration-ts.mjs tests/integration/mod-packages.test.ts",
+              "result": "passed",
+              "tests": 20,
+              "evidence": ".coc/test-runs/integration-ts-ybCjnv",
+              "junit": ".coc/test-runs/integration-ts-ybCjnv/results.xml",
+              "review": "Original assertions retained; queued explicit selection additionally asserts version_policy pinned. Eight new policy lifecycle cases cover follow, pin, restart, safe boundaries, compatibility, idle/queued return to latest and refusal."
+            },
             "npcVariationRevalidation": {
               "command": "node scripts/test-integration-ts.mjs tests/integration/mod-packages.test.ts",
               "result": "passed",
               "tests": 20,
               "evidence": ".coc/test-runs/integration-ts-RDlbgf",
               "junit": ".coc/test-runs/integration-ts-RDlbgf/results.xml",
-              "review": "Original assertions retained. The scoped-package test now includes the newly referenced character-tables.json in its declared runtime allowlist and exact frozen-file assertion.",
-              "testedCounterpartSha256": "e4c8381835c2708c64d2b2421ff4ae4367057524b5cd063ec06ad44f67a64923",
-              "committedCounterpartReview": "The retained run includes concurrent version-policy tests. This commit retains the original cases and changes only the character-tables.json runtime allowlist and exact frozen-file assertion; the scoped counterpart hash is computed from these committed bytes, not relabeled as the tested full working-tree file."
+              "review": "Original assertions retained. The scoped-package test now includes the newly referenced character-tables.json in its declared runtime allowlist and exact frozen-file assertion."
             }
           }
         },
@@ -78726,7 +78756,7 @@
           "counterpart": {
             "file": "tests/integration/mod-packages.test.ts",
             "name": "test_mod_list_never_projects_engineering_changelogs",
-            "sha256": "4506792863682f4a9219f47ee14f8925acae11d2ce4d20a859d5fc8215ef33b9"
+            "sha256": "71be6d5270991d9a0a30cbe92110d3a8aada31c6d38fa0331982329c5ef928fc"
           },
           "review": "statement-by-statement",
           "validation": {
@@ -78788,15 +78818,21 @@
               "fullCurrentSourceByteExact": false,
               "remainingSnapshotFilesExact": 1409
             },
+            "currentRevalidation": {
+              "command": "node scripts/test-integration-ts.mjs tests/integration/mod-packages.test.ts",
+              "result": "passed",
+              "tests": 20,
+              "evidence": ".coc/test-runs/integration-ts-ybCjnv",
+              "junit": ".coc/test-runs/integration-ts-ybCjnv/results.xml",
+              "review": "Original assertions retained; queued explicit selection additionally asserts version_policy pinned. Eight new policy lifecycle cases cover follow, pin, restart, safe boundaries, compatibility, idle/queued return to latest and refusal."
+            },
             "npcVariationRevalidation": {
               "command": "node scripts/test-integration-ts.mjs tests/integration/mod-packages.test.ts",
               "result": "passed",
               "tests": 20,
               "evidence": ".coc/test-runs/integration-ts-RDlbgf",
               "junit": ".coc/test-runs/integration-ts-RDlbgf/results.xml",
-              "review": "Original assertions retained. The scoped-package test now includes the newly referenced character-tables.json in its declared runtime allowlist and exact frozen-file assertion.",
-              "testedCounterpartSha256": "e4c8381835c2708c64d2b2421ff4ae4367057524b5cd063ec06ad44f67a64923",
-              "committedCounterpartReview": "The retained run includes concurrent version-policy tests. This commit retains the original cases and changes only the character-tables.json runtime allowlist and exact frozen-file assertion; the scoped counterpart hash is computed from these committed bytes, not relabeled as the tested full working-tree file."
+              "review": "Original assertions retained. The scoped-package test now includes the newly referenced character-tables.json in its declared runtime allowlist and exact frozen-file assertion."
             }
           }
         },
@@ -78830,7 +78866,7 @@
           "counterpart": {
             "file": "tests/integration/mod-packages.test.ts",
             "name": "test_scoped_package_freezes_only_declared_runtime_files",
-            "sha256": "4506792863682f4a9219f47ee14f8925acae11d2ce4d20a859d5fc8215ef33b9"
+            "sha256": "71be6d5270991d9a0a30cbe92110d3a8aada31c6d38fa0331982329c5ef928fc"
           },
           "review": "statement-by-statement",
           "validation": {
@@ -78892,15 +78928,21 @@
               "fullCurrentSourceByteExact": false,
               "remainingSnapshotFilesExact": 1409
             },
+            "currentRevalidation": {
+              "command": "node scripts/test-integration-ts.mjs tests/integration/mod-packages.test.ts",
+              "result": "passed",
+              "tests": 20,
+              "evidence": ".coc/test-runs/integration-ts-ybCjnv",
+              "junit": ".coc/test-runs/integration-ts-ybCjnv/results.xml",
+              "review": "Original assertions retained; queued explicit selection additionally asserts version_policy pinned. Eight new policy lifecycle cases cover follow, pin, restart, safe boundaries, compatibility, idle/queued return to latest and refusal."
+            },
             "npcVariationRevalidation": {
               "command": "node scripts/test-integration-ts.mjs tests/integration/mod-packages.test.ts",
               "result": "passed",
               "tests": 20,
               "evidence": ".coc/test-runs/integration-ts-RDlbgf",
               "junit": ".coc/test-runs/integration-ts-RDlbgf/results.xml",
-              "review": "Original assertions retained. The scoped-package test now includes the newly referenced character-tables.json in its declared runtime allowlist and exact frozen-file assertion.",
-              "testedCounterpartSha256": "e4c8381835c2708c64d2b2421ff4ae4367057524b5cd063ec06ad44f67a64923",
-              "committedCounterpartReview": "The retained run includes concurrent version-policy tests. This commit retains the original cases and changes only the character-tables.json runtime allowlist and exact frozen-file assertion; the scoped counterpart hash is computed from these committed bytes, not relabeled as the tested full working-tree file."
+              "review": "Original assertions retained. The scoped-package test now includes the newly referenced character-tables.json in its declared runtime allowlist and exact frozen-file assertion."
             }
           }
         },
@@ -78930,7 +78972,7 @@
           "counterpart": {
             "file": "tests/integration/mod-packages.test.ts",
             "name": "test_legacy_all_files_package_keeps_its_historical_digest_and_lock",
-            "sha256": "4506792863682f4a9219f47ee14f8925acae11d2ce4d20a859d5fc8215ef33b9"
+            "sha256": "71be6d5270991d9a0a30cbe92110d3a8aada31c6d38fa0331982329c5ef928fc"
           },
           "review": "statement-by-statement",
           "validation": {
@@ -78992,15 +79034,21 @@
               "fullCurrentSourceByteExact": false,
               "remainingSnapshotFilesExact": 1409
             },
+            "currentRevalidation": {
+              "command": "node scripts/test-integration-ts.mjs tests/integration/mod-packages.test.ts",
+              "result": "passed",
+              "tests": 20,
+              "evidence": ".coc/test-runs/integration-ts-ybCjnv",
+              "junit": ".coc/test-runs/integration-ts-ybCjnv/results.xml",
+              "review": "Original assertions retained; queued explicit selection additionally asserts version_policy pinned. Eight new policy lifecycle cases cover follow, pin, restart, safe boundaries, compatibility, idle/queued return to latest and refusal."
+            },
             "npcVariationRevalidation": {
               "command": "node scripts/test-integration-ts.mjs tests/integration/mod-packages.test.ts",
               "result": "passed",
               "tests": 20,
               "evidence": ".coc/test-runs/integration-ts-RDlbgf",
               "junit": ".coc/test-runs/integration-ts-RDlbgf/results.xml",
-              "review": "Original assertions retained. The scoped-package test now includes the newly referenced character-tables.json in its declared runtime allowlist and exact frozen-file assertion.",
-              "testedCounterpartSha256": "e4c8381835c2708c64d2b2421ff4ae4367057524b5cd063ec06ad44f67a64923",
-              "committedCounterpartReview": "The retained run includes concurrent version-policy tests. This commit retains the original cases and changes only the character-tables.json runtime allowlist and exact frozen-file assertion; the scoped counterpart hash is computed from these committed bytes, not relabeled as the tested full working-tree file."
+              "review": "Original assertions retained. The scoped-package test now includes the newly referenced character-tables.json in its declared runtime allowlist and exact frozen-file assertion."
             }
           }
         },
@@ -79034,7 +79082,7 @@
           "counterpart": {
             "file": "tests/integration/mod-packages.test.ts",
             "name": "test_scoped_package_refuses_an_incomplete_or_engineering_allowlist",
-            "sha256": "4506792863682f4a9219f47ee14f8925acae11d2ce4d20a859d5fc8215ef33b9"
+            "sha256": "71be6d5270991d9a0a30cbe92110d3a8aada31c6d38fa0331982329c5ef928fc"
           },
           "review": "statement-by-statement",
           "validation": {
@@ -79096,15 +79144,21 @@
               "fullCurrentSourceByteExact": false,
               "remainingSnapshotFilesExact": 1409
             },
+            "currentRevalidation": {
+              "command": "node scripts/test-integration-ts.mjs tests/integration/mod-packages.test.ts",
+              "result": "passed",
+              "tests": 20,
+              "evidence": ".coc/test-runs/integration-ts-ybCjnv",
+              "junit": ".coc/test-runs/integration-ts-ybCjnv/results.xml",
+              "review": "Original assertions retained; queued explicit selection additionally asserts version_policy pinned. Eight new policy lifecycle cases cover follow, pin, restart, safe boundaries, compatibility, idle/queued return to latest and refusal."
+            },
             "npcVariationRevalidation": {
               "command": "node scripts/test-integration-ts.mjs tests/integration/mod-packages.test.ts",
               "result": "passed",
               "tests": 20,
               "evidence": ".coc/test-runs/integration-ts-RDlbgf",
               "junit": ".coc/test-runs/integration-ts-RDlbgf/results.xml",
-              "review": "Original assertions retained. The scoped-package test now includes the newly referenced character-tables.json in its declared runtime allowlist and exact frozen-file assertion.",
-              "testedCounterpartSha256": "e4c8381835c2708c64d2b2421ff4ae4367057524b5cd063ec06ad44f67a64923",
-              "committedCounterpartReview": "The retained run includes concurrent version-policy tests. This commit retains the original cases and changes only the character-tables.json runtime allowlist and exact frozen-file assertion; the scoped counterpart hash is computed from these committed bytes, not relabeled as the tested full working-tree file."
+              "review": "Original assertions retained. The scoped-package test now includes the newly referenced character-tables.json in its declared runtime allowlist and exact frozen-file assertion."
             }
           }
         },
@@ -79134,7 +79188,7 @@
           "counterpart": {
             "file": "tests/integration/mod-packages.test.ts",
             "name": "test_declared_setting_is_editable_and_invalid_option_is_atomic",
-            "sha256": "4506792863682f4a9219f47ee14f8925acae11d2ce4d20a859d5fc8215ef33b9"
+            "sha256": "71be6d5270991d9a0a30cbe92110d3a8aada31c6d38fa0331982329c5ef928fc"
           },
           "review": "statement-by-statement",
           "validation": {
@@ -79196,15 +79250,21 @@
               "fullCurrentSourceByteExact": false,
               "remainingSnapshotFilesExact": 1409
             },
+            "currentRevalidation": {
+              "command": "node scripts/test-integration-ts.mjs tests/integration/mod-packages.test.ts",
+              "result": "passed",
+              "tests": 20,
+              "evidence": ".coc/test-runs/integration-ts-ybCjnv",
+              "junit": ".coc/test-runs/integration-ts-ybCjnv/results.xml",
+              "review": "Original assertions retained; queued explicit selection additionally asserts version_policy pinned. Eight new policy lifecycle cases cover follow, pin, restart, safe boundaries, compatibility, idle/queued return to latest and refusal."
+            },
             "npcVariationRevalidation": {
               "command": "node scripts/test-integration-ts.mjs tests/integration/mod-packages.test.ts",
               "result": "passed",
               "tests": 20,
               "evidence": ".coc/test-runs/integration-ts-RDlbgf",
               "junit": ".coc/test-runs/integration-ts-RDlbgf/results.xml",
-              "review": "Original assertions retained. The scoped-package test now includes the newly referenced character-tables.json in its declared runtime allowlist and exact frozen-file assertion.",
-              "testedCounterpartSha256": "e4c8381835c2708c64d2b2421ff4ae4367057524b5cd063ec06ad44f67a64923",
-              "committedCounterpartReview": "The retained run includes concurrent version-policy tests. This commit retains the original cases and changes only the character-tables.json runtime allowlist and exact frozen-file assertion; the scoped counterpart hash is computed from these committed bytes, not relabeled as the tested full working-tree file."
+              "review": "Original assertions retained. The scoped-package test now includes the newly referenced character-tables.json in its declared runtime allowlist and exact frozen-file assertion."
             }
           }
         },
@@ -79250,7 +79310,7 @@
           "counterpart": {
             "file": "tests/integration/mod-packages.test.ts",
             "name": "test_a_version_that_dropped_a_setting_is_reached_with_version_only_and_the_retired_keys_are_recorded",
-            "sha256": "4506792863682f4a9219f47ee14f8925acae11d2ce4d20a859d5fc8215ef33b9"
+            "sha256": "71be6d5270991d9a0a30cbe92110d3a8aada31c6d38fa0331982329c5ef928fc"
           },
           "review": "statement-by-statement",
           "validation": {
@@ -79312,15 +79372,21 @@
               "fullCurrentSourceByteExact": false,
               "remainingSnapshotFilesExact": 1409
             },
+            "currentRevalidation": {
+              "command": "node scripts/test-integration-ts.mjs tests/integration/mod-packages.test.ts",
+              "result": "passed",
+              "tests": 20,
+              "evidence": ".coc/test-runs/integration-ts-ybCjnv",
+              "junit": ".coc/test-runs/integration-ts-ybCjnv/results.xml",
+              "review": "Original assertions retained; queued explicit selection additionally asserts version_policy pinned. Eight new policy lifecycle cases cover follow, pin, restart, safe boundaries, compatibility, idle/queued return to latest and refusal."
+            },
             "npcVariationRevalidation": {
               "command": "node scripts/test-integration-ts.mjs tests/integration/mod-packages.test.ts",
               "result": "passed",
               "tests": 20,
               "evidence": ".coc/test-runs/integration-ts-RDlbgf",
               "junit": ".coc/test-runs/integration-ts-RDlbgf/results.xml",
-              "review": "Original assertions retained. The scoped-package test now includes the newly referenced character-tables.json in its declared runtime allowlist and exact frozen-file assertion.",
-              "testedCounterpartSha256": "e4c8381835c2708c64d2b2421ff4ae4367057524b5cd063ec06ad44f67a64923",
-              "committedCounterpartReview": "The retained run includes concurrent version-policy tests. This commit retains the original cases and changes only the character-tables.json runtime allowlist and exact frozen-file assertion; the scoped counterpart hash is computed from these committed bytes, not relabeled as the tested full working-tree file."
+              "review": "Original assertions retained. The scoped-package test now includes the newly referenced character-tables.json in its declared runtime allowlist and exact frozen-file assertion."
             }
           }
         },
@@ -79358,7 +79424,7 @@
           "counterpart": {
             "file": "tests/integration/mod-packages.test.ts",
             "name": "test_a_retiring_upgrade_staged_during_a_busy_turn_lands_at_the_safe_boundary",
-            "sha256": "4506792863682f4a9219f47ee14f8925acae11d2ce4d20a859d5fc8215ef33b9"
+            "sha256": "71be6d5270991d9a0a30cbe92110d3a8aada31c6d38fa0331982329c5ef928fc"
           },
           "review": "statement-by-statement",
           "validation": {
@@ -79420,15 +79486,21 @@
               "fullCurrentSourceByteExact": false,
               "remainingSnapshotFilesExact": 1409
             },
+            "currentRevalidation": {
+              "command": "node scripts/test-integration-ts.mjs tests/integration/mod-packages.test.ts",
+              "result": "passed",
+              "tests": 20,
+              "evidence": ".coc/test-runs/integration-ts-ybCjnv",
+              "junit": ".coc/test-runs/integration-ts-ybCjnv/results.xml",
+              "review": "Original assertions retained; queued explicit selection additionally asserts version_policy pinned. Eight new policy lifecycle cases cover follow, pin, restart, safe boundaries, compatibility, idle/queued return to latest and refusal."
+            },
             "npcVariationRevalidation": {
               "command": "node scripts/test-integration-ts.mjs tests/integration/mod-packages.test.ts",
               "result": "passed",
               "tests": 20,
               "evidence": ".coc/test-runs/integration-ts-RDlbgf",
               "junit": ".coc/test-runs/integration-ts-RDlbgf/results.xml",
-              "review": "Original assertions retained. The scoped-package test now includes the newly referenced character-tables.json in its declared runtime allowlist and exact frozen-file assertion.",
-              "testedCounterpartSha256": "e4c8381835c2708c64d2b2421ff4ae4367057524b5cd063ec06ad44f67a64923",
-              "committedCounterpartReview": "The retained run includes concurrent version-policy tests. This commit retains the original cases and changes only the character-tables.json runtime allowlist and exact frozen-file assertion; the scoped counterpart hash is computed from these committed bytes, not relabeled as the tested full working-tree file."
+              "review": "Original assertions retained. The scoped-package test now includes the newly referenced character-tables.json in its declared runtime allowlist and exact frozen-file assertion."
             }
           }
         }
@@ -175060,10 +175132,24 @@
           "counterpart": {
             "file": "tests/integration/storage-runner.test.ts",
             "name": "test_real_fixtures_route_to_independent_roots_without_changing_cases",
-            "sha256": "32b00c8f9a0406e9ef6a9d6b4a9f23c23c7c9d683abd2accf72f4c98e6dc2e14"
+            "sha256": "a01d0aeef757f7a6293070dac4b4dc9e6a6d96fba786529c60859a2cac1d096a"
           },
           "review": "statement-by-statement",
           "validation": {
+            "storageRetentionRevalidation": {
+              "command": "node --test --test-concurrency=1 --test-reporter=spec --test-reporter-destination=stdout --test-reporter=junit --test-reporter-destination=results.xml tests/extension/test-evidence-retention.test.mjs tests/integration/storage-runner.test.ts",
+              "result": "passed",
+              "tests": 11,
+              "failed": 0,
+              "skipped": 0,
+              "evidence": ".coc/test-runs/storage-retention-fnbvih",
+              "junit": ".coc/test-runs/storage-retention-fnbvih/results.xml",
+              "sourceHashes": ".coc/test-runs/storage-retention-fnbvih/source-sha256.txt",
+              "assertionReview": ".coc/test-runs/storage-retention-fnbvih/review.json",
+              "previousCounterpartSha256": "32b00c8f9a0406e9ef6a9d6b4a9f23c23c7c9d683abd2accf72f4c98e6dc2e14",
+              "counterpartSha256": "a01d0aeef757f7a6293070dac4b4dc9e6a6d96fba786529c60859a2cac1d096a",
+              "review": "All four original test blocks and every original helper/import are byte-exact against the prior validated TS counterpart, independently checked with TypeScript AST statements and the frozen assertion inventory. Only one new regression was added. No separate model reviewer was used. Linux rerun covers all four originals, the new disk-mode cleanup regression and six retention/compaction safety tests; frozen historical validation and assertions remain unchanged."
+            },
             "command": "Full frozen LAN run: /home/lihao/.local/opt/node-v24.19.0-linux-x64/bin/node --test --test-concurrency=16 --test-reporter=spec --test-reporter-destination=stdout --test-reporter=junit --test-reporter-destination=/home/lihao/chatrpgv4-testbox/wt/codex-tests/chatrpgv4-wt-pi-coc-v2/.coc/test-runs/integration-ts-dZsTaU/results.xml tests/integration/*.test.ts; current kernel/ID boundary: node --test --test-concurrency=1 tests/extension/turn-events.test.mjs tests/extension/name-free-egress.test.mjs (19/19, twice; tools drift preserved); source/schema-text guidance-only review: .coc/test-runs/guidance-final-review-fie3Bl/review.json; current pressure/language: node --test --test-concurrency=1 tests/extension/long-campaign-context.test.mjs tests/extension/system-language.test.mjs (10/10)",
             "result": "passed",
             "evidence": ".coc/test-runs/amax-native-2dJliUkl",
@@ -175172,10 +175258,24 @@
           "counterpart": {
             "file": "tests/integration/storage-runner.test.ts",
             "name": "test_failed_ram_and_disk_fixtures_survive_a_later_success",
-            "sha256": "32b00c8f9a0406e9ef6a9d6b4a9f23c23c7c9d683abd2accf72f4c98e6dc2e14"
+            "sha256": "a01d0aeef757f7a6293070dac4b4dc9e6a6d96fba786529c60859a2cac1d096a"
           },
           "review": "statement-by-statement",
           "validation": {
+            "storageRetentionRevalidation": {
+              "command": "node --test --test-concurrency=1 --test-reporter=spec --test-reporter-destination=stdout --test-reporter=junit --test-reporter-destination=results.xml tests/extension/test-evidence-retention.test.mjs tests/integration/storage-runner.test.ts",
+              "result": "passed",
+              "tests": 11,
+              "failed": 0,
+              "skipped": 0,
+              "evidence": ".coc/test-runs/storage-retention-fnbvih",
+              "junit": ".coc/test-runs/storage-retention-fnbvih/results.xml",
+              "sourceHashes": ".coc/test-runs/storage-retention-fnbvih/source-sha256.txt",
+              "assertionReview": ".coc/test-runs/storage-retention-fnbvih/review.json",
+              "previousCounterpartSha256": "32b00c8f9a0406e9ef6a9d6b4a9f23c23c7c9d683abd2accf72f4c98e6dc2e14",
+              "counterpartSha256": "a01d0aeef757f7a6293070dac4b4dc9e6a6d96fba786529c60859a2cac1d096a",
+              "review": "All four original test blocks and every original helper/import are byte-exact against the prior validated TS counterpart, independently checked with TypeScript AST statements and the frozen assertion inventory. Only one new regression was added. No separate model reviewer was used. Linux rerun covers all four originals, the new disk-mode cleanup regression and six retention/compaction safety tests; frozen historical validation and assertions remain unchanged."
+            },
             "command": "Full frozen LAN run: /home/lihao/.local/opt/node-v24.19.0-linux-x64/bin/node --test --test-concurrency=16 --test-reporter=spec --test-reporter-destination=stdout --test-reporter=junit --test-reporter-destination=/home/lihao/chatrpgv4-testbox/wt/codex-tests/chatrpgv4-wt-pi-coc-v2/.coc/test-runs/integration-ts-dZsTaU/results.xml tests/integration/*.test.ts; current kernel/ID boundary: node --test --test-concurrency=1 tests/extension/turn-events.test.mjs tests/extension/name-free-egress.test.mjs (19/19, twice; tools drift preserved); source/schema-text guidance-only review: .coc/test-runs/guidance-final-review-fie3Bl/review.json; current pressure/language: node --test --test-concurrency=1 tests/extension/long-campaign-context.test.mjs tests/extension/system-language.test.mjs (10/10)",
             "result": "passed",
             "evidence": ".coc/test-runs/amax-native-2dJliUkl",
@@ -175266,10 +175366,24 @@
           "counterpart": {
             "file": "tests/integration/storage-runner.test.ts",
             "name": "test_disk_mode_keeps_all_fixtures_on_disk_and_rejects_run_reuse",
-            "sha256": "32b00c8f9a0406e9ef6a9d6b4a9f23c23c7c9d683abd2accf72f4c98e6dc2e14"
+            "sha256": "a01d0aeef757f7a6293070dac4b4dc9e6a6d96fba786529c60859a2cac1d096a"
           },
           "review": "statement-by-statement",
           "validation": {
+            "storageRetentionRevalidation": {
+              "command": "node --test --test-concurrency=1 --test-reporter=spec --test-reporter-destination=stdout --test-reporter=junit --test-reporter-destination=results.xml tests/extension/test-evidence-retention.test.mjs tests/integration/storage-runner.test.ts",
+              "result": "passed",
+              "tests": 11,
+              "failed": 0,
+              "skipped": 0,
+              "evidence": ".coc/test-runs/storage-retention-fnbvih",
+              "junit": ".coc/test-runs/storage-retention-fnbvih/results.xml",
+              "sourceHashes": ".coc/test-runs/storage-retention-fnbvih/source-sha256.txt",
+              "assertionReview": ".coc/test-runs/storage-retention-fnbvih/review.json",
+              "previousCounterpartSha256": "32b00c8f9a0406e9ef6a9d6b4a9f23c23c7c9d683abd2accf72f4c98e6dc2e14",
+              "counterpartSha256": "a01d0aeef757f7a6293070dac4b4dc9e6a6d96fba786529c60859a2cac1d096a",
+              "review": "All four original test blocks and every original helper/import are byte-exact against the prior validated TS counterpart, independently checked with TypeScript AST statements and the frozen assertion inventory. Only one new regression was added. No separate model reviewer was used. Linux rerun covers all four originals, the new disk-mode cleanup regression and six retention/compaction safety tests; frozen historical validation and assertions remain unchanged."
+            },
             "command": "Full frozen LAN run: /home/lihao/.local/opt/node-v24.19.0-linux-x64/bin/node --test --test-concurrency=16 --test-reporter=spec --test-reporter-destination=stdout --test-reporter=junit --test-reporter-destination=/home/lihao/chatrpgv4-testbox/wt/codex-tests/chatrpgv4-wt-pi-coc-v2/.coc/test-runs/integration-ts-dZsTaU/results.xml tests/integration/*.test.ts; current kernel/ID boundary: node --test --test-concurrency=1 tests/extension/turn-events.test.mjs tests/extension/name-free-egress.test.mjs (19/19, twice; tools drift preserved); source/schema-text guidance-only review: .coc/test-runs/guidance-final-review-fie3Bl/review.json; current pressure/language: node --test --test-concurrency=1 tests/extension/long-campaign-context.test.mjs tests/extension/system-language.test.mjs (10/10)",
             "result": "passed",
             "evidence": ".coc/test-runs/amax-native-2dJliUkl",
@@ -175362,10 +175476,24 @@
           "counterpart": {
             "file": "tests/integration/storage-runner.test.ts",
             "name": "test_interruption_preserves_ram_after_stopping_the_owned_child",
-            "sha256": "32b00c8f9a0406e9ef6a9d6b4a9f23c23c7c9d683abd2accf72f4c98e6dc2e14"
+            "sha256": "a01d0aeef757f7a6293070dac4b4dc9e6a6d96fba786529c60859a2cac1d096a"
           },
           "review": "statement-by-statement",
           "validation": {
+            "storageRetentionRevalidation": {
+              "command": "node --test --test-concurrency=1 --test-reporter=spec --test-reporter-destination=stdout --test-reporter=junit --test-reporter-destination=results.xml tests/extension/test-evidence-retention.test.mjs tests/integration/storage-runner.test.ts",
+              "result": "passed",
+              "tests": 11,
+              "failed": 0,
+              "skipped": 0,
+              "evidence": ".coc/test-runs/storage-retention-fnbvih",
+              "junit": ".coc/test-runs/storage-retention-fnbvih/results.xml",
+              "sourceHashes": ".coc/test-runs/storage-retention-fnbvih/source-sha256.txt",
+              "assertionReview": ".coc/test-runs/storage-retention-fnbvih/review.json",
+              "previousCounterpartSha256": "32b00c8f9a0406e9ef6a9d6b4a9f23c23c7c9d683abd2accf72f4c98e6dc2e14",
+              "counterpartSha256": "a01d0aeef757f7a6293070dac4b4dc9e6a6d96fba786529c60859a2cac1d096a",
+              "review": "All four original test blocks and every original helper/import are byte-exact against the prior validated TS counterpart, independently checked with TypeScript AST statements and the frozen assertion inventory. Only one new regression was added. No separate model reviewer was used. Linux rerun covers all four originals, the new disk-mode cleanup regression and six retention/compaction safety tests; frozen historical validation and assertions remain unchanged."
+            },
             "command": "Full frozen LAN run: /home/lihao/.local/opt/node-v24.19.0-linux-x64/bin/node --test --test-concurrency=16 --test-reporter=spec --test-reporter-destination=stdout --test-reporter=junit --test-reporter-destination=/home/lihao/chatrpgv4-testbox/wt/codex-tests/chatrpgv4-wt-pi-coc-v2/.coc/test-runs/integration-ts-dZsTaU/results.xml tests/integration/*.test.ts; current kernel/ID boundary: node --test --test-concurrency=1 tests/extension/turn-events.test.mjs tests/extension/name-free-egress.test.mjs (19/19, twice; tools drift preserved); source/schema-text guidance-only review: .coc/test-runs/guidance-final-review-fie3Bl/review.json; current pressure/language: node --test --test-concurrency=1 tests/extension/long-campaign-context.test.mjs tests/extension/system-language.test.mjs (10/10)",
             "result": "passed",
             "evidence": ".coc/test-runs/amax-native-2dJliUkl",
@@ -175704,6 +175832,28 @@
         "evidence": ".tmp/amaranthine-system-20261013/public-projection-regressions-23748-51/results.json",
         "limitation": "Focused real native execution is not fresh full-suite, installed App or live play acceptance."
       }
+    },
+    {
+      "file": "tests/integration/mod-packages.test.ts",
+      "prior_sha256": "e4c8381835c2708c64d2b2421ff4ae4367057524b5cd063ec06ad44f67a64923",
+      "current_sha256": "71be6d5270991d9a0a30cbe92110d3a8aada31c6d38fa0331982329c5ef928fc",
+      "contract": "docs/kernel-rpc.md §26 Configuration repair (2026-10-15)",
+      "basis": "Owner-authorized Mod configuration repair; eight added real RPC cases. All 20 pre-existing test bodies and historical assertion inventories remain unchanged.",
+      "historicalValidationRetained": "Original source/case hashes, assertions, parameters, exceptions, review and validation records are unchanged. Only current counterpart identity is refreshed with this separate verification.",
+      "currentValidation": {
+        "command": "node scripts/test-integration-ts.mjs tests/integration/mod-packages.test.ts",
+        "result": "passed",
+        "passed": 28,
+        "failed": 0,
+        "exitCode": 0,
+        "durationMs": 51106.02925,
+        "evidence": {
+          "persistentLog": ".tmp/project-review-fixes-20261015-Au9wy3/mods-final.log",
+          "junit": ".coc/test-runs/integration-ts-Ht10aU/results.xml",
+          "originalTests": ".tmp/project-review-fixes-20261015-Au9wy3/original-test-preservation.json"
+        }
+      },
+      "limitation": "This is the scoped source RPC regression; LAN focused and installed-App acceptance are separate."
     }
   ]
 }

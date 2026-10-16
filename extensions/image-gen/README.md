@@ -16,16 +16,13 @@ Per call, at execution time, one route is resolved:
    Credentials and the base URL come from pi's model registry
    (`ctx.modelRegistry`) — `auth.json` is never read directly and no key is
    hardcoded. API keys travel over HTTPS only.
-2. **Codex, when usable** (only while nothing is chosen). The player's
-   ChatGPT subscription through Pi's built-in `openai-codex` login: the
-   registry returns a token whose `https://api.openai.com/auth` claim carries
-   `chatgpt_account_id` and a `chatgpt_plan_type` other than `free`. The
-   extension never refreshes the token and never reads auth.json; Pi owns
-   OAuth, refresh and the auth.json lock.
-3. **grok-build, when usable.** When the grok-build-oauth OAuth credential is
-   usable, the call delegates to that extension's host library — same broker,
-   tier gate, reference containment and session image writer as the grok
-   tools.
+2. **Automatic follows the selected chat provider.** Grok uses Grok Imagine,
+   MiniMax uses image-01, OpenAI Codex uses gpt-image-2, and OpenAI uses its
+   registered image model or gpt-image-1. GPT text relays use an authenticated
+   Codex or OpenAI image account; a relay key does not grant image API access.
+   The current session model is read again on each generation call.
+3. Without a supported selected provider, keep the usable Codex, then grok-build
+   fallback. A supported selected provider without credentials fails explicitly.
 4. Otherwise the call fails with `image_model_unconfigured`.
 
 A failure on the route taken surfaces as-is: no silent fall-through to
@@ -45,7 +42,7 @@ prompt.
 - `/image-gen:model <provider>/<model-id>` — set the image model, persisted
   to `<agentHome>/image-model.json` as `{ "model": "..." }`
   (agent home: `PI_COC_AGENT_DIR` > `PI_CODING_AGENT_DIR`). A choice
-  overrides the automatic Codex / grok-build route on every lane (the tools,
+  overrides the automatic provider route on every lane (the tools,
   `/image` and the portrait mount share one dispatch).
   `/image-gen:model openai-codex/gpt-image-2` pins Codex, like the settings
   picker's "Codex (gpt-image-2)" row.
@@ -60,6 +57,11 @@ Edits routed to
 wan/wanx are rejected with a clear error (no reference-image field is wired
 for the async DashScope family); use another family for image-to-image work.
 
+The settings picker lists all credential-backed image options, independently of
+the chat model catalog and visibility settings. Codex, Grok Imagine, OpenAI, xAI
+and MiniMax options are supplied even when Pi has no image entries for that
+provider. MiniMax media requires the MiniMax Enhanced extension enabled.
+
 ## Supported vendor families
 
 Provider `openai-codex` routes to the Codex adapter (`POST
@@ -70,6 +72,7 @@ uses a closed mapping on the model id:
 | model id contains | adapter |
 | --- | --- |
 | `gpt-image`, `dall-e` | OpenAI Images (`/v1/images/generations`; multipart `/v1/images/edits`) |
+| `image-01`, `image-01-live` | MiniMax image generation and character subject references |
 | `grok-` + `image` | OpenAI-shape at `https://api.x.ai` |
 | `seedream`, `seededit` | OpenAI-shape at Volcengine Ark (`/api/v3/images/generations`) |
 | `gemini-` + `image` | Gemini `generateContent` with `responseModalities: ["TEXT","IMAGE"]` |

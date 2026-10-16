@@ -7,7 +7,7 @@ import {fauxAssistantMessage, fauxToolCall} from '@earendil-works/pi-ai';
 import {openTable, customMessages} from './harness.mjs';
 import {createHybridEngine} from '../../runtime/jev/hybrid-engine.ts';
 import {bindDecisionAnswers} from '../../runtime/jev/contracts.ts';
-import {createFinalOutputOwner} from '../../extensions/kernel/final-output.ts';
+import {createFinalOutputOwner,finalAuthorProfile} from '../../extensions/kernel/final-output.ts';
 
 const root = resolve(import.meta.dirname, '../..');
 function seedOpening(workspace, choice=false) {
@@ -23,6 +23,12 @@ const plan = {version: 1, materials: [
   {name: 'cold room', text: 'The room is cold.', kind: 'description', visibility: 'player', required: true},
   {name: 'culprit', text: 'PRIVATE_CULPRIT', kind: 'context', visibility: 'keeper'},
 ], required: ['cold room']};
+
+test('the explicit Luna test profile binds the final author without changing production defaults',()=>{
+  assert.deepEqual(finalAuthorProfile({PI_COC_TEST_MODEL:'codex-relay/gpt-6-luna'}),{model:'codex-relay/gpt-6-luna',thinking:'high'});
+  assert.deepEqual(finalAuthorProfile({PI_COC_TEST_MODEL:'minimax-cn/MiniMax-M3.1-Flash-Preview'}),{model:'minimax-cn/MiniMax-M3.1-Flash-Preview',thinking:'medium'});
+  assert.deepEqual(finalAuthorProfile({}),{model:'grok-build/grok-4.5',thinking:'low'});
+});
 
 test('repeated material checks remain private and only explicit output publishes once', async t => {
   let table,midpoint;
@@ -235,6 +241,62 @@ test('an issued public transcript source is materialized without the Keeper rety
   const record=JSON.parse(readFileSync(join(table.workspace,'.coc/campaigns/test-camp/turns/0001.json'),'utf8'));
   assert.equal(record.rendered_text,'The room is chilly.',JSON.stringify(table.session.messages.filter(m=>m.role==='assistant').map(m=>({stop:m.stopReason,error:m.errorMessage,content:m.content}))).slice(-2500));
   assert.ok(record.delivery_evidence.materials.some(row=>row.authority==='reference_only'&&row.text.includes('You are in the office.')));
+});
+
+test('automatic support reaches output through confirmed aliases without retyping public material',async t=>{
+  let table,reference;
+  table=await openTable({legacyDeliveryFixtures:false,realKernel:true,prepareWorkspace:seedOpening,
+    env:{PI_COC_READER_CMD:JSON.stringify([process.execPath,join(root,'tests/extension/fixtures/final-output-writer.mjs')])},
+    extraExtensions:[{name:'support-owner-fixture',factory:pi=>{
+      pi.events.on('coc:capsule',event=>{
+        const turn=event.context.turn;
+        pi.events.emit('coc:loop-engine',{prescreen:'run'});
+        pi.events.emit('coc:run-prescreen',{campaign:event.context.campaign,turn,message:{role:'custom',customType:'coc-prescreen',display:false,
+          content:JSON.stringify({schema_version:1,kind:'keeper_support',turn,parameters:{scene:['material_1']},
+            materials:[{alias:'material_1',kind:'scene',label:'Cold room',authority:'public_record',
+              content:{text:'The room is cold.',visibility:'player'},coverage:{status:'complete'}}],note:''}),
+          details:{prescreen:{material_keys:['room']}}}});
+      });
+    }}],responses:[async context=>{
+      // The deterministic faux provider has no wire adapter. Dispatch the real Pi conversion hook explicitly.
+      const {convertToLlm}=await import('./pi.mjs');
+      await table.session._extensionRunner.emitBeforeProviderRequest({messages:convertToLlm(context.messages)});
+      const support=context.messages.map(m=>typeof m.content==='string'?m.content:(m.content??[]).filter(c=>c.type==='text').map(c=>c.text).join(''))
+        .map(text=>{try{return JSON.parse(text);}catch{return {};}}).find(row=>row.kind==='keeper_support');
+      assert.ok(support,'the actual Keeper request carries the supplied evidence');
+      reference=support.materials[0].alias;
+      assert.match(reference,/^support \d+$/);
+      assert.deepEqual(support.parameters.scene,[reference]);
+      assert.ok(table.runtimeBridges().at(-1).materialSources(1).some(source=>source.name===reference),
+        'provider-confirmed support is registered before the Keeper acts');
+      return fauxAssistantMessage([fauxToolCall('output',{delivery:{version:1,materials:[
+        {name:'cold room',source:reference,kind:'description',visibility:'player',required:true}]}})],{stopReason:'toolUse'});
+    }]});
+  t.after(()=>table.dispose());
+  await table.session.prompt('I look around.');
+  assert.deepEqual(table.extensionErrors,[]);
+  assert.deepEqual(table.session.messages.filter(m=>m.role==='toolResult'&&m.details?.coc_error).map(m=>m.details.coc_error),[]);
+  const record=JSON.parse(readFileSync(join(table.workspace,'.coc/campaigns/test-camp/turns/0001.json'),'utf8'));
+  assert.equal(record.rendered_text,'The room is chilly.',JSON.stringify({reference,messages:table.session.messages.map(m=>({role:m.role,tool:m.toolName,error:m.errorMessage,content:m.content})),telemetry:table.telemetry().filter(row=>row.lane==='final-output'||row.error)}));
+  assert.ok(record.delivery_evidence.sources.some(source=>source.name===reference));
+  assert.equal(record.delivery_evidence.materials.find(row=>row.name==='cold room').text,'The room is cold.');
+  assert.equal(table.telemetry().find(row=>row.lane==='final-output'&&row.event==='start').reused_texts,1);
+});
+
+test('support references reject private text and stale source bindings before starting the writer',async()=>{
+  const binding={campaign:'c',turn:1,worldline:'main',loop:0,task_source_revision:'source1',task_world_revision:'world1'};
+  const capsule={_context:binding};let started=0;
+  const owner=createFinalOutputOwner({runtime:()=>({home:'/unused'}),call:async method=>method==='table.capsule'?capsule:{},record:async()=>{started++;}});
+  owner.observeSupport(binding,[{alias:'private',content:{text:'PRIVATE_CULPRIT',privacy:'keeper_only'}},
+    {alias:'public',content:{text:'The room is cold.',privacy:'player_safe'}}]);
+  const reference=source=>({version:1,materials:[{name:'cold room',source,kind:'description',visibility:'player',required:true}]});
+  await assert.rejects(owner.check('c',1,reference('private')),/private or unclassified/);
+  await assert.rejects(owner.check('c',1,{version:1,sources:['private']}),/source:\"private\"/,
+    'material preparation identifies the incomplete private reference before authoring');
+  await owner.check('c',1,reference('public'));
+  capsule._context={...binding,task_source_revision:'source2'};
+  await assert.rejects(owner.write('c',1,reference('public')),/stale/);
+  assert.equal(started,1,'only the successful private material check was recorded; no author started');
 });
 
 test('a fabricated source reference refuses the selected writer before it starts', async t => {

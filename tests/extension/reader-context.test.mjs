@@ -1,12 +1,37 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import {createHash} from 'node:crypto';
+import {getCurrentSystemPrompt} from '@earendil-works/pi-ai';
 
 import { chmod, mkdtemp, mkdir, readFile, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import readerContext, { boundImages, confineReaderEnvironment, createReaderToolGuard } from "../../extensions/module/reader-context.ts";
+
+test('fresh final authors keep identical system prefixes while retaining separate guarded working directories',async t=>{
+  const home=await mkdtemp(join(tmpdir(),'author-cache-prefix-'));t.after(()=>rm(home,{recursive:true,force:true}));
+  const prompts=[];
+  for(const name of ['attempt-a','attempt-b']){
+    const cwd=join(home,name);await mkdir(cwd);
+    const faux=fauxProvider({responses:[fauxAssistantMessage('Done.') ]});
+    const runtime=await ModelRuntime.create({authPath:join(home,'auth.json'),modelsPath:null,
+      modelsStorePath:join(home,'models-store.json'),refreshOnCreate:false,allowModelNetwork:false});
+    runtime.registerNativeProvider(faux.provider);
+    const settingsManager=SettingsManager.inMemory({compaction:{enabled:false},retry:{enabled:false}});
+    const loader=new DefaultResourceLoader({cwd,agentDir:join(home,'agent'),noContextFiles:true,noSkills:true,noExtensions:true,
+      systemPrompt:'Write only the selected story.',settingsManager,extensionFactories:[{name:'reader-context',factory:pi=>{
+        readerContext(pi,{cwd,env:{PI_COC_FINAL_OUTPUT:'1',PI_COC_HOME:home}});
+        pi.on('context_with_system',event=>{prompts.push(getCurrentSystemPrompt(event.messages));});
+      }}]});
+    await loader.reload();
+    const {session}=await createAgentSession({cwd,agentDir:join(home,'agent'),modelRuntime:runtime,model:faux.getModel(),
+      settingsManager,resourceLoader:loader,sessionManager:SessionManager.inMemory(),tools:['read','write','edit','bash'],thinkingLevel:'off'});
+    try{await session.bindExtensions({mode:'print'});await session.prompt('One independent brief.');}finally{session.dispose();}
+    assert.equal(createReaderToolGuard(cwd,{PI_COC_FINAL_OUTPUT:'1',PI_COC_HOME:home})({toolName:'read',input:{path:join(home,'other','task.json')}}).block,true);
+  }
+  assert.equal(prompts.length,2);assert.equal(prompts[0],prompts[1]);assert.ok(!prompts[0].includes(home));
+});
 import { readingImageBudget, resetReadingImageBudgetCache } from "../../runtime/jev/host-budgets.ts";
 import {createAgentSession,createBashTool,DefaultResourceLoader,ModelRuntime,SessionManager,SettingsManager} from './pi.mjs';
 import {fauxProvider,fauxAssistantMessage,fauxToolCall,getCurrentTools} from '@earendil-works/pi-ai';

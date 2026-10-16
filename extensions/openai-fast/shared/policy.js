@@ -7,6 +7,7 @@ export const FLAPCODE_OPENAI_MODELS = Object.freeze([
 ]);
 export function visible(model) {
   return model?.provider === "openai-codex" ||
+    (model?.provider === "codex-relay" && model.id === "gpt-6-luna") ||
     (model?.provider === "flapcode" && FLAPCODE_OPENAI_MODELS.includes(model.id));
 }
 export function capable(model) {
@@ -32,7 +33,10 @@ export function requestPayload(payload, model, enabled) {
   if (!capable(model) || !payload || typeof payload !== "object" || Array.isArray(payload) || payload.model !== model.id)
     return payload;
   // Last provider hook wins over samplingParams. Off cannot inherit account-default or a static Fast override.
-  return {...payload, service_tier: enabled ? "priority" : "default"};
+  return {...payload,
+    // The relay maps this wire alias to Luna plus priority; its incoming tier field alone is ignored.
+    ...(model.provider === "codex-relay" ? {model: enabled ? `${model.id}-fast` : model.id} : {}),
+    service_tier: enabled ? "priority" : "default"};
 }
 export function reportedTier(data) {
   if (!["response.completed", "response.incomplete", "response.done"].includes(data?.type)) return null;

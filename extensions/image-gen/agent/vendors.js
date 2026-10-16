@@ -22,6 +22,8 @@ import { arch, platform, release } from "node:os";
 import { randomUUID } from "node:crypto";
 import { sniffImageMime } from "../../grok-build-oauth/agent/images/client.js";
 import { CODEX_BASE_URL, CODEX_IMAGE_MODEL, CODEX_ORIGINATOR, CODEX_PROVIDER } from "./codex.js";
+import { minimaxImageAdapter } from '../../minimax-enhanced/agent/media.js';
+import { enabledInHost as minimaxEnabled } from '../../minimax-enhanced/agent/config.js';
 
 export const VENDOR_DEFAULT_BASE_URLS = Object.freeze({
 	openai: "https://api.openai.com",
@@ -30,11 +32,12 @@ export const VENDOR_DEFAULT_BASE_URLS = Object.freeze({
 	gemini: "https://generativelanguage.googleapis.com",
 	"dashscope-sync": "https://dashscope.aliyuncs.com",
 	"dashscope-async": "https://dashscope.aliyuncs.com",
+	minimax: "https://api.minimax.cn",
 });
 
 const SUPPORTED_FAMILIES =
 	"OpenAI (gpt-image-*, dall-e-*), xAI (grok-*-image*), Volcengine Ark (seedream/seededit), " +
-	"Gemini (gemini-*-image), DashScope sync (qwen-image*) and DashScope async (wan/wanx)";
+	"Gemini (gemini-*-image), MiniMax (image-01, image-01-live), DashScope sync (qwen-image*) and DashScope async (wan/wanx)";
 
 /**
  * Closed model-id → vendor mapping. Throws on an unsupported family, naming
@@ -44,6 +47,7 @@ const SUPPORTED_FAMILIES =
 export function routeByModelId(modelId) {
 	const id = String(modelId ?? "").trim().toLowerCase();
 	if (!id) throw new Error("the image model id must not be empty");
+	if (id === 'image-01' || id === 'image-01-live') return 'minimax';
 	if (id.includes("gpt-image") || id.includes("dall-e")) return "openai";
 	if (id.includes("seedream") || id.includes("seededit")) return "ark";
 	if (id.includes("qwen-image")) return "dashscope-sync";
@@ -62,6 +66,7 @@ export function routeByModelId(modelId) {
  * still means the OpenAI Images API.
  */
 export function routeImageModel(provider, modelId) {
+	if (provider === "grok-build" && modelId === "grok-imagine-image") return "grok-build";
 	if (provider === CODEX_PROVIDER) return "codex";
 	return routeByModelId(modelId);
 }
@@ -485,6 +490,10 @@ async function codexAdapter(req, creds, opts) {
 }
 
 export const VENDOR_ADAPTERS = Object.freeze({
+	minimax: (req,creds,opts) => {
+		if (!minimaxEnabled(opts?.env)) throw Error('MiniMax Enhanced is disabled or unmounted');
+		return minimaxImageAdapter(req,creds,opts);
+	},
 	codex: codexAdapter,
 	openai: openaiAdapter,
 	xai: xaiAdapter,

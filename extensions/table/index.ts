@@ -28,6 +28,7 @@ import { appendJsonl, cocHome, cocMode } from "../lanes/host.ts";
 import { type ExtensionWords, extensionSurface } from "../ui/words.ts";
 import { type CommandDeps, registerCocCommand } from "./commands.ts";
 import { installContextPolicy } from "./context-runtime.ts";
+import { installMaterialScreen } from "./material-screen.ts";
 
 /** The session summary of contract §11.5; a missing field just means that piece is not shown. */
 interface SessionSummary {
@@ -478,6 +479,7 @@ export default function (pi: ExtensionAPI) {
 		const root = home();
 		return root ? join(root, ".coc", "workspace-cache", "workpad") : undefined;
 	});
+	installMaterialScreen(pi, record);
 
 	pi.on("session_start", async (_event, sessionCtx) => {
 		ctx = sessionCtx;

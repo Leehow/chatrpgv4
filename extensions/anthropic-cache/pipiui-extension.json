@@ -1,0 +1,10 @@
+{
+  "id": "anthropic-cache",
+  "name": "Anthropic Active Cache",
+  "version": "0.1.0",
+  "category": "integration",
+  "description": "Explicit Anthropic prefix cache boundaries and reported usage. Initially enabled for MiniMax only.",
+  "defaultEnabled": true,
+  "capabilities": [],
+  "agent": { "extension": "index.js" }
+}

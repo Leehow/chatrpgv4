@@ -72,7 +72,7 @@ test('a relationship read discovers new owner material and delivers it in the ac
         }));
         return Response.json({model:sent.model,usage:{input_tokens:10,output_tokens:2},answers});
     };
-    api.installContextPolicy({on:(key,fn)=>hooks.set(key,fn),events:{on:(key,fn)=>bus.set(key,fn)},getActiveTools:()=>[],getAllTools:()=>[]},event=>events.push(event));
+    api.installContextPolicy({on:(key,fn)=>hooks.set(key,fn),events:{on:(key,fn)=>bus.set(key,fn),emit:(name,value)=>bus.get(name)?.(value)},getActiveTools:()=>[],getAllTools:()=>[]},event=>events.push(event));
     const bridgeCall=async(method,params)=>{
         calls.push({method,params:structuredClone(params)});
         // Exercise a real one-entry initial catalog page; the follow tool must discover beyond it.

@@ -5,6 +5,7 @@ import {fileURLToPath} from 'node:url';
 import {spawn} from 'node:child_process';
 import {createWriteStream} from 'node:fs';
 import {sha256} from './core.mjs';
+import {shareTestTree} from '../../scripts/test-workspace.mjs';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.resolve(HERE, '../..');
@@ -96,7 +97,7 @@ async function main() {
     for (const arm of order) {
       const armDir = path.join(batchDir, `${id}-${arm}`), cwd = path.join(armDir, 'input');
       await fs.mkdir(cwd, {recursive: true});
-      await fs.cp(path.join(runDir, 'source-pages'), path.join(cwd, 'source-pages'), {recursive: true});
+      shareTestTree(path.join(runDir, 'source-pages'), path.join(cwd, 'source-pages'));
       await fs.writeFile(path.join(cwd, 'material-index.json'), indexBytes);
       await fs.mkdir(path.join(cwd, '.pi'));
       await fs.writeFile(path.join(cwd, '.pi/settings.json'), JSON.stringify({httpIdleTimeoutMs: 60_000, retry: {provider: {maxRetries: 0}}}));

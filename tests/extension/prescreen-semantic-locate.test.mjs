@@ -196,7 +196,7 @@ test('the context hook arms the configured allowance once per accepted input',as
   const binding={version:1,campaign:'c1',worldline:'main',loop:0,turn:1,source_revision:'a'.repeat(64)};
   const capsule={turn:{number:1,player_text:'Look around.'},where:{scene:'office'},present:[],known:{}};
   const hooks=new Map(),bus=new Map(),events=[];
-  api.installContextPolicy({on:(key,fn)=>hooks.set(key,fn),events:{on:(key,fn)=>bus.set(key,fn)},getActiveTools:()=>[],getAllTools:()=>[]},event=>events.push(event));
+  api.installContextPolicy({on:(key,fn)=>hooks.set(key,fn),events:{on:(key,fn)=>bus.set(key,fn),emit:(name,value)=>bus.get(name)?.(value)},getActiveTools:()=>[],getAllTools:()=>[]},event=>events.push(event));
   await hooks.get('session_start')();
   bus.get('coc:kernel-bridge')({campaign:'c1',call:async method=>{if(method==='table.capsule')return {...capsule,_context:binding};
     if(method==='table.recall')return {cards:[],hits:[],_snapshot:'h'};return {status:'unverifiable',binding:null,authority:{checked:false}};}});

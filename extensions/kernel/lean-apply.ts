@@ -23,6 +23,7 @@ import { readJevApiKey } from "../jev/agent/config.js";
 export const LEAN_APPLY_ENV = "PI_COC_LEAN_APPLY";
 
 export function finalDeliveryAction(env:Readonly<Record<string,string|undefined>>=process.env):string {
+  if(env.PI_COC_ISOLATED_OUTPUT==='1')return 'return a private expression brief beginning with {{compose}}';
   return env.PI_COC_LOOP_ENGINE==='hybrid-v1'?'return your public response beginning with {{public}}':'select output';
 }
 

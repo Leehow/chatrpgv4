@@ -13,7 +13,8 @@ it('shows streamed speech without a raw partial marker and reconciles the canoni
   rows=applyStreamEvent(rows,delta);
   rows=applyStreamEvent(rows,delta);
   const mounted=render(<CocStreamingProse details={rows[0].presentation!.details as any}/>);
-  expect(mounted.container.textContent).toBe('The door opens. ');
+  // Markdown trims paragraph-end whitespace while the unfinished speaker marker is held.
+  expect(mounted.container.textContent).toBe('The door opens.');
   rows=applyStreamEvent(rows,{type:'final_delivery',sessionId:'s',frame:{...base,sequence:3,event:'delta',delta:'erk}}Come in.{{/say}}'}});
   mounted.rerender(<CocStreamingProse details={rows[0].presentation!.details as any}/>);
   expect(mounted.container.textContent).toBe('The door opens. Come in.');

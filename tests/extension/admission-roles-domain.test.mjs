@@ -26,7 +26,7 @@ import {
 	runAdmissionRoles,
 } from "../../runtime/jev/admission-roles-domain.ts";
 import { rolesBatches } from "../../experiments/admission-jev-bank/admission-roles.ts";
-import { PLAYER_EXECUTION_CHOICE_NOTE } from "../../runtime/jev/action-field-semantics.ts";
+import { PLAYER_EXECUTION_CHOICE_NOTE, NPC_DISCLOSURE_ADMISSION_NOTE } from "../../runtime/jev/action-field-semantics.ts";
 
 const kindOf = (line) => line.startsWith("resolve") ? "resolve" : line.slice("apply ".length, line.indexOf(":"));
 const input = (overrides = {}) => {
@@ -95,6 +95,10 @@ test("§32.12.3.2: only handover semantics and the execution-choice question dif
 			assert.ok(actual.state.fieldNotes.handover.includes("consent ground"));
 			delete actual.state.fieldNotes.handover;
 			for (const [key, question] of Object.entries(actual.questions)) {
+				if (key.startsWith("result_")) {
+					assert.ok(question.instructions.instruction.endsWith(` ${NPC_DISCLOSURE_ADMISSION_NOTE}`));
+					question.instructions.instruction = question.instructions.instruction.slice(0, -(NPC_DISCLOSURE_ADMISSION_NOTE.length + 1));
+				}
 				if (!key.startsWith("choice_")) continue;
 				assert.ok(question.instructions.instruction.endsWith(` ${PLAYER_EXECUTION_CHOICE_NOTE}`));
 				question.instructions.instruction = question.instructions.instruction.slice(0, -(PLAYER_EXECUTION_CHOICE_NOTE.length + 1));
@@ -106,13 +110,13 @@ test("§32.12.3.2: only handover semantics and the execution-choice question dif
 			assert.deepEqual(actual.state, expectedRequests[0].state);
 			assert.equal(actual.model, expectedRequests[0].model);
 			Object.assign(actualQuestions, actual.questions);
-			assert.deepEqual([batch.family, batch.familyVersion], [experiment.batches[0].family, "2a.7"]);
+			assert.deepEqual([batch.family, batch.familyVersion], [experiment.batches[0].family, "2a.8"]);
 		}
 		// The added policy can change byte-bounded batch cuts, but never drops or adds a semantic question.
 		assert.deepEqual(actualQuestions, expectedQuestions);
 		assert.deepEqual([...product.passages.keys()], [...experiment.passages.keys()]);
 	}
-	assert.deepEqual([ADMISSION_ROLES_FAMILY, ADMISSION_ROLES_VERSION], ["action-admission-roles", "2a.7"]);
+	assert.deepEqual([ADMISSION_ROLES_FAMILY, ADMISSION_ROLES_VERSION], ["action-admission-roles", "2a.8"]);
 });
 
 test("§32.12.3.2: per line the design asks role, choice, result, span, target, gate, order, missing and basis; each line carries its closed kind", () => {

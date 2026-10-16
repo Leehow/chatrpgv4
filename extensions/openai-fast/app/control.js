@@ -1,4 +1,4 @@
-// shared/policy.js
+// extensions/openai-fast/shared/policy.js
 var DATA_ROOT = ".pi/agent/openai-fast";
 var FLAPCODE_OPENAI_MODELS = Object.freeze([
   "gpt-6.1-sol",
@@ -11,7 +11,7 @@ var FLAPCODE_OPENAI_MODELS = Object.freeze([
   "gpt-5.5"
 ]);
 function visible(model) {
-  return model?.provider === "openai-codex" || model?.provider === "flapcode" && FLAPCODE_OPENAI_MODELS.includes(model.id);
+  return model?.provider === "openai-codex" || model?.provider === "codex-relay" && model.id === "gpt-6-luna" || model?.provider === "flapcode" && FLAPCODE_OPENAI_MODELS.includes(model.id);
 }
 function capable(model) {
   return visible(model) && (model.provider === "openai-codex" ? !model.api || model.api === "openai-codex-responses" : !model.api || model.api === "openai-responses");
@@ -35,7 +35,7 @@ function parsePreference(text) {
   return { version: 1, enabled: data.enabled, revision: data.revision };
 }
 
-// app/control-source.js
+// extensions/openai-fast/app/control-source.js
 function createComposerAction(React) {
   const { createElement: h, useEffect, useState, useRef } = React;
   return function FastControl({ api, sessionId, model, disabled }) {

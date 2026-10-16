@@ -5,6 +5,7 @@ import { join, resolve } from "node:path";
 import { applyProviderModelCorrections, PRODUCT_NOTE_KEY } from "../../../../runtime/host.ts";
 import { createPiHostBackend, SUBAGENT_MODEL_CATALOG_SNAPSHOT_VERSION } from "../src/index.js";
 import { ProviderAuthBackend } from "../src/provider-auth.js";
+import { thinkingLevelsForModel } from "@pipi/host-api";
 import type { AuthEventLike, AuthInteractionLike, AuthPromptLike, AuthRuntimeLike } from "../src/provider-auth.js";
 
 /** In-memory pi auth runtime with scripted login flows. Credential values never logged. */
@@ -73,6 +74,23 @@ describe("provider auth via pi ModelRuntime bridge", () => {
     vi.unstubAllGlobals();
     vi.restoreAllMocks();
     if (root) await rm(root, { recursive: true, force: true, maxRetries: 10, retryDelay: 25 });
+  });
+
+  it("lists the installed MiniMax preview with only its supported effort levels", async () => {
+    root = await tempAgent();
+    await applyProviderModelCorrections(root, REAL_CORRECTIONS);
+    await writeFile(join(root, "auth.json"), JSON.stringify({ "minimax-cn": { type: "api_key", key: "test-key" } }));
+    const backend = createPiHostBackend({ agentDir: root, authRuntime: fakeAuthRuntime(["minimax-cn"]) });
+    try {
+      const models = await backend.handle("listModels", []) as any[];
+      const model = models.find(model => model.provider === "minimax-cn" && model.id === "MiniMax-M3.1-Flash-Preview");
+      expect(model).toBeDefined();
+      expect(thinkingLevelsForModel(model)).toEqual(["low", "medium", "high", "xhigh", "max"]);
+      const selected = await backend.handle("setModel", ["minimax-cn", "MiniMax-M3.1-Flash-Preview"]) as any;
+      expect(selected.thinkingLevel).toBe("low");
+    } finally {
+      await backend.close();
+    }
   });
 
   it("lists auth-capable providers with credential metadata from auth.json (never key values)", async () => {

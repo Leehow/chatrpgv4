@@ -28,7 +28,8 @@ function expressionProjection(content:string,visibleName:(name:string)=>string):
   }catch{return undefined;}
 }
 /** The real-play driver selects the owner's test profile; ordinary product sessions retain their author. */
-export const finalAuthorProfile=(env:NodeJS.ProcessEnv=process.env)=>env.PI_COC_TEST_MODEL==='codex-relay/gpt-6-luna'
+export const finalAuthorProfile=(env:NodeJS.ProcessEnv=process.env)=>env.PI_COC_TEST_MODEL==='minimax-cn/MiniMax-M3.1-Flash-Preview'
+  ?{model:'minimax-cn/MiniMax-M3.1-Flash-Preview',thinking:'medium' as const}:env.PI_COC_TEST_MODEL==='codex-relay/gpt-6-luna'
   ?{model:'codex-relay/gpt-6-luna',thinking:'high' as const}:{model:'grok-build/grok-4.5',thinking:'low' as const};
 /** Recognize a closed protocol envelope, never the meaning or language of free prose. */
 export function unselectedDeliveryPlan(text:string):boolean {
@@ -427,16 +428,16 @@ export function createFinalOutputOwner(deps: {runtime: () => HostRuntime | undef
     try{return structuredClone(await task);}finally{running.delete(key);}
   }
 
-  async function openStream(campaign:string,turn:number,run:string) {
+  async function openStream(campaign:string,turn:number,run:string,author='keeper',selectedSpeakers:string[]=[]) {
     forTurn(campaign,turn);
     const root=deps.runtime()?.home;
     if(!root)throw error('The delivery runtime is unavailable');
     const capsule=await deps.call('table.capsule',{campaign,_context_read:true});
     const context=contextOf(campaign,turn,capsule),binding=digest(context);
-    const key=digest({campaign,turn,run,author:'keeper'}),attempt=join(root,'.coc','delivery-writes',key);
+    const key=digest({campaign,turn,run,author}),attempt=join(root,'.coc','delivery-writes',key);
     await mkdir(attempt,{recursive:true});
     const shown=untoldView(capsule);
-    const names=(shown.capsule.present??[]).map((person:Row)=>person.name).filter(Boolean);
+    const names=[...new Set([...selectedSpeakers,...(shown.capsule.present??[]).map((person:Row)=>person.name).filter(Boolean)])].slice(0,48);
     const prepared=await deps.call('table.delivery.check',{campaign,speakers:names});
     const journal=new DeliveryJournal(join(attempt,'delivery.jsonl'),{campaign,turn,worldline:context.worldline,loop:context.loop,
       run,input_revision:digest(capsule.turn?.player_text),delivery_id:key},frame=>deps.stream?.(frame));
@@ -492,7 +493,7 @@ export function createFinalOutputOwner(deps: {runtime: () => HostRuntime | undef
         for(const span of quoted)if(!coverage.some(prior=>prior.name===span.name&&prior.start===span.start&&prior.end===span.end)&&coverage.length<128)coverage.push(span);
         const artifact=validateDeliveryArtifact({version:1,text,coverage},materials.map((m:Row)=>m.name),[]);
         const evidence={version:1,packet:key,binding,context,sources:[],materials,coverage:artifact.coverage,required:[],omitted:[],
-          model,thinking,author:'keeper',artifact_text:text,publication,stream:{delivery_id:key,attempt_id:journal.frames[0].attempt_id}};
+          model,thinking,author,artifact_text:text,publication,stream:{delivery_id:key,attempt_id:journal.frames[0].attempt_id}};
         await writeWritingCache(join(attempt,'accepted.json'),JSON.stringify({artifact,evidence}));
         journal.write('end',{status:'finalizing'});
         return {text,evidence};

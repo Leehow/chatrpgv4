@@ -9,10 +9,10 @@ import {api,root} from './object-usages-fixture.mjs';
 import {createHybridEngine} from '../../runtime/jev/hybrid-engine.ts';
 
 test('the real Keeper context supplies practical NPC knowledge and separates first impression from persuasion within its instruction budget',async t=>{
-    const engine=createHybridEngine({env:{...process.env,PI_COC_JEV_PRESELECT:'0'},decision:null});
+    const engine=createHybridEngine({env:{...process.env,PI_COC_JEV_PRESELECT:'0',PI_COC_ISOLATED_OUTPUT:'1'},decision:null});
     let delivered,system,footer;
     const table=await openTable({legacyDeliveryFixtures:false,realKernel:true,runDriver:engine.runDriver,
-        env:{PI_COC_LOOP_ENGINE:'hybrid-v1'},systemPrompt:await readFile(join(root,'prompts/keeper.md'),'utf8'),
+        env:{PI_COC_LOOP_ENGINE:'hybrid-v1',PI_COC_ISOLATED_OUTPUT:'1',PI_COC_READER_CMD:JSON.stringify([process.execPath,join(import.meta.dirname,'fixtures/isolated-expression-writer.mjs')])},systemPrompt:await readFile(join(root,'prompts/keeper.md'),'utf8'),
         async prepareWorkspace(workspace){
             const context=await api.createKernelContext({workspace,content:join(root,'content'),seed:'rule-guidance',
                 locks:api.createAdvisoryLocks(async()=>{}),env:{...process.env,GIT_CONFIG_GLOBAL:'/dev/null',GIT_CONFIG_NOSYSTEM:'1'}});
@@ -24,9 +24,9 @@ test('the real Keeper context supplies practical NPC knowledge and separates fir
             system=String(getCurrentSystemPrompt(context.messages));
             footer=context.messages.map(message=>typeof message.content==='string'?message.content
                 :(message.content??[]).filter(block=>block.type==='text').map(block=>block.text).join(''))
-                .findLast(content=>content.includes('You are the sole Keeper and author.'));
+                .findLast(content=>content.includes('You are the Keeper and content planner.'));
             delivered=system+JSON.stringify(context.messages);
-            return fauxAssistantMessage('{{public}}The conversation continues.');
+            return fauxAssistantMessage('{{compose}}'+JSON.stringify({scene:'An office.',narrative_content:[],npc_turns:[{speaker:'Steven Knott',intent:'Continue the conversation.',personality:null,emotion:null}]}));
         }]});
     t.after(()=>table.dispose());
     await table.session.prompt('I ask Knott whether he will help arrange access.');
@@ -48,20 +48,20 @@ test('the real Keeper context supplies practical NPC knowledge and separates fir
     assert.ok(footer.includes('look and lookup read evidence; they never move people.'));
     assert.ok(footer.includes('Wait for the result before describing arrival.'));
     assert.ok(footer.includes('Never execute unchosen actions, infer state changes from prose, repeat settled effects or charge journey time twice.'));
-    assert.ok(footer.includes('Future intentions use planned'));
-    assert.ok(footer.includes('{{public}}'));
+    assert.ok(system.includes('A real future intention uses planned'));
+    assert.ok(footer.includes('{{compose}}'));
     for(const guidance of [system,footer]){
         assert.ok(guidance.includes('Settle actual changes and event records through the existing apply/resolve tools before writing dependent prose.'));
         assert.ok(guidance.includes('Read each actual result, correct a refused proposal through those tools'));
         assert.ok(guidance.includes('Do not place outstanding effects or event parameters in a final response.'));
         assert.doesNotMatch(guidance,/bare JSON object in version, record, text order/);
-        assert.match(guidance,/No JSON wrapper/);
+        assert.ok(guidance.includes('{{compose}}'));
     }
     const publicText=table.entries('coc-final-delivery').filter(frame=>frame.event==='delta').map(frame=>frame.delta).join('');
-    assert.equal(publicText,'The conversation continues.','host responsibilities never enter the public stream');
+    assert.equal(publicText,'{{say:Steven Knott}}I can meet you at noon.{{/say}}','only the isolated author enters the public stream');
     for(const guidance of [system,footer]){
-        assert.ok(guidance.includes('For prospective heard knowledge, speech material.text contains the exact public words you will use'));
-        assert.ok(guidance.includes('reuse those words verbatim inside the actual speaker\'s say span'));
+        assert.ok(guidance.includes('For prospective replies, speech material.text contains intended meaning rather than finished wording'));
+        assert.ok(guidance.includes('The isolated author chooses the actual words'));
         assert.doesNotMatch(guidance,/optional root coverage|optional quotation coverage/);
     }
     assert.ok(system.includes('Already acquired knowledge needs no material binding.'));

@@ -36,12 +36,12 @@ import {splitSourceText} from './source-ref.ts';
 import type {DecisionBatch, DecisionDescriptor, DecisionQuestion, DecisionResult, Json, ReadSet, ScopeBinding} from './contracts.ts';
 import type {TaskLease} from './task-context.ts';
 import {ADMISSION_MISSING_KINDS, batchVerdict} from './admission-domain.ts';
-import {HANDOVER_GROUND_NOTE, PLAYER_EXECUTION_CHOICE_NOTE} from './action-field-semantics.ts';
+import {HANDOVER_GROUND_NOTE, PLAYER_EXECUTION_CHOICE_NOTE, NPC_DISCLOSURE_ADMISSION_NOTE} from './action-field-semantics.ts';
 import type {AdmissionJevInput, AdmissionJevLine, AdmissionJevResult, AdmissionJevVerdict, AdmissionMissingKind} from './admission-domain.ts';
 
 /** Stable family id and current prompt revision; historical experiment requests remain frozen. */
 export const ADMISSION_ROLES_FAMILY = 'action-admission-roles';
-export const ADMISSION_ROLES_VERSION = '2a.7';
+export const ADMISSION_ROLES_VERSION = '2a.8';
 export const ADMISSION_ROLES_MODEL = JEV_MODEL;
 /** Same bound as §32.10: a larger proposal goes to the lane. */
 export const ADMISSION_ROLES_MAX_LINES = 8;
@@ -125,7 +125,7 @@ const RESULT_CRITERIA: Record<string, DecisionDescriptor> = {
   unclear: 'What the player did does not settle whether this follows from it.',
 };
 const RESULT: Family = {name: 'result', options: Object.keys(RESULT_CRITERIA), admitting: ['answers_player', 'world_on_its_own'], criteria: RESULT_CRITERIA,
-  instructions: line => `Read ${line} as what a person, a place or the rules do or give. Judging from ${EVIDENCE} and \`settledThisTurn\`, does it follow from what the investigator did, or does it need an investigator action the player did not choose?`};
+  instructions: line => `Read ${line} as what a person, a place or the rules do or give. Judging from ${EVIDENCE} and \`settledThisTurn\`, does it follow from what the investigator did, or does it need an investigator action the player did not choose? ${NPC_DISCLOSURE_ADMISSION_NOTE}`};
 
 const SPAN_CRITERIA: Record<string, DecisionDescriptor> = {
   activity_time: {what: 'Minutes or hours spent on what the investigator is doing: the talk, search, reading, wait or journey the player\'s words chose, or that this turn already settled.'},

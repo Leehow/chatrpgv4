@@ -1,0 +1,21 @@
+import {test} from 'node:test';
+import assert from 'node:assert/strict';
+import {mkdtemp,writeFile,rm} from 'node:fs/promises';
+import {join} from 'node:path';
+import {tmpdir} from 'node:os';
+import {writeIsolatedExpression,EXPRESSION_PROFILE} from '../../runtime/isolated-expression.ts';
+import {readAuthorModelChoice,AUTHOR_MODEL_KEY,AUTHOR_THINKING_KEY} from '../../runtime/author-model.ts';
+import {AUTHOR_DEFAULT} from '../../pipicoc/settings-lane-model.js';
+import {readFastModelChoice} from '../../runtime/fast-model.ts';
+test('each new composition reads independent saved author choices without restarting the runtime',async t=>{
+ assert.deepEqual(AUTHOR_DEFAULT,EXPRESSION_PROFILE);
+ const home=await mkdtemp(join(tmpdir(),'author-settings-'));t.after(()=>rm(home,{recursive:true,force:true}));
+ const old=process.env.PI_COC_TEST_MODEL;delete process.env.PI_COC_TEST_MODEL;t.after(()=>{if(old!==undefined)process.env.PI_COC_TEST_MODEL=old;});
+ const calls=[];const runtime={home,agentHome:home,async runTask(task){calls.push(task.request);const [provider,...id]=task.request.model.split('/');task.request.onEvent({type:'message_end',message:{role:'assistant',provider,model:id.join('/'),stopReason:'stop',content:[{type:'text',text:'{{public}}A quiet room.'}]}});return{ok:true};}};
+ const save=async(model,level)=>writeFile(join(home,'pipiui-settings.json'),JSON.stringify({extensions:{'coc-keeper':{settings:{'ext.coc-keeper.laneModel':{model:'fast/unchanged'},[AUTHOR_MODEL_KEY]:{model},[AUTHOR_THINKING_KEY]:{level}}}}}));
+ const compose=()=>writeIsolatedExpression({runtime,campaign:'c',turn:1,run:'r',brief:{scene:'Room',narrative_content:[],npc_turns:[]},language:'en',stream:{push(){}},record:async()=>{}});
+ await compose();assert.equal(calls[0].model,EXPRESSION_PROFILE.model);
+ await save('author/one','medium');await compose();await save('author/two','high');await compose();
+ assert.deepEqual(calls.map(x=>[x.model,x.thinking]),[[EXPRESSION_PROFILE.model,EXPRESSION_PROFILE.thinking],['author/one','medium'],['author/two','high']]);assert.equal((await readFastModelChoice(home)).model,'fast/unchanged');
+ await writeFile(join(home,'pipiui-settings.json'),'broken');assert.deepEqual(await readAuthorModelChoice(home),{});
+});

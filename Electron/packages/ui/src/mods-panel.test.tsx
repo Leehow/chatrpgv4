@@ -26,7 +26,7 @@ test('lists disabled and enabled Mods and routes a toggle through the host', asy
   expect((toggles[0] as HTMLInputElement).checked).toBe(true);
   expect((toggles[1] as HTMLInputElement).checked).toBe(false);
   fireEvent.click(toggles[0]);
-  await waitFor(()=>expect(invoke).toHaveBeenCalledWith('mods.configure',{id:'natural-npc',version:'1.0.0',enabled:false}));
+  await waitFor(()=>expect(invoke).toHaveBeenCalledWith('mods.configure',{id:'natural-npc',version:'latest',enabled:false}));
 });
 
 test('an unbound session can manage defaults but cannot change a guessed campaign', async () => {
@@ -38,14 +38,15 @@ test('an unbound session can manage defaults but cannot change a guessed campaig
   await waitFor(()=>expect(invoke).toHaveBeenCalledWith('mods.defaults',{id:'natural-npc',enabled:false}));
 });
 
-test('new versions are selectable without silently upgrading the campaign', async () => {
+test('selecting a concrete version pins it and selecting latest resumes following', async () => {
   const invoke = vi.fn(async ()=>({ok:true,data:{campaign:'c1',ui:ui('en'),mods:[row,{...row,version:'1.1.0'}]}}));
   render(<Panel api={{invoke}} />);
   await screen.findByText('Natural NPC');
   fireEvent.change(screen.getByLabelText(`Natural NPC ${en('version')}`),{target:{value:'1.1.0'}});
-  expect(invoke).not.toHaveBeenCalledWith('mods.configure',expect.anything());
-  fireEvent.click(screen.getByText(en('update')));
   await waitFor(()=>expect(invoke).toHaveBeenCalledWith('mods.configure',{id:'natural-npc',version:'1.1.0'}));
+  await waitFor(()=>expect((screen.getByLabelText(`Natural NPC ${en('version')}`) as HTMLSelectElement).disabled).toBe(false));
+  fireEvent.change(screen.getByLabelText(`Natural NPC ${en('version')}`),{target:{value:'latest'}});
+  await waitFor(()=>expect(invoke).toHaveBeenCalledWith('mods.configure',{id:'natural-npc',version:'latest'}));
 });
 
 test('shows override ownership and sends the complete user load order',async()=>{

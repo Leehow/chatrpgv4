@@ -5,6 +5,8 @@ import type {DecisionPort} from '../../runtime/jev/decision-port.ts';
 import type {TaskProviderBudget} from '../../runtime/jev/provider-budget.ts';
 /** Request and persistence adapters for the one bounded play-context policy. */
 import {createHash} from 'node:crypto';
+import {createRequestJournal} from './request-journal.ts';
+import {policyFor} from '../anthropic-cache/shared/policy.js';
 import {dirname, join} from 'node:path';
 import type {ContextEvent, ContextEventResult, ExtensionAPI, ExtensionContext, ToolResultEvent} from '@earendil-works/pi-coding-agent';
 import {getCurrentSystemMessage,getCurrentTools} from '@earendil-works/pi-ai';
@@ -22,9 +24,10 @@ import {reuseEvidence, dormantEvidence} from './workspace/evidence.ts';
 import {rankWorkspaceCandidates} from './workspace/reranker.ts';
 import {preparePrescreen,prescreenEnabled,reusePrescreen} from './prescreen.ts';
 import type {PrescreenSourceRuntime} from '../../runtime/jev/prescreen-source-provider.ts';
-import {createExpressionPreparation,EXPRESSION_MESSAGE,removeExpressionPayload} from './expression-reference.ts';
+import {createExpressionPreparation,EXPRESSION_MESSAGE} from './expression-reference.ts';
 import {createModSections,emptyCalls,noteCall,MOD_SECTIONS_MESSAGE} from './mod-sections.ts';
 import {createTemporalAdvice,TEMPORAL_ADVICE_MESSAGE} from './temporal-advice.ts';
+import {createWritingSupportNames} from '../../runtime/writing-support.ts';
 import {bindingOf, customMessage, epochOf, sourceOf, historyView, metadata, quoteView, briefForTurn, projectedMessages, foldPlan,
     boundedTail, retainsLatestToolBatch, requestBudget, BYTES_PER_TOKEN, HISTORY_BYTES, POLICY_VERSION, DIAGNOSTIC_TYPE, WORKSPACE_TYPE, PRESCREEN_TYPE, entryMessage, object, sizeOf, requestSize,
     capsuleUpdate, stableFirst, CAPSULE_UPDATE_TYPE, NPC_ADVICE_TYPE, CLERK_TYPE, BRIEF_TYPE,
@@ -76,6 +79,12 @@ function payloadContains(value:unknown,content:string,seen=new Set<object>()):bo
 
 export function installContextPolicy(pi: ExtensionAPI, writeTelemetry: (row: Row) => void,
     workpadRoot?: () => string | undefined): void {
+    const nameWritingSupport=createWritingSupportNames();
+    const requestJournal=createRequestJournal();
+    pi.on('session_start',()=>requestJournal.reset());
+    pi.on('session_shutdown',()=>requestJournal.reset());
+    pi.on('message_end',event=>requestJournal.complete(event.message as Row));
+    let expressionHistory:{campaign:string;turn:number;history:Row}|undefined;
     let observedTurn: number | undefined;
     const record = (row: Row): void => writeTelemetry({...(observedTurn === undefined ? {} : {turn: observedTurn}), ...row});
     let failedGeneration: number | undefined, inputPending = false;
@@ -119,7 +128,24 @@ export function installContextPolicy(pi: ExtensionAPI, writeTelemetry: (row: Row
             effective_ms:Math.max(0,prescreenDeadlineAt-Date.now())});
     };
     const expression=createExpressionPreparation({read:async(method,params)=>call?call(method,params):undefined,decision:()=>singleKeeper?undefined:decision(),record});
-    let pendingExpression:Row|undefined;
+    pi.events.on('coc:writing-reference-request',value=>{
+        const request=object(value);
+        if(request.campaign!==campaign||typeof request.accept!=='function'||!request.capsule)return;
+        const supplied=request.capsule,binding=object(supplied._context);
+        const previous=expressionHistory;
+        const history=previous&&previous.campaign===campaign&&previous.turn===binding.turn?previous.history:undefined;
+        const view={...supplied,...(history?{expression_exchange:history}:{})};
+        expression.observe(view,binding,inputLifetime.signal);
+        const owner=campaign,signal=inputLifetime.signal;
+        request.accept((async()=>{
+            await expression.waitForFirst(view,binding,signal);
+            if(signal.aborted||owner!==campaign)return;
+            const prepared=expression.project(view,binding),message=prepared&&rename([prepared])[0];
+            if(!message)return;
+            record({lane:'expression',event:'handoff',turn:binding.turn,destination:'output',bytes:requestSize([message])});
+            return {campaign,turn:binding.turn,revision:message.details.expression.revision,content:String(message.content)};
+        })());
+    });
     // Contract §183.5: the indexed packages' sections this turn needs; the calls so far this turn are what triggers read.
     const modSections=createModSections({read:async(method,params)=>call?call(method,params):undefined,decision:()=>singleKeeper?undefined:decision(),record});
     const discoveryMode=()=>singleKeeper?'full':['selective','shadow'].includes(sessionEnv.COC_TURN_DISCOVERY??'')?sessionEnv.COC_TURN_DISCOVERY!:'full';
@@ -230,6 +256,7 @@ export function installContextPolicy(pi: ExtensionAPI, writeTelemetry: (row: Row
         generation++; prepared = undefined; preparing = undefined;
     };
     const degraded = (reason: string): void => {
+        requestJournal.reset();
         lastReason = reason;
         const key = `${generation}:${reason}`;
         if (key !== lastDegraded) {lastDegraded = key; record({lane: 'context', event: 'degraded', reason});}
@@ -286,6 +313,7 @@ export function installContextPolicy(pi: ExtensionAPI, writeTelemetry: (row: Row
         // §217.1: a background publication lands inside the input, often while the Keeper's inference is out. It drops the
         // selected view (the next request reselects against the new source); the Keeper's lookups still answer for the input.
         capabilityRuntime.invalidate();modDiscovery.reset();
+        expression.clear();
         capsule = undefined; rawBinding = undefined; brief = undefined; briefKey = undefined; prescreenMemo=undefined;reusablePrescreen=undefined; invalidate();
     });
     pi.on('tool_call', async event => {
@@ -379,10 +407,10 @@ export function installContextPolicy(pi: ExtensionAPI, writeTelemetry: (row: Row
         if (!sourceChanged && !captured && !(stateChanged && (observedWorkspaceMode !== 'off' || prescreenEnabled() || expressionRefresh||discoveryMode()!=='full'))) return;
         capsule = undefined; rawBinding = undefined; brief = undefined; briefKey = undefined; invalidate();
     };
-    pi.on('session_start', async () => {capabilityRuntime.clear();modDiscovery.clear();pendingDiscovery=[];disclosure.clear();attachments.clear();pi.events.emit?.('coc:capability-discovery',{lookup:discoveryLookup});temporalAdvice.clear();pendingTemporal=undefined;expression.clear();pendingExpression=undefined;modSections.clear();pendingSections=undefined;turnCalls=emptyCalls();resetPreparation();untoldRoster=NO_UNTOLD;turnMaterial=undefined;sessionEnv={...process.env};sharedAdapter=undefined;invalidate(); observedWorkspaceMode = 'off'; inputPending = false; brief = undefined; briefKey = undefined; lastFold = undefined;
+    pi.on('session_start', async () => {capabilityRuntime.clear();modDiscovery.clear();pendingDiscovery=[];disclosure.clear();attachments.clear();pi.events.emit?.('coc:capability-discovery',{lookup:discoveryLookup});temporalAdvice.clear();pendingTemporal=undefined;expression.clear();modSections.clear();pendingSections=undefined;turnCalls=emptyCalls();resetPreparation();untoldRoster=NO_UNTOLD;turnMaterial=undefined;sessionEnv={...process.env};sharedAdapter=undefined;invalidate(); observedWorkspaceMode = 'off'; inputPending = false; brief = undefined; briefKey = undefined; lastFold = undefined;
         lastAttempt = undefined; sourceCalls.clear(); stateCalls.clear();prescreenDeadlineAt=0;prescreenMemo=undefined;reusablePrescreen=undefined;
         prescreenProviderBudget=preparationProviderBudget();});
-    pi.on('session_shutdown', async () => {capabilityRuntime.clear();modDiscovery.clear();pendingDiscovery=[];disclosure.clear();attachments.clear();pi.events.emit?.('coc:capability-discovery',{});temporalAdvice.clear();pendingTemporal=undefined;expression.clear();pendingExpression=undefined;modSections.clear();pendingSections=undefined;turnCalls=emptyCalls();resetPreparation();untoldRoster=NO_UNTOLD;sharedAdapter=undefined;call=undefined;capsule=undefined;rawBinding=undefined;sourceRuntime=undefined;moduleId=undefined;observedWorkspaceMode='off';
+    pi.on('session_shutdown', async () => {capabilityRuntime.clear();modDiscovery.clear();pendingDiscovery=[];disclosure.clear();attachments.clear();pi.events.emit?.('coc:capability-discovery',{});temporalAdvice.clear();pendingTemporal=undefined;expression.clear();modSections.clear();pendingSections=undefined;turnCalls=emptyCalls();resetPreparation();untoldRoster=NO_UNTOLD;sharedAdapter=undefined;call=undefined;capsule=undefined;rawBinding=undefined;sourceRuntime=undefined;moduleId=undefined;observedWorkspaceMode='off';
         prescreenMemo=undefined;reusablePrescreen=undefined;pendingProvider=undefined;prescreenDeadlineAt=0;
         prescreenProviderBudget={actions:0,inputTokens:0,outputTokens:0,costUsd:0};invalidate();});
 
@@ -497,6 +525,7 @@ export function installContextPolicy(pi: ExtensionAPI, writeTelemetry: (row: Row
                 } catch (error) {unavailable = error instanceof Error ? error.message.slice(0, 160) : 'Original records are unavailable';}
                 if (ticket !== generation) return undefined;
                 const history = historyView(binding, quotes, unavailable);
+                expressionHistory={campaign:binding.campaign,turn:binding.turn,history};
                 expression.observe({...current,expression_exchange:history},binding,inputLifetime.signal);
                 // KIC-03 (contract §19.2): the optional workspace follows host preferences.
                 // Off, unknown or missing reads nothing; shadow reads and records only;
@@ -695,7 +724,7 @@ export function installContextPolicy(pi: ExtensionAPI, writeTelemetry: (row: Row
         catch (error) {
             const failure = (error instanceof Error ? error.message : String(error)).slice(0, 160);
             discoveryUnavailable=discoveryMode()!=='full';capabilityRuntime.invalidate();modDiscovery.reset();pendingDiscovery=[];
-            pendingSections=undefined;pendingExpression=undefined;pendingTemporal=undefined;pendingProvider=undefined;
+            pendingSections=undefined;pendingTemporal=undefined;pendingProvider=undefined;
             invalidate();degraded('context_projection_failed');
             const requestMessages=event.messages.filter(message=>message.role!=='custom'||message.customType!==NPC_ADVICE_TYPE);
             try {return {messages: degradedRequest(requestMessages as unknown as Row[], ctx, 'context_projection_failed', failure) as typeof requestMessages};}
@@ -863,6 +892,7 @@ export function installContextPolicy(pi: ExtensionAPI, writeTelemetry: (row: Row
             if(prescreen)reusablePrescreen=prescreen;
         }
         if(ticket!==generation||preparationSignal.aborted)return superseded();
+        if(prescreen)prescreen=nameWritingSupport(prescreen,snapshot.binding);
         const initial=prescreen?project(messageBudget,{workspace,prescreen}):baseline;
         const window = ctx.model?.contextWindow, available = typeof window === 'number' ? window - Math.min(16384, Math.floor(window / 4)) : Infinity;
         const names=(materialSources?.(snapshot.binding.turn)??[]).slice(-6);
@@ -887,7 +917,6 @@ export function installContextPolicy(pi: ExtensionAPI, writeTelemetry: (row: Row
                     fitted=project(Math.max(0,messageBudget-reserve-requestSize([notice])),{workspace,prescreen});
                 }
             }
-
             return {fitted,messages:rename([...(notice?[notice,...fitted.messages.filter(message=>!(message.role==='custom'&&message.customType===DIAGNOSTIC_TYPE))]:fitted.messages),...projectedTail(fitted)]
                 .filter(message=>!(message.role==='custom'&&[EXPRESSION_MESSAGE,MOD_SECTIONS_MESSAGE,TEMPORAL_ADVICE_MESSAGE].includes(message.customType))))};
         };
@@ -995,18 +1024,12 @@ export function installContextPolicy(pi: ExtensionAPI, writeTelemetry: (row: Row
         if(temporalMessage&&fits([...outgoing,temporalMessage])){
             outgoing.push(temporalMessage);pendingTemporal=temporalMessage;
         }else if(temporalMessage)record({lane:'temporal-context',event:'omitted',turn:snapshot.binding.turn,reason:'request_ceiling',bytes:requestSize([temporalMessage])});
-        pendingExpression=undefined;
+
         const expressionView={...snapshot.capsule,expression_exchange:snapshot.history};
+        expressionHistory={campaign:snapshot.binding.campaign,turn:snapshot.binding.turn,history:snapshot.history};
         expression.observe(expressionView,snapshot.binding,inputLifetime.signal);
-        await expression.waitForFirst(expressionView,snapshot.binding,preparationSignal);
         if(ticket!==generation||preparationSignal.aborted)return superseded();
-        // §103.5: the expression packet is host-written too; it reaches the Keeper by the same names.
-        const projectedExpression=expression.project(expressionView,snapshot.binding);
-        const expressionMessage=projectedExpression&&rename([projectedExpression])[0];
-        if(ticket!==generation||preparationSignal.aborted)return superseded();
-        if(expressionMessage&&fits([...outgoing,expressionMessage])){
-            outgoing.push(expressionMessage);pendingExpression=expressionMessage;
-        }
+        // §233.19: pure expression examples belong to the selected author. The first Keeper request never waits for them.
         if(discoveryMode()!=='full'){
             const began=Date.now();
             try{
@@ -1027,7 +1050,7 @@ export function installContextPolicy(pi: ExtensionAPI, writeTelemetry: (row: Row
                 if(ticket===generation){
                     discoveryUnavailable=true;
                     capabilityRuntime.invalidate();modDiscovery.reset();pendingDiscovery=[];
-                    pendingSections=undefined;pendingExpression=undefined;pendingTemporal=undefined;pendingProvider=undefined;
+                    pendingSections=undefined;pendingTemporal=undefined;pendingProvider=undefined;
                     capsule=undefined;rawBinding=undefined;brief=undefined;briefKey=undefined;invalidate();degraded(reason);
                 }
                 // §219.3: the same bounded degraded request as every other failure, with its `context/request` row.
@@ -1038,13 +1061,19 @@ export function installContextPolicy(pi: ExtensionAPI, writeTelemetry: (row: Row
             if(requestSize([...outgoing,sourceHint])+systemBytes<=ceiling
                 &&Math.ceil((requestSize([...outgoing,sourceHint])+systemBytes)/BYTES_PER_TOKEN)<=available)outgoing.push(sourceHint);
         }
+        if(singleKeeper&&policyFor(ctx.model)&&!result.degraded&&!result.overCeiling&&!omission){
+            const journal=requestJournal.project({messages:outgoing,turn:snapshot.binding.turn,
+                key:JSON.stringify([snapshot.binding.campaign,snapshot.binding.worldline,snapshot.binding.loop,moduleId,
+                    ctx.model?.provider,ctx.model?.id,systemDigest]),
+                budget:Math.max(0,Math.min(ceiling,available*BYTES_PER_TOKEN)-systemBytes)});
+            outgoing=journal.messages;
+            record({lane:'context',event:'request_journal',...journal.observation});
+        }else requestJournal.reset();
         const bytes = requestSize(outgoing) + systemBytes, estimatedTokens = Math.ceil(bytes / BYTES_PER_TOKEN);
         const requestId=`prescreen:${snapshot.binding.turn}:${++providerSequence}`;
-        if(pendingExpression)pendingExpression.details.expression.request_id=requestId;
         pendingProvider=prescreen?{requestId,prepared:rename([prescreen])[0],outgoingDigest:fingerprint(outgoing)}:undefined;
         record({lane: 'context', event: 'request', at: new Date().toISOString(), version: POLICY_VERSION, turn: snapshot.binding.turn,request_id:requestId,
             history_bytes: sizeOf(snapshot.history), protected_bytes: result.protectedBytes, unknown_bytes: result.unknownBytes,
-            ...(pendingExpression?{expression_injected:true,expression_bytes:requestSize([pendingExpression])}:{}),
             ...(pendingSections?{mod_sections_bytes:requestSize([pendingSections])}:{}),
             ...(packets.length?{disclosure_bytes:requestSize(packets),
                 mod_discovery_bytes:requestSize(packets.filter(message=>message.customType==='coc-mod-sections')),
@@ -1088,6 +1117,7 @@ export function installContextPolicy(pi: ExtensionAPI, writeTelemetry: (row: Row
     // survived serialization; never record headers, secrets or the private payload.
     pi.on('before_provider_request', event => {
         const payload=(event as unknown as Row).payload;
+        requestJournal.commit();
         if(payload&&typeof payload==='object')record({lane:'context',event:'provider_projection',
             provider_projection_bytes:sizeOf(payload),provider_projection_digest:fingerprint(payload),
             measurement:'provider_adapter_json_bytes_before_later_hooks_not_wire_bytes_or_tokens'});
@@ -1113,27 +1143,23 @@ export function installContextPolicy(pi: ExtensionAPI, writeTelemetry: (row: Row
                 revision:fingerprint(object(capsule).mods?.instructions??[]),content:{authority:supplied.authority,
                     sections:(supplied.sections??[]).filter((section:Row)=>['narration-craft','zh-optimize','npc-voice'].includes(section.package))}});
         }
-        const advice=pendingExpression;pendingExpression=undefined;
-        let replacement:unknown;
-        if(advice&&!expression.delivered(advice,(event as unknown as Row).payload,payloadContains))
-            replacement=removeExpressionPayload((event as unknown as Row).payload,String(advice.content));
-        else if(advice&&campaign)pi.events.emit?.('coc:writing-reference',{
-            campaign,turn:advice.details.expression.turn,revision:advice.details.expression.revision,content:String(advice.content)});
-        const pending=pendingProvider;pendingProvider=undefined;if(!pending)return replacement;
-        if(!pending.prepared)return replacement;
+        const pending=pendingProvider;pendingProvider=undefined;if(!pending)return undefined;
+        if(!pending.prepared)return undefined;
         const prepared=object(pending.prepared),meta=object(object(prepared.details).prescreen);
-        if(!prepared.content){record({lane:'prescreen',event:'delivered',request_id:pending.requestId,delivered:false,reason:'not_prepared'});return replacement;}
+        if(!prepared.content){record({lane:'prescreen',event:'delivered',request_id:pending.requestId,delivered:false,reason:'not_prepared'});return undefined;}
         let retained=false;
         try{retained=payloadContains((event as unknown as Row).payload,String(prepared.content));}catch{/* Unserializable payload is unconfirmed. */}
         let content:Row={};try{content=object(JSON.parse(String(prepared.content)));}catch{/* malformed prepared content is unconfirmed */}
         const materials=Array.isArray(content.materials)?content.materials:[],keys=Array.isArray(meta.material_keys)?meta.material_keys:[];
+        if(retained&&object(prepared.details).writing_support)pi.events.emit('coc:writing-support',{
+            binding:object(prepared.details).writing_support.binding,materials});
         const retainedMaterials=retained?materials.map((material:Row,index:number)=>({key:keys[index]??`material:${index}`,
             digest:fingerprint(material.content??null),bytes:sizeOf(material.content??null),coverage:structuredClone(object(material.coverage))})):[];
         const omitted=retained?[]:keys.map((key:string)=>({key,reason:'provider_payload_mismatch'}));
         record({lane:'prescreen',event:'delivered',request_id:pending.requestId,prepared_digest:meta.prepared_digest??null,
             outgoing_digest:pending.outgoingDigest,delivered:retained,retained:retainedMaterials,omitted,
             coverage:structuredClone(object(content.coverage)),...(retained?{bytes:requestSize([prepared])}:{reason:'provider_payload_mismatch'})});
-        return replacement;
+        return undefined;
     });
 
     pi.on('session_before_compact', async event => {

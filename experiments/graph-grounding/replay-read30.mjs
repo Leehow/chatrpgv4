@@ -1,3 +1,4 @@
+import {shareTestTree} from '../../scripts/test-workspace.mjs';
 /**
  * GG-05: replay reading read-30 of Cold Harvest (pages 33-34) under §199 on a cp -c clone of the App's library, rolled to
  * generation 35 (the last one without Vasili), with the kernel and host of this worktree and live reader/reviewer children
@@ -23,8 +24,8 @@ await rm(out, {recursive: true, force: true});
 await mkdir(join(home, '.coc/modules'), {recursive: true});
 // cp -c: APFS clones, nothing in the App is opened for writing.
 const {execFileSync} = await import('node:child_process');
-execFileSync('cp', ['-c', '-R', join(APP, '.coc/modules/book-2'), lib]);
-execFileSync('cp', ['-c', '-R', join(APP, '.coc/source-transcripts'), join(home, '.coc/source-transcripts')]);
+shareTestTree(join(APP, '.coc/modules/book-2'), lib);
+shareTestTree(join(APP, '.coc/source-transcripts'), join(home, '.coc/source-transcripts'));
 const meta = JSON.parse(await readFile(join(lib, 'module.json'), 'utf8'));
 const gen = (await readdir(join(lib, 'generations'))).find(name => name.startsWith(`generation-${base}-`));
 const graphFile = `generations/${gen}/module-graph.json`;

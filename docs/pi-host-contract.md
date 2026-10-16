@@ -493,9 +493,37 @@ The existing data API accepts `read(path,{allowMissing:true})`: a missing declar
 
 The `openai-fast` extension requests priority for Codex and explicit Flapcode OpenAI identities; it defaults off, persists by project/session/provider/model, and separates requested and terminal effective tier. New session/fork IDs start off. Each request snapshots its choice at the provider hook; running requests do not change. The extension's README specifies response/cost and reconnection semantics. This host UI contract does not alter kernel RPC or independent lanes.
 
+**2026-10-12: Codex Relay Luna uses the same Fast control.** The explicit `codex-relay/gpt-6-luna` Responses model is eligible. Its preference and response metadata stay keyed to that canonical identity. The final request hook encodes an enabled preference as the relay's existing wire alias `gpt-6-luna-fast`, which the relay strips to Luna and forwards as `service_tier: priority`; off sends the unsuffixed model. Reasoning, input and tools remain unchanged. The relay currently ignores a bare incoming service_tier, so setting that field alone is insufficient. No server or SDK changes are required. Terminal tier observation remains authoritative: a priority request returning default is displayed as requested but unconfirmed acceleration, never effective Fast.
+
 ### PipiCOC installed Fast profile boundary
 
 The canonical profile installer must materialize the declared compiled OpenAI Fast agent and its unchanged App manifest/control assets into the writable profile before host discovery. Resource inventory and SDK checks alone do not establish desktop mounting. Installation preserves account settings and existing capability grants; it does not grant or revoke permissions. Verify the installed host extension list and actual composer separately.
+
+### Anthropic active cache
+
+`anthropic-cache` uses `context_with_system`, `before_provider_request`,
+`provider_stream_event` and `message_end` to implement kernel contract section
+241.9. The typed table brief is observed after context projection and matched
+exactly after provider conversion. MiniMax alone receives the initial four-slot,
+five-minute policy. Cache-off requests and other providers remain unchanged.
+The manifest-driven builder/package copy the extension; the shared session mount
+and profile installer load its compiled entry. Isolated final authors reuse the
+same policy from reader-context after omitting the private cwd prompt section;
+ordinary source readers remain unchanged. It registers no provider. Private session
+telemetry records placement separately from actual reported cache use. No Pi
+patch, extra call, automatic warmup or player-facing language is introduced.
+
+### MiniMax Enhanced
+
+The MiniMax integration uses stream-only overrides on existing native accounts,
+preserving their catalogs and credentials. It enables unsigned-thinking replay
+on Anthropic Messages and contributes the documented server-search capability
+to the existing foreground grant/replay owner (kernel section 241.10). Image
+generation reuses image-gen's explicit dispatch. Video submission/query use the
+extension's existing private host invoke registry and commands, with durable task
+metadata and no video download. The manifest, shared session mount and installer
+carry its agent, host library and settings component. It registers no extra Keeper
+verb and does not modify the separate active-cache extension.
 
 ## 2026-10-09: provider-hosted search in the foreground Keeper
 

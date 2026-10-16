@@ -1,4 +1,5 @@
 import { Fragment, useEffect, useMemo, useRef, useState } from 'react'
+import { thinkingLevelsForModel } from '@pipi/host-api'
 import type { Model, ModelState, PipiHostAPI } from '@pipi/host-api'
 import type { ModelVisibilityController } from './useModelVisibility'
 import { groupByProvider, modelRef } from './model-visibility'
@@ -220,7 +221,7 @@ export function ModelVisibilityModal({ host, productName, visibility, updates, c
   }, [onClose])
 
   const ctx: SettingsSectionContext = {
-    host, visibility, updates, current, onModelState, onRequestUpdate, projectId,
+    host, visibility, updates, current, onModelState, onRequestUpdate, projectId, thinkingLevelsForModel,
     view, setView, extensionsAddOpen, setExtensionsAddOpen,
   }
   const active = sections.find(section => section.id === tab)

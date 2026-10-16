@@ -26,6 +26,7 @@ import { createWriteRuntime } from '../write/index.js';
 import { nowIso } from '../write/store.js';
 import { advanceClock, stageClock } from './clock.js';
 import {openingActivityShape,stageSceneActivity} from './activity.js';
+import {openingInformationShape} from '../../runtime/opening-information.ts';
 import { stageMove } from './move.js';
 import {appendJsonl} from '../fileio.js';
 import {join} from 'node:path';
@@ -115,7 +116,7 @@ export function createApplyHandlers(kernel: KernelContext, writer: ReturnType<ty
             // §198.3: beside the preparations the opening already admits, an npc effect shaped as a seat (stageNpc decides whether
             // it is one: a person the book places in the opening scene whom nobody has placed yet).
             const opening = Array.isArray(effects) && effects.length > 0 && effects.every(effect => isJsonObject(effect)
-                && (['define', 'object', 'ability', 'usage', 'clock','scene'].includes(string(effect.kind)) || openingSeatShape(effect) || openingActivityShape(effect)));
+                && (['define', 'object', 'ability', 'usage', 'clock','scene'].includes(string(effect.kind)) || openingSeatShape(effect) || openingActivityShape(effect) || openingInformationShape(effect)));
             const started = await transaction.beginWrite('table.apply', callParams, { allowOpening: opening });
             if (started.kind === 'replay')
                 return started.result;
@@ -494,6 +495,9 @@ export function createApplyHandlers(kernel: KernelContext, writer: ReturnType<ty
             for(const receipt of receipts)if(receipt.kind==='event')receipt.event.effects=ordinaryReceipts.filter(item=>item!==receipt).map(item=>item.id);
             const result: Row = { receipts: ids, markers: markersOf({ ...turn, receipts: [...array(turn.receipts).filter(receipt=>!isNpcVariationRoll(receipt)), ...ordinaryReceipts] }, ordinaryReceipts), world: { active_scene: staged.active_scene, clock: staged.clock }, material_ready: material === 'ready', material };
             if(params.event!==undefined)result.outcome=graph.shownIds(eventOutcome([...array(turn.receipts),...receipts]));
+            const pendingNames = receipts.filter(receipt => receipt.kind === 'person' && typeof receipt.deferred_name === 'string');
+            if (pendingNames.length) result.names_pending_delivery = pendingNames.map(receipt => ({
+                who: receipt.name, name: receipt.deferred_name, ...(receipt.deferred_address != null ? { address: receipt.deferred_address } : {}) }));
             const paidCash=receipts.filter(receipt=>receipt.kind==='cash'&&receipt.settlement!=='quote');
             if(paidCash.length)result._cash_settlements=paidCash;
             const cashQuotes=receipts.filter(receipt=>receipt.kind==='cash'&&receipt.settlement==='quote');
@@ -560,7 +564,8 @@ export function createApplyHandlers(kernel: KernelContext, writer: ReturnType<ty
                     task_before: beforeTaskCore, task_after: taskWorldRevision(staged, await campaign.party() as Row[], [...array(turn.receipts), ...receipts], turn.pending_choice) };
             }
             // §198.3: a batch of opening seats leaves the opening owed.
-            const keepOpening = number(turn.turn) === 0 && turn.state === 'awaiting_player' && effects.every(effect => isJsonObject(effect) && openingSeatShape(effect));
+            const keepOpening = number(turn.turn) === 0 && turn.state === 'awaiting_player' && effects.every(effect => isJsonObject(effect)
+                && (openingSeatShape(effect) || openingInformationShape(effect) || effect.kind === 'clock'));
             await transaction.commitResolve({ callId: started.callId, params: callParams, result, receipts, events, ...(keepOpening ? { keepOpening } : {}) });
             return result;
         } };

@@ -189,7 +189,8 @@ export function bindDecisionAnswers(batch: DecisionBatch, raw: unknown, usage?: 
         valid &&= hasOnly(answer, ['status', 'type', 'box', 'confidence']) && probability(answer.confidence)
           && object(answer.box) && Object.keys(answer.box).length === 4
           && hasOnly(answer.box, ['left', 'top', 'right', 'bottom'])
-          && Object.values(answer.box).every(probability)
+          && probability(answer.box.left) && probability(answer.box.top)
+          && probability(answer.box.right) && probability(answer.box.bottom)
           && answer.box.left < answer.box.right && answer.box.top < answer.box.bottom;
       } else {
         const keys = question.criteria.map((_, index) => String(index));

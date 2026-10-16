@@ -83,6 +83,7 @@ export interface RuntimeCapabilities {
 type ConnectionOptions = Pick<KernelClientOptions, "timeoutMs" | "onDiagnostic" | "onRestart" | "prepareCall" | "hostOnlyParams" | "onCallTiming">;
 
 export interface HostRuntime {
+	readonly agentHome?: string;
 	readonly sourceReferences?: boolean;
 	readonly owner: RuntimeBinding["owner"];
 	readonly home: string;
@@ -258,7 +259,7 @@ export function createRuntime(binding: RuntimeBinding, host: RuntimeHostOptions 
 	}
 	function cancelled(): void { void close().catch(() => undefined); }
 	signal.addEventListener("abort", cancelled, { once: true });
-	return Object.freeze({ owner: binding.owner, home, resourceRoot, contentRoot,
+	return Object.freeze({ owner: binding.owner, home, resourceRoot, contentRoot, agentHome:context.agentHome,
 		readerModel: env.PI_COC_BUILD_MODEL?.trim(), campaign: binding.campaign, signal,
 		sourceReferences:!!readJevApiKey(context.env),
 		openKernel(options: ConnectionOptions = {}) {
@@ -331,7 +332,8 @@ function fillMissingKeys(target: Record<string, unknown>, source: Record<string,
 }
 
 /**
- * Pure merge: for every provider+model the corrections data names, merge its override into the
+ * Pure merge: add missing model definitions without replacing a user's same-id definition.
+ * For every provider+model the corrections data names, merge its override into the
  * user's `providers.<id>.modelOverrides.<model>` key by key. A key the user already set -- in
  * `thinkingLevelMap` or anywhere else, `null` included -- is the user's and is never replaced; a
  * key the user never mentions is filled from the correction. (09-29: a hand-written
@@ -348,6 +350,20 @@ export function mergeProviderModelCorrections(existingModelsJson: unknown, corre
   const correctionProviders = jsonObject(jsonObject(corrections).providers);
   const entries: ProviderModelCorrectionEntry[] = [];
   for (const [providerId, providerCorrection] of Object.entries(correctionProviders)) {
+    const definitions = jsonObject(providerCorrection).models;
+    if (Array.isArray(definitions)) {
+      const providerEntry = jsonObject(providers[providerId]);
+      providers[providerId] = providerEntry;
+      const models = Array.isArray(providerEntry.models) ? providerEntry.models : [];
+      providerEntry.models = models;
+      for (const definition of definitions) {
+        const modelId = jsonObject(definition).id;
+        if (typeof modelId !== "string" || !modelId) continue;
+        entries.push({ provider: providerId, model: modelId });
+        if (!models.some(model => jsonObject(model).id === modelId))
+          models.push(stripDocumentationKeys(definition));
+      }
+    }
     const overrides = jsonObject(jsonObject(providerCorrection).modelOverrides);
     for (const [modelId, override] of Object.entries(overrides)) {
       entries.push({ provider: providerId, model: modelId });
@@ -400,7 +416,11 @@ function withoutLegacyHeader(text: string): string {
 }
 
 function modelOverrideOf(config: unknown, { provider, model }: ProviderModelCorrectionEntry): unknown {
-  return jsonObject(jsonObject(jsonObject(jsonObject(config).providers)[provider]).modelOverrides)[model];
+  const entry = jsonObject(jsonObject(jsonObject(config).providers)[provider]);
+  return {
+    definition: Array.isArray(entry.models) ? entry.models.find(value => jsonObject(value).id === model) : undefined,
+    override: jsonObject(entry.modelOverrides)[model],
+  };
 }
 
 export type ProviderModelCorrectionsOutcome =

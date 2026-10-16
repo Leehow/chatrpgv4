@@ -505,3 +505,33 @@ The same final-output write owner now contains two mutually exclusive guarded Pi
 The play RunDriver no longer constructs a Jev decision adapter or schedules mandatory compile/route/NPC-generation steps. Its policy runs the Keeper, existing tool operations and canonical turn closure. Optional evidence retrieval retains its own inventoried owner. Opening the public delivery journal is transport only and starts no task or model. The final-output child sites remain historical compatibility code during this implementation checkpoint; production single-Keeper publication supplies the already-authored artifact and invokes neither site.
 
 Section 237.12 native memory-query accounting: the configured `createHybridEngine` decision adapter is a leaf, and `createHybridEngine.bindMemorySearch` constructs one isolated artifact-only TaskRuntime (infra). The shared memory owner's existing begin/submit sites moved to `createMemoryReadOwner.search`; its bounded memory-only loop is inventoried as a driver, without restoring the retired Keeper TaskHost. These are the four current sites recorded in the machine companion.
+
+
+### Section 240 optional material projection
+
+extensions/table/material-screen.ts owns one bounded Jev adapter leaf after the ordinary request projection. It never changes tools, runs gameplay operations or authors prose. Unknown, stale and late candidates remain visible. runtime/jev/context-screen.prototype.mjs owns the explicitly invoked retained-context experiment adapter, outside gameplay. Both sites use the existing production decision transport.
+
+
+### Section 241 isolated expression
+
+`runtime/isolated-expression.ts#writeIsolatedExpression` owns one app-play-gated reader-task driver. The Keeper selects a private brief after settlement; the launcher-enabled hybrid path invokes one fresh tool-enabled DeepSeek V4.1 Flash/off author and publishes through the existing delivery stream. It receives no full Keeper context, requires no coverage artifact and has no semantic review or correction loop. Accepted-publication recovery invokes no new author. This owner supersedes direct Keeper prose on the enabled production path; the older final-output task sites are not reactivated.
+
+### Section 241.10 MiniMax Enhanced
+
+`extensions/minimax-enhanced/agent/index.js#miniMaxStream` delegates the existing
+inference to its original API when a custom MiniMax model uses a non-Anthropic
+transport. This is an app-play-gated provider leaf, not a new run driver. Native
+Anthropic calls reuse the existing native-search wrapper and unchanged grant.
+`extensions/minimax-enhanced/agent/media.js#jsonRequest` is an app-ui network leaf:
+one explicitly selected image call, video submission or status query, without a
+prose model, polling loop, automatic download or retry. Ordinary source-mode
+commands and the existing host invoke registry are its user-facing callers.
+
+### Section 241.13 submitted-request journal
+
+`extensions/table/context-runtime.ts#installContextPolicy.on(message_end)` calls
+`requestJournal.complete` to retain an already completed assistant response in
+bounded request memory. The scanner recognizes the method name as a possible
+provider completion, so the inventory explicitly classifies this false positive
+as app-play-gated infrastructure. It performs no inference, network request,
+kernel write or task operation and cannot start or continue a model run.

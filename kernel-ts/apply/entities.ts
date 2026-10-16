@@ -26,6 +26,7 @@ import {acceptReunion} from '../npc/reunion.js';
 import {INTENT_OUTCOMES,isSettled} from '../npc/intents.js';
 import {openingActivityShape,stageNpcActivity} from './activity.js';
 import {MOOD_CONFLICTS,moodLine,moodText} from '../npc/mood.js';
+import {openingInformationShape} from '../../runtime/opening-information.ts';
 import {generatedOf,intentStamp,refuseRepeat,refuseSaidDone,refuseSettled,resolveIntent} from './intent.js';
 import {stageDraw, stageProduce} from './draw.js';
 import {fightTurn} from '../combat/execution.js';
@@ -315,12 +316,14 @@ function refuseUnlessOpeningSeat(context:ApplyContext,node:Row,established:false
     if(to==='here')target=active;else if(to)try{target=graph.scene(to);}catch{target=null;}
     const there=!!target&&graph.survivorId(string(target.node_id))===graph.survivorId(string(active.node_id));
     const self=graph.survivorId(string(node.node_id));
+    if(established===false&&openingInformationShape(effect)
+        &&npcsPresent(graph,world,active).some(person=>graph.survivorId(string(person.node_id))===self))return;
     const placed=graph.sceneNpcIds(active).includes(self);
     const unplaced=unplacedPeople(graph,world,active).some(person=>graph.survivorId(string(person.node.node_id))===self);
     if(established===false&&openingActivityShape(effect)&&row(world.npc_presence)[graph.handle(node)]===graph.handle(active)&&!row(world.npc_activity)[graph.handle(node)])return;
     if(established===false&&openingSeatShape(effect)&&there&&placed&&unplaced)return;
     const word=tableWord(world,graph.handle(node))||graph.displayName(node);
-    throw new RpcError('invalid_params',`at the opening an npc effect only seats someone the book places in the opening scene whom nobody has placed yet; ${word} is not that`,{
+    throw new RpcError('invalid_params',`at the opening an npc effect only records a present person's mood or seats someone the book places in the opening scene whom nobody has placed yet; ${word} is not that`,{
         fix:'leave this effect out of the opening; once the player has spoken, apply npc as on any turn',
         details:{field:'npc',reason:'opening_seat',name:word,...(established?{established}:{}),placed,unplaced,there}});
 }

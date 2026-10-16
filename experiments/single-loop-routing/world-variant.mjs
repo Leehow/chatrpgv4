@@ -10,10 +10,12 @@
  *
  * Writes fixtures/<name>/{workspace.tar.gz,turn.json,baseline.json,variant.json}.
  */
-import {copyFileSync, mkdirSync, readFileSync, writeFileSync} from 'node:fs';
+import {mkdirSync, readFileSync, writeFileSync} from 'node:fs';
+import {shareTestTree} from '../../scripts/test-workspace.mjs';
+import {publishTestFixture} from '../../scripts/test-fixture-store.mjs';
 import {join} from 'node:path';
 import {spawnSync} from 'node:child_process';
-import {FIXTURES, materialize, readFixture, removeTree} from './fixture.mjs';
+import {FIXTURES, materialize, readFixture, removeTree,fixtureDigest} from './fixture.mjs';
 
 const argv = process.argv.slice(2), arg = name => argv.includes(name) ? argv[argv.indexOf(name) + 1] : undefined;
 const from = arg('--from'), name = arg('--name'), patchFile = arg('--patch'), note = arg('--note') ?? '';
@@ -38,12 +40,11 @@ try {
   const commit = git('rev-parse', '--short', 'HEAD');
   const dir = join(FIXTURES, name);
   mkdirSync(dir, {recursive: true});
-  const tar = spawnSync('tar', ['-czf', join(dir, 'workspace.tar.gz'), '-C', workspace, '.coc'], {encoding: 'utf8'});
-  if (tar.status !== 0) throw new Error(`tar failed: ${tar.stderr}`);
-  const {tarball: _shared, ...turn} = source.turn;
+  publishTestFixture(workspace,dir);
+  const {tarball: _shared, workspace:_workspace, ...turn} = source.turn;
   writeFileSync(join(dir, 'turn.json'), JSON.stringify({...turn, commit_before: commit, variant_of: {fixture: from, commit_before: source.turn.commit_before}}, null, 1) + '\n');
-  copyFileSync(join(source.dir, 'baseline.json'), join(dir, 'baseline.json'));
-  writeFileSync(join(dir, 'variant.json'), JSON.stringify({derived_from: from, source_tarball_sha256: sha(source.tarball), change: 'world.json patched before the turn and committed on top of commit_before',
+  shareTestTree(join(source.dir, 'baseline.json'), join(dir, 'baseline.json'));
+  writeFileSync(join(dir, 'variant.json'), JSON.stringify({derived_from: from, source_fixture_sha256: fixtureDigest(source), change: 'world.json patched before the turn and committed on top of commit_before',
     note, patch, commit_before: commit}, null, 1) + '\n');
   console.log(JSON.stringify({fixture: name, commit_before: commit, patched: Object.keys(patch)}));
 } finally { removeTree(workspace); }

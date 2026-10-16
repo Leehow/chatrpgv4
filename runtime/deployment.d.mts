@@ -13,6 +13,7 @@ export interface RuntimeEntrypoints {
   /** Contract §177.2: the cast reader child's `submit_cast`. */
   readonly castSubmit: string;
   readonly jev: string;
+  readonly minimaxEnhanced: string;
   readonly extensions: readonly string[];
   /** The provider-registering extensions, mounted by the session launcher and by every lane child. */
   readonly providerExtensions: readonly string[];

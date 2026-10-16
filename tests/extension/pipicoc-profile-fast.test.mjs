@@ -17,18 +17,19 @@ test('compiled profile installation mounts Fast App assets and agent without cha
   await mkdir(join(root,'node/bin'),{recursive:true});
   await mkdir(profile,{recursive:true});
   await symlink(process.execPath,join(root,'node/bin/node'));
+  await symlink(join(source,'node_modules'),join(root,'node_modules'),'dir');
   await writeFile(join(root,'deployment.json'),'{}');
   // The context supplies deployment paths only; the real installer owns every file operation.
   // Match standalone resources: deployment helpers are bundled, never shipped as runtime/*.mjs.
-  await build({stdin:{contents:"import {runtimeEntrypoints} from './runtime/deployment.mjs'; export {agentExtensionManifests} from './runtime/deployment.mjs'; export function composeRuntimeContext(_owner,{resourceRoot,agentHome}){return {agentHome,entrypoints:runtimeEntrypoints(resourceRoot,'compiled')}}",resolveDir:source},bundle:true,platform:'node',format:'esm',packages:'external',outfile:join(root,'build/runtime/host.mjs')});
+  await build({stdin:{contents:"import {runtimeEntrypoints} from './runtime/deployment.mjs'; export {agentExtensionManifests} from './runtime/deployment.mjs'; export {applyProviderModelCorrections} from './runtime/host.ts'; export function composeRuntimeContext(_owner,{resourceRoot,agentHome}){return {agentHome,contentRoot:resourceRoot+'/content',entrypoints:runtimeEntrypoints(resourceRoot,'compiled')}}",resolveDir:source},bundle:true,platform:'node',format:'esm',packages:'external',outfile:join(root,'build/runtime/host.mjs')});
   const realHost=await build({entryPoints:[join(source,'runtime/host.ts')],bundle:true,platform:'node',format:'esm',packages:'external',write:false,logLevel:'silent'});
   assert.match(realHost.outputFiles[0].text,/export \{[^}]*agentExtensionManifests/s);
   await cp(join(source,'pipicoc'),join(root,'pipicoc'),{recursive:true});
   await cp(join(source,'pipiui-extension.json'),join(root,'pipiui-extension.json'));
-  for(const name of ['deepseek','grok-build-oauth','image-gen','rerank','jev','remote-control','openai-fast','codex-relay'])
+  for(const name of ['deepseek','grok-build-oauth','image-gen','rerank','jev','remote-control','openai-fast','codex-relay','anthropic-cache','minimax-enhanced'])
    await cp(join(source,'extensions',name),join(root,'extensions',name),{recursive:true});
   const entries=runtimeEntrypoints(root,'compiled');
-  for(const path of [entries.agent,entries.deepseek,entries.grokBuild,entries.imageGen,entries.rerank,entries.jev,join(root,'build/extensions/openai-fast/agent/index.mjs'),join(root,'build/extensions/codex-relay/agent/index.mjs')]){
+  for(const path of [entries.agent,entries.deepseek,entries.grokBuild,entries.imageGen,entries.rerank,entries.jev,entries.minimaxEnhanced,join(root,'build/extensions/openai-fast/agent/index.mjs'),join(root,'build/extensions/codex-relay/agent/index.mjs'),join(root,'build/extensions/anthropic-cache/index.mjs')]){
    await mkdir(join(path,'..'),{recursive:true});await writeFile(path,'// retained compiled test artifact: '+path+'\n');
   }
   const protectedFiles=['settings.json','auth.json','extensions.json'];
@@ -50,6 +51,16 @@ test('compiled profile installation mounts Fast App assets and agent without cha
    assert.deepEqual(relayManifest.auth.provider.models.map(model=>model.id),['gpt-6-luna']);
    assert.deepEqual(await readFile(join(relay,'agent/index.mjs')),await readFile(join(root,'build/extensions/codex-relay/agent/index.mjs')));
    assert.deepEqual(await readFile(join(relay,'agent/provider.js')),await readFile(join(source,'extensions/codex-relay/agent/provider.js')));
+   const cache=join(profile,'extensions/anthropic-cache');
+   const cacheManifest=JSON.parse(await readFile(join(cache,'pipiui-extension.json')));
+   assert.equal(cacheManifest.defaultEnabled,true);
+   assert.equal(cacheManifest.agent.extension,'agent/index.mjs');
+   assert.deepEqual(await readFile(join(cache,'agent/index.mjs')),await readFile(join(root,'build/extensions/anthropic-cache/index.mjs')));
+   const minimax=join(profile,'extensions/minimax-enhanced');
+   const minimaxManifest=JSON.parse(await readFile(join(minimax,'pipiui-extension.json')));
+   assert.equal(minimaxManifest.agent.extension,'agent/index.mjs');
+   assert.equal(minimaxManifest.app.ui.settingsSections[0].entry,'app/control.js');
+   assert.deepEqual(await readFile(join(minimax,'agent/index.mjs')),await readFile(entries.minimaxEnhanced));
    for(let i=0;i<protectedFiles.length;i++)assert.deepEqual(await readFile(join(profile,protectedFiles[i])),before[i]);
   }
  } finally {await rm(root,{recursive:true,force:true});}

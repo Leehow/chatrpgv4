@@ -2327,6 +2327,78 @@
       "role": "infra",
       "trace": "Controlled native Pi/TS memory query seam",
       "note": "One isolated in-memory artifact runtime per available requested query. Existing domain, dispatcher, budgets, current read-set and cancellation apply; no persistent truth store or model starts in this constructor."
+    },
+    {
+      "file": "extensions/table/material-screen.ts",
+      "symbol": "installMaterialScreen.on(context)",
+      "kind": "jev-adapter",
+      "callee": "createDecisionAdapter",
+      "count": 1,
+      "owner": "table optional material projection",
+      "path": "app-play-gated",
+      "role": "leaf",
+      "trace": "lane: material-screen",
+      "note": "Section 240: bounded request-local Mod and terminal NPC history selection; full tool registry and current actor state stay resident; unknown/stale/late answers retain full candidates."
+    },
+    {
+      "file": "runtime/jev/context-screen.prototype.mjs",
+      "symbol": "<module>",
+      "kind": "jev-adapter",
+      "callee": "createDecisionAdapter",
+      "count": 1,
+      "owner": "context screening prototype",
+      "path": "no-caller",
+      "role": "leaf",
+      "trace": "adapter-events.jsonl",
+      "note": "Explicit offline retained-context experiment command, not a Keeper or campaign operation."
+    },
+    {
+      "file": "runtime/isolated-expression.ts",
+      "symbol": "writeIsolatedExpression",
+      "kind": "reader-task",
+      "callee": "runtime.runTask",
+      "count": 1,
+      "owner": "isolated expression owner (section 241)",
+      "path": "app-play-gated",
+      "role": "driver",
+      "trace": "Keeper private composition -> fresh brief-only tool-enabled Pi author -> existing durable public stream and transaction",
+      "note": "One DeepSeek V4.1 Flash/off author task; no semantic reviewer, coverage assignment, factual repair or quality regeneration. Publication recovery reuses accepted prose."
+    },
+    {
+      "file": "extensions/minimax-enhanced/agent/index.js",
+      "symbol": "miniMaxStream",
+      "kind": "provider-direct",
+      "callee": "getApiProvider.streamSimple",
+      "count": 1,
+      "owner": "MiniMax Enhanced native provider compatibility",
+      "path": "app-play-gated",
+      "role": "leaf",
+      "trace": "native Pi model runtime and MiniMax transport tests",
+      "note": "Delegates the existing inference to the original API for a custom non-Anthropic MiniMax model; no new model run, driver or retry. Native Anthropic requests reuse the existing search wrapper."
+    },
+    {
+      "file": "extensions/minimax-enhanced/agent/media.js",
+      "symbol": "jsonRequest",
+      "kind": "network",
+      "callee": "fetch",
+      "count": 1,
+      "owner": "MiniMax Enhanced media adapter",
+      "path": "app-ui",
+      "role": "leaf",
+      "trace": "minimax-media task receipts and network-free image/video tests",
+      "note": "One explicit image generation, video submission or status query through the selected native account. No prose model, extra Keeper loop, polling timer, download or automatic retry."
+    },
+    {
+      "file": "extensions/table/context-runtime.ts",
+      "symbol": "installContextPolicy.on(message_end)",
+      "kind": "provider-direct",
+      "callee": "requestJournal.complete",
+      "count": 1,
+      "owner": "table context: submitted-request journal",
+      "path": "app-play-gated",
+      "role": "infra",
+      "trace": "request-journal tests and MiniMax M3.1 real request diagnostics",
+      "note": "Scanner false positive from the method name complete: records an already completed assistant message in bounded process memory. Makes no model, network, kernel or task call and cannot start or extend a run."
     }
   ]
 }

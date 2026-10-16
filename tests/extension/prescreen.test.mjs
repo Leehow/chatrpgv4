@@ -147,7 +147,7 @@ test('Jev replaces optional workspace preload while preserving the full-request 
   async function host(flag){
     process.env.PI_COC_JEV_PRESELECT=flag;
     const hooks=new Map(),bus=new Map();
-    api.installContextPolicy({on:(k,f)=>hooks.set(k,f),events:{on:(k,f)=>bus.set(k,f)}},()=>{});
+    api.installContextPolicy({on:(k,f)=>hooks.set(k,f),events:{on:(k,f)=>bus.set(k,f),emit:(name,value)=>bus.get(name)?.(value)}},()=>{});
     const call=async(method,params)=>method==='table.capsule'?{...current,_context:workspaceBinding}:method==='table.workspace.read'?structuredClone(s)
       :method==='table.recall'?params.what==='transcript'?{cards:[],_snapshot:'history'}:{hits:[]}:{detail:'x'.repeat(200)};
     bus.get('coc:kernel-bridge')({campaign:'c1',call});bus.get('coc:capsule')({capsule:current,context:workspaceBinding,epoch:'budget-input'});
@@ -170,7 +170,7 @@ test('actual context hooks inject one current prescreen and invalidate it after 
     if(oldKey===undefined)delete process.env.TYPESAFE_API_KEY;else process.env.TYPESAFE_API_KEY=oldKey;globalThis.fetch=oldFetch;});
   let count=0,hp=10;globalThis.fetch=async(_url,options)=>{count++;return Response.json(supportWire(JSON.parse(options.body)));};
   const hooks=new Map(),bus=new Map(),events=[];
-  api.installContextPolicy({on:(k,f)=>hooks.set(k,f),events:{on:(k,f)=>bus.set(k,f)}},e=>events.push(e));
+  api.installContextPolicy({on:(k,f)=>hooks.set(k,f),events:{on:(k,f)=>bus.set(k,f),emit:(name,value)=>bus.get(name)?.(value)}},e=>events.push(e));
   const call=async(method,params)=>{
     if(method==='table.capsule')return {...capsule,known:{investigator:{name:'P',hp}},_context:binding};
     if(method==='table.workspace.read')return {...snapshot(),binding:{...snapshot().binding,stateStamp:String(hp)}};

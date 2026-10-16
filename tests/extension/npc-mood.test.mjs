@@ -9,7 +9,7 @@
  */
 import assert from 'node:assert/strict';
 import {after, test} from 'node:test';
-import {mkdtemp, readFile, rm, symlink} from 'node:fs/promises';
+import {mkdtemp, readFile, rm, symlink, writeFile, chmod} from 'node:fs/promises';
 import {tmpdir} from 'node:os';
 import {join, resolve} from 'node:path';
 import {build} from 'esbuild';
@@ -61,6 +61,178 @@ async function nextTurn(client, turn, text = 'I wait for him to go on.') {
 }
 const knottCard = capsule => capsule.present.find(person => person.name === KNOTT);
 const capsuleOf = async client => { const value = await client.call('table.capsule', {campaign}); return value.capsule ?? value; };
+
+test('opening disclosure and mood land together, preserve the opening and survive its delivery', async t => {
+  const {client, file, record, ledger} = await opened(t);
+  const effects = [{kind: 'npc', name: KNOTT, mood: RELIEF},
+    {kind: 'clue', clue: 'knott-commission', how: 'The landlord explains his offer.'}];
+  const request = {campaign, call_id: 't0-c1', effects};
+  const landed = await client.call('table.apply', request);
+  assert.equal(landed.receipts.length, 2);
+  assert.ok(landed.receipts.some(id => id.startsWith('npc:')));
+  assert.ok(landed.receipts.some(id => id.startsWith('clue:')));
+  assert.equal((await client.call('table.status', {campaign})).state, 'awaiting_player');
+  assert.ok((await file('world.json')).discovered_clues.includes('knott-commission'));
+  assert.deepEqual(await client.call('table.apply', request), {...landed, replayed: true}, 'an exact replay does not duplicate the disclosure');
+  await client.call('table.narrate', {campaign, call_id: 't0-c2', text: 'The landlord explains the commission and waits for your answer.'});
+  assert.equal((await record(0)).receipts.filter(row => row.kind === 'clue').length, 1);
+  assert.equal((await ledger()).mood.text, RELIEF);
+  const input = await client.call('table.player_input', {campaign, text: 'What happened?'});
+  assert.equal(input.turn, 1);
+});
+
+test('an opening disclosure cannot smuggle investigator movement or a mechanical NPC change', async t => {
+  const {client, world} = await opened(t);
+  const before = await world();
+  const error = await refusal(client.call('table.apply', {campaign, call_id: 't0-c1', effects: [
+    {kind: 'clue', clue: 'knott-commission'}, {kind: 'move', to: 'corbitt-house'}]}));
+  assert.equal(error.code, 'turn_state');
+  assert.equal(await world(), before);
+  const pin = await refusal(apply(client, 't0-c2', {mood: RELIEF, archetype: 'ordinary_adult'}));
+  assert.equal(pin.code, 'turn_state');
+  assert.equal(await world(), before);
+});
+
+test('opening information retains clue location validation and atomic rollback', async t => {
+  const {client, world} = await opened(t);
+  const before = await world();
+  const error = await refusal(client.call('table.apply', {campaign, call_id: 't0-c1', effects: [
+    {kind: 'npc', name: KNOTT, mood: RELIEF}, {kind: 'clue', clue: 'globe-unpublished-story'}]}));
+  assert.equal(error.code, 'not_here');
+  assert.equal(await world(), before);
+});
+
+test('opening name-resolution metadata preserves mood, person registration and the accompanying clue', async t => {
+  const {client, file, record, ledger} = await opened(t);
+  const before = (await file('world.json')).person_labels;
+  const effects = [
+    {kind: 'npc', name: KNOTT, mood: RELIEF, _resolved_from: 'the landlord'},
+    {kind: 'person', who: KNOTT, name: KNOTT, _resolved_from: 'the landlord'},
+    {kind: 'clue', clue: 'knott-commission', from: KNOTT}];
+  const request = {campaign, call_id: 't0-c1', effects};
+  const landed = await client.call('table.apply', request);
+  assert.equal(landed.receipts.length, 3);
+  assert.deepEqual(landed.names_pending_delivery, [{who: KNOTT, name: KNOTT}]);
+  assert.equal((await client.call('table.status', {campaign})).state, 'awaiting_player');
+  assert.ok((await file('world.json')).discovered_clues.includes('knott-commission'));
+  assert.deepEqual((await file('world.json')).person_labels, before);
+  const publicEffects = effects.map(({_resolved_from, ...effect}) => effect);
+  assert.deepEqual(await client.call('table.apply', {...request, effects: publicEffects}), {...landed, replayed: true},
+    'host provenance does not change the public call identity');
+  const receipts = (await client.call('table.status', {campaign})).receipts;
+  assert.equal(receipts.find(row => row.kind === 'npc').resolved_from, 'the landlord');
+  assert.equal(receipts.find(row => row.kind === 'person').resolved_from, 'the landlord');
+  await client.call('table.narrate', {campaign, call_id: 't0-c2', text:
+    `{{say:${KNOTT}}}My name is ${KNOTT}. I have a commission for you.{{/say}}`});
+  assert.equal((await record(0)).receipts.filter(row => row.kind === 'clue').length, 1);
+  assert.equal((await ledger()).mood.text, RELIEF);
+  assert.equal((await file('world.json')).person_labels['steven-knott'].name, KNOTT);
+  assert.equal((await client.call('table.player_input', {campaign, text: 'What happened?'})).turn, 1);
+});
+
+test('opening name-resolution metadata preserves location and public-field refusal boundaries', async t => {
+  const {client, world} = await opened(t);
+  const before = await world();
+  const beforeReceipts = (await client.call('table.status', {campaign})).receipts;
+  const mood = {kind: 'npc', name: KNOTT, mood: RELIEF, _resolved_from: 'the landlord'};
+  const person = {kind: 'person', who: KNOTT, name: KNOTT, _resolved_from: 'the landlord'};
+  const wrongScene = await refusal(client.call('table.apply', {campaign, call_id: 't0-c1', effects: [
+    mood, person, {kind: 'clue', clue: 'globe-unpublished-story'}]}));
+  assert.equal(wrongScene.code, 'not_here');
+  assert.equal(await world(), before);
+  assert.deepEqual((await client.call('table.status', {campaign})).receipts, beforeReceipts);
+  for (const effect of [{...mood, archetype: 'ordinary_adult'}, {...person, title: 'Landlord'}]) {
+    const error = await refusal(client.call('table.apply', {campaign, call_id: 't0-c1', effects: [
+      effect, {kind: 'clue', clue: 'knott-commission'}]}));
+    assert.equal(error.code, 'turn_state');
+    assert.equal(await world(), before);
+    assert.deepEqual((await client.call('table.status', {campaign})).receipts, beforeReceipts);
+  }
+  assert.equal((await client.call('table.status', {campaign})).state, 'awaiting_player');
+});
+
+test('first name registration and a clue commit independently of public name disclosure', async t => {
+  const {client, file, record} = await opened(t);
+  await client.call('table.narrate', {campaign, call_id: 't0-c1', text: 'The landlord invites you to sit.'});
+  await client.call('table.player_input', {campaign, text: 'I ask the landlord his name and what happened to the tenants.'});
+  const before = (await file('world.json')).person_labels;
+  const result = await client.call('table.apply', {campaign, call_id: 't1-c1', effects: [
+    {kind: 'clue', clue: 'knott-macario-summary', from: KNOTT},
+    {kind: 'person', who: KNOTT, name: KNOTT, address: 'Mr. Knott', why: 'He introduces himself.'}]});
+  assert.deepEqual(result.names_pending_delivery, [{who: KNOTT, name: KNOTT, address: 'Mr. Knott'}]);
+  assert.deepEqual((await file('world.json')).person_labels, before, 'staging changes no public name or address');
+  assert.ok((await file('world.json')).discovered_clues.includes('knott-macario-summary'));
+  assert.ok((await client.call('table.look', {campaign, focus: 'npc', name: KNOTT})).untold);
+  await apply(client, 't1-c2', {mood: RELIEF});
+  await client.call('table.narrate', {campaign, call_id: 't1-c3', text:
+    `{{say:${KNOTT}}}My name is ${KNOTT}. The former tenants fled, and the father is in the sanitarium.{{/say}}`});
+  assert.equal((await file('world.json')).person_labels['steven-knott'].name, KNOTT);
+  assert.equal((await file('world.json')).person_labels['steven-knott'].address, 'Mr. Knott');
+  assert.equal((await client.call('table.look', {campaign, focus: 'npc', name: KNOTT})).untold, undefined);
+  assert.ok((await record(1)).receipts.some(row => row.kind === 'clue'));
+});
+
+test('opening first-name registration does not block its clue or publish before delivery', async t => {
+  const {client, file} = await opened(t);
+  const before = (await file('world.json')).person_labels;
+  const result = await client.call('table.apply', {campaign, call_id: 't0-c1', effects: [
+    {kind: 'person', who: KNOTT, name: KNOTT}, {kind: 'clue', clue: 'knott-commission', from: KNOTT}]});
+  assert.ok(result.names_pending_delivery);
+  assert.equal((await client.call('table.status', {campaign})).state, 'awaiting_player');
+  assert.deepEqual((await file('world.json')).person_labels, before);
+  assert.ok((await file('world.json')).discovered_clues.includes('knott-commission'));
+  await client.call('table.narrate', {campaign, call_id: 't0-c2', text: `{{say:${KNOTT}}}My name is ${KNOTT}. I have a commission for you.{{/say}}`});
+  assert.equal((await file('world.json')).person_labels['steven-knott'].name, KNOTT);
+});
+
+test('a staged name never publishes when the delivery does not disclose it', async t => {
+  const {client, file} = await opened(t);
+  await client.call('table.narrate', {campaign, call_id: 't0-c1', text: 'The landlord waits.'});
+  await client.call('table.player_input', {campaign, text: 'I listen.'});
+  const before = (await file('world.json')).person_labels;
+  await client.call('table.apply', {campaign, call_id: 't1-c1', effects: [{kind: 'person', who: KNOTT, name: KNOTT}]});
+  await client.call('table.narrate', {campaign, call_id: 't1-c2', text: 'The landlord explains that the tenants moved away.'});
+  assert.deepEqual((await file('world.json')).person_labels, before);
+  await client.call('table.player_input', {campaign, text: 'I nod.'});
+  assert.ok((await client.call('table.look', {campaign, focus: 'npc', name: KNOTT})).untold);
+});
+
+test('failed delivery and process restart preserve a staged name without publishing it', async t => {
+  const {client, connect, file} = await opened(t);
+  await client.call('table.narrate', {campaign, call_id: 't0-c1', text: 'The landlord waits.'});
+  await client.call('table.player_input', {campaign, text: 'I ask his name.'});
+  const request = {campaign, call_id: 't1-c1', effects: [{kind: 'person', who: KNOTT, name: KNOTT}]};
+  const result = await client.call('table.apply', request);
+  const before = (await file('world.json')).person_labels;
+  const error = await refusal(client.call('table.narrate', {campaign, call_id: 't1-c2', text: ''}));
+  assert.equal(error.code, 'invalid_params');
+  assert.deepEqual((await file('world.json')).person_labels, before);
+  await client.close();
+  const resumed = connect(); t.after(() => resumed.close());
+  assert.deepEqual(await resumed.call('table.apply', request), {...result, replayed: true});
+  assert.deepEqual((await file('world.json')).person_labels, before);
+  await resumed.call('table.narrate', {campaign, call_id: 't1-c3', text: `{{say:${KNOTT}}}My name is ${KNOTT}.{{/say}}`});
+  assert.equal((await file('world.json')).person_labels['steven-knott'].name, KNOTT);
+});
+
+test('a failed Git commit rolls public name publication back but preserves the clue and staged request', async t => {
+  const {client, file, home} = await opened(t);
+  await client.call('table.narrate', {campaign, call_id: 't0-c1', text: 'The landlord waits.'});
+  await client.call('table.player_input', {campaign, text: 'I ask his name and about the tenants.'});
+  await client.call('table.apply', {campaign, call_id: 't1-c1', effects: [
+    {kind: 'person', who: KNOTT, name: KNOTT}, {kind: 'clue', clue: 'knott-macario-summary', from: KNOTT}]});
+  const hook = join(home, '.coc/repos', campaign + '.git', 'hooks/pre-commit');
+  await writeFile(hook, '#!/bin/sh\nexit 1\n'); await chmod(hook, 0o700);
+  const text = `{{say:${KNOTT}}}My name is ${KNOTT}. The tenants fled the house.{{/say}}`;
+  const error = await refusal(client.call('table.narrate', {campaign, call_id: 't1-c2', text}));
+  assert.equal(error.code, 'commit_failed');
+  assert.ok(!(await file('world.json')).person_labels?.['steven-knott']);
+  assert.ok((await file('world.json')).discovered_clues.includes('knott-macario-summary'));
+  assert.ok((await client.call('table.look', {campaign, focus: 'npc', name: KNOTT})).untold);
+  await rm(hook);
+  await client.call('table.narrate', {campaign, call_id: 't1-c2', text});
+  assert.equal((await file('world.json')).person_labels['steven-knott'].name, KNOTT);
+});
 
 test('a mood is a keeper-only npc receipt: no world value, no mechanics card, an npc-changed event', async t => {
 	const {client, world, record, directory} = await opened(t);

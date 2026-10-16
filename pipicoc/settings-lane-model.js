@@ -83,91 +83,77 @@ export function thinkingReference(setting) {
   return THINKING_LEVELS.includes(level) ? level : null;
 }
 
+export const AUTHOR_MODEL_KEY = "ext.coc-keeper.authorModel";
+export const AUTHOR_THINKING_KEY = "ext.coc-keeper.authorThinking";
+export const AUTHOR_DEFAULT = {model: "opencode-go/deepseek-v4.1-flash", thinking: "off"};
+
 export function createComponent(React) {
   const h = React.createElement;
-  const { useEffect, useRef, useState } = React;
-
-  return function FastModelSection(props) {
-    const api = props.api ?? {};
-    const host = props.ctx && props.ctx.host;
-    const visibility = props.ctx && props.ctx.visibility;
-    const models = visibility && Array.isArray(visibility.models) ? visibility.models : [];
-    const [ui, setUi] = useState(undefined);
-    const [current, setCurrent] = useState(undefined);
-    const [thinking, setThinking] = useState(undefined);
-    const [failed, setFailed] = useState(false);
+  const {useEffect, useRef, useState} = React;
+  return function ModelSettingsSection(props) {
+    const api = props.api ?? {}, ctx = props.ctx ?? {}, host = ctx.host;
+    const models = ctx.visibility?.models ?? [];
+    const [ui, setUi] = useState(undefined), [stored, setStored] = useState(null);
+    const [failed, setFailed] = useState(false), [saving, setSaving] = useState(false);
     const generation = useRef(0);
-    const t = (key) => word(ui, key);
-
+    const t = key => word(ui, key);
     useEffect(() => {
       const mine = ++generation.current;
       (async () => {
-        let words;
-        if (api.invoke) {
-          const answer = await api.invoke("ui-words", {}).catch(() => undefined);
-          if (answer && answer.ok && answer.data && answer.data.ui) words = answer.data.ui;
-        }
-        let stored;
-        if (host && host.getExtensionSettings) stored = await host.getExtensionSettings(SETTINGS_EXTENSION).catch(() => undefined);
-        if (mine !== generation.current) return;
-        setUi(words);
-        setCurrent(modelReference(stored && stored[SETTINGS_KEY]));
-        setThinking(thinkingReference(stored && stored[SETTINGS_THINKING_KEY]));
+        try {
+          const answer = await api.invoke?.("ui-words", {});
+          const values = await host?.getExtensionSettings?.(SETTINGS_EXTENSION);
+          if (mine !== generation.current) return;
+          setUi(answer?.data?.ui); setStored(values ?? {});
+        } catch { if (mine === generation.current) setFailed(true); }
       })();
       return () => { generation.current++; };
     }, [api, host]);
+    async function write(patch) {
+      if (!host?.updateExtensionSettings || saving) return;
+      const previous = stored;
+      setStored({...stored, ...patch}); setSaving(true); setFailed(false);
+      try {
+        const result = await host.updateExtensionSettings(SETTINGS_EXTENSION, patch);
+        if (result?.ok === false) throw Error("Settings write failed");
 
-    function write(key, value, apply) {
-      apply();
-      setFailed(false);
-      if (!host || !host.updateExtensionSettings) return;
-      void host.updateExtensionSettings(SETTINGS_EXTENSION, { [key]: value })
-        .then((result) => { if (result && result.ok === false) setFailed(true); })
-        .catch(() => setFailed(true));
+      } catch { setStored(previous); setFailed(true); }
+      finally { setSaving(false); }
     }
-    const choose = (reference) => write(SETTINGS_KEY, reference ? { model: reference } : {}, () => setCurrent(reference));
-    const chooseThinking = (level) => write(SETTINGS_THINKING_KEY, level ? { level } : {}, () => setThinking(level));
-
-    if (current === undefined || thinking === undefined) return h("div", { className: "model-modal-state" }, t("lead"));
-
-    const rows = [
-      { key: "auto", title: t("auto_title"), subtitle: t("auto_subtitle"), selected: current === null, pick: () => choose(null) },
-      ...models.map((model) => {
-        const reference = `${model.provider}/${model.id}`;
-        return { key: reference, title: model.name || model.id, subtitle: reference,
-          selected: current === reference, pick: () => choose(reference) };
-      }),
-    ];
-    const thinkingRows = [
-      // The unchosen row shows the level it actually runs at, the way every other row shows its own:
-      // a subtitle saying "follow the table" is how nobody noticed the table was being followed.
-      { key: "auto", title: t("thinking_auto_title"), subtitle: LANE_THINKING_DEFAULT,
-        selected: thinking === null, pick: () => chooseThinking(null) },
-      ...THINKING_LEVELS.map((level) => ({ key: level, title: level, subtitle: "",
-        selected: thinking === level, pick: () => chooseThinking(level) })),
-    ];
-    const group = (prefix, list) => h("div", null, list.map((row) => h("button", {
-      key: row.key, type: "button", className: "model-row", "aria-pressed": row.selected,
-      "data-testid": `${prefix}-row-${row.key}`, onClick: row.pick,
-      style: { display: "flex", width: "100%", gap: "8px", alignItems: "baseline", cursor: "pointer",
-        background: "none", border: 0, padding: "6px 4px", textAlign: "left", font: "inherit" },
-    },
-      h("input", { type: "radio", checked: row.selected, readOnly: true, "aria-label": row.title }),
-      h("span", { className: "model-row-name" }, row.title),
-      row.subtitle ? h("span", { className: "model-row-id" }, row.subtitle) : null,
-      row.selected ? h("span", { className: "model-row-current" }, t("current")) : null)));
-
-    return h("div", { className: "model-visibility" },
-      h("p", { className: "model-modal-state" }, t("lead")),
-      h("p", { className: "model-modal-state" }, t("aside")),
-      // Both choices are read when a lane starts a child, not when the session does. They used to be
-      // read at spawn, and a person who changed the model under a running table watched it fail exactly
-      // as before and concluded the faster model had not helped -- the setting was correct, visible and
-      // inert. This line says what the reader now actually does (contract §37.10).
-      h("p", { className: "model-modal-state" }, t("live")),
-      failed ? h("div", { className: "model-modal-error", role: "alert" }, t("failed")) : null,
-      models.length ? group("lane-model", rows) : h("div", { className: "model-modal-state" }, t("empty")),
-      h("p", { className: "model-modal-state" }, t("thinking_lead")),
-      group("lane-thinking", thinkingRows));
+    if (!stored) return h("div", {className:"model-modal-state"}, failed ? t("failed") : t("lead"));
+    const role = (name, modelKey, thinkingKey, fallback, defaultLevel) => {
+      const reference = modelReference(stored[modelKey]);
+      const selected = models.find(m => m.provider + "/" + m.id === (reference ?? fallback));
+      const allowed = selected && ctx.thinkingLevelsForModel ? ctx.thinkingLevelsForModel(selected) : [];
+      const requested = thinkingReference(stored[thinkingKey]);
+      const effective = allowed.includes(requested) ? requested : allowed.includes(defaultLevel) ? defaultLevel : allowed[0] ?? "";
+      const chooseModel = event => {
+        const next = event.target.value;
+        const model = models.find(m => m.provider + "/" + m.id === (next || fallback));
+        const levels = model && ctx.thinkingLevelsForModel ? ctx.thinkingLevelsForModel(model) : [];
+        const level = levels.includes(requested) ? requested : levels.includes(defaultLevel) ? defaultLevel : levels[0];
+        void write({[modelKey]:next ? {model:next} : {}, [thinkingKey]:level ? {level} : {}});
+      };
+      const missing = reference && !models.some(m => m.provider + "/" + m.id === reference);
+      return h("fieldset", {style:{border:0,padding:"12px 0",margin:0}, disabled:saving},
+        h("legend", null, t(name === "fast" ? "fast_title" : "author_title")),
+        h("p", {className:"model-modal-state"}, t(name === "fast" ? "fast_description" : "author_description")),
+        h("label", {style:{display:"block",marginBottom:12}}, t("model_label"),
+          h("select", {"aria-label":t(name === "fast" ? "fast_title" : "author_title"), "data-testid":name+"-model-select", value:reference ?? "", onChange:chooseModel, style:{display:"block",width:"100%",marginTop:6}},
+            h("option", {value:""}, name === "fast" ? t("auto_title") : t("author_default") + " · " + AUTHOR_DEFAULT.model),
+            missing ? h("option", {value:reference}, reference + " · " + t("unavailable")) : null,
+            ...models.map(m => {const ref=m.provider+"/"+m.id;return h("option",{key:ref,value:ref},(m.name||m.id)+" · "+m.provider);}))),
+        h("label", {style:{display:"block"}}, t("thinking_label"),
+          h("select", {"aria-label":t(name === "fast" ? "fast_thinking" : "author_thinking"), "data-testid":name+"-thinking-select", value:effective, disabled:!allowed.length||saving,
+            onChange:event => void write({[thinkingKey]:{level:event.target.value}}), style:{display:"block",width:"100%",marginTop:6}},
+            !allowed.length ? h("option",{value:""},t("model_controlled")) : allowed.map(level=>h("option",{key:level,value:level},level)))));
+    };
+    const table = ctx.current ? ctx.current.provider+"/"+ctx.current.id : undefined;
+    return h("div", {className:"model-visibility"},
+      h("p",{className:"model-modal-state"},t("lead")),
+      h("p",{className:"model-modal-state"},t("live")),
+      failed ? h("div",{role:"alert",className:"model-modal-error"},t("failed")) : null,
+      role("fast",SETTINGS_KEY,SETTINGS_THINKING_KEY,table,LANE_THINKING_DEFAULT),
+      role("author",AUTHOR_MODEL_KEY,AUTHOR_THINKING_KEY,AUTHOR_DEFAULT.model,AUTHOR_DEFAULT.thinking));
   };
 }

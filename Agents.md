@@ -200,6 +200,9 @@ Grok 系模型屡次把「交付」当目标、把意图当配菜，也屡次静
 
 ## Test model override (owner 2026-10-13)
 
+Before creating or cloning test data of any type (including images, PDFs, logs and archives), running model comparisons, or retaining test data, read [the test storage contract](docs/specs/test-data-storage.md). Reuse one retained seed through `scripts/test-workspace.mjs` (`shareTestTree` for arbitrary trees) or the live driver's `--seed-home`; preserve active tests and formal campaigns. Record capacity admission and results; ordinary full-tree copies or per-arm tar snapshots require an explicit exception in the approved test plan.
+The shared object store is retained evidence, not disposable cache; never prune it by age or after a test finishes.
+
 For all subsequent live tests, use Codex Relay `codex-relay/gpt-6-luna` with
 `high` reasoning. This supersedes earlier Grok 4.5/low test-model instructions,
 including the final author within a test. `tests/play/driver.ts` selects this

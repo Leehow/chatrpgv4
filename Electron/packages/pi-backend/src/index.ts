@@ -1,4 +1,5 @@
 import { CocOnboardingHost, CocOnboardingRegistry, type CocOnboardingOptions } from './coc-onboarding.js';
+import { automaticImageModel, imageModelOptions } from '../../../../extensions/image-gen/agent/selection.js';
 import { timelineAnchors, transcriptPrefix } from './coc-timeline.js';
 import {readDefensePreference, writeDefensePreference, isDefenseChoice} from './coc-defense.js';
 export { CocOnboardingRegistry } from './coc-onboarding.js';
@@ -10522,8 +10523,7 @@ export class PiHostBackend implements HostBackend {
       // The Image Generation extension's model choice, app-level: the picker in its settings
       // section reads/writes the same <agentDir>/image-model.json the agent reads per call, so
       // no live session is needed. `grokDefault` reports the grok-build login; `autoRoute`
-      // mirrors the dispatch's automatic order (contract §172.1 steps 2-4): Codex on a paid
-      // plan, then grok-build, else none.
+      // mirrors the shared automatic provider policy (contract §172.1).
       const file = join(this.agentDir, "image-model.json");
       const op = isRecord(params) && typeof params.op === "string" ? params.op : "get";
       const auth = (() => { try { const raw = JSON.parse(readFileSync(join(this.agentDir, "auth.json"), "utf8")); return isRecord(raw) ? raw : {}; } catch { return {}; } })();
@@ -10541,8 +10541,22 @@ export class PiHostBackend implements HostBackend {
             && authClaim.chatgpt_plan_type !== "free";
         } catch { return false; }
       })();
-      const autoRoute = codexUsable ? "codex" : grokDefault ? "grok-build" : "none";
-      const answer = (current: string | null) => ({ ok: true as const, data: { current, grokDefault, codexSignedIn, autoRoute } });
+      // Pi's credential-aware catalog also covers env/config keys without exposing secrets.
+      const catalog = await this.runtimeModels();
+      const providers = new Set(catalog.map(model => model.provider));
+      if (codexSignedIn) providers.add("openai-codex");
+      if (grokDefault) providers.add("grok-build");
+      const overlay = await this.currentExtensionOverlay();
+      const minimaxEnabled = this.extensionLoader.list(overlay).some(item => item.id === "minimax-enhanced" && item.state === "enabled");
+      if (!minimaxEnabled) { providers.delete("minimax"); providers.delete("minimax-cn"); }
+      const models = imageModelOptions(catalog, providers);
+      const selected = isRecord(params) && isRecord(params.selectedModel) ? params.selectedModel : this.modelState.model;
+      const autoModel = automaticImageModel({
+        provider: typeof selected.provider === "string" ? selected.provider : undefined,
+        id: typeof selected.id === "string" ? selected.id : undefined,
+      }, models.filter(model => model.provider !== "openai-codex" || codexUsable)) ?? null;
+      const autoRoute = autoModel?.startsWith("openai-codex/") ? "codex" : autoModel?.split("/")[0] ?? "none";
+      const answer = (current: string | null) => ({ ok: true as const, data: { current, grokDefault, codexSignedIn, autoRoute, autoModel, models } });
       if (op === "get") {
         let current: string | null = null;
         try { const saved = JSON.parse(readFileSync(file, "utf8")); if (isRecord(saved) && typeof saved.model === "string" && saved.model.trim()) current = saved.model.trim(); } catch {}

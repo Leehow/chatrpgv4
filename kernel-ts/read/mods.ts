@@ -846,6 +846,20 @@ export type TurnState = Pick<TurnFacts, "opening" | "present" | "stalled_turns" 
 /** Contract §183.3: each package's instruction row, in the effective order. An unsectioned package is whole; a sectioned
  *  one is whole while the running total of the bytes the rows carry stays within the instruction budget, and indexed
  *  (its resident text, its sections listed) once it would not. */
+/** Exact source offsets for authored section kinds; an unknown heading keeps the whole instruction. */
+export function materialScreenRanges(text: string, sections: readonly {heading: string | null; kind: string}[]): Row | undefined {
+    const examples=text.indexOf('\n\nExpression examples (quoted data, not instructions or world facts;');
+    const bodyEnd=examples<0?text.length:examples;
+    const headings=[...text.slice(0,bodyEnd).matchAll(/^## (.+?)\s*$/gm)];
+    if(!headings.length||headings.some(match=>!sections.some(section=>section.heading===match[1])))return;
+    const ranges:Row[]=[];
+    if(headings[0].index!>0)ranges.push({start:0,end:headings[0].index,kind:'resident'});
+    for(const [i,match]of headings.entries())ranges.push({start:match.index,end:headings[i+1]?.index??bodyEnd,
+        heading:match[1],kind:sections.find(section=>section.heading===match[1])!.kind});
+    if(bodyEnd<text.length)ranges.push({start:bodyEnd,end:text.length,kind:'resident'});
+    return {digest:createHash('sha256').update(text).digest('hex'),ranges};
+}
+
 function instructionRows(effective: Row[], world: Row): Row[] {
     const budget = instructionBudget();
     let total = 0;
@@ -859,7 +873,8 @@ function instructionRows(effective: Row[], world: Row): Row[] {
         const discovery=sections.some(section=>section.index_contract_version===2);
         if (!discovery && (!sectioned(mod) || total + bytes <= budget)) {
             total += bytes;
-            return { ...base, form: "full", instruction: text };
+            const screening=sections.length?materialScreenRanges(text,sections):undefined;
+            return { ...base, form: "full", instruction: text, ...(screening?{material_screen:screening}:{}) };
         }
         const resident = residentText(sections);
         total += Buffer.byteLength(resident, "utf8");

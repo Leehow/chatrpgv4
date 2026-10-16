@@ -48,7 +48,8 @@ import { markupInProse, describeMarkup, bareWrapper, unwrap, MARKUP_STEER } from
 import { timeGap, timeReading, timeRefusal, timeWarning } from '../read/time-reading.js';
 import { speakerResolver, repeatedLine, repeatedLines, sayRanges } from './speech.js';
 import { foldPersonWords, untoldWholeNames } from '../read/person-words.js';
-import { protectedNames, publicSpokenSharedNames, tellGuard, type CastPerson } from '../read/cast.js';
+import { nameToldInDelivery } from '../journal/naming.js';
+import { protectedNames, publicSpokenSharedNames, tellGuard, ownedBy, type CastPerson } from '../read/cast.js';
 import { campaignNodeHandles, foldNodeHandles, handleScheme, handlesDirectory, nodeHandleMap, readHandles, rewriteCampaignFiles, rewriteHandles, type HandleMove } from '../read/node-handles.js';
 import { pendingTells, prepareNameHistory, type NameHistory } from '../journal/name-history.js';
 import { deliveredDocuments, documentPlaceKey, documentPlaces, documentTold, untoldOwners, type DocumentTold } from './document-names.js';
@@ -237,11 +238,26 @@ async function nameInputs(snapshot: CampaignSnapshot, graph: ModuleGraph): Promi
 }
 const NOTHING_TOLD: DocumentTold = { record: [], introduced: [], told: 0, cleared: 0, places: 0 };
 /** §103.8: the table's word for each of `nodes` becomes the book's name (`person_labels`), the sync an introduction makes. */
-async function callByBookName(campaign: CampaignWriter, graph: ModuleGraph, nodes: readonly Row[]): Promise<void> {
-    const current = await campaign.readWorld(), labels: Row = { ...row(current.person_labels) };
-    for (const node of nodes) {
+async function callByBookName(campaign: CampaignWriter, graph: ModuleGraph, nodes: readonly Row[], receipts: readonly Row[] = [], delivery?: Row): Promise<void> {
+    const pending = receipts.filter(receipt => receipt.kind === 'person' && typeof receipt.deferred_name === 'string');
+    if (!nodes.length && !pending.length) return;
+    const current = await campaign.readWorld();
+    const journal = pending.length ? row(await new CampaignSnapshot(campaign.context, campaign.id).optional('npc-journal.json')) : {};
+    const history = delivery ? prepareNameHistory([delivery], tellGuard(graph, current, journal)) : undefined;
+    const pendingIntroductions = delivery ? pending
+        .flatMap(receipt => {
+            const node = graph.find(string(receipt.who), ['npc']);
+            return node && nameToldInDelivery(graph, node, delivery, history, ownedBy(graph, node)) ? [node] : [];
+        }) : [];
+    const introduced = [...new Map([...nodes, ...pendingIntroductions].map(node => [graph.handle(node), node])).values()];
+    if (!introduced.length) return;
+    const labels: Row = { ...row(current.person_labels) };
+    for (const node of introduced) {
         const handle = graph.handle(node);
-        labels[handle] = { ...row(labels[handle]), name: graph.displayName(node) };
+        const staged = receipts.filter(receipt => receipt.kind === 'person' && receipt.who === handle
+            && typeof receipt.deferred_name === 'string').at(-1);
+        labels[handle] = { ...row(labels[handle]), name: staged?.deferred_name ?? graph.displayName(node),
+            ...(staged?.deferred_address != null ? { address: staged.deferred_address } : {}) };
     }
     await campaign.writeWorld({ ...current, person_labels: labels });
 }
@@ -1495,7 +1511,7 @@ export function createWriteRuntime(context: KernelContext, contributions: WriteC
             owned.outcome=eventOutcome(receipts,array(result.disclosures));await campaign.writeTurnRecord(owned);
         }
         // §194.3 with §103.8: a graph person a document told is called by the book's name from now on, as at an introduction.
-        if (askDocuments.introduced.length) await callByBookName(campaign, module.graph, askDocuments.introduced);
+        await callByBookName(campaign, module.graph, askDocuments.introduced, array(turn.receipts), record);
         if (askDocuments.places) await documentTelemetry(campaign, n, started.callId, askDocuments);
         await campaign.appendTranscript(n, 'keeper', rendered);
         await campaign.appendEvent(n, {
@@ -1687,9 +1703,10 @@ export function createWriteRuntime(context: KernelContext, contributions: WriteC
             rolledBack.state = 'acting';
         const ledgerPath = campaign.path('npc-ledger.json');
         const priorLedger = await context.snapshots.pathExists(ledgerPath) ? await campaign.read('npc-ledger.json') : null;
+        const publicNameWrite = introduced.length > 0 || (!reference && receipts.some(receipt => receipt.kind === 'person' && typeof receipt.deferred_name === 'string'));
         await writeJsonAtomic(narrateJournalPath(campaign.id), { turn: n, call_id: started.callId, before: rolledBack,
             prior_meta: await campaign.readCampaign(), npc_ledger: priorLedger, transcript_size: transcriptSize, events_size: eventsSize,
-            had_record: hadRecord, ...(introduced.length ? { person_labels: row(snapshot.world.person_labels) } : {}), at: nowIso() });
+            had_record: hadRecord, ...(publicNameWrite ? { person_labels: row(snapshot.world.person_labels) } : {}), at: nowIso() });
         rememberCall(turn, started.callId, params, result);
         const record: Row = {
             ...deliveryRecord(turn, text, receipts, result, world),
@@ -1747,7 +1764,7 @@ export function createWriteRuntime(context: KernelContext, contributions: WriteC
         };
         await campaign.writeTurnRecord(record);
         if (!reference) await updateNpcLedger(campaign, module.graph, record);
-        if (introduced.length) await callByBookName(campaign, module.graph, introduced);
+        if (!reference) await callByBookName(campaign, module.graph, introduced, array(turn.receipts), record);
         await campaign.appendTranscript(n, 'keeper', rendered);
         await campaign.appendEvent(n, {
             type: 'turn-finalized',
@@ -1775,7 +1792,7 @@ export function createWriteRuntime(context: KernelContext, contributions: WriteC
             if (!(error instanceof CommitFailed))
                 throw error;
             await rollBackNarrate(campaign, { turn: n, before: rolledBack, prior_meta: priorMeta, npc_ledger: priorLedger,
-                ...(introduced.length ? { person_labels: row(snapshot.world.person_labels) } : {}),
+                ...(publicNameWrite ? { person_labels: row(snapshot.world.person_labels) } : {}),
                 transcript_size: transcriptSize, events_size: eventsSize, had_record: hadRecord });
             await clearNarrateJournal(campaign.id);
             // Contract §38.11: the Git verb, its exit code and what it printed reach the host as

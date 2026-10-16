@@ -12,7 +12,7 @@ import {prepareKeeperSupport} from './prescreen.ts';
 
 export async function lookupKeeperSupport(input:{campaign:string;query:string;call:(method:string,params:Row)=>Promise<unknown>;
     signal?:AbortSignal;record:(event:Row)=>void;parent?:TaskProviderBudget;source?:{moduleId:string;runtime:PrescreenSourceRuntime};
-    env?:NodeJS.ProcessEnv;decision?:DecisionPort}):Promise<KeeperSupport> {
+    env?:NodeJS.ProcessEnv;decision?:DecisionPort;prepared?:(binding:Row,packet:KeeperSupport)=>KeeperSupport}):Promise<KeeperSupport> {
     if(typeof input.query!=='string'||!input.query.trim()||input.query.length>2048)throw new KernelError({code:'invalid_params',message:'Support lookup needs a nonempty query of at most 2048 characters'});
     const env=input.env??process.env;
     if(!readJevApiKey(env))throw new KernelError({code:'needs',message:'Jev support lookup is unavailable',
@@ -37,6 +37,7 @@ export async function lookupKeeperSupport(input:{campaign:string;query:string;ca
         signal.throwIfAborted();
         if(!prepared)throw new KernelError({code:'needs',message:'Support retrieval did not produce a current packet',
             fix:'Use direct lookup or recall for the missing evidence.',details:{reason:'support_unavailable'}});
-        return validateKeeperSupport(JSON.parse(String(prepared.content)));
+        const packet=validateKeeperSupport(JSON.parse(String(prepared.content)));
+        return input.prepared?validateKeeperSupport(input.prepared(binding,packet)):packet;
     }finally{budget.close();}
 }

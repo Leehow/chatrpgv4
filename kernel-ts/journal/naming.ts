@@ -79,3 +79,14 @@ export function toldTurn(graph: ModuleGraph, node: Row, records: Iterable<Row>, 
     }
     return null;
 }
+
+/** A validated delivery being committed, before it has a Git commit id. No staged label is evidence here. */
+export function nameToldInDelivery(graph: ModuleGraph, node: Row, record: Row,
+    history: ReturnType<typeof prepareNameHistory> = prepareNameHistory([record]),
+    own: (owner: string) => boolean = ownerOf(graph, [node])): boolean {
+    const words = nameWords(graph, node);
+    return history.toldByIdentity(record, own)
+        || history.speech(record).some(who => sameNode(graph, who.npc, node)
+            && words.some(word => history.says(who.shown, word, own)))
+        || words.some(word => history.says(history.text(record), word, own, () => history.shields(record)));
+}

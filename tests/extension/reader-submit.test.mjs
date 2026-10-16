@@ -62,8 +62,19 @@ test('inline navigation references fail at their field before replacing the save
 
 test('the index submission schema describes optional bounded original-page reference objects',async t=>{
  const {tool}=await setup(t,false,'index');
+ const wire=JSON.parse(JSON.stringify(tool.parameters));
+ const schemas=[wire];
+ while(schemas.length){
+  const value=schemas.pop();
+  if(!value||typeof value!=='object')continue;
+  if(Object.hasOwn(value,'items'))assert.equal(Array.isArray(value.items),false,'the provider rejects array-valued items before it can call the index tool');
+  schemas.push(...Object.values(value));
+ }
  const section={name:'Opening',pages:[[1,2]]};
  assert.equal(Check(tool.parameters,{draft:{sections:[section]}}),true,'omitted references retain the native full-range fallback');
+ for(const pages of [[],[1,2],[[1]],[[1,2,3]],[[0,1]],[[-1,2]],[[1.5,2]],[['1',2]]]){
+  assert.equal(Check(tool.parameters,{draft:{sections:[{...section,pages}]}}),false,`invalid page-pair shape ${JSON.stringify(pages)}`);
+ }
  for(const source_refs of [[],[{page:1,note:'Observed heading'}]]){
   assert.equal(Check(tool.parameters,{draft:{sections:[{...section,source_refs}]}}),true);
  }

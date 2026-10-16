@@ -1,4 +1,5 @@
 import * as ReactRuntime from 'react'
+import { renderCocProse } from './CocMarkdown'
 import { createElement, type ComponentType } from 'react'
 import { createExtensionHostAPI, type ExtensionHostAPI, type HeaderActionProps, type ComposerActionProps } from '@pipiui/extension-api'
 import type { PipiHostAPI } from '@pipi/host-api'
@@ -437,6 +438,7 @@ export async function loadControlledContributions(
         // when the host UI handed a session-bound call down; the pack never names an extension.
         render: ({ content, details, images, typewriter, onSelectOption, onInvokeExtension, collectionWritable }) => createElement(Component, {
           content, details, images, typewriter, onSelectOption, collectionWritable,
+          ...(renderer.tool === 'coc-mechanics' ? { renderProse: renderCocProse } : {}),
           ...(onInvokeExtension ? { onInvoke: (method: string, params: unknown) => onInvokeExtension(descriptor.id, method, params) } : {}),
         }),
       }))

@@ -1,3 +1,4 @@
+import {shareTestTree} from '../../scripts/test-workspace.mjs';
 /** Authorized Cold Harvest rebuild through the source service; the old publication is immutable evidence. */
 import {mkdir,mkdtemp,readFile,writeFile,copyFile,chmod,rm,appendFile} from 'node:fs/promises';
 import {join,resolve} from 'node:path';
@@ -19,10 +20,10 @@ await writeFile(join(out,'PREREGISTER.json'),JSON.stringify({model:'grok-build/g
  intent:'Rebuild the original source through the current producer, without old published facts becoming input. Preserve old evidence and validate first interaction plus the source-backed people/places/pregens. A skeleton or source binding alone is not completion.',
  bars:['new source graph, no manual content patch','old publication retained','source-grounded opening_ready','the eight book cards are offered when requested','no pregen written as a Keeper NPC','living/dead source statements use the independent gate'],
  method:'existing ReadingService.prepare and foreground material requests, real tool-enabled Pi reader/reviewer children',live_play:false},null,2)+'\n');
-execFileSync('cp',['-c','-R',original,join(out,'original-publication')]);
-await mkdir(home);await copyFile(join(original,'source.pdf'),join(home,'Cold Harvest.pdf'));
+shareTestTree(original,join(out,'original-publication'));
+await mkdir(home);shareTestTree(join(original,'source.pdf'),join(home,'Cold Harvest.pdf'));
 await mkdir(join(home,'.coc'),{recursive:true});
-execFileSync('cp',['-c','-R',join(app,'.coc/source-transcripts'),join(home,'.coc/source-transcripts')]);
+shareTestTree(join(app,'.coc/source-transcripts'),join(home,'.coc/source-transcripts'));
 const agent=await mkdtemp(join(tmpdir(),'pipicoc-rebuild-agent-'));await chmod(agent,0o700);
 let kernel,runtime,reading,writes=Promise.resolve();
 const controller=new AbortController();

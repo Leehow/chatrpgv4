@@ -129,11 +129,12 @@ function defaultMounts(root) {
 	const providers = providerExtensionManifests(root);
 	assert.deepEqual(providers.map(entry => entry.name), ['codex-relay', 'deepseek', 'flapcode', 'grok-build-oauth'],
 		'the fake tree must carry the same provider manifests the repo does');
-	return ['--no-extensions', ...['kernel', 'native-search', 'mods', 'onboarding', 'module', 'memory', 'npc', 'table', 'npc-journal', 'npc-voice', 'npc-epithets', 'node-handles', 'speech-edit', 'thinking-schedule'].flatMap(name => ['-e', join(root, 'build/extensions', name, 'index.mjs')]),
+	return ['--no-extensions', ...['kernel', 'native-search', 'mods', 'onboarding', 'module', 'memory', 'npc', 'table', 'npc-journal', 'npc-voice', 'npc-epithets', 'node-handles', 'speech-edit', 'thinking-schedule', 'anthropic-cache'].flatMap(name => ['-e', join(root, 'build/extensions', name, 'index.mjs')]),
 		...providers.flatMap(entry => ['-e', entry.entry]),
 		'-e', join(root, 'build/extensions/image-gen/agent/index.mjs'),
 		'-e', join(root, 'build/extensions/rerank/agent/index.mjs'),
-		'-e', join(root, 'build/extensions/jev/agent/index.mjs')];
+		'-e', join(root, 'build/extensions/jev/agent/index.mjs'),
+		'-e', join(root, 'build/extensions/minimax-enhanced/agent/index.mjs')];
 }
 
 test("shared extension mount helpers preserve consumer boundaries in source and compiled layouts", () => {
@@ -150,6 +151,7 @@ test("shared extension mount helpers preserve consumer boundaries in source and 
 			entrypoints.imageGen,
 			entrypoints.rerank,
 			entrypoints.jev,
+			entrypoints.minimaxEnhanced,
 		]);
 		assert.deepEqual(readerProviderExtensionPaths(entrypoints), entrypoints.providerExtensions);
 		assert.equal(readerProviderExtensionPaths(entrypoints).includes(entrypoints.imageGen), false);

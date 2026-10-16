@@ -42,7 +42,7 @@ export function createModRuntime(context: KernelContext, sources: ModSources = {
     await snapshot.preload('view');
     return Boolean(new SessionView(snapshot, graph, snapshot.party, world).activeSession());
   }
-  async function initializeCampaign(campaign: CampaignWriter, world: Row, options: {pending?: boolean} = {}): Promise<void> {
+  async function initializeCampaign(campaign: CampaignWriter, world: Row, options: {pending?: boolean; follow?: boolean} = {}): Promise<void> {
     const meta = await campaign.readCampaign(), staged = meta.mods_pending;
     let changed = !Object.hasOwn(world, 'mods') && isJsonObject(staged);
     if (changed) world.mods = clone(staged);
@@ -52,7 +52,17 @@ export function createModRuntime(context: KernelContext, sources: ModSources = {
     // read the world init just did -- this never re-reads the packages.
     for (const entry of runtime.unavailable)
       await campaign.telemetry({lane: 'mods', event: 'package_unavailable', mod: entry.id, version: entry.version, path: entry.path, reason: entry.reason});
-    if (options.pending && !await busy(campaign, world)) changed = await runtime.applyPending(world) || changed;
+    if ((options.pending || options.follow !== false) && !await busy(campaign, world)) {
+      if (options.pending) changed = await runtime.applyPending(world) || changed;
+      if (options.follow !== false) {
+        const followed = await runtime.followLatest(world);
+        changed = followed.changed || changed;
+        for (const update of followed.updates) {
+          await campaign.telemetry({lane: 'mods', event: update.error ? 'automatic_update_refused' : 'automatic_update', ...update});
+          if (update.retired?.length) await campaign.telemetry({lane: 'mods', event: 'settings_retired', ...update, keys: update.retired});
+        }
+      }
+    }
     if (changed) await campaign.writeWorld(world);
     if (staged != null) { delete meta.mods_pending; await campaign.writeCampaign(meta); }
     if (Object.hasOwn(world, 'objects')) await projectInventory(campaign, world);
@@ -60,6 +70,20 @@ export function createModRuntime(context: KernelContext, sources: ModSources = {
   function handlers(writer: ReturnType<typeof createWriteRuntime>): HandlerGroup {
     const jobs = new ModJobs(context, runtime, writer, sources);
     const equipment = new EquipmentJobs(writer,jobs);
+    async function configureSelection(world: Row, params: Row, occupied: boolean, language: string | null = null): Promise<{retired: string[]; from: string | null; to: string; update_error?: Row}> {
+      try { return await runtime.configure(world, params, occupied, language); }
+      catch (error) {
+        const actual = row(row(world.mods).active)[params.id];
+        // Choosing a floating policy is still valid when its current upgrade cannot land.
+        // Keep the actual package, but release the pin and expose the failed resolution.
+        if (!(error instanceof RpcError) || params.version !== 'latest' || !actual || Object.hasOwn(params, 'enabled') || Object.hasOwn(params, 'settings')) throw error;
+        const target = (await runtime.view(world)).mods.find((mod: Row) => mod.id === params.id && mod.latest);
+        const failure = {version: target?.version ?? actual.version, code: error.code, message: error.message};
+        delete actual.version_policy;
+        (world.mods.update_errors ??= {})[params.id] = failure;
+        return {retired: [], from: actual.version, to: actual.version, update_error: failure};
+      }
+    }
     async function listing(params: Row): Promise<Row> {
       if (!truth(params.campaign)) return runtime.view();
       const campaign = await writer.campaign(params, {requireWorld: false}), meta = await campaign.readCampaign();
@@ -83,21 +107,33 @@ export function createModRuntime(context: KernelContext, sources: ModSources = {
       'mods.install': async params => {
         if (!Object.hasOwn(params, 'path')) { const error = new Error("'path'"); error.name = 'KeyError'; throw error; }
         if (typeof params.path !== 'string') { const error = new Error('Mod package path must be a string'); error.name = 'TypeError'; throw error; }
-        return runtime.install(params.path);
+        const installed = await runtime.install(params.path);
+        if (truth(params.campaign)) {
+          let campaign: CampaignWriter;
+          try { campaign = await writer.campaign(params, {requireWorld: false}); }
+          catch (error) {
+            if (error instanceof RpcError && error.code === 'campaign_not_found') return installed;
+            throw error;
+          }
+          if (await context.snapshots.pathExists(campaign.path('world.json')))
+            await initializeCampaign(campaign, await campaign.readWorld());
+        }
+        return installed;
       },
       'mods.defaults': async params => runtime.defaults(params.id ?? null, params.enabled ?? null),
       'mods.configure': async params => {
         const campaign = await writer.campaign(params, {requireWorld: false});
-        let change: {retired: string[], from: string | null, to: string};
+        let change: {retired: string[], from: string | null, to: string, update_error?: Row};
         if (!await context.snapshots.pathExists(campaign.path('world.json'))) {
           const meta = await campaign.readCampaign(), config: Row = truth(meta.mods_pending) ? {mods: clone(meta.mods_pending)} : {};
-          change = await runtime.configure(config, params, false, declaredPlayLanguage(meta)); meta.mods_pending = config.mods; await campaign.writeCampaign(meta);
+          change = await configureSelection(config, params, false, declaredPlayLanguage(meta)); meta.mods_pending = config.mods; await campaign.writeCampaign(meta);
         } else {
-          const world = await campaign.readWorld(); await initializeCampaign(campaign, world);
-          change = await runtime.configure(world, params, await busy(campaign, world)); await campaign.writeWorld(world);
+          const world = await campaign.readWorld(); await initializeCampaign(campaign, world, {follow: false});
+          change = await configureSelection(world, params, await busy(campaign, world)); await campaign.writeWorld(world);
         }
         // The retirement is recorded once, as a diagnostic row (§26): the lock shows the target version's settings.
         if (change.retired.length) await campaign.telemetry({lane: 'mods', event: 'settings_retired', mod: params.id, from: change.from, to: change.to, keys: change.retired});
+        if (change.update_error) await campaign.telemetry({lane: 'mods', event: 'automatic_update_refused', mod: params.id, error: change.update_error});
         return listing(params);
       },
       'mods.order': async params => {

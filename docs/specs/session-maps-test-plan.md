@@ -15,9 +15,9 @@ This document is an execution plan for follow-up agents. It deliberately separat
 
 A test count, a generated map file, a green fixture, or a Keeper sentence without the corresponding receipt and player-visible result is not acceptance evidence.
 
-## 1. Current verified baseline
+## 1. Historical verified baseline
 
-The following commands were executed on the integrated worktree and passed:
+The following commands were executed on the integrated worktree and passed. They and their results remain verbatim historical evidence; active execution commands below use the current native TypeScript counterparts after pytest retirement.
 
 ```bash
 npm run check:kernel
@@ -49,8 +49,9 @@ Read `AGENTS.md` and `docs/acceptance.md` before running a real table.
 
 ### Real-table method
 
-- Use `tests/play/driver.py` in RPC mode.
-- Use the configured Keeper model from `.pi/coc-agent/settings.json`; record the actual provider/model and lane provenance.
+- Use `node tests/play/driver.ts` in RPC mode.
+- Use `codex-relay/gpt-6-luna` with `high` reasoning for the Keeper, final author, and supporting lanes; record the actual provider/model and lane provenance. This test profile leaves product model defaults unchanged.
+- If Codex Relay reports saturated upstream concurrency, preserve the failed Luna run and use a new run with `--model grok-build/grok-4.5 --thinking low` for this test, including the final author and supporting lanes. Subsequent tests default to Luna/high.
 - The main session is the sole player. Send one natural-language player utterance per turn.
 - Run from setup/opening through a natural ending or a genuine blocker.
 - Let the Keeper choose what to read, reveal, narrate, and ask. Do not script the Keeper's conclusions.
@@ -97,7 +98,7 @@ npm run build:runtime
 node --test tests/extension/source.test.mjs
 node --test tests/extension/map-view.test.mjs
 node --test tests/extension/turn.test.mjs
-uv run --frozen python -m pytest tests/kernel/test_map.py -q
+node scripts/test-integration-ts.mjs tests/integration/world-map.test.ts
 ```
 
 This wave is already satisfied by the integrated commit unless a later change modifies the listed paths.
@@ -208,10 +209,10 @@ Run sequentially:
 ```bash
 npm run test:ext
 npm run test:electron
-uv run --frozen python -m pytest tests/kernel/test_map.py -q
+node scripts/test-integration-ts.mjs tests/integration/world-map.test.ts
 ```
 
-Do not run two pytest commands concurrently. Do not add failure-baseline entries. Compare all failures against the recorded Electron baseline and report new versus known failures.
+Keep the listed test commands sequential. Do not add failure-baseline entries. Compare all failures against the recorded Electron baseline and report new versus known failures.
 
 Then build an evidence matrix with one row per requirement family:
 

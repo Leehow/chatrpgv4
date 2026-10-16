@@ -103,6 +103,7 @@ export function useToolRenderers(): readonly ToolRendererContribution[] {
 // --- settingsSections ------------------------------------------------------
 
 export type SettingsSectionContext = {
+  thinkingLevelsForModel?: typeof import('@pipi/host-api').thinkingLevelsForModel
   host: PipiHostAPI
   visibility: ModelVisibilityController
   updates: UpdateCenterController
@@ -157,7 +158,7 @@ export const DEFAULT_SETTINGS_TAB = 'models'
 // because a tab only exists once its id is admitted here. `rerank` is the Rerank extension's
 // provider / model / key picker: the model list depends on the chosen provider, so it is a
 // controlled section rather than a schema form, and it is admitted here for the same reason.
-export const HOST_SETTINGS_TAB_IDS = ['models', 'extensions', 'coc-difficulty', 'coc-lane-model', 'image-model', 'rerank', 'jev', 'themes', 'updates'] as const
+export const HOST_SETTINGS_TAB_IDS = ['models', 'extensions', 'coc-difficulty', 'coc-lane-model', 'image-model', 'minimax-media', 'rerank', 'jev', 'themes', 'updates'] as const
 
 // --- panels ----------------------------------------------------------------
 

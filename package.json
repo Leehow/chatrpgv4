@@ -25,6 +25,8 @@
       "./extensions/node-handles",
       "./extensions/speech-edit",
       "./extensions/thinking-schedule",
+      "./extensions/anthropic-cache",
+      "./extensions/minimax-enhanced/agent/index.js",
       "./extensions/deepseek",
       "./extensions/image-gen",
       "./extensions/grok-build-oauth",
