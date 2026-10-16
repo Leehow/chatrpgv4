@@ -1,10 +1,11 @@
 /** Thin application bindings for the shared healing and clock functions. */
 import { clone, string } from '../read/values.js';
 import { required } from '../write/store.js';
-import { rollDamage, stageDamage, stageRecovery, stageDayBoundary } from '../healing/resources.js';
+import { damageResource, rollDamage, stageDamage, stageRecovery, stageDayBoundary } from '../healing/resources.js';
 import type { ApplyResources } from './index.js';
 export const applyResources: ApplyResources = {
     async damage(context, effect) {
+        damageResource(effect);
         const rolled = rollDamage(required(effect, 'dice')!, context.kernel.rng);
         const staged = await stageDamage(await context.settlement(effect.subject), rolled, effect);
         return { receipts: staged.receipts, event: { type: staged.event[0], data: staged.event[1] } };

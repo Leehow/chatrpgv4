@@ -140,6 +140,12 @@ export function rollDamage(dice: string, rng: PythonRandom): Row {
         throw new RpcError('invalid_params', `damage dice ${repr(dice)} is not a dice expression`, { fix: 'use the rulebook form, e.g. 1D6 or 2D6+2' });
     }
 }
+export function damageResource(effect: Row): 'hp' | 'pow' {
+    const resource = effect.resource ?? 'hp';
+    if (resource !== 'hp' && resource !== 'pow')
+        throw new RpcError('invalid_params', 'damage resource must be hp or pow');
+    return resource;
+}
 export async function stageDamage(context: SettleContext, rolled: Row, effect: Row): Promise<{
     receipts: Row[];
     event: [
@@ -148,7 +154,30 @@ export async function stageDamage(context: SettleContext, rolled: Row, effect: R
     ];
 }> {
     const start = context.receipts.length, sheet = context.subject, id = context.subjectId, why = typeof effect.why === 'string' ? effect.why : null;
-    const rollId = context.addDiceRoll({ actor: id, label: 'damage', expression: rolled.expression, faces: rolled.rolls, total: rolled.total, why });
+    const resource = damageResource(effect);
+    if (resource === 'pow' && !integer(row(sheet.characteristics).POW))
+        throw new RpcError('needs', 'POW loss requires an established POW value');
+    const rollId = context.addDiceRoll({ actor: id, label: resource === 'pow' ? 'POW loss' : 'damage', expression: rolled.expression, faces: rolled.rolls, total: rolled.total, why });
+    if (resource === 'pow') {
+        const before = number(sheet.characteristics.POW), after = Math.max(0, before - number(rolled.total));
+        context.addDelta('pow', id, before, after, { source_receipt: rollId });
+        sheet.characteristics = { ...sheet.characteristics, POW: after };
+        if (context.sheetById(id))
+            await context.writeSheet(sheet);
+        else {
+            const resources = ((context.world.npc_resources ??= {})[id] ??= {});
+            resources.characteristics = { ...sheet.characteristics };
+            await context.transaction.campaign.writeWorld(context.world);
+        }
+        const combat = row(await context.readSave('combat.json'));
+        if (combat.status === 'active') {
+            for (const participant of array(combat.participants))
+                if (participant.actor_id === id)
+                    participant.characteristics = { ...row(participant.characteristics), POW: after };
+            await context.writeSave('combat.json', combat);
+        }
+        return { receipts: context.receipts.slice(start), event: ['resource-changed', { resource, subject: id, before, after, dice: effect.dice, total: rolled.total, why }] };
+    }
     const before = number(sheet.current_hp || 0), after = Math.max(0, before - number(rolled.total));
     context.addDelta('hp', id, before, after, { source_receipt: rollId });
     const conditions = damageConditions(context, sheet, after, number(rolled.total));

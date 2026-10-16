@@ -249,7 +249,8 @@ const DamageBand = Type.Optional(Type.String({ description: "instead of dice: th
 
 const DamageEffect = Type.Object({
 	...IntentResult,
-	kind: StringEnum(["damage"] as const, { description: "damage with no attacker: a fall, fire, a falling object, suffocation, an overdose — and the failed check whose stated cost was that someone got hurt" }),
+	kind: StringEnum(["damage"] as const, { description: "harm outside ordinary weapon damage: a fall, fire, suffocation, an overdose, or the stated loss after a resolved check. A source-defined POW attack uses the existing opposed POW check, then resource pow if the target loses; never substitute an unarmed HP attack" }),
+	resource: Type.Optional(StringEnum(['hp','pow'] as const, { description: "defaults to hp; use pow only when the applicable source rule explicitly removes POW. The kernel rolls the loss and changes that body's current characteristic, not HP or a caster's cost" })),
 	dice: Type.Optional(Type.String({ description: "the damage dice from the rulebook, such as 1D6; the kernel rolls them. Required unless stated or band supplies them" })),
 	stated: StatedAmount,
 	band: DamageBand,
@@ -714,7 +715,7 @@ const ResolveAction = Type.Object({
 			reason: Type.Optional(Type.String({ description: "one clause: what in the fiction earned this modifier. Required on a social attempt whenever you give dice or raise the difficulty; it is written on the roll receipt and the player reads it there" })),
 		}),
 	),
-	skill: Type.Optional(Type.String({ description: "an explicit skill or characteristic name; takes precedence over inference from method" })),
+	skill: Type.Optional(Type.String({ description: "an explicit skill or characteristic name for a check; takes precedence over inference from method. It does not override a combat attack weapon's skill or HP damage" })),
 	weapon: Type.Optional(
 		Type.String({
 			description:
