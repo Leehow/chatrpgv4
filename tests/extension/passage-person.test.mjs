@@ -227,6 +227,25 @@ test("a passage vouches for a name, never for numbers: a pin stays refused", asy
 	assert.equal(((await game.world()).table_people ?? []).length, 0);
 });
 
+test("concurrent recalls project a published passage person without mutating the cached world", async (t) => {
+	const game = await table(t);
+	await game.apply([
+		{ kind: "npc", name: NEWCOMER, to: "here", why: "the book puts her here", _passage: passage() },
+		{ kind: "person", who: NEWCOMER, name: "Ruth Blakemore", why: "the table knows her name", _passage: passage() },
+	]);
+	await game.publish(NEWCOMER);
+	const before = await game.world();
+	const reads = await Promise.all([0, 1].map(() => game.call("table.recall", {
+		what: "transcript", read: { turn: 0, role: "keeper", offset: 0, limit: 4096 },
+	})));
+	for (const read of reads) assert.match(JSON.stringify(read), /Knott is waiting/);
+	assert.deepEqual(await game.world(), before, "read projection does not persist the replacement or alter cached disk values");
+	await game.apply([{ kind: "npc", name: NEWCOMER, stance: "wary", why: "she has been asked twice" }]);
+	const world = await game.world();
+	assert.equal(world.table_people.find(person => person.name === NEWCOMER).replaced_by, "ruth-blakemore");
+	assert.equal(world.npc_presence["ruth-blakemore"], world.active_scene);
+});
+
 test("the record landing replaces the provisional entry by name, once", async (t) => {
 	const game = await table(t);
 	await game.apply([

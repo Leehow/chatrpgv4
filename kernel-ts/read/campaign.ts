@@ -172,7 +172,7 @@ export class CampaignSnapshot {
         for (const file of [...(requireWorld ? ["world.json"] : []), ...(requireTurn ? ["turn.json"] : [])])
             if (!await context.snapshots.pathExists(join(snapshot.dir, file)))
                 throw new RpcError("campaign_not_ready", `campaign ${repr(id)} is missing ${file}`);
-        snapshot.world = row(await snapshot.optional("world.json"));
+        snapshot.world = clone(row(await snapshot.optional("world.json")));
         snapshot.turn = row(await snapshot.optional("turn.json"));
         return snapshot;
     }
