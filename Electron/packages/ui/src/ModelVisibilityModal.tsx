@@ -206,9 +206,14 @@ export function ModelVisibilityModal({ host, productName, visibility, updates, c
   // The host's whitelist is also the nav order: contributed tabs sit with their own kind
   // (image-model next to 扩展), never trailing the host's 更新中心.
   const registered = useSettingsSections()
+  const groupedJev = registered.find(section => section.id === 'coc-lane-model')
+    ? registered.find(section => section.id === 'jev') : undefined
   const sections = HOST_SETTINGS_TAB_IDS.flatMap(id =>
-    registered.filter(section => section.id === id))
+    registered.filter(section => section.id === id && section !== groupedJev))
   const [tab, setTab] = useState(DEFAULT_SETTINGS_TAB)
+  useEffect(() => {
+    if (tab === 'jev' && groupedJev) setTab('coc-lane-model')
+  }, [tab, groupedJev])
   const [extensionsAddOpen, setExtensionsAddOpen] = useState(false)
   const [view, setView] = useState<'manage' | 'add'>(initialView)
   // DOM slot under the 扩展 tab; ExtensionsPane portals its pack sub-nav here.
@@ -291,6 +296,15 @@ export function ModelVisibilityModal({ host, productName, visibility, updates, c
                   hidden={!isActive}
                 >
                   {section.render(ctx)}
+                  {section.id === 'coc-lane-model' && groupedJev && (
+                    <section className="settings-group settings-jev" aria-label={groupedJev.label}>
+                      <div className="settings-group-heading">
+                        <h3>{groupedJev.label}</h3>
+                        <span className="settings-service-badge">TypeSafe Jev</span>
+                      </div>
+                      {groupedJev.render(ctx)}
+                    </section>
+                  )}
                 </div>
               )
             })}

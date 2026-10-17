@@ -18,16 +18,16 @@ export function createComponent(React) {
     }
     useEffect(()=>{void invoke('status');},[]);
     const button=(label,method,args,disabled=false)=>h('button',{type:'button',disabled:busy||disabled,onClick:()=>void invoke(method,args)},label);
-    return h('section',null,
+    return h('section',{className:'settings-media'},
       h('p',null,'MiniMax accounts are shared with Model Management. Image generation follows your explicit image-model choice.'),
-      h('label',null,'Account ',h('select',{value:provider,disabled:busy,onChange:e=>setProvider(e.target.value)},
+      h('label',{className:'settings-field'},'Account ',h('select',{value:provider,disabled:busy,onChange:e=>setProvider(e.target.value)},
         ...['minimax-cn','minimax'].map(id=>h('option',{key:id,value:id},id)))),
       status ? h('p',null,status.accounts.map(row=>`${row.provider}: ${row.configured?'configured':'not configured'}`).join(' · ')) : null,
       button('Use image-01','image-model',{model:`${provider}/image-01`}),
       button('Use image-01-live','image-model',{model:`${provider}/image-01-live`}),
       h('p',null,'Use the character-sheet photo control for portraits and Generate illustration beside a narration for scene images. Scene images reuse the character portrait when eligible.'),
       status ? h('p',null,`Image model: ${status.imageModel ?? 'automatic'}`) : null,
-      status?.cache ? h('section',null,
+      status?.cache ? h('section',{className:'settings-group'},
         h('h3',null,'Cache usage'),
         h('p',null,'Only provider-reported tokens are counted. Unreported writes are unknown; a reported zero does not prove no server write occurred.'),
         ...['read','write'].map(field=>h('p',{key:field},`Cache ${field}: ${status.cache[field].tokens ?? 'unreported'} tokens · ${status.cache[field].reported_requests}/${status.cache.requests} requests reported`)),

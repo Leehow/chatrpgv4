@@ -1,7 +1,7 @@
 {
   "section_title": "Model settings",
-  "section_hint": "Fast model and prose model",
-  "section_description": "Fast background work and prose composition",
+  "section_hint": "Fast, prose and Jev",
+  "section_description": "Background models, prose composition and Jev",
   "lead": "Choose separate models for fast background work and final prose.",
   "aside": "Nothing these lanes write is the Keeper's prose, so a quick model here shortens every turn without touching a word of the story.",
   "live": "Changes apply to the next task, including in a running table.",

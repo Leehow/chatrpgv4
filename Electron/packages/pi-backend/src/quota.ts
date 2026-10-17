@@ -14,10 +14,11 @@ import {
 } from "@pipi/account-usage-core";
 import type { QuotaSnapshot, QuotaWindow } from "@pipi/host-api";
 
-export type QuotaProviderKind = "grok" | "claude" | "codex" | "cursor" | "kimi" | "qwenTokenPlan" | "opencodeGo" | "flapcode";
+export type QuotaProviderKind = "grok" | "claude" | "codex" | "cursor" | "kimi" | "qwenTokenPlan" | "opencodeGo" | "flapcode" | "minimax" | "minimax-cn";
 export type BalanceProviderKind = "deepseek" | "moonshot" | "siliconflow" | "openrouter";
 
 export const QUOTA_ACCOUNT_LABELS: Record<QuotaProviderKind, string> = {
+  minimax: "MiniMax remaining quota", "minimax-cn": "MiniMax remaining quota",
   grok: "Grok 账号额度", claude: "Claude 账号额度", codex: "Codex 账号额度",
   cursor: "Cursor 账号额度", kimi: "Kimi 账号额度", qwenTokenPlan: "Qwen Token Plan 额度", opencodeGo: "OpenCode Go 本机用量", flapcode: "Flapcode account quota",
 };

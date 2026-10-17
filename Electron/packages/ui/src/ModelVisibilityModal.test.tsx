@@ -1,8 +1,9 @@
 // @vitest-environment jsdom
-import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { afterEach, describe, expect, it } from 'vitest'
 import type { Model, PipiHostAPI } from '@pipi/host-api'
 import { ModelVisibilityModal } from './ModelVisibilityModal'
+import { registerSettingsSection } from './ui-registries'
 
 afterEach(() => {
   cleanup()
@@ -88,6 +89,67 @@ const updates = {
   error: null,
   refresh: async () => undefined,
 }
+
+describe('related model settings', () => {
+  it('composes the registered Jev contribution inside model settings', () => {
+    const disposeModels = registerSettingsSection('settings-test-models', {
+      id: 'coc-lane-model', label: 'Model settings', title: 'Model settings', description: '',
+      render: () => <div>Model roles</div>,
+    })
+    const disposeJev = registerSettingsSection('settings-test-jev', {
+      id: 'jev', label: 'Jev', title: 'Jev', description: '',
+      render: ctx => <button onClick={() => void ctx.host.updateExtensionSettings('jev', { 'ext.jev.preselectEnabled': true })}>Enable preselection</button>,
+    })
+    const writes: unknown[] = []
+    try {
+      render(<ModelVisibilityModal host={hostStub({ updateExtensionSettings: async (...args) => { writes.push(args); return { ok: true } } })}
+        productName="PipiCOC" visibility={visibility as never} updates={updates as never} current={null}
+        onRequestUpdate={() => undefined} onClose={() => undefined} />)
+      expect(screen.queryByTestId('model-tab-jev')).toBeNull()
+      expect(screen.queryByText('TypeSafe Jev')).toBeNull()
+      fireEvent.click(screen.getByTestId('model-tab-coc-lane-model'))
+      expect(screen.getByText('Model roles')).toBeTruthy()
+      expect(screen.getByRole('region', { name: 'Jev' })).toBeTruthy()
+      fireEvent.click(screen.getByText('Enable preselection'))
+      expect(writes).toEqual([['jev', { 'ext.jev.preselectEnabled': true }]])
+      fireEvent.click(screen.getByTestId('model-tab-themes'))
+      expect(screen.queryByText('Enable preselection')).toBeNull()
+    } finally { cleanup(); disposeJev(); disposeModels() }
+  })
+
+  it('keeps Jev reachable when the model settings contribution is absent', () => {
+    const disposeJev = registerSettingsSection('settings-test-jev', {
+      id: 'jev', label: 'Jev', title: 'Jev', description: '', render: () => <div>Jev controls</div>,
+    })
+    try {
+      render(<ModelVisibilityModal host={hostStub()} productName="PipiCOC" visibility={visibility as never}
+        updates={updates as never} current={null} onRequestUpdate={() => undefined} onClose={() => undefined} />)
+      fireEvent.click(screen.getByTestId('model-tab-jev'))
+      expect(screen.getByText('Jev controls')).toBeTruthy()
+    } finally { cleanup(); disposeJev() }
+  })
+
+  it('keeps an open Jev pane visible when model settings finish loading later', async () => {
+    const disposeJev = registerSettingsSection('settings-test-jev', {
+      id: 'jev', label: 'Jev', title: 'Jev', description: '', render: () => <div>Jev controls</div>,
+    })
+    let disposeModels = () => {}
+    try {
+      render(<ModelVisibilityModal host={hostStub()} productName="PipiCOC" visibility={visibility as never}
+        updates={updates as never} current={null} onRequestUpdate={() => undefined} onClose={() => undefined} />)
+      fireEvent.click(screen.getByTestId('model-tab-jev'))
+      act(() => {
+        disposeModels = registerSettingsSection('settings-test-models', {
+          id: 'coc-lane-model', label: 'Model settings', title: 'Model settings', description: '',
+          render: () => <div>Model roles</div>,
+        })
+      })
+      await waitFor(() => expect(screen.getByTestId('model-tab-coc-lane-model').getAttribute('aria-selected')).toBe('true'))
+      expect(screen.getByText('Jev controls')).toBeTruthy()
+      expect(screen.queryByTestId('model-tab-jev')).toBeNull()
+    } finally { cleanup(); disposeModels(); disposeJev() }
+  })
+})
 
 describe('general settings moved into extensions', () => {
   it('does not render Firecrawl key controls anywhere in the modal', async () => {

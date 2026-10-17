@@ -68,6 +68,19 @@ describe('formatQuotaReset', () => {
 })
 
 describe('QuotaPill', () => {
+  it('shows MiniMax remaining quota in both the pill and its window menu', async () => {
+    const {host} = quotaHost({provider: 'minimax-cn', accountLabel: 'MiniMax remaining quota', windows: [
+      {id: 'fiveHour', usedPercent: 6, remainingPercent: 94, label: '5h left', title: '5-hour remaining quota'},
+      {id: 'weekly', usedPercent: 1, remainingPercent: 99, label: 'Week left', title: 'Weekly remaining quota'},
+    ]})
+    render(<QuotaPill host={host} provider="minimax-cn" />)
+    const pill = await screen.findByTestId('quota-pill')
+    expect(pill.textContent).toBe('5h left 94%')
+    fireEvent.click(pill)
+    expect(screen.getByText('99%')).toBeTruthy()
+    expect(screen.getAllByText('94%')).toHaveLength(1)
+  })
+
   it('renders the Swift-style period label (highest-use window) as a clickable pill', async () => {
     const { host, getQuotaSnapshot } = quotaHost(codexSnapshot)
     render(<QuotaPill host={host} sessionId="s1" provider="openai-codex" />)

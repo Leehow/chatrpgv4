@@ -196,12 +196,12 @@ export function QuotaPill({ host, sessionId, provider, modelId, refreshKey }: Qu
         type="button"
         className="quota-pill"
         data-testid="quota-pill"
-        aria-label={`额度（当前：${capsule.label} ${Math.round(capsule.usedPercent)}%）`}
+        aria-label={`额度（当前：${capsule.label} ${Math.round(capsule.remainingPercent ?? capsule.usedPercent)}%）`}
         aria-haspopup="menu"
         aria-expanded={open}
         onClick={() => setOpen(value => !value)}
       >
-        {capsule.label} {Math.round(capsule.usedPercent)}%
+        {capsule.label} {Math.round(capsule.remainingPercent ?? capsule.usedPercent)}%
       </button>
       {open && createPortal(
         <>
@@ -231,7 +231,7 @@ export function QuotaPill({ host, sessionId, provider, modelId, refreshKey }: Qu
                       </span>
                     )}
                   </span>
-                  <span className="quota-menu-percent">{Math.round(window.usedPercent)}%</span>
+                  <span className="quota-menu-percent">{Math.round(window.remainingPercent ?? window.usedPercent)}%</span>
                   {current && <span className="quick-menu-check">✓</span>}
                 </button>
               )

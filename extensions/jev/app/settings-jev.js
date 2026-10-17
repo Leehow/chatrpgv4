@@ -83,26 +83,29 @@ export function createComponent(React) {
       }
     }
 
-    return h('div', { className: 'model-visibility' },
-      h('p', null, 'One TypeSafe API key for all Jev features in PipiCOC.'),
-      h('p', { role: 'status' }, present === undefined ? 'Loading…' : present ? 'Credential saved' : 'No credential saved'),
-      h('form', { onSubmit: event => { event.preventDefault(); if (draft.trim()) void save(draft.trim()); } },
-        h('label', null, 'TypeSafe API key', h('input', {
+    return h('div', { className: 'model-visibility settings-jev-content' },
+      h('p', { className: 'settings-description' }, 'One TypeSafe API key for all Jev features in PipiCOC.'),
+      h('p', { role: 'status', className: 'settings-credential-status', 'data-configured': present === true }, present === undefined ? 'Loading…' : present ? 'Credential saved' : 'No credential saved'),
+      h('form', { className: 'settings-credential-form', onSubmit: event => { event.preventDefault(); if (draft.trim()) void save(draft.trim()); } },
+        h('label', { className: 'settings-field' }, 'TypeSafe API key', h('input', {
+          className: 'settings-control',
           type: 'password', autoComplete: 'off', spellCheck: false, value: draft,
           disabled: pending || present === undefined,
           onChange: event => setDraft(event.target.value),
           placeholder: present ? 'Enter a new key to replace the saved key' : '',
         })),
-        h('button', { type: 'submit', disabled: pending || present === undefined || !draft.trim() }, 'Save'),
-        h('button', { type: 'button', disabled: pending || !present, onClick: () => { void save(null); } }, 'Clear')),
-      h('p', null, enabled === undefined ? 'Loading context preselection…'
-        : enabled ? 'Context preselection enabled' : 'Context preselection disabled'),
-      h('label', null, h('input', {
+        h('div', { className: 'settings-actions' },
+          h('button', { className: 'settings-button settings-button-primary', type: 'submit', disabled: pending || present === undefined || !draft.trim() }, 'Save'),
+          h('button', { className: 'settings-button', type: 'button', disabled: pending || !present, onClick: () => { void save(null); } }, 'Clear'))),
+      h('label', { className: 'settings-toggle-row' }, h('input', {
+        'aria-label': 'Enable Jev context preselection',
         type: 'checkbox', checked: enabled === true, disabled: pending || enabled === undefined,
         onChange: event => { void saveEnabled(event.target.checked); },
-      }), 'Enable Jev context preselection'),
+      }), h('span', null, 'Enable Jev context preselection',
+        h('small', null, enabled === undefined ? 'Loading context preselection…'
+          : enabled ? 'Context preselection enabled' : 'Context preselection disabled'))),
       failure ? h('p', { role: 'alert' }, failure) : null,
-      h('p', null, 'The key is kept in the app vault. Existing sessions refresh at their next idle restart boundary; reopen the table to use it immediately.'),
+      h('p', { className: 'settings-note' }, 'The key is kept in the app vault. Existing sessions refresh at their next idle restart boundary; reopen the table to use it immediately.'),
     );
   };
 }

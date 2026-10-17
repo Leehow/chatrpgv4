@@ -140,6 +140,19 @@ describe("fetchCodexQuota", () => {
 });
 
 describe("PiHostBackend quota bridge", () => {
+  it("routes MiniMax accounts and preserves remaining percentages through the host facade", async () => {
+    expect(quotaProviderFor("minimax-cn")).toBe("minimax-cn");
+    expect(quotaProviderFor("minimax")).toBe("minimax");
+    expect(quotaProviderFor("minimax-relay")).toBeUndefined();
+    const store = new QuotaStore({}, {readPiAuth: async () => JSON.stringify({"minimax-cn": {key: "fixture"}}),
+      readEnvFile: async () => undefined,
+      fetch: vi.fn(async () => Response.json({base_resp: {status_code: 0}, model_remains: [{model_name: "general",
+        current_interval_remaining_percent: 94, current_weekly_remaining_percent: 99}]})) as typeof fetch});
+    expect(await store.snapshot("minimax-cn")).toMatchObject({provider: "minimax-cn", windows: [
+      {usedPercent: 6, remainingPercent: 94}, {usedPercent: 1, remainingPercent: 99},
+    ]});
+  });
+
   it("uses the requested session's Codex provider instead of the configured default", async () => {
     const snapshot = { provider: "codex", accountLabel: "Codex 账号额度", windows: [{ id: "primary", usedPercent: 63, label: "5h", title: "5小时额度" }, { id: "secondary", usedPercent: 12, label: "周", title: "周额度" }] };
     const quotaStore = { snapshot: vi.fn(async () => snapshot) };

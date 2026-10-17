@@ -727,7 +727,7 @@ export type SessionStatsEvent = { type: "snapshot"; sessionId: string; stats: Se
  * epoch milliseconds when known. `label` is the compact capsule suffix
  * (5h / 周 / 月 / 额度), `title` the popover row title (5小时额度 / 周额度 …).
  */
-export type QuotaWindow = { id: string; usedPercent: number; resetsAt?: number; label: string; title: string };
+export type QuotaWindow = { id: string; usedPercent: number; remainingPercent?: number; resetsAt?: number; label: string; title: string };
 /**
  * Remaining prepaid balance for a pay-per-token provider account (mirrors
  * Swift `BalanceSnapshot`): the amount plus an ISO-ish currency code. The UI

@@ -135,23 +135,23 @@ export function createComponent(React) {
         void write({[modelKey]:next ? {model:next} : {}, [thinkingKey]:level ? {level} : {}});
       };
       const missing = reference && !models.some(m => m.provider + "/" + m.id === reference);
-      return h("fieldset", {style:{border:0,padding:"12px 0",margin:0}, disabled:saving},
-        h("legend", null, t(name === "fast" ? "fast_title" : "author_title")),
-        h("p", {className:"model-modal-state"}, t(name === "fast" ? "fast_description" : "author_description")),
-        h("label", {style:{display:"block",marginBottom:12}}, t("model_label"),
-          h("select", {"aria-label":t(name === "fast" ? "fast_title" : "author_title"), "data-testid":name+"-model-select", value:reference ?? "", onChange:chooseModel, style:{display:"block",width:"100%",marginTop:6}},
+      return h("fieldset", {className:"settings-group settings-model-role", disabled:saving},
+        h("legend", {className:"settings-group-title"}, t(name === "fast" ? "fast_title" : "author_title")),
+        h("p", {className:"settings-description"}, t(name === "fast" ? "fast_description" : "author_description")),
+        h("div", {className:"settings-model-fields"}, h("label", {className:"settings-field"}, t("model_label"),
+          h("select", {"aria-label":t(name === "fast" ? "fast_title" : "author_title"), "data-testid":name+"-model-select", value:reference ?? "", onChange:chooseModel, className:"settings-control"},
             h("option", {value:""}, name === "fast" ? t("auto_title") : t("author_default") + " · " + AUTHOR_DEFAULT.model),
             missing ? h("option", {value:reference}, reference + " · " + t("unavailable")) : null,
             ...models.map(m => {const ref=m.provider+"/"+m.id;return h("option",{key:ref,value:ref},(m.name||m.id)+" · "+m.provider);}))),
-        h("label", {style:{display:"block"}}, t("thinking_label"),
+        h("label", {className:"settings-field"}, t("thinking_label"),
           h("select", {"aria-label":t(name === "fast" ? "fast_thinking" : "author_thinking"), "data-testid":name+"-thinking-select", value:effective, disabled:!allowed.length||saving,
-            onChange:event => void write({[thinkingKey]:{level:event.target.value}}), style:{display:"block",width:"100%",marginTop:6}},
-            !allowed.length ? h("option",{value:""},t("model_controlled")) : allowed.map(level=>h("option",{key:level,value:level},level)))));
+            onChange:event => void write({[thinkingKey]:{level:event.target.value}}), className:"settings-control"},
+            !allowed.length ? h("option",{value:""},t("model_controlled")) : allowed.map(level=>h("option",{key:level,value:level},level))))));
     };
     const table = ctx.current ? ctx.current.provider+"/"+ctx.current.id : undefined;
-    return h("div", {className:"model-visibility"},
-      h("p",{className:"model-modal-state"},t("lead")),
-      h("p",{className:"model-modal-state"},t("live")),
+    return h("div", {className:"model-visibility settings-models"},
+      h("p",{className:"settings-description"},t("lead")),
+      h("p",{className:"settings-note"},t("live")),
       failed ? h("div",{role:"alert",className:"model-modal-error"},t("failed")) : null,
       role("fast",SETTINGS_KEY,SETTINGS_THINKING_KEY,table,LANE_THINKING_DEFAULT),
       role("author",AUTHOR_MODEL_KEY,AUTHOR_THINKING_KEY,AUTHOR_DEFAULT.model,AUTHOR_DEFAULT.thinking));

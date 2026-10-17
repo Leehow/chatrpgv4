@@ -1,6 +1,7 @@
 export type UsageWindow = {
   id: string;
   usedPercent: number;
+  remainingPercent?: number;
   resetsAt?: number;
   label: string;
   title: string;
@@ -343,6 +344,26 @@ export function parseGrokWindows(input: Uint8Array, now = Date.now()): UsageWind
 
 const OPEN_CODE_GO_USAGE_URL = "https://opencode.ai/zen/go/v1/usage";
 
+/** Token-plan percentages are authoritative; current plans can return zero legacy counts. */
+export function parseMiniMaxWindows(body: unknown): UsageWindow[] {
+  const root = record(body);
+  const status = number(record(root?.base_resp)?.status_code);
+  if (status !== undefined && status !== 0) throw new UsageError("http", `MiniMax quota status ${status}`);
+  const rows = Array.isArray(root?.model_remains) ? root.model_remains.map(record) : [];
+  const row = rows.find(value => value?.model_name === "general") ?? rows[0];
+  if (!row) return [];
+  const out: UsageWindow[] = [];
+  for (const [prefix, id, label, title, end] of [
+    ["current_interval", "fiveHour", "5h left", "5-hour remaining quota", "end_time"],
+    ["current_weekly", "weekly", "Week left", "Weekly remaining quota", "weekly_end_time"],
+  ] as const) {
+    const remaining = number(row[`${prefix}_remaining_percent`]);
+    if (remaining === undefined || remaining < 0 || remaining > 100) continue;
+    out.push({...window(id, 100 - remaining, label, title, resetMs(row[end])), remainingPercent: remaining});
+  }
+  return out;
+}
+
 export function parseOpenCodeGoUsage(body: unknown): UsageWindow[] {
   const usage = record(record(body)?.usage); if (!usage) return [];
   const out: UsageWindow[] = [];
@@ -377,6 +398,19 @@ async function prepaid(ctx: AccountUsageContext, id: string, label: string, url:
 }
 
 export const builtinAccountUsageAdapters: AccountUsageAdapter[] = [
+  ...(["minimax", "minimax-cn"] as const).map(id => ({
+    id, kind: "subscription" as const, matches: (provider: string) => provider.toLowerCase() === id,
+    async load(ctx: AccountUsageContext): Promise<AccountUsageSnapshot | undefined> {
+      const key = await apiKey(ctx, [id], id === "minimax-cn"
+        ? ["MINIMAX_CN_CODING_API_KEY", "MINIMAX_CN_API_KEY", "MINIMAX_CODING_API_KEY", "MINIMAX_API_KEY"]
+        : ["MINIMAX_CODING_API_KEY", "MINIMAX_API_KEY"]);
+      if (!key) return;
+      const url = `https://www.${id === "minimax-cn" ? "minimax.cn" : "minimax.io"}/v1/token_plan/remains`;
+      const windows = parseMiniMaxWindows(await fetchJson(ctx, url, {method: "GET", headers: bearer(key)}));
+      if (!windows.length) throw new UsageError("malformed", "MiniMax quota windows unavailable");
+      return {provider: id, accountLabel: "MiniMax remaining quota", windows, source: "subscription"};
+    },
+  })),
   {
     // SuperGrok credits live on grok.com. The grok-build OAuth login in the agent
     // auth store is the account this product actually talks to, so it goes first;
