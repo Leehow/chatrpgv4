@@ -1,4 +1,5 @@
 import {sourceMetadata} from '../../runtime/source-metadata.ts';
+import {projectSetupProfileConstraints} from './profile-schema.ts';
 import {selectSetupSource} from './source-intake.ts';
 import {browseInvestigators} from './pregens.ts';
 import { computeMove, renderBrief, type SetupSlot, type SetupNotes } from './brief.ts';
@@ -470,6 +471,8 @@ export default function (pi: ExtensionAPI) {
 				'\nSkills: '+skills.map(s=>s.label&&s.label!==s.name?`${String(s.name)} / ${String(s.label)}`:String(s.name)).join(', ')+'; a language is written '+String(catalog.language_specialty??'Language (Other: English)')+'.'+
 				'\nWeapons the tables print (anything else is equipment): '+weapons.join(', ');
 			catalogRows=catalog;
+			projectSetupProfileConstraints(profileSchema, catalog);
+			registerSetupTool();
 		} catch { /* a catalog that cannot be read is not a reason to stop setup; the kernel still resolves names */ }
 	}
 
@@ -769,7 +772,7 @@ export default function (pi: ExtensionAPI) {
                 if(op.method==='setup.draft'||op.method==='setup.confirm')filled.params=await bindInputParams(filled.params);
 				if(op.method==='setup.complete'&&sourceKind!=='starter'&&reading){
 					const moduleId=asString(context.module_id),scene=campaignOpening??asString(context.start_scene)??characterGuidance?.scene;
-					if(moduleId&&scene)await reading.prepare({module_id:moduleId,start_scene:scene,targeted:true,campaign:context.campaign},signal);
+					if(moduleId&&scene)await reading.prepare({module_id:moduleId,start_scene:scene,targeted:true,campaign:context.campaign,...(args.retry===true?{retry:true}:{})},signal);
 				}
 				const result =
 					op.method === "module.prepare"
@@ -1100,6 +1103,8 @@ export default function (pi: ExtensionAPI) {
 			if (refused) return refused;
 		}
     if(id==='create-campaign') {
+      await loadCatalog();
+      if(catalogRows)outcome.catalog=catalogRows;
       try {
         const guidance=await ensureGuidance(signal);
         if(guidance)outcome.character_guidance=guidance;
@@ -1290,8 +1295,27 @@ export default function (pi: ExtensionAPI) {
   const inputSelection=Type.Object({source:Type.String({description:'Choose a current issued input alias; never copy source text or offsets'}),
     range:Type.Optional(Type.Object({first:Type.String({description:'First issued grapheme unit alias, inclusive'}),last:Type.String({description:'Last issued grapheme unit alias, inclusive'})},{additionalProperties:false}))},{additionalProperties:false});
   const profileSchema=Type.Object({name:Type.Optional(Type.Union([inputSelection,Type.Object({generated:Type.String({minLength:1,description:'A newly proposed name, never claimed as the player wording'})},{additionalProperties:false})],
-    {description:'Select the player-supplied name, or explicitly propose generated. Omit unchanged name on revisions.'}))},{additionalProperties:true,description:'The semantic profile, or only changed fields. Name uses the current setup input source catalog.'});
-	pi.registerTool({
+    {description:'Select the player-supplied name, or explicitly propose generated. Omit unchanged name on revisions.'})),
+    occupation:Type.Optional(Type.String()),occupation_stated:Type.Optional(Type.String()),
+    age:Type.Optional(Type.Integer()),sex:Type.Optional(Type.String()),concept:Type.Optional(Type.String()),
+    own_language:Type.Optional(Type.String()),era:Type.Optional(Type.String()),
+    occupation_skills:Type.Optional(Type.Array(Type.String())),interest_skills:Type.Optional(Type.Array(Type.String())),
+    custom_skills:Type.Optional(Type.Array(Type.Object({name:Type.String(),base:Type.Integer({minimum:0,maximum:99})},{additionalProperties:false}))),
+    equipment:Type.Optional(Type.Array(Type.String())),
+    weapons:Type.Optional(Type.Array(Type.Union([Type.String(),Type.Object({name:Type.String(),profile:Type.String()},{additionalProperties:false})]))),
+    backstory:Type.Optional(Type.Object({personal_description:Type.Optional(Type.String()),ideology_beliefs:Type.Optional(Type.String()),
+      significant_people:Type.Optional(Type.String()),meaningful_locations:Type.Optional(Type.String()),treasured_possessions:Type.Optional(Type.String()),
+      traits:Type.Optional(Type.String()),scenario_bound:Type.Optional(Type.String())},{additionalProperties:false})),
+    key_connection:Type.Optional(Type.Object({backstory_field:Type.Union(['personal_description','ideology_beliefs','significant_people','meaningful_locations','treasured_possessions','traits'].map(value=>Type.Literal(value)),{description:'A populated backstory category; scenario_bound is not a key connection.'}),summary:Type.String()},{additionalProperties:false,description:'A sibling of backstory, never nested inside it. Point to a populated category and write a short summary.'})),
+    aptitude:Type.Optional(Type.Object({strong:Type.Optional(Type.Array(Type.String())),weak:Type.Optional(Type.Array(Type.String())),
+      origin:Type.String()},{additionalProperties:false})),
+  },{additionalProperties:false,description:'The semantic profile, or only changed fields. Use JSON arrays for lists and an integer for age; key_connection belongs beside backstory. Name uses the current setup input source catalog.'});
+  const numbersSchema=Type.Object({characteristics:Type.Optional(Type.Record(Type.String(),Type.Integer())),
+    skills:Type.Optional(Type.Record(Type.String(),Type.Union([Type.Integer(),Type.Object({occupation:Type.Optional(Type.Integer({minimum:0})),interest:Type.Optional(Type.Integer({minimum:0}))},{additionalProperties:false})]))),
+    credit_rating:Type.Optional(Type.Integer())},{additionalProperties:false,description:'Final integer values by skill name; use numbers, not quoted numeric strings.'});
+  const limitsSchema=Type.Object({characteristic_min:Type.Optional(Type.Integer()),characteristic_max:Type.Optional(Type.Integer()),
+    skill_cap:Type.Optional(Type.Integer()),occupation_points:Type.Optional(Type.Integer()),interest_points:Type.Optional(Type.Integer())},{additionalProperties:false});
+	function registerSetupTool(): void { pi.registerTool({
 		name: "setup",
 		label: "Setup",
 		description:
@@ -1310,17 +1334,18 @@ export default function (pi: ExtensionAPI) {
 		// of those was a refused call before the one that nested the same fields under `params`.
 		parameters: Type.Object(
 			{
+				retry: Type.Optional(Type.Boolean({description:"complete: explicitly retry the retained failed opening reading when the player requests another attempt; preserve the selected source and investigator"})),
 				step: Type.String({ description: "which step to do this time; step names come from the kernel's setup table, and the previous result's next holds it" }),
 				params: Type.Optional(
-					Type.Object({profile:Type.Optional(profileSchema),pending_action:Type.Optional(inputSelection)}, { additionalProperties: true, description: "the parameters this step wants; they may also be spread at the top level" }),
+					Type.Object({profile:Type.Optional(profileSchema),numbers:Type.Optional(numbersSchema),limits:Type.Optional(limitsSchema),retry:Type.Optional(Type.Boolean()),pending_action:Type.Optional(inputSelection)}, { additionalProperties: true, description: "the parameters this step wants; they may also be spread at the top level" }),
 				),
 				slot: Type.Optional(Type.String({ description: "note: the creation-brief slot this answer fills, or stop" })),
 				value: Type.Optional(Type.String({ description: "note: the player's words for that slot" })),
 				origin: Type.Optional(Type.String({ description: "note: player or concept" })),
 				profile: Type.Optional(profileSchema),
-				numbers: Type.Optional(Type.Object({}, { additionalProperties: true, description: "revise: {characteristics?, skills?, credit_rating?} pinned as final values" })),
-				limits: Type.Optional(Type.Object({}, { additionalProperties: true, description: "revise: relaxed bounds {characteristic_min?, characteristic_max?, skill_cap?, occupation_points?, interest_points?}" })),
-				edits: Type.Optional(Type.Object({}, { additionalProperties: true, description: "adjust (older spelling of revise numbers)" })),
+				numbers: Type.Optional(numbersSchema),
+				limits: Type.Optional(limitsSchema),
+				edits: Type.Optional(numbersSchema),
 				auto_spread: Type.Optional(Type.Boolean({ description: "revise: spend whatever points are left" })),
 				keep_pins: Type.Optional(Type.Boolean({ description: "reroll: keep the pinned numbers (default true)" })),
 				consent: Type.Optional(Type.String({ description: "confirm-investigator: approved or delegated" })),
@@ -1339,7 +1364,8 @@ export default function (pi: ExtensionAPI) {
 			const result = await execute(asRecord(params), signal);
 			return { content: [{ type: "text", text: JSON.stringify(result) }], details: result };
 		},
-	});
+	}); }
+	registerSetupTool();
 
   pi.on('message_end', event=>{
     // Only a guidance failure suppresses the Keeper's text (§23.4's "invented fallback prose"); a

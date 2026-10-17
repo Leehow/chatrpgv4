@@ -76,6 +76,8 @@ test('malformed attempts retain bounded private stages without changing retries,
     assert.ok(feedback?.includes(stage),'retry names the structural stage');
     assert.ok(!feedback.includes(privateMarker),'retry feedback never quotes the reply');
   }
+  // The outcome is visible before telemetry.record finishes its disk append and observes the outage.
+  await waitFor(()=>table.entries('coc-lane-status').length===1);
   statuses.push(...table.entries('coc-lane-status'));
   assert.equal(statuses.length,1);assert.equal(statuses[0].streak,3);
   assert.deepEqual(statusEvents,statuses);

@@ -18,7 +18,7 @@ async function eventually(check: () => boolean | Promise<boolean>): Promise<void
   throw new Error("condition was not met before timeout");
 }
 
-async function fixture() {
+async function fixture(mode: "play" | "setup" = "play") {
   const root = await mkdtemp(join(tmpdir(), "pipi-coc-run-terminal-"));
   const agentDir = join(root, "agent");
   const sessionsRoot = join(root, "sessions");
@@ -30,7 +30,7 @@ async function fixture() {
   await writeFile(promptLog, "");
   await writeFile(sessionPath, [
     { type: "session", version: 3, id: "s1", timestamp: "2026-10-14T00:00:00.000Z", cwd },
-    { type: "custom", id: "binding", parentId: null, customType: "coc-session", data: { campaign: "c", home: root, play_language: "en", mode: "play" } },
+    { type: "custom", id: "binding", parentId: null, customType: "coc-session", data: { campaign: "c", home: root, play_language: "en", mode } },
   ].map(row => JSON.stringify(row)).join("\n") + "\n");
   const backend = createPiHostBackend({
     agentDir, sessionsRoot, runtimeRoot: root, piPath: process.execPath,
@@ -75,6 +75,24 @@ async function telemetryRows(agentDir: string): Promise<TurnTelemetryRecord[]> {
   try { return (await readFile(turnTelemetryPath(agentDir), "utf8")).split("\n").filter(Boolean).map(line => JSON.parse(line)); }
   catch (error: any) { if (error?.code === "ENOENT") return []; throw error; }
 }
+
+it("keeps setup open through a provider error and ends the recovered card only at agent_settled", async () => {
+  const table = await fixture("setup");
+  try {
+    await table.start(true);
+    table.rpc({ type: "message_end", message: { role: "assistant", content: [], stopReason: "error", errorMessage: "429 Token Plan rate limit (2062)" } });
+    table.rpc({ type: "auto_retry_start", attempt: 1, maxAttempts: 3, delayMs: 2000, errorMessage: "429 Token Plan rate limit (2062)" });
+    expect(table.statuses()).toEqual(["started"]);
+    table.rpc({ type: "auto_retry_end", success: true, attempt: 1 });
+    table.rpc({ type: "message_start", message: { role: "assistant", content: [] } });
+    table.rpc({ type: "message_end", message: { role: "assistant", timestamp: Date.now(), stopReason: "stop", content: [{ type: "text", text: "Your card is ready for confirmation." }] } });
+    await delay(250);
+    expect(table.statuses()).toEqual(["started"]);
+    table.rpc({ type: "agent_settled" });
+    table.rpc({ type: "agent_settled" });
+    expect(table.statuses()).toEqual(["started", "settled"]);
+  } finally { await table.dispose(); }
+});
 
 it("keeps the private run and FIFO open across an actual RPC child error and successful retry", async () => {
   const table = await fixture();

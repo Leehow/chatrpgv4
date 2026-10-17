@@ -107,7 +107,7 @@ export class ModJobs {
             const image = ['player-safe','revealable'].includes(node.visibility) && typeof ref === 'string'
                 && typeof media === 'string' && ['image/png','image/jpeg','image/webp','image/gif'].includes(media)
                 ? {path:isAbsolute(ref)?ref:join(this.context.stateRoot,'modules',graph.moduleId,ref),media_type:media,visibility:node.visibility} : null;
-            if (typeof value === 'string' || image) result.push({name:graph.displayName(node),source_node:resolved?.source_node??node.node_id,...(typeof value === 'string'?{text:value}:{}),...(image?{image}: {})});
+            if (typeof value === 'string' && value.trim().length>0 || image) result.push({name:graph.displayName(node),source_node:resolved?.source_node??node.node_id,...(typeof value === 'string'&&value.trim().length>0?{text:value}:{}),...(image?{image}: {})});
         }
         if(this.sources.asset)for(const view of await knownMapViews(graph,world,this.sources.asset)){
             const source=graph.find(view.map);
@@ -124,7 +124,17 @@ export class ModJobs {
             const named = graph.find(seed.handout, ['handout', 'asset']);
             const names = new Set([normalize(seed.handout), ...(named ? [normalize(graph.displayName(named))] : [])]);
             const matches = (await this.knownHandouts(graph, world)).filter(item => names.has(normalize(item.name)));
-            if (matches.length !== 1) throw new RpcError('invalid_params', 'Document source must name one already revealed handout');
+            if (matches.length !== 1) {
+                const revealed = named && array(world.handouts_shown).some(handle => graph.find(handle)?.node_id === named.node_id);
+                if (revealed && matches.length === 0) throw new RpcError('needs', 'The revealed handout has no copyable source content', {
+                    fix: 'Use lookup kind source to prepare the named handout text or player-safe image if an original source is available. Do not reveal it again or treat its summary as the document text. A new note is a different, player-selected document.',
+                    details: {reason:'document_source_unavailable',handout:graph.displayName(named),revealed:true,presentation:seed.presentation??'paper',copyable:false}
+                });
+                throw new RpcError('invalid_params', 'Document source must name one already revealed handout', {
+                    fix: 'Name exactly one handout already revealed to this party. Source preparation does not grant disclosure or custody.',
+                    details: {reason:matches.length>1?'document_source_ambiguous':'document_source_not_revealed',presentation:seed.presentation??'paper'}
+                });
+            }
             const source=matches[0];
             if (['map','image'].includes(seed.presentation)) {
                 const cached=source.map_view?await readMapRenderCache(await prepareMapRender(source.map_view,{

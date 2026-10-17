@@ -64,16 +64,16 @@ test("the floor is data: the shipped value, a fixture's value, and the fallback 
 });
 
 /** One zero-tool lane round on the fast model; returns the `start` row. */
-async function laneStart(t, { level, afterDelivery, env = {} }) {
+async function laneStart(t, { level, afterDelivery, thinking, env = {} }) {
   const agent = await agentHome(t, level);
-  withEnv(t, { PI_CODING_AGENT_DIR: agent, PI_COC_VERIFIER_MODEL: undefined, PI_COC_VERIFIER_MODEL_THINKING: undefined, PI_COC_LANE_THINKING: undefined, ...env });
+  withEnv(t, { PI_CODING_AGENT_DIR: agent, PI_COC_TEST_MODEL: undefined, PI_COC_VERIFIER_MODEL: undefined, PI_COC_VERIFIER_MODEL_THINKING: undefined, PI_COC_LANE_THINKING: undefined, ...env });
   const rows = [];
   const ctx = { cwd: agent, model: { provider: "table", id: "keeper" }, thinkingLevel: "off", modelRegistry: {
     find: (provider, id) => ({ provider, id, api: "openai-completions", reasoning: true }),
     complete: async () => ({ stopReason: "stop", content: [{ type: "text", text: '{"ok":true}' }] }),
   } };
   const result = await runLane({ ctx, envName: "PI_COC_VERIFIER_MODEL", lane: "verifier", systemPrompt: "return json", input: "x",
-    record: row => rows.push(row), ...(afterDelivery ? { afterDelivery: true } : {}), shape: parsed => (parsed?.ok === true ? parsed : undefined) });
+    record: row => rows.push(row), ...(thinking ? { thinking } : {}), ...(afterDelivery ? { afterDelivery: true } : {}), shape: parsed => (parsed?.ok === true ? parsed : undefined) });
   assert.equal(result.ok, true, JSON.stringify(result));
   return rows.find(row => row.phase === "start");
 }
@@ -89,6 +89,15 @@ test("a lane the player waits on keeps the setting's off", async t => {
   const start = await laneStart(t, { level: "off", afterDelivery: false });
   assert.equal(start.lane_thinking, "off");
   assert.equal(start.thinking_source, "setting");
+});
+
+test("the explicit MiniMax live profile overrides a supporting caller's off with medium", async t => {
+  const start = await laneStart(t, { level: "off", thinking: "off", afterDelivery: true,
+    env: { PI_COC_TEST_MODEL: "minimax-cn/MiniMax-M3.1-Flash-Preview" } });
+  assert.deepEqual([start.lane_thinking, start.lane_thinking_effective, start.thinking_source],
+    ["medium", "medium", "test-profile"]);
+  const ordinary = await laneStart(t, { level: "high", thinking: "off" });
+  assert.deepEqual([ordinary.lane_thinking, ordinary.thinking_source], ["off", "caller"]);
 });
 
 test("an operator's own environment override is never raised; a higher setting is never lowered", async t => {

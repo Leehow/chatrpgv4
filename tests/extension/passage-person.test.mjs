@@ -37,7 +37,7 @@ const root = resolve(import.meta.dirname, "../..");
 const temporary = await mkdtemp(join(tmpdir(), "passage-person-"));
 after(() => rm(temporary, { recursive: true, force: true }));
 await symlink(join(root, "node_modules"), join(temporary, "node_modules"), "dir");
-await build({ stdin: { contents: "export * from './kernel-ts/testing/api.ts'; export { ModuleStore } from './kernel-ts/modules/store.ts';", resolveDir: root, sourcefile: "passage-api.ts" },
+await build({ stdin: { contents: "export * from './kernel-ts/testing/api.ts'; export { ModuleStore } from './kernel-ts/modules/store.ts'; export { ModuleGraph } from './kernel-ts/read/module-graph.ts'; export { sourceNameReadFix } from './kernel-ts/read/cast.ts';", resolveDir: root, sourcefile: "passage-api.ts" },
 	outfile: join(temporary, "api.mjs"), bundle: true, packages: "external", format: "esm", platform: "node", target: "node22", logLevel: "silent" });
 const api = await import(pathToFileURL(join(temporary, "api.mjs")).href);
 
@@ -391,4 +391,75 @@ test("the typed reviewer is shown the turn's carried passages at the seam, and n
 	await waitForIdle(table.session);
 	assert.equal(requests.length, 2);
 	assert.equal(requests[1].state.bookText, undefined, "a turn that carried nothing shows nothing");
+});
+
+test('a host-vouched full source name uses the passage entrance even when walk_on carries an unrelated book name piece',async t=>{
+  const game=await table(t);await game.publish('Ada·North');
+  const name='Ada·Vale',source={scene:'newspaper-morgue',page:17,label:null,sentence:'Ada·Vale runs the hardware counter.'};
+  await game.apply([{kind:'npc',name,to:'here',walk_on:true,_passage:source}]);
+  const [npc]=await receipts(game,'npc');
+  assert.equal(npc?.established,'passage');
+  assert.equal((await game.world()).table_people.filter(person=>person.name===name).length,1);
+  const raw=await refusal(game.apply([{kind:'npc',name:'Ada·West',to:'here',walk_on:true}]));
+  assert.equal(raw?.code,'invalid_params');
+  assert.equal(raw?.details?.reason,'book_name');
+  const pinned=await refusal(game.apply([{kind:'npc',name:'Ada·Hill',to:'here',walk_on:true,skill:{name:'Mechanical Repair',value:60},_passage:{...source,sentence:'Ada·Hill is at the counter.'}}]));
+  assert.equal(pinned?.code,'unknown_entity','source text never grants a pinned stat block');
+});
+
+test('successful module source anchor lookup supplies its returned original passage to the native person gateway',async t=>{
+  const name='Ada·Vale',summary='Ada·Vale runs the hardware counter.';
+  const game=await openTable({realKernel:true,prepareWorkspace:async workspace=>{
+    turnOneClosed(workspace);
+    const context=await api.createKernelContext({workspace,content:join(root,'content'),locks:api.createAdvisoryLocks(async()=>{}),env:process.env});
+    const store=new api.ModuleStore(context),meta=await store.module('the-haunting'),graph=await store.readGraph('the-haunting');
+    graph.nodes.push({node_id:'scene-original-counter',node_kind:'scene',name:'Original counter',summary,visibility:'keeper-only',properties:{source_reference_anchor:true},source_refs:[{source_id:'pdf:the-haunting',pdf_index:16}]});
+    graph.nodes.push({node_id:'npc-ada-north',node_kind:'npc',name:'Ada·North',summary:'An unrelated book person.',visibility:'keeper-only',properties:{},source_refs:[]});
+    meta.reading={...meta.reading,opening_scope:'first_interaction'};
+    await store.writeModule(await store.writeGraph(meta,graph));
+  },responses:[
+    fauxAssistantMessage([fauxToolCall('lookup',{kind:'module',query:'Counter mixed unmatched query'})],{stopReason:'toolUse'}),
+    fauxAssistantMessage([fauxToolCall('apply',{effects:[{kind:'npc',name,to:'here'}]})],{stopReason:'toolUse'}),
+    fauxAssistantMessage([fauxToolCall('apply',{effects:[{kind:'npc',name,to:'here',walk_on:true}]})],{stopReason:'toolUse'}),
+    fauxAssistantMessage([fauxToolCall('lookup',{kind:'module',query:'Original counter',expected_kind:'scene'})],{stopReason:'toolUse'}),
+    fauxAssistantMessage([fauxToolCall('apply',{effects:[{kind:'npc',name,to:'here',skill:{name:'Mechanical Repair',value:60}}]})],{stopReason:'toolUse'}),
+    fauxAssistantMessage([fauxToolCall('apply',{effects:[{kind:'npc',name,to:'here',walk_on:true}]})],{stopReason:'toolUse'}),
+    fauxAssistantMessage([fauxToolCall('output',{text:'The counter is quiet.'})],{stopReason:'toolUse'}),
+  ]});
+  t.after(()=>game.dispose());await game.session.prompt('I ask at the counter.');await waitForIdle(game.session);
+  const lookups=game.session.messages.filter(message=>message.role==='toolResult'&&message.toolName==='lookup');
+  assert.match(JSON.stringify(lookups[0]),/entities/);
+  const source=lookups.at(-1);
+  const errors=game.session.messages.filter(message=>message.role==='toolResult'&&message.toolName==='apply').slice(0,2);
+  assert.equal(errors.length,2);
+  for(const error of errors){assert.match(JSON.stringify(error),/expected_kind/);assert.match(JSON.stringify(error),/original-counter/);}
+  assert.match(JSON.stringify(source),/source_reference_anchor/);
+  const named=game.telemetry().find(row=>row.lane==='people'&&row.event==='passage_named'&&row.name===name);
+  assert.equal(named?.page,17,JSON.stringify({source,rows:game.telemetry().filter(r=>r.tool==='apply'||r.lane==='people'),apply:game.session.messages.filter(m=>m.role==='toolResult'&&m.toolName==='apply')}));
+  const applied=game.telemetry().filter(row=>row.tool==='apply'&&!row.event);
+  const pinnedError=game.session.messages.filter(message=>message.role==='toolResult'&&message.toolName==='apply')[2];
+  assert.equal(pinnedError.isError,true,'the source text cannot authorize pinned numbers');
+  assert.doesNotMatch(pinnedError.details?.coc_error?.fix??'',/expected_kind/,'an already-carried passage must not cause a reread loop for a pinned stat refusal');
+  assert.deepEqual(applied.map(row=>row.ok),[false,false,false,true],JSON.stringify(applied));
+});
+
+test('module passage ledger excludes ordinary, unreturned and ambiguously paged summaries and expires at the next turn',()=>{
+  const ledger=new CarriedText();
+  const anchor={name:'Counter',kind:'scene',summary:'Ada·Vale runs this counter.',properties:{source_reference_anchor:true},original_pages:[17]};
+  for(const entity of [{...anchor,properties:{}},{...anchor,original_pages:[]},{...anchor,original_pages:[17,18]},{...anchor,kind:'npc'}])ledger.noteModuleLookup('c1',2,{entities:[entity]});
+  assert.equal(findPassage(ledger.of('c1',2),'Ada·Vale'),undefined);
+  ledger.noteModuleLookup('c1',2,{entities:[anchor],hidden:{summary:'Ada·West is elsewhere.'}});
+  assert.equal(findPassage(ledger.of('c1',2),'Ada·Vale')?.page,17);
+  assert.equal(findPassage(ledger.of('c1',2),'Ada·West'),undefined);
+  assert.equal(findPassage(ledger.of('c1',3),'Ada·Vale'),undefined);
+  assert.equal(findPassage(ledger.of('c2',2),'Ada·Vale'),undefined);
+});
+
+
+test('source reread hints exclude ordinary prose, missing or multiple PDF pages, other files and partial names',()=>{
+  const node={node_id:'scene-counter',node_kind:'scene',name:'Counter',summary:'Ada·Vale runs the counter.',properties:{source_reference_anchor:true},source_refs:[{source_id:'pdf:book',pdf_index:16}]};
+  const graph=entry=>new api.ModuleGraph('book',{nodes:[entry],relations:[],claims:[]},'test',{});
+  assert.match(api.sourceNameReadFix(graph(node),'Ada·Vale'),/physical page 17/);
+  for(const entry of [{...node,properties:{}},{...node,source_refs:[]},{...node,source_refs:[...node.source_refs,{source_id:'pdf:book',pdf_index:17}]},{...node,source_refs:[{source_id:'pdf:other',pdf_index:16}]},{...node,summary:'Ada·North runs the counter.'},{...node,node_kind:'npc'}])
+    assert.equal(api.sourceNameReadFix(graph(entry),'Ada·Vale'),null);
 });

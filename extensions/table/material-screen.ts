@@ -130,34 +130,37 @@ export function materialOmissions(plan:Row,answers:Row):Set<string>{
   })).map(candidate=>candidate.key));
 }
 
-export function installMaterialScreen(pi:ExtensionAPI,record:(row:Row)=>void):void{
-  let capsule:Row={},binding:Row={},single=false,control=new AbortController(),epoch='',remainingMs=0;
+export interface MaterialScreenPort {project(messages:readonly Row[]):Row[]}
+
+export function installMaterialScreen(pi:ExtensionAPI,record:(row:Row)=>void):MaterialScreenPort{
+  let capsule:Row={},binding:Row={},single=false,control=new AbortController(),epoch='',remainingMs=0,started=false;
   let env={...process.env},adapter:ReturnType<typeof createDecisionAdapter>|undefined;
   const answers=new Map<string,Row>();
-  const reset=()=>{control.abort();control=new AbortController();answers.clear();epoch='';remainingMs=0;};
+  const reset=()=>{control.abort();control=new AbortController();answers.clear();epoch='';remainingMs=0;started=false;};
   pi.events.on('coc:loop-engine',value=>{single=object(value).singleKeeper===true;});
   pi.events.on('coc:capsule',value=>{const data=object(value);capsule=object(data.capsule);binding=object(data.context);});
   pi.on('session_start',()=>{reset();env={...process.env};adapter=undefined;capsule={};binding={};});
   pi.on('session_shutdown',()=>{reset();capsule={};binding={};});
   pi.on('input',()=>{reset();});
-  pi.on('context',async event=>{
-    if(!single||!binding.campaign)return;
-    const stamp=hash([capsule,binding]);
-    const plan=materialPlan(event.messages as Row[],capsule,binding),full=size(event.messages),structural=plan.project(new Set());
+  return{project(messages){
+    if(!single||!binding.campaign)return [...messages];
+    const stamp=hash([capsule,binding]),plan=materialPlan(messages,capsule,binding),full=size(messages);
     const enabled=env.PI_COC_MATERIAL_SCREEN!=='0'&&!!readJevApiKey(env);
-    if(!enabled)return{messages:plan.project(new Set(),false)};
-    const lifetime=control,identity=hash([binding.campaign,binding.worldline,binding.loop,binding.turn,plan.state.request]);
-    if(identity!==epoch){epoch=identity;answers.clear();remainingMs=ALLOWANCE_MS;}
-    const began=Date.now(),basis=plan.basis;
-    let cached=answers.get(basis),usage={inputTokens:0,outputTokens:0,costUsd:0},calls=0,failures=0;
-    if(!cached&&remainingMs>0){
-      const decisionBegan=Date.now(),deadline=decisionBegan+remainingMs;
-      const collected:Row={};
+    if(!enabled)return plan.project(new Set(),false);
+    const identity=hash([binding.campaign,binding.worldline,binding.loop,binding.turn,plan.state.request]);
+    if(identity!==epoch){control.abort();control=new AbortController();epoch=identity;answers.clear();remainingMs=ALLOWANCE_MS;started=false;}
+    const lifetime=control,basis=plan.basis,cached=answers.get(basis),began=Date.now();
+    let calls=0;
+    if(!cached&&!started){
+      started=true;
+      const observed={campaign:binding.campaign,turn:binding.turn},decisionBegan=Date.now(),deadline=decisionBegan+remainingMs;
+      const collected:Row={},usage={inputTokens:0,outputTokens:0,costUsd:0};let failures=0;
       adapter??=createDecisionAdapter({env,maxConcurrency:2,retryPolicies:{[FAMILY]:{maxRetries:0,backoffInitialMs:0,
         backoffMaxMs:0,attemptTimeoutMs:ALLOWANCE_MS}},trace:e=>{if(e.kind==='failure')record({lane:FAMILY,event:'provider_failure',code:e.code});}});
       const scope={owner:FAMILY,campaign:String(binding.campaign),worldline:String(binding.worldline??'main'),loop:Number(binding.loop??0),audience:'keeper' as const};
       const batches=materialBatches(plan,scope);
-      await Promise.all(batches.map(async batch=>{
+      // The first request retains the source. Only a later identical fresh projection may consume this result.
+      void Promise.all(batches.map(async batch=>{
         if(Date.now()>=deadline||lifetime.signal.aborted)return;
         const lease=new TaskLease({owner:FAMILY,goal:'Select optional request material',scope,readSet:batch.readSet,
           capabilities:['decision'],signal:AbortSignal.any([lifetime.signal,AbortSignal.timeout(Math.max(1,deadline-Date.now()))]),
@@ -167,23 +170,19 @@ export function installMaterialScreen(pi:ExtensionAPI,record:(row:Row)=>void):vo
           Object.assign(collected,result.answers);
           usage.inputTokens+=result.usage?.inputTokens??0;usage.outputTokens+=result.usage?.outputTokens??0;usage.costUsd+=result.usage?.costUsd??0;
         }catch{failures++;}finally{lease.close();}
-      }));
-      cached=collected;
-      if(lifetime===control&&!lifetime.signal.aborted&&epoch===identity){
-        remainingMs=Math.max(0,remainingMs-(Date.now()-decisionBegan));answers.set(basis,collected);
-      }
-    }
-    if(lifetime!==control||lifetime.signal.aborted||epoch!==identity)return;
-    if(stamp!==hash([capsule,binding])){
-      record({lane:FAMILY,event:'fallback',reason:'context_changed',turn:binding.turn});
-      return{messages:plan.project(new Set(),false)};
+      })).then(()=>{
+        const current=lifetime===control&&!lifetime.signal.aborted&&epoch===identity&&stamp===hash([capsule,binding]);
+        if(current){remainingMs=Math.max(0,remainingMs-(Date.now()-decisionBegan));answers.set(basis,collected);}
+        record({lane:FAMILY,event:'decision',...observed,model:JEV_VISUAL_MODEL,calls,failures,usage,
+          ms:Date.now()-decisionBegan,background:true,status:current?'complete':'stale',remaining_ms:remainingMs});
+      }).catch(()=>record({lane:FAMILY,event:'decision',...observed,background:true,status:'failed'}));
     }
     const omitted=materialOmissions(plan,cached??{}),outgoing=plan.project(omitted);
     record({lane:FAMILY,event:'projection',campaign:binding.campaign,turn:binding.turn,model:JEV_VISUAL_MODEL,
       candidates:plan.candidates.length,omitted:omitted.size,unknown:plan.candidates.filter((c:Candidate)=>
         !cached?.['need:'+c.key]||!cached?.['qualifier:'+c.key]).length,
-      before_bytes:full,structural_bytes:size(structural),after_bytes:size(outgoing),ms:Date.now()-began,calls,failures,usage,remaining_ms:remainingMs,
-      fallback:!cached?'allowance_exhausted':failures?'partial_provider_failure':undefined,digest:hash(outgoing)});
-    return{messages:outgoing};
-  });
+      before_bytes:full,after_bytes:size(outgoing),ms:Date.now()-began,calls,background:true,pending:!cached,
+      remaining_ms:remainingMs,digest:hash(outgoing)});
+    return outgoing;
+  }};
 }

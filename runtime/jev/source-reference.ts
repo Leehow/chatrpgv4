@@ -1,7 +1,8 @@
 /** Exact source selection and small public-guide decisions, reused by the Pi source RunDriver. */
 import{randomUUID}from'node:crypto';
 import{TaskLease}from'./task-context.ts';
-import{JEV_MODEL}from'./question-packing.ts';
+import{JEV_MODEL,JEV_LONG_CONTEXT_LIMIT,packDecisionBatch,PackingError}from'./question-packing.ts';
+import type{DecisionBatch}from'./contracts.ts';
 import{SOURCE_REFERENCE_PROTOCOL,REFERENCE_FIELDS,validateReferencePacket,type SourceReferencePacket,type ReferenceExcerpt,type ReferenceEntry}from'../../kernel-ts/modules/reference-contract.ts';
 type Row=Record<string,any>;
 type Page={page:number;text:string;text_status?:string};
@@ -20,14 +21,45 @@ export function entryExcerpt(page:Page,name:string):ReferenceExcerpt{
  const found=folded.indexOf(needle),start=needle&&found>=0?positions[found]:0,end=Math.min(start+2400,page.text.length);
  return {id:`p${page.page}-${start}-${end}`,page:page.page,start,end,text:page.text.slice(start,end)};
 }
-async function decisions(decide:Decide,family:string,state:Row,questions:Row[],signal:AbortSignal,record:(value:Row)=>void){
+export class SourceReferenceDecisionError extends Error{
+ readonly reason:string;readonly retryable:boolean;
+ constructor(reason:string,retryable:boolean){super(`Source reference decision is incomplete: ${reason}`);this.reason=reason;this.retryable=retryable;}
+}
+const GUIDANCE_REVIEW_MODEL='jev-1.14.0';
+async function decisions(decide:Decide,family:string,state:Row,questions:Row[],signal:AbortSignal,record:(value:Row)=>void,options:{partition?:boolean;model?:string}={}){
  const scope={owner:'source-reference',audience:'keeper' as const};
+ const make=(group:Row[]):DecisionBatch=>({id:randomUUID(),model:options.model??JEV_MODEL,family,familyVersion:'1',scope,readSet:[],state,questions:group as DecisionBatch['questions']});
+ let batches=[make(questions)];
+ if(options.partition){
+  try{packDecisionBatch(batches[0]);}catch(error){
+   if(!(error instanceof PackingError)||error.failure!=='packing_limit')throw error;
+   batches=[];let current:DecisionBatch|undefined;
+   for(const question of questions){
+    let single=make([question]);
+    try{packDecisionBatch(single);}
+    catch(failure){
+     if(!(failure instanceof PackingError)||failure.failure!=='packing_limit')throw failure;
+     single={...single,longContext:true};packDecisionBatch(single);
+    }
+    if(current&&current.longContext===single.longContext){
+     const combined={...current,questions:[...current.questions,...single.questions]};
+     try{packDecisionBatch(combined);current=combined;continue;}
+     catch(failure){if(!(failure instanceof PackingError)||failure.failure!=='packing_limit')throw failure;}
+    }
+    if(current)batches.push(current);current=single;
+   }
+   if(current)batches.push(current);
+  }
+ }
+ const results=await Promise.all(batches.map(async batch=>{
  const lease=new TaskLease({owner:family,goal:family,scope,readSet:[],capabilities:['decision'],signal,
-  budget:{deadlineAt:Date.now()+60000,remainingInputTokens:200000,remainingOutputTokens:32000,remainingCostUsd:1,remainingActions:1}});
- try{const result=await decide({id:randomUUID(),model:JEV_MODEL,family,familyVersion:'1',scope,readSet:[],state,questions},lease);
+  budget:{deadlineAt:Date.now()+60000,remainingInputTokens:batch.longContext?JEV_LONG_CONTEXT_LIMIT:200000,remainingOutputTokens:32000,remainingCostUsd:1,remainingActions:1}});
+ try{const result=await decide(batch,lease);
   record({kind:family,status:result.status,usage:result.usage,answers:result.answers,failure:result.failure});
-  if(result.status!=='complete')throw Error('Source reference decision is incomplete');return result.answers;
+  if(result.status!=='complete')throw new SourceReferenceDecisionError(result.failure?.code??'incomplete',result.failure?.retryable===true);return result.answers;
  }finally{lease.close();}
+ }));
+ return Object.assign({},...results);
 }
 /** Source syntax only: Jev decides which original line introduces a playable entrance. */
 async function textEntrances(pages:Page[],decide:Decide,signal:AbortSignal,record:(value:Row)=>void):Promise<Row[]>{
@@ -162,7 +194,7 @@ export async function checkReferenceGuide(input:{packet:SourceReferencePacket;te
  const options=[...new Set(sentences.flatMap((sentence,index)=>[input.text.slice(sentence.start,sentence.end).trim(),...(sentences[index+1]?[input.text.slice(sentence.start,sentences[index+1].end).trim()]:[])]))].filter(text=>text.length<=1000).slice(0,64);
  const publicRoles={era:'the era or time period',starting_place:'the starting location',public_premise:'the public premise',creation_advice:'the character advice, preserving its advisory wording'};
  const questions=[...Object.entries(criteria).map(([key,instructions])=>({key,target:'guide',type:'noul',instructions})),...Object.entries(publicRoles).map(([key,role])=>({key:'field_'+key,target:'guide',type:'choice',instructions:'Select the shortest supplied sentence that conveys '+role+'. These are views of the same final guide; do not add wording. Choose none when absent.',criteria:{...Object.fromEntries(options.map((text,index)=>['s'+index,text])),none:'This field is not stated.'}}))];
- const answers=await decisions(input.decide,'source-reference-guide-check',{source,entrances:input.packet.entries??[],selected_opening:input.selectedOpening??'',guide:input.text},questions,input.signal,input.record??(()=>{}));
+ const answers=await decisions(input.decide,'source-reference-guide-check',{source,entrances:input.packet.entries??[],selected_opening:input.selectedOpening??'',guide:input.text},questions,input.signal,input.record??(()=>{}),{partition:true,model:GUIDANCE_REVIEW_MODEL});
  const issues=Object.entries(criteria).filter(([key])=>answers[key]?.status!=='answered'||answers[key].noul>=.8).map(([key,instruction])=>({key,instruction}));
  const sourceFields:Record<string,string>={era:'era',starting_place:'place',public_premise:'premise',creation_advice:'advice'};
  const public_fields=Object.fromEntries(Object.keys(publicRoles).map(key=>{const answer=answers['field_'+key],text=answer?.status==='answered'&&answer.type==='choice'&&answer.confidence>=.6?options[Number(String(answer.choice).replace(/^s/,''))]:undefined;

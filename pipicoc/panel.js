@@ -922,7 +922,16 @@ export function createComponent(React) {
   /** @param {{api: {invoke?: Function, subscribeExt?: Function}}} props */
   return function InvestigatorPanel(props) {
     const api = props.api || {};
-    const [answer, setAnswer] = useState(undefined);
+    const [answerState, setAnswerState] = useState(undefined);
+    const answer = answerState?.api === api ? answerState.answer : undefined;
+    const setAnswer = useCallback((next) => {
+      setAnswerState(previous => {
+        const prior = previous?.api === api ? previous.answer : undefined;
+        const retain = next?.status === "error" && isRecord(prior?.view)
+          && (!next.campaign || next.campaign === prior.campaign);
+        return { api, answer: retain ? { ...prior, status: "error", error: failureOf(next) } : next };
+      });
+    }, [api]);
     const generation = useRef(0);
     useEffect(() => () => { generation.current++; }, []);
     const [busy, setBusy] = useState(false);
@@ -954,6 +963,7 @@ export function createComponent(React) {
     // section that chose not to render has no chip, so the rail can never point at nothing.
     const sheetRoot = useRef(null);
     const identityArt = useRef(null);
+    useEffect(() => { identityArt.current = null; }, [api]);
     const [railAnchors, setRailAnchors] = useState([]);
     useEffect(()=>setDocumentTarget(null),[api,who]);
     useEffect(()=>{if(answer?.campaign&&documentTarget&&answer.campaign!==documentTarget.campaign)setDocumentTarget(null);},[answer?.campaign]);
@@ -1145,6 +1155,13 @@ export function createComponent(React) {
               entry.icon ? h(Icon, { name: entry.icon }) : null, entry.label)))
         : null,
       refresh,
+      answer.status === "error" ? h("aside", { className: "coc-sheet-note", role: "alert" },
+        h("h2", null, t("errorTitle")),
+        h("p", null, word(ui, "errors", failureOf(answer)?.code || "", word(ui, "errors", "unknown"))),
+        failureOf(answer)?.message ? h("details", null,
+          h("summary", null, word(ui, "errors", "details")), h("p", null, failureOf(answer).message)) : null,
+        h("button", { type: "button", onClick: () => { void load(true); }, disabled: busy },
+          busy ? t("loading") : t("retry"))) : null,
       h("article", {className:"coc-sheet-identity", lang:ui?.tag},
         art.backplate ? h("div", {className:"coc-sheet-art", "aria-hidden":true,
           style:{borderImageSource:`url(${art.backplate})`}}) : null,

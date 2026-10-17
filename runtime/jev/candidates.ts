@@ -450,7 +450,12 @@ export function buildCandidates(reads: StateReads, rawInput: string, consumed: R
       label: `Move the party to ${text(description.display_name) || text(effect.to)}`, bound: {kind: 'move', to: text(effect.to)},
       unbound: [{name: 'travel_minutes', required: false, vocabulary: 'open'}, {name: 'label', required: false, vocabulary: 'open'},
         {name: 'via', required: false, vocabulary: 'open'}, ...(road ? [road.parameter] : [])],
-      detail: {available: true, ...(text(description.material) ? {material: text(description.material)} : {}), ...(road ? {road: road.detail} : {}),...(description.source_identity?{source_context:description.source_context}: {})} as Json,
+      detail: {available: true, ...(text(description.material) ? {material: text(description.material)} : {}),
+        ...(Object.keys(object(description.destination)).length?{destination:description.destination}:{}),
+        ...(Number.isInteger(description.travel_minutes)?{travel_minutes:description.travel_minutes}:{}),
+        ...(text(description.within)?{within:description.within}:{}),
+        ...(Object.keys(unlock).length?{unlock_when:unlock}:{}),
+        ...(road ? {road: road.detail} : {}),...(description.source_identity?{source_context:description.source_context}: {})} as Json,
       ...(description.source_identity?{routeFact:{target:'requested original-source destination',instructions:'Does the supplied source permit the declared movement now without an unresolved access condition, obstacle or required check? A named place alone does not waive an entrance restriction. If the source states a relevant condition whose satisfaction is unknown, choose unknown.',criteria:{enter:'The declared ordinary travel has no unresolved source condition.',blocked:'An access condition currently prevents this movement.',unknown:'A relevant source condition requires adjudication first.'},selects:'enter'}}:{}),
       clerk: 'declared_bookkeeping', basis});
     }

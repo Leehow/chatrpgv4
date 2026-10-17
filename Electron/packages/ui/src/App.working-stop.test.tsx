@@ -160,6 +160,24 @@ describe('selected-session working stop control', () => {
     await waitFor(() => expect(screen.queryByLabelText('停止生成')).toBeNull())
   })
 
+  it('keeps retry activity open and clears the recovered card and composer at settle', async () => {
+    const {host, listeners} = controlledHost()
+    const {container} = render(<App host={host} />)
+    await ready(listeners)
+    const emit = (event: StreamEvent) => act(() => {listeners.get('welcome')?.(event)})
+    emit({type: 'user_message', sessionId: 'welcome', id: 'setup-request', content: 'Give me an investigator card.'})
+    emit({type: 'status', sessionId: 'welcome', status: 'started', turnEpoch: 1})
+    emit({type: 'error', sessionId: 'welcome', content: '429 Token Plan rate limit (2062)'})
+    emit({type: 'auto_retry', sessionId: 'welcome', phase: 'start', attempt: 1, maxAttempts: 3, delayMs: 2000})
+    expect(await screen.findAllByLabelText('停止生成')).not.toHaveLength(0)
+    emit({type: 'auto_retry', sessionId: 'welcome', phase: 'end', success: true, attempt: 1})
+    emit({type: 'text', sessionId: 'welcome', contentIndex: 0, delta: 'Your investigator card is ready.'})
+    emit({type: 'status', sessionId: 'welcome', status: 'settled', turnEpoch: 1})
+    await waitFor(() => expect(screen.queryByLabelText('停止生成')).toBeNull())
+    expect(screen.getByLabelText('发送消息')).toBeTruthy()
+    expect(container.querySelectorAll('[data-transcript-segment="working"]')).toHaveLength(0)
+  })
+
   it('does not stay busy after a late streaming status on a settled turn', async () => {
     const { host, listeners } = controlledHost()
     render(<App host={host} />)

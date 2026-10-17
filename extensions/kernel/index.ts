@@ -8,6 +8,7 @@ import {preparePriceArguments} from './price-arguments.ts';
 import {patchCard} from "../table/card-patch.ts";
 import { SINGLE_PASS_NARRATION } from '../../kernel-ts/runtime/narration-policy.ts';
 import {ArtifactTextStream} from '../../runtime/final-output-stream.ts';
+import {SAME_KEEPER_AFTER_RESULT_GUIDANCE} from '../../runtime/keeper-output-guidance.ts';
 import {ExpressionPlanStream,writeIsolatedExpression} from '../../runtime/isolated-expression.ts';
 import {documentEditInput} from '../../runtime/document-edit-input.ts';
 import {DocumentReadCoverage} from './document-read-coverage.ts';
@@ -154,6 +155,7 @@ import {
 	typedDetails,
 	registeredDestination,
 	reviewAdmissionPrimary,
+	reviewAdmissionJevOnly,
 	reviewedPerLine,
 	lineProposal,
 	besideBatch,
@@ -1494,6 +1496,8 @@ export default function (pi: ExtensionAPI, host: {capabilities?:RuntimeCapabilit
 	});
 	let runtime: HostRuntime | undefined;
 	let singleKeeper=false;
+	let turnDecisionPort:DecisionPort|undefined;
+	pi.events.on('coc:turn-decision-port',(value:DecisionPort|undefined)=>{turnDecisionPort=value&&typeof value.decide==='function'?value:undefined;});
 	let isolatedOutput=false;
 	let keeperRun:{runId:string;inputRevision:string;signal?:AbortSignal;recordCallId?:string}|undefined;
 	let keeperReply:{decoder:ArtifactTextStream|ExpressionPlanStream;stream?:Awaited<ReturnType<typeof finalOutput.openStream>>;work:Promise<void>;error?:unknown;evidence?:Record<string,any>;run:string;signal?:AbortSignal;raw:string}|undefined;
@@ -3037,7 +3041,7 @@ export default function (pi: ExtensionAPI, host: {capabilities?:RuntimeCapabilit
 	 * (not just one scope) lets a caller ask it again for a narrowed set of effects, as the split (§32.12.3) and the
 	 * already-landed resend (§32.4) both do.
 	 */
-	async function admissionScopeBuilder(state: TableState, tool: "resolve" | "apply", payload: Record<string, unknown>):
+	async function admissionScopeBuilder(state: TableState, tool: "resolve" | "apply", payload: Record<string, unknown>, suppliedCapsule?:Record<string,any>):
 		Promise<(effects: Array<Record<string, unknown>>) => { party: string[]; scene?: TableState["scene"]; destinations?: AdmissionDestination[]; answered?: string[]; cash?: Record<string, unknown> }> {
 		const destinations: AdmissionDestination[] = [];
 		let cashContext: Record<string, unknown> | undefined;
@@ -3045,7 +3049,7 @@ export default function (pi: ExtensionAPI, host: {capabilities?:RuntimeCapabilit
             effect?.kind === 'cash' && effect.mode !== 'quote' && effect.mode !== 'cancel' && (effect.quote !== undefined || effect.category !== undefined || effect.items !== undefined))) {
             if(payload.effects.some((effect:any)=>effect?.kind==='cash' && effect.mode!=='quote' && typeof effect.quote==='string'))
                 await quotationQueue(state).finish();
-			const capsule = await state.kernel.call<{known?: {investigator?: Record<string, unknown>; cash_quotes?: unknown[]}}>('table.capsule', {campaign: state.campaign, _context_read: true});
+			const capsule = suppliedCapsule??await state.kernel.call<{known?: {investigator?: Record<string, unknown>; cash_quotes?: unknown[]}}>('table.capsule', {campaign: state.campaign, _context_read: true});
 			const previewEffects=payload.effects.map((effect: any)=>{const {_cash_debit_limit:_old,...rest}=effect;return rest;});
 			const preview = await state.kernel.call<{cash_previews?: Array<Record<string, unknown>>}>('table.apply.options',{campaign:state.campaign,cash_effects:previewEffects});
 			await purchaseRecovery(state).observe(payload,preview.cash_previews??[]);
@@ -3058,6 +3062,10 @@ export default function (pi: ExtensionAPI, host: {capabilities?:RuntimeCapabilit
 		}
 		if (tool === 'apply' && Array.isArray(payload.effects)) for (const effect of payload.effects as Array<Record<string, unknown>>) {
 			if (effect.kind !== 'move' || typeof effect.to !== 'string' || destinations.some(value => value.requested === effect.to)) continue;
+			const where=suppliedCapsule?.where??{};
+			const projected=[where,...[where.exits,where.places,where.back].flatMap(value=>Array.isArray(value)?value:[])]
+				.find(value=>value&&[value.name,value.to,value.handle,value.scene].includes(effect.to));
+			if(projected){destinations.push(registeredDestination(effect.to,{...projected,name:projected.name??projected.to??projected.scene}));continue;}
 			try {
 				const found = await state.kernel.call<{entities?: Array<Record<string, unknown>>}>('table.lookup',
 					{campaign: state.campaign, kind: 'module', query: effect.to, expected_kind: 'scene', limit: 1});
@@ -3621,12 +3629,45 @@ export default function (pi: ExtensionAPI, host: {capabilities?:RuntimeCapabilit
 	 */
 	async function admitAction(state: TableState, tool: "resolve" | "apply", payload: Record<string, unknown>, signal?: AbortSignal, providerBudget?: TaskProviderBudget,
 		origin: Record<string, unknown> = {}, evidence: ClerkEvidence & { label?: string; run?: string; onVerdict?: (verdict: string) => void } = {}): Promise<AdmissionPartial | undefined> {
+		try {
 		if(singleKeeper){
 			const malformed=documentWriteRefusal(tool,payload);
 			if(malformed)throw new KernelError(malformed);
+			if(!turnDecisionPort||!state.playerText)return;
+			const effects=Array.isArray(payload.effects)?payload.effects as Record<string,unknown>[]:[];
+			const current=await state.kernel.call<Record<string,any>>('table.capsule',{campaign:state.campaign,_context_read:true});
+			const basis=origin.basis as Record<string,any>|undefined;
+			if(origin.origin==='policy'&&origin.clerk==='continuous_turn'&&basis?.family==='continuous-turn'
+				&&basis.playerText===state.playerText&&basis.worldRevision===current._context?.world_revision
+				&&keyDigest(JSON.stringify(basis.effects))===keyDigest(JSON.stringify(payload.effects))){
+				await record({lane:'admission',verb:tool,turn:state.turn,path:'typed',reviewer:'jev',reused:true,jev_calls:0,
+					verdict:'authorized',ms:0,origin:'policy'});
+				return;
+			}
+			const scopeFor=await admissionScopeBuilder(state,tool,payload,current);
+			const proposal=admissionRequest(tool,payload,{...scopeFor(effects),consentOnly:true});
+			if(!proposal)return;
+			const key='continuous:'+keyDigest(JSON.stringify([state.playerText,current._context?.world_revision,proposal.key]));
+			const unavailable=(reason:string)=>new KernelError({code:'needs',message:'Jev could not establish authority for this proposal',
+				fix:admissionUnavailable(proposal,reason,'Typed consent did not establish authority.',1,'same_keeper').fix,
+				details:{reason:'typed_admission_unavailable',jev_reason:reason}});
+			let verdict=state.admission.get(key);
+			if(!verdict){
+				const checked=await reviewAdmissionJevOnly({campaign:state.campaign,ctx:sessionCtx!,proposal,
+					context:admissionContextFor(state),signal,providerBudget,record,decision:turnDecisionPort});
+				await record({lane:'admission',verb:tool,turn:state.turn,path:'typed',reviewer:'jev',
+					ok:checked.ok,ms:checked.ms,...checked.meta,...(checked.ok?{verdict:checked.verdict.verdict}:{reason:checked.reason})});
+				if(!checked.ok){
+					state.admission.set(key,{verdict:'uncertain',grounds:'Typed admission did not establish a verdict.',reviewer:'jev',path:'typed',typedFailure:checked.reason});
+					throw unavailable(checked.reason);
+				}
+				verdict=boundCashAuthority(proposal,admissionContextFor(state),checked.verdict);
+				state.admission.set(key,verdict);
+			}else await record({lane:'admission',verb:tool,turn:state.turn,path:'typed',reviewer:'jev',reused:true,jev_calls:0,verdict:verdict.verdict,ms:0});
+			if(verdict.typedFailure)throw unavailable(verdict.typedFailure);
+			if(!ADMITTING_VERDICTS.has(verdict.verdict))throw admissionRefusal(proposal,verdict,false,'same_keeper');
 			return;
 		}
-		try {
 			return await admitActionReviewed(state, tool, payload, signal, providerBudget, origin, evidence);
 		} catch (error) {
 			const moves = refusedMovesOf(tool, payload.effects, error);
@@ -4839,13 +4880,17 @@ export default function (pi: ExtensionAPI, host: {capabilities?:RuntimeCapabilit
 	 * (`runCut` plus abort, as the forced-choice and runaway cuts do). Nothing is delivered or retracted here: what
 	 * settled stays settled and `agent_settled` tells it.
 	 */
-	function endInput(state: TableState, cause: string, ctx?: ExtensionContext): void {
+	function endInput(state: TableState, cause: string, ctx?: ExtensionContext,
+		boundary: 'immediate' | 'settled_operation' = 'immediate'): void {
 		if (state.inputEnded?.turn === state.turn) return;
 		state.inputEnded = { turn: state.turn, cause };
 		void record({ lane: "turn", event: "input_ended", turn: state.turn, cause });
 		const running = ctx ?? (sessionCtx && !sessionCtx.isIdle() ? sessionCtx : undefined);
 		if (!running) return;
 		state.runCut = true;
+		// Finalization must return the original tool result before RunDriver observes the ended marker.
+		// Aborting here would synthesize a second cancellation result for the still-pending native call.
+		if (boundary === 'settled_operation') return;
 		try { running.abort(); } catch { /* the gate still refuses every later call of this turn */ }
 	}
 
@@ -6284,6 +6329,7 @@ export default function (pi: ExtensionAPI, host: {capabilities?:RuntimeCapabilit
 			// A call that came back is proof the history store answered: the commit streak ends here
 			// (contract §38.11), not at a turn boundary.
 			state.commitOutage = undefined;
+			if (spec.name === "lookup" && payload.kind === "module") carriedText.noteModuleLookup(state.campaign, state.turn, result);
 			if ((READ_TOOLS.has(spec.name)||spec.name==='recall'||spec.name==='apply') && result && typeof result === 'object') {
 				finalOutput.observe(state.campaign,state.turn,spec.name,params,result);
 			}
@@ -6481,6 +6527,8 @@ export default function (pi: ExtensionAPI, host: {capabilities?:RuntimeCapabilit
 				...origin,
 				code,
 				...(reason ? { reason } : {}),
+				...(code==='revision_conflict'&&['publication_owner_changed','publication_source_changed'].includes(reason??'')
+					?{publication_conflict:(error as {details?:unknown}).details}:{}),
 				...(detail ? { code_detail: detail } : {}),
 				...readingRefusalTelemetry(error),
 				...readTelemetry(spec.name, params),
@@ -6608,6 +6656,18 @@ export default function (pi: ExtensionAPI, host: {capabilities?:RuntimeCapabilit
 			const before = state.refusalsThisTurn;
 			const { count, tripped } = strikeRefusalClass(state, tool, cls, last, round);
 			if (tripped) await record({ lane: "refusals", turn: state.turn, tool, count, reason: "class_limit", last });
+			if (tripped && singleKeeper && ['apply','resolve'].includes(tool) && state.turn > 0
+				&& ['open','acting'].includes(state.state) && state.inputEnded?.turn !== state.turn) {
+				const turn=state.turn;
+				try {
+					const actual=await state.kernel.call<{turn:number;receipts:unknown[]}>('table.status',
+						{campaign:state.campaign,projection:'receipts',expected_turn:turn});
+					if(table===state && state.turn===turn && actual.turn===turn && Array.isArray(actual.receipts) && actual.receipts.length===0) {
+						await record({lane:'refusals',turn,tool,reason:'zero_settlement_write_exhausted',count,receipts:0});
+						endInput(state,'write_refusal_exhausted',undefined,'settled_operation');
+					}
+				} catch(error) {await record({lane:'refusals',turn,tool,reason:'write_exhaustion_state_unavailable',detail:String(error)});}
+			}
 			if (before < REFUSAL_BUDGET && state.refusalsThisTurn >= REFUSAL_BUDGET)
 				await record({ lane: "refusals", turn: state.turn, count: state.refusalsThisTurn, reason: "turn_budget", last });
 		}
@@ -7911,7 +7971,10 @@ export default function (pi: ExtensionAPI, host: {capabilities?:RuntimeCapabilit
 		}
 		if (name === "ask" && !input.binds && state.pendingChoice?.for === "player" && state.pendingChoice.name) {
 			// Contract §11.9: when the Keeper leaves binds out, fill it with the kernel's latest pending choice for the player.
-			input.binds = state.pendingChoice.name;
+            const cashOptions=input.kind==='mechanics'&&Array.isArray(input.options)&&input.options.includes('accept')
+                &&input.options.every((option:unknown)=>option==='accept'||option==='flee');
+            const heldCash=cashOptions&&(await purchaseRecovery(state).requests(state.turn)).length>0;
+            if(!heldCash)input.binds = state.pendingChoice.name;
 		}
 		state.mintedCallIds.set(event.toolCallId, dispatcher.fixedCallId(event.toolCallId) ?? mintCallId(state));
 	}
@@ -8066,6 +8129,7 @@ export default function (pi: ExtensionAPI, host: {capabilities?:RuntimeCapabilit
 			}else keeperReply=undefined;
 		}
 		if(singleKeeper&&!hasToolCalls&&keeperReply){
+			pi.events.emit('coc:keeper-response',structuredClone(event.message));
 			const reply=keeperReply;keeperReply=undefined;
 			try{
 				const body=blocks.filter(b=>b.type==='text').map(b=>String(b.text??'')).join('');
@@ -8085,9 +8149,9 @@ export default function (pi: ExtensionAPI, host: {capabilities?:RuntimeCapabilit
 				let authorModel=`${event.message.provider}/${event.message.model}`,authorThinking:unknown=pi.getThinkingLevel?.();
 				if('expression' in result&&result.expression){
 					if(!runtime)throw Error('The expression runtime is unavailable');
-					reply.stream=await finalOutput.openStream(state.campaign,state.turn,reply.run,'isolated-expression',result.expression.npc_turns.map(person=>person.speaker));
+					reply.stream=await finalOutput.openStream(state.campaign,state.turn,reply.run,'isolated-expression',result.expression.npc_turns.map(person=>person.speaker),state.party.map(person=>person.name));
 					const authored=await writeIsolatedExpression({runtime,campaign:state.campaign,turn:state.turn,run:reply.run,
-						brief:result.expression,language:state.playLanguage||'en',
+						brief:result.expression,language:state.playLanguage||'en',playerText:reply.stream.playerText,investigatorNames:reply.stream.investigatorNames,
 						signal:reply.signal,stream:reply.stream,record});
 					result=authored;authorModel=authored.model;authorThinking=authored.thinking;
 				}
@@ -8122,12 +8186,13 @@ export default function (pi: ExtensionAPI, host: {capabilities?:RuntimeCapabilit
                 }
 				await record({lane:'keeper-delivery',turn:state.turn,ok:false,reason:String(error),
                     private_reply:reply.raw,model:`${event.message.provider}/${event.message.model}`,stop_reason:event.message.stopReason});
-				const framingError=error instanceof Error&&['Final artifact must begin with version and text','Invalid public stream marker'].includes(error.message);
-				if(isolatedOutput)state.runAbandoned=true;
+				const emptyFinal=event.message.stopReason==='stop'&&!reply.stream&&!blocks.some(block=>block.type==='text'&&String(block.text??'').trim());
+				const privateProtocol=emptyFinal||error instanceof SyntaxError||error instanceof Error&&['Invalid private expression brief','Expected a private composition brief or reference answer'].includes(error.message);
+				if(isolatedOutput&&privateProtocol&&event.message.stopReason==='stop'&&!reply.stream&&!state.steeredThisTurn)state.deliveryFix={kind:'private_reply_protocol',text:'The private final response is missing or malformed. Continue this same turn with {{compose}} followed immediately by one JSON object: {scene:string,narrative_content:string[],npc_turns:[{speaker:string,intent:string,personality:string|null,emotion:string|null}],keeper_only?:string[],writing?:string|object}. No Markdown headings or code fences. Use {{reference}} only for a direct OOC answer. Keep already committed effects and rolls; never repeat them. Do not switch to public prose or expose private notes.'};
+				else if(isolatedOutput)state.runAbandoned=true;
 				else if(!reply.stream)state.deliveryFix=isKernelError(error)
-					?{kind:error.code,text:'Correct the outstanding proposal through the existing apply/resolve tools and use their actual results before final prose. Do not repeat already settled effects or place another outstanding record in the final response. Then begin the public response with {{public}}.\n'+errorText(error)+(error.details?`\ndetails: ${JSON.stringify(error.details)}`:'')}
-					:framingError?{kind:'result_protocol',text:'The final reply lacks a supported public marker or private-record envelope. Commit outstanding changes through the existing apply/resolve tools, read their actual results, then begin with {{public}} followed immediately by public prose. Use {{reference}} for pure OOC. Do not quote the rejected draft or repeat already settled effects through new calls.'}
-					:{kind:'result_protocol',text:'The final response framing is invalid. In a legacy envelope, record.text is invalid: root.text is its sibling; record permits only effects, event, scope, choice. Keep private records out of public prose. Correct outstanding proposals through existing apply/resolve tools and read their actual results; then begin with {{public}} followed immediately by public prose, or {{reference}} for pure OOC. Do not repeat already accepted records, settled effects or rolls. Previously exposed prose must not be rewritten.'};
+					?{kind:error.code,text:'Only proposed effects and events without successful receipts remain unsettled. Effects and events already confirmed by receipts remain settled, including after a publication failure, and must not be repeated. Correct the invalid proposal using the actual error below; never automatically replay it. '+SAME_KEEPER_AFTER_RESULT_GUIDANCE+'\n'+errorText(error)+(error.details?`\ndetails: ${JSON.stringify(error.details)}`:'')}
+					:{kind:'result_protocol',text:'The final response framing is invalid: '+String(error)+'. For plain public prose, the public marker {{public}} is required. In a JSON reply, do not use record.text: root.text is its sibling. The transport permits effects, event, scope, choice in record; ordinary-world records need only effects/event. scope, if used for reference, is the string reference, never a campaign object. For ordinary conversation with no required state change, begin with {{public}} and write the reply directly; do not manufacture an event merely to log speech or mood. A known state change may instead use one complete JSON object with version:1, record:{effects?,event?}, and sibling text containing public prose without an inner public marker. Put knowledge and relationships inside record.event. Omit campaign and scope objects. Close the root only after text. Preserve already accepted effects and rolls; only genuinely unknown results need normal tools first. Previously exposed prose must not be rewritten.'};
 				else state.runAbandoned=true;
 				return{message:{...event.message,content:blocks.filter(b=>b.type!=='text')}};
 			}

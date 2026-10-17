@@ -142,6 +142,30 @@ function needPdf(texts){
  const xref=Buffer.byteLength(pdf),size=objects.length+1;
  return pdf+`xref\n0 ${size}\n0000000000 65535 f \n${offsets.slice(1).map(value=>String(value).padStart(10,'0')+' 00000 n ').join('\n')}\ntrailer\n<< /Size ${size} /Root 1 0 R >>\nstartxref\n${xref}\n%%EOF\n`;
 }
+test('an unavailable guide check terminates the actual submission tool without a repair loop',async t=>{
+ const cwd=await mkdtemp(join(tmpdir(),'source-guide-check-'));t.after(()=>rm(cwd,{recursive:true,force:true}));
+ const bytes=needPdf(['Harbor opening. Choose an investigator.']),pdf=join(cwd,'source.pdf'),sourceSha=createHash('sha256').update(bytes).digest('hex');
+ await writeFile(pdf,bytes);
+ const text='Harbor opening. Choose an investigator.';
+ const packet={protocol:'source-reference-v1',source_sha256:sourceSha,extraction_version:'fixture',purpose:'guidance',question:'Create a character',
+  excerpts:[{id:'intro',page:1,start:0,end:text.length,text}],fields:Object.fromEntries(['era','place','premise','advice','warnings','opening'].map(key=>[key,['intro']])),
+  entries:[{id:'scene-source-entry-1',name:'Harbor opening',page:1,excerpt_id:'intro'}],partial:true,visual_coverage:'unassessed',unavailable_pages:[]};
+ await writeFile(join(cwd,'task.json'),JSON.stringify({purpose:'guidance',source_reference:'guidance',source_reference_packet:packet,source:{page_count:1}}));
+ let attempts=0;
+ const driver=await createSourceReaderDriver({cwd,env:{},source:{pdf,cache:join(cwd,'cache','pages'),file_sha256:sourceSha},
+  adapter:{async decide(){attempts++;return {status:'unavailable',answers:{},failure:{code:'service_error',retryable:true}};}}});
+ const tools=[];driver.registerSourceRequest({registerTool:tool=>tools.push(tool)});
+ const {ports,policy}=await driver.prepare({runId:'check-unavailable',inputRevision:'v1',rawInput:'Prepare guidance',session:{}});
+ const signal=AbortSignal.timeout(10000);
+ assert.equal((await ports.operations.execute({origin:'policy',operation:'source.catalog',readOnly:true},{signal})).status,'ok');
+ const result=await tools.find(tool=>tool.name==='submit_reference_guidance').execute('submit',{text},signal);
+ assert.equal(attempts,1);assert.equal(result.isError,true);assert.equal(result.terminate,true);
+ assert.deepEqual(result.details,{kind:'source_reference_unavailable',reason:'service_error',retryable:true});
+ const outcome=await ports.operations.execute({origin:'model',toolCall:{name:'submit_reference_guidance',arguments:{text}}},{signal,executeModelTool:async()=>result});
+ const state=policy.reduce(policy.initial({}),{kind:'operate',origin:'model',status:'ok',outcomes:[outcome]},{});
+ assert.equal(policy.next({policyState:state,pendingProposals:[],steps:1}).kind,'finish');
+ await assert.rejects(readFile(join(cwd,'source-reference-complete.json')),error=>error.code==='ENOENT');
+});
 const NEED_QUESTION='Any later appendix combat profile for Lena if printed separately';
 /** A fake port: the answered Noul, and per-page need leads; every other facet stays under the lead gate. */
 function needPort({answered=0.2,leads={},unavailable=false}={}){
@@ -390,4 +414,19 @@ test('an append repair projects exactly the pages its missing items name without
  assert.equal((await ports.operations.execute({origin:'policy',operation:'source.catalog',readOnly:true},{signal})).status,'ok');
  const located=await ports.decision.decide({question:{kind:'source_pages'},signal});
  assert.deepEqual([located.status,located.artifact.pages],['ok',[3]]);
+});
+
+test('a thinking-only source answer gets one checked-submission reminder in the same run',async t=>{
+ const cwd=await mkdtemp(join(tmpdir(),'source-submission-reminder-'));t.after(()=>rm(cwd,{recursive:true,force:true}));
+ await writeFile(join(cwd,'task.json'),JSON.stringify({purpose:'opening',module_id:'book',source:{page_count:1}}));
+ const driver=await createSourceReaderDriver({cwd,env:{},source:{pdf:join(cwd,'source.pdf'),cache:join(cwd,'cache')}});
+ const {policy,ports}=await driver.prepare({runId:'reminder-fixture',inputRevision:'1',rawInput:'Prepare',session:{}});
+ const empty={kind:'infer',status:'ok',proposals:[],message:{role:'assistant',content:[{type:'thinking',thinking:'Ready to submit.'}]}};
+ let state={catalog:true,located:true,projected:true,submitted:false,fallback:false,inferred:false};
+ state=policy.reduce(state,empty,{});const next=policy.next({policyState:state,pendingProposals:[],lastObservation:empty,steps:1});
+ assert.equal(next.kind,'infer');assert.equal(next.reason,'request_missing_checked_source_submission');
+ const messages=await ports.projection.project({step:next,view:{policyState:state},stepId:'repair',signal:new AbortController().signal});
+ assert.match(messages[0].content[0].text,/submit_reading/);assert.match(messages[0].content[0].text,/Thinking or final prose does not submit/);
+ state=policy.reduce(state,empty,{});assert.equal(policy.next({policyState:state,pendingProposals:[],lastObservation:empty,steps:2}).kind,'finish');
+ const done=policy.reduce(state,{kind:'operate',outcomes:[{artifact:{kind:'source_submission'}}]},{});assert.equal(policy.next({policyState:done,pendingProposals:[],steps:3}).reason,'checked_source_candidate_no_player_delivery');
 });

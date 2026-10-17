@@ -9,6 +9,7 @@ import {handoutFile} from '../read/handout-document.js';
 import {npcNode,npcsPresent,personLabel,personNode,personRecord,unplacedPeople,untoldBlock} from '../read/capsule.js';
 import {unsupported} from '../read/handlers.js';
 import {passageOf,tablePersonId} from '../read/table-people.js';
+import {sourceNameReadFix} from '../read/cast.js';
 import {array,entries,integer,normalize,number,repr,row,sorted,string,truth,type Row} from '../read/values.js';
 import {stanceTable} from '../write/contributions.js';
 import {required,nowIso} from '../write/store.js';
@@ -237,7 +238,7 @@ async function notAtThisTable(context:ApplyContext,effect:Row,name:string,refusa
     // The graph's own sentence stays the message ("no npc named ..."): it is still true, and the fix and
     // details are what change.
     return new RpcError('unknown_entity',refusal instanceof RpcError?refusal.message:`nobody at this table is called ${repr(name)}`,{
-        fix:`${pick}${introduce}${pick?'. ':''}To establish someone the book never had, send details.walk_on in place of this effect`,
+        fix:(!passageOf(effect,name)?sourceNameReadFix(graph,name):null)??`${pick}${introduce}${pick?'. ':''}To establish someone the book never had, send details.walk_on in place of this effect`,
         details:{query:name,...(present.length?{present}:{}),...(candidates.length?{candidates}:{}),walk_on}});
 }
 /**
@@ -609,6 +610,11 @@ export async function stageHandout(context:ApplyContext,effect:Row,asset:(module
         const candidates=typeof ref==='string'?[isAbsolute(ref)?ref:join(context.kernel.stateRoot,'modules',graph.moduleId,ref),ref]:[];
         for(const path of candidates)if(await context.kernel.snapshots.isFile(path)){Object.assign(attachment,{image_path:path,image_media_type:media});break;}
     }
+    const copyableText=typeof text==='string'&&text.trim().length>0;
+    const copyableImage=typeof attachment.image_path==='string'||attachment.available&&['image/png','image/jpeg','image/webp','image/gif'].includes(attachment.media_type);
+    attachment.document_source={revealed:true,copyable_text:copyableText,copyable_image:!!copyableImage,
+        available:copyableText||copyableImage,reason:copyableText||copyableImage?'ready':'document_source_unavailable',
+        note:'Revelation records disclosure; copying needs actual source text or an available player-safe image. A summary is not document text.'};
     const receipt={id:`handout:${handle}-t${context.turn.turn}`,kind:'handout',call_id:context.callId,handout:handle,name:display,label:label||display,visibility,summary:node.summary??null,attachment,at:nowIso()};
     if(!array(world.handouts_shown??=[]).includes(handle))world.handouts_shown.push(handle);
     return {receipt,event:{type:'handout-shown',data:{handout:handle,name:display,visibility,attachment_available:attachment.available,media_type:attachment.media_type}}};

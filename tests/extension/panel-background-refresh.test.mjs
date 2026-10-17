@@ -73,6 +73,7 @@ function mount(createComponent, api) {
 	render();
 	return {
 		get tree() { return tree; },
+		setApi(next) { api = next; render(); },
 		/** Let every pending promise resolve and every state change render, React-style. */
 		async settle() {
 			for (let pass = 0; pass < 20; pass += 1) {
@@ -85,6 +86,49 @@ function mount(createComponent, api) {
 		render() { if (dirty) render(); },
 	};
 }
+
+test("investigator sheet retains same-binding data with a refresh error and clears it on recovery", async () => {
+	let reply = { ok: true, data: { campaign: "c1", status: "ready", view: { investigators: [{ id: "i1", name: "Investigator One" }] },
+		ui: { words: { sheet: { errorTitle: "READ FAILED", retry: "RETRY" }, errors: { unknown: "UNAVAILABLE", details: "DETAILS" } } } } };
+	let push;
+	const api = { invoke: async method => method === "sheet" ? reply : { ok: true, data: {} },
+		subscribeExt: fn => { push = fn; return () => {}; } };
+	const panel = mount(createSheet, api);
+	await panel.settle();
+	assert.match(text(panel.tree), /Investigator One/);
+	reply = { ok: false, error: { code: "read_failed", message: "cold read failed" } };
+	push({ type: "sheet-changed" }); await panel.settle();
+	assert.match(text(panel.tree), /Investigator One/);
+	assert.match(text(panel.tree), /READ FAILED/);
+	assert.equal(nodes(panel.tree, node => node.props.role === "alert").length, 1);
+	assert.match(text(panel.tree), /cold read failed/);
+	reply = { ok: true, data: { campaign: "c1", status: "ready", view: { investigators: [{ id: "i1", name: "Recovered One" }] } } };
+	nodes(panel.tree, node => node.type === "button" && text(node) === "RETRY")[0].props.onClick();
+	await panel.settle();
+	assert.match(text(panel.tree), /Recovered One/);
+	assert.doesNotMatch(text(panel.tree), /READ FAILED/);
+	reply = { ok: true, data: { campaign: null, status: "unbound", view: null } };
+	push({ type: "sheet-changed" }); await panel.settle();
+	assert.doesNotMatch(text(panel.tree), /Recovered One/);
+});
+
+test("investigator sheet never retains data across API bindings or an explicit different campaign", async () => {
+	let reply = { ok: true, data: { campaign: "c1", status: "ready", view: { investigators: [{ name: "Private One" }] } } };
+	let push;
+	const api = { invoke: async () => reply, subscribeExt: fn => { push = fn; return () => {}; } };
+	const panel = mount(createSheet, api); await panel.settle();
+	reply = { ok: true, data: { campaign: "c2", status: "error", view: null, error: { code: "read_failed" } } };
+	push({ type: "sheet-changed" }); await panel.settle();
+	assert.doesNotMatch(text(panel.tree), /Private One/);
+	reply = { ok: true, data: { campaign: "c1", view: { investigators: [{ name: "Private One" }] } } };
+	push({ type: "sheet-changed" }); await panel.settle();
+	assert.match(text(panel.tree), /Private One/);
+	panel.setApi({ invoke: async () => { throw Error("new binding failed"); } });
+	assert.doesNotMatch(text(panel.tree), /Private One/);
+	await panel.settle();
+	assert.doesNotMatch(text(panel.tree), /Private One/);
+	assert.match(text(panel.tree), /new binding failed/);
+});
 
 function nodes(tree, predicate) {
 	if (!tree || typeof tree !== "object") return [];

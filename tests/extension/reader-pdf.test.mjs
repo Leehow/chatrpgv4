@@ -5,13 +5,13 @@ import {tmpdir} from "node:os";
 import {join} from "node:path";
 import readerPdf from "../../extensions/module/reader-pdf.ts";
 
-function pdf() {
-	const stream="0.2 0.4 0.8 rg 0 0 200 100 re f";
+function pdf(nativeText="") {
+	const stream="0.2 0.4 0.8 rg 0 0 200 100 re f"+(nativeText?` BT /F1 12 Tf 10 50 Td (${nativeText}) Tj ET`:"");
 	const objects=["<< /Type /Catalog /Pages 2 0 R >>","<< /Type /Pages /Kids [3 0 R] /Count 1 >>",
-		"<< /Type /Page /Parent 2 0 R /MediaBox [0 0 200 100] /Resources << >> /Contents 4 0 R >>",
-		`<< /Length ${stream.length} >>\nstream\n${stream}\nendstream`];
+		"<< /Type /Page /Parent 2 0 R /MediaBox [0 0 200 100] /Resources << /Font << /F1 5 0 R >> >> /Contents 4 0 R >>",
+		`<< /Length ${stream.length} >>\nstream\n${stream}\nendstream`,"<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>"];
 	let text="%PDF-1.7\n";const offsets=[0];for(let i=0;i<objects.length;i++){offsets.push(Buffer.byteLength(text));text+=`${i+1} 0 obj\n${objects[i]}\nendobj\n`;}
-	const xref=Buffer.byteLength(text);text+=`xref\n0 5\n0000000000 65535 f \n${offsets.slice(1).map(n=>String(n).padStart(10,"0")+" 00000 n ").join("\n")}\ntrailer\n<< /Size 5 /Root 1 0 R >>\nstartxref\n${xref}\n%%EOF\n`;
+	const xref=Buffer.byteLength(text);text+=`xref\n0 6\n0000000000 65535 f \n${offsets.slice(1).map(n=>String(n).padStart(10,"0")+" 00000 n ").join("\n")}\ntrailer\n<< /Size 6 /Root 1 0 R >>\nstartxref\n${xref}\n%%EOF\n`;
 	return text;
 }
 
@@ -44,4 +44,16 @@ test("the private pdf tool keeps info, search, overview and exact evidence as fo
 	await assert.rejects(tool.execute("invalid",{search:{query:""}},signal),/search query/);
 	await assert.rejects(tool.execute("cancelled",{search:{query:"Harbor"}},AbortSignal.abort()),/cancelled/);
 	await shutdown();
+});
+
+test('exact crops retain original images and separately label whole-page native text',async t=>{
+ const root=await mkdtemp(join(tmpdir(),'reader-pdf-text-'));t.after(()=>rm(root,{recursive:true,force:true}));
+ const source=join(root,'source.pdf');await writeFile(source,pdf('Native page anchor'));
+ const previous=process.env.PI_COC_READER_SOURCE;process.env.PI_COC_READER_SOURCE=JSON.stringify({pdf:source,cache:join(root,'pages')});
+ t.after(()=>{if(previous===undefined)delete process.env.PI_COC_READER_SOURCE;else process.env.PI_COC_READER_SOURCE=previous;});
+ let tool,shutdown;readerPdf({on(n,h){if(n==='session_shutdown')shutdown=h;},registerTool(t){tool=t;}});
+ const result=await tool.execute('crop',{pages:[1],box:[0,0,0.5,0.5]},new AbortController().signal);
+ const navigation=result.content.filter(b=>b.type==='text').map(b=>{try{return JSON.parse(b.text);}catch{return null;}}).find(b=>b?.kind==='native_page_navigation');
+ assert.equal(navigation.page,1);assert.match(navigation.text,/Native page anchor/);assert.match(navigation.note,/whole-page.*not cropped/);
+ assert.equal(result.content.filter(b=>b.type==='image').length,1);assert.equal(result.details.kind,'source_pages');assert.deepEqual(result.details.observations[0].box,[0,0,0.5,0.5]);await shutdown();
 });

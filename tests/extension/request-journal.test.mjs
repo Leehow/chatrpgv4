@@ -59,6 +59,28 @@ test('the complete final assistant response is appended between inputs without i
   assert.equal(third.messages.filter(m=>m.role==='assistant'&&m.content.some(b=>b.type==='toolCall')).length,0);
 });
 
+test('a private final response survives exact display redaction in the next real request projection',()=>{
+  const journal=createRequestJournal();journal.project(input(1));journal.commit();
+  const complete={role:'assistant',provider:'minimax-cn',model:'MiniMax-M3.1-Flash-Preview',timestamp:123,stopReason:'stop',
+    content:[{type:'thinking',thinking:'Prior reasoning',thinkingSignature:'opaque'},
+      {type:'text',text:'{"version":1,"record":{},"text":"A private framed reply"}'}]};
+  journal.complete(complete,{privateReplay:true});
+  const redacted={...complete,content:complete.content.filter(block=>block.type!=='text')};
+  const missingProducer=createRequestJournal();missingProducer.project(input(1));missingProducer.commit();
+  missingProducer.complete(redacted);
+  const lost=missingProducer.project(input(1,context(1,[redacted])));
+  assert.equal(lost.messages.filter(message=>message.role==='assistant').flatMap(message=>message.content).some(block=>block.type==='text'),false);
+  journal.complete(redacted);
+  const next=journal.project(input(1,context(1,[redacted])));journal.commit();
+  assert.equal(next.observation.reset,undefined);assert.equal(next.observation.restored_response_texts,1);
+  assert.deepEqual(next.messages.filter(message=>message.role==='assistant'),[complete]);
+  assert.deepEqual(redacted.content,[complete.content[0]],'the stored/display message stays redacted');
+  const changed={...redacted,content:[{...redacted.content[0],thinking:'Changed reasoning'}]};
+  assert.equal(journal.project(input(1,context(1,[changed]))).observation.reset,'native_message_changed');
+  assert.equal(journal.project(input(1,context(1,[redacted]),50000,'other-source')).messages.some(message=>
+    message.role==='assistant'&&message.content.some(block=>block.type==='text')),false);
+});
+
 test('book-window revisions keep the initial cache brief and append exact nested changes without retransmitting the book',()=>{
   const journal=createRequestJournal(),firstMessages=context(1);
   const book={kind:'context_brief',module:{book:'Stable book text. '.repeat(1000),people:[{name:'Porter',seen:false}],'a/b~c':'old'}};

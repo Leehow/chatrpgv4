@@ -37,15 +37,23 @@ export function createMemoryReadOwner(options: Options) {
         operationId: proposal.id, status, result: result as Json, refs: Array.isArray(result.refs) ? result.refs : [], receipts: [], readSet: proposal.readSet,
         coverage: {used: Array.isArray(result.coverage?.used) ? result.coverage.used : [], omitted: Array.isArray(result.coverage?.omitted) ? result.coverage.omitted : [],
             unknown: Array.isArray(result.coverage?.unknown) ? result.coverage.unknown : []}});
-    const actions = {snapshot: ['raw_all'], page: ['snapshot', 'offset'], original: ['snapshot', 'alias', 'offset', 'role'],
+    const actions = {snapshot: ['raw_all'], page: ['snapshot', 'offset'], original: ['snapshot', 'alias', 'offset', 'role'], originals: ['snapshot', 'requests'],
         finish: ['snapshot', 'selected', 'assessments', 'considered', 'unknown']} as const;
     for (const [action, keys] of Object.entries(actions)) releases.push(options.registerOwned(`memory.${action}`, {
         capability: 'recall', kind: 'read', validate(args) {
             if (!isPlainRecord(args) || Object.keys(args).some(key => !(keys as readonly string[]).includes(key))) throw new ContractError('invalid_memory_query_arguments');
+            if (action === 'originals' && (!Array.isArray(args.requests) || !args.requests.length || args.requests.length > 8
+                || Object.keys(args.requests).length !== args.requests.length || args.requests.some(request => !isPlainRecord(request)
+                    || Object.keys(request).some(key => !['alias','offset','role'].includes(key)) || typeof request.alias !== 'string'
+                    || request.offset !== undefined && (!Number.isSafeInteger(request.offset) || Number(request.offset) < 0)
+                    || request.role !== undefined && !['player','keeper'].includes(String(request.role))))) throw new ContractError('invalid_memory_query_arguments');
             return args;
         }, async execute(proposal, context) {
             const runtime = options.runtime(), record = runtime.snapshot(proposal.taskId);
             if (record.domain.id !== 'memory-read' || !filters.has(proposal.taskId)) throw new ContractError('memory_query_owner_stale');
+            // The dispatcher has already charged the first window. Reserve the rest before any read.
+            if (action === 'originals') context.task.reserve({inputTokens:0,outputTokens:0,costUsd:0,
+                actions:(proposal.args.requests as Json[]).length-1}).settle();
             try {
                 const result = await options.call('memory.evidence', {campaign: context.task.context.scope.campaign, scope: context.task.context.scope,
                     action, ...proposal.args, ...(action === 'snapshot' ? {query: record.plan!.goal, filters: filters.get(proposal.taskId)} : {})});

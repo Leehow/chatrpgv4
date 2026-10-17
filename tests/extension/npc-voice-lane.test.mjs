@@ -574,3 +574,41 @@ test("a bounded Jev card verdict reaches publication and a rejected card receive
  assert.equal(reviews,2,"the repaired card was judged afresh");
  assert.deepEqual(table.rows().filter(r=>r.reviewer==='jev').map(r=>r.status),['rejected','accepted']);
 });
+
+test("an uncertain typed review defers publication and reuses the same source-bound draft", async t => {
+ const original=globalThis.fetch;let reviews=0,submitted=false;
+ t.after(()=>{globalThis.fetch=original;});
+ globalThis.fetch=async (_url,options)=>{
+  const body=JSON.parse(options.body),uncertain=reviews++===0;
+  return new Response(JSON.stringify({model:body.model,answers:Object.fromEntries(Object.entries(body.questions).map(([key,q])=>[key,{type:q.type,noul:uncertain?.5:.01}])),usage:{input_tokens:100,output_tokens:1}}),{status:200});
+ };
+ const table=await openVoice(t,{sourceReferences:true,reviews:[verdict(true)],env:{EXT_JEV_APIKEY:"fixture-key"},
+  responses:[answer("hello","ordinary","uncertain")],rpc:async method=>{
+   if(method==='voice.job')return submitted?{job_id:null}:packet('steven-knott');
+   if(method==='voice.submit'){submitted=true;return{};}
+  }});
+ await waitFor(()=>table.rows().some(r=>r.deferred)||submitted,{label:'typed review outcome'});
+ assert.equal(submitted,false,'uncertainty cannot publish through a prose judge');
+ assert.equal(table.tasks.length,1);
+ assert.equal(table.voice.getPendingResponseCount(),1,'no generative fallback review');
+ await waitFor(()=>submitted,{timeoutMs:22_000,label:'typed review retry'});
+ assert.equal(table.tasks.length,1,'retry reviews the retained valid candidate');
+ assert.equal(reviews,2);
+ assert.equal(table.calls('voice.fail').length,0);
+});
+
+test("a changed source cannot reuse an unpublished voice candidate", async t => {
+ const original=globalThis.fetch;let reviews=0,submitted=false;
+ t.after(()=>{globalThis.fetch=original;});
+ globalThis.fetch=async (_url,options)=>{
+  const body=JSON.parse(options.body),uncertain=reviews++===0;
+  return new Response(JSON.stringify({model:body.model,answers:Object.fromEntries(Object.entries(body.questions).map(([key,q])=>[key,{type:q.type,noul:uncertain?.5:.01}])),usage:{input_tokens:100,output_tokens:1}}));
+ };
+ const table=await openVoice(t,{sourceReferences:true,env:{EXT_JEV_APIKEY:"fixture-key"},responses:[answer("hello","ordinary","uncertain"),answer("welcome","changed","reserved")],rpc:async method=>{
+  if(method==='voice.job'){if(submitted)return{job_id:null};const p=packet('steven-knott');if(reviews)p.npc.voice='Speaks with formal reserve.';return p;}
+  if(method==='voice.submit'){submitted=true;return{};}
+ }});
+ await waitFor(()=>table.rows().some(r=>r.deferred));
+ await waitFor(()=>submitted,{timeoutMs:22_000,label:'changed voice source reviewed'});
+ assert.equal(table.tasks.length,2);assert.deepEqual(table.calls('voice.submit')[0].params.voice.exchanges,['welcome','changed','reserved']);
+});

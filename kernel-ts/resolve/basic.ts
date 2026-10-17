@@ -460,6 +460,7 @@ export const executeLuckSpend: SettlementExecutor = async (context, args) => {
         },
         warnings: [],
         hints: [`Luck spent: no improvement tick for this check; the roll now reads ${recomputed.roll} (${string(recomputed.outcome)})`,
+            'This revises the existing action, not a new attempt. Preserve its already settled elapsed time; do not repeat observation or travel or add time merely to realize the corrected outcome. Additional actions require a separate player choice.',
             ...(recomputed.contest_winner != null ? [`opposed check re-judged with the bought level: winner ${string(recomputed.contest_winner)}`] : [])]
     };
 };

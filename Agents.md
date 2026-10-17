@@ -86,7 +86,7 @@ PipiCOC 界面现已复制到本分支 `Electron/`，经 `pipicoc/rpc` 启动当
 **Pi-Coc 的验收 / 体验 / 开桌 / 实机测试 / 端到端只有一种方法**（用户说这些词就是在点这一条，不是在点建战役、pytest 或把命令行扔给用户）：
 
 1. 用 `tests/play/driver.ts` 以 RPC 模式起 `bin/pi-coc`（建卡用 `--launcher bin/pi-coc-setup`）。驾驭器只做传输。
-2. **真桌测试默认 `codex-relay/gpt-6-luna` / high**，最终作者与辅助车道使用同一配置。Codex Relay 实际报并发满时，本次测试回退到 `grok-build/grok-4.5` / low，保留 Luna 失败记录并核对后续实际模型。产品/App 全局默认仍为 Grok 4.5 / low；历史证据不改写。完整方法见 `docs/acceptance.md`（2026-10-13 用户裁定）。
+2. **真桌测试默认 `minimax-cn/MiniMax-M3.1-Flash-Preview` / medium**，最终作者与辅助车道使用同一配置。MiniMax 实际报告额度耗尽时，切换到 `grok-build/grok-4.5` / high，保留 MiniMax 额度耗尽记录并核对切换后的实际模型与推理等级。产品/App 全局默认仍为 Grok 4.5 / low；历史证据不改写。完整方法见 `docs/acceptance.md`；测试模型以本条为准（2026-10-16 用户裁定）。
 3. **本主会话就是唯一玩家。** 一次一句自然的话，一回合一回，从建卡/开场跑到结局或真阻断。不问「要我当玩家吗」——角色已定死。
 4. 沿途覆盖要测的能力点，不预设脚本，由守秘人正常推进。
 5. **慢可以，假不行。**
@@ -198,18 +198,21 @@ Grok 系模型屡次把「交付」当目标、把意图当配菜，也屡次静
 - 主检出与共享 worktree 上禁用 `git stash`、`reset --hard`、`checkout --`、`clean`；要隔离就开临时 worktree。不推、不删分支、不改共享历史，除非用户当回合明说。
 - 每次真桌验收都会找出几个接缝看不见的系统缺陷：给每个切片预留一次修复提交。
 
-## Test model override (owner 2026-10-13)
+## Test model override (owner 2026-10-16)
 
 Before creating or cloning test data of any type (including images, PDFs, logs and archives), running model comparisons, or retaining test data, read [the test storage contract](docs/specs/test-data-storage.md). Reuse one retained seed through `scripts/test-workspace.mjs` (`shareTestTree` for arbitrary trees) or the live driver's `--seed-home`; preserve active tests and formal campaigns. Record capacity admission and results; ordinary full-tree copies or per-arm tar snapshots require an explicit exception in the approved test plan.
 The shared object store is retained evidence, not disposable cache; never prune it by age or after a test finishes.
 
-For all subsequent live tests, use Codex Relay `codex-relay/gpt-6-luna` with
-`high` reasoning. This supersedes earlier Grok 4.5/low test-model instructions,
-including the final author within a test. `tests/play/driver.ts` selects this
-profile and passes `PI_COC_TEST_MODEL` to its runtime. Verify actual models;
-never rewrite the model attribution of historical evidence. Product session
-model defaults are not changed by this test-only instruction.
-If Codex Relay reports saturated upstream concurrency, use `grok-build/grok-4.5`
-with `low` reasoning for that test, including its author and supporting lanes
-(owner 2026-10-13). Record the fallback and preserve the failed Luna evidence;
-Luna/high remains the default for subsequent tests.
+For all subsequent live tests, use MiniMax 3.1
+`minimax-cn/MiniMax-M3.1-Flash-Preview` with `medium` reasoning, including the
+final author and supporting lanes. This supersedes earlier Luna/high and
+Grok 4.5/low test-model instructions, including older guidance in
+`docs/acceptance.md`. Select the requested profile explicitly in the live
+driver and verify the actual provider, model, and reasoning level in runtime
+evidence; do not rely on older driver defaults. Never rewrite the model
+attribution of historical evidence. Product session model defaults are not
+changed by this test-only instruction.
+If MiniMax reports exhausted quota, switch to `grok-build/grok-4.5` with `high`
+reasoning, including the final author and supporting lanes (owner 2026-10-16).
+Record the switch and preserve the MiniMax quota-exhaustion evidence.
+MiniMax 3.1/medium remains the default whenever its quota is available.

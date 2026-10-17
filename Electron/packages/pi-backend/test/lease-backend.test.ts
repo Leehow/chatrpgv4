@@ -69,7 +69,8 @@ describe("PiHostBackend session lease lifetime", () => {
 
     const spectatorLease = (await spectator.handle("getSessionLease", ["s1"])) as { writable: boolean };
     expect(spectatorLease.writable).toBe(false);
-    await spectator.handle("sendPrompt", ["s1", "stolen"]);
+    await expect(spectator.handle("sendPrompt", ["s1", "stolen"]))
+      .rejects.toThrow("session is read-only");
     await eventually(() =>
       ((spectator as any).queue.listQueue("s1") as { state: string; error?: string }[]).some(
         (item) => item.state === "failed" && /session is read-only: held by pipiui-electron/.test(item.error ?? ""),

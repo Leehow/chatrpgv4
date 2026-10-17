@@ -21,6 +21,8 @@ import { buildCapsule } from '../read/assemble.js';
 import { contextBinding } from '../read/context.js';
 import { mechanics } from '../read/mechanics.js';
 import {initializeNpcVariations} from '../resolve/npc-variation.js';
+import {adoptPreparedPersonalities} from '../npc/prepared.js';
+import {preparationCompatibility} from './preparation-compatibility.js';
 import { SessionView } from '../read/session-view.js';
 import { standingStates } from '../read/standing.js';
 import { authoredMapWords, presentPublishedArrivalMaps } from '../read/maps.js';
@@ -61,7 +63,7 @@ import {eventOf} from '../worldline/index.js';
 import type {createWorldlineRuntime} from '../worldline/index.js';
 import { owedIntents } from '../npc/owed.js';
 import { namedRepeats, speakerThreads } from '../npc/threads.js';
-import {quotationDrafts,quotationScope,pendingQuotation,quotationRecords,discloseCashRequests} from '../runtime/quotes.js';
+import {quotationDrafts,quotationScope,pendingQuotation,quotationRecords,discloseCashRequests,cashConfirmationBinding} from '../runtime/quotes.js';
 import {selectDocumentRequest,finishDocumentRequestTurn} from '../mods/document-requests.js';
 import {bindPriceText,priceRows} from '../../shared/cash-prose.js';
 export { createTurnTransaction } from './store.js';
@@ -733,7 +735,8 @@ export function createWriteRuntime(context: KernelContext, contributions: WriteC
                 },
             });
         }
-        const module = await loadCampaignModule(context, string(snapshot.meta.module_id), snapshot.world, snapshot.id);
+        const module = await loadCampaignModule(context, string(snapshot.meta.module_id), snapshot.world, snapshot.id,
+            {deliveryFrozen:snapshot.turn.delivery_frozen===true});
         if (repair)
             await repairLegacyTrail(snapshot);
         if(preload)await snapshot.preload(preload === 'names' ? 'names' : 'all');
@@ -1243,6 +1246,7 @@ export function createWriteRuntime(context: KernelContext, contributions: WriteC
             next = 1;
         }
         const cursor = freshTurn(next, 'open', pending);
+        const preparedPersonalities = await adoptPreparedPersonalities(campaign, snapshot.world, module.graph, snapshot.meta, next);
         cursor.player_text = text;
         await selectDocumentRequest(campaign,snapshot.world,text,next);
         // §185.6: the book's handles reach a name-free campaign here too, before anything of this turn reads a handle.
@@ -1265,7 +1269,7 @@ export function createWriteRuntime(context: KernelContext, contributions: WriteC
             snapshot.records.length ? snapshot.records : await snapshot.files('turns'));
         seedTurn(context, snapshot.meta, next);
         const variations = await initializeNpcVariations(context, module.graph, snapshot.world, cursor, array(cursor.receipts), true, campaign.id);
-        if (refolded || folded || lateMaps.length || variations.length || JSON.stringify(array(snapshot.world.map_arrivals_pending)) !== awaited) await campaign.writeWorld(snapshot.world);
+        if (preparedPersonalities || refolded || folded || lateMaps.length || variations.length || JSON.stringify(array(snapshot.world.map_arrivals_pending)) !== awaited) await campaign.writeWorld(snapshot.world);
         cursor.receipts = [...array(cursor.receipts), ...lateMaps.map(item => item.receipt), ...variations];
         await campaign.writeTurn(cursor);
         await campaign.appendTranscript(next, 'player', text);
@@ -1374,22 +1378,31 @@ export function createWriteRuntime(context: KernelContext, contributions: WriteC
 				validateDeliveryArtifact({version:1,text:evidence.artifact_text,coverage:evidence.coverage}, evidence.materials.map((m:Row)=>m.name), evidence.required);
 			} catch {throw new RpcError('invalid_params','Invalid host final-output evidence');}
 			const expected=row(evidence.context);
-			if(expected.campaign!==snapshot.id||expected.turn!==snapshot.turn.turn
-				|| expected.worldline!==(snapshot.meta.active_worldline??'main')
-				|| expected.loop!==number(row(row(snapshot.meta.worldlines)[expected.worldline]).loop)
-				|| expected.world_revision!==taskWorldRevision(snapshot.world,snapshot.party,snapshot.turn.receipts,snapshot.turn.pending_choice))
-				throw new RpcError('revision_conflict','The selected final writing no longer matches the publication owner');
-			// The same Keeper's settled world owns publication; background source preparation does not replace its consumed context.
-			if(evidence.author!=='keeper'){
+			const actual:Row={campaign:snapshot.id,turn:snapshot.turn.turn,worldline:snapshot.meta.active_worldline??'main',
+				loop:number(row(row(snapshot.meta.worldlines)[expected.worldline]).loop),
+				world_revision:taskWorldRevision(snapshot.world,snapshot.party,snapshot.turn.receipts,snapshot.turn.pending_choice)};
+			let mismatches=Object.keys(actual).filter(field=>expected[field]!==actual[field]);
+            if (mismatches.length===1&&mismatches[0]==='world_revision') {
+                const compatible=await preparationCompatibility(snapshot,module,evidence);
+                if (compatible) {
+                    await new CampaignWriter(context,snapshot.id).telemetry({lane:'publication-compatibility',turn:snapshot.turn.turn,...compatible});
+                    mismatches=[];
+                }
+            }
+			if(mismatches.length)throw new RpcError('revision_conflict','The selected final writing no longer matches the publication owner',
+				{details:{reason:'publication_owner_changed',mismatches:mismatches.map(field=>({field,expected:expected[field]??null,actual:actual[field]??null}))}});
+			// Keeper and isolated expression consume one frozen Keeper snapshot; background source preparation cannot replace it.
+			if(!['keeper','isolated-expression'].includes(evidence.author)){
 				const active=await activeMods(context,snapshot.world);
 				const source=await sourceRevision(snapshot,module,{mods:{active:active.map(mod=>({id:mod.id}))}});
 				if(expected.source_revision!==source.task_source_revision)
-					throw new RpcError('revision_conflict','The selected final writing no longer matches the publication owner');
+					throw new RpcError('revision_conflict','The selected final writing no longer matches the publication owner',
+						{details:{reason:'publication_source_changed',expected:expected.source_revision??null,actual:source.task_source_revision??null}});
 			}
 		}
     }
     async function checkDelivery(params:Row):Promise<Row> {
-        const {snapshot,module}=await load(params);
+        const {campaign,snapshot,module}=await load(params);
         preflightCampaign(snapshot.meta,snapshot.world,snapshot.turn,snapshot.party);
         await validateMods(snapshot.world);
         const names=params.speakers===undefined?[]:params.speakers;
@@ -1406,6 +1419,12 @@ export function createWriteRuntime(context: KernelContext, contributions: WriteC
         const seen=new Set<string>(),speakers=[...spoken,...names.map(prepared)].filter(entry=>{
             if(seen.has(entry.name))return false;seen.add(entry.name);return true;
         }).slice(0,48);
+        if (snapshot.turn.delivery_frozen !== true && (['open','acting'].includes(snapshot.turn.state)
+            || snapshot.turn.turn===0&&snapshot.turn.state==='awaiting_player')) {
+            if (!equal(snapshot.world,await snapshot.optional('world.json'))) await campaign.writeWorld(snapshot.world);
+            snapshot.turn.delivery_frozen = true;
+            await campaign.writeTurn(snapshot.turn);
+        }
         return {checked:true,turn:snapshot.turn.turn,state:snapshot.turn.state,published:false,...(speakers.length?{speakers}:{})};
     }
     async function ask(params: Row): Promise<Row> {
@@ -1437,7 +1456,11 @@ export function createWriteRuntime(context: KernelContext, contributions: WriteC
         // kernel offers it in `pending_defense.options`, so the choice that hands it to the player takes it too.
         if (kind === 'mechanics' && options.some(option => !['push', 'spend_luck', 'accept', 'dodge', 'fight_back', 'none', 'flee'].includes(option)))
             throw new RpcError('invalid_params', 'unknown mechanics choice option');
-        const binds = required(params, 'binds', true), text = required(params, 'text', true), ending = row(snapshot.world.ending);
+        const requestedBinds = required(params, 'binds', true), text = required(params, 'text', true), ending = row(snapshot.world.ending), n = number(turn.turn);
+        const quoteDrafts=quotationDrafts(params.quotes,n,snapshot.meta,snapshot.party);
+        discloseCashRequests(quoteDrafts,params._cash_requests,{world:snapshot.world,graph:module.graph},snapshot.party);
+        const ruleChoice=array(params._cash_requests).length?new SessionView(snapshot,module.graph,snapshot.party,snapshot.world).pendingChoice():null;
+        const binds=cashConfirmationBinding(kind,options,requestedBinds,quoteDrafts,params._cash_requests,snapshot.world,ruleChoice);
         if (truth(ending) && ((ending.scope || 'campaign') === 'campaign' && snapshot.meta.status !== 'completed' || ending.scope === 'chapter' && snapshot.meta.status === 'completed'))
             throw new RpcError('invalid_params', 'a campaign ending requires canonical story publication without a mechanical choice');
         if(truth(turn.worldline))throw new RpcError('invalid_params','a turn that forks or switches the worldline cannot be closed by ask',{fix:"finish this turn with canonical story publication; ask on the new line's first turn",details:{worldline:row(turn.worldline).operation??null}});
@@ -1455,7 +1478,7 @@ export function createWriteRuntime(context: KernelContext, contributions: WriteC
         await refuseRepeatedLine(snapshot, campaign, delivery.speech);
         const language = await playLanguageOf(context, snapshot.meta);
         await stanceTable(context);
-        const n = number(turn.turn), pending = {
+        const pending = {
             name: `ask-${asciiSlug(binds || '') || kind}-t${n}`,
             prompt,
             options: [...options],
@@ -1463,8 +1486,6 @@ export function createWriteRuntime(context: KernelContext, contributions: WriteC
             kind
         };
         const rendered = delivery.rendered_text, projected = mechanics(receipts, placed, await snapshot.handoutTexts(receipts), snapshot.world, module.graph), labels = await playerGlossary(context, language);
-        const quoteDrafts=quotationDrafts(params.quotes,n,snapshot.meta,snapshot.party);
-        discloseCashRequests(quoteDrafts,params._cash_requests,{world:snapshot.world,graph:module.graph},snapshot.party);
         projected.push(...quoteDrafts.map(pendingQuotation));
         const standing = standingStates(snapshot.party, receipts);
         const result: Row = {

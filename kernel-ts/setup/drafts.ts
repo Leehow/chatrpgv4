@@ -504,7 +504,10 @@ export class SetupDrafts {
   /** The catalog the setup prompt is given once (§98). */
   async catalog(params: Row): Promise<Row> {
     const campaign = await this.setup.campaign(params), meta = await campaign.readCampaign();
-    return this.setup.catalog.compact(await playLanguageOf(this.setup.context, meta));
+    return {...this.setup.catalog.compact(await playLanguageOf(this.setup.context, meta)), draft_constraints: {
+      finance_periods: await this.setup.tables.financePeriods(),
+      aptitude: this.setup.chargen.policy.aptitude,
+    }};
   }
   /** The campaign's mod lock as setup sees it: world.mods once the world exists, else the pending lock (§26). */
   async modLock(campaign: CampaignWriter, meta: Row): Promise<Row> {

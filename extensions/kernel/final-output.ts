@@ -204,9 +204,9 @@ export function createFinalOutputOwner(deps: {runtime: () => HostRuntime | undef
     const author=finalAuthorProfile();
     const reusedTextNames=new Set((plan.materials??[]).filter((m:Row)=>m.text===undefined).map((m:Row)=>m.name));
     if(!runtime||signal?.aborted)throw error('Final-output runtime is unavailable or cancelled');
+    await deps.call('table.delivery.check',{campaign});
     const snapshot=await deps.call('table.status',{campaign,_context_read:true}),capsule=await deps.call('table.capsule',{campaign,_context_read:true});
     if(deps.reference)advice=await deps.reference(capsule) as typeof advice;
-    await deps.call('table.delivery.check',{campaign});
     const primary=(view:Row):Row=>contextOf(campaign,turn,view);
     const context=primary(capsule),binding=digest(context);
     observeEvents(object(snapshot.outcome));
@@ -428,16 +428,17 @@ export function createFinalOutputOwner(deps: {runtime: () => HostRuntime | undef
     try{return structuredClone(await task);}finally{running.delete(key);}
   }
 
-  async function openStream(campaign:string,turn:number,run:string,author='keeper',selectedSpeakers:string[]=[]) {
+  async function openStream(campaign:string,turn:number,run:string,author='keeper',selectedSpeakers:string[]=[],investigators:string[]=[]) {
     forTurn(campaign,turn);
     const root=deps.runtime()?.home;
     if(!root)throw error('The delivery runtime is unavailable');
+    await deps.call('table.delivery.check',{campaign});
     const capsule=await deps.call('table.capsule',{campaign,_context_read:true});
     const context=contextOf(campaign,turn,capsule),binding=digest(context);
     const key=digest({campaign,turn,run,author}),attempt=join(root,'.coc','delivery-writes',key);
     await mkdir(attempt,{recursive:true});
     const shown=untoldView(capsule);
-    const names=[...new Set([...selectedSpeakers,...(shown.capsule.present??[]).map((person:Row)=>person.name).filter(Boolean)])].slice(0,48);
+    const names=[...new Set([...investigators,...selectedSpeakers,...(shown.capsule.present??[]).map((person:Row)=>person.name).filter(Boolean)])].slice(0,48);
     const prepared=await deps.call('table.delivery.check',{campaign,speakers:names});
     const journal=new DeliveryJournal(join(attempt,'delivery.jsonl'),{campaign,turn,worldline:context.worldline,loop:context.loop,
       run,input_revision:digest(capsule.turn?.player_text),delivery_id:key},frame=>deps.stream?.(frame));
@@ -446,6 +447,9 @@ export function createFinalOutputOwner(deps: {runtime: () => HostRuntime | undef
     journal.write('start',{status:'streaming',speakers:prepared.speakers??[]});
     let text='';
     return {
+      playerText:typeof capsule.turn?.player_text==='string'?capsule.turn.player_text:undefined,
+      investigatorNames:[...new Set<string>((prepared.speakers??[]).filter((speaker:Row)=>typeof speaker.who?.investigator==='string'&&speaker.who.investigator)
+        .map((speaker:Row)=>speaker.who.name??speaker.name))],
       push:(delta:string)=>{if(delta){text+=delta;journal.write('delta',{delta});}},
       interrupt:()=>{if(journal.frames.at(-1)?.status!=='interrupted')journal.write('end',{status:'interrupted'});},
       finish:async(model:string,thinking:unknown,publication:Row,declarations:unknown=[])=>{

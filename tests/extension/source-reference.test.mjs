@@ -3,6 +3,7 @@ import{test}from'node:test';
 import{entryExcerpt,originalSpans,sourceNameTokens,selectReferencePacket,checkReferenceGuide}from'../../runtime/jev/source-reference.ts';
 import{validateReferencePacket,referenceEntryExcerpt}from'../../kernel-ts/modules/reference-contract.ts';
 import{createSourceReaderDriver}from'../../runtime/jev/source-reader-driver.ts';
+import{packDecisionBatch}from'../../runtime/jev/question-packing.ts';
 import{mkdtemp,writeFile,rm}from'node:fs/promises';import{tmpdir}from'node:os';import{join}from'node:path';
 const sourceSha='a'.repeat(64);
 test('host source spans reconstruct the original bytes and never normalize or paraphrase content',()=>{
@@ -24,6 +25,42 @@ test('source selection returns host copies and source-backed entrance handles wi
 test('guide quality failures carry actionable criteria rather than authoring another dossier',async()=>{
  const result=await checkReferenceGuide({packet:{},text:'An introduction',signal:AbortSignal.timeout(1000),decide:async batch=>({status:'complete',answers:Object.fromEntries(batch.questions.map(q=>[q.key,{status:'answered',type:'noul',noul:q.key==='plot_disclosure'?.95:.02}]))})});
  assert.equal(result.approved,false);assert.deepEqual(result.issues.map(x=>x.key),['plot_disclosure']);assert.match(result.issues[0].instruction,/hidden antagonist/);
+});
+test('a long guide retains all checks and candidate sentences in bounded ordinary batches',async()=>{
+ const text=Array.from({length:32},(_,i)=>`The traveler ${i} crosses the harbor with a companion and may choose a suitable profession before beginning this investigation.`).join(' ');
+ const source='Original source context. '.repeat(500),batches=[];
+ const result=await checkReferenceGuide({packet:{excerpts:[{id:'context',page:1,text:source}],fields:{premise:['context']}},text,
+  signal:AbortSignal.timeout(1000),decide:async batch=>{
+   packDecisionBatch(batch);batches.push(batch);
+   return {status:'complete',answers:Object.fromEntries(batch.questions.map(q=>[q.key,q.type==='choice'?{status:'answered',type:'choice',choice:'none',confidence:1}:{status:'answered',type:'noul',noul:.01}]))};
+  }});
+ assert.equal(result.approved,true);assert.ok(batches.length>1);
+ assert.equal(batches.flatMap(batch=>batch.questions).length,10);
+ assert.ok(batches.every(batch=>!batch.longContext));
+ assert.ok(batches.every(batch=>batch.model==='jev-1.14.0'));
+ for(const batch of batches){assert.equal(batch.state.guide,text);assert.equal(batch.state.source[0].text,source);}
+});
+test('large source context uses one bounded Jev 1.14 long-context batch without losing checks',async()=>{
+ const spans=Array.from({length:4},(_,i)=>({id:'span'+i,page:i+1,text:'Source context. '.repeat(625)})),batches=[];
+ const result=await checkReferenceGuide({packet:{excerpts:spans,fields:{premise:spans.map(span=>span.id)}},text:'Choose a character at the harbor.',
+  signal:AbortSignal.timeout(1000),decide:async(batch,lease)=>{
+   const {estimate}=packDecisionBatch(batch);assert.ok(lease.context.budget.remainingInputTokens>=estimate.totalUpperBound);batches.push(batch);
+   return {status:'complete',answers:Object.fromEntries(batch.questions.map(q=>[q.key,q.type==='choice'?{status:'answered',type:'choice',choice:'none',confidence:1}:{status:'answered',type:'noul',noul:.01}]))};
+  }});
+ assert.equal(result.approved,true);assert.equal(batches.length,1);assert.equal(batches[0].longContext,true);
+ assert.equal(batches[0].model,'jev-1.14.0');assert.equal(batches[0].questions.length,10);
+ assert.deepEqual(batches[0].state.source,spans.map(({page,text})=>({page,text})));
+});
+test('source context beyond long-context capacity refuses before dispatch rather than truncating evidence',async()=>{
+ let calls=0;const spans=Array.from({length:28},(_,i)=>({id:'span'+i,page:i+1,text:'Source context. '.repeat(625)}));
+ await assert.rejects(checkReferenceGuide({packet:{excerpts:spans,fields:{premise:spans.map(span=>span.id)}},text:'Choose a character at the harbor.',
+  signal:AbortSignal.timeout(1000),decide:async()=>{calls++;throw Error('Must not dispatch');}}),error=>error.failure==='packing_limit');
+ assert.equal(calls,0);
+});
+test('an unavailable guide check retains its failure code and cannot become a prose repair',async()=>{
+ await assert.rejects(checkReferenceGuide({packet:{},text:'A public introduction.',signal:AbortSignal.timeout(1000),
+  decide:async()=>({status:'unavailable',answers:{},failure:{code:'service_error',retryable:true}})}),
+  error=>error.reason==='service_error'&&error.retryable===true);
 });
 test('orientation review judges the delivered guide even when its source already supplies the missing premise',async()=>{
  const source='1925, Harbor. You are local fishers returning home to a silent quay.',text='Harbor, 1925. Who are you, and why would you come here?';

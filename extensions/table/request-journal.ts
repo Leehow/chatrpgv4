@@ -3,7 +3,7 @@ import {customMessage,pairedTools,requestSize,type Row} from './context-policy.t
 
 const SNAPSHOTS=new Set(['coc-context-brief','coc-capsule','coc-history','coc-clerk','coc-capsule-update','coc-prescreen','coc-workspace']);
 const REVISION_HEAD='This is the current request context. Initial snapshots name their context_type; the initial context_brief is coc-context-brief. Apply these revisions in order: sections replace top-level fields, removed deletes fields, value replaces the whole snapshot, and patch applies RFC 6902 operations to that snapshot. Later values supersede earlier values, including book and package instructions. Retired context types no longer supply current state or instructions. The latest active capsule and its latest active capsule update define current state. Earlier player inputs, instructions and tool traffic are historical; do not repeat their actions or settlements.';
-type State={key:string;turn:number;budget:number;messages:Row[];snapshots:Map<string,Row>;native:Map<string,string>;opaque:Set<string>};
+type State={key:string;turn:number;budget:number;messages:Row[];snapshots:Map<string,Row>;native:Map<string,string>;opaque:Set<string>;privateResponses:Set<string>};
 type Input={key:string;turn:number;messages:Row[];budget:number};
 
 function jsonSnapshot(message:Row):Row|undefined{
@@ -17,6 +17,8 @@ function nativeKey(message:Row,turn:number,index:number):string{
   return calls.length?`calls:${JSON.stringify(calls)}`:`${turn}:${message.role}:${message.timestamp??index}`;
 }
 const nativeValue=(message:Row)=>JSON.stringify([message.role,message.content,message.toolCallId,message.toolName,message.isError,message.thinkingLevel]);
+const responseKey=(message:Row)=>message.role==='assistant'&&Number.isFinite(message.timestamp)
+  ?JSON.stringify([message.provider,message.model,message.timestamp]):undefined;
 const record=(value:unknown):value is Row=>value!==null&&typeof value==='object'&&!Array.isArray(value);
 const pointer=(path:string,key:string)=>path+'/'+key.replaceAll('~','~0').replaceAll('/','~1');
 /** Structural JSON Patch only: no language, relevance or content interpretation. */
@@ -41,8 +43,18 @@ export function createRequestJournal(){
   const reset=(reason='initial')=>{committed=undefined;pending=undefined;resetReason=reason;};
   function project(input:Input):{messages:Row[];observation:Row}{
     pending=undefined;
+    const originals=new Map<string,Row>();
+    if(committed?.key===input.key&&input.turn>=committed.turn)for(const message of committed.messages){
+      const key=responseKey(message);if(key&&committed.privateResponses.has(key))originals.set(key,message);
+    }
+    let restoredResponses=0;
     const counts=new Map<string,number>();
-    const rows=input.messages.map(message=>{
+    const rows=input.messages.map(incoming=>{
+      const key=responseKey(incoming),original=key?originals.get(key):undefined;
+      const redacted=original?{...original,content:original.content.filter((block:Row)=>block.type!=='text')}:undefined;
+      const restore=original&&nativeValue(incoming)!==nativeValue(original)&&nativeValue(incoming)===nativeValue(redacted!);
+      const message=restore?structuredClone(original):incoming;
+      if(restore)restoredResponses++;
       const snapshot=jsonSnapshot(message);
       // Snapshot kinds are singular in the admitted projection. Duplicates use the ordinary path.
       if(snapshot)counts.set(message.customType,(counts.get(message.customType)??0)+1);
@@ -52,7 +64,7 @@ export function createRequestJournal(){
       reset();return{messages:input.messages,observation:{reset:'unsupported_projection'}};
     }
     const checkpoint=(reason:string)=>{
-      const state:State={key:input.key,turn:input.turn,budget:input.budget,messages:[],snapshots:new Map(),native:new Map(),opaque:new Set()};
+      const state:State={key:input.key,turn:input.turn,budget:input.budget,messages:[],snapshots:new Map(),native:new Map(),opaque:new Set(),privateResponses:new Set()};
       let index=0;
       for(const {message,snapshot} of rows){
         if(snapshot){
@@ -61,6 +73,7 @@ export function createRequestJournal(){
             :{...message,content:JSON.stringify({...snapshot,context_type:message.customType})});
         }else{
           state.messages.push(structuredClone(message));
+          const response=responseKey(message);if(response&&originals.has(response))state.privateResponses.add(response);
           if(message.role==='custom')state.opaque.add(JSON.stringify([message.customType,message.content]));
           else state.native.set(nativeKey(message,input.turn,index++),nativeValue(message));
         }
@@ -68,13 +81,13 @@ export function createRequestJournal(){
       // Tagging is transport metadata and must not defeat the existing request ceiling.
       if(requestSize(state.messages)>input.budget){reset();return{messages:input.messages,observation:{reset:'checkpoint_capacity'}};}
       pending=state;
-      return{messages:structuredClone(state.messages),observation:{reset:reason,retained_bytes:0,appended_bytes:requestSize(state.messages)}};
+      return{messages:structuredClone(state.messages),observation:{reset:reason,retained_bytes:0,appended_bytes:requestSize(state.messages),restored_response_texts:restoredResponses}};
     };
     if(!committed)return checkpoint(resetReason);
     if(committed.key!==input.key)return checkpoint('identity_changed');
     if(input.turn<committed.turn)return checkpoint('turn_rewound');
     const next:State={...committed,turn:input.turn,budget:input.budget,messages:structuredClone(committed.messages),
-      snapshots:new Map(committed.snapshots),native:new Map(committed.native),opaque:new Set(committed.opaque)};
+      snapshots:new Map(committed.snapshots),native:new Map(committed.native),opaque:new Set(committed.opaque),privateResponses:new Set(committed.privateResponses)};
     const additions:Row[]=[],updates:Row[]=[],retired:string[]=[];
     let index=0,scope:unknown;
     for(const {message,snapshot} of rows){
@@ -111,14 +124,15 @@ export function createRequestJournal(){
     if(requestSize(next.messages)>input.budget)return checkpoint('capacity');
     pending=next;
     return{messages:structuredClone(next.messages),observation:{retained_bytes:requestSize(committed.messages),
-      appended_bytes:requestSize(additions),retained_messages:committed.messages.length}};
+      appended_bytes:requestSize(additions),retained_messages:committed.messages.length,restored_response_texts:restoredResponses}};
   }
   return{project,commit(){if(pending)committed=pending;pending=undefined;},
-    complete(message:Row){
+    complete(message:Row,options:{privateReplay?:boolean}={}){
       // Tool responses join with their results in the next admitted projection. Never leave a dangling call.
       if(!committed||message.role!=='assistant'||message.stopReason!=='stop'
         ||!Array.isArray(message.content)||message.content.some((block:Row)=>block.type==='toolCall'))return;
       const key=nativeKey(message,committed.turn,committed.native.size);
+      const response=responseKey(message);if(options.privateReplay&&response)committed.privateResponses.add(response);
       if(committed.native.has(key))return;
       if(requestSize([...committed.messages,message])>committed.budget){reset('response_capacity');return;}
       committed.messages.push(structuredClone(message));committed.native.set(key,nativeValue(message));

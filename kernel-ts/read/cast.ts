@@ -472,6 +472,23 @@ export function castPersonNamed(graph: ModuleGraph, world: Row, word: string): C
     return found.length === 1 ? found[0]! : null;
 }
 
+/** A corrective read of an existing source anchor, never permission to establish its named person. */
+export function sourceNameReadFix(graph: ModuleGraph, name: string): string | null {
+    const key = normalize(name).replace(/\s+/gu, '');
+    if ([...key].length < 2) return null;
+    for (const node of graph.kind('scene')) {
+        if (row(node.properties).source_reference_anchor !== true || typeof node.summary !== 'string'
+            || !normalize(node.summary).replace(/\s+/gu, '').includes(key)) continue;
+        const pages = [...new Set(array(node.source_refs).filter(ref => row(ref).source_id === `pdf:${graph.moduleId}`
+            && Number.isInteger(row(ref).pdf_index) && Number(row(ref).pdf_index) >= 0).map(ref => Number(row(ref).pdf_index) + 1))];
+        if (pages.length !== 1) continue;
+        const query = graph.handle(node), found = graph.search(query, 64).filter(value => value.node_kind === 'scene');
+        if (found.length !== 1 || found[0] !== node) continue;
+        return `Read the matching source on physical page ${pages[0]} with lookup ${JSON.stringify({kind:'module',query,expected_kind:'scene'})}, then resubmit this NPC effect unchanged. This hint alone does not establish the person.`;
+    }
+    return null;
+}
+
 /**
  * Why `name` cannot be a newcomer's (§177.3), or null: it is, or carries, a name or a punctuation piece of a name of anyone in
  * the cast (§103.8's pieces), told or not, read or not. The refusal names nobody: for someone untold, saying whose name it is
@@ -492,7 +509,7 @@ export function newcomerRefusal(graph: ModuleGraph, world: Row, name: string): {
         if (!carried && !called) continue;
         return {
             message: `${JSON.stringify(name.trim())} ${called ? 'is the word this table already calls one of the book\'s people' : 'carries a name the book gives one of its people'}; walk_on brings in someone the book does not have`,
-            fix: 'if you mean someone already here, leave walk_on out and name them by the word present[] shows; a newcomer needs a word that carries nobody\'s name -- what they look like or what they do',
+            fix: sourceNameReadFix(graph, name) ?? 'if you mean someone already here, leave walk_on out and name them by the word present[] shows; a newcomer needs a word that carries nobody\'s name -- what they look like or what they do',
         };
     }
     return null;

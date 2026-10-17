@@ -475,11 +475,11 @@ export default function (pi: ExtensionAPI) {
 	// One policy owns request-local projection and the safe persisted fold (contract §19.2). The
 	// optional Workpad cache lives beside the evidence cache under the same host root; without a
 	// home the reads are misses on the optional layer, never failures.
+	const materialScreen=installMaterialScreen(pi, record);
 	installContextPolicy(pi, record, () => {
 		const root = home();
 		return root ? join(root, ".coc", "workspace-cache", "workpad") : undefined;
-	});
-	installMaterialScreen(pi, record);
+	}, materialScreen);
 
 	pi.on("session_start", async (_event, sessionCtx) => {
 		ctx = sessionCtx;

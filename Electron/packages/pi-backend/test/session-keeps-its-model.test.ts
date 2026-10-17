@@ -41,6 +41,12 @@ describe("a live session keeps its own model", () => {
       runtimeRoot: join(root, "runtime"),
       runtimeAssets: { sourceRoot: runtimeSource },
       profileMode: "isolated",
+      authRuntime: {
+        getProviders: async () => [],
+        getAvailable: async () => [{ provider: "opencode-go", id: "deepseek-v4.1-flash", name: "Bound test model", reasoning: true }],
+        login: async () => undefined,
+        logout: async () => undefined,
+      },
       piPath: process.execPath,
       spawn: (_bin, _args, options) =>
         spawn(process.execPath, [new URL("./fake-pi.mjs", import.meta.url).pathname], options) as never,
@@ -49,6 +55,7 @@ describe("a live session keeps its own model", () => {
       // Make the session live: that is the branch that used to answer with the
       // host's placeholder instead of the session's own model.
       await backend.handle("sendPrompt", ["bound-session", "hello"]);
+      expect((backend as any).live.has("bound-session")).toBe(true);
       const state = await backend.handle("getModelState", ["bound-session"]) as { model: { provider: string; id: string; name: string }; thinkingLevel: string };
       expect(state.model.provider).not.toBe("unknown");
       expect(state.model.id).not.toBe("unknown");

@@ -85,11 +85,13 @@ export class ArtifactTextStream {
   private pending = '';
   private exposed = '';
   private textBytes = 0;
+  private privateControlRejected = false;
 
   private readonly onRecord?: (record:Record<string,unknown>)=>void;
   constructor(onRecord?: (record:Record<string,unknown>)=>void) {this.onRecord=onRecord;}
 
   push(chunk: string): string {
+    if(this.privateControlRejected)throw new Error('Invalid public stream marker');
     this.bytes += Buffer.byteLength(chunk, 'utf8');
     if (this.bytes > 128000) throw new Error('Final artifact exceeds its transport budget');
     this.raw += chunk;
@@ -199,6 +201,18 @@ export class ArtifactTextStream {
     text = this.pending + text;
     this.pending = '';
     if (text.length && /[\uD800-\uDBFF]/.test(text.at(-1)!)) { this.pending = text.at(-1)!; text = text.slice(0, -1); }
+    // A public opening never grants visibility to a later private control. Check
+    // decoded bytes and the previous suffix before returning this chunk, so a
+    // split marker cannot release its following composition payload.
+    const publicText=this.exposed+text;
+    // These are the existing ordered transport fields, not a classification of
+    // arbitrary JSON or story content. Their payload cannot acquire visibility
+    // merely because the model put a public marker before the envelope.
+    if(publicText.includes('{{compose}}')
+      || /\{\s*"version"\s*:\s*1\s*,\s*"(?:record|text)"\s*:/.test(publicText)){
+      this.privateControlRejected=true;
+      throw new Error('Invalid public stream marker');
+    }
     this.exposed += text;
     this.textBytes += Buffer.byteLength(text,'utf8');
     if (this.textBytes > 64000) throw new Error('Final text exceeds its budget');
@@ -206,6 +220,7 @@ export class ArtifactTextStream {
   }
 
   finish(): {version: 1; text: string; coverage: unknown[];record?:Record<string,unknown>} {
+    if(this.privateControlRejected)throw new Error('Invalid public stream marker');
     if(this.native){
       if(this.pending||!this.exposed.trim())throw new Error('Incomplete public response');
       return {version:1,text:this.exposed,coverage:[],...(this.record?{record:this.record}:{})};

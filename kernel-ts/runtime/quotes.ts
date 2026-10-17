@@ -32,6 +32,28 @@ export function discloseCashRequests(drafts:Row[],requests:unknown,context:Pick<
     }
 }
 
+/** A held cash card has an explicit quote binding before a pending choice can be published. */
+export function cashConfirmationBinding(kind:string,options:unknown,binds:string|null,drafts:Row[],requests:unknown,world:Row,ruleChoice?:Row|null):string|null{
+    if(kind!=='mechanics'||!Array.isArray(options)||!options.includes('accept')||!options.every(option=>['accept','flee'].includes(option)))return binds;
+    if(ruleChoice?.for==='player'&&binds===ruleChoice.name&&options.every(option=>array(ruleChoice.options).includes(option)))return binds;
+    const requested=array(requests).filter(request=>isJsonObject(request)&&typeof request.quote==='string'&&typeof request.subject==='string');
+    if(!requested.length)return binds;
+    const candidates=drafts.flatMap(draft=>{
+        const quote=row(draft.draft);
+        if(!requested.some(request=>normalize(request.quote)===normalize(string(quote.quote))&&request.subject===quote.subject))return [];
+        const retired=array(world.cash_quotes).some(saved=>saved.subject===quote.subject&&normalize(string(saved.name))===normalize(string(quote.quote))&&(saved.settled||saved.cancelled));
+        return [{quote:string(quote.quote),subject:quote.subject,purchase_amount:draft.purchase_amount??null,cash_debit:draft.cash_debit??null,
+            currency:draft.cash_currency??null,available:!retired&&draft.cash_debit!==undefined&&draft.purchase_amount!==undefined&&typeof draft.cash_currency==='string'}];
+    });
+    const matches=candidates.filter(candidate=>normalize(candidate.quote)===normalize(binds??''));
+    if(matches.length===1&&matches[0].available)return matches[0].quote;
+    const reason=matches.length===1&&!matches[0].available?'cash_confirmation_unavailable':'cash_confirmation_binding_required';
+    const confirmations=candidates.filter(candidate=>candidate.available).map(candidate=>({kind:'mechanics',binds:candidate.quote,options:['accept','flee']}));
+    throw new RpcError('needs','The cash confirmation is not bound to one usable full quotation',{
+        fix:`Use one exact quotation name from the current cash requirement in ask.binds, never an earlier ask identifier. Correct ask parameters: ${JSON.stringify(confirmations)}. Supply only one retained quotes row for the chosen binding. Keep original merchandise prices and the separate kernel-computed cash debit. Do not choose the latest quote, invent an amount, create an unbound confirmation or treat this refusal as player rejection. Unavailable or retired terms need their existing quotation preparation or a genuine new agreement.`,
+        details:{reason,requested_binding:binds,required_quotes:requested,candidates,cash_confirmations:confirmations}});
+}
+
 
 /** No price/source work on the delivery path. Even a bad draft cannot withhold finished prose. */
 export function quotationDrafts(value:unknown, turn:number, meta:Row, party:Row[]):Row[] {

@@ -72,6 +72,7 @@ export function createNpcHandlers(context:KernelContext,writer:ReturnType<typeof
         },
         'npc.job':async params=>{
             const {campaign,meta,world,graph,scope}=await load(params);
+            const frozen=(await campaign.readTurn()).delivery_frozen===true;
             // §180.3: a personality is a person's, the same selection `npc.submit` accepts; a creature present is never
             // offered, or its job would stay open forever.
             const nodes=params.name!=null?[npcNode(graph,world,required(params,'name')!)]:npcsPresent(graph,world,graph.scene(world.active_scene)).filter(node=>graph.isPerson(node));
@@ -81,6 +82,7 @@ export function createNpcHandlers(context:KernelContext,writer:ReturnType<typeof
                 if (Object.keys(row(saved.personality)).length) continue;
                 const profile = moduleCharacterProfile(graph, person);
                 if (!profile) continue;
+                if (frozen) continue;
                 const characters = (world.npc_character ??= {});
                 characters[string(person.node_id)] = {...saved, personality: {...profile, scope,
                     accepted_at: nowIso(), accepted_turn: number(row(await campaign.readTurn()).turn)}};
@@ -91,6 +93,8 @@ export function createNpcHandlers(context:KernelContext,writer:ReturnType<typeof
             if(!node)return {job_id:null,...(adopted ? {adopted:true} : {})};
             const source_revision=personalitySourceRevision(graph,node),id=jsonDigest({campaign:campaign.id,npc:node.node_id,scope,source_revision});
             const path=jobPath(id),existing=await context.snapshots.isFile(campaign.path(path))?await campaign.read(path):null;
+            if(existing?.status==='prepared')return {job_id:null,deferred:true};
+            if(frozen&&moduleCharacterProfile(graph,node))return {job_id:null,deferred:true};
             if(existing&&existing.status==='open')return clone(row(existing.packet));
             const claim=randomUUID();
             const packet={job_id:`npc:${id}`,claim,npc:{name:graph.displayName(node),sources:personalitySources(graph,node),
@@ -117,12 +121,22 @@ export function createNpcHandlers(context:KernelContext,writer:ReturnType<typeof
                 await campaign.write(jobPath(string(job.job_id).slice(4)),{...job,status:'done',result,completed_at:accepted.accepted_at});
                 return {...result,replayed:true};
             }
+            if(job.status==='prepared'){
+                if(row(job.prepared).content_digest!==digest)throw new RpcError('idempotency_conflict','This NPC job already prepared different content');
+                return {...clone(row(job.result)),deferred:true,replayed:true};
+            }
             if(personalityView(graph,world,node))throw new RpcError('idempotency_conflict','This person already has an established personality');
             if(job.status!=='open')throw new RpcError('invalid_params','NPC job is not open; reclaim it before submitting');
             const at=nowIso(),result={job_id:job.job_id,npc:graph.displayName(node),personality:{...personality,origin:'table_supplement'}};
+            const turn=await campaign.readTurn();
+            const prepared={...personality,origin:'table_supplement',source_revision:job.source_revision,
+                scope,job_id:job.job_id,content_digest:digest,accepted_at:at,accepted_turn:number(turn.turn),result};
+            if(turn.delivery_frozen===true){
+                await campaign.write(jobPath(string(job.job_id).slice(4)),{...job,status:'prepared',prepared,result,prepared_at:at});
+                return {...result,deferred:true};
+            }
             const characters=(world.npc_character??={});
-            characters[string(node.node_id)]={...entry,personality:{...personality,origin:'table_supplement',source_revision:job.source_revision,
-                scope,job_id:job.job_id,content_digest:digest,accepted_at:at,accepted_turn:number(row(await campaign.readTurn()).turn),result}};
+            characters[string(node.node_id)]={...entry,personality:prepared};
             await campaign.writeWorld(world);
             await campaign.write(jobPath(string(job.job_id).slice(4)),{...job,status:'done',result,completed_at:at});
             return result;
@@ -132,7 +146,7 @@ export function createNpcHandlers(context:KernelContext,writer:ReturnType<typeof
             if(typeof params.claim!=='string'||params.claim!==job.claim)
                 throw new RpcError('invalid_params','NPC failure claim is no longer current',{details:{reason:'npc_claim_stale'}});
             if(jsonDigest(scope)!==jsonDigest(job.scope))throw new RpcError('invalid_params','NPC job belongs to another campaign scope');
-            if(job.status==='done')return {job_id:job.job_id,status:'done'};
+            if(['done','prepared'].includes(job.status))return {job_id:job.job_id,status:job.status};
             await campaign.write(jobPath(string(job.job_id).slice(4)),{...job,status:'failed',reason:string(params.reason||'unavailable'),failed_at:nowIso()});
             return {job_id:job.job_id,status:'failed'};
         },

@@ -19,7 +19,7 @@ import type {DecisionBatch,ReadSet,ScopeBinding} from './contracts.ts';
 import {validateSourceNeeds,type SourceNeed} from '../../kernel-ts/modules/source-needs.ts';
 import {moduleLogicReview} from '../../kernel-ts/modules/module-review-policy.ts';
 import {retainSourceNeeds} from '../../extensions/module/source-needs.ts';
-import {selectReferencePacket,checkReferenceGuide} from './source-reference.ts';
+import {selectReferencePacket,checkReferenceGuide,SourceReferenceDecisionError} from './source-reference.ts';
 import {validateReferencePacket,type SourceReferencePacket} from '../../kernel-ts/modules/reference-contract.ts';
 import {NEED_FACET_KEY,needAnsweredBatch,needAnsweredBudget,needAnsweredState,needDisposition,needFacet,needReadCandidates,needTaskOf,writeNeedReceipt,type NeedLead,type NeedReceipt} from './source-need-reads.ts';
 import {needReadBudget, readingReviewBudget} from './host-budgets.ts';
@@ -33,7 +33,7 @@ import {TRANSCRIPT_VERSION} from '../../extensions/module/page-transcript.ts';
 type Page = {page:number;text:string;label?:string|null;text_status?:'available'|'empty'|'error'|'unavailable';reading?:string};
 type ImagePage = {page:number;path:string;image_sha256:string;box:number[];data:string;native_image_boxes?:number[][]};
 type SourceBinding = {pdf:string;cache:string;file_sha256?:string};
-type State = {catalog:boolean;located:boolean;projected:boolean;submitted:boolean;fallback:boolean;inferred:boolean;needsAssessment?:boolean;
+type State = {catalog:boolean;located:boolean;projected:boolean;submitted:boolean;fallback:boolean;inferred:boolean;submissionReminders?:number;needsAssessment?:boolean;
  /** §151.4: the answered check of a need task has run; the need settled without a reader. */
  needChecked?:boolean;needSettled?:boolean};
 type SourceRequest = {question:string;anchor_pages?:number[];need?:SourceNeed};
@@ -283,7 +283,16 @@ export async function createSourceReaderDriver(options:{cwd:string;env:NodeJS.Pr
      if(!referencePacket||!info)throw Error('Original source packet is unavailable');
      if(typeof text!=='string'||!text.trim()||text.length>4000)throw Error('Final guidance needs bounded nonempty text');
      const selected=referencePacket.entries.find(entry=>[entry.id,entry.id.replace(/^scene-/,''),entry.name].some(value=>identity(value)===identity(task.focus)));
-     const checked=await checkReferenceGuide({packet:referencePacket,text,selectedOpening:selected?.name,decide:(batch,lease)=>adapter.decide(batch,lease),signal,record:trace});
+     let checked;
+     try{checked=await checkReferenceGuide({packet:referencePacket,text,selectedOpening:selected?.name,decide:(batch,lease)=>adapter.decide(batch,lease),signal,record:trace});}
+     catch(error){
+       if(!(error instanceof SourceReferenceDecisionError)&&!(error instanceof PackingError))throw error;
+       const reason=error instanceof SourceReferenceDecisionError?error.reason:error.failure;
+       const retryable=error instanceof SourceReferenceDecisionError&&error.retryable;
+       trace({kind:'source_reference_unavailable',reason,retryable});
+       return {content:[{type:'text',text:'The host source-guidance check is unavailable. Preparation remains unready.'}],
+         details:{kind:'source_reference_unavailable',reason,retryable},isError:true,terminate:true};
+     }
      guideAttempts++;
      if(!checked.approved)return {content:[{type:'text',text:JSON.stringify({repair_only:checked.issues,instruction:'Correct the final public guide using the same original excerpts. Do not reproduce the previous text unchanged or generate a dossier.'})}],
        details:{kind:guideAttempts>=2?'source_reference_refused':'source_guidance_repair'},isError:true,...(guideAttempts>=2?{terminate:true}:{})};
@@ -726,7 +735,7 @@ export async function createSourceReaderDriver(options:{cwd:string;env:NodeJS.Pr
        }finally{lease.close();}
      }catch(error){trace({kind:'source_need_answered_unavailable',runId,error:String(error)});return {kind:'need_answered',answered:false,status:'unavailable'};}
    }
-   const policy:RunPolicy<State>={name:'coc-source-reading',version:'13',initial:()=>({...state0,located:reviewing||!!task.visual_scan||!!task.visual_asset}),next(view){const s=view.policyState;
+   const policy:RunPolicy<State>={name:'coc-source-reading',version:'14',initial:()=>({...state0,located:reviewing||!!task.visual_scan||!!task.visual_asset}),next(view){const s=view.policyState;
      if(view.pendingProposals.length)return {kind:'operate',proposals:view.pendingProposals,reason:'execute_actual_reader_tools'};
      if(s.submitted)return {kind:'finish',outcome:'undelivered',reason:'checked_source_candidate_no_player_delivery'};
      if(s.needSettled)return {kind:'finish',outcome:'undelivered',reason:'source_need_settled_without_reading'};
@@ -737,7 +746,10 @@ export async function createSourceReaderDriver(options:{cwd:string;env:NodeJS.Pr
      if(!s.catalog&&!s.fallback)return {kind:'operate',proposals:[{origin:'policy',operation:'source.catalog',readOnly:true}],reason:'bind_original_pdf'};
      if(!s.located&&!s.fallback)return {kind:'decide',purpose:'locate_source',question:{kind:'source_pages'},reason:'rank_host_enumerated_source_pages'};
      if(!s.projected&&!s.fallback)return {kind:'operate',proposals:[{origin:'policy',operation:'source.project',readOnly:true}],reason:'supply_exact_navigation_leads'};
-     if(s.inferred&&view.lastObservation?.kind==='infer'&&!view.lastObservation.proposals?.length)return {kind:'finish',outcome:'undelivered',reason:'source_reader_returned_without_checked_submission'};
+     if(s.inferred&&view.lastObservation?.kind==='infer'&&!view.lastObservation.proposals?.length){
+       if((s.submissionReminders??0)<2)return {kind:'infer',purpose:'plan',reason:'request_missing_checked_source_submission'};
+       return {kind:'finish',outcome:'undelivered',reason:'source_reader_returned_without_checked_submission'};
+     }
      return {kind:'infer',purpose:'plan',reason:'tool_enabled_source_answer'};
    },reduce(state,observation){const next={...state};
      if(observation.kind==='operate'){
@@ -746,7 +758,7 @@ export async function createSourceReaderDriver(options:{cwd:string;env:NodeJS.Pr
          if(artifact?.kind==='catalog'){next.catalog=true;if(referencePacket)next.located=true;}
          if(artifact?.kind==='projected')next.projected=true;
          if(artifact?.kind==='source_submission')next.submitted=true;
-         if(artifact?.kind==='source_reference_ready'||artifact?.kind==='source_reference_refused')next.submitted=true;
+         if(['source_reference_ready','source_reference_refused','source_reference_unavailable'].includes(artifact?.kind??''))next.submitted=true;
          if(artifact?.kind==='source_need'){next.located=false;next.projected=false;next.inferred=false;}
          if(artifact?.kind==='source_need_batch'){next.needsAssessment=true;next.inferred=false;}
        }
@@ -758,7 +770,7 @@ export async function createSourceReaderDriver(options:{cwd:string;env:NodeJS.Pr
        }else{next.located=true;if(observation.status!=='ok'){next.fallback=true;next.needsAssessment=false;}
          if(['unlocated','carried','waits_for_play'].includes((observation.artifact as any)?.need_disposition))next.needSettled=true;}
      }
-     if(observation.kind==='infer')next.inferred=true;
+     if(observation.kind==='infer'){next.inferred=true;if(!observation.proposals?.length)next.submissionReminders=(state.submissionReminders??0)+1;}
      return next;
    }};
    const ports:RunDriverPorts={
@@ -851,7 +863,7 @@ export async function createSourceReaderDriver(options:{cwd:string;env:NodeJS.Pr
          return {status:'refused',reason:'Unknown source operation'};
        }catch(error){trace({kind:'source_operation_failed',runId,operation:proposal.operation,error:String(error)});return {status:'refused',reason:String(error)};}
      }},
-     projection:{project(){if(projectedOnce||!info)return;projectedOnce=true;
+     projection:{project(request){if(request?.step?.reason==='request_missing_checked_source_submission')return [{role:'custom',customType:'coc-source-submission-reminder',display:false,timestamp:Date.now(),content:[{type:'text',text:'No checked source artifact was submitted by your previous answer. Continue this same task using the tools. Call '+(task.source_reference==='guidance'?'submit_reference_guidance':'submit_reading')+' with the completed result, or inspect only genuinely missing evidence first. Thinking or final prose does not submit an artifact. Preserve every negative finding and the existing source checks.'}]}] as any;if(projectedOnce||!info)return;projectedOnce=true;
        if(task.visual_scan&&!reviewing)return [{role:'custom',customType:'coc-visual-navigation',display:false,timestamp:Date.now(),content:[{type:'text',text:JSON.stringify({
          overview:{first_page:task.visual_scan.first,last_page:task.visual_scan.last},
          advisory_visual_leads:visualLeads,

@@ -16,8 +16,14 @@ function decide(batch){
         return [question.key,{status:'answered',type:'choice',choice}];
     })),{inputTokens:1,outputTokens:1,costUsd:0});
 }
-async function native(t,{decision,responses,observe,onSearch,onRevision}={}){
-    const engine=createHybridEngine({env:{...process.env,PI_COC_JEV_PRESELECT:'0'},decision});
+async function native(t,{decision,responses,observe,onSearch,onRevision,historyText=retained}={}){
+    // The recall fixture controls memory decisions; ordinary turn choices have their own closed answers.
+    const scopedDecision=decision?{decide:async(batch,lease)=>batch.family==='continuous-turn'
+        ?bindDecisionAnswers(batch,Object.fromEntries(batch.questions.map(question=>[question.key,
+            {status:'answered',type:'choice',choice:question.key.startsWith('need_')?'later':'unknown',confidence:1,
+                probabilities:Object.fromEntries(Object.keys(question.criteria).map(key=>[key,key===(question.key.startsWith('need_')?'later':'unknown')?1:0]))}])))
+        :decision.decide(batch,lease)}:decision;
+    const engine=createHybridEngine({env:{...process.env,PI_COC_JEV_PRESELECT:'0'},decision:scopedDecision});
     const table=await openTable({legacyDeliveryFixtures:false,realKernel:true,runDriver:engine.runDriver,
         env:{PI_COC_LOOP_ENGINE:'hybrid-v1',PI_COC_MEMORY_BACKFILL:'0',PI_COC_JEV_PRESELECT:'0'},
         async prepareWorkspace(workspace){
@@ -25,7 +31,7 @@ async function native(t,{decision,responses,observe,onSearch,onRevision}={}){
                 locks:api.createAdvisoryLocks(async()=>{}),env:{...process.env,GIT_CONFIG_GLOBAL:'/dev/null',GIT_CONFIG_NOSYSTEM:'1'}});
             const runtime=api.createKernelRuntime(context);
             try{await runtime.handlers['table.open']({campaign:'test-camp'});
-                await runtime.handlers['table.narrate']({campaign:'test-camp',call_id:'t0-c1',text:retained});
+                await runtime.handlers['table.narrate']({campaign:'test-camp',call_id:'t0-c1',text:historyText});
             }finally{await runtime.close();}
         },extraExtensions:[...((observe||onSearch||onRevision)?[{name:'memory-evidence-observer',factory(pi){
         pi.events.on('coc:typed-memory-search',value=>onSearch?.(value));
@@ -55,7 +61,7 @@ test('native unconfigured recall omits query and refuses a retained explicit que
 
 test('native configured recall reaches production evidence originals and returns bounded attributed text',async t=>{
     let offered,revisionReads=0;const evidence=[];const batches=[];
-    const table=await native(t,{decision:{decide:async batch=>{batches.push(batch);return decide(batch);}},
+    const table=await native(t,{historyText:retained+' Additional retained context.'.repeat(40),decision:{decide:async batch=>{batches.push(batch);return decide(batch);}},
         onRevision:()=>revisionReads++,observe:(params,result)=>evidence.push({params:structuredClone(params),result:structuredClone(result)}),responses:[context=>{
             offered=getCurrentTools(context.messages).find(tool=>tool.name==='recall');
             return fauxAssistantMessage([fauxToolCall('recall',{what:'memory',query:'What condition was stated about the blue envelope?',turns:[0,0],include_superseded:true})],{stopReason:'toolUse'});
@@ -65,7 +71,11 @@ test('native configured recall reaches production evidence originals and returns
     assert.equal(Object.hasOwn(offered.parameters.properties,'query'),true);
     const result=table.session.messages.find(message=>message.role==='toolResult'&&message.toolName==='recall');
     assert.equal(result.isError,false,JSON.stringify(result.details));
-    assert.ok(evidence.some(row=>row.params.action==='original'));
+    assert.ok(evidence.some(row=>row.params.action==='originals'));
+    const originals=evidence.filter(row=>row.params.action==='originals');
+    assert.ok(originals.every(row=>row.params.requests.length<=8&&row.result.results.length===row.params.requests.length));
+    assert.ok(originals.some(row=>row.params.requests.length>1),'independent player and Keeper windows share one revision validation');
+    assert.ok(originals.flatMap(row=>row.result.results).every(row=>row.verified===true&&Buffer.byteLength(JSON.stringify(row))<=12*1024));
     assert.ok(evidence.some(row=>row.params.action==='finish'));
     assert.ok(revisionReads<=evidence.length+batches.length+2,`Repeated revision reads: ${revisionReads} for ${evidence.length} owner operations`);
     assert.ok(batches.length>0&&batches.every(batch=>batch.family==='memory-read'));
@@ -97,7 +107,7 @@ test('semantic recall and an independent native view overlap without losing orde
     assert.equal(lookWhileHeld,true,'the sheet read must finish while the independent semantic decision is still held');
     const results=table.session.messages.filter(message=>message.role==='toolResult'&&['semantic-read','independent-view'].includes(message.toolCallId));
     assert.deepEqual(results.map(row=>[row.toolCallId,row.isError]),[['semantic-read',false],['independent-view',false]]);
-    assert.ok(evidence.includes('original')&&evidence.includes('finish'));
+    assert.ok(evidence.includes('originals')&&evidence.includes('finish'));
     assert.ok(JSON.stringify(results[0].content).includes(retained));
     assert.deepEqual(table.extensionErrors,[]);
 });

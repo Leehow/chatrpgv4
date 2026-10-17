@@ -64,6 +64,51 @@ async function fixture() {
 }
 
 describe("PiHostBackend message queue integration", () => {
+  it("rejects a direct send before Pi starts and retains its failed queue row", async () => {
+    const setup = await fixture();
+    const spawnFailure = vi.fn(() => { throw new Error("fixture spawn refused"); });
+    const backend = setup.create({ spawn: spawnFailure as any });
+    try {
+      await expect(backend.handle("sendPrompt", ["s1", "one deliberate action"]))
+        .rejects.toThrow("fixture spawn refused");
+      expect(spawnFailure).toHaveBeenCalledTimes(1);
+      expect(await backend.handle("listQueue", ["s1"])).toEqual([
+        expect.objectContaining({ text: "one deliberate action", state: "failed", error: expect.stringContaining("fixture spawn refused") }),
+      ]);
+      expect((backend as any).queue.isBusy("s1")).toBe(false);
+    } finally { await backend.close(); }
+  });
+
+  it("does not label an environment-only model unregistered while its runtime catalog is pending", async () => {
+    const setup = await fixture();
+    await writeFile(join(setup.sessionsRoot, "project", "s1.jsonl"), [
+      JSON.stringify({ type: "session", version: 3, id: "s1", timestamp: "2026-08-10T00:00:00.000Z", cwd: setup.cwd }),
+      JSON.stringify({ type: "model_change", id: "m1", timestamp: "2026-08-10T00:00:01.000Z", provider: "late-provider", modelId: "chosen" }),
+    ].join("\n") + "\n");
+    let release!: () => void;
+    const catalog = new Promise<void>(resolve => { release = resolve; });
+    const spawnCall = vi.fn();
+    const backend = setup.create({
+      spawn: spawnCall as any,
+      authRuntime: {
+        getProviders: async () => [],
+        getAvailable: async () => { await catalog; return [{ provider: "late-provider", id: "chosen", name: "Chosen", reasoning: true }]; },
+        login: async () => undefined, logout: async () => undefined,
+      },
+    });
+    try {
+      await expect(backend.handle("sendPrompt", ["s1", "inspect the entrance"]))
+        .rejects.toThrow("model catalog is not ready");
+      expect(spawnCall).not.toHaveBeenCalled();
+      expect(await backend.handle("listQueue", ["s1"])).toEqual([
+        expect.objectContaining({ text: "inspect the entrance", state: "failed", error: expect.not.stringContaining("not registered exactly") }),
+      ]);
+      release();
+      const models = await backend.handle("listModels", []) as any[];
+      expect(models.some(model => model.provider === "late-provider" && model.id === "chosen")).toBe(true);
+    } finally { release(); await backend.close(); }
+  }, 15_000);
+
   it("keeps the composer available after Pi handles a prompt without starting a turn", async () => {
     const setup = await fixture();
     const backend = setup.create();
@@ -295,7 +340,10 @@ describe("PiHostBackend message queue integration", () => {
       if (event.channel === "stream") events.push(event.event);
     });
     await backend.handle("sendPrompt", ["s1", "__user_followup__"]);
-    await eventually(() => events.some(event => event.type === "user_message"));
+    // Acceptance does not order the separate injected-user and turn-status frames.
+    await eventually(() => events.some(event => event.type === "user_message")
+      && events.some(event => event.type === "status" && event.status === "started"
+        && event.pendingFollowUps?.includes("[subagent-done] agentId=a1 name=explore ok=true")));
     off();
     expect(events).toEqual(expect.arrayContaining([
       expect.objectContaining({

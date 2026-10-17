@@ -2330,7 +2330,7 @@
     },
     {
       "file": "extensions/table/material-screen.ts",
-      "symbol": "installMaterialScreen.on(context)",
+      "symbol": "installMaterialScreen.project",
       "kind": "jev-adapter",
       "callee": "createDecisionAdapter",
       "count": 1,
@@ -2338,7 +2338,7 @@
       "path": "app-play-gated",
       "role": "leaf",
       "trace": "lane: material-screen",
-      "note": "Section 240: bounded request-local Mod and terminal NPC history selection; full tool registry and current actor state stay resident; unknown/stale/late answers retain full candidates."
+      "note": "Section 240: optional request material is screened before journal packing; one background decision per input, and absent/stale/late answers retain candidates. The synchronous projection never waits for that decision or rewrites a submitted prefix."
     },
     {
       "file": "runtime/jev/context-screen.prototype.mjs",
@@ -2399,6 +2399,18 @@
       "role": "infra",
       "trace": "request-journal tests and MiniMax M3.1 real request diagnostics",
       "note": "Scanner false positive from the method name complete: records an already completed assistant message in bounded process memory. Makes no model, network, kernel or task call and cannot start or extend a run."
+    },
+    {
+      "file": "extensions/table/context-runtime.ts",
+      "symbol": "installContextPolicy.on(coc:keeper-response)",
+      "kind": "provider-direct",
+      "callee": "requestJournal.complete",
+      "count": 1,
+      "owner": "table context: submitted-request journal",
+      "path": "app-play-gated",
+      "role": "infra",
+      "trace": "request-journal exact-redaction regression and real MiniMax wire replay",
+      "note": "Scanner false positive: observes the existing Keeper response before player-display redaction so the same bounded journal can replay it completely. No inference, network, kernel mutation or new run owner."
     }
   ]
 }

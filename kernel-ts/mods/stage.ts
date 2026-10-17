@@ -193,7 +193,7 @@ export async function stageModEffect(context: ApplyContext, original: Row, sheet
             const value = effect.document; writing = isJsonObject(value) && (value.action === 'write' || value.action === 'append');
             if (writing) {
                 if (!prior) throw new RpcError('unknown_entity', `No existing writable carrier named ${repr(name)}`,
-                    {fix:'Use the exact instance name, not a translated or newly coined label. details.documents lists writable carriers this investigator already holds directly. Use look focus own for nested equipment. This is a target-name correction, not another player choice. Do not recreate an existing carrier.',
+                    {fix:'document.action write or append modifies an existing carrier only. Use the exact instance name, not a translated or newly coined label. details.documents lists writable carriers this investigator already holds directly. Use look focus own for nested equipment. Do not recreate an existing carrier. If the player actually chose a new note, first acquire it with an accepted definition (or define plus object in the same batch) and initial document.text; omit document.action for that initial text.',
                      details:{field:'object.name',reason:'document_not_found',documents:owner.kind==='investigator'
                          ? Object.values(objectRegistry(world).instances).filter(value=>{const item=row(value),held=row(item.owner);
                              return isJsonObject(item.document)&&held.kind===owner.kind&&held.id===owner.id;}).map(value=>row(value).name) : []}});

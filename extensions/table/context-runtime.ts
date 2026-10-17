@@ -6,6 +6,8 @@ import type {TaskProviderBudget} from '../../runtime/jev/provider-budget.ts';
 /** Request and persistence adapters for the one bounded play-context policy. */
 import {createHash} from 'node:crypto';
 import {createRequestJournal} from './request-journal.ts';
+import type {MaterialScreenPort} from './material-screen.ts';
+import {createSnapshotReadCache} from './history-original-cache.ts';
 import {policyFor} from '../anthropic-cache/shared/policy.js';
 import {dirname, join} from 'node:path';
 import type {ContextEvent, ContextEventResult, ExtensionAPI, ExtensionContext, ToolResultEvent} from '@earendil-works/pi-coding-agent';
@@ -78,12 +80,14 @@ function payloadContains(value:unknown,content:string,seen=new Set<object>()):bo
 }
 
 export function installContextPolicy(pi: ExtensionAPI, writeTelemetry: (row: Row) => void,
-    workpadRoot?: () => string | undefined): void {
+    workpadRoot?: () => string | undefined, materialScreen?:MaterialScreenPort): void {
     const nameWritingSupport=createWritingSupportNames();
     const requestJournal=createRequestJournal();
-    pi.on('session_start',()=>requestJournal.reset());
-    pi.on('session_shutdown',()=>requestJournal.reset());
+    const originalReads=createSnapshotReadCache();
+    pi.on('session_start',()=>{requestJournal.reset();originalReads.clear();});
+    pi.on('session_shutdown',()=>{requestJournal.reset();originalReads.clear();});
     pi.on('message_end',event=>requestJournal.complete(event.message as Row));
+    pi.events.on('coc:keeper-response',(message:Row)=>requestJournal.complete(message,{privateReplay:true}));
     let expressionHistory:{campaign:string;turn:number;history:Row}|undefined;
     let observedTurn: number | undefined;
     const record = (row: Row): void => writeTelemetry({...(observedTurn === undefined ? {} : {turn: observedTurn}), ...row});
@@ -428,7 +432,7 @@ export function installContextPolicy(pi: ExtensionAPI, writeTelemetry: (row: Row
         preparing = (async () => {
             const began = Date.now();
             let binding = bindingOf(rawBinding), current = capsule;
-            let rehydrated = false, reads = 0, readBytes = 0;
+            let rehydrated = false, reads = 0, readBytes = 0, originalReadHits=0;
             const acceptedEpoch=inputEpoch;
             const hostView=(read:Row):Row=>{
                 const prior=singleKeeper&&acceptedEpoch!==undefined&&acceptedEpoch===inputEpoch
@@ -481,8 +485,11 @@ export function installContextPolicy(pi: ExtensionAPI, writeTelemetry: (row: Row
                     .filter((turn: unknown): turn is number => Number.isSafeInteger(turn) && Number(turn) < binding!.turn))].sort((a, b) => Number(a) - Number(b)).slice(-2) as number[];
                 const wanted = turns.length ? turns : [binding.turn - 2, binding.turn - 1].filter(turn => turn >= 0);
                 const recall = async (params: Row): Promise<Row> => {
-                    const result = await rpc('table.recall', {...params, _context_read: true});
-                    reads++; readBytes += sizeOf(result); return result;
+                    const loaded=await originalReads.read(sourceOf(binding!),params,
+                        ()=>rpc('table.recall', {...params, _context_read: true}));
+                    if(loaded.reused)originalReadHits++;
+                    else{reads++;readBytes+=sizeOf(loaded.value);}
+                    return loaded.value;
                 };
                 if (wanted.length) try {
                     const cards: Row[] = [];
@@ -628,7 +635,7 @@ export function installContextPolicy(pi: ExtensionAPI, writeTelemetry: (row: Row
                 prepared = {binding, capsule: current, history, brief: brief!, key: epochOf(binding), answering, workspace, workspaceMode};
                 record({lane: 'context', event: 'prepared', version: POLICY_VERSION, turn: binding.turn,
                     history_bytes: sizeOf(history), briefing_bytes: sizeOf(brief), source_revision: binding.source_revision,
-                    read_calls: reads, read_bytes: readBytes, rehydrated, ms: Date.now() - began, untold_rows: untoldRoster.people.length, untold_protected: untoldRoster.protected.length,
+                    read_calls: reads, read_bytes: readBytes, original_read_cache_hits:originalReadHits, rehydrated, ms: Date.now() - began, untold_rows: untoldRoster.people.length, untold_protected: untoldRoster.protected.length,
                     ...(untoldFailed ? {untold_failed: untoldFailed} : {}), ...(unavailable ? {history_unavailable: true} : {})});
                 return prepared;
             } catch (error) {
@@ -1061,6 +1068,7 @@ export function installContextPolicy(pi: ExtensionAPI, writeTelemetry: (row: Row
             if(requestSize([...outgoing,sourceHint])+systemBytes<=ceiling
                 &&Math.ceil((requestSize([...outgoing,sourceHint])+systemBytes)/BYTES_PER_TOKEN)<=available)outgoing.push(sourceHint);
         }
+        if(materialScreen)outgoing=materialScreen.project(outgoing);
         if(singleKeeper&&policyFor(ctx.model)&&!result.degraded&&!result.overCeiling&&!omission){
             const journal=requestJournal.project({messages:outgoing,turn:snapshot.binding.turn,
                 key:JSON.stringify([snapshot.binding.campaign,snapshot.binding.worldline,snapshot.binding.loop,moduleId,

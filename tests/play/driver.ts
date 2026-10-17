@@ -201,7 +201,7 @@ export class Daemon {
     } }
     async _start_pi(launcher_arg: string | null, campaign: string, model: string | null) { checkTestWorkspaceBudget(coc_home(), this.dir); const launcher = resolve_launcher(launcher_arg); this.setup_transport = launcher === resolve(REPO_ROOT, 'bin/pi-coc-setup'); if (!existsSync(launcher))
         throw new DriverError('launcher not found: ' + launcher + ' (pass --launcher, set PI_COC_LAUNCHER, or wait for bin/pi-coc to exist)'); const entry = join(REPO_ROOT, 'build/kernel/rpc.mjs'); if (launcher === resolve(DEFAULT_LAUNCHER) && !existsSync(join(REPO_ROOT, 'deployment.json')) && existsSync(entry) && !process.env.PI_COC_KERNEL_CMD)
-        this.player_view_command = [process.env.PI_COC_NODE_EXECUTABLE || process.execPath, entry, '--workspace', coc_home(), '--content', resolve(process.env.PI_COC_CONTENT_ROOT || join(REPO_ROOT, 'content'))]; const testThinking=model==='grok-build/grok-4.5'?'low':model===DEFAULT_MODEL?'high':null; const args = ['--campaign', campaign, '--mode', 'rpc', '--no-session', '--thinking', testThinking||this.thinking || DEFAULT_THINKING]; if (model) {
+        this.player_view_command = [process.env.PI_COC_NODE_EXECUTABLE || process.execPath, entry, '--workspace', coc_home(), '--content', resolve(process.env.PI_COC_CONTENT_ROOT || join(REPO_ROOT, 'content'))]; const testThinking=model==='grok-build/grok-4.5'?'low':model==='codex-relay/gpt-6-luna'?'high':model===DEFAULT_MODEL?DEFAULT_THINKING:null; const args = ['--campaign', campaign, '--mode', 'rpc', '--no-session', '--thinking', testThinking||this.thinking || DEFAULT_THINKING]; if (model) {
         if (!model.includes('/'))
             throw new DriverError("--model must be 'provider/modelId', got " + model);
         const i = model.indexOf('/');
@@ -230,7 +230,9 @@ export class Daemon {
         }
         validate_engine(this.expected_engine, engine);
     } let confirmation:Row|null = null; if (model) {
-        confirmation = await this._set_model(model);
+        confirmation = ready.data?.model?.provider + '/' + ready.data?.model?.id === model && ready.data?.thinkingLevel === (testThinking || this.thinking || DEFAULT_THINKING)
+            ? {success: true, data: ready.data.model, source: 'startup_get_state'}
+            : await this._set_model(model);
         if (!confirmation?.success)
             throw new DriverError('set_model(' + model + ') failed: ' + JSON.stringify(confirmation));
     } write_json(this.daemon_json_path, { ...base, engine_expected: this.expected_engine, engine_actual: engine, model_confirmed: confirmation?.data ?? null, status: 'ready' }); this._write_heartbeat('ready'); this.log.write('daemon ready'); }

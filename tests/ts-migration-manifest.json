@@ -164552,7 +164552,7 @@
           "counterpart": {
             "file": "tests/integration/rules-play-driver-process.test.ts",
             "name": "test_concurrent_evidence_writers_have_independent_atomic_staging",
-            "sha256": "64cc9d8e16c0d8b2e3fe6ff3b1451bc16bedb8eee1bab6690ff4de4c75f67dc1"
+            "sha256": "8c4858dfc62ef0b531afc5fc612c7991ce98df629029ef9d12f33a7123e386fd"
           },
           "review": "statement-by-statement",
           "validation": {
@@ -164663,7 +164663,7 @@
           "counterpart": {
             "file": "tests/integration/rules-play-driver-process.test.ts",
             "name": "test_start_writes_pid_and_heartbeat",
-            "sha256": "64cc9d8e16c0d8b2e3fe6ff3b1451bc16bedb8eee1bab6690ff4de4c75f67dc1"
+            "sha256": "8c4858dfc62ef0b531afc5fc612c7991ce98df629029ef9d12f33a7123e386fd"
           },
           "review": "statement-by-statement",
           "validation": {
@@ -164849,7 +164849,7 @@
           "counterpart": {
             "file": "tests/integration/rules-play-driver-process.test.ts",
             "name": "test_prompt_preflight_can_outlast_management_ack_timeout",
-            "sha256": "64cc9d8e16c0d8b2e3fe6ff3b1451bc16bedb8eee1bab6690ff4de4c75f67dc1"
+            "sha256": "8c4858dfc62ef0b531afc5fc612c7991ce98df629029ef9d12f33a7123e386fd"
           },
           "review": "statement-by-statement",
           "validation": {
@@ -164976,7 +164976,7 @@
           "counterpart": {
             "file": "tests/integration/rules-play-driver-process.test.ts",
             "name": "test_turn_prints_text_and_writes_settled_summary",
-            "sha256": "64cc9d8e16c0d8b2e3fe6ff3b1451bc16bedb8eee1bab6690ff4de4c75f67dc1"
+            "sha256": "8c4858dfc62ef0b531afc5fc612c7991ce98df629029ef9d12f33a7123e386fd"
           },
           "review": "statement-by-statement",
           "validation": {
@@ -165083,7 +165083,7 @@
           "counterpart": {
             "file": "tests/integration/rules-play-driver-process.test.ts",
             "name": "test_turn_without_text_yields_undelivered_with_tools",
-            "sha256": "64cc9d8e16c0d8b2e3fe6ff3b1451bc16bedb8eee1bab6690ff4de4c75f67dc1"
+            "sha256": "8c4858dfc62ef0b531afc5fc612c7991ce98df629029ef9d12f33a7123e386fd"
           },
           "review": "statement-by-statement",
           "validation": {
@@ -165182,7 +165182,7 @@
           "counterpart": {
             "file": "tests/integration/rules-play-driver-process.test.ts",
             "name": "test_a_delivery_that_only_the_narrate_result_carries_is_still_the_turn",
-            "sha256": "64cc9d8e16c0d8b2e3fe6ff3b1451bc16bedb8eee1bab6690ff4de4c75f67dc1"
+            "sha256": "8c4858dfc62ef0b531afc5fc612c7991ce98df629029ef9d12f33a7123e386fd"
           },
           "review": "statement-by-statement",
           "validation": {
@@ -165293,7 +165293,7 @@
           "counterpart": {
             "file": "tests/integration/rules-play-driver-process.test.ts",
             "name": "test_stop_terminates_both_processes_and_writes_final",
-            "sha256": "64cc9d8e16c0d8b2e3fe6ff3b1451bc16bedb8eee1bab6690ff4de4c75f67dc1"
+            "sha256": "8c4858dfc62ef0b531afc5fc612c7991ce98df629029ef9d12f33a7123e386fd"
           },
           "review": "statement-by-statement",
           "validation": {
@@ -165404,7 +165404,7 @@
           "counterpart": {
             "file": "tests/integration/rules-play-driver-process.test.ts",
             "name": "test_status_reports_alive_then_dead",
-            "sha256": "64cc9d8e16c0d8b2e3fe6ff3b1451bc16bedb8eee1bab6690ff4de4c75f67dc1"
+            "sha256": "8c4858dfc62ef0b531afc5fc612c7991ce98df629029ef9d12f33a7123e386fd"
           },
           "review": "statement-by-statement",
           "validation": {
@@ -165495,7 +165495,7 @@
           "counterpart": {
             "file": "tests/integration/rules-play-driver-process.test.ts",
             "name": "test_log_tails_the_driver_log",
-            "sha256": "64cc9d8e16c0d8b2e3fe6ff3b1451bc16bedb8eee1bab6690ff4de4c75f67dc1"
+            "sha256": "8c4858dfc62ef0b531afc5fc612c7991ce98df629029ef9d12f33a7123e386fd"
           },
           "review": "statement-by-statement",
           "validation": {
@@ -165626,7 +165626,7 @@
           "counterpart": {
             "file": "tests/integration/rules-play-driver-process.test.ts",
             "name": "test_second_run_on_same_campaign_continues_the_kernel_turn_and_records_resume",
-            "sha256": "64cc9d8e16c0d8b2e3fe6ff3b1451bc16bedb8eee1bab6690ff4de4c75f67dc1"
+            "sha256": "8c4858dfc62ef0b531afc5fc612c7991ce98df629029ef9d12f33a7123e386fd"
           },
           "review": "statement-by-statement",
           "validation": {
@@ -165719,7 +165719,7 @@
           "counterpart": {
             "file": "tests/integration/rules-play-driver-process.test.ts",
             "name": "test_real_pi_get_state_smoke",
-            "sha256": "64cc9d8e16c0d8b2e3fe6ff3b1451bc16bedb8eee1bab6690ff4de4c75f67dc1"
+            "sha256": "8c4858dfc62ef0b531afc5fc612c7991ce98df629029ef9d12f33a7123e386fd"
           },
           "review": "statement-by-statement",
           "validation": {
@@ -175876,6 +175876,29 @@
         }
       },
       "limitation": "Scoped deterministic TS driver probes; no live model calls, full-suite or installed-App acceptance claimed."
+    },
+    {
+      "file": "tests/integration/rules-play-driver-process.test.ts",
+      "prior_sha256": "64cc9d8e16c0d8b2e3fe6ff3b1451bc16bedb8eee1bab6690ff4de4c75f67dc1",
+      "current_sha256": "8c4858dfc62ef0b531afc5fc612c7991ce98df629029ef9d12f33a7123e386fd",
+      "basis": "Register both worker exit listeners before awaiting their messages, so an already emitted exit cannot strand the atomic-write test. Mechanical reverse substitution reproduces the entire prior counterpart byte-for-byte; all original assertions remain unchanged.",
+      "historicalValidationRetained": "Frozen original source hashes, assertions, parameters and historical validation records remain unchanged. Current counterpart hashes were supplied by the preceding scoped repair; this record adds the independently verified rerun.",
+      "currentValidation": {
+        "command": "RT_HOST=leehow-pc remote-test.sh run /Users/haoli/leehow/code/chatrpgv4-wt-pi-coc-v2 focused",
+        "result": "passed",
+        "passed": 11,
+        "failed": 0,
+        "skipped": 0,
+        "overallIntegrationPassed": 2213,
+        "exitCode": 0,
+        "evidence": {
+          "remote": "/home/leehow/leehow/code/wt/codex-tests/.pytest-runs/chatrpgv4-wt-pi-coc-v2/run.UlewbmxB",
+          "junit": ".tmp/commit-098a-20261017/focused/native-results.xml",
+          "sourceHashes": ".tmp/commit-098a-20261017/focused/native-source-sha256.txt",
+          "assertionReview": ".tmp/commit-098a-20261017/driver-process-review.json"
+        }
+      },
+      "limitation": "Offline driver transport and native integration evidence; no live model or installed-App acceptance claimed."
     }
   ]
 }

@@ -19,6 +19,7 @@
 import type { CocToolSpec } from "./tools.ts";
 import { SENTENCE_MAX } from "./tools.ts";
 import { readJevApiKey } from "../jev/agent/config.js";
+import {SAME_KEEPER_AFTER_RESULT_GUIDANCE} from '../../runtime/keeper-output-guidance.ts';
 
 export const LEAN_APPLY_ENV = "PI_COC_LEAN_APPLY";
 
@@ -157,9 +158,9 @@ export function offeredTools(tools: readonly CocToolSpec[], env: Readonly<Record
       if(kind==='ending')fields.summary.description='The ending reached. Read source rewards and resolve development:end-session first. An already-accounted legacy correction retains the original summary, turn and rewards. Final publication commits this effect.';
     }
     return {...spec,parameters,description:spec.name==='apply'
-      ?'Apply authoritative world changes and canonical event records. Include only actual changes; future NPC intentions use planned. A clue must be obtainable here or cover information already told under an issued owed row; from records attribution and cannot relocate an authored clue. Ordinary remote NPC reports use event.knowledge with mode heard and actual source/state; a written record actually obtained here uses the existing dossier path. Effects and event use the existing schema. This tool never writes or publishes prose. After reading its result, write your own final reply beginning with {{public}}. '
+      ?'Apply authoritative world changes and canonical event records. Include only actual changes; future NPC intentions use planned. A clue must be obtainable here or cover information already told under an issued owed row; from records attribution and cannot relocate an authored clue. Ordinary remote NPC reports use event.knowledge with mode heard and actual source/state; a written record actually obtained here uses the existing dossier path. Effects and event use the existing schema. This tool never writes or publishes prose. '+(env.PI_COC_ISOLATED_OUTPUT==='1'?'After reading its result, return {{compose}} followed immediately by one private JSON expression brief with scene, narrative_content and npc_turns; no public prose or prefix. ':SAME_KEEPER_AFTER_RESULT_GUIDANCE+' ')
         +INTENT_APPLY_NOTE
-      :'Publish a required mechanical choice using its issued options and binding. Ordinary dialogue belongs in the final {{public}} reply. Use text only for an optional public preface; no other author is called.'};
+      :'Publish a required mechanical choice using its issued options and binding. '+(env.PI_COC_ISOLATED_OUTPUT==='1'?'Ordinary dialogue is selected in the private {{compose}} JSON expression brief; the host invokes the isolated author. Use text only for an optional public preface.':'Ordinary dialogue belongs in the final {{public}} reply. Use text only for an optional public preface; no other author is called.')};
   }):tools;
 	return leanApplyEnabled(env) ? leanTools(current) : current;
 }

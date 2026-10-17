@@ -135,8 +135,8 @@ export function replacePassagePeople(graph: ModuleGraph, world: Row): void {
  * looks the name up in `raw.nodes`, where it is not. Either answer refuses the very `apply` that
  * established them.
  */
-export function withTablePeople(module: LoadedModule, world: Row): LoadedModule {
-    replacePassagePeople(module.graph, world);
+export function withTablePeople(module: LoadedModule, world: Row, frozen = false): LoadedModule {
+    if (!frozen) replacePassagePeople(module.graph, world);
     installTablePeople(module.graph, world);
     const source = module.material;
     const material = (name: string): string => module.graph.isTablePerson(module.graph.find(name)) ? 'ready' : source(name);

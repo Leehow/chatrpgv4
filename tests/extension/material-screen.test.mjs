@@ -86,7 +86,8 @@ test('recent public exchanges reach Jev and changed candidate bytes invalidate t
 function host(){const hooks=new Map(),bus=new Map(),records=[];
   const pi={on:(event,handler)=>{const hs=hooks.get(event)??[];hs.push(handler);hooks.set(event,hs);},
     events:{on:(name,h)=>bus.set(name,h)}};
-  api.installMaterialScreen(pi,r=>records.push(r));return{hooks,bus,records};}
+  const port=api.installMaterialScreen(pi,r=>records.push(r));return{hooks,bus,records,port};}
+const decisions=async h=>{for(let n=0;n<100&&!h.records.some(r=>r.event==='decision');n++)await new Promise(r=>setTimeout(r,10));assert.ok(h.records.some(r=>r.event==='decision'));};
 test('real adapter integration caches identical input and retains complete tools when selection is disabled',async t=>{
   const priorFetch=globalThis.fetch,priorKey=process.env.EXT_JEV_APIKEY,priorMode=process.env.PI_COC_MATERIAL_SCREEN;
   t.after(()=>{globalThis.fetch=priorFetch;if(priorKey===undefined)delete process.env.EXT_JEV_APIKEY;else process.env.EXT_JEV_APIKEY=priorKey;
@@ -96,11 +97,13 @@ test('real adapter integration caches identical input and retains complete tools
   globalThis.fetch=async(_url,init)=>{calls++;const body=JSON.parse(init.body);return new Response(JSON.stringify({model:body.model,
     answers:Object.fromEntries(Object.keys(body.questions).map(key=>[key,{type:'noul',noul:.01}])),usage:{input_tokens:30,output_tokens:0}}));};
   const h=host(),f=fixture();await h.hooks.get('session_start')[0]();h.bus.get('coc:loop-engine')({singleKeeper:true});h.bus.get('coc:capsule')({capsule:f.cap,context:binding});
-  const run=h.hooks.get('context')[0],one=await run({messages:f.messages}),two=await run({messages:f.messages});
-  assert.equal(calls,1);assert.deepEqual(one,two);assert.equal(one.messages[0],f.messages[0]);assert.equal(h.records.at(-1).calls,0);
+  const run=messages=>h.port.project(messages),one=run(f.messages);await decisions(h);const two=run(f.messages),three=run(f.messages);
+  assert.equal(calls,1);assert.deepEqual(two,three);assert.equal(one[0],f.messages[0]);assert.equal(h.records.at(-1).calls,0);
+  assert.match(value(one,'coc-context-brief').instructions[0].instruction,/Use actual selected travel/);
+  assert.doesNotMatch(value(two,'coc-context-brief').instructions[0].instruction,/Use actual selected travel/);
   process.env.PI_COC_MATERIAL_SCREEN='0';await h.hooks.get('session_start')[0]();h.bus.get('coc:capsule')({capsule:f.cap,context:binding});
-  const off=await run({messages:f.messages});assert.deepEqual(value(off.messages,'coc-clerk'),value(f.messages,'coc-clerk'));
-  assert.match(value(off.messages,'coc-context-brief').instructions[0].instruction,/Use actual selected travel/);assert.equal(calls,1);
+  const off=run(f.messages);assert.deepEqual(value(off,'coc-clerk'),value(f.messages,'coc-clerk'));
+  assert.match(value(off,'coc-context-brief').instructions[0].instruction,/Use actual selected travel/);assert.equal(calls,1);
 });
 test('a changed source while the provider is answering falls back without screening current evidence',async t=>{
   const old=globalThis.fetch,key=process.env.EXT_JEV_APIKEY;t.after(()=>{globalThis.fetch=old;if(key===undefined)delete process.env.EXT_JEV_APIKEY;else process.env.EXT_JEV_APIKEY=key;});
@@ -108,19 +111,21 @@ test('a changed source while the provider is answering falls back without screen
   h.bus.get('coc:loop-engine')({singleKeeper:true});h.bus.get('coc:capsule')({capsule:f.cap,context:binding});
   globalThis.fetch=async(_url,init)=>{const body=JSON.parse(init.body);h.bus.get('coc:capsule')({capsule:f.cap,context:{...binding,source_revision:'changed'}});
     return new Response(JSON.stringify({model:body.model,answers:Object.fromEntries(Object.keys(body.questions).map(key=>[key,{type:'noul',noul:.01}])),usage:{input_tokens:30,output_tokens:0}}));};
-  const result=await h.hooks.get('context')[0]({messages:f.messages});assert.match(value(result.messages,'coc-context-brief').instructions[0].instruction,/Use actual selected travel/);
-  assert.equal(h.records.at(-1).reason,'context_changed');
+  const result=h.port.project(f.messages);assert.match(value(result,'coc-context-brief').instructions[0].instruction,/Use actual selected travel/);
+  await decisions(h);assert.equal(h.records.find(r=>r.event==='decision').status,'stale');
+  assert.match(value(h.port.project(f.messages),'coc-context-brief').instructions[0].instruction,/Use actual selected travel/);
 });
 
-test('Keeper generation time does not consume the remaining per-input screening-work allowance',async t=>{
+test('one optional plan per input never waits for generation or rechecks a changed state',async t=>{
   const oldFetch=globalThis.fetch,oldNow=Date.now,key=process.env.EXT_JEV_APIKEY;
   t.after(()=>{globalThis.fetch=oldFetch;Date.now=oldNow;if(key===undefined)delete process.env.EXT_JEV_APIKEY;else process.env.EXT_JEV_APIKEY=key;});
   process.env.EXT_JEV_APIKEY='test-only';let calls=0;
   globalThis.fetch=async(_url,init)=>{calls++;const body=JSON.parse(init.body);return new Response(JSON.stringify({model:body.model,
     answers:Object.fromEntries(Object.keys(body.questions).map(k=>[k,{type:'noul',noul:.01}])),usage:{input_tokens:30,output_tokens:0}}));};
   const h=host(),f=fixture();await h.hooks.get('session_start')[0]();h.bus.get('coc:loop-engine')({singleKeeper:true});
-  h.bus.get('coc:capsule')({capsule:f.cap,context:binding});const run=h.hooks.get('context')[0];await run({messages:f.messages});
+  h.bus.get('coc:capsule')({capsule:f.cap,context:binding});const run=()=>h.port.project(f.messages);run();await decisions(h);
   Date.now=()=>oldNow()+15000;
   const changed=structuredClone(f.cap);changed.where.scene='Reading room';h.bus.get('coc:capsule')({capsule:changed,context:binding});
-  await run({messages:f.messages});assert.equal(calls,2);assert.ok(h.records.at(-1).remaining_ms>0);
+  const result=run();assert.equal(calls,1);assert.match(value(result,'coc-context-brief').instructions[0].instruction,/Use actual selected travel/);
+  h.hooks.get('input')[0]();run();await new Promise(r=>setTimeout(r,20));assert.equal(calls,2);
 });

@@ -10,6 +10,7 @@
  */
 
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
+import { createHash } from "node:crypto";
 import { writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import type { HostRuntime } from "../../runtime/host.ts";
@@ -241,14 +242,16 @@ export default function (pi: ExtensionAPI) {
 
 	/** Attempts spent on an opaque generation job this session; MAX_ATTEMPTS is the retry budget. */
 	const attempts = new Map<string, number>();
+	const candidates = new Map<string, {identity: string; lane: {ok: true; value: Lines; model: string; cwd: string}; round: number}>();
 	/** Generation jobs whose budget is spent; a different package generation gets its own allowance. */
 	const retired = new Set<string>();
 	/** One telemetry row per retired job, not one per commit that meets it again. */
 	const noticed = new Set<string>();
 	const tickets = new WeakMap<LaneJob, Set<string>>();
 	pi.on("session_start", async () => {
-		attempts.clear(); retired.clear(); noticed.clear();
+		attempts.clear(); retired.clear(); noticed.clear(); candidates.clear();
 	});
+	pi.on("session_shutdown", () => { candidates.clear(); });
 
 	// The shared writer, which also escalates a streak of failures to the operator (contract §56).
 	const telemetry = createLaneTelemetry(pi, {
@@ -287,10 +290,14 @@ export default function (pi: ExtensionAPI) {
 			input: userInput(packet, objection) + (previous ? `\n[Candidate to repair]\n${JSON.stringify("voice" in previous ? previous : { voice: null, reason: SILENT_REASON })}` : ""),
 			signal, shape: parsed => shapeLines(parsed, packet),
 		});
-		let lane = await write();
+		const identity = createHash("sha256").update(JSON.stringify([campaign, owner.home, packet, model.model.provider, model.model.id])).digest("hex");
+		const retained = candidates.get(jobId);
+		if (retained?.identity !== identity) candidates.delete(jobId);
+		let lane = retained?.identity === identity ? retained.lane : await write();
 		if (!lane.ok) return lane;
 		let voiceCheck: string | undefined;
-		for (let round = 0; ; round++) {
+		for (let round = retained?.identity === identity ? retained.round : 0; ; round++) {
+			candidates.set(jobId, {identity, lane, round});
 			const input = judgeInput(packet, lane.value);
 			await writeFile(join(lane.cwd, "review-input.json"), JSON.stringify({ systemPrompt: judgePrompt(), input }));
 			const began = Date.now();
@@ -302,6 +309,11 @@ export default function (pi: ExtensionAPI) {
 					retryPolicies: {[VOICE_REVIEW_FAMILY]: {maxRetries: 0, backoffInitialMs: 0, backoffMaxMs: 0, attemptTimeoutMs: 2000}}}), signal) : {status: "fallback" as const, reason: "unconfigured"};
 			if (owner.sourceReferences === true) await note({job_id: jobId, check: "voice", reviewer: "jev", status: typed.status, ms: Date.now() - began,
 				...(typed.status === "fallback" ? {fallback: typed.reason} : {defects: typed.defects})});
+			if (owner.sourceReferences === true && typed.status === "fallback") {
+				await writeFile(join(lane.cwd, "review.json"), JSON.stringify({reviewer: "jev", ...typed, pending: true}));
+				return {ok: false, reason: "lane_error", detail: `Typed voice review pending: ${typed.reason}`,
+					failureKind: signal.aborted ? "cancelled" : "unavailable"};
+			}
 			const verdict = typed.status !== "fallback" ? {ok: true as const, value: {honours: typed.status === "accepted", why: typed.defects.length ? `Voice card review defects: ${typed.defects.join(", ")}` : ""}, model: "jev-1.13.0"}
 				: await runLane<{ honours: boolean; why: string }>({
 				ctx: scheduler.ctx as ExtensionContext, envName: "PI_COC_VOICE_MODEL", lane: "voice",
@@ -323,6 +335,7 @@ export default function (pi: ExtensionAPI) {
 			await call("voice.submit", "voice" in lane.value
 				? { campaign, job_id: jobId, voice: lane.value.voice }
 				: { campaign, job_id: jobId, voice: null, reason: SILENT_REASON });
+			candidates.delete(jobId);
 			return { ok: true, model: lane.model, ...(voiceCheck ? { voice_check: voiceCheck } : {}) };
 		} catch (error) {
 			const code = errorCode(error);
@@ -361,6 +374,7 @@ export default function (pi: ExtensionAPI) {
 			}
 			last = outcome;
 			if (outcome.failureKind === "cancelled") return "cancelled";
+			if (outcome.failureKind === "rejected") candidates.delete(jobId);
 			if (outcome.failureKind === "unavailable" && tries + 1 < MAX_ATTEMPTS) {
 				await note({npc: handle, job_id: jobId, ok: false, reason: outcome.reason, detail: outcome.detail.slice(0, 200), deferred: true});
 				return "unavailable";
@@ -368,6 +382,7 @@ export default function (pi: ExtensionAPI) {
 		}
 		if (scheduler.stopped) return "cancelled";
 		retired.add(jobId);
+		candidates.delete(jobId);
 		const failure = last ?? { reason: "lane_error", detail: "the lane never started", failureKind: "rejected" as VoiceFailureKind };
 		try {
 			await call("voice.fail", { campaign, job_id: jobId, reason: failure.reason, detail: failure.detail });

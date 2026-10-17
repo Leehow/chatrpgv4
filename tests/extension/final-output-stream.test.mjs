@@ -163,3 +163,56 @@ test('an opening fence grants no public access to private records or tool markup
     assert.throws(()=>{decoder.push(body);decoder.finish();});
   }
 });
+
+
+test('a private compose control cannot publish its payload after public text at any chunk boundary',()=>{
+  const publicText='The visitor waits.\n';
+  const privateText='{{compose}}'+JSON.stringify({keeper_only:['PRIVATE-NOT-FOR-PLAYER'],scene:'Room',narrative_content:[],npc_turns:[]});
+  const record={effects:[]};
+  for(const raw of [
+    '{{public}}'+publicText+privateText,
+    '{{reference}}'+publicText+privateText,
+    JSON.stringify({version:1,record})+'\n{{public}}'+publicText+privateText,
+    JSON.stringify({version:1,text:publicText+privateText}),
+  ])for(const size of [1,...Array.from({length:raw.length},(_,i)=>i+1)]){
+    const decoder=new ArtifactTextStream(()=>{});let exposed='',failure;
+    try{for(let at=0;at<raw.length;at+=size)exposed+=decoder.push(raw.slice(at,at+size));decoder.finish();}catch(error){failure=error;}
+    assert.ok(failure,'a mixed public/private response must fail');
+    assert.equal(exposed.includes('keeper_only'),false,'private field bytes must not reach the UI stream');
+    assert.equal(exposed.includes('PRIVATE-NOT-FOR-PLAYER'),false,'private values must not reach the UI stream');
+    assert.throws(()=>decoder.push('PRIVATE-NOT-FOR-PLAYER'),'a rejected decoder cannot resume publication');
+    assert.throws(()=>decoder.finish(),'a rejected prefix cannot become an accepted artifact');
+  }
+});
+
+test('ordinary JSON, braces and public scene/speech markers remain public across small chunks',()=>{
+  const text='{{scene}} A {braced} note: {"message":"hello"}. {{say:Visitor}}All right.{{/say}}';
+  for(const raw of ['{{public}}'+text,JSON.stringify({version:1,text})]){
+    const decoder=new ArtifactTextStream();let exposed='';
+    for(const char of raw)exposed+=decoder.push(char);
+    assert.equal(exposed,text);assert.equal(decoder.finish().text,text);
+  }
+});
+
+
+test('a reserved turn envelope inside public content exposes no proposed effects or text at any split',()=>{
+  for(const envelope of [
+    JSON.stringify({version:1,record:{effects:[{kind:'cash',why:'PRIVATE-RECORD'}]},text:'UNSETTLED-TEXT'}),
+    '{ "version" : 1 , "record" : {"effects":["PRIVATE-RECORD"]}, "text":"UNSETTLED-TEXT"}',
+    JSON.stringify({version:1,text:'UNSETTLED-TEXT'}),
+  ])for(const raw of ['{{public}}'+envelope,'{{reference}}A reply.\n'+envelope,JSON.stringify({version:1,text:envelope})])
+    for(let cut=0;cut<=raw.length;cut++){
+      const decoder=new ArtifactTextStream();let exposed='',failure;
+      try{exposed+=decoder.push(raw.slice(0,cut));exposed+=decoder.push(raw.slice(cut));decoder.finish();}catch(error){failure=error;}
+      assert.ok(failure,'a nested transport envelope is not a completed public artifact');
+      for(const secret of ['effects','PRIVATE-RECORD','UNSETTLED-TEXT'])assert.equal(exposed.includes(secret),false,'payload remains private: '+secret);
+      assert.throws(()=>decoder.push('PRIVATE-RECORD'));assert.throws(()=>decoder.finish());
+    }
+});
+
+test('a public JSON value outside the reserved transport shape remains ordinary text',()=>{
+  for(const text of ['{"version":2,"record":{"example":true}}','{"version":1,"recording":"public"}','{"version":1,"quote":"public"}']){
+    const decoder=new ArtifactTextStream();let exposed='';for(const char of '{{public}}'+text)exposed+=decoder.push(char);
+    assert.equal(exposed,text);assert.equal(decoder.finish().text,text);
+  }
+});

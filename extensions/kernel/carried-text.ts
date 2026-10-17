@@ -100,6 +100,18 @@ export class CarriedText {
 			if (!entry.passages.some(seen => seen.text === passage.text && seen.page === passage.page && seen.scene === passage.scene)) entry.passages.push(passage);
 	}
 
+	/** A checked original-place anchor delivered by a successful module lookup, never an ordinary summary. */
+	noteModuleLookup(campaign: string, turn: number, result: Row): void {
+		const passages = (Array.isArray(result.entities) ? result.entities : []).flatMap((entity: Row) => {
+			if (entity?.kind !== "scene" || entity.properties?.source_reference_anchor !== true
+				|| typeof entity.name !== "string" || !entity.name.trim() || typeof entity.summary !== "string") return [];
+			const pages = entity.original_pages;
+			if (!Array.isArray(pages) || pages.length !== 1 || !Number.isSafeInteger(pages[0]) || pages[0] < 1) return [];
+			return [{scene: entity.name, page: pages[0], label: null, text: entity.summary}];
+		});
+		this.note(campaign, turn, passages);
+	}
+
 	/** The passages carried at `turn` (none when the list is of another turn). */
 	of(campaign: string, turn: number): CarriedPassage[] {
 		const entry = this.current.get(campaign);

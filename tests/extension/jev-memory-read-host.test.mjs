@@ -101,14 +101,16 @@ function evidenceOwner(control, { staleAfterSnapshot, publicPadding = 0 } = {}) 
 		}
 		if (params.action === "page") return { snapshot: privateSnapshot, offset: 0, total: 1,
 			rows: [structuredClone(evidenceRow)], next_offset: null };
-		if (params.action === "original") {
+		if (params.action === "original" || params.action === "originals") {
+			if(params.action === 'originals')assert.deepEqual(params.requests,[{alias:evidenceRow.alias}]);
 			const ref = boundEvidenceRef(control);
-			return { alias: evidenceRow.alias, entry: structuredClone(evidenceRow),
+			const result = { alias: evidenceRow.alias, entry: structuredClone(evidenceRow),
 			authority: "conversation_report", verified: true, verification_scope: "canonical_original_integrity_only",
 			original: { line: "main", loop: 0, turn: 1, commit: privateCommit }, derived: false,
 			context: [{ role: "keeper", text: "Knott promised payment after the written report.", range: { offset: 0, end: 49 },
 				total_chars: 49, truncated: false, speakers: [{ start: 0, end: 49, name: "Steven Knott", kind: "npc" }], ref }],
 			refs: [ref] };
+			return params.action === 'originals' ? {snapshot:privateSnapshot,results:[result]} : result;
 		}
 		if (params.action === "finish") return { what: "memory", query: "What did Knott promise?", status: "ready",
 			hits: [{ ...structuredClone(evidenceRow), original: { line: "main", loop: 0, turn: 1, commit: privateCommit },
@@ -205,7 +207,7 @@ test("ordinary recall query runs a shared child owner task, keeps refs private, 
 	assert.deepEqual(host.errors, []);
 	assert.equal(status.task.status, "closed");
 	assert.equal(status.task.reason, "delivered");
-	assert.deepEqual(host.control.evidenceCalls.map(call => call.action), ["snapshot", "page", "original", "finish"],
+	assert.deepEqual(host.control.evidenceCalls.map(call => call.action), ["snapshot", "page", "originals", "finish"],
 		JSON.stringify([...host.store.records.values()].map(record => ({ domain: record.domain, phase: record.phase,
 			status: record.status, result: record.result, decisions: record.decisions.map(row => ({ key: row.key, result: row.result })) }))));
 	assert.deepEqual(batches.map(batch => batch.family), ["memory-read", "memory-read"]);

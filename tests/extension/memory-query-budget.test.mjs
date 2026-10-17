@@ -41,8 +41,8 @@ async function query(useMemoryBudget) {
                 coverage:{raw_gap_turns:[],raw_unavailable_lines:[]},context:{}};
             if(p.action==='page'){const end=Math.min(total,p.offset+20);return{snapshot:'fixed',offset:p.offset,total,
                 rows:Array.from({length:end-p.offset},(_,i)=>entry(p.offset+i)),next_offset:end<total?end:null};}
-            if(p.action==='original'){assert.equal(p.alias,tail);return{alias:tail,verified:true,entry:entry(total-1),
-                authority:'conversation_report',context:[{role:'keeper',text:'The final retained conditional promise.',range:{offset:0,end:39}}]};}
+            if(p.action==='originals'){assert.deepEqual(p.requests,[{alias:tail}]);return{snapshot:p.snapshot,results:[{alias:tail,verified:true,entry:entry(total-1),
+                authority:'conversation_report',context:[{role:'keeper',text:'The final retained conditional promise.',range:{offset:0,end:39}}]}]};}
             if(p.action==='finish'){assert.equal(p.considered.length,total);assert.deepEqual(p.selected,[tail]);
                 return{what:'memory',status:'ready',hits:[{alias:tail,text:'The final retained conditional promise.'}],
                     coverage:{used:[tail],omitted:[],unknown:[]}};}

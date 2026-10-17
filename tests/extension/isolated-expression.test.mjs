@@ -59,12 +59,15 @@ test('isolated delivery prepares selected speaker labels before the first public
     call:async(method,params)=>{
       calls.push({method,params});
       if(method==='table.capsule')return{_context:{campaign:'c',turn:1,worldline:'main',loop:0,task_world_revision:'w',task_source_revision:'s'},turn:{player_text:'I ask the gatekeeper.'},present:[{name:'Gatekeeper'}]};
-      if(method==='table.delivery.check')return{speakers:params.speakers.map(name=>({name,who:{label:name}}))};
+      if(method==='table.delivery.check')return{speakers:(params.speakers??[]).map(name=>({name,who:name==='Investigator'?{investigator:'private-sheet-id',name:'Canonical Investigator'}:{label:name}}))};
       return{};
     }});
-  const stream=await owner.openStream('c',1,'r','isolated-expression',['Hugh Moore']);
+  const stream=await owner.openStream('c',1,'r','isolated-expression',['Hugh Moore'],['Investigator']);
+  assert.equal(stream.playerText,'I ask the gatekeeper.');
+  assert.deepEqual(stream.investigatorNames,['Canonical Investigator']);
   stream.push('{{say:Hugh Moore}}Morning.{{/say}}');
-  assert.deepEqual(calls.find(row=>row.method==='table.delivery.check').params.speakers,['Hugh Moore','Gatekeeper']);
+  assert.equal(calls[0].method,'table.delivery.check','freeze background preparation before capturing the expression capsule');
+  assert.deepEqual(calls.findLast(row=>row.method==='table.delivery.check').params.speakers,['Investigator','Hugh Moore','Gatekeeper']);
   assert.equal(frames[0].event,'start');
   assert.ok(frames[0].speakers.some(speaker=>speaker.name==='Hugh Moore'));
   assert.equal(frames[1].event,'delta');
@@ -101,7 +104,7 @@ test('Keeper-only selection notes stay in private telemetry and never enter the 
   assert.deepEqual(expected.npc_turns,brief.npc_turns);
 });
 
-test('real Pi/kernel publication receives the isolated author prose, not the private Keeper plan',async t=>{
+for(const emptyFirst of [false,true,'malformed'])test('real Pi/kernel publication receives isolated prose after a thinking-only completion: '+emptyFirst,async t=>{
   const env={PI_COC_LOOP_ENGINE:'hybrid-v1',PI_COC_ISOLATED_OUTPUT:'1',PI_COC_JEV_PRESELECT:'0',PI_COC_MATERIAL_SCREEN:'0',
     PI_COC_READER_CMD:JSON.stringify([process.execPath,join(import.meta.dirname,'fixtures/isolated-expression-writer.mjs')])};
   const engine=createHybridEngine({env,decision:null});
@@ -111,7 +114,7 @@ test('real Pi/kernel publication receives the isolated author prose, not the pri
       const runtime=api.createKernelRuntime(context);
       try{await runtime.handlers['table.open']({campaign:'test-camp'});await runtime.handlers['table.narrate']({campaign:'test-camp',call_id:'t0-c1',text:'Knott waits at his desk.'});}finally{await runtime.close();}
     },
-    extraExtensions:[{name:'engine',factory:engine.extension}],responses:[fauxAssistantMessage('{{compose}}'+JSON.stringify({...brief,keeper_only:['Private adjudication remains with the Keeper.']}))]});
+    extraExtensions:[{name:'engine',factory:engine.extension}],responses:[...(emptyFirst?[fauxAssistantMessage(emptyFirst==='malformed'?'{{compose}}\n\n**keeper_only**':[{type:'thinking',thinking:'Ready to submit the expression.'}])]:[]),fauxAssistantMessage('{{compose}}'+JSON.stringify({...brief,keeper_only:['Private adjudication remains with the Keeper.']}))]});
   t.after(()=>table.dispose());
   assert.deepEqual(table.extensionsResult.errors,[]);
   await table.session.prompt('I ask Knott when he can meet.');
@@ -121,8 +124,12 @@ test('real Pi/kernel publication receives the isolated author prose, not the pri
   assert.ok(!shown.includes('Offer a meeting at dawn'));
   const rows=table.telemetry().filter(row=>row.lane==='isolated-expression');
   assert.equal(rows.filter(row=>row.event==='start').length,1);
+  assert.equal(table.telemetry().filter(row=>row.lane==='turn'&&row.event==='turn_close'&&row.kind==='private_reply_protocol').length,emptyFirst?1:0);
   const authorInput=JSON.parse(await readFile(join(rows.find(row=>row.event==='start').attempt,'task.json'),'utf8'));
   assert.equal(authorInput.play_language,'zh-Hans','The isolated author inherits the opened campaign language.');
+  assert.equal(authorInput.player_input,'I ask Knott when he can meet.','The host carries the actual current input even when the private brief omits it.');
+  const investigator=JSON.parse(await readFile(join(root,'content/starters/the-haunting/pregens/thomas-hayes/character.json'),'utf8'));
+  assert.deepEqual(authorInput.investigator_names,[investigator.name],'Canonical investigator names reach the real isolated task without character cards or internal IDs.');
   assert.equal(Object.hasOwn(authorInput,'keeper_only'),false);
   assert.deepEqual(rows.find(row=>row.event==='start').keeper_only,['Private adjudication remains with the Keeper.']);
   assert.equal(rows.find(row=>row.event==='written').model,EXPRESSION_PROFILE.model);
@@ -148,4 +155,33 @@ test('a transport failure preserves the exposed prefix and starts no replacement
   assert.equal(calls,1);
   assert.equal(prose.join(''),'An exposed beginning.');
   assert.equal(records.at(-1).event,'failed');
+});
+
+test('a tool-enabled author keeps an unmarked tool preamble private and streams only the framed final answer',async t=>{
+ const home=await mkdtemp(join(tmpdir(),'expression-preamble-'));t.after(()=>rm(home,{recursive:true,force:true}));
+ const prose=[];let calls=0;
+ const runtime={home,async runTask(task){
+  calls++;
+  task.request.onEvent({type:'message_update',assistantMessageEvent:{type:'text_delta',delta:'I will write the response after inspecting the brief.'}});
+  task.request.onEvent({type:'message_end',message:{role:'assistant',provider:'opencode-go',model:'deepseek-v4.1-flash',stopReason:'toolUse',content:[{type:'text',text:'I will write the response after inspecting the brief.'},{type:'toolCall',name:'read'}]}});
+  task.request.onEvent({type:'tool_execution_start',toolName:'read'});
+  task.request.onEvent({type:'message_update',assistantMessageEvent:{type:'text_delta',delta:'{{public}}The clerk answers carefully.'}});
+  task.request.onEvent({type:'message_end',message:{role:'assistant',provider:'opencode-go',model:'deepseek-v4.1-flash',stopReason:'stop',content:[{type:'text',text:'{{public}}The clerk answers carefully.'}]}});
+  return{ok:true,ms:1};
+ }};
+ const result=await writeIsolatedExpression({runtime,campaign:'c',turn:1,run:'r',brief,language:'en',stream:{push:text=>prose.push(text)},record:async()=>{}});
+ assert.equal(result.text,'The clerk answers carefully.');assert.equal(prose.join(''),result.text);assert.equal(calls,1);
+});
+
+test('an unmarked terminal answer stays rejected without exposure or a replacement author',async t=>{
+ const home=await mkdtemp(join(tmpdir(),'expression-unmarked-'));t.after(()=>rm(home,{recursive:true,force:true}));
+ const prose=[];let calls=0;
+ const runtime={home,async runTask(task){
+  calls++;
+  task.request.onEvent({type:'message_update',assistantMessageEvent:{type:'text_delta',delta:'I will write the story response.'}});
+  task.request.onEvent({type:'message_end',message:{role:'assistant',provider:'opencode-go',model:'deepseek-v4.1-flash',stopReason:'stop',content:[{type:'text',text:'I will write the story response.'}]}});
+  return{ok:true,ms:1};
+ }};
+ await assert.rejects(writeIsolatedExpression({runtime,campaign:'c',turn:1,run:'r',brief,language:'en',stream:{push:text=>prose.push(text)},record:async()=>{}}),/Final artifact must begin/);
+ assert.deepEqual(prose,[]);assert.equal(calls,1);
 });

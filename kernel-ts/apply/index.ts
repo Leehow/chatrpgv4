@@ -39,6 +39,7 @@ import type {MaterialGate,TextLanding} from '../modules/reading.js';
 import {stagePerson} from './person.js';
 import {calledPerson,personNode} from '../read/capsule.js';
 import {castPersonNamed, newcomerRefusal} from '../read/cast.js';
+import {passageOf} from '../read/table-people.js';
 import {presentArrivalMaps,revealMap} from '../read/maps.js';
 import {stageItem,stageCash,commitInventorySheets} from './inventory.js';
 import type {createWorldlineRuntime} from '../worldline/index.js';
@@ -130,6 +131,11 @@ export function createApplyHandlers(kernel: KernelContext, writer: ReturnType<ty
                 ? taskWorldRevision(transaction.world, await campaign.party() as Row[], turn.receipts, turn.pending_choice) : undefined;
             if (!Array.isArray(effects) || (!effects.length && params.event === undefined))
                 throw new RpcError('invalid_params', 'params.effects must be a non-empty list');
+            const eventEffectIndex=effects.findIndex(effect=>isJsonObject(effect)&&effect.kind==='event');
+            if(eventEffectIndex>=0)throw new RpcError('invalid_params','An event is not an effect kind',{
+                fix:'Put the occurrence in top-level apply.event beside effects. Keep only actual state changes in effects; resend the corrected batch without repeating earlier committed operations.',
+                details:{reason:'event_is_not_effect',index:eventEffectIndex,field:'event'}
+            });
             if (effects.some(effect => isJsonObject(effect) && effect.kind === 'usage') && effects.some(effect => !isJsonObject(effect) || !['define','object','usage'].includes(string(effect.kind))))
                 throw new RpcError('invalid_params','A usage preparation batch contains only define, object and usage; apply other actions separately');
             if (effects.some(effect => isJsonObject(effect) && effect.kind === 'adaptation') && effects.length !== 1)
@@ -173,8 +179,8 @@ export function createApplyHandlers(kernel: KernelContext, writer: ReturnType<ty
                 let existing: Row | null = null;
                 try { existing = personNode(graph, transaction.world, effect.name); } catch { existing = null; }
                 if (existing) continue;
-                // An exact unread cast identity arrives through its existing source landing, never as a duplicate newcomer.
-                if (effect.creature == null && castPersonNamed(graph, transaction.world, effect.name)) {
+                // A host-vouched full source name or exact unread cast identity uses the existing source entrance.
+                if (effect.creature == null && (passageOf(effect, effect.name) || castPersonNamed(graph, transaction.world, effect.name))) {
                     effect.walk_on = false;
                     continue;
                 }

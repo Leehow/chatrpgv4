@@ -615,14 +615,19 @@ export class ModuleGraph {
         return node;
     }
     /** A source location is a playable place; preserve its identity and all existing links. */
-    projectSourcePlaces(): void {
+    projectSourcePlaces(retainedHandles: readonly string[] = []): void {
         const locations = this.kind('location');
         const registered = new Set(this.kind('scene').flatMap(scene => this.nameKeys(scene).map(normalize)));
+        const sceneHandles = new Set(this.kind('scene').map(scene => this.handle(scene)));
+        const retainedPlaces = new Set(retainedHandles);
         const retained: Row[] = [], people = personNamedLocations(this);
         for (const location of locations) {
             // An authored scene already representing this exact place keeps precedence. §204.6: a location named exactly as a
             // person of the book is that person's identity a place-only reader drafted; it is never a place to walk to.
-            if (people.has(string(location.node_id)) || this.nameKeys(location).some(name => registered.has(normalize(name)))) { retained.push(location); continue; }
+            const held = !sceneHandles.has(this.handle(location))
+                && [location.node_id, this.handle(location), ...this.inputOnlyKeys(location)].some(key => retainedPlaces.has(key));
+            if (people.has(string(location.node_id)) || !held
+                && this.nameKeys(location).some(name => registered.has(normalize(name)))) { retained.push(location); continue; }
             this.sourcePlaceNames.set(location.node_id, this.handle(location));
             const scene = {...location, node_kind: 'scene', source_kind: 'location'};
             this.nodes.set(location.node_id, scene);

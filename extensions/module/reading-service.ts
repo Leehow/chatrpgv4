@@ -25,7 +25,7 @@ import type { HostRuntime } from "../../runtime/host.ts";
 import type {FreshSourceNavigator} from '../../runtime/jev/fresh-source-navigator.ts';
 import type {PublicationTravel, TravelFill} from './travel-fill.ts';
 import type {ClaimSupportCheck, ClaimSupportRequest} from './claim-support.ts';
-import {runSourceReference} from './source-reference.ts';
+import {runSourceReference,SourceReferenceFailure} from './source-reference.ts';
 import {acceptedGuidance,acceptedPublicGuidance} from './character-guidance.ts';
 import {validateReferencePacket} from '../../kernel-ts/modules/reference-contract.ts';
 import {readNeedReceipt,type NeedReceipt} from '../../runtime/jev/source-need-reads.ts';
@@ -642,8 +642,22 @@ export class ReadingService implements ReadingBridge {
 		if (!mid) throw error("needs_source", "choose a PDF or an existing module", "pass pdf or module_id");
 		if (params.purpose === "bind") return {ok:true,module_id:mid,source_bound:true};
 		if (params.purpose === "guidance") {
-			try{const reference=await this.referenceGuidance(mid,params,signal,options);if(reference)return {...reference,module_id:mid};}
-			catch(failure){if(signal?.aborted||isKernelError(failure)&&failure.code==='needs_choice')throw failure;this.deps.record({lane:'source-reference',event:'guidance_fallback',module_id:mid,detail:String(failure)});}
+			for(let attempt=0;attempt<2;attempt++){
+				try{const reference=await this.referenceGuidance(mid,params,signal,options);if(reference)return {...reference,module_id:mid};break;}
+				catch(failure){
+					if(signal?.aborted||isKernelError(failure)&&failure.code==='needs_choice')throw failure;
+					if(failure instanceof SourceReferenceFailure&&failure.visualFallback){
+						this.deps.record({lane:'source-reference',event:'guidance_fallback',module_id:mid,reason:failure.reason});break;
+					}
+					const reason=failure instanceof SourceReferenceFailure?failure.reason:'reference_failed';
+					if(failure instanceof SourceReferenceFailure&&failure.retryable&&attempt===0){
+						this.deps.record({lane:'source-reference',event:'guidance_retry',module_id:mid,reason});continue;
+					}
+					this.deps.record({lane:'source-reference',event:'guidance_failed',module_id:mid,reason,detail:String(failure)});
+					throw new KernelError({code:'preparation_failed',message:'Source guidance could not be checked. Your source is saved; retry preparation.',
+						fix:'Retry guidance after checking the source reader and decision service',details:{reason}});
+				}
+			}
 			const result = await this.ensure(mid, {...params,public_progress:true, campaign:null, focus: params.start_scene || "", foreground:true}, signal, options);
 			return {...result, module_id:mid};
 		}

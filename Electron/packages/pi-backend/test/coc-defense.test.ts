@@ -36,8 +36,9 @@ it('saves only the selected campaign binding and shares the policy with another 
     vi.spyOn(backend as any,'invokeExtension').mockImplementation(async(...args:any[])=>args[1]==='sheet'
       ?{ok:true,data:{view:{play_language:'en',pending_choice:choice}}}:invoke(...args));
     const handle=backend.handle.bind(backend), sent:any[]=[];
+    let failSend=false;
     vi.spyOn(backend,'handle').mockImplementation(async(method:any,args:any)=>{
-      if(method==='sendPrompt'){sent.push(args);return undefined;} return handle(method,args);
+      if(method==='sendPrompt'){if(failSend)throw new Error('Send failed');sent.push(args);return undefined;} return handle(method,args);
     });
     for(const option of choice.options)
       expect(await backend.handle('invokeExtension',['coc-keeper','choose',{choice:choice.name,option},{sessionId:sessions[0].id}])).toMatchObject({ok:false});
@@ -48,5 +49,23 @@ it('saves only the selected campaign binding and shares the policy with another 
     expect(await backend.handle('invokeExtension',['coc-keeper','choose',{choice:choice.name,option:'flee'},{sessionId:sessions[0].id}])).toMatchObject({ok:true,data:{sent:true}});
     expect(sent).toHaveLength(1);
     expect(JSON.parse(sent[0][1]).action).toBe('flee');
+    choice={name:'cash-quote',kind:'mechanics',prompt:'Accept the quoted cash cost?',binds:'cash-quote-47',options:['accept','flee']};
+    const choose=(params:any)=>backend.handle('invokeExtension',['coc-keeper','choose',params,{sessionId:sessions[0].id}]);
+    expect(await choose({choice:'stale',option:'accept'})).toMatchObject({ok:false});
+    expect(await choose({choice:choice.name,option:'invented'})).toMatchObject({ok:false});
+    expect(sent).toHaveLength(1);
+    expect(await choose({choice:choice.name,option:'accept',binds:'forged',prompt:'Different amount',context:{name:'forged'}})).toMatchObject({ok:true});
+    expect(JSON.parse(sent[1][1])).toEqual({kind:'mechanics_choice',action:'accept',choice:{...choice},play_language:'en'});
+    expect(await choose({choice:choice.name,option:'accept'})).toMatchObject({ok:false});
+    expect(sent).toHaveLength(2);
+    choice={name:'ordinary-story',kind:'story',options:['Wait here']};
+    expect(await choose({choice:choice.name,option:'Wait here'})).toMatchObject({ok:true});
+    expect(sent[2][1]).toBe('Wait here');
+    choice={name:'retry-choice',kind:'mechanics',binds:'cash-quote-47',options:['accept']};
+    failSend=true;
+    await expect(choose({choice:choice.name,option:'accept'})).rejects.toThrow('Send failed');
+    failSend=false;
+    expect(await choose({choice:choice.name,option:'accept'})).toMatchObject({ok:true});
+    expect(JSON.parse(sent[3][1]).choice).toEqual(choice);
   } finally {await backend.close(); await rm(root,{recursive:true,force:true});}
 });

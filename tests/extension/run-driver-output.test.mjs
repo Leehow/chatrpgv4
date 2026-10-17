@@ -666,7 +666,7 @@ test('a refused legacy final can recover through native tools without spending a
     ()=>{requests++;return fauxAssistantMessage(JSON.stringify({version:1,record:{effects:[{kind:'time',minutes:-1}]},text:rejected}));},
     context=>{
       requests++;
-      assert.ok(JSON.stringify(context.messages).includes('apply/resolve tools'));
+      assert.ok(JSON.stringify(context.messages).includes('ordinary apply first'), 'the current native correction still offers explicit tools');
       assert.equal(seen.length,0);
       return fauxAssistantMessage([fauxToolCall('apply',{effects:[{kind:'time',minutes:-1}]})],{stopReason:'toolUse'});
     },
@@ -1296,10 +1296,10 @@ test('the first native stream catalog includes safe earlier-scene speech without
   assert.equal(JSON.stringify(start).includes('Mr. Dooley'),false);
   assert.equal(JSON.stringify(start).includes('Arty Wilmot'),false);
   assert.equal(JSON.stringify(start).includes('Walter Corbitt'),false);
-  assert.equal(calls.filter(method=>method==='table.delivery.check').length,1);
+  assert.equal(calls.filter(method=>method==='table.delivery.check').length,2,'freeze the world before the capsule, then prepare the speaker catalog');
   assert.equal(calls.includes('table.status'),false,'preparation does not add a status read');
   assert.equal(readFileSync(worldFile,'utf8'),worldBefore);
-  assert.equal(readFileSync(turnFile,'utf8'),turnBefore,'preparing identities neither publishes speech nor activates cognition');
+  assert.deepEqual(JSON.parse(readFileSync(turnFile,'utf8')),{...JSON.parse(turnBefore),delivery_frozen:true},'preparing identities only freezes background preparation; it neither publishes speech nor activates cognition');
   assert.equal(frames.filter(frame=>frame.event==='delta').length,0,'identities are prepared before prose');
   stream.interrupt();
   const checked=await bridge.call('table.delivery.check',{campaign,speakers:['Alex']});
@@ -1324,6 +1324,7 @@ test('speech occurrence resolution reuses prepared identities and bounds missing
       present:[{name:'Public clerk'}],turn:{player_text:'What did you hear?'}};
     if(method==='table.status'){statuses++;return {outcome:{public_materials:materials}};}
     assert.equal(method,'table.delivery.check');
+    if(params.speakers===undefined)return {speakers:[]};
     assert.ok(params.speakers.length<=48);
     assert.ok(params.speakers.every(name=>name.length<=120));
     checks.push(params.speakers);

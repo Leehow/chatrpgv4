@@ -4922,13 +4922,18 @@ export class PiHostBackend implements HostBackend {
         const runtimeToken = this.beginSessionRuntime(s.header.id);
         return this.forceTakeoverSessionLease(s, runtimeToken);
       }
-      case "sendPrompt":
-        return this.enqueueMessage(
+      case "sendPrompt": {
+        const result = await this.enqueueMessage(
           params[0] as string,
           params[1] as string,
           params[2] as PromptAttachment[] | undefined,
           params[3] as TurnTelemetryRendererSample | undefined,
         );
+        if (result.outcome === "direct") {
+          await this.queue.waitForMessageDelivery(params[0] as string, result.message.id, this.sessionRuntimeToken(params[0] as string));
+        }
+        return result;
+      }
       case "listQueue":
         await this.loadQueueForSession(params[0] as string);
         return this.publicQueueItems(this.queue.listQueue(params[0] as string));
@@ -6141,6 +6146,9 @@ export class PiHostBackend implements HostBackend {
       const desired = this.desiredModelFor(found);
       if (desired.model.provider !== "unknown" && desired.model.id !== "unknown"
         && !this.models.some(model => model.provider === desired.model.provider && model.id === desired.model.id)) {
+        if (!this.modelCatalogReady) {
+          throw new Error(`The model catalog is not ready to verify ${desired.model.provider}/${desired.model.id}. Retry after the catalog finishes loading.`);
+        }
         throw new Error(`The selected model ${desired.model.provider}/${desired.model.id} is not registered exactly. Select an available model before starting this session.`);
       }
       const previousModelSnapshot = this.sessionModelSnapshots.get(id);
@@ -6752,7 +6760,9 @@ export class PiHostBackend implements HostBackend {
     // the lifecycle identity it was born under; absence or mismatch rejects
     // every late event before it can touch queue, telemetry, or projections.
     if (!this.sessionRuntimeTokenIsCurrent(live.session.id, live.runtimeToken)) return;
-    const privatePlay=this.cocSessionBindings.get(live.session.id)?.mode==='play';
+    const cocMode=this.cocSessionBindings.get(live.session.id)?.mode;
+    const privatePlay=cocMode==='play';
+    const cocRun=privatePlay||cocMode==='setup';
     if (e.type === "entry_appended") {
       const progress=projectRunProgress(e.entry);
       if(progress&&this.cocSessionBindings.has(live.session.id))
@@ -7341,15 +7351,15 @@ export class PiHostBackend implements HostBackend {
             ? message.errorMessage
             : undefined;
         if (content) this.stream({ type: "error", sessionId: id, content: redactText(content, secrets) });
-        // Pi decides whether to retry after this message. A private-play run
+        // Pi decides whether to retry after this message. A setup or private-play run
         // still owns its FIFO until the existing settled/abort/exit lifecycle.
         // Keep ordinary-chat error handling unchanged.
-        if (!privatePlay) this.projectTurnTerminal(live, "stopped");
+        if (!cocRun) this.projectTurnTerminal(live, "stopped");
       }
       // A private-play stop can be a refused record followed by another
       // inference in the same run. Only the run lifecycle may release its FIFO.
       if (
-        !privatePlay
+        !cocRun
         && message.role === "assistant"
         && message.stopReason === "stop"
         && !((Array.isArray(message.content) ? message.content : []).some((part: any) =>
@@ -10622,7 +10632,9 @@ export class PiHostBackend implements HostBackend {
       if (this.cocChoiceClaims.get(sessionId) === choice.name) return this.cocDenied("stale_choice", "This choice was already submitted.");
       this.cocChoiceClaims.set(sessionId,choice.name);
       const input = choice.kind === "mechanics"
-        ? JSON.stringify({kind:"mechanics_choice",action:selected.option,play_language:sheet.data.view.play_language})
+        ? JSON.stringify({kind:"mechanics_choice",action:selected.option,
+          choice:{name:choice.name,kind:choice.kind,prompt:choice.prompt,binds:choice.binds,options:choice.options},
+          play_language:sheet.data.view.play_language})
         : selected.option!;
       try {await this.handle("sendPrompt",[sessionId,input]);}
       catch(error) {this.cocChoiceClaims.delete(sessionId);throw error;}

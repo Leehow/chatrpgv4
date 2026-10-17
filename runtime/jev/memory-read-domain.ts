@@ -5,7 +5,7 @@ import type {TaskDomain, TaskStep, TaskView} from './task-runtime.ts';
 import {JEV_MODEL} from './question-packing.ts';
 
 export const MEMORY_READ_CAPABILITY = 'recall';
-export const MEMORY_READ_POLICY_VERSION = '5';
+export const MEMORY_READ_POLICY_VERSION = '6';
 const FAMILY = 'memory-read', VERSION = MEMORY_READ_POLICY_VERSION, MAX_BATCH_BYTES = 30_000, MAX_SELECTED = 20, MAX_REFRESHES = 2;
 const MAX_CONTEXT_BYTES = 6_000, MAX_COMPARISON_BYTES = 9_000, MAX_ORIGINAL_BYTES = 12_000;
 type Relevance = 'direct'|'context'|'irrelevant'|'uncertain';
@@ -72,8 +72,16 @@ function roundRobin(rows:Row[],classified:Map<number,Map<string,NeedPriority>>,n
   const relevance=new Map<string,Relevance>(),unknown=new Set<string>();for(const row of ranked){const values=Array.from({length:needCount},(_,index)=>classified.get(index)!.get(row.alias)!);if(values.includes('essential'))relevance.set(row.alias,'direct');else if(values.some(value=>value==='useful'||value==='background'))relevance.set(row.alias,'context');else relevance.set(row.alias,'uncertain');if(values.includes('unknown'))unknown.add(row.alias);}
   return{ranked,relevance,unknown};
 }
-function originals(view:TaskView,s:Snapshot):Map<string,Record<string,unknown>[]>{const out=new Map<string,Record<string,unknown>[]>();for(const row of view.observations.filter(o=>o.proposal.operation==='memory.original'&&o.proposal.args.snapshot===s.snapshot)){
-  const alias=String(row.proposal.args.alias);if(!out.has(alias))out.set(alias,[]);out.get(alias)!.push(row.packet.status==='succeeded'&&isPlainRecord(row.packet.result)?row.packet.result:{alias,verified:false,reason:'original_read_unavailable'});}return out;}
+function originalWindows(view:TaskView,s:Snapshot):Array<{args:Record<string,Json>;result:Record<string,unknown>}>{
+  return view.observations.filter(o=>['memory.original','memory.originals'].includes(o.proposal.operation)&&o.proposal.args.snapshot===s.snapshot).flatMap(row=>{
+    const requests=row.proposal.operation==='memory.original'?[row.proposal.args]:row.proposal.args.requests as Record<string,Json>[];
+    const result=row.packet.result,values=row.proposal.operation==='memory.original'?[result]:isPlainRecord(result)&&dense(result.results)?result.results:[];
+    const valid=row.packet.status==='succeeded'&&values.length===requests.length&&values.every((value,index)=>isPlainRecord(value)&&value.alias===requests[index].alias);
+    return requests.map((args,index)=>({args,result:valid?values[index] as Record<string,unknown>:{alias:args.alias,verified:false,reason:'original_read_unavailable'}}));
+  });
+}
+function originals(view:TaskView,s:Snapshot):Map<string,Record<string,unknown>[]>{const out=new Map<string,Record<string,unknown>[]>();for(const row of originalWindows(view,s)){
+  const alias=String(row.args.alias);if(!out.has(alias))out.set(alias,[]);out.get(alias)!.push(row.result);}return out;}
 function readRanges(reads:Record<string,unknown>[]):Set<string>{const out=new Set<string>();for(const read of reads)for(const piece of dense(read.context)?read.context:[])
   if(isPlainRecord(piece)&&typeof piece.role==='string'&&isPlainRecord(piece.range)&&Number.isSafeInteger(piece.range.offset))out.add(`${piece.role}:${piece.range.offset}`);return out;}
 function continuations(reads:Record<string,unknown>[]):Array<{alias:string;offset:number;role:string}>{const out:Array<{alias:string;offset:number;role:string}>=[];for(const read of reads)for(const piece of dense(read.context)?read.context:[]){if(!isPlainRecord(piece))continue;for(const field of ['previous','next']){const n=piece[field];if(isPlainRecord(n)&&typeof n.alias==='string'&&Number.isSafeInteger(n.offset)&&['player','keeper'].includes(String(n.role)))out.push({alias:n.alias,offset:Number(n.offset),role:String(n.role)});}}return out;}
@@ -113,7 +121,12 @@ export function createMemoryReadDomain():TaskDomain{return{id:'memory-read',vers
   // Round-robin across query subquestions before both the alias and owner byte caps.
   const rankedCoverage=roundRobin(paged.rows,classified,needs.length),ranked=rankedCoverage.ranked,rel=rankedCoverage.relevance;
   if(!s.raw_all&&!ranked.length&&snaps.length<=MAX_REFRESHES)return op('memory.snapshot',`memory-snapshot:${snaps.length}`,{raw_all:true});
-  const readPool=ranked.slice(0,MAX_SELECTED),overflow=ranked.slice(MAX_SELECTED),reads=originals(view,s);for(const row of readPool){const list=reads.get(row.alias)??[];if(!list.length)return op('memory.original',`memory-original:${skey}:${row.alias}:0`,{snapshot:s.snapshot,alias:row.alias});const covered=readRanges(list),next=continuations(list).find(n=>!covered.has(`${n.role}:${n.offset}`)&&!view.observations.some(o=>o.key===`memory-original:${skey}:${row.alias}:${n.role}:${n.offset}`));if(next)return op('memory.original',`memory-original:${skey}:${row.alias}:${next.role}:${next.offset}`,{snapshot:s.snapshot,alias:row.alias,offset:next.offset,role:next.role});}
+  const readPool=ranked.slice(0,MAX_SELECTED),overflow=ranked.slice(MAX_SELECTED),reads=originals(view,s),windows=originalWindows(view,s),requests:Record<string,Json>[]=[];
+  for(const row of readPool){const list=reads.get(row.alias)??[];if(!list.length){requests.push({alias:row.alias});continue;}
+    const covered=readRanges(list),next=continuations(list).find(n=>!covered.has(`${n.role}:${n.offset}`)&&!windows.some(w=>w.args.alias===row.alias&&w.args.role===n.role&&w.args.offset===n.offset));
+    if(next)requests.push({alias:row.alias,offset:next.offset,role:next.role});}
+  if(requests.length){const count=Math.min(8,view.context.budget.remainingActions,requests.length);if(!count)return done('partial',['The original-window action allowance is exhausted.']);
+    const batch=requests.slice(0,count);return op('memory.originals',`memory-originals:${skey}:${hash(batch)}`,{snapshot:s.snapshot,requests:batch});}
   const candidates=readPool.filter(r=>(reads.get(r.alias)??[]).some(v=>v.verified===true)),selected=candidates;
   const prepared=new Map(selected.map(row=>{const compact=compactOriginals(reads.get(row.alias)!);return[row.alias,{row,rel:rel.get(row.alias) as Relevance,needs:needs.flatMap((need,index)=>classified.get(index)!.get(row.alias)!=='irrelevant'?[{need,priority:classified.get(index)!.get(row.alias)!}]:[]),evidence:compact.value,evidenceComplete:compact.complete} satisfies AssessmentItem] as const;}));
   const sharedCoverage:AssessmentCoverage={contextComplete:boundedContext(s.context).complete,comparisonComplete:boundedComparison(selected).complete};

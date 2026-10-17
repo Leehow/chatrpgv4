@@ -21,6 +21,7 @@ async function fixture({snapshots,rowsBySnapshot,original,finish,select,taskPlan
   if(proposal.operation==="memory.snapshot")return packet(proposal,structuredClone(snapshots[Math.min(snapIndex++,snapshots.length-1)]));
   if(proposal.operation==="memory.page"){const rows=rowsBySnapshot[proposal.args.snapshot]??[],offset=proposal.args.offset;const page=rows.slice(offset,offset+20);return packet(proposal,{snapshot:proposal.args.snapshot,offset,total:rows.length,rows:page,next_offset:offset+page.length<rows.length?offset+page.length:null});}
   if(proposal.operation==="memory.original")return packet(proposal,await original(proposal));
+  if(proposal.operation==="memory.originals")return packet(proposal,{snapshot:proposal.args.snapshot,results:await Promise.all(proposal.args.requests.map(args=>original({...proposal,args:{snapshot:proposal.args.snapshot,...args}})))});
   if(proposal.operation==="memory.finish"){const result=await finish(proposal,calls.filter(x=>x.operation==="memory.finish").length);return packet(proposal,result,result.refs??[]);}
   throw new Error(`unexpected ${proposal.operation}`);}};
  const decision={async decide(batch){batches.push(structuredClone(batch));return answer(batch,select);}};
@@ -28,6 +29,21 @@ async function fixture({snapshots,rowsBySnapshot,original,finish,select,taskPlan
  const id=await runtime.begin({domain:"memory-read",intent:{id:"intent",rawInput:rawRef,goal:taskPlan.goal,limits:[],scope,turn:5,inputRevision:rawRef.revision},lease:{owner:"memory-read",goal:taskPlan.goal,scope,capabilities:[MEMORY_READ_CAPABILITY],budget:{deadlineAt:Date.now()+30000,remainingInputTokens:100000,remainingOutputTokens:100000,remainingCostUsd:10,remainingActions:200},readSet}});
  const result=await runtime.submit(id,taskPlan);return{runtime,id,result,calls,batches,record:runtime.snapshot(id)};
 }
+
+const originalRequests=app=>app.calls.flatMap(call=>call.operation==='memory.original'?[call]:call.operation==='memory.originals'
+ ?call.args.requests.map(args=>({...call,args:{snapshot:call.args.snapshot,...args}})):[]);
+
+test('independent canonical originals use bounded batches before assessment',async()=>{
+ const rows=Array.from({length:20},(_,i)=>row(`entry:${i}`,`Retained statement ${i}.`));let assessed=0;
+ const app=await fixture({snapshots:[snap('batch',20)],rowsBySnapshot:{batch:rows},
+  async original(p){return{alias:p.args.alias,verified:true,context:[{role:'keeper',text:'Exact original.',range:{offset:0,end:15},total_chars:15}],refs:[]};},
+  async finish(p){assert.equal(assessed,20);return{status:'ready',refs:[]};},
+  select(q){if(q.key.startsWith('coverage:'))return'essential';if(q.key.startsWith('support:')){assessed++;return'supported';}if(q.key.startsWith('applicability:'))return'current';return'none';}});
+ const batches=app.calls.filter(call=>call.operation==='memory.originals');
+ assert.deepEqual(batches.map(call=>call.args.requests.length),[8,8,4]);
+ assert.equal(originalRequests(app).length,20);
+ assert.equal(app.result.status,'complete');
+});
 
 test("scans the wide pool, reads canonical continuation, assesses actual evidence, and finishes with no opaque model state",async()=>{
  const rows=[row("entry:0","Knott promised daily pay."),row("entry:1","Unrelated weather.",{kind:"player"})];let originalCalls=0,finishArgs;
@@ -42,7 +58,7 @@ test("scans the wide pool, reads canonical continuation, assesses actual evidenc
   async finish(p){finishArgs=structuredClone(p.args);return{what:"memory",query:plan.goal,status:"ready",hits:[{alias:"entry:0",context:[{text:"Payment follows completed work."},{text:"No payment has landed."}]}],authority:"conversation_report",coverage:{used:["entry:0"],omitted:[],unknown:[]},refs:[rawRef]};},
   select(q){if(q.key.startsWith("coverage:"))return q.target==="entry:0"?"essential":"irrelevant";if(q.key.startsWith("support:"))return"supported";if(q.key.startsWith("applicability:"))return"current";return"none";}});
  assert.equal(app.result.status,"complete",JSON.stringify(app.result));assert.equal(app.record.phase,"terminal");assert.deepEqual(app.result.refs,[rawRef]);assert.equal(originalCalls,3);
- assert.deepEqual(app.calls.filter(c=>c.operation==="memory.original").map(c=>c.args.offset),[undefined,0,43]);
+ assert.deepEqual(originalRequests(app).map(c=>c.args.offset),[undefined,0,43]);
  assert.deepEqual(finishArgs.selected,["entry:0"]);assert.deepEqual(finishArgs.considered,["entry:0","entry:1"]);assert.deepEqual(finishArgs.unknown,[]);
  assert.deepEqual(finishArgs.assessments,[{alias:"entry:0",relevance:"direct",support:"supported",applicability:"current",contradiction:"none"}]);
  const assessment=app.batches.find(b=>b.questions.some(q=>q.key.startsWith("support:"))).state;
@@ -73,7 +89,7 @@ test("caps selected evidence at twenty, records overflow unknown, and refreshes 
  assert.equal(final.assessments.find(item=>item.alias==="entry:20").relevance,"direct");assert.equal(final.assessments.find(item=>item.alias==="entry:0").relevance,"uncertain","only current-snapshot coverage decisions are retained");
  const refreshedRelevance=app.batches.filter(batch=>batch.questions.some(q=>q.key.startsWith("coverage:"))).flatMap(batch=>batch.state.candidates).find(candidate=>candidate.alias==="entry:20"&&candidate.text.endsWith("exact tail answer"));
  assert.equal(refreshedRelevance.text,refreshed[20].text,"relevance receives the complete issued source text, including its tail");
- const secondOriginals=app.calls.filter(call=>call.operation==="memory.original"&&call.args.snapshot==="second").map(call=>call.args.alias);assert.ok(secondOriginals.includes("entry:20"));assert.equal(secondOriginals.includes("entry:19"),false);
+ const secondOriginals=originalRequests(app).filter(call=>call.args.snapshot==="second").map(call=>call.args.alias);assert.ok(secondOriginals.includes("entry:20"));assert.equal(secondOriginals.includes("entry:19"),false);
 });
 
 test("explicit omitted original context remains a partial owner result",async()=>{
@@ -92,7 +108,7 @@ test("prioritizes every relevant occurrence before the owner byte-capped selecti
   async original(p){return{alias:p.args.alias,verified:true,entry:rows.find(item=>item.alias===p.args.alias),authority:"conversation_report",original:{line:"main",loop:0,turn:3},context:[{role:"keeper",text:"Exact.",range:{offset:0,end:6},total_chars:6,truncated:false,speakers:[]}],refs:[]};},
   async finish(p){finishArgs=structuredClone(p.args);return{what:"memory",query:plan.goal,status:"ready",hits:[],authority:"conversation_report",coverage:{used:[],omitted:[],unknown:[]},refs:[]};},
   select(q){if(q.key.startsWith("coverage:"))return q.target==="entry:3"?"essential":"background";if(q.key.startsWith("support:"))return"supported";if(q.key.startsWith("applicability:"))return"current";return"none";}});
- assert.equal(app.result.status,"complete");assert.deepEqual(app.calls.filter(call=>call.operation==="memory.original").map(call=>call.args.alias),["entry:3","entry:0","entry:1","entry:2"]);
+ assert.equal(app.result.status,"complete");assert.deepEqual(originalRequests(app).map(call=>call.args.alias),["entry:3","entry:0","entry:1","entry:2"]);
  assert.deepEqual(finishArgs.selected,["entry:3","entry:0","entry:1","entry:2"]);assert.equal(finishArgs.unknown.length,0);
 });
 
@@ -105,7 +121,7 @@ test("round-robins exact per-subquestion coverage so one dominant topic cannot c
   async finish(p){finishArgs=structuredClone(p.args);return{what:"memory",query:taskPlan.goal,status:"partial",hits:[],authority:"conversation_report",coverage:{used:p.args.selected,omitted:[],unknown:p.args.unknown},refs:[]};},
   select(q,batch){if(q.key.startsWith("coverage:")){if(batch.state.need===needs[0])return Number(q.target.slice(6))<30?"essential":"irrelevant";if(batch.state.need===needs[1])return q.target==="entry:30"?"essential":"irrelevant";if(batch.state.need===needs[2])return q.target==="entry:31"?"essential":"irrelevant";return q.target==="entry:32"?"essential":"irrelevant";}if(q.key.startsWith("support:"))return"supported";if(q.key.startsWith("applicability:"))return"current";return"none";}});
  assert.equal(app.result.status,"partial");assert.deepEqual(finishArgs.selected.slice(0,4),["entry:0","entry:30","entry:31","entry:32"]);
- assert.deepEqual(app.calls.filter(call=>call.operation==="memory.original").slice(0,4).map(call=>call.args.alias),["entry:0","entry:30","entry:31","entry:32"]);
+ assert.deepEqual(originalRequests(app).slice(0,4).map(call=>call.args.alias),["entry:0","entry:30","entry:31","entry:32"]);
  for(const alias of ["entry:30","entry:31","entry:32"])assert.equal(finishArgs.unknown.includes(alias),false);assert.ok(finishArgs.unknown.includes("entry:29"));
  const coverageBatches=app.batches.filter(batch=>batch.questions.some(question=>question.key.startsWith("coverage:")));assert.deepEqual(new Set(coverageBatches.map(batch=>batch.state.need)),new Set(needs));
  assert.ok(coverageBatches.flatMap(batch=>batch.state.candidates).some(candidate=>candidate.alias==="entry:32"&&candidate.text==="Knott promises payment only after completion."));
@@ -123,7 +139,7 @@ test("widens indexed evidence when any requested subquestion lacks selected supp
 });
 
 test("normalizes sparse raw rows and finishes oversized verified evidence as explicit unknown",async()=>{
- assert.equal(MEMORY_READ_POLICY_VERSION,"5");let finishArgs;
+ assert.equal(MEMORY_READ_POLICY_VERSION,"6");let finishArgs;
  const sparse={alias:"entry:0",origin:"raw",text:`${"x".repeat(780)} exact tail`,turn:9,line:"main",authority:"conversation_report",derived:false,links:[]};
  const oversizedContext=Array.from({length:24},(_,index)=>({role:"player",text:`${index}:${"e".repeat(2_000)}`,range:{offset:index*2_002,end:(index+1)*2_002},total_chars:48_048,truncated:false,speakers:[]}));
  const app=await fixture({snapshots:[snap("bounded",1,0,1,true)],rowsBySnapshot:{bounded:[sparse]},

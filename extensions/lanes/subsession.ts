@@ -356,8 +356,9 @@ export async function afterDeliveryFloor(choice: LaneThinkingChoice, contentRoot
 
 export interface LaneThinkingChoice { level: ModelThinkingLevel; source: LaneThinkingSource }
 
-/** RPC §233.20: only the two exact approved live-test profiles override ordinary lane defaults. */
+/** RPC §237.1: exact live-test profiles outrank caller defaults without changing product choices. */
 function liveTestThinkingChoice(): LaneThinkingChoice | undefined {
+	if (process.env.PI_COC_TEST_MODEL === "minimax-cn/MiniMax-M3.1-Flash-Preview") return { level: "medium", source: "test-profile" };
 	if (process.env.PI_COC_TEST_MODEL === "codex-relay/gpt-6-luna") return { level: "high", source: "test-profile" };
 	if (process.env.PI_COC_TEST_MODEL === "grok-build/grok-4.5") return { level: "low", source: "test-profile" };
 	return undefined;

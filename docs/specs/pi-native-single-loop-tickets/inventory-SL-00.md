@@ -509,7 +509,7 @@ Section 237.12 native memory-query accounting: the configured `createHybridEngin
 
 ### Section 240 optional material projection
 
-extensions/table/material-screen.ts owns one bounded Jev adapter leaf after the ordinary request projection. It never changes tools, runs gameplay operations or authors prose. Unknown, stale and late candidates remain visible. runtime/jev/context-screen.prototype.mjs owns the explicitly invoked retained-context experiment adapter, outside gameplay. Both sites use the existing production decision transport.
+extensions/table/material-screen.ts owns one bounded Jev adapter leaf in installMaterialScreen.project, before request-journal packing. It starts optional selection in the background once per input; synchronous projection never waits or rewrites an already submitted prefix. It never changes tools, runs gameplay operations or authors prose. Unknown, stale and late candidates remain visible. runtime/jev/context-screen.prototype.mjs owns the explicitly invoked retained-context experiment adapter, outside gameplay. Both sites use the existing production decision transport.
 
 
 ### Section 241 isolated expression
@@ -535,3 +535,8 @@ bounded request memory. The scanner recognizes the method name as a possible
 provider completion, so the inventory explicitly classifies this false positive
 as app-play-gated infrastructure. It performs no inference, network request,
 kernel write or task operation and cannot start or continue a model run.
+
+The same infrastructure owner receives `coc:keeper-response` before display
+redaction. Its `installContextPolicy.on(coc:keeper-response)` callback also calls
+`requestJournal.complete`, marking the exact response for private request replay.
+This is the same scanner false positive, without a second model or history owner.

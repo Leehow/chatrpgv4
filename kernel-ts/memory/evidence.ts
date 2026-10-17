@@ -18,7 +18,7 @@ import {deriveCommittedSpeechSpans} from '../../runtime/jev/committed-speech-spa
 interface Entry {alias: string; line: string; view: Row; memory?: Row; record?: Row; role?: 'player' | 'keeper'; range?: {start: number; end: number}}
 interface Snapshot {id: string; campaign: string; scope: ScopeBinding; query: string; filters: Row; rawAll: boolean;
     created: number; sourceRevision: string; indexRevision: string; worldRevision: string; entries: Entry[]; rawGaps: number[]; rawUnavailable: string[];
-    reads: Map<string, Row>; returned?: Row[]}
+    reads: Map<string, Row>; canonical: Map<string, Promise<{record:Row; originMeta:Row}|undefined>>; returned?: Row[]}
 const invalid = (message: string, reason = 'invalid_params'): never => {throw new RpcError('invalid_params', message,
     reason === 'invalid_params' ? {} : {details: {reason}});};
 const closed = (value: unknown, keys: string[]): Row => {
@@ -122,7 +122,7 @@ export function createMemoryEvidenceOwner(context: KernelContext, campaignFor: (
         }
         const snapshot: Snapshot = {id: randomUUID(), campaign: campaign.id, scope, query: params.query, filters,
             rawAll: params.raw_all === true, created: Date.now(), sourceRevision: original.revision,
-            indexRevision: jsonDigest(values), worldRevision: taskWorldRevision(world, party, turnState.receipts, turnState.pending_choice), entries, rawGaps, rawUnavailable, reads: new Map()};
+            indexRevision: jsonDigest(values), worldRevision: taskWorldRevision(world, party, turnState.receipts, turnState.pending_choice), entries, rawGaps, rawUnavailable, reads: new Map(), canonical: new Map()};
         snapshots.set(snapshot.id, snapshot);
         while (snapshots.size > 16) snapshots.delete(snapshots.keys().next().value!);
         return {snapshot: snapshot.id, scope, query: snapshot.query, filters, raw_all: snapshot.rawAll,
@@ -147,10 +147,17 @@ export function createMemoryEvidenceOwner(context: KernelContext, campaignFor: (
         const resolved = await context.git.run(campaign.id, ['rev-parse', '--verify', `${hint}^{commit}`]);
         const commit = resolved.stdout.trim();
         if (resolved.code || !/^[a-f0-9]{40,64}$/.test(commit)) return {alias: entry.alias, verified: false, reason: 'canonical_original_unavailable', refs: []};
-        const [recordBlob, metaBlob] = await Promise.all([context.git.run(campaign.id, ['show', `${commit}:turns/${String(turn).padStart(4, '0')}.json`]),
-            context.git.run(campaign.id, ['show', `${commit}:campaign.json`])]);
-        if (recordBlob.code || metaBlob.code) return {alias: entry.alias, verified: false, reason: 'canonical_original_unavailable', refs: []};
-        const record = row(parsePythonJson(recordBlob.stdout)), originMeta = row(parsePythonJson(metaBlob.stdout));
+        const key = `${commit}:${turn}`;
+        if (!snapshot.canonical.has(key)) snapshot.canonical.set(key, (async () => {
+            const [recordBlob, metaBlob] = await Promise.all([context.git.run(campaign.id, ['show', `${commit}:turns/${String(turn).padStart(4, '0')}.json`]),
+                context.git.run(campaign.id, ['show', `${commit}:campaign.json`])]);
+            if (recordBlob.code || metaBlob.code) return;
+            return {record: row(parsePythonJson(recordBlob.stdout)), originMeta: row(parsePythonJson(metaBlob.stdout))};
+        })());
+        let canonical;
+        try { canonical = await snapshot.canonical.get(key); } catch (error) { snapshot.canonical.delete(key); throw error; }
+        if (!canonical) {snapshot.canonical.delete(key); return {alias: entry.alias, verified: false, reason: 'canonical_original_unavailable', refs: []};}
+        const {record, originMeta} = canonical;
         if (originMeta.id !== campaign.id || number(record.turn) !== turn || record.closed_by !== 'narrate') return invalid('The memory original does not belong to this campaign');
         const sourceOrigin = {line: stateScope(originMeta).worldline, loop: stateScope(originMeta).loop, turn, commit,
             scene: row(row(record.world).scene).name ?? null, clock: row(record.world).clock ?? null};
@@ -223,7 +230,7 @@ export function createMemoryEvidenceOwner(context: KernelContext, campaignFor: (
         return result;
     }
     return async (params: Row): Promise<Row> => {
-        closed(params, ['campaign', 'action', 'query', 'filters', 'raw_all', 'scope', 'snapshot', 'offset', 'alias', 'role', 'selected', 'assessments', 'considered', 'unknown']);
+        closed(params, ['campaign', 'action', 'query', 'filters', 'raw_all', 'scope', 'snapshot', 'offset', 'alias', 'role', 'requests', 'selected', 'assessments', 'considered', 'unknown']);
         if (params.raw_all !== undefined && typeof params.raw_all !== 'boolean') return invalid('raw_all must be boolean');
         const campaign = await campaignFor(params);
         if (params.action === 'snapshot') return create(campaign, params);
@@ -243,6 +250,20 @@ export function createMemoryEvidenceOwner(context: KernelContext, campaignFor: (
             const entry = snapshot.entries.find(value => value.alias === params.alias);
             if (!entry) return invalid('Memory original must select an issued candidate');
             return original(campaign, snapshot, entry, params);
+        }
+        if (params.action === 'originals') {
+            const requests = params.requests;
+            if (!Array.isArray(requests) || requests.length < 1 || requests.length > 8 || Object.keys(requests).length !== requests.length)
+                return invalid('A memory original batch contains one to eight requests');
+            const entries = requests.map(request => {
+                const item = closed(request, ['alias','offset','role']);
+                if (item.offset !== undefined) position(item.offset, 0, 'offset');
+                if (item.role !== undefined && !['player','keeper'].includes(item.role)) return invalid('Memory original role must be player or keeper');
+                const entry = snapshot.entries.find(value => value.alias === item.alias);
+                if (!entry) return invalid('Memory original must select an issued candidate');
+                return entry;
+            });
+            return {snapshot:snapshot.id, results:await Promise.all(entries.map((entry,index) => original(campaign,snapshot,entry,requests[index])))};
         }
         if (params.action === 'finish') {
             const meta = await campaign.readCampaign(), current = await corpus(campaign), values = await indexed(campaign, meta, snapshot.filters);

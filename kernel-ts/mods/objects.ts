@@ -122,7 +122,7 @@ export function moveObject(world: Row, name: string, definitionName: string | nu
         const known = [...values(data.definitions).map(value => string(value.name)), ...queuedRegistrations(world).map(entry => string(entry.name))];
         const offer = known.length ? `set definition to one of: ${known.slice(-8).join(', ')}` : 'define it in this same batch';
         throw new RpcError('invalid_params', `No accepted definition named ${repr(definitionName || name)}`,
-            {fix: definitionName === null
+            {details:{reason:'object_definition_required',name,definition:definitionName??name,available_definitions:known.slice(-8)},fix: definitionName === null
                 ? `this placement omitted definition, so the instance name was looked up instead; ${offer}`
                 : `${offer}, or define that name in this same batch`});
     }

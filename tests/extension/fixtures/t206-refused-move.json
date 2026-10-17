@@ -1,0 +1,222 @@
+{
+  "kind": "native-regression-only",
+  "source": ".coc/playtests/bloodroad-minimax-two-chapters-20261016/gui-browser-configured-20261016/ui/sessions/%2FUsers%2Fhaoli%2Fleehow%2Fcode%2Fchatrpgv4-wt-pi-coc-v2/2026-10-17T00-00-37-500Z_3827a308-adff-4de2-8925-777e1b88484d.jsonl",
+  "sourceTurn": 206,
+  "limitation": "Actual write arguments and accepted public body only; earlier reads omitted and existing public prefix supplied. Redacted private reasoning is never copied. Controlled decisions: not gameplay or latency acceptance.",
+  "player": "胶卷还没有冲洗，我把它和相机收好，只带上整理过的文字记录。请护士把回电内容留在诊所，我会回来问。我现在去汤姆餐馆找那位原先说今早到镇上的副警长，问他是否能联系汉森，或者带我去井边交接现场记录。",
+  "proposals": [
+    {
+      "effects": [
+        {
+          "kind": "move",
+          "to": "isolated-west-texas-town",
+          "travel_minutes": "10",
+          "label": "阿巴托尔"
+        },
+        {
+          "kind": "move",
+          "to": "old-esso-gas-station",
+          "travel_band": "adjacent",
+          "label": "埃索加油站"
+        },
+        {
+          "kind": "npc",
+          "name": "迪恩·哈特",
+          "walk_on": "true",
+          "to": "here",
+          "archetype": "capable_adult",
+          "activity": {
+            "summary": "迪恩·哈特站在自己县里的褐色轿车旁等油加满，手里拿着一本硬皮记录本和一支圆珠笔。",
+            "basis": "observed",
+            "wakefulness": "awake",
+            "review_after_minutes": "60"
+          },
+          "why": "县里派他今早到镇上，此刻在埃索加油站的油枪边"
+        },
+        {
+          "kind": "npc",
+          "name": "迪恩·哈特",
+          "intends": "用车台呼叫矿上的汉森，抄录艾伦的现场记录，然后开车去矿区",
+          "outcome": "planned"
+        },
+        {
+          "kind": "time",
+          "minutes": "10",
+          "why": "从诊所走到镇上的时间"
+        }
+      ],
+      "event": {
+        "name": "t206-艾伦从诊所走到埃索加油站见到县副警长",
+        "summary": "九点过十分，艾伦把相机和未冲洗的胶卷收进包里，只带整理好的文字记录离开诊所，请米尔德里德把县里的回电留在诊所。他先到了镇子东头那家铝皮餐车改成的六号公路餐厅——门窗钉着木条、早已停业，镇上没有叫汤姆的餐馆，街上挂着“汤姆”两个字的是理发店。副警长不在餐厅那边；县里派来的迪恩·哈特副警长正在埃索加油站给自己的褐色轿车加油，车顶有警灯。艾伦说明了来意，哈特说他今早还没上过矿区，车上有county台可以叫到矿上的频道；他打算立刻开车过去，要艾伦在车上从头讲一遍昨天到今早的事，并把整理好的记录整本抄下来，原件仍归艾伦自己；雷·多德森这个名字县里只有考勤本上一处记录，调度说认不得。",
+        "materials": [
+          {
+            "name": "m-deputy-hart-identifies-himself",
+            "text": "我是布鲁斯特县的迪恩·哈特，县里派我今早过来。雷·多德森这个名字，县里只有一张考勤本上的记录——调度那边说他不认识这个人。",
+            "kind": "speech",
+            "visibility": "player",
+            "speaker": "迪恩·哈特",
+            "audience": [
+              "艾伦·沃克"
+            ]
+          },
+          {
+            "name": "m-deputy-hart-radio-and-ride",
+            "text": "汉森在井边的话，我今早还没上去核实。我车上有county台，能叫到矿上那个频段。我这就过去——你在车上把昨天到今早的事从头讲一遍，我边开边记。你那份整理好的东西，我拿我的记录本整本抄下来，原件你自己收着，不进我的档案。",
+            "kind": "speech",
+            "visibility": "player",
+            "speaker": "迪恩·哈特",
+            "audience": [
+              "艾伦·沃克"
+            ]
+          },
+          {
+            "name": "m-deputy-hart-pump-warning",
+            "text": "另外那件六点自动开泵的事，我心里有数了：我先在台里叫汉森，让他守在井边别靠近水仓，等我到了再说。",
+            "kind": "speech",
+            "visibility": "player",
+            "speaker": "迪恩·哈特",
+            "audience": [
+              "艾伦·沃克"
+            ]
+          }
+        ],
+        "knowledge": [
+          {
+            "actor": "艾伦·沃克",
+            "statement": "县里派来的副警长叫迪恩·哈特，今早到镇上，正在埃索加油站给自己的褐色轿车加油；他说雷·多德森这个名字县里只有考勤本上一处记录，调度那边认不得这个人。",
+            "mode": "heard",
+            "source": "迪恩·哈特",
+            "state": "accurate",
+            "material": "m-deputy-hart-identifies-himself"
+          },
+          {
+            "actor": "艾伦·沃克",
+            "statement": "哈特说汉森在井边与否他今早还没核实，他车上有county台能叫到矿上频段，他打算立刻开车去矿区，让艾伦在车上从头讲一遍昨天到今早的事，并把整理好的记录整本抄下、原件留给艾伦自己。",
+            "mode": "heard",
+            "source": "迪恩·哈特",
+            "state": "accurate",
+            "material": "m-deputy-hart-radio-and-ride"
+          },
+          {
+            "actor": "艾伦·沃克",
+            "statement": "哈特说六点自动开泵的事他知道心里有数了，他要先在台里叫汉森守在井边别靠近水仓，等他到了再说。",
+            "mode": "heard",
+            "source": "迪恩·哈特",
+            "state": "accurate",
+            "material": "m-deputy-hart-pump-warning"
+          }
+        ],
+        "relationships": [
+          {
+            "actor": "迪恩·哈特",
+            "toward": "艾伦·沃克",
+            "statement": "把艾伦当成有第一手现场记录、肯当面讲清楚的记者，愿意带上他一起去矿区并抄录他的记录。"
+          }
+        ]
+      }
+    },
+    {
+      "effects": [
+        {
+          "kind": "move",
+          "to": "isolated-west-texas-town",
+          "travel_minutes": "10",
+          "label": "阿巴托尔"
+        },
+        {
+          "kind": "npc",
+          "name": "迪恩·哈特",
+          "walk_on": "true",
+          "to": "here",
+          "archetype": "capable_adult",
+          "why": "他今早奉县里的差事到镇上，此刻坐在镇东那家铝皮餐车改成的餐馆里"
+        }
+      ],
+      "event": {
+        "name": "t206-艾伦带着文字记录回镇上，在六号公路餐馆见到县里来的副警长",
+        "summary": "九点过十分，艾伦把没冲洗的胶卷和相机收进包里，只带上整理好的文字记录离开诊所，请米尔德里德把县里的回电留在诊所等他人回来问。他沿白街走回镇上，在镇东那家铝皮餐车改成的六号公路餐馆门口停住——门上写着六号公路，汤姆两个字在隔壁理发店的玻璃上。餐馆里坐着一个四十来岁、深棕制服的男人：布鲁斯特县副警长迪恩·哈特 county 牌照上 County 4831，旁边桌上搁着他的车台和一本硬皮记录本。哈特说他是今早六点从阿尔博克接的差事，看了简短的通报才往矿区去；值班工头不在矿上，没人能联系上；他要先到井边看那道盖板和泵房，让艾伦在车上把两天来记的东西讲一遍并把整理好的记录抄一份进他的本子。",
+        "knowledge": [
+          {
+            "actor": "艾伦·沃克",
+            "statement": "哈特说他是今早六点从阿尔博克接的差事，看过一份很简短的通报；通报上只有“矿工失踪”和“竖井盖板被撬”两行。",
+            "mode": "heard",
+            "source": "迪恩·哈特",
+            "state": "accurate"
+          },
+          {
+            "actor": "艾伦·沃克",
+            "statement": "哈特说值班工头不在矿上，矿上现在联系不上人；他先到井边看盖板和泵房，再设法找汉森。",
+            "mode": "heard",
+            "source": "迪恩·哈特",
+            "state": "accurate"
+          },
+          {
+            "actor": "艾伦·沃克",
+            "statement": "哈特要艾伦坐他的车一起去矿区，让艾伦在路上把两天来记的事讲一遍，并把整理好的记录抄一份进他的硬皮记录本。",
+            "mode": "heard",
+            "source": "迪恩·哈特",
+            "state": "accurate"
+          }
+        ]
+      }
+    },
+    {
+      "effects": [
+        {
+          "kind": "move",
+          "to": "isolated-west-texas-town",
+          "travel_minutes": "10",
+          "label": "阿巴托尔"
+        }
+      ]
+    }
+  ],
+  "alreadyBlockedFourth": {
+    "effects": [
+      {
+        "kind": "move",
+        "to": "isolated-west-texas-town",
+        "label": "阿巴托尔"
+      }
+    ]
+  },
+  "publicResponse": "{{public}}\n\n你把相机和那卷没冲洗的胶卷塞进外套内袋——胶卷筒抵着肋骨，硬硬的一节。速写本摊在柜台上，你按着写好的那几页把要抄的句子又核了一遍，把本子合上收进内袋。米尔德里德站在柜台那头听你交代完，点头应了：县里要是回电话，或者里间那位有变化，她叫人来最后一趟店找你。\n\n{{say:米尔德里德}}「你放心去吧。回话来了我不压着，等你回来问。」{{/say}}\n\n九点一刻你出了门。白街上的白土被日头晒得发亮，鞋底踩上去有一点松。镇子不大，走十 minutes 就到那条大路底下。副警长说过他今早到镇上——他没说他到哪儿。\n\n你找的是那家餐馆。\n\n门脸在街拐角上，白底蓝字的招牌被日头晒掉了一半，剩下的\"餐\"字只剩半边。木门是关着的，从缝里看进去没有开灯，黑。玻璃上落了一层浮沙。你推了一下，门纹丝不动——门后头横着东西，铁的。你换了只手再推，还是不动，只是从门缝底下钻出来一股热气，把地上的沙卷起一小道。\n\n这家早就不开了。镇上做买卖的地方是埃索加油站、街角那家汤姆理发店，还有最后一站——那是个酒吧，兼着卖饭。你来晚了三年：现在没有一家餐馆。\n\n你退开半步，从玻璃上往里看。阳光从破了的东窗斜切进去，照着一排翻过来的圆凳、一张开了胶皮的桌子，卡座里堆着以前的东西。空气是闷的、烫的，闻着一股积了几年的塑料和油污味。屋角有一小片阴影在动——不是风，是什么东西在挪，又停住了。\n\n街对面汤姆理发店的门上，红白蓝三色的灯柱在转，每转一圈吱一声。门框上贴着六张纸，最新的一张是教堂的开门时间。\n\n你站在那儿，相机压在肋骨上，白土在鞋底下松着。镇上没有一位开门的餐馆，也没有一位副警长。",
+  "original": {
+    "scene": {
+      "name": "布伦纳医生诊所",
+      "display_name": "布伦纳医生诊所"
+    },
+    "clock": {
+      "minutes": 7110
+    },
+    "receipts": 0,
+    "admission": [
+      {
+        "ok": true,
+        "design": "continuous-consent-noul-v3",
+        "p": [
+          0.4,
+          0.26,
+          0.6
+        ],
+        "verdict": "not_authorized"
+      },
+      {
+        "ok": true,
+        "design": "continuous-consent-noul-v3",
+        "p": [
+          0.34
+        ],
+        "verdict": "not_authorized"
+      },
+      {
+        "ok": true,
+        "design": "continuous-consent-noul-v3",
+        "p": [
+          0.3
+        ],
+        "verdict": "not_authorized"
+      }
+    ]
+  }
+}

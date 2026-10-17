@@ -80,17 +80,18 @@ export function argumentLimitRefusal(tool: string, args: unknown): { code: strin
 }
 
 /** One branch of `apply`'s `effects[]` union: its kind and the properties it requires (read off the schema itself). */
-interface EffectBranch { kind: string; required: string[] }
+interface EffectBranch { kind: string; required: string[]; arrays: string[] }
 const branchCache = new WeakMap<object, EffectBranch[]>();
 function effectBranches(parameters: TSchema): EffectBranch[] {
 	const cached = branchCache.get(parameters);
 	if (cached) return cached;
 	const items = (parameters as { properties?: { effects?: { items?: { anyOf?: unknown[] } } } }).properties?.effects?.items;
 	const branches = (items?.anyOf ?? []).flatMap((branch): EffectBranch[] => {
-		const shape = branch as { properties?: { kind?: { enum?: unknown[]; const?: unknown } }; required?: unknown[] };
+		const shape = branch as { properties?: Record<string, { enum?: unknown[]; const?: unknown; type?: unknown }>; required?: unknown[] };
 		const kind = shape.properties?.kind, names = [...(kind?.enum ?? []), ...(kind?.const !== undefined ? [kind.const] : [])];
 		const required = (shape.required ?? []).filter((key): key is string => typeof key === "string" && key !== "kind");
-		return names.filter((name): name is string => typeof name === "string").map(name => ({ kind: name, required }));
+		const arrays = Object.entries(shape.properties ?? {}).filter(([, field]) => field.type === "array").map(([name]) => name);
+		return names.filter((name): name is string => typeof name === "string").map(name => ({ kind: name, required, arrays }));
 	});
 	branchCache.set(parameters, branches);
 	return branches;
@@ -101,9 +102,10 @@ const CLUE_EFFECT_WORDS = 'a clue the book has is {kind: "clue", clue: <its name
 /**
  * Contract §201.3: an `apply` effect Pi's schema cannot take, refused before the schema check with how to write it -- the
  * schema's own message lists every branch of the effect union (T7 of TR-F2 run 3: eight lines about `scope`, `name`, `to`
- * and `clue` for an effect whose only fault was `kind: "narrate"`), and names no fix. Two cases, both ones the schema check
- * refuses whatever coercion it applies: a `kind` that is not an effect kind (a tool's name among them, closing prose put
- * in an effect), and a known kind missing a property its branch requires. Anything else is left to the schema check.
+ * and `clue` for an effect whose only fault was `kind: "narrate"`), and names no fix. These are shapes the schema check
+ * refuses regardless of scalar coercion: a `kind` that is not an effect kind (a tool's name among them, closing prose put
+ * in an effect), a known kind missing a required property, and an object supplied for a declared array. Other
+ * conversions and validation remain owned by Pi. Malformed arrays are never unwrapped or partially applied.
  */
 export function effectShapeRefusal(tool: string, parameters: TSchema, args: unknown): { code: string; code_detail: string; message: string; fix: string; retryable: false; next: "change_input"; details: Record<string, unknown> } | undefined {
 	if (tool !== "apply" || !args || typeof args !== "object" || Array.isArray(args)) return undefined;
@@ -122,10 +124,22 @@ export function effectShapeRefusal(tool: string, parameters: TSchema, args: unkn
 			const prose = kind === "narrate"
 				? `Closing prose is material, not an effect: this apply's legacy narrate field only prepares/checks it after effects. Submit the finished material with narrate handoff:true. `
 				: toolName ? `${kind} is a tool of its own, not an effect of apply: call it separately. ` : "";
+			const semantic = kind === "event" || kind === "knowledge"
+				? 'Record the occurrence in top-level apply.event beside effects, not inside effects: event: {name: <occurrence name>, ...}. Acquired knowledge belongs in event.knowledge: [{actor: <registered person>, statement: <what was learned>, mode: "observed" | "heard" | "read" | "belief", state: "accurate" | "uncertain" | "distorted", ...}]. Keep the existing event schema and its source/material requirements; do not turn knowledge into a clue. '
+				: undefined;
 			return { code: "invalid_params", code_detail: "effect_kind_unknown", retryable: false, next: "change_input",
 				message: `apply: ${field}.kind is ${shown}, which is not an effect kind`,
-				fix: `${prose}What the prose gives the investigators lands as its own effect: ${CLUE_EFFECT_WORDS}; the effect kinds are ${kinds.join(", ")}. ${unchanged}`,
+				fix: semantic ? `${semantic}${unchanged}` : `${prose}What the prose gives the investigators lands as its own effect: ${CLUE_EFFECT_WORDS}; the effect kinds are ${kinds.join(", ")}. ${unchanged}`,
 				details: { field: `${field}.kind`, reason: "effect_kind_unknown", kind: typeof kind === "string" ? kind : null, kinds } };
+		}
+		for (const key of branch.arrays) {
+			const supplied = effect[key];
+			if (!supplied || typeof supplied !== "object" || Array.isArray(supplied)) continue;
+			const path = `${field}.${key}`;
+			return { code: "invalid_params", code_detail: "effect_array_expected", retryable: false, next: "change_input",
+				message: `apply: ${path} (${branch.kind}) must be a JSON array, not an object`,
+				fix: `Write ${path} as a JSON array using square brackets, without an item wrapper object. Keep its entries and the existing schema unchanged. ${unchanged}`,
+				details: { field: path, reason: "effect_array_expected", kind: branch.kind } };
 		}
 		const missing = branch.required.filter(key => effect[key] === undefined);
 		if (missing.length) {
@@ -281,7 +295,7 @@ const SceneEffect = Type.Object({
 
 const TimeEffect = Type.Object({
 	...IntentResult,
-	kind: StringEnum(["time"] as const, { description: "the world clock moves forward. A move already advances the clock by its journey: never send time for the same journey; send time only for time that passes beyond it" }),
+	kind: StringEnum(["time"] as const, { description: "the world clock moves forward for actual fictional activity, waiting or consequences. A pure OOC/reference question spends no world time, including to reconcile earlier prose; respect a current pause before continuing an earlier action. Never invent a historical clock correction. A move already advances the clock by its journey: never send time for the same journey; send time only for time that passes beyond it" }),
 	stated: StatedAmount,
 	band: TimeBand,
 	// §218.9: how much of the band's row the kernel rolls in.
@@ -303,17 +317,17 @@ const TimeEffect = Type.Object({
 /** Things changing hands (contract §5 `item`, #19): what the narration gains or loses reaches the sheet here. */
 const ItemEffect = Type.Object({
 	...IntentResult,
-	kind: StringEnum(["item"] as const, { description: "something changes hands: gained, handed over, used up, taken away" }),
+	kind: StringEnum(["item"] as const, { description: "Change legacy equipment quantity: positive adds newly acquired units; negative removes lost or consumed units. Do not grant an already-owned item again for installation, repair, inspection or return after work. Record quantity-preserving facts in event, or use same-owner object.condition for a managed instance." }),
 	name: Type.String({ description: "item name; weapons and rules-table entries use the name on the table" }),
-	to: Type.Optional(Type.String({ description: "who ends up with it; defaults to the current investigator" })),
-	from: Type.Optional(Type.String({ description: "who it came from: an NPC name. Name them whenever a person hands the thing over, sells it, or loses it — that is what puts the exchange on their account, and you are told it again the next time they are in the room" })),
+	to: Type.Optional(Type.String({ description: "the investigator whose inventory quantity changes; defaults to the current investigator. This selects the inventory, not an ownership label to restate." })),
+	from: Type.Optional(Type.String({ description: "source attribution for this quantity change: an NPC name. This records their part in an actual gain or loss; it does not debit their inventory or turn work on an already-owned item into a new acquisition." })),
 	weapon: Type.Optional(
 		Type.String({
 			description:
 				"when this thing is a weapon, the weapon profile name from the rules table (a .38 revolver, a shotgun, and so on); only then can the kernel read its damage, range and capacity, only then will a later resolve's weapon resolve it, and only then will combat set up its ammunition. When the table has no such profile the kernel reports needs and lists the available ones",
 		}),
 	),
-	quantity: Type.Optional(Type.Integer({ description: "quantity, default 1; a negative number is a loss (used up, handed over, taken away)" })),
+	quantity: Type.Optional(Type.Integer({ description: "signed quantity delta, not the final total; omitted means +1 new unit. A negative number removes units (used up, handed over, taken away). Ownership unchanged during installation or repair needs no item delta." })),
 	label: Type.Optional(Type.String({ description: "short name of this thing in the player's language; omitted means the item name" })),
 	why: Type.Optional(Sentence("how it was gained, or how it was lost")),
 });
@@ -341,7 +355,7 @@ const ObjectEffect = Type.Object({
       presentation:StringEnum(["paper","notebook","book"] as const)}),
     Type.Object({handout:Type.String({description:"Name of an already revealed handout; paper/notebook/book copies exact text, map/image captures its read-only original image. Only initialize an actually acquired carrier, never grant possession merely for showing an image"}),
       presentation:StringEnum(["paper","notebook","book","map","image"] as const)}),
-    Type.Object({action:StringEnum(["write"] as const),text:Type.String({maxLength:64000,description:"The carrier's current text after this writing, in the campaign's play_language"})}),
+    Type.Object({action:StringEnum(["write"] as const,{description:"Replace text on an existing writable carrier only. For a newly acquired note, omit action and supply initial document.text with its acquisition instead."}),text:Type.String({maxLength:64000,description:"The carrier's current text after this writing, in the campaign's play_language"})}),
     Type.Object({action:StringEnum(["append"] as const),text:Type.String({maxLength:64000,description:"Only the exact new suffix, including any desired leading newline; the kernel preserves all existing text. Use when adding writing without changing old content"})}),
     Type.Object({action:StringEnum(["open","close"] as const)}),
     Type.Object({action:StringEnum(["show"] as const),reader:Type.String({description:"The present person to whom the owner actually shows this writing; asking to inspect does not authorize showing"})}),
@@ -355,7 +369,7 @@ const ObjectEffect = Type.Object({
     Type.Object({action:StringEnum(["divide"] as const),
       part_text:Type.String({maxLength:64000,description:"Complete current text carried by the separated part after a document-bearing stack is divided, in the campaign's play_language"}),
       remainder_text:Type.String({maxLength:64000,description:"Complete current text carried by the original remainder after a document-bearing stack is divided, in the campaign's play_language"})}),
-  ],{description:"Physical writing and reading. Use the same from/to owner for open, close, show, observe, write, append or requested_edit. NPC reading needs show plus observe with actual reader and exact visible quote before narration; a glimpse requires an open surface and its actual quote. Initialize a carrier once; divide text atomically with its physical stack. Acquisition originals are retained"})),
+  ],{description:"Physical writing and reading. First acquisition: use an accepted definition (or define plus object in the same batch), and initialize with document.text and presentation; omit document.action. write/append modify an existing carrier only. Use the same from/to owner for open, close, show, observe, write, append or requested_edit. NPC reading needs show plus observe with actual reader and exact visible quote before narration; a glimpse requires an open surface and its actual quote. Initialize a carrier once; divide text atomically with its physical stack. Acquisition originals are retained"})),
   definition: Type.Optional(Type.String({description:"Accepted definition name when first placing the instance"})),
   source_object: Type.Optional(Type.String({description:"On first placement/adoption only: exact source_object handle supplied by lookup module when this is that authored physical thing. Never infer it from a display name or a similar weapon; omit for ordinary objects. Transfers preserve its identity"})),
   to: Type.String({description:"New owner: investigator, NPC, scene or existing container instance; here means the current scene"}),
@@ -525,7 +539,7 @@ const NpcEffect = Type.Object({
 		reports:Type.Optional(Type.Array(Type.String(),{maxItems:4})),
 		open_threads:Type.Optional(Type.Array(Type.String(),{maxItems:4})),
 		extend:Type.Optional(Type.Boolean()),
-	},{description:"At a real return encounter offered by the NPC view, establish a modest compatible offstage continuation without simulating it. Write English Keeper-facing background, this NPC's attributed reports and optional open threads, at most four lines of 600 characters each. Empty arrays establish a quiet interval. Preserve personality, prior facts and player decisions. This changes no location, item, money, skill, condition or promise fulfillment; use the proper effects for those. Same-interval history cannot be replaced; extend true appends only genuinely new compatible detail without copying old lines. Use this alone in its NPC effect, then narrate naturally in play_language."})),
+	},{description:"At a real return encounter offered by the NPC view, establish a modest compatible offstage continuation without simulating it. Write English Keeper-facing background, this NPC's attributed reports and optional open threads, at most four lines of 600 characters each. Empty arrays establish a quiet interval. Preserve personality, prior facts and player decisions. This changes no location, item, money, skill, condition or promise fulfillment; use the proper effects for those. Same-interval history cannot be replaced; extend true appends only genuinely new compatible detail without copying old lines. Keep reunion alone in its NPC effect. A fully known reunion may share the final private record with public text; it needs no separate tool continuation. Narrate naturally in play_language."})),
 	to: Type.Optional(Type.String({ description: "where they are now: a scene name, `here` for this scene, or `away` when that NPC actually leaves; the investigator leaving alone does not move the NPC from their existing place" })),
 	stance: Type.Optional(StringEnum(["hostile", "wary", "neutral", "warm"] as const, {
 		description: "your own reading of where they stand with the party; the kernel keeps the settled checks' account on its own, so set this only when you decide something the dice did not",
@@ -781,7 +795,7 @@ const ResolveAction = Type.Object({
 	),
 	ending: Type.Optional(Type.String({ description: "the ending kind when closing a session; omitted counts as conclusion" })),
 	scenario_san_reward_expr: Type.Optional(Type.String({ description: "source-authored SAN reward dice expression for development:end-session, after checking which conclusion rewards apply; the kernel rolls and caps it, never supply a calculated amount" })),
-	luck: Type.Optional(Type.Integer({ description: "luck points spent to turn a near-miss check into a pass" })),
+	luck: Type.Optional(Type.Integer({ description: "Luck points spent to revise the existing check result. Preserve that action's already settled elapsed time; do not perform or charge another observation or journey merely to realize its corrected outcome. Additional actions need a separate player choice." })),
 	choice: Type.Optional(
 		Type.Object({
 			pending: Type.String({ description: "the pending choice name, from the previous turn's ask pending_choice" }),
@@ -838,7 +852,7 @@ export const COC_TOOLS: readonly CocToolSpec[] = [
 			kind: StringEnum(["module", "source", "secret", "rule", "catalog", "continuity", "adaptation", "support", "capability"] as const, {
 					description: "module searches known names; use expected_kind scene for a possible absent destination. continuity reads connections for one known entity name or named anchors; it does not search keywords or questions. adaptation prepare requires a purpose and drafts persistent source-connected graph topology; status is nonblocking, cancel stops it. source defaults to preparing graph material; source_mode answer checks one question against original pages without updating the graph. A module without an original document (a built-in starter) answers source with no_source_document: its authored graph, read through module and look, is its whole source",
 			}),
-			query: Type.Optional(Type.String({ description: "support: required evidence question, at most 2048 characters; use only kind and query. Jev follows read-only indexes and returns keeper_support v1 with material slots, actual evidence, gaps and advisory check suggestions bound to the player's current action. Partial is not proof of absence; ordinary resolve/apply still own authorization and settlement. module/rule/catalog: a name or search text; module also takes the exact handles you already hold (capsule clue, scene or npc handles), several separated by spaces. continuity: one known entity name or registered unique alias, never keywords or a question; omit when using anchors. For an evidence question use support. source: required entity name in query even when question is supplied; detail in question. Omissible for secret." })),
+			query: Type.Optional(Type.String({ description: "support: required evidence question, at most 2048 characters; use only kind and query. Jev follows read-only indexes and returns keeper_support v1 with material slots, actual evidence, gaps and advisory check suggestions bound to the player's current action. Partial is not proof of absence; ordinary resolve/apply still own authorization and settlement. module: one known name or alias, or exact issued handles separated by spaces; never combine several names, a location and a question into one search phrase. Reuse returned material and the capsule before searching again. rule/catalog: a name or search text. continuity: one known entity name or registered unique alias, never keywords or a question; omit when using anchors. For an evidence question use support. source: required entity name in query even when question is supplied; detail in question. Omissible for secret." })),
 			expected_kind: Type.Optional(StringEnum(['scene', 'npc', 'clue', 'object', 'handout'] as const, {description: 'module only: the graph role being sought. Only an explicit scene miss may offer a new-destination adaptation'})),
 			anchors: Type.Optional(Type.Array(Type.String(), {maxItems: 12, description: "continuity/adaptation: known entity, clue or conclusion names to connect; each entry must resolve as one registered name or unique alias, never a search phrase"})),
 			kinds: Type.Optional(Type.Array(Type.String(), {maxItems: 8, description: "catalog only: which kinds of printed record to search — item for the equipment and price lists, and weapon, spell, creature, skill, vehicle, rule, artifact, tome, poison, occupation, phobia, mania, hazard. Omitted searches all of them"})),
@@ -1017,7 +1031,7 @@ export const COC_TOOLS: readonly CocToolSpec[] = [
 			kind: Type.Literal("mechanics"),
 
 			options: Type.Array(Type.String(), { minItems: 2, description: "Mechanics: only push, spend_luck, accept, flee. Never ask for combat defense: the host uses the investigator's standing preference, and an NPC defends by its pending_defense.standing. Never automatically ask after a failed roll." }),
-			binds: Type.Optional(Type.String({ description: "the name of the pending choice this binds to" })),
+			binds: Type.Optional(Type.String({ description: "For a cash confirmation, the exact formal quotation name from cash recovery, with options accept/flee; never an earlier ask name. Other mechanics use their actual pending rule choice. Missing or mismatched held-cash bindings are refused before a new choice is created." })),
 			quotes: QuotationDrafts,
 			workpad_patch: WorkpadPatch,
 		}),
@@ -1027,7 +1041,7 @@ export const COC_TOOLS: readonly CocToolSpec[] = [
         description: "Validate and prepare a fictional material plan. You may check and revise it repeatedly. No prose author, player publication, turn close, Git commit or memory promotion runs here. Call output explicitly if you want final story text. Only in-fiction events, scene/character portrayal and NPC speech belong in delivery. Exclude rules explanations, tool/process commentary and OOC answers from every material and presentation preference. For mixed input, place the direct OOC reply in a closed {{ooc}}...{{/ooc}} span beside the tool call; only story material goes to output.",
         promptSnippet: "Check materials privately; never publish",
         parameters: Type.Object({delivery: Type.Optional(Delivery), handoff:Type.Optional(Type.Boolean({description:'True submits the final checked material to this run\'s final-expression phase after this tool returns. Omit or false only checks. Finish all world effects first.'})),
-            choice:Type.Optional(Type.Object({kind:Type.Literal('mechanics'),options:Type.Array(Type.String(),{minItems:2}),binds:Type.Optional(Type.String())})),
+            choice:Type.Optional(Type.Object({kind:Type.Literal('mechanics'),options:Type.Array(Type.String(),{minItems:2}),binds:Type.Optional(Type.String({description:'For cash confirmation use the exact formal quotation name from recovery, never an earlier ask name; other mechanics use their pending rule choice.'}))})),
             quotes:QuotationDrafts,workpad_patch:WorkpadPatch,
             text: Type.Optional(Type.String({deprecated:true,description:withPlainProse("Legacy draft to check as untrusted material; never published here.")})), using_skill: UsingSkill},
             {anyOf:[{type:"object",required:["delivery"]},{type:"object",required:["text"]},{type:"object",required:["handoff"],properties:{handoff:{const:true}}}]}),
@@ -1037,7 +1051,7 @@ export const COC_TOOLS: readonly CocToolSpec[] = [
         description: "OPTIONAL: explicitly author and publish this turn's story once from prepared materials. Supply delivery or reuse the last checked plan for this input. No preceding check call is required. Only this tool starts the final author. Legacy text is untrusted material and always goes through that author. This artifact contains in-fiction story only. OOC replies, rules explanations and system commentary stay in direct assistant text, never in delivery materials or presentation. On mixed input emit a closed {{ooc}}...{{/ooc}} span beside this call for the direct explanation. Supplied choice preserves existing mechanics options. After successful publication write no more story prose.",
         promptSnippet: "Optionally author and publish one final story artifact",
         parameters: Type.Object({delivery:Type.Optional(CarriedDelivery), text:Type.Optional(Type.String({maxLength:32000,deprecated:true,description:withPlainProse("Legacy untrusted draft material, never directly published.")})),
-            choice:Type.Optional(Type.Object({kind:Type.Literal("mechanics"),options:Type.Array(Type.String(),{minItems:2}),binds:Type.Optional(Type.String())})),
+            choice:Type.Optional(Type.Object({kind:Type.Literal("mechanics"),options:Type.Array(Type.String(),{minItems:2}),binds:Type.Optional(Type.String({description:'For cash confirmation use the exact formal quotation name from recovery, never an earlier ask name; other mechanics use their pending rule choice.'}))})),
             quotes:QuotationDrafts,workpad_patch:WorkpadPatch,using_skill:UsingSkill}),
     },
 ];

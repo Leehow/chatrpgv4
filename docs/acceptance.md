@@ -1,5 +1,15 @@
 # 真桌验收方法
 
+## Current live-test profile (owner 2026-10-16)
+
+The current default is `minimax-cn/MiniMax-M3.1-Flash-Preview` with `medium` reasoning for the Keeper, final author and supporting lanes. Select it explicitly and verify actual runtime attribution; older driver defaults do not select the current policy. Only after MiniMax reports exhausted quota, use `grok-build/grok-4.5` with `high` reasoning for all these roles, retaining the quota failure and actual switch evidence. Product model defaults remain unchanged. The older profiles and run-specific exceptions below are historical evidence, not current defaults; the current repository `Agents.md` governs subsequent tests.
+
+## Blood Road run exception (owner 2026-10-16)
+
+This historical comparison explicitly selected `minimax-cn/MiniMax-M3.1-Flash-Preview` with `medium` thinking for the Keeper and final author. Independent supporting lanes retained the actual App fast profile; they were not replaced by MiniMax. This run-specific exception did not change product model settings. Preserve its actual model attribution and evidence; it does not override the subsequent current live-test profile above.
+
+For this run the owner explicitly requested a fresh browser UI campaign and no further CLI gameplay. The main session remains the sole player, using one natural input per actual product reply. Preserve the earlier CLI runs separately; they do not establish browser UI acceptance. Setup timing uses a new empty home without a completed guidance cache, and play continues through the real web UI and Pi backend. Read-only diagnostics and implementation regression tests remain separate evidence.
+
 每个切片的验收都是一张真桌：本主会话当唯一玩家，`pi` 统一跑 Codex Relay `codex-relay/gpt-6-luna`、`high` 当守秘人；测试中的最终作者也使用同一配置。一回合一回，走产品路径（2026-10-13 用户裁定，覆盖此前 Grok 4.5/low 测试默认值）。启动后核对实际模型；历史测试保留原证据的实际模型。禁止假守秘人脚本、批量结算、关键词路由或场景模板刷回合（仓库 `Agents.md` 的绝对禁令）。自动化接缝（内核 RPC、扩展、驾驭器）证明的是契约，真桌证明的是产品；到目前为止每次真桌都找出 3–5 个接缝看不见的系统缺陷。
 
 ## 工具
@@ -82,3 +92,5 @@ The live driver profile is explicit: Luna/high normally, Grok 4.5/low only after
 Targeted external comparison: OpenAI reasoning guidance places effort on the actual request (https://developers.openai.com/api/docs/guides/reasoning), and Gemini thinking documentation likewise describes explicit request configuration (https://ai.google.dev/gemini-api/docs/generate-content/thinking). Both support checking sent options rather than assuming environment export establishes behavior; provider defaults and supported values differ, so the local model adapter remains responsible for translation. This comparison does not change normal product effort defaults.
 
 Stopping an in-flight live driver must wake its transport wait after the Pi child has closed, finalize the retained partial turn, and only then write final totals. A process-exit wake is transport evidence, never a delivered Keeper event or a settled turn. A saturated retry stop must not leave the daemon alive until the player turn timeout.
+
+Driver model confirmation (2026-10-16): the startup get_state model and thinkingLevel are authoritative. When both already match the explicit requested profile, retain that handshake as confirmation instead of issuing a redundant set_model. A mismatch still requires the existing set_model call and a successful response; no failed selection is accepted. This avoids rejecting an already selected product-corrected model when the provider overlay does not resolve it again through set_model.

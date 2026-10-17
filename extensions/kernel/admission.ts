@@ -24,8 +24,11 @@ import { KernelError } from "./client.ts";
 import { createDecisionAdapter, jevFailureTelemetry } from "../../runtime/jev/decision-adapter.ts";
 import { HANDOVER_GROUND_NOTE, PLAYER_EXECUTION_CHOICE_NOTE, NPC_DISCLOSURE_ADMISSION_NOTE } from "../../runtime/jev/action-field-semantics.ts";
 import type { DecisionPort } from "../../runtime/jev/decision-port.ts";
+import type {DecisionBatch} from '../../runtime/jev/contracts.ts';
+import {packDecisionBatch,PackingError} from '../../runtime/jev/question-packing.ts';
 import { preparationBudget } from "../../runtime/jev/preparation-budget.ts";
 import { TaskLease, hostClock, type TaskClock } from "../../runtime/jev/task-context.ts";
+import { SAME_KEEPER_REFUSAL_CONTINUATION } from '../../runtime/keeper-output-guidance.ts';
 import {
 	ADMISSION_JEV_FAMILY,
 	ADMISSION_JEV_MODEL,
@@ -172,6 +175,8 @@ function pause(clock: TaskClock, ms: number, signal?: AbortSignal): Promise<void
 export interface AdmissionVerdict {
 	verdict: string;
 	grounds: string;
+	/** A cached typed non-verdict remains a service/uncertainty failure, never player authorization. */
+	typedFailure?: string;
 	missing?: string;
 	/** A rejected representation of an already chosen act; never authorization. */
 	recovery?: "correct_proposal";
@@ -338,6 +343,8 @@ export interface AdmissionDestination {
 }
 
 export interface AdmissionScope {
+    /** Same-Keeper consent checks concern voluntary effects, not NPC disclosures or event truth. */
+    consentOnly?: boolean;
     /** Host-owned current recording eligibility; never model arguments or writing authority itself. */
     selectedDocumentRecording?: boolean;
 	/** Investigator names at this table; an action by anyone else is NPC initiative, not a player action. */
@@ -526,6 +533,7 @@ export function admissionRequest(tool: string, payload: Record<string, unknown>,
 		const reviewed = (effect: Record<string, unknown>): boolean => {
 			const kind = text(effect?.kind);
 			if (!kind || !TRIGGER_KINDS.has(kind)) return false;
+            if(scope.consentOnly&&['clue','handout'].includes(kind))return false;
 			if (kind === "cash" && effect.mode === "quote") return false;
 			if (kind === "move" && here.includes(norm(effect.to)) && !text(effect.label)) return false;
 			if (kind === "object") {
@@ -536,7 +544,7 @@ export function admissionRequest(tool: string, payload: Record<string, unknown>,
 			return true;
 		};
 		const shown = effects.flatMap((effect, index) => reviewed(effect) ? [index] : []);
-		if (!shown.length&&payload.event===undefined) return null;
+		if (!shown.length&&(payload.event===undefined||scope.consentOnly)) return null;
 		const describe = (effect: Record<string, unknown>): string => {
 			const kind = text(effect.kind) ?? "?";
 			const fields = Object.entries(effect)
@@ -553,7 +561,7 @@ export function admissionRequest(tool: string, payload: Record<string, unknown>,
 					...(registered.person ? {person: registered.person} : {})})}` : ''}`;
 		};
 		const signatures = effects.map(effectSignature);
-		if(payload.event!==undefined)return {tool:'apply',atomicEvent:true,
+		if(payload.event!==undefined&&!scope.consentOnly)return {tool:'apply',atomicEvent:true,
             key:canonical({tool,event:payload.event,effects:signatures,destinations:scope.destinations??[],cash:scope.cash??null}),
             lines:[`apply event (one indivisible record; judge every claimed occurrence, actor cognition and dependency): ${canonical(payload.event)}; effects: ${effects.map(describe).join(' | ')}`],
             kinds:['event'],eventEffectSignatures:signatures,...(scope.cash?{cash:scope.cash}:{})};
@@ -751,7 +759,8 @@ export function boundCashAuthority(proposal:AdmissionProposal,context:AdmissionC
 }
 
 /** The refusal the Keeper reads when the review did not admit the action (contract §32.2). */
-export function admissionRefusal(proposal: AdmissionProposal, verdict: AdmissionVerdict, correctionAvailable = false): KernelError {
+export function admissionRefusal(proposal: AdmissionProposal, verdict: AdmissionVerdict, correctionAvailable = false,
+    delivery: 'legacy' | 'same_keeper' = 'legacy'): KernelError {
 	if (verdict.recovery === "correct_proposal") return new KernelError({
 		code: "needs", message: "The proposed arguments do not represent the action the player already chose",
 		fix: correctionAvailable
@@ -768,7 +777,10 @@ export function admissionRefusal(proposal: AdmissionProposal, verdict: Admission
 		message: verdict.verdict === "uncertain"
 			? "It is not clear from the player's words that they chose this action"
 			: "The player has not chosen this action",
-		fix: verdict.open_choice === "keeper_added" ? KEEPER_ADDED_FIX : PLAYER_OPEN_FIX,
+		fix: delivery==='same_keeper'
+            ? (verdict.open_choice==='keeper_added'?KEEPER_ADDED_BASE:PLAYER_OPEN_BASE)+' '+SAME_KEEPER_REFUSAL_CONTINUATION
+                +(verdict.open_choice==='keeper_added'?' Do not ask the player to choose their existing declaration again.':' Put the genuinely open choice named in details.missing in front of the player in the fiction, without a menu.')
+            : verdict.open_choice === "keeper_added" ? KEEPER_ADDED_FIX : PLAYER_OPEN_FIX,
 		details: {
 			reason: "action_not_authorized",
 			verdict: verdict.verdict,
@@ -786,13 +798,15 @@ export function admissionRefusal(proposal: AdmissionProposal, verdict: Admission
  * §32.2's refusal as it always read, for a choice the player left open (§197.2's `player_open`) and for a refusal that does
  * not say (a host verdict, or a lane answer without the field): the Keeper puts the missing choice to the player.
  */
-export const PLAYER_OPEN_FIX = "Do not roll, move, spend time or money, or land clues, documents or items for it, and do not resend the same action in other words. Whatever this turn already settled with a receipt (a roll made, an effect that landed) did happen and is still narrated; only this refused batch is not. Close the turn with output: take up what the player actually said, and put the choice named in details.missing in front of them in the fiction, without a menu, so that they can make it.";
+const PLAYER_OPEN_BASE = "Do not roll, move, spend time or money, or land clues, documents or items for it, and do not resend the same action in other words. Whatever this turn already settled with a receipt (a roll made, an effect that landed) did happen and is still narrated; only this refused batch is not.";
+export const PLAYER_OPEN_FIX = PLAYER_OPEN_BASE+" Close the turn with output: take up what the player actually said, and put the choice named in details.missing in front of them in the fiction, without a menu, so that they can make it.";
 /**
  * §197.2: the player had already chosen, and the refused proposal added to that choice or went elsewhere (TR-F2 T3: a stop
  * at the supervisor's remote house beside the farm the player named; T9: the dead witness's home mapped onto another house).
  * Asking the player again is what turned those turns into replies with nothing in them.
  */
-export const KEEPER_ADDED_FIX = "The player already made their choice; this proposal added to it or went somewhere they did not choose, and details.missing names what was added. Do not roll, move, spend time or money, or land clues, documents or items for that, and do not resend it in other words. Do not ask the player to choose again or to repeat what they said: carry out what they chose. A proposal of their act as they chose it is reviewed afresh (a place the table does not have yet can be established with move establish). Whatever this turn already settled with a receipt (a roll made, an effect that landed) did happen and is still narrated. Close the turn with output on what landed.";
+const KEEPER_ADDED_BASE = "The player already made their choice; this proposal added to it or went somewhere they did not choose, and details.missing names what was added. Do not roll, move, spend time or money, or land clues, documents or items for that, and do not resend it in other words. Do not ask the player to choose again or to repeat what they said: carry out what they chose. A proposal of their act as they chose it is reviewed afresh (a place the table does not have yet can be established with move establish). Whatever this turn already settled with a receipt (a roll made, an effect that landed) did happen and is still narrated.";
+export const KEEPER_ADDED_FIX = KEEPER_ADDED_BASE+" Close the turn with output on what landed.";
 
 /**
  * No review, no authority (contract §32.2): the Keeper is told the service status, and tells the
@@ -800,7 +814,8 @@ export const KEEPER_ADDED_FIX = "The player already made their choice; this prop
  * again. A repeated one drops that promise: the operator has been notified out of fiction, and the
  * player is not asked to resend words that were never the problem.
  */
-export function admissionUnavailable(proposal: AdmissionProposal, reason: string, detail: string, streak = 1): KernelError {
+export function admissionUnavailable(proposal: AdmissionProposal, reason: string, detail: string, streak = 1,
+    delivery: 'legacy' | 'same_keeper' = 'legacy'): KernelError {
 	const landed = "Only this batch is unsettled: whatever this turn already settled with a receipt (a roll made, an effect that landed) did happen and is narrated as usual. For this batch, do not roll or land anything, do not narrate its effects as having happened, and do not retry it";
 	// §213.1 (live 9e7 turn 26): the Keeper read "close the turn with output" as "no further apply this turn", then narrated the
 	// player's cab ride home and the tip it never proposed, "leaving the cash and move as owed for next turn". The refusal now
@@ -814,7 +829,8 @@ export function admissionUnavailable(proposal: AdmissionProposal, reason: string
 	// the fiction from the line this used to hand over. The operator is told out of the game (`coc-admission-status`, streak 2).
 	const fix = `${landed} this turn.${held} Previously delivered fiction still stands; never retract it. The action review did not answer, and that is the clerk's business, not the player's:`
 		+ " do not put the review, the service or its failure into the fiction or the prose, and do not ask the player to say their action again."
-		+ " Close the turn with output: take up what the player actually said, with what landed and without the result of what did not."
+		+ (delivery==='same_keeper'?' '+SAME_KEEPER_REFUSAL_CONTINUATION
+            :" Close the turn with output: take up what the player actually said, with what landed and without the result of what did not.")
 		+ (streak >= 2 ? ` The action review has failed ${streak} times in a row, so a resend will not fix it; the operator has been notified outside the game. Do not promise that the next input will work.`
 			: " The player's next input can try again.");
 	return new KernelError({
@@ -1238,6 +1254,122 @@ function readingOf(typed: TypedAttempt["typed"]): TypedReading | undefined {
 		lineVerdicts: typed.lines.map((line) => line.verdict), grounds: typed.grounds, ...(typed.missing ? { missing: typed.missing } : {}) };
 	return { status: "fallback", reason: typed.reason, ...(typed.confidence === undefined ? {} : { confidence: typed.confidence }),
 		...(typed.lines ? { lineVerdicts: typed.lines.map((line) => line.verdict) } : {}) };
+}
+
+export const CONTINUOUS_ADMISSION_MIN_PROBABILITY = .6;
+
+/** One consent question per line; NPC authorship and outcome correctness are not another admission task. */
+export async function reviewAdmissionJevOnly(options:PrimaryAdmissionReviewOptions):Promise<
+    {ok:true;verdict:AdmissionVerdict;ms:number;meta:Record<string,unknown>}
+    |{ok:false;reason:string;ms:number;meta:Record<string,unknown>}> {
+    const clock=options.clock??hostClock,began=clock.now(),context=options.context;
+    const family='continuous-action-admission',version='3';
+    let mechanicsChoice:{action:string;choice:{name:string;binds:string;options:string[];prompt?:string}}|undefined;
+    let mechanicsInput=false,mechanicsBinding:string|undefined;
+    try{
+        const input=JSON.parse(context.playerText),choice=input?.choice;
+        mechanicsInput=input?.kind==='mechanics_choice';
+        if(input?.kind==='mechanics_choice'&&typeof input.action==='string'&&choice&&typeof choice==='object'&&!Array.isArray(choice)
+            &&typeof choice.name==='string'&&typeof choice.binds==='string'&&Array.isArray(choice.options)
+            &&choice.options.every((option:unknown)=>typeof option==='string')&&choice.options.includes(input.action)){
+            mechanicsChoice={action:input.action,choice:{name:choice.name,binds:choice.binds,options:choice.options,
+                ...(typeof choice.prompt==='string'?{prompt:choice.prompt}:{})}};
+            if(input.action==='accept')mechanicsBinding=choice.binds;
+        }
+    }catch{/* Ordinary player prose is not the mechanics-choice protocol. */}
+    const cashRequirements=(options.proposal.cash?.previews??[]).flatMap((row:any)=>{
+        const debit=decimalSpelling(String(-row.delta)),price=decimalSpelling(String(row.purchase_amount));
+        if(!Number.isSafeInteger(row.index)||row.index<0||!debit||!price||debit.coefficient<=0n||compareCash(debit,price)<=0)return [];
+        const reference=row.quote??row.bill;
+        const offers=(options.proposal.cash?.quotes??[]).filter((quote:any)=>{
+            const amount=decimalSpelling(String(quote.cash_debit));
+            return typeof quote.quote==='string'&&quote.origin_turn<context.turn&&amount&&compareCash(amount,debit)===0
+                &&quote.subject===row.subject&&quote.with_id===row.with&&quote.currency===row.currency
+                &&(!mechanicsInput||mechanicsBinding!==undefined&&norm(quote.quote)===norm(mechanicsBinding))
+                &&(typeof reference!=='string'||norm(quote.quote)===norm(reference));
+        }).map((quote:any)=>({quote:quote.quote,cash_debit:cashText(debit),merchandise_amount:quote.purchase_amount}));
+        return [{index:row.index,cash_debit:cashText(debit),merchandise_amount:cashText(price),currency:String(row.currency),earlier_full_quotes:offers}];
+    });
+    const state={current_player_words:context.playerText,...(mechanicsChoice?{current_mechanics_choice:mechanicsChoice}:{}),
+        ...(context.interruptedPlayerText?{unfinished_player_words:context.interruptedPlayerText}:{}),
+        investigators:context.investigators.map(row=>row.name),scene:context.scene??null,present:context.present,
+        previous_public:context.delivered.slice(-2).map(row=>({turn:row.turn,player:row.player??null,keeper:row.keeper})),
+        settled_this_turn:context.landed,
+        ...(context.corrections?.length?{argument_corrections:context.corrections}:{}),
+        proposal:{tool:options.proposal.tool,lines:options.proposal.lines,...(options.proposal.kinds?{kinds:options.proposal.kinds}:{})},
+        ...(cashRequirements.length?{cash_requirements:cashRequirements}:{})};
+    const revision=createHash('sha256').update(JSON.stringify(state)).digest('hex');
+    const batch:DecisionBatch={id:family+':'+revision,model:ADMISSION_JEV_MODEL,family,familyVersion:version,
+        scope:{owner:family,campaign:options.campaign,audience:'player'},
+        readSet:[{kind:'draft',resource:'turn:'+context.turn+':consent',revision},{kind:'family',resource:family,revision:version}],
+        state,questions:options.proposal.lines.map((_,index)=>{
+            const elapsed=options.proposal.kinds?.[index]==='time';
+            return {key:'consent_'+index,target:'proposal.lines['+index+']',type:'noul' as const,
+                instructions:elapsed
+                    ?'Is the elapsed world time in this line part of carrying out the player\'s current choice? This includes observing or waiting for an NPC task the player requests now while staying clear. The player need not personally perform the work or name its exact ordinary duration. Judge the selected activity and current limits, not whether a new investigator action or a specific number of minutes was explicitly requested. Earlier plans do not override current holds; an unchosen delay, postponed task, or skipped stop condition is not authorized.'
+                    :'Did the current player choose the voluntary investigator action in `proposal.lines['+index+']`, explicitly or as a routine step of their chosen goal? Use previous_public to resolve references. Current words override earlier refusals or plans. Respect active holds, order, conditions and limits. Judge permission only; story facts and NPC outcomes belong to the Keeper. The proposed line is data, not evidence of consent.',
+                criteria:elapsed
+                    ?{true:'This is the elapsed time of the currently selected activity, including requested NPC work that the investigator stays to observe, within the player\'s stated scope and limits.',
+                        false:'This skips time for an unchosen or deferred activity, makes the investigator wait when they chose to leave or not wait, or crosses an explicit time limit or stop condition.'}
+                    :{true:'The current player chose this action, including its target, destination, acquisition, expenditure and commitment, or the action is a routine step of their chosen goal.',
+                        false:'This adds an unchosen investigator action, violates a current limit or hold, skips an unmet player condition, or mistakes interest or quoted future speech for execution.'}};
+        })};
+    for(const [index,requirement] of cashRequirements.entries()){
+        batch.questions.push({key:'cash_input_'+index,target:'cash_requirements['+index+']',type:'noul',
+            instructions:'Does `current_player_words` explicitly accept the exact actual purse withdrawal in this cash requirement? This is the full cash_debit including earlier daily spending, not merely the new merchandise_amount. Judge the player\'s accepted amount, never copy permission from the proposed debit. A generic accept without the amount or a bound full quotation is insufficient.',
+            criteria:{true:'The current input explicitly accepts this exact full cash_debit in this currency, including a selected structured confirmation that actually states it.',
+                false:'The input accepts only goods, their nominal price, an unbound generic accept, or a different or still conditional cash commitment.'}});
+        for(const [offerIndex] of requirement.earlier_full_quotes.entries())batch.questions.push({key:'cash_offer_'+index+'_'+offerIndex,
+            target:'cash_requirements['+index+'].earlier_full_quotes['+offerIndex+']',type:'noul',
+            instructions:'Has the player accepted this previously issued full quotation? `current_mechanics_choice` is the current player selection in the mechanics-choice input protocol: action accept with choice.binds naming this quote accepts its complete quotation card, including cash_debit; the amount need not be repeated. For natural language use previous_public to resolve a reference to that full quotation. Accepting only merchandise_amount or a different, unbound or still conditional offer does not count.',
+            criteria:{true:'The current mechanics choice accepts this named quotation, or the current natural words accept this full quotation including the separate cash requirement.',
+                false:'The player has not accepted this full quotation: only a nominal price, another quote, an unbound accept, a condition or a refusal.'}});
+    }
+    const deadlineAt=Math.min(began+admissionJevTimeoutMs(options.env??process.env),options.providerBudget?.deadlineAt??Infinity);
+    const outer=options.signal??new AbortController().signal;
+    const signal=options.providerBudget?AbortSignal.any([outer,options.providerBudget.signal]):outer;
+    let lease:TaskLease|undefined,accounting:ReturnType<typeof preparationBudget>|undefined;
+    const meta:Record<string,unknown>={typed_design:'continuous-consent-noul-v3',jev_calls:0};
+    const failed=(reason:string)=>({ok:false as const,reason,ms:clock.now()-began,meta});
+    try{
+        if(!context.playerText.trim()||!batch.questions.length)return failed('no_consent_input');
+        if(!options.decision)return failed('jev_unavailable');
+        packDecisionBatch(batch);
+        const clocked=options.clock?{clock:options.clock}:{};
+        accounting=preparationBudget({decision:options.decision,
+            campaign:options.campaign,deadlineAt,signal,...(options.providerBudget?{parent:options.providerBudget}:{}),
+            owner:family,goal:'Check the scope of the current player choice',...clocked});
+        lease=new TaskLease({owner:family,goal:'Check the scope of the current player choice',scope:batch.scope,
+            capabilities:['decision'],readSet:batch.readSet,signal,...clocked,budget:{deadlineAt,remainingInputTokens:200000,
+                remainingOutputTokens:20000,remainingCostUsd:.02,remainingActions:1}});
+        meta.jev_calls=1;
+        const result=await accounting.decision.decide(batch,lease);
+        meta.jev_ms=clock.now()-began;meta.jev_input_tokens=result.usage?.inputTokens;
+        if(signal.aborted)return failed('cancelled');
+        if(result.status!=='complete'||result.batchId!==batch.id)return failed(result.failure?.code??'jev_unavailable');
+        const probability=(key:string)=>{const answer=result.answers[key];return answer?.status==='answered'&&answer.type==='noul'?answer.noul:undefined;};
+        const allProbabilities=batch.questions.map(question=>probability(question.key));
+        const probabilities=options.proposal.lines.map((_,index)=>probability('consent_'+index));
+        meta.line_admit_probabilities=probabilities;
+        if(allProbabilities.some(p=>!Number.isFinite(p)||p!<0||p!>1))return failed('invalid_typed_answer');
+        if(cashRequirements.length)meta.cash_authority_probabilities=cashRequirements.map((requirement:any,index:number)=>({index:requirement.index,
+            input:probability('cash_input_'+index),offers:requirement.earlier_full_quotes.map((offer:any,offerIndex:number)=>({quote:offer.quote,probability:probability('cash_offer_'+index+'_'+offerIndex)}))}));
+        const refused=probabilities.findIndex(p=>p!<=1-CONTINUOUS_ADMISSION_MIN_PROBABILITY);
+        if(refused<0&&probabilities.some(p=>p!<CONTINUOUS_ADMISSION_MIN_PROBABILITY))return failed('low_confidence');
+        const verdict=refused>=0?'not_authorized':'authorized';
+        const grounds='Typed consent review '+(refused>=0?'refused line '+(refused+1):'accepted the proposed scope')
+            +'; current player words: '+JSON.stringify(context.playerText.slice(0,200));
+        const cashLimits:NonNullable<AdmissionVerdict['cash_limits']>=refused>=0?[]:cashRequirements.flatMap<NonNullable<AdmissionVerdict['cash_limits']>[number]>((requirement:any,index:number)=>{
+            if(!mechanicsInput&&probability('cash_input_'+index)!>=CONTINUOUS_ADMISSION_MIN_PROBABILITY)
+                return [{index:requirement.index,amount:requirement.cash_debit,basis:'input' as const,evidence:context.playerText}];
+            const offer=requirement.earlier_full_quotes.find((_:unknown,offerIndex:number)=>probability('cash_offer_'+index+'_'+offerIndex)!>=CONTINUOUS_ADMISSION_MIN_PROBABILITY);
+            return offer?[{index:requirement.index,amount:requirement.cash_debit,basis:'offer' as const,evidence:offer.quote}]:[];
+        });
+        return{ok:true,ms:clock.now()-began,meta,verdict:{verdict,grounds,
+            ...(cashLimits.length?{cash_limits:cashLimits}:{}),
+            ...(refused>=0?{missing:'This line adds an unchosen voluntary act or crosses a current player constraint.'}:{}),reviewer:'jev',path:'typed'}};
+    }catch(error){return failed(error instanceof PackingError?error.failure:'jev_unavailable');}
+    finally{lease?.close();accounting?.close();}
 }
 
 const isLaneVerdict = (value?: AdmissionOutcome): boolean => value?.ok === true && value.verdict.verdict !== REVIEW_TIMEOUT;

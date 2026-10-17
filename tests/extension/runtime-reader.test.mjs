@@ -617,7 +617,9 @@ test("Mod tasks use the existing owner check and retry the retained draft before
   // The host runs that gate itself -- it is the "mod-definition" in operations above -- so the brief no
   // longer sends the child to a shell for it, and the child is no longer handed one.
   assert.doesNotMatch(briefs[0], /coc-read-check|bash/);
-  assert.doesNotMatch(briefs[0], /PYTHONPATH|\buv\b|\bpython\b/);
+  assert.doesNotMatch(briefs[0], /PYTHONPATH|\buv\s+run\b|\bpython\d*\s+-[mc]\b/);
+  assert.match(briefs[0], /Node\.js executable/);
+  assert.match(briefs[0], /Do not invoke Python or uv\./);
   assert.match(briefs[1], /repair required/);
   assert.equal(payload.effects[0]._definition.name, "Notebook");
   assert.deepEqual((await readdir(home)).sort(), ["run-1.json", "run-2.json"]);

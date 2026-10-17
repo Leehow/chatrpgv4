@@ -20,7 +20,7 @@ export interface OpeningFacts {
 	modContext?: unknown;
 }
 
-export function openingInstruction(facts: OpeningFacts): string {
+export function openingInstruction(facts: OpeningFacts, env: Readonly<Record<string,string|undefined>> = process.env): string {
 	const guide = typeof (facts.prologue as { guide?: unknown } | null | undefined)?.guide === "string" ? ((facts.prologue as { guide: string }).guide).trim() : "";
 	// A prologue with no guide asked its question in the host's voice, not anyone's in the scene: on Blood Road (guide
 	// empty) "the guide already knows who the visitor is" had the station owner greet three different investigators by
@@ -54,7 +54,8 @@ export function openingInstruction(facts: OpeningFacts): string {
 		? ` The party is ${names.length === 1 ? "one investigator" : `${names.length} investigators`}, ${JSON.stringify(names)}; the book may speak to a group, but nobody else is with them unless the card says so, and people address the party as the number it is.`
 		: "";
 	return `Opening the table: ${lead}${party} This turn has no player input, and the scene stays as the table opened it. Write all player-facing words in play_language=${facts.playLanguage}. ` +
-		"Use look only if the opening scene is not already supplied (lookup for missing background). Write the opening yourself in the public response beginning with {{public}} and wait for free player input. NPC questions belong naturally in the prose. " +
+		"Use look only if the opening scene is not already supplied (lookup for missing background). " +
+		(env.PI_COC_ISOLATED_OUTPUT==='1'?"Select the opening in {{compose}} followed immediately by one private JSON expression brief with scene, narrative_content and npc_turns. The host invokes the isolated author, then waits for free player input. ":"Write the opening yourself in the public response beginning with {{public}} and wait for free player input. NPC questions belong naturally in the prose. ") +
 		"Do not generate story action menus or options. " +
 		"NPCs may speak freely and give information. Record actual changes through the existing effects and event fields; ordinary speech needs no attempted intention. An apply person for their first complete printed name stages its registration until this opening actually introduces them in a successful delivery. These writes do not choose any investigator action. " +
 		(facts.modContext !== undefined

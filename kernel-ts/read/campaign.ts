@@ -204,15 +204,19 @@ export interface LoadedModule {
     adapted?: boolean;
     asset?(name: string): Promise<Row | null>;
 }
-export async function loadCampaignModule(context: KernelContext, id: string, world: Row, campaign?: string): Promise<LoadedModule> {
+export async function loadCampaignModule(context: KernelContext, id: string, world: Row, campaign?: string,
+    options: {deliveryFrozen?: boolean} = {}): Promise<LoadedModule> {
     // §185.4: a name-free campaign's map reaches the graph at construction, before the source places are projected, so a
     // projected place keeps the handle the map gave its location. It is read from this world, which may be newer than the disk's.
     const handles = campaign === undefined ? null : await campaignNodeHandles(context, campaign, world);
     // The people this table established ride on both loads, because a table can establish one before
     // it has ever run an adaptation and `campaignModule` answers null until then. So do its creatures (§180.6).
     const module = await campaignModule(context, id, world, handles) ?? await loadModule(context, id, campaign, handles);
-    module.graph.projectSourcePlaces();
-    const loaded = withTableCreatures(withTablePeople(withTableEntities(module, world), world), world);
+    module.graph.projectSourcePlaces([world.active_scene, ...array(world.visited_scenes), ...array(world.scene_trail)]
+        .filter((value): value is string => typeof value === 'string'));
+    const turn = options.deliveryFrozen !== undefined || campaign === undefined ? {} : row(await new CampaignSnapshot(context, campaign).optional('turn.json'));
+    const frozen = options.deliveryFrozen ?? (turn.delivery_frozen === true);
+    const loaded = withTableCreatures(withTablePeople(withTableEntities(module, world), world, frozen), world);
     // §204.4: the places this table established that the host bound to the book's mention cite the book's pages.
     if (campaign !== undefined) installPlaceBindings(loaded.graph, await readPlaceBindings(context, campaign));
     // §185.13: the investigators at this table are people the investigator knows; no name they go by is an untold name.

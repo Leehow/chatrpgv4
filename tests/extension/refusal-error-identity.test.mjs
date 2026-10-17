@@ -72,14 +72,16 @@ test('unchanged invalid calls still stop after the existing two parameter refusa
   assert.equal(table.telemetry().filter(row=>row.code==='blocked'&&String(row.reason).includes('refused these parameters 2 times')).length,1);
 });
 
-test('changing parameters without fixing the same error still reaches the existing three-strike class limit',async t=>{
+test('three same-class write refusals keep their original errors and end an unsettled native input',async t=>{
   const table=await preparedTable(t,()=>[
     call([time(-1)]),call([time(-2)]),call([time(-3)]),call([time(-4)]),
     fauxAssistantMessage('{{public}}You remain where you are; no waiting interval has been settled.')]);
   const applied=results(table);
-  assert.equal(applied.length,4);
-  assert.ok(applied.slice(0,3).every(result=>result.details.coc_error?.message==='minutes must be a non-negative integer'));
-  assert.match(text(applied[3]),/refused 3 times this turn for the same reason/);
+  assert.equal(applied.length,3,'each attempted call has one result and a spent write allowance requests no fourth call');
+  assert.equal(new Set(applied.map(result=>result.toolCallId)).size,3);
+  assert.deepEqual(applied.map(result=>result.details.coc_error?.message),Array(3).fill('minutes must be a non-negative integer'));
   assert.equal(table.telemetry().filter(row=>row.lane==='refusals'&&row.reason==='class_limit').length,1);
-  assert.equal(table.telemetry().filter(row=>row.code==='blocked'&&row.reason==='refusal_budget').length,1);
+  assert.equal(table.telemetry().filter(row=>row.reason==='zero_settlement_write_exhausted').length,1);
+  assert.equal(table.telemetry().filter(row=>row.code==='blocked'&&row.reason==='refusal_budget').length,0);
+  assert.equal(table.entries('coc-final-delivery').filter(row=>row.event==='delta').length,0);
 });
