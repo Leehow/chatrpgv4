@@ -10,7 +10,7 @@ import {test} from 'node:test';
 import {streamSimple} from '@earendil-works/pi-ai/api/openai-responses';
 import {isRetryableAssistantError} from '@earendil-works/pi-ai';
 import {customMessages, openTable, waitForIdle} from './harness.mjs';
-import {createHybridEngine} from './hybrid-engine-fixture.mjs';
+import {createHybridEngine,checkedAdmission} from "./hybrid-engine-fixture.mjs";
 
 const PROSE = 'The clock advances while you wait beside the closed office door.';
 const message = (text, refusal = false) => ({id: 'msg-controlled', type: 'message', role: 'assistant', status: 'completed',
@@ -58,7 +58,7 @@ test('real pi-ai 1.0 parser loses text present only in the terminal snapshot', a
 });
 
 async function controlledTable(t, responses, options = {}) {
-  const engine = createHybridEngine({env: process.env, decision: null});
+  const engine = createHybridEngine({env: process.env, decision:checkedAdmission});
   const table = await openTable({env: {PI_COC_LOOP_ENGINE: 'hybrid-v1', FAKE_KERNEL_WORKSPACE: '1', FAKE_KERNEL_PRESENT: '[]'},
     runDriver: engine.runDriver, extraExtensions: [{name: 'coc-hybrid-engine', factory: engine.extension}],
     settings: {retry: {enabled: true, maxRetries: 2, baseDelayMs: 1}}, ...options});

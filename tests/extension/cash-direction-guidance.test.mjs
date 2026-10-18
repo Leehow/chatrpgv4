@@ -6,7 +6,7 @@ import {readFile,readdir} from 'node:fs/promises';
 import {fauxAssistantMessage,fauxToolCall,getCurrentSystemPrompt,getCurrentTools} from '@earendil-works/pi-ai';
 import {openTable} from './harness.mjs';
 import {api,root} from './object-usages-fixture.mjs';
-import {createHybridEngine} from '../../runtime/jev/hybrid-engine.ts';
+import {createHybridEngine,checkedAdmission} from "./hybrid-engine-fixture.mjs";
 
 const textParts=message=>typeof message.content==='string'?[message.content]
     :(message.content??[]).filter(block=>block.type==='text').map(block=>block.text);
@@ -28,7 +28,7 @@ function cashSchema(messages){
 }
 
 test('the actual single Keeper receives purse direction guidance and records both directions once with unchanged source and counterparty',async t=>{
-    const engine=createHybridEngine({env:{...process.env,PI_COC_JEV_PRESELECT:'0'},decision:null,npcAct:null});
+    const engine=createHybridEngine({env:{...process.env,PI_COC_JEV_PRESELECT:'0'},decision:checkedAdmission,npcAct:null});
     const exchanges=[
         {input:'I accept the twenty dollar advance from Knott.',delta:20,why:'Advance received',text:'Knott hands over the advance.'},
         {input:'I return the twenty dollar advance to Knott.',delta:-20,why:'Advance returned',text:'You return the advance to Knott.'},

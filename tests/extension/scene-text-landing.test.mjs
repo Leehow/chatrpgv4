@@ -13,7 +13,7 @@ import { test } from "node:test";
 import { fileURLToPath } from "node:url";
 import { fauxAssistantMessage, fauxToolCall } from "@earendil-works/pi-ai";
 import { openTable } from "./harness.mjs";
-import { createHybridEngine } from "./hybrid-engine-fixture.mjs";
+import {createHybridEngine,checkedAdmission} from "./hybrid-engine-fixture.mjs";
 import { CARRIED_PENDING_SCENE_HEAD, CARRIED_SCENE_TEXT_HEAD, CARRIED_SCENE_RECORD_HEAD, SCENE_TEXT_VIEW_BYTES, readCarriedViews } from "../../runtime/jev/carried-views.ts";
 import { createRuntime } from "../../runtime/host.ts";
 import { ReadingService } from "../../extensions/module/reading-service.ts";
@@ -138,7 +138,7 @@ function distinctNotes(requests) {
 const views = (requests, focus) => distinctNotes(requests).flatMap(({ request, note }) => (note.carried?.views ?? []).filter((view) => view.focus === focus).map((view) => ({ request, view })));
 
 async function seam(t, { pageTexts, responses, legacy = false }) {
-	const engine = createHybridEngine({ env: process.env, decision: null });
+	const engine = createHybridEngine({ env: process.env, decision:checkedAdmission });
 	const requests = [], carriedText = [];
 	const table = await openTable({ realKernel: true, seedCampaign: false, prepareWorkspace: harbor,
 		env: { ...(legacy ? {} : { PI_COC_LOOP_ENGINE: "hybrid-v1" }), PI_COC_READ_WAIT_MS: "200" }, ...(legacy ? {} : { runDriver: engine.runDriver }),

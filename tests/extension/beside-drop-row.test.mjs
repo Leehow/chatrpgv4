@@ -21,7 +21,7 @@ import { readFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { fauxAssistantMessage, fauxText, fauxToolCall } from "@earendil-works/pi-ai";
 import { openTable, waitForIdle } from "./harness.mjs";
-import { createHybridEngine } from "./hybrid-engine-fixture.mjs";
+import {createHybridEngine,checkedAdmission} from "./hybrid-engine-fixture.mjs";
 import { besideSteer } from "../../extensions/kernel/index.ts";
 import { mkdtemp, rm, symlink } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -88,7 +88,7 @@ test("legacy: calls a gate blocked never answer, and the row names them not_run"
 });
 
 test("hybrid: the row names the model step the message answered", async (t) => {
-	const engine = createHybridEngine({ env: process.env, decision: null });
+	const engine = createHybridEngine({ env: process.env, decision:checkedAdmission });
 	const table = await openTable({ realKernel: true, prepareWorkspace: turnOneClosed, env: { PI_COC_LOOP_ENGINE: "hybrid-v1" },
 		runDriver: engine.runDriver, extraExtensions: [{ name: "coc-hybrid-engine", factory: engine.extension }], responses: [
 			beside("我先把这段翻找记进时间。", fauxToolCall("apply", { effects: [{ kind: "time", minutes: 10, why: "the search takes ten minutes" }] })),

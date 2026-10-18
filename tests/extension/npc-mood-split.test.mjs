@@ -13,7 +13,7 @@ import {after, test} from 'node:test';
 import {build} from 'esbuild';
 import {fauxAssistantMessage,fauxToolCall} from '@earendil-works/pi-ai';
 import {openTable} from './harness.mjs';
-import {createHybridEngine} from '../../runtime/jev/hybrid-engine.ts';
+import {createHybridEngine,checkedAdmission} from "./hybrid-engine-fixture.mjs";
 import {kernel,openTurn,createCampaign,RpcClient,campaignDir,readJson} from '../integration/support.ts';
 
 // kernel-ts imports its siblings as `.js`; the runtime build bundles them, and so does this test.
@@ -235,7 +235,7 @@ test('a genuinely unknown person still isolates only their original person effec
 for(const mode of ['tool','inline'])test(`the real Pi ${mode} path sends the ordinary combination through the existing adapter`,async t=>{
   const effects=[{kind:'time',minutes:3},{...structuredClone(ordinary),to:'here'}];
   const response={version:1,record:{effects},text:'Knott checks the appointments while you wait.'};
-  const engine=createHybridEngine({env:{...process.env,PI_COC_JEV_PRESELECT:'0'},decision:null});
+  const engine=createHybridEngine({env:{...process.env,PI_COC_JEV_PRESELECT:'0'},decision:checkedAdmission});
   const table=await openTable({legacyDeliveryFixtures:false,realKernel:true,runDriver:engine.runDriver,
     env:{PI_COC_LOOP_ENGINE:'hybrid-v1'},extraExtensions:[{name:'driver',factory:engine.extension}],
     async prepareWorkspace(workspace){const client=new RpcClient(workspace);try{
