@@ -56,6 +56,7 @@ test('§186.4 the publication gate accepts a carried coverage verdict and the re
       await deliver(request, pages);
       await writeFile(join(request.cwd, 'review.json'), JSON.stringify({checked: task.required_review.map(path => ({paths: [path],
         verdict: reads.length === 1 && path === '/nodes/1' ? 'unsupported' : 'supported', source_refs: pages.map(page => ({page})),
+        ...(reads.length === 1 && path === '/nodes/1' ? {impact: 'logic'} : {}),
         reason: reads.length === 1 && path === '/nodes/1' ? 'Page 2 says the warden keeps the lamp; it names no owner.' : `Page 2 states ${path}.`})), missing: []}) + '\n');
       return {ok: true, code: 0, timedOut: false, ms: 3, stderr: '', command: []};
     },

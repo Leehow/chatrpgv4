@@ -115,6 +115,21 @@ async function compare(name, cases, t) {
   await writeFile(join(evidence, name + '-captured.json'), captured);
   await writeFile(join(evidence, name + '-typescript.json'), api.pythonJsonDumps(actual));
   for (const [i, item] of cases.entries()) await t.test(item.name ?? String(i), () => {
+    // The current reference protocol explains the element shape at the first refusal.
+    // Keep the historical capture immutable and compare every other error field.
+    if (['node_refs shape', 'ready_nodes shape', 'unknown node reference'].includes(item.name)) {
+      const field = item.name === 'ready_nodes shape' ? 'ready_nodes' : 'node_refs';
+      const message = item.name === 'unknown node reference'
+        ? `${field} entries must be string node_id values naming defined nodes; relationship objects belong in claims`
+        : `${field} must be an array of string node_id values naming defined nodes; never reference or relation objects`;
+      assert.equal(actual[i].error?.message, message, `Evidence: ${evidence}`);
+      assert.equal(actual[i].error.code, 'invalid_params');
+      const {message: currentMessage, ...current} = actual[i].error;
+      const {message: historicalMessage, ...historical} = expected[i].error;
+      assert.notEqual(currentMessage, historicalMessage, 'the expanded guidance is a post-freeze change');
+      assert.equal(api.canonicalJson(current), api.canonicalJson(historical), `Evidence: ${evidence}`);
+      return;
+    }
     // Contract §136.26 also post-dates the frozen oracle: a reader's profile is now a mechanical shape held to
     // §136.6, whose integer slots stop at the largest exact integer. Assert that refusal here; the oracle's
     // bytes are never touched, and no other case carries a shape the catalog refuses.
