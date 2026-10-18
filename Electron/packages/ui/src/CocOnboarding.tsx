@@ -110,7 +110,9 @@ export function CocOnboarding({host, sessionId}: Props) {
   const [showPath,setShowPath]=useState(false),[sourcePath,setSourcePath]=useState('')
   const [catalog,setCatalog] = useState<Row | null>(null)
   const [job,setJob] = useState<Row | null>(null)
-  const [busy,setBusy] = useState(false), [error,setError] = useState<Failure | null>(null)
+  const [busy,setBusy] = useState(false), [actionError,setError] = useState<Failure | null>(null)
+  const [catalogError,setCatalogError] = useState<Failure | null>(null)
+  const error=actionError??(!job?catalogError:null)
   // What is in the field, which is not yet what the screen is in: a half-typed tag would ask the
   // host for a catalog in a language nobody named. The tag is committed when it is a whole one.
   const [typedLanguage,setTypedLanguage] = useState<string>(playLanguages.default)
@@ -152,8 +154,8 @@ export function CocOnboarding({host, sessionId}: Props) {
   // which would re-enter this effect: the restore itself happens once.
   useEffect(() => {
     let active = true
-    void call({action:'catalog',play_language:language}).then(data => {if(active){setCatalog(data)
-      if(data.current_import&&!restored.current){restored.current=true;remember(data.current_import)}}}).catch(e => {if(active)setError(failure(e))})
+    void call({action:'catalog',play_language:language}).then(data => {if(active){setCatalog(data);setCatalogError(null)
+      if(data.current_import&&!restored.current){restored.current=true;remember(data.current_import)}}}).catch(e => {if(active)setCatalogError(failure(e))})
     return () => {active=false}
   },[host,sessionId,language])
   useEffect(() => {
@@ -333,6 +335,6 @@ export function CocOnboarding({host, sessionId}: Props) {
       // An interrupted upload is retried by sending bytes, not by re-reading the catalog. The
       // button used to do only the latter, so pressing it moved the label from "this step did not
       // finish" back to "uploading" and nothing else -- twice observed, five minutes of no bytes.
-      if(!continueUpload())void call({action:'catalog',play_language:language}).then(setCatalog).catch(e=>setError(failure(e)))}}>{t('retryConnection')}</button></div>}
+      if(!continueUpload()){setCatalogError(null);void call({action:'catalog',play_language:language}).then(setCatalog).catch(e=>setCatalogError(failure(e)))}}}>{t('retryConnection')}</button></div>}
   </div></div>
 }

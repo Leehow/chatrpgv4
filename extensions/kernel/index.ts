@@ -6498,7 +6498,7 @@ export default function (pi: ExtensionAPI, host: {capabilities?:RuntimeCapabilit
 			if(finalSelection && typeof result.rendered_text==='string' && !result.rendered_text.trim())
                 await record({lane:'delivery',tool:publicName,turn:state.turn,ok:false,reason:'rendered_nothing',held:true});
             applyToolSuccess(state, spec.name, toolCallId, result);
-            if(singleKeeper&&(spec.name==='apply'||spec.name==='resolve')&&
+            if(turnPacketPrototype&&(spec.name==='apply'||spec.name==='resolve')&&
                 (partial?.notLanded||(Array.isArray(result.not_landed)&&result.not_landed.length)))
                 holdFailedOperation(state,spec.name,params,{code:'partial_settlement'},toolCallId);
             if(singleKeeper && (spec.name==='apply'||spec.name==='resolve') && !partial?.notLanded

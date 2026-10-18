@@ -51,6 +51,7 @@ export default async function readerSubmit(pi: any) {
 	if (!guidanceTask && !answerTask && !indexTask && !['opening', 'detail'].includes(task.purpose)) throw new Error("Source submission is only available for index, guidance, opening, detail and source answers");
 	const reviewing = !indexTask && Array.isArray(task.required_review);
 	const guidanceProjection=guidanceTask&&!reviewing&&task.guidance_projection;
+	const graphAuthor=!reviewing&&!indexTask&&!answerTask&&!guidanceProjection;
 	if(guidanceProjection&&(!Array.isArray(guidanceProjection.source_pages)||!guidanceProjection.source_pages.length||
 		guidanceProjection.source_pages.length>12||guidanceProjection.source_pages.some((page:unknown)=>!Number.isSafeInteger(page)||Number(page)<1||Number(page)>task.source?.page_count)))
 		throw new Error('Selected guidance source assignment is invalid');
@@ -112,11 +113,12 @@ export default async function readerSubmit(pi: any) {
 			? "Save and check review.json, then finish without another model reply. Supply review or omit it if already written. Never modify the candidate files. Call alone after viewing the original cited pages."
 			: answerTask ? "Save and check the scoped source answer in draft.json, then finish without another model reply. Supply draft or omit it if already written. Use only status, answer, source_refs and limitations; no graph fields. Call alone after viewing every cited original page."
 			: guidanceProjection ? "Save and check guidance.json and public_fields for the already reviewed selected entrance. The host owns the unchanged draft.json; do not edit or submit it. Call alone after viewing assigned original pages."
-			: guidanceTask ? "Save and check draft.json and guidance.json, then finish without another model reply. Supply both small objects, or omit them if already written with write/edit. Failure returns findings for repair. Call alone after viewing the required original pages."
-			: task.purpose === 'detail' ? "Save and check the scoped detail delta in draft.json, then finish without a closing reply. Prepare only task.focus/question and necessary dependencies; preserve accepted fields and leave unrelated material unprepared. Supply draft or omit it if already written. A failed check returns concrete findings for repair. Call alone after viewing the required original pages."
-			: "Save and check the first opening batch in draft.json, then finish without a closing reply. Under opening_scope first_interaction, declare interaction_scene and prepare the selected entry plus its first substantive interaction and immediate dependencies. Defer future encounters. Supply draft or omit it if already written. Failure returns findings for repair. Call alone after viewing the required original pages.",
+			: guidanceTask ? "Save and check draft.json and guidance.json, then finish without another model reply. Write/edit the complete draft.json, guidance.json and required public-fields.json first, then submit {} only; inline artifacts are not accepted. Failure returns findings for repair. Call alone after viewing the required original pages."
+			: task.purpose === 'detail' ? "Save and check the scoped detail delta in draft.json, then finish without a closing reply. Prepare only task.focus/question and necessary dependencies; preserve accepted fields and leave unrelated material unprepared. Write/edit the complete draft.json first, then submit {} only. A failed check returns concrete findings for repair. Call alone after viewing the required original pages."
+			: "Save and check the first opening batch in draft.json, then finish without a closing reply. Under opening_scope first_interaction, declare interaction_scene and prepare the selected entry plus its first substantive interaction and immediate dependencies. Defer future encounters. Write/edit the complete draft.json first, then submit {} only. Failure returns findings for repair. Call alone after viewing the required original pages.",
 		parameters: reviewing ? Type.Object({review:Type.Optional(moduleLogicReview(task)?logicReviewSchema:guidanceTask?guidanceReview:Type.Any())})
 			: guidanceProjection ? Type.Object({guidance:Type.Optional(guidanceSchema),public_fields:Type.Optional(publicSchema)},{additionalProperties:false})
+			: graphAuthor ? Type.Object({},{additionalProperties:false})
 			: Type.Object({draft:Type.Optional(indexTask?Type.Object({sections:Type.Array(Type.Object({name:Type.String(),
                 pages:Type.Array(Type.Array(Type.Integer({minimum:1}),{minItems:2,maxItems:2}),{minItems:1,description:'Nested physical page ranges [[start,end],...], bounded by the original PDF.'}),
                 source_refs:Type.Optional(Type.Array(Type.Object({page:Type.Integer({minimum:1,...(typeof task.source?.page_count==='number'?{maximum:task.source.page_count}:{})})},{additionalProperties:true}),
@@ -127,6 +129,8 @@ export default async function readerSubmit(pi: any) {
 				...(guidanceTask?{guidance:Type.Optional(Type.Union([guidanceSchema,Type.Object({needs_choice:Type.Literal(true)},{additionalProperties:false})])),public_fields:Type.Optional(publicSchema)}:{})}),
 		async execute(_id: string, params: any, signal?: AbortSignal) {
 			if (signal?.aborted) throw new Error("Source submission cancelled");
+			if(graphAuthor&&(!params||typeof params!=="object"||Array.isArray(params)||Object.keys(params).length))
+				throw new Error("Source graph submission takes no arguments. Write/edit the saved artifact files, then call submit_reading({}) alone; no files were changed by this refusal.");
 			if (indexTask) {
 				const draft=params.draft===undefined?JSON.parse(await readFile(join(cwd,'draft.json'),'utf8')):params.draft;
 				checkIndexDraftShape(draft,task.source?.page_count);
@@ -188,7 +192,7 @@ export default async function readerSubmit(pi: any) {
 				let publicPages:number[]=[];
 				if(guidanceTask){
 					const bytes=await readFile(join(cwd,'public-fields.json'),'utf8').catch(error=>{if(error.code==='ENOENT')return undefined;throw error;});
-					if(task.public_progress_required&&!bytes)throw new Error('Submit the four public_fields in the same call as guidance');
+					if(task.public_progress_required&&!bytes)throw new Error('Write the four public fields to public-fields.json alongside guidance.json before submission');
 					if(bytes)publicPages=Object.values(validatePublicGuidance(JSON.parse(bytes),task.source?.page_count)).flatMap(field=>field.source_refs.map(ref=>ref.page));
 				}
 				// §186.3: host-owned fields are filled and verbatim task copies dropped before the check; the receipt lists them.

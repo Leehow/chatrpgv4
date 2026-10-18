@@ -778,6 +778,10 @@ export async function createSourceReaderDriver(options:{cwd:string;env:NodeJS.Pr
        return {status:'ok',artifact:await (kind==='source_need_answered'&&needTask?checkNeedAnswered(request.signal):kind==='source_need_kind'?assessNeeds(request.signal):locate(request.signal))}}catch(error){trace({kind:'source_decision_failed',runId,error:String(error)});return {status:'unavailable',artifact:{kind:'source_locator_unavailable'}};}}},
      operations:{async execute(proposal,invocation){
        if(proposal.origin==='model'){
+         const calls=proposal.assistantMessage?.content.filter(block=>block.type==='toolCall')??[];
+         if(calls.length>1&&calls.some(call=>call.name==='submit_reading'))return {status:'refused',
+           toolResult:{role:'toolResult',toolCallId:proposal.toolCall!.id,toolName:proposal.toolCall!.name,timestamp:Date.now(),content:[{type:'text',text:'submit_reading must be the sole tool call in its response. No call in this batch executed. Finish file edits first, then submit alone.'}],isError:true},
+           artifact:{kind:'source_submission_batch_refused'}};
          if(!invocation.executeModelTool)return {status:'refused',reason:'Model tool executor unavailable'};
          const result=await invocation.executeModelTool();let artifact=result.details as {kind?:string;requests?:unknown}|undefined;
          if(artifact?.kind==='source_need_batch'&&!result.isError){

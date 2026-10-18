@@ -11,7 +11,7 @@ import { createServer, createConnection, type Server } from 'node:net';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 export type Row = Record<string, any>;
 export const REPO_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '../..'), PLAYTESTS_ROOT = join(REPO_ROOT, '.coc/playtests'), CURRENT_RUN_FILE = join(PLAYTESTS_ROOT, '.current-run'), DEFAULT_LAUNCHER = join(REPO_ROOT, 'bin/pi-coc');
-export const DEFAULT_MODEL = 'codex-relay/gpt-6-luna', DEFAULT_THINKING = 'high';
+export const DEFAULT_MODEL = 'minimax-cn/MiniMax-M3.1-Flash-Preview', DEFAULT_THINKING = 'medium';
 export const TEST_LANE_MODEL_ENVS = ['PI_COC_ADAPTATION_MODEL', 'PI_COC_ADMISSION_MODEL', 'PI_COC_BUILD_MODEL', 'PI_COC_EPITHETS_MODEL', 'PI_COC_ESTABLISH_REVIEW_MODEL', 'PI_COC_FIRST_SIGHT_MODEL', 'PI_COC_HANDLES_MODEL', 'PI_COC_MEMORY_MODEL', 'PI_COC_MOD_MODEL', 'PI_COC_NPCJOURNAL_MODEL', 'PI_COC_NPC_ACT_MODEL', 'PI_COC_NPC_MODEL', 'PI_COC_SPEECH_EDIT_MODEL', 'PI_COC_VERIFIER_MODEL', 'PI_COC_VOICE_MODEL'];
 export let ACK_TIMEOUT = 10, STOP_SETTLE_GRACE = 1.5, STALE_SETTLE_GRACE = 20, OPENING_QUIET = 3, HEARTBEAT_INTERVAL = 2, STARTUP_READY_TIMEOUT = 30;
 export const TOOL_RESULT_TRUNCATE_BYTES = 4096, SETTLE_EXIT_CODES: Row = { settled: 0, undelivered_with_tools: 5, empty: 4, timeout: 3 };

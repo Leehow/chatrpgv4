@@ -1779,7 +1779,7 @@
       "path": "app-play-gated",
       "role": "leaf",
       "trace": "n/a (added 2026-10-02)",
-      "note": "Gate: the delivered turn's capsule carried a first_sight section. One zero-tool completion on the fast model (PI_COC_FIRST_SIGHT_MODEL, then the fast-model setting, then the table), 20 s, started in the background after the delivery commits and never awaited by it; its anchored answer lands through table.first_sight, and any failure records nothing."
+      "note": "Legacy non-source-reference path only (section 240.2): one background zero-tool comparison, with a 120 s process ceiling. The native source-reference runtime returns through typed span choices before this branch; no generative fallback follows Jev uncertainty."
     },
     {
       "file": "runtime/jev/npc-act.ts",
@@ -2414,3 +2414,27 @@
     }
   ]
 }
+    },
+    {
+      "file": "runtime/jev/first-sight.ts",
+      "symbol": "createFirstSightLane.check",
+      "kind": "jev-adapter",
+      "callee": "createDecisionAdapter",
+      "count": 1,
+      "owner": "Native background first-sight span coverage",
+      "path": "app-play-gated",
+      "role": "leaf",
+      "trace": "lane: first-sight; section 240.2",
+      "note": "One bounded typed batch selects among exact host-issued sentence spans after delivery. Mixed, uncertain or unavailable items stay owed. No generative fallback, prose rewrite or world mutation; existing tracker and kernel publication authority remain."
+    },
+    {
+      "file": "extensions/memory/index.ts",
+      "symbol": "runJob",
+      "kind": "jev-adapter",
+      "callee": "createDecisionAdapter",
+      "count": 2,
+      "owner": "memory ext: native story assessment",
+      "path": "app-play",
+      "role": "leaf",
+      "trace": "tests: memory-native-recovery and memory-story-decision",
+      "note": "Stage10: one typed parallel story batch; candidate author remains MiniMax. Pending judgment retains the exact-source draft without generative fallback."

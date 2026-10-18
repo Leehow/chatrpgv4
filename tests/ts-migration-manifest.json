@@ -164772,7 +164772,7 @@
           "counterpart": {
             "file": "tests/integration/rules-play-driver-model.test.ts",
             "name": "test_silence_and_a_stale_settle_do_not_end_a_busy_opening",
-            "sha256": "5716496cc501a65d7e83668500a441900a58019249f8ad24a28096371c4d72c6"
+            "sha256": "94c614b2b7dfde1646bf7195dc5dea2772bd0d9624207ad207693ba24d1113f3"
           },
           "review": "statement-by-statement",
           "validation": {
@@ -165836,7 +165836,7 @@
           "counterpart": {
             "file": "tests/integration/rules-play-driver-model.test.ts",
             "name": "test_thinking_off_reaches_the_launcher_args",
-            "sha256": "5716496cc501a65d7e83668500a441900a58019249f8ad24a28096371c4d72c6"
+            "sha256": "94c614b2b7dfde1646bf7195dc5dea2772bd0d9624207ad207693ba24d1113f3"
           },
           "review": "statement-by-statement",
           "validation": {
@@ -165919,7 +165919,7 @@
           "counterpart": {
             "file": "tests/integration/rules-play-driver-model.test.ts",
             "name": "test_thinking_omitted_falls_back_to_default",
-            "sha256": "5716496cc501a65d7e83668500a441900a58019249f8ad24a28096371c4d72c6"
+            "sha256": "94c614b2b7dfde1646bf7195dc5dea2772bd0d9624207ad207693ba24d1113f3"
           },
           "review": "statement-by-statement",
           "validation": {
@@ -166025,8 +166025,8 @@
           "status": "validated",
           "counterpart": {
             "file": "tests/integration/rules-play-driver-model.test.ts",
-            "name": "test_luna_test_profile_reaches_both_keeper_and_final_author",
-            "sha256": "5716496cc501a65d7e83668500a441900a58019249f8ad24a28096371c4d72c6"
+            "name": "the_default_MiniMax_profile_reaches_keeper_author_and_supporting_lanes",
+            "sha256": "94c614b2b7dfde1646bf7195dc5dea2772bd0d9624207ad207693ba24d1113f3"
           },
           "review": "statement-by-statement",
           "validation": {
@@ -166121,7 +166121,7 @@
           "counterpart": {
             "file": "tests/integration/rules-play-driver-model.test.ts",
             "name": "test_first_step_thinking_sets_the_launcher_env",
-            "sha256": "5716496cc501a65d7e83668500a441900a58019249f8ad24a28096371c4d72c6"
+            "sha256": "94c614b2b7dfde1646bf7195dc5dea2772bd0d9624207ad207693ba24d1113f3"
           },
           "review": "statement-by-statement",
           "validation": {
@@ -166204,7 +166204,7 @@
           "counterpart": {
             "file": "tests/integration/rules-play-driver-model.test.ts",
             "name": "test_first_step_thinking_omitted_leaves_env_untouched",
-            "sha256": "5716496cc501a65d7e83668500a441900a58019249f8ad24a28096371c4d72c6"
+            "sha256": "94c614b2b7dfde1646bf7195dc5dea2772bd0d9624207ad207693ba24d1113f3"
           },
           "review": "statement-by-statement",
           "validation": {
@@ -166296,7 +166296,7 @@
           "counterpart": {
             "file": "tests/integration/rules-play-driver-model.test.ts",
             "name": "test_engine_acceptance_requires_actual_current_process_handshake",
-            "sha256": "5716496cc501a65d7e83668500a441900a58019249f8ad24a28096371c4d72c6"
+            "sha256": "94c614b2b7dfde1646bf7195dc5dea2772bd0d9624207ad207693ba24d1113f3"
           },
           "review": "statement-by-statement",
           "validation": {
@@ -175921,6 +175921,23 @@
         }
       },
       "limitation": "Offline driver transport and native integration evidence; no live model or installed-App acceptance claimed."
+    },
+    {
+      "file": "tests/integration/rules-play-driver-model.test.ts",
+      "prior_sha256": "5716496cc501a65d7e83668500a441900a58019249f8ad24a28096371c4d72c6",
+      "current_sha256": "94c614b2b7dfde1646bf7195dc5dea2772bd0d9624207ad207693ba24d1113f3",
+      "contract": "docs/kernel-rpc.md integration test profile closure; owner MiniMax 3.1 medium and quota fallback Grok 4.5 high",
+      "basis": "Update authorized live-test profile defaults and assertions. Preserve every original behavioral check: explicit unprofiled thinking override, omitted default, profile propagation to Keeper/author, first-step environment, engine handshake, and active-opening wait. Map the former Luna-default counterpart to the new MiniMax-default counterpart; original source inventory and historic validation remain unchanged.",
+      "currentValidation": {
+        "command": "node --test --test-concurrency=1 tests/extension/reader-submit.test.mjs tests/extension/reader-review.test.mjs tests/extension/source-reader-driver.test.mjs tests/extension/run-driver-output.test.mjs tests/integration/rules-play-driver-model.test.ts",
+        "result": "passed",
+        "overallPassed": 172,
+        "counterpartPassed": 9,
+        "failed": 0,
+        "exitCode": 0,
+        "evidence": ".coc/experiments/npc-action-contract-20261018/browser-seams/focused2.log"
+      },
+      "limitation": "Deterministic component evidence; real browser chapter and clean full suite are separate."
     }
   ]
 }

@@ -225,7 +225,7 @@ test('a genuinely unknown person still isolates only their original person effec
   const result=await client.table('apply',{call_id:'t1-c1',effects:[{kind:'npc',name:'Steven Knott',to:'here'},
     {kind:'npc',name:'Absent fixture stranger',to:'here'}]});
   assert.deepEqual(result.receipts,[]);
-  assert.equal(result.outcomes[0].actor,'Steven Knott');
+  assert.equal(result.outcomes[0].actor,(await client.table('look',{focus:'npc',name:'Steven Knott'})).ref);
   assert.equal(result.outcomes[0].status,'unchanged');
   assert.equal(result.not_landed[0].index,1);
   assert.equal(result.not_landed[0].code,'unknown_entity');

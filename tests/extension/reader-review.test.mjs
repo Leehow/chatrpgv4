@@ -889,3 +889,11 @@ test('module logic classifications retain strict causal findings and project the
  assert.equal(gateRefusal(legacy,draft)({verdict:'contested'},path),false,'existing legacy classification policy is preserved');
  assert.equal(detailReviewInput(legacy,draft,[path]).task.classification_fields.law,fields.law);
 });
+
+for(const impact of ['presentation','parameter'])test('strict statement review refuses contradictory advisory classification: '+impact,()=>{
+ const candidate={nodes:[{node_kind:'npc',summary:'A person described by the source.',source_refs:[{page:1}]}],claims:[]};
+ const row={paths:['/nodes/0/summary'],verdict:'contested',impact,source_refs:[{page:1}],reason:'The source facts are correct; only presentation differs.'};
+ assert.throws(()=>checkReviewEvidence({checked:[row],missing:[]},row.paths,new Set([1]),[],candidate),/strict|advisory|impact/i);
+ assert.doesNotThrow(()=>checkReviewEvidence({checked:[{...row,impact:'logic',reason:'The statement contradicts the source.'}],missing:[]},row.paths,new Set([1]),[],candidate));
+ assert.doesNotThrow(()=>checkReviewEvidence({checked:[{...row,verdict:'supported'}],missing:[]},row.paths,new Set([1]),[],candidate));
+});

@@ -402,6 +402,8 @@ export function checkReviewEvidence(review: Row, paths: string[], pages: Set<num
 			// answering them is never the reviewer's mistake.
 			if (draft !== undefined && !assigned.has(path) && !resolves(draft, path))
 				throw new Error(`review answered for a path that does not exist in the draft: ${JSON.stringify(path)}`);
+			if(draft!==undefined&&statementReviewPath(draft,path)&&row.verdict!=="supported"&&advisoryModuleFinding(row))
+				throw new Error(`Strict source statement ${JSON.stringify(path)} cannot have a negative verdict with advisory impact. This is a review protocol error: decide support from original evidence; keep a real negative finding with impact logic. Do not rewrite the candidate or convert a negative verdict automatically.`);
 			checked.add(path);
 		}
 	}

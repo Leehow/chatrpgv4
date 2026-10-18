@@ -1,6 +1,8 @@
 import {packDecisionBatch,JEV_MODEL} from '../../runtime/jev/question-packing.ts';
 import assert from 'node:assert/strict';
 import {test} from 'node:test';
+import {runDriver} from './pi-agent-core.mjs';
+import {fauxAssistantMessage} from '@earendil-works/pi-ai';
 import {mkdtemp,readFile,rm,writeFile} from 'node:fs/promises';
 import {createHash} from 'node:crypto';
 import {tmpdir} from 'node:os';
@@ -429,4 +431,27 @@ test('a thinking-only source answer gets one checked-submission reminder in the 
  assert.match(messages[0].content[0].text,/submit_reading/);assert.match(messages[0].content[0].text,/Thinking or final prose does not submit/);
  state=policy.reduce(state,empty,{});assert.equal(policy.next({policyState:state,pendingProposals:[],lastObservation:empty,steps:2}).kind,'finish');
  const done=policy.reduce(state,{kind:'operate',outcomes:[{artifact:{kind:'source_submission'}}]},{});assert.equal(policy.next({policyState:done,pendingProposals:[],steps:3}).reason,'checked_source_candidate_no_player_delivery');
+});
+
+for(const companion of ['write','submit_reading'])test('source submission refuses every companion before any execution: '+companion,async t=>{
+ const cwd=await mkdtemp(join(tmpdir(),'source-submit-batch-'));t.after(()=>rm(cwd,{recursive:true,force:true}));
+ await writeFile(join(cwd,'task.json'),JSON.stringify({purpose:'guidance',module_id:'book',source:{page_count:2}}));
+ const driver=await createSourceReaderDriver({cwd,env:{},source:{pdf:join(cwd,'source.pdf'),cache:join(cwd,'cache')}});
+ const {policy,ports}=await driver.prepare({runId:'source-batch',inputRevision:'v1',rawInput:'Prepare source',session:{}});
+ const calls=[{type:'toolCall',id:'first',name:companion,arguments:{}},{type:'toolCall',id:'submit',name:'submit_reading',arguments:{}}];
+ let executions=0,turns=0,paired;
+ const seededPolicy={...policy,initial:()=>({...policy.initial(),catalog:true,located:true,projected:true}),
+  next:view=>turns?{kind:'finish',outcome:'undelivered',reason:'batch_probe_complete'}:policy.next(view)};
+ const result=await runDriver({input:{runId:'source-batch',inputRevision:'v1',rawInput:'Prepare source',scopeId:'source-batch:root'},policy:seededPolicy,ports,
+  signal:AbortSignal.timeout(1000),emit:()=>{},engine:{
+   infer:async({onAttempt})=>{await onAttempt(1);return fauxAssistantMessage(calls,{stopReason:'toolUse'});},
+   executeModelTool:async()=>{executions++;throw Error('Mixed batch executed');},
+   refuseModelTool:async(proposal,reason)=>({role:'toolResult',toolCallId:proposal.toolCall.id,toolName:proposal.toolCall.name,timestamp:Date.now(),content:[{type:'text',text:reason}],isError:true}),
+   closeTurn:async(_message,results)=>{turns++;paired=results;return{continueRequested:false};}
+  }});
+ assert.equal(result.status,'undelivered');assert.equal(executions,0);assert.equal(paired.length,2);
+ for(const [index,row] of paired.entries()){
+  assert.equal(row.toolCallId,calls[index].id);assert.equal(row.toolName,calls[index].name);assert.equal(row.isError,true);
+  assert.match(row.content[0].text,/must be the sole tool call/,'real RunDriver must retain the specific repair instruction');
+ }
 });

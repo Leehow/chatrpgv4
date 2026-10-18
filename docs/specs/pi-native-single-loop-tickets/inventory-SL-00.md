@@ -540,3 +540,9 @@ The same infrastructure owner receives `coc:keeper-response` before display
 redaction. Its `installContextPolicy.on(coc:keeper-response)` callback also calls
 `requestJournal.complete`, marking the exact response for private request replay.
 This is the same scanner false positive, without a second model or history owner.
+
+### Section 240.2 typed first sight
+
+`runtime/jev/first-sight.ts#createFirstSightLane.check` constructs one bounded Jev adapter for native background coverage of exact host-issued source sentence units. The helper `decideFirstSight` selects closed categories, with uncertainty preserving the item owed. It never writes prose or falls back to the existing generative lane. That older `runLane` site remains inventoried for the non-source-reference harness path, with its actual 120-second ceiling.
+
+Stage 10: `extensions/memory/index.ts` `runJob` creates the native `memory-story` Jev adapter once per job. Independent story questions run beside candidate authorship; pending judgment retains its source-bound draft and never starts a generative reviewer.

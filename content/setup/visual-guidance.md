@@ -53,12 +53,9 @@ do not speculatively fetch a dozen pages of campaign background. Contents,
 investigator prerequisites and the first meeting usually suffice. Follow further
 references only to resolve a necessary ambiguity. Aim for 3-5 source pages in
 total when the book permits; completeness takes priority over that planning target.
-After reading, call submit_reading alone with draft and guidance objects. It writes
-both files, runs the supplied checker and ends the phase without a closing reply.
-These two short objects fit in that one tool call; on the first attempt, submit
-them directly rather than spending separate write calls on draft.json and
-guidance.json. Use write/edit and then submit_reading with no arguments only
-when a bounded object needs repair or cannot fit in one call.
+After reading, write/edit draft.json and guidance.json incrementally, then call
+submit_reading({}) alone. It checks the saved files and ends the phase without
+a closing reply. A graph artifact is never carried inline in that terminal call.
 If submission fails, repair the specific findings or view missing pages and submit
 again. Keep advice under 180 words and the
 opening to concise orientation and one clear character-creation question. Avoid
@@ -203,8 +200,9 @@ must be preserved for source repair rather than turned into an approval.
 
 ## Public preparation fields
 
-When task.public_progress_required is true, include public_fields in the same
-submit_reading call. It contains exactly era, starting_place, public_premise and
+When task.public_progress_required is true, write public-fields.json alongside
+guidance.json before submission. The selected guidance projection may instead
+include public_fields in its existing short submission. It contains exactly era, starting_place, public_premise and
 creation_advice. Each is {status:"value"|"needs_choice"|"unavailable",text:string,
 source_refs:[{page:physical_page}]}. A value is short, spoiler-free prose in
 task.play_language with original pages you observed. Advice preserves source

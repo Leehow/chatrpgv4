@@ -335,3 +335,22 @@ it('shows no toggle when the build ships no templates',async()=>{
   await screen.findByRole('button',{name:new RegExp(zh('source.starter.title'))});
   expect(screen.queryByRole('checkbox')).toBeNull();
 });
+
+it('a restored import supersedes a late catalog-only failure without hiding job failure',async()=>{
+ const job={id:'retained-job',source:'pdf',name:'Retained scenario.pdf',state:'failed',stage:'guidance',size:10,received:10,
+  play_language:DEFAULT,error:{code:'preparation_failed',message:'Source review did not accept this candidate.'}};
+ localStorage.setItem('pipicoc-import:catalog-race',job.id);
+ let rejectCatalog:(reason:unknown)=>void=()=>{};
+ const catalog=new Promise((_,reject)=>{rejectCatalog=reject});
+ const invokeExtension=vi.fn(async(_extension:any,_method:any,params:any)=>{
+  if(params.action==='catalog')return await catalog;
+  if(params.action==='status')return answer(job);
+  return answer({current_import:job});
+ });
+ render(<CocOnboarding host={{invokeExtension} as any} sessionId="catalog-race"/>);
+ await screen.findByText(job.name);
+ const {act}=await import('@testing-library/react');
+ await act(async()=>{rejectCatalog({code:'runtime_unavailable',message:'Catalog request timed out'});});
+ expect(screen.queryByRole('alert')).toBeNull();
+ expect(screen.getByRole('heading',{name:zh('failedTitle')})).toBeTruthy();
+});

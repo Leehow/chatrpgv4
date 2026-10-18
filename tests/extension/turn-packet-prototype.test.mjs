@@ -287,6 +287,22 @@ test('earlier direct NPC settlement reaches final author without repeating the c
  assert.deepEqual(task.result.outcomes.filter(row=>row.kind==='npc').map(row=>({actor:row.actor,to:row.to,status:row.status})),[{actor:ref,to:'away',status:'changed'}]);
 });
 
+test('an earlier partial direct settlement cannot reach the native author as complete',async t=>{
+ const batches=[];let ref='npc_1',partial;
+ const engine=createHybridEngine({env,decision:{decide:async batch=>{batches.push(batch);return answer(batch,.99);}}});
+ const table=await openTable({legacyDeliveryFixtures:false,realKernel:true,prepareWorkspace:opened,env,runDriver:engine.runDriver,
+  extraExtensions:[{name:'engine',factory:engine.extension}],responses:[
+   ()=>fauxAssistantMessage([rawToolCall('apply',{effects:[{kind:'npc',name:ref,to:'away',why:'The visitor leaves.'},{kind:'npc',name:'Unregistered Stranger',to:'away'}]})],{stopReason:'toolUse'}),
+   context=>{partial=context.messages.filter(row=>row.role==='toolResult').at(-1);return fauxAssistantMessage([rawToolCall('output',{...brief,commands:[{kind:'scene',service:'open',crowd:'empty'}]})],{stopReason:'toolUse'});}
+  ]});t.after(()=>table.dispose());
+ ref=(await table.runtimeBridges().at(-1).call('table.capsule',{campaign:'test-camp'})).present.find(person=>person.name==='Steven Knott').ref;
+ await table.session.prompt('I watch the visitors leave and stay at the desk.');
+ assert.ok(JSON.stringify(partial).includes('not_landed'),JSON.stringify(partial));
+ assert.equal(table.telemetry().filter(row=>row.lane==='isolated-expression'&&row.event==='start').length,0);
+ assert.equal(table.entries('coc-final-delivery').filter(row=>row.event==='delta').length,0);
+ assert.equal(batches.filter(row=>row.family==='held-act-outcome').length,0,'native completeness is deterministic');
+});
+
 test('renaming the current scene is never projected as an arrival',async()=>{
  const {operationOutcomes}=await importSource('kernel-ts/apply/outcomes.ts');
  const outcome=operationOutcomes([{kind:'move',from:'scene',to:'scene',from_label:'New label',to_label:'New label',renamed:true,minutes:0}],{},{});

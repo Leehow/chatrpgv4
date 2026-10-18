@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import {test} from 'node:test';
 import {mkdtemp,mkdir,readFile,writeFile,rm} from 'node:fs/promises';
 import {createHash} from 'node:crypto';
+import {writeFileSync} from 'node:fs';
 import {join} from 'node:path';
 import {tmpdir} from 'node:os';
 import {execFile} from 'node:child_process';
@@ -17,6 +18,10 @@ const draft={nodes:[{node_id:'scene-dock',node_kind:'scene',name:'Dock',source_r
 const guidance={opening:'At the dock, who are you?',advice:'Public source premise.',scene:'Dock',guide:'',handoff:'Continue the meeting.'};
 const review={checked:[{paths:['/nodes/0'],source_refs:[{page:1}],verdict:'supported'}],missing:[],guidance:{approved:true,issues:[]}};
 const json=(path,value)=>writeFile(path,JSON.stringify(value)+'\n');
+async function submitSaved(tool,dir,id,values,signal){
+ for(const [key,value] of Object.entries(values))await json(join(dir,key==='public_fields'?'public-fields.json':key+'.json'),value);
+ return tool.execute(id,{},signal);
+}
 test('source syntax normalization resolves exact identities and signed zero without changing semantic values',()=>{
  const candidate={nodes:[{node_id:'npc-a',properties:{mechanics:{profile:{derived:{DB:'+0'}}}}}],claims:[],
   critical:['/nodes/npc-a/properties/mechanics','/nodes/0','/nodes/unknown']};
@@ -32,7 +37,7 @@ test('source syntax normalization resolves exact identities and signed zero with
 
 test('the actual source submit materializes semantic critical references before checking',async t=>{
  const {tool,see,dir}=await setup(t);see();
- const result=await tool.execute('semantic-critical',{draft:{...draft,critical:['/nodes/scene-dock/properties/is_entrance']},guidance});
+ const result=await submitSaved(tool,dir,'semantic-critical',{draft:{...draft,critical:['/nodes/scene-dock/properties/is_entrance']},guidance});
  assert.equal(result.terminate,true);
  assert.deepEqual(JSON.parse(await readFile(join(dir,'draft.json'),'utf8')).critical,['/nodes/0/properties/is_entrance']);
 });
@@ -165,12 +170,11 @@ test('a checked PDF answer can launch the Pi-native source driver with the exist
 
 test('guidance submission issues the closed top-level draft and review fields before the model calls the tool',async t=>{
  const author=await setup(t,false,'guidance');
- assert.ok(author.tool.parameters.properties.draft.required.includes('node_refs'));
- assert.ok(author.tool.parameters.properties.draft.required.includes('coverage'));
+ assert.deepEqual(Object.keys(author.tool.parameters.properties),[]);
  assert.equal(Check(author.tool.parameters,{guidance:{summary:'A different object'}}),false);
- assert.equal(Check(author.tool.parameters,{guidance}),true);
- assert.equal(Check(author.tool.parameters,{guidance:{...guidance,guide:'Source meeting person'}}),true);
- assert.equal(Check(author.tool.parameters,{guidance:{needs_choice:true}}),true);
+ assert.equal(Check(author.tool.parameters,{guidance}),false);
+ assert.equal(Check(author.tool.parameters,{guidance:{...guidance,guide:'Source meeting person'}}),false);
+ assert.equal(Check(author.tool.parameters,{guidance:{needs_choice:true}}),false);
 });
 
 for(const written of [false,true])test(`a malformed ${written?'written':'inline'} guidance submission is corrected in the same Pi process`,async t=>{
@@ -180,16 +184,18 @@ for(const written of [false,true])test(`a malformed ${written?'written':'inline'
  let requests=0;const model={id:'fixture',provider:'fixture',api:'openai-completions'};
  const agent=new Agent({initialState:{model,tools:[tool]},streamFn(){
   const stream=createAssistantMessageEventStream(),first=requests++===0;
+  if(!first)writeFileSync(join(dir,'guidance.json'),JSON.stringify(guidance));
   const message={role:'assistant',model:'fixture',provider:'fixture',api:'openai-completions',timestamp:Date.now(),
    usage:{input:0,output:0,cacheRead:0,cacheWrite:0,totalTokens:0,cost:{input:0,output:0,cacheRead:0,cacheWrite:0,total:0}},stopReason:'toolUse',
-   content:[{type:'toolCall',id:`guidance-${requests}`,name:'submit_reading',arguments:first?(written?{}:{draft,guidance:malformed}):{draft,guidance}}]};
+   content:[{type:'toolCall',id:`guidance-${requests}`,name:'submit_reading',arguments:first?(written?{}:{draft,guidance:malformed}):{}}]};
   queueMicrotask(()=>{stream.push({type:'done',reason:'toolUse',message});stream.end();});return stream;
  }});
  await agent.prompt('Save the character guidance artifacts.');
  assert.equal(requests,2,'only the corrected submission terminates the actual Pi tool loop');
  const results=agent.state.messages.filter(message=>message.role==='toolResult');
  assert.equal(results[0].isError,true);
- for(const field of ['opening','advice','scene','guide','handoff'])assert.match(results[0].content[0].text,new RegExp(field));
+ if(written)for(const field of ['opening','advice','scene','guide','handoff'])assert.match(results[0].content[0].text,new RegExp(field));
+ else assert.match(results[0].content[0].text,/no arguments|additional properties/);
  if(written)assert.match(results[0].content[0].text,/string.*empty|empty.*string/);
  assert.equal(results[1].isError,false);
  assert.deepEqual(JSON.parse(await readFile(join(dir,'guidance.json'),'utf8')),guidance);
@@ -229,26 +235,26 @@ test('the native source route requires a checked answer or guidance task and an 
 
 test('failed draft and unseen source checks return to repair before a terminating submission',async t=>{
  const {tool,see,dir}=await setup(t);
- await assert.rejects(tool.execute('bad',{draft:{},guidance}),/reading_failed/);
- await assert.rejects(tool.execute('unseen',{draft,guidance}),/View original physical pages/);
+ await assert.rejects(submitSaved(tool,dir,'bad',{draft:{},guidance}),/reading_failed/);
+ await assert.rejects(submitSaved(tool,dir,'unseen',{draft,guidance}),/View original physical pages/);
  assert.deepEqual(JSON.parse(await readFile(join(dir,'draft.json'),'utf8')),draft);
  see();assert.equal((await tool.execute('fixed',{})).terminate,true);
  await assert.rejects(tool.execute('cancel',{},AbortSignal.abort()),/cancelled/);
 });
 
 test('a contact-sheet overview cannot satisfy source-reference evidence',async t=>{
-	const {tool,overview}=await setup(t);
+	const {tool,overview,dir}=await setup(t);
 	overview();
-	await assert.rejects(tool.execute('overview-only',{draft,guidance}),/View original physical pages/);
+	await assert.rejects(submitSaved(tool,dir,'overview-only',{draft,guidance}),/View original physical pages/);
 });
 
 test('public guidance uses the same submission and requires its own original-page evidence',async t=>{
  const {tool,see,dir}=await setup(t,false,'guidance',{public_progress_required:true});
  const fields=Object.fromEntries(['era','starting_place','public_premise','creation_advice'].map(field=>[field,{status:'value',text:'Public '+field,source_refs:[{page:2}]}]));
  see([1]);
- await assert.rejects(tool.execute('missing-fields',{draft,guidance}),/four public_fields/);
- await assert.rejects(tool.execute('unseen-public-source',{draft,guidance,public_fields:fields}),/View original physical pages.*2/);
- see([2]);assert.equal((await tool.execute('public-source-read',{guidance,public_fields:fields})).terminate,true);
+ await assert.rejects(submitSaved(tool,dir,'missing-fields',{draft,guidance}),/four public fields/);
+ await assert.rejects(submitSaved(tool,dir,'unseen-public-source',{draft,guidance,public_fields:fields}),/View original physical pages.*2/);
+ see([2]);assert.equal((await submitSaved(tool,dir,'public-source-read',{guidance,public_fields:fields})).terminate,true);
  assert.deepEqual(JSON.parse(await readFile(join(dir,'public-fields.json'),'utf8')),fields);
 });
 
@@ -258,11 +264,11 @@ test('a required source gap stays retained and returns to retrieval instead of t
  t.after(()=>{if(previous===undefined)delete process.env.PI_COC_READER_SOURCE;else process.env.PI_COC_READER_SOURCE=previous;});
  const need={kind:'source_read',focus:'Dock',question:'Who is the third participant?',reason:'Their identity changes the current interaction.',trigger:'Before the current scene is ready.',source_refs:[{page:1}]};
  const candidate={...draft,ready_nodes:['scene-dock'],source_needs:[need]};
- const pending=await tool.execute('required-gap',{draft:candidate});
+ const pending=await submitSaved(tool,dir,'required-gap',{draft:candidate});
  assert.equal(pending.terminate,undefined);assert.equal(pending.details.kind,'source_need_batch');
  const retained=JSON.parse(await readFile(join(dir,'pending-source-needs.json'),'utf8'));
  assert.equal(retained.needs[0].question,need.question);
- see();assert.equal((await tool.execute('candidate-repaired',{draft:{...candidate,source_needs:[]}})).terminate,true);
+ see();assert.equal((await submitSaved(tool,dir,'candidate-repaired',{draft:{...candidate,source_needs:[]}})).terminate,true);
  assert.equal(JSON.parse(await readFile(join(dir,'pending-source-needs.json'),'utf8')).needs.length,1,'the independent reviewer still receives the original question');
 });
 
@@ -275,9 +281,9 @@ test('a host-projected original page counts only after a bound successful reques
  t.after(()=>{for(const [key,value] of Object.entries(before))if(value===undefined)delete process.env[key];else process.env[key]=value;});
  const page={page:1,path:image,image_sha256:digest,source_sha256:sourceSha,box:[0,0,1,1]};
  await writeFile(log,JSON.stringify({delivery:'attempted',host_pages:[page]})+'\n');
- await assert.rejects(tool.execute('premature',{draft,guidance}),/View original physical pages/);
+ await assert.rejects(submitSaved(tool,dir,'premature',{draft,guidance}),/View original physical pages/);
  await writeFile(log,JSON.stringify({delivery:'succeeded',host_pages:[page]})+'\n');
- assert.equal((await tool.execute('delivered',{draft,guidance})).terminate,true);
+ assert.equal((await submitSaved(tool,dir,'delivered',{draft,guidance})).terminate,true);
 });
 
 test('review submission preserves negative findings and refuses unread citations or edited candidates',async t=>{
@@ -304,30 +310,30 @@ test('Pi ends a checked submission without a final model request; mixed batches 
 test('opening submission checks one first scene and permits thin deferred destinations without guidance',async t=>{
  const {tool,see,dir}=await setup(t,false,'opening');see();
  const opening={...draft,ready_nodes:['scene-dock'],nodes:[...draft.nodes,{node_id:'scene-warehouse',node_kind:'scene',name:'Warehouse',source_refs:[{page:1}],properties:{}}]};
- await assert.rejects(tool.execute('too-broad',{draft:{...opening,ready_nodes:['scene-dock','scene-warehouse']}}),/exactly the selected first scene/);
- assert.equal((await tool.execute('first-batch',{draft:opening})).terminate,true);
+ await assert.rejects(submitSaved(tool,dir,'too-broad',{draft:{...opening,ready_nodes:['scene-dock','scene-warehouse']}}),/exactly the selected first scene/);
+ assert.equal((await submitSaved(tool,dir,'first-batch',{draft:opening})).terminate,true);
  assert.deepEqual(JSON.parse(await readFile(join(dir,'draft.json'),'utf8')).ready_nodes,['scene-dock']);
 });
 
 test('detail submission checks its scoped delta without imposing the first-opening batch rule',async t=>{
- const {tool,see}=await setup(t,false,'detail',{focus:'Dock and warehouse',question:'Prepare these two adjoining rooms.'});
+ const {tool,see,dir}=await setup(t,false,'detail',{focus:'Dock and warehouse',question:'Prepare these two adjoining rooms.'});
  const detail={...draft,nodes:[...draft.nodes,{node_id:'scene-warehouse',node_kind:'scene',name:'Warehouse',source_refs:[{page:1}],properties:{}}],ready_nodes:['scene-dock','scene-warehouse']};
- await assert.rejects(tool.execute('unseen',{draft:detail}),/View original physical pages/);
- see();assert.equal((await tool.execute('detail',{draft:detail})).terminate,true);
+ await assert.rejects(submitSaved(tool,dir,'unseen',{draft:detail}),/View original physical pages/);
+ see();assert.equal((await submitSaved(tool,dir,'detail',{draft:detail})).terminate,true);
 });
 
 test('first-interaction opening requires the sourced encounter after its entry and rejects deferred current participants',async t=>{
- const {tool,see}=await setup(t,false,'opening',{focus:'Dock',opening_scope:'first_interaction'});
+ const {tool,see,dir}=await setup(t,false,'opening',{focus:'Dock',opening_scope:'first_interaction'});
  const encounter={node_id:'scene-warehouse',node_kind:'scene',name:'Warehouse',source_refs:[{page:2}],properties:{}};
  const npc={node_id:'npc-witness',node_kind:'npc',name:'Witness',source_refs:[{page:2}],properties:{}};
  const current={...draft,nodes:[...draft.nodes,encounter,npc],interaction_scene:'scene-warehouse',ready_nodes:['scene-dock','scene-warehouse'],
   claims:[{subject_id:'scene-dock',predicate:'route-to',object:{node_id:'scene-warehouse'},truth_status:'authored-fact',source_refs:[{page:2}]},
    {subject_id:'npc-witness',predicate:'present-in',object:{node_id:'scene-warehouse'},truth_status:'authored-fact',source_refs:[{page:2}]}]};
  see([1,2]);
- await assert.rejects(tool.execute('missing-current-person',{draft:current}),/first interaction depends on/);
+ await assert.rejects(submitSaved(tool,dir,'missing-current-person',{draft:current}),/first interaction depends on/);
  const ready={...current,ready_nodes:[...current.ready_nodes,'npc-witness']};
- await assert.rejects(tool.execute('missing-progression',{draft:{...ready,claims:ready.claims.slice(1)}}),/source-authored route or progression/);
- assert.equal((await tool.execute('complete-first-interaction',{draft:ready})).terminate,true);
+ await assert.rejects(submitSaved(tool,dir,'missing-progression',{draft:{...ready,claims:ready.claims.slice(1)}}),/source-authored route or progression/);
+ assert.equal((await submitSaved(tool,dir,'complete-first-interaction',{draft:ready})).terminate,true);
 });
 
 test('detail coverage submission views every assigned page and preserves negative findings',async t=>{
@@ -361,17 +367,25 @@ test('opening identity mismatches are rejected before expensive review, using ke
  const packet=JSON.parse(await readFile(join(dir,'task.json'),'utf8'));
  const focus=name=>json(join(dir,'task.json'),{...packet,focus:name});
  await focus('Selected Dock');
- await assert.rejects(tool.execute('mismatch',{draft:batch}),/preserve the selected opening/);
- for(const name of ['dock','scene-dock','Dock — an expanded title']){await focus(name);assert.equal((await tool.execute('matched',{draft:batch})).terminate,true);}
+ await assert.rejects(submitSaved(tool,dir,'mismatch',{draft:batch}),/preserve the selected opening/);
+ for(const name of ['dock','scene-dock','Dock — an expanded title']){await focus(name);assert.equal((await submitSaved(tool,dir,'matched',{draft:batch})).terminate,true);}
  batch.nodes[0].properties={...batch.nodes[0].properties,runtime_projection:{record:{scene_id:'selected-dock'}}};
- await focus('selected-dock');assert.equal((await tool.execute('handle',{draft:batch})).terminate,true);
+ await focus('selected-dock');assert.equal((await submitSaved(tool,dir,'handle',{draft:batch})).terminate,true);
 });
 
 
 test('the first scene cannot be submitted while its present NPC still requires detail reading',async t=>{
- const {tool,see}=await setup(t,false,'opening');see();
+ const {tool,see,dir}=await setup(t,false,'opening');see();
  const batch={...draft,nodes:[...draft.nodes,{node_id:'npc-witness',node_kind:'npc',name:'Witness',source_refs:[{page:1}],properties:{}}],
   claims:[{subject_id:'npc-witness',predicate:'present-in',object:{node_id:'scene-dock'},truth_status:'authored-fact',source_refs:[{page:1}]}],ready_nodes:['scene-dock']};
- await assert.rejects(tool.execute('incomplete',{draft:batch}),/first interaction depends on/);
- batch.ready_nodes.push('npc-witness');assert.equal((await tool.execute('ready',{draft:batch})).terminate,true);
+ await assert.rejects(submitSaved(tool,dir,'incomplete',{draft:batch}),/first interaction depends on/);
+ batch.ready_nodes.push('npc-witness');assert.equal((await submitSaved(tool,dir,'ready',{draft:batch})).terminate,true);
+});
+
+test('large graph author submission is file-only and refuses inline data before touching artifacts',async t=>{
+ const {tool,see,dir}=await setup(t);see();const before=await readFile(join(dir,'draft.json'));
+ assert.equal(Check(tool.parameters,{draft,guidance}),false);
+ await assert.rejects(tool.execute('inline-not-a-file',{draft,guidance}),/saved|file|arguments/i);
+ assert.deepEqual(await readFile(join(dir,'draft.json')),before);
+ assert.equal((await tool.execute('saved-artifacts',{})).terminate,true);
 });

@@ -18,7 +18,7 @@ image_sources and map_regions; task.pages lists the physical pages it is printed
    itself. When one sheet shows both, answer for what the published map's
    regions divide: rooms of an enclosed place are "interior", streets, houses
    and landmarks of a settlement or landscape are "area".
-3. Pass this draft to submit_reading as your sole final call, with the node_id,
+3. Write this draft to draft.json, then call submit_reading({}) alone, with the node_id,
    node_kind and name copied exactly from task.known_nodes and one page from
    task.pages you viewed:
 
