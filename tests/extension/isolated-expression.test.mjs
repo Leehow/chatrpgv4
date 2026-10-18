@@ -1,6 +1,6 @@
 import {test} from 'node:test';
 import assert from 'node:assert/strict';
-import {readFile,mkdtemp,rm,readdir} from 'node:fs/promises';
+import {readFile,writeFile,mkdtemp,rm,readdir} from 'node:fs/promises';
 import {join} from 'node:path';
 import {tmpdir} from 'node:os';
 import {fauxAssistantMessage} from '@earendil-works/pi-ai';
@@ -120,6 +120,33 @@ test('silent response decisions remain sparse in the actual author task',async t
  await assert.rejects(writeIsolatedExpression({runtime,campaign:'c',turn:1,run:'bad',language:'en',decision:{scene:{},clock:{},people:[],recent_public:[],responses:[{actor:'npc_11',act:'silent',points:['The clerk leaves.']}]},stream:{push(){}},record:async()=>{}}),/silent|response/i);
 });
 
+for(const artifact of ['valid','legacy-body','invalid','missing'])test('file author publishes only its explicit artifact, never the acknowledgment: '+artifact,async t=>{
+ const home=await mkdtemp(join(tmpdir(),'expression-file-'));t.after(()=>rm(home,{recursive:true,force:true}));
+ const prose=[],records=[];let requests=0;
+ const runtime={home,async runTask({request}){
+  requests++;
+  request.onEvent({type:'tool_execution_start',toolName:'write',args:{path:'draft.json'}});
+  if(artifact!=='missing')await writeFile(join(request.cwd,'draft.json'),artifact==='valid'?JSON.stringify({version:1,text:'{{say:npc_1}}The road is open.{{/say}}',coverage:[]}):artifact==='legacy-body'?JSON.stringify({turn:14,scene:'Counter',language:'en',body:'The road is open.'}):'{bad');
+  request.onEvent({type:'message_update',assistantMessageEvent:{type:'text_delta',delta:'{{public}}The draft is written. Private work notes.'}});
+  request.onEvent({type:'message_end',message:{role:'assistant',provider:EXPRESSION_PROFILE.model.split('/')[0],model:EXPRESSION_PROFILE.model.split('/')[1],stopReason:'stop',content:[{type:'text',text:'{{public}}The draft is written. Private work notes.'}]}});
+  return {ok:true,ms:1};
+ }};
+ const work=writeIsolatedExpression({runtime,campaign:'c',turn:14,run:'r',language:'en',decision:{scene:{},clock:{},people:[],recent_public:[],responses:[]},stream:{push:text=>prose.push(text)},record:async row=>records.push(row)});
+ if(artifact==='valid'){
+  const result=await work;assert.equal(result.text,'{{say:npc_1}}The road is open.{{/say}}');assert.equal(prose.join(''),result.text);assert.equal(records.at(-1).event,'written');
+ }else {await assert.rejects(work);assert.deepEqual(prose,[]);assert.equal(records.at(-1).event,'failed');}
+ assert.equal(requests,1,'no author or judgment repair loop');
+ assert.ok(!prose.join('').includes('Private work notes'));
+});
+
+test('unframed decision-author work reports have no publication authority',async t=>{
+ const home=await mkdtemp(join(tmpdir(),'expression-unframed-'));t.after(()=>rm(home,{recursive:true,force:true}));
+ const prose=[];
+ const runtime={home,async runTask({request}){request.onEvent({type:'message_end',message:{role:'assistant',provider:'opencode-go',model:'deepseek-v4.1-flash',stopReason:'stop',content:[{type:'text',text:'Draft written; selected claims are represented.'}]}});return {ok:true,ms:1};}};
+ await assert.rejects(writeIsolatedExpression({runtime,campaign:'c',turn:1,run:'r',language:'en',decision:{scene:{},clock:{},people:[],recent_public:[],responses:[]},stream:{push:text=>prose.push(text)},record:async()=>{}}));
+ assert.deepEqual(prose,[]);
+});
+
 test('one fresh tool-enabled author receives only the brief and its changed wording is not judged or repaired',async t=>{
   const home=await mkdtemp(join(tmpdir(),'expression-'));
   t.after(()=>rm(home,{recursive:true,force:true}));
@@ -233,26 +260,26 @@ test('an unmarked terminal answer stays rejected without exposure or a replaceme
  assert.deepEqual(prose,[]);assert.equal(calls,1);
 });
 
-for(const mode of ['terminal','preamble','error','aborted','length','mismatch','empty'])test('decision author terminal body contract: '+mode,async t=>{
+for(const mode of ['framed','framed-preamble','terminal','preamble','error','aborted','length','mismatch','empty'])test('decision author terminal body contract: '+mode,async t=>{
  const home=await mkdtemp(join(tmpdir(),'decision-terminal-'));t.after(()=>rm(home,{recursive:true,force:true}));
  const prose=[];let requests=0;
  const terminal=(text,stopReason='stop')=>({type:'message_end',message:{role:'assistant',provider:'opencode-go',model:'deepseek-v4.1-flash',stopReason,content:[{type:'text',text}]}});
  const runtime={home,async runTask(task){
   requests++;
-  if(mode==='preamble'){
+  if(['preamble','framed-preamble'].includes(mode)){
    task.request.onEvent({type:'message_update',assistantMessageEvent:{type:'text_delta',delta:'Private tool planning.'}});
    task.request.onEvent(terminal('Private tool planning.','toolUse'));
    task.request.onEvent({type:'tool_execution_start',toolName:'read'});
   }
-  const body=mode==='empty'?'':'The clerk answers carefully.';
+  const body=mode==='empty'?'':(mode.startsWith('framed')?'{{public}}':'')+'The clerk answers carefully.';
   task.request.onEvent({type:'message_update',assistantMessageEvent:{type:'text_delta',delta:body}});
-  assert.deepEqual(prose,[],'unmarked text stays private before normal terminal completion');
+  assert.deepEqual(prose,mode.startsWith('framed')?['The clerk answers carefully.']:[],'only explicitly framed text may stream');
   task.request.onEvent(terminal(mode==='mismatch'?'Different bytes.':body,['error','aborted','length'].includes(mode)?mode:'stop'));
   return{ok:true,ms:1};
  }};
  const task=writeIsolatedExpression({runtime,campaign:'c',turn:1,run:'r',decision:{scene:{},clock:{},responses:[],people:[],recent_public:[]},
   result:{player_actions_complete:true,outcomes:[]},language:'en',stream:{push:text=>prose.push(text)},record:async()=>{}});
- if(['terminal','preamble'].includes(mode)){
+ if(mode.startsWith('framed')){
   assert.equal((await task).text,'The clerk answers carefully.');assert.deepEqual(prose,['The clerk answers carefully.']);
  }else{
   await assert.rejects(task);assert.deepEqual(prose,[]);
