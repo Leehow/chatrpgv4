@@ -6840,7 +6840,7 @@ export default function (pi: ExtensionAPI, host: {capabilities?:RuntimeCapabilit
 			// the literal's body without its quotes -- is decoded between the two, so the label rule and every reader after it
 			// see the text.
 			prepareArguments: (args: unknown) => {
-				const normalized=turnPacketPrototype&&spec.name==='output'?normalizeTurnPacketArguments(args):{...normalizeToolArgumentSyntax(spec.parameters,args),integerRepairs:0};
+				const normalized=turnPacketPrototype&&spec.name==='output'?normalizeTurnPacketArguments(args):normalizeToolArgumentSyntax(spec.parameters,args,{nativeValidation:true});
 				if(normalized.repairs)void record({lane:'arguments',event:'decision_array_normalized',tool:spec.name,repairs:normalized.repairs});
 				if(normalized.integerRepairs)void record({lane:'arguments',event:'decision_integer_normalized',tool:spec.name,repairs:normalized.integerRepairs});
 				const unwrapped = unwrapArgumentMarkup(spec.name, spec.parameters, normalized.args);

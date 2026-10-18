@@ -25,8 +25,9 @@ test('schema array guidance covers other effect kinds and leaves valid arrays an
 test('registered native preparation refuses the whole malformed batch with array guidance before kernel mutation',async t=>{
   const {fauxAssistantMessage,fauxToolCall}=await import('@earendil-works/pi-ai');
   const {openTable,waitForIdle}=await import('./harness.mjs');
+  const invalid=structuredClone(malformed);invalid.effects[0].items.item.quantity='0';
   const table=await openTable({responses:[
-    fauxAssistantMessage([fauxToolCall('apply',{effects:[{kind:'time',minutes:3},...malformed.effects]})],{stopReason:'toolUse'}),
+    fauxAssistantMessage([fauxToolCall('apply',{effects:[{kind:'time',minutes:3},...invalid.effects]})],{stopReason:'toolUse'}),
     fauxAssistantMessage([{type:'text',text:'{{public}}The mechanic waits for your decision.'}],{stopReason:'stop'}),
   ]});
   t.after(()=>table.dispose());await table.session.prompt("Ask the mechanic for a quote.");await waitForIdle(table.session);

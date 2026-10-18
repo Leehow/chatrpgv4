@@ -1,14 +1,27 @@
 /** Exact transport envelopes at schema-declared arrays; never action inference. */
-import type {TSchema} from 'typebox';
+import {Type,type TSchema} from 'typebox';
 import {Value} from 'typebox/value';
+import {validateToolArguments} from '@earendil-works/pi-ai';
 import {isDeepStrictEqual} from 'node:util';
 
 type Result={args:unknown;repairs:number;integerRepairs:number};
 type Shape=TSchema&{type?:string;minimum?:number;maximum?:number;anyOf?:TSchema[];oneOf?:TSchema[];items?:TSchema|TSchema[];properties?:Record<string,TSchema>};
 const object=(value:unknown):value is Record<string,unknown>=>!!value&&typeof value==='object'&&!Array.isArray(value);
-const valid=(schema:TSchema,value:unknown)=>{try{return Value.Check(schema,value);}catch{return false;}};
+const nativeSchemas=new WeakMap<object,TSchema>();
+const valid=(schema:TSchema,value:unknown,native:boolean)=>{
+ try{
+  if(Value.Check(schema,value))return true;
+  if(!native)return false;
+  let parameters=nativeSchemas.get(schema);
+  if(!parameters){parameters=Type.Object({value:schema});nativeSchemas.set(schema,parameters);}
+  // The SDK clones this isolated argument. Its coercions prove acceptability only;
+  // the returned transport keeps its original scalar values for the real validator.
+  validateToolArguments({name:'argument-syntax',description:'',parameters},{type:'toolCall',id:'argument-syntax',name:'argument-syntax',arguments:{value}});
+  return true;
+ }catch{return false;}
+};
 
-export function normalizeToolArgumentSyntax(schema:TSchema,input:unknown,options:{boundedIntegers?:boolean}={}):Result {
+export function normalizeToolArgumentSyntax(schema:TSchema,input:unknown,options:{boundedIntegers?:boolean;nativeValidation?:boolean}={}):Result {
  const visit=(schema:TSchema,value:unknown,depth:number):Result=>{
   const shape=schema as Shape;
   const unchanged={args:value,repairs:0,integerRepairs:0};
@@ -20,7 +33,7 @@ export function normalizeToolArgumentSyntax(schema:TSchema,input:unknown,options
   const variants=shape.anyOf??shape.oneOf;
   if(Array.isArray(variants)){
    const matches=variants.map((branch:TSchema)=>({branch,result:visit(branch,value,depth+1)}))
-    .filter(({branch,result})=>valid(branch,result.args));
+    .filter(({branch,result})=>valid(branch,result.args,options.nativeValidation===true));
    return matches.length===1||shape.anyOf&&matches.length>1&&matches.every(match=>isDeepStrictEqual(match.result.args,matches[0].result.args))?matches[0].result:unchanged;
   }
   if(shape.type==='array'&&shape.items&&!Array.isArray(shape.items)){
@@ -32,7 +45,7 @@ export function normalizeToolArgumentSyntax(schema:TSchema,input:unknown,options
    const repairs=children.reduce((sum,child)=>sum+child.repairs,0);
    const integerRepairs=children.reduce((sum,child)=>sum+child.integerRepairs,0);
    const next=repairs||integerRepairs?children.map(child=>child.args):values;
-   if(layers&&!valid(schema,next))return unchanged;
+   if(layers&&!valid(schema,next,options.nativeValidation===true))return unchanged;
    return layers||repairs||integerRepairs?{args:next,repairs:repairs+(layers?1:0),integerRepairs}:unchanged;
   }
   if(shape.type==='object'&&object(value)){

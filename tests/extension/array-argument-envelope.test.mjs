@@ -4,6 +4,7 @@ import assert from 'node:assert/strict';
 import {Type} from 'typebox';
 import {Value} from 'typebox/value';
 import {fauxAssistantMessage,fauxToolCall} from '@earendil-works/pi-ai';
+import {validateToolArguments} from '@earendil-works/pi-ai';
 import {normalizeToolArgumentSyntax} from '../../runtime/tool-argument-syntax.ts';
 import {COC_TOOLS,effectShapeRefusal} from '../../extensions/kernel/tools.ts';
 import {openTable} from './harness.mjs';
@@ -49,6 +50,21 @@ test('the existing opt-in bounded integer grammar composes with nested array env
  assert.deepEqual(result.args,{commands:[{minutes:45}]});assert.equal(result.repairs,1);assert.equal(result.integerRepairs,1);
  for(const minutes of ['045',' 45','61','0','4.5e1']){
   const input={commands:{item:{minutes}}};assert.equal(normalizeToolArgumentSyntax(schema,input,{boundedIntegers:true}).args,input);
+ }
+});
+
+test('native SDK scalar acceptance composes with envelopes without changing or broadening scalar parsing',()=>{
+ const input={effects:[{kind:'cash',items:{item:[{...price,quantity:'2'}]}}]};
+ assert.equal(normalizeToolArgumentSyntax(schema,input).args,input,'strict output-style checking remains strict');
+ const result=normalizeToolArgumentSyntax(schema,input,{nativeValidation:true});
+ assert.equal(result.repairs,1);assert.equal(result.integerRepairs,0);
+ assert.equal(result.args.effects[0].items[0].quantity,'2','only the envelope is repaired');
+ const checked=validateToolArguments({name:'apply',description:'',parameters:schema},{type:'toolCall',id:'native',name:'apply',arguments:result.args});
+ assert.equal(checked.effects[0].items[0].quantity,2,'the existing SDK still owns scalar conversion');
+ assert.equal(input.effects[0].items.item[0].quantity,'2');
+ for(const quantity of ['not a number','-1','0']){
+  const bad={effects:[{kind:'cash',items:{item:[{...price,quantity}]}}]};
+  assert.equal(normalizeToolArgumentSyntax(schema,bad,{nativeValidation:true}).args,bad);
  }
 });
 
