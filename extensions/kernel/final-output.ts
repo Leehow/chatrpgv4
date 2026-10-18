@@ -481,8 +481,8 @@ export function createFinalOutputOwner(deps: {runtime: () => HostRuntime | undef
         // Invalid or ambiguous declarations leave it pending without blocking already streamed prose.
         const declared=Array.isArray(declarations)&&declarations.length<=128?declarations:[];
         const quoted=declared.flatMap((entry:Row)=>{
-          if(!entry||typeof entry!=='object'||Array.isArray(entry)||typeof entry.name!=='string'||typeof entry.quote!=='string')return [];
-          const matches=materials.filter((material:Row)=>typeof material.event_ref==='string'&&material.name===`${material.event_ref}/${entry.name}`);
+          if(!entry||typeof entry!=='object'||Array.isArray(entry)||typeof entry.name!=='string')return [];
+          const matches=materials.filter((material:Row)=>typeof material.event_ref==='string'&&(material.name===entry.name||material.name===`${material.event_ref}/${entry.name}`));
           if(matches.length!==1)return [];
           const material=matches[0];
           try {

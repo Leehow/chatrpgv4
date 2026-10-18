@@ -5690,14 +5690,14 @@ export default function (pi: ExtensionAPI, host: {capabilities?:RuntimeCapabilit
 				return {ref:actor,name:person.display_name,display_name:person.display_name,name_known:person.name_known,
                     ...Object.fromEntries(['personality','social_role'].filter(key=>person[key]!==undefined).map(key=>[key,person[key]]))};
 			}));
-			if(compiled.effects.length){
+			if(compiled.effects.length||compiled.event){
 				const owner=keeperRun;
 				if(!owner||owner.runId!==reply.run)throw Error('The turn packet owner is stale');
 				const toolCallId=`keeper:${reply.run}:record`;
 				owner.recordCallId??=mintCallId(state);
 				state.mintedCallIds.set(toolCallId,owner.recordCallId);
 				const settled=await runTool(COC_TOOLS.find(tool=>tool.name==='apply')!,toolCallId,
-					{effects:compiled.effects},reply.signal,undefined,'explicit',ctx);
+					{effects:compiled.effects,...(compiled.event?{event:compiled.event}:{})},reply.signal,undefined,'explicit',ctx);
 				await record({lane:'turn-packet-prototype',turn:state.turn,run:reply.run,effects:compiled.effects,
 					ok:!settled.details.coc_error,jev_extra_calls:0});
 				if(settled.details.coc_error)throw new KernelError(settled.details.coc_error as ConstructorParameters<typeof KernelError>[0]);

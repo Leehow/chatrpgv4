@@ -22,6 +22,14 @@ test('packet parameter refusals identify the exact field without coercing its JS
   assert.match(error.message,/<additional-property>/);assert.ok(!error.message.includes('private-submitted-material'));assert.ok(error.message.length<=1600);return true;
  });
 });
+test('selected information uses the existing closed event schema and one compiled apply payload',()=>{
+ const event={name:'Read the notice',materials:[{name:'notice',text:'The office closes at noon.',kind:'fact',visibility:'player'}]};
+ const packet=turnPacket(JSON.stringify({...brief,event})),compiled=compileTurnPacket(packet);
+ assert.deepEqual(compiled,{responses:[],effects:[],event});
+ assert.throws(()=>turnPacket(JSON.stringify({...brief,event:{...event,prose:'An invented narrative brief'}})),/additional/);
+ assert.throws(()=>turnPacket(JSON.stringify({...brief,event:{...event,materials:[{...event.materials[0],author_instruction:'Write a scene'}]}})),/additional/);
+ assert.ok(TURN_PACKET_PARAMETERS.properties.event.properties.materials);
+});
 test('native argument normalization repairs only canonical decimal strings within declared integer bounds',()=>{
  const original={...brief,commands:[{kind:'scene',service:'open',crowd:'quiet',review_after_minutes:'45'}]};
  const normalized=normalizeTurnPacketArguments(original);
@@ -212,6 +220,21 @@ test('event validation repair uses this successful canonical event without an ex
  assert.equal(turn.receipts.filter(row=>row.kind==='time').length,1);assert.equal(turn.receipts.filter(row=>row.kind==='event').length,1);assert.equal(turn.world.clock.minutes,4);
 });
 
+test('an event-only native decision reaches the author and activates paraphrased material once',async t=>{
+ const batches=[];let requests=0;
+ const engine=createHybridEngine({env,decision:{decide:async batch=>{batches.push(batch);return answer(batch,.99);}}});
+ const event={name:'Read the notice',summary:'The investigator reads the posted notice.',material:'notice',materials:[{name:'notice',text:'The office closes at noon.',kind:'fact',visibility:'player'}]};
+ const table=await openTable({legacyDeliveryFixtures:false,realKernel:true,prepareWorkspace:opened,env,runDriver:engine.runDriver,
+  extraExtensions:[{name:'engine',factory:engine.extension}],responses:[()=>{requests++;return fauxAssistantMessage([fauxToolCall('output',{...brief,event})],{stopReason:'toolUse'});}]
+ });t.after(()=>table.dispose());await table.session.prompt('I read the posted notice.');
+ assert.deepEqual(table.extensionErrors,[]);assert.equal(requests,1);
+ assert.equal(batches.filter(row=>row.family==='held-act-outcome').length,0);
+ const turn=JSON.parse(readFileSync(join(table.workspace,'.coc/campaigns/test-camp/turns/0001.json'),'utf8'));
+ assert.equal(turn.receipts.filter(row=>row.kind==='event').length,1);assert.equal(typeof turn.commit,'string');
+ assert.equal(turn.rendered_text,'The notice says the office shuts at midday.');
+ assert.equal(turn.disclosures.filter(row=>row.status==='delivered'&&row.material.endsWith('/notice')).length,1);
+});
+
 test('native schema rejects extra movement fields before consent and permits one corrected submission',async t=>{
  const batches=[];let requests=0;
  const engine=createHybridEngine({env,decision:{decide:async batch=>{batches.push(batch);return answer(batch,.99);}}});
@@ -249,7 +272,7 @@ for(const mode of ['accepted','refused','dialogue','sparse-dialogue','wrapped-di
   }else packet.responses[0].actor=capsule.present.find(row=>row.name==='Steven Knott').ref;
  }
  await table.session.prompt(mode==='activity'?'I spend a few minutes arranging my notes.':mode==='refused'?'I stay at the desk. I do not leave.':mode.endsWith('dialogue')?'I ask Knott when he can meet.':mode==='planned'?'I might go to the library later.':'I walk along the street to the Central Library.');
- assert.deepEqual(table.extensionErrors,[]);assert.equal(requests,1);assert.equal(submittedSchema.parameters.additionalProperties,false);assert.deepEqual(Object.keys(submittedSchema.parameters.properties),['version','commands','responses']);
+ assert.deepEqual(table.extensionErrors,[]);assert.equal(requests,1);assert.equal(submittedSchema.parameters.additionalProperties,false);assert.deepEqual(Object.keys(submittedSchema.parameters.properties),['version','commands','responses','event']);
  const rows=table.telemetry(),writes=rows.filter(r=>r.lane==='turn-packet-prototype');
  assert.equal(rows.filter(r=>r.lane==='run'&&r.type==='step_start'&&r.kind==='infer').length,mode==='unknown-dialogue'?2:1,'count actual inference steps: '+JSON.stringify(rows.filter(r=>r.lane==='keeper-delivery'||r.lane==='tool').slice(-4)));
  assert.equal(batches.filter(b=>b.family==='continuous-action-admission').length,['accepted','refused','activity'].includes(mode)?1:0);

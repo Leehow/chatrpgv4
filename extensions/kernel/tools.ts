@@ -6,6 +6,7 @@
 
 import { StringEnum } from "@earendil-works/pi-ai";
 import { type TSchema, Type } from "typebox";
+import {TurnEvent} from "../../shared/turn-event.ts";
 import {MOVE_ESTABLISHMENT_DEPENDENCIES} from '../../shared/move-protocol.ts';
 
 export const COC_TOOL_NAMES = ["look", "lookup", "recall", "resolve", "apply", "ask", "narrate", "output"] as const;
@@ -184,22 +185,7 @@ const IntentResult = {
  */
 export const PLAIN_PROSE = "Write the prose itself: not a quoted or JSON-encoded string, no \\n or \\u escapes";
 /** Contract §162: a prose parameter's description, ending with `PLAIN_PROSE` as one more sentence. */
-const TurnEvent = Type.Object({
-  name:Type.String({maxLength:120,description:'A distinct semantic name for this occurrence in the current turn.'}),
-  summary:Type.Optional(Type.String({maxLength:1200,description:'What actually occurred; keep hidden causes here. A future plan is not an executed action.'})),
-  causes:Type.Optional(Type.Array(Type.String(),{maxItems:16,description:'Optional exact issued event/source names, a receipt id already issued this turn, or the literal receipts for all earlier settled receipts this turn. Omit if no reference was issued; batch effect links are automatic.'})),
-  corrects:Type.Optional(Type.String({description:'The issued event reference this new record corrects; never erase old evidence.'})),
-  material:Type.Optional(Type.String({description:'Local public material name if this occurrence awaits delivery; omit for an already established occurrence.'})),
-  materials:Type.Optional(Type.Array(Type.Object({name:Type.String({maxLength:120}),text:Type.String({maxLength:4000,description:'For speech bound to future heard knowledge, choose the exact public words once and reuse them verbatim inside the actual speaker say span. Other material is permitted context, never a grant to disclose private causes.'}),
-    kind:StringEnum(['fact','description','context','speech'] as const),visibility:StringEnum(['player','keeper'] as const),
-    speaker:Type.Optional(Type.String({description:'The actual speaker: use the NPC current view.id semantic handle or the investigator registered name. Public prose and say tags use the permitted display label.'})),audience:Type.Optional(Type.Array(Type.String({description:'An actual recipient: use the NPC current view.id semantic handle or the investigator registered name.'}),{maxItems:16}))}),{maxItems:24,
-    description:'Separate permitted statements from private causes. Speech requires speaker and actual proposed audience. NPC references use their supplied current view.id semantic handles; public prose and say tags use permitted display labels.'})),
-  knowledge:Type.Optional(Type.Array(Type.Object({actor:Type.String({description:'The registered person acquiring this knowledge; for heard mode, the actual hearer, not merely the speaker. Use the NPC current view.id semantic handle or the investigator registered name.'}),statement:Type.String({maxLength:1200}),
-    mode:StringEnum(['observed','heard','read','belief'] as const),source:Type.Optional(Type.String({description:'For heard mode, the actual speaker this actor hears, not a document or material citation. Hearing is not truth or belief. Use the NPC current view.id semantic handle or the investigator registered name.'})),
-    state:StringEnum(['accurate','uncertain','distorted'] as const),material:Type.Optional(Type.String({description:'Optional local public material name for future delivery activation, not generic evidence or provenance. A speech binding requires heard mode, source equal to its speaker, and actor in its audience. Normally omit for already acquired player-input knowledge, physical reading or observation. A valid prospective non-speech acquisition may still bind its fact, description or context material.'}))}),{maxItems:24})),
-  relationships:Type.Optional(Type.Array(Type.Object({actor:Type.String({description:'The person whose attitude changed: use the NPC current view.id semantic handle or the investigator registered name.'}),toward:Type.String({description:'The person this attitude concerns: use the NPC current view.id semantic handle or the investigator registered name.'}),statement:Type.String({maxLength:1200}),
-    material:Type.Optional(Type.String())}),{maxItems:24,description:'Directed event-grounded attitudes; cooperation need not be reciprocal. Use ordinary npc effects for mood and numerical stance.'})),
-});
+
 const Delivery = Type.Object({
   version: Type.Literal(1),
   materials: Type.Optional(Type.Array(Type.Object({name: Type.String({maxLength:120}), text:Type.Optional(Type.String({maxLength:4000,description:'Permitted fictional notes, not finished narration. Omit only for exact reuse of explicitly player-safe text via source. Private sources require your permitted excerpt. OOC replies stay direct.'})), kind:StringEnum(['fact','description','context'] as const), visibility:StringEnum(['player','keeper'] as const), required:Type.Optional(Type.Boolean()), source:Type.Optional(Type.String())},{anyOf:[{required:['text']},{required:['source']}]}),{maxItems:48})),

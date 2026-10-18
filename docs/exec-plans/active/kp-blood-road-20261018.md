@@ -75,3 +75,29 @@ or threshold has changed. Removing unfinished input did not improve judgment.
    provider retries and actual evidence limits on material reuse.
 6. Finish full validation, clean owned processes/browser/lifecycle artifacts,
    and mark the goal complete only with evidence for all acceptance items.
+
+## Selected information and actual delivery milestone
+
+The native packet now optionally carries the existing shared TurnEvent schema.
+One canonical apply carries selected information plus effects, and its actual
+public material reaches the sole author. The same author artifact retains
+coverage declarations; publication checks current material identity, text range
+and speech attribution. File transport consumes the real already-public
+material DTO rather than requiring fields omitted by that DTO. No new model.
+
+Fast130 passes, unit coverage/direct/file/privacy tests pass, and one real
+kernel event-only component commits paraphrased material disclosure. The first
+combined regression run retained10 failures:9 old schema-key assertions (the
+new optional event key was missing from expectations), plus the existing event
+repair case against the main checkout older emitted kernel. Do not call that
+run green; rerun on the clean current build. The d500 focused LAN gate passed:
+ext3971 pass/8 skip, integration2221 pass/1 skip, routing12, wall1042s.
+
+Actual chapter remains unfinished. Intents25/26 delivered (paper remained
+unreadable; return to the bar). Intent27 NPC reunion parameter correction
+landed NPC+event but publication was held by the old full-proposal guard.
+Independent source and captured-input replay identify guard ownership: the
+ACT guard incorrectly treats unreviewed NPC/note/clue/event bookkeeping as
+player-action failure. Next repair must reuse the existing consentOnly player
+action projection, preserve unclassified/authority/transport/partial holds,
+and prove changed target/cost/method or unrelated success cannot discharge it.

@@ -6,5 +6,6 @@ if(packet.settled_actions!==undefined&&(!Array.isArray(packet.settled_actions)||
 if(packet.player_input!==undefined&&typeof packet.player_input!=='string')throw Error('Invalid current player input');
 if(packet.investigator_names!==undefined&&(!Array.isArray(packet.investigator_names)||!packet.investigator_names.every(name=>typeof name==='string')))throw Error('Invalid investigator names');
 const speaker=packet.decision_context?.people?.[0]?.ref??'Steven Knott';
-const text='{{public}}{{say:'+speaker+'}}I can meet you at noon.{{/say}}';
+const material=packet.decision_context?.settled_results?.materials?.find(row=>row.text==='The office closes at noon.');
+const text=material?JSON.stringify({version:1,text:'The notice says the office shuts at midday.',coverage:[{name:material.name,quote:'the office shuts at midday'}]}):'{{public}}{{say:'+speaker+'}}I can meet you at noon.{{/say}}';
 process.stdout.write(JSON.stringify({type:'message_end',message:{role:'assistant',provider:'opencode-go',model:'deepseek-v4.1-flash',stopReason:'stop',content:[{type:'text',text}]}})+'\n');

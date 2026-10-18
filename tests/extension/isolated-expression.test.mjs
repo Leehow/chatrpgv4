@@ -308,3 +308,47 @@ for(const mode of ['framed','framed-preamble','terminal','preamble','error','abo
  }
  assert.equal(requests,1,'terminal transport never starts a replacement author');
 });
+
+for(const file of [false,true])test('the same author artifact preserves declared current-material coverage: '+(file?'file':'direct'),async t=>{
+ const home=await mkdtemp(join(tmpdir(),'expression-coverage-'));t.after(()=>rm(home,{recursive:true,force:true}));
+ const material={name:'event:t1:Read the notice/notice',text:'The office closes at noon.',kind:'fact'};
+ const text='The notice says the office shuts at midday.';
+ const coverage=[{name:material.name,quote:'the office shuts at midday'}],artifact={version:1,text,coverage};
+ let requests=0;const runtime={home,async runTask({request}){
+  requests++;const body=file?'The artifact is ready.':JSON.stringify(artifact);
+  if(file){request.onEvent({type:'tool_execution_start',toolName:'write',args:{path:'draft.json'}});await writeFile(join(request.cwd,'draft.json'),JSON.stringify(artifact));}
+  request.onEvent({type:'message_end',message:{role:'assistant',provider:EXPRESSION_PROFILE.model.split('/')[0],model:EXPRESSION_PROFILE.model.split('/')[1],stopReason:'stop',content:[{type:'text',text:body}]}});return {ok:true,ms:1};
+ }};
+ const prose=[],result=await writeIsolatedExpression({runtime,campaign:'c',turn:1,run:'r',language:'en',decision:{scene:{},clock:{},people:[],recent_public:[],responses:[],settled_results:{materials:[material]}},stream:{push:value=>prose.push(value)},record:async()=>{}});
+ assert.equal(requests,1);assert.equal(result.text,text);assert.equal(prose.join(''),text);assert.deepEqual(result.coverage,coverage);
+});
+
+for(const declaration of ['quote','span','unknown','ambiguous','absent'])test('publication binds author coverage to one current material: '+declaration,async t=>{
+ const home=await mkdtemp(join(tmpdir(),'expression-material-binding-'));t.after(()=>rm(home,{recursive:true,force:true}));
+ const name='event:t1:Read the notice/notice',text='The notice says the office shuts at midday.';
+ const material={name,event_ref:'event:t1:Read the notice',text:'The office closes at noon.',kind:'fact',visibility:'player'};
+ const materials=declaration==='ambiguous'?[material,{...material,name:'event:t1:Another notice/notice',event_ref:'event:t1:Another notice'}]:[material];
+ const owner=createFinalOutputOwner({runtime:()=>({home}),record:async()=>{},call:async method=>method==='table.capsule'
+  ?{_context:{campaign:'c',turn:1,worldline:'main',loop:0,task_world_revision:'w',task_source_revision:'s'},turn:{player_text:'I read the notice.'}}
+  :method==='table.status'?{outcome:{public_materials:materials}}:{}});
+ const stream=await owner.openStream('c',1,'r');stream.push(text);
+ const decl=declaration==='absent'?[]:declaration==='span'?[{name,start:20,end:41}]
+  :[{name:declaration==='unknown'?'unissued':declaration==='ambiguous'?'notice':name,quote:'the office shuts at midday'}];
+ const result=await stream.finish('test','medium',{},decl);
+ assert.equal(result.evidence.coverage.length,['quote','span'].includes(declaration)?1:0);
+ if(result.evidence.coverage.length)assert.equal(result.evidence.coverage[0].name,name);
+});
+
+for(const variant of ['keeper','wrong-speaker','actual-speaker'])test('coverage preserves material privacy and actual speech attribution: '+variant,async t=>{
+ const home=await mkdtemp(join(tmpdir(),'expression-speech-binding-'));t.after(()=>rm(home,{recursive:true,force:true}));
+ const name='event:t1:An answer/answer',words='The office shuts at midday.';
+ const material={name,event_ref:'event:t1:An answer',text:'The office closes at noon.',kind:'speech',speaker:'Clerk',visibility:variant==='keeper'?'keeper':'player'};
+ const owner=createFinalOutputOwner({runtime:()=>({home}),record:async()=>{},call:async(method,params)=>method==='table.capsule'
+  ?{_context:{campaign:'c',turn:1,worldline:'main',loop:0,task_world_revision:'w',task_source_revision:'s'},turn:{player_text:'I ask the clerk.'}}
+  :method==='table.status'?{outcome:{public_materials:[material]}}
+  :method==='table.delivery.check'?{speakers:(params.speakers??[]).map(name=>({name,who:{npc:name==='Clerk'?'clerk-id':'other-id',name}}))}:{}});
+ const stream=await owner.openStream('c',1,'r','isolated-expression',['Clerk','Other']);
+ stream.push('{{say:'+(variant==='wrong-speaker'?'Other':'Clerk')+'}}'+words+'{{/say}}');
+ const result=await stream.finish('test','medium',{},[{name,quote:words}]);
+ assert.equal(result.evidence.coverage.length,variant==='actual-speaker'?1:0);
+});
