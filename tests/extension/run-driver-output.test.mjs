@@ -380,7 +380,10 @@ test('a rolled-back inner move reads the issued clue basis and reuses distinct s
   const telemetry=table.telemetry(),route=telemetry.find(row=>row.lane==='clue-route');
   assert.equal(route?.resent,true);assert.equal(route?.chosen,'fitting_check');
   assert.ok(telemetry.some(row=>row.lane==='kernel-rpc'&&row.method==='table.apply'&&row.ok===false),'the original transaction really refuses before its bounded read');
-  assert.equal(telemetry.filter(row=>row.lane==='kernel-rpc'&&row.method==='table.lookup'&&row.ok).length,1);
+  const refusedApply=telemetry.find(row=>row.lane==='kernel-rpc'&&row.method==='table.apply'&&row.ok===false);
+  const lookups=telemetry.filter(row=>row.lane==='kernel-rpc'&&row.method==='table.lookup'&&row.ok);
+  assert.equal(lookups.filter(row=>row.ordinal<refusedApply.ordinal).length,1,'destination identity is read for consent before execution');
+  assert.equal(lookups.filter(row=>row.ordinal>refusedApply.ordinal).length,1,'one issued clue basis is read after rollback');
   assert.equal(readFileSync(join(dir,'turns/0001.json'),'utf8'),stranded);
   const workspace=table.workspace;await table.dispose();closed=true;
   const restarted=new RpcClient(workspace,{content});t.after(()=>restarted.close());
@@ -1539,7 +1542,7 @@ for(const renameGrowth of [false,true])test('the next native request keeps six r
   const {installContextPolicy}=await importSource('extensions/table/context-runtime.ts');
   const measure=await importSource('extensions/table/context-policy.ts');
   const engine=createHybridEngine({env:{...process.env,PI_COC_JEV_PRESELECT:'0'},decision:checkedRecovery});
-  let expectedResults,sourceBefore,secondRequest,thirdRequest;
+  let expectedResults,expectedBatch,sourceBefore,secondRequest,thirdRequest;
   const telemetry=[];
   const pressureDriver={...engine.runDriver,prepare:async context=>{
     const plan=await engine.runDriver.prepare(context),original=plan.ports.operations;
@@ -1553,14 +1556,19 @@ for(const renameGrowth of [false,true])test('the next native request keeps six r
       projection:{project:async request=>{
         const rows=await plan.ports.projection.project(request);
         const operated=[...request.view.observations].reverse().find(row=>row.kind==='operate'&&row.toolResults?.length===6);
-        if(operated){expectedResults=operated.toolResults;sourceBefore=JSON.stringify(expectedResults);}
+        if(operated){
+          expectedResults=operated.toolResults;sourceBefore=JSON.stringify(expectedResults);
+          const ids=new Set(expectedResults.map(row=>row.toolCallId));
+          expectedBatch=rows.filter(row=>ids.has(row.toolCallId)||row.role==='assistant'&&row.content?.some(part=>part.type==='toolCall'&&ids.has(part.id)));
+        }
         return rows;
       }}}};
   }};
   const inflate=capsule=>({...capsule,
     module:{...capsule.module,fixture_static:'s'.repeat(2000)},
     ...(renameGrowth?{fixture_handles:Array(500).fill('qx')}:{}),
-    fixture_current:(capsule.where?.clock?.minutes??0)+':'+ 'c'.repeat(45000)});
+    // Leave bounded room for mandatory disclosure packets; the six large results and ceiling stay fixed.
+    fixture_current:(capsule.where?.clock?.minutes??0)+':'+ 'c'.repeat(45000-4096)});
   const seen=[];
   const table=await openTable({legacyDeliveryFixtures:false,realKernel:true,prepareWorkspace:seedOpening,
     runDriver:pressureDriver,env:{PI_COC_LOOP_ENGINE:'hybrid-v1'},
@@ -1585,6 +1593,11 @@ for(const renameGrowth of [false,true])test('the next native request keeps six r
   assert.equal(measure.requestBudget(table.session.model.contextWindow),measure.REQUEST_BYTES);
   await table.session.prompt('I wait eight minutes and check my supplies.');
   assert(secondRequest);assert(thirdRequest);
+  const ids=new Set(expectedResults.map(row=>row.toolCallId));
+  const fixed=thirdRequest.messages.filter(row=>!ids.has(row.toolCallId)&&!(row.role==='assistant'&&row.content?.some(part=>part.type==='toolCall'&&ids.has(part.id))));
+  const requestRow=telemetry.filter(row=>row.event==='request').at(-1);
+  assert.ok(measure.requestSize([...fixed,...expectedBatch])+requestRow.system_bytes<=measure.REQUEST_BYTES,
+    'fixture precondition: all mandatory packets, system and complete original batch fit the unchanged ceiling');
   const actual=thirdRequest.messages.filter(row=>row.role==='toolResult'&&expectedResults.some(expected=>expected.toolCallId===row.toolCallId));
   assert.deepEqual(actual.map(row=>({id:row.toolCallId,content:row.content,isError:row.isError})),
     expectedResults.map(row=>({id:row.toolCallId,content:row.content,isError:row.isError})),'all six original read results reach the next provider request');
