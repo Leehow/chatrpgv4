@@ -18,7 +18,7 @@
  */
 
 import { createHash } from "node:crypto";
-import {decisionRecentPublic} from '../../runtime/isolated-expression.ts';
+import {decisionRecentPublic} from '../../runtime/public-exchanges.ts';
 import {continuousConsentQuestions,continuousConsentLine,CONTINUOUS_CONSENT_MIN} from "../../runtime/jev/continuous-consent.ts";
 import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { runLane, type KeptReservation, type LaneReplyEvidence, type LaneResult, type LaneTransport } from "../lanes/subsession.ts";

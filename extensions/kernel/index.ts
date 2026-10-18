@@ -297,6 +297,7 @@ function takeSkillAnnotation(run: SkillRun | undefined, input: Record<string, un
 }
 
 interface OpenResult {
+    public_exchanges?:Array<{turn:number|string;player?:string|null;keeper:string;truncated?:boolean}>;
     quote_turns?: number[];
 	campaign?: { id?: string; title?: string; play_language?: string; module_id?:string };
 	turn?: { number?: number; state?: TurnState };
@@ -2063,6 +2064,7 @@ export default function (pi: ExtensionAPI, host: {capabilities?:RuntimeCapabilit
 
 	function applyOpen(open: OpenResult): void {
 		if (!table) return;
+		if(Array.isArray(open.public_exchanges))table.delivered=decisionRecentPublic([],open.public_exchanges);
 		readingModule = asString(open.campaign?.module_id);
 		if (open.mods_unreadable?.length) noteModSkew(table.campaign, open.mods_unreadable);
 		table.turn = typeof open.turn?.number === "number" ? open.turn.number : table.turn;
@@ -7054,6 +7056,7 @@ export default function (pi: ExtensionAPI, host: {capabilities?:RuntimeCapabilit
 					await state.kernel.callImmediate("kernel.hello");
 					const reopened = await state.kernel.callImmediate<OpenResult>("table.open", {
 						campaign: state.campaign,
+						_public_exchanges:true,
 					});
 					applyOpen(reopened);
 				},
@@ -7146,7 +7149,7 @@ export default function (pi: ExtensionAPI, host: {capabilities?:RuntimeCapabilit
 				landed: [],
 				adaptationScanned: false,
 			};
-			const open = await kernel.call<OpenResult>("table.open", { campaign });
+			const open = await kernel.call<OpenResult>("table.open", { campaign, _public_exchanges:true });
 			applyOpen(open);
 			// §194.5: the cast rows nobody has judged yet, in the background; a delivery that meets them first judges them itself.
 			void publicFigureJudge(campaign, (method, params) => kernel.call(method, params)).catch(() => undefined);

@@ -67,6 +67,31 @@ test('an unassessed arrival uses one existing Keeper decision without another co
  assert.equal(table.entries('coc-final-delivery').filter(row=>row.event==='end'&&row.status==='completed').length,1);
 });
 
+test('a restarted journey retains full delivered directions past 200 characters and later stranded inputs',async t=>{
+ let requests=0;const batches=[];
+ const marker='The red doorway two blocks west belongs to the Central Library.';
+ const engine=createHybridEngine({env,decision:{decide:async batch=>{batches.push(batch);return answer(batch);}}});
+ const table=await openTable({legacyDeliveryFixtures:false,realKernel:true,env,runDriver:engine.runDriver,
+  prepareWorkspace:async workspace=>{
+   await opened(workspace);const client=new RpcClient(workspace);
+   try{
+    await client.ok('table.player_input',{campaign:'test-camp',text:'Which doorway is it?'});
+    await client.ok('table.narrate',{campaign:'test-camp',call_id:'t2-c1',text:'Public conversation. '.repeat(30)+marker});
+    for(const text of ['I go toward that doorway.','I continue toward that doorway.']){
+     await client.ok('table.player_input',{campaign:'test-camp',text});
+     await client.ok('table.release',{campaign:'test-camp',release:'stranded'});
+    }
+   }finally{await client.close();}
+  },extraExtensions:[{name:'engine',factory:engine.extension}],responses:[()=>{requests++;return fauxAssistantMessage([
+   fauxToolCall('output',{version:3,commands:[],responses:[]})],{stopReason:'toolUse'});} ]});
+ t.after(()=>table.dispose());await table.session.prompt('I go to that red doorway two blocks west.');
+ assert.equal(batches.length,1);assert.equal(requests,0);
+ const previous=batches[0].state.previous_public;
+ assert.ok(previous.some(row=>row.turn===2&&row.player==='Which doorway is it?'&&row.keeper.endsWith(marker)));
+ assert.equal(previous.some(row=>row.turn===3||row.turn===4),false,'unpublished retries never replace the delivered reference');
+ assert.equal(table.entries('coc-final-delivery').filter(row=>row.event==='end'&&row.status==='completed').length,1);
+});
+
 for(const work of [.5,.99])test('remaining-work probability '+work+' preserves movement and asks the Keeper only for responses',async t=>{
  let requests=0;let actorRef;const batches=[];
  const engine=createHybridEngine({env,decision:{decide:async batch=>{batches.push(batch);const result=answer(batch,'travel_then_dialogue');result.answers.additional_work.noul=work;return result;}}});

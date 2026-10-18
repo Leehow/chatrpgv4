@@ -6,6 +6,7 @@ import type {HostRuntime} from './host.ts';
 import {readAuthorModelChoice} from './author-model.ts';
 import {ArtifactTextStream} from './final-output-stream.ts';
 import {responseDecision} from './turn-packet-prototype.ts';
+export {decisionRecentPublic} from './public-exchanges.ts';
 
 type Row=Record<string,any>;
 export interface ExpressionBrief {
@@ -23,13 +24,6 @@ export interface DecisionAuthorContext {
   recent_public:Array<{turn:number|string;player?:string|null;keeper:string;truncated?:boolean}>;
   speech_allowed?:boolean;
   settled_results?:Record<string,unknown>;
-}
-/** The public departure exchange survives destination-only scene material. */
-export function decisionRecentPublic(recent:Row[]=[],delivered:Row[]=[]):DecisionAuthorContext['recent_public'] {
- const byTurn=new Map<number,Row>();
- for(const entry of [...recent,...delivered])if(Number.isFinite(Number(entry.turn))&&entry.closed!=='stranded'&&typeof entry.keeper==='string'&&entry.keeper.trim())byTurn.set(Number(entry.turn),entry);
- return [...byTurn.entries()].sort(([a],[b])=>a-b).slice(-2).map(([turn,entry])=>({turn,player:typeof entry.player==='string'?entry.player:null,
-  keeper:entry.keeper.length>8000?entry.keeper.slice(0,4000)+'\n[…]\n'+entry.keeper.slice(-4000):entry.keeper,...(entry.keeper.length>8000?{truncated:true}:{})}));
 }
 /** Only current public identity projections; private dossiers never enter scene rendering. */
 export function decisionClock(clock:Row):Row {

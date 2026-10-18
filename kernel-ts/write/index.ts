@@ -1,4 +1,6 @@
 import {readSourceMetadata} from '../modules/source-state.js';
+import {decisionRecentPublic} from '../../runtime/public-exchanges.ts';
+import {committedOnLine} from '../read/exchange.js';
 import { SINGLE_PASS_NARRATION } from '../runtime/narration-policy.ts';
 import {validateDeliveryArtifact} from '../../runtime/final-output-artifact.js';
 import {sourceRevision,taskWorldRevision} from '../read/context.js';
@@ -983,6 +985,8 @@ export function createWriteRuntime(context: KernelContext, contributions: WriteC
         };
     }
     async function open(params: Row): Promise<Row> {
+        if(params._public_exchanges!==undefined&&typeof params._public_exchanges!=='boolean')
+            throw new RpcError('invalid_params','params._public_exchanges must be boolean when supplied');
         if(contributions.worldlines){const value=await openCampaign(params,{requireTurn:false});await contributions.worldlines.open(value,await value.readCampaign());}
         const initial = await recoverySnapshot(params), campaign = writer(initial.id);
         const meta = clone(initial.meta), initialParty = await initial.files('party');
@@ -1090,6 +1094,9 @@ export function createWriteRuntime(context: KernelContext, contributions: WriteC
         const openingPeople = opening ? openingPeopleView(module.graph, snapshot.world, scene) : null;
         return {
             campaign: snapshot.meta,
+            ...(params._public_exchanges===true?{public_exchanges:decisionRecentPublic(committedOnLine(snapshot).records
+                .filter(record=>record.closed_by==='narrate')
+                .map(record=>({turn:record.turn,player:record.player_text??null,keeper:record.rendered_text})))}:{}),
             ...(openingPeople ? { opening_people: openingPeople } : {}),
             // §198.3: the opening's own calls (a seat, a preparation) are kept like any turn's, so a table opened again before the
             // opening is narrated goes on minting after them rather than colliding with them.
