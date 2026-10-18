@@ -56,7 +56,8 @@ test("the onboarding host writes no player-facing sentence of its own for a fail
 	// The sentence that shipped. It was neither a caption nor a diagnostic: it restated
 	// `errors.preparation_failed` in the system language and displaced the real reason.
 	assert.ok(!/Source preparation could not finish/.test(text));
-	// What replaced it: the stored diagnostic travels as the message, and the code carries meaning.
-	assert.ok(/message:typeof saved\.error==='string'\?saved\.error:''/.test(text),
-		"the phase's error message must be the diagnostic the failure reported");
+	// Public projection carries registered captions; private diagnostics never reach this field.
+ assert.ok(text.includes("publicFailure(error:unknown)"));
+ assert.ok(text.includes("message:''"));
+ assert.ok(!text.includes("message:typeof saved.error==='string'?saved.error:''"));
 });

@@ -1,10 +1,10 @@
 /** Pure source-draft validation shared by publication and the offline host check. */
 import { RpcError } from '../errors.js';
 import { canonicalJson, isJsonObject, orderedObject, pythonJsonDumps, sha256Text } from '../json.js';
-import { array, clone, entries, equal, integer, normalize, number, numeric, repr, row, sorted, string, truth, type Row } from '../read/values.js';
+import { array, clone, entries, equal, integer, normalize, normalizeText, number, numeric, repr, row, sorted, string, truth, type Row } from '../read/values.js';
 import { ModuleGraph, recordOf } from '../read/module-graph.js';
 import { startSceneCandidates } from '../write/source.js';
-import { CLAIM_KEYS, NODE_KEYS, SHARD_KEYS, VISUAL_CONTRACT_ID, validSemanticId, type ModuleContract } from './contract.js';
+import { CLAIM_KEYS, NODE_KEYS, SHARD_KEYS, SHARD_REFERENCE_FIELDS, VISUAL_CONTRACT_ID, validSemanticId, type ModuleContract } from './contract.js';
 import { obligationRefusals, type Refusal } from './obligation-shape.js';
 import { obligationReviewPaths, statesObligation } from './obligation-review.js';
 import { carriesMechanics, mechanicsRefusals } from './mechanics-shape.js';
@@ -315,7 +315,7 @@ export function checkDraft(draft: any, packet: Row, contract: ModuleContract, se
         envelope.note(refusal('Error: source_needs must be a bounded array', '/source_needs'), { rule: 'not_an_array', value: draft.source_needs });
     for (const key of ['nodes', 'claims', 'node_refs', 'critical', 'ready_nodes'])
         if (!Array.isArray(draft[key]))
-            envelope.note(refusal(`${key} must be an array`, `/${key}`), { rule: 'not_an_array', value: draft[key] });
+            envelope.note(refusal(`${key} must be an array${SHARD_REFERENCE_FIELDS.includes(key as any)?' of string node_id values naming defined nodes; never reference or relation objects':''}`, `/${key}`), { rule: 'not_an_array', value: draft[key] });
     // A skeleton job's envelope: it publishes source-authored nodes, so its node list is not empty.
     if (skeleton && Array.isArray(draft.nodes) && !draft.nodes.length)
         envelope.note(refusal('a skeleton needs source-authored nodes before it can be published', '/nodes'), { rule: 'skeleton_nodes' });
@@ -468,9 +468,9 @@ export function checkDraft(draft: any, packet: Row, contract: ModuleContract, se
     // §39.4 (2026-09-30): which kind of map each drafted map is.
     for (const [i, node] of nodes.entries())
         if (object(node)) records.run(() => checkMapScope(node, i, published));
-    for (const key of ['node_refs', 'ready_nodes']) {
+    for (const key of SHARD_REFERENCE_FIELDS) {
         const named = (filled[key] as any[]).flatMap((id, k) => typeof id !== 'string' || !ids.has(id) ? [{ path: `/${key}/${k}`, rule: 'node_reference', value: id }] : []);
-        if (named.length) records.note(refusal('a node reference must name a defined node'), ...named);
+        if (named.length) records.note(refusal(`${key} entries must be string node_id values naming defined nodes; relationship objects belong in claims`), ...named);
     }
     const claimed = new Set<string>(), knownClaims = new Map<number, Row>();
     for (const [i, claim] of (filled.claims as Row[]).entries()) {
@@ -1068,8 +1068,15 @@ export function recordContested(graph: Row, filled: Row, judged: ReviewJudgement
     else delete graph.contested;
 }
 export function resolveStartScene(graph: Row, wanted: string, contract: ModuleContract): string | null {
-    const key = normalize(wanted);
-    return startSceneCandidates(graph, row(contract.graph.actor_dossier)).find(candidate => ['node_id', 'scene', 'name'].some(field => normalize(candidate[field]) === key))?.node_id ?? null;
+    const candidates=startSceneCandidates(graph,row(contract.graph.actor_dossier)),key=normalize(wanted);
+    const identity=candidates.find(candidate=>candidate.node_id===wanted);
+    if(identity)return identity.node_id;
+    const exact=candidates.filter(candidate=>['node_id','scene','name'].some(field=>normalize(candidate[field])===key));
+    if(exact.length)return exact.length===1?exact[0].node_id:null;
+    const textKey=normalizeText(wanted);
+    if(!textKey)return null;
+    const matches=candidates.filter(candidate=>['scene','name'].some(field=>normalizeText(candidate[field])===textKey));
+    return matches.length===1?matches[0].node_id:null;
 }
 export function applyOpeningChoice(graph: Row, chosen: string, contract: ModuleContract): boolean {
     const nodes = new Map<string, Row>(array(graph.nodes).map(node => [node.node_id, node]));

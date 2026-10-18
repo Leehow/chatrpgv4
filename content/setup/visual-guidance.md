@@ -86,8 +86,10 @@ coverage, dependencies, critical, ready_nodes. Nodes have node_id (kind plus ASC
 kebab source name), node_kind, name, summary, properties, visibility and source_refs
 ([{page: physical_page}]). Claims connect subject_id to object:{node_id} through
 a supplied predicate, with truth_status and source_refs. Never create a second
-graph or use claims as free prose. Reuse known identities. Keep every prepared
-node in critical as /nodes/0 etc. Both ready_nodes and dependencies must be empty;
+graph or use claims as free prose. Reuse known identities. node_refs is an array
+of existing node_id strings, for example ["scene-harbor"], never an object or a
+list of relation objects; its machine shape is in task.vocabulary.shard_field_shapes.
+Keep every prepared node in critical as /nodes/0 etc. Both ready_nodes and dependencies must be empty;
 an unresolved necessary fact must be resolved first, never concealed to pass.
 Use coverage:{} for this thin scope. Coverage is an object of domain-to-status
 pairs, never a list or a prose description. No full playable domain is claimed.

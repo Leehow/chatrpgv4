@@ -6,6 +6,7 @@ import { RuleTables } from '../rules/tables.js';
 import { mechanicsRules, type MechanicsRules } from './mechanics-shape.js';
 export const VISUAL_CONTRACT_ID = 'coc.module-graph-shard.v4';
 export const SHARD_KEYS = ['contract_id', 'nodes', 'claims', 'node_refs', 'coverage', 'dependencies', 'critical', 'ready_nodes', 'interaction_scene', 'source_needs'];
+export const SHARD_REFERENCE_FIELDS = ['node_refs','ready_nodes'] as const;
 /** `distinct_from` (§192.1) is a reading-time answer to `duplicate_of_published`; publication keeps it in `reading.identity`, not on the node. */
 export const NODE_KEYS = ['node_id', 'node_kind', 'name', 'aliases', 'summary', 'properties', 'visibility', 'source_refs', 'distinct_from'];
 export const CLAIM_KEYS = ['claim_id', 'subject_id', 'predicate', 'object', 'truth_status', 'visibility', 'source_refs', 'reason', 'known_by_ids', 'asserted_by_ids', 'validity'];
@@ -63,6 +64,7 @@ export function vocabulary(contract: ModuleContract, contributed: Row | null = n
     return {
         shard_contract_id: VISUAL_CONTRACT_ID,
         shard_keys: sorted(SHARD_KEYS), node_keys: sorted(NODE_KEYS), claim_keys: sorted(CLAIM_KEYS),
+        shard_field_shapes:Object.fromEntries(SHARD_REFERENCE_FIELDS.map(field=>[field,{type:'array',items:{type:'string',description:'Exact node_id of a node defined in this draft or the accepted graph; never an object or relation.'}}])),
         node_kinds: [...array(graph.node_kinds)], relation_kinds: [...array(graph.relation_kinds)],
         visibility: [...array(graph.visibility)], truth_status: [...array(graph.truth_status)],
         coverage_domains: [...array(graph.coverage_domains)], coverage_status: [...array(graph.coverage_status)],

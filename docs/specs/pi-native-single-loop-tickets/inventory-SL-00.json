@@ -2411,9 +2411,6 @@
       "role": "infra",
       "trace": "request-journal exact-redaction regression and real MiniMax wire replay",
       "note": "Scanner false positive: observes the existing Keeper response before player-display redaction so the same bounded journal can replay it completely. No inference, network, kernel mutation or new run owner."
-    }
-  ]
-}
     },
     {
       "file": "runtime/jev/first-sight.ts",
@@ -2438,3 +2435,6 @@
       "role": "leaf",
       "trace": "tests: memory-native-recovery and memory-story-decision",
       "note": "Stage10: one typed parallel story batch; candidate author remains MiniMax. Pending judgment retains the exact-source draft without generative fallback."
+    }
+  ]
+}

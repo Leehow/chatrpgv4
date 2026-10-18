@@ -90,13 +90,15 @@ export default async function readerSubmit(pi: any) {
 	const guidanceReview=Type.Object({checked:Type.Array(Type.Object({paths:Type.Array(issuedPath,{minItems:1}),
 		verdict:Type.Union(REVIEW_VERDICTS.map(value=>Type.Literal(value))),source_refs:Type.Array(Type.Any()),reason:Type.Optional(Type.String())},{additionalProperties:true})),
 		missing:Type.Array(Type.Any()),guidance:Type.Object({approved:Type.Boolean(),issues:Type.Array(Type.Any())},{additionalProperties:true})},{additionalProperties:true});
+	const impactSchema=Type.Union(MODULE_REVIEW_IMPACTS.map(value=>Type.Literal(value)));
+ const findingSchema=Type.Object({impact:impactSchema},{additionalProperties:true});
 	const logicReviewSchema=Type.Object({checked:Type.Array(Type.Object({
         paths:Type.Optional(Type.Array(Type.String())),path:Type.Optional(Type.String()),
         verdict:Type.Union((answerTask?['supported','contradicted','unclear']:REVIEW_VERDICTS).map(value=>Type.Literal(value))),
-        impact:Type.Optional(Type.Union(MODULE_REVIEW_IMPACTS.map(value=>Type.Literal(value)))),
+        impact:Type.Optional(impactSchema),
         source_refs:Type.Array(Type.Object({page:Type.Integer({minimum:1})},{additionalProperties:true})),reason:Type.String()
-    },{additionalProperties:true})),missing:Type.Array(Type.Any()),
-        ...(guidanceTask?{guidance:Type.Object({approved:Type.Boolean(),issues:Type.Array(Type.Any())},{additionalProperties:true})}:{})
+    },{additionalProperties:true})),missing:Type.Array(findingSchema),
+        ...(guidanceTask?{guidance:Type.Object({approved:Type.Boolean(),issues:Type.Array(findingSchema)},{additionalProperties:true})}:{})
     },{additionalProperties:true});
 	const publicSchema=Type.Object(Object.fromEntries(PUBLIC_GUIDANCE_FIELDS.map(field=>[field,Type.Object({
 		status:Type.Union(['value','needs_choice','unavailable'].map(value=>Type.Literal(value))),text:Type.String({maxLength:1000}),
@@ -175,7 +177,7 @@ export default async function readerSubmit(pi: any) {
 				for (const [i, name] of candidateFiles.entries())
 					if (!(await readFile(join(cwd, name))).equals(originals[i])) throw new Error("reviewer modified its candidate pair");
 				const review = JSON.parse(await readFile(join(cwd, "review.json"), "utf8"));
-				checkReviewEvidence(review, task.required_review, viewed, task.review_scope_pages ?? [], JSON.parse(originals[0].toString()));
+				checkReviewEvidence(review, task.required_review, viewed, task.review_scope_pages ?? [], JSON.parse(originals[0].toString()),task);
 				// §22.4.3: the answer review's protocol shape, checked where the reviewer can still repair it in place.
 				if (answerTask) checkAnswerReviewShape(review, Number(task.source?.page_count) || Number.MAX_SAFE_INTEGER, viewed,
 					(JSON.parse(originals[0].toString()).source_refs ?? []).map((ref: any) => ref?.page));

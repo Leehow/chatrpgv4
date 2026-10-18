@@ -897,3 +897,18 @@ for(const impact of ['presentation','parameter'])test('strict statement review r
  assert.doesNotThrow(()=>checkReviewEvidence({checked:[{...row,impact:'logic',reason:'The statement contradicts the source.'}],missing:[]},row.paths,new Set([1]),[],candidate));
  assert.doesNotThrow(()=>checkReviewEvidence({checked:[{...row,verdict:'supported'}],missing:[]},row.paths,new Set([1]),[],candidate));
 });
+
+for(const field of ['checked','missing','guidance'])test('logic review requires an explicit impact on every negative '+field+' finding',()=>{
+ const candidate={nodes:[],claims:[]},task={review_policy:'module-logic-v1'};
+ const row={paths:['/coverage'],verdict:'supported',source_refs:[{page:1}],reason:'Current scope is covered.'};
+ const finding={source:'Original evidence',why:'A current dependency is absent.'};
+ const review={checked:[row],missing:[],...(field==='guidance'?{guidance:{approved:false,issues:[finding]}}:{})};
+ if(field==='checked')review.checked=[{...row,verdict:'unsupported'}];
+ if(field==='missing')review.missing=[finding];
+ assert.throws(()=>checkReviewEvidence(review,['/coverage'],new Set([1]),[],candidate,task),/impact/);
+ for(const impact of ['logic','presentation','parameter']){
+  const valid=structuredClone(review);
+  (field==='checked'?valid.checked[0]:field==='missing'?valid.missing[0]:valid.guidance.issues[0]).impact=impact;
+  assert.doesNotThrow(()=>checkReviewEvidence(valid,['/coverage'],new Set([1]),[],candidate,task));
+ }
+});

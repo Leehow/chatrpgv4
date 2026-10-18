@@ -271,7 +271,7 @@ export default function readerContext(pi: any, options: { cwd?: string; env?: No
 			const path = bounded && typeof ctx?.model?.api === "string" ? outputFieldPath(ctx.model.api, bounded) : null;
 			const output = path ? path.reduce((value: any, key) => value?.[key], bounded) : undefined;
 			appendFileSync(log, JSON.stringify({at: new Date().toISOString(), provider: ctx.model?.provider,
-				model: event.payload?.model, reasoning_effort: event.payload?.reasoning?.effort ?? event.payload?.reasoning_effort ?? null,
+				model: event.payload?.model, reasoning_effort: event.payload?.reasoning?.effort ?? event.payload?.reasoning_effort ?? event.payload?.output_config?.effort ?? null,
 				...(leased ? {} : {output_bound: typeof output === "number" ? output : null})}) + "\n");
 		}
 		return bounded === event.payload ? undefined : bounded;

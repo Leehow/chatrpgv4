@@ -325,13 +325,12 @@ export function CocOnboarding({host, sessionId}: Props) {
       </div>}
       {!preparing&&publicFacts}
       {job.state==='choice' && <div><h2>{t('openingTitle')}</h2><p>{t('openingBody')}</p><div className="coc-source-list">{job.candidates?.map((item:Row)=><button key={item.scene} disabled={busy} onClick={()=>void act({action:'opening',scene:item.scene})}><strong>{item.name}</strong>{item.summary&&<span>{item.summary}</span>}<b>{t('select')}</b></button>)}</div></div>}
-      {['failed','paused'].includes(job.state)&&<div><h2>{job.state==='paused'?t('pausedTitle'):t('failedTitle')}</h2><p>{t('keptNote')}</p>{/* The caption leads and the host's message follows it, never replaces it: a message is written
-            in the system language, and a player who chose another reads only the caption (BUG-039, §46.3). */}
-        {job.error&&<details><summary>{t('showReason')}</summary><p>{said(failure(job.error))}</p>{failure(job.error).message&&<p className="coc-muted">{failure(job.error).message}</p>}</details>}<div className="coc-actions"><button disabled={busy||job.stopping} onClick={()=>{if(!continueUpload())void act({action:'resume'})}}>{job.stopping?t('pausing'):t('resume')}</button><button className="coc-secondary" onClick={()=>chooser.current?.click()}>{t('choosePdfAgain')}</button></div></div>}
+      {['failed','paused'].includes(job.state)&&<div><h2>{job.state==='paused'?t('pausedTitle'):t('failedTitle')}</h2><p>{t('keptNote')}</p>{/* Source diagnostics stay in private evidence; only the projected caption is public. */}
+        {job.error&&<details><summary>{t('showReason')}</summary><p>{said(failure(job.error))}</p></details>}<div className="coc-actions"><button disabled={busy||job.stopping} onClick={()=>{if(!continueUpload())void act({action:'resume'})}}>{job.stopping?t('pausing'):t('resume')}</button><button className="coc-secondary" onClick={()=>chooser.current?.click()}>{t('choosePdfAgain')}</button></div></div>}
       {['ready','conversing'].includes(job.state)&&<p role="status">{autoOn?t('autoInvestigator.entering'):t('entering')}</p>}
       {!preparing&&!busy&&job.state!=='created'&&<button className="coc-back" onClick={back}>{t('back')}</button>}
     </section>}
-    {error&&<div className="coc-error" role="alert"><strong>{t('errorTitle')}</strong><p>{said(error)}</p>{error.message&&<details><summary>{word(ui,'errors','details')}</summary><p>{error.message}</p></details>}<button onClick={()=>{setError(null)
+    {error&&<div className="coc-error" role="alert"><strong>{t('errorTitle')}</strong><p>{said(error)}</p><button onClick={()=>{setError(null)
       // An interrupted upload is retried by sending bytes, not by re-reading the catalog. The
       // button used to do only the latter, so pressing it moved the label from "this step did not
       // finish" back to "uploading" and nothing else -- twice observed, five minutes of no bytes.

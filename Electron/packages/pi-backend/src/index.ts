@@ -10204,7 +10204,8 @@ export class PiHostBackend implements HostBackend {
           } finally {this.cocAnnounceBinding(binding.campaign);}
         }
         return {ok: true, data};
-      } catch (error) { return this.cocDenied(this.cocCode(error), error instanceof Error ? error.message : String(error)); }
+      } catch (error) { const failure=this.cocOnboarding?.exposeFailure(error)??{code:'preparation_failed',message:''};
+        return this.cocDenied(failure.code,failure.message); }
     }
     if(id==='coc-keeper'&&method==='mods.document.reference_finish')return this.cocDenied('capability_denied','Reference completion is host-internal');
     if(id==='coc-keeper'&&(['mods.document.collect','mods.document.references'].includes(method)

@@ -394,6 +394,17 @@ test("a host-owned provider request ceiling aborts before an extra model call", 
 	}
 });
 
+test('reader effort audit observes the actual Anthropic request without inventing an absent effort',async t=>{
+ const dir=await mkdtemp(join(tmpdir(),'reader-effort-'));t.after(()=>rm(dir,{recursive:true,force:true}));
+ const log=join(dir,'requests.jsonl'),hooks={};
+ readerContext({on(name,fn){hooks[name]=fn;}},{env:{PI_COC_READER_REQUESTS_LOG:log}});
+ const model={provider:'minimax-cn',id:'MiniMax-M3.1-Flash-Preview',api:'anthropic-messages',maxTokens:64000};
+ const payload={model:model.id,messages:[],thinking:{type:'adaptive'},output_config:{effort:'medium'}};
+ hooks.before_provider_request({payload},{model});hooks.before_provider_request({payload:{model:model.id,messages:[]}},{model});
+ assert.deepEqual((await readFile(log,'utf8')).trim().split('\n').map(JSON.parse).map(row=>row.reasoning_effort),['medium',null]);
+ assert.deepEqual(payload.output_config,{effort:'medium'});assert.equal(payload.max_tokens,undefined);
+});
+
 test("§140: an unleased child sends its own output bound, so the provider's default never decides it", async t => {
 	const dir = await mkdtemp(join(tmpdir(), "reader-output-"));
 	t.after(() => rm(dir, { recursive: true, force: true }));

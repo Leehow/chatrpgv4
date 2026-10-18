@@ -163,7 +163,7 @@ it.each(['restored','failed-chunk'])('can cancel a %s upload and return to scena
     // The code is the caption; the host's English sentence is folded away, not printed at the player.
     const alert=await screen.findByRole('alert',undefined,{timeout:10000});
     await waitFor(()=>expect(alert.textContent).toContain(say('zh-Hans','errors','upload_retry')));
-    expect(alert.querySelector('details')?.textContent).toContain('Upload connection interrupted');
+    expect(alert.textContent).not.toContain('Upload connection interrupted');
     // An upload nothing can move any further stops calling itself one: the card left behind is the
     // paused one, which offers continuing and choosing another scenario. It used to go on drawing
     // a progress bar with a cancel button, which is what this test used to click.
@@ -248,7 +248,7 @@ it.each(['retryConnection','resume'])('names a stopped upload in its own words, 
   // what happened in a word this product has, and the English stays the log line it is.
   await waitFor(()=>expect(alert.textContent).toContain(say('zh-Hans','errors','upload_retry')))
   expect(alert.textContent).not.toContain(say('zh-Hans','errors','unknown'))
-  expect(alert.querySelector('details')?.textContent).toContain('transport request timed out')
+  expect(alert.textContent).not.toContain('transport request timed out')
   // And the card stops saying the upload is running: the job is paused, which is both true and
   // something the player can act on.
   expect(host.job.state).toBe('paused')

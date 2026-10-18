@@ -7,6 +7,7 @@ import type { Readable } from 'node:stream';
 import { pathToFileURL } from 'node:url';
 
 type Row = Record<string, any>;
+const PUBLIC_PREPARATION_STAGES=new Set(['guidance','index','read','ready','skeleton','source','verify']);
 const PUBLIC_FIELDS=['era','starting_place','public_premise','creation_advice'] as const;
 const PUBLIC_STATES=['queued','searching','found','checking','confirmed','needs_choice','unavailable'];
 /** Closed public projection only; private reader progress is never used as display text. */
@@ -209,6 +210,19 @@ export class CocOnboardingHost {
   private get contentRoot(): string {
     return resolve(this.options.repo, this.options.contentRoot ?? this.options.env.PI_COC_CONTENT_ROOT ?? 'content');
   }
+  /** Browser errors carry registered captions; source diagnostics remain private. */
+  publicFailure(error:unknown):Refusal {
+    const code=(error as {code?:unknown})?.code;
+    return {code:typeof code==='string'&&registeredCodes(this.contentRoot)?.has(code)?code:'preparation_failed',message:''};
+  }
+  exposeFailure(error:unknown):Refusal {
+    try {
+      mkdirSync(this.root,{recursive:true});
+      appendFileSync(join(this.root,'errors.jsonl'),JSON.stringify({at:new Date().toISOString(),type:'diagnostic',
+        code:(error as any)?.code,detail:error instanceof Error?error.message:String(error)})+'\n');
+    } catch { /* A private logging failure cannot bypass the public error boundary. */ }
+    return this.publicFailure(error);
+  }
   /**
    * The chrome's words for one play language, so the overlay never has to name a language itself.
    *
@@ -326,17 +340,12 @@ export class CocOnboardingHost {
     const phase=(name:string)=>{
       const saved=job.preparation?.[name]||{state:'queued'};
       const alive=this.children.has(this.phaseKey(job,name));
-      // The player's explanation is the code's caption; the message is the diagnostic, for the log
-      // behind the fold. This used to replace the diagnostic with a sentence written here, which
-      // discarded what actually failed *and* put English in front of a player who chose another
-      // language (BUG-039). Codes are settled on the way out as well as on the way in, so a job
-      // recorded before this rule still answers with a caption the renderer can find.
-      const failure=saved.state==='failed'
-        ? {...captioned(this.contentRoot,{code:typeof saved.code==='string'?saved.code:'',
-            message:typeof saved.error==='string'?saved.error:''},'preparation_failed'),
-          ...(typeof saved.reason==='string'?{reason:saved.reason}:{}),...(saved.refusal?{refusal:saved.refusal}:{})}
-        : undefined;
-      return {stage:saved.stage,progress:saved.progress,candidates:saved.candidates,error:failure,
+      const failure=saved.state==='failed'?this.publicFailure({code:saved.code}):undefined;
+      const progress:Row={};
+      for(const key of ['reviewed','review_total','activeReaders'])if(typeof saved.progress?.[key]==='number'&&Number.isFinite(saved.progress[key])&&saved.progress[key]>=0)
+        progress[key]=saved.progress[key];
+      const stage=PUBLIC_PREPARATION_STAGES.has(saved.stage)?saved.stage:name==='guidance'?'guidance':'read';
+      return {stage,progress,candidates:saved.candidates,error:failure,
         state:saved.state==='running'&&!alive?'paused':saved.state,stopping:saved.state==='paused'&&alive};
     };
     const guidance=phase('guidance'),opening=phase('opening');
@@ -349,13 +358,12 @@ export class CocOnboardingHost {
     const stalled=written==='uploading'&&this.stalledUpload(job);
     const state=stalled?'paused':written;
     const interrupted=stalled?{code:'upload_retry',
-      message:'No upload bytes have arrived for some time; send the file again from where it stopped.'}:undefined;
+      message:''}:undefined;
     return {id:job.id,name:job.name,source:job.source,size:job.size,received:job.received,state,pages,indexed,
       stage:current.stage,reviewed:current.progress?.reviewed,reviewTotal:current.progress?.review_total,
       activeReaders:current.progress?.activeReaders||0,stopping:current.stopping,
       candidates:current.candidates,
-      error:interrupted||current.error||(job.error?captioned(this.contentRoot,
-        {code:typeof job.error_code==='string'?job.error_code:'',message:String(job.error)},'preparation_failed'):undefined),
+      error:interrupted||current.error||(job.error?this.publicFailure({code:job.error_code}):undefined),
       preparation:{guidance,opening},character:{state:character},canConverse,
       publicFields:job.public_preparation?.fields,
       canHandoff:character==='confirmed'&&(waitingForOpening||handoffCommitted)&&opening.state==='ready'&&!playing,playing,hidden:!!job.hidden,

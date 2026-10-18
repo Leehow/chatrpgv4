@@ -189,7 +189,7 @@ it('bounds upload bytes, acknowledges offsets and rejects another session',async
   // A failure the overlay shows is a code it can look a word up by, never prose alone.
   expect(typeof invalid.error.code).toBe('string');
   expect(invalid.error.code).not.toBe('');
-  expect(invalid.error.message).toBeTruthy();
+  expect(invalid.error.message).toBe('');
 });
 
 /**
@@ -204,6 +204,7 @@ async function contentRoot(){
   for(const tag of ['zz','en']){
     await mkdir(join(root,'ui',tag),{recursive:true});
     await writeFile(join(root,'ui',tag,'onboarding.json'),JSON.stringify({heading:`${tag} heading`}));
+    await writeFile(join(root,'ui',tag,'errors.json'),JSON.stringify({reading_timeout:`${tag} timeout`,preparation_failed:`${tag} preparation failed`}));
   }
   return root;
 }
@@ -254,7 +255,7 @@ it('every onboarding answer carries its own language words, and every refusal a 
   await new Promise(resolve=>setTimeout(resolve,0));
   const failed=await host.invoke({action:'status',id:started.id},'one',model);
   expect(failed.preparation.guidance.error.code).toBe('reading_timeout');
-  expect(failed.preparation.guidance.error.message).toBeTruthy();
+  expect(failed.preparation.guidance.error.message).toBe('');
   expect(failed.error.code).toBe('reading_timeout');
 });
 it('conversation binding is idempotent and never creates an investigator',async()=>{
@@ -628,7 +629,7 @@ it('reports an upload nobody is pushing as interrupted, and still takes the next
   expect(quiet.state).toBe('paused');
   expect(quiet.received).toBe(4);
   expect(quiet.error.code).toBe('upload_retry');
-  expect(quiet.error.message).toBeTruthy();
+  expect(quiet.error.message).toBe('');
   // `current` is the poll the overlay actually runs; it must tell the same truth.
   expect((await host.invoke({action:'current'},'one',model)).current_import.state).toBe('paused');
   // The report is a reading, not a write: the file on disk still says what it is waiting for.
@@ -685,7 +686,7 @@ it('continues a paused upload from the bytes already acknowledged',async()=>{
  * the diagnostic behind it is the one that happened.
  */
 it('settles an unregistered failure code to a registered caption and keeps the real diagnostic',async()=>{
-  const {host}=await service();
+  const {host,home}=await service();
   vi.spyOn(host as any,'run').mockImplementation((action:any)=>action==='converse'?Promise.resolve({}):
     Promise.reject(Object.assign(new Error('the reading could not prepare this material'),{code:'needs'})));
   const started=await host.invoke({action:'select',source:'module',module_id:'book-1',name:'Book'},'one',model);
@@ -693,7 +694,8 @@ it('settles an unregistered failure code to a registered caption and keeps the r
   const failed=await host.invoke({action:'status',id:started.id},'one',model);
   const reason=failed.preparation.guidance.error;
   expect(reason.code).toBe('preparation_failed');
-  expect(reason.message).toBe('needs: the reading could not prepare this material');
+  expect(reason.message).toBe('');
+  expect(await readFile(join(home,'.coc/imports',started.id,'job.json'),'utf8')).toContain('the reading could not prepare this material');
   // A code the surface does register is untouched, so this settles nothing it does not have to.
   expect(await import('node:fs/promises').then(fs=>fs.readFile(
     resolve(import.meta.dirname,'../../../../content/ui/en/errors.json'),'utf8'))
@@ -719,7 +721,7 @@ it('tells the player the host\'s own sentence and keeps the diagnostic in the lo
   expect(failed.error.code).toBe('interrupted');
   // The vendor's sentence does not.
   expect(failed.error.message).not.toContain('Invalid PDF structure');
-  expect(failed.error.message).toBe(PREPARATION_STOPPED);
+  expect(failed.error.message).toBe('');
   // ...and it is not lost: the worker's own account is in this import's event log, where a
   // diagnostic belongs. Dropping it at the player must not mean dropping it.
   const events=await readFile(join(home,'.coc/imports',job.id,'events.jsonl'),'utf8');
@@ -752,7 +754,7 @@ it('never shows a crashed worker\'s stderr, and keeps it in the event log',async
   const failed=await host.invoke({action:'finish',id:job.id},'one',model);
 
   expect(failed.state).toBe('failed');
-  expect(failed.error.message).toBe(PREPARATION_STOPPED);
+  expect(failed.error.message).toBe('');
   // Nothing of the crash reaches the player: not the stack, not the path, not a fragment of either.
   expect(JSON.stringify(failed)).not.toContain(MARKER);
   // ...and it is kept, because a boundary that drops a diagnostic has lost it, not moved it.
@@ -778,8 +780,8 @@ it('titles the campaign with the book, not the upload file name',async()=>{
   await host.invoke({action:'converse',id:job.id},'one',model);
   expect(runs.find(run=>run.action==='converse')!.data.title).toBe('血色公路');
 });
-it('keeps a typed provider refusal on the failed phase and its snapshot',async()=>{
-  const {host}=await service();
+it('keeps a typed provider refusal privately while exposing its registered caption',async()=>{
+  const {host,home}=await service();
   const refusal={message:"provider_budget_refused: budget_input_tokens (the call asked for 500000 inputTokens; the lease's ceiling is 1000000, 649066 used, 0 held by other calls)",
     rule:'provider_budget_refused',reason:'budget_input_tokens'};
   vi.spyOn(host as any,'run').mockImplementation(()=>Promise.reject(Object.assign(new Error(`The reading of "Start: Lima" was refused: ${refusal.message}.`),
@@ -788,8 +790,38 @@ it('keeps a typed provider refusal on the failed phase and its snapshot',async()
   await new Promise(resolve=>setTimeout(resolve,0));
   const failed=await host.invoke({action:'status',id:job.id},'one',model);
   expect(failed.preparation.guidance.state).toBe('failed');
-  expect(failed.preparation.guidance.error.reason).toBe('reading_failed');
-  expect(failed.preparation.guidance.error.refusal).toEqual(refusal);
-  expect(failed.error.refusal.reason).toBe('budget_input_tokens');
-  expect(failed.error.message).toMatch(/budget_input_tokens.*ceiling is 1000000, 649066 used/);
+  expect(failed.preparation.guidance.error).toEqual({code:'preparation_failed',message:''});
+  expect(failed.error).toEqual({code:'preparation_failed',message:''});
+  const saved=JSON.parse(await readFile(join(home,'.coc/imports',job.id,'job.json'),'utf8'));
+  expect(saved.preparation.guidance.refusal).toEqual(refusal);
+  expect(saved.preparation.guidance.reason).toBe('reading_failed');
+});
+
+it('keeps legacy source diagnostics out of every public import projection',async()=>{
+ const {host,home}=await service(),marker='PRIVATE_SOURCE_REVIEW_SENTINEL';
+ vi.spyOn(host as any,'run').mockImplementation((action:any)=>action==='catalog'?Promise.resolve({modules:[]}):Promise.reject(Object.assign(new Error(marker),{code:'needs',reason:marker,refusal:{message:marker}})));
+ const job=await host.invoke({action:'select',source:'module',module_id:'book-1',name:'Book',play_language:'en'},'one',model);
+ await new Promise(resolve=>setTimeout(resolve,0));
+ const path=join(home,'.coc/imports',job.id,'job.json'),saved=JSON.parse(await readFile(path,'utf8'));
+ saved.preparation.guidance.stage=marker;saved.preparation.guidance.progress={reviewed:2,review_total:3,activeReaders:1,detail:marker};
+ await writeFile(path,JSON.stringify(saved));
+ for(const params of [{action:'status',id:job.id},{action:'current'},{action:'catalog',play_language:'en'}]){
+  const reply=await host.invoke(params,'one',model);expect(JSON.stringify(reply)).not.toContain(marker);
+  const value=params.action==='status'?reply:reply.current_import;
+  expect(value.error).toEqual({code:'preparation_failed',message:''});expect(value.reviewed).toBe(2);expect(value.reviewTotal).toBe(3);
+ }
+ expect(await readFile(path,'utf8')).toContain(marker);
+});
+
+it('direct onboarding failure projection keeps its diagnostic in private evidence',async()=>{
+ const {host,home}=await service(),marker='PRIVATE_DIRECT_FAILURE_SENTINEL';
+ expect(host.exposeFailure(Object.assign(new Error(marker),{code:'needs',refusal:{message:marker}}))).toEqual({code:'preparation_failed',message:''});
+ expect(await readFile(join(home,'.coc/imports/errors.jsonl'),'utf8')).toContain(marker);
+ expect(host.publicFailure({code:'upload_retry',message:marker})).toEqual({code:'upload_retry',message:''});
+});
+
+it('a private diagnostic write failure still returns the safe public error',async()=>{
+ const {host,home}=await service();
+ await mkdir(join(home,'.coc'),{recursive:true});await writeFile(join(home,'.coc/imports'),'occupied');
+ expect(host.exposeFailure(new Error('PRIVATE_SOURCE_DIAGNOSTIC'))).toEqual({code:'preparation_failed',message:''});
 });

@@ -314,7 +314,8 @@ function providerFailure(run: ReaderOutcome, shared: boolean): { error: KernelEr
 /**
  * §22.3.1 / §48: a reading the publication gate refused is said in one sentence built from the refusal the
  * kernel kept -- the field it refused and the gate's own reason, the same record findings.json holds. It is
- * written here, so it is branded `said` here; the preparation overlay shows it instead of the generic stop.
+ * written here, so it retains the legacy `said` marker for internal consumers. The browser preparation boundary
+ * projects a registered error code only: authored diagnostics may still contain private source facts.
  */
 /** §22.3.3 (SL-57): what a reader re-reading a refused focus is told (system language). */
 export const REVIEW_RETRY_ASK = "An earlier reading of this focus was refused at independent review: task.review_retry.refused lists each refused field "

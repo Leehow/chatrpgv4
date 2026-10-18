@@ -13,11 +13,31 @@ import {Check} from 'typebox/value';
 import readerSubmit from '../../extensions/module/reader-submit.ts';
 import {normalizeSourceDraft} from '../../extensions/module/reader-normalize.ts';
 import {readerInput,readerCommand,nativeSourceReaderEnabled} from '../../extensions/module/reader.ts';
+import {importSource} from '../integration/support.ts';
 
 const draft={nodes:[{node_id:'scene-dock',node_kind:'scene',name:'Dock',source_refs:[{page:1}],properties:{is_entrance:true}}],claims:[],node_refs:[],coverage:{},dependencies:[],critical:[],ready_nodes:[]};
 const guidance={opening:'At the dock, who are you?',advice:'Public source premise.',scene:'Dock',guide:'',handoff:'Continue the meeting.'};
 const review={checked:[{paths:['/nodes/0'],source_refs:[{page:1}],verdict:'supported'}],missing:[],guidance:{approved:true,issues:[]}};
 const json=(path,value)=>writeFile(path,JSON.stringify(value)+'\n');
+test('entrance references normalize presentation only within a unique issued candidate',async()=>{
+ const {resolveStartScene}=await importSource('kernel-ts/modules/visual.ts');
+ const contract={graph:{actor_dossier:{}}};
+ const first={node_id:'scene-inn',node_kind:'scene',name:'The "Old Oak" Inn',properties:{is_entrance:true}};
+ const graph={module_id:'book',nodes:[first],relations:[],entry_scene_ids:['scene-inn']};
+ assert.equal(resolveStartScene(graph,'The Old Oak Inn',contract),'scene-inn');
+ assert.equal(resolveStartScene(graph,'An invented inn',contract),null);
+ const other={...first,node_id:'scene-other',name:'The Old Oak Inn'};
+ const ambiguous={...graph,nodes:[first,other],entry_scene_ids:['scene-inn','scene-other']};
+ assert.equal(resolveStartScene(ambiguous,"The 'Old Oak' Inn",contract),null,'normalized collisions never pick a scene');
+ assert.equal(resolveStartScene(ambiguous,'scene-inn',contract),'scene-inn','exact operational identity has precedence');
+ assert.equal(resolveStartScene(ambiguous,'The Old Oak Inn',contract),'scene-other','exact names precede text normalization');
+});
+
+test('source vocabulary exposes the same reference array shape used by validation',async()=>{
+ const {vocabulary,SHARD_REFERENCE_FIELDS}=await importSource('kernel-ts/modules/contract.ts');
+ const projected=vocabulary({graph:{actor_dossier:{}},template:{}});
+ for(const field of SHARD_REFERENCE_FIELDS){assert.equal(projected.shard_field_shapes[field].type,'array');assert.equal(projected.shard_field_shapes[field].items.type,'string');}
+});
 async function submitSaved(tool,dir,id,values,signal){
  for(const [key,value] of Object.entries(values))await json(join(dir,key==='public_fields'?'public-fields.json':key+'.json'),value);
  return tool.execute(id,{},signal);
@@ -294,6 +314,16 @@ test('review submission preserves negative findings and refuses unread citations
  assert.deepEqual(JSON.parse(await readFile(join(dir,'review.json'),'utf8')),negative);
  await json(join(dir,'guidance.json'),{...guidance,opening:'Tampered'});
  await assert.rejects(tool.execute('changed',{review}),/candidate pair/);
+});
+
+test('native logic review submit requires impacts before it can terminate',async t=>{
+ const {tool,see,dir}=await setup(t,true,'guidance',{review_policy:'module-logic-v1'});see();
+ const invalid={...review,missing:[{source:'A viewed page',why:'The current dependency needs attention.'}]};
+ assert.ok(JSON.stringify(tool.parameters).includes('impact'));
+ await assert.rejects(tool.execute('unclassified',{review:invalid}),/impact/);
+ const valid={...invalid,missing:[{...invalid.missing[0],impact:'logic'}]};
+ assert.equal((await tool.execute('classified',{review:valid})).terminate,true);
+ assert.equal(JSON.parse(await readFile(join(dir,'review.json'),'utf8')).missing[0].impact,'logic','a genuine blocking judgment stays negative');
 });
 
 test('Pi ends a checked submission without a final model request; mixed batches still continue',async t=>{

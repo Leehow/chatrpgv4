@@ -15,7 +15,7 @@ import { sheetReviewPaths } from "../../kernel-ts/modules/sheet-review.ts";
 import { pregenInventoryPath } from '../../kernel-ts/modules/pregens-material.ts';
 import {checkedCharacterProfile, characterProfilePath} from '../../kernel-ts/modules/character-profile-shape.ts';
 import {validatePublicGuidance} from '../../kernel-ts/modules/public-guidance.ts';
-import {moduleLogicReview,moduleReviewRoot,advisoryModuleFinding,blockingModuleFindings,moduleGuidanceApproved,moduleReviewOutcome,reviewClassificationFields} from '../../kernel-ts/modules/module-review-policy.ts';
+import {MODULE_REVIEW_IMPACTS,moduleLogicReview,moduleReviewRoot,advisoryModuleFinding,blockingModuleFindings,moduleGuidanceApproved,moduleReviewOutcome,reviewClassificationFields} from '../../kernel-ts/modules/module-review-policy.ts';
 import {READING_REVIEW_FALLBACK,readingReviewBudget} from '../../runtime/jev/host-budgets.ts';
 
 type Row = Record<string, any>;
@@ -384,8 +384,13 @@ function resolves(draft: Row, path: unknown): boolean { return pointerValue(draf
  *
  * The unit already has a second attempt. Checking here is what lets it be used.
  */
-export function checkReviewEvidence(review: Row, paths: string[], pages: Set<number>, requiredPages: number[] = [], draft?: Row) {
+export function checkReviewEvidence(review: Row, paths: string[], pages: Set<number>, requiredPages: number[] = [], draft?: Row, policy:Row={}) {
 	if (!Array.isArray(review?.checked) || !Array.isArray(review?.missing)) throw new Error("invalid source review");
+ if(moduleLogicReview(policy)){
+  const findings=[...review.checked.filter((row:Row)=>row?.verdict!=='supported'),...review.missing,...(Array.isArray(review.guidance?.issues)?review.guidance.issues:[])];
+  for(const finding of findings)if(!finding||typeof finding!=='object'||Array.isArray(finding)||!MODULE_REVIEW_IMPACTS.includes(finding.impact))
+   throw new Error('Each negative checked finding, missing item and guidance issue requires an explicit impact: logic, presentation or parameter. This is a review protocol error; classify the finding from original evidence, not a request to rewrite the candidate.');
+ }
 	const checked = new Set<string>(), assigned = new Set(paths);
 	for (const row of review.checked) {
 		if (!Array.isArray(row?.source_refs) || !row.source_refs.length)
@@ -469,7 +474,7 @@ async function cachedReview(file: string, key: string, paths: string[], guidance
 			review = moveReview(review, entry.roots, fact.roots);
 			if (!review) return;
 		}
-		checkReviewEvidence(review, paths, new Set(pages), requiredPages, draft);
+		checkReviewEvidence(review, paths, new Set(pages), requiredPages, draft,policy);
 		if (approved(review, guidance,policy,draft)) return {review, pages, evidence:entry.review_path};
 	} catch { /* A missing or modified original proof is a cache miss. */ }
 }
@@ -690,7 +695,7 @@ export async function reviewCandidate(options: {
 		if (!options.coverageCarry || scope === undefined || !paths.includes('/coverage')) return undefined;
 		const carry = coverageCarry(options.coverageCarry, {draft:options.draft, task:options.task, paths, scope});
 		if (!('review' in carry)) return carry;
-		try { checkReviewEvidence(carry.review, paths, new Set(carry.pages), requiredPages, options.draft); return carry; }
+		try { checkReviewEvidence(carry.review, paths, new Set(carry.pages), requiredPages, options.draft,options.task); return carry; }
 		catch { return {reason:'evidence'}; }
 	};
 	const pagesFor = (paths: string[]) => answerTask ? [...new Set<number>((options.draft.source_refs ?? []).map((ref: Row) => ref.page))]
@@ -711,7 +716,7 @@ export async function reviewCandidate(options: {
 			const appended = options.appendCarry && !paths.includes('/coverage') ? options.appendCarry(paths) : undefined;
 			if (appended) {
 				try {
-					checkReviewEvidence(appended.review, paths, new Set(appended.pages), pagesFor(paths), options.draft);
+					checkReviewEvidence(appended.review, paths, new Set(appended.pages), pagesFor(paths), options.draft,options.task);
 					results[index] = appended.review; unitPages[index] = appended.pages; for (const page of appended.pages) observed.add(page); completed++;
 					options.record({lane:'reading',phase:'verify',unit:index+1,ms:0,ok:true,reused:true,carried_from:appended.carried_from,pages:[...appended.pages].sort((a,b)=>a-b)});
 					options.progress({stage:'verify',reviewed:completed,review_total:units.length,activeReaders:active});
@@ -873,7 +878,7 @@ export async function reviewCandidate(options: {
 				const review = JSON.parse(await readFile(join(cwd, "review.json"), "utf8"));
 				if (guidanceBytes && await readFile(join(cwd, "guidance.json"), "utf8") !== guidanceBytes) throw new Error("reviewer modified guidance");
 				if (publicBytes && await readFile(join(cwd,'public-fields.json'),'utf8') !== publicBytes) throw new Error('reviewer modified public fields');
-				checkReviewEvidence(review, ask, pages, requiredPages, options.draft);
+				checkReviewEvidence(review, ask, pages, requiredPages, options.draft,options.task);
 				if (answerTask) checkAnswerReviewShape(review, Number(options.task.source?.page_count) || Number.MAX_SAFE_INTEGER, pages, requiredPages);
 				keep(review, [...pages]);
 				results[index] = kept;
