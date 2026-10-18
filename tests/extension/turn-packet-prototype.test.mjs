@@ -409,6 +409,28 @@ test('earlier direct NPC settlement reaches final author without repeating the c
  assert.deepEqual(task.result.outcomes.filter(row=>row.kind==='npc').map(row=>({actor:row.actor,to:row.to,status:row.status})),[{actor:ref,to:'away',status:'changed'}]);
 });
 
+for(const mode of ['repair','repeat','unrelated'])test('native staged parameter recovery preserves the transaction boundary: '+mode,async t=>{
+ const batches=[];let requests=0;
+ const engine=createHybridEngine({env,decision:{decide:async batch=>{batches.push(batch);return answer(batch,.99);}}});
+ const bad={...brief,commands:[movement,{kind:'scene',service:'closed',crowd:'quiet'}]};
+ const second=mode==='repeat'?bad:mode==='unrelated'?{...brief,commands:[]}:{...brief,commands:[movement,{kind:'scene',service:'closed',crowd:'empty'}]};
+ const table=await openTable({legacyDeliveryFixtures:false,realKernel:true,prepareWorkspace:opened,env,runDriver:engine.runDriver,
+  extraExtensions:[{name:'engine',factory:engine.extension}],responses:[bad,second,{...brief,commands:[movement,{kind:'scene',service:'closed',crowd:'empty'}]}].map(args=>()=>{
+   requests++;return fauxAssistantMessage([rawToolCall('output',args)],{stopReason:'toolUse'});
+  })});t.after(()=>table.dispose());await table.session.prompt('I leave the office and walk to Central Library now.');
+ assert.deepEqual(table.extensionErrors,[]);assert.equal(requests,2);
+ const errors=table.session.messages.filter(row=>row.role==='toolResult'&&row.toolName==='output'&&row.isError);
+ assert.match(JSON.stringify(errors[0]),/transaction_state.*uncommitted/);
+ assert.match(JSON.stringify(errors[0]),/before_commit/);
+ assert.equal(batches.filter(row=>row.family==='continuous-action-admission').length,1,'unchanged movement reuses its consent decision');
+ assert.equal(batches.filter(row=>row.family==='held-act-outcome').length,0);
+ const turn=JSON.parse(readFileSync(join(table.workspace,'.coc/campaigns/test-camp/turns/0001.json'),'utf8'));
+ assert.equal(turn.receipts.filter(row=>row.kind==='move').length,mode==='repair'?1:0);
+ assert.equal(turn.receipts.filter(row=>row.kind==='scene').length,mode==='repair'?1:0);
+ assert.equal(table.entries('coc-final-delivery').filter(row=>row.event==='end'&&row.status==='completed').length,mode==='repair'?1:0);
+ assert.equal(table.telemetry().filter(row=>row.lane==='isolated-expression'&&row.event==='start').length,mode==='repair'?1:0);
+});
+
 test('an earlier partial direct settlement cannot reach the native author as complete',async t=>{
  const batches=[];let ref='npc_1',partial;
  const engine=createHybridEngine({env,decision:{decide:async batch=>{batches.push(batch);return answer(batch,.99);}}});

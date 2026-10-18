@@ -5676,7 +5676,8 @@ export default function (pi: ExtensionAPI, host: {capabilities?:RuntimeCapabilit
 		reply:NonNullable<typeof keeperReply>,ctx?:ExtensionContext){
 		let operationResult:ReturnType<typeof turnPacketResult>={player_actions_complete:true,npc_actions_complete:true,outcomes:[]};
 		let decision:import('../../runtime/isolated-expression.ts').DecisionAuthorContext|undefined;
-		if(heldActs.get(state)?.basis){
+        const held=heldActs.get(state)?.basis;
+		if(held&&(!turnPacketPrototype||held.held.some(row=>row.cause!=='invalid_params'))){
 			endInput(state,'held_act_unconfirmed',undefined,'settled_operation');
 			throw new KernelError({code:'needs',message:'A failed operation cannot release an unverified expression',details:{reason:HELD_ACT_OUTCOME_REASON}});
 		}
@@ -5728,6 +5729,10 @@ export default function (pi: ExtensionAPI, host: {capabilities?:RuntimeCapabilit
 			decision={scene:decisionScene(current),clock:decisionClock(where.clock??{}),responses:compiled.responses,people,
 				recent_public:decisionRecentPublic(current.recent,state.delivered)};
 		}
+        if(heldActs.get(state)?.basis){
+            endInput(state,'held_act_unconfirmed',undefined,'settled_operation');
+            throw new KernelError({code:'needs',message:'A failed operation cannot release an unverified expression',details:{reason:HELD_ACT_OUTCOME_REASON}});
+        }
 		if(!runtime)throw Error('The expression runtime is unavailable');
 		const legacy=decision?undefined:expression as import('../../runtime/isolated-expression.ts').ExpressionBrief;
 		reply.stream=await finalOutput.openStream(state.campaign,state.turn,reply.run,'isolated-expression',decision?decision.responses.map(row=>row.actor):legacy!.npc_turns.map(person=>person.speaker),state.party.map(person=>person.name));
@@ -5770,11 +5775,13 @@ export default function (pi: ExtensionAPI, host: {capabilities?:RuntimeCapabilit
 		}
 		state.renderedText=undefined;
 	}
-    function refusePacketParameters(state:TableState,error:unknown,ctx?:ExtensionContext){
+    function refusePacketParameters(state:TableState,error:unknown,ctx?:ExtensionContext,beforeCommit=false){
         const retry=state.packetParameterRefused!==true;state.packetParameterRefused=true;
         if(!retry)endInput(state,'parameter_protocol_repeated',ctx,'settled_operation');
-        const refusal={code:'invalid_params',message:error instanceof Error?error.message:String(error),details:{reason:'turn_packet_parameters',before_execution:true}};
-        void record({lane:'arguments',event:'packet_parameters_refused',turn:state.turn,retry,jev_calls:0});
+        const refusal={code:'invalid_params',message:error instanceof Error?error.message:String(error),
+            ...(isKernelError(error)&&error.fix?{fix:error.fix}:{}),
+            details:{...(isKernelError(error)?error.details:{}),reason:'turn_packet_parameters',...(beforeCommit?{before_commit:true}:{before_execution:true})}};
+        void record({lane:'arguments',event:'packet_parameters_refused',turn:state.turn,retry,phase:beforeCommit?'before_commit':'before_execution',jev_calls:0});
         return {retry,refusal};
     }
 	async function submitTurnPacket(params:Record<string,unknown>,signal?:AbortSignal,ctx?:ExtensionContext){
@@ -5799,6 +5806,10 @@ export default function (pi: ExtensionAPI, host: {capabilities?:RuntimeCapabilit
 			await publishKeeperResult(state,reply,authored,authored.model,authored.thinking,ctx);
 			return{content:[{type:'text' as const,text:'The turn was published.'}],details:{published:true},terminate:true};
 		}catch(error){
+			if(!reply.evidence&&!reply.stream&&isKernelError(error)&&error.code==='invalid_params'&&error.details?.transaction_state==='uncommitted'){
+                const {retry,refusal}=refusePacketParameters(state,error,ctx,true);
+                return {content:[{type:'text' as const,text:JSON.stringify(refusal)}],details:{coc_error:refusal},terminate:!retry};
+            }
 			if(reply.evidence)finalOutput.finishStream(reply.evidence,'publication_pending');
 			else if(reply.stream){reply.stream.interrupt();endInput(state,'public_stream_interrupted',ctx);}
 			else if(heldActs.get(state)?.basis)endInput(state,'held_act_unconfirmed',ctx,'settled_operation');

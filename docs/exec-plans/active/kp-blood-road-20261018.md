@@ -117,3 +117,22 @@ NPC repair components pass; typed event diagnostic awaits latest clean build.
 A final defensive change clears capture on re-entry and validates current
 dispatched arguments. Gate10 passed: ext6063pass/9skip, integration2226pass/1skip,
 routing12pass, wall1339s. Chapter still incomplete; no intent28 sent.
+
+## Browser intents28–30 and precommit recovery
+
+Intent28 delivered25.907s: one Keeper request, one author, zero foreground
+Jev, one background material screen662ms, three recorded context-cache hits.
+Intent29 failed25.236s: the Keeper expanded a future inquiry into unselected
+Fast Talk; denial then held publication. Zero receipts, no movement. Intent30
+selected only movement: authorized, but quiet population with zero registered
+people rejected the staged move+scene batch. No player effects committed.
+
+The kernel fatal staged rejection now certifies transaction_state=uncommitted
+only when all refused effects are invalid_params. The native host shares its
+one representation correction allowance, preserves failure state and lets a
+corrected invalid-parameter action execute before checking all holds again
+before the sole author. Other failure classes retain the earlier guard.
+Three component cases cover repair, repeated failure and unrelated success.
+Gate11 at5c0 was stopped143 to build the changed root; partial evidence retained,
+not a pass. Do not keep starting full gates during live repairs; run focused
+checks while iterating and one full final gate after the chapter stabilizes.

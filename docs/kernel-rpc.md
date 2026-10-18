@@ -48054,3 +48054,22 @@ For a dispatched invalid_params failure only, retain its full operation key for 
 This proves completion of the existing admitted player-action projection, not equality or truth of all NPC/information metadata. The final author receives the new actual canonical NPC results and current permitted materials; it never treats the old malformed metadata as executed. Authorization refusal followed by invented success remains blocked before authorship. No claim is made that deterministic protocol checks prove arbitrary prose semantically true. The obsolete event receipt metadata flag and event-only reconciliation exception are removed rather than grown into an exception table. Producer: existing admissionRequest plus validated dispatch arguments; reader: argument-class ACT hold; actor: complete canonical settlement and the existing publication owner.
 
 The same owner boundary also governs single-Keeper consent reuse: bind the current input, world/source revision and the exact reviewed operations (including registered destinations, their ordered kinds and full reviewed cash context). Unreviewed NPC/note/event/clue metadata is not part of that authority key. A failed bookkeeping rewrite therefore does not ask the same unchanged player-action question again. Changed reviewed arguments or source/world binding still require the original review. Legacy admission keys and policy decisions remain unchanged.
+
+
+**Native argument correction uses the existing precommit boundary (2026-10-18).**
+A fatal staged apply batch whose refused effects are all invalid_params returns
+host-owned details.transaction_state=uncommitted before buffered campaign writes
+or canonical commit. This proof covers the whole batch, not an error-message
+match or a scene-specific exception. It proves no player effects landed; source
+preparation and diagnostics remain independent. Partial results, unknown commit
+state, authorization, transport and other refusal classes never carry this proof.
+The native packet owner shares its existing one argument-correction allowance
+with this error, preserving the operation identity and complete original error.
+An unresolved invalid-parameter hold alone may wait until corrected native
+commands execute; the same complete player-action key must clear it. Every hold
+is checked again before opening the sole author. Other refusal classes keep the
+earlier strict guard, and an unrelated successful command cannot clear a hold.
+No new judge or automatic semantic correction is introduced. Stripe separates
+validation rejection from committed idempotent results; PostgreSQL rollback
+provides the analogous all-or-nothing boundary. These are precedents, not claims
+that this file-backed kernel uses a database.

@@ -422,7 +422,8 @@ export function createApplyHandlers(kernel: KernelContext, writer: ReturnType<ty
                 // that they may be refusals only because the first effect never landed.
                 throw new RpcError(first.error.code, first.error.message, {
                     fix: first.error.fix, codeDetail: first.error.codeDetail,
-                    details: { index: first.index, ...first.error.details, ...(refused.length > 1 ? {
+                    details: { index: first.index, ...first.error.details,
+                        ...(refused.every(({error})=>error.code==='invalid_params')?{transaction_state:'uncommitted'}:{}), ...(refused.length > 1 ? {
                         refused: refused.map(({ index, error }) => ({ index, code: error.code, message: error.message,
                             ...(error.fix ? { fix: error.fix } : {}) })),
                         refused_note: 'every effect this batch refused; those after the first may be refused only because it did not land',
