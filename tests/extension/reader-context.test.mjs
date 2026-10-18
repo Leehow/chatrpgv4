@@ -43,6 +43,38 @@ const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "../..");
 
 const quote = value => "'" + value.replaceAll("'", "'\\''") + "'";
 
+for(const shape of ['decision','legacy'])test('the same final author corrects a rejected artifact write before acknowledging completion: '+shape,async t=>{
+ const fixture=await confinementFixture(t),env={...fixture.env,PI_COC_FINAL_OUTPUT:'1'};delete env.PI_COC_READER_SOURCE;
+ const path=join(fixture.cwd,'draft.json'),prior=JSON.stringify({version:1,text:'Prior complete draft.',coverage:[]});await writeFile(path,prior);
+ const name='current-event/detail',text='The sign reads: \'Open at noon.\'';
+ const materials=[{name,text:'The sign reads: “Open at noon.”'}];
+ await writeFile(join(fixture.cwd,'task.json'),JSON.stringify(shape==='decision'?{decision_context:{settled_results:{materials}}}:{materials,required:[name]}));
+ const bad={version:1,text,coverage:[{name,quote:'The sign reads: “Open at noon.”'}]},good={...bad,coverage:[{name,quote:text}]};
+ const faux=fauxProvider();let requests=0;
+ faux.setResponses([
+  ()=>{requests++;return fauxAssistantMessage([fauxToolCall('write',{path:'draft.json',content:JSON.stringify(bad)})],{stopReason:'toolUse'});},
+  async context=>{requests++;assert.equal(await readFile(path,'utf8'),prior,'the rejected write preserves the prior artifact');
+   const reply=context.messages.filter(row=>row.role==='toolResult').at(-1);assert.equal(reply.isError,true);assert.match(JSON.stringify(reply.content),/coverage\[0\].quote/);
+   return fauxAssistantMessage([fauxToolCall('write',{path:'draft.json',content:JSON.stringify(good)})],{stopReason:'toolUse'});},
+  context=>{requests++;assert.equal(context.messages.filter(row=>row.role==='toolResult').at(-1).isError,false);return fauxAssistantMessage('Written.');}
+ ]);
+ const modelRuntime=await ModelRuntime.create({authPath:join(fixture.home,'auth.json'),modelsPath:null,modelsStorePath:join(fixture.home,'models.json'),refreshOnCreate:false,allowModelNetwork:false});modelRuntime.registerNativeProvider(faux.provider);
+ const settingsManager=SettingsManager.inMemory({compaction:{enabled:false},retry:{enabled:false}}),registered=[];
+ const resourceLoader=new DefaultResourceLoader({cwd:fixture.cwd,agentDir:join(fixture.home,'agent'),noContextFiles:true,noSkills:true,noExtensions:true,settingsManager,
+  systemPrompt:'Write the one confined final artifact.',extensionFactories:[{name:'author-context',factory:pi=>{const register=pi.registerTool.bind(pi);pi.registerTool=tool=>{registered.push(tool);register(tool);};readerContext(pi,{cwd:fixture.cwd,env});}}]});
+ await resourceLoader.reload();const {session,extensionsResult}=await createAgentSession({cwd:fixture.cwd,agentDir:join(fixture.home,'agent'),resourceLoader,modelRuntime,model:faux.getModel(),tools:['read','write','edit','bash'],thinkingLevel:'off',settingsManager,sessionManager:SessionManager.inMemory()});
+ t.after(()=>session.dispose());assert.deepEqual(extensionsResult.errors,[]);await session.bindExtensions({mode:'print'});await session.prompt('Write the final response.');
+ assert.equal(requests,3,'one author task stays within the existing four-request budget');assert.deepEqual(JSON.parse(await readFile(path,'utf8')),good);
+ const edit=registered.find(tool=>tool.name==='edit');
+ await assert.rejects(edit.execute('invalid-edit',{path:'draft.json',edits:[{oldText:JSON.stringify(good.coverage),newText:JSON.stringify(bad.coverage)}]}),/Coverage quotation is absent/);
+ assert.deepEqual(JSON.parse(await readFile(path,'utf8')),good,'invalid native edit also preserves the complete previous draft');
+ const changed='A shorter exact detail.';
+ await edit.execute('valid-edit',{path:'draft.json',edits:[{oldText:JSON.stringify(good),newText:JSON.stringify({version:1,text:changed,coverage:[{name,quote:changed}]})}]});
+ assert.equal(JSON.parse(await readFile(path,'utf8')).text,changed);
+ await assert.rejects(edit.execute('unknown-name',{path:'draft.json',edits:[{oldText:name,newText:'unissued-material'}]}),/coverage span/i);
+ assert.equal(JSON.parse(await readFile(path,'utf8')).coverage[0].name,name);
+});
+
 test('real Pi source requests declare one confined bash and preserve checker execution and general-shell refusal', async t => {
   const fixture=await confinementFixture(t),marker=join(fixture.cwd,'checker-ran'),forbidden=join(fixture.cwd,'forbidden-output');
   await writeFile(fixture.wrapper,`#!/bin/sh\nprintf checked > ${quote(marker)}\n`);await chmod(fixture.wrapper,0o755);

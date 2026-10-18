@@ -136,3 +136,26 @@ Three component cases cover repair, repeated failure and unrelated success.
 Gate11 at5c0 was stopped143 to build the changed root; partial evidence retained,
 not a pass. Do not keep starting full gates during live repairs; run focused
 checks while iterating and one full final gate after the chapter stabilizes.
+
+## Author artifact producer validation
+
+Intent31 delivered43.854s after one via protocol correction: one foreground
+Jev548ms, five unique receipts, one move. Intent32 dialogue delivered17.644s,
+one Keeper and one author. Intent33 waited to10:00 and delivered. Intent34
+settled24minutes and4receipts but its file author's coverage quotation copied
+source punctuation absent from its742character draft. The host did not rewrite
+any bytes; final validation correctly refused before new public text.
+
+Confined final author SDK write/edit operations now validate candidate complete
+artifacts before writing; the same task receives ordinary errors and can fix
+within its existing budget. Native and legacy host material DTOs are explicitly
+separate, legacy required coverage preserved. Exact SDK edit remains in use.
+Final publication rechecks; direct prose behavior unchanged.25reader/artifact
+tests and54isolated tests pass. Strict selected graph has25existing diagnostics
+(24tasks implicit-any plus cache JS declaration), identical to ca70 baseline
+after checkout-path normalization; not a green full-typecheck.
+
+The repeated colleague named like the PC is an author continuity error: party
+and NPCrefs are correctly distinct, both names and instructions reach author,
+and old public prose carries the error. Do not invent a registry defect or
+add a semantic judge/regex repair. Main player continues without hidden plot.

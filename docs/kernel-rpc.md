@@ -48073,3 +48073,18 @@ No new judge or automatic semantic correction is introduced. Stripe separates
 validation rejection from committed idempotent results; PostgreSQL rollback
 provides the analogous all-or-nothing boundary. These are precedents, not claims
 that this file-backed kernel uses a database.
+
+
+**The author validates its own file at the tool write boundary (2026-10-18).**
+For confined finalOutput tasks, the SDK write/edit operations validate the complete
+candidate draft.json with the existing delivery artifact validator before the
+filesystem write. Edit still uses the SDK exact/fuzzy replacement implementation;
+only its resulting write is intercepted. Current allowed material names come
+from immutable task.json, using the same public-material projection as the final
+owner. Invalid JSON, artifact shape, names or quotation/span bindings return an
+ordinary tool error to the same author task within its existing request budget,
+leaving the prior draft intact. No new author, repair model, meaning judgment,
+punctuation normalization or source-quotation substitution is introduced. The
+final owner repeats validation before public exposure; direct prose keeps its
+existing path. Anthropic tool-error feedback and schema custom-validation
+practice support checking cross-field constraints at the producing boundary.

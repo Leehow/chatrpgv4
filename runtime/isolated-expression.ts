@@ -5,7 +5,7 @@ import {randomUUID} from 'node:crypto';
 import type {HostRuntime} from './host.ts';
 import {readAuthorModelChoice} from './author-model.ts';
 import {ArtifactTextStream} from './final-output-stream.ts';
-import {validateDeliveryArtifact} from './final-output-artifact.ts';
+import {validateDeliveryArtifact,deliveryMaterialNames} from './final-output-artifact.ts';
 import {responseDecision} from './turn-packet-prototype.ts';
 import {isNpcReference} from './npc-references.ts';
 export {decisionRecentPublic} from './public-exchanges.ts';
@@ -113,11 +113,7 @@ export async function writeIsolatedExpression(input:{runtime:HostRuntime;campaig
   const packet={play_language:language,...(decision?{decision_context:decision}:expression),...(player_input!==undefined?{player_input}:{}),
     ...(input.result?{result:input.result}:{}),
     ...(input.investigatorNames?.length?{investigator_names:[...input.investigatorNames]}:{})};
-  // The delivery owner already filters this DTO to permitted public material.
-  const publicMaterials=(Array.isArray(decision?.settled_results?.materials)?decision.settled_results.materials:[])
-    .filter((material:Row)=>typeof material.name==='string');
-  const materialNames=publicMaterials.flatMap((material:Row)=>[material.name,
-    ...(typeof material.event_ref==='string'&&material.name.startsWith(material.event_ref+'/')?[material.name.slice(material.event_ref.length+1)]:[])]);
+  const materialNames=deliveryMaterialNames(decision?.settled_results?.materials);
   await writeFile(join(attempt,'task.json'),JSON.stringify(packet));
   const decoder=new ArtifactTextStream(),models=new Set<string>();
   let raw='',framed=false,finished=false,fileOutput=false,toolUsed=false,failure:unknown;

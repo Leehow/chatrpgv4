@@ -4,6 +4,9 @@ import {createBashTool,createReadTool,createWriteTool,createEditTool} from '@ear
 import {Type} from 'typebox';
 import {getCurrentSystemMessage} from '@earendil-works/pi-ai';
 import activeCache from '../anthropic-cache/index.js';
+import {deliveryMaterialNames,validateDeliveryArtifact} from '../../runtime/final-output-artifact.ts';
+import {access as accessFile,mkdir as makeDirectory,readFile as readBytes,writeFile as writeBytes} from 'node:fs/promises';
+import {constants as fileConstants} from 'node:fs';
 /** Keep page-image history bounded without changing the recorded reader transcript. */
 import { appendFileSync, lstatSync, readFileSync, realpathSync } from "node:fs";
 import {createHash} from 'node:crypto';
@@ -219,8 +222,16 @@ export function boundImages(messages: any[], delivered: ReadonlySet<string> = ne
 export default function readerContext(pi: any, options: { cwd?: string; env?: NodeJS.ProcessEnv } = {}) {
 	const cwd = options.cwd ?? process.cwd(), env = options.env ?? process.env;
 	if(env.PI_COC_FINAL_OUTPUT==='1'){
+		const writeArtifact=async(path:string,content:string)=>{
+            if(resolve(path)!==join(resolve(cwd),'draft.json'))throw Error('Only draft.json is writable');
+            const packet=JSON.parse(readFileSync(join(cwd,'task.json'),'utf8'));
+            const materials=packet.decision_context?packet.decision_context.settled_results?.materials:packet.materials;
+            validateDeliveryArtifact(JSON.parse(content),deliveryMaterialNames(materials),packet.decision_context?[]:packet.required??[]);
+            await writeBytes(path,content,'utf8');
+        };
 		// Declare the same closed paths the confinement gate executes, before a paid request.
-		for(const tool of [createReadTool(cwd),createWriteTool(cwd),createEditTool(cwd)])pi.registerTool({...tool,
+		for(const tool of [createReadTool(cwd),createWriteTool(cwd,{operations:{writeFile:writeArtifact,mkdir:async path=>{await makeDirectory(path,{recursive:true});}}}),
+            createEditTool(cwd,{operations:{readFile:readBytes,writeFile:writeArtifact,access:path=>accessFile(path,fileConstants.R_OK|fileConstants.W_OK)}})])pi.registerTool({...tool,
 			parameters:Type.Object({...tool.parameters.properties,path:tool.name==='read'
 				?Type.Union([Type.Literal('task.json'),Type.Literal('draft.json')]):Type.Literal('draft.json')}),
 			description:tool.description+(tool.name==='read'?' Only task.json and an existing draft.json are readable.':' Only draft.json is writable.')});
