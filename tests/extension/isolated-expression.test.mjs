@@ -323,6 +323,17 @@ for(const file of [false,true])test('the same author artifact preserves declared
  assert.equal(requests,1);assert.equal(result.text,text);assert.equal(prose.join(''),text);assert.deepEqual(result.coverage,coverage);
 });
 
+test('a failed native parts write cannot fall back to terminal prose',async t=>{
+ const home=await mkdtemp(join(tmpdir(),'expression-native-write-'));t.after(()=>rm(home,{recursive:true,force:true}));
+ let requests=0;const prose=[],runtime={home,async runTask({request}){
+  requests++;request.onEvent({type:'tool_execution_start',toolName:'write',args:{parts:[]}});
+  request.onEvent({type:'message_end',message:{role:'assistant',provider:EXPRESSION_PROFILE.model.split('/')[0],model:EXPRESSION_PROFILE.model.split('/')[1],stopReason:'stop',content:[{type:'text',text:'Replacement prose after a refused file write.'}]}});
+  return {ok:true,ms:1};
+ }};
+ await assert.rejects(writeIsolatedExpression({runtime,campaign:'c',turn:1,run:'r',language:'en',decision:{scene:{},clock:{},people:[],recent_public:[],responses:[]},stream:{push:text=>prose.push(text)},record:async()=>{}}));
+ assert.equal(requests,1);assert.deepEqual(prose,[]);
+});
+
 for(const declaration of ['quote','span','unknown','ambiguous','absent'])test('publication binds author coverage to one current material: '+declaration,async t=>{
  const home=await mkdtemp(join(tmpdir(),'expression-material-binding-'));t.after(()=>rm(home,{recursive:true,force:true}));
  const name='event:t1:Read the notice/notice',text='The notice says the office shuts at midday.';

@@ -159,3 +159,26 @@ The repeated colleague named like the PC is an author continuity error: party
 and NPCrefs are correctly distinct, both names and instructions reach author,
 and old public prose carries the error. Do not invent a registry defect or
 add a semantic judge/regex repair. Main player continues without hidden plot.
+
+## Remove redundant author protocol fields
+
+Intent35 delivered36.922s with one event and no repeated time; its author used
+direct prose, so it did not exercise the file gate. Intent36 settled one event,
+then file write was correctly refused: version was string1 and all3copied
+coverage quotes differed from its own final prose. The same task then tried
+terminal prose; file ownership correctly kept it private. No extra time landed.
+
+The confined native write contract now takes only annotated text parts. Host
+owns fixed version/path and derives coverage ranges from the text written once.
+It reuses existing empty-speech syntax normalization, checks whole-original and
+per-part normalized text agree, and retains actual-speaker checks at publication.
+SDK edit, direct prose, old v1 retained artifacts and budgets are preserved.
+Schema-declared item envelopes use the existing argument normalizer, not another
+dialect implementation. Two DTO real-Pi cases include these envelopes.
+
+26reader tests,28legacy final-output tests,54isolated tests plus the new failed
+parts-write ownership negative pass.25selected-graph type diagnostics remain
+byte-identical to the previous graph. Source-only review caught and verified
+the cross-part speech attribution fix. Browser chapter still incomplete; no
+new input37 sent. Background17jobs:11completed6failed,0queued/running/review;
+3provider500 and3review refusals remain retained failure evidence, not passes.

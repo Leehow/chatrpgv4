@@ -48088,3 +48088,23 @@ punctuation normalization or source-quotation substitution is introduced. The
 final owner repeats validation before public exposure; direct prose keeps its
 existing path. Anthropic tool-error feedback and schema custom-validation
 practice support checking cross-field constraints at the producing boundary.
+
+
+**A file author writes text once; the host derives transport fields (2026-10-18).**
+The existing confined final-author write tool takes {parts:[{text,materials?}]}.
+Each part contains authored prose and optional exact currently issued full
+material names; no path, version, quote copy or offset is model-owned. The host
+uses draft.json/version1, concatenates text in order without inserted separators,
+normalizes empty speech through the existing EmptySpeechStream before calculating
+UTF-16 spans, and checks the combined text is stable under that same pass. Speech
+material spans are intersections with existing sayRanges; actual speaker and
+knowledge activation remain the final owner's responsibility. Unknown fields,
+unknown material names, invalid parts and existing budgets still refuse.
+Parts bind a declared location, not semantic fidelity or world authority. The
+internal v1 artifact, legacy retained drafts, SDK edit, direct-prose transport,
+request budgets and publication checks stay in place. Any native parts write
+attempt selects file ownership immediately, even if refused. The earlier SDK
+write gate remains below this compiler and validates the resulting file. Old
+non-file JSON transport remains a compatibility input, not the advertised file
+writer protocol. ProseMirror marks and W3C annotation selectors support deriving
+locations from annotated text rather than asking a model to duplicate text.

@@ -4,7 +4,8 @@ import {createBashTool,createReadTool,createWriteTool,createEditTool} from '@ear
 import {Type} from 'typebox';
 import {getCurrentSystemMessage} from '@earendil-works/pi-ai';
 import activeCache from '../anthropic-cache/index.js';
-import {deliveryMaterialNames,validateDeliveryArtifact} from '../../runtime/final-output-artifact.ts';
+import {compileDeliveryParts,deliveryMaterialNames,validateDeliveryArtifact} from '../../runtime/final-output-artifact.ts';
+import {normalizeToolArgumentSyntax} from '../../runtime/tool-argument-syntax.ts';
 import {access as accessFile,mkdir as makeDirectory,readFile as readBytes,writeFile as writeBytes} from 'node:fs/promises';
 import {constants as fileConstants} from 'node:fs';
 /** Keep page-image history bounded without changing the recorded reader transcript. */
@@ -156,7 +157,7 @@ export function createReaderToolGuard(cwd: string, env: NodeJS.ProcessEnv = proc
 				return blocked("read", "the path is outside the task directory and its bound PDF cache");
 			return;
 		}
-		const target = writableInside(cwd, roots.task, event.input?.path);
+		const target = writableInside(cwd, roots.task, env.PI_COC_FINAL_OUTPUT==='1'&&event.toolName==='write'?(event.input?.path??'draft.json'):event.input?.path);
 		if (!target) return blocked(event.toolName, "the path escapes the task directory or crosses a symlink boundary");
 		if (env.PI_COC_FINAL_OUTPUT === '1' && target.relative !== 'draft.json')
 			return blocked(event.toolName, 'only draft.json is writable');
@@ -222,17 +223,29 @@ export function boundImages(messages: any[], delivered: ReadonlySet<string> = ne
 export default function readerContext(pi: any, options: { cwd?: string; env?: NodeJS.ProcessEnv } = {}) {
 	const cwd = options.cwd ?? process.cwd(), env = options.env ?? process.env;
 	if(env.PI_COC_FINAL_OUTPUT==='1'){
+        const artifactContext=()=>{
+            const packet=JSON.parse(readFileSync(join(cwd,'task.json'),'utf8'));
+            return {materials:packet.decision_context?packet.decision_context.settled_results?.materials:packet.materials,
+                required:packet.decision_context?[]:packet.required??[]};
+        };
 		const writeArtifact=async(path:string,content:string)=>{
             if(resolve(path)!==join(resolve(cwd),'draft.json'))throw Error('Only draft.json is writable');
-            const packet=JSON.parse(readFileSync(join(cwd,'task.json'),'utf8'));
-            const materials=packet.decision_context?packet.decision_context.settled_results?.materials:packet.materials;
-            validateDeliveryArtifact(JSON.parse(content),deliveryMaterialNames(materials),packet.decision_context?[]:packet.required??[]);
+            const {materials,required}=artifactContext();
+            validateDeliveryArtifact(JSON.parse(content),deliveryMaterialNames(materials),required);
             await writeBytes(path,content,'utf8');
         };
+        const writer=createWriteTool(cwd,{operations:{writeFile:writeArtifact,mkdir:async path=>{await makeDirectory(path,{recursive:true});}}});
+        const writeParameters=Type.Object({parts:Type.Array(Type.Object({text:Type.String({minLength:1,maxLength:64000}),materials:Type.Optional(Type.Array(Type.String({minLength:1}),{maxItems:128}))},{additionalProperties:false}),{minItems:1,maxItems:128})},{additionalProperties:false});
+        const nativeWriter={...writer,description:'Write the final draft from authored text parts. Text is concatenated exactly; include paragraph breaks in text. Optional materials names mark what that part conveys. The host owns the path, version and coverage positions.',
+            parameters:writeParameters,prepareArguments:(args:unknown)=>normalizeToolArgumentSyntax(writeParameters,args,{nativeValidation:true}).args,
+            execute:async(id:string,args:unknown,signal?:AbortSignal,onUpdate?:any)=>{
+                const {materials,required}=artifactContext(),artifact=compileDeliveryParts(args,materials,required);
+                return writer.execute(id,{path:'draft.json',content:JSON.stringify(artifact)},signal,onUpdate);
+            }};
 		// Declare the same closed paths the confinement gate executes, before a paid request.
-		for(const tool of [createReadTool(cwd),createWriteTool(cwd,{operations:{writeFile:writeArtifact,mkdir:async path=>{await makeDirectory(path,{recursive:true});}}}),
+		for(const tool of [createReadTool(cwd),nativeWriter,
             createEditTool(cwd,{operations:{readFile:readBytes,writeFile:writeArtifact,access:path=>accessFile(path,fileConstants.R_OK|fileConstants.W_OK)}})])pi.registerTool({...tool,
-			parameters:Type.Object({...tool.parameters.properties,path:tool.name==='read'
+			parameters:tool.name==='write'?tool.parameters:Type.Object({...tool.parameters.properties,path:tool.name==='read'
 				?Type.Union([Type.Literal('task.json'),Type.Literal('draft.json')]):Type.Literal('draft.json')}),
 			description:tool.description+(tool.name==='read'?' Only task.json and an existing draft.json are readable.':' Only draft.json is writable.')});
 		// The real cwd still confines tools. A random attempt path is not writing material.

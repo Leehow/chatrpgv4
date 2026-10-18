@@ -8,6 +8,24 @@ import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import readerContext, { boundImages, confineReaderEnvironment, createReaderToolGuard } from "../../extensions/module/reader-context.ts";
+import {compileDeliveryParts} from '../../runtime/final-output-artifact.ts';
+import {EmptySpeechStream} from '../../kernel-ts/write/speech-pass.ts';
+
+test('native author parts derive constants and exact positions from the text written once',()=>{
+ const materials=[{name:'event/detail',kind:'fact',text:'A source wording with different punctuation.'},{name:'event/speech',kind:'speech'}];
+ const prefix='Outside.\n\n',words='The sign says: \'Open at noon.\' 😀';
+ const result=compileDeliveryParts({parts:[{text:prefix},{text:'{{say:npc_1}} {{/say}}'+words,materials:['event/detail']}]},materials);
+ assert.equal(result.version,1);assert.equal(result.text,prefix+' '+words);assert.deepEqual(result.coverage,[{name:'event/detail',start:prefix.length,end:result.text.length}]);
+ assert.equal(new EmptySpeechStream().push(result.text,true),result.text);
+ const spoken='A differently worded reply.';
+ const speech=compileDeliveryParts({parts:[{text:prefix},{text:'{{say:npc_1}}'+spoken+'{{/say}}',materials:['event/speech']}]},materials);
+ assert.equal(speech.text.slice(speech.coverage[0].start,speech.coverage[0].end),spoken);assert.ok(speech.coverage[0].start>prefix.length);
+ for(const bad of [{parts:[],version:'1'},{parts:[{text:words,quote:words}]},{parts:[{text:words,materials:['private-unissued']}]},{parts:[]}])assert.throws(()=>compileDeliveryParts(bad,materials));
+ assert.throws(()=>compileDeliveryParts({parts:[{text:'x'.repeat(64001)}]},materials),/budget/);
+ assert.throws(()=>compileDeliveryParts({parts:[{text:words}]},materials,['event/detail']),/Required material/);
+ assert.throws(()=>compileDeliveryParts({parts:[{text:words,materials:['event/detail']}]},[materials[0],materials[0]]),/one current/);
+ assert.throws(()=>compileDeliveryParts({parts:[{text:'{{say:npc_1}}'},{text:'Hello.{{/say}}',materials:['event/speech']}]},materials),/complete parts/);
+});
 
 test('fresh final authors keep identical system prefixes while retaining separate guarded working directories',async t=>{
   const home=await mkdtemp(join(tmpdir(),'author-cache-prefix-'));t.after(()=>rm(home,{recursive:true,force:true}));
@@ -33,7 +51,10 @@ test('fresh final authors keep identical system prefixes while retaining separat
   }
   assert.equal(prompts.length,2);assert.equal(prompts[0],prompts[1]);assert.ok(!prompts[0].includes(home));
   assert.equal(toolSchemas.length,2);
-  for(const tools of toolSchemas)for(const name of ['write','edit'])assert.equal(tools.find(tool=>tool.name===name)?.parameters.properties.path.const,'draft.json','author tool parameters expose the actual fixed destination before execution');
+  for(const tools of toolSchemas){
+   const writer=tools.find(tool=>tool.name==='write').parameters;assert.ok(writer.properties.parts);assert.equal(writer.properties.path,undefined);assert.equal(writer.properties.version,undefined);
+   assert.equal(tools.find(tool=>tool.name==='edit')?.parameters.properties.path.const,'draft.json');
+  }
 });
 import { readingImageBudget, resetReadingImageBudgetCache } from "../../runtime/jev/host-budgets.ts";
 import {createAgentSession,createBashTool,DefaultResourceLoader,ModelRuntime,SessionManager,SettingsManager} from './pi.mjs';
@@ -49,13 +70,14 @@ for(const shape of ['decision','legacy'])test('the same final author corrects a 
  const name='current-event/detail',text='The sign reads: \'Open at noon.\'';
  const materials=[{name,text:'The sign reads: “Open at noon.”'}];
  await writeFile(join(fixture.cwd,'task.json'),JSON.stringify(shape==='decision'?{decision_context:{settled_results:{materials}}}:{materials,required:[name]}));
- const bad={version:1,text,coverage:[{name,quote:'The sign reads: “Open at noon.”'}]},good={...bad,coverage:[{name,quote:text}]};
+ const bad={parts:[{text,materials:['unissued-material']}]},good={parts:{item:[{text,materials:{item:name}}]}};
+ const artifact={version:1,text,coverage:[{name,start:0,end:text.length}]};
  const faux=fauxProvider();let requests=0;
  faux.setResponses([
-  ()=>{requests++;return fauxAssistantMessage([fauxToolCall('write',{path:'draft.json',content:JSON.stringify(bad)})],{stopReason:'toolUse'});},
+  ()=>{requests++;return fauxAssistantMessage([fauxToolCall('write',bad)],{stopReason:'toolUse'});},
   async context=>{requests++;assert.equal(await readFile(path,'utf8'),prior,'the rejected write preserves the prior artifact');
-   const reply=context.messages.filter(row=>row.role==='toolResult').at(-1);assert.equal(reply.isError,true);assert.match(JSON.stringify(reply.content),/coverage\[0\].quote/);
-   return fauxAssistantMessage([fauxToolCall('write',{path:'draft.json',content:JSON.stringify(good)})],{stopReason:'toolUse'});},
+   const reply=context.messages.filter(row=>row.role==='toolResult').at(-1);assert.equal(reply.isError,true);assert.match(JSON.stringify(reply.content),/parts\[0\]/);
+   return fauxAssistantMessage([fauxToolCall('write',good)],{stopReason:'toolUse'});},
   context=>{requests++;assert.equal(context.messages.filter(row=>row.role==='toolResult').at(-1).isError,false);return fauxAssistantMessage('Written.');}
  ]);
  const modelRuntime=await ModelRuntime.create({authPath:join(fixture.home,'auth.json'),modelsPath:null,modelsStorePath:join(fixture.home,'models.json'),refreshOnCreate:false,allowModelNetwork:false});modelRuntime.registerNativeProvider(faux.provider);
@@ -64,12 +86,12 @@ for(const shape of ['decision','legacy'])test('the same final author corrects a 
   systemPrompt:'Write the one confined final artifact.',extensionFactories:[{name:'author-context',factory:pi=>{const register=pi.registerTool.bind(pi);pi.registerTool=tool=>{registered.push(tool);register(tool);};readerContext(pi,{cwd:fixture.cwd,env});}}]});
  await resourceLoader.reload();const {session,extensionsResult}=await createAgentSession({cwd:fixture.cwd,agentDir:join(fixture.home,'agent'),resourceLoader,modelRuntime,model:faux.getModel(),tools:['read','write','edit','bash'],thinkingLevel:'off',settingsManager,sessionManager:SessionManager.inMemory()});
  t.after(()=>session.dispose());assert.deepEqual(extensionsResult.errors,[]);await session.bindExtensions({mode:'print'});await session.prompt('Write the final response.');
- assert.equal(requests,3,'one author task stays within the existing four-request budget');assert.deepEqual(JSON.parse(await readFile(path,'utf8')),good);
+ assert.equal(requests,3,'one author task stays within the existing four-request budget');assert.deepEqual(JSON.parse(await readFile(path,'utf8')),artifact);
  const edit=registered.find(tool=>tool.name==='edit');
- await assert.rejects(edit.execute('invalid-edit',{path:'draft.json',edits:[{oldText:JSON.stringify(good.coverage),newText:JSON.stringify(bad.coverage)}]}),/Coverage quotation is absent/);
- assert.deepEqual(JSON.parse(await readFile(path,'utf8')),good,'invalid native edit also preserves the complete previous draft');
+ await assert.rejects(edit.execute('invalid-edit',{path:'draft.json',edits:[{oldText:JSON.stringify(artifact.coverage),newText:JSON.stringify([{name,quote:'A quotation absent from the draft.'}])}]}),/Coverage quotation is absent/);
+ assert.deepEqual(JSON.parse(await readFile(path,'utf8')),artifact,'invalid native edit also preserves the complete previous draft');
  const changed='A shorter exact detail.';
- await edit.execute('valid-edit',{path:'draft.json',edits:[{oldText:JSON.stringify(good),newText:JSON.stringify({version:1,text:changed,coverage:[{name,quote:changed}]})}]});
+ await edit.execute('valid-edit',{path:'draft.json',edits:[{oldText:JSON.stringify(artifact),newText:JSON.stringify({version:1,text:changed,coverage:[{name,quote:changed}]})}]});
  assert.equal(JSON.parse(await readFile(path,'utf8')).text,changed);
  await assert.rejects(edit.execute('unknown-name',{path:'draft.json',edits:[{oldText:name,newText:'unissued-material'}]}),/coverage span/i);
  assert.equal(JSON.parse(await readFile(path,'utf8')).coverage[0].name,name);
