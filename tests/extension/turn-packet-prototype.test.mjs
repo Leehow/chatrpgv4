@@ -190,6 +190,28 @@ test('a refused earlier write cannot publish false success through native output
  assert.equal(table.entries('coc-final-delivery').filter(r=>r.event==='delta').length,0);
 });
 
+test('event validation repair uses this successful canonical event without an extra publication judge',async t=>{
+ const batches=[];let requests=0;
+ const engine=createHybridEngine({env,decision:{decide:async batch=>{batches.push(batch);return answer(batch,.99);}}});
+ const initial={effects:[{kind:'time',minutes:4}],event:{name:'Photograph the mark',summary:'The proposed event.',material:'',materials:[{name:'view',kind:'description',visibility:'player',text:'The selected view.'}]}};
+ const repaired={effects:initial.effects,event:{name:initial.event.name,summary:'The corrected canonical event.'}};
+ const table=await openTable({legacyDeliveryFixtures:false,realKernel:true,prepareWorkspace:opened,env,runDriver:engine.runDriver,
+  extraExtensions:[{name:'engine',factory:engine.extension}],responses:[
+   ()=>{requests++;return fauxAssistantMessage([rawToolCall('apply',initial)],{stopReason:'toolUse'});},
+   ()=>{requests++;return fauxAssistantMessage([rawToolCall('apply',repaired)],{stopReason:'toolUse'});},
+   ()=>{requests++;return fauxAssistantMessage([fauxToolCall('output',brief)],{stopReason:'toolUse'});}
+  ]});t.after(()=>table.dispose());await table.session.prompt('I spend a few minutes photographing the mark.');
+ assert.deepEqual(table.extensionErrors,[]);assert.equal(requests,3);
+ const repair=table.telemetry().filter(row=>row.lane==='held-operation'&&row.event==='parameter_failure_reconciled');assert.equal(repair.length,1);
+ assert.notEqual(repair[0].failed_operation,repair[0].settled_operation);assert.equal(typeof repair[0].receipt,'string');
+ assert.equal(batches.filter(row=>row.family==='held-act-outcome').length,0);
+ assert.equal(table.entries('coc-final-delivery').filter(row=>row.event==='end'&&row.status==='completed').length,1);
+ const replies=table.session.messages.filter(row=>row.role==='toolResult'&&row.toolName==='apply');
+ assert.ok(JSON.stringify(replies[0]).includes('event_argument_validation'));assert.ok(!JSON.stringify(replies).includes('_event_receipts'),'private reconciliation metadata stays out of model messages');
+ const turn=JSON.parse(readFileSync(join(table.workspace,'.coc/campaigns/test-camp/turns/0001.json'),'utf8'));
+ assert.equal(turn.receipts.filter(row=>row.kind==='time').length,1);assert.equal(turn.receipts.filter(row=>row.kind==='event').length,1);assert.equal(turn.world.clock.minutes,4);
+});
+
 test('native schema rejects extra movement fields before consent and permits one corrected submission',async t=>{
  const batches=[];let requests=0;
  const engine=createHybridEngine({env,decision:{decide:async batch=>{batches.push(batch);return answer(batch,.99);}}});

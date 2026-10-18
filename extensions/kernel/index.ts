@@ -21,7 +21,7 @@ import {DocumentReadCoverage} from './document-read-coverage.ts';
 import {openingInformationShape} from '../../runtime/opening-information.ts';
 import {writingDigest,canonicalWritingResult,matchWritingResult,completesRefusedAddition,type WritingMatch,type WritingCompletion} from '../../runtime/jev/document-completion.ts';
 import {RefusedDocumentOutcome, REFUSED_DOCUMENT_OUTCOME_FAMILY, REFUSED_DOCUMENT_OUTCOME_REASON, documentOutcomeDigest, type DocumentOutcomeVerdict} from '../../runtime/jev/refused-document-outcome.ts';
-import {HeldActOutcome, heldOperationKey, HELD_ACT_OUTCOME_FAMILY, HELD_ACT_OUTCOME_REASON, receiptLine} from '../../runtime/jev/held-act-outcome.ts';
+import {HeldActOutcome, heldOperationKey, heldEventRepairKey, heldEventRepairEvidence, HELD_ACT_OUTCOME_FAMILY, HELD_ACT_OUTCOME_REASON, receiptLine} from '../../runtime/jev/held-act-outcome.ts';
 import {DOCUMENT_RECORDING_INTENT_MIN, permitsReferenceOperation} from '../../runtime/jev/interaction-scope.ts';
 /**
  * The pi-coc kernel extension: it starts the compiled TypeScript kernel, wires the eight verbs onto RPC,
@@ -3393,7 +3393,7 @@ export default function (pi: ExtensionAPI, host: {capabilities?:RuntimeCapabilit
    * `admission_unavailable` refusal of the turn joins the turn's held basis (`holdUnavailable`).
    */
   const heldActs = new WeakMap<TableState, HeldActOutcome>();
-  const operationKeys = new WeakMap<TableState, Map<string,string>>();
+  const operationKeys = new WeakMap<TableState, Map<string,{operationKey:string;eventRepairKey?:string}>>();
   function holdFailedOperation(state:TableState, tool:string, args:Record<string,unknown>, error:unknown, toolCallId?:string):void {
     if(!state.playerText || state.inputEnded?.turn===state.turn || state.closedThisRun)return;
     let boundary=heldActs.get(state);
@@ -3402,7 +3402,10 @@ export default function (pi: ExtensionAPI, host: {capabilities?:RuntimeCapabilit
     const {campaign:_,call_id:__,...proposal}=args;
     boundary.hold({campaign:state.campaign,turn:state.turn,playerText:state.playerText,
       ...(state.documentWorldline?{worldline:state.documentWorldline}:{})},
-      {tool,lines:[JSON.stringify(proposal)],cause:String(failure.details?.reason??failure.code??'operation_failed'),operationKey:operationKeys.get(state)?.get(toolCallId??'')??heldOperationKey(tool,args)},true);
+      {tool,lines:[JSON.stringify(proposal)],cause:String(failure.details?.reason??failure.code??'operation_failed'),
+        operationKey:operationKeys.get(state)?.get(toolCallId??'')?.operationKey??heldOperationKey(tool,args),
+        ...(failure.code==='invalid_params'&&failure.details?.reason==='event_argument_validation'
+          ?{eventRepairKey:operationKeys.get(state)?.get(toolCallId??'')?.eventRepairKey??heldEventRepairKey(tool,args)}:{})},true);
   }
   function holdUnavailable(state: TableState, proposal: {tool: string; lines: string[]}, cause: string): void {
     if (!state.playerText) return;
@@ -5953,6 +5956,7 @@ export default function (pi: ExtensionAPI, host: {capabilities?:RuntimeCapabilit
     if(spec.name==='apply'&&params.event!==undefined){
         const event=params.event as Record<string,any>,names=[...(Array.isArray(event.causes)?event.causes:[]),event.corrects];
         payload._event_sources=finalOutput.inventory(state.campaign,state.turn).filter(source=>names.includes(source.name));
+        if(singleKeeper)payload._event_receipts=true;
     }
 		const referenceScope = state.interactionScope !== undefined && state.interactionScope !== 'world';
 		const referenceDelivery = spec.name === 'narrate' && referenceScope;
@@ -5967,7 +5971,7 @@ export default function (pi: ExtensionAPI, host: {capabilities?:RuntimeCapabilit
 		if (spec.name === 'apply') delete payload.delivery;
         if(singleKeeper&&(spec.name==='apply'||spec.name==='resolve')){
             let keys=operationKeys.get(state);if(!keys){keys=new Map();operationKeys.set(state,keys);}
-            keys.set(toolCallId,heldOperationKey(spec.name,params));
+            keys.set(toolCallId,{operationKey:heldOperationKey(spec.name,params),eventRepairKey:heldEventRepairKey(spec.name,params)});
         }
         const embeddedQuotes=spec.name==="apply"?payload.quotes:undefined;
         if(spec.name!=="narrate"&&spec.name!=="ask")delete payload.quotes;
@@ -6519,9 +6523,17 @@ export default function (pi: ExtensionAPI, host: {capabilities?:RuntimeCapabilit
             if(singleKeeper && (spec.name==='apply'||spec.name==='resolve') && !partial?.notLanded
                 && !result.coc_error && !(Array.isArray(result.not_landed)&&result.not_landed.length)
                 && Array.isArray(result.receipts) && result.receipts.length){
-                heldActs.get(state)?.settled({campaign:state.campaign,turn:state.turn,playerText:state.playerText??'',
-                    ...(state.documentWorldline?{worldline:state.documentWorldline}:{})},operationKeys.get(state)?.get(toolCallId)??heldOperationKey(spec.name,params));
+                const scope={campaign:state.campaign,turn:state.turn,playerText:state.playerText??'',
+                    ...(state.documentWorldline?{worldline:state.documentWorldline}:{})};
+                const boundary=heldActs.get(state),key=operationKeys.get(state)?.get(toolCallId)?.operationKey??heldOperationKey(spec.name,params);
+                const proof=heldEventRepairEvidence(scope,spec.name,params,result);
+                const repair=proof&&proof.key===operationKeys.get(state)?.get(toolCallId)?.eventRepairKey?proof:undefined;
+                const prior=repair?boundary?.basis?.held.filter(row=>row.cause==='event_argument_validation'&&row.eventRepairKey===repair.key)??[]:[];
+                boundary?.settled(scope,key,repair);
+                for(const row of prior)if(!boundary?.basis?.held.includes(row))await record({lane:'held-operation',event:'parameter_failure_reconciled',turn:state.turn,
+                    failed_operation:row.operationKey,settled_operation:key,receipt:repair!.receipt});
             }
+            delete result._event_receipts;
             const operationOrigin=dispatcher.hostOrigin(toolCallId);
             if(turnPacketPrototype&&spec.name==='apply'&&operationOrigin?.clerk==='continuous_turn'
                 &&keeperRun?.runId===operationOrigin.run&&!partial?.notLanded)

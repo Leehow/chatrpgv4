@@ -28,7 +28,7 @@ patches. Preserve the original campaign and every failure.
 
 ## Current milestone
 
-Eighteen scoped commits integrate sparse NPC decisions, canonical actual
+Nineteen scoped commits integrate sparse NPC decisions, canonical actual
 results, public-history recovery, bounded consent context, strict schema
 diagnostics, author artifact ownership and native array dialect decoding.
 Gate 7 passed at ef5079da8: extension 6036 pass/9 skip; integration 2226 pass/1
@@ -45,8 +45,18 @@ then settled the move and scene. Its final author completed one unframed direct
 response, rejected solely for missing handwritten protocol framing. The host
 framing repair retains explicit-stream and file-ownership boundaries. Gate9
 was stopped with143 before the next changed-runtime build; partial evidence
-is preserved, not a pass. The move has landed but public delivery is pending;
-do not repeat that journey or charge its effects again.
+is preserved, not a pass. The move landed once; intents18 and20 subsequently delivered through the fixed
+author transport. Do not repeat that journey or charge its effects again.
+
+Intent19 exposed another publication seam: whole-event validation rolled back
+the first apply, a corrected same-event/same-effects apply landed, but the old
+full-proposal hold remained. Reconciliation now uses typed uncommitted-event
+validation, complete non-event argument equality and this call canonical event
+receipt. Replay/other-turn/partial/authorization failures cannot use that path.
+Four source-backed tests and strict helper types pass; the native integration
+case waits for a build at this revision. Gate10 at65d65ba80 is still running.
+Browser intent21 continues the actual trailer investigation; no chapter has
+finished yet.
 
 Jev 1.14 bounded shadow A/C used two calls: the prior ambiguous positive became
 .84/.18, and future-only negative remained refused at .38/.89. This does not
@@ -55,8 +65,8 @@ or threshold has changed. Removing unfinished input did not improve judgment.
 
 ## Ready work and remaining gates
 
-1. Finish route requirement wiring and deterministic regression tests; review
-   bound travel fields without opening arbitrary model-supplied durations.
+1. Finish event-validation reconciliation and native regression on the new
+   build; preserve full refusal and partial-settlement boundaries.
 2. Retain gate 8's exact result, then build/test the new scoped revision on LAN.
 3. Restart only the owned browser server after all foreground/background work
    is idle; re-pair the existing Ego task space 4 and verify MiniMax/medium.

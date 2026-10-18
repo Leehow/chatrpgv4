@@ -10,7 +10,7 @@ import {isNpcVariationRoll} from './npc/variation.js';
 
 const modes=['observed','heard','read','belief'],states=['accurate','uncertain','distorted'];
 const word=(value:unknown,max=1200):value is string=>typeof value==='string'&&!!value.trim()&&[...value].length<=max;
-function invalid(field:string,fix='Use the event contract; unknown actors, references or fields are not accepted',details:Row={}):never{throw new RpcError('invalid_params',`Invalid event ${field}`,{fix,details:{field:`event.${field}`,...details}});}
+function invalid(field:string,fix='Use the event contract; unknown actors, references or fields are not accepted',details:Row={}):never{throw new RpcError('invalid_params',`Invalid event ${field}`,{fix,details:{field:`event.${field}`,...details,reason:'event_argument_validation'}});}
 function shape(value:unknown,keys:string[],field:string):Row{
   if(!isJsonObject(value)||Object.keys(value).some(key=>!keys.includes(key)))invalid(field);
   return value;

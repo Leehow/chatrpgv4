@@ -123,3 +123,48 @@ test('only exact canonical settlement discharges a scoped operation failure',asy
  const unknown=new HeldActOutcome();unknown.hold(scope,{tool:'apply',lines:['no exact proposal'],cause:'unknown'},true);
  assert.equal(unknown.settled(scope,key),0);assert.ok(unknown.basis);
 });
+
+test('only this call canonical event reconciles a scoped uncommitted event validation failure',async()=>{
+ const {heldOperationKey,heldEventRepairKey,heldEventRepairEvidence}=await import('../../runtime/jev/held-act-outcome.ts');
+ const scope={campaign:'campaign',worldline:'main',turn:4,playerText:'I photograph the mark.'};
+ const failed={effects:[{kind:'time',minutes:4}],event:{name:'Photograph the mark',summary:'A proposed description.',material:'',materials:[{name:'view',kind:'description',visibility:'player',text:'The selected view.'}]}};
+ const corrected={...failed,event:{name:failed.event.name,summary:'The corrected canonical description.'}};
+ const event={id:'actual-event-receipt',name:failed.event.name,ref:'event:t4:'+failed.event.name,scope:{campaign:'campaign',worldline:'main',turn:4}};
+ const result={receipts:[event.id],_event_receipts:[event]};
+ assert.equal(heldEventRepairEvidence(scope,'apply',corrected,{...result,replayed:true}),undefined,'an old replay receipt cannot prove a new repair');
+ const oldKey=heldOperationKey('apply',failed),newKey=heldOperationKey('apply',corrected),repairKey=heldEventRepairKey('apply',failed);
+ assert.notEqual(oldKey,newKey);assert.equal(repairKey,heldEventRepairKey('apply',corrected));
+ const held=()=>{const boundary=new HeldActOutcome();boundary.hold(scope,{tool:'apply',lines:['complete failed arguments'],cause:'event_argument_validation',operationKey:oldKey,eventRepairKey:repairKey},true);return boundary;};
+ const proof=heldEventRepairEvidence(scope,'apply',corrected,result);assert.deepEqual(proof,{key:repairKey,receipt:event.id});
+ const boundary=held();assert.equal(boundary.settled(scope,newKey),0);assert.equal(boundary.settled(scope,newKey,proof),1);assert.equal(boundary.basis,undefined);
+ for(const args of [{...corrected,effects:[{kind:'time',minutes:5}]},{...corrected,event:{...corrected.event,name:'Another event'}},{...corrected,cost:20},{...corrected,method:'another method'},{...corrected,target:'another target'}]){
+  const current=held();assert.equal(current.settled(scope,heldOperationKey('apply',args),heldEventRepairEvidence(scope,'apply',args,result)),0);assert.ok(current.basis);
+ }
+ for(const altered of [{...result,receipts:['unrelated']},{...result,_event_receipts:[]},{...result,_event_receipts:[{...event,scope:{...event.scope,turn:3}}]},
+   {...result,_event_receipts:[{...event,scope:{...event.scope,worldline:'other'}}]},{...result,_event_receipts:[{...event,scope:{...event.scope,campaign:'other'}}]},
+   {...result,not_landed:[{reason:'partial cognition'}]},{...result,admission:{not_landed:true}},{...result,coc_error:{code:'needs'}},
+   {receipts:['unrelated'],outcome:{events:[event]}}])assert.equal(heldEventRepairEvidence(scope,'apply',corrected,altered),undefined);
+ for(const change of [{...scope,turn:5},{...scope,playerText:'Another input.'},{...scope,worldline:'other'},{...scope,campaign:'other'}])assert.equal(held().settled(change,newKey,proof),0);
+ const refusal=held();refusal.basis.held[0].cause='action_not_authorized';assert.equal(refusal.settled(scope,newKey,proof),0);
+ for(const name of ['',null,42,'x'.repeat(121)])assert.equal(heldEventRepairKey('apply',{...failed,event:{name}}),undefined);
+ assert.equal(heldEventRepairKey('resolve',failed),undefined);
+});
+
+test('the kernel distinguishes whole event validation from a canonical pending event receipt',async t=>{
+ const {kernel,openTurn}=await import('../integration/support.ts');
+ const {heldEventRepairEvidence}=await import('../../runtime/jev/held-act-outcome.ts');
+ const client=await kernel(t);await openTurn(client);
+ const input={effects:[{kind:'time',minutes:4}],event:{name:'Inspect the mark',summary:'The proposed event.',material:'',materials:[{name:'view',kind:'description',visibility:'player',text:'The recorded view.'}]}};
+ const before=await client.table('capsule');
+ const failure=await client.tableErr('apply',{call_id:'t1-c1',...input,_event_receipts:true});
+ assert.equal(failure.details.reason,'event_argument_validation');
+ assert.deepEqual((await client.table('capsule')).where.clock,before.where.clock,'event validation rolls back staged time');
+ const corrected={...input,event:{...input.event,summary:'The corrected event.',material:'view'}};
+ const actual=await client.table('apply',{call_id:'t1-c1',...corrected,_event_receipts:true});
+ assert.equal(actual._event_receipts.length,1);assert.equal(actual.outcome.events.length,0,'a pending event must not be mistaken for no new receipt');
+ const scope={campaign:'c1',worldline:'main',turn:1,playerText:'Inspect the mark.'};
+ const proof=heldEventRepairEvidence(scope,'apply',corrected,actual);assert.ok(proof);assert.equal(proof.receipt,actual._event_receipts[0].id);
+ assert.ok(actual.receipts.includes(proof.receipt));
+ const unrelated=await client.table('apply',{call_id:'t1-c2',effects:[{kind:'time',minutes:1}],_event_receipts:true});
+ assert.deepEqual(unrelated._event_receipts,[]);assert.equal(heldEventRepairEvidence(scope,'apply',corrected,unrelated),undefined);
+});
