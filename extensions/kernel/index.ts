@@ -12,7 +12,7 @@ import {moveEstablishmentRefusal} from '../../shared/move-protocol.ts';
 import {SAME_KEEPER_AFTER_RESULT_GUIDANCE} from '../../runtime/keeper-output-guidance.ts';
 import {scenePopulationRequired} from '../../runtime/scene-population.ts';
 import {ExpressionPlanStream,writeIsolatedExpression,decisionScene,decisionClock,decisionRecentPublic} from '../../runtime/isolated-expression.ts';
-import {turnPacket,bindTurnPacketMoves,requireTurnPacketNpcDestinations,isNewNpcSlot,normalizeTurnPacketArguments,compileTurnPacket,turnPacketResult,turnPacketProviderPayload,TURN_PACKET_PARAMETERS,TURN_PACKET_GUIDANCE,type TurnPacket} from '../../runtime/turn-packet-prototype.ts';
+import {turnPacket,bindTurnPacketMoves,turnPacketMovementChoices,requireTurnPacketNpcDestinations,isNewNpcSlot,normalizeTurnPacketArguments,compileTurnPacket,turnPacketResult,turnPacketProviderPayload,TURN_PACKET_PARAMETERS,TURN_PACKET_GUIDANCE,type TurnPacket} from '../../runtime/turn-packet-prototype.ts';
 import {normalizeToolArgumentSyntax} from '../../runtime/tool-argument-syntax.ts';
 import {continuousConsentDisposition} from '../../runtime/jev/continuous-consent.ts';
 import {NpcReferences,isNpcReference} from '../../runtime/npc-references.ts';
@@ -5775,7 +5775,7 @@ export default function (pi: ExtensionAPI, host: {capabilities?:RuntimeCapabilit
             let packet:TurnPacket;
             try{
                 const parsed=turnPacket(JSON.stringify(params));
-                const choices=owner.prescreen?.choices?.flatMap((row:any)=>row.effects??[]);
+                const choices=owner.prescreen?.choices?turnPacketMovementChoices(owner.prescreen.choices):undefined;
                 packet=choices?bindTurnPacketMoves(parsed,choices):requireTurnPacketNpcDestinations(parsed);
                 if(packet.commands.some(row=>row.kind==='time')){
                     const bands=await packetTimeBandHandles(state);
@@ -8705,7 +8705,7 @@ export default function (pi: ExtensionAPI, host: {capabilities?:RuntimeCapabilit
             if(table&&keeperRun&&!journeySettled&&table.interactionScope!=='reference'&&!table.packetTimeBands){
                 await packetTimeBandHandles(table);
             }
-            const choices=keeperRun?.prescreen?.choices?.flatMap((row:any)=>row.effects??[]);
+            const choices=keeperRun?.prescreen?.choices?turnPacketMovementChoices(keeperRun.prescreen.choices):undefined;
             outgoing=turnPacketProviderPayload(outgoing,journeySettled,table?.interactionScope!=='reference',table?.packetTimeBands,choices);
         }
 		if (outgoing !== event.payload) return outgoing;

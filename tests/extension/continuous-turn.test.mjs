@@ -31,6 +31,18 @@ function choose(confidence=.99){
 }
 const invocation={stepId:'s1',signal:new AbortController().signal};
 
+test('packet mode exposes a route slot without judging or executing an incomplete journey',async()=>{
+ let judgments=0,writes=0;
+ const turn=new ContinuousTurn({run:'r',inputRevision:'i',campaign:'c1',playerText:'I go to Central Library.',session:{},current:()=>true,packet:true,
+  call:async method=>method==='table.apply.options'?{candidates:[{...moveOptions.candidates[0],description:{...moveOptions.candidates[0].description,requires_via:true}}]}:{...capsule,_context:{...capsule._context,source_revision:'s1'}},
+  record:()=>{},dispatch:async()=>{writes++;},decision:{decide:async()=>{judgments++;throw Error('An incomplete route cannot be judged');}}});
+ await turn.prepare(invocation.signal);
+ assert.equal(turn.decided,true);assert.equal(turn.batch,undefined);
+ assert.deepEqual(turn.prescreen.choices,[{effects:[{kind:'move',to:'library'}],requires_via:true}]);
+ assert.equal((await turn.execute(invocation.signal)).status,'refused');
+ assert.equal(judgments,0);assert.equal(writes,0);
+});
+
 test('the native ports decide and execute a fully bound move once, then infer',async()=>{
     const calls=[],writes=[],session={extensionRunner:{}};
     const {policy,ports}=host(choose(),{call:async method=>{calls.push(method);return method==='table.apply.options'?moveOptions:capsule;},

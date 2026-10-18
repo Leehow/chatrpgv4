@@ -212,6 +212,8 @@ test('§190.1: at table open the window\'s headings are asked once; three of fiv
 	const options = await call('table.apply.options');
 	const referenced = options.candidates.filter(row => row.effect.kind === 'move' && row.description.source_identity === true).map(row => row.description.display_name);
 	assert.deepEqual(referenced.sort(), ['Mine shaft', 'The inn', 'The mine'], 'each minted place is a referenced move candidate from the harbor');
+	assert.ok(options.candidates.filter(row=>row.description.source_identity===true).every(row=>row.description.requires_via===true),
+		'a source-only place without a structural road publishes its required route parameter');
 	const minted = placeRows(rows).find(row => row.entry.name === 'The inn');
 	assert.deepEqual([minted.noul, minted.place_min, minted.mode, minted.window.first, minted.window.last], [0.92, 0.8, 'on', 41, 48]);
 	assert.ok(minted.scene, 'the row names the scene');

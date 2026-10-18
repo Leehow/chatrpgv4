@@ -9,6 +9,15 @@ import { advanceClock } from './clock.js';
 import { establishTableEntity, establishedWithin, validateEstablishment } from '../read/table-entities.js';
 import { isAmbiguity, recordOf, type ModuleGraph } from '../read/module-graph.js';
 import { aroundExit, bookRoadMinutes, personPlaces, placeRelation, returnRoute, roadKey, tableRoad } from '../read/places.js';
+/** The options producer and transaction use the same structural route requirement. */
+export function moveAccess(graph:ModuleGraph,world:Row,current:Row,destination:Row,established=false) {
+    const target=graph.handle(destination),trail=array(world.scene_trail).map(string);
+    const listed=graph.sceneExits(current).some(exit=>exit.to===target)||trail.includes(target)||established;
+    const road=listed?null:returnRoute(graph,current,destination);
+    const related=listed||road?null:placeRelation(graph,current,destination);
+    const around=listed||road||related?null:aroundExit(graph,current,destination);
+    return {listed,road,related,around,requiresVia:!listed&&!road&&!related&&!around};
+}
 export function stageMove(context: ApplyContext, effect: Row, travelRows?: ReadonlyMap<string, number> | null): {
     receipt: Row;
     event: DomainEvent | null;
@@ -68,12 +77,9 @@ export function stageMove(context: ApplyContext, effect: Row, travelRows?: Reado
     const trail = array(world.scene_trail).map(string), back = [...trail].reverse();
     const via = typeof effect.via === 'string' && effect.via.trim() ? effect.via : null;
     // §204.2: a road runs both ways, and a move within a place the two share needs no route of its own.
-    const listed = exits.has(target) || trail.includes(target) || established;
-    const road = listed ? null : returnRoute(graph, current, destination);
-    const related = listed || road ? null : placeRelation(graph, current, destination);
+    const {road,related,around,requiresVia}=moveAccess(graph,world,current,destination,established);
     // §212.1: a road out of a place the party stands inside is a road from here.
-    const around = listed || road || related ? null : aroundExit(graph, current, destination);
-    if (!listed && !road && !related && !around && !via)
+    if (requiresVia && !via)
         throw new RpcError('not_reachable', `${repr(target)} is not reachable from ${repr(from)}`, {
             fix: `move to one of ${repr(sorted(exits.keys()))}, retrace to one of ${repr(back)}, or say how they got there in via`,
             details: { from, to: target, exits: sorted(exits.keys()), back }

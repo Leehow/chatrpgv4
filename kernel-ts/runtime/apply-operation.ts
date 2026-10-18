@@ -5,7 +5,7 @@ import {RpcError} from '../errors.js';
 import {jsonDigest,isJsonObject} from '../json.js';
 import {stageCash,type CashContext} from '../apply/inventory.js';
 import {advanceClock} from '../apply/clock.js';
-import {stageMove} from '../apply/move.js';
+import {stageMove,moveAccess} from '../apply/move.js';
 import {bindUntil} from '../apply/until.js';
 import {owedBands} from '../owed/index.js';
 import type {ApplyContext} from '../apply/index.js';
@@ -246,7 +246,7 @@ export function ordinaryApplyHandlers(context: KernelContext): HandlerGroup {
             const guarded=unlock&&unlock.met===false?{unlock_when:{...unlock,...unlockGuard(graph,campaign.world,conditions.get(exit.to)),...guardedWay(graph,campaign.world,scene)}}:{};
             // §218.3: a way back, or a road the book left untimed, shows the minutes the table already knows for it.
             const known=Object.hasOwn(exit,'travel_minutes')||!node?null:roadMinutes(graph,campaign.world,scene,node);
-            add({kind:'move',to:exit.to},{kind:'move',...exit,...(known!==null?{travel_minutes:known}:{}),...guarded,...(Object.keys(destination).length?{destination}:{}),...(exit.source_identity?{source_context:node?.summary??''}:{}),authority:'available_route_not_player_choice'},
+            add({kind:'move',to:exit.to},{kind:'move',...exit,...(node?{requires_via:moveAccess(graph,campaign.world,scene,node).requiresVia}:{}),...(known!==null?{travel_minutes:known}:{}),...guarded,...(Object.keys(destination).length?{destination}:{}),...(exit.source_identity?{source_context:node?.summary??''}:{}),authority:'available_route_not_player_choice'},
                 guards.exits.get(string(node?.node_id)));
         }
         // §204.7: a move within a place the active scene lies in -- to the place itself or to another place in it -- after the

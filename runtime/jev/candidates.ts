@@ -445,11 +445,12 @@ export function buildCandidates(reads: StateReads, rawInput: string, consumed: R
     if (kind === 'move') {
       // §218.3: a way no road has timed (no minutes on the row, not a move within a place) is asked its road row, so the
       // clerk's move carries the journey's time and the kernel keeps it as the road's length.
-      const road = !Number.isInteger(description.travel_minutes) && !text(description.within) ? travelBand(text(description.display_name) || text(effect.to), text(description.material)) : undefined;
+      const road = !Number.isInteger(effect.travel_minutes) && !text(effect.travel_band) && !Number.isInteger(description.travel_minutes) && !text(description.within) ? travelBand(text(description.display_name) || text(effect.to), text(description.material)) : undefined;
       push({key: `apply:move:${text(effect.to)}`, verb: 'apply', family: 'move', source: 'table.apply.options',
-      label: `Move the party to ${text(description.display_name) || text(effect.to)}`, bound: {kind: 'move', to: text(effect.to)},
+      label: `Move the party to ${text(description.display_name) || text(effect.to)}`, bound: {kind: 'move', to: text(effect.to),
+        ...Object.fromEntries(['via','travel_minutes','travel_band'].filter(key=>effect[key]!==undefined).map(key=>[key,effect[key]]))},
       unbound: [{name: 'travel_minutes', required: false, vocabulary: 'open'}, {name: 'label', required: false, vocabulary: 'open'},
-        {name: 'via', required: false, vocabulary: 'open'}, ...(road ? [road.parameter] : [])],
+        {name: 'via', required: description.requires_via===true&&!text(effect.via), vocabulary: 'open'}, ...(road ? [road.parameter] : [])],
       detail: {available: true, ...(text(description.material) ? {material: text(description.material)} : {}),
         ...(Object.keys(object(description.destination)).length?{destination:description.destination}:{}),
         ...(Number.isInteger(description.travel_minutes)?{travel_minutes:description.travel_minutes}:{}),

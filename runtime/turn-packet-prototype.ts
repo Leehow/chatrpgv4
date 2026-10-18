@@ -23,7 +23,7 @@ const response=Type.Union([
 /** Names and selected claims remain material, so the declaration stays stable. */
 export const TURN_PACKET_PARAMETERS=Type.Object({version:Type.Literal(3),commands,responses:Type.Array(response,{maxItems:12})},{additionalProperties:false});
 export type ResponseDecision = {actor:string;act:Exclude<typeof acts[number],'silent'>;points:string[];stance?:string}|{actor:string;act:'silent'};
-export interface TurnPacket {version:3;commands:Array<{kind:'move';to:string;via?:string}|{kind:'time';band:string;reason:string}|{kind:'npc';actor:string;to:string;reason:string}|{kind:'walk_on';slot:string;label:string;reason:string}|{kind:'scene';service:typeof services[number];crowd:typeof crowds[number];review_after_minutes?:number}>;responses:ResponseDecision[]}
+export interface TurnPacket {version:3;commands:Array<{kind:'move';to:string;via?:string;travel_minutes?:number;travel_band?:string}|{kind:'time';band:string;reason:string}|{kind:'npc';actor:string;to:string;reason:string}|{kind:'walk_on';slot:string;label:string;reason:string}|{kind:'scene';service:typeof services[number];crowd:typeof crowds[number];review_after_minutes?:number}>;responses:ResponseDecision[]}
 export const isNewNpcSlot=(value:unknown):value is string=>typeof value==='string'&&/^new_[1-4]$/.test(value);
 const object=(value:unknown):value is Record<string,any>=>!!value&&typeof value==='object'&&!Array.isArray(value);
 const bounded=(value:unknown,max=160)=>typeof value==='string'&&!!value.trim()&&value.length<=max;
@@ -49,6 +49,11 @@ export function responseDecision(value:unknown,slots:readonly string[]=[]):Respo
 export function turnPacketNpcDestinations(choices:readonly Record<string,unknown>[]=[]):string[]{
  return [...new Set(['here','away',...choices.filter(row=>row.kind==='move'&&typeof row.to==='string').map(row=>row.to as string)])];
 }
+/** Parameter requirements are host metadata, never executable effect fields. */
+export function turnPacketMovementChoices(choices:unknown):Record<string,unknown>[] {
+ return Array.isArray(choices)?choices.flatMap(choice=>object(choice)&&Array.isArray(choice.effects)
+    ?choice.effects.filter(object).map(effect=>({...effect,...(choice.requires_via===true?{requires_via:true}:{})})):[]):[];
+}
 export function requireTurnPacketNpcDestinations(packet:TurnPacket,choices:readonly Record<string,unknown>[]=[]):TurnPacket {
  if(packet.commands.some(command=>command.kind==='npc'&&!turnPacketNpcDestinations(choices).includes(command.to)))throw Error('NPC destination must select here, away or one exact issued place');
  return packet;
@@ -65,24 +70,33 @@ export function turnPacketProviderPayload(payload:unknown,journeySettled=false,r
     if(!object(tool)||tool.name!=='output'||!object(tool.input_schema))return tool;
     const schema:Record<string,any>=structuredClone(TURN_PACKET_PARAMETERS);
     const destinations=[...new Set((moveChoices??[]).filter(row=>row.kind==='move'&&typeof row.to==='string').map(row=>row.to as string))];
-    const issuedMove=moveChoices===undefined?move:destinations.length?Type.Object({kind:Type.Literal('move'),to:StringEnum(destinations)},{additionalProperties:false}):undefined;
+    const routeDestinations=destinations.filter(to=>moveChoices?.some(row=>row.to===to&&row.requires_via===true));
+    const boundDestinations=destinations.filter(to=>!routeDestinations.includes(to));
+    const issuedMoves:TSchema[]=moveChoices===undefined?[move]:[
+        ...(boundDestinations.length?[Type.Object({kind:Type.Literal('move'),to:StringEnum(boundDestinations)},{additionalProperties:false})]:[]),
+        ...(routeDestinations.length?[Type.Object({kind:Type.Literal('move'),to:StringEnum(routeDestinations),via:atom()},{additionalProperties:false})]:[])];
     const issuedNpc=Type.Object({...npc.properties,to:StringEnum(turnPacketNpcDestinations(moveChoices))},{additionalProperties:false});
     const boundedTime=timeBands?.length?Type.Object({...time.properties,band:StringEnum([...timeBands])},{additionalProperties:false}):time;
     if(journeySettled)schema.properties.commands=Type.Array(Type.Union([issuedNpc,walkOn,scene]),{maxItems:12});
-    else schema.properties.commands=Type.Union([Type.Array(Type.Union([...(issuedMove?[issuedMove]:[]),issuedNpc,walkOn,scene]),{maxItems:12}),Type.Array(Type.Union([boundedTime,issuedNpc,walkOn,scene]),{maxItems:12})]);
+    else schema.properties.commands=Type.Union([Type.Array(Type.Union([...issuedMoves,issuedNpc,walkOn,scene]),{maxItems:12}),Type.Array(Type.Union([boundedTime,issuedNpc,walkOn,scene]),{maxItems:12})]);
     changed=true;return {...tool,input_schema:schema};
   });
   return changed?{...payload,tools,...(requireTool&&payload.model==='MiniMax-M3.1-Flash-Preview'?{tool_choice:{type:'auto'}}:{})}:payload;
 }
-/** A destination selects its issued route; model route prose never changes that operation. */
+/** Keep bound routes immutable; fill only an explicitly issued open route slot. */
 export function bindTurnPacketMoves(packet:TurnPacket,choices:readonly Record<string,unknown>[]):TurnPacket {
   requireTurnPacketNpcDestinations(packet,choices);
   return {...packet,commands:packet.commands.map(command=>{
     if(command.kind!=='move')return command;
     const matches=choices.filter(row=>row.kind==='move'&&row.to===command.to);
-    if(command.via!==undefined||matches.length!==1)throw Error('Select one exact issued movement destination without a route parameter');
+    if(matches.length!==1)throw Error('Select one exact issued movement destination');
     const selected=matches[0];
-    return {kind:'move' as const,to:command.to,...(typeof selected.via==='string'?{via:selected.via}:{})};
+    if(selected.requires_via===true?!bounded(command.via):command.via!==undefined)
+        throw Error(selected.requires_via===true?'This destination requires a short via route parameter':'This destination already has a host-owned route; omit via');
+    return {kind:'move' as const,to:command.to,
+        ...(selected.requires_via===true?{via:command.via}:typeof selected.via==='string'?{via:selected.via}:{}),
+        ...(Number.isInteger(selected.travel_minutes)?{travel_minutes:selected.travel_minutes as number}:{}),
+        ...(typeof selected.travel_band==='string'?{travel_band:selected.travel_band}:{})};
   })};
 }
 export function turnPacket(text:string):TurnPacket {
@@ -113,7 +127,8 @@ export function turnPacket(text:string):TurnPacket {
 }
 export function compileTurnPacket(packet:TurnPacket):{responses:ResponseDecision[];effects:Record<string,unknown>[]} {
   const ordered=[...packet.commands.filter(a=>!['walk_on','scene'].includes(a.kind)),...packet.commands.filter(a=>a.kind==='walk_on'),...packet.commands.filter(a=>a.kind==='scene')];
-  return {responses:packet.responses,effects:ordered.map(a=>a.kind==='move'?{kind:'move',to:a.to,...(a.via?{via:a.via}:{})}
+  return {responses:packet.responses,effects:ordered.map(a=>a.kind==='move'?{kind:'move',to:a.to,...(a.via?{via:a.via}:{}),
+    ...(a.travel_minutes!==undefined?{travel_minutes:a.travel_minutes}:{}),...(a.travel_band?{travel_band:a.travel_band}:{})}
     :a.kind==='npc'?{kind:'npc',name:a.actor,to:a.to,why:a.reason}:a.kind==='walk_on'?{kind:'npc',name:a.label,to:'here',walk_on:true,_new_person:true,why:a.reason}
     :a.kind==='scene'?{kind:'scene',name:'here',_population:true,activity:{service:a.service,crowd:a.crowd,basis:'established',summary:`Service is ${a.service}; crowd is ${a.crowd}.`,review_after_minutes:a.review_after_minutes??15},why:'The Keeper assessed current population from the place, clock and established circumstances.'}
     :{kind:'time',band:a.band,why:a.reason})};
@@ -129,7 +144,7 @@ export function turnPacketResult(value:unknown):{player_actions_complete:true;np
   })};
 }
 export const TURN_PACKET_GUIDANCE='Submit ONE final native output call with {version:3,commands:[...],responses:[...]}. Commands settle before responses; this is not an interleaved program or a writing brief. '
-  +'Use prepared state for routine movement and conversation. Missing evidence uses look/lookup/recall; other rules and state changes use the existing resolve/apply/ask tools first, then submit output once. Commands: {kind:"move",to:"exact issued destination"}; {kind:"time",band:"supplied rule band",reason:"selected activity"}; {kind:"npc",actor:"supplied npc_N reference",to:"here|away|exact issued place",reason:"selected presence change"}. Routes are host-owned; never add via. '
+  +'Use prepared state for routine movement and conversation. Missing evidence uses look/lookup/recall; other rules and state changes use the existing resolve/apply/ask tools first, then submit output once. Commands: {kind:"move",to:"exact issued destination",via?:"short selected route, only when required by this destination schema"}; {kind:"time",band:"supplied rule band",reason:"selected activity"}; {kind:"npc",actor:"supplied npc_N reference",to:"here|away|exact issued place",reason:"selected presence change"}. Reuse host-bound routes; fill via only for an issued destination whose schema requires it. '
   +'For unassessed/expired where.temporal, decide current population from place purpose, clock and circumstances, never from absence of module names. Add {kind:"scene",service:"open|closed|limited|unknown",crowd:"empty|quiet|active|crowded|unknown"}. A known upcoming change may set optional review_after_minutes within 1..60 instead of the system default 15. If people should be present but no supplied existing person fits, add {kind:"walk_on",slot:"new_1",label:"public role appellation",reason:"why here at this time"}; at most new_1 through new_4. Responses may use those declared slots, which the host binds to real NPC references. Reuse existing people and applicable scene assessments; move departing staff away explicitly when a shift changes. Do not recreate them. Empty is an explicit assessment, not a missing name. '
   +'Responses: {actor:"supplied npc_N reference or declared new_N slot",act:"answer|greet|ask|refuse|offer|acknowledge|clarify",points:["short meaning to convey"],stance?:"short attitude"}. '
   +'A silent response is only {actor,act:"silent"}, with no points or stance. Actual arrival/departure uses an npc command; use away for leaving the stage without a known destination. Response points contain only what the NPC communicates, not stage directions or a conditional execution plan. An offer states terms and awaits the player; it does not execute acceptance or its dependent consequences. Never write complete dialogue, scene prose, personality transcription or writing instructions. A claim is not automatic world truth. '

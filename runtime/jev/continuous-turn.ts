@@ -86,6 +86,7 @@ export class ContinuousTurn {
             this.candidates=issued
                 .filter(candidate=>candidate.verb==='apply'&&(this.options.packet?candidate.family==='move':['move','clue','handout'].includes(candidate.family))
                     &&candidate.unbound.every(parameter=>!parameter.required
+                        ||this.options.packet&&parameter.name==='via'&&parameter.vocabulary==='open'
                         ||parameter.vocabulary==='closed'&&!parameter.binder&&!parameter.band&&!!parameter.options?.length))
                 .slice(0,MAX_CANDIDATES);
             this.reusable=this.candidates.map((_,index)=>index);
@@ -97,14 +98,16 @@ export class ContinuousTurn {
             if(this.options.packet){
                 this.prescreen={run:this.options.run,playerText:this.options.playerText,worldRevision:context.world_revision,
                     taskRevision:context.task_world_revision,sourceRevision:context.task_source_revision??context.source_revision,
-                    choices:this.candidates.map(candidate=>({effects:keeperCall(candidate).args.effects}))};
+                    choices:this.candidates.map(candidate=>({effects:keeperCall(candidate).args.effects,
+                        ...(candidate.unbound.some(parameter=>parameter.name==='via'&&parameter.required)?{requires_via:true}:{})}))};
                 const input=normalizedName(this.options.playerText);
                 const named=this.candidates.flatMap((candidate,index)=>{
                     const description=object(object(object(candidate.basis).row).description);
                     const names=[text(description.display_name),...array(object(object(candidate.detail).destination).names).filter(value=>typeof value==='string')];
                     return names.some(name=>normalizedName(name)&&input.includes(normalizedName(name)))?[index]:[];
                 });
-                this.screenedIndexes=this.candidates.length===1?[0]:named.length===1?named:[];
+                this.screenedIndexes=(this.candidates.length===1?[0]:named.length===1?named:[])
+                    .filter(index=>!this.candidates[index].unbound.some(parameter=>parameter.required&&parameter.vocabulary==='open'));
                 if(!this.screenedIndexes.length){
                     this.decided=true;
                     this.options.record({lane:'continuous-turn',event:'selection_deferred',run:this.options.run,reason:'no_unique_named_destination',candidates:this.candidates.length});
@@ -212,6 +215,7 @@ export class ContinuousTurn {
                     const choices=this.candidates.map((candidate,index)=>{
                         const slot=this.screenedIndexes.indexOf(index);
                         return {effects:keeperCall(candidate).args.effects,
+                            ...(candidate.unbound.some(parameter=>parameter.name==='via'&&parameter.required)?{requires_via:true}:{}),
                             ...(slot>=0?{selection:probability('consent_'+slot),veto:probability('restriction_'+slot)}:{})};
                     });
                     this.prescreen={run:this.options.run,playerText:this.options.playerText,worldRevision:object(this.snapshot._context).world_revision,

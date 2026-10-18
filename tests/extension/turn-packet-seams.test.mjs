@@ -1,7 +1,7 @@
 /** Deterministic seam regressions; these are not live gameplay evidence. */
 import {test} from 'node:test';
 import assert from 'node:assert/strict';
-import {turnPacketProviderPayload,bindTurnPacketMoves,TURN_PACKET_PARAMETERS} from '../../runtime/turn-packet-prototype.ts';
+import {turnPacketProviderPayload,bindTurnPacketMoves,turnPacketMovementChoices,compileTurnPacket,turnPacket,TURN_PACKET_PARAMETERS} from '../../runtime/turn-packet-prototype.ts';
 
 test('NPC destinations expose and enforce the same closed issued capabilities',()=>{
  const payload={tools:[{name:'output',input_schema:TURN_PACKET_PARAMETERS}]};
@@ -53,6 +53,33 @@ test('routine move schema selects issued destinations without free route text',(
  assert.throws(()=>bindTurnPacketMoves({...packet,commands:[{kind:'move',to:'Library',via:'Side Alley'}]},[{kind:'move',to:'Library'}]));
  assert.throws(()=>bindTurnPacketMoves(packet,[]));
  assert.throws(()=>bindTurnPacketMoves(packet,[{kind:'move',to:'Library'},{kind:'move',to:'Library',via:'Main Street'}]));
+});
+
+test('an unbound route stays visible to the Keeper and is required before settlement',()=>{
+ const choices=turnPacketMovementChoices([{effects:[{kind:'move',to:'Outskirts'}],requires_via:true},{effects:[{kind:'move',to:'Library',via:'Main Street',travel_minutes:17}]}]);
+ const schema=turnPacketProviderPayload({tools:[{name:'output',input_schema:TURN_PACKET_PARAMETERS}]},false,true,[],choices).tools[0].input_schema;
+ const moves=schema.properties.commands.anyOf[0].items.anyOf.filter(row=>row.properties?.kind?.const==='move');
+ assert.deepEqual(moves.find(row=>row.properties.to.enum.includes('Outskirts')).required,['kind','to','via']);
+ assert.equal(moves.find(row=>row.properties.to.enum.includes('Library')).properties.via,undefined);
+ const packet={version:3,commands:[{kind:'move',to:'Outskirts'}],responses:[]};
+ assert.throws(()=>bindTurnPacketMoves(packet,choices),/requires.*via/);
+ const bound=bindTurnPacketMoves({...packet,commands:[{kind:'move',to:'Outskirts',via:'Follow the selected east road to the billboard.'}]},choices);
+ assert.deepEqual(compileTurnPacket(bound).effects,bound.commands);
+ assert.equal(compileTurnPacket(bindTurnPacketMoves({...packet,commands:[{kind:'move',to:'Library'}]},choices)).effects[0].travel_minutes,17);
+ assert.equal(compileTurnPacket(bindTurnPacketMoves({...packet,commands:[{kind:'move',to:'Library'}]},[{kind:'move',to:'Library',travel_band:'local_travel'}])).effects[0].travel_band,'local_travel');
+ assert.throws(()=>turnPacket(JSON.stringify({...packet,commands:[{kind:'move',to:'Library',travel_minutes:999}]})),/Invalid decision command/,'model cannot supply host-only travel values');
+});
+
+test('route requirements share the transaction structural reachability rules',async()=>{
+ const {moveAccess,stageMove}=await importSource('kernel-ts/apply/move.ts');
+ const {ModuleGraph}=await importSource('kernel-ts/read/module-graph.ts');
+ const graph=new ModuleGraph('fixture',{nodes:[{node_id:'scene:office',node_kind:'scene',name:'Office'},{node_id:'scene:outskirts',node_kind:'scene',name:'Outskirts'}],edges:[]},'fixture');
+ const world={active_scene:'office',scene_trail:[]},current=graph.scene('office'),destination=graph.scene('outskirts');
+ assert.equal(moveAccess(graph,world,current,destination).requiresVia,true);
+ assert.throws(()=>stageMove({graph,world,turn:{turn:1},callId:'test',ordinal:1},{kind:'move',to:'outskirts'}),error=>error.code==='not_reachable');
+ world.scene_trail=[graph.handle(destination)];
+ assert.equal(moveAccess(graph,world,current,destination).requiresVia,false);
+ assert.equal(moveAccess(graph,{scene_trail:[]},current,destination,true).requiresVia,false);
 });
 
 test('an offstage telephone speaker is a discrepancy, never an instruction to teleport',async()=>{
