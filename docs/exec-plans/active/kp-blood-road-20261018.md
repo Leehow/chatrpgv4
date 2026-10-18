@@ -182,3 +182,28 @@ byte-identical to the previous graph. Source-only review caught and verified
 the cross-part speech attribution fix. Browser chapter still incomplete; no
 new input37 sent. Background17jobs:11completed6failed,0queued/running/review;
 3provider500 and3review refusals remain retained failure evidence, not passes.
+
+## Browser continuation through intent44 and final seam alignment
+
+37 delivered16.767s without new receipts.38 failed32.600s when the Keeper
+added an unchosen first-impression probe before arriving; no receipts.39
+recovered movement33.903s with one via correction and one move. Its native
+parts write succeeded and host generated version1/text/empty coverage.40
+dialogue delivered53.494s,41 delivered65.068s,42 delivered102.766s with
+five distinct parameter refusals before recovery; time/event receipts unique.
+43 reached the mine and44 observed it from outside after a real check and
+provider500 retry. Actual chapter remains in progress, not complete.
+
+The SDK schema-loss hypothesis for apply was checked and not supported:
+all26 nested effect branches and required fields survive current conversion;
+full live tools payload was not retained, so this is source-level evidence.
+The actual establishment schema was open while the kernel rejects extra keys.
+Both establishment envelopes now close fields; move also projects its existing
+within string/null support. Schema/kernel pure assertions pass.
+
+Native consent now carries a registered contact rule only from a fresh current
+capsule with unique present identity and matching explicit actor/decision/rule.
+It enriches the same Jev request, not automatic authority.6pure component cases
+and1real Pi/native-kernel wiring case pass; no new judgment model or request.
+The38 premature roll stays a model action-selection failure, not retroactively
+explained by the independently confirmed context wiring gap.

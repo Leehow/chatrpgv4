@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import {test} from 'node:test';
 import {readFileSync} from 'node:fs';
-import {admissionRequest, registeredContactProposal, buildAdmissionInput} from '../../extensions/kernel/admission.ts';
+import {admissionRequest, registeredContactProposal, capsuleContactProposal, buildAdmissionInput} from '../../extensions/kernel/admission.ts';
 import {admissionRolesBatches} from '../../runtime/jev/admission-roles-domain.ts';
 import {admissionJevBatches} from '../../runtime/jev/admission-domain.ts';
 
@@ -50,4 +50,25 @@ test('§224.3: a presence row is registered rule evidence that says when the imp
   const enriched = registeredContactProposal(proposal, payload, presence);
   assert.notEqual(enriched, proposal);
   assert.match(buildAdmissionInput(enriched, context), /registered_contact_check=.*first impression.*matters this turn/);
+});
+
+test('native contact context requires a unique current person and a matching kernel rule row', () => {
+  const current = {present: [{id: 'bartender', name: 'Bartender', ref: 'npc_1'}],
+    mods: {pending_contacts: [{...row, handle: 'bartender'}]}};
+  for (const target of ['Bartender', 'bartender', 'npc_1']) {
+    const args = {action: {...payload.action, target}};
+    const original = admissionRequest('resolve', args, {party: ['Jack']});
+    const enriched = capsuleContactProposal(original, args, current);
+    assert.notEqual(enriched.key, original.key);
+    assert.match(buildAdmissionInput(enriched, context), /registered_contact_check=.*mere presence does not establish it/);
+  }
+  for (const capsule of [
+    {...current, present: []},
+    {...current, present: [...current.present, current.present[0]]},
+    {...current, mods: {pending_contacts: [{...row, handle: 'someone-else'}]}},
+    {...current, mods: {pending_contacts: [{...row, handle: 'bartender', actor: 'Other investigator'}]}},
+    {...current, mods: {pending_contacts: [{...row, handle: 'bartender', decision: 'other-check'}]}},
+    {...current, mods: {pending_contacts: [{...row, handle: 'bartender', rule: {...row.rule, reusable: false}}]}},
+  ]) assert.equal(capsuleContactProposal(proposal, payload, capsule), proposal);
+  assert.equal(capsuleContactProposal(proposal, {...payload, registered_contact_check: row}, {present: current.present}), proposal);
 });

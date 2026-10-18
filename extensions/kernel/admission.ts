@@ -1692,6 +1692,24 @@ export function registeredContactProposal(proposal: AdmissionProposal, payload: 
 		lines: proposal.lines.map(line => `${line}; registered_contact_check=${JSON.stringify(registered)}`) };
 }
 
+/** Native Keeper calls carry rule context only from the fresh kernel capsule, never their own claims. */
+export function capsuleContactProposal(proposal: AdmissionProposal, payload: Record<string, unknown>, capsule: Record<string, unknown>): AdmissionProposal {
+    if (proposal.tool !== 'resolve') return proposal;
+    const action = record(payload.action);
+    if (!action || !['actor', 'target', 'decision'].every(key => typeof action[key] === 'string')) return proposal;
+    const present = Array.isArray(capsule.present) ? capsule.present.map(record).filter(Boolean) : [];
+    const people = present.filter(person => [person!.id, person!.name, person!.ref].includes(action.target));
+    if (people.length !== 1) return proposal;
+    const person = people[0]!;
+    const contacts = record(capsule.mods)?.pending_contacts;
+    if (!Array.isArray(contacts)) return proposal;
+    const matches = contacts.map(record).filter(contact => contact && contact.actor === action.actor && contact.decision === action.decision
+        && typeof person.id === 'string' && contact.handle === person.id);
+    if (matches.length !== 1) return proposal;
+    return registeredContactProposal(proposal, payload, {origin: 'policy', clerk: 'mod_contact',
+        basis: {read: 'table.capsule', path: 'mods.pending_contacts', row: {...matches[0], target: action.target}}});
+}
+
 /**
  * §222.7: the host's Idea roll (Keeper Rulebook pp. 199-200) is chosen by the players' request for a way forward, in or out
  * of character; the clue it names is the Keeper's to give, not a choice the player made. Read from the dispatcher-owned

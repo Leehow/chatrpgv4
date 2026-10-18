@@ -138,6 +138,7 @@ import {
 	admissionRefusal,
 	admissionRequest,
 	registeredContactProposal,
+	capsuleContactProposal,
 	ideaRollProposal,
 	admissionTimedOut,
 	admissionTimeoutMs,
@@ -3704,9 +3705,10 @@ export default function (pi: ExtensionAPI, host: {capabilities?:RuntimeCapabilit
 				return;
 			}
 			const scopeFor=await admissionScopeBuilder(state,tool,payload,current);
-			const proposal=admissionRequest(tool,payload,{...scopeFor(effects),consentOnly:true});
+			let proposal=admissionRequest(tool,payload,{...scopeFor(effects),consentOnly:true});
+			if(!proposal){capture?.(null);return;}
+            proposal=capsuleContactProposal(proposal,payload,current);
             capture?.(proposal);
-			if(!proposal)return;
 			const key='continuous:'+keyDigest(JSON.stringify([state.playerText,current._context?.world_revision,
                 current._context?.task_source_revision??current._context?.source_revision,
                 {tool:proposal.tool,operations:proposal.operations??proposal.lines,kinds:proposal.kinds,cash:proposal.cash??null}]));

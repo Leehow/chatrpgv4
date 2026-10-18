@@ -157,6 +157,24 @@ test('native final output retains the production rule path and delivers actual p
  assert.deepEqual(task.decision_context.settled_results.checks,[{kind:'roll',skill:roll.skill,passed:roll.passed,level:roll.level}]);
  assert.equal(table.telemetry().filter(row=>row.lane==='isolated-expression'&&row.event==='start').length,1);
 });
+
+test('native contact resolution carries the current kernel rule into its single consent request',async t=>{
+ let contact;const batches=[];
+ const engine=createHybridEngine({env,decision:{decide:async batch=>{batches.push(batch);return answer(batch,.99);}}});
+ const table=await openTable({legacyDeliveryFixtures:false,realKernel:true,env,runDriver:engine.runDriver,
+  prepareWorkspace:async workspace=>{await opened(workspace);const client=new RpcClient(workspace);try{
+   const capsule=await client.table('capsule',{campaign:'test-camp'});contact=capsule.mods.pending_contacts.find(row=>row.handle==='steven-knott');assert.ok(contact);
+  }finally{await client.close();}},extraExtensions:[{name:'engine',factory:engine.extension}],responses:[
+   ()=>fauxAssistantMessage([rawToolCall('resolve',{action:{intent:'social',actor:contact.actor,target:contact.target,decision:contact.decision,
+    goal:'Ask this person for help with the investigation',method:'Approach him and ask for help'}})],{stopReason:'toolUse'}),
+   ()=>fauxAssistantMessage([fauxToolCall('output',brief)],{stopReason:'toolUse'})]});
+ t.after(()=>table.dispose());await table.session.prompt('I approach Steven Knott and ask for his help with the investigation.');
+ assert.deepEqual(table.extensionErrors,[]);
+ const consent=batches.filter(row=>row.family==='continuous-action-admission');assert.equal(consent.length,1);
+ assert.match(JSON.stringify(consent[0]),/registered_contact_check/);
+ assert.match(JSON.stringify(consent[0]),/mere presence does not establish it/);
+ assert.equal(table.entries('coc-final-delivery').filter(row=>row.event==='end'&&row.status==='completed').length,1);
+});
 test('an invented time phrase is corrected before one consent batch and one settlement',async t=>{
  const batches=[];let requests=0;
  const engine=createHybridEngine({env,decision:{decide:async batch=>{batches.push(batch);return answer(batch,.99);}}});

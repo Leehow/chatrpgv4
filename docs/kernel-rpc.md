@@ -48108,3 +48108,23 @@ write gate remains below this compiler and validates the resulting file. Old
 non-file JSON transport remains a compatibility input, not the advertised file
 writer protocol. ProseMirror marks and W3C annotation selectors support deriving
 locations from annotated text rather than asking a model to duplicate text.
+
+
+**Closed establishment fields and native registered contact context (2026-10-18).**
+The public apply schema mirrors the kernel establishment envelope: a clue has
+only summary; a place has summary and optional within (registered place name,
+null, or omitted). Both envelopes reject additional fields. The outer clue how
+remains separate. This repairs the schema allowing a nested how that the
+transaction always refused, and exposes the existing place containment field.
+No kernel acceptance or transaction semantics change.
+
+Native consent enriches a resolve proposal with registered contact meaning only
+from a fresh table.capsule: an explicit actor and decision must match one current
+pending contact, whose handle matches exactly one present person's id. The
+action target may be that person's issued id, name or ref. The existing rule
+validator still requires contact/presence, actor-target scope and reusable=true.
+The same single Jev request receives this context, with the existing restrictions
+that mere presence and ordinary greetings do not select a roll. This supplies
+missing rule context, never automatic authority, execution or another judgment.
+No current row, ambiguity or mismatch means ordinary consent remains unchanged;
+model claims cannot manufacture dispatcher evidence or establish presence.
