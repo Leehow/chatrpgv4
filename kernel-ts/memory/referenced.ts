@@ -21,7 +21,7 @@ function scopeOf(meta: Row): {worldline: string; loop: number} {
     return {worldline, loop: number(row(row(meta.worldlines)[worldline]).loop)};
 }
 interface OriginalSource {catalog: CommittedTurnCatalog; revision: string; speakers: Row[]}
-async function original(campaign: CampaignWriter, turn: number): Promise<OriginalSource> {
+async function original(campaign: CampaignWriter, turn: number, layout?: 'paragraph-v1'): Promise<OriginalSource> {
     const retained = await campaign.readTurnRecord(turn);
     if (!retained || retained.closed_by !== 'narrate' || typeof retained.commit !== 'string' || !/^[a-f0-9]{7,64}$/.test(retained.commit))
         return invalid('Referenced memory requires an original committed narration');
@@ -43,7 +43,7 @@ async function original(campaign: CampaignWriter, turn: number): Promise<Origina
     const origin = scopeOf(meta), active = scopeOf(await campaign.readCampaign());
     if (!same(origin, active)) return invalid('The committed memory origin belongs to another worldline or loop');
     const catalog = committedTurnCatalog({scope: {owner: `campaign:${campaign.id}`, campaign: campaign.id,
-        ...origin, audience: 'keeper'}, turn, commit, playerText: committed.player_text ?? '', keeperText: committed.rendered_text});
+        ...origin, audience: 'keeper'}, turn, commit, playerText: committed.player_text ?? '', keeperText: committed.rendered_text, ...(layout ? {layout} : {})});
     const speech = deriveCommittedSpeechSpans({markedText: committed.marked_text ?? committed.rendered_text,
         renderedText: committed.rendered_text, speech: committed.speech});
     for (const segment of catalog.segments) {
@@ -60,10 +60,10 @@ async function original(campaign: CampaignWriter, turn: number): Promise<Origina
             kind: typeof who.npc === 'string' ? 'npc' : typeof who.investigator === 'string' ? 'investigator' : 'label'}};
     }
     return {catalog, speakers: speech.status === 'verified' ? speech.spans.map(value => value.who) : [], revision: jsonDigest({commit, scope: {...catalog.snapshots[0].scope},
-        sources: catalog.snapshots.map(value => ({resource: value.resource, revision: value.revision}))})};
+        sources: catalog.snapshots.map(value => ({resource: value.resource, revision: value.revision})), ...(layout ? {layout} : {})})};
 }
 async function verified(campaign: CampaignWriter, job: Row): Promise<OriginalSource> {
-    const source = await original(campaign, number(job.turn));
+    const source = await original(campaign, number(job.turn), job.source_layout);
     if (source.revision !== job.origin.revision || source.catalog.commit !== job.commit)
         return invalid('The referenced memory job source changed');
     return source;
@@ -103,7 +103,8 @@ export async function referencedSource(campaign: CampaignWriter, turn: number): 
     const source = await original(campaign, turn);
     return {turn, commit: source.catalog.commit, origin: {scope: source.catalog.snapshots[0].scope, revision: source.revision}};
 }
-function makePacket(job: Row, catalog: CommittedTurnCatalog): Row {
+async function makePacket(campaign: CampaignWriter, job: Row, catalog: CommittedTurnCatalog): Promise<Row> {
+    const current = new Map((await logs(campaign, 'memory/candidates.jsonl')).map(value => [value.id, value]));
     const deferred = new Set(array(job.deferred));
     const indices = (job.status === 'open' ? array(job.remaining).filter(index => !deferred.has(index)) : array(job.remaining)).slice(0, 12);
     const segments = indices.map(index => catalog.segments[number(index)]);
@@ -111,7 +112,8 @@ function makePacket(job: Row, catalog: CommittedTurnCatalog): Row {
     return {protocol: PROTOCOL, job_id: job.job_id, turn: job.turn, commit: job.commit, origin: clone(job.origin),
         status: job.status, step: {key, sequence: job.sequence, total: catalog.segments.length, remaining: array(job.remaining).length, segments},
         known_entities: clone(job.context.known_entities), prior: job.targets.map((value: Row) => ({alias: value.alias,
-            kind: value.kind, subject: value.subject, statement: value.statement, status: value.status, ...memoryEvidenceView(value)})),
+            kind: value.kind, subject: value.subject, statement: value.statement,
+            status: current.get(value.id)?.superseded_by != null ? 'superseded' : value.status, ...memoryEvidenceView(value)})),
         prior_coverage: clone(job.prior_coverage), ...(job.context.story_context ? {story_context: clone(job.context.story_context)} : {}),
         story_sources: catalog.segments, story_complete: Boolean(job.story), ...(job.result ? {result: clone(job.result)} : {})};
 }
@@ -180,10 +182,13 @@ async function publishPrepared(campaign: CampaignWriter, graph: ModuleGraph, job
     return advanced;
 }
 
-export async function referencedJob(campaign: CampaignWriter, graph: ModuleGraph, language: string, turn: number, party: Row[], world: Row): Promise<Row> {
+export async function referencedJob(campaign: CampaignWriter, graph: ModuleGraph, language: string, turn: number, party: Row[], world: Row, upgradeOpen = false, layout?: 'paragraph-v1'): Promise<Row> {
     let job = await readJob(campaign, jobId(campaign.id, turn));
-    if (job && job.protocol !== PROTOCOL) return clone(job.packet);
-    const source = await original(campaign, turn);
+    const legacy = job && job.protocol !== PROTOCOL ? job : undefined;
+    if(legacy?.status==='done'&&upgradeOpen)return {job_id:null,turn};
+    if (legacy && (!upgradeOpen || legacy.status !== 'open')) return clone(legacy.packet);
+    if (legacy) job = null;
+    const source = await original(campaign, turn, job ? job.source_layout : layout);
     if (!job) {
         const context = await buildJob(campaign, graph, language, turn, party, world);
         const scope = source.catalog.snapshots[0].scope;
@@ -204,18 +209,19 @@ export async function referencedJob(campaign: CampaignWriter, graph: ModuleGraph
             .slice(0, 64).map(value => value.original);
         const retained = new Set(preferred), slots = 64 - preferred.length;
         const selected = [...preferred, ...(slots ? eligible.filter(value => !retained.has(value)).slice(-slots) : [])];
-        job = {protocol: PROTOCOL, job_id: context.job_id, turn, commit: source.catalog.commit, record_commit: context.commit, status: 'open', sequence: 0,
+        job = {protocol: PROTOCOL, ...(layout ? {source_layout: layout} : {}), job_id: context.job_id, turn, commit: source.catalog.commit, record_commit: context.commit, status: 'open', sequence: 0,
             origin: {scope, revision: source.revision}, context: issued.context, allowed: issued.allowed, name_bindings: issued.name_bindings, receipts: context._receipts,
             remaining: source.catalog.segments.map((_, index) => index), deferred: [], steps: [], opened_at: nowIso(),
             targets: selected.map((value, index) => ({...clone(value), alias: `prior:${index}`})),
-            prior_coverage: {total: eligible.length, included: selected.length, omitted: eligible.length - selected.length}};
+            prior_coverage: {total: eligible.length, included: selected.length, omitted: eligible.length - selected.length},
+            ...(legacy ? {legacy_job:clone(legacy)} : {})};
         await writeJob(campaign, job);
     } else {
         await verified(campaign, job);
         if (job.prepared) job = await publishPrepared(campaign, graph, job);
         job = bindSpeakers(job, source, graph, party);
     }
-    return makePacket(job, source.catalog);
+    return makePacket(campaign, job, source.catalog);
 }
 
 function assessedStory(job: Row, catalog: CommittedTurnCatalog, value: any): Row | undefined {
@@ -244,15 +250,15 @@ export async function submitReferenced(campaign: CampaignWriter, graph: ModuleGr
     const digest = jsonDigest(value), previous = array(job.steps).find(step => step.key === value.step);
     if (previous) {
         if (previous.digest !== digest) throw new RpcError('idempotency_conflict', 'The memory step already has a different submission');
-        return {...clone(previous.result), replayed: true, next: makePacket(job, catalog)};
+        return {...clone(previous.result), replayed: true, next: await makePacket(campaign, job, catalog)};
     }
     if (job.prepared) {
         if (job.prepared.key !== value.step || job.prepared.digest !== digest)
             throw new RpcError('idempotency_conflict', 'A different memory step is already prepared');
         job = await publishPrepared(campaign, graph, job);
-        return {...clone(job.result), replayed: true, next: makePacket(job, catalog)};
+        return {...clone(job.result), replayed: true, next: await makePacket(campaign, job, catalog)};
     }
-    const packet = makePacket(job, catalog), indices = array(packet.step.segments).map(segment => catalog.segments.findIndex(value => value.alias === segment.alias));
+    const packet = await makePacket(campaign, job, catalog), indices = array(packet.step.segments).map(segment => catalog.segments.findIndex(value => value.alias === segment.alias));
     if (job.status === 'done' || value.step !== packet.step.key || value.decisions.length !== indices.length)
         return invalid('Memory decisions must cover exactly the current kernel-issued step');
     const referencedWorld = await campaign.readWorld(), index = new ReferencedEntityIndex(graph, party, row(referencedWorld.scene_labels), array(job.allowed), array(job.name_bindings), referencedWorld);
@@ -316,5 +322,5 @@ export async function submitReferenced(campaign: CampaignWriter, graph: ModuleGr
     job = {...job, prepared};
     await writeJob(campaign, job);
     job = await publishPrepared(campaign, graph, job);
-    return {...clone(job.result), next: makePacket(job, catalog)};
+    return {...clone(job.result), next: await makePacket(campaign, job, catalog)};
 }

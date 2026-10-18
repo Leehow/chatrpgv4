@@ -12,7 +12,7 @@ import type {ApplyContext} from '../apply/index.js';
 import {clone,number} from '../read/values.js';
 import {CampaignSnapshot, loadCampaignModule} from '../read/campaign.js';
 import {whereSection, cluesHere, exitRows, npcsPresent, sceneLabel} from '../read/capsule.js';
-import {aroundExits, containers, isPlace, placesWithin, roadMinutes, samePlace, sceneOfPlace} from '../read/places.js';
+import {aroundExits, containers, isPlace, placesWithin, roadMinutes, samePlace, sceneOfPlace,returnRoute} from '../read/places.js';
 import {SessionView} from '../read/session-view.js';
 import {taskWorldRevision} from '../read/context.js';
 import {fulfillmentHandlers, fulfillmentPromiseNavigation} from './fulfillment-options.js';
@@ -224,7 +224,20 @@ export function ordinaryApplyHandlers(context: KernelContext): HandlerGroup {
         const inWindow=(node:Row)=>!window||citedPages(node).some(page=>page>=window.first&&page<=window.last);
         const referenced=graph.kind('scene').filter(node=>(row(node.properties).source_reference_anchor===true||referenceIds.has(node.node_id))&&node.node_id!==scene.node_id&&inWindow(node))
             .map(node=>({to:graph.handle(node),display_name:graph.displayName(node),material:module.material?.(node.node_id),source_identity:true}));
-        for (const exit of [...array(where.exits),...array(where.back),...referenced]) {
+        // The navigation stack pops on return; the world's travelled roads do not.
+        const travelled:Row[]=[],here=graph.handle(scene),keptDestinations=new Set<string>();
+        for(const [key] of Object.entries(row(campaign.world.table_roads)).sort((a,b)=>number(row(b[1]).turn)-number(row(a[1]).turn))){
+            let pair:unknown;try{pair=JSON.parse(key);}catch{continue;}
+            if(!Array.isArray(pair)||pair.length!==2||!pair.every(value=>typeof value==='string')||!pair.includes(here))continue;
+            const other=pair.find(value=>value!==here),node=typeof other==='string'?graph.find(other,['scene']):null;
+            if(!node||keptDestinations.has(graph.handle(node))||!returnRoute(graph,scene,node))continue;
+            const minutes=roadMinutes(graph,campaign.world,scene,node);
+            if(minutes===null)continue;
+            keptDestinations.add(graph.handle(node));
+            travelled.push({to:graph.handle(node),display_name:sceneLabel(graph,campaign.world,node),travel_minutes:minutes,return_route:true});
+            if(travelled.length>=WITHIN_MOVES)break;
+        }
+        for (const exit of [...array(where.exits),...array(where.back),...travelled,...referenced]) {
             if (typeof exit.to!=='string' || destinations.has(exit.to)) continue;
             destinations.add(exit.to);
             const node=graph.find(exit.to,['scene']),unlock=exit.unlock_when;

@@ -924,7 +924,7 @@ export function statedMeasureQuestions(candidate: Candidate): DecisionBatch['que
 /** One grid's pooled answer: the leading option, its pooled probability and the pooled distribution. */
 interface GridRead {choice: string | null; top: number; distribution: Record<string, number> | null; answered: number; total: number; spread?: number}
 function gridRead(result: DecisionResult | undefined, question: DecisionBatch['questions'][number]): GridRead {
-  const pooled = semanticChoice(result, question.key, Object.keys(question.criteria as Record<string, string>));
+  const pooled = semanticChoice(result, question.key, question.type==='choice'?Object.keys(question.criteria):[]);
   const choice = pooled.choice ?? null, top = choice && pooled.distribution ? pooled.distribution[choice] ?? 0 : 0;
   return {choice, top, distribution: pooled.distribution, answered: pooled.answered, total: pooled.total, ...(pooled.spread !== undefined ? {spread: pooled.spread} : {})};
 }
@@ -1344,9 +1344,9 @@ export function settleRoute(view: RunView, step: number, batch: DecisionBatch, o
   }
   const compile = [...view.observations].reverse().find(value => value.kind === 'decide' && value.purpose === 'compile');
   const held = routed.held?.length ? {destination_binding: object(compile?.summary).destination_binding ?? null,
-    held_eligibility: {source_scene: view.context.scene, holding_step: view.observations.length + 1,
+    held_eligibility: {source_scene: view.context.scene??null, holding_step: view.observations.length + 1,
       recoverable: routed.held.filter(candidate => ['declared_check', 'declared_time'].includes(candidate.clerk ?? ''))
-        .map(candidate => ({key: candidate.key, clerk: candidate.clerk, family: candidate.family}))},
+        .map(candidate => ({key: candidate.key, ...(candidate.clerk?{clerk:candidate.clerk}:{}), family: candidate.family}))},
     proposed: routed.held.map(candidate => ({operation: candidate.verb, family: candidate.family, label: candidate.label,
       bound: candidate.bound, unbound: candidate.unbound.map(parameter => parameter.name)}))} : undefined;
   observe(view, {kind: 'decide', purpose: 'route', status: result.status, choice: routed.choice, confidence: routed.confidence, reason: routed.reason,
@@ -1354,7 +1354,7 @@ export function settleRoute(view: RunView, step: number, batch: DecisionBatch, o
   const answers = result.status !== 'unavailable' ? Object.fromEntries(Object.entries(result.answers ?? {}).map(([key, value]) => [key,
     value.status === 'answered' && value.type === 'choice' ? {choice: value.choice, confidence: value.confidence ?? null, probabilities: value.probabilities ?? null} : {status: value.status}])) : null;
   return {step, kind: 'decide', purpose: 'route', choice: routed.choice ?? null, confidence: routed.confidence ?? null, ms, jev_calls: 1,
-    reason: routed.reason, offered: offered.length, detail: {selected: routed.selected ?? null, exit: routed.exit ?? null, answers, ...(Object.keys(semanticTime).length ? {semantic_time: semanticTime, questions: batch.questions} : {}), ...(gated.length ? {act_gated: gated} : {}),
+    reason: routed.reason, offered: offered.length, detail: {selected: routed.selected ?? null, exit: routed.exit ?? null, answers, ...(Object.keys(semanticTime).length ? {semantic_time: semanticTime, questions: batch.questions.map(question=>({...question}))} : {}), ...(gated.length ? {act_gated: gated} : {}),
       ...(moveHeld.length ? {move_gated: moveHeld} : {}), ...(held ? {not_landed: held} : {}), offered_keys: offered.map(candidate => candidate.key), batch_state: batch.state as Json} as Json};
 }
 

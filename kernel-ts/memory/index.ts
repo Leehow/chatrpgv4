@@ -291,6 +291,8 @@ export function createMemoryHandlers(context: KernelContext, writer: ReturnType<
         'memory.job': async (params) => {
             const { campaign, snapshot, module } = await load(params);
             if (params.mode != null && params.mode !== 'referenced') throw new RpcError('invalid_params', 'Unknown memory job protocol');
+            if(params.upgrade_open!==undefined&&(params.mode!=='referenced'||typeof params.upgrade_open!=='boolean'))throw new RpcError('invalid_params','upgrade_open requires referenced mode and a boolean');
+            if(params.source_layout!==undefined&&(params.mode!=='referenced'||params.source_layout!=='paragraph-v1'))throw new RpcError('invalid_params','source_layout requires referenced mode and paragraph-v1');
             if (params.job_id != null) {
                 parseJobId(campaign, params.job_id);
                 if (!string(params.job_id).startsWith('reconcile:')) throw new RpcError('invalid_params', 'Use turn for an extraction job, or job_id for a retained reconciliation');
@@ -312,7 +314,7 @@ export function createMemoryHandlers(context: KernelContext, writer: ReturnType<
             }
             else if (!integer(turn) || number(turn) < 0)
                 throw new RpcError('invalid_params', 'params.turn must be a committed turn number');
-            if (params.mode === 'referenced') return referencedJob(campaign, module.graph, await playLanguageOf(context, snapshot.meta), number(turn), await campaign.party(), snapshot.world);
+            if (params.mode === 'referenced') return referencedJob(campaign, module.graph, await playLanguageOf(context, snapshot.meta), number(turn), await campaign.party(), snapshot.world,params.upgrade_open===true,params.source_layout as 'paragraph-v1'|undefined);
             const existing = await readJob(campaign, `extract:${campaign.id}:t${turn}`);
             if (existing?.protocol === 'memory-reference-v1') throw new RpcError('invalid_params', 'This memory job requires the referenced protocol');
             return openJob(campaign, await buildJob(campaign, module.graph, await playLanguageOf(context, snapshot.meta), number(turn), await campaign.party(), snapshot.world));

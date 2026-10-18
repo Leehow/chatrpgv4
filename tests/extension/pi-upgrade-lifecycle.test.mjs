@@ -132,6 +132,7 @@ test("real SDK queues retain committed FIFO, independent lanes and shutdown canc
 		two = createLaneQueue(pi, { backfillEnv: "PI_COC_LIFECYCLE_UNUSED", backfillDefault: 0,
 			runJob: async job => { second.push(job.turn); }, onError: async () => {} });
 	});
+	api.events.emit("coc:kernel-bridge", {campaign: "camp", call: async () => ({})});
 	api.events.emit("coc:foreground-pending", {});
 	for (const turn of [1, 2]) api.events.emit("coc:turn-committed", { campaign: "camp", turn });
 	await drain();

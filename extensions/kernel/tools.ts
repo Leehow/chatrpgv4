@@ -6,6 +6,7 @@
 
 import { StringEnum } from "@earendil-works/pi-ai";
 import { type TSchema, Type } from "typebox";
+import {MOVE_ESTABLISHMENT_DEPENDENCIES} from '../../shared/move-protocol.ts';
 
 export const COC_TOOL_NAMES = ["look", "lookup", "recall", "resolve", "apply", "ask", "narrate", "output"] as const;
 export type CocToolName = (typeof COC_TOOL_NAMES)[number];
@@ -238,7 +239,7 @@ const MoveEffect = Type.Object({
 	via: Type.Optional(Type.String({ description: "how they got there when the way is not one of the exits you were given — through an unlatched upper window, down a coal chute, following someone in. Say it and the move lands; without it an unlisted destination is refused, and then the world stays where it was while your narration moves on" })),
 	label: Type.Optional(Type.String({ description: "a public display name for the SAME registered gameplay locus in the player's language. Use only what the player has learned; a private source heading is not a public name. Omitted reuses the recorded public label or an explicitly public source identity, otherwise a neutral scene caption. It cannot substitute a different locus" })),
 	owed: OwedRef,
-});
+}, {dependentRequired: MOVE_ESTABLISHMENT_DEPENDENCIES});
 
 const ClueEffect = Type.Object({
 	...IntentResult,
@@ -288,7 +289,7 @@ const SceneEffect = Type.Object({
     name:Type.String({description:'Existing scene name or here; this changes context only, never movement, access, discovery or ownership'}),
     activity:Type.Object({...ActivityFields,
         service:Type.Optional(StringEnum(['open','closed','limited','unknown'] as const,{description:'Public service availability, separate from physical entry'})),
-        crowd:Type.Optional(StringEnum(['quiet','active','crowded','unknown'] as const,{description:'Plausible street/place activity at this local time; preserve era, land use and exceptions'})),
+        crowd:Type.Optional(StringEnum(['empty','quiet','active','crowded','unknown'] as const,{description:'Plausible street/place activity at this local time; preserve era, land use and exceptions'})),
     }),
     why:Sentence('The local basis or cause of this contextual change'),
 });
@@ -422,10 +423,10 @@ const EmbeddedQuotationDrafts = Type.Optional({
     ...QuotationDrafts,
     description: "Background offers only; the same fields as narrate.quotes",
     items: {...QuotationDrafts.items, properties: Object.fromEntries(Object.entries(QuotationDrafts.items.properties).map(([name,schema])=>{
-        const {description:_description,...fields}=schema;
+        const {description:_description,...fields}=schema as TSchema & {description?:string};
         return [name,fields];
     }))},
-} as typeof QuotationDrafts);
+} as unknown as typeof QuotationDrafts);
 
 const CashEffect = Type.Object({
 	owed: OwedRef,

@@ -13,8 +13,9 @@ import {SAME_KEEPER_AFTER_RESULT_GUIDANCE} from '../../runtime/keeper-output-gui
 for(const [correct,prior] of [[true,false],[false,false],[false,true]])test(`a real inline book_name refusal ${correct?'allows an explicitly corrected record before prose':prior?'preserves an earlier successful receipt without replay':'allows staying put without automatic replay'}`,async t=>{
  let requests=0,decisions=0,firstPublic;
  const engine=createHybridEngine({env:{},decision:{decide:async batch=>{
+  if(batch.family==='held-act-outcome')return bindDecisionAnswers(batch,{held_result:{status:'answered',type:'noul',noul:.01}});
   assert.equal(batch.family,'continuous-action-admission');decisions++;
-  return bindDecisionAnswers(batch,Object.fromEntries(batch.questions.map(question=>[question.key,{status:'answered',type:'noul',noul:.99}])));
+  return bindDecisionAnswers(batch,Object.fromEntries(batch.questions.map(question=>[question.key,{status:'answered',type:'noul',noul:question.key.startsWith('restriction_')?.01:.99}])));
  }}});
  const event={name:'selected-short-wait',summary:'The selected short wait finishes beside the same desk.'};
  const time={kind:'time',minutes:15,why:'The player selected this fifteen-minute wait.'};
@@ -49,7 +50,8 @@ for(const [correct,prior] of [[true,false],[false,false],[false,true]])test(`a r
  const first=await firstPublic;assert.equal(first.receipts.filter(row=>row.kind==='time').length,correct||prior?1:0);
  const turn=JSON.parse(readFileSync(join(table.workspace,'.coc/campaigns/test-camp/turns/0001.json')));
  assert.equal(turn.world.clock.minutes,correct?15:prior?1:0);
- for(const kind of ['time','npc','event'])assert.equal(turn.receipts.filter(row=>row.kind===kind).length,correct||kind==='time'&&prior?1:0);
+ // Knott already occupies this desk: the corrected assignment is unchanged, not a new NPC event.
+ for(const kind of ['time','npc','event'])assert.equal(turn.receipts.filter(row=>row.kind===kind).length,kind==='npc'?0:correct||kind==='time'&&prior?1:0);
  const failed=table.telemetry().find(row=>row.lane==='keeper-delivery'&&row.ok===false);
  assert.ok(failed,'the failed private attempt is retained');
  assert.equal(table.telemetry().some(row=>row.lane==='final-output'&&row.event==='start'),false);

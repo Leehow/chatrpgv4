@@ -85,6 +85,13 @@ Telemetry: `lane: "owed", event: "owed_left_out", stage: "before_admission" | "k
   - Otherwise it becomes or replaces its `open` row.
 - A lane failure records nothing; the item stays owed in full.
 - Telemetry: `lane: "first-sight", ok, ms, model, items, shown, missing`.
+- Typed pending results also report bounded item/unit blockers, issued choice
+  and finite confidence: source bounds, unanswered/unissued choice, confidence,
+  mixed/uncertain content or appearance not shown. These describe the existing
+  decision; they neither add requests nor change acceptance thresholds.
+- In the opt-in packet author, review scope is refreshed from the settled
+  scene immediately before author startup. Pre-move targets are not accumulated
+  into an arrival-only delivery; this does not mark their kernel debt as shown.
 
 **Watched, not waited for.** As with §158.4's owed review, the next run's first read reads a check that has already landed. A check still running then is applied at the next read. While a check of an item is in flight, the capsule omits that item, so the next turn does not describe it a second time; it returns at the following read if the check found it unshown.
 

@@ -142,7 +142,10 @@ export async function buildJob(campaign: CampaignWriter, graph: ModuleGraph, lan
         const node = graph.nodes.get(id);
         if (!node || words[id] !== undefined)
             continue;
-        words[id] = nameWords(graph, node);
+        const publicWord=tableWord(world,graph.handle(node));
+        const own=nameWords(graph,node);
+        words[id]=graph.isTablePerson(node)&&publicWord&&normalize(publicWord)===normalize(graph.displayName(node))
+            ?own.filter(piece=>!occurs(normalize(publicWord),piece)):own;
         const at = toldTurn(graph, node, history, turn, ownedBy(graph, node));
         if (at != null)
             told[id] = at;

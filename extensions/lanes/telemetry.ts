@@ -55,22 +55,24 @@ function outageFix(lane: string, streak: number, reason: string, modelEnv: strin
 }
 
 export function createLaneTelemetry(pi: ExtensionAPI, options: LaneTelemetryOptions) {
-	let outage = 0;
-	let notified = false;
+	const streaks = new Map<string, {outage: number; notified: boolean}>();
+	let lastCampaign: string | undefined;
 
-	async function write(campaign: string, line: Record<string, unknown>): Promise<void> {
+	async function write(campaign: string, line: Record<string, unknown>): Promise<boolean> {
 		let cwd: string | undefined;
 		try {
-			pi.appendEntry("coc-telemetry", line);
 			// After the session is disposed the ctx getters throw (docs/pi-host-contract.md §5), and the
 			// lane's continuation may well land after that: read it, treat a throw as "no workspace",
 			// and never let the exception out of the lane.
 			cwd = options.cwd();
+			if (!cwd) return false;
+			pi.appendEntry("coc-telemetry", line);
 		} catch {
 			/* telemetry must not break a lane */
 		}
-		if (!cwd) return;
+		if (!cwd) return false;
 		await appendJsonl(join(cocHome(cwd), ".coc", "campaigns", campaign, "telemetry.jsonl"), line);
+		try {return options.cwd() === cwd;} catch {return false;}
 	}
 
 	/**
@@ -81,14 +83,19 @@ export function createLaneTelemetry(pi: ExtensionAPI, options: LaneTelemetryOpti
 	 */
 	function observe(campaign: string, row: Record<string, unknown>): void {
 		if (row.lane !== undefined || typeof row.ok !== "boolean") return;
+		if (row.deferred === true || row.pending_review === true || row.reason === "cancelled") return;
+		lastCampaign = campaign;
+		let streak = streaks.get(campaign);
+		if (!streak) {streak = {outage: 0, notified: false}; streaks.set(campaign, streak);}
 		if (row.ok) {
-			outage = 0;
-			notified = false;
+			streak.outage = 0;
+			streak.notified = false;
 			return;
 		}
-		outage += 1;
-		if (outage < OUTAGE_STREAK || notified) return;
-		notified = true;
+		streak.outage += 1;
+		const outage = streak.outage;
+		if (outage < OUTAGE_STREAK || streak.notified) return;
+		streak.notified = true;
 		const reason = typeof row.reason === "string" ? row.reason : "unknown";
 		const detail = typeof row.detail === "string" ? row.detail.slice(0, 200) : "";
 		const status = {
@@ -114,10 +121,9 @@ export function createLaneTelemetry(pi: ExtensionAPI, options: LaneTelemetryOpti
 
 	return {
 		async record(campaign: string, row: Record<string, unknown>): Promise<void> {
-			await write(campaign, { lane: options.lane, ...row });
-			observe(campaign, row);
+			if (await write(campaign, { lane: options.lane, ...row })) observe(campaign, row);
 		},
 		/** For tests and for a lane that wants to know: the current consecutive-failure count. */
-		get outage() { return outage; },
+		get outage() { return lastCampaign ? streaks.get(lastCampaign)?.outage ?? 0 : 0; },
 	};
 }

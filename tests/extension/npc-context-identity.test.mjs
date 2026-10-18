@@ -183,7 +183,9 @@ for (const [label, legacy] of [['name-only','missing'],['empty-id',''],['whitesp
 }
 
 test('a native actor refusal reaches the same Keeper with the registered handle and an explicit corrected event', async t => {
-  const engine = createHybridEngine({env:{...process.env,PI_COC_JEV_PRESELECT:'0'},decision:null,npcAct:null});
+  const engine = createHybridEngine({env:{...process.env,PI_COC_JEV_PRESELECT:'0'},npcAct:null,decision:{decide:async batch=>({batchId:batch.id,status:'complete',
+    answers:Object.fromEntries(batch.questions.map(question=>[question.key,{status:'answered',type:'noul',noul:batch.family==='held-act-outcome'||question.key.startsWith('restriction_')?.01:.99}])),
+    coverage:{required:batch.questions.map(question=>question.key),answered:batch.questions.map(question=>question.key),unknown:[]},issues:[]})}});
   let handle, offstage, party, beforeWorld, privateError, recoveryActor, partyRecovery, offstageOffered, atomicUnchanged, failedFrameCount, correctedSucceeded;
   const frames = [];
   const event = name => ({name:'office-answer',summary:'PRIVATE_EVENT_CAUSE',

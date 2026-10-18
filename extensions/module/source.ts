@@ -545,7 +545,7 @@ async function renderSourcePage(pdf: string, cache: string, page: number, option
 
 export async function sourceAsset(pdf: string, cache: string, regions: Array<{ page: number; box?: number[]; redactions?: number[][] }>, destination: string) {
 	if (!regions.length) throw new Error("an image asset needs an explicit source region");
-	const parts = [];
+	const parts: Array<Awaited<ReturnType<typeof loadImage>> | Canvas> = [];
 	let measuredWidth = 0, measuredHeight = 0;
 	for (const region of regions) {
 		const rendered = await sourcePage(pdf, cache, region.page, { box: region.box });

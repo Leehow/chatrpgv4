@@ -39,7 +39,6 @@ export function stageMove(context: ApplyContext, effect: Row, travelRows?: Reado
             person = named;
         } else if (summary !== undefined) {
             if (graph.find(to)) throw new RpcError('invalid_params', 'This name already identifies another entity');
-            if (typeof effect.via !== 'string' || !effect.via.trim()) throw new RpcError('invalid_params', 'Establishing a destination requires via to describe the route');
             const lies = within === undefined ? current : within;
             destination = establishTableEntity(graph, world, turn, 'scene', to, summary, undefined, {from, ...(lies ? {within: graph.handle(lies)} : {})});
             established = true;

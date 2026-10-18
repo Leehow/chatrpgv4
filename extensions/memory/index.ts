@@ -20,8 +20,14 @@
  */
 
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
-import { cocMode } from "../lanes/host.ts";
-import { resolveLaneModel, runLane } from "../lanes/subsession.ts";
+import { cocMode, cocHome } from "../lanes/host.ts";
+import { resolveLaneModel, runLane, laneThinkingChoice, afterDeliveryFloor } from "../lanes/subsession.ts";
+import {createHash} from 'node:crypto';
+import {readFile,mkdir} from 'node:fs/promises';
+import {join,dirname} from 'node:path';
+import {createDecisionAdapter} from '../../runtime/jev/decision-adapter.ts';
+import {decideMemoryStory,MEMORY_STORY_FAMILY,type StoryDecision} from '../../runtime/jev/memory-story-decision.ts';
+import {runNativeMemory,writeMemoryArtifact as writeTextAtomic} from '../../runtime/jev/memory-native.ts';
 import { createLaneQueue, type KernelCall, type LaneJob } from "../lanes/queue.ts";
 import { createLaneTelemetry } from "../lanes/telemetry.ts";
 import {MEMORY_ATTRIBUTION_INSTRUCTION, MEMORY_ATTRIBUTION_POLICY} from '../../kernel-ts/memory/attribution.ts';
@@ -91,6 +97,7 @@ interface StoryAssessment {
 }
 
 interface MemoryExtraction { candidates: Candidate[]; story?: StoryAssessment }
+interface NativeDraft {path:string;identity:string;value?:{candidates:Candidate[];model:string};story:Promise<StoryDecision>}
 
 function names(rows: unknown): string {
 	if (!Array.isArray(rows) || rows.length === 0) return "(none)";
@@ -256,6 +263,12 @@ function errorText(error: unknown): string {
 export default function (pi: ExtensionAPI) {
 	// The setup process has no turns and so no memory to extract: it registers nothing and subscribes to nothing (contract §14.4).
 	if (cocMode() === "setup") return;
+	let sourceReferences=false;
+	let recoveryCampaign:string|undefined,recoveredTurns=new Set<number>();
+	pi.on('session_start',()=>{recoveredTurns=new Set();});
+	pi.events.on('coc:kernel-bridge',data=>{const owner=data as {campaign?:string;runtime?:{sourceReferences?:boolean}}|undefined;
+		if(owner?.campaign!==recoveryCampaign){recoveryCampaign=owner?.campaign;recoveredTurns=new Set();}
+		sourceReferences=owner?.runtime?.sourceReferences===true;});
 	let referenced: ((job: LaneJob, signal?: AbortSignal) => Promise<{status: string; turn?: number; job_id?: string; candidates?: number; remainingNeeds?: string[]}>) | undefined;
 	pi.events.on('coc:referenced-memory', value => { referenced = typeof value === 'function' ? value as typeof referenced : undefined; });
 
@@ -285,21 +298,27 @@ export default function (pi: ExtensionAPI) {
 		campaign: string,
 		call: KernelCall,
 		note: (row: Record<string, unknown>) => Promise<void>,
-	): Promise<{ ok: true; candidates: number; model: string; story?: StoryAssessment } | { ok: false; reason: string; detail: string; feedback?: string }> {
+		outputLimit = 8192,
+		native?:NativeDraft,
+	): Promise<{ ok: true; candidates: number; model: string; story?: StoryAssessment } | { ok: false; reason: string; detail: string; feedback?: string; outputLimited?: boolean; pendingReview?:boolean }> {
 		const rejectedStages = new Set<'candidates' | 'story'>();
 		let acceptedShape = false;
-		const lane = await runLane<MemoryExtraction>({
+		const authorPacket=native?{...packet,story_context:undefined}:packet;
+		const prompt=systemPrompt(authorPacket),input=userInput(authorPacket);
+		await note({event:'extraction_input',turn:packet.turn,job_id:jobId,prompt_bytes:Buffer.byteLength(prompt),input_bytes:Buffer.byteLength(input),draft_reused:Boolean(native?.value)});
+		const lane = native?.value?{ok:true as const,value:{candidates:native.value.candidates},model:native.value.model}:await runLane<MemoryExtraction>({
 			ctx: scheduler.ctx as ExtensionContext,
 			envName: "PI_COC_MEMORY_MODEL",
 			// The four `lane: "lane-call"` rows this round leaves (contract §12.8.1) travel the job's own
 			// telemetry, so a backfill round is marked as one there too.
 			lane: "memory",
+			...(outputLimit > 8192 ? {outputLimit} : {}),
 			record: (row) => note({ turn: packet.turn, job_id: jobId, ...row }),
-			systemPrompt: systemPrompt(packet),
-			input: userInput(packet),
+			systemPrompt: prompt,
+			input,
 			signal: scheduler.signal,
 			shape: (parsed) => {
-				const value = shapeExtraction(parsed, packet);
+				const value = shapeExtraction(parsed, authorPacket);
 				if (value !== undefined) acceptedShape = true;
 				else rejectedStages.add(shapeCandidates(parsed, packet) === undefined ? 'candidates' : 'story');
 				return value;
@@ -311,17 +330,37 @@ export default function (pi: ExtensionAPI) {
 			if (lane.reason === 'bad_output') await note({turn: packet.turn, job_id: jobId,
 				event: 'malformed_reply', stage, reason: lane.reason, ...(lane.reply ? {reply: lane.reply} : {})});
 			return { ok: false, reason: lane.reason === "model_unavailable" ? "lane_error" : "model_error", detail: lane.detail,
+				...(lane.reply?.stop_reason === 'length' ? {outputLimited: true} : {}),
 				...(lane.reason === 'bad_output' ? {feedback: lane.reply?.objects === 0
 					? `The memory ${stage} reply held no JSON object; return the requested structure.`
 					: `The memory ${stage} structure did not match the requested shape.`} : {}) };
 		}
 
+		let story=lane.value.story;
+		if(native){
+			const reused=Boolean(native.value);
+			native.value={candidates:lane.value.candidates,model:lane.model};
+			if(!reused){await mkdir(dirname(native.path),{recursive:true});await writeTextAtomic(native.path,JSON.stringify({version:1,identity:native.identity,...native.value}));}
+			await note({event:'candidate_draft',turn:packet.turn,job_id:jobId,reused,candidates:lane.value.candidates.length});
+			const judgment=await native.story;
+			if(judgment.status==='pending')return {ok:false,reason:'lane_error',detail:judgment.reason,pendingReview:true};
+			story=judgment.story;
+		}
+		const submitBegan=Date.now();
 		try {
 			await call("memory.submit", { campaign, job_id: jobId, candidates: lane.value.candidates,
-				...(lane.value.story ? {story: lane.value.story} : {}) });
-			return { ok: true, candidates: lane.value.candidates.length, model: lane.model, story: lane.value.story };
+				...(story ? {story} : {}) });
+			await note({event:'submission',turn:packet.turn,job_id:jobId,ms:Date.now()-submitBegan});
+			return { ok: true, candidates: lane.value.candidates.length, model: lane.model, story };
 		} catch (error) {
 			const code = errorCode(error);
+			if(native&&code==='invalid_params'){
+				const index=(error as {details?:{index?:unknown}})?.details?.index;
+				if(typeof index==='number'){
+					native.value=undefined;
+					await writeTextAtomic(native.path+'.refused',JSON.stringify({identity:native.identity,index}));
+				}else return {ok:false,reason:'invalid',detail:`Submission review pending: ${errorText(error)}`,pendingReview:true};
+			}
 			return {
 				ok: false,
 				reason: code === "invalid_params" ? "invalid" : "lane_error",
@@ -332,6 +371,8 @@ export default function (pi: ExtensionAPI) {
 
 	async function runJob(job: LaneJob): Promise<void> {
 		const began = Date.now();
+		const nativeMode=sourceReferences;
+		const excluded=recoveredTurns;
 		// Every backfill telemetry row carries `backfill: true` (contract §12.8): extraction at the table and filling holes stay apart.
 		const note = (row: Record<string, unknown>) =>
 			record(job.campaign, { ...(job.backfill ? { backfill: true } : {}), ...row });
@@ -341,7 +382,7 @@ export default function (pi: ExtensionAPI) {
 			await note({ turn: job.turn, ok: false, reason: "lane_error", detail: "the kernel bridge is gone; the lane cannot run" });
 			return;
 		}
-		if (process.env.PI_COC_JEV_MEMORY === '1') {
+		if (!nativeMode && process.env.PI_COC_JEV_MEMORY === '1') {
 			// The existing queue is still the only scheduler. An unavailable owner leaves this committed job redispatchable.
 			if (!referenced) { await note({turn: job.turn, ok: false, reason: 'lane_error', detail: 'The referenced memory owner is not ready.'}); return; }
 			const result = await referenced(job, scheduler.signal);
@@ -365,6 +406,8 @@ export default function (pi: ExtensionAPI) {
 			// The default dispatch carries no `turn`: the kernel picks a turn not yet extracted and not in the backlog (contract §12.3).
 			packet = ((await current.call("memory.job", {
 				campaign: job.campaign,
+				...(nativeMode?{mode:'referenced',upgrade_open:true,source_layout:'paragraph-v1'}:{}),
+				...(nativeMode&&job.backfill?{exclude_turns:[...excluded]}:{}),
 				...(typeof job.turn === "number" ? { turn: job.turn } : {}),
 			})) ?? {}) as JobPacket;
 		} catch (error) {
@@ -390,9 +433,43 @@ export default function (pi: ExtensionAPI) {
 			return;
 		}
 
+		if(nativeMode&&(packet as {protocol?:string}).protocol==='memory-reference-v1'){
+			try {
+			const result=await runNativeMemory(packet,{campaign:job.campaign,cwd:cocHome(ctx.cwd),signal:scheduler.signal,call:current.call,longContext:process.env.PI_COC_MEMORY_LONG_CONTEXT!=='0',
+				port:createDecisionAdapter({env:{...process.env},enabled:true,maxConcurrency:4,retryPolicies:{'native-memory':{maxRetries:0,backoffInitialMs:0,backoffMaxMs:0,attemptTimeoutMs:6000},[MEMORY_STORY_FAMILY]:{maxRetries:0,backoffInitialMs:0,backoffMaxMs:0,attemptTimeoutMs:2000}}}),
+				record:row=>note({turn:packet.turn,job_id:jobId,...row})});
+			await note({turn:packet.turn,job_id:jobId,ms:Date.now()-began,model:'typesafe/jev-1.13.0',status:result.status,candidates:result.candidates,steps:result.steps,requests:result.requests,remaining:result.remaining,...(result.status==='complete'?{ok:true}:{pending_review:true,deferred:result.deferred})});
+			if(job.backfill&&result.requests===0&&result.steps===0)scheduler.creditBackfill();
+			} catch (error) {
+				await note({turn:packet.turn,job_id:jobId,ok:false,reason:'lane_error',detail:errorText(error),ms:Date.now()-began});
+			} finally {
+			if(typeof packet.turn==='number'){
+				excluded.add(packet.turn);
+				if(excluded.size>=128)scheduler.stopBackfill();
+			}
+			}
+			return;
+		}
+		let native:NativeDraft|undefined;
+		if(nativeMode){
+			const profile={provider:model.model.provider,model:model.model.id,thinking:await afterDeliveryFloor(laneThinkingChoice(ctx,'PI_COC_MEMORY_MODEL')),test:process.env.PI_COC_TEST_MODEL??null};
+			const identity=createHash('sha256').update(JSON.stringify({version:1,packet,profile})).digest('hex');
+			const path=join(cocHome(ctx.cwd),'.coc','memory-drafts',job.campaign,identity+'.json');
+			const storyBegan=Date.now();
+			const story=decideMemoryStory(packet,job.campaign,createDecisionAdapter({env:{...process.env},enabled:true,maxConcurrency:1,
+				retryPolicies:{[MEMORY_STORY_FAMILY]:{maxRetries:0,backoffInitialMs:0,backoffMaxMs:0,attemptTimeoutMs:2000}}}),scheduler.signal)
+				.then(async value=>{await note({event:'story_decision',turn:packet.turn,job_id:jobId,reviewer:'jev',ms:Date.now()-storyBegan,status:value.status,questions:value.questions,judgments:value.judgments,...(value.status==='pending'?{reason:value.reason}:{story_status:value.story?.status})});return value;});
+			native={path,identity,story};
+			try{await readFile(path+'.refused');}catch{
+			try{const saved=JSON.parse(await readFile(path,'utf8')),candidates=shapeCandidates(saved,packet);
+				if(saved.version===1&&saved.identity===identity&&saved.model===`${model.model.provider}/${model.model.id}`&&candidates)native.value={candidates,model:saved.model};
+			}catch{/* Missing or malformed private drafts never replace kernel validation. */}}
+			await note({event:'job_input',turn:packet.turn,job_id:jobId,field_bytes:Object.fromEntries(Object.entries(packet).map(([key,value])=>[key,Buffer.byteLength(JSON.stringify(value))])),draft_reused:Boolean(native.value)});
+		}
 		let last: { ok: false; reason: string; detail: string } | undefined;
+		let outputLimit = 8192;
 		for (let tries = 0; tries < 2 && !scheduler.stopped; tries += 1) {
-			const outcome = await attempt(packet, jobId, job.campaign, current.call, note);
+			const outcome = await attempt(packet, jobId, job.campaign, current.call, note, outputLimit,native);
 			if (outcome.ok) {
 				await note({
 					turn: packet.turn ?? job.turn,
@@ -407,6 +484,15 @@ export default function (pi: ExtensionAPI) {
 				return;
 			}
 			last = outcome;
+			if(outcome.pendingReview){
+				await note({event:'pending_review',turn:packet.turn,job_id:jobId,status:'pending_review',ms:Date.now()-began,reason:outcome.detail,draft_retained:true});
+				if(job.backfill)scheduler.stopBackfill();
+				return;
+			}
+			if (outcome.outputLimited && tries === 0) {
+				outputLimit = 16384;
+				await note({event:'output_room',turn:packet.turn??job.turn,job_id:jobId,previous_limit:8192,next_limit:16384,attempt:tries+1});
+			}
 			if (outcome.reason === 'invalid' || outcome.reason === 'model_error') packet = {...packet, validation_feedback: outcome.feedback ?? outcome.detail};
 		}
 		if (scheduler.stopped) return;

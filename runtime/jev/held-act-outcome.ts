@@ -18,12 +18,19 @@ export const HELD_ACT_OUTCOME_REASON = 'held_act_outcome';
 export const HELD_ROWS_MAX = 12;
 export const HELD_LINE_MAX = 300;
 
-export interface HeldRefusal {tool: string; lines: string[]; cause: string}
-export interface HeldActBasis {campaign: string; worldline?: string; turn: number; playerText: string; held: HeldRefusal[]}
+export interface HeldRefusal {tool: string; lines: string[]; cause: string; operationKey?: string}
+export interface HeldActBasis {campaign: string; worldline?: string; turn: number; playerText: string; held: HeldRefusal[]; complete?: boolean}
 export type HeldActVerdict = {status: 'clean' | 'steer' | 'unclear' | 'claimed' | 'stale' | 'inactive';
   reason: string; probability?: number; basisHash?: string; draftHash?: string; attempt: number};
 
 const clip = (text: string) => [...text].slice(0, HELD_LINE_MAX).join('');
+/** Transport identities are not operation arguments; all other values must match exactly. */
+export function heldOperationKey(tool: string, args: Record<string, unknown>): string {
+  const ordered = (value: unknown): unknown => Array.isArray(value) ? value.map(ordered)
+    : value && typeof value === 'object' ? Object.fromEntries(Object.entries(value).sort(([a],[b])=>a.localeCompare(b)).map(([key,item])=>[key,ordered(item)])) : value;
+  const {campaign: _, call_id: __, ...proposal} = args;
+  return outcomeDigest({tool, proposal: ordered(proposal)});
+}
 /**
  * A settled receipt as the question shows it: its scalar fields, clipped. A projection of the kernel's own row, not a reading
  * of it; which act it carries is Jev's to judge.
@@ -41,20 +48,36 @@ export class HeldActOutcome {
   correctionIssued = false;
   private checked = new Map<string, HeldActVerdict>();
   /** Every unavailable refusal of the turn joins one basis; the turn's decision and correction budget is not renewed. */
-  hold(input: Omit<HeldActBasis, 'held'>, refusal: HeldRefusal): void {
+  hold(input: Omit<HeldActBasis, 'held'>, refusal: HeldRefusal, strict = false): void {
     const basis = this.basis;
     if (basis && (basis.turn !== input.turn || basis.playerText !== input.playerText || basis.worldline !== input.worldline)) return;
-    const row = {tool: refusal.tool, lines: refusal.lines.map(clip), cause: refusal.cause};
+    const limit = strict ? 12_000 : HELD_LINE_MAX;
+    const complete = basis?.complete !== false && refusal.lines.every(line => [...line].length <= limit);
+    const row = {tool: refusal.tool, lines: refusal.lines.map(line => [...line].slice(0, limit).join('')), cause: refusal.cause,
+      ...(refusal.operationKey ? {operationKey: refusal.operationKey} : {})};
     const held = basis?.held ?? [];
-    if (held.some(value => JSON.stringify(value) === JSON.stringify(row)) || held.length >= HELD_ROWS_MAX) return;
-    this.basis = {...input, held: [...held, row]}; this.revision++;
+    if (held.some(value => JSON.stringify(value) === JSON.stringify(row))) return;
+    if (held.length >= HELD_ROWS_MAX) { this.basis = {...basis!, complete: false}; this.revision++; return; }
+    this.basis = {...input, held: [...held, row], ...(strict ? {complete} : {})}; this.revision++;
+  }
+  /** Called only after complete canonical settlement by the operation owner, never by a model. */
+  settled(input: Omit<HeldActBasis, 'held'>, operationKey: string): number {
+    const basis = this.basis;
+    if (!basis || basis.complete === false || basis.campaign !== input.campaign || basis.worldline !== input.worldline
+      || basis.turn !== input.turn || basis.playerText !== input.playerText) return 0;
+    const held = basis.held.filter(row => row.operationKey !== operationKey), removed = basis.held.length - held.length;
+    if (removed) { this.basis = held.length ? {...basis, held} : undefined; this.revision++; this.checked.clear(); }
+    return removed;
   }
   issuedCorrection(): void { this.correctionIssued = true; }
   async check(input: {draft: string; receipts: string[]; decision: DecisionPort; signal: AbortSignal; deadlineAt?: number;
-    correctionAvailable: boolean; current: () => boolean}): Promise<HeldActVerdict> {
+    correctionAvailable: boolean; current: () => boolean; strict?: boolean}): Promise<HeldActVerdict> {
     const basis = this.basis, revision = this.revision;
     if (!basis) return {status: 'inactive', reason: 'no_held_act', attempt: this.attempts};
-    const receipts = input.receipts.slice(0, HELD_ROWS_MAX).map(clip);
+    if (input.strict && (basis.complete === false || input.receipts.length > HELD_ROWS_MAX
+      || input.receipts.some(line => [...line].length > 12_000)))
+      return {status: 'unclear', reason: 'outcome_coverage_incomplete', attempt: this.attempts};
+    const receipts = input.receipts.slice(0, HELD_ROWS_MAX).map(line => input.strict ? line : clip(line));
     const basisHash = outcomeDigest({basis, receipts}), draftHash = outcomeDigest(input.draft), key = basisHash + ':' + draftHash;
     const verdict = (status: HeldActVerdict['status'], reason: string, probability?: number): HeldActVerdict =>
       ({status, reason, attempt: this.attempts, basisHash, draftHash, ...(probability === undefined ? {} : {probability})});
@@ -83,7 +106,7 @@ export class HeldActOutcome {
       const batch: DecisionBatch = {id: `held-act-outcome:${basis.turn}:${draftHash.slice(0, 16)}`, family: HELD_ACT_OUTCOME_FAMILY,
         familyVersion: '1', model: JEV_MODEL, scope, readSet,
         state: {playerWords: basis.playerText,
-          held: {status: 'The action review was unavailable this turn, so the proposals below were refused without review. What the player declared and no settled receipt carries did not happen this turn.',
+          held: {status: 'These operations failed this turn. Only successful matching canonical receipts establish completion; an unrelated successful operation does not settle them.',
             refused: basis.held.map(row => ({tool: row.tool, lines: row.lines}))},
           settledReceipts: receipts, draft: input.draft} as Json,
         questions: [{key: 'held_result', type: 'noul', target: 'result of an act the review held',
@@ -96,7 +119,7 @@ export class HeldActOutcome {
       });
       const result = await Promise.race([input.decision.decide(batch, lease), cancelled]), value = result.answers.held_result;
       if (!current()) return verdict('stale', 'held_binding_changed');
-      const p = result.status === 'complete' && value?.status === 'answered' && value.type === 'noul' ? value.noul : undefined;
+      const p = result.status === 'complete' && result.batchId === batch.id && value?.status === 'answered' && value.type === 'noul' ? value.noul : undefined;
       const [status, reason] = outcomeStatus(p, this.attempts, this.correctionIssued, input.correctionAvailable);
       answer = verdict(status, reason, reason === 'outcome_unavailable' ? undefined : p);
     } catch {

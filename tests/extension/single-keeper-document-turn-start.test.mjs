@@ -15,6 +15,8 @@ const read=async path=>JSON.parse(await readFile(path,'utf8'));
 // These tests isolate physical writing, not optional context selection or post-delivery readers.
 // Neither family may contaminate the assertion that writing itself needs no decision request.
 const WRITING_ENV={PI_COC_LOOP_ENGINE:'hybrid-v1',PI_COC_MATERIAL_SCREEN:'0',
+  // Keep unrelated startup recovery out; after-delivery readers are outside the apply boundary.
+  PI_COC_MEMORY_BACKFILL:'0',
   PI_COC_TOLD_POSITION:'off',PI_COC_TOLD_CLUE:'off',PI_COC_TOLD_TIME:'off'};
 
 async function seedReadyHistoricalRegistration(workspace,{ready=true}={}){
@@ -86,20 +88,20 @@ test('one Keeper writes the chosen suffix without append binding and the kernel 
   };
   t.after(()=>{globalThis.fetch=originalFetch;});
   const engine=createHybridEngine({env:{...process.env,PI_COC_JEV_PRESELECT:'0'},decision:null});
-  const results=[],suffix='Gate code NOTE-B4.\n';
+  const results=[],requestsAtApply=[],suffix='Gate code NOTE-B4.\n';
   const effect=owner=>({kind:'object',name:NAME,from:owner,to:owner,document:{action:'append',text:suffix},
     why:'The investigator writes the player-selected note in the carried notebook.'});
   const table=await openTable({legacyDeliveryFixtures:false,realKernel:true,prepareWorkspace:seedReadyHistoricalRegistration,
     runDriver:engine.runDriver,env:{...WRITING_ENV,TYPESAFE_API_KEY:'test-only-writing-seam'},
     extraExtensions:[{name:'mods',factory:modsExtension},{name:'driver',factory:engine.extension},
-      {name:'writing-observer',factory:pi=>pi.on('tool_result',event=>{if(event.toolName==='apply')results.push(event);})}],
+      {name:'writing-observer',factory:pi=>pi.on('tool_result',event=>{if(event.toolName==='apply'){results.push(event);requestsAtApply.push(decisionRequests);}})}],
     responses:[fauxAssistantMessage([fauxToolCall('apply',{effects:[effect('Thomas Hayes')]})],{stopReason:'toolUse'}),
       fauxAssistantMessage([fauxToolCall('apply',{effects:[effect('Steven Knott')]})],{stopReason:'toolUse'}),
       fauxAssistantMessage('{{public}}You finish writing your chosen note in your notebook.')]});
   t.after(()=>table.dispose());
   await table.session.prompt('I write "Gate code NOTE-B4" in my interview notebook.');
   assert.deepEqual(table.extensionErrors,[]);
-  assert.equal(decisionRequests,0,'the same Keeper already selected this actual target and suffix');
+  assert.deepEqual(requestsAtApply,[0,0],'neither selected writing nor kernel refusal invokes Jev; after-delivery first sight is separate');
   assert.equal(results.length,2);
   assert.equal(results[0].details.coc_error,undefined,'the chosen append reaches the existing kernel');
   assert.ok(results[1].details.coc_error,'the kernel still rejects an NPC who does not hold this paper');

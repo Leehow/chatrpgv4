@@ -1,6 +1,7 @@
 /** Keeper and player read projections preserve the existing authored/state boundary. */
 import { pythonJsonDumps, compareUnicode, isJsonObject } from "../json.js";
 import { RpcError } from "../errors.js";
+import {npcReference,referencedNpc} from '../npc/references.js';
 import { ModuleGraph, recordOf, moduleDeclaration, describeCondition, conditionStatus, dossierLabels, isAmbiguity, destinationIdentity, destinationAccess } from "./module-graph.js";
 import { entries, values, array, row, number, integer, truth, string, normalize, chars, length, words, clone, repr, type Row } from "./values.js";
 import { clueGate, structureType } from "./director.js";
@@ -103,7 +104,7 @@ export function calledPerson(graph: ModuleGraph, world: Row, name: string): Row 
  * and then this table's own word. The first layer with exactly one answer is the person.
  */
 export function personNode(graph: ModuleGraph, world: Row, name: string): Row | null {
-    return graph.actor(name) ?? calledPerson(graph, world, name);
+    return referencedNpc(graph,world,name) ?? graph.actor(name) ?? calledPerson(graph, world, name);
 }
 /**
  * The same junction for an entrance that has only ever named people and answers a miss with the
@@ -111,6 +112,7 @@ export function personNode(graph: ModuleGraph, world: Row, name: string): Row | 
  * unchanged, because its candidates are still the Keeper's next step.
  */
 export function npcNode(graph: ModuleGraph, world: Row, name: string): Row {
+    const referenced=referencedNpc(graph,world,name);if(referenced)return referenced;
     try {
         return graph.npc(name);
     }
@@ -189,6 +191,27 @@ export function actorNode(graph: ModuleGraph, world: Row, name: string): Row {
 }
 /** The table's name for a person, and the sheet's or the book's only until one exists (§79). */
 export const personLabel = (world: Row, id: string, authored: string): string => string(personRecord(world, id).name || authored);
+/** Existing committed disclosure owns naming; aliases alone cannot reveal the book. */
+function npcReferenceView(graph:ModuleGraph,world:Row,node:Row,untold:Row|null):Row {
+    const ref=npcReference(graph,world,node);
+    return { ...(ref?{ref}:{}),name_known:untold===null,
+        display_name:untold&&!graph.isTablePerson(node) ? String(untold.label||'Person') : personLabel(world,graph.handle(node),graph.displayName(node)) };
+}
+/** Publicly encountered or table-established identities; never an assertion of current presence. */
+export function knownNpcReferences(graph:ModuleGraph,world:Row,journal:Row,records:Row[]):Row {
+    const nodes=new Map<string,Row>();
+    const add=(node:Row|null|undefined)=>{if(node&&graph.isPerson(node))nodes.set(String(node.node_id),node);};
+    for(const record of [...records].reverse())if(record.commit&&record.closed_by==='narrate')
+        for(const speech of array(record.speech)){
+            const id=row(row(speech).who).npc;
+            if(typeof id==='string')add(graph.nodeOfHandle(id));
+        }
+    for(const node of [...graph.kind('npc')].reverse())if(graph.isTablePerson(node))add(node);
+    const people=[...nodes.values()].map((node):Row=>({...npcReferenceView(graph,world,node,untoldBlock(graph,world,journal,node,records)),
+        recorded_at:row(world.npc_presence)[graph.handle(node)]??null}))
+        .filter(person=>person.ref);
+    return {authority:'Known identities only; not current presence, action permission or undisclosed knowledge.',people:people.slice(0,24),omitted:Math.max(0,people.length-24)};
+}
 /**
  * The `called` block a Keeper-facing surface carries for a person (§79), or `null` when this table
  * has established nothing and there is nothing to say.
@@ -848,6 +871,7 @@ export function npcEntry(graph: ModuleGraph, world: Row, node: Row, ledger: Row,
     const variation = npcVariation(graph,world,node,now);
     const entry: Row = {
         id: graph.handle(node),
+        ...npcReferenceView(graph,world,node,untold),
         name: graph.displayName(node),
         ...(graph.sourceNeeds(node,true).length?{runtime_inputs:graph.sourceNeeds(node,true)}:{}),
         // What this table calls them (§79), before the dossier for the same reason `state` is: the
@@ -995,6 +1019,7 @@ export function npcView(graph: ModuleGraph, world: Row, node: Row, ledger: Row =
         ...(calledBlock(world, handle, graph.displayName(node)) ? {called: calledBlock(world, handle, graph.displayName(node))} : {}),
         ...(untold ? {untold} : {}),
         id: handle,
+        ...npcReferenceView(graph,world,node,untold),
         // §185.7: where the book's node id stood, a name-free campaign shows the handle.
         node_id: graph.shownIds(node.node_id),
         scene: row(world.npc_presence)[handle] ?? null,

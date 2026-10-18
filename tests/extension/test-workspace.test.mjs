@@ -20,6 +20,9 @@ function fixture(t) {
   put('modules/book/source.pdf', Buffer.alloc(65536, 65));
   put('modules/book/work/attempt/task.json', '{"provenance":true}');
   put('mods/packages/example/mod.json', '{}');
+  put('memory-decisions/table/accepted.json', '{"accepted":true}');
+  put('memory-drafts/table/candidate.json', '{"candidate":true}');
+  put('memory-decisions/other/private.json', '{"private":true}');
   put('mods/jobs/old/input.json', 'old audit data');
   put('campaigns/other/campaign.json', '{}');
   put('playtests/previous/events.jsonl', 'previous results');
@@ -37,11 +40,11 @@ test('two views share one seed with private writes, complete dependencies and ex
   const first = createTestWorkspace({ seed, destination: a, campaign: 'table' });
   createTestWorkspace({ seed, destination: b, campaign: 'table' });
   assert.equal(first.status, 'ready'); assert.equal(checkTestWorkspaceBudget(a).growthBytes, 0);
-  for (const path of ['campaigns/table/world.json', 'repos/table.git/HEAD', 'modules/book/source.pdf', 'modules/book/work/attempt/task.json', 'module-campaigns/table/modules/book/module-graph.json', 'mods/packages/example/mod.json']) {
+  for (const path of ['campaigns/table/world.json', 'repos/table.git/HEAD', 'modules/book/source.pdf', 'modules/book/work/attempt/task.json', 'module-campaigns/table/modules/book/module-graph.json', 'mods/packages/example/mod.json', 'memory-decisions/table/accepted.json', 'memory-drafts/table/candidate.json']) {
     assert.deepEqual(readFileSync(join(a, '.coc', path)), readFileSync(join(seed, '.coc', path)));
     assert.notEqual(lstatSync(join(a, '.coc', path)).ino, lstatSync(join(seed, '.coc', path)).ino);
   }
-  for (const path of ['campaigns/other', 'playtests', 'mods/jobs']) assert.equal(existsSync(join(a, '.coc', path)), false);
+  for (const path of ['campaigns/other', 'playtests', 'mods/jobs', 'memory-decisions/other']) assert.equal(existsSync(join(a, '.coc', path)), false);
   assert.match(first.files.find(row => row.path.endsWith('world.json')).sha256, /^[a-f0-9]{64}$/);
   const world = '.coc/campaigns/table/world.json';
   writeFileSync(join(a, world), 'changed first view');

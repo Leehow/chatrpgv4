@@ -224,9 +224,12 @@ test('a genuinely unknown person still isolates only their original person effec
   const client=await kernel(t);await openTurn(client);
   const result=await client.table('apply',{call_id:'t1-c1',effects:[{kind:'npc',name:'Steven Knott',to:'here'},
     {kind:'npc',name:'Absent fixture stranger',to:'here'}]});
-  assert.equal(result.receipts.length,1);
-  const status=await client.table('status');assert.equal(status.receipts.length,1);
-  assert.equal(status.receipts[0].name,'Steven Knott');
+  assert.deepEqual(result.receipts,[]);
+  assert.equal(result.outcomes[0].actor,'Steven Knott');
+  assert.equal(result.outcomes[0].status,'unchanged');
+  assert.equal(result.not_landed[0].index,1);
+  assert.equal(result.not_landed[0].code,'unknown_entity');
+  const status=await client.table('status');assert.equal(status.receipts.length,0);
 });
 
 for(const mode of ['tool','inline'])test(`the real Pi ${mode} path sends the ordinary combination through the existing adapter`,async t=>{

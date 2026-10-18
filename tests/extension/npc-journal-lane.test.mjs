@@ -12,6 +12,37 @@ import { waitFor } from "./harness.mjs";
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..", "..");
 const answer = (entries = []) => fauxAssistantMessage(JSON.stringify({ entries }));
+
+test('a length-truncated journal generation is not repeated and the next job proceeds',async t=>{
+ const table=await openLanes(t,{responses:[fauxAssistantMessage([{type:'thinking',thinking:'Unfinished reasoning'}],{stopReason:'length'}),answer()]});
+ table.commit(1);table.commit(2);await completed(table,2);
+ assert.equal(table.rows('lane-call').filter(row=>row.subsession==='journal'&&row.phase==='start').length,2);
+ assert.equal(table.calls('journal.fail').length,1);assert.equal(table.calls('journal.fail')[0].params.job_id,'journal:camp:t1');
+ assert.equal(table.calls('journal.submit').length,1);assert.equal(table.calls('journal.submit')[0].params.job_id,'journal:camp:t2');
+});
+
+test('one journal job deadline aborts an unresponsive generation and releases the next job',async t=>{
+ const held=gate(t);let signal;
+ const table=await openLanes(t,{env:{PI_COC_NPCJOURNAL_TIMEOUT_MS:'1000'},responses:[async(_context,options)=>{signal=options.signal;await held.promise;return answer();},answer()]});
+ table.commit(1);table.commit(2);await completed(table,2);
+ assert.equal(signal.aborted,true);assert.equal(table.calls('journal.fail').length,1);
+ assert.equal(table.calls('journal.submit').length,1);assert.equal(table.calls('journal.submit')[0].params.job_id,'journal:camp:t2');
+ assert.equal(table.rows('lane-call').filter(row=>row.subsession==='journal'&&row.phase==='start').length,2);
+});
+
+test('a valid journal draft survives a submit transport failure without another generation',async t=>{
+ let submits=0;
+ const table=await openLanes(t,{responses:[answer([{name:'Dooley',label:'The caretaker',exchange:'He handed over a key.'}])],rpc:async(method,params)=>{
+  if(method==='journal.job')return packet(params.turn);
+  if(method==='journal.submit'&&++submits===1)throw {code:'bridge_closed'};
+  return {};
+ }});
+ table.commit(1);await completed(table);
+ assert.equal(table.calls('journal.submit').length,2);
+ assert.deepEqual(table.calls('journal.submit')[0].params,table.calls('journal.submit')[1].params);
+ assert.equal(table.rows('lane-call').filter(row=>row.subsession==='journal'&&row.phase==='start').length,1);
+ assert.equal(table.rows()[0].ok,true);
+});
 const promptOf = context => getCurrentSystemPrompt(context.messages);
 /** Drop system messages before reading conversational blocks. Their content is a string. */
 const inputText = context => context.messages.filter(message => message.role !== "system").flatMap(message => message.content).map(block => block.text ?? "").join("\n");
@@ -310,26 +341,29 @@ test("journal and memory are independently single-flight; committed journal turn
 
 test("shutdown is nonblocking, aborts both models and neither retries nor backlogs unfinished work", async (t) => {
 	const held = gate(t);
+	const signals=[];let returned=0;
+	const response=value=>async(_context,options)=>{signals.push(options?.signal);try{await held.promise;return value();}finally{returned++;}};
 	const table = await openLanes(t, {
-		responses: [async () => { await held.promise; return answer(); }],
-		memoryResponses: [async () => { await held.promise; return fauxAssistantMessage('{"candidates":[]}'); }],
+		responses: [response(()=>answer())],
+		memoryResponses: [response(()=>fauxAssistantMessage('{"candidates":[]}'))],
 	});
 	table.commit(1);
 	await waitFor(() => table.rows("lane-call").filter(row => row.phase === "start").length === 2, { label: "both models started" });
 	table.commit(2);
 	await table.hook("session_shutdown");
+	assert.equal(signals.length,2);assert.ok(signals.every(signal=>signal?.aborted),'both real provider requests are aborted without awaiting their replies');
 	table.commit(3);
 	table.publish();
 	await table.hook("agent_settled");
 	held.open();
-	// Shutdown clears ctx, so late rows can reach appendEntry but have no workspace to append to.
-	await waitFor(() => table.entries("lane-call").filter(row => row.phase === "end").length === 2, { label: "both model calls ended" });
+	// Complete the held handlers; a disposed owner must publish no late session telemetry.
+	await waitFor(() => returned===2, { label: "both held model handlers returned" });
 	await settle(40);
 	for (const lane of ["journal", "memory"]) {
 		assert.equal(table.calls(`${lane}.job`).length, 1);
 		assert.equal(table.calls(`${lane}.submit`).length, 0);
 		assert.equal(table.calls(`${lane}.fail`).length, 0);
-		assert.equal(table.entries("lane-call").find(row => row.subsession === lane && row.phase === "end").ok, false);
+		assert.equal(table.entries("lane-call").filter(row => row.subsession === lane && row.phase === "end").length, 0);
 	}
 	assert.equal(table.pushes.length, 0);
 });

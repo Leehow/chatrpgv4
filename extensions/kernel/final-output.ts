@@ -11,7 +11,7 @@ import {untoldView,untoldPeople} from './untold-view.ts';
 import {acquireWritingCache,writeWritingCache} from '../../runtime/final-output-cache.ts';
 import {createWritingSupportNames,publicSupportText,writingSupportBinding} from '../../runtime/writing-support.ts';
 import {ArtifactTextStream,DeliveryJournal,readDeliveryFrames,type DeliveryFrame} from '../../runtime/final-output-stream.ts';
-import {sayRanges,type Speaker} from '../../kernel-ts/write/speech-pass.ts';
+import {sayRanges,EmptySpeechStream,type Speaker} from '../../kernel-ts/write/speech-pass.ts';
 
 type Row = Record<string, any>;
 type Source = {name: string; revision: string; tool: string; material?:Row; binding?:Row};
@@ -446,13 +446,17 @@ export function createFinalOutputOwner(deps: {runtime: () => HostRuntime | undef
     journals.set(key,journal);
     journal.write('start',{status:'streaming',speakers:prepared.speakers??[]});
     let text='';
+    const speechStream=new EmptySpeechStream();
+    const append=(delta:string)=>{if(delta){text+=delta;journal.write('delta',{delta});}};
     return {
+      settledResults:prepared.settled_results,
       playerText:typeof capsule.turn?.player_text==='string'?capsule.turn.player_text:undefined,
       investigatorNames:[...new Set<string>((prepared.speakers??[]).filter((speaker:Row)=>typeof speaker.who?.investigator==='string'&&speaker.who.investigator)
         .map((speaker:Row)=>speaker.who.name??speaker.name))],
-      push:(delta:string)=>{if(delta){text+=delta;journal.write('delta',{delta});}},
+      push:(delta:string)=>append(speechStream.push(delta)),
       interrupt:()=>{if(journal.frames.at(-1)?.status!=='interrupted')journal.write('end',{status:'interrupted'});},
       finish:async(model:string,thinking:unknown,publication:Row,declarations:unknown=[])=>{
+        append(speechStream.push('',true));
         const snapshot=await deps.call('table.status',{campaign,_context_read:true});
         const materials=(snapshot.outcome?.public_materials??[]).filter((material:Row)=>material.visibility==='player').map((material:Row)=>({...material}));
         const identity=(who:Row|undefined):string|undefined=>typeof who?.npc==='string'&&who.npc

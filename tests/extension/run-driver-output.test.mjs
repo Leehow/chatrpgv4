@@ -85,14 +85,18 @@ test('the same Keeper receives a real rule result and then writes the public res
 
 
 function directTable(responses,extra={}) {
-  const {onFrame,extraExtensions=[],...options}=extra;
+  const {onFrame,extraExtensions=[],decision=null,...options}=extra;
   const seen=[];
-  const engine=createHybridEngine({env:{...process.env,PI_COC_JEV_PRESELECT:'0'},decision:null});
+  const engine=createHybridEngine({env:{...process.env,PI_COC_JEV_PRESELECT:'0'},decision});
   return openTable({legacyDeliveryFixtures:false,realKernel:true,prepareWorkspace:seedOpening,
     runDriver:engine.runDriver,env:{PI_COC_LOOP_ENGINE:'hybrid-v1'},
     extraExtensions:[{name:'capture-stream',factory:pi=>pi.events.on('coc:final-delivery',frame=>{seen.push(frame);onFrame?.(frame);})},{name:'driver',factory:engine.extension},...extraExtensions],
     responses,...options}).then(table=>({table,seen}));
 }
+
+const checkedRecovery={decide:async batch=>({batchId:batch.id,status:'complete',
+  answers:Object.fromEntries(batch.questions.map(question=>[question.key,{status:'answered',type:'noul',noul:batch.family==='held-act-outcome'||question.key.startsWith('restriction_')?.01:.99}])),
+  coverage:{required:batch.questions.map(question=>question.key),answered:batch.questions.map(question=>question.key),unknown:[]},issues:[]})};
 
 for(const [form,minutes] of [['nested',4],['html',5]])test(`tagged ${form} calls settle through native Pi before the same Keeper streams prose`,async t=>{
   const body=readFileSync(join(import.meta.dirname,'fixtures',`tagged-apply-${form}.txt`),'utf8');
@@ -639,7 +643,7 @@ test('a rejected inline record returns the actual kernel correction without cand
     assert.equal(seen.length,0,'the rejected record never starts a public stream');
     correction=JSON.stringify(context.messages);
     return fauxAssistantMessage(JSON.stringify(good));
-  }]);
+  }],{decision:checkedRecovery});
   t.after(()=>table.dispose());
   await table.session.prompt('I wait eight minutes and watch the clerk.');
   assert.ok(correction.includes('invalid_params'));
@@ -681,7 +685,7 @@ test('a refused legacy final can recover through native tools without spending a
       assert.ok(context.messages.some(message=>message.role==='toolResult'&&message.isError!==true));
       return fauxAssistantMessage('{{public}}'+text);
     },
-  ]);
+  ],{decision:checkedRecovery});
   t.after(()=>table.dispose());
   await table.session.prompt('I wait eight minutes beside the desk.');
   assert.equal(requests,4);

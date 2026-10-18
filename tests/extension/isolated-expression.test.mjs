@@ -4,25 +4,47 @@ import {readFile,mkdtemp,rm,readdir} from 'node:fs/promises';
 import {join} from 'node:path';
 import {tmpdir} from 'node:os';
 import {fauxAssistantMessage} from '@earendil-works/pi-ai';
-import {ExpressionPlanStream,expressionBrief,writeIsolatedExpression,EXPRESSION_PROFILE,expressionAuthorProfile} from '../../runtime/isolated-expression.ts';
+import {ExpressionPlanStream,expressionBrief,writeIsolatedExpression,EXPRESSION_PROFILE,expressionAuthorProfile,decisionRecentPublic} from '../../runtime/isolated-expression.ts';
+import {EmptySpeechStream,speechPass} from '../../kernel-ts/write/speech-pass.ts';
 import {openTable} from './harness.mjs';
 import {api,root} from './object-usages-fixture.mjs';
 import {createHybridEngine} from '../../runtime/jev/hybrid-engine.ts';
 import {createFinalOutputOwner} from '../../extensions/kernel/final-output.ts';
 const brief={scene:'An office.',narrative_content:[],npc_turns:[{speaker:'Steven Knott',intent:'Offer a meeting at dawn.',personality:'Practical',emotion:null}]};
 
-test('the explicit MiniMax profile reaches the isolated request and actual-model verification',async t=>{
+test('departure continuity uses delivered turns across scene changes and preserves tail constraints',()=>{
+ const current=[{turn:77,player:'I ask through the door.',keeper:'You remain outside.'},{turn:78,closed:'stranded',keeper:'An interrupted arrival.'}];
+ const full='A'.repeat(9000)+' You never entered.';
+ const result=decisionRecentPublic(current,[{turn:76,player:'I walk to the inn doorway.',keeper:full},{turn:77,player:'I ask through the door.',keeper:'You remain outside. The clerk speaks through the glass.'}]);
+ assert.deepEqual(result.map(row=>row.turn),[76,77]);
+ assert.ok(result[0].keeper.endsWith(' You never entered.'));assert.equal(result[0].truncated,true);
+ assert.equal(result[1].keeper,'You remain outside. The clerk speaks through the glass.');
+ assert.equal(result[0].player,'I walk to the inn doorway.');
+});
+
+test('empty speech normalization is independent of token chunk boundaries and preserves actual dialogue',()=>{
+ for(const raw of ['A{{say:npc_11}}{{/say}}B','{{say:npc_11}} \n {{/say}}','{{say:npc_11}}Hello.{{/say}}','{{say:{{name:Clerk}}}}Yes.{{/say}}','A{{check:test}}B','A{B','{{say:npc_11}}']){
+  const expected=raw==='{{say:npc_11}}'?'':raw.includes('Yes.')?raw:speechPass(raw,name=>({label:name})).text;
+  for(let cut=0;cut<=raw.length;cut++){
+   const stream=new EmptySpeechStream();
+   assert.equal(stream.push(raw.slice(0,cut))+stream.push(raw.slice(cut))+stream.push('',true),expected,raw+' at '+cut);
+  }
+ }
+});
+
+for(const [profile,thinking] of [['minimax-cn/MiniMax-M3.1-Flash-Preview','medium'],['grok-build/grok-4.5','high']])test('the explicit profile reaches the isolated request and actual-model verification: '+profile,async t=>{
   assert.deepEqual(expressionAuthorProfile({}),EXPRESSION_PROFILE);
+  assert.deepEqual(expressionAuthorProfile({PI_COC_TEST_MODEL:'grok-build/grok-4.5'}),{model:'grok-build/grok-4.5',thinking:'high'});
   assert.deepEqual(expressionAuthorProfile({PI_COC_TEST_MODEL:'minimax-cn/MiniMax-M3.1-Flash-Preview'}),{model:'minimax-cn/MiniMax-M3.1-Flash-Preview',thinking:'medium'});
   const previous=process.env.PI_COC_TEST_MODEL;
   const home=await mkdtemp(join(tmpdir(),'expression-minimax-'));const calls=[],rows=[];
   t.after(()=>rm(home,{recursive:true,force:true}));
-  process.env.PI_COC_TEST_MODEL='minimax-cn/MiniMax-M3.1-Flash-Preview';
+  process.env.PI_COC_TEST_MODEL=profile;
   try {
-    const runtime={home,async runTask(task){calls.push(task);task.request.onEvent({type:'message_end',message:{role:'assistant',provider:'minimax-cn',model:'MiniMax-M3.1-Flash-Preview',stopReason:'stop',content:[{type:'text',text:'{{public}}The office is quiet.'}]}});return{ok:true,ms:1};}};
+    const runtime={home,async runTask(task){calls.push(task);task.request.onEvent({type:'message_end',message:{role:'assistant',provider:profile.split('/')[0],model:profile.split('/')[1],stopReason:'stop',content:[{type:'text',text:'{{public}}The office is quiet.'}]}});return{ok:true,ms:1};}};
     const result=await writeIsolatedExpression({runtime,campaign:'c',turn:1,run:'r',brief,language:'en',stream:{push:()=>{}},record:async row=>rows.push(row)});
-    assert.equal(calls[0].request.model,'minimax-cn/MiniMax-M3.1-Flash-Preview');assert.equal(calls[0].request.thinking,'medium');
-    assert.deepEqual(rows.at(-1).actual_models,['minimax-cn/MiniMax-M3.1-Flash-Preview']);assert.equal(result.thinking,'medium');
+    assert.equal(calls[0].request.model,profile);assert.equal(calls[0].request.thinking,thinking);
+    assert.deepEqual(rows.at(-1).actual_models,[profile]);assert.equal(result.thinking,thinking);
   } finally {if(previous===undefined)delete process.env.PI_COC_TEST_MODEL;else process.env.PI_COC_TEST_MODEL=previous;}
 });
 
@@ -71,6 +93,31 @@ test('isolated delivery prepares selected speaker labels before the first public
   assert.equal(frames[0].event,'start');
   assert.ok(frames[0].speakers.some(speaker=>speaker.name==='Hugh Moore'));
   assert.equal(frames[1].event,'delta');
+});
+
+test('public stream consumes empty speech spans even when every token is split',async t=>{
+ const home=await mkdtemp(join(tmpdir(),'expression-empty-speech-'));t.after(()=>rm(home,{recursive:true,force:true}));
+ const frames=[];
+ const owner=createFinalOutputOwner({runtime:()=>({home}),record:async()=>{},stream:frame=>frames.push(frame),
+  call:async method=>method==='table.capsule'?{_context:{campaign:'c',turn:1,worldline:'main',loop:0,task_world_revision:'w',task_source_revision:'s'},turn:{player_text:'I remain outside.'}}:{}});
+ const stream=await owner.openStream('c',1,'r');
+ const raw='Before. {{say:npc_11}}{{/say}}He looks up. {{say:npc_14}} \n {{/say}}Still quiet. {{say:npc_11}}Hello.{{/say}}';
+ for(const char of raw)stream.push(char);
+ const result=await stream.finish('test','medium',{});
+ assert.equal(result.text,'Before. He looks up.  \n Still quiet. {{say:npc_11}}Hello.{{/say}}');
+ assert.equal(frames.filter(row=>row.event==='delta').map(row=>row.delta).join(''),result.text);
+ assert.equal(result.evidence.artifact_text,result.text);
+});
+
+test('silent response decisions remain sparse in the actual author task',async t=>{
+ const home=await mkdtemp(join(tmpdir(),'expression-silent-'));t.after(()=>rm(home,{recursive:true,force:true}));let task;
+ const runtime={home,async runTask(value){task=JSON.parse(value.request.brief);value.request.onEvent({type:'message_end',message:{role:'assistant',provider:'opencode-go',model:'deepseek-v4.1-flash',stopReason:'stop',content:[{type:'text',text:'{{public}}The clerk looks up.'}]}});return{ok:true,ms:1};}};
+ await writeIsolatedExpression({runtime,campaign:'c',turn:1,run:'r',language:'en',decision:{scene:{},clock:{},people:[],recent_public:[],responses:[{actor:'npc_11',act:'silent'}]},stream:{push(){}},record:async()=>{}});
+ assert.equal(task.decision_context.speech_allowed,false);
+ assert.equal(task.decision_context.responses[0].mode,'nonverbal');
+ assert.equal(task.decision_context.responses[0].observations,undefined);
+ assert.equal(task.decision_context.responses[0].claims,undefined);
+ await assert.rejects(writeIsolatedExpression({runtime,campaign:'c',turn:1,run:'bad',language:'en',decision:{scene:{},clock:{},people:[],recent_public:[],responses:[{actor:'npc_11',act:'silent',points:['The clerk leaves.']}]},stream:{push(){}},record:async()=>{}}),/silent|response/i);
 });
 
 test('one fresh tool-enabled author receives only the brief and its changed wording is not judged or repaired',async t=>{
@@ -184,4 +231,31 @@ test('an unmarked terminal answer stays rejected without exposure or a replaceme
  }};
  await assert.rejects(writeIsolatedExpression({runtime,campaign:'c',turn:1,run:'r',brief,language:'en',stream:{push:text=>prose.push(text)},record:async()=>{}}),/Final artifact must begin/);
  assert.deepEqual(prose,[]);assert.equal(calls,1);
+});
+
+for(const mode of ['terminal','preamble','error','aborted','length','mismatch','empty'])test('decision author terminal body contract: '+mode,async t=>{
+ const home=await mkdtemp(join(tmpdir(),'decision-terminal-'));t.after(()=>rm(home,{recursive:true,force:true}));
+ const prose=[];let requests=0;
+ const terminal=(text,stopReason='stop')=>({type:'message_end',message:{role:'assistant',provider:'opencode-go',model:'deepseek-v4.1-flash',stopReason,content:[{type:'text',text}]}});
+ const runtime={home,async runTask(task){
+  requests++;
+  if(mode==='preamble'){
+   task.request.onEvent({type:'message_update',assistantMessageEvent:{type:'text_delta',delta:'Private tool planning.'}});
+   task.request.onEvent(terminal('Private tool planning.','toolUse'));
+   task.request.onEvent({type:'tool_execution_start',toolName:'read'});
+  }
+  const body=mode==='empty'?'':'The clerk answers carefully.';
+  task.request.onEvent({type:'message_update',assistantMessageEvent:{type:'text_delta',delta:body}});
+  assert.deepEqual(prose,[],'unmarked text stays private before normal terminal completion');
+  task.request.onEvent(terminal(mode==='mismatch'?'Different bytes.':body,['error','aborted','length'].includes(mode)?mode:'stop'));
+  return{ok:true,ms:1};
+ }};
+ const task=writeIsolatedExpression({runtime,campaign:'c',turn:1,run:'r',decision:{scene:{},clock:{},responses:[],people:[],recent_public:[]},
+  result:{player_actions_complete:true,outcomes:[]},language:'en',stream:{push:text=>prose.push(text)},record:async()=>{}});
+ if(['terminal','preamble'].includes(mode)){
+  assert.equal((await task).text,'The clerk answers carefully.');assert.deepEqual(prose,['The clerk answers carefully.']);
+ }else{
+  await assert.rejects(task);assert.deepEqual(prose,[]);
+ }
+ assert.equal(requests,1,'terminal transport never starts a replacement author');
 });

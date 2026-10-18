@@ -15,6 +15,7 @@ const resourceRoot = resourceRootFrom(import.meta.url);
 const defaultPrompt = join(resourceRoot, 'extensions/mods/document-presentation.md');
 type Row = Record<string, any>;
 type Options = {home:string; owner?:object; resourceRoot?:string; model?:string; thinking?:string; signal?:AbortSignal;
+	priority?:ReaderRequest['priority'];
   runner?:(request:ReaderRequest)=>Promise<ReaderOutcome>};
 type OwnerCache = {pending:Map<string, Promise<{title:string; text:string}>>; views:Map<string, {result?:Row; error?:unknown}>};
 const owners = new WeakMap<object, OwnerCache>();
@@ -33,12 +34,13 @@ function cacheFor(options:Options):OwnerCache {
 export function documentPresentationStatus(options:Options, document:Row):Row {
   if (document.editing === 'read_only' && document.image) return document;
   const {views} = cacheFor(options);
-  const key = JSON.stringify([options.home, document.name, document.version, document.play_language]);
+  const key = createHash('sha256').update(JSON.stringify([options.home,document.name,document.version,
+    document.play_language,document.text,document.original,document.player_edited])).digest('hex');
   let job = views.get(key);
   if (!job) {
     job = {}; views.set(key, job);
     const current = job;
-    void presentDocument(options, document).then(result => {current.result = result;}, error => {current.error = error;});
+    void presentDocument({...options,priority:'background'}, document).then(result => {current.result = result;}, error => {current.error = error;});
     if (views.size > 64) for (const [old, value] of views) {
       if (old !== key && (value.result || value.error)) {views.delete(old); break;}
     }
@@ -90,7 +92,7 @@ async function reading(options:Options, title:string, text:string, language:stri
 import {validateDocumentReference} from ${JSON.stringify(runtimeEntryUrl('documentPresentation',import.meta.url))};
 validateDocumentReference(JSON.parse(readFileSync("result.json","utf8")),JSON.parse(readFileSync("request.json","utf8")));
 `,
-      systemPrompt:prompt, model:options.model, thinking:options.thinking, signal:options.signal, runner,
+      systemPrompt:prompt, model:options.model, thinking:options.thinking, signal:options.signal, priority:options.priority, runner,
       prepareRound:async round=>{
         if (round === 1) await writeFile(join(attempt, "request.json"), JSON.stringify(request, null, 2));
         return "Read request.json and write one document-presentation-reference-v1 keep or translate operation for each issued title/body alias to result.json. Keep selects exact host bytes, including empty text and line breaks; translate contains only newly generated player-language text. Never copy source strings into output keys or unchanged values. Run node check.mjs and repair any error."

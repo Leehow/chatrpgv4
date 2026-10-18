@@ -44,7 +44,11 @@ function fixture() {
 		getToolDefinition(name) { return definitions.get(name); },
 		emitToolCall(event) { return stages.prepare(event); },
 		emitToolResult(event) { return stages.finalize(event); },
-		createContext() { return {}; },
+		createToolContext(toolCallId,signal) {
+			assert.equal(typeof toolCallId,'string');
+			assert.ok(signal instanceof AbortSignal);
+			return {tools:{},executeTool:async()=>{throw Error('This fixture has no nested tools');}};
+		},
 	};
 	const session = { extensionRunner: runner };
 	gateway = createCanonicalOperationDispatcher(stages);

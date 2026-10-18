@@ -6,7 +6,8 @@ import {readerCommand} from '../../extensions/module/reader.ts';
 
 for (const [profile, pinned] of [
   ['codex-relay/gpt-6-luna', 'high'],
-  ['grok-build/grok-4.5', 'low'],
+  ['grok-build/grok-4.5', 'high'],
+  ['minimax-cn/MiniMax-M3.1-Flash-Preview', 'medium'],
   [undefined, undefined],
   ['fixture/other-model', undefined],
 ]) {

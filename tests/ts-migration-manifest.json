@@ -155774,7 +155774,7 @@
           "counterpart": {
             "file": "tests/integration/npc-voice-bench.test.ts",
             "name": "test_the_bench_opens_on_nine_people_and_the_capsule_keeps_every_name",
-            "sha256": "05ea99766d29ac5848c9f20546e32b02702e31d934c008c9b88d25b9c4a94515"
+            "sha256": "efde42b7bafc3542b1b1d46ba5424aaf33144a4b29af41c8067f4b884e65ec39"
           },
           "review": "statement-by-statement",
           "validation": {
@@ -155877,6 +155877,17 @@
                 "wall_seconds": 957,
                 "note": "Exact production/test freeze. This revalidation metadata was recorded after completion; historical validation and failed runs remain unchanged."
               }
+            },
+            "publicReferenceBudgetRevalidation": {
+              "at": "2026-10-18T14:03:59.349Z",
+              "counterpartSha256": "efde42b7bafc3542b1b1d46ba5424aaf33144a4b29af41c8067f4b884e65ec39",
+              "command": "node scripts/test-integration-ts.mjs --test-concurrency=1 tests/integration/npc-voice-bench.test.ts",
+              "evidence": ".coc/experiments/packet-seams-20261018/bench-exact-current.log",
+              "LANProof": "/home/leehow/leehow/code/wt/codex-tests/.pytest-runs/chatrpgv4-wt-pi-coc-v2/run.EnZukg07/remote-integration.log",
+              "historicalValidationPreserved": true,
+              "originalAssertionsUnchanged": true,
+              "originalFullDossierFloor": 4,
+              "review": "Native public identity fields are asserted separately and excluded only from the historical stub-key comparison. Protected identity metadata no longer displaces an optional dossier; original count, identities, privacy and queue assertions are retained."
             }
           },
           "migrationNotes": "All original assertions, parameter rows, seeded RPC sequence, disk reads and teardown preserved. Only language-level syntax/helpers are translated; product behavior runs current TS RPC."
@@ -155915,7 +155926,7 @@
           "counterpart": {
             "file": "tests/integration/npc-voice-bench.test.ts",
             "name": "test_the_lane_is_offered_the_room_one_person_at_a_time_with_the_masks_taken",
-            "sha256": "05ea99766d29ac5848c9f20546e32b02702e31d934c008c9b88d25b9c4a94515"
+            "sha256": "efde42b7bafc3542b1b1d46ba5424aaf33144a4b29af41c8067f4b884e65ec39"
           },
           "review": "statement-by-statement",
           "validation": {
@@ -156018,6 +156029,17 @@
                 "wall_seconds": 957,
                 "note": "Exact production/test freeze. This revalidation metadata was recorded after completion; historical validation and failed runs remain unchanged."
               }
+            },
+            "publicReferenceBudgetRevalidation": {
+              "at": "2026-10-18T14:03:59.350Z",
+              "counterpartSha256": "efde42b7bafc3542b1b1d46ba5424aaf33144a4b29af41c8067f4b884e65ec39",
+              "command": "node scripts/test-integration-ts.mjs --test-concurrency=1 tests/integration/npc-voice-bench.test.ts",
+              "evidence": ".coc/experiments/packet-seams-20261018/bench-exact-current.log",
+              "LANProof": "/home/leehow/leehow/code/wt/codex-tests/.pytest-runs/chatrpgv4-wt-pi-coc-v2/run.EnZukg07/remote-integration.log",
+              "historicalValidationPreserved": true,
+              "originalAssertionsUnchanged": true,
+              "originalFullDossierFloor": 4,
+              "review": "Native public identity fields are asserted separately and excluded only from the historical stub-key comparison. Protected identity metadata no longer displaces an optional dossier; original count, identities, privacy and queue assertions are retained."
             }
           },
           "migrationNotes": "All original assertions, parameter rows, seeded RPC sequence, disk reads and teardown preserved. Only language-level syntax/helpers are translated; product behavior runs current TS RPC."

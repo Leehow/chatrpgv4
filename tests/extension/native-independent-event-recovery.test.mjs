@@ -8,12 +8,17 @@ import {openTable} from './harness.mjs';
 import {RpcClient} from '../integration/support.ts';
 import {createHybridEngine} from '../../runtime/jev/hybrid-engine.ts';
 import {bindDecisionAnswers} from '../../runtime/jev/contracts.ts';
-import {SAME_KEEPER_REFUSAL_CONTINUATION,SAME_KEEPER_AFTER_RESULT_GUIDANCE} from '../../runtime/keeper-output-guidance.ts';
+import {SAME_KEEPER_AFTER_RESULT_GUIDANCE} from '../../runtime/keeper-output-guidance.ts';
 
 for(const recover of [true,false])test(`a refused native mixed batch ${recover?'can settle an independently authored event before prose':'does not automatically apply its event'}`,async t=>{
  let requests=0,decisions=0,firstPublicState;
  const event={name:'signed-local-statement',summary:'Thomas Hayes signs his own statement beside Knott. A proposed later journey remains unperformed.'};
  const engine=createHybridEngine({env:{},decision:{decide:async batch=>{
+  if(batch.family==='held-act-outcome'){
+   assert.ok(batch.state.draft.includes('unperformed')||batch.state.draft.includes('has not happened'));
+   assert.equal(batch.state.settledReceipts.length,recover?1:0);
+   return bindDecisionAnswers(batch,{held_result:{status:'answered',type:'noul',noul:.01}});
+  }
   assert.equal(batch.family,'continuous-action-admission');decisions++;
   return bindDecisionAnswers(batch,Object.fromEntries(batch.questions.map(question=>[question.key,
    {status:'answered',type:'noul',noul:.45}])));
@@ -32,7 +37,8 @@ for(const recover of [true,false])test(`a refused native mixed batch ${recover?'
    {kind:'npc',name:'Steven Knott',to:'Central Library'}],event})],{stopReason:'toolUse'});},context=>{
    requests++;
    const previous=JSON.stringify(context.messages),tools=getCurrentTools(context.messages);
-   assert.ok(previous.includes(SAME_KEEPER_REFUSAL_CONTINUATION));
+   assert.ok(previous.includes('action_admission_uncertain'));
+   assert.ok(previous.includes('The proposal is uncommitted'));
    assert.ok(!previous.includes('Close the turn with output'));
    assert.ok(tools.find(tool=>tool.name==='apply').description.includes(SAME_KEEPER_AFTER_RESULT_GUIDANCE));
    assert.ok(!tools.find(tool=>tool.name==='apply').description.includes('write your own final reply beginning with'));
@@ -42,7 +48,7 @@ for(const recover of [true,false])test(`a refused native mixed batch ${recover?'
  t.after(()=>table.dispose());await table.session.prompt('I sign my statement here, then ask whether he can take me to the library.');
  assert.deepEqual(table.extensionErrors,[]);assert.equal(requests,2);assert.equal(decisions,1,'an event-only record adds no consent judgement');
  const refused=table.session.messages.find(message=>message.role==='toolResult'&&message.toolName==='apply');
- assert.equal(refused.details.coc_error.details.jev_reason,'low_confidence');
+ assert.equal(refused.details.coc_error.details.reason,'action_admission_uncertain');
  assert.equal(refused.details.coc_error.details.admitted,undefined,'legacy admitted-line credentials are not minted');
  const atFirst=await firstPublicState;
  assert.equal(atFirst.receipts.filter(receipt=>receipt.kind==='event').length,recover?1:0);

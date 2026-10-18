@@ -160,7 +160,7 @@ export function createTestWorkspace({ seed, destination, campaign, limits }) {
   const config = JSON.parse(readFileSync(campaignPath, 'utf8'));
   if (config.id !== campaign || !validId(config.module_id)) throw Error('Seed campaign binding is invalid');
   const selected = ['campaigns/' + campaign, 'repos/' + campaign + '.git', 'modules/' + config.module_id, 'module-campaigns/' + campaign,
-    'mods/packages', 'npc', 'npc-voice', 'map-words', 'ui-words'].map(path => '.coc/' + path);
+    'mods/packages', 'npc', 'npc-voice', 'map-words', 'ui-words', 'memory-decisions/' + campaign, 'memory-drafts/' + campaign].map(path => '.coc/' + path);
   if (selected.some(path => inside(join(seed, path), destination))) throw Error('Destination overlaps selected seed data');
   if (!existsSync(join(seed, '.coc/repos', campaign + '.git')) || !existsSync(join(seed, '.coc/modules', config.module_id))) throw Error('Seed is missing campaign history or its bound module');
   for (const path of selected) realAncestors(dirname(join(seed, path)));

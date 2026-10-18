@@ -586,7 +586,10 @@ test('NPC dossiers and public object views preserve their different secrecy boun
     if (Object.hasOwn(value, 'combat_standing')) assert.deepEqual(value.combat_standing, {action: null, basis: 'rule-default'});
     // The frozen oracle predates temporal state. Verify its missing-state marker directly, then compare the old fields.
     assert.deepEqual(value.activity, {current: false, review_required: true, review_reasons: ['unassessed']});
-    const {untold, combat_tactic, combat_disposition, combat_standing, activity, ...legacy} = value;
+    if(Object.hasOwn(value,'name_known'))assert.equal(value.name_known,false,'This fixture has not publicly named the person');
+    if(Object.hasOwn(value,'display_name'))assert.equal(typeof value.display_name,'string');
+    if(Object.hasOwn(value,'ref'))assert.match(value.ref,/^npc_[1-9][0-9]*$/);
+    const {untold, combat_tactic, combat_disposition, combat_standing, activity,ref,name_known,display_name, ...legacy} = value;
     if (legacy.history?.promises) legacy.history = {...legacy.history, promises: legacy.history.promises.map(promise => {
       assert.equal(promise.authority, 'conversation_report', 'Current promise projections preserve their conversational authority');
       const {authority, ...historical} = promise;

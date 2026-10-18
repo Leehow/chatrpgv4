@@ -71,7 +71,7 @@ export default function (pi: ExtensionAPI) {
             // lease can be sized to survive its actual whole-context reservations, not a fixed assumption.
             const testModel = process.env.PI_COC_TEST_MODEL;
             const thinking = testModel === 'codex-relay/gpt-6-luna' ? 'high'
-                : testModel === 'grok-build/grok-4.5' ? 'low' : pi.getThinkingLevel();
+                : testModel === 'grok-build/grok-4.5' ? 'high' : testModel === 'minimax-cn/MiniMax-M3.1-Flash-Preview' ? 'medium' : pi.getThinkingLevel();
             return { id, vision: entry?.input?.includes("image") === true, thinking, contextWindow: entry?.contextWindow };
         };
         const record = (row: Row) => {

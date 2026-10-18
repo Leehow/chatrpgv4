@@ -11,6 +11,7 @@
  * never reads a name to decide anything about the person who carries it.
  */
 import { RpcError } from '../errors.js';
+import {referencedNpc} from '../npc/references.js';
 import type { DomainEvent } from '../transactions.js';
 import { calledPerson, personRecord, untoldBlock } from '../read/capsule.js';
 import { CampaignSnapshot } from '../read/campaign.js';
@@ -45,7 +46,7 @@ async function personOf(context: ApplyContext, who: any, effect: Row = {}): Prom
     // The table's word after the book's, through the junction every person entrance reads (§87.8): one owner is that
     // person, two are refused rather than the first one picked. Only an NPC carries a word here; §79 refuses an
     // investigator a `name`, and the party was asked above.
-    const node = context.graph.find(who, ['npc']) ?? calledPerson(context.graph, context.world, who);
+    const node = referencedNpc(context.graph,context.world,who) ?? context.graph.find(who, ['npc']) ?? calledPerson(context.graph, context.world, who);
     if (node)
         return { id: context.graph.handle(node), name: context.graph.displayName(node), is_investigator: false };
     // §180.5: a creature has no name to learn and is spoken to by nobody, so nothing here is its; refused, never minted

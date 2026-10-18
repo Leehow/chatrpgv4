@@ -9,6 +9,7 @@ import type { KernelContext } from '../context.js';
 import type { HandlerGroup, ProgressReporter } from '../handlers.js';
 import type { TurnTransaction } from '../transactions.js';
 import { RpcError, internalError } from '../errors.js';
+import {operationOutcomes} from '../apply/outcomes.js';
 import {eventDisclosures,eventOutcome} from '../turn-events.js';
 import { sha256Text,isJsonObject } from '../json.js';
 import { appendJsonl, fileSize, truncateFile, writeJsonAtomic } from '../fileio.js';
@@ -21,6 +22,7 @@ import { buildCapsule } from '../read/assemble.js';
 import { contextBinding } from '../read/context.js';
 import { mechanics } from '../read/mechanics.js';
 import {initializeNpcVariations} from '../resolve/npc-variation.js';
+import {ensureNpcReferences} from '../npc/references.js';
 import {adoptPreparedPersonalities} from '../npc/prepared.js';
 import {preparationCompatibility} from './preparation-compatibility.js';
 import { SessionView } from '../read/session-view.js';
@@ -1060,6 +1062,7 @@ export function createWriteRuntime(context: KernelContext, contributions: WriteC
         } : null;
         const opening = number(turn.turn) === 0 && turn.state === 'awaiting_player', resume = opening ? null : resumeView(checkpoint, rebuilt);
         seedTurn(context, snapshot.meta, number(turn.turn));
+        if(ensureNpcReferences(module.graph,snapshot.world))await campaign.writeWorld(snapshot.world);
         const variations = await initializeNpcVariations(context, module.graph, snapshot.world, turn, array(turn.receipts),
             !['open','acting'].includes(string(turn.state)), campaign.id);
         if (variations.length) {
@@ -1269,7 +1272,8 @@ export function createWriteRuntime(context: KernelContext, contributions: WriteC
             snapshot.records.length ? snapshot.records : await snapshot.files('turns'));
         seedTurn(context, snapshot.meta, next);
         const variations = await initializeNpcVariations(context, module.graph, snapshot.world, cursor, array(cursor.receipts), true, campaign.id);
-        if (preparedPersonalities || refolded || folded || lateMaps.length || variations.length || JSON.stringify(array(snapshot.world.map_arrivals_pending)) !== awaited) await campaign.writeWorld(snapshot.world);
+        const referencesChanged=ensureNpcReferences(module.graph,snapshot.world);
+        if (referencesChanged || preparedPersonalities || refolded || folded || lateMaps.length || variations.length || JSON.stringify(array(snapshot.world.map_arrivals_pending)) !== awaited) await campaign.writeWorld(snapshot.world);
         cursor.receipts = [...array(cursor.receipts), ...lateMaps.map(item => item.receipt), ...variations];
         await campaign.writeTurn(cursor);
         await campaign.appendTranscript(next, 'player', text);
@@ -1411,7 +1415,8 @@ export function createWriteRuntime(context: KernelContext, contributions: WriteC
         const resolve=speakerResolver(module.graph,snapshot.world,snapshot.party,await untoldAt(snapshot,module.graph));
         const prepared=(name:string)=>{const who=resolve(name);return {name,who:{...who,name:'shown' in who?who.shown:'name' in who?who.name:who.label}};};
         // Earlier-scene speech is already settled; only its safe player-facing label belongs in the stream catalog.
-        const spoken=array(eventOutcome(array(snapshot.turn.receipts),array(snapshot.turn.disclosures)).public_materials)
+        const publicMaterials=array(eventOutcome(array(snapshot.turn.receipts),array(snapshot.turn.disclosures)).public_materials);
+        const spoken=publicMaterials
             .filter(material=>material.kind==='speech').flatMap(material=>{
                 const entry=prepared(string(material.speaker)),name=entry.who.name;
                 return typeof name==='string'&&name.trim()&&name.length<=120?[prepared(name)]:[];
@@ -1425,7 +1430,14 @@ export function createWriteRuntime(context: KernelContext, contributions: WriteC
             snapshot.turn.delivery_frozen = true;
             await campaign.writeTurn(snapshot.turn);
         }
-        return {checked:true,turn:snapshot.turn.turn,state:snapshot.turn.state,published:false,...(speakers.length?{speakers}:{})};
+        const settled_results={
+            outcomes:operationOutcomes(array(snapshot.turn.receipts),module.graph,snapshot.world),
+            checks:array(snapshot.turn.receipts).filter(receipt=>receipt.kind==='roll'&&receipt.form!=='dice'
+                &&(receipt.visibility===undefined||receipt.visibility==='public')).map(receipt=>({kind:'roll',skill:receipt.skill,passed:receipt.passed,level:receipt.level})),
+            materials:publicMaterials.filter(material=>material.visibility==='player').map(material=>({
+                ...Object.fromEntries(['kind','name','text'].filter(key=>material[key]!==undefined).map(key=>[key,material[key]])),
+                ...(material.kind==='speech'?{speaker:prepared(string(material.speaker)).who.name}:{})}))};
+        return {checked:true,turn:snapshot.turn.turn,state:snapshot.turn.state,published:false,settled_results,...(speakers.length?{speakers}:{})};
     }
     async function ask(params: Row): Promise<Row> {
         // §135.31: the turn's Keeper reads ride on the delivery for its record; they are not part of the call's digest.

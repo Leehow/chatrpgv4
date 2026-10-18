@@ -64,8 +64,8 @@ test("每个 API 都按自己的名字收到这个等级，没有名字的 API �
 	}
 	// Anthropic's ladder starts at `low`, so `minimal` lands on the nearest name rather than on a
 	// value the adapter would pass through to a 400.
-	assert.deepEqual(laneReasoningOptions({ api: "anthropic-messages" }, "low"), { effort: "low" });
-	assert.deepEqual(laneReasoningOptions({ api: "anthropic-messages" }, "minimal"), { effort: "low" });
+	assert.deepEqual(laneReasoningOptions({ api: "anthropic-messages" }, "low"), { thinkingEnabled: true, effort: "low" });
+	assert.deepEqual(laneReasoningOptions({ api: "anthropic-messages" }, "minimal"), { thinkingEnabled: true, effort: "low" });
 	// Google names the same ladder in capitals and stops at HIGH -- on the models that take a named
 	// level at all, which the catalogue marks with a `thinkingLevelMap` (the gemini-3 family).
 	const levelMap = { off: null, minimal: "minimal", low: "low", medium: "medium", high: "high", xhigh: null, max: null };
@@ -194,7 +194,7 @@ test("SL-81: off 从不作为字面值发出去，交给模型自己的映射表
 	assert.deepEqual(laneReasoningOptions({ api: "openai-completions", thinkingLevelMap: deepseekCatalog }, "medium"), { reasoningEffort: "high" });
 	// The other API families never got a literal "off" before either (off was never resolved at
 	// all); they now also read it as "nothing to send" rather than guessing a shape untested here.
-	assert.deepEqual(laneReasoningOptions({ api: "anthropic-messages" }, "off"), {});
+	assert.deepEqual(laneReasoningOptions({ api: "anthropic-messages" }, "off"), { thinkingEnabled: false });
 	assert.deepEqual(laneReasoningOptions({ api: "google-generative-ai" }, "off"), {});
 	assert.deepEqual(laneReasoningOptions({ api: "bedrock-converse-stream" }, "off"), {});
 	assert.deepEqual(laneReasoningOptions({ api: "pi-messages" }, "off"), {});

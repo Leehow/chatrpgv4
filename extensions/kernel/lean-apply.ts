@@ -143,7 +143,7 @@ export function offeredTools(tools: readonly CocToolSpec[], env: Readonly<Record
     delete parameters.properties.query;
     return {...spec,parameters};
   });
-	const current=env.PI_COC_LOOP_ENGINE==='hybrid-v1'?tools.filter(tool=>!['output','narrate'].includes(tool.name)).map(spec=>{
+	const current=env.PI_COC_LOOP_ENGINE==='hybrid-v1'?tools.filter(tool=>tool.name!=='narrate'&&(tool.name!=='output'||env.PI_COC_TURN_PACKET_PROTOTYPE==='1')).map(spec=>{
     if(!['apply','ask'].includes(spec.name))return spec;
     const parameters=cloneSchema(spec.parameters) as Record<string,any>;
     for(const field of ['delivery','narrate','handoff','quotes'])delete parameters.properties[field];
@@ -158,9 +158,9 @@ export function offeredTools(tools: readonly CocToolSpec[], env: Readonly<Record
       if(kind==='ending')fields.summary.description='The ending reached. Read source rewards and resolve development:end-session first. An already-accounted legacy correction retains the original summary, turn and rewards. Final publication commits this effect.';
     }
     return {...spec,parameters,description:spec.name==='apply'
-      ?'Apply authoritative world changes and canonical event records. Include only actual changes; future NPC intentions use planned. A clue must be obtainable here or cover information already told under an issued owed row; from records attribution and cannot relocate an authored clue. Ordinary remote NPC reports use event.knowledge with mode heard and actual source/state; a written record actually obtained here uses the existing dossier path. Effects and event use the existing schema. This tool never writes or publishes prose. '+(env.PI_COC_ISOLATED_OUTPUT==='1'?'After reading its result, return {{compose}} followed immediately by one private JSON expression brief with scene, narrative_content and npc_turns; no public prose or prefix. ':SAME_KEEPER_AFTER_RESULT_GUIDANCE+' ')
+      ?'Apply authoritative world changes and canonical event records. Include only actual changes; future NPC intentions use planned. A clue must be obtainable here or cover information already told under an issued owed row; from records attribution and cannot relocate an authored clue. Ordinary remote NPC reports use event.knowledge with mode heard and actual source/state; a written record actually obtained here uses the existing dossier path. Effects and event use the existing schema. This tool never writes or publishes prose. '+(env.PI_COC_TURN_PACKET_PROTOTYPE==='1'?'After reading its result, submit the final private packet through the native output tool. ':env.PI_COC_ISOLATED_OUTPUT==='1'?'After reading its result, return {{compose}} followed immediately by one private JSON expression brief with scene, narrative_content and npc_turns; no public prose or prefix. ':SAME_KEEPER_AFTER_RESULT_GUIDANCE+' ')
         +INTENT_APPLY_NOTE
-      :'Publish a required mechanical choice using its issued options and binding. '+(env.PI_COC_ISOLATED_OUTPUT==='1'?'Ordinary dialogue is selected in the private {{compose}} JSON expression brief; the host invokes the isolated author. Use text only for an optional public preface.':'Ordinary dialogue belongs in the final {{public}} reply. Use text only for an optional public preface; no other author is called.')};
+      :'Publish a required mechanical choice using its issued options and binding. '+(env.PI_COC_TURN_PACKET_PROTOTYPE==='1'?'Ordinary dialogue uses the native output packet and its isolated author.':env.PI_COC_ISOLATED_OUTPUT==='1'?'Ordinary dialogue is selected in the private {{compose}} JSON expression brief; the host invokes the isolated author. Use text only for an optional public preface.':'Ordinary dialogue belongs in the final {{public}} reply. Use text only for an optional public preface; no other author is called.')};
   }):tools;
 	return leanApplyEnabled(env) ? leanTools(current) : current;
 }

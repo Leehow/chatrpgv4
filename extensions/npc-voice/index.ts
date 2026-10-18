@@ -235,7 +235,7 @@ function handleOf(packet: JobPacket, jobId: string): string {
 
 export default function (pi: ExtensionAPI) {
 	// The setup process has no turns and so nobody to hear: it registers nothing and subscribes to nothing.
-	if (cocMode() === "setup") return;
+	if (cocMode() === "setup" || process.env.PI_COC_TURN_PACKET_PROTOTYPE === '1') return;
 
 	let runtime: HostRuntime | undefined;
 	pi.events.on("coc:kernel-bridge", data => { runtime = (data as { runtime?: HostRuntime } | undefined)?.runtime; });
@@ -243,13 +243,14 @@ export default function (pi: ExtensionAPI) {
 	/** Attempts spent on an opaque generation job this session; MAX_ATTEMPTS is the retry budget. */
 	const attempts = new Map<string, number>();
 	const candidates = new Map<string, {identity: string; lane: {ok: true; value: Lines; model: string; cwd: string}; round: number}>();
+	const pending = new Map<string,string>();
 	/** Generation jobs whose budget is spent; a different package generation gets its own allowance. */
 	const retired = new Set<string>();
 	/** One telemetry row per retired job, not one per commit that meets it again. */
 	const noticed = new Set<string>();
 	const tickets = new WeakMap<LaneJob, Set<string>>();
 	pi.on("session_start", async () => {
-		attempts.clear(); retired.clear(); noticed.clear(); candidates.clear();
+		attempts.clear(); retired.clear(); noticed.clear(); candidates.clear(); pending.clear();
 	});
 	pi.on("session_shutdown", () => { candidates.clear(); });
 
@@ -278,7 +279,7 @@ export default function (pi: ExtensionAPI) {
 		campaign: string,
 		call: KernelCall,
 		note: (row: Record<string, unknown>) => Promise<void>,
-	): Promise<{ ok: true; model: string; voice_check?: string } | { ok: false; reason: string; detail: string; failureKind: VoiceFailureKind }> {
+	): Promise<{ ok: true; model: string; voice_check?: string } | { ok: false; reason: string; detail: string; failureKind: VoiceFailureKind; pendingReview?: boolean }> {
 		const owner = runtime;
 		if (!owner) return { ok: false, reason: "lane_error", detail: "The voice task runtime is unavailable", failureKind: "unavailable" };
 		const model = resolveLaneModel(scheduler.ctx as ExtensionContext, "PI_COC_VOICE_MODEL");
@@ -301,18 +302,18 @@ export default function (pi: ExtensionAPI) {
 			const input = judgeInput(packet, lane.value);
 			await writeFile(join(lane.cwd, "review-input.json"), JSON.stringify({ systemPrompt: judgePrompt(), input }));
 			const began = Date.now();
-			const typed = owner.sourceReferences === true ? await reviewVoiceCard({campaign, jobId,
+			const typed = owner.sourceReferences === true ? await reviewVoiceCard({campaign, jobId,cacheHome:owner.home,
 				source: {play_language: packet.play_language, coarse_language: packet.coarse_language, npc: packet.npc,
 					investigator: packet.investigator, documents: packet.documents, taken_masks: packet.taken_masks, said: packet.said},
 				candidate: "voice" in lane.value ? {voice: lane.value.voice} : {voice: null, reason: SILENT_REASON}},
 				createDecisionAdapter({env: {...process.env}, enabled: owner.sourceReferences === true, maxConcurrency: 1,
 					retryPolicies: {[VOICE_REVIEW_FAMILY]: {maxRetries: 0, backoffInitialMs: 0, backoffMaxMs: 0, attemptTimeoutMs: 2000}}}), signal) : {status: "fallback" as const, reason: "unconfigured"};
 			if (owner.sourceReferences === true) await note({job_id: jobId, check: "voice", reviewer: "jev", status: typed.status, ms: Date.now() - began,
-				...(typed.status === "fallback" ? {fallback: typed.reason} : {defects: typed.defects})});
+				...(typed.cacheHit?{cache_hit:true}:{}),...(typed.status === "fallback" ? {fallback: typed.reason,blockers:typed.blockers??[]} : {defects: typed.defects})});
 			if (owner.sourceReferences === true && typed.status === "fallback") {
 				await writeFile(join(lane.cwd, "review.json"), JSON.stringify({reviewer: "jev", ...typed, pending: true}));
 				return {ok: false, reason: "lane_error", detail: `Typed voice review pending: ${typed.reason}`,
-					failureKind: signal.aborted ? "cancelled" : "unavailable"};
+					failureKind: signal.aborted ? "cancelled" : "unavailable", pendingReview: typed.reason === "uncertain"};
 			}
 			const verdict = typed.status !== "fallback" ? {ok: true as const, value: {honours: typed.status === "accepted", why: typed.defects.length ? `Voice card review defects: ${typed.defects.join(", ")}` : ""}, model: "jev-1.13.0"}
 				: await runLane<{ honours: boolean; why: string }>({
@@ -357,9 +358,9 @@ export default function (pi: ExtensionAPI) {
 		call: KernelCall,
 		note: (row: Record<string, unknown>) => Promise<void>,
 		modelLabel: string,
-	): Promise<"published" | "rejected" | "unavailable" | "cancelled"> {
+	): Promise<"published" | "rejected" | "unavailable" | "cancelled" | "pending_review"> {
 		const began = Date.now();
-		let last: { ok: false; reason: string; detail: string; failureKind: VoiceFailureKind } | undefined;
+		let last: { ok: false; reason: string; detail: string; failureKind: VoiceFailureKind; pendingReview?: boolean } | undefined;
 		const spent = attempts.get(jobId) ?? 0;
 		for (let tries = spent; tries < MAX_ATTEMPTS && !scheduler.stopped; tries += 1) {
 			attempts.set(jobId, tries + 1);
@@ -374,9 +375,15 @@ export default function (pi: ExtensionAPI) {
 			}
 			last = outcome;
 			if (outcome.failureKind === "cancelled") return "cancelled";
+			if(outcome.pendingReview){
+				pending.set(jobId,candidates.get(jobId)!.identity);
+				await note({npc:handle,job_id:jobId,pending_review:true,outcome:'pending_review',reason:'review_uncertain',ms:Date.now()-began,detail:outcome.detail});
+				return 'pending_review';
+			}
 			if (outcome.failureKind === "rejected") candidates.delete(jobId);
 			if (outcome.failureKind === "unavailable" && tries + 1 < MAX_ATTEMPTS) {
-				await note({npc: handle, job_id: jobId, ok: false, reason: outcome.reason, detail: outcome.detail.slice(0, 200), deferred: true});
+				await note({npc: handle, job_id: jobId, ok: false, reason: outcome.reason, detail: outcome.detail.slice(0, 200), deferred: true,
+					...(outcome.pendingReview ? {pending_review: true} : {})});
 				return "unavailable";
 			}
 		}
@@ -384,6 +391,11 @@ export default function (pi: ExtensionAPI) {
 		retired.add(jobId);
 		candidates.delete(jobId);
 		const failure = last ?? { reason: "lane_error", detail: "the lane never started", failureKind: "rejected" as VoiceFailureKind };
+		if (failure.pendingReview) {
+			await note({npc: handle, job_id: jobId, pending_review: true, outcome: "pending_review", reason: "review_uncertain",
+				ms: Date.now() - began, detail: failure.detail});
+			return "pending_review";
+		}
 		try {
 			await call("voice.fail", { campaign, job_id: jobId, reason: failure.reason, detail: failure.detail });
 		} catch (error) {
@@ -421,6 +433,7 @@ export default function (pi: ExtensionAPI) {
 		}
 		const modelLabel = `${model.model.provider}/${model.model.id}`;
 		const ticket = tickets.get(job) ?? new Set<string>(); tickets.set(job, ticket);
+		const omitted=new Set<string>();
 
 		for (let dispatched = 0; dispatched < MAX_JOBS_PER_COMMIT && !scheduler.stopped; dispatched += 1) {
 			let packet: JobPacket;
@@ -428,7 +441,7 @@ export default function (pi: ExtensionAPI) {
 				packet = ((await current.call("voice.job", {
 					campaign: job.campaign,
 					...(job.backfill ? { backfill: true } : {}),
-					...(retired.size ? {exclude_jobs: [...retired].filter(id => id.startsWith(`voice:${job.campaign}:`)).slice(-128)} : {}),
+					...(retired.size||omitted.size ? {exclude_jobs: [...new Set([...retired,...omitted])].filter(id => id.startsWith(`voice:${job.campaign}:`)).slice(-128)} : {}),
 				})) ?? {}) as JobPacket;
 			} catch (error) {
 				await note({
@@ -445,6 +458,13 @@ export default function (pi: ExtensionAPI) {
 				return;
 			}
 			const handle = handleOf(packet, jobId);
+			const identity=createHash('sha256').update(JSON.stringify([job.campaign,runtime?.home,packet,model.model.provider,model.model.id])).digest('hex');
+			if(pending.get(jobId)===identity){
+				omitted.add(jobId);
+				await note({npc:handle,job_id:jobId,pending_review:true,reason:'review_uncertain',reused:true});
+				continue;
+			}
+			if(pending.delete(jobId))attempts.delete(jobId);
 			if (!ticket.has(jobId) && ticket.size >= MAX_JOBS_PER_COMMIT) return;
 			ticket.add(jobId);
 			if (retired.has(jobId) || (attempts.get(jobId) ?? 0) >= MAX_ATTEMPTS) {

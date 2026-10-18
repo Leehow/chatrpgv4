@@ -41,7 +41,7 @@ const NO_BACKFILL = { PI_COC_MEMORY_BACKFILL: "0" };
 
 /** Read the same per-turn lane completion record that the command displays. */
 function laneRow(table, lane, turn) {
-	return table.telemetry().some((row) => row.lane === lane && row.turn === turn);
+	return table.telemetry().some((row) => row.lane === lane && row.turn === turn && (typeof row.ok==='boolean'||row.pending_review===true||row.event==='pending_review'));
 }
 
 /**

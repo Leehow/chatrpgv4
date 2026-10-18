@@ -91,7 +91,7 @@ export function timeCriterion(row: TimeBandRow): string {
  * name, its minute range and what act it covers, with an `unknown` exit. It asks the act's extent as well as its kind
  * (§202.2): a row of the same kind but a larger or a smaller extent does not fit.
  */
-export function timeQuestion(rows: TimeBandRow[]): DecisionQuestion {
+export function timeQuestion(rows: TimeBandRow[]): Extract<DecisionQuestion,{type:'choice'}> {
   const criteria: Record<string, string> = Object.fromEntries(rows.filter(row => !ROUTE_TIME_BANDS.includes(row.handle))
     .map(row => [row.handle, timeCriterion(row)]));
   criteria.unknown = 'The declaration does not say what the time was spent on, or none of the acts above fits it.';
@@ -106,7 +106,7 @@ export function timeQuestion(rows: TimeBandRow[]): DecisionQuestion {
 }
 
 /** One Score over the severity ladder in the table's order (lowest first), each level the rung's dice and its rulebook note. */
-export function damageQuestion(rows: DamageBandRow[]): DecisionQuestion {
+export function damageQuestion(rows: DamageBandRow[]): Extract<DecisionQuestion,{type:'score'}> {
   return {key: DAMAGE_KEY, target: 'how severe the harm this turn dealt is, on the rulebook\'s ladder of damage with no attacker', type: 'score',
     instructions: 'Something in this turn hurt someone without an attacker: a fall, a fire, a falling object, suffocation, a drug, or a failed attempt whose cost was an injury. From what the player declared and what has already settled this turn, how severe is that harm on the rulebook\'s ladder, from a scrape anyone survives many times to near-certain death? Rate the source of the harm, not the toughness of whoever took it.',
     criteria: rows.map(row => `${words(row.handle)}, ${row.dice}${row.note ? `: ${row.note}` : ''}`)};

@@ -358,6 +358,23 @@ test('a readable carrier has its reading prepared when it is acquired, and a pla
   assert.equal(viewed()[0].params.actor, 'Thomas Hayes');
 });
 
+test('document warm-up keeps the newest serial tail and cancels stale queued reads', async t => {
+ const pi=piSurface();let bridge;pi.events.on('coc:mods-bridge',value=>{bridge=value;});modsExtension(pi);
+ const gates=new Map(['A','B'].map(name=>[name,Promise.withResolvers()]));t.after(()=>{for(const gate of gates.values())gate.resolve();});
+ const viewed=[];
+ pi.events.emit('coc:kernel-bridge',{call:async(method,params)=>{
+  if(method==='mods.document.view'){viewed.push(params.name);await gates.get(params.name)?.promise;return {};}
+  return {};
+ },runtime:{home:'/unused'}});
+ const warm=name=>bridge.after('apply',{campaign:'c1',effects:[{kind:'object',name,to:'Actor',document:{text:name}}]});
+ const tick=()=>new Promise(resolve=>setImmediate(resolve));
+ await warm('A');await warm('B');await tick();assert.deepEqual(viewed,['A']);
+ gates.get('A').resolve();await tick();await tick();assert.deepEqual(viewed,['A','B']);
+ await warm('C');await tick();assert.deepEqual(viewed,['A','B'],'an earlier finalizer cannot clear the active serial tail');
+ await pi.hooks.get('session_shutdown')();gates.get('B').resolve();await tick();await tick();
+ assert.deepEqual(viewed,['A','B'],'shutdown prevents queued optional reads');
+});
+
 test('a definition child gets no shell, and its brief sends it nowhere outside its own directory', async () => {
   const pi = piSurface();
   let bridge;
@@ -378,6 +395,7 @@ test('a definition child gets no shell, and its brief sends it nowhere outside i
   });
   await bridge.prepare('apply', {campaign:'c1', effects:[{kind:'define', name:'A', category:'item'}]});
   await waitFor(() => requests.length === 1, {label: 'the deferred definition child started'});
+  assert.equal(requests[0].priority,'background','optional definition preparation uses background reader capacity');
   assert.equal(requests.length, 1);
   // Handed a shell, children spent most of their calls reading the packaged app and the build output.
   assert.equal(requests[0].tools, 'read,write,edit');

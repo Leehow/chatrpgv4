@@ -15,6 +15,21 @@ const readingArtifact=(packet,{title=part(packet,'title').text,text=part(packet,
   texts:[operation(part(packet,'title'),title),operation(part(packet,'text'),text)],
 });
 
+test('background polls follow actual changed bytes and use background reader capacity',async t=>{
+ const home=await mkdtemp(join(tmpdir(),'paper-poll-source-'));t.after(()=>rm(home,{recursive:true,force:true}));
+ const requests=[],owner={},runner=async request=>{
+  requests.push(request);const packet=JSON.parse(await readFile(join(request.cwd,'request.json'),'utf8'));
+  await writeFile(join(request.cwd,'result.json'),JSON.stringify(readingArtifact(packet)));
+  return{ok:true,code:0,timedOut:false,ms:1,stderr:'',command:[]};
+ };
+ const options={home,owner,runner},document={name:'Slip',text:'First words',original:'First words',play_language:'en',version:'same'};
+ const ready=async doc=>waitFor(()=>{const value=documentPresentationStatus(options,doc);return !value.pending&&value;},{label:'source-bound presentation'});
+ const first=await ready(document);assert.equal(first.text,'First words');
+ const changed=await ready({...document,text:'Changed words',original:'Changed words'});
+ assert.equal(changed.text,'Changed words','unchanged name/version cannot conceal changed source');
+ assert.equal(requests.length,2);assert.ok(requests.every(request=>request.priority==='background'));
+});
+
 test('reading cache preserves source, edits and reset across languages and changed source', async()=>{
   const home=await mkdtemp(join(tmpdir(),'paper-reading-'));
   const requests=[];

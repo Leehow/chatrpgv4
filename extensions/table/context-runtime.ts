@@ -836,6 +836,9 @@ export function installContextPolicy(pi: ExtensionAPI, writeTelemetry: (row: Row
                     ?{...message,content:JSON.stringify(stableFirst(view))}:message;
             });
             const consolidated=projectedMessages({...input,messages:rename(current),budget:budget+reclaimed});
+            record({lane:'context',event:'capsule_consolidation',budget:budget+reclaimed,
+                bytes:requestSize(consolidated.messages),retained:retainsLatestToolBatch(current,consolidated.messages,snapshot.binding),
+                before_bytes:requestSize(fitted.messages),update_bytes:reclaimed,protected_bytes:consolidated.protectedBytes});
             return retainsLatestToolBatch(current,consolidated.messages,snapshot.binding)
                 ?{...consolidated,capsuleConsolidated:true}:fitted;
         };
@@ -903,9 +906,15 @@ export function installContextPolicy(pi: ExtensionAPI, writeTelemetry: (row: Row
         const initial=prescreen?project(messageBudget,{workspace,prescreen}):baseline;
         const window = ctx.model?.contextWindow, available = typeof window === 'number' ? window - Math.min(16384, Math.floor(window / 4)) : Infinity;
         const names=(materialSources?.(snapshot.binding.turn)??[]).slice(-6);
-        const sourceHint:Row|undefined=names.length?{role:'custom',customType:'coc-material-source',display:false,timestamp:0,
+        let sourceHint:Row|undefined=names.length?{role:'custom',customType:'coc-material-source',display:false,timestamp:0,
             content:JSON.stringify({sources:names,authority:'Current-input reference names only; not disclosure or world authorization.'}),
             details:{coc_host:true,material_source:{campaign,turn:snapshot.binding.turn}}}:undefined;
+        // Reference-name hints duplicate the original answers. They cannot displace those answers.
+        if(sourceHint&&retainsLatestToolBatch(selected,initial.messages,snapshot.binding)
+            &&requestSize([...initial.messages,...projectedTail(initial),sourceHint])+systemBytes>ceiling){
+            record({lane:'context',event:'material_source_hint_omitted',reason:'preserve_latest_tool_batch',bytes:requestSize([sourceHint])});
+            sourceHint=undefined;
+        }
         const hintBytes=sourceHint?requestSize([sourceHint]):0;
         const fits=(list:Row[])=>requestSize(list)+hintBytes+systemBytes<=ceiling&&Math.ceil((requestSize(list)+hintBytes+systemBytes)/BYTES_PER_TOKEN)<=available;
         // The request around `reserve` bytes that the caller appends after it (contract §209.13: required package

@@ -1,6 +1,7 @@
 import {installChildProviderBudget, outputFieldPath, withOutputRoom} from "../../runtime/jev/provider-budget.ts";
 import {READING_STAGE_BUDGET} from "../../runtime/jev/reading-stage-budget.ts";
-import {createBashTool} from '@earendil-works/pi-coding-agent';
+import {createBashTool,createReadTool,createWriteTool,createEditTool} from '@earendil-works/pi-coding-agent';
+import {Type} from 'typebox';
 import {getCurrentSystemMessage} from '@earendil-works/pi-ai';
 import activeCache from '../anthropic-cache/index.js';
 /** Keep page-image history bounded without changing the recorded reader transcript. */
@@ -215,6 +216,11 @@ export function boundImages(messages: any[], delivered: ReadonlySet<string> = ne
 export default function readerContext(pi: any, options: { cwd?: string; env?: NodeJS.ProcessEnv } = {}) {
 	const cwd = options.cwd ?? process.cwd(), env = options.env ?? process.env;
 	if(env.PI_COC_FINAL_OUTPUT==='1'){
+		// Declare the same closed paths the confinement gate executes, before a paid request.
+		for(const tool of [createReadTool(cwd),createWriteTool(cwd),createEditTool(cwd)])pi.registerTool({...tool,
+			parameters:Type.Object({...tool.parameters.properties,path:tool.name==='read'
+				?Type.Union([Type.Literal('task.json'),Type.Literal('draft.json')]):Type.Literal('draft.json')}),
+			description:tool.description+(tool.name==='read'?' Only task.json and an existing draft.json are readable.':' Only draft.json is writable.')});
 		// The real cwd still confines tools. A random attempt path is not writing material.
 		pi.on('context_with_system',(event:any)=>{
 			const system=getCurrentSystemMessage(event.messages);

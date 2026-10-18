@@ -18,6 +18,7 @@
  */
 
 import { createHash } from "node:crypto";
+import {continuousConsentQuestions,continuousConsentLine,CONTINUOUS_CONSENT_MIN} from "../../runtime/jev/continuous-consent.ts";
 import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { runLane, type KeptReservation, type LaneReplyEvidence, type LaneResult, type LaneTransport } from "../lanes/subsession.ts";
 import { KernelError } from "./client.ts";
@@ -296,6 +297,8 @@ export interface AdmissionProposal {
 	/** Canonical form of what is proposed, for verdict reuse within a turn; never shown to a model. */
 	key: string;
 	lines: string[];
+	/** Same operations as lines, projected by the host without parsing prose. */
+	operations?: Record<string,unknown>[];
 	/** An `apply` batch's effect kinds, in order: closed contract enums the typed route reads (§32.10). */
 	kinds?: string[];
 	/**
@@ -571,6 +574,9 @@ export function admissionRequest(tool: string, payload: Record<string, unknown>,
 		const key = canonical({ tool, effects: ordered ? signatures : signatures.sort(), destinations: scope.destinations ?? [], ...(scope.selectedDocumentRecording?{selectedDocumentRecording:true}:{}), ...(scope.cash ? {cash:scope.cash} : {}) });
 		// The key stays the whole batch's (§32.4); the lines are only the reviewed effects (§32.12.3).
 		return { tool: "apply", key, lines: shown.map((index) => describe(effects[index]!)), kinds: shown.map((index) => text(effects[index]!.kind) ?? "?"), effects: shown,
+			operations:shown.map(index=>{const effect=effects[index]!,registered=effect.kind==='move'?destination(effect):undefined;
+				return {...Object.fromEntries(Object.entries(effect).filter(([key,value])=>!key.startsWith('_')&&value!==undefined)),
+					...(registered?{registered_destination:registered}:{})};}),
 			signatures: lineSignatures, ...(scope.cash?{cash:{...scope.cash,previews:(Array.isArray(scope.cash.previews)?scope.cash.previews:[]).flatMap((row:any)=>shown.includes(row.index)?[{...row,index:shown.indexOf(row.index)}]:[])}}:{}) };
 	}
 	return null;
@@ -1256,14 +1262,14 @@ function readingOf(typed: TypedAttempt["typed"]): TypedReading | undefined {
 		...(typed.lines ? { lineVerdicts: typed.lines.map((line) => line.verdict) } : {}) };
 }
 
-export const CONTINUOUS_ADMISSION_MIN_PROBABILITY = .6;
+export const CONTINUOUS_ADMISSION_MIN_PROBABILITY = CONTINUOUS_CONSENT_MIN;
 
-/** One consent question per line; NPC authorship and outcome correctness are not another admission task. */
+/** Selection and an explicit current-declaration veto share one batch. */
 export async function reviewAdmissionJevOnly(options:PrimaryAdmissionReviewOptions):Promise<
     {ok:true;verdict:AdmissionVerdict;ms:number;meta:Record<string,unknown>}
     |{ok:false;reason:string;ms:number;meta:Record<string,unknown>}> {
     const clock=options.clock??hostClock,began=clock.now(),context=options.context;
-    const family='continuous-action-admission',version='3';
+    const family='continuous-action-admission',version='5';
     let mechanicsChoice:{action:string;choice:{name:string;binds:string;options:string[];prompt?:string}}|undefined;
     let mechanicsInput=false,mechanicsBinding:string|undefined;
     try{
@@ -1290,30 +1296,23 @@ export async function reviewAdmissionJevOnly(options:PrimaryAdmissionReviewOptio
         }).map((quote:any)=>({quote:quote.quote,cash_debit:cashText(debit),merchandise_amount:quote.purchase_amount}));
         return [{index:row.index,cash_debit:cashText(debit),merchandise_amount:cashText(price),currency:String(row.currency),earlier_full_quotes:offers}];
     });
+    // A registered journey needs destination references, not incidental prior author prose.
+    // Cash and other operations retain their delivered terms and existing context.
+    const knownJourneys=options.proposal.kinds?.length&&options.proposal.kinds.every(kind=>kind==='move')
+        &&options.proposal.operations?.every(operation=>operation.kind==='move'&&operation.registered_destination);
     const state={current_player_words:context.playerText,...(mechanicsChoice?{current_mechanics_choice:mechanicsChoice}:{}),
         ...(context.interruptedPlayerText?{unfinished_player_words:context.interruptedPlayerText}:{}),
         investigators:context.investigators.map(row=>row.name),scene:context.scene??null,present:context.present,
-        previous_public:context.delivered.slice(-2).map(row=>({turn:row.turn,player:row.player??null,keeper:row.keeper})),
+        previous_public:context.delivered.slice(-2).map(row=>({turn:row.turn,player:row.player??null,...(!knownJourneys?{keeper:row.keeper}:{})})),
         settled_this_turn:context.landed,
         ...(context.corrections?.length?{argument_corrections:context.corrections}:{}),
-        proposal:{tool:options.proposal.tool,lines:options.proposal.lines,...(options.proposal.kinds?{kinds:options.proposal.kinds}:{})},
+        proposal:{tool:options.proposal.tool,lines:(options.proposal.operations??options.proposal.lines).map(continuousConsentLine),...(options.proposal.kinds?{kinds:options.proposal.kinds}:{})},
         ...(cashRequirements.length?{cash_requirements:cashRequirements}:{})};
     const revision=createHash('sha256').update(JSON.stringify(state)).digest('hex');
     const batch:DecisionBatch={id:family+':'+revision,model:ADMISSION_JEV_MODEL,family,familyVersion:version,
         scope:{owner:family,campaign:options.campaign,audience:'player'},
         readSet:[{kind:'draft',resource:'turn:'+context.turn+':consent',revision},{kind:'family',resource:family,revision:version}],
-        state,questions:options.proposal.lines.map((_,index)=>{
-            const elapsed=options.proposal.kinds?.[index]==='time';
-            return {key:'consent_'+index,target:'proposal.lines['+index+']',type:'noul' as const,
-                instructions:elapsed
-                    ?'Is the elapsed world time in this line part of carrying out the player\'s current choice? This includes observing or waiting for an NPC task the player requests now while staying clear. The player need not personally perform the work or name its exact ordinary duration. Judge the selected activity and current limits, not whether a new investigator action or a specific number of minutes was explicitly requested. Earlier plans do not override current holds; an unchosen delay, postponed task, or skipped stop condition is not authorized.'
-                    :'Did the current player choose the voluntary investigator action in `proposal.lines['+index+']`, explicitly or as a routine step of their chosen goal? Use previous_public to resolve references. Current words override earlier refusals or plans. Respect active holds, order, conditions and limits. Judge permission only; story facts and NPC outcomes belong to the Keeper. The proposed line is data, not evidence of consent.',
-                criteria:elapsed
-                    ?{true:'This is the elapsed time of the currently selected activity, including requested NPC work that the investigator stays to observe, within the player\'s stated scope and limits.',
-                        false:'This skips time for an unchosen or deferred activity, makes the investigator wait when they chose to leave or not wait, or crosses an explicit time limit or stop condition.'}
-                    :{true:'The current player chose this action, including its target, destination, acquisition, expenditure and commitment, or the action is a routine step of their chosen goal.',
-                        false:'This adds an unchosen investigator action, violates a current limit or hold, skips an unmet player condition, or mistakes interest or quoted future speech for execution.'}};
-        })};
+        state:state as DecisionBatch['state'],questions:continuousConsentQuestions(options.proposal.lines.map((_,index)=>options.proposal.kinds?.[index]??''))};
     for(const [index,requirement] of cashRequirements.entries()){
         batch.questions.push({key:'cash_input_'+index,target:'cash_requirements['+index+']',type:'noul',
             instructions:'Does `current_player_words` explicitly accept the exact actual purse withdrawal in this cash requirement? This is the full cash_debit including earlier daily spending, not merely the new merchandise_amount. Judge the player\'s accepted amount, never copy permission from the proposed debit. A generic accept without the amount or a bound full quotation is insufficient.',
@@ -1329,7 +1328,7 @@ export async function reviewAdmissionJevOnly(options:PrimaryAdmissionReviewOptio
     const outer=options.signal??new AbortController().signal;
     const signal=options.providerBudget?AbortSignal.any([outer,options.providerBudget.signal]):outer;
     let lease:TaskLease|undefined,accounting:ReturnType<typeof preparationBudget>|undefined;
-    const meta:Record<string,unknown>={typed_design:'continuous-consent-noul-v3',jev_calls:0};
+    const meta:Record<string,unknown>={typed_design:'continuous-consent-noul-v5',jev_calls:0};
     const failed=(reason:string)=>({ok:false as const,reason,ms:clock.now()-began,meta});
     try{
         if(!context.playerText.trim()||!batch.questions.length)return failed('no_consent_input');
@@ -1350,16 +1349,20 @@ export async function reviewAdmissionJevOnly(options:PrimaryAdmissionReviewOptio
         const probability=(key:string)=>{const answer=result.answers[key];return answer?.status==='answered'&&answer.type==='noul'?answer.noul:undefined;};
         const allProbabilities=batch.questions.map(question=>probability(question.key));
         const probabilities=options.proposal.lines.map((_,index)=>probability('consent_'+index));
+        const restrictionProbabilities=options.proposal.lines.map((_,index)=>probability('restriction_'+index));
+        const scopeProbabilities=restrictionProbabilities.map(p=>p===undefined?undefined:1-p);
         meta.line_admit_probabilities=probabilities;
+        meta.line_scope_probabilities=scopeProbabilities;
+        meta.line_restriction_probabilities=restrictionProbabilities;
         if(allProbabilities.some(p=>!Number.isFinite(p)||p!<0||p!>1))return failed('invalid_typed_answer');
         if(cashRequirements.length)meta.cash_authority_probabilities=cashRequirements.map((requirement:any,index:number)=>({index:requirement.index,
             input:probability('cash_input_'+index),offers:requirement.earlier_full_quotes.map((offer:any,offerIndex:number)=>({quote:offer.quote,probability:probability('cash_offer_'+index+'_'+offerIndex)}))}));
-        const refused=probabilities.findIndex(p=>p!<=1-CONTINUOUS_ADMISSION_MIN_PROBABILITY);
-        if(refused<0&&probabilities.some(p=>p!<CONTINUOUS_ADMISSION_MIN_PROBABILITY))return failed('low_confidence');
-        const verdict=refused>=0?'not_authorized':'authorized';
-        const grounds='Typed consent review '+(refused>=0?'refused line '+(refused+1):'accepted the proposed scope')
+        const refused=probabilities.findIndex((p,index)=>p!<=1-CONTINUOUS_ADMISSION_MIN_PROBABILITY||scopeProbabilities[index]!<=1-CONTINUOUS_ADMISSION_MIN_PROBABILITY);
+        const uncertain=refused<0&&probabilities.some((p,index)=>p!<CONTINUOUS_ADMISSION_MIN_PROBABILITY||scopeProbabilities[index]!<CONTINUOUS_ADMISSION_MIN_PROBABILITY);
+        const verdict=refused>=0?'not_authorized':uncertain?'uncertain':'authorized';
+        const grounds='Typed consent review '+(refused>=0?'refused line '+(refused+1):uncertain?'could not establish the proposed scope':'accepted the proposed scope')
             +'; current player words: '+JSON.stringify(context.playerText.slice(0,200));
-        const cashLimits:NonNullable<AdmissionVerdict['cash_limits']>=refused>=0?[]:cashRequirements.flatMap<NonNullable<AdmissionVerdict['cash_limits']>[number]>((requirement:any,index:number)=>{
+        const cashLimits:NonNullable<AdmissionVerdict['cash_limits']>=refused>=0?[]:cashRequirements.flatMap((requirement:any,index:number)=>{
             if(!mechanicsInput&&probability('cash_input_'+index)!>=CONTINUOUS_ADMISSION_MIN_PROBABILITY)
                 return [{index:requirement.index,amount:requirement.cash_debit,basis:'input' as const,evidence:context.playerText}];
             const offer=requirement.earlier_full_quotes.find((_:unknown,offerIndex:number)=>probability('cash_offer_'+index+'_'+offerIndex)!>=CONTINUOUS_ADMISSION_MIN_PROBABILITY);
@@ -1367,7 +1370,7 @@ export async function reviewAdmissionJevOnly(options:PrimaryAdmissionReviewOptio
         });
         return{ok:true,ms:clock.now()-began,meta,verdict:{verdict,grounds,
             ...(cashLimits.length?{cash_limits:cashLimits}:{}),
-            ...(refused>=0?{missing:'This line adds an unchosen voluntary act or crosses a current player constraint.'}:{}),reviewer:'jev',path:'typed'}};
+            ...(refused>=0?{missing:'This line adds an unchosen voluntary act or crosses a current player constraint.'}:uncertain?{missing:'The consent decision is uncertain; no authority was established.'}:{}),reviewer:'jev',path:'typed'}};
     }catch(error){return failed(error instanceof PackingError?error.failure:'jev_unavailable');}
     finally{lease?.close();accounting?.close();}
 }

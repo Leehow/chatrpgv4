@@ -1,0 +1,23 @@
+import {test} from 'node:test';
+import assert from 'node:assert/strict';
+import {NpcReferences} from '../../runtime/npc-references.ts';
+import {turnPacket} from '../../runtime/turn-packet-prototype.ts';
+
+test('only supplied references bind, and a new input retires the preceding bindings',()=>{
+ const refs=new NpcReferences();
+ refs.observe('campaign:1',{present:[{ref:'npc_17',display_name:'The clerk',name_known:false},{kind:'creature',ref:'npc_18'}]});
+ assert.doesNotThrow(()=>refs.require('campaign:1',['npc_17']));
+ for(const actor of ['The clerk','npc_18','npc_19','npc_0','npc_017'])assert.throws(()=>refs.require('campaign:1',[actor]),/unissued/);
+ refs.observe('campaign:1',{ref:'npc_19',display_name:'The porter',name_known:false});
+ assert.doesNotThrow(()=>refs.require('campaign:1',['npc_17','npc_19']));
+ refs.observe('campaign:2',{present:[{ref:'npc_19'}]});
+ assert.throws(()=>refs.require('campaign:2',['npc_17']),/unissued/);
+ assert.throws(()=>refs.require('campaign:1',['npc_19']),/unissued/);
+ refs.observe('campaign:2',{npc_references:{people:[{ref:'npc_17',display_name:'The clerk',name_known:false}]}});
+ assert.doesNotThrow(()=>refs.require('campaign:2',['npc_17']),'known off-stage people bind from supplied material without inventing presence');
+});
+test('the native wire binds both speech and presence by reference rather than a free name',()=>{
+ const packet=actor=>JSON.stringify({version:3,commands:[{kind:'npc',actor,to:'Library',reason:'selected escort'}],responses:[{actor,act:'answer',points:['The library opens at noon.']}]});
+ assert.equal(turnPacket(packet('npc_17')).responses[0].actor,'npc_17');
+ for(const actor of ['The clerk','npc_0','npc_017'])assert.throws(()=>turnPacket(packet(actor)));
+});

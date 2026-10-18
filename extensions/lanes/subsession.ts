@@ -360,7 +360,7 @@ export interface LaneThinkingChoice { level: ModelThinkingLevel; source: LaneThi
 function liveTestThinkingChoice(): LaneThinkingChoice | undefined {
 	if (process.env.PI_COC_TEST_MODEL === "minimax-cn/MiniMax-M3.1-Flash-Preview") return { level: "medium", source: "test-profile" };
 	if (process.env.PI_COC_TEST_MODEL === "codex-relay/gpt-6-luna") return { level: "high", source: "test-profile" };
-	if (process.env.PI_COC_TEST_MODEL === "grok-build/grok-4.5") return { level: "low", source: "test-profile" };
+	if (process.env.PI_COC_TEST_MODEL === "grok-build/grok-4.5") return { level: "high", source: "test-profile" };
 	return undefined;
 }
 
@@ -479,7 +479,7 @@ export function laneReasoningOptions(
 		case "openai-completions":
 			return { reasoningEffort: level };
 		case "anthropic-messages":
-			return level === "off" ? {} : { effort: ANTHROPIC_EFFORT[level] };
+			return level === "off" ? { thinkingEnabled: false } : { thinkingEnabled: true, effort: ANTHROPIC_EFFORT[level] };
 		case "google-generative-ai":
 		case "google-vertex":
 			// Gemini has two thinking controls and a model takes exactly one: the gemini-3 family a
@@ -623,6 +623,8 @@ export interface LaneRequest<T> {
 	 * own completion, and the caller still gets exactly one row.
 	 */
 	timeoutMs?: number;
+	/** Explicit bounded room for reasoning plus the short artifact; defaults to 8192. */
+	outputLimit?: number;
 	/**
 	 * SL-87, tests only: the clock this round is timed on -- its `timeoutMs` deadline, `ms` and `firstByteMs`, and the
 	 * deadline of the independent budget a round without `providerBudget` gets. Absent: the host's own clock and timers,
@@ -785,17 +787,18 @@ async function runLaneAttempt<T>(
 		try {
 			signal.throwIfAborted();
 			const headers = openCodeSessionHeaders(resolved.model, sessionIdOf(request.ctx));
+			const outputLimit = Number.isSafeInteger(request.outputLimit) && request.outputLimit! > 0 ? request.outputLimit! : 8192;
 			if (request.observeTransport && OBSERVED_FETCH_APIS.has(resolved.model.api)) observed = observedFetch(signal);
 			reply = await request.ctx.modelRegistry.complete(
 				resolved.model,
 				{
 					systemPrompt: request.systemPrompt,
-					messages: [{ role: "user", content: [{ type: "text", text: request.input }] }],
+					messages: [{ role: "user", content: [{ type: "text", text: request.input }], timestamp: clock.now() }],
 					// tools omitted: that is what makes this a zero-tool session.
 				},
-				{ signal, maxRetries:0, ...reasoning, ...rows.options, ...(headers ? { headers } : {}), ...(observed ? { fetch: observed.fetch } : {}),
+				{ signal, maxRetries:0, ...(request.outputLimit ? {maxTokens: Math.min(resolved.model.maxTokens, outputLimit)} : {}), ...reasoning, ...rows.options, ...(headers ? { headers } : {}), ...(observed ? { fetch: observed.fetch } : {}),
 					onPayload:async(payload:unknown)=>{
-						const prepared=boundProviderRequest(resolved.model,payload);
+						const prepared=boundProviderRequest(resolved.model,payload,outputLimit);
 						const compatiblePayload = laneCompatiblePayload(resolved.model, prepared.payload);
 						const digest=payloadDigest(compatiblePayload);
 						// §190.3 (§140.1): the identical payload again after its attempt failed on the provider is paid from the

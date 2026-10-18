@@ -177,3 +177,13 @@ test("catalog clones caller scope and keeps snapshots and refs independent", () 
 	assert.deepEqual(keeper.ref.selector, { kind: "utf16", start: 0, end: 6 });
 	assert.equal(catalog.commit, original.commit);
 });
+
+test('paragraph memory layout keeps abbreviations, page numbers and closing quotes together',()=>{
+ const keeperText='"See Deeds 1187, p. 340 — 41."\n\nThe clerk waits.\n';
+ const legacy=committedTurnCatalog(input({keeperText}));
+ const catalog=committedTurnCatalog(input({keeperText,layout:'paragraph-v1'}));
+ const rows=catalog.segments.filter(s=>s.role==='keeper');
+ assert.equal(rows.length,2);assert.equal(rows[0].text,'"See Deeds 1187, p. 340 — 41."\n\n');
+ assert.equal(rows.map(s=>s.text).join(''),keeperText);assert.ok(rows.length<legacy.segments.filter(s=>s.role==='keeper').length);
+ for(const s of catalog.segments)assert.equal(resolveSourceRef(s.ref,access(catalog)),s.text);
+});

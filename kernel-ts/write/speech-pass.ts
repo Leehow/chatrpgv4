@@ -16,6 +16,48 @@ export const SAY_TOKENS = new RegExp(TOKEN.source, 'g');
 const speakerName = (name:string):string => name.startsWith('{{name:')&&name.endsWith('}}')?name.slice(7,-2).trim():name.trim();
 export const isSayMarker = (marker: string): boolean => marker.startsWith('say:');
 
+/** Empty speech is syntax, never an exposed placeholder. Only unresolved token bytes wait. */
+export class EmptySpeechStream {
+    private pending = '';
+    private opening = '';
+    private whitespace = '';
+    push(delta: string, final = false): string {
+        this.pending += delta;
+        let out = '';
+        const content = (text: string) => {
+            if (this.opening && !text.trim()) { this.whitespace += text; return; }
+            out += this.opening + this.whitespace + text;
+            this.opening = this.whitespace = '';
+        };
+        while (this.pending) {
+            const at = this.pending.indexOf('{{');
+            if (at < 0) {
+                const keep = !final && this.pending.endsWith('{') ? 1 : 0;
+                content(this.pending.slice(0, this.pending.length - keep));
+                this.pending = keep ? '{' : '';
+                break;
+            }
+            if (at) { content(this.pending.slice(0, at)); this.pending = this.pending.slice(at); }
+            const match = new RegExp('^(?:' + TOKEN.source + ')').exec(this.pending);
+            if (!match) {
+                // A nested name token is part of the canonical opening grammar.
+                if (!final && this.pending.length < 140 && !this.pending.includes('\n')
+                    && (!this.pending.includes('}}') || this.pending.startsWith('{{say:{{name:') && !this.pending.includes('}}}}'))) break;
+                content(this.pending[0]); this.pending = this.pending.slice(1); continue;
+            }
+            this.pending = this.pending.slice(match[0].length);
+            if (match[1] !== undefined) {
+                if (this.opening) { out += this.whitespace; this.whitespace = ''; }
+                this.opening = match[0];
+            } else if (this.opening) {
+                out += this.whitespace; this.opening = this.whitespace = '';
+            } else out += match[0];
+        }
+        if (final && this.opening) { out += this.whitespace; this.opening = this.whitespace = ''; }
+        return out;
+    }
+}
+
 /** Repair the tokens and lift the spans out (§40.1). Returns the text with normalised tokens and the
  *  spans in text order. Repairs: an open before a close closes the previous span at the new open; an
  *  open with no close closes at the end of its paragraph or of the text; a close with no open is

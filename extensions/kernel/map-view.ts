@@ -75,7 +75,7 @@ export async function renderMapView(viewValue: unknown, options: {modulesRoot:st
     if(!cached||cached.sha256!==createHash('sha256').update(bytes).digest('hex'))return base;
     const result:MapAttachment={...base,view_id:viewId,document:MAP_DOCUMENT_READY,media_type:'image/png',image:`data:image/png;base64,${bytes.toString('base64')}`,image_path:cached.path};
     if(options.splitLevels!==false&&result.levels.length>1){
-        const levelImages=[];
+        const levelImages: NonNullable<MapAttachment['level_images']>=[];
         // A base or mask with no level belongs to every level's picture; one with levels, to those.
         const onLevel=(level:string)=>(item:Row)=>!Array.isArray(item.levels)||!item.levels.length||item.levels.includes(level);
         for(const level of result.levels){

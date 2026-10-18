@@ -5,7 +5,7 @@ import { DirectorGraph, TextGraph, Ontology } from "./content.js";
 import { RuleObservations } from "./rule-facts.js";
 import { SessionView } from "./session-view.js";
 import { briefWindow } from "./brief-window.js";
-import { whereSection, clockSection, npcsPresent, cluesHere, presentSection, knownSection, fitBudget, fittedModuleSection, sceneLabel, voicesSection, samePersonReference, jsonSize } from "./capsule.js";
+import { whereSection, clockSection, npcsPresent, cluesHere, presentSection, knownSection, knownNpcReferences, fitBudget, fittedModuleSection, sceneLabel, voicesSection, samePersonReference, jsonSize } from "./capsule.js";
 import { OWN_BUDGET, ownSection } from "./own.js";
 import { playerKnowsSection } from "./player-knows.js";
 import {currentOwnedDocuments} from '../mods/document-visibility.js';
@@ -17,6 +17,7 @@ import { incapacitationClocks } from "./incapacitation.js";
 import { evidenceAcquired, evidenceDeliveryRecords } from "./continuity.js";
 import { worldlineSection, crossLineReader, loopObligation, worldlineSignals } from "./worldline.js";
 import { offerObligations } from "../mods/object-offer.js";
+import {committedOnLine,stillWhereItClosed} from './exchange.js';
 import { modContext, activeMods, type TurnState } from "./mods.js";
 import { STYLE_BUDGET, styleProvider, styleSection, legacyStyle, legacyStyleLock } from "./style.js";
 import { obligationNodes, sceneObligations, capsuleRow } from "./obligations.js";
@@ -131,6 +132,7 @@ export const HEAD_FIRST_SIGHT = " first_sight is the player's first sight of the
 export const BUDGETS: Readonly<Record<string, number>> = Object.freeze({
     where: 4096,
     present: 3072,
+    npc_references: 2048,
     known: 3072,
     recent: 2048
 });
@@ -303,11 +305,24 @@ export function unrecordedPeople(graph: ModuleGraph, world: Row, scene: Row, rec
                 npc: handle,
                 turn: record.turn,
                 at: at || null,
+                presence_established: false,
                 operation: "apply npc",
-                line: `turn ${record.turn} gave ${graph.displayName(node)} lines here and the books ${at ? `have them at ${at}` : "have them off the board"}; apply npc ${handle} to: here makes the two agree`
+                line: `turn ${record.turn} attributed speech to ${graph.displayName(node)}; recorded position is ${at || "unknown"}. Speech does not establish physical presence or authorize relocation.`
             });
         }
     return rows;
+}
+/** Exact public history at this scene; never an authored private scene description. */
+export function publicSceneMaterial(campaign:CampaignSnapshot,graph:ModuleGraph,world:Row):Row {
+    const records=committedOnLine(campaign).records.filter(record=>number(record.turn)<number(campaign.turn.turn)
+        &&stillWhereItClosed(graph,world,record)
+        &&!array(record.receipts).some(receipt=>row(receipt).kind==='move'&&row(receipt).from!==row(receipt).to)
+        &&typeof record.rendered_text==='string'&&record.rendered_text.length>0)
+        .sort((a,b)=>number(b.turn)-number(a.turn));
+    const entries=records.slice(0,3).map(record=>({turn:record.turn,text:record.rendered_text.slice(0,2000),
+        ...(record.rendered_text.length>2000?{truncated:true}:{})}));
+    while(entries.length&&jsonSize(entries)>7800)entries.pop();
+    return {authority:'Previously delivered public scene context, not new facts, presence or transaction authority.',entries:entries.reverse(),omitted:records.length-entries.length};
 }
 /**
  * What settled on a turn that ended with nothing said (contract §69). The mirror of `unrecorded`
@@ -440,11 +455,15 @@ export function fitPresent(rows: Row[], budget: number): boolean {
     // Counted, it too cost the nine-person bench its fourth dossier.
     const kinds = new Map<Row, unknown>();
     const identities = new Map<Row, string>();
+    const publicIdentities = new Map<Row,Row>();
     for (const entry of all) {
         const untold = entry.untold;
         if (untold && typeof untold === "object" && "say_name" in untold) { tokens.set(entry, untold.say_name); delete untold.say_name; }
         if (Object.hasOwn(entry, "kind")) { kinds.set(entry, entry.kind); delete entry.kind; }
         if (typeof entry.id === "string" && entry.id.trim()) { identities.set(entry, entry.id); delete entry.id; }
+        const projection:Row={};
+        for(const key of ['ref','display_name','name_known'])if(Object.hasOwn(entry,key)){projection[key]=entry[key];delete entry[key];}
+        if(Object.keys(projection).length)publicIdentities.set(entry,projection);
     }
     const policy = {atomic, minimum};
     let cut = fitBudget(rows, budget, "oldest", policy) || relationshipCut;
@@ -458,10 +477,10 @@ export function fitPresent(rows: Row[], budget: number): boolean {
         stubbed.unshift(rows.pop()!);
     for (const [entry, token] of tokens) entry.untold.say_name = token;
     const kindBack = (entry: Row): Row => {
-        if (!kinds.has(entry) && !identities.has(entry)) return entry;
+        if (!kinds.has(entry) && !identities.has(entry) && !publicIdentities.has(entry)) return entry;
         const { name, ...rest } = entry;
         return { name, ...(kinds.has(entry) ? { kind: kinds.get(entry) } : {}),
-            ...(identities.has(entry) ? { id: identities.get(entry) } : {}), ...rest };
+            ...(identities.has(entry) ? { id: identities.get(entry) } : {}), ...publicIdentities.get(entry), ...rest };
     };
     rows.splice(0, rows.length, ...rows.map(kindBack), ...stubbed.map(entry => presentStub(kindBack(entry))));
     return cut;
@@ -508,6 +527,7 @@ function presentStub(entry: Row): Row {
     const { use: _line, ...untold } = row(entry.untold);
     // §180.4: a stub keeps what the row was, a person or a creature, so a cut creature never reads to the host as a person.
     return { name: string(entry.name), ...(typeof entry.id === "string" && entry.id.trim() ? { id: entry.id } : {}),
+        ...Object.fromEntries(['ref','display_name','name_known'].filter(key=>entry[key]!==undefined).map(key=>[key,entry[key]])),
         ...(typeof entry.kind === "string" ? { kind: entry.kind } : {}), truncated: true,
         ...stubRelationships(entry), ...(Object.keys(untold).length ? { untold } : {}) };
 }
@@ -570,6 +590,7 @@ export async function buildCapsule(campaign: CampaignSnapshot, module: LoadedMod
         memory = withPromiseFulfillment(campaign.logs.get("memory/candidates.jsonl") ?? [],{campaign:campaign.id,receipts:canonicalMemoryReceipts(campaign.records,array(turn.receipts)),world,samePayer:samePersonReference(graph,world)}),
         story = campaign.logs.get("memory/story.jsonl") ?? [];
     const where = whereSection(graph, world, scene, material, true);
+    const public_scene=publicSceneMaterial(campaign,graph,world);
     where.clock = clockSection(graph, world);
     if (!where.clock.at)
         where.clock.pin = "Use apply clock once to pin the opening local_datetime when the book gives no full date, keeping any declared start_time.";
@@ -627,6 +648,7 @@ export async function buildCapsule(campaign: CampaignSnapshot, module: LoadedMod
         outcome:graph.shownIds({...eventOutcome(array(turn.receipts),array(turn.disclosures)),
             history:[...semanticEvents].sort((a,b)=>number(row(a.scope).turn)-number(row(b.scope).turn)).slice(-4).map(event=>({ref:event.ref,name:event.name,summary:chars(event.summary??'',300),scope:event.scope,status:event.status})),
             coverage:{history_omitted:Math.max(0,semanticEvents.length-4),read:{what:'history',page:{section:'events'}}}}),
+        public_scene,
         historical_setting: await historicalSetting(campaign, module),
         // §168.5: before present, so the material for a first sight is read before the dossiers.
         ...(firstSight ? { first_sight: firstSight } : {}),
@@ -634,6 +656,7 @@ export async function buildCapsule(campaign: CampaignSnapshot, module: LoadedMod
         ...(deferred ? {deferred_npcs: deferred} : {}),
         voices: voicesSection(graph, world, scene),
         known: knownSection(graph, world, scene, party, campaign.records, module.material),
+        npc_references:knownNpcReferences(graph,world,row(campaign.jsonFiles.get('npc-journal.json')),campaign.records),
         // The body that cannot act goes first: `fitBudget(..., "last")` trims this section from the
         // end, and a Keeper who loses the threat clock still has a table, while a Keeper who loses
         // this one has the thirty hours of §89 back.
@@ -704,8 +727,10 @@ export async function buildCapsule(campaign: CampaignSnapshot, module: LoadedMod
         // A crowded room never loses a person to present[]'s budget (contract §40.7, the chat bench: nine
         // people in one teahouse and four of them gone): whoever the cut would drop arrives as their name
         // alone, and the Keeper knows to look focus=npc for the rest of them.
+        const referenceCount=name==='npc_references'?array(sections.npc_references.people).length:0;
         const cut = name === "present" ? fitPresent(sections.present, budget)
             : name === "where" ? fitWhere(sections.where, budget) : fitBudget(sections[name], budget);
+        if(name==='npc_references')sections.npc_references.omitted+=referenceCount-array(sections.npc_references.people).length;
         if (cut || !Array.isArray(sections[name]) && truth(row(sections[name]).truncated)) {
             truncated.push(name);
             if (!Array.isArray(sections[name]) && sections[name] && typeof sections[name] === "object")

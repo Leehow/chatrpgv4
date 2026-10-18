@@ -1,7 +1,7 @@
 /** Retained tool-enabled writing; only the host may publish the checked draft. */
 import { createHash } from "node:crypto";
-import { mkdir, mkdtemp, readFile, writeFile } from "node:fs/promises";
-import { join } from "node:path";
+import { mkdir, mkdtemp, readFile, writeFile, readdir } from "node:fs/promises";
+import { join, basename } from "node:path";
 import type { HostRuntime } from "../../runtime/host.ts";
 export type VoiceFailureKind = "rejected" | "unavailable" | "cancelled";
 
@@ -17,6 +17,30 @@ export async function writeVoice<T>(options: {
 		const key = createHash("sha256").update(options.jobId).digest("hex");
 		const root = join(runtime.home, ".coc", "npc-voice", "attempts", key);
 		await mkdir(root, { recursive: true });
+		const identity=createHash('sha256').update(JSON.stringify([options.model,options.pinned===true,options.systemPrompt,options.input])).digest('hex');
+		const retained=join(root,'retained-'+identity+'.json');
+		try {
+			const saved=JSON.parse(await readFile(retained,'utf8'));
+			if(saved.identity===identity&&typeof saved.directory==='string'&&basename(saved.directory)===saved.directory&&/^attempt-[A-Za-z0-9]+$/.test(saved.directory)){
+				const directory=join(root,saved.directory),draft=await readFile(join(directory,'draft.json'),'utf8');
+				const value=options.shape(JSON.parse(draft));
+				if(value!==undefined&&createHash('sha256').update(draft).digest('hex')===saved.sha256&&typeof saved.model==='string'){
+					signal.throwIfAborted();return {ok:true,value,model:saved.model,cwd:directory};
+				}
+			}
+		} catch { signal.throwIfAborted(); }
+		// Older retained attempts predate the index. Adopt only an exact successful input/model match.
+		for(const directory of (await readdir(root)).filter(name=>/^attempt-[A-Za-z0-9]+$/.test(name)).reverse())try{
+			const previous=join(root,directory),packet=JSON.parse(await readFile(join(previous,'packet.json'),'utf8'));
+			if(packet.input!==options.input||await readFile(join(previous,'instructions.md'),'utf8')!==options.systemPrompt)continue;
+			const outcome=JSON.parse(await readFile(join(previous,'attempt.json'),'utf8'));
+			if(outcome.ok!==true||!Array.isArray(outcome.command)||outcome.command[outcome.command.indexOf('--model')+1]!==options.model)continue;
+			const draft=await readFile(join(previous,'draft.json'),'utf8'),value=options.shape(JSON.parse(draft));
+			if(value===undefined)continue;
+			signal.throwIfAborted();
+			await writeFile(retained,JSON.stringify({identity,directory,model:options.model,sha256:createHash('sha256').update(draft).digest('hex')}),{mode:0o600});
+			return {ok:true,value,model:options.model,cwd:previous};
+		}catch{signal.throwIfAborted();}
 		cwd = await mkdtemp(join(root, "attempt-"));
 		await writeFile(join(cwd, "packet.json"), JSON.stringify({ input: options.input }, null, 2));
 		const systemPrompt = join(cwd, "instructions.md");
@@ -36,6 +60,8 @@ export async function writeVoice<T>(options: {
 		if (value === undefined) throw new Error("The voice artifact has an invalid shape");
 		const modelIndex = outcome.command.indexOf("--model");
 		const model = modelIndex >= 0 ? outcome.command[modelIndex + 1] : options.model;
+		const draft=await readFile(join(cwd,'draft.json'),'utf8');
+		await writeFile(retained,JSON.stringify({identity,directory:basename(cwd),model:model||options.model,sha256:createHash('sha256').update(draft).digest('hex')}),{mode:0o600});
 		return { ok: true, value, model: model || options.model, cwd };
 	} catch (error) {
 		const detail = error instanceof Error ? error.message : String(error);

@@ -44,9 +44,14 @@ test('zero-settlement write exhaustion ends the native input before captured fal
 test('a valid partial settlement survives exhaustion and may still be narrated',async t=>{
  let requests=0,admissions=0;
  const engine=createHybridEngine({env:{},decision:{decide:async batch=>{
+  if(batch.family==='held-act-outcome'){
+   assert.equal(batch.state.settledReceipts.length,1);
+   assert.ok(batch.state.draft.includes('destination is still unresolved'));
+   return bindDecisionAnswers(batch,{held_result:{status:'answered',type:'noul',noul:.01}});
+  }
   if(batch.family!=='continuous-action-admission')return decision(batch);
   const probability=++admissions===1?.99:.3;
-  return bindDecisionAnswers(batch,Object.fromEntries(batch.questions.map(question=>[question.key,{status:'answered',type:'noul',noul:probability}])));
+  return bindDecisionAnswers(batch,Object.fromEntries(batch.questions.map(question=>[question.key,{status:'answered',type:'noul',noul:question.key.startsWith('restriction_')?1-probability:probability}])));
  }}});
  const table=await openTable({legacyDeliveryFixtures:false,realKernel:true,prepareWorkspace:opened,
   env:{PI_COC_LOOP_ENGINE:'hybrid-v1',PI_COC_JEV_PRESELECT:'0',PI_COC_MEMORY_BACKFILL:'0',EXT_JEV_APIKEY:undefined,TYPESAFE_API_KEY:undefined},

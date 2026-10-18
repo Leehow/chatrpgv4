@@ -9,6 +9,8 @@ import { ModuleGraph, sameNode } from '../read/module-graph.js';
 import { RpcError } from '../errors.js';
 import { calledPerson, npcsPresent, personLabel, personRecord } from '../read/capsule.js';
 import { array, normalize, normalizeText, row, string, truth, type Row } from '../read/values.js';
+import {referencedNpc} from '../npc/references.js';
+import {tableWord} from '../read/person-words.js';
 
 import type {Speaker, SpeakerResolver} from './speech-pass.js';
 export {speechPass, sayRanges, NAME_LIMIT, SAY_TOKENS, isSayMarker, type Speaker, type SpeakerResolver, type SaySpan} from './speech-pass.js';
@@ -49,6 +51,11 @@ export function speakerResolver(graph: ModuleGraph, world: Row, party: Row[], un
     };
     const sheetSpeaker = (sheet: Row): Speaker => ({ investigator: string(sheet.id), name: personLabel(world, string(sheet.id), string(sheet.name)) });
     return (name: string): Speaker => {
+        const referenced=referencedNpc(graph,world,name);
+        if(referenced){
+            const handle=graph.handle(referenced),shown=untold(referenced)?tableWord(world,handle)||'Person':personLabel(world,handle,graph.displayName(referenced));
+            return {npc:handle,name:shown,shown};
+        }
         const key = normalize(name);
         if (!key) return { label: name };
         if (!present) {

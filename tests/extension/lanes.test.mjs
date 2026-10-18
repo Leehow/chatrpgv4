@@ -56,7 +56,8 @@ function settle(ms = 120) {
 const noCandidates = () => fauxAssistantMessage(JSON.stringify({ candidates: [] }));
 
 function laneRows(table, lane) {
-	return table.telemetry().filter((row) => row.lane === lane);
+	// Count completed dispatch summaries, not per-stage memory diagnostics.
+	return table.telemetry().filter((row) => row.lane === lane && row.event === undefined);
 }
 
 /** 遥测是车道自己写的最后一步，比内核那边的请求日志晚一点：断言前先等它落。 */

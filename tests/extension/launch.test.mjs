@@ -416,6 +416,7 @@ function withHybridEntry(root) {
 	// Same logger as the Pi stub, as an ES module (the entry is .mjs); it names itself so the test sees which entry ran.
 	writeFileSync(join(root, "build/runtime/pi-hybrid.mjs"), `import fs from 'node:fs';
 fs.writeFileSync(process.env.PI_STUB_LOG, ['entry=pi-hybrid','engine='+(process.env.PI_COC_LOOP_ENGINE??'<unset>'),'mode='+(process.env.PI_COC_MODE??'<unset>'),
+ 'packet='+(process.env.PI_COC_TURN_PACKET_PROTOTYPE??'<unset>'),'prescreen='+(process.env.PI_COC_PACKET_PRESCREEN??'<unset>'),
  ...process.argv.slice(2).map(arg=>'arg='+arg)].join('\\n')+'\\n');\n`);
 	const stub = join(root, VENDORED_PI);
 	writeFileSync(stub, readFileSync(stub, "utf8").replace("'cwd='+process.cwd(),", "'entry=pi','engine='+(process.env.PI_COC_LOOP_ENGINE??'<unset>'),'cwd='+process.cwd(),"));
@@ -434,6 +435,16 @@ test("PI_COC_LOOP_ENGINE: normal play starts hybrid even without a key; old lega
 	assert.equal(hybrid.value("entry"), "pi-hybrid");
 	assert.equal(hybrid.value("engine"), "hybrid-v1");
 	assert.deepEqual(hybrid.args, legacy.args, "the engine changes the entry, not a single Pi argument");
+});
+
+test('normal play wires the structured decision path without experimental environment flags',t=>{
+ const root=withHybridEntry(fakeRepo());t.after(()=>rmSync(root,{recursive:true,force:true}));
+ const normal=runLauncher(root,['--campaign','native-default']);
+ assert.equal(normal.value('packet'),'1');assert.equal(normal.value('prescreen'),'1');
+ const explicitOff=runLauncher(root,['--campaign','native-off'],{PI_COC_TURN_PACKET_PROTOTYPE:'0'});
+ assert.equal(explicitOff.value('packet'),'0');assert.equal(explicitOff.value('prescreen'),'0');
+ const setup=runLauncher(root,['setup','--campaign','setup-only'],{EXT_JEV_APIKEY:'fixture',PI_COC_LOOP_ENGINE:'hybrid-v1',PI_COC_TURN_PACKET_PROTOTYPE:'1'});
+ assert.equal(setup.value('packet'),'0');assert.equal(setup.value('prescreen'),'0');
 });
 
 test("PI_COC_LOOP_ENGINE: setup runs driven with a Jev key and no explicit legacy, legacy otherwise, and an unknown engine is refused (§151.6)", (t) => {

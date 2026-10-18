@@ -5,12 +5,12 @@ import {mkdtemp,rm,symlink} from 'node:fs/promises';
 import {tmpdir} from 'node:os';
 import {join,resolve} from 'node:path';
 import {pathToFileURL} from 'node:url';
+import {waitFor} from './wait.mjs';
 const root=resolve(import.meta.dirname,'../..'),temp=await mkdtemp(join(tmpdir(),'screen-journal-'));
 after(()=>rm(temp,{recursive:true,force:true}));
 await symlink(join(root,'node_modules'),join(temp,'node_modules'),'dir');
 await build({stdin:{contents:"export {installMaterialScreen} from './extensions/table/material-screen.ts'; export {createRequestJournal} from './extensions/table/request-journal.ts'; export {materialScreenRanges} from './kernel-ts/read/mods.ts';",resolveDir:root},outfile:join(temp,'api.mjs'),bundle:true,packages:'external',format:'esm',platform:'node',target:'node24',logLevel:'silent'});
 const api=await import(pathToFileURL(join(temp,'api.mjs')).href);
-const waitFor=async fn=>{for(let i=0;i<100&&!fn();i++)await new Promise(r=>setTimeout(r,5));assert.ok(fn());};
 test('a pending material decision never blocks projection and a ready selection becomes a journal revision',async t=>{
  const prior=globalThis.fetch,key=process.env.EXT_JEV_APIKEY;t.after(()=>{globalThis.fetch=prior;if(key===undefined)delete process.env.EXT_JEV_APIKEY;else process.env.EXT_JEV_APIKEY=key;});
  process.env.EXT_JEV_APIKEY='test-only';let release,calls=0;

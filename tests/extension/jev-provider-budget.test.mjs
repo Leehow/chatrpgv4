@@ -128,6 +128,20 @@ test('lane reserves in the real completion onPayload seam and exposes actual usa
  assert.equal(result.ok,true);assert.equal(dispatched,1);assert.equal(result.usage.inputTokens,15);assert.equal(events.at(-1).known,true);root.close();
 });
 
+test('background output room reaches completion and the charged payload without widening a smaller cap',async()=>{
+ const large={...model,maxTokens:32768,contextWindow:200000};
+ for(const existing of [undefined,4096]){
+  let dispatched=0;
+  const result=await runLane({ctx:{model:large,modelRegistry:{complete:async(_m,_c,options)=>{
+   assert.equal(options.maxTokens,16384);
+   const body=await options.onPayload({model:large.id,input:'hello',...(existing?{max_output_tokens:existing}:{})});
+   assert.equal(body.max_output_tokens,existing??16384);dispatched++;
+   return {stopReason:'stop',content:[{type:'text',text:'{"okay":true}'}],usage};
+  }},sessionManager:{getSessionId:()=>undefined}},outputLimit:16384,envName:'T15_UNUSED_MODEL',lane:'test',systemPrompt:'Return JSON',input:'test',shape:x=>x});
+  assert.equal(result.ok,true);assert.equal(dispatched,1);
+ }
+});
+
 test('timed out completion that ignores abort retains an unknown charge without a refundable hold',async()=>{
  const root=lease({remainingActions:1}),budget=createTaskProviderBudget(root);
  const keepAlive=setInterval(()=>{},1000);

@@ -144,11 +144,14 @@ export async function piLaunch(input: string[], options: RuntimeHostOptions = {}
   // PI_COC_LOOP_ENGINE: the same arguments reach Pi either way; hybrid-v1 starts them through the entry that
   // hands Pi's main the RunDriver. The child is told the engine it runs, which its startup record names.
   const engine = selectLoopEngine(context.env, mode);
+  const nativeDecision=mode==='play'&&engine==='hybrid-v1'&&context.env.PI_COC_TURN_PACKET_PROTOTYPE!=='0';
   return {command: context.nodeExecutable,
     args: [engine === 'hybrid-v1' ? context.entrypoints.piHybrid : context.entrypoints.pi, '--no-builtin-tools', '--no-context-files', '--system-prompt', prompt, ...session, ...mounts, ...forwarded],
     // image-gen owns image_gen/image_edit; Pi refuses duplicate tool names, so grok-build-oauth is told not to register its own.
     cwd: context.resourceRoot, env: withHostNotices({...context.env, PI_COC_MODE: mode, PI_GROK_BUILD_IMAGE_TOOLS: '0', PI_COC_LOOP_ENGINE: engine,
-      PI_COC_ISOLATED_OUTPUT:mode==='play'&&engine==='hybrid-v1'&&context.env.PI_COC_ISOLATED_OUTPUT==='1'?'1':'0'}, notices)};
+      PI_COC_TURN_PACKET_PROTOTYPE:nativeDecision?'1':'0',
+      PI_COC_PACKET_PRESCREEN:nativeDecision&&context.env.PI_COC_PACKET_PRESCREEN!=='0'?'1':'0',
+      PI_COC_ISOLATED_OUTPUT:nativeDecision||mode==='play'&&engine==='hybrid-v1'&&context.env.PI_COC_ISOLATED_OUTPUT==='1'?'1':'0'}, notices)};
 }
 
 export async function launchMain(args: string[]): Promise<number> {

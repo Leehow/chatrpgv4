@@ -39,7 +39,7 @@ function answered(batch, pick = () => undefined) {
 	const answers = {};
 	for (const question of batch.questions) {
 		if(batch.family==='continuous-action-admission'){
-			answers[question.key]={status:'answered',type:'noul',noul:.99};
+			answers[question.key]={status:'answered',type:'noul',noul:question.key.startsWith('restriction_')?.01:.99};
 			continue;
 		}
 		const choice = pick(baseQuestion(question)) ?? (baseQuestion(question).key === "exit" ? "continue" : Object.hasOwn(question.criteria, "costs") ? "none" : Object.keys(question.criteria)[0] === "now" ? "later" : "unknown");

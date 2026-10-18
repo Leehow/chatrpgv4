@@ -1,7 +1,13 @@
 import { strict as assert } from "node:assert";
 import { createHash } from "node:crypto";
 import { test } from "node:test";
-import { createMemoryWriteDomain, MEMORY_WRITE_CAPABILITY, MEMORY_WRITE_POLICY_VERSION } from "../../runtime/jev/memory-write-domain.ts";
+import { createMemoryWriteDomain, decideReferencedMemoryStep, MEMORY_WRITE_CAPABILITY, MEMORY_WRITE_POLICY_VERSION } from "../../runtime/jev/memory-write-domain.ts";
+import {packDecisionBatch} from '../../runtime/jev/question-packing.ts';
+import {runNativeMemory} from '../../runtime/jev/memory-native.ts';
+import {bindDecisionAnswers} from '../../runtime/jev/contracts.ts';
+import {mkdtemp,rm} from 'node:fs/promises';
+import {tmpdir} from 'node:os';
+import {join} from 'node:path';
 import { TaskRuntime } from "../../runtime/jev/task-runtime.ts";
 
 class Clock {
@@ -99,6 +105,47 @@ function happySelection(question) {
 	if (question.key.startsWith("relation_")) return "none";
 	throw new Error(`unhandled question ${question.key}`);
 }
+
+test('native memory classifies kinds before only the needed annotations',async()=>{
+ const calls=[],rows=[];
+ const projection=await decideReferencedMemoryStep(packet(),{async decide(batch){calls.push(batch);return answer(batch,happySelection);}},new AbortController().signal,async row=>rows.push(row));
+ assert.ok(calls.every(b=>b.questions.every(q=>!q.key.startsWith('retain_'))));
+ assert.ok(calls[0].questions.some(q=>q.key.startsWith('kind_')));
+ assert.ok(calls.slice(1).every(b=>b.questions.every(q=>!q.key.startsWith('kind_')&&!q.key.startsWith('retain_'))));
+ assert.ok(calls.every(b=>b.state.prior.every(p=>b.questions.some(q=>q.target.endsWith(' '+p.alias)))),'only compared priors enter shared state');
+ assert.ok(calls.every(b=>b.state.relationDefinitions.temporal_change.includes('Speech alone never proves')),'compact questions retain the complete fulfillment policy once in shared state');
+ for(const q of calls.flatMap(b=>b.questions).filter(q=>q.key.startsWith('relation_')))assert.ok(calls.some(b=>b.questions.includes(q)&&b.state.prior.some(p=>q.target.endsWith(' '+p.alias)&&p.statement==='Earlier promise wording.')),'every issued comparison retains its exact shared target');
+ assert.ok(projection.decisions.every(d=>d.outcome==='retain'&&d.annotations[0].kind==='promise'));
+ assert.ok(projection.decisions.every(d=>!JSON.stringify(d).includes('statement')),'kernel owns source text');
+ assert.ok(rows.every(r=>r.ms>=0));
+});
+
+test('native negative and uncertain kind sets never request annotations',async()=>{
+ for(const selection of ['skip','defer']){
+  const calls=[];const result=await decideReferencedMemoryStep(packet(),{async decide(batch){calls.push(batch);return answer(batch,q=>selection==='skip'?'no':'uncertain_attribution');}},new AbortController().signal,async()=>{});
+  assert.equal(calls.length,1);assert.ok(result.decisions.every(d=>d.outcome===selection));
+ }
+});
+
+test('native exact-state decisions survive restart without another provider judgment',async t=>{
+ const cwd=await mkdtemp(join(tmpdir(),'native-memory-cache-'));t.after(()=>rm(cwd,{recursive:true,force:true}));let requests=0;const rows=[];
+ const port={async decide(batch){requests++;return bindDecisionAnswers(batch,Object.fromEntries(batch.questions.map(q=>{const keys=Object.keys(q.criteria),choice=q.key.startsWith('retain_')?'skip':'no';return[q.key,{status:'answered',type:'choice',choice,confidence:.99,probabilities:Object.fromEntries(keys.map(k=>[k,k===choice?1:0]))}];})));}};
+ const options={cwd,campaign:'campaign',signal:new AbortController().signal,port,record:async row=>rows.push(row),call:async()=>({status:'done',remaining:0,candidates:0})};
+ const initial=packet();initial.story_sources=structuredClone(initial.step.segments);
+ assert.equal((await runNativeMemory(initial,options)).status,'complete');const first=requests;
+ assert.equal((await runNativeMemory(initial,options)).status,'complete');assert.equal(requests,first);assert.ok(rows.some(r=>r.event==='decision_cache'&&r.hit));
+ const repacked=structuredClone(initial);repacked.step.key='repacked';repacked.step.sequence=9;repacked.step.segments.reverse();
+ assert.equal((await runNativeMemory(repacked,options)).status,'complete');assert.equal(requests,first,'repacking identical source occurrences cannot repeat successful judgments');
+ const changed=packet();changed.step.segments[0].text+=' Changed.';changed.step.segments[0].ref=sourceRef('player',changed.step.segments[0].text);changed.origin.revision='changed';
+ await runNativeMemory(changed,options);assert.ok(requests>first,'changed source cannot hit the earlier decision cache');
+});
+
+test('an uncertain story with no remaining source cannot append another empty kernel step',async t=>{
+ const cwd=await mkdtemp(join(tmpdir(),'native-story-pending-'));t.after(()=>rm(cwd,{recursive:true,force:true}));let writes=0;
+ const p=packet({status:'pending',segments:[],story_complete:false,story_context:{threads:[{thread:'promise',supporting:[{statement:'An acquired clue.'}]}]},story_sources:[segment('player:0','player','I ask about a promise.')]});p.step.remaining=0;
+ const outcome=await runNativeMemory(p,{cwd,campaign:'campaign',signal:new AbortController().signal,record:async()=>{},call:async()=>{writes++;throw Error('must not submit');},port:{async decide(batch){return bindDecisionAnswers(batch,Object.fromEntries(batch.questions.map(q=>[q.key,{status:'answered',type:'noul',noul:.5}])));}}});
+ assert.equal(outcome.status,'pending_review');assert.equal(writes,0);assert.equal(outcome.steps,0);
+});
 
 function observation(proposal, result) {
 	return { operationId: proposal.id, status: "succeeded", result, refs: proposal.basis, receipts: [], readSet: proposal.readSet,
@@ -211,7 +258,7 @@ test("v5 issues directed relationship attribution, the complete semantic name ca
 			const match = question.target.match(/ (?:knower|entity) (\S+)$/);
 			if (match) assert.ok(catalog.has(match[1]), `${match[1]} is defined in the same immutable state`);
 			if (question.key.startsWith("subject_")) {
-				for (const alias of Object.keys(question.criteria).filter(alias => alias !== "uncertain_attribution"))
+				for (const alias of Object.keys(question.criteria).filter(alias => !["uncertain_attribution","no_annotation"].includes(alias)))
 					assert.ok(catalog.has(alias), `${alias} is defined in the same immutable state`);
 				assert.equal(question.criteria.uncertain_attribution,
 					"The exact source does not support assigning an issued subject safely.");
@@ -503,4 +550,104 @@ test("story assessment submits only issued aliases and never copied frame or del
 	assert.equal(run.publications[0].basis.length, 2);
 	const storyState = run.calls.find(call => call.family === "memory-write-story").state;
 	assert.deepEqual(storyState.sources.map(source => source.attribution), [{ kind: "unknown" }, { kind: "unknown" }]);
+});
+
+test('native fanout shares prior material and avoids contradictory retention questions',async()=>{
+ const p=packet();p.story_sources=structuredClone(p.step.segments);
+ p.prior=Array.from({length:31},(_,i)=>({...p.prior[0],alias:`prior:${i}`,statement:`Earlier promise ${i}. `+'Exact retained context. '.repeat(12)}));p.prior_coverage={total:31,included:31,omitted:0};
+ const calls=[];const result=await decideReferencedMemoryStep(p,{async decide(b){calls.push(b);return answer(b,happySelection);}},new AbortController().signal,async()=>{});
+ assert.ok(calls.length<=5,`two source annotations must not require ${calls.length} requests`);
+ assert.equal(calls.flatMap(b=>b.questions).filter(q=>q.key.startsWith('retain_')).length,0,'one exhaustive kind decision owns retention');
+ const relations=calls.flatMap(b=>b.questions).filter(q=>q.key.startsWith('relation_'));assert.equal(relations.length,62,'every issued source/prior pair remains covered');
+ assert.ok(relations.every(q=>!q.instructions.includes('Exact retained context.')),'prior wording belongs once in shared state');
+ assert.ok(calls.every(b=>{const e=packDecisionBatch(b).estimate;return e.totalUpperBound<=64000&&e.stateUpperBound+e.longestQuestionUpperBound<=32000;}));
+ assert.ok(result.decisions.every(d=>d.outcome==='retain'));
+});
+
+test('native cache invalidates only questions whose compared prior changes',async t=>{
+ const cwd=await mkdtemp(join(tmpdir(),'native-memory-prior-'));t.after(()=>rm(cwd,{recursive:true,force:true}));
+ const p=packet();p.story_sources=structuredClone(p.step.segments);const sent=[];
+ const options={cwd,campaign:'campaign',signal:new AbortController().signal,record:async()=>{},call:async()=>({status:'done',remaining:0,candidates:2}),port:{async decide(b){sent.push(b);const answers={};for(const q of b.questions){const selection=happySelection(q);answers[q.key]={status:'answered',type:'choice',choice:selection,confidence:1,probabilities:Object.fromEntries(Object.keys(q.criteria).map(k=>[k,k===selection?1:0]))};}return bindDecisionAnswers(b,answers);}}};
+ await runNativeMemory(p,options);const first=sent.length;await runNativeMemory(p,options);assert.equal(sent.length,first);
+ const changed=structuredClone(p);changed.prior[0].statement='A genuinely different prior promise.';
+ await runNativeMemory(changed,options);const newQuestions=sent.slice(first).flatMap(b=>b.questions);
+ assert.equal(newQuestions.length,2);assert.ok(sent.slice(first).every(b=>b.state.prior.length===1));assert.ok(newQuestions.every(q=>q.key.startsWith('relation_')&&q.target.endsWith(' prior:0')));
+});
+
+test('native kind uncertainty and missing attribution remain deferred with explicit diagnostics',async()=>{
+ for(const blocked of ['kind','knower']){
+  const rows=[];const result=await decideReferencedMemoryStep(packet(),{async decide(b){return answer(b,q=>q.key.startsWith(blocked+'_')?'uncertain_attribution':happySelection(q));}},new AbortController().signal,async r=>rows.push(r));
+  assert.ok(result.decisions.every(d=>d.outcome==='defer'));
+  assert.ok(rows.some(r=>r.event==='reference_source_deferred'&&r.blockers.some(b=>b.target.includes(blocked==='kind'?'promise':'knower'))));
+ }
+});
+
+test('native large closed-answer batches reserve enough output before the real adapter',async()=>{
+ const {createDecisionAdapter}=await import('../../runtime/jev/decision-adapter.ts');
+ const p=packet({segments:Array.from({length:12},(_,i)=>segment(`player:${i}`,'player',`Knott made the promise numbered ${i}.`))});p.story_sources=structuredClone(p.step.segments);
+ let sent=0,large=0;const adapter=createDecisionAdapter({enabled:true,apiKey:'fixture-only',fetcher:async(_url,options)=>{
+  sent++;const body=JSON.parse(options.body),answers={};for(const [key,q] of Object.entries(body.questions)){const selected=happySelection({key,target:q.instructions.target});answers[key]={type:'choice',choice:selected,confidence:1,probabilities:Object.fromEntries(Object.keys(q.criteria).map(k=>[k,k===selected?1:0]))};}
+  return new Response(JSON.stringify({model:body.model,answers,usage:{input_tokens:1,output_tokens:1}}));
+ }});
+ const result=await decideReferencedMemoryStep(p,{async decide(b,lease){if(packDecisionBatch(b).estimate.responseUpperBound>10000)large++;return adapter.decide(b,lease);}},new AbortController().signal,async()=>{});
+ assert.ok(large>0,'the regression must reach a batch the old fixed output reservation refused');assert.ok(sent>0);assert.ok(result.decisions.every(d=>d.outcome==='retain'));
+});
+
+test('native source-complete cache reuses identical semantic input across committed turns',async t=>{
+ const cwd=await mkdtemp(join(tmpdir(),'native-memory-turn-'));t.after(()=>rm(cwd,{recursive:true,force:true}));const p=packet();p.story_sources=structuredClone(p.step.segments);let requests=0;const submitted=[];
+ const options={cwd,campaign:'campaign',signal:new AbortController().signal,record:async()=>{},call:async(_m,args)=>{submitted.push(args);return {status:'done',remaining:0,candidates:2};},port:{async decide(b){requests++;const answers={};for(const q of b.questions){const selected=happySelection(q);answers[q.key]={status:'answered',type:'choice',choice:selected,confidence:1,probabilities:Object.fromEntries(Object.keys(q.criteria).map(k=>[k,k===selected?1:0]))};}return bindDecisionAnswers(b,answers);}}};
+ await runNativeMemory(p,options);const first=requests;
+ const next=structuredClone(p);next.turn++;next.job_id='extract:campaign:t8';next.commit='new-commit';next.origin.revision='new-origin';for(const s of [...next.story_sources,...next.step.segments])s.ref.resource=s.ref.resource.replace('turn:7:','turn:8:');
+ await runNativeMemory(next,options);assert.equal(requests,first);assert.equal(submitted.at(-1).job_id,next.job_id,'current owner still validates and submits its own issued sources');
+ const changed=structuredClone(next);changed.story_sources[0].text+=' A different surrounding context.';await runNativeMemory(changed,options);assert.ok(requests>first,'same source text with changed context must not reuse attribution');
+});
+
+test('native long context is explicit, conditional, and preserves every question',async()=>{
+ const p=packet();p.story_sources=structuredClone(p.step.segments);p.prior=Array.from({length:64},(_,i)=>({...p.prior[0],alias:`prior:${i}`,statement:`Exact promise ${i}. `+'Known commitment context. '.repeat(8)}));p.prior_coverage={total:64,included:64,omitted:0};
+ const arms=[];for(const longContext of [false,true]){const calls=[];await decideReferencedMemoryStep(p,{async decide(b){calls.push(b);return answer(b,happySelection);}},new AbortController().signal,async()=>{},{longContext});arms.push(calls);}
+ assert.ok(arms[1].length<arms[0].length);assert.ok(arms[1].some(b=>b.longContext));assert.ok(arms[1].every(b=>packDecisionBatch(b).estimate.totalUpperBound<=262000));
+ assert.deepEqual(arms[0].flatMap(b=>b.questions.map(q=>q.target)).sort(),arms[1].flatMap(b=>b.questions.map(q=>q.target)).sort());
+ assert.ok(arms[1].filter(b=>b.longContext).every(b=>{try{packDecisionBatch({...b,longContext:false});return false;}catch{return true;}}));
+});
+
+test('native legacy layout delimiters never inherit a surrounding proposition',async()=>{
+ const p=packet({segments:[segment('keeper:0','keeper','\u300d\n')]});p.story_sources=structuredClone(p.step.segments);let calls=0;
+ const result=await decideReferencedMemoryStep(p,{async decide(){calls++;throw Error('layout delimiters have no annotation');}},new AbortController().signal,async()=>{});
+ assert.equal(calls,0);assert.equal(result.decisions[0].outcome,'skip');
+});
+
+test('native large memory plans bound packing work rather than reserialize every prefix',async()=>{
+ const p=packet({segments:Array.from({length:12},(_,i)=>segment(`player:${i}`,'player',`A promise numbered ${i}.`))});p.story_sources=structuredClone(p.step.segments);p.prior=Array.from({length:64},(_,i)=>({...p.prior[0],alias:`prior:${i}`}));p.prior_coverage={total:64,included:64,omitted:0};const rows=[],calls=[];
+ const result=await decideReferencedMemoryStep(p,{async decide(b){calls.push(b);return answer(b,happySelection);}},new AbortController().signal,async r=>rows.push(r),{longContext:true});
+ assert.equal(calls.flatMap(b=>b.questions).filter(q=>q.key.startsWith('relation_')).length,768);assert.ok(result.decisions.every(d=>d.outcome==='retain'));
+ const planning=rows.filter(r=>r.event==='reference_planning');assert.equal(planning.length,2);assert.ok(planning.reduce((n,r)=>n+r.pack_checks,0)<100);assert.equal(planning.reduce((n,r)=>n+r.batches,0),calls.length);
+});
+
+test('native relation candidates respect closed targets and correction ownership', async () => {
+ const p=packet();p.step.segments[1].attribution={kind:'keeper_narration'};p.prior[0].status='superseded';const seen=[];
+ await decideReferencedMemoryStep(p,{async decide(batch){seen.push(...batch.questions);return bindDecisionAnswers(batch,Object.fromEntries(batch.questions.map(q=>{const key=Object.keys(q.criteria)[0];const choice=q.key.startsWith('kind_')?(q.target.endsWith(' world_event')?'yes':'no'):q.key.startsWith('subject_')?key:q.key.startsWith('privacy_')?'player_safe':q.key.startsWith('state_')?'accurate':q.key.startsWith('relation_')?'none':'no';return[q.key,{status:'answered',type:'choice',choice,confidence:1,probabilities:Object.fromEntries(Object.keys(q.criteria).map(k=>[k,k===choice?1:0]))}];})));}},new AbortController().signal,async()=>{},{longContext:true});
+ const closed=seen.filter(q=>q.key.startsWith('relation_')&&q.target.endsWith('prior:0')),open=seen.filter(q=>q.key.startsWith('relation_')&&q.target.endsWith('prior:1'));
+ assert.ok(closed.length&&open.length);for(const q of closed){assert.equal(q.criteria.temporal_change,undefined);assert.equal(q.criteria.correction,undefined);assert.ok(q.criteria.contradiction);}
+ for(const q of open){assert.ok(q.criteria.temporal_change);assert.equal(q.criteria.correction,undefined);}
+});
+
+test('native conflicting closures are jointly selected with explicit non-closing fallbacks', async () => {
+ for(const uncertain of [false,true]){
+ const p=packet({segments:[segment('keeper:0','keeper','The party enters the lobby.',{kind:'keeper_narration'}),segment('keeper:1','keeper','The party reaches the upstairs room.',{kind:'keeper_narration'})]});p.prior=p.prior.slice(0,1);p.prior_coverage={total:1,included:1,omitted:0};const phases=[],trace=[];
+ const result=await decideReferencedMemoryStep(p,{async decide(batch){phases.push(batch.id);return bindDecisionAnswers(batch,Object.fromEntries(batch.questions.map(q=>{const choice=q.key.startsWith('kind_')?(q.target.endsWith(' world_event')?'yes':'no'):q.key.startsWith('closure_')?(uncertain?'uncertain_attribution':'closer:1'):q.key.startsWith('relation_fallback_')?'independent':q.key.startsWith('relation_')?'temporal_change':q.key.startsWith('privacy_')?'player_safe':q.key.startsWith('state_')?'accurate':q.key.startsWith('subject_')?Object.keys(q.criteria)[0]:'no';return[q.key,{status:'answered',type:'choice',choice,confidence:1,probabilities:Object.fromEntries(Object.keys(q.criteria).map(k=>[k,k===choice?1:0]))}];})));}},new AbortController().signal,async r=>trace.push(r),{longContext:true});
+ if(uncertain){assert.ok(result.decisions.every(d=>d.outcome==='defer'));assert.ok(trace.some(r=>r.reason==='closing_conflict'));}
+ else{assert.ok(result.decisions.every(d=>d.outcome==='retain'));assert.equal(result.decisions[0].annotations[0].relations[0].relation,'independent');assert.equal(result.decisions[1].annotations[0].relations[0].relation,'temporal_change');}
+ assert.ok(phases.some(id=>id.includes(':closures:')));
+ }
+});
+
+test('a false promise premise can close without assigning its source to a person or losing other kinds', async () => {
+ for(const subject of ['no_annotation','uncertain_attribution']){
+  const p=packet({segments:[segment('player:0','player','I plan to return tomorrow, but I am making no promise.')]});p.story_sources=structuredClone(p.step.segments);const seen=[];
+  const result=await decideReferencedMemoryStep(p,{async decide(batch){seen.push(...batch.questions);return bindDecisionAnswers(batch,Object.fromEntries(batch.questions.map(q=>{const selected=q.key.startsWith('kind_')?(q.target.endsWith(' promise')||q.target.endsWith(' player_assertion')?'yes':'no'):q.key.startsWith('subject_')?(q.target.includes(' promise ')?subject:'reserved:3'):q.key.startsWith('privacy_')?'player_safe':q.key.startsWith('state_')?'accurate':q.key.startsWith('relation_')?'none':'no';return[q.key,{status:'answered',type:'choice',choice:selected,confidence:1,probabilities:Object.fromEntries(Object.keys(q.criteria).map(k=>[k,k===selected?1:0]))}];})));}},new AbortController().signal,async()=>{},{longContext:true});
+  const promiseSubject=seen.find(q=>q.target==='player:0 promise subject');assert.ok(promiseSubject.criteria.no_annotation,'negative premise is distinct from an unknown real promisor');
+  assert.ok(!Object.values(promiseSubject.criteria).some(v=>v?.kind==='scene'||v?.kind==='clue'));
+  if(subject==='no_annotation'){assert.equal(result.decisions[0].outcome,'retain');assert.deepEqual(result.decisions[0].annotations.map(a=>a.kind),['player_assertion']);}
+  else assert.equal(result.decisions[0].outcome,'defer','a genuinely unknown promisor is not silently skipped');
+ }
 });

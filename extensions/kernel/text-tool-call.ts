@@ -80,7 +80,7 @@ function route(found: Envelope, tools: typeof COC_TOOLS): {call: Call} | {error:
         // Pi's validator may coerce. A dialect repair must not broaden the supplied JSON value.
         const original = JSON.stringify(found.args);
         const validated = validateToolArguments({...spec, parameters: closed(spec.parameters)},
-            {type: 'toolCall', id: 'validation', name: spec.name, arguments: structuredClone(found.args)});
+            {type: 'toolCall', id: 'validation', name: spec.name, arguments: JSON.parse(original)});
         if (JSON.stringify(validated) !== original) return {error: `its arguments only pass ${spec.name}'s schema once converted`};
         return {call: {name: spec.name, arguments: validated as Record<string, unknown>}};
     } catch (error) {

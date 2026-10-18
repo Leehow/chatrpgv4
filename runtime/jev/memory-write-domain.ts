@@ -3,7 +3,9 @@ import { isDeepStrictEqual } from 'node:util';
 import { ContractError, isPlainRecord, type DecisionBatch, type DecisionDescriptor, type Json, type SourceRef } from './contracts.ts';
 import { assertSourceRef } from './source-ref.ts';
 import type { TaskDomain, TaskStep, TaskView } from './task-runtime.ts';
-import { JEV_MODEL } from './question-packing.ts';
+import { JEV_MODEL, packDecisionBatch } from './question-packing.ts';
+import {TaskLease} from './task-context.ts';
+import type {DecisionPort} from './decision-port.ts';
 
 export const MEMORY_WRITE_CAPABILITY = 'memory.write';
 export const MEMORY_WRITE_KINDS = ['world_event', 'knowledge', 'belief', 'relationship', 'player_assertion',
@@ -15,7 +17,7 @@ const MAX_DECISION_BYTES = 30_000;
 type Kind = typeof MEMORY_WRITE_KINDS[number];
 type AttributionKind = 'player' | 'keeper_narration' | 'speech' | 'mixed' | 'unknown';
 type AttributionSpeakerKind = 'npc' | 'investigator' | 'label';
-interface Attribution { kind: AttributionKind; speaker?: {name: string; kind: AttributionSpeakerKind} }
+type Attribution = { kind: AttributionKind; speaker?: {name: string; kind: AttributionSpeakerKind} };
 interface Segment { alias: string; role: 'player' | 'keeper'; text: string; ref: SourceRef; attribution?: Attribution }
 interface Known { alias: string; name: string; kind: string }
 interface Prior { alias: string; kind: string; subject: string; statement: string; status: string;
@@ -33,6 +35,7 @@ const packetKeys = ['protocol', 'job_id', 'turn', 'commit', 'status', 'origin', 
   'story_context', 'story_sources', 'story_complete', 'result'];
 const reservedNames: Known[] = ['world', 'party', 'keeper', 'player'].map((name, index) => ({alias: `reserved:${index}`, name, kind: 'reserved'}));
 const UNCERTAIN_ATTRIBUTION = 'uncertain_attribution';
+const NO_ANNOTATION = 'no_annotation';
 const KIND_DEFINITIONS: Record<Kind, string> = {
   world_event: 'A durable event or changed condition in the shared fiction; not a speaker\'s knowledge, belief, preference, correction, or promise.',
   knowledge: 'A durable proposition known in fiction by one or more issued knowers; attribution to a knower is required.',
@@ -97,7 +100,7 @@ function prior(value: unknown): Prior {
     statement: value.statement as string, status: value.status as string, authority: 'conversation_report',
     attribution: value.attribution === undefined ? {kind: 'unknown'} : attribution(value.attribution)};
 }
-function parsePacket(value: unknown, view: TaskView): Packet {
+function parsePacket(value: unknown, view: {context:Pick<TaskView['context'],'scope'>}): Packet {
   if (!isPlainRecord(value) || !only(value, packetKeys) || value.protocol !== 'memory-reference-v1'
     || !text(value.job_id) || !integer(value.turn) || !text(value.commit) || !['open', 'pending', 'done'].includes(String(value.status))
     || !isPlainRecord(value.origin) || !only(value.origin, ['scope', 'revision']) || !text(value.origin.revision)
@@ -148,8 +151,8 @@ function batch(family: string, state: Json, questions: DecisionBatch['questions'
 function fits(value: Omit<DecisionBatch, 'id' | 'scope' | 'readSet'>): boolean {
   return Buffer.byteLength(JSON.stringify(value), 'utf8') <= MAX_DECISION_BYTES;
 }
-function decision(view: TaskView, key: string) { return view.decisions.find(row => row.key === key); }
-function choice(view: TaskView, row: string, question: string): string | undefined {
+function decision(view: Pick<TaskView,'decisions'>, key: string) { return view.decisions.find(row => row.key === key); }
+function choice(view: Pick<TaskView,'decisions'>, row: string, question: string): string | undefined {
   const answer = decision(view, row)?.result.answers[question];
   return answer?.status === 'answered' && answer.type === 'choice' ? answer.choice : undefined;
 }
@@ -192,10 +195,11 @@ function nameCatalog(packet: Packet): Known[] {
 function subjectCatalog(packet: Packet, kind: Kind): Known[] {
   if (kind === 'world_event') return reservedNames.filter(row => row.name === 'world');
   if (['player_assertion', 'player_preference'].includes(kind)) return reservedNames.filter(row => row.name === 'player');
+  if (kind === 'promise') return [...packet.known_entities.filter(row=>row.kind==='npc'||row.kind==='investigator'), ...reservedNames.filter(row=>row.name==='party')];
   return nameCatalog(packet);
 }
 function knowerCatalog(packet: Packet): Known[] {
-  return [...packet.known_entities, ...reservedNames.filter(row => ['party', 'keeper', 'player'].includes(row.name))];
+  return [...packet.known_entities.filter(row=>row.kind==='npc'||row.kind==='investigator'), ...reservedNames.filter(row => ['party', 'keeper', 'player'].includes(row.name))];
 }
 function entityCatalog(packet: Packet): Known[] { return packet.known_entities; }
 function issuedNameCatalog(packet: Packet): Json[] {
@@ -243,8 +247,11 @@ function kindBatch(packet: Packet, segment: Segment, index: number): Omit<Decisi
 function annotationQuestions(packet: Packet, segment: Segment, index: number, kind: Kind, kindIndex: number): DecisionBatch['questions'] {
   const subjects = subjectCatalog(packet, kind), knowers = knowerCatalog(packet), entities = entityCatalog(packet);
   const questions: DecisionBatch['questions'] = [
-    q(`subject_${index}_${kindIndex}`, `${segment.alias} ${kind} subject`, 'Select the issued semantic name that owns this annotation. For relationship, choose the person whose view of the other person is described, not automatically the person who performed an action. Choose uncertainty when the exact source does not support attribution.',
+    q(`subject_${index}_${kindIndex}`, `${segment.alias} ${kind} subject`, kind==='promise'
+      ? 'First distinguish an actual in-fiction commitment from a plan or intention. Select no_annotation if the exact source does not make an actual promise. Otherwise select the issued promisor; select uncertain_attribution only if a real commitment exists but its owner cannot be identified. The message author need not be the fictional promisor; use the surrounding exchange for quoted or reported speech.'
+      : 'Select the issued semantic name that owns this annotation. For relationship, choose the person whose view of the other person is described, not automatically the person who performed an action. Choose uncertainty when the exact source does not support attribution.',
       {...Object.fromEntries(subjects.map(row => [row.alias, {name: row.name, kind: row.kind}])),
+        ...(kind==='promise'?{[NO_ANNOTATION]:'The source contains a plan, intention, question or other material but no actual in-fiction commitment.'}:{}),
         [UNCERTAIN_ATTRIBUTION]: 'The exact source does not support assigning an issued subject safely.'}),
     q(`privacy_${index}_${kindIndex}`, `${segment.alias} ${kind} audience`, 'Classify the minimum safe audience.',
       {player_safe: 'Safe for player-visible memory.', keeper_only: 'Keeper-private memory.'}),
@@ -300,7 +307,7 @@ function storyBatch(packet: Packet): Omit<DecisionBatch, 'id' | 'scope' | 'readS
       {none: 'No delivery source.', ...Object.fromEntries(keeper.map(row => [row.alias, {role: row.role, text: row.text}]))}),
   ]);
 }
-function kindsFor(view: TaskView, packet: Packet, index: number): Kind[] | undefined {
+function kindsFor(view: Pick<TaskView,'decisions'>, packet: Packet, index: number): Kind[] | undefined {
   const row = decision(view, `memory-kinds:${packet.step.sequence}:${index}`);
   if (!row) return undefined;
   const answers = MEMORY_WRITE_KINDS.map((_, kindIndex) => choice(view, row.key, `kind_${index}_${kindIndex}`));
@@ -309,11 +316,12 @@ function kindsFor(view: TaskView, packet: Packet, index: number): Kind[] | undef
   return MEMORY_WRITE_KINDS.filter((kind, kindIndex) => answers[kindIndex] === 'yes'
     && (kind !== 'world_event' || worldEventEligible(packet.step.segments[index])));
 }
-function annotationFor(view: TaskView, packet: Packet, index: number, kind: Kind, kindIndex: number, groups: AnnotationGroup[]): Json | undefined {
+function annotationFor(view: Pick<TaskView,'decisions'>, packet: Packet, index: number, kind: Kind, kindIndex: number, groups: AnnotationGroup[]): Json | undefined {
   if (!groups.length || groups.some(group => !decision(view, group.key))) return undefined;
   const selected = (question: string) => groups.map(group => choice(view, group.key, question)).find(value => value !== undefined);
   const subjects = subjectCatalog(packet, kind), knowersCatalog = knowerCatalog(packet), entitiesCatalog = entityCatalog(packet);
   const subjectAlias = selected(`subject_${index}_${kindIndex}`), subject = subjects.find(name => name.alias === subjectAlias);
+  if(kind==='promise'&&subjectAlias===NO_ANNOTATION)return null;
   const privacy = selected(`privacy_${index}_${kindIndex}`), state = selected(`state_${index}_${kindIndex}`);
     if (!subject || !['player_safe', 'keeper_only'].includes(privacy ?? '') || !['accurate', 'uncertain', 'distorted'].includes(state ?? '')) return undefined;
     const knowers: string[] = [], entities: string[] = [], relations: Json[] = [];
@@ -356,6 +364,185 @@ function storyFor(view: TaskView, packet: Packet): Json | undefined {
   return {status: status as Json, thread: actualThread, frame_source: frame, bridge_delivered: bridge === 'yes', delivery_source: bridge === 'yes' ? delivery! : null};
 }
 
+/** Native Pi consumes exact source annotations without an author or TaskHost. */
+export async function decideReferencedMemoryStep(value: unknown, port: DecisionPort, signal: AbortSignal,
+ record: (row: Record<string, unknown>) => Promise<void>, options: {longContext?: boolean} = {}): Promise<{step: string; decisions: Json[]}> {
+ const raw = value as Packet, packet = parsePacket(value, {context: {scope: raw.origin.scope}});
+ const view: Pick<TaskView, 'decisions'> = {decisions: []};
+ const sample = packet.step.segments[0], shared = sample ? segmentState(packet, sample) : {};
+ const {source: _source, prior: _prior, priorCoverage: _coverage, ...common} = shared as Record<string, Json>;
+ const base = {...common, exchange: packet.story_sources.length ? packet.story_sources.map(sourceState) : packet.step.segments.map(sourceState),
+  annotationPolicy: 'Use the exact source alias in target within exchange, with its surrounding dialogue. Context may establish speaker and hearer; a report never becomes unqualified world truth. Attribute only supported roles. Compare the recorded propositions, not their objective truth. Unknown provenance of a prior report alone does not prevent comparing its recorded wording. Shared topic alone is not a relation. Use uncertainty only when the proposition or attribution needed for this question cannot be determined. Apply every relationDefinitions restriction, including all promise-fulfillment gates.'};
+ const version = MEMORY_WRITE_POLICY_VERSION + '-native-10';
+ type Group = {key: string; batch: Omit<DecisionBatch, 'id' | 'scope' | 'readSet'>};
+ const compact = (question: DecisionBatch['questions'][number]): DecisionBatch['questions'][number] => {
+  if (question.type !== 'choice') return question;
+  if (question.key.startsWith('kind_')) {
+   if (Object.keys(question.criteria!).length === 1) return question;
+   return {...question, instructions: 'Apply classificationPolicy. Does the exact source independently support a durable annotation of the kind in target, as defined in kindDefinitions?',
+    criteria: {yes: `The exact source supports: ${KIND_DEFINITIONS[question.target.split(' ').at(-1) as Kind]}${question.target.endsWith(' knowledge') ? ' Practical facts and instructions newly supplied in dialogue count as knowledge of the speaker and recipient; the source need not explicitly use a word meaning knows.' : ''}`, no: `The exact source does not support: ${KIND_DEFINITIONS[question.target.split(' ').at(-1) as Kind]}`,
+     [UNCERTAIN_ATTRIBUTION]: 'Insufficient context to determine whether this kind is supported.'}};
+  }
+  if (question.key.startsWith('subject_')) {
+   const kind = question.target.split(' ').at(-2) as Kind;
+   if (kind === 'knowledge') return {...question,
+    instructions: 'Select the focal supported knower of this proposition. Knowledge belongs to a person who knows or reports it, not the owner of the object, building, document or service being described. For attributed dialogue, prefer its reporting speaker when supported; for a narrated discovery, prefer the investigator who learns it. Use the surrounding exchange to resolve pronouns. Choose uncertainty only when no issued knower can be supported.',
+    criteria: {...Object.fromEntries(knowerCatalog(packet).map(row => [row.alias, {name: row.name, kind: row.kind}])), [UNCERTAIN_ATTRIBUTION]: 'No issued focal knower can be safely supported.'}};
+   if (['world_event', 'player_assertion', 'player_preference'].includes(kind)) {
+    const subjects = subjectCatalog(packet, kind);
+    if (subjects.length === 1) return {...question, criteria: {[subjects[0].alias]: {name: subjects[0].name, kind: subjects[0].kind}}};
+   }
+  }
+  if (question.key.startsWith('relation_')) {
+   const prior = packet.prior.find(row => question.target.endsWith(' ' + row.alias));
+   const kind = question.target.split(' ')[1];
+   const mayClose = !question.key.startsWith('relation_fallback_') && prior?.status !== 'superseded';
+   return {...question,
+   instructions: question.key.startsWith('relation_fallback_')
+    ? 'Classify the non-closing relation if this source/kind is not the selected closer. Distinct reported detail may coexist independently. Choose uncertainty if the pair cannot be classified without closing. Compare recorded propositions, not their objective truth; shared topic alone is none.'
+    : 'Compare the recorded source/kind and prior named in target, not their objective truth. Unknown provenance alone does not prevent this comparison. Shared topic alone is none. Apply the complete relationDefinitions, including every promise-fulfillment gate.',
+   criteria: {none: 'Unrelated propositions: no relation.', duplicate: 'Same proposition without meaningful new support or change.', reinforcement: 'New support for the same proposition.', independent: 'A distinct proposition about the same specific relation or commitment.',
+    ...(kind === 'keeper_correction' && mayClose ? {correction: 'Explicit correction or retraction.'} : {}),
+    contradiction: 'Incompatible proposition without later-state framing.',
+    ...(mayClose ? {temporal_change: 'Later replacement or fulfillment; apply every gate in relationDefinitions.temporal_change.'} : {}),
+    [UNCERTAIN_ATTRIBUTION]: 'The recorded propositions lack context needed to determine their relation.'}};
+  }
+  if (question.key.startsWith('knower_') || question.key.startsWith('entity_')) return {...question,
+   instructions: 'Does the exact source, understood in its surrounding exchange, give this specific issued name the role in target? Being listed in knownNames alone is not evidence for that role.',
+   criteria: {yes: 'The source and dialogue context support this specific name having this role.', no: 'There is no source evidence giving this specific name that role.', [UNCERTAIN_ATTRIBUTION]: 'The source indicates this role but the participant is ambiguous and cannot be disambiguated safely.'}};
+  return {...question, instructions: 'Apply annotationPolicy. ' + question.instructions};
+ };
+ const batchFor = (questions: DecisionBatch['questions']): DecisionBatch => { const batch: DecisionBatch = {id: packet.step.key, model: JEV_MODEL,
+  family: 'native-memory', familyVersion: version, scope: packet.origin.scope,
+  readSet: [{kind: 'source', resource: packet.job_id, revision: packet.origin.revision}, {kind: 'family', resource: 'native-memory', revision: version}],
+  state: {...base, prior: packet.prior.filter(row => questions.some(question => question.target.endsWith(' ' + row.alias))).map(row=>({...row}))}, questions};
+  if (options.longContext && questions.length) {try {packDecisionBatch(batch);} catch {return {...batch, longContext: true};}}
+  return batch;
+ };
+ const allAnswers: Record<string, import('./contracts.ts').DecisionAnswer> = {};
+ const run = async (groups: Group[], phase: string) => {
+  const fixed: Record<string, import('./contracts.ts').DecisionAnswer> = {};
+  const questions = groups.flatMap(group => group.batch.questions).map(compact).filter(question => {
+   if (question.type !== 'choice' || Object.keys(question.criteria).length !== 1) return true;
+   const only = Object.keys(question.criteria)[0];
+   fixed[question.key] = {status: 'answered', type: 'choice', choice: only, confidence: 1, probabilities: {[only]: 1}};
+   return false;
+  });
+  questions.sort((a, b) => {
+   const priorIndex = (q: DecisionBatch['questions'][number]) => q.key.startsWith('relation_') ? packet.prior.findIndex(p => q.target.endsWith(' ' + p.alias)) : -1;
+   return priorIndex(a) - priorIndex(b);
+  });
+  const chunks: DecisionBatch['questions'][] = []; const planningBegan = Date.now(); let packChecks = 0;
+  const fitsNative = (qs: DecisionBatch['questions']) => {
+   packChecks++; const batch = batchFor(qs);
+   try {packDecisionBatch(batch); return true;} catch {return false;}
+  };
+  for (let offset = 0; offset < questions.length;) {
+   if (!fitsNative([questions[offset]])) {
+    await record({event: 'reference_question_deferred', phase, target: questions[offset].target, reason: 'packing_limit'});
+    offset++; continue;
+   }
+   let end = offset + 1, upper = questions.length;
+   while (end < upper) {
+    const middle = Math.ceil((end + upper) / 2);
+    if (fitsNative(questions.slice(offset, middle))) end = middle;
+    else upper = middle - 1;
+   }
+   chunks.push(questions.slice(offset, end)); offset = end;
+  }
+  await record({event: 'reference_planning', phase, ms: Date.now() - planningBegan, questions: questions.length, batches: chunks.length, pack_checks: packChecks});
+  const results: Awaited<ReturnType<DecisionPort['decide']>>[] = []; let next = 0;
+  await Promise.all(Array.from({length: Math.min(4, chunks.length)}, async () => {while (next < chunks.length && !signal.aborted) {
+   const i = next++, batch = {...batchFor(chunks[i]), id: `${packet.step.key}:${phase}:${i}`};
+   const began = Date.now(), timeout = batch.longContext || phase === 'closures' ? 6000 : 2000, lease = new TaskLease({owner: 'native-memory', goal: 'Annotate committed source occurrences', scope: batch.scope,
+    readSet: batch.readSet, capabilities: ['decision'], signal: AbortSignal.any([signal, AbortSignal.timeout(timeout)]),
+    budget: {deadlineAt: Date.now() + timeout, remainingInputTokens: 300000, remainingOutputTokens: packDecisionBatch(batch).estimate.responseUpperBound, remainingCostUsd: .02, remainingActions: 1}});
+   const families: Record<string, number> = {}; for (const q of batch.questions) families[q.key.split('_')[0]] = (families[q.key.split('_')[0]] ?? 0) + 1;
+   const footprint = {long_context: batch.longContext === true, state_bytes: Buffer.byteLength(JSON.stringify(batch.state)), question_bytes: Buffer.byteLength(JSON.stringify(batch.questions)), families};
+   try {const result = await port.decide(batch, lease); results.push(result);
+    await record({event: 'reference_decision', phase, batch: i, questions: batch.questions.length, status: result.status, ms: Date.now() - began, ...footprint});}
+   catch {await record({event: 'reference_decision', phase, batch: i, questions: batch.questions.length, status: 'unavailable', ms: Date.now() - began, ...footprint});}
+   finally {lease.close();}
+  }}));
+  const answers = Object.assign(allAnswers, fixed, ...results.map(result => result.answers));
+  for (const group of groups) view.decisions.push({key: group.key, batch: batchFor(group.batch.questions), result: {batchId: group.key,
+   status: 'complete', answers, coverage: {required: [], answered: Object.keys(answers), unknown: []}, issues: []}});
+ };
+ const layoutOnly = (segment: Segment) => !segment.text.trim() || /^[\s\p{P}]+$/u.test(segment.text);
+ await run(packet.step.segments.flatMap((segment, i) => layoutOnly(segment) ? [] : [{key: `memory-kinds:${packet.step.sequence}:${i}`, batch: kindBatch(packet, segment, i)}]), 'kinds');
+ const selections = packet.step.segments.map((segment, index) => layoutOnly(segment) ? [] : kindsFor(view, packet, index));
+ const groups = new Map(selections.map((kinds, index) => [index, (kinds ?? []).map((kind, kindIndex) => ({key: `native-annotation:${index}:${kindIndex}`,
+  kind, kindIndex, batch: batch('memory-write-annotations', {}, annotationQuestions(packet, packet.step.segments[index], index, kind, kindIndex))}))]));
+ await run([...groups.values()].flat(), 'annotations');
+ const decisions: Json[] = [];
+ for (const [index, segment] of packet.step.segments.entries()) {
+  const kinds = selections[index], annotationGroups = groups.get(index)!;
+  const reviewed = kinds?.map((kind, k) => annotationFor(view, packet, index, kind, k, annotationGroups.filter(g => g.kindIndex === k)));
+  const annotations=reviewed?.filter(a=>a!==null);
+  const outcome = !kinds ? 'defer' : !kinds.length ? 'skip' : annotations!.some(a => a === undefined) ? 'defer' : !annotations!.length ? 'skip' : 'retain';
+  if(reviewed?.some(a=>a===null))await record({event:'reference_kind_rejected',source:segment.alias,kind:'promise',reason:NO_ANNOTATION});
+  decisions.push({source: segment.alias, outcome, ...(outcome === 'retain' ? {annotations: annotations as Json[]} : {})});
+  if (outcome === 'defer') {
+   const blockers = view.decisions.flatMap(group => group.batch.questions.filter(q => q.target.startsWith(segment.alias + ' ')).flatMap(q => {
+    const selected = choice(view, group.key, q.key);
+    return !selected || selected === UNCERTAIN_ATTRIBUTION ? [{target: q.target, answer: selected ?? 'unavailable'}] : [];
+   }));
+   await record({event: 'reference_source_deferred', source: segment.alias, reason: !kinds ? 'kind_uncertainty' : 'annotation_incomplete', blockers});
+  }
+ }
+ type Closing = {source: number; kind: Kind; link: {relation: string; target: string}; fallback?: string};
+ const closingTargets = new Map<string, Closing[]>();
+ decisions.forEach((decision, source) => {
+  if (!isPlainRecord(decision) || decision.outcome !== 'retain') return;
+  for (const annotation of decision.annotations as Array<{kind: Kind; relations?: Closing['link'][]}>) for (const link of annotation.relations ?? []) {
+   if (!['correction', 'temporal_change'].includes(link.relation)) continue;
+   const closers = closingTargets.get(link.target) ?? [];
+   closers.push({source, kind: annotation.kind, link}); closingTargets.set(link.target, closers);
+  }
+ });
+ const conflicts = [...closingTargets].filter(([, closers]) => closers.length > 1);
+ if (conflicts.length) {
+  const questions: DecisionBatch['questions'] = [];
+  for (const [index, [target, closers]] of conflicts.entries()) {
+   questions.push(q(`closure_${index}`, `memory closing owner ${target}`,
+    'Select the single issued source/kind that should close this prior occurrence, considering the complete exchange and temporal order. Other occurrences must coexist through non-closing relations. Choose none if no proposed closer is justified; choose uncertainty if no unique closer is supported.',
+    {none: 'No proposed occurrence validly closes this prior.', ...Object.fromEntries(closers.map((closer, i) => [`closer:${i}`, {source: packet.step.segments[closer.source].alias, kind: closer.kind}])),
+     [UNCERTAIN_ATTRIBUTION]: 'The exchange does not support selecting a unique closing occurrence.'}));
+   for (const [i, closer] of closers.entries()) {
+    closer.fallback = `relation_fallback_${index}_${i}`;
+    questions.push(q(closer.fallback, `${packet.step.segments[closer.source].alias} ${closer.kind} relation ${target}`,
+     'Classify the non-closing relationship if this occurrence is not the selected closer. Preserve distinct reported detail without closing the historical occurrence again. Choose uncertainty if no non-closing classification is supported.',
+     {...Object.fromEntries(Object.entries(RELATION_DEFINITIONS).filter(([key]) => !['correction', 'temporal_change'].includes(key))),
+      [UNCERTAIN_ATTRIBUTION]: 'A non-closing classification is not supported.'}));
+   }
+  }
+  const key = `native-closures:${packet.step.sequence}`;
+  await run([{key, batch: batch('memory-write-closures', {}, questions)}], 'closures');
+  const uncertain = new Set<number>();
+  for (const [index, [, closers]] of conflicts.entries()) {
+   const owner = choice(view, key, `closure_${index}`);
+   const winner = owner === 'none' ? -1 : closers.findIndex((_, i) => owner === `closer:${i}`);
+   if (!owner || owner === UNCERTAIN_ATTRIBUTION || owner !== 'none' && winner < 0) {
+    closers.forEach(closer => uncertain.add(closer.source)); continue;
+   }
+   for (const [i, closer] of closers.entries()) {
+    if (i === winner) continue;
+    const fallback = choice(view, key, closer.fallback!);
+    if (!fallback || !['none', 'duplicate', 'reinforcement', 'independent', 'contradiction'].includes(fallback)) uncertain.add(closer.source);
+    else closer.link.relation = fallback;
+   }
+  }
+  decisions.forEach((decision, i) => {
+   if (!isPlainRecord(decision) || decision.outcome !== 'retain') return;
+   if (uncertain.has(i)) { decisions[i] = {source: packet.step.segments[i].alias, outcome: 'defer'}; return; }
+   for (const annotation of decision.annotations as Array<{relations?: Closing['link'][]}>) if (annotation.relations) annotation.relations = annotation.relations.filter(link => link.relation !== 'none');
+  });
+  for (const i of uncertain) await record({event: 'reference_source_deferred', source: packet.step.segments[i].alias, reason: 'closing_conflict'});
+  await record({event: 'reference_closing_conflicts', targets: conflicts.length, deferred: uncertain.size});
+ }
+ return {step: packet.step.key, decisions};
+}
+
 export function createMemoryWriteDomain(): TaskDomain {
   return {id: 'memory-write', version: MEMORY_WRITE_POLICY_VERSION, capabilities: [MEMORY_WRITE_CAPABILITY], next(view) {
     const current = currentPacket(view);
@@ -388,10 +575,11 @@ export function createMemoryWriteDomain(): TaskDomain {
       if (outcomes[index] !== 'retain') return {source: row.alias, outcome: 'defer'};
       const kinds = selections.get(index), annotationGroupsForSegment = groups.get(index);
       if (!kinds?.length || !annotationGroupsForSegment || annotationGroupsForSegment.oversized) return {source: row.alias, outcome: 'defer'};
-      const annotations = kinds.map((kind, kindIndex) => annotationFor(view, packet, index, kind, kindIndex,
+      const reviewed = kinds.map((kind, kindIndex) => annotationFor(view, packet, index, kind, kindIndex,
         annotationGroupsForSegment.groups.filter(group => group.kindIndex === kindIndex)));
-      if (annotations.some(value => value === undefined)) return {source: row.alias, outcome: 'defer'};
-      if (annotations && annotations.length !== kinds.length) return {source: row.alias, outcome: 'defer'};
+      if (reviewed.some(value => value === undefined)) return {source: row.alias, outcome: 'defer'};
+      const annotations=reviewed.filter(value=>value!==null);
+      if(!annotations.length)return {source:row.alias,outcome:'skip'};
       return {source: row.alias, outcome: 'retain', annotations: annotations as Json[]};
     });
     const hasDeferred = decisions.some(row => isPlainRecord(row) && row.outcome === 'defer')

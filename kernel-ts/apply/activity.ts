@@ -1,7 +1,7 @@
 /** Explicit temporal-context writes through the ordinary atomic apply owner (§208). */
 import {RpcError} from '../errors.js';
 import {isJsonObject} from '../json.js';
-import {clockSection} from '../read/capsule.js';
+import {clockSection,npcsPresent} from '../read/capsule.js';
 import {activityView,temporalAnchor} from '../read/temporal.js';
 import {clone,integer,number,row,string,type Row} from '../read/values.js';
 import {effectId,type StagedEffect} from './bookkeeping.js';
@@ -15,7 +15,7 @@ function validate(value:unknown,npc:boolean):Row {
     const result=clone(value);
     if(typeof result.summary!=='string'||!result.summary.trim()||Array.from(result.summary).length>200)throw new RpcError('invalid_params','activity.summary must be one nonempty English sentence of at most 200 characters');
     result.summary=result.summary.trim();
-    for(const [key,options,required] of [['basis',['observed','established','inferred'],true],['wakefulness',['awake','asleep','resting','unknown'],npc],['service',['open','closed','limited','unknown'],false],['crowd',['quiet','active','crowded','unknown'],false]] as const){
+    for(const [key,options,required] of [['basis',['observed','established','inferred'],true],['wakefulness',['awake','asleep','resting','unknown'],npc],['service',['open','closed','limited','unknown'],false],['crowd',['empty','quiet','active','crowded','unknown'],false]] as const){
         const value=result[key];
         if(required&&value==null||value!=null&&(typeof value!=='string'||!(options as readonly string[]).includes(value)))throw new RpcError('invalid_params',`activity.${key} must be one of ${options.join(', ')}`);
     }
@@ -40,6 +40,10 @@ export function stageSceneActivity(context:ApplyContext,effect:Row):StagedEffect
     const scene=context.graph.scene(effect.name==='here'?context.world.active_scene:effect.name),handle=context.graph.handle(scene);
     if(number(context.turn.turn)===0&&handle!==context.world.active_scene)throw new RpcError('invalid_params','Opening context can only describe the active scene');
     const previous=row(row(context.world.scene_activity)[handle]),next=record(context,effect,false,handle,previous);
+    if(effect._population===true){
+        const people=npcsPresent(context.graph,context.world,scene).filter(node=>context.graph.isPerson(node));
+        if(next.crowd==='empty'&&people.length||['quiet','active','crowded'].includes(next.crowd)&&!people.length)throw new RpcError('invalid_params','Population assessment conflicts with registered presence; seat a temporary person for a populated scene or explicitly move departed people away before an empty assessment');
+    }
     (context.world.scene_activity??={})[handle]=next;
     const receipt={id:effectId(context,'scene',handle),kind:'scene',call_id:context.callId,scene:handle,activity:clone(next),previous:clone(previous),why:effect.why,visibility:'keeper',at:nowIso()};
     return {receipt,event:{type:'scene-activity-changed',data:{scene:handle,activity:clone(next),why:effect.why}}};

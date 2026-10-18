@@ -13,7 +13,9 @@ const time=minutes=>({kind:'time',minutes,why:'Wait here for the response.'});
 
 async function preparedTable(t,responses){
   let scene;
-  const engine=createHybridEngine({env:{...process.env,PI_COC_JEV_PRESELECT:'0'},decision:null});
+  const engine=createHybridEngine({env:{...process.env,PI_COC_JEV_PRESELECT:'0'},decision:{decide:async batch=>({batchId:batch.id,status:'complete',
+    answers:Object.fromEntries(batch.questions.map(question=>[question.key,{status:'answered',type:'noul',noul:batch.family==='held-act-outcome'||question.key.startsWith('restriction_')?.01:.99}])),
+    coverage:{required:batch.questions.map(question=>question.key),answered:batch.questions.map(question=>question.key),unknown:[]},issues:[]})}});
   const table=await openTable({legacyDeliveryFixtures:false,realKernel:true,runDriver:engine.runDriver,
     env:{PI_COC_LOOP_ENGINE:'hybrid-v1'},extraExtensions:[{name:'driver',factory:engine.extension}],
     async prepareWorkspace(workspace){

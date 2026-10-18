@@ -242,7 +242,7 @@ async function openMemoryLane(t, { referenced, memoryResponses = [], rpc }) {
 		commit: turn => api.events.emit("coc:turn-committed", { campaign: "lane-campaign", turn }),
 		rows: async () => {
 			const path = join(cwd, ".coc/campaigns/lane-campaign/telemetry.jsonl");
-			return existsSync(path) ? (await readFile(path, "utf8")).split("\n").filter(Boolean).map(JSON.parse).filter(row => row.lane === "memory") : [];
+			return existsSync(path) ? (await readFile(path, "utf8")).split("\n").filter(Boolean).map(JSON.parse).filter(row => row.lane === "memory" && row.event === undefined) : [];
 		},
 	};
 }

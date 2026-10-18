@@ -53,9 +53,9 @@ async function round(t,{profile,thinking,expected,source='test-profile',afterDel
   assert.equal(start.thinking_carried,true);assert.equal(payload.reasoning_effort,bodies[0].reasoning.effort);
 }
 for(const profile of ['codex-relay/gpt-6-luna','grok-build/grok-4.5'])for(const thinking of ['off','low']){
-  test(`${profile} overrides caller ${thinking} on the actual request and telemetry`,t=>round(t,{profile,thinking,expected:profile.startsWith('codex-relay/')?'high':'low'}));
+  test(`${profile} overrides caller ${thinking} on the actual request and telemetry`,t=>round(t,{profile,thinking,expected:'high'}));
 }
-test('the fallback remains low even against an explicit high caller and the post-delivery floor',t=>round(t,{profile:'grok-build/grok-4.5',thinking:'high',expected:'low',afterDelivery:true}));
+test('the fallback remains high even against an explicit high caller and the post-delivery floor',t=>round(t,{profile:'grok-build/grok-4.5',thinking:'high',expected:'high',afterDelivery:true}));
 test('ordinary runs retain caller precedence over lane environment defaults',t=>round(t,{thinking:'low',expected:'low',source:'caller'}));
 test('another test model value retains caller precedence',t=>round(t,{profile:'codex-relay/gpt-6-other',thinking:'low',expected:'low',source:'caller'}));
 test('the acceptance profile match is exact',t=>round(t,{profile:'codex-relay/gpt-6-luna ',thinking:'low',expected:'low',source:'caller'}));

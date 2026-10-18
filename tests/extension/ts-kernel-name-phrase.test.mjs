@@ -98,10 +98,11 @@ const refused = (promise, code, pattern) => assert.rejects(promise, error => {
 test('the bare name reaches the titled node through a whole-word run, with or without its accents (#64)', async t => {
   const { apply, receipts } = await opened(t);
   await apply('Nemesio Sánchez');
-  await apply('nemesio sanchez');
+  const repeated = await apply('nemesio sanchez');
+  assert.equal(repeated.outcomes[0].status, 'unchanged');
+  assert.equal(repeated.outcomes[0].actor, 'Professor Nemesio Sánchez');
   const applied = await receipts();
   assert.deepEqual(applied.map(row => [row.handle, row.npc, row.name]), [
-    ['visiting-scholar', 'npc-visiting-scholar', 'Professor Nemesio Sánchez'],
     ['visiting-scholar', 'npc-visiting-scholar', 'Professor Nemesio Sánchez'],
   ]);
   assert.ok(applied[0].id.startsWith('npc:visiting-scholar-t1-'), applied[0].id);

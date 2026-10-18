@@ -1,4 +1,5 @@
 /** Bounded host-issued choices inside the native RunDriver, never a second gameplay loop. */
+import {scenePopulationRequired} from '../scene-population.ts';
 import {createHash,randomUUID} from 'node:crypto';
 import {buildCandidates,keeperCall} from './candidates.ts';
 import type {Candidate} from './step-policy.ts';
@@ -7,6 +8,7 @@ import {probabilityMassValid} from './contracts.ts';
 import type {DecisionPort} from './decision-port.ts';
 import {JEV_MODEL,packDecisionBatch,PackingError} from './question-packing.ts';
 import {TaskLease} from './task-context.ts';
+import {continuousConsentQuestions,continuousConsentDisposition,continuousConsentLine} from './continuous-consent.ts';
 import type {HostOperationContext,OperationIdentity} from '../../extensions/kernel/canonical-operation-dispatcher.ts';
 
 type Row=Record<string,any>;
@@ -16,6 +18,8 @@ const text=(value:unknown):string=>typeof value==='string'?value:'';
 const hash=(value:unknown)=>createHash('sha256').update(JSON.stringify(value)).digest('hex');
 export const CONTINUOUS_TURN_FAMILY='continuous-turn';
 export const CONTINUOUS_TURN_GATE=.9;
+/** Routing only: all world mutations still require the unchanged selection/restriction gates. */
+export const ROUTINE_ADDITIONAL_WORK_MAX=.4;
 const MAX_CANDIDATES=24,DECISION_MS=4000;
 
 export interface ContinuousTurnOptions {
@@ -26,6 +30,9 @@ export interface ContinuousTurnOptions {
     dispatch:(proposal:OperationProposal,context:HostOperationContext)=>Promise<any>;
     current:()=>boolean;
     record:(row:Row)=>void;
+    packet?:boolean;
+    previousPlayer?:Array<{turn:number|string;player:string|null}>;
+    investigators?:string[];
 }
 
 export class ContinuousTurn {
@@ -38,6 +45,10 @@ export class ContinuousTurn {
     selected:Candidate[]=[];
     snapshot:Row={};
     outcome?:Row;
+    replyScope?:string;
+    additionalWork?:number;
+    prescreen?:Row;
+    published=false;
     private reusable:number[]=[];
     private readonly identities=new Map<string,OperationIdentity>();
     private readonly options:ContinuousTurnOptions;
@@ -46,9 +57,15 @@ export class ContinuousTurn {
     private readSet(capsule:Row):ReadSet {
         const context=object(capsule._context),revision=text(context.task_world_revision)||text(context.world_revision);
         if(!revision||context.campaign!==this.options.campaign||!Number.isSafeInteger(context.turn))throw Error('continuous_scope_unavailable');
-        return [{kind:'world',resource:this.options.campaign,revision},
+        const reads:ReadSet=[{kind:'world',resource:this.options.campaign,revision},
             {kind:'draft',resource:'input:'+this.options.run,revision:this.options.inputRevision},
-            {kind:'family',resource:CONTINUOUS_TURN_FAMILY,revision:'2'}];
+            {kind:'family',resource:CONTINUOUS_TURN_FAMILY,revision:this.options.packet?'packet-3':'2'}];
+        if(this.options.packet){
+            const source=text(context.task_source_revision)||text(context.source_revision);
+            if(!source)throw Error('continuous_source_scope_unavailable');
+            reads.push({kind:'source',resource:this.options.campaign,revision:source});
+        }
+        return reads;
     }
 
     async prepare(signal:AbortSignal):Promise<void>{
@@ -63,16 +80,36 @@ export class ContinuousTurn {
             if(signal.aborted||!this.options.current())throw Error('continuous_input_cancelled');
             // The existing candidate builder owns identities, availability and satisfied rule gates.
             // Open parameters and new NPC choices stay with the same Keeper.
-            this.candidates=buildCandidates({capsule,applyOptions,resolveOptions:{}},this.options.playerText)
-                .filter(candidate=>candidate.verb==='apply'&&['move','clue','handout'].includes(candidate.family)
+            const issued=buildCandidates({capsule,applyOptions,resolveOptions:{}},this.options.playerText);
+            this.candidates=issued
+                .filter(candidate=>candidate.verb==='apply'&&(this.options.packet?candidate.family==='move':['move','clue','handout'].includes(candidate.family))
                     &&candidate.unbound.every(parameter=>!parameter.required
                         ||parameter.vocabulary==='closed'&&!parameter.binder&&!parameter.band&&!!parameter.options?.length))
                 .slice(0,MAX_CANDIDATES);
             this.reusable=this.candidates.map((_,index)=>index);
-            if(!this.candidates.length){this.decided=true;return;}
+            if(!this.candidates.length){this.decided=true;this.options.record({lane:'continuous-turn',event:'no_bound_candidates',run:this.options.run,packet:this.options.packet===true,
+                deferred:issued.filter(candidate=>candidate.family==='move').map(candidate=>({key:candidate.key,parameters:candidate.unbound}))});return;}
             const context=object(capsule._context),scope={owner:'continuous-turn:'+this.options.run,campaign:this.options.campaign,
                 ...(typeof context.worldline==='string'?{worldline:context.worldline}:{}),
                 ...(Number.isSafeInteger(context.loop)?{loop:context.loop}:{}),audience:'keeper' as const};
+            if(this.options.packet){
+                const lines=this.candidates.map(candidate=>continuousConsentLine({...object(array(keeperCall(candidate).args.effects)[0]),
+                    registered_destination:{canonical_name:object(object(object(candidate.basis).row).description).display_name??candidate.bound.to,
+                        aliases:array(object(object(candidate.detail).destination).names).filter(value=>typeof value==='string')}}));
+                const batch:DecisionBatch={id:randomUUID(),model:JEV_MODEL,family:CONTINUOUS_TURN_FAMILY,familyVersion:'packet-3',scope,
+                    readSet:this.readSet(capsule),state:{current_player_words:this.options.playerText,
+                        investigators:this.options.investigators??[],scene:object(capsule.where).scene??null,
+                        previous_public:this.options.previousPlayer??[],proposal:{tool:'apply',lines}},
+                    questions:[...continuousConsentQuestions(lines.map(()=> 'move')),{key:'additional_work',target:'current_player_words',type:'noul',
+                        instructions:'Does the current declaration select an activity besides one routine party journey? Judge selected additional work only, not destination selection, authorization or success. Arrival and ordinary route description belong to that journey. Speech, a greeting, a question, investigation, a transaction, a local task or another trip are additional work. A future or conditional proposal that needs discussion also has additional work. Constraints excluding entry, purchases or other acts do not themselves request additional activities.',
+                        criteria:{true:'Something besides the one routine journey needs to be handled, including any speech or NPC decision.',
+                            false:'Only that journey is requested, with nothing else to decide or respond to.'}}]};
+                // One request or no automatic authority: never fan out a large scene into a foreground cascade.
+                packDecisionBatch(batch);this.batches=[batch];this.batch=batch;
+                this.options.record({lane:'continuous-turn',event:'prepared',run:this.options.run,packet:true,candidates:lines.length,
+                    batches:[{candidates:lines.length,estimate:packDecisionBatch(batch).estimate}]});
+                return;
+            }
             const questions:DecisionBatch['questions']=[];
             const candidates=this.candidates.map((candidate,index)=>{
                 questions.push({key:'need_'+index,target:'whether to execute candidate '+index+' now',type:'choice',
@@ -140,6 +177,24 @@ export class ContinuousTurn {
                     &&answer.probabilities[answer.choice]>=CONTINUOUS_TURN_GATE?answer.choice:undefined;
             };
             if(current){
+                if(this.options.packet){
+                    const probability=(key:string)=>{const answer=answers[key],value=answer?.status==='answered'&&answer.type==='noul'?answer.noul:undefined;
+                        return typeof value==='number'&&Number.isFinite(value)&&value>=0&&value<=1?value:undefined;};
+                    const choices=this.candidates.map((candidate,index)=>({effects:keeperCall(candidate).args.effects,
+                        selection:probability('consent_'+index),veto:probability('restriction_'+index)}));
+                    this.prescreen={run:this.options.run,playerText:this.options.playerText,worldRevision:object(this.snapshot._context).world_revision,
+                        taskRevision:object(this.snapshot._context).task_world_revision,
+                        sourceRevision:object(this.snapshot._context).task_source_revision??object(this.snapshot._context).source_revision,choices};
+                    this.additionalWork=probability('additional_work');
+                    this.replyScope=typeof this.additionalWork==='number'&&this.additionalWork<=ROUTINE_ADDITIONAL_WORK_MAX?'travel_only':'remaining_work';
+                    this.reusable=choices.flatMap((choice,index)=>continuousConsentDisposition(choice.selection,choice.veto)==='not_authorized'?[]:[index]);
+                    this.selected=this.candidates.filter((_,index)=>continuousConsentDisposition(choices[index].selection,choices[index].veto)==='authorized');
+                    if(this.selected.length!==1)this.selected=[];
+                    this.options.record({lane:'continuous-turn',event:'selection',run:this.options.run,packet:true,scope:this.replyScope??'unclear',additional_work:this.additionalWork??null,
+                        selected:this.selected.map(candidate=>candidate.key),decisions:choices.map((choice,index)=>({candidate:this.candidates[index].key,
+                            status:continuousConsentDisposition(choice.selection,choice.veto),selection:choice.selection??null,veto:choice.veto??null}))});
+                    return result?.status==='fulfilled'?result.value:undefined;
+                }
                 this.reusable=this.candidates.flatMap((_,index)=>admitted('need_'+index)==='later'?[]:[index]);
                 this.selected=this.candidates.flatMap((candidate,index)=>{
                     if(admitted('need_'+index)!=='now')return [];
@@ -161,6 +216,8 @@ export class ContinuousTurn {
         }catch(error){this.options.record({lane:'continuous-turn',event:'decision_unavailable',run:this.options.run,reason:String(error)});}
         finally{lease.close();}
     }
+
+    get routineReady():boolean{return this.options.packet===true&&this.executed&&this.replyScope==='travel_only'&&this.outcome?.status==='succeeded';}
 
     /** Already paid-for option reads remain advisory material when automatic execution is uncertain. */
     materials(capsule:Row):Row|undefined{
@@ -207,7 +264,12 @@ export class ContinuousTurn {
                     basis:{family:CONTINUOUS_TURN_FAMILY,playerText:this.options.playerText,worldRevision:context.world_revision,effects}}});
         }catch(error){this.outcome={status:'refused',reason:String(error)};}
         finally{lease.close();}
+        if(this.options.packet&&this.outcome?.status==='succeeded'){
+            const current=await this.options.call('table.capsule',{_context_read:true});
+            if(scenePopulationRequired(current)){this.replyScope='remaining_work';this.options.record({lane:'continuous-turn',event:'scene_population_required',run:this.options.run,reason:object(object(current.where).temporal).review_reasons??['population_unassessed']});}
+        }
         this.options.record({lane:'continuous-turn',event:'execution',run:this.options.run,status:this.outcome?.status,
+            ...(this.outcome?.status!=='succeeded'?{failure:this.outcome}:{}),
             selected:selected.map(candidate=>candidate.key)});
         return this.outcome??{status:'refused'};
     }

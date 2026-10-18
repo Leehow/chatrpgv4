@@ -3,6 +3,7 @@ import type { KernelContext } from '../context.js';
 import type { HandlerGroup } from '../handlers.js';
 import type { CampaignWritePort, DomainEvent, TurnTransaction } from '../transactions.js';
 import { RpcError } from '../errors.js';
+import {moveEstablishmentRefusal} from '../../shared/move-protocol.ts';
 import {stageEvent,eventOutcome} from '../turn-events.js';
 import {StagedCampaignWriter} from './staged-campaign.js';
 import { isJsonObject } from '../json.js';
@@ -21,12 +22,15 @@ import { npcPatient } from '../healing/patient.js';
 import { requirePatientBlock } from '../combat/stat-block.js';
 import { markersOf } from '../resolve/projection.js';
 import {initializeNpcVariations} from '../resolve/npc-variation.js';
+import {ensureNpcReferences} from '../npc/references.js';
+import {withTablePeople} from '../read/table-people.js';
 import {isNpcVariationRoll} from '../npc/variation.js';
 import { createWriteRuntime } from '../write/index.js';
 import { nowIso } from '../write/store.js';
 import { advanceClock, stageClock } from './clock.js';
 import {openingActivityShape,stageSceneActivity} from './activity.js';
 import {openingInformationShape} from '../../runtime/opening-information.ts';
+import {operationOutcomes} from './outcomes.js';
 import { stageMove } from './move.js';
 import {appendJsonl} from '../fileio.js';
 import {join} from 'node:path';
@@ -37,7 +41,7 @@ import { effectIntent } from './intent.js';
 import { armDrawn } from './draw.js';
 import type {MaterialGate,TextLanding} from '../modules/reading.js';
 import {stagePerson} from './person.js';
-import {calledPerson,personNode} from '../read/capsule.js';
+import {calledPerson,personNode,sceneLabel} from '../read/capsule.js';
 import {castPersonNamed, newcomerRefusal} from '../read/cast.js';
 import {passageOf} from '../read/table-people.js';
 import {presentArrivalMaps,revealMap} from '../read/maps.js';
@@ -111,9 +115,11 @@ function atIndex(error: RpcError, index: number): RpcError {
 export function createApplyHandlers(kernel: KernelContext, writer: ReturnType<typeof createWriteRuntime>, contributions: ApplyContributions = {}): HandlerGroup {
     const tables = new RuleTables(kernel);
     return { 'table.apply': async (params) => {
+            const malformed = moveEstablishmentRefusal(params.effects);
+            if (malformed) throw new RpcError(malformed.code, malformed.message, malformed);
             const transaction = await writer.transaction(params, { repairLegacyTrail: false, preload: false }), { campaign, turn } = transaction;
             const effects = Array.isArray(params.effects) ? params.effects.map(effect => isJsonObject(effect) ? {...effect} : effect) : params.effects;
-            const callParams = Array.isArray(effects) ? { ...params, effects: effects.map(effect => isJsonObject(effect) ? Object.fromEntries(entries(effect).filter(([key]) => !key.startsWith('_'))) : effect) } : params;
+            const callParams = Array.isArray(effects) ? { ...params, effects: effects.map(effect => isJsonObject(effect) ? Object.fromEntries(entries(effect).filter(([key]) => !key.startsWith('_')||key==='_new_person'||key==='_population')) : effect) } : params;
             // §198.3: beside the preparations the opening already admits, an npc effect shaped as a seat (stageNpc decides whether
             // it is one: a person the book places in the opening scene whom nobody has placed yet).
             const opening = Array.isArray(effects) && effects.length > 0 && effects.every(effect => isJsonObject(effect)
@@ -157,7 +163,7 @@ export function createApplyHandlers(kernel: KernelContext, writer: ReturnType<ty
                 // §188.4 (§87.8): an `npc` effect's person is read by the junction, so a person this table calls by its own
                 // word meets the gate as the book's person it is; a word two people carry is left to `apply npc`'s refusal.
                 let person: Row | null = null;
-                if (effect.kind === 'npc') try { person = graph.find(name, ['npc']) ?? calledPerson(graph, transaction.world, name); } catch { person = null; }
+                if (effect.kind === 'npc') try { person = personNode(graph,transaction.world,name); } catch { person = null; }
                 const node = person ?? (['handout','map'].includes(string(effect.kind)) ? graph.find(name, ['handout']) ?? graph.find(name, ['asset']) : graph.find(name, kinds[string(effect.kind)]));
                 return node?.node_id ?? name;
             });
@@ -277,7 +283,7 @@ export function createApplyHandlers(kernel: KernelContext, writer: ReturnType<ty
                         events.push({ ...result.event, receipt: result.receipts.at(-1)?.id });
                         continue;
                     }
-                    let receipt: Row, event: DomainEvent;
+                    let receipt: Row, event: DomainEvent|null;
                     if (kind === 'adaptation') {
                         if (!contributions.adaptation) throw new RpcError('not_implemented', 'Adaptation acceptance is unavailable');
                         ({receipt, event} = await contributions.adaptation(context, effect) as {receipt: Row; event: DomainEvent});
@@ -285,6 +291,7 @@ export function createApplyHandlers(kernel: KernelContext, writer: ReturnType<ty
                     else if (kind === 'move') {
                         const moved = stageMove(context, effect, travelRows);
                         receipt = moved.receipt;
+                        effectReceipts.set(index,[receipt]);
                         if (!moved.event) {
                             receipts.push(receipt);
                             ids.push(string(receipt.id));
@@ -307,7 +314,10 @@ export function createApplyHandlers(kernel: KernelContext, writer: ReturnType<ty
                         const clue=await stageClue(context,effect,owedRow?.kind==='clue');receipt=clue.receipt;
                         if(!clue.event){already.push(receipt.clue);ids.push(receipt.id);continue;}event=clue.event;
                     }
-                    else if(kind==='npc')({receipt,event}=await stageNpc(context,effect) as {receipt:Row;event:DomainEvent});
+                    else if(kind==='npc'){
+                        ({receipt,event}=await stageNpc(context,effect));
+                        if(receipt.unchanged===true){effectReceipts.set(index,[receipt]);continue;}
+                    }
                     else if(kind==='scene')({receipt,event}=stageSceneActivity(context,effect) as {receipt:Row;event:DomainEvent});
                     else if(kind==='handout'){
                         ({receipt,event}=await stageHandout(context,effect,module.asset ? (_id, name) => module.asset!(name) : contributions.asset!) as {receipt:Row;event:DomainEvent});attachments.push(receipt.attachment);
@@ -393,7 +403,8 @@ export function createApplyHandlers(kernel: KernelContext, writer: ReturnType<ty
                 && params._fulfillments === undefined && effects.filter(effect=>isJsonObject(effect)&&effect.kind==='note').length === 1
                 && isJsonObject(effects[refused[0].index]) && (effects[refused[0].index] as Row).kind === 'note'
                 && (effects[refused[0].index] as Row).intent_ref == null;
-            const isolatedRefusals = params.event === undefined && refused.length && receipts.length
+            const succeeded = receipts.length > 0 || [...effectReceipts.values()].some(items=>items.some(receipt=>receipt.unchanged===true));
+            const isolatedRefusals = params.event === undefined && refused.length && succeeded
                 && (allPersonEffects && refused.every(isolable) || wrongNoteOwner) ? refused : [];
             if ((!refused.length || isolatedRefusals.length) && receipts.some(receipt => receipt.kind === 'move' && !receipt.renamed) && contributions.asset) {
                 for (const item of await presentArrivalMaps(context, contributions.asset)) {
@@ -478,6 +489,7 @@ export function createApplyHandlers(kernel: KernelContext, writer: ReturnType<ty
                 await contributions.mods!.projectInventory(effectCampaign as CampaignWriter,staged);
             const variations = await initializeNpcVariations(kernel, graph, staged, turn, [...array(turn.receipts), ...receipts], true, campaign.id);
             receipts.push(...variations);
+            ensureNpcReferences(withTablePeople(module,staged).graph,staged);
             await buffered.commit();
             await campaign.writeWorld(staged);
             await settleOwed(kernel, campaign.id, graph, staged, receipts, nowIso(), await campaign.party());
@@ -500,6 +512,8 @@ export function createApplyHandlers(kernel: KernelContext, writer: ReturnType<ty
             const ordinaryReceipts = receipts.filter(receipt => !isNpcVariationRoll(receipt));
             for(const receipt of receipts)if(receipt.kind==='event')receipt.event.effects=ordinaryReceipts.filter(item=>item!==receipt).map(item=>item.id);
             const result: Row = { receipts: ids, markers: markersOf({ ...turn, receipts: [...array(turn.receipts).filter(receipt=>!isNpcVariationRoll(receipt)), ...ordinaryReceipts] }, ordinaryReceipts), world: { active_scene: staged.active_scene, clock: staged.clock }, material_ready: material === 'ready', material };
+            // These are execution results, including no-op assignments, not copies of proposals.
+            result.outcomes=[...effectReceipts].flatMap(([index,landed])=>operationOutcomes(landed,graph,staged).map(outcome=>({index,...outcome})));
             if(params.event!==undefined)result.outcome=graph.shownIds(eventOutcome([...array(turn.receipts),...receipts]));
             const pendingNames = receipts.filter(receipt => receipt.kind === 'person' && typeof receipt.deferred_name === 'string');
             if (pendingNames.length) result.names_pending_delivery = pendingNames.map(receipt => ({

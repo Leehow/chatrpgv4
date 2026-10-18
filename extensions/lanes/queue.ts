@@ -3,6 +3,7 @@
  * Each factory call owns its queue, backfill budget and cancellation controller independently.
  */
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
+import { AsyncLocalStorage } from "node:async_hooks";
 
 export type KernelCall = (method: string, params: Record<string, unknown>) => Promise<unknown>;
 
@@ -55,6 +56,10 @@ export function createLaneQueue(pi: ExtensionAPI, options: QueueOptions) {
 	let foregroundPending = false;
 	let pauseUntil = 0, pauseTimer: ReturnType<typeof setTimeout> | undefined;
 	const initialCampaigns = new Set<string>();
+	const committed = new Set<string>();
+	type Owner = {ctx: ExtensionContext; raw: NonNullable<typeof bridge>; bridge: NonNullable<typeof bridge>; signal: AbortSignal; backfill?:boolean; credited?:boolean};
+	const owners = new AsyncLocalStorage<Owner>();
+	const valid = (owner: Owner) => !stopped && !owner.signal.aborted && owner.raw === bridge && owner.ctx === ctx;
 	function prepareInitial(): void {
 		if (!options.initialJob || stopped || !ctx || !bridge || initialCampaigns.has(bridge.campaign)) return;
 		initialCampaigns.add(bridge.campaign);
@@ -62,7 +67,7 @@ export function createLaneQueue(pi: ExtensionAPI, options: QueueOptions) {
 	}
 
 	function nextJob(): LaneJob | undefined {
-		if (Date.now() < pauseUntil || agentRunning || foregroundPending) return undefined;
+		if (!ctx || !bridge || Date.now() < pauseUntil || agentRunning || foregroundPending) return undefined;
 		// Committed turns are FIFO and always precede backfill, even after the agent has settled.
 		const queued = queue.shift();
 		if (queued) return queued;
@@ -79,15 +84,20 @@ export function createLaneQueue(pi: ExtensionAPI, options: QueueOptions) {
 				const job = nextJob();
 				if (!job) break;
 				const signal = lanes.signal;
+				const raw = bridge!;
+				const owner: Owner = {ctx: ctx!, raw, signal, backfill:job.backfill, bridge: {campaign: raw.campaign, call: async (method, params) => {
+					if (!valid(owner)) throw new DOMException("The background job owner is no longer active", "AbortError");
+					return raw.call(method, params);
+				}}};
 				try {
-					const outcome = await options.runJob(job);
-					if (outcome?.deferred && !stopped && !signal.aborted) {
+					const outcome = await owners.run(owner, () => options.runJob(job));
+					if (outcome?.deferred && valid(owner)) {
 						queue.unshift(job);
 						break;
 					}
 				} catch (error) {
 					// A broken job must not block the next one; its lane owns the telemetry.
-					await options.onError(job, error);
+					if (valid(owner)) await owners.run(owner, () => options.onError(job, error));
 				}
 			}
 		} finally {
@@ -102,6 +112,8 @@ export function createLaneQueue(pi: ExtensionAPI, options: QueueOptions) {
 		clearTimeout(pauseTimer); pauseTimer = undefined; pauseUntil = 0;
 	}
 	function pauseFor(milliseconds: number): void {
+		const owner = owners.getStore();
+		if (owner && !valid(owner)) return;
 		if (stopped || !Number.isFinite(milliseconds) || milliseconds <= 0) return;
 		const duration = Math.min(60_000, Math.max(1, Math.floor(milliseconds)));
 		const until = Date.now() + duration;
@@ -112,9 +124,16 @@ export function createLaneQueue(pi: ExtensionAPI, options: QueueOptions) {
 
 	pi.events.on("coc:kernel-bridge", (data) => {
 		const payload = (data ?? {}) as { campaign?: string; call?: KernelCall };
-		bridge = typeof payload.call === "function" && payload.campaign
+		const next = typeof payload.call === "function" && payload.campaign
 			? { campaign: payload.campaign, call: payload.call }
 			: undefined;
+		if (bridge?.campaign !== next?.campaign || bridge?.call !== next?.call) {
+			lanes.abort();
+			lanes = new AbortController();
+			bridge = next;
+			for (let i = queue.length - 1; i >= 0; i--) if (queue[i].campaign !== next?.campaign) queue.splice(i, 1);
+			clearPause();
+		}
 		prepareInitial();
 		// Either the bridge or session_start may arrive first. Only the second can start backfill.
 		if (bridge && ctx && !stopped) wake();
@@ -128,9 +147,12 @@ export function createLaneQueue(pi: ExtensionAPI, options: QueueOptions) {
 	});
 
 	pi.events.on("coc:turn-committed", (data) => {
-		const payload = (data ?? {}) as { campaign?: string; turn?: number };
-		if (stopped || !payload.campaign || typeof payload.turn !== "number") return;
+		const payload = (data ?? {}) as { campaign?: string; turn?: number; commit?: string; job_id?: string };
+		if (stopped || !bridge || payload.campaign !== bridge.campaign || typeof payload.turn !== "number") return;
 		if (options.accept && !options.accept(payload as Record<string, unknown>)) return;
+		const key = JSON.stringify([payload.campaign, payload.turn, payload.commit ?? payload.job_id ?? null]);
+		if (committed.has(key)) return;
+		committed.add(key);
 		queue.push({ campaign: payload.campaign, turn: payload.turn });
 		wake();
 	});
@@ -151,6 +173,7 @@ export function createLaneQueue(pi: ExtensionAPI, options: QueueOptions) {
 	});
 
 	pi.on("session_start", async (_event, sessionCtx) => {
+		lanes.abort();
 		ctx = sessionCtx;
 		stopped = false;
 		agentRunning = false;
@@ -159,6 +182,7 @@ export function createLaneQueue(pi: ExtensionAPI, options: QueueOptions) {
 		clearPause();
 		queue.length = 0;
 		initialCampaigns.clear();
+		committed.clear();
 		backfillLeft = backfillBudget(options.backfillEnv, options.backfillDefault);
 		backfillDone = backfillLeft <= 0;
 		// Do not reset running: a previous session's continuation still owns the pump until finally.
@@ -181,11 +205,13 @@ export function createLaneQueue(pi: ExtensionAPI, options: QueueOptions) {
 
 	// Live reads preserve session reuse and cancellation checks across a lane's async continuations.
 	return {
-		get ctx() { return ctx; },
-		get bridge() { return bridge; },
-		get signal() { return lanes.signal; },
-		get stopped() { return stopped; },
-		stopBackfill() { backfillDone = true; },
+		get ctx() { const owner = owners.getStore(); return owner ? valid(owner) ? owner.ctx : undefined : ctx; },
+		get bridge() { const owner = owners.getStore(); return owner ? valid(owner) ? owner.bridge : undefined : bridge; },
+		get signal() { return owners.getStore()?.signal ?? lanes.signal; },
+		get stopped() { const owner = owners.getStore(); return stopped || !!owner && !valid(owner); },
+		stopBackfill() { const owner = owners.getStore(); if (!owner || valid(owner)) backfillDone = true; },
+		/** A cached no-op consumes no new-work slot. Only its active backfill owner can credit it, once. */
+		creditBackfill() { const owner=owners.getStore();if(!owner?.backfill||owner.credited||!valid(owner)||backfillDone)return false;owner.credited=true;backfillLeft++;return true; },
 		pauseFor,
 	};
 }

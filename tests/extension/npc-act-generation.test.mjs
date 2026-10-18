@@ -256,20 +256,21 @@ test("no model: model_unavailable, one row, no completion, never a throw", async
 		assert.equal(table.calls.length, 0);
 		assert.equal((await onlyRow(table)).reason, "model_unavailable");
 	});
-	// With no context there is no workspace to find the campaign's file in: the row is the session entry alone,
-	// exactly as the shared lane writer does for every lane.
+	// A missing or stale owner cannot append to another session. The caller still receives unavailability.
 	const sessionRows = (table) => table.entries.filter((entry) => entry.type === "coc-telemetry" && entry.data.lane === "npc-act").map((entry) => entry.data);
 	await t.test("there is no session context", async (t) => {
 		const table = await lane(t, { ctx: () => undefined });
 		const result = await table.generate();
 		assert.equal(result.unavailable, "model_unavailable");
-		assert.deepEqual(sessionRows(table).map((row) => row.reason), ["model_unavailable"]);
+		assert.deepEqual(sessionRows(table), []);
+		assert.equal(table.calls.length, 0);
 	});
 	await t.test("the session context is stale and throws", async (t) => {
 		const table = await lane(t, { ctx: () => { throw new Error("stale after session replacement"); } });
 		const result = await table.generate();
 		assert.equal(result.unavailable, "model_unavailable");
-		assert.deepEqual(sessionRows(table).map((row) => row.reason), ["model_unavailable"]);
+		assert.deepEqual(sessionRows(table), []);
+		assert.equal(table.calls.length, 0);
 	});
 });
 

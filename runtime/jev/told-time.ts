@@ -76,7 +76,7 @@ export function toldTimeState(input: ToldTimeInput): Json {
 const READS = '`told` is what the Keeper has just told the player, sentence by sentence in order.';
 
 /** The `told_cost` Choice (`none` first, then the act rows) and the `sentence` Choice, in one batch. */
-export function toldTimeQuestions(input: ToldTimeInput): DecisionQuestion[] {
+export function toldTimeQuestions(input: ToldTimeInput): Array<Extract<DecisionQuestion,{type:'choice'}>> {
   const costs: Record<string, string> = {
     none: 'No in-world activity beyond a moment is told happening now, or none of the acts below fits what is told.',
     ...Object.fromEntries(actRows(input.bands).map(row => [row.handle, timeCriterion(row)])),

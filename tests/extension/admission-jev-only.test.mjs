@@ -15,7 +15,8 @@ function options(verdict='authorized',probability=.99){
             assert.doesNotMatch(JSON.stringify(batch.state),/SECRET_DOES_NOT_AUTHORIZE/);
             const answers=Object.fromEntries(batch.questions.map(question=>{
                 assert.equal(question.type,'noul');
-                return [question.key,{status:'answered',type:'noul',noul:verdict==='not_authorized'?1-probability:probability}];
+                const selected=verdict==='not_authorized'?1-probability:probability;
+                return [question.key,{status:'answered',type:'noul',noul:question.key.startsWith('restriction_')?1-selected:selected}];
             }));
             return {batchId:batch.id,status:'complete',answers,
                 coverage:{required:Object.keys(answers),answered:Object.keys(answers),unknown:[]},issues:[],usage:{inputTokens:100,outputTokens:0}};
@@ -32,7 +33,7 @@ test('typed action admission needs one Jev batch and no generative review',async
 
 test('uncertain typed admission never grants authority',async()=>{
     const result=await admission.reviewAdmissionJevOnly(options('authorized',.5).value);
-    assert.equal(result.ok,false);assert.equal(result.reason,'low_confidence');
+    assert.equal(result.ok,true);assert.equal(result.verdict.verdict,'uncertain');
 });
 
 test('admission uses the Noul probability without a multiclass confidence',async()=>{
@@ -46,6 +47,17 @@ test('a confident Jev refusal stands without asking a generative judge',async()=
     const selected=options('not_authorized');
     const result=await admission.reviewAdmissionJevOnly(selected.value);
     assert.equal(result.ok,true);assert.equal(result.verdict.verdict,'not_authorized');assert.equal(selected.calls(),1);
+});
+
+test('selection cannot override a current restriction, and uncertainty in either axis holds authority',async()=>{
+    for(const [selectedProbability,scopeProbability,expected] of [[.99,.01,'not_authorized'],[.99,.5,'uncertain'],[.5,.99,'uncertain'],[.62,.61,'authorized']]){
+        const selected=options(),decide=selected.value.decision.decide;
+        selected.value.decision={decide:async(batch,lease)=>{const answer=await decide(batch,lease);
+            answer.answers.consent_0.noul=selectedProbability;answer.answers.restriction_0.noul=1-scopeProbability;return answer;}};
+        const result=await admission.reviewAdmissionJevOnly(selected.value);
+        assert.equal(result.ok,true);assert.equal(result.verdict.verdict,expected);assert.equal(selected.calls(),1);
+        assert.ok(Math.abs(result.meta.line_scope_probabilities[0]-scopeProbability)<1e-12);
+    }
 });
 
 test('NPC disclosures and event truth do not masquerade as voluntary player choices',()=>{
@@ -68,7 +80,7 @@ test('the existing time effect kind reaches the typed permission reader without 
     const result=await admission.reviewAdmissionJevOnly({...selected.value,proposal:projected,
         context:{...context,playerText:'Please fetch the records. I stay at the desk and watch.'}});
     assert.equal(result.ok,true);assert.deepEqual(batch.state.proposal.kinds,['time']);
-    assert.equal(batch.questions.length,1);assert.equal(selected.calls(),1);
+    assert.equal(batch.questions.length,2);assert.equal(selected.calls(),1);
 });
 
 const cashItems=[{name:'Round trip',quantity:1,unit_price:25}];
@@ -92,7 +104,7 @@ async function cashReview(probabilities,playerText='I accept the actual 47 USD d
 test('typed cash approval produces the exact preview limit in the same batch',async()=>{
     const {review,batches,calls,context:actual}=await cashReview({cash_input_0:.99,cash_offer_0_0:.01});
     assert.equal(review.ok,true);assert.equal(calls,1);
-    assert.equal(batches[0].familyVersion,'3');
+    assert.equal(batches[0].familyVersion,'5');
     assert.deepEqual(review.verdict.cash_limits,[{index:0,amount:'47',basis:'input',evidence:actual.playerText}]);
     assert.equal(admission.boundCashAuthority(cashProposal,actual,review.verdict).verdict,'authorized');
 });
@@ -126,4 +138,17 @@ test('an unbound, differently bound or declined mechanics choice cannot gain cas
         assert.equal(review.verdict.cash_limits,undefined);
         assert.equal(admission.boundCashAuthority(cashProposal,actual,review.verdict).verdict,'not_authorized');
     }
+});
+
+test('registered journey consent reuses player references without unrelated authored history',async()=>{
+ const chosen=options(),run=chosen.value.decision.decide;let seen;
+ const proposed=admission.admissionRequest('apply',{effects:[{kind:'move',to:'Central Library',via:'public street'}]},
+   {party:['Thomas Hayes'],consentOnly:true,destinations:[{requested:'Central Library',handle:'central-library',label:'Central Library'}]});
+ const result=await admission.reviewAdmissionJevOnly({...chosen.value,proposal:proposed,
+   context:{...context,delivered:[{turn:0,player:'I came from the Central Library.',keeper:'UNRELATED_AUTHOR_RULE: payments first.'}]},
+   decision:{decide:async(batch,lease)=>{seen=batch;return run(batch,lease);}}});
+ assert.equal(result.verdict.verdict,'authorized');
+ assert.deepEqual(seen.state.previous_public,[{turn:0,player:'I came from the Central Library.'}]);
+ assert.equal(seen.state.proposal.lines[0].registered_destination.label,'Central Library');
+ assert.equal(seen.questions.length,2);assert.equal(chosen.calls(),1);
 });

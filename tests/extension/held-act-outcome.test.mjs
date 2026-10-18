@@ -108,3 +108,18 @@ test("the basis: one per turn, deduplicated, bounded; receipts are projected, no
 	assert.deepEqual(outcomeStatus(0.5, 1, false, true), ["unclear", "outcome_uncertain"]);
 	assert.deepEqual(outcomeStatus(undefined, 1, false, true), ["unclear", "outcome_unavailable"]);
 });
+
+test('only exact canonical settlement discharges a scoped operation failure',async()=>{
+ const {heldOperationKey}=await import('../../runtime/jev/held-act-outcome.ts');
+ const scope={campaign:'campaign',worldline:'main',turn:4,playerText:'I leave.'};
+ const args={campaign:'campaign',call_id:'first',effects:[{kind:'move',to:'Library',via:'street'}]};
+ const key=heldOperationKey('apply',args),boundary=new HeldActOutcome();
+ assert.equal(key,heldOperationKey('apply',{effects:[{via:'street',to:'Library',kind:'move'}],call_id:'retry'}));
+ boundary.hold(scope,{tool:'apply',lines:['complete operation'],cause:'transport',operationKey:key},true);
+ assert.equal(boundary.settled({...scope,turn:5},key),0);assert.ok(boundary.basis);
+ assert.equal(boundary.settled(scope,heldOperationKey('apply',{effects:[{kind:'time',minutes:1}]})),0);assert.ok(boundary.basis);
+ assert.equal(boundary.settled(scope,heldOperationKey('apply',{effects:[{kind:'move',to:'Library',via:'another street'}]})),0);
+ assert.equal(boundary.settled(scope,key),1);assert.equal(boundary.basis,undefined);
+ const unknown=new HeldActOutcome();unknown.hold(scope,{tool:'apply',lines:['no exact proposal'],cause:'unknown'},true);
+ assert.equal(unknown.settled(scope,key),0);assert.ok(unknown.basis);
+});

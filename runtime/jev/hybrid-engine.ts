@@ -1,10 +1,10 @@
 import type {PrescreenSourceRuntime} from './prescreen-source-provider.ts';
 import {ContinuousTurn} from './continuous-turn.ts';
 import {SAME_KEEPER_OUTPUT_GUIDANCE,sameKeeperSystemPrompt} from '../keeper-output-guidance.ts';
+import {TURN_PACKET_GUIDANCE,turnPacketSystemPrompt} from '../turn-packet-prototype.ts';
 import {readCarriedViews,carriedSection} from './carried-views.ts';
 import {withSourceQuestion} from './source-answer-pages.ts';
 import {historyEnabled,HISTORY_OFFER,HISTORY_UNAVAILABLE} from '../historical-reference.ts';
-// @ts-expect-error -- the shared native-search adapter is a runtime JavaScript module.
 import {nativeSearchCapability} from '../native-search.js';
 /** One native RunDriver; the Keeper owns decisions and prose, and the host owns tool execution. */
 import type { RunDriverPorts } from '@earendil-works/pi-agent-core';
@@ -114,6 +114,7 @@ export interface KernelBridge {
   campaign?: string;
   call?: (method: string, params?: Record<string, unknown>) => Promise<unknown>;
   record?: (row: Record<string, unknown>) => void;
+  playerContext?:()=>{investigators:string[];previousPlayer:Array<{turn:number|string;player:string|null}>};
 }
 /** The kernel extension's turn-close port (`coc:turn-close`, contract §135.11). */
 export interface TurnClosePort {
@@ -145,6 +146,7 @@ export interface SourceAnswersPort {
 export interface OperationGateway {
   dispatch(proposal: OperationProposal, context: HostOperationContext): Promise<ObservationPacket>;
   canParallelize?(calls: readonly {operation: string; params?: unknown}[]): boolean;
+  publishRoutine?(run:string,signal:AbortSignal):Promise<{details:Record<string,any>}>;
 }
 
 export interface HybridEngineOptions {
@@ -390,7 +392,9 @@ export function createHybridEngine(options: HybridEngineOptions): {runDriver: Se
   let bridge:KernelBridge|undefined,closer:TurnClosePort|undefined,consultations:SourceAnswersPort|undefined,api:any,gateway:OperationGateway|undefined;
   let current:{runId:string;inputRevision:string;rawInput:string}|undefined, model:any;
   let acceptedCapsule:Row|undefined;
-  const isolatedOutput=options.env.PI_COC_ISOLATED_OUTPUT==='1';
+  const turnPacketPrototype=options.env.PI_COC_TURN_PACKET_PROTOTYPE==='1';
+  const packetPrescreen=turnPacketPrototype&&options.env.PI_COC_PACKET_PRESCREEN==='1';
+  const isolatedOutput=turnPacketPrototype||options.env.PI_COC_ISOLATED_OUTPUT==='1';
   let runSignal:AbortSignal|undefined,closed=false;
   const queries=new Set<AbortController>();
   let steer:Row|undefined;
@@ -467,11 +471,14 @@ export function createHybridEngine(options: HybridEngineOptions): {runDriver: Se
     steer=undefined;
     api?.events.emit('coc:keeper-run',current);
     const owner=current,bound=bridge,operations=gateway;
+    if(packetPrescreen)record({lane:'continuous-turn',event:'owner_bound',run:context.runId,
+      decision:!!decision,bridge:!!bound?.call,campaign:bound?.campaign??null,operations:!!operations});
     const continuous=decision&&bound?.call&&bound.campaign&&operations?new ContinuousTurn({
       run:context.runId,inputRevision:context.inputRevision,playerText:context.rawInput,campaign:bound.campaign,decision,session:context.session,
-      call:(method,params)=>bound.call!(method,{...params,campaign:bound.campaign}),
+      call:async(method,params)=>object(await bound.call!(method,{...params,campaign:bound.campaign})),
       dispatch:(proposal,invocation)=>operations.dispatch(proposal,invocation),
-      current:()=>!closed&&current===owner&&bridge===bound&&gateway===operations,record}):undefined;
+      current:()=>!closed&&current===owner&&bridge===bound&&gateway===operations,record,
+      ...(packetPrescreen?{packet:true,...bound.playerContext?.()}:{})}):undefined;
     const policy={name:'single-keeper',version:'1',initial:()=>null,reduce:()=>null,next:(view:any):any=>{
       if(closer?.campaign===bridge?.campaign&&closer?.ended?.())return{kind:'finish',outcome:'undelivered',reason:'input_ended'};
       if(view.pendingProposals.length)return{kind:'operate',proposals:view.pendingProposals,reason:'keeper_tools'};
@@ -479,6 +486,8 @@ export function createHybridEngine(options: HybridEngineOptions): {runDriver: Se
       if(continuous&&!continuous.prepared)return{kind:'operate',proposals:[{origin:'policy',operation:'continuous_prepare'}],reason:'current_turn_options'};
       if(continuous?.batch&&!continuous.decided)return{kind:'decide',purpose:'continuous_turn',question:continuous.batch,reason:'bounded_turn_choices'};
       if(continuous?.selected.length&&!continuous.executed)return{kind:'operate',proposals:[{origin:'policy',operation:'continuous_apply'}],reason:'execute_selected_choices'};
+      if(continuous?.routineReady&&!continuous.published&&operations?.publishRoutine)
+        return{kind:'operate',proposals:[{origin:'policy',operation:'continuous_publish'}],reason:'publish_routine_travel'};
       const last=view.lastObservation;
       if(last?.kind==='infer'){
         if(last.status!=='ok')return{kind:'finish',outcome:'failed',reason:'keeper_failed'};
@@ -493,6 +502,7 @@ export function createHybridEngine(options: HybridEngineOptions): {runDriver: Se
       clock:options.clock?{now:()=>options.clock!.now()}:{now:options.now??Date.now},
       ...(continuous?{decision:{decide:async(invocation:any)=>{
         const result=await continuous.decide(invocation.signal);
+        if(packetPrescreen&&continuous.prescreen)api?.events.emit('coc:keeper-run',{...current,signal:invocation.signal,prescreen:continuous.prescreen});
         return{status:result?.status==='complete'?'ok' as const:'unavailable' as const,artifact:result};
       }}}:{}),
       operations:{executeBatch:async(proposals,invocation)=>{
@@ -503,18 +513,27 @@ export function createHybridEngine(options: HybridEngineOptions): {runDriver: Se
       },execute:async(proposal,invocation)=>{
         if(proposal.operation==='continuous_prepare'&&continuous){
           await continuous.prepare(invocation.signal);
+          // The packet needs the same candidate material, not a speculative second action decision.
+          if(turnPacketPrototype&&!packetPrescreen)continuous.decided=true;
           return{status:'ok',artifact:{kind:'continuous_turn',candidates:continuous.candidates.length}};
         }
         if(proposal.operation==='continuous_apply'&&continuous){
           const outcome=await continuous.execute(invocation.signal,invocation.stepId);
           return{status:outcome.status==='succeeded'?'ok':'refused',artifact:{kind:'continuous_turn',...outcome}};
         }
+        if(proposal.operation==='continuous_publish'&&continuous&&operations?.publishRoutine){
+          continuous.published=true;
+          const result=await operations.publishRoutine(context.runId,invocation.signal);
+          return{status:result.details.published===true?'ok':'refused',
+            ...(result.details.published===true?{delivery:DELIVERY_VERBS.output}:{}),artifact:{kind:'continuous_publication',published:result.details.published===true}};
+        }
         if(proposal.origin==='model'&&invocation.executeModelTool){
           api?.events.emit('coc:model-step',{run:context.runId,step:invocation.stepId,toolCallId:proposal.toolCall?.id,purpose:'adjudicate'});
           const toolResult=await invocation.executeModelTool();
           const details=object(toolResult.details);
           return{status:toolResult.isError?'refused':'ok',toolResult,
-            ...(!toolResult.isError&&details.state==='asked'?{delivery:'awaiting_player' as const}:{})};
+            ...(!toolResult.isError&&proposal.operation==='output'&&details.published===true?{delivery:DELIVERY_VERBS.output}
+              :!toolResult.isError&&details.state==='asked'?{delivery:'awaiting_player' as const}:{})};
         }
         if(proposal.operation!=='turn_close')return{status:'refused',reason:'unknown_operation'};
         const verdict=object(await closer?.verdict());
@@ -579,11 +598,11 @@ export function createHybridEngine(options: HybridEngineOptions): {runDriver: Se
         }
         messages.push({role:'custom',customType:'coc-host',display:false,timestamp:Date.now(),details:{coc_host:true,scope:'turn',campaign:bridge?.campaign,turn},content:
           (isolatedOutput?'You are the Keeper and content planner.':'You are the sole Keeper and author.')+' Use current state, actual dialogue, relevant evidence and each character\'s own knowledge. Choose and execute necessary rules through resolve/apply; never invent a roll or replace the player\'s action. Read missing material when needed. Ordinary speech needs no attempted task. Continue playable conversation through minor discrepancies; clarify naturally later. '
-          +'look and lookup read evidence; they never move people. Party travel needs an apply move effect; NPC movement needs an npc effect. Wait for the result before describing arrival. Compare location, clock, ownership and settled receipts with prior prose; reconcile only an earlier missed action the player actually chose, once through existing effects. Never execute unchosen actions, infer state changes from prose, repeat settled effects or charge journey time twice. '
+          +(turnPacketPrototype?'look and lookup read evidence; they never move people. Routine party travel uses the private move command below; the host compiles and settles it before publication. NPC presence uses an npc command in that same packet. Never repeat settled effects, execute unchosen actions or charge journey time twice. ':'look and lookup read evidence; they never move people. Party travel needs an apply move effect; NPC movement needs an npc effect. Wait for the result before describing arrival. Compare location, clock, ownership and settled receipts with prior prose; reconcile only an earlier missed action the player actually chose, once through existing effects. Never execute unchosen actions, infer state changes from prose, repeat settled effects or charge journey time twice. ')
           +'A pure OOC/reference question pauses fiction: answer without apply/resolve or elapsed-time writes. A current pause or stop takes precedence over an earlier unfinished action. Discuss suspected omissions without executing them during the pause; earlier prose does not authorize an invented clock correction. Host-issued owed reconciliation is separate. '
           +'Reference replies are still player-facing. Unless the player explicitly requests spoilers, explain source or progress gaps using only already played information; never quote a private synopsis, secret identity, motive or future event as justification. Consulting a source does not authorize disclosing it. OOC exposure never grants character knowledge. '
           +'For cash, identify whose purse changes and who gives money to whom before choosing delta. Positive delta enters subject\'s purse; negative delta leaves it. Returning an advance to its payer is negative for the investigator; receiving a merchant\'s refund is positive. source found identifies the amount\'s origin, not income. Check the proposed direction against the actual chosen transfer before applying it. '
-          +(isolatedOutput?'Settle actual changes and event records through the existing apply/resolve tools before writing dependent prose. Read each actual result, correct a refused proposal through those tools, and continue the still-selected dependent actions without replaying settled effects. Do not place outstanding effects or event parameters in a final response. ':SAME_KEEPER_OUTPUT_GUIDANCE+' ')+(isolatedOutput?'After settlement, return {{compose}} followed by one private JSON expression brief: {"keeper_only":["Keeper judgement or background not selected for this reply"],"scene":"current scene","narrative_content":["selected story point"],"npc_turns":[{"speaker":"public name","intent":"what this reply should communicate and achieve","personality":null,"emotion":null}]}. Give meanings, personality and current feeling, not finished dialogue or authoring rules. Optional writing contains writing preferences only. A fresh isolated DeepSeek author chooses the words; your brief is private. For pure OOC use {{reference}} followed by your direct answer. No coverage checklist or posterior correction. Never place a composition beside tool calls. ':'Begin your complete final public prose with {{public}}; for pure OOC begin with {{reference}} without state changes. No code fences, invented changes or required event for unchanged conversation. The existing private record transport above is available when a bounded write accompanies this reply. Future intentions use planned; ordinary speech is not an attempted task. No second author, output tool, material handoff or coverage checklist. Never put public markers or story text beside tool calls. ')
+          +(turnPacketPrototype?TURN_PACKET_GUIDANCE:(isolatedOutput?'Settle actual changes and event records through the existing apply/resolve tools before writing dependent prose. Read each actual result, correct a refused proposal through those tools, and continue the still-selected dependent actions without replaying settled effects. Do not place outstanding effects or event parameters in a final response. ':SAME_KEEPER_OUTPUT_GUIDANCE+' ')+(isolatedOutput?'After settlement, return {{compose}} followed by one private JSON expression brief: {"keeper_only":["Keeper judgement or background not selected for this reply"],"scene":"current scene","narrative_content":["selected story point"],"npc_turns":[{"speaker":"public name","intent":"what this reply should communicate and achieve","personality":null,"emotion":null}]}. Give meanings, personality and current feeling, not finished dialogue or authoring rules. Optional writing contains writing preferences only. A fresh isolated DeepSeek author chooses the words; your brief is private. For pure OOC use {{reference}} followed by your direct answer. No coverage checklist or posterior correction. Never place a composition beside tool calls. ':'Begin your complete final public prose with {{public}}; for pure OOC begin with {{reference}} without state changes. No code fences, invented changes or required event for unchanged conversation. The existing private record transport above is available when a bounded write accompanies this reply. Future intentions use planned; ordinary speech is not an attempted task. No second author, output tool, material handoff or coverage checklist. Never put public markers or story text beside tool calls. '))
           +'For apply npc.name, resolve action.actor, event speaker/audience, knowledge actor/source and relationship actor/toward, use the NPC\'s supplied current view.id semantic handle; private refusal candidates[].name supplies such tool handles, while display_name is a display label. Investigators keep registered names. Public prose and say tags use the permitted display label, never the operational handle. An existing person is not a new walk-on. '
           +(isolatedOutput?'Before recording prospective speech, select the NPC message responding to the current player input. Put the chosen message and conversational aim in intent. Use keeper_only for adjudication, background boundaries and reasons the character is not choosing to tell the listener now. Narrative content carries the selected visible scene and actions. When selected public content depends on a settled result, include the actual relevant public outcome, including an agreed price if communicating it. The spending cap is not the agreed price. Do not hide a necessary public result only in keeper_only or turn an already paid arrangement into a new offer. For prospective replies, speech material.text contains intended meaning rather than finished wording. The isolated author chooses the actual words. Unexpressed or changed prospective heard facts remain pending; do not treat intended words as already heard. Already acquired player-input knowledge omits a future material binding; source is its actual speaker and actor is its actual hearer. ':'For prospective heard knowledge, speech material.text contains the exact public words you will use; choose them once and reuse those words verbatim inside the actual speaker\'s say span. Do not treat bound speech as a semantic brief to paraphrase later. Unspoken or changed words stay pending without stopping prose. Already acquired player-input knowledge omits a future material binding; source is its actual speaker and actor is its actual hearer. ')
           +'Use the play language and {{say:Public Name}}...{{/say}} for NPC speech. Do not repeat the player\'s question merely to fill space. Public text contains no private plans, unrevealed facts or backstage explanation; NPCs do not know everything you know.'});
@@ -602,10 +621,10 @@ export function createHybridEngine(options: HybridEngineOptions): {runDriver: Se
     pi.events.on('coc:source-answers',(value:SourceAnswersPort)=>{consultations=value;});
     const announce=()=>{
       pi.events.emit('coc:turn-decision-port',decision);
-      pi.events.emit('coc:loop-engine',{engine:'hybrid-v1',prescreen:'run',singleKeeper:true,isolatedOutput});
+      pi.events.emit('coc:loop-engine',{engine:'hybrid-v1',prescreen:'run',singleKeeper:true,isolatedOutput,turnPacketPrototype,packetPrescreen});
     };
     const refresh=(_event:any,ctx:any)=>{model=ctx?.model;announce();};
-    announce();pi.on('session_start',refresh);pi.on('before_agent_start',(event:any,ctx:any)=>{refresh(event,ctx);if(!isolatedOutput&&typeof event.systemPrompt==='string')return{systemPrompt:sameKeeperSystemPrompt(event.systemPrompt)};});
+    announce();pi.on('session_start',refresh);pi.on('before_agent_start',(event:any,ctx:any)=>{refresh(event,ctx);if(typeof event.systemPrompt==='string'){if(turnPacketPrototype)return{systemPrompt:turnPacketSystemPrompt(event.systemPrompt)};if(!isolatedOutput)return{systemPrompt:sameKeeperSystemPrompt(event.systemPrompt)};}});
     pi.on('session_shutdown',()=>{closed=true;bindMemorySearch();});
   };
   return{runDriver,extension,bridge:()=>bridge,keeperCallCapMs:async()=>{

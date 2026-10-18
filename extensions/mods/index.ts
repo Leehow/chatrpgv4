@@ -133,11 +133,15 @@ export default function modsExtension(pi: ExtensionAPI): void {
   pi.events.on("coc:session-bound", value => { language = (value as any)?.play_language; });
   let record: ((row: Record<string, unknown>) => void) | undefined;
   pi.events.on("coc:kernel-bridge", (data) => {
-    if ((data as any)?.call !== call) {equipmentWork = undefined; equipmentAgain = false;}
+    if ((data as any)?.call !== call || (data as any)?.runtime !== runtime) {
+      equipmentWork = undefined; equipmentAgain = false;
+      cancelOptional();
+    }
     call = (data as any)?.call; runtime = (data as any)?.runtime; mintCallId = (data as any)?.mintCallId;
     record = (data as any)?.record;
   });
   pi.on("session_start", async (_event, ctx) => {
+    cancelOptional();
     context = ctx; stopped = false;
     if (boundCampaign) recoverDetails(boundCampaign);
     if (boundCampaign) prepareEquipment(boundCampaign);
@@ -154,23 +158,23 @@ export default function modsExtension(pi: ExtensionAPI): void {
   function prepareEquipment(campaign: string): void {
     if (stopped || !call || !runtime || !context) return;
     if (equipmentWork) {equipmentAgain = true; return;}
-    const current = call, owner = runtime;
+    const current = call, owner = runtime, signal = optionalController.signal;
     const work = (async()=>{
       await new Promise<void>(resolve=>setImmediate(resolve));
-      if (stopped || current !== call || owner !== runtime) return;
+      if (stopped || signal.aborted || current !== call || owner !== runtime) return;
       const prepared = await current('mods.equipment.prepare',{campaign});
-      if (stopped || current !== call || owner !== runtime) return;
+      if (stopped || signal.aborted || current !== call || owner !== runtime) return;
       if (prepared.jobs?.length) void emitToPanel('coc-keeper','sheet-changed');
       for (const job of prepared.jobs ?? []) {
-        if (stopped || current !== call || owner !== runtime || owner.signal?.aborted) break;
+        if (stopped || signal.aborted || current !== call || owner !== runtime || owner.signal?.aborted) break;
         try {
-          await task(campaign,'create',job.input,owner.signal,undefined,undefined,undefined,{job});
-          if (stopped || current !== call || owner !== runtime) break;
+          await task(campaign,'create',job.input,signal,undefined,undefined,undefined,{job,priority:'background'});
+          if (stopped || signal.aborted || current !== call || owner !== runtime) break;
           const result = await current('mods.equipment.publish',{campaign,job:job.job});
           if (result.status === 'ready') warm(campaign,[{actor:result.actor,name:result.name}]);
           note({lane:'equipment-preparation',campaign,job:job.job,status:result.status});
         } catch(error) {
-          if (stopped || current !== call || owner !== runtime || owner.signal?.aborted) break;
+          if (stopped || signal.aborted || current !== call || owner !== runtime || owner.signal?.aborted) break;
           await current('mods.equipment.fail',{campaign,job:job.job,code:isKernelError(error)?error.code:'preparation_failed'});
           note({lane:'equipment-preparation',campaign,job:job.job,status:'failed',code:isKernelError(error)?error.code:'preparation_failed'});
         }
@@ -369,7 +373,7 @@ export default function modsExtension(pi: ExtensionAPI): void {
           // process safety ceiling.
           tools: 'read,write,edit,bash', audit: {control}, timeoutMs: limits.timeoutMs,
           // §37.11.1: after delivery the player is not waiting on this review; its thinking gets the post-delivery floor.
-          ...(post ? {afterDelivery: true} : {}),
+          ...(post ? {afterDelivery: true, priority:'background' as const} : {}),
           eventLog: join(job.cwd, `audit-agent-${ordinal}.jsonl`),
           onEvent(event) {
             if (event.type === 'message_end' && (event.message as any)?.role === 'assistant' &&
@@ -468,7 +472,8 @@ export default function modsExtension(pi: ExtensionAPI): void {
    * `options.post` runs an audit after its delivery closed (§130).
    */
   async function task(campaign: string, role: "create" | "usage" | "audit", input: unknown, signal?: AbortSignal, preview?: Record<string, any>[], guard?: () => Promise<void>, providerBudget?: TaskProviderBudget,
-    options: {job?: any; onJob?: (job: any) => void; post?: PostReview} = {}): Promise<any> {
+    options: {job?: any; onJob?: (job: any) => void; post?: PostReview; priority?: 'foreground'|'background'} = {}): Promise<any> {
+    signal?.throwIfAborted();
     if (!call) throw new KernelError({code:"needs",message:"Mod kernel bridge is unavailable"});
     const current = call, owner = runtime, began = Date.now();
     const proposal = role === 'usage' && (input as any)?.propose === true;
@@ -482,6 +487,7 @@ export default function modsExtension(pi: ExtensionAPI): void {
     if (job.continuity_review) return continuityTask(campaign, job, input, began, signal, providerBudget, options.post);
     if (job.accepted) {
       await guard?.();
+      signal?.throwIfAborted();
       const result = await current(acceptMethod, {campaign, job:job.job, ...afterDelivery});
       if (role === "usage") signal?.throwIfAborted();
       return result;
@@ -513,7 +519,9 @@ export default function modsExtension(pi: ExtensionAPI): void {
       // either way, and then the original failure continues on its way.
       try {
         await guard?.();
+        signal?.throwIfAborted();
         outcome = await owner.runTask({kind:"mod", request:{providerBudget, cwd:job.cwd, systemPrompt:job.system_prompt, model:modelName,
+          priority:options.priority ?? (proposal || options.post ? 'background' : 'foreground'),
           tools:job.equipment || job.source_review || role === "usage" ? "read,write,edit,bash" : "read,write,edit",
           eventLog:join(job.cwd, `agent-${attempt}.jsonl`), brief:base + repair}}, signal);
       }
@@ -526,7 +534,7 @@ export default function modsExtension(pi: ExtensionAPI): void {
       agentRow({campaign, role, attempt, ok:outcome.ok === true, ms:outcome.ms ?? Date.now() - began, timed_out:outcome.timedOut === true,
         ...(ranWith(outcome) ? {model:ranWith(outcome)} : {}),
         ...(outcome.ok ? {} : {reason:outcome.timedOut ? "timeout" : "failed", detail:String(outcome.error ?? outcome.stderr ?? "").slice(0, 200)})});
-      if (role === "usage") signal?.throwIfAborted();
+      signal?.throwIfAborted();
       // Which agent ran out of time decides what the Keeper can do about it, and the roles want
       // opposite things: a creator's batch is too big, an auditor's turn is not. A refusal that does
       // not carry the role can only guess, and guessing sent the Keeper to trim `define` effects on
@@ -544,7 +552,7 @@ export default function modsExtension(pi: ExtensionAPI): void {
           if (!check.ok) throw new Error(JSON.stringify(check.fix ? {error: check.error, fix: check.fix} : check.error ?? check));
         }
         await guard?.();
-        if (role === "usage") signal?.throwIfAborted();
+        signal?.throwIfAborted();
         if(role==='create'&&owner.home){
           const draft=JSON.parse(await readFile(join(job.cwd,'result.json'),'utf8')),document=draft?.document;
           if(document&&typeof document.handout==='string'&&['map','image'].includes(document.presentation)){
@@ -569,6 +577,7 @@ export default function modsExtension(pi: ExtensionAPI): void {
             });
           }
         }
+        signal?.throwIfAborted();
         const result = await current(acceptMethod, {campaign, job:job.job, ...afterDelivery});
         if (role === "usage") signal?.throwIfAborted();
         return result;
@@ -618,7 +627,7 @@ export default function modsExtension(pi: ExtensionAPI): void {
    * make resumes from what is already done instead of paying for it twice.
    */
   async function materialize(campaign: string, defines: Record<string, any>[], signal?: AbortSignal, previews: (Record<string, any>[] | undefined)[] = [], providerBudget?: TaskProviderBudget,
-    prepared: any[] = []): Promise<void> {
+    prepared: any[] = [], priority?: 'foreground'|'background'): Promise<void> {
     // The kernel keys a job by its request, so two identical defines in one batch are one job directory.
     // Serially the second used to find the first already accepted; together they would race over the same
     // `result.json`, so they are folded here and share the one run. Usage jobs include the private staged
@@ -636,7 +645,7 @@ export default function modsExtension(pi: ExtensionAPI): void {
       for (let slot = next++; slot < total; slot = next++) {
         const index = jobs[slot];
         try { results[index] = await task(campaign, defines[index].kind === "usage" ? "usage" : "create", inputs[index], signal, previews[index], undefined, providerBudget,
-          prepared[index] ? {job: prepared[index]} : {}); }
+          {...(prepared[index] ? {job: prepared[index]} : {}), priority}); }
         catch (error) { failures[index] = error; }
         announce(campaign, ++done, total, jobs.map(index => defines[index]));
       }
@@ -747,15 +756,15 @@ export default function modsExtension(pi: ExtensionAPI): void {
    * what `mods.queued` reports as unfinished at the next resume, which starts it here again.
    */
   function beside(campaign: string, inputs: Record<string, any>[]): void {
-    const batch = inputs.map(input => ({kind:"define", ...input}));
-    const prior = outstanding, current = call;
+    const batch: Record<string,any>[] = inputs.map(input => ({kind:"define", ...input}));
+    const prior = outstanding, current = call, signal = optionalController.signal;
     const work = (async () => {
       if (prior) await prior.catch(() => undefined);
-      if (stopped || call !== current) return;
+      if (stopped || signal.aborted || call !== current) return;
       // A batch with a failed member attaches nothing; its landed siblings are written, and announced, by
       // the next resume, which finds their jobs accepted.
-      await materialize(campaign, batch, undefined).catch(() => undefined);
-      if (stopped || call !== current) return;
+      await materialize(campaign, batch, signal, [], undefined, [], 'background').catch(() => undefined);
+      if (stopped || signal.aborted || call !== current) return;
       announceDetails(campaign, batch.filter(effect => effect._definition)
         .map(effect => ({name: String(effect.name), definition: "ready", object: publicDefinition(effect._definition)})));
     })().finally(() => { if (outstanding === work) outstanding = undefined; });
@@ -765,19 +774,19 @@ export default function modsExtension(pi: ExtensionAPI): void {
   /** Recover card details without opening or mutating a player turn. */
   function recoverDetails(campaign: string): void {
     if (!call || outstanding) return;
-    const current = call;
+    const current = call, signal = optionalController.signal;
     const work = (async () => {
       const queued = await current('mods.queued', {campaign, details_only: true});
-      if (stopped || call !== current) return;
+      if (stopped || signal.aborted || call !== current) return;
       const landed = (queued.effects ?? []).filter((effect: any) => effect.kind === 'define' && effect._definition);
       announceDetails(campaign, landed.map((effect: any) => ({name: String(effect.name), definition: 'ready', object: publicDefinition(effect._definition)})));
       const batch = (queued.unfinished ?? []).map((input: any) => ({kind: 'define', ...input}));
       if (!batch.length) return;
-      await materialize(campaign, batch, undefined).catch(() => undefined);
-      if (stopped || call !== current) return;
+      await materialize(campaign, batch, signal, [], undefined, [], 'background').catch(() => undefined);
+      if (stopped || signal.aborted || call !== current) return;
       // A failed sibling cannot keep an independently accepted detail spinning until another input.
       const completed = await current('mods.queued', {campaign, details_only: true});
-      if (stopped || call !== current) return;
+      if (stopped || signal.aborted || call !== current) return;
       announceDetails(campaign, (completed.effects ?? []).filter((effect: any) => effect.kind === 'define' && effect._definition)
         .map((effect: any) => ({name: String(effect.name), definition: 'ready', object: publicDefinition(effect._definition)})));
     })().catch(error => {
@@ -823,8 +832,7 @@ export default function modsExtension(pi: ExtensionAPI): void {
       define._queued=plan.job;define._provenance={mod:plan.mod,digest:plan.digest};define._identity_defer=true;
       objects[0]._identity_defer=true;deferred.add(define);work.push({kind:'define',...plan.input});optionalAttempts.add(String(plan.job));
     }
-    if(work.length){const prior=outstanding;outstanding=(async()=>{if(prior)await prior.catch(()=>undefined);
-      await materialize(campaign,work,undefined).catch(()=>undefined);})().finally(()=>{outstanding=undefined;});}
+    if(work.length) beside(campaign,work.map(({kind,...input})=>input));
     return deferred;
   }
 
@@ -894,6 +902,10 @@ export default function modsExtension(pi: ExtensionAPI): void {
   }
 
   let warming: Promise<void> | undefined;
+  let optionalController = new AbortController();
+  function cancelOptional(): void {
+    optionalController.abort();optionalController = new AbortController();warming = undefined;outstanding = undefined;
+  }
   /**
    * A document's reading is generated the first time somebody opens the paper, which is what the page
    * spends its seconds unfolding. The reading is already kept on disk by content, so that wait is only
@@ -902,22 +914,26 @@ export default function modsExtension(pi: ExtensionAPI): void {
    */
   function warm(campaign: string, papers: {actor: string; name: string}[]): void {
     if (!papers.length || !call || !runtime) return;
-    const current = call, owner = runtime, prior = warming;
+    const current = call, owner = runtime, prior = warming, signal = optionalController.signal;
+    const active = () => !stopped && !signal.aborted && current === call && owner === runtime;
     const model = context?.model, modelName = model ? `${model.provider}/${model.id}` : undefined;
     const thinking = context?.thinkingLevel;
-    warming = (async () => {
+    const task = (async () => {
       if (prior) await prior.catch(() => undefined);
       for (const paper of papers) {
+        if (!active()) return;
         try {
           const view: any = await current("mods.document.view", {campaign, actor: paper.actor, name: paper.name});
+          if (!active()) return;
           if (typeof view?.text !== "string" || typeof view?.original !== "string") continue;
-          // No signal: this outlives the tool call that triggered it, exactly like deferred registration.
-          await presentDocument({home: owner.home, owner, resourceRoot: owner.resourceRoot, model: modelName, thinking,
+          // It outlives the triggering tool, but never its owning session/runtime.
+          await presentDocument({home: owner.home, owner, resourceRoot: owner.resourceRoot, model: modelName, thinking, priority:'background', signal,
             runner: request => owner.runTask({kind: "mod", request}, request.signal)}, view);
         }
         catch { /* A reading is a projection: losing one costs the first open its wait and nothing else. */ }
       }
-    })().finally(() => { warming = undefined; });
+    })().finally(() => { if (warming === task) warming = undefined; });
+    warming = task;
   }
 
   /** The verdict a report carries; a report without a continuity verdict is judged by what it found. */
@@ -1090,6 +1106,7 @@ export default function modsExtension(pi: ExtensionAPI): void {
   pi.events.emit("coc:mods-bridge", bridge);
   pi.on("session_shutdown", async () => {
     stopped = true;
+    cancelOptional();
     cancelPrefetch();
     if (context?.hasUI) context.ui.setStatus("coc-mods", undefined);
     context = undefined;

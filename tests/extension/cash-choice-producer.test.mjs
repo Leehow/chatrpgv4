@@ -93,7 +93,7 @@ test('a choice produced by cash refusal and ask reaches one payment through its 
     const engine=createHybridEngine({env:{},decision:{decide:async batch=>{
         if(batch.family==='continuous-action-admission')reviews++;
         const answers=Object.fromEntries(batch.questions.map(question=>{
-            if(question.type==='noul')return [question.key,{type:'noul',status:'answered',noul:question.key.startsWith('cash_input_')?.01:question.key.startsWith('cash_offer_')?(accepted?.99:.01):.99}];
+            if(question.type==='noul')return [question.key,{type:'noul',status:'answered',noul:question.key.startsWith('restriction_')?.01:question.key.startsWith('cash_input_')?.01:question.key.startsWith('cash_offer_')?(accepted?.99:.01):.99}];
             const values=Object.keys(question.criteria),choice=values.includes('later')?'later':values.includes('unknown')?'unknown':values[0];
             return [question.key,{type:'choice',status:'answered',choice,confidence:.99,
                 probabilities:Object.fromEntries(values.map(value=>[value,value===choice?.99:.01/(values.length-1)]))}];

@@ -18,6 +18,21 @@ const promptText=context=>context.messages.filter(row=>row.role==='user').flatMa
   .filter(block=>block.type==='text').map(block=>block.text).join('\n');
 const outcomeRows=table=>table.telemetry().filter(row=>row.lane==='memory'&&typeof row.ok==='boolean');
 
+test('output exhaustion changes only the existing second attempt and cannot add a third',{timeout:10000},async t=>{
+ for(const succeeds of [true,false]){
+  const fails=[],submits=[],length=()=>fauxAssistantMessage([{type:'thinking',thinking:'A bounded private scratch.'}],{stopReason:'length'});
+  const table=await openTable({env:{PI_COC_MEMORY_BACKFILL:'0'},laneResponses:{memory:[length(),succeeds?fauxAssistantMessage('{"candidates":[]}'):length()]}});
+  table.emit('coc:kernel-bridge',{campaign:'test-camp',call:async(method,params)=>{
+   if(method==='memory.job')return packet(1);
+   if(method==='memory.fail')fails.push(params);if(method==='memory.submit')submits.push(params);return{};
+  }});
+  table.emit('coc:turn-committed',{campaign:'test-camp',turn:1});await waitFor(()=>outcomeRows(table).length===1);
+  assert.equal(table.telemetry().filter(row=>row.lane==='lane-call'&&row.phase==='start'&&row.subsession==='memory').length,2);
+  assert.deepEqual(table.telemetry().filter(row=>row.event==='output_room').map(row=>[row.previous_limit,row.next_limit,row.attempt]),[[8192,16384,1]]);
+  assert.equal(submits.length,succeeds?1:0);assert.equal(fails.length,succeeds?0:1);await table.dispose();
+ }
+});
+
 test('malformed attempts retain bounded private stages without changing retries, submits or outage accounting',{timeout:20000},async t=>{
   const badCandidates=JSON.stringify({marker:privateMarker,candidates:privateMarker+'é'.repeat(600)});
   const badStory=JSON.stringify({candidates:[candidate],story:{marker:privateMarker,padding:'é'.repeat(600)}});

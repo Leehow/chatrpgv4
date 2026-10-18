@@ -149,7 +149,7 @@ export function interpretConsequenceResult(candidates: readonly ConsequenceCandi
   const out: ConsequenceRow[] = [];
   for (const candidate of candidates) {
     if (!candidate.noul) { out.push({class: candidate.consequenceClass, key: candidate.key, cleared: true, confidence: null, distribution: null, direct: true}); continue; }
-    const index = rows.indexOf(candidate);
+    const index = rows.findIndex(row=>row===candidate);
     const p = complete && index >= 0 ? noulOf(result, consequenceAlias(index)) : undefined;
     const gate = noulClears(p, gateFor(candidate.consequenceClass));
     out.push({class: candidate.consequenceClass, key: candidate.key, cleared: gate === 'true',

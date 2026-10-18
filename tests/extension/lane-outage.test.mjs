@@ -45,6 +45,33 @@ const failure = (turn) => ({
 	detail: "memory.job unknown_entity: entity 'artifacts-two-cultures' is ambiguous",
 });
 
+test('a disposed owner cannot append telemetry or outage notices to the replacement session',async()=>{
+ const entries=[],events=new EventEmitter();events.on('coc:lane-status',value=>entries.push(value));
+ const telemetry=createLaneTelemetry({events,appendEntry:(...args)=>entries.push(args)},
+  {lane:'memory',modelEnv:'TEST_MODEL',cwd:()=>undefined});
+ for(let n=0;n<OUTAGE_STREAK;n++)await telemetry.record('old',failure(n));
+ assert.deepEqual(entries,[]);assert.equal(telemetry.outage,0);
+});
+
+test('deferred attempts, cancellations and pending semantic reviews are not outages',async t=>{
+ const h=await host(t,'voice');
+ for(let n=0;n<4;n++){
+  await h.telemetry.record('camp',{ok:false,reason:'lane_error',deferred:true});
+  await h.telemetry.record('camp',{ok:false,reason:'cancelled'});
+  await h.telemetry.record('camp',{ok:false,reason:'lane_error',pending_review:true});
+ }
+ assert.equal(h.telemetry.outage,0);assert.deepEqual(h.notices(),[]);
+ for(let n=0;n<OUTAGE_STREAK;n++)await h.telemetry.record('camp',failure(n));
+ assert.equal(h.notices().length,1,'actual terminal failures remain visible');
+});
+test('failure streaks of different campaigns cannot create each other\'s outage',async t=>{
+ const h=await host(t);
+ await h.telemetry.record('camp',failure(1));await h.telemetry.record('camp',failure(2));
+ await h.telemetry.record('other',failure(1));assert.deepEqual(h.notices(),[]);
+ await h.telemetry.record('camp',failure(3));assert.equal(h.notices().length,1);assert.equal(h.notices()[0].campaign,'camp');
+ await h.telemetry.record('other',{ok:true});assert.equal(h.notices().length,1);
+});
+
 test("a lane failing every turn is reported once, out of fiction, and not on its first blip", async (t) => {
 	const h = await host(t);
 	for (let turn = 0; turn < OUTAGE_STREAK - 1; turn += 1) await h.telemetry.record("camp", failure(turn));

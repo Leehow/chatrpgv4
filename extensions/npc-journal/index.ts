@@ -54,6 +54,13 @@ interface Entry {
 	/** §176.9: the words of the quote that are the name, given when the kernel asks because the quote carries none of the book's names as written. */
 	named_as?: string;
 }
+interface JournalDraft {entries:Entry[];model:string}
+type JournalFailure={ok:false;reason:string;detail:string;refusal?:string;retryable?:boolean;draft?:JournalDraft};
+/** One dispatch allowance, including its existing correction; configuration may only reduce it. */
+function journalDeadlineMs():number {
+ const configured=Number(process.env.PI_COC_NPCJOURNAL_TIMEOUT_MS);
+ return Number.isSafeInteger(configured)&&configured>0?Math.min(configured,30_000):30_000;
+}
 
 /** The job packet from `journal.job`; only the fields it lists are read, and nothing else reaches the prompt. */
 interface JobPacket {
@@ -252,8 +259,10 @@ export default function (pi: ExtensionAPI) {
 		call: KernelCall,
 		note: (row: Record<string, unknown>) => Promise<void>,
 		refusal?: string,
-	): Promise<{ ok: true; entries: number; model: string } | { ok: false; reason: string; detail: string; refusal?: string }> {
-		const lane = await runLane<Entry[]>({
+		remainingMs=30_000,
+		draft?:JournalDraft,
+	): Promise<{ ok: true; entries: number; model: string } | JournalFailure> {
+		const lane = draft?{ok:true as const,value:draft.entries,model:draft.model}:await runLane<Entry[]>({
 			ctx: scheduler.ctx as ExtensionContext,
 			envName: "PI_COC_NPCJOURNAL_MODEL",
 			// The four `lane: "lane-call"` rows this round leaves (contract §12.8.1) travel the job's own
@@ -263,11 +272,17 @@ export default function (pi: ExtensionAPI) {
 			systemPrompt: journalSystemPrompt(packet),
 			input: journalUserInput(packet, refusal),
 			signal: scheduler.signal,
+			timeoutMs: remainingMs,
 			shape: (parsed) => shapeJournalEntries(parsed, packet),
 		});
 		if (!lane.ok) {
-			return { ok: false, reason: lane.reason === "model_unavailable" ? "lane_error" : "model_error", detail: lane.detail };
+            const retryable=lane.reason==='bad_output'&&lane.reply?.stop_reason!=='length';
+            await note({lane:'journal-attempt',event:'generation_refused',turn:packet.turn,job_id:jobId,reason:lane.reason,
+                stop_reason:lane.reply?.stop_reason??null,retryable,remaining_ms:remainingMs});
+			return { ok: false, reason: ['model_unavailable','timeout'].includes(lane.reason) ? "lane_error" : "model_error", detail: lane.detail,retryable,
+                ...(retryable?{refusal:'The prior artifact was invalid: '+lane.detail.slice(0,400)+'. Correct the declared JSON shape using the same source.'}:{}) };
 		}
+        if(draft)await note({lane:'journal-attempt',event:'draft_reused',turn:packet.turn,job_id:jobId,model_calls:0});
 		try {
 			await call("journal.submit", { campaign, job_id: jobId, entries: lane.value,
                 ...(packet.protocol==="journal-reference-v2"?{protocol:packet.protocol,selection_binding:packet.selection_binding}:{}) });
@@ -282,12 +297,14 @@ export default function (pi: ExtensionAPI) {
 				reason: code === "invalid_params" ? "invalid" : "lane_error",
 				detail: `${code ?? "internal"}: ${errorText(error)}`,
 				...(code === "invalid_params" ? { refusal: [errorText(error), typeof fix === "string" && fix ? `Fix: ${fix.slice(0, 400)}` : ""].filter(Boolean).join("\n") } : {}),
+                ...(code!=='invalid_params'?{draft:{entries:lane.value,model:lane.model}}:{}),
 			};
 		}
 	}
 
 	async function runJob(job: LaneJob): Promise<void> {
 		const began = Date.now();
+        const deadlineAt=began+journalDeadlineMs();
 		// Every backfill telemetry row carries `backfill: true`: writing at the table and filling holes stay apart.
 		const note = (row: Record<string, unknown>) =>
 			record(job.campaign, { ...(job.backfill ? { backfill: true } : {}), ...row });
@@ -334,9 +351,11 @@ export default function (pi: ExtensionAPI) {
 			return;
 		}
 
-		let last: { ok: false; reason: string; detail: string; refusal?: string } | undefined;
+		let last: JournalFailure | undefined;
 		for (let tries = 0; tries < 2 && !scheduler.stopped; tries += 1) {
-			const outcome = await attempt(packet, jobId, job.campaign, current.call, note, last?.refusal);
+            const remaining=deadlineAt-Date.now();
+            if(remaining<=0){last={ok:false,reason:'lane_error',detail:'The journal job deadline expired',retryable:false};break;}
+			const outcome = await attempt(packet, jobId, job.campaign, current.call, note, last?.refusal,remaining,last?.draft);
 			if (outcome.ok) {
 				await note({
 					turn: packet.turn ?? job.turn,
@@ -350,6 +369,7 @@ export default function (pi: ExtensionAPI) {
 				return;
 			}
 			last = outcome;
+            if(outcome.retryable===false)break;
 		}
 		if (scheduler.stopped) return;
 		const failure = last ?? { reason: "lane_error", detail: "the lane never started" };

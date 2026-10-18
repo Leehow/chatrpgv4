@@ -470,7 +470,7 @@ for (const [label, review] of [
 		await completed(table);
 		assert.equal(table.calls("voice.submit").length, 0);
 		assert.equal(table.calls("voice.fail").length, label === "unavailable" ? 0 : 1);
-		assert.equal(table.tasks.length, label === "negative" ? 4 : label === "unavailable" ? 1 : 2);
+		assert.equal(table.tasks.length, label === "negative" ? 2 : 1);
 		if (label === "unavailable") assert.equal(table.rows()[0].deferred, true);
 	});
 }
@@ -575,6 +575,12 @@ test("a bounded Jev card verdict reaches publication and a rejected card receive
  assert.deepEqual(table.rows().filter(r=>r.reviewer==='jev').map(r=>r.status),['rejected','accepted']);
 });
 
+test('the compact decision author has no voice-card consumer and starts no unused preparation',async t=>{
+ const table=await openVoice(t,{env:{PI_COC_TURN_PACKET_PROTOTYPE:'1'},people:['steven-knott'],responses:[answer('hello','ordinary','uncertain')]});
+ table.commit(1);await settle(100);
+ assert.equal(table.calls('voice.job').length,0);assert.equal(table.tasks.length,0);
+});
+
 test("an uncertain typed review defers publication and reuses the same source-bound draft", async t => {
  const original=globalThis.fetch;let reviews=0,submitted=false;
  t.after(()=>{globalThis.fetch=original;});
@@ -587,13 +593,14 @@ test("an uncertain typed review defers publication and reuses the same source-bo
    if(method==='voice.job')return submitted?{job_id:null}:packet('steven-knott');
    if(method==='voice.submit'){submitted=true;return{};}
   }});
- await waitFor(()=>table.rows().some(r=>r.deferred)||submitted,{label:'typed review outcome'});
+ await waitFor(()=>table.rows().some(r=>r.pending_review)||submitted,{label:'typed review outcome'});
  assert.equal(submitted,false,'uncertainty cannot publish through a prose judge');
  assert.equal(table.tasks.length,1);
  assert.equal(table.voice.getPendingResponseCount(),1,'no generative fallback review');
- await waitFor(()=>submitted,{timeoutMs:22_000,label:'typed review retry'});
- assert.equal(table.tasks.length,1,'retry reviews the retained valid candidate');
- assert.equal(reviews,2);
+ table.commit(2);await settle(100);
+ assert.equal(submitted,false,'unchanged uncertainty remains pending');
+ assert.equal(table.tasks.length,1,'unchanged draft is not generated again');
+ assert.equal(reviews,1,'unchanged uncertainty is not judged again');
  assert.equal(table.calls('voice.fail').length,0);
 });
 
@@ -608,7 +615,22 @@ test("a changed source cannot reuse an unpublished voice candidate", async t => 
   if(method==='voice.job'){if(submitted)return{job_id:null};const p=packet('steven-knott');if(reviews)p.npc.voice='Speaks with formal reserve.';return p;}
   if(method==='voice.submit'){submitted=true;return{};}
  }});
- await waitFor(()=>table.rows().some(r=>r.deferred));
+ await waitFor(()=>table.rows().some(r=>r.pending_review));
  await waitFor(()=>submitted,{timeoutMs:22_000,label:'changed voice source reviewed'});
  assert.equal(table.tasks.length,2);assert.deepEqual(table.calls('voice.submit')[0].params.voice.exchanges,['welcome','changed','reserved']);
+});
+
+test("exhausted uncertain reviews stay pending without failing the card or reporting an outage",async t=>{
+ const original=globalThis.fetch;let reviews=0;
+ t.after(()=>{globalThis.fetch=original;});
+ globalThis.fetch=async(_url,options)=>{reviews++;const body=JSON.parse(options.body);return new Response(JSON.stringify({model:body.model,
+  answers:Object.fromEntries(Object.entries(body.questions).map(([key,q])=>[key,{type:q.type,noul:.5}])),usage:{input_tokens:100,output_tokens:1}}));};
+ const table=await openVoice(t,{sourceReferences:true,env:{EXT_JEV_APIKEY:'fixture-key'},responses:[answer('hello','ordinary','uncertain')],rpc:async(method,params)=>{
+  if(method==='voice.job')return params.exclude_jobs?.length?{job_id:null}:packet('steven-knott');
+ }});
+ await waitFor(()=>table.rows().some(r=>r.failed||r.pending_review&&!r.deferred),{timeoutMs:22_000,label:'bounded uncertain review outcome'});
+ assert.equal(reviews,1);assert.equal(table.tasks.length,1);assert.equal(table.calls('voice.submit').length,0);
+ assert.equal(table.calls('voice.fail').length,0,'uncertainty is not a defective card');
+ assert.ok(table.rows().some(r=>r.pending_review&&!r.deferred));
+ assert.ok(!table.rows().some(r=>r.event==='outage'));
 });

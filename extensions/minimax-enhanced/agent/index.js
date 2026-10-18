@@ -9,9 +9,16 @@ import {cacheStatistics} from '../../anthropic-cache/shared/policy.js';
 export { createMiniMaxHostLibrary } from './host.js';
 export function miniMaxStream(fallback = anthropicStream) {
   const search = nativeSearchStream(fallback, {api:'anthropic-messages',streamSimple:fallback,resume:true});
-  return (model, context, options) => model.api !== 'anthropic-messages'
-    ? getApiProvider(model.api).streamSimple(model,context,options)
-    : search({...model,compat:{...model.compat,allowEmptySignature:true}}, context, options);
+  return (model, context, options) => {
+    // Pi also dispatches raw ModelRegistry.complete through this registered simple stream.
+    // Preserve an explicit raw adaptive effort across that boundary; neutral callers keep precedence.
+    const adaptive=options?.reasoning===undefined&&options?.thinkingEnabled===true
+      &&['low','medium','high','xhigh','max'].includes(options?.effort);
+    const forwarded=adaptive?{...options,reasoning:options.effort}:options;
+    return model.api !== 'anthropic-messages'
+      ? getApiProvider(model.api).streamSimple(model,context,options)
+      : search({...model,compat:{...model.compat,allowEmptySignature:true}}, context, forwarded);
+  };
 }
 function recentTasks(ctx) {
   return (ctx.sessionManager?.getBranch?.() ?? []).filter(entry => entry.type === 'custom' && entry.customType === 'minimax-media')

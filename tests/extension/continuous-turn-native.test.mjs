@@ -10,7 +10,7 @@ import {createHybridEngine} from '../../runtime/jev/hybrid-engine.ts';
 
 function result(batch,select,confidence=.99){
     const answers=Object.fromEntries(batch.questions.map(question=>{
-        if(question.type==='noul')return[question.key,{status:'answered',type:'noul',noul:confidence}];
+        if(question.type==='noul')return[question.key,{status:'answered',type:'noul',noul:question.key.startsWith('restriction_')?1-confidence:confidence}];
         const choice=select(question);
         return[question.key,{status:'answered',type:'choice',choice,confidence,
             probabilities:Object.fromEntries(Object.keys(question.criteria).map(value=>[value,value===choice?confidence:(1-confidence)/(Object.keys(question.criteria).length-1)]))}];
@@ -86,10 +86,10 @@ test('the same uncertain record is not judged twice or exposed on correction',as
     assert.ok(table.telemetry().some(row=>row.lane==='admission'&&row.reused===true&&row.jev_calls===0));
 });
 
-test('an unavailable typed move keeps the existing non-arrival recovery and refusal ledger',async t=>{
+test('an uncertain typed move permits verified non-arrival prose and preserves its refusal ledger',async t=>{
     let correction='';
     const engine=createHybridEngine({env:{},decision:{decide:async batch=>
-        result(batch,selected,batch.family==='continuous-action-admission'?.5:.99)}});
+        result(batch,selected,batch.family==='continuous-action-admission'?.5:batch.family==='held-act-outcome'?.01:.99)}});
     const table=await openTable({legacyDeliveryFixtures:false,realKernel:true,prepareWorkspace:opened,env,
         runDriver:engine.runDriver,extraExtensions:[{name:'continuous',factory:engine.extension}],responses:[
             fauxAssistantMessage([fauxToolCall('apply',{effects:[{kind:'move',to:'Central Library'}]})],{stopReason:'toolUse'}),
@@ -98,12 +98,88 @@ test('an unavailable typed move keeps the existing non-arrival recovery and refu
     t.after(()=>table.dispose());
     await table.session.prompt('I go to the Central Library.');
     const turn=JSON.parse(readFileSync(join(table.workspace,'.coc/campaigns/test-camp/turns/0001.json'),'utf8'));
-    assert.deepEqual(turn.refused_moves,[{to:'Central Library',reason:'typed_admission_unavailable'}]);
-    assert.ok(correction.includes('do not narrate its effects as having happened'));
-    assert.ok(correction.includes('do not ask the player to say their action again'));
+    assert.deepEqual(turn.refused_moves,[{to:'Central Library',reason:'action_admission_uncertain'}]);
+    assert.ok(correction.includes('action_admission_uncertain'));
+    assert.ok(!correction.includes('The action review did not answer'));
     assert.equal(turn.receipts.filter(row=>row.kind==='move').length,0);
     assert.equal(turn.world.clock.minutes,0);
     assert.deepEqual(table.extensionErrors,[]);
+});
+
+test('a refused tool followed by false public success never exposes bytes, including after correction',async t=>{
+    let requests=0;
+    const engine=createHybridEngine({env:{},maxSteps:14,decision:{decide:async batch=>
+        result(batch,selected,batch.family==='continuous-action-admission'?.5:.99)}});
+    const table=await openTable({legacyDeliveryFixtures:false,realKernel:true,prepareWorkspace:opened,env,
+        runDriver:engine.runDriver,extraExtensions:[{name:'continuous',factory:engine.extension}],responses:[
+            ()=>{requests++;return fauxAssistantMessage([fauxToolCall('apply',{effects:[{kind:'move',to:'Central Library'}]})],{stopReason:'toolUse'});},
+            ()=>{requests++;return fauxAssistantMessage('{{public}}You arrive at the library and speak to the clerk.');},
+            ()=>{requests++;return fauxAssistantMessage('{{public}}You arrive at the library and speak to the clerk.');}
+        ]});
+    t.after(()=>table.dispose());
+    await table.session.prompt('I go to the Central Library.');
+    assert.equal(table.entries('coc-final-delivery').filter(frame=>frame.event==='delta').map(frame=>frame.delta).join(''),'');
+    assert.ok(table.telemetry().some(row=>row.event==='input_ended'&&row.cause==='held_act_unconfirmed'));
+    assert.equal(requests,3);
+});
+
+for(const probability of [.5,null])test(`uncertain or unavailable publication checking holds all bytes (${probability})`,async t=>{
+    const engine=createHybridEngine({env:{},decision:{decide:async batch=>{
+        if(batch.family==='held-act-outcome'&&probability===null)return{batchId:batch.id,status:'unavailable',answers:{},coverage:{required:[],answered:[],unknown:[]},issues:[]};
+        return result(batch,selected,batch.family==='continuous-action-admission'?.01:batch.family==='held-act-outcome'?probability:.99);
+    }}});
+    const table=await openTable({legacyDeliveryFixtures:false,realKernel:true,prepareWorkspace:opened,env,
+        runDriver:engine.runDriver,extraExtensions:[{name:'continuous',factory:engine.extension}],responses:[
+            fauxAssistantMessage([fauxToolCall('apply',{effects:[{kind:'move',to:'Central Library'}]})],{stopReason:'toolUse'}),
+            fauxAssistantMessage('{{public}}You arrive at the library.')
+        ]});
+    t.after(()=>table.dispose());await table.session.prompt('I stay here.');
+    assert.equal(table.entries('coc-final-delivery').filter(frame=>frame.event==='delta').length,0);
+    assert.ok(table.telemetry().some(row=>row.event==='input_ended'&&row.cause==='held_act_unconfirmed'));
+});
+
+test('independent settlement cannot clear refusal; a clean correction publishes and the next input resets it',async t=>{
+    let checks=0;
+    const clean='You wait beside the desk. You have not left for the library.';
+    const engine=createHybridEngine({env:{},decision:{decide:async batch=>{
+        if(batch.family==='held-act-outcome'){checks++;return result(batch,selected,batch.state.draft===clean?.01:.99);}
+        return result(batch,selected,batch.family==='continuous-action-admission'&&batch.state.proposal.kinds.includes('move')?.01:.99);
+    }}});
+    const table=await openTable({legacyDeliveryFixtures:false,realKernel:true,prepareWorkspace:opened,env,
+        runDriver:engine.runDriver,extraExtensions:[{name:'continuous',factory:engine.extension}],responses:[
+            fauxAssistantMessage([fauxToolCall('apply',{effects:[{kind:'time',minutes:2,why:'The selected short wait.'}]})],{stopReason:'toolUse'}),
+            fauxAssistantMessage([fauxToolCall('apply',{effects:[{kind:'move',to:'Central Library'}]})],{stopReason:'toolUse'}),
+            fauxAssistantMessage('{{public}}You arrive at the library.'),
+            fauxAssistantMessage('{{public}}'+clean),
+            fauxAssistantMessage('{{public}}Knott answers your question beside the desk.')
+        ]});
+    t.after(()=>table.dispose());await table.session.prompt('I wait here two minutes; I do not leave.');
+    const turn=JSON.parse(readFileSync(join(table.workspace,'.coc/campaigns/test-camp/turns/0001.json'),'utf8'));
+    assert.equal(turn.world.clock.minutes,2);assert.equal(turn.receipts.filter(row=>row.kind==='move').length,0);
+    assert.equal(turn.rendered_text,clean);assert.equal(checks,2);
+    await table.session.prompt('I stay here and ask Knott what he needs.');
+    assert.equal(checks,2,'a new input does not inherit the previous failure or add a check');
+});
+
+test('missing establishment route is corrected before consent and the repaired move lands once',async t=>{
+    let consent=0,checks=0;
+    const engine=createHybridEngine({env:{},decision:{decide:async batch=>{
+        if(batch.family==='continuous-action-admission')consent++;
+        if(batch.family==='held-act-outcome')checks++;
+        return result(batch,selected,batch.family==='held-act-outcome'?.01:.99);
+    }}});
+    const move={kind:'move',to:'Corner lodging house',establish:{summary:'A lodging house at the nearby corner.'},travel_minutes:3};
+    const table=await openTable({legacyDeliveryFixtures:false,realKernel:true,prepareWorkspace:opened,env,
+        runDriver:engine.runDriver,extraExtensions:[{name:'continuous',factory:engine.extension}],responses:[
+            fauxAssistantMessage([fauxToolCall('apply',{effects:[move]})],{stopReason:'toolUse'}),
+            context=>{assert.equal(consent,0);assert.ok(JSON.stringify(context.messages).includes('move_route_missing'));
+                return fauxAssistantMessage([fauxToolCall('apply',{effects:[{...move,via:'Walk along the public street to the corner.'}]})],{stopReason:'toolUse'});},
+            fauxAssistantMessage('{{public}}You enter the lodging house and greet the clerk.')
+        ]});
+    t.after(()=>table.dispose());await table.session.prompt('I walk to the corner lodging house along the street.');
+    const turn=JSON.parse(readFileSync(join(table.workspace,'.coc/campaigns/test-camp/turns/0001.json'),'utf8'));
+    assert.equal(consent,1,JSON.stringify(table.session.messages.filter(row=>row.role==='toolResult')));assert.equal(checks,1);
+    assert.equal(turn.receipts.filter(row=>row.kind==='move').length,1);assert.equal(turn.world.clock.minutes,3);
 });
 
 async function cashOpened(workspace){
@@ -155,7 +231,7 @@ test('requested NPC work carries elapsed time while the investigator stays clear
     const engine=createHybridEngine({env:{},decision:{decide:async batch=>{
         if(batch.family==='continuous-action-admission'){
             reviews++;assert.deepEqual(batch.state.proposal.kinds,['time']);
-            assert.equal(batch.questions.length,1);
+            assert.equal(batch.questions.length,2);
         }
         return result(batch,selected);
     }}});
@@ -177,6 +253,7 @@ test('an unchosen move beside requested NPC work refuses the entire atomic batch
     let reviews=0;
     const engine=createHybridEngine({env:{},decision:{decide:async batch=>{
         const answer=result(batch,selected);
+        if(batch.family==='held-act-outcome')answer.answers.held_result.noul=.01;
         if(batch.family==='continuous-action-admission'){
             reviews++;assert.deepEqual(batch.state.proposal.kinds,['time','move']);
             answer.answers.consent_1.noul=.01;
@@ -196,4 +273,19 @@ test('an unchosen move beside requested NPC work refuses the entire atomic batch
     assert.equal(turn.receipts.filter(row=>['time','move','npc'].includes(row.kind)).length,0);
     assert.deepEqual(turn.refused_moves,[{to:'Central Library',reason:'action_not_authorized'}]);
     assert.deepEqual(table.extensionErrors,[]);
+});
+
+test('an exact retry with canonical receipts discharges only its original failed operation',async t=>{
+ let requests=0;const engine=createHybridEngine({env:{},decision:{decide:async batch=>result(batch,selected,.99)}});
+ const effects=[{kind:'npc',name:'Steven Knott',to:'away',why:'The visitor leaves.'}];
+ const table=await openTable({legacyDeliveryFixtures:false,env:{...env,
+  FAKE_KERNEL_ERRORS:JSON.stringify({'table.apply':{code:'internal',message:'Injected pre-execution failure',retryable:true,next:'retry_same'}}),FAKE_KERNEL_ERRORS_ONCE:'1'},
+  runDriver:engine.runDriver,extraExtensions:[{name:'engine',factory:engine.extension}],responses:[
+   ()=>{requests++;return fauxAssistantMessage([fauxToolCall('apply',{effects})],{stopReason:'toolUse'});},
+   context=>{requests++;assert.equal(context.messages.filter(row=>row.role==='toolResult').at(-1)?.isError,true);return fauxAssistantMessage([fauxToolCall('apply',{effects})],{stopReason:'toolUse'});},
+   context=>{requests++;assert.equal(context.messages.filter(row=>row.role==='toolResult').at(-1)?.isError,false);return fauxAssistantMessage('{{public}}The visitor leaves.');}]});
+ t.after(()=>table.dispose());await table.session.prompt('I watch the visitor leave.');
+ assert.equal(requests,3);assert.deepEqual(table.extensionErrors,[]);
+ assert.ok(table.entries('coc-final-delivery').filter(row=>row.event==='delta').map(row=>row.delta).join('').includes('visitor'),JSON.stringify({frames:table.entries('coc-final-delivery'),tail:table.telemetry().slice(-10)}));
+ assert.ok(!table.telemetry().some(row=>row.event==='input_ended'&&row.cause==='held_act_unconfirmed'));
 });

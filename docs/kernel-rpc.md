@@ -47218,7 +47218,23 @@ One optional Jev selection plan may start per player input, within the existing 
 
 The history reader may reuse exact verified original responses only when the request is bound to an immutable `_snapshot` and the full read parameters and campaign/worldline scope match. Current transcript listings and all mutable world/NPC reads remain live. The cache is bounded, session-owned and excludes failed/unverified reads. It reduces repeated original hydration after a capsule refresh without treating a source snapshot or a recalled plan as current world truth.
 
-Voice-card semantic review remains a Jev decision. An uncertain/unavailable typed review does not invoke a generative judge and does not publish the candidate. Retain a valid writer artifact under its exact source identity for the existing bounded later review; a changed source invalidates that candidate. A definite typed rejection still owns the existing one reviewed repair. Memory extraction, NPC journal, first-sight advisory checks, voice writing and optional presentation stay on their existing background owners. Admission, settlement, required evidence and publication correctness do not move behind the public response.
+In the native source-reference runtime, voice-card semantic review remains a Jev decision. An uncertain/unavailable typed review does not invoke a generative judge and does not publish the candidate. Retain a valid writer artifact under its exact source identity for the existing bounded later review; a changed source invalidates that candidate. A definite typed rejection still owns the existing one reviewed repair. Memory extraction, NPC journal, first-sight advisory checks, voice writing and optional presentation stay on their existing background owners. Admission, settlement, required evidence and publication correctness do not move behind the public response.
+
+### 240.2 Background work ownership and reuse (owner 2026-10-17)
+
+Document warm-ups retain their own serial tail: completion of an earlier task cannot clear a later pending tail and allow overlapping warm-ups. Replacing the runtime/bridge or shutting down aborts optional warm-ups and prevents their queued document reads from starting under a stale owner. Cancellation never delays session shutdown.
+
+Optional deferred object definitions, recovered details, equipment preparation and usage proposals also declare background reader priority; required action preparation keeps foreground priority. Deferred identity preparation uses the same serial owner as other deferred definitions instead of clearing its tail unconditionally. These optional authors share session/runtime cancellation, checked before publication as well as before dispatch.
+
+Memory extraction retains the initial 8192-token ceiling. Only a structurally observed output-limit failure (`reply.stop_reason: length`) may give its existing second attempt 16384 tokens of room, including reasoning. The first fixed-16K trial also retained a 113256 ms length failure, so widening every initial request is not a repair. Malformed-shape repair keeps its usual ceiling and feedback; there is no third attempt. The completion option and actual bounded payload use the same ceiling, limited by model capacity and any smaller existing payload cap. Provider reservations account for that ceiling before dispatch; total budgets, deadlines and reasoning profiles remain unchanged. This is a changed bounded retry, not a completion or latency guarantee. MiniMax documents separate reasoning and answer blocks (https://platform.minimax.io/docs/guides/text-generation); Anthropic documents the shared thinking/output limit for the compatible message protocol (https://platform.claude.com/docs/en/build-with-claude/thinking).
+
+The initial 16K first-sight trial also ends thinking-only at 104643 ms. Do not expand that generative ceiling again. In the native source-reference runtime, the host instead issues exact sentence units from each supplied description using Intl.Segmenter, with opaque internal revision and constrained unit aliases. Segmentation locates spans only; it never classifies visibility or meaning. One bounded typed Jev batch selects for each unit: no first-sight detail, visible details already shown, a purely visible unshown unit, or mixed/uncertain. Only a confident purely visible unit can become an exact missing excerpt; mixed visible/private content is never quoted as missing. An uncertain, incomplete, oversized or unavailable item stays owed. An undescribed person can only be cleared by a confident verdict that the delivered prose describes their appearance; no invented excerpt is produced. Reuse existing tracker in-flight suppression, anchoring and kernel authority. No generative fallback/rewrite, new author, model effort change or automatic world effect is introduced. Legacy non-source-reference harnesses retain their current comparison path. TypeSafe confidence routing supports conservative pending outcomes; Intl segmentation defines text boundaries rather than semantic categories (https://docs.typesafe.ai/patterns/confidence-routing ; https://tc39.es/ecma402/#segmenter-objects).
+
+The existing lane queue owns committed-event deduplication and session-scoped asynchronous execution. One exact campaign/turn/commit notification queues once within the session, including while pending, running or completed; a distinct supplied commit remains distinct. Deferred retries retain their original ticket and allowance. Only the bridged campaign can enqueue committed work. Session replacement aborts the former signal even without a preceding shutdown. Each running callback retains its own context, signal and guarded kernel-call facade across awaits; an old continuation cannot obtain the next session's writer or write through a captured stale facade. Bridge replacement invalidates the captured facade. This is host scheduling, not world-state authority or a new persisted task system. Producers: existing lifecycle and commit events; consumer: createLaneQueue and the existing lane workers; actor: their existing guarded job/submit RPCs.
+
+Advisory telemetry counts terminal job failures, not deferred attempts, cancellation or an unanswered semantic review. Typed voice uncertainty stays unpublished after its bounded review allowance; it must not become a host/service outage or a defective candidate. Retain the existing retry and source identity bounds, with no generative fallback or automatic publication.
+
+Document presentation polls bind their cached view to the actual source text, original text, edit flag, version and language within their runtime owner. A changed source cannot reuse another view merely because its name/version match. Optional post-delivery warming and pending panel polls use background reader priority; direct required presentation retains its caller's foreground policy. Existing source validation, accepted-disk cache and tool-enabled authors remain authoritative. No language classifier, fabricated translation, new model or dependency is introduced.
 
 ## 241. Isolated expression after Keeper settlement (2026-10-15)
 
@@ -47597,3 +47613,373 @@ OpenAI Agents handoffs preserve the triggering input when history is filtered (h
 **237.113 reserved-envelope follow-up (same browser, t151).** The same boundary also accepted an entire version:1/record/text envelope as public prose after an initial public marker. Its proposed cash/define/object operations had zero actual receipts. Reserve the existing ordered version:1 followed by record or text JSON prefix inside decoded public content as transport syntax, with ordinary JSON whitespace. Refuse before any following record/text payload is returned, latch the decoder failure, and never reinterpret the embedded proposal as a transaction or silently strip/rewrite it. Valid standalone private records still use the existing initial envelope path; ordinary JSON and other public markers remain unchanged. This extends the same explicit framing guard, not a semantic JSON-field/privacy classifier. A few already exposed control-prefix bytes can remain interrupted; private payload and completed acceptance cannot. Preserve the failed historical turn and retry only through actual ordinary player/Keeper operations.
 
 **Mechanics-choice binding preservation (browser t157, 2026-10-17).** The Electron/backend `choose` gateway must carry the validated canonical pending choice into the existing `mechanics_choice` player input: `{kind:"mechanics_choice",action,choice:{name,kind,prompt,binds,options},play_language}` (absent optional fields remain absent). The host reads this context from the current sheet, never from client-supplied context, after verifying choice identity and option membership. Keeper reads the original question and binding alongside the selected action; all existing kernel authorization and settlement rules still apply. This input does not execute a proposal, approve a different amount, or manufacture receipts. Stale, defense, invalid-option and duplicate submissions remain refused; a failed send releases the existing claim. Story choices retain their existing text input. Regression evidence must distinguish correct callback transport from actual payment/movement success. JSON-RPC request correlation (https://www.jsonrpc.org/specification) and Slack action/source/value preservation (https://docs.slack.dev/reference/interaction-payloads/block_actions-payload) support preserving callback context, but neither substitutes for this product's current-sheet validation.
+# Memory recovery separation (2026-10-17, context residency stage 10)
+Native per-question cache identities exclude transport batch ids and question keys, but bind the immutable exchange, known names, prior claims, source/model/policy revisions, scope and full semantic question. Repacking identical source occurrences cannot repeat successful judgments. Cache files live in `cocHome(ctx.cwd)/.coc/memory-decisions/<campaign>/`, not the runtime bundle. Unknown annotations retain the existing referenced pending/backlog representation and do not count as a lane outage. One story result is reused throughout an immutable job dispatch; a pending job containing only unchanged deferred sources or an uncertain story cannot append another no-progress kernel step. Forced single-choice host gates (for example forbidding world_event on speech) are resolved locally without a provider request.
+
+
+The first live split-only experiment still exhausts the candidate author's 8192-token response after 97.851 s with zero JSON. Thus story separation alone is insufficient. Native recovery now consumes the existing `memory-reference-v1` kernel protocol directly: exact committed source occurrences receive Jev retention/kind/attribution/relation annotations; the kernel copies source text and publishes through its existing prepared-step transaction. There is no MiniMax rewrite of already committed prose and no revived TaskHost. The native policy sends only the compared prior occurrence with each relation question; the complete relation/fulfillment definitions stay once in shared state. It never drops a prior comparison. Retention and kind questions share a first batch; only retained kinds request annotations in a second phase. Independent question groups are packed to the existing conservative byte bound and run with bounded concurrency. Successful batches are exact-state/policy/model-bound private artifacts and may be reused after restart. Unknown annotations remain explicitly deferred, and accepted source occurrences are not reprocessed.
+
+Only an explicit `memory.job {mode:"referenced",upgrade_open:true}` requests an open-job upgrade; ordinary referenced requests preserve the original protocol. An open legacy job without a completed submission may upgrade only after the original committed source passes the existing verification. The full previous job is retained inside the upgraded record. Done and failed legacy jobs keep their original protocol and history. New referenced jobs use the existing source/step/submit APIs; no copied statements or source coordinates are accepted from a model. Closed correction-link reconciliation remains on its existing legacy compatibility path in this slice.
+
+Native Pi memory recovery separates open candidate authorship from closed story assessment. The existing MiniMax memory author sees candidate instructions and evidence only; an independent, bounded Jev batch selects story status and exact issued player/keeper sentence spans against each supplied thread. Host composition preserves the existing acquired-evidence gates and kernel `memory.submit` validation. Legacy isolated extension fixtures retain their existing combined protocol.
+
+The writer is the committed `memory.job` packet; the readers are the candidate author and typed story assessor; only the existing kernel submitter publishes candidates and story. No new world-state authority is added. Story uncertainty is pending, never an invented unclear/false verdict, and never falls back to generative judgment. The legacy compatibility path uses a private candidate draft under `.coc/memory-drafts/` binds the complete packet, author profile and draft version by digest. The kernel revalidates it before publication. Identical recovery can reuse it across sessions; changed material/profile cannot. Pending judgment leaves the kernel job open for later recovery and cannot trigger candidate regeneration or a failure-backlog entry. Every native job processed in this session enters a session-owner-bound exclusion set. Later default referenced dispatches carry exclude_turns and continue to older jobs within the existing backfill budget, so one uncertain newest job cannot starve older memory. A cached no-op with zero provider requests and zero publication steps credits its one backfill slot, once and only through its active queue owner; the existing five-slot allowance continues to bound new work. Every next dispatch still passes the foreground gate. The kernel protocol caps exclusions at 128; reaching that bound ends only backfill. Existing committed-turn work continues.
+
+Candidate extraction and story judgment run concurrently. At most two author attempts retain the existing output-room policy; valid candidate drafts survive unavailable judgment or transient submit failure. Only a definite candidate submission refusal can request revised authorship. Private telemetry records packet/prompt byte counts, draft reuse, typed judgment timing, extraction attempts and submit timing, without private reasoning or credentials. Test acceptance requires real MiniMax/medium continuous play in addition to deterministic pending/reuse and structural validation checks.
+
+## Memory recovery question factoring (2026-10-17, context residency stage 11)
+
+Native source classification uses the exhaustive eight memory kinds as its single retention authority: any explicitly uncertain kind defers, supported kinds request annotations, and eight negative answers skip. Host structural world-event gates and the schema-fixed subjects for world_event/player_assertion/player_preference remain local; these are closed protocol constraints, not semantic classifications. Independent retain and kind questions must not contradict and strand a source. The legacy TaskDomain protocol is unchanged.
+
+Native questions reference exact exchange aliases and shared definitions. Each request carries only the union of prior occurrences referenced by its questions, once per request; no question repeats the prior body. Every source/kind/prior comparison remains issued, including cross-kind promise fulfillment. Relation decisions compare the recorded claims, not their objective truth: unknown provenance alone is not evidence that the textual relation is uncertain. Genuine attribution or relation uncertainty still defers without promotion, threshold reduction or generative fallback. Native packing uses the existing production packDecisionBatch byte upper bounds for both official limits: total request <=64,000 and state plus largest question <=32,000. The legacy domain retains its separate 30,000-byte bound. Four-call concurrency remains unchanged. The per-batch output reservation equals the packer's bounded closed-answer estimate, rather than a fixed 10,000 that can reject an otherwise valid packed batch before HTTP. No long-context header or provider limit increase is enabled.
+
+Private per-question identities bind full exchange/source revision, names, policy/model, scope and the exact referenced prior occurrence. Transport grouping and unrelated prior rows do not invalidate a successful decision. Changed compared evidence does invalidate it. A partially cached request sends only missing questions and the prior rows those questions actually compare. Telemetry records question families, bytes, and explicit per-source deferral reasons without credentials or reasoning. Producer: existing committed source/job; reader: native Jev question planner and private cache; actor: unchanged kernel memory.submit transaction. Acceptance compares exact retained packets and all pair coverage, then genuine continuous MiniMax/medium play and restart reuse.
+
+Precedent: TypeSafe https://docs.typesafe.ai/patterns/fan-out and https://docs.typesafe.ai/concepts/state recommend shared state and independent parallel questions. Mem0 https://docs.mem0.ai/core-concepts/memory-operations/add reuses conversation-scoped earlier messages; this supports incremental material reuse, but does not establish server-side context sharing in Jev, so this implementation still measures actual submitted bytes and local bound answers.
+
+## Incremental memory units and optional long-context packing (2026-10-17, stage 12)
+
+Native memory.job accepts source_layout:"paragraph-v1" only with mode:"referenced". It affects new jobs only; the chosen layout is stored on the job and included in its origin revision. Existing referenced jobs without a layout retain their exact sentence catalog, indices, references, accepted rows and cache history. Open legacy upgrades may select the new layout while preserving the legacy record. No accepted or pending source index is reinterpreted. The shared committed source catalog's default remains sentence layout for other owners. Paragraph mode groups contiguous original text up to the existing 800 UTF-16 bound, preferring paragraph and line boundaries and retaining complete source coverage, exact offsets and Unicode boundaries. Host-verified speech attribution and world-event gates remain unchanged.
+
+Knowledge subject means the focal supported knower or reporter, not ownership of the fact, building, document or service. Instructions must distinguish this from directed relationship ownership, beliefs and promises. Layout-only delimiters in legacy source catalogs are structurally non-content; they cannot inherit a neighboring proposition from dialogue context. Genuine uncertainty remains deferred.
+
+Source-complete native decision caches may reuse identical semantic input across turns in the same campaign/worldline/loop/audience: full exchange with attribution, complete names/policy/model and compared prior remain bound, while transport source-job identity is independently verified by the kernel for each current submission. A repeated sentence with changed context or speaker must miss. Exact semantic input reuse is not permission to infer reuse from a shared topic.
+
+Native memory packing may opt into the existing longContext flag when an otherwise complete batch fails the normal 64k/32k conservative bounds and fits the official 262k bound. Small batches keep normal context. The port already owns the explicit long-context HTTP header. Four-call concurrency and no retry remain; normal leases remain 2s, long leases allow 6s. Closed-answer and input reservations must fit the actual packed bounds. PI_COC_MEMORY_LONG_CONTEXT=0 permits a controlled normal-context comparison. No model switch or global provider policy changes. Record actual HTTP attempts, question families, bytes, long-context use, cache reuse and remaining source blockers.
+
+Producer: committed narration and immutable source catalog; reader: native annotation and cache planner; actor: existing kernel source validation and prepared memory.submit transaction. Validate old-job catalog stability, exact paragraph coverage, current-source checks after cache hits, and the original ten deferred fragments; then run genuine continuous MiniMax/medium play. Precedent: LangChain's recursive splitter preserves paragraphs before finer boundaries (https://docs.langchain.com/oss/javascript/integrations/splitters/recursive_text_splitter); TypeSafe requires explicit state and documents both normal and 262k long-context limits (https://docs.typesafe.ai/concepts/state and https://docs.typesafe.ai/models). No dependency is added.
+
+Stage 12 rejected experiment: a per-prior Choice and a Noul relevance gate were tested against the retained 704 complete pair judgments. Neither achieved high-confidence exclusions at the conservative gates, so neither avoided any comparison. Their extra phase has no runtime benefit and is absent from production. Preserve the prototype and raw answers under .coc/experiments/memory-incremental-20261017/rejected-prior-filter and the two prior-filter JSON results. Do not lower a certainty gate to manufacture savings.
+
+Stage 12 story eligibility: a causal assessment is only eligible for threads with at least one supplied acquired supporting or contradicting evidence row. Only a projection explicitly marked truncated:false can establish an empty eligible set. A truncated projection, or an empty projection without this completeness qualification, remains pending incomplete_evidence without a model call. An empty qualified eligible set deterministically yields the existing unclear/null-frame/no-bridge result, with basis:no_acquired_evidence and zero Jev questions. This describes missing assessment premises, not a low-confidence model answer. It extends the existing acquired-evidence gates already used for aligned, misframed and bridge questions to detached as well, so a private thread alone cannot judge ordinary exploration. Malformed thread names remain refused; populated evidence, model uncertainty and unavailable transport retain their existing pending gates. The kernel alone accepts the result through memory.submit, including finishing a source-complete pending job; old accepted source rows and indices remain unchanged. A source-complete cached recovery can legitimately publish this newly eligible deterministic completion once, but cannot repeat it.
+
+Stage 12 native packing CPU: the retained 704-pair packet takes approximately 2.4s with a no-network port because every appended question repacks the whole growing request. Use maximal-prefix binary search on the monotone conservative bound (fixed exchange, growing question prefix and prior union). Keep identical question ordering and maximal batch boundaries. Record phase planning time and actual pack-check count. Validate exact serialized provider-body hashes and resulting decisions against the frozen linear packer; this optimization does not change the semantic policy/cache version.
+
+Stage 12 closing-target recovery: referenced packets retain issued target aliases, wording, kind and subject, but project each matching target's current superseded status at every job load and returned next step. Closed occurrences remain available for non-closing semantic relations. Native relation criteria cannot offer correction for a non-correction annotation, nor correction/temporal_change for a superseded target. Question content and compared prior status participate in the existing per-question cache identity, invalidating only affected decisions. Publication still checks current authoritative rows and refuses a stale or second closing occurrence; no closure is overwritten or silently discarded. A failed native dispatch records its resolved turn/job and excludes that turn from automatic backfill for this session in finally, while explicit redispatch and a new session remain possible. Failures consume their normal attempt budget; only an unchanged zero-work success can credit it. Independent question answers never waive cross-row transaction constraints.
+
+Stage 12 joint closure composition: independent pair answers can propose several closers for one prior occurrence. Before submission, group those conflicts deterministically. Only conflicted targets receive a bounded Jev Choice over the already-issued source/kind closers, none, and uncertainty; batch all these independent owner choices with non-closing fallback relation questions for the conflicting pairs. The selected closer keeps its original closing relation. Every other pair uses its explicitly judged non-closing relation (including none); never arbitrarily pick the first/last closer, invent a relation, or silently discard a closing answer. Uncertain owner or required fallback defers the affected exact source, recording the specific conflict. No extra phase runs without an actual conflict. Use existing cache/adapter/packing, current exchange and only referenced priors; publication retains the one-closer transaction guard. This is deterministic composition plus typed Jev arbitration, without a generative memory author.
+The optional closure-arbitration phase has a 6s lease with zero retry after a measured cold nine-question request exceeded 2s; ordinary small kind/annotation batches retain their 2s lease. This does not turn on long context for a small request. Transport failure still defers all affected sources and is not a semantic answer.
+Closure precedent check: PostgreSQL documents statement snapshots and rechecking update predicates against current rows (https://www.postgresql.org/docs/current/transaction-iso.html); TypeSafe's maintained SDK represents Choice criteria as a finite label map and validates that map (https://github.com/typesafe-ai/typesafe-sdk-js/blob/main/src/questions.ts). These confirm current-state eligibility plus explicit candidate spaces. They do not supply a cross-question invariant: this kernel uses its existing JSON transaction and single-closing occurrence, not SQL isolation, and typed semantic answers remain advisory. Joint arbitration is limited to an observed conflicting prior; no database or SDK dependency is introduced.
+
+### Cross-step write failures and publication (owner 2026-10-17)
+
+The native single-Keeper path retains failed apply/resolve attempts in the existing held-act owner for the entire current input, including argument errors, negative consent, uncertain consent and unavailable review. A new assistant message or public-only marker cannot clear this basis. Kernel receipts remain the only settlement authority; an independent successful write does not erase a failed prerequisite. Clear the basis only at the existing next-input boundary. Preserve prior accepted effects and pending publication identity.
+
+Reuse the existing held-act Jev check only on inputs with such failures. Buffer their subsequent public bytes before opening the public stream, then compare the complete draft with the held operations and current receipts through the same turn DecisionPort. Normal inputs keep direct streaming and incur no check. A verified clean result may publish; a false completion gets at most the existing one correction. Uncertain, unavailable, incomplete or exhausted checking, or a false completion after correction, ends the existing input as unfinished with no candidate public bytes exposed. Legacy delivery policy is unchanged. This is a targeted closed semantic decision, not a second prose author or a general narration audit. Bounded receipt/refusal projections must declare incomplete coverage and cannot establish a clean verdict through omission.
+
+Typed consent preserves distinct negative, uncertain and unavailable outcomes. A complete Noul in the uncertainty interval is an uncertain verdict, not a transport failure; exact unchanged proposals reuse that verdict. Each outcome has structured reason and recovery metadata; no unavailable-service message is used for an answered uncertain decision. No threshold is lowered and no retry seeks a more favorable answer.
+
+The retained MiniMax continuations exposed a compound decision in the native consent protocol. Version 4 asks two independent Nouls per reviewed line in the same HTTP batch: whether the player selected the action, and whether that action stays within explicit current restrictions/conditions/order/stop points. Both questions use positive polarity. Code admits only selection >= 0.6 and scope compliance >= 0.6; selection <= 0.4 or scope compliance <= 0.4 refuses, and the remaining region is uncertain. Exact cash-amount requirements remain separate and unchanged. The restriction question only evaluates the supplied operation; a hold on another action is not a hold on this one. Elapsed-time selection includes requested NPC work being observed, while limits are judged by the separate restriction question. Preserve both distributions. No generative reviewer, extra request, threshold change or context expansion is introduced. Read-only live-Jev component comparisons are retained under turn-failure-20261017: four recorded move proposals changed from 0.45-0.54 on the compound question to admitting selection/restriction pairs at unchanged gates, while explicit holds and unmet conditions still refuse. The positive-polarity scope variant admitted three of four at the same gates and held one unavailable transport; both negative controls refused. This is component evidence; genuine subsequent MiniMax play must establish runtime behavior. TypeSafe's Noul documentation (https://docs.typesafe.ai/primitives/noul) requires one proposition per question and code composition of independent answers.
+
+Move establishment uses one shared structural parameter rule in the tool contract, host preflight and kernel: an establishment carries a nonempty route. Malformed calls fail before consent, with the exact field and argument-repair classification. Existing moves without establishment retain optional via and normal graph reachability checks. This does not infer routes, grant consent or replace staged kernel validation.
+
+Writer: the native canonical operation refusal path and shared move protocol. Reader: the current reply stream/publication boundary and pre-admission validator. Actor: the same Keeper may repair the operation or the existing turn-close owner corrects once/ends unfinished; the kernel alone writes effects. Verify refusal then false public prose, repeated false prose, unavailable/uncertain verdicts, settled independent work, exact retry reuse, corrected parameters and the next-input reset through real Pi/native-kernel component seams before genuine MiniMax movement/dialogue acceptance.
+
+Precedent: AWS transactional-outbox guidance (https://docs.aws.amazon.com/prescriptive-guidance/latest/cloud-design-patterns/transactional-outbox.html) forbids success notifications for rolled-back changes; Temporal typed failure guidance (https://github.com/temporalio/documentation/blob/main/docs/encyclopedia/application-failures.mdx) preserves failure categories through recovery. These support the existing publication/receipt boundary and typed outcomes, not another database, outbox or workflow service.
+# Opt-in narrative turn packet prototype (owner 2026-10-17)
+
+## Canonical result and compact decision revision (owner 2026-10-18)
+
+Population correction: a registered cast list is not a population census.
+Reuse section 208 scene_activity and its existing clock applicability. Native
+scene commands record service/crowd (including explicit empty) with established
+basis and a host-owned 15-minute review boundary (optional 1..60 for a known
+change). Unassessed/expired population
+uses the existing Keeper before rendering, even after a routine move; valid
+assessments retain zero-Keeper travel. Walk_on commands use packet-local new_N
+slots, normal atomic NPC establishment/placement and kernel-minted npc_N refs.
+Slots cannot select existing identities; missing cast never proves emptiness.
+Native walk-ons declare a public role word and seed existing person_labels in
+their creation transaction. Journal jobs reuse that word, excluding its already
+public own-name pieces from the hidden-own-name check for table people only;
+unpublished aliases and other people's names retain their guards. The author
+receives anchored current time rather than competing elapsed-time strings.
+No second population cache, writer or judgment model. Existing actor privacy,
+source gates, failure ownership and publication remain binding.
+The packet author's first-sight targets are refreshed from this same settled
+scene before rendering, replacing accumulated departure targets only for this
+delivery; kernel description debt is untouched. Pending telemetry identifies
+item/unit, issued choice and confidence rather than only a count.
+
+Remaining seam amendment: capsule.public_scene supplies at most 8 KiB of exact
+committed, stationary, current-scene public history on the active line. The
+isolated author consumes this projection instead of cross-scene recent prose
+or private module summaries. Travel prose is excluded because it can span scenes.
+Known NPC references expose recorded_at; neither a reference nor attributed
+speech establishes physical presence. Unrecorded-person rows report discrepancy
+without directing relocation. Only explicit NPC commands use normal apply.
+MiniMax M3.1 native routine requests require tool_choice:any while retaining
+adaptive thinking/medium effort; known reference mode and other providers retain
+their policy. Retained voice drafts/reviews reuse exact input/model/policy
+identity across restart. Uncertainty ends the current dispatch and remains
+unpublished; transport failures retain their ordinary bounded retry. Memory
+pending telemetry carries exact deferred source/blocker diagnostics. No extra
+judge, lowered semantic threshold, independent state writer or guessed attribution.
+See docs/specs/turn-packet-prototype.md for owners and evidence limits.
+
+Stable NPC references extend this opt-in interface: the kernel's existing
+open/input/apply write owners maintain `world.npc_references` as a permanent
+canonical-node-to-`npc_N` mapping with a non-reused high-water mark. Reads expose
+`ref`, `display_name` and current-player `name_known` using committed naming and
+epithets. Existing semantic handles/receipts remain canonical. The routine wire
+uses only short actor references, bound against NPC material issued on this
+input before any effect or author starts. The author receives selected public
+projections and attributes speech by reference; delivery resolves that reference
+to the same canonical person and permitted label. Short references grant no
+access, cannot disclose names, and retain existing worldline/revision gates.
+Unknown references fail closed. Legacy name-based production entrances remain
+supported. See `docs/specs/turn-packet-prototype.md` for producer/consumer owners.
+The bounded `npc_references.people` capsule catalog includes previously spoken
+and table-established identities even when unplaced/off stage; it grants no
+presence or new knowledge. Unknown book people are excluded. Present-card
+stubs retain references and public-name metadata. This closes the supplied-name
+to actor-reference seam without a new retrieval or inference request.
+
+The opt-in `PI_COC_PACKET_PRESCREEN=1` revision reuses ContinuousTurn's bounded
+move candidates, one batch of existing selection/restriction questions (.6/.4),
+and one atomic additional-work Noul. Additional-work probability <= .4 permits
+skipping Keeper inference; uncertainty retains the Keeper but does not veto
+an already-authorized journey. It auto-executes only one fully bound ready
+journey through the canonical dispatcher. Conflicting destinations stay with
+the Keeper. The input/world/source-bound
+decision may be reused for the exact proposal; changed input or world invalidates
+it. Actual outcomes are retained by the expression owner, so omitted movement
+in a later packet does not erase a completed journey. A settled journey cannot
+be submitted again. The existing publication owner can finish pure travel
+without Keeper inference; NPC interaction retains the Keeper's semantic decision.
+No new transaction semantics, open argument generator, retry or author judge.
+Prepared-operation material omits prescreen-refused move candidates; remaining
+candidates still require current bindings and never authorize a write by being
+present in the model context.
+The canonical gateway records a failed/refused continuous-turn foreground
+apply in the existing held-act owner, including refusals from tool hooks
+before the executor ran. A later empty packet cannot erase that failure or
+start the author. Succeeded mutations retain their actual results even when
+post-settlement bookkeeping is unavailable.
+The apply executor remains registered for this host-owned dispatcher while
+inactive in the Keeper's tool loadout. Hiding a model-facing tool must not
+remove the executor used by the canonical host path; its ordinary gates,
+Mod hooks, identity journal and result hooks still execute.
+Once host travel settled, the provider schema and local command guard exclude
+move/time commands. The author receives host-derived `speech_allowed:false`
+when no response was selected; this requests narration only, not an improvised
+NPC decision. This is a generation contract, not a semantic accuracy guarantee.
+
+For decision input only, the isolated author's normally completed nonempty
+assistant text is the final prose body. The host supplies public framing at
+Pi's typed terminal `stop` boundary. Unmarked streaming text is buffered;
+tool-use preambles are discarded and error/abort/length completions fail.
+Terminal text must exactly match its stream. Explicitly framed output retains
+streaming, while legacy brief input retains its mandatory marker contract.
+Writer: the pinned sole author; reader: the existing isolated event adapter;
+actor: the same final-output publication owner. This removes model-owned
+transport syntax, not outcome/consent validation, and adds no model request.
+
+`table.apply.options` also offers up to twelve already-travelled timed return
+roads out of the current scene, before broad source-reference destinations.
+These come from the current world's existing `table_roads`, require the same
+`returnRoute` relation the move executor accepts, and use `roadMinutes` for
+their actual length. The navigation stack may pop a visited destination; that
+does not erase a known road. No unvisited source place, new route permission,
+assumed duration, model call or second visited-place ledger is introduced.
+
+The current experiment uses `{version:3,commands:[...],responses:[...]}`.
+Commands retain the existing move, NPC-presence and time-band operations;
+responses contain `{actor,act,points:string[],stance?}`. Commands settle before
+responses are expressed. This is one settlement boundary, not an ordered
+interpreter or a branch language. Version 2 remains historical evidence only.
+
+`table.apply` returns `outcomes` for these routine operations, indexed by their
+actual input effect. The kernel produces canonical actor/from/to and actual
+minutes/band from staging results, with status `changed` or `unchanged`.
+Successful proposals are never reconstructed as committed results by the host.
+An unchanged, existing NPC position assignment without other changes produces
+an unchanged outcome and no change receipt/event. The final check is inside the
+existing transaction; travel is not erased merely because coordinates match.
+An unchanged successful assignment still counts as a successful input when
+isolating an independent unknown-person refusal; a change receipt is not the
+test of whether that input succeeded. The partial result retains both its
+unchanged outcome and the original refused line.
+Refusals retain the existing error and held-operation owner and cannot start
+the author. Stored operation results retain idempotent replay.
+
+The author receives a public projection of actual outcomes, canonical scene and
+clock, selected NPC claims, resolved speakers and optional style. Receipt ids
+stay host-owned. Speaker binding precedes optional style: missing style for a
+known speaker is usable; an unknown speaker cannot silently become a different
+person. No empty legacy writing brief is synthesized for decision input.
+The routine profile supplies `result.player_actions_complete:true`: its outcome
+list is the complete executed player-action set for this input. Other player
+actions did not occur. Host-projected responses have `mode:"speech_only"` and
+`claims`; `act:"offer"` additionally carries `player_acceptance:"pending"`.
+Claims express the speaker's words, never an instruction to enact payment,
+acceptance or a dependent handover. This is a closed speech-act projection, not
+a semantic checker. Partial operation results cannot be promoted to a complete
+author packet.
+
+The existing consent batch is evaluated against a typed, host-projected
+operation and current player words. Prior public context is reference material,
+not a standing restriction or a new authorization. Evidence tests compare the
+retained false-negative with negative/conditional/inquiry controls before any
+request-shape change. Keep the existing thresholds, atomic questions and single
+batch; no semantic classifier, judge or retry cascade is added.
+
+Version 5 retains the selection Noul and replaces the ambiguous permitted-scope
+Noul with an explicit current-restriction veto. Selection >= .6 and veto <= .4
+admit; selection <= .4 or veto >= .6 refuse; all other complete answers are
+uncertain. Preserve both raw distributions; scope compliance telemetry is the
+complement of veto. Earlier public text resolves references but cannot impose
+standing limits. Cash-specific authority questions and unavailable handling
+are unchanged. The retained positive false-negative and negative, conditional,
+inquiry and future controls are tested through the actual review function.
+For a batch containing only moves to registered destinations, prior reference
+material contains preceding player declarations and structured destination
+identities, rather than unrelated authored scene paragraphs. Other operations,
+including payments requiring delivered terms, retain their existing public
+history. This does not grant authorization from an earlier declaration; current
+words must select the move. A reference not grounded by this projection remains
+uncertain. Retained live evidence distinguished this from route wording: merely
+removing `via` did not repair selection, while removing prior author prose did.
+
+Writer: kernel transaction outcomes and KP decision arguments. Reader: compact
+decision validator and author input projection. Actor: existing apply,
+publication and author owners. Verification includes actual changed/unchanged
+results, unknown speakers, failed combined commands, and continuous MiniMax
+play counted by completed player intent, including recovery inputs.
+
+## Decision-data revision (owner 2026-10-18)
+
+The current opt-in wire replaces the narrative packet below with version 2:
+`{version:2, actions:[...]}`. Actions are closed discriminated commands:
+`{kind:"move",to,via?}`, `{kind:"time",band,reason}`, and
+`{kind:"respond",actor,act,facts:[{subject,relation,value}],stance?}`.
+Identifiers are supplied semantic names/handles. Move source, clock, receipts,
+NPC personality and scene are host-owned. The author also receives the last
+two public exchanges from the existing delivered/recent owner (up to 8,000
+characters per message, with explicit truncation), as conversation context,
+not authority for state changes. No new summary model or save read is added.
+No scene prose, dialogue, passage,
+writing brief or arbitrary effect object is accepted. Text atoms are bounded
+semantic values, not narration. Response facts select what this actor conveys;
+they are not a transaction or a disclosure grant for other private material.
+Production resolve/apply remain the structured interface for other mechanics.
+This routine prototype exposes only read tools and the final decision command;
+other mechanics are explicitly outside its capability set. It proves routine
+travel/conversation, not all mechanics.
+
+The command compiler dispatches move/time to the existing apply owner. Only
+after success, the host supplies actual scene/clock, committed actions, selected
+response facts and current NPC voice/personality to the final author. Private
+knowledge, motives, source notes and unselected future events are excluded.
+There is one prose generation, no extraction/review call, no acknowledgment
+inference, and no invented success from a proposal. Empty actions can narrate
+an unchanged player observation from current state. Existing consent and held
+failure/publication constraints remain binding. Numeric bands and randomness
+remain kernel-owned. Version 1 evidence below is historical, not the new wire.
+
+The bounded protocol in `docs/specs/turn-packet-prototype.md` extends the existing
+private isolated expression with movement stage/destination/passage and optional
+rule-owned activity band. The host compiles it to existing apply effects before
+author invocation. Existing consent, transaction, receipt, held-failure and
+publication owners remain authoritative. Operational fields never reach the
+author; the actual post-settlement scene does. Unchanged NPC dialogue adds no
+write or review. The feature is off unless `PI_COC_TURN_PACKET_PROTOTYPE=1`.
+No new inference lane, extraction judge, RNG implementation or kernel method is
+introduced. The prototype measures single-inference narrative plus anchors,
+not unrestricted prose extraction. Writer: Keeper; reader: private composition
+parser; actor: existing apply and expression owners.
+
+The next transport revision registers the existing `output` verb with a fixed,
+closed turn-packet schema while this opt-in flag is enabled. Submit native tool
+arguments, not a `{{compose}}` JSON string. The same composition/publication
+owner settles anchors, starts one author and publishes once; successful output
+terminates the Keeper leg without a post-tool inference. Tool preambles remain
+private. Non-fiction `{{reference}}` retains its existing path. Other tool
+operations must finish before the final submission. Structural validation is
+local and adds no semantic decision. MiniMax's tested Anthropic endpoint accepts
+native tool arguments but also accepts an invalid strict schema: no strict
+decoder guarantee or unsupported provider flag is claimed. The schema stays
+constant across scenes and provider calls; place/NPC candidates remain material.
+
+The successful native output result contains host-owned published:true only after
+canonical publication completes. The RunDriver operation port must read that
+result as accepted delivery, before choosing another infer step. Native
+terminate alone does not establish RunDriver delivery. Count actual infer
+steps/provider requests in regression tests, including failed requests after a
+fixture queue is exhausted; counting only successful fixture callbacks misses
+post-publication inference. A refusal never sets published or accepted delivery.
+
+Non-authoritative NPC style metadata (personality and emotion) is optional in
+the native packet. Absence means the already-supported null, normalized locally
+before the shared expression reader. No model invents a value and no semantic
+decision is waived. Speaker and intent, movement destination/stage/passage and
+activity band/reason remain required when their object is supplied. Unknown
+fields and malformed values still refuse. This avoids rewriting a full packet
+merely to spell an absent optional style hint.
+
+The decision-data adapter locally canonicalizes exact single-key `item` envelopes
+only at declared command/fact array positions (at most four wrappers). Both a
+single object and repeated items are arrays after transport decoding. Unknown
+fields and scalar/ambiguous envelopes remain invalid under the closed schema.
+This addresses the retained MiniMax facts.item retry loop without changing
+semantic values, consent, bounds or adding inference. Repairs are counted.
+
+NPC style lookup is optional material. An unknown person reference returns
+style_available:false and uses existing public conversation; it must not block
+writing, establish/move a person, infer an alias or add a semantic judge. Other
+kernel errors still fail closed and publication retains its existing owner.
+
+The bounded routine profile exposes only look/lookup/recall/output to its
+front decision model. apply/resolve/ask remain internal or production tools,
+not an alternate write language in this experiment. New command
+{kind:"npc",actor,to,reason} compiles to the existing npc presence effect in
+the same transaction as party movement. Unchanged speech uses respond only;
+no quote, event or knowledge write is required just to answer. Other mechanics
+remain outside this opt-in prototype; it does not silently execute them.
+
+**2026-10-18 routine packet closure.** The opt-in bounded routine decision phase uses a closed native output schema and MiniMax's supported auto tool strategy, retaining adaptive thinking/medium. Host preparation supplies the capsule, people and issued options; the routine model loadout contains output only. Ordinary Keeper tools and production defaults are unchanged. Known reference inputs retain their direct-answer path. Raw retained failed responses included prose; their post-filter thinking-only representation is not evidence of an empty provider response. Local validation refuses such prose as a decision and the existing bounded recovery cannot repeat settled effects. Named-tool and any-tool enforcement claims are rejected by exact endpoint documentation and retained live evidence.
+
+Movement on this wire selects an exact issued destination only. Route parameters belong to that issued option, not free model text. The provider schema enumerates current destinations and omits `via`; the host validates/binds the selected destination to its original effect, including any issued route, before admission. Missing options, additional fields and changed scope fail closed. Arrival at a graph location establishes proximity to that location; entry into a building, opening a door and further interaction are distinct actions, not entailed by a movement line. This meaning is present in the shared consent question, so `stop outside` does not veto an otherwise selected journey. Reuse applies only to the same input/world/source and exact bound effect; genuine uncertainty remains held and is never silently upgraded. No extra judging model or lower threshold is introduced.
+
+Host compatibility closure: lane user messages carry their existing host clock timestamp; host-dispatched tools receive the Pi runner's tool context, including nested tool execution support. Deployment declarations mirror actual compiled entry keys. These repair interface consumers rather than relaxing runtime guards.
+
+**Routine closure: context pressure.** Exact historical quotations yield bounded original prefixes through the existing historyView owner when their bounded allocation plus protected current state exceeds the request ceiling. This changes no canonical text or source reference; truncation/ranges remain explicit. A genuinely impossible current-state floor remains reported. Optional current-input source-name hints duplicate the native read results and yield before the latest complete tool batch. A hint cannot cause the projection to discard all six original answers to save less than one kilobyte. Capsule consolidation records bounded byte counts and whether the latest batch survived; no private material is logged in these diagnostics.
+
+**Closure correction after exact endpoint verification (2026-10-18).** The SDK overview's `tool_choice` support does not establish support for every strategy. The endpoint-specific Messages API documents only `auto` and `none` (https://platform.minimax.io/docs/api-reference/text-chat-anthropic); Responses documents the same two choices. A real named-output request still returned prose, so the retained named-tool experiment is rejected as an enforcement mechanism. MiniMax routine requests explicitly use supported `auto`; adaptive/medium and the closed native schema remain. Local submission validation/publication is authoritative; unwanted prose cannot become a decision, settled change or public result. The existing single bounded recovery remains necessary for protocol noncompliance. No fabricated strict-decoding guarantee, endpoint switch, unproven output_config.format or new judge is permitted by this experiment.
+
+**Reference metadata under NPC dossier pressure.** Short ref, public display_name and name_known are operational identity, like the already protected id/kind/name-path. Their writer is the committed NPC reference/name projection; fitPresent restores them after optional dossier fitting, and the model/author consumes those identities. They must neither disappear from a stub nor charge the optional dossier allowance and displace the bench's fourth dossier. They remain counted by the whole-request ceiling; no request/dossier budget is increased. Preserve the original nine-person/four-full-dossier assertion and add exact public-reference assertions on current TS projections; frozen historical expectations are unchanged.
+
+The bounded routine packet's model loadout now contains only output. The existing host preparation reads current capsule, NPC views and issued operations through the kernel bridge; host execution retains apply behind its operation port. The decision model cannot request look/lookup/recall or repeat source searches in this experiment. This does not remove those verbs from ordinary production Keeper play. Required source/rule work outside this bounded profile remains outside its acceptance scope rather than being guessed or delegated to a new judge.
+
+**2026-10-18 journal retry/deadline closure.** Real turn 73 spent 119.455s producing only reasoning up to the token limit, then repeated the same request for 111.718s and failed. A journal job uses one existing 30s wall-clock allowance across generation/correction, passed through runLane.timeoutMs; an operator may reduce PI_COC_NPCJOURNAL_TIMEOUT_MS, never enlarge that ceiling. A timeout or length-truncated response is terminal for this dispatch, recorded through journal.fail without a second identical generation. A malformed closed artifact may receive the existing single correction with its actual shape feedback; invalid submit parameters retain the kernel's correction. A valid draft whose submission transport failed is reused for the one submit retry, never regenerated. Queue ownership/cancellation, player privacy, job identity and failed-backlog retention are unchanged. No new judge or lane is introduced; no failed artifact is accepted to shorten the queue. Validate truncation and timeout advancing to a queued good job, plus one-generation/two-identical-submissions recovery.
+
+**2026-10-18 retained failure causes: operation scope, false memory premises and raw lane effort.**
+Movement consent uses one shared semantic projection in prescreen and admission: arrival_scope explicitly identifies the destination approach/doorway, enter_building=false, open_door=false and start_interaction=false. This is read-only operation meaning, not a new effect or permission. Host-bound routes and the original selection/veto thresholds remain authoritative. Excluding another action is not selected additional work. The existing single batch owns selection, restrictions and routing; no model or semantic retry is added.
+
+Promise subject choices contain only issued fictional actors/party, genuine uncertain attribution, and no_annotation. This last answer explicitly rejects a false kind premise (a plan/intention need not be a pledge); it is not uncertainty and cannot be converted into an invented owner. Composition removes only that rejected annotation, preserving every other validated kind from the exact source. If no annotations survive, the source is explicitly skipped; a real commitment with unknown ownership remains deferred. Native and task-domain composition share this rule. Changed per-question criteria invalidate only those cached answers; unrelated kind/privacy/relation results and source identities remain reusable. The kernel retains all original source, publication, privacy and transaction checks.
+
+Raw ModelRegistry.complete uses Anthropic's provider-specific serializer. An effort option alone does not enable its thinking branch: enabled named effort must carry thinkingEnabled=true; supported off carries thinkingEnabled=false. The existing model capability determines adaptive versus budget thinking. MiniMax M3.1's registered forceAdaptiveThinking model must serialize thinking.type=adaptive and output_config.effort=medium in the actual request under the approved test profile. Prior lane labels/effective-option telemetry alone are insufficient proof of the wire configuration. Keep the journal's 30s allowance and no identical generation retry. No lower-effort test override, extra judge, new journal author or guaranteed-latency claim is introduced.
+
+The MiniMax enhanced provider registers streamSimple; Pi routes even raw complete through that decorator. Forwarding raw thinkingEnabled/effort unchanged into streamSimple drops them, because its own reasoning option controls the downstream serializer. The provider adapter now preserves an explicit valid raw adaptive effort as neutral reasoning when no neutral caller value was supplied. Explicit neutral caller settings retain precedence; other API routes are untouched. Verify the actual registered MiniMax wrapper plus the real Anthropic serializer, not only a raw serializer unit test. This closes both enablement and decorator translation before claiming medium was sent.
+
+**2026-10-18 author continuity and empty speech boundaries.**
+The native author receives the last two delivered public exchanges across scene changes, using the existing capsule recent rows and host delivered window. Full host-delivered rows override capsule excerpts for the same turn. Stranded inputs are not completed exchanges. Bound each keeper body to 8000 characters (head and tail, with explicit truncation) and retain turn/player provenance. Destination scene prose remains scene material; it must not replace the immediate departure context. This is read-only public context, never a new position effect, permission or semantic classification.
+
+Project ResponseDecision.act=silent to mode=nonverbal with observations, without speech claims. Other acts retain speech_only and claims; offers retain pending player acceptance. speech_allowed is true only when at least one selected response is not silent. Nonverbal observations remain renderable when speech is disallowed. No extra generation or judgment owns this enum projection.
+
+The existing public stream owner consumes empty/whitespace-only canonical say spans before journaling any public delta. Hold an opening token only until actual body content or its closing token resolves emptiness; partial tokens are buffered across arbitrary chunk boundaries. Preserve nonempty speech and surrounding narration exactly, including whitespace. Stream frames, accepted artifact, publication evidence and recovery all use these same normalized bytes. This repairs syntax only: no speaker-name invention, semantic prose correction, new model call or rewriting already exposed bytes. The kernel's canonical speechPass remains the final speech-ledger owner.
+
+Follow-up from the same author's real trace: final-output read/write/edit schemas must expose the same fixed relative paths that the existing confinement gate executes. Write/edit path is draft.json; read paths are task.json or draft.json. Keep the runtime guard, built-in executors, tools and authority unchanged. Schemas describe an existing restriction; they do not authorize arbitrary files. A generic write schema followed by a hidden path refusal is not a complete protocol. Current selected responses take precedence over the public history: historical dialogue is not a second pending delivery, but it cannot cancel an explicit current response when a question is asked again. The author contract must not simultaneously require rendering that response and prohibit its repetition. These changes add no judge and no automatic regeneration; retain failed first-pass deliveries in acceptance metrics.
+
+**2026-10-18 NPC action/result closure (owner overnight integration).**
+The compact decision schema has two disjoint response shapes: spoken {actor, act, points, stance?}, and silent {actor, act:"silent"}. Silent carries no points, observations or stance text. It records no communicative content, not a second world-action language. A departure/arrival must be an npc command. The author receives a sparse nonverbal indication and the actual canonical NPC outcomes; it does not receive uncommitted physical descriptions supplied in a silent response. Never classify or extract a movement from response prose with keywords or an additional judgment model.
+
+NPC destination capability is the existing here/away vocabulary plus exact move destinations issued in current prepared choices. The same helper builds the native tool enum and checks membership before any consent, state mutation or author call. away means offstage without inventing a graph place; it never means the party traveled there. The current routine's capability set need not expose secret/unissued places. The normal full apply interface remains available for wider explicitly prepared operations. A malformed response or unissued destination receives the existing single deterministic parameter-correction allowance before execution; repeated malformed proposals end without publication. Share that allowance with time.band rather than creating nested repair loops. No operation may be partially replayed to make a corrected packet look successful.
+
+The result's player_actions_complete scopes only player actions; add explicit npc_actions_complete with actual canonical NPC outcomes and bind actor references from the supplied operational reference map. Sparse silence alone neither changes presence nor establishes a transaction. Current scene/presence remains authoritative when no NPC outcome changed. Actual moves remain the sole source for transition portrayal, including for a person who does not speak.
+
+**Full chapter integration boundary.** The routine packet is a final composition interface, not a replacement rule engine. Restore the existing look/lookup/recall/resolve/apply/ask surface alongside native output; the current prototype filter must not make checks, inventory, combat or required mechanical choices impossible. Existing dispatcher/admission/transactions own these operations. After any earlier settlement, submit only still-unexecuted routine commands. Final delivery preparation projects publicly visible resolved check results (skill/passed/level only) and explicitly player-visible canonical materials through the same checkDelivery response; hidden/concealed roll outcomes and opaque identifiers stay out. The author consumes this existing frozen preparation projection with no extra model or RPC. The completeness contract spans routine outcomes and these prepared public results, never inferred success from a proposal. No new free-form action or second narration channel is introduced.
+
+**Default launch wiring.** Ordinary hybrid play enables the structured native decision path and existing Jev prescreen without experiment-only launcher flags. Setup remains on its existing onboarding path with both flags zero. Explicit PI_COC_TURN_PACKET_PROTOTYPE=0 remains a compatibility opt-out; prescreen cannot remain enabled when the native path is off. This changes the play interface default, not any model/effort preference, credential, campaign state or transaction authority. Browser acceptance must start without manually enabling these flags and verify the effective startup environment and actual native packets. Keep the old internal environment name for compatibility, not as a second product engine.
+
+**Integration review: complete operation evidence and exact failure discharge.** Every successful dispatcher apply in the current input contributes actual canonical move/NPC/time outcomes to final composition, not just the host continuous journey and final packet. Replays are not new transitions. An operation failure retains its complete host-owned normalized argument fingerprint and input binding. Only successful canonical settlement of that exact operation, without partial/not-landed results, discharges that failure; unrelated success or changed arguments cannot clear it. This adds no semantic matching or judgment. All other held failures remain fail-closed. Test-only profile overrides consistently pin MiniMax/medium and documented quota fallback Grok/high across author, reader, lanes and driver; ordinary model preferences remain unchanged.

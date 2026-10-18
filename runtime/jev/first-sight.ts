@@ -3,9 +3,9 @@
  * reads the delivered prose beside the book's own words for each place and person it owed, and names what a newcomer
  * could see or hear on arrival that the prose did not show.
  *
- * One zero-tool completion on the fast model (`runLane`: this lane's variable, then the fast-model setting, then the
- * table), capped at 20 s, run in the background after the delivery: it never delays one, and the prose is never
- * refused or rewritten for it (§166). The semantic judgement is the model's. The host checks the closed shape and
+ * Native source-reference sessions use bounded typed Jev choices over host-issued sentence spans (§240.2).
+ * The legacy non-source-reference path uses one zero-tool completion on the fast model, capped at 120 s.
+ * Both run after delivery: prose is never refused or rewritten for this advisory check (§166). The host checks shape and
  * that every excerpt is the item's own book words (§139's quotation-mark class, the book's span kept); an excerpt
  * found nowhere is dropped. `write` never throws: a failure is `{ok: false}` with a closed reason, and nothing is
  * recorded, so every item stays owed in full.
@@ -14,6 +14,8 @@ import type {ExtensionAPI, ExtensionContext} from '@earendil-works/pi-coding-age
 import {runLane} from '../../extensions/lanes/subsession.ts';
 import {createLaneTelemetry} from '../../extensions/lanes/telemetry.ts';
 import {locateExcerpt} from '../../kernel-ts/read/excerpt.ts';
+import {decideFirstSight, FIRST_SIGHT_DECISION_FAMILY} from './first-sight-decision.ts';
+import {createDecisionAdapter} from './decision-adapter.ts';
 
 /** The lane's name on every row it writes. */
 export const FIRST_SIGHT_LANE = 'first-sight';
@@ -54,7 +56,7 @@ export type FirstSightFailure = 'no_session' | 'cancelled' | 'timeout' | 'model_
 export interface FirstSightItem {id: string; kind: 'place' | 'person'; described: string; undescribed?: true}
 /** One item the check answered: `missing` is the book's own spans the prose did not show; [] means shown. */
 export interface FirstSightAnswer {id: string; kind: 'place' | 'person'; missing: string[]}
-export type FirstSightResult = {ok: true; items: FirstSightAnswer[]; unanchored: string[]; undescribed?: {shown: number; unshown: number}; ms: number; model?: string}
+export type FirstSightResult = {ok: true; items: FirstSightAnswer[]; unanchored: string[]; pending?:number; blockers?:import('./first-sight-decision.ts').FirstSightBlocker[]; undescribed?: {shown: number; unshown: number}; ms: number; model?: string}
   | {ok: false; reason: FirstSightFailure; detail: string; ms: number; model?: string};
 /**
  * `earlier` is the delivery before this one. A person first seen from a distance is described before they become an
@@ -131,22 +133,24 @@ function describeAnswer(parsed: unknown): string {
   return Object.keys(row).slice(0, 8).map(key => `${key}: ${Array.isArray(row[key]) ? 'array' : typeof row[key]}`).join(', ') || 'empty object';
 }
 
-/** The product port: one zero-tool completion per checked delivery, through the session's model registry. */
-export function createFirstSightLane(pi: ExtensionAPI, options: {ctx: () => ExtensionContext | undefined; campaign: () => string | undefined}): FirstSightPort {
+/** One background comparison per checked delivery; native typed selection has no generative fallback. */
+export function createFirstSightLane(pi: ExtensionAPI, options: {ctx: () => ExtensionContext | undefined; campaign: () => string | undefined; sourceReferences?:()=>boolean}): FirstSightPort {
   const safeCtx = (): ExtensionContext | undefined => { try { return options.ctx(); } catch { return undefined; } };
   const telemetry = createLaneTelemetry(pi, {lane: FIRST_SIGHT_LANE, modelEnv: FIRST_SIGHT_MODEL_ENV, cwd: () => safeCtx()?.cwd});
   return {
     async check(input, signal): Promise<FirstSightResult> {
       const began = Date.now();
+      const ownerCtx = safeCtx();
       let campaign: string | undefined;
       try { campaign = options.campaign(); } catch { campaign = undefined; }
       const record = async (row: Record<string, unknown>): Promise<void> => {
-        if (!campaign) return;
+        if (!campaign || safeCtx() !== ownerCtx) return;
         try { await telemetry.record(campaign, row); } catch { /* telemetry never breaks the check */ }
       };
       const finish = async (result: FirstSightResult): Promise<FirstSightResult> => {
         await record(result.ok
           ? {ok: true, turn: input.turn, ms: result.ms, model: result.model ?? null, items: input.items.length,
+            ...(result.pending ? {pending:result.pending,pending_review:true,...(result.blockers?{blockers:result.blockers}:{})} : {}),
             shown: result.items.filter(item => !item.missing.length).length, missing: result.items.filter(item => item.missing.length).length,
             ...(result.unanchored.length ? {unanchored: result.unanchored.length} : {}),
             ...(result.undescribed && result.undescribed.shown + result.undescribed.unshown ? {undescribed: result.undescribed} : {})}
@@ -156,8 +160,18 @@ export function createFirstSightLane(pi: ExtensionAPI, options: {ctx: () => Exte
       };
       try {
         if (signal.aborted) return await finish({ok: false, reason: 'cancelled', detail: 'cancelled before the lane began', ms: 0});
-        const ctx = safeCtx();
+        const ctx = ownerCtx;
         if (!ctx) return await finish({ok: false, reason: 'no_session', detail: 'no session context to run the lane in', ms: 0});
+        if (options.sourceReferences?.()) {
+          const typed = await decideFirstSight({campaign:campaign??'unbound',...input},createDecisionAdapter({env:{...process.env},enabled:true,maxConcurrency:1,
+            retryPolicies:{[FIRST_SIGHT_DECISION_FAMILY]:{maxRetries:0,backoffInitialMs:0,backoffMaxMs:0,attemptTimeoutMs:2000}}}),signal);
+          if (!typed.ok) {
+            if(typed.reason==='oversized')return await finish({ok:true,items:[],unanchored:[],pending:input.items.length,ms:Date.now()-began,model:typed.model});
+            return await finish({ok:false,reason:typed.reason==='cancelled'?'cancelled':'lane_error',detail:`Typed first sight remains owed: ${typed.reason}`,ms:Date.now()-began,model:typed.model});
+          }
+          const anchored=anchorFirstSight(input.items,typed.items.map(item=>({...item,...(input.items.find(source=>source.id===item.id)?.undescribed?{shown:true}:{})})));
+          return await finish({ok:true,...anchored,pending:typed.pending,blockers:typed.blockers,ms:Date.now()-began,model:typed.model});
+        }
         let refused: string | undefined;
         const lane = await runLane<Array<{id: string; missing: string[]; shown?: boolean}>>({
           // Reasoning off, named here so the after-delivery floor does not raise it (§37.11.1 leaves a caller's level as

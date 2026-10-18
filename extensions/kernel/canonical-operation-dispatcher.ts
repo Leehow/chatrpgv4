@@ -376,7 +376,7 @@ export function createCanonicalOperationDispatcher(stages?: Stages) {
         let result: KernelToolResult, isError = false;
         try { result = await definition.execute(operation.id, args, context.task.signal,
           context.onUpdate ? partial => { if (!context.task.signal.aborted && context.session === session && session.extensionRunner === runner) context.onUpdate!(partial); } : undefined,
-          runner.createContext()) as KernelToolResult; }
+          runner.createToolContext(operation.id, context.task.signal)) as KernelToolResult; }
         catch (error) { result = { content: [{ type: 'text', text: error instanceof Error ? error.message : 'Operation failed' }], details: {} }; isError = true; }
         executed = result;
         context.trace({ operationId: operation.id, stage: 'finalize' });

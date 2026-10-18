@@ -169,6 +169,7 @@ async function personOfEffect(context:ApplyContext,effect:Row,name:string,why:st
     // taken: a walk-on under it would be one being on two nodes (§180.7).
     node??=creatureNamed(graph,name);
     if(node){
+        if(effect._new_person===true)throw new RpcError('invalid_params','A newcomer slot cannot select an existing person; use an issued NPC reference');
         if(declared&&graph.isPerson(node))throw notACreature(graph,node);
         if(walkOn===true&&!graph.isPerson(node)&&!declared)throw new RpcError('invalid_params',`${graph.displayName(node)} is a creature, not a person: npc.walk_on brings in a person`,{
             fix:`leave walk_on out to write to ${graph.displayName(node)}; an animal or monster this table brings in is declared with walk_on and creature`,
@@ -302,7 +303,7 @@ function refuseNotAPerson(graph:ApplyContext['graph'],node:Row,effect:Row):void{
  */
 const STANDALONE_VARIANTS:readonly string[]=Object.freeze(['activity','mood','intends','outcome','intent_outcome','defense','action','disposition','conditions','reunion','_draws','_produces']);
 /** §198.3: the keys a seat at the opening carries -- who, where, why, and the walk_on §198.1 reads as an arrival. */
-const OPENING_SEAT_KEYS:readonly string[]=Object.freeze(['kind','name','to','why','walk_on']);
+const OPENING_SEAT_KEYS:readonly string[]=Object.freeze(['kind','name','to','why','walk_on','_new_person']);
 /** §198.3: an npc effect shaped as an opening seat; whether it is one is `refuseUnlessOpeningSeat`'s to say. */
 export const openingSeatShape=(effect:Row):boolean=>effect.kind==='npc'&&Object.keys(effect).every(key=>OPENING_SEAT_KEYS.includes(key));
 /**
@@ -317,6 +318,7 @@ function refuseUnlessOpeningSeat(context:ApplyContext,node:Row,established:false
     if(to==='here')target=active;else if(to)try{target=graph.scene(to);}catch{target=null;}
     const there=!!target&&graph.survivorId(string(target.node_id))===graph.survivorId(string(active.node_id));
     const self=graph.survivorId(string(node.node_id));
+    if(established==='table'&&effect._new_person===true&&effect.walk_on===true&&there&&openingSeatShape(effect))return;
     if(established===false&&openingInformationShape(effect)
         &&npcsPresent(graph,world,active).some(person=>graph.survivorId(string(person.node_id))===self))return;
     const placed=graph.sceneNpcIds(active).includes(self);
@@ -353,6 +355,11 @@ export async function stageNpc(context:ApplyContext,effect:Row):Promise<StagedEf
     // the model never sends it, and it never changes who the effect is about, only what the receipt says about it.
     const resolvedFrom=typeof effect._resolved_from==='string'&&effect._resolved_from.trim()?effect._resolved_from.trim():undefined;
     const handle=graph.handle(node),{to,stance,dead}=effect;
+    if(effect._new_person===true&&established==='table'&&graph.isPerson(node)){
+        const label=string(effect.name).trim();
+        if(label.length>80||label.includes('\n')||label.includes('\r')||label.includes('{{'))throw new RpcError('invalid_params','A native newcomer public role must be one short marker-free line');
+        (world.person_labels??={})[handle]={name:label};
+    }
     // §180.5: a creature takes the body's variants; a person's tier is refused before any of them stages.
     if(!graph.isPerson(node))refuseNotAPerson(graph,node,effect);
     if(effect.activity!=null)return walked(stageNpcActivity(context,effect,node));
@@ -528,7 +535,9 @@ export async function stageNpc(context:ApplyContext,effect:Row):Promise<StagedEf
     // A creature this call declared is itself the change, with or without a block.
     const declaredHere=!!declared&&established==='table';
     if(to==null&&stance==null&&dead==null&&pinned==null&&profile==null&&!declaredHere)throw new RpcError('invalid_params','an npc effect needs `to`, `stance`, `conditions`, `dead`, `skill`, `archetype`, an intention, a mood, or a combination',{fix:`move them with to: here/away/<scene>, set stance to one of ${repr(words)}, change an explicit condition, say dead: true, pin a skill they have, name an archetype for a person the book gave no numbers or a rules-catalog creature (creature) for a creature with no stat block, report an intention: intends (a new one) or intent_ref (one on the card) with outcome attempted, done, failed or abandoned, or write what they feel right now with mood`});
-    const presence=world.npc_presence??={};let moved:string|null=null;
+    const presence=world.npc_presence??={},previous=presence[handle];let moved:string|null=null;
+    const copies=graph.groupOf(node).filter(copy=>copy!==node&&graph.handle(copy)!==handle);
+    const hadCopies=copies.some(copy=>Object.hasOwn(presence,graph.handle(copy)));
     if(to!=null){
         if(typeof to!=='string'||!to.trim())throw new RpcError('invalid_params',"npc.to must be a scene name, 'here' or 'away'",{fix:'a scene name on the graph, or here / away',details:{field:'npc.to',options:['here','away']}});
         if(to.trim()==='away'){delete presence[handle];moved='away';}else{
@@ -541,7 +550,7 @@ export async function stageNpc(context:ApplyContext,effect:Row):Promise<StagedEf
             presence[handle]=moved;
         }
         // §192.3: one entry per thing -- a copy's older entry would stand in again once this one went away.
-        for(const copy of graph.groupOf(node))if(copy!==node&&graph.handle(copy)!==handle)delete presence[graph.handle(copy)];
+        for(const copy of copies)delete presence[graph.handle(copy)];
     }
     if(stance!=null&&(typeof stance!=='string'||!words.includes(stance)))unsupported('npc.stance',stance,words,`npc.stance ${repr(stance)} is not one of the ledger's words`);
     if(profile!=null){
@@ -559,7 +568,10 @@ export async function stageNpc(context:ApplyContext,effect:Row):Promise<StagedEf
     // `established` rides on the receipt and the event so that a person this table just invented is
     // never indistinguishable from one the book printed -- for the Keeper reading the result, and for
     // anything that folds receipts later (the ledger, a worldline rebuild, the KPI).
-    const receipt={id:effectId(context,'npc',handle),kind:'npc',call_id:context.callId,npc:node.node_id,handle,name:graph.displayName(node),label:personLabel(world,handle,graph.displayName(node)),to:moved,stance:stance??null,dead:dead??null,skill:pinned,...creatureNote,...(pinnedProfile?{profile:pinnedProfile}:{}),...establishedOf(established,fromPassage,resolvedFrom),why,at:nowIso()};
+    const unchanged=to!=null&&established===false&&Object.keys(effect).every(key=>['kind','name','to','why'].includes(key))
+        &&(moved==='away'?previous===undefined:previous===moved)&&!hadCopies;
+    const receipt={id:effectId(context,'npc',handle),kind:'npc',call_id:context.callId,npc:node.node_id,handle,name:graph.displayName(node),label:personLabel(world,handle,graph.displayName(node)),from:previous??null,to:moved,stance:stance??null,dead:dead??null,skill:pinned,...creatureNote,...(pinnedProfile?{profile:pinnedProfile}:{}),...establishedOf(established,fromPassage,resolvedFrom),...(unchanged?{unchanged:true}:{}),why,at:nowIso()};
+    if(unchanged)return {receipt,event:null};
     return walked({receipt,event:{type:'npc-changed',data:{npc:handle,to:moved,stance:stance??null,dead:dead??null,skill:pinned,...creatureNote,...(pinnedProfile?typeof profile!.catalog==='string'?{catalog:profile!.catalog}:{archetype:profile!.archetype}:{}),...establishedOf(established,fromPassage,resolvedFrom),why}}});
 }
 /**

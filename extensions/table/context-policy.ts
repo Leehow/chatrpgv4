@@ -322,6 +322,16 @@ export function projectedMessages(input: {
     const fixed = (extra: Row[]): Row[] => [...unknown, ...brief, ...lead, history, ...rest, ...extra];
     const room = (extra: Row[]): number => Math.max(0, budget - requestSize(fixed(extra)));
     while (unknown.length && requestSize(unknown) > Math.min(UNCLASSIFIED_BYTES, budget)) {unknown = unknown.slice(1); droppedUnknown++;}
+    let historyYielded=false;
+    const fixedExcess=requestSize(fixed([]))-budget;
+    if(fixedExcess>0&&Array.isArray(input.history.quotes)){
+        // Historical exact prefixes are rebuildable; current words and state are not.
+        const historyBudget=sizeOf(input.history)-fixedExcess-16;
+        if(historyBudget>0)try{
+            history.content=JSON.stringify(historyView(binding,input.history.quotes,undefined,historyBudget));
+            historyYielded=true;
+        }catch{/* An actual protected floor still reports overCeiling below. */}
+    }
     let cut = boundedTail(working, room([]));
     if(input.singleKeeper)while(unknown.length&&cut.dropped){unknown=unknown.slice(1);droppedUnknown++;cut=boundedTail(working,room([]));}
     if(cut.dropped&&background&&working.includes(background)){
@@ -360,7 +370,7 @@ export function projectedMessages(input: {
         ...(over ? {overCeiling: true} : {}),
         ...(input.singleKeeper && !retainsLatestToolBatch(messages, projected, binding) ? {degraded: 'latest_tool_batch_omitted'}
             : unknown.length ? {degraded: 'unclassified_messages_retained'}
-            : cut.dropped || droppedUnknown || briefYielded ? {degraded: 'request_ceiling_reached'} : {})};
+            : cut.dropped || droppedUnknown || briefYielded || historyYielded ? {degraded: 'request_ceiling_reached'} : {})};
 }
 /**
  * Every suffix cut that keeps tool pairing. `safe[c]` means `messages.slice(c)` is pair-safe,

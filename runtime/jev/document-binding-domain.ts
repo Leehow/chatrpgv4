@@ -67,10 +67,10 @@ export async function bindDocumentAppend(input:DocumentBindingInput,decision:Dec
     const role=(key:string,choices:string[],answers:DecisionResult['answers'])=>{
       const answer=answers[key];
       return answer?.status==='answered'&&answer.type==='choice'&&choices.includes(answer.choice)
-        &&Number.isFinite(answer.confidence)&&answer.confidence>=0&&answer.confidence<=1
-        &&choices.every(choice=>Number.isFinite(answer.probabilities[choice])&&answer.probabilities[choice]!>=0&&answer.probabilities[choice]!<=1)
+        &&typeof answer.confidence==='number'&&Number.isFinite(answer.confidence)&&answer.confidence>=0&&answer.confidence<=1&&answer.probabilities
+        &&choices.every(choice=>Number.isFinite(answer.probabilities![choice])&&answer.probabilities![choice]!>=0&&answer.probabilities![choice]!<=1)
         &&Object.keys(answer.probabilities).length===choices.length
-        &&probabilityMassValid(choices.map(choice=>answer.probabilities[choice]!))?answer:null;
+        &&probabilityMassValid(choices.map(choice=>answer.probabilities![choice]!))?{...answer,confidence:answer.confidence,probabilities:answer.probabilities}:null;
     };
     const identity:DecisionBatch={id:'document-append:'+input.turn+':'+digest(input).slice(0,16),model:JEV_MODEL,
       family:DOCUMENT_BINDING_FAMILY,familyVersion:'9',...binding,

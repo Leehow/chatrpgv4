@@ -42,6 +42,71 @@ function mount(h, runJob, onError = async () => {}, backfillEnv = ENV) {
 	return createLaneQueue(h.pi, { backfillEnv, runJob, onError });
 }
 
+test("duplicate committed notifications run one job while pending, active and completed", async t => {
+ budget(t,"0");const h=host(),held=gate(t),jobs=[];
+ mount(h,async job=>{jobs.push(job.turn);if(job.turn===1)await held.promise;});
+ h.publish();await h.hook('session_start');await h.hook('agent_start');
+ h.commit(1);h.commit(1);await h.hook('agent_settled');await drain();h.commit(1);
+ held.open();await drain();h.commit(1);h.commit(2);await drain();
+ assert.deepEqual(jobs,[1,2]);await h.hook('session_shutdown');
+});
+
+test('cached no-op backfill credits one slot and still yields to the foreground',async t=>{
+ budget(t,'2');const h=host(),jobs=[];let q;
+ q=mount(h,async job=>{jobs.push(job);if(jobs.length<=3){assert.equal(q.creditBackfill(),true);assert.equal(q.creditBackfill(),false);if(jobs.length===3)await h.hook('agent_start');}});
+ assert.equal(q.creditBackfill(),false);h.publish();await h.hook('session_start');await drain();
+ assert.equal(jobs.length,3);await h.hook('agent_settled');await drain();assert.equal(jobs.length,5);
+ await h.hook('session_shutdown');assert.equal(q.creditBackfill(),false);
+});
+test("foreign campaign events cannot queue work against this bridge",async t=>{
+ budget(t,"0");const h=host(),jobs=[];mount(h,async job=>jobs.push(job));
+ h.publish();await h.hook('session_start');
+ h.pi.events.emit('coc:turn-committed',{campaign:'another-campaign',turn:1});await drain();
+ assert.deepEqual(jobs,[]);await h.hook('session_shutdown');
+});
+test("repeating the same bridge preserves an active job owner", async t => {
+ budget(t,'0'); const h=host(),held=gate(t),calls=[]; let queue;
+ const current={campaign:'camp',call:async()=>calls.push('write')};
+ queue=mount(h,async()=>{const writer=queue.bridge.call;await held.promise;await writer('memory.submit',{});});
+ h.publish(current);await h.hook('session_start');h.commit(1);await drain();h.publish(current);held.open();await drain();
+ assert.deepEqual(calls,['write']);await h.hook('session_shutdown');
+});
+test("replacing a campaign bridge aborts its running job and drops its pending work", async t => {
+ budget(t,'0');const h=host(),held=gate(t),jobs=[];let queue,oldSignal;
+ queue=mount(h,async job=>{jobs.push(job.campaign);if(jobs.length===1){oldSignal=queue.signal;await held.promise;}});
+ h.publish();await h.hook('session_start');h.commit(1);h.commit(2);await drain();
+ h.publish({campaign:'other',call:async()=>({})});
+ assert.equal(oldSignal.aborted,true);
+ h.pi.events.emit('coc:turn-committed',{campaign:'other',turn:3});held.open();await drain();
+ assert.deepEqual(jobs,['camp','other']);await h.hook('session_shutdown');
+});
+test("distinct committed revisions of one turn remain distinct work",async t=>{
+ budget(t,'0');const h=host(),jobs=[];mount(h,async job=>jobs.push(job));h.publish();await h.hook('session_start');
+ for(const commit of ['first','first','corrected','corrected'])h.pi.events.emit('coc:turn-committed',{campaign:'camp',turn:1,commit});
+ await drain();assert.equal(jobs.length,2);await h.hook('session_shutdown');
+});
+test("session replacement aborts a held job even without a shutdown event",async t=>{
+ budget(t,'0');const h=host(),held=gate(t);let oldSignal;const queue=mount(h,async()=>{oldSignal=queue.signal;await held.promise;});
+ h.publish();await h.hook('session_start');h.commit(1);await drain();await h.hook('session_start',{cwd:'/replacement'});
+ assert.equal(oldSignal.aborted,true);held.open();await drain();await h.hook('session_shutdown');
+});
+test("an old async continuation cannot acquire the next session signal, context or writer",async t=>{
+ budget(t,"0");const h=host(),held=gate(t),calls=[],observed=[];let queue;
+ const old={campaign:'camp',call:async()=>{calls.push('old');}},fresh={campaign:'camp',call:async()=>{calls.push('new');}};
+ queue=mount(h,async job=>{
+  if(job.turn!==1)return;
+  const signal=queue.signal,writer=queue.bridge.call;await held.promise;
+  observed.push({sameSignal:queue.signal===signal,aborted:signal.aborted,stopped:queue.stopped,cwd:queue.ctx?.cwd});
+  try{await writer('memory.submit',{});}catch{}
+ });
+ h.publish(old);await h.hook('session_start',{cwd:'/old'});h.commit(1);await drain();
+ await h.hook('session_shutdown');h.publish(fresh);await h.hook('session_start',{cwd:'/new'});
+ held.open();await drain();
+ assert.equal(observed[0].sameSignal,true);assert.equal(observed[0].aborted,true);assert.equal(observed[0].stopped,true);
+ assert.notEqual(observed[0].cwd,'/new');assert.deepEqual(calls,[]);
+ h.commit(2);await drain();await h.hook('session_shutdown');
+});
+
 test("a queue cooldown defers work, resumes it, and shutdown cancels the wake", async t => {
 	t.mock.timers.enable({apis: ["setTimeout", "Date"], now: 0});
 	budget(t, "0");

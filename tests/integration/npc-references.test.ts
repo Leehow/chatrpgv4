@@ -1,0 +1,94 @@
+import {test} from 'node:test';
+import assert from 'node:assert/strict';
+import {readFileSync} from 'node:fs';
+import {join} from 'node:path';
+import {kernel,createCampaign,RpcClient,campaignDir,importSource} from './support.ts';
+
+test('NPC canonical movement outcomes bind stable references and actual offstage presence',async t=>{
+ const k=await kernel(t);await createCampaign(k);await k.table('open');
+ const person=(await k.table('capsule')).present.find((p:any)=>p.name==='Steven Knott'),ref=person.ref;
+ await k.table('narrate',{call_id:'t0-c1',text:'The visitor stands beside the desk.'});
+ await k.table('player_input',{text:'I watch the visitor leave.'});
+ const left=await k.table('apply',{call_id:'t1-c1',effects:[{kind:'npc',name:ref,to:'away',why:'The visitor leaves the scene.'}]});
+ assert.equal(left.outcomes[0].actor,ref,'results must bind the person, not an ambiguous or unrevealed display label');
+ assert.equal(left.outcomes[0].to,'away');assert.equal(left.outcomes[0].status,'changed');
+ assert.ok(!(await k.table('capsule')).present.some((p:any)=>p.ref===ref));
+ const noOp=await k.table('apply',{call_id:'t1-c2',effects:[{kind:'npc',name:ref,to:'away',why:'Already offstage.'}]});
+ assert.equal(noOp.outcomes[0].status,'unchanged');assert.equal(noOp.outcomes[0].actor,ref);
+ const returned=await k.table('apply',{call_id:'t1-c3',effects:[{kind:'npc',name:ref,to:'here',why:'The visitor returns.'}]});
+ assert.equal(returned.outcomes[0].actor,ref);assert.equal(returned.outcomes[0].status,'changed');
+ assert.ok((await k.table('capsule')).present.some((p:any)=>p.ref===ref));
+});
+
+test('canonical NPC references persist across rename and kernel restart without disclosing a book name',async t=>{
+ const fixture=await kernel(t);
+ const k=process.env.NPC_REFERENCE_CONTROL?new RpcClient(fixture.workspace,{command:[process.execPath,process.env.NPC_REFERENCE_CONTROL]}):fixture;
+ if(k!==fixture)t.after(()=>k.close());
+ await createCampaign(k);await k.table('open');const opened=await k.table('capsule');
+ const person=opened.present.find((p:any)=>p.name==='Steven Knott');
+ assert.match(person.ref,/^npc_[1-9][0-9]*$/);
+ const ref=person.ref;
+ assert.equal(person.name_known,false);
+ assert.notEqual(person.display_name,'Steven Knott');
+ assert.equal((await k.table('look',{focus:'npc',name:ref})).ref,ref);
+ await k.table('narrate',{call_id:'t0-c1',text:'The visitor waits by the desk.'});
+ await k.table('player_input',{text:'I call the visitor the ledger carrier.'});
+ await k.table('apply',{call_id:'t1-c1',effects:[{kind:'person',who:ref,name:'the ledger carrier'}]});
+ const renamed=await k.table('look',{focus:'npc',name:ref});
+ assert.equal(renamed.ref,ref);
+ assert.equal(renamed.display_name,'the ledger carrier');
+ assert.equal(renamed.name_known,false);
+ await k.table('narrate',{call_id:'t1-c2',text:'The visitor says, {{say:'+ref+'}}I have a message for you.{{/say}}'});
+ const undisclosed=await k.table('look',{focus:'npc',name:ref});assert.equal(undisclosed.name_known,false,'speaking by reference must not introduce the book name');
+ await k.table('player_input',{text:'I ask for his name.'});
+ await k.tableErr('narrate',{call_id:'invalid-call',text:'He introduces himself as {{name:steven-knott}}.'});
+ assert.equal((await k.table('look',{focus:'npc',name:ref})).name_known,false,'a rejected disclosure must not reveal the name');
+ await k.table('narrate',{call_id:'t2-c1',text:'He introduces himself as {{name:steven-knott}}.'});
+ const learned=await k.table('look',{focus:'npc',name:ref});assert.equal(learned.name_known,true);
+ const before=JSON.parse(readFileSync(join(campaignDir(k.workspace),'world.json'),'utf8')).npc_references;
+ const second=new RpcClient(k.workspace);t.after(()=>second.close());
+ await second.ok('table.open',{campaign:'c1'});
+ const after=await second.ok('table.capsule',{campaign:'c1'});
+ assert.equal(after.present.find((p:any)=>p.ref===ref).display_name,learned.display_name);
+ assert.deepEqual(JSON.parse(readFileSync(join(campaignDir(k.workspace),'world.json'),'utf8')).npc_references,before);
+ const unknown=await second.call('table.look',{campaign:'c1',focus:'npc',name:'npc_999999'});
+ assert.equal(unknown.error?.code,'unknown_entity');
+ const catalog=await second.ok('table.delivery.check',{campaign:'c1',speakers:[ref]});
+ assert.equal(catalog.speakers[0].name,ref);
+ assert.equal(catalog.speakers[0].who.name,learned.display_name);
+});
+
+test('reference allocation never reuses retired slots and refuses a corrupt registry',async()=>{
+ const {ModuleGraph}=await importSource('kernel-ts/read/module-graph.ts');
+ const {ensureNpcReferences,referencedNpc}=await importSource('kernel-ts/npc/references.ts');
+ const graph=(ids:string[],aliases:string[]=[])=>new ModuleGraph('fixture',{nodes:ids.map(id=>({node_id:'npc:'+id,node_kind:'npc',name:id,aliases})),edges:[]},'fixture');
+ const world:any={active_scene:'street',npc_presence:{}};
+ assert.equal(ensureNpcReferences(graph(['first']),world),true);
+ const first=world.npc_references.by_node['npc:first'];
+ ensureNpcReferences(graph(['second']),world);
+ assert.notEqual(world.npc_references.by_node['npc:second'],first);
+ assert.throws(()=>referencedNpc(graph(['second']),world,first),/retired/);
+ assert.throws(()=>referencedNpc(graph(['second'],['npc:first']),world,first),/retired/,'a name alias cannot resurrect the removed canonical identity');
+ assert.equal(ensureNpcReferences(graph(['first','second']),world),false);
+ assert.equal(world.npc_references.by_node['npc:first'],first);
+ world.npc_references.by_node['npc:second']=first;
+ assert.throws(()=>ensureNpcReferences(graph(['first','second']),world),/invalid/);
+});
+
+test('previously heard people remain referenceable off stage, while unencountered book people remain unissued',async t=>{
+ const k=await kernel(t);await createCampaign(k);await k.table('open');
+ const person=(await k.table('capsule')).present.find((p:any)=>p.name==='Steven Knott');
+ await k.table('narrate',{call_id:'t0-c1',text:'{{say:'+person.ref+'}}The street is outside.{{/say}}'});
+ await k.table('player_input',{text:'I walk outside.'});
+ await k.table('apply',{call_id:'t1-c1',effects:[{kind:'move',to:'Fixture Street',via:'front door',travel_minutes:3,establish:{summary:'A public street.',within:null}}]});
+ const capsule=await k.table('capsule');
+ assert.ok(!capsule.present.some((p:any)=>p.ref===person.ref));
+ assert.ok(capsule.npc_references.people.some((p:any)=>p.ref===person.ref));
+ const world=JSON.parse(readFileSync(join(campaignDir(k.workspace),'world.json'),'utf8'));
+ const unseen=world.npc_references.by_node['npc-walter-corbitt'];
+ assert.ok(unseen&&!capsule.npc_references.people.some((p:any)=>p.ref===unseen));
+ const {fitPresent}=await importSource('kernel-ts/read/assemble.ts');
+ const rows=[{...person,summary:'x'.repeat(4000)},{...person,ref:'npc_999',summary:'y'.repeat(4000)}];
+ fitPresent(rows,80);
+ assert.equal(rows[1].ref,'npc_999');assert.equal(rows[1].name_known,person.name_known);
+});

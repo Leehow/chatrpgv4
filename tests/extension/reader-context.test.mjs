@@ -11,10 +11,11 @@ import readerContext, { boundImages, confineReaderEnvironment, createReaderToolG
 
 test('fresh final authors keep identical system prefixes while retaining separate guarded working directories',async t=>{
   const home=await mkdtemp(join(tmpdir(),'author-cache-prefix-'));t.after(()=>rm(home,{recursive:true,force:true}));
-  const prompts=[];
+  const prompts=[],toolSchemas=[];
   for(const name of ['attempt-a','attempt-b']){
     const cwd=join(home,name);await mkdir(cwd);
-    const faux=fauxProvider({responses:[fauxAssistantMessage('Done.') ]});
+    const faux=fauxProvider();
+    faux.setResponses([context=>{toolSchemas.push(getCurrentTools(context.messages));return fauxAssistantMessage('Done.');}]);
     const runtime=await ModelRuntime.create({authPath:join(home,'auth.json'),modelsPath:null,
       modelsStorePath:join(home,'models-store.json'),refreshOnCreate:false,allowModelNetwork:false});
     runtime.registerNativeProvider(faux.provider);
@@ -31,6 +32,8 @@ test('fresh final authors keep identical system prefixes while retaining separat
     assert.equal(createReaderToolGuard(cwd,{PI_COC_FINAL_OUTPUT:'1',PI_COC_HOME:home})({toolName:'read',input:{path:join(home,'other','task.json')}}).block,true);
   }
   assert.equal(prompts.length,2);assert.equal(prompts[0],prompts[1]);assert.ok(!prompts[0].includes(home));
+  assert.equal(toolSchemas.length,2);
+  for(const tools of toolSchemas)for(const name of ['write','edit'])assert.equal(tools.find(tool=>tool.name===name)?.parameters.properties.path.const,'draft.json','author tool parameters expose the actual fixed destination before execution');
 });
 import { readingImageBudget, resetReadingImageBudgetCache } from "../../runtime/jev/host-budgets.ts";
 import {createAgentSession,createBashTool,DefaultResourceLoader,ModelRuntime,SessionManager,SettingsManager} from './pi.mjs';
@@ -79,8 +82,10 @@ test('final writing tools expose only the approved packet and draft, including c
   const fixture=await confinementFixture(t);
   const env={...fixture.env,PI_COC_FINAL_OUTPUT:'1'};
   delete env.PI_COC_READER_SOURCE;
-  readerContext({on() {},registerTool(){assert.fail('a non-source final author keeps its original bash declaration');}},
+  const registered=[];
+  readerContext({on() {},registerTool(tool){assert.notEqual(tool.name,'bash','a non-source final author keeps its original bash declaration');registered.push(tool.name);}},
     {cwd:fixture.cwd,env});
+  assert.deepEqual(registered,['read','write','edit']);
   const guard=createReaderToolGuard(fixture.cwd,env);
   for(const toolName of ['pdf','image_gen','web_search','resolve','apply'])
     assert.ok(guard({toolName,input:{}})?.block,'the author cannot invoke '+toolName);

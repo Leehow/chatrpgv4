@@ -191,7 +191,7 @@ export function validateCheckOptions(value: unknown): CheckOption[] | undefined 
       if (parameter.selection !== undefined && (parameter.selection !== 'compatible' || parameter.multiple !== undefined || parameter.default !== undefined)) return undefined;
       if (parameter.default !== undefined && (!isPlainRecord(parameter.default) || parameter.multiple !== undefined
         || typeof parameter.default.question !== 'string' || !Object.hasOwn(parameter.default, 'value')
-        || !parameter.options.some(option => digest(option.value) === digest(parameter.default!.value)))) return undefined;
+        || !parameter.options.some(option => digest(option.value) === digest((parameter.default as Record<string,unknown>).value)))) return undefined;
       names.add(parameter.name);
     }
   }
@@ -273,7 +273,7 @@ export async function selectCheck(input: CheckSelectionInput): Promise<CheckSele
     });
     if (!eligible.length) return unresolved(['check_request_options_unavailable']);
     const receipts = isPlainRecord(input.context) && Array.isArray(input.context.current_receipts)
-      ? input.context.current_receipts.filter(isPlainRecord) : [];
+      ? input.context.current_receipts.flatMap(receipt=>isPlainRecord(receipt)?[receipt]:[]) : [];
     const currentSceneReceipts = receipts.slice(receipts.findLastIndex(receipt => receipt.scene_change === true) + 1);
     eligible = eligible.filter(option => !(option.action.decision === 'core-check:ordinary-check' && option.action.rule === undefined
       && currentSceneReceipts.some(receipt => receipt.kind === 'roll' && receipt.actor === option.action.actor && receipt.skill === option.action.skill

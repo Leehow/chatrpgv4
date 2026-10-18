@@ -3,11 +3,12 @@ export interface RuntimeEntrypoints {
   readonly kernel: string; readonly kernelCheck: string; readonly host: string; readonly preparation: string;
   readonly check: string; readonly launch: string;
   /** The Keeper's Pi CLI on the hybrid engine (vendored Pi `main` plus the RunDriver). */
-  readonly piHybrid: string; readonly sourceWorker: string; readonly source: string;
+  readonly piHybrid: string; readonly piSourceReader: string; readonly sourceWorker: string; readonly source: string;
+  readonly auditSubmit: string; readonly adaptationSubmit: string;
   readonly onboardingWorker: string; readonly rpc: string; readonly agent: string; readonly readerContext: string;
   readonly readerPdf: string; readonly readerSubmit: string; readonly deepseek: string; readonly imageGen: string; readonly grokBuild: string;
   readonly characterGuidance: string; readonly characterPresentation: string; readonly documentPresentation: string;
-  readonly uiPresentation: string;
+  readonly uiPresentation: string; readonly mapPresentation: string;
   /** Contract §191.2: the page-transcript layout child's `submit_layout`. */
   readonly layoutSubmit: string;
   /** Contract §177.2: the cast reader child's `submit_cast`. */

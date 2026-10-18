@@ -13,7 +13,7 @@ export interface KernelProgressFrame {
 	at?: string;
 }
 
-const DEFAULT_ERROR_RECOVERY: Record<string, { retryable: boolean; next: KernelErrorPayload["next"] }> = {
+const DEFAULT_ERROR_RECOVERY: Record<string, { retryable: boolean; next: NonNullable<KernelErrorPayload["next"]> }> = {
 	needs: { retryable: false, next: "change_input" },
 	needs_choice: { retryable: false, next: "change_input" },
 	invalid_params: { retryable: false, next: "change_input" },

@@ -4,6 +4,8 @@ Tests reuse one retained seed per starting position. A new model, reasoning leve
 or retry creates a private copy-on-write view of that seed, not another full
 payload or a tar export. `scripts/test-workspace.mjs` owns this operation;
 `tests/play/driver.ts start --seed-home PATH` invokes it before starting a child.
+Campaign-scoped `memory-decisions/<campaign>` and `memory-drafts/<campaign>` are
+included so restart tests retain accepted decision work without another campaign's cache.
 Tests that start from an empty workspace need no seed. Existing running tests
 and product workspaces are outside this migration.
 
