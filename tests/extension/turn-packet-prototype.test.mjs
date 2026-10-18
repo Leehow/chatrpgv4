@@ -10,6 +10,18 @@ import {createHybridEngine} from '../../runtime/jev/hybrid-engine.ts';
 import {openTable} from './harness.mjs';
 import {RpcClient,kernel,openTurn,importSource} from '../integration/support.ts';
 const brief={version:3,commands:[],responses:[]};
+test('packet parameter refusals identify the exact field without coercing its JSON type',()=>{
+ const packet={...brief,commands:[{kind:'move',to:'Central Library'},{kind:'scene',service:'open',crowd:'active',review_after_minutes:'45'}]};
+ assert.throws(()=>turnPacket(JSON.stringify(packet)),/commands\[1\]\/review_after_minutes.*must be integer.*received string/);
+ assert.equal(packet.commands[1].review_after_minutes,'45');
+ for(const [value,reason] of [[0,/minimum/],[61,/maximum/],[1.5,/integer/]])assert.throws(()=>turnPacket(JSON.stringify({...brief,commands:[{...packet.commands[1],review_after_minutes:value}]})),reason);
+ assert.throws(()=>turnPacket(JSON.stringify({...brief,commands:[{kind:'npc',actor:'npc_1',to:'away'}]})),/commands\[0\].*reason.*required/);
+ assert.equal(turnPacket(JSON.stringify({...packet,commands:packet.commands.map(row=>row.kind==='scene'?{...row,review_after_minutes:45}:row)})).commands[1].review_after_minutes,45);
+ const sentinel='private-submitted-material-'.repeat(200);
+ assert.throws(()=>turnPacket(JSON.stringify({...brief,commands:[{kind:'scene',service:'open',crowd:'quiet',[sentinel]:'secret'}]})),error=>{
+  assert.match(error.message,/<additional-property>/);assert.ok(!error.message.includes('private-submitted-material'));assert.ok(error.message.length<=1600);return true;
+ });
+});
 const movement={kind:'move',to:'Central Library',via:'public street'};
 const env={PI_COC_LOOP_ENGINE:'hybrid-v1',PI_COC_TURN_PACKET_PROTOTYPE:'1',PI_COC_JEV_PRESELECT:'0',PI_COC_MATERIAL_SCREEN:'0',
   EXT_JEV_APIKEY:undefined,TYPESAFE_API_KEY:undefined,
@@ -92,6 +104,22 @@ test('schema and capability failures share one correction allowance and cannot l
  assert.equal(table.entries('coc-final-delivery').filter(row=>row.event==='delta').length,0);
  const state=await table.runtimeBridges().at(-1).call('table.capsule',{campaign:'test-camp'});
  assert.ok(state.present.some(person=>person.ref===ref));
+});
+
+test('native integer parameter diagnostics reach the single correction before any scene write',async t=>{
+ let requests=0;
+ const engine=createHybridEngine({env,decision:{decide:async batch=>answer(batch,.99)}});
+ const table=await openTable({legacyDeliveryFixtures:false,realKernel:true,prepareWorkspace:opened,env,runDriver:engine.runDriver,
+  extraExtensions:[{name:'engine',factory:engine.extension}],responses:[
+   ()=>{requests++;return fauxAssistantMessage([rawToolCall('output',{...brief,commands:[{kind:'scene',service:'open',crowd:'quiet',review_after_minutes:'45'}]})],{stopReason:'toolUse'});},
+   context=>{requests++;const errors=context.messages.filter(row=>row.role==='toolResult'&&row.isError).flatMap(row=>row.content??[]).map(row=>row.text??'').join('\n');
+    assert.match(errors,/commands\[0\]\/review_after_minutes/);assert.match(errors,/must be integer/);assert.match(errors,/received string/);
+    return fauxAssistantMessage([rawToolCall('output',{...brief,commands:[{kind:'scene',service:'open',crowd:'quiet',review_after_minutes:45}]})],{stopReason:'toolUse'});}
+  ]});t.after(()=>table.dispose());
+ await table.session.prompt('I remain by the desk.');
+ assert.equal(requests,2);assert.deepEqual(table.extensionErrors,[]);
+ assert.equal(table.telemetry().filter(row=>row.event==='packet_parameters_refused').length,1);
+ assert.equal(table.entries('coc-final-delivery').filter(row=>row.event==='end'&&row.status==='completed').length,1);
 });
 
 test('native final output retains the production rule path and delivers actual public check results to its author',async t=>{

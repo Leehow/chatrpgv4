@@ -1,5 +1,6 @@
 /** Opt-in decision commands; only the isolated author generates prose. */
-import {Type} from 'typebox';
+import {Type,type TSchema} from 'typebox';
+import {Errors} from 'typebox/value';
 import {StringEnum} from '@earendil-works/pi-ai';
 import {NPC_REFERENCE_PATTERN,isNpcReference} from './npc-references.ts';
 const atom=(maxLength=160)=>Type.String({minLength:1,maxLength});
@@ -25,6 +26,16 @@ export const isNewNpcSlot=(value:unknown):value is string=>typeof value==='strin
 const object=(value:unknown):value is Record<string,any>=>!!value&&typeof value==='object'&&!Array.isArray(value);
 const bounded=(value:unknown,max=160)=>typeof value==='string'&&!!value.trim()&&value.length<=max;
 const keys=(value:Record<string,unknown>,allowed:string[])=>Object.keys(value).every(key=>allowed.includes(key));
+/** Diagnose with the declared schema before Pi can coerce supplied values. */
+function parameterError(label:string,schema:TSchema,value:unknown):Error {
+ const findings=Errors(schema,value).slice(0,4).map(error=>{
+  if(error.keyword==='additionalProperties'||error.schemaPath.endsWith('/additionalProperties'))return `${label}/<additional-property>: must not have additional properties`;
+  const received=error.instancePath.split('/').slice(1).reduce<unknown>((row,key)=>object(row)||Array.isArray(row)?(row as Record<string,unknown>)[key.replace(/~1/g,'/').replace(/~0/g,'~')]:undefined,value);
+  const type=received===null?'null':Array.isArray(received)?'array':typeof received;
+  return `${label}${error.instancePath}: ${error.message} (${error.keyword} ${JSON.stringify(error.params)}); received ${type}`;
+ });
+ return Error(`Invalid decision command: ${findings.join('; ')||`${label} requires nonblank bounded strings`}`.slice(0,1600));
+}
 export function responseDecision(value:unknown,slots:readonly string[]=[]):ResponseDecision {
  if(!object(value)||!(isNpcReference(value.actor)||isNewNpcSlot(value.actor)&&slots.includes(value.actor))||!acts.includes(value.act))throw Error('Invalid response decision or unbound newcomer slot');
  if(value.act==='silent'){
@@ -87,14 +98,17 @@ export function turnPacket(text:string):TurnPacket {
   const raw=JSON.parse(text);
   if(!object(raw)||!keys(raw,['version','commands','responses'])||raw.version!==3||!Array.isArray(raw.commands)||raw.commands.length>12||!Array.isArray(raw.responses)||raw.responses.length>12)
     throw Error('Invalid decision packet');
-  for(const action of raw.commands){
-    if(!object(action))throw Error('Invalid decision command');
+  for(const [index,action] of raw.commands.entries()){
+    if(!object(action))throw parameterError(`commands[${index}]`,Type.Object({}),action);
     const valid=action.kind==='move'?keys(action,['kind','to','via'])&&bounded(action.to)&&(action.via===undefined||bounded(action.via))
       :action.kind==='npc'?keys(action,['kind','actor','to','reason'])&&isNpcReference(action.actor)&&bounded(action.to)&&bounded(action.reason)
       :action.kind==='walk_on'?keys(action,['kind','slot','label','reason'])&&isNewNpcSlot(action.slot)&&bounded(action.label,80)&&bounded(action.reason)
       :action.kind==='scene'?keys(action,['kind','service','crowd','review_after_minutes'])&&services.includes(action.service)&&crowds.includes(action.crowd)&&(action.review_after_minutes===undefined||Number.isInteger(action.review_after_minutes)&&action.review_after_minutes>=1&&action.review_after_minutes<=60)
       :action.kind==='time'?keys(action,['kind','band','reason'])&&bounded(action.band,64)&&bounded(action.reason):false;
-    if(!valid)throw Error('Invalid decision command');
+    if(!valid){
+      const schema=[move,npc,walkOn,scene,time].find(schema=>schema.properties.kind.const===action.kind);
+      throw parameterError(`commands[${index}]`,schema??Type.Object({kind:StringEnum(['move','npc','walk_on','scene','time'])}),action);
+    }
   }
   const slots=raw.commands.filter((a:Record<string,unknown>)=>a.kind==='walk_on').map((a:Record<string,unknown>)=>a.slot as string);
   const labels=raw.commands.filter((a:Record<string,unknown>)=>a.kind==='walk_on').map((a:Record<string,any>)=>a.label.normalize('NFKC').trim().toLowerCase());
