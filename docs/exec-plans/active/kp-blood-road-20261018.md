@@ -15,7 +15,7 @@ patches. Preserve the original campaign and every failure.
 
 ## Ownership and evidence
 
-- Integration branch: 0.9.8a. Last fully built revision: 1a2ae6d25.
+- Integration branch: 0.9.8a. Last fully built revision: 57ec67695.
 - Owned clean validation checkout: codex/kp-blood-road-validation-20261018.
 - Lifecycle task: kp-blood-road-20261018; closeout remains required.
 - Other owner's DeepSeek/search changes are excluded, including their shared
@@ -28,18 +28,25 @@ patches. Preserve the original campaign and every failure.
 
 ## Current milestone
 
-Seventeen scoped commits integrate sparse NPC decisions, canonical actual
+Eighteen scoped commits integrate sparse NPC decisions, canonical actual
 results, public-history recovery, bounded consent context, strict schema
 diagnostics, author artifact ownership and native array dialect decoding.
 Gate 7 passed at ef5079da8: extension 6036 pass/9 skip; integration 2226 pass/1
-skip; routing 12 pass. Gate 8 at 1a2ae6d25 is still running on leehow-pc.
+skip; routing 12 pass. Gate 8 passed at 1a2ae6d25: extension 6049 pass/9
+skip, integration 2226 pass/1 skip, routing 12 pass, wall1559 seconds.
 
-Actual play remains in the town opening, not a completed chapter. Gas station,
+Actual play remains in the opening, not a completed chapter. Gas station,
 bar meal/payment and NPC directions have been played. Intent 15 passed Jev
 (.78 selection/.24 restriction) but failed kernel reachability: the reduced
 output schema forbade via while a source-only destination required it. Repair
 the shared route requirement, conditional parameter schema and operation
-binding; keep incomplete routes out of automatic screening/execution.
+binding was completed in 57ec67695. Intent16 passed one Jev request (.83/.23),
+then settled the move and scene. Its final author completed one unframed direct
+response, rejected solely for missing handwritten protocol framing. The host
+framing repair retains explicit-stream and file-ownership boundaries. Gate9
+was stopped with143 before the next changed-runtime build; partial evidence
+is preserved, not a pass. The move has landed but public delivery is pending;
+do not repeat that journey or charge its effects again.
 
 Jev 1.14 bounded shadow A/C used two calls: the prior ambiguous positive became
 .84/.18, and future-only negative remained refused at .38/.89. This does not
