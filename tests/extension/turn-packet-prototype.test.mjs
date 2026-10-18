@@ -22,6 +22,17 @@ test('packet parameter refusals identify the exact field without coercing its JS
   assert.match(error.message,/<additional-property>/);assert.ok(!error.message.includes('private-submitted-material'));assert.ok(error.message.length<=1600);return true;
  });
 });
+test('native argument normalization repairs only canonical decimal strings within declared integer bounds',()=>{
+ const original={...brief,commands:[{kind:'scene',service:'open',crowd:'quiet',review_after_minutes:'45'}]};
+ const normalized=normalizeTurnPacketArguments(original);
+ assert.equal(normalized.integerRepairs,1);assert.equal(normalized.args.commands[0].review_after_minutes,45);
+ assert.equal(original.commands[0].review_after_minutes,'45');assert.doesNotThrow(()=>turnPacket(JSON.stringify(normalized.args)));
+ for(const value of ['0','61','1.5','045',' 45','4.5e1','',true]){
+  const bad={...brief,commands:[{...original.commands[0],review_after_minutes:value}]};
+  assert.equal(normalizeTurnPacketArguments(bad).args,bad);assert.throws(()=>turnPacket(JSON.stringify(bad)));
+ }
+ const nonnumeric={...brief,commands:[{kind:'move',to:'45'}]};assert.equal(normalizeTurnPacketArguments(nonnumeric).args,nonnumeric);
+});
 const movement={kind:'move',to:'Central Library',via:'public street'};
 const env={PI_COC_LOOP_ENGINE:'hybrid-v1',PI_COC_TURN_PACKET_PROTOTYPE:'1',PI_COC_JEV_PRESELECT:'0',PI_COC_MATERIAL_SCREEN:'0',
   EXT_JEV_APIKEY:undefined,TYPESAFE_API_KEY:undefined,
@@ -106,19 +117,20 @@ test('schema and capability failures share one correction allowance and cannot l
  assert.ok(state.present.some(person=>person.ref===ref));
 });
 
-test('native integer parameter diagnostics reach the single correction before any scene write',async t=>{
+test('native invalid integer parameters get one correction and canonical decimals normalize before validation',async t=>{
  let requests=0;
  const engine=createHybridEngine({env,decision:{decide:async batch=>answer(batch,.99)}});
  const table=await openTable({legacyDeliveryFixtures:false,realKernel:true,prepareWorkspace:opened,env,runDriver:engine.runDriver,
   extraExtensions:[{name:'engine',factory:engine.extension}],responses:[
-   ()=>{requests++;return fauxAssistantMessage([rawToolCall('output',{...brief,commands:[{kind:'scene',service:'open',crowd:'quiet',review_after_minutes:'45'}]})],{stopReason:'toolUse'});},
+   ()=>{requests++;return fauxAssistantMessage([rawToolCall('output',{...brief,commands:[{kind:'scene',service:'open',crowd:'quiet',review_after_minutes:'45.5'}]})],{stopReason:'toolUse'});},
    context=>{requests++;const errors=context.messages.filter(row=>row.role==='toolResult'&&row.isError).flatMap(row=>row.content??[]).map(row=>row.text??'').join('\n');
     assert.match(errors,/commands\[0\]\/review_after_minutes/);assert.match(errors,/must be integer/);assert.match(errors,/received string/);
-    return fauxAssistantMessage([rawToolCall('output',{...brief,commands:[{kind:'scene',service:'open',crowd:'quiet',review_after_minutes:45}]})],{stopReason:'toolUse'});}
+    return fauxAssistantMessage([rawToolCall('output',{...brief,commands:[{kind:'scene',service:'open',crowd:'quiet',review_after_minutes:'45'}]})],{stopReason:'toolUse'});}
   ]});t.after(()=>table.dispose());
  await table.session.prompt('I remain by the desk.');
  assert.equal(requests,2);assert.deepEqual(table.extensionErrors,[]);
  assert.equal(table.telemetry().filter(row=>row.event==='packet_parameters_refused').length,1);
+ assert.equal(table.telemetry().filter(row=>row.event==='decision_integer_normalized').length,1);
  assert.equal(table.entries('coc-final-delivery').filter(row=>row.event==='end'&&row.status==='completed').length,1);
 });
 

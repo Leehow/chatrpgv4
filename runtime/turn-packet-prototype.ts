@@ -13,6 +13,7 @@ const walkOn=Type.Object({kind:Type.Literal('walk_on'),slot,label:atom(80),reaso
 const services=['open','closed','limited','unknown'] as const,crowds=['empty','quiet','active','crowded','unknown'] as const;
 const scene=Type.Object({kind:Type.Literal('scene'),service:StringEnum([...services]),crowd:StringEnum([...crowds]),review_after_minutes:Type.Optional(Type.Integer({minimum:1,maximum:60}))},{additionalProperties:false});
 const time=Type.Object({kind:Type.Literal('time'),band:atom(64),reason:atom()},{additionalProperties:false});
+const commandSchemas=[move,npc,walkOn,scene,time];
 // Travel owns its time. This bounded wire has no beyond-travel operation.
 const commands=Type.Union([Type.Array(Type.Union([move,npc,walkOn,scene]),{maxItems:12}),Type.Array(Type.Union([time,npc,walkOn,scene]),{maxItems:12})]);
 const response=Type.Union([
@@ -52,8 +53,8 @@ export function requireTurnPacketNpcDestinations(packet:TurnPacket,choices:reado
  return packet;
 }
 /** Decode exact, bounded item envelopes only at declared array positions. */
-export function normalizeTurnPacketArguments(input:unknown):{args:unknown;repairs:number} {
-  let repairs=0;
+export function normalizeTurnPacketArguments(input:unknown):{args:unknown;repairs:number;integerRepairs?:number} {
+  let repairs=0,integerRepairs=0;
   const array=(value:unknown,strings=false):unknown=>{
     let candidate=value,depth=0;
     while(object(candidate)&&Object.keys(candidate).length===1&&Object.hasOwn(candidate,'item')&&depth++<4)candidate=candidate.item;
@@ -62,9 +63,22 @@ export function normalizeTurnPacketArguments(input:unknown):{args:unknown;repair
     repairs++;return Array.isArray(candidate)?candidate:[candidate];
   };
   if(!object(input))return {args:input,repairs};
-  const commands=array(input.commands),responses=array(input.responses);
+  const commandArray=array(input.commands),responses=array(input.responses);
+  const commands=Array.isArray(commandArray)?commandArray.map(row=>{
+    if(!object(row))return row;
+    const schema=commandSchemas.find(schema=>schema.properties.kind.const===row.kind);
+    let result=row;
+    for(const [key,property] of Object.entries(schema?.properties??{})){
+      const value=row[key];
+      if(property.type!=='integer'||!Number.isFinite(property.minimum)||!Number.isFinite(property.maximum)||typeof value!=='string')continue;
+      const number=Number(value);
+      if(!Number.isSafeInteger(number)||String(number)!==value||number<property.minimum!||number>property.maximum!)continue;
+      result={...result,[key]:number};integerRepairs++;
+    }
+    return result;
+  }):commandArray;
   const normalized=Array.isArray(responses)?responses.map(row=>object(row)&&Object.hasOwn(row,'points')?{...row,points:array(row.points,true)}:row):responses;
-  return {args:repairs?{...input,commands,responses:normalized}:input,repairs};
+  return {args:repairs||integerRepairs?{...input,commands,responses:normalized}:input,repairs,...(integerRepairs?{integerRepairs}:{})};
 }
 /** Restore this owned declaration after Pi's non-strict Anthropic conversion. */
 export function turnPacketProviderPayload(payload:unknown,journeySettled=false,requireTool=true,timeBands?:readonly string[],moveChoices?:readonly Record<string,unknown>[]):unknown {
@@ -106,7 +120,7 @@ export function turnPacket(text:string):TurnPacket {
       :action.kind==='scene'?keys(action,['kind','service','crowd','review_after_minutes'])&&services.includes(action.service)&&crowds.includes(action.crowd)&&(action.review_after_minutes===undefined||Number.isInteger(action.review_after_minutes)&&action.review_after_minutes>=1&&action.review_after_minutes<=60)
       :action.kind==='time'?keys(action,['kind','band','reason'])&&bounded(action.band,64)&&bounded(action.reason):false;
     if(!valid){
-      const schema=[move,npc,walkOn,scene,time].find(schema=>schema.properties.kind.const===action.kind);
+      const schema=commandSchemas.find(schema=>schema.properties.kind.const===action.kind);
       throw parameterError(`commands[${index}]`,schema??Type.Object({kind:StringEnum(['move','npc','walk_on','scene','time'])}),action);
     }
   }

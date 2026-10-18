@@ -115,6 +115,9 @@ export class ContinuousTurn {
                 }
                 this.batches=[batch];this.batch=batch;
                 this.options.record({lane:'continuous-turn',event:'prepared',run:this.options.run,packet:true,candidates:lines.length,
+                    input_chars:this.options.playerText.length,investigators:this.options.investigators?.length??0,
+                    public_context:(this.options.previousPublic??[]).map(row=>({turn:row.turn,player_chars:row.player?.length??0,keeper_chars:row.keeper.length,digest:hash(row),truncated:row.truncated===true})),
+                    described_destinations:lines.filter(line=>text(object(line.registered_destination).summary)||text(line.registered_destination.source_context)).length,
                     batches:[{candidates:lines.length,estimate:packDecisionBatch(batch).estimate}]});
                 return;
             }
