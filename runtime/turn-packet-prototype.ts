@@ -1,4 +1,5 @@
 /** Opt-in decision commands; only the isolated author generates prose. */
+import {normalizeToolArgumentSyntax} from './tool-argument-syntax.ts';
 import {Type,type TSchema} from 'typebox';
 import {Errors} from 'typebox/value';
 import {StringEnum} from '@earendil-works/pi-ai';
@@ -54,31 +55,7 @@ export function requireTurnPacketNpcDestinations(packet:TurnPacket,choices:reado
 }
 /** Decode exact, bounded item envelopes only at declared array positions. */
 export function normalizeTurnPacketArguments(input:unknown):{args:unknown;repairs:number;integerRepairs?:number} {
-  let repairs=0,integerRepairs=0;
-  const array=(value:unknown,strings=false):unknown=>{
-    let candidate=value,depth=0;
-    while(object(candidate)&&Object.keys(candidate).length===1&&Object.hasOwn(candidate,'item')&&depth++<4)candidate=candidate.item;
-    if(candidate===value)return value;
-    if(!Array.isArray(candidate)&&!(strings?typeof candidate==='string':object(candidate)))return value;
-    repairs++;return Array.isArray(candidate)?candidate:[candidate];
-  };
-  if(!object(input))return {args:input,repairs};
-  const commandArray=array(input.commands),responses=array(input.responses);
-  const commands=Array.isArray(commandArray)?commandArray.map(row=>{
-    if(!object(row))return row;
-    const schema=commandSchemas.find(schema=>schema.properties.kind.const===row.kind);
-    let result=row;
-    for(const [key,property] of Object.entries(schema?.properties??{})){
-      const value=row[key];
-      if(property.type!=='integer'||!Number.isFinite(property.minimum)||!Number.isFinite(property.maximum)||typeof value!=='string')continue;
-      const number=Number(value);
-      if(!Number.isSafeInteger(number)||String(number)!==value||number<property.minimum!||number>property.maximum!)continue;
-      result={...result,[key]:number};integerRepairs++;
-    }
-    return result;
-  }):commandArray;
-  const normalized=Array.isArray(responses)?responses.map(row=>object(row)&&Object.hasOwn(row,'points')?{...row,points:array(row.points,true)}:row):responses;
-  return {args:repairs||integerRepairs?{...input,commands,responses:normalized}:input,repairs,...(integerRepairs?{integerRepairs}:{})};
+  return normalizeToolArgumentSyntax(TURN_PACKET_PARAMETERS,input,{boundedIntegers:true});
 }
 /** Restore this owned declaration after Pi's non-strict Anthropic conversion. */
 export function turnPacketProviderPayload(payload:unknown,journeySettled=false,requireTool=true,timeBands?:readonly string[],moveChoices?:readonly Record<string,unknown>[]):unknown {

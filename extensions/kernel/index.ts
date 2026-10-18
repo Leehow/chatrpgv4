@@ -13,6 +13,7 @@ import {SAME_KEEPER_AFTER_RESULT_GUIDANCE} from '../../runtime/keeper-output-gui
 import {scenePopulationRequired} from '../../runtime/scene-population.ts';
 import {ExpressionPlanStream,writeIsolatedExpression,decisionScene,decisionClock,decisionRecentPublic} from '../../runtime/isolated-expression.ts';
 import {turnPacket,bindTurnPacketMoves,requireTurnPacketNpcDestinations,isNewNpcSlot,normalizeTurnPacketArguments,compileTurnPacket,turnPacketResult,turnPacketProviderPayload,TURN_PACKET_PARAMETERS,TURN_PACKET_GUIDANCE,type TurnPacket} from '../../runtime/turn-packet-prototype.ts';
+import {normalizeToolArgumentSyntax} from '../../runtime/tool-argument-syntax.ts';
 import {continuousConsentDisposition} from '../../runtime/jev/continuous-consent.ts';
 import {NpcReferences,isNpcReference} from '../../runtime/npc-references.ts';
 import {documentEditInput} from '../../runtime/document-edit-input.ts';
@@ -6839,7 +6840,7 @@ export default function (pi: ExtensionAPI, host: {capabilities?:RuntimeCapabilit
 			// the literal's body without its quotes -- is decoded between the two, so the label rule and every reader after it
 			// see the text.
 			prepareArguments: (args: unknown) => {
-				const normalized=turnPacketPrototype&&spec.name==='output'?normalizeTurnPacketArguments(args):{args,repairs:0,integerRepairs:0};
+				const normalized=turnPacketPrototype&&spec.name==='output'?normalizeTurnPacketArguments(args):{...normalizeToolArgumentSyntax(spec.parameters,args),integerRepairs:0};
 				if(normalized.repairs)void record({lane:'arguments',event:'decision_array_normalized',tool:spec.name,repairs:normalized.repairs});
 				if(normalized.integerRepairs)void record({lane:'arguments',event:'decision_integer_normalized',tool:spec.name,repairs:normalized.integerRepairs});
 				const unwrapped = unwrapArgumentMarkup(spec.name, spec.parameters, normalized.args);
