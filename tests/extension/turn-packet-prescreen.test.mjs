@@ -55,6 +55,36 @@ test('a ready routine journey publishes actual movement without Keeper inference
  assert.deepEqual(table.extensionErrors,[]);
 });
 
+test('an untimed native route settles its issued band with one Keeper and one consent request',async t=>{
+ let requests=0,expectedMinutes,returnTo,returnVia,startLabel;const batches=[];
+ const engine=createHybridEngine({env,decision:{decide:async batch=>{batches.push(batch);const result=answer(batch);
+  for(const [key,value] of Object.entries(result.answers))if(key.startsWith('consent_'))value.noul=.99;return result;}}});
+ const table=await openTable({legacyDeliveryFixtures:false,realKernel:true,env,runDriver:engine.runDriver,
+  prepareWorkspace:async workspace=>{await opened(workspace);const client=new RpcClient(workspace);try{
+   const current=await client.table('capsule',{campaign:'test-camp'}),start=current.where.scene;startLabel=current.where.display_name;
+   const bands=await client.ok('rules.bands',{field:'time.band'});expectedMinutes=bands.rows.find(row=>row.handle==='local_travel').default;
+   await client.ok('table.player_input',{campaign:'test-camp',text:'The controlled fixture establishes an untimed annex.'});
+   await client.ok('table.apply',{campaign:'test-camp',call_id:'t2-c1',effects:[{kind:'move',to:'Untimed Annex',establish:{summary:'A separate empty annex outside town.',within:null},via:'The public road.'}]});
+   await client.ok('table.narrate',{campaign:'test-camp',call_id:'t2-c2',text:'The annex is outside town on the public road.'});
+   await client.ok('table.player_input',{campaign:'test-camp',text:'The controlled fixture inspects its return options.'});
+   const options=await client.table('apply.options',{campaign:'test-camp'});
+   const offered=options.candidates.find(row=>row.effect?.to===start||row.description?.display_name===startLabel);assert.ok(offered);
+   returnTo=offered.effect.to;returnVia=offered.description.requires_via?'The same public road.':undefined;
+   await client.ok('table.narrate',{campaign:'test-camp',call_id:'t3-c1',text:'The investigator remains at the annex, ready to return.'});
+  }finally{await client.close();}},extraExtensions:[{name:'engine',factory:engine.extension}],responses:[()=>{requests++;return fauxAssistantMessage([
+   rawToolCall('output',{version:3,commands:[{kind:'move',to:returnTo,travel_band:'local_travel',...(returnVia?{via:returnVia}:{})},
+    {kind:'scene',service:'open',crowd:'quiet'}],responses:[]})],{stopReason:'toolUse'});} ]});
+ t.after(()=>table.dispose());await table.session.prompt('I walk back to '+startLabel+'.');
+ assert.deepEqual(table.extensionErrors,[]);assert.equal(requests,1);
+ assert.equal(batches.filter(batch=>batch.family==='continuous-turn').length,0,'an incomplete journey is not prescreened or executed');
+ assert.equal(batches.filter(batch=>batch.family==='continuous-action-admission').length,1,JSON.stringify(table.telemetry().filter(row=>row.event==='packet_parameters_refused'||row.lane==='continuous-turn'||row.lane==='arguments')));
+ const turn=JSON.parse(readFileSync(join(table.workspace,'.coc/campaigns/test-camp/turns/0004.json'),'utf8'));
+ const moves=turn.receipts.filter(row=>row.kind==='move');assert.equal(moves.length,1);
+ assert.equal(moves[0].minutes,expectedMinutes);assert.deepEqual(moves[0].travel,{basis:'banded',band:'local_travel'});
+ assert.equal(turn.receipts.filter(row=>row.kind==='time').length,0);
+ assert.equal(table.entries('coc-final-delivery').filter(row=>row.event==='end'&&row.status==='completed').length,1);
+});
+
 test('an unassessed arrival uses one existing Keeper decision without another consent batch',async t=>{
  let requests=0;const batches=[];
  const engine=createHybridEngine({env,decision:{decide:async batch=>{batches.push(batch);return answer(batch);}}});
@@ -102,7 +132,7 @@ test('a restarted journey retains full delivered directions past 200 characters 
  t.after(()=>table.dispose());await table.session.prompt('I go to that red doorway two blocks west.');
  assert.equal(batches.length,1);assert.equal(requests,1);
  const previous=batches[0].state.previous_public;
- assert.ok(previous.some(row=>row.turn===2&&row.player==='Which doorway is it?'&&row.keeper.endsWith(marker)));
+ assert.ok(previous.some(row=>row.turn===2&&row.player==='Which doorway is it?'&&row.keeper.endsWith(marker)),JSON.stringify({families:batches.map(batch=>batch.family),previous}));
  assert.equal(previous.some(row=>row.turn===3||row.turn===4),false,'unpublished retries never replace the delivered reference');
  assert.equal(table.entries('coc-final-delivery').filter(row=>row.event==='end'&&row.status==='completed').length,1);
 });

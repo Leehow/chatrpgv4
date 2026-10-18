@@ -5670,7 +5670,7 @@ export default function (pi: ExtensionAPI, host: {capabilities?:RuntimeCapabilit
 
     async function packetTimeBandHandles(state:TableState):Promise<string[]>{
         if(state.packetTimeBands)return state.packetTimeBands;
-        const rows=readBandRows('time',await state.kernel.call('rules.bands',{field:SHADOW_FIELDS.time}));
+        const rows=await shadowBandRows(state.kernel,'time');
         if(rows?.kind!=='time')throw Error('The native time-band registry is unavailable');
         return state.packetTimeBands=rows.rows.map(row=>row.handle);
     }
@@ -7226,6 +7226,7 @@ export default function (pi: ExtensionAPI, host: {capabilities?:RuntimeCapabilit
 				materialSources:(turn:number)=>finalOutput.inventory(campaign,turn),
                 playerContext:()=>({investigators:table?.party.map(person=>person.name)??[],
                     previousPublic:table?decisionRecentPublic(table.recent,table.delivered):[]}),
+                timeBands:async()=>{const rows=await shadowBandRows(kernel,'time');if(rows?.kind!=='time')throw Error('Travel-band registry is unavailable');return rows.rows;},
                 referenceReplyStatus:()=>table?.referenceReplies?.size?{campaign:table.campaign,turn:table.turn,queued:true}:undefined,
 				runtime,
 				// The call ordinal lives here, so anything that has to write on the Keeper's behalf mints its

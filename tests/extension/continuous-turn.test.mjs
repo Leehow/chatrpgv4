@@ -43,6 +43,17 @@ test('packet mode exposes a route slot without judging or executing an incomplet
  assert.equal(judgments,0);assert.equal(writes,0);
 });
 
+for(const available of [true,false])test('packet mode defers untimed movement to one Keeper choice; registry available='+available,async()=>{
+ let judgments=0,writes=0,reads=0;
+ const rows=[{handle:'local_travel',min:5,max:30,default:20},{handle:'long_travel',min:60,max:240,default:120}];
+ const turn=new ContinuousTurn({run:'r',inputRevision:'i',campaign:'c1',playerText:'I go to the Annex.',session:{},current:()=>true,packet:true,
+  call:async method=>method==='table.apply.options'?{candidates:[{effect:{kind:'move',to:'Annex'},description:{display_name:'Annex',unlock_when:{met:true}}}]}:{...capsule,_context:{...capsule._context,source_revision:'s1'}},
+  timeBands:async()=>{reads++;return available?rows:[];},record:()=>{},dispatch:async()=>{writes++;},decision:{decide:async()=>{judgments++;throw Error('An untimed journey cannot execute automatically');}}});
+ await turn.prepare(invocation.signal);assert.equal(turn.decided,true);assert.equal(turn.batch,undefined);assert.deepEqual(turn.selected,[]);
+ assert.deepEqual(turn.prescreen.choices,available?[{effects:[{kind:'move',to:'Annex'}],travel_bands:['adjacent','local_travel','long_travel']}]:[]);
+ assert.equal((await turn.execute(invocation.signal)).status,'refused');assert.equal(reads,1);assert.equal(judgments,0);assert.equal(writes,0);
+});
+
 test('the native ports decide and execute a fully bound move once, then infer',async()=>{
     const calls=[],writes=[],session={extensionRunner:{}};
     const {policy,ports}=host(choose(),{call:async method=>{calls.push(method);return method==='table.apply.options'?moveOptions:capsule;},

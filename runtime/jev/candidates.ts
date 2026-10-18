@@ -396,6 +396,10 @@ export function owedCandidates(capsule: Row, sessionLive: boolean): Candidate[] 
 /** §158.4: while the told position is still owed, the ledger's position is not where anyone stands; no move is built from it. */
 export const owedMoveOpen = (capsule: Row): boolean => array(capsule.owed).map(object).some(row => row.kind === 'move');
 
+/** The same structural duration requirement for candidate construction and native dispatch. */
+export const moveNeedsTravelBand=(effect:Row,description:Row):boolean=>!Number.isInteger(effect.travel_minutes)
+  &&!text(effect.travel_band)&&!Number.isInteger(description.travel_minutes)&&!text(description.within);
+
 export function buildCandidates(reads: StateReads, rawInput: string, consumed: ReadonlySet<string> = new Set()): Candidate[] {
   const out: Candidate[] = [], seen = new Set<string>();
   // Scene obligations (contract §135.26): an open one's next step, what the unsettled ones guard, and the Mod
@@ -445,7 +449,7 @@ export function buildCandidates(reads: StateReads, rawInput: string, consumed: R
     if (kind === 'move') {
       // §218.3: a way no road has timed (no minutes on the row, not a move within a place) is asked its road row, so the
       // clerk's move carries the journey's time and the kernel keeps it as the road's length.
-      const road = !Number.isInteger(effect.travel_minutes) && !text(effect.travel_band) && !Number.isInteger(description.travel_minutes) && !text(description.within) ? travelBand(text(description.display_name) || text(effect.to), text(description.material)) : undefined;
+      const road = moveNeedsTravelBand(effect,description) ? travelBand(text(description.display_name) || text(effect.to), text(description.material)) : undefined;
       push({key: `apply:move:${text(effect.to)}`, verb: 'apply', family: 'move', source: 'table.apply.options',
       label: `Move the party to ${text(description.display_name) || text(effect.to)}`, bound: {kind: 'move', to: text(effect.to),
         ...Object.fromEntries(['via','travel_minutes','travel_band'].filter(key=>effect[key]!==undefined).map(key=>[key,effect[key]]))},

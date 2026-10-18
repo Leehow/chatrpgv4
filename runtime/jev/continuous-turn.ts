@@ -1,7 +1,9 @@
 /** Bounded host-issued choices inside the native RunDriver, never a second gameplay loop. */
 import {scenePopulationRequired} from '../scene-population.ts';
 import {createHash,randomUUID} from 'node:crypto';
-import {buildCandidates,keeperCall} from './candidates.ts';
+import {buildCandidates,keeperCall,moveNeedsTravelBand} from './candidates.ts';
+import {readBandRows} from '../../extensions/kernel/band-shadow.ts';
+import {ROUTE_TIME_BANDS,type TimeBandRow} from './band-shadow-domain.ts';
 import type {Candidate} from './step-policy.ts';
 import type {DecisionBatch,DecisionResult,Json,OperationProposal,ReadSet} from './contracts.ts';
 import {probabilityMassValid} from './contracts.ts';
@@ -34,7 +36,13 @@ export interface ContinuousTurnOptions {
     packet?:boolean;
     previousPublic?:Array<{turn:number|string;player?:string|null;keeper:string;truncated?:boolean}>;
     investigators?:string[];
+    timeBands?:()=>Promise<TimeBandRow[]>;
 }
+
+const packetChoice=(candidate:Candidate):Row=>({effects:keeperCall(candidate).args.effects,
+    ...(candidate.unbound.some(parameter=>parameter.name==='via'&&parameter.required)?{requires_via:true}:{}),
+    ...(candidate.unbound.find(parameter=>parameter.name==='travel_band'&&parameter.required)?.options
+        ?{travel_bands:candidate.unbound.find(parameter=>parameter.name==='travel_band'&&parameter.required)!.options}:{})});
 
 export class ContinuousTurn {
     prepared=false;
@@ -56,12 +64,18 @@ export class ContinuousTurn {
     private readonly options:ContinuousTurnOptions;
     constructor(options:ContinuousTurnOptions){this.options=options;}
 
+    private packet(choices:Row[]):Row{
+        const context=object(this.snapshot._context);
+        return {run:this.options.run,playerText:this.options.playerText,worldRevision:context.world_revision,
+            taskRevision:context.task_world_revision,sourceRevision:context.task_source_revision??context.source_revision,choices};
+    }
+
     private readSet(capsule:Row):ReadSet {
         const context=object(capsule._context),revision=text(context.task_world_revision)||text(context.world_revision);
         if(!revision||context.campaign!==this.options.campaign||!Number.isSafeInteger(context.turn))throw Error('continuous_scope_unavailable');
         const reads:ReadSet=[{kind:'world',resource:this.options.campaign,revision},
             {kind:'draft',resource:'input:'+this.options.run,revision:this.options.inputRevision},
-            {kind:'family',resource:CONTINUOUS_TURN_FAMILY,revision:this.options.packet?'packet-4':'2'}];
+            {kind:'family',resource:CONTINUOUS_TURN_FAMILY,revision:this.options.packet?'packet-5':'2'}];
         if(this.options.packet){
             const source=text(context.task_source_revision)||text(context.source_revision);
             if(!source)throw Error('continuous_source_scope_unavailable');
@@ -77,12 +91,26 @@ export class ContinuousTurn {
             if(signal.aborted||!this.options.current())throw Error('continuous_input_cancelled');
             this.readSet(capsule);
             this.snapshot=capsule;
+            if(this.options.packet)this.prescreen=this.packet([]);
             if(object(capsule._context).turn===0){this.decided=true;return;}
             const applyOptions=await this.options.call('table.apply.options',{});
             if(signal.aborted||!this.options.current())throw Error('continuous_input_cancelled');
             // The existing candidate builder owns identities, availability and satisfied rule gates.
             // Open parameters and new NPC choices stay with the same Keeper.
-            const issued=buildCandidates({capsule,applyOptions,resolveOptions:{}},this.options.playerText);
+            let issued=buildCandidates({capsule,applyOptions,resolveOptions:{}},this.options.playerText);
+            if(this.options.packet&&issued.some(candidate=>candidate.family==='move'&&moveNeedsTravelBand(candidate.bound,object(candidate.detail)))){
+                try{
+                    let rows:TimeBandRow[]|undefined;
+                    if(this.options.timeBands)rows=await this.options.timeBands();
+                    else{const parsed=readBandRows('time',await this.options.call('rules.bands',{field:'time.band'}));if(parsed?.kind==='time')rows=parsed.rows;}
+                    if(!rows?.some(row=>ROUTE_TIME_BANDS.includes(row.handle)))throw Error('Travel-band registry is unavailable');
+                    issued=buildCandidates({capsule,applyOptions,resolveOptions:{},bands:{time:rows}},this.options.playerText);
+                }catch(error){
+                    issued=issued.filter(candidate=>candidate.family!=='move'||!moveNeedsTravelBand(candidate.bound,object(candidate.detail)));
+                    this.options.record({lane:'continuous-turn',event:'travel_bands_unavailable',run:this.options.run,reason:String(error)});
+                }
+                if(signal.aborted||!this.options.current())throw Error('continuous_input_cancelled');
+            }
             this.candidates=issued
                 .filter(candidate=>candidate.verb==='apply'&&(this.options.packet?candidate.family==='move':['move','clue','handout'].includes(candidate.family))
                     &&candidate.unbound.every(parameter=>!parameter.required
@@ -96,10 +124,7 @@ export class ContinuousTurn {
                 ...(typeof context.worldline==='string'?{worldline:context.worldline}:{}),
                 ...(Number.isSafeInteger(context.loop)?{loop:context.loop}:{}),audience:'keeper' as const};
             if(this.options.packet){
-                this.prescreen={run:this.options.run,playerText:this.options.playerText,worldRevision:context.world_revision,
-                    taskRevision:context.task_world_revision,sourceRevision:context.task_source_revision??context.source_revision,
-                    choices:this.candidates.map(candidate=>({effects:keeperCall(candidate).args.effects,
-                        ...(candidate.unbound.some(parameter=>parameter.name==='via'&&parameter.required)?{requires_via:true}:{})}))};
+                this.prescreen=this.packet(this.candidates.map(packetChoice));
                 const input=normalizedName(this.options.playerText);
                 const named=this.candidates.flatMap((candidate,index)=>{
                     const description=object(object(object(candidate.basis).row).description);
@@ -107,7 +132,7 @@ export class ContinuousTurn {
                     return names.some(name=>normalizedName(name)&&input.includes(normalizedName(name)))?[index]:[];
                 });
                 this.screenedIndexes=(this.candidates.length===1?[0]:named.length===1?named:[])
-                    .filter(index=>!this.candidates[index].unbound.some(parameter=>parameter.required&&parameter.vocabulary==='open'));
+                    .filter(index=>!this.candidates[index].unbound.some(parameter=>parameter.required));
                 if(!this.screenedIndexes.length){
                     this.decided=true;
                     this.options.record({lane:'continuous-turn',event:'selection_deferred',run:this.options.run,reason:'no_unique_named_destination',candidates:this.candidates.length});
@@ -121,7 +146,7 @@ export class ContinuousTurn {
                             aliases:array(destination.names).filter(value=>typeof value==='string'),
                             ...(text(detail.source_context)&&detail.source_context!==destination.summary?{source_context:detail.source_context}:{})}});
                 });
-                const batch:DecisionBatch={id:randomUUID(),model:JEV_MODEL,family:CONTINUOUS_TURN_FAMILY,familyVersion:'packet-4',scope,
+                const batch:DecisionBatch={id:randomUUID(),model:JEV_MODEL,family:CONTINUOUS_TURN_FAMILY,familyVersion:'packet-5',scope,
                     readSet:this.readSet(capsule),state:{current_player_words:this.options.playerText,
                         investigators:this.options.investigators??[],scene:object(capsule.where).scene??null,
                         previous_public:this.options.previousPublic??[],proposal:{tool:'apply',lines}},
@@ -214,13 +239,10 @@ export class ContinuousTurn {
                         return typeof value==='number'&&Number.isFinite(value)&&value>=0&&value<=1?value:undefined;};
                     const choices=this.candidates.map((candidate,index)=>{
                         const slot=this.screenedIndexes.indexOf(index);
-                        return {effects:keeperCall(candidate).args.effects,
-                            ...(candidate.unbound.some(parameter=>parameter.name==='via'&&parameter.required)?{requires_via:true}:{}),
+                        return {...packetChoice(candidate),
                             ...(slot>=0?{selection:probability('consent_'+slot),veto:probability('restriction_'+slot)}:{})};
                     });
-                    this.prescreen={run:this.options.run,playerText:this.options.playerText,worldRevision:object(this.snapshot._context).world_revision,
-                        taskRevision:object(this.snapshot._context).task_world_revision,
-                        sourceRevision:object(this.snapshot._context).task_source_revision??object(this.snapshot._context).source_revision,choices};
+                    this.prescreen=this.packet(choices);
                     this.additionalWork=probability('additional_work');
                     this.replyScope=typeof this.additionalWork==='number'&&this.additionalWork<=ROUTINE_ADDITIONAL_WORK_MAX?'travel_only':'remaining_work';
                     this.reusable=choices.flatMap((choice,index)=>continuousConsentDisposition(choice.selection,choice.veto)==='not_authorized'?[]:[index]);
@@ -277,6 +299,8 @@ export class ContinuousTurn {
     async execute(signal:AbortSignal,step:string):Promise<Row>{
         this.executed=true;
         if(!this.batch||!this.selected.length||!this.options.current()||signal.aborted)return {status:'refused'};
+        if(this.options.packet&&this.selected.some(candidate=>candidate.unbound.some(parameter=>parameter.required)))
+            return {status:'refused',reason:'An incomplete journey must be completed by the same Keeper before dispatch'};
         const batch=this.batch,context=object(this.snapshot._context);
         const lease=new TaskLease({owner:CONTINUOUS_TURN_FAMILY,goal:'Execute selected ordinary operations once',scope:batch.scope,
             capabilities:['apply'],readSet:batch.readSet,signal,budget:{deadlineAt:Date.now()+15000,

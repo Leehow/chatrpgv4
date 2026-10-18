@@ -7,7 +7,7 @@ import {NPC_REFERENCE_PATTERN,isNpcReference} from './npc-references.ts';
 import {TurnEvent} from '../shared/turn-event.ts';
 const atom=(maxLength=160)=>Type.String({minLength:1,maxLength});
 const acts=['answer','greet','ask','refuse','offer','acknowledge','clarify','silent'] as const;
-const move=Type.Object({kind:Type.Literal('move'),to:atom(),via:Type.Optional(atom())},{additionalProperties:false});
+const move=Type.Object({kind:Type.Literal('move'),to:atom(),via:Type.Optional(atom()),travel_band:Type.Optional(atom(64))},{additionalProperties:false});
 const actor=Type.String({pattern:NPC_REFERENCE_PATTERN,maxLength:32,description:'The supplied stable npc_N reference, never a display name.'});
 const npc=Type.Object({kind:Type.Literal('npc'),actor,to:atom(),reason:atom()},{additionalProperties:false});
 const slot=Type.String({pattern:'^new_[1-4]$'});
@@ -53,7 +53,8 @@ export function turnPacketNpcDestinations(choices:readonly Record<string,unknown
 /** Parameter requirements are host metadata, never executable effect fields. */
 export function turnPacketMovementChoices(choices:unknown):Record<string,unknown>[] {
  return Array.isArray(choices)?choices.flatMap(choice=>object(choice)&&Array.isArray(choice.effects)
-    ?choice.effects.filter(object).map(effect=>({...effect,...(choice.requires_via===true?{requires_via:true}:{})})):[]):[];
+    ?choice.effects.filter(object).map(effect=>({...effect,...(choice.requires_via===true?{requires_via:true}:{}),
+        ...(Array.isArray(choice.travel_bands)?{travel_bands:choice.travel_bands}:{})})):[]):[];
 }
 export function requireTurnPacketNpcDestinations(packet:TurnPacket,choices:readonly Record<string,unknown>[]=[]):TurnPacket {
  if(packet.commands.some(command=>command.kind==='npc'&&!turnPacketNpcDestinations(choices).includes(command.to)))throw Error('NPC destination must select here, away or one exact issued place');
@@ -71,11 +72,15 @@ export function turnPacketProviderPayload(payload:unknown,journeySettled=false,r
     if(!object(tool)||tool.name!=='output'||!object(tool.input_schema))return tool;
     const schema:Record<string,any>=structuredClone(TURN_PACKET_PARAMETERS);
     const destinations=[...new Set((moveChoices??[]).filter(row=>row.kind==='move'&&typeof row.to==='string').map(row=>row.to as string))];
-    const routeDestinations=destinations.filter(to=>moveChoices?.some(row=>row.to===to&&row.requires_via===true));
-    const boundDestinations=destinations.filter(to=>!routeDestinations.includes(to));
-    const issuedMoves:TSchema[]=moveChoices===undefined?[move]:[
-        ...(boundDestinations.length?[Type.Object({kind:Type.Literal('move'),to:StringEnum(boundDestinations)},{additionalProperties:false})]:[]),
-        ...(routeDestinations.length?[Type.Object({kind:Type.Literal('move'),to:StringEnum(routeDestinations),via:atom()},{additionalProperties:false})]:[])];
+    const groups=new Map<string,{destinations:string[];via:boolean;bands?:string[]}>();
+    for(const to of destinations){
+        const choice=moveChoices!.find(row=>row.kind==='move'&&row.to===to)!;
+        const via=choice.requires_via===true,bands=Array.isArray(choice.travel_bands)?choice.travel_bands as string[]:undefined;
+        const key=JSON.stringify([via,bands]);let group=groups.get(key);
+        if(!group){group={destinations:[],via,...(bands?{bands}:{})};groups.set(key,group);}group.destinations.push(to);
+    }
+    const issuedMoves:TSchema[]=moveChoices===undefined?[move]:[...groups.values()].map(group=>Type.Object({kind:Type.Literal('move'),to:StringEnum(group.destinations),
+        ...(group.via?{via:atom()}:{}),...(group.bands?{travel_band:StringEnum(group.bands)}:{})},{additionalProperties:false}));
     const issuedNpc=Type.Object({...npc.properties,to:StringEnum(turnPacketNpcDestinations(moveChoices))},{additionalProperties:false});
     const boundedTime=timeBands?.length?Type.Object({...time.properties,band:StringEnum([...timeBands])},{additionalProperties:false}):time;
     if(journeySettled)schema.properties.commands=Type.Array(Type.Union([issuedNpc,walkOn,scene]),{maxItems:12});
@@ -94,10 +99,13 @@ export function bindTurnPacketMoves(packet:TurnPacket,choices:readonly Record<st
     const selected=matches[0];
     if(selected.requires_via===true?!bounded(command.via):command.via!==undefined)
         throw Error(selected.requires_via===true?'This destination requires a short via route parameter':'This destination already has a host-owned route; omit via');
+    const bands=Array.isArray(selected.travel_bands)?selected.travel_bands:undefined;
+    if(bands?!bands.includes(command.travel_band):command.travel_band!==undefined)
+        throw Error(bands?'This untimed journey requires one issued travel_band: '+bands.join(', '):'This route already has host-owned timing; omit travel_band');
     return {kind:'move' as const,to:command.to,
         ...(selected.requires_via===true?{via:command.via}:typeof selected.via==='string'?{via:selected.via}:{}),
         ...(Number.isInteger(selected.travel_minutes)?{travel_minutes:selected.travel_minutes as number}:{}),
-        ...(typeof selected.travel_band==='string'?{travel_band:selected.travel_band}:{})};
+        ...(bands?{travel_band:command.travel_band}:typeof selected.travel_band==='string'?{travel_band:selected.travel_band}:{})};
   })};
 }
 export function turnPacket(text:string):TurnPacket {
@@ -107,7 +115,7 @@ export function turnPacket(text:string):TurnPacket {
   if(raw.event!==undefined&&Errors(TurnEvent,raw.event).length)throw parameterError('event',TurnEvent,raw.event);
   for(const [index,action] of raw.commands.entries()){
     if(!object(action))throw parameterError(`commands[${index}]`,Type.Object({}),action);
-    const valid=action.kind==='move'?keys(action,['kind','to','via'])&&bounded(action.to)&&(action.via===undefined||bounded(action.via))
+    const valid=action.kind==='move'?keys(action,['kind','to','via','travel_band'])&&bounded(action.to)&&(action.via===undefined||bounded(action.via))&&(action.travel_band===undefined||bounded(action.travel_band,64))
       :action.kind==='npc'?keys(action,['kind','actor','to','reason'])&&isNpcReference(action.actor)&&bounded(action.to)&&bounded(action.reason)
       :action.kind==='walk_on'?keys(action,['kind','slot','label','reason'])&&isNewNpcSlot(action.slot)&&bounded(action.label,80)&&bounded(action.reason)
       :action.kind==='scene'?keys(action,['kind','service','crowd','review_after_minutes'])&&services.includes(action.service)&&crowds.includes(action.crowd)&&(action.review_after_minutes===undefined||Number.isInteger(action.review_after_minutes)&&action.review_after_minutes>=1&&action.review_after_minutes<=60)

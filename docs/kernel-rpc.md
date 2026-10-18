@@ -48158,3 +48158,17 @@ Document division also shares its schema with the canonical owner; its union
 has a divide-specific closed constraint so an open initialization branch cannot
 admit a malformed divide. Raw reunion null arrays, already invalid in the public
 schema, are refused rather than implicitly converted to empty arrays.
+
+
+**Native untimed journeys keep their existing closed travel-band slot (2026-10-18).**
+The kernel bridge exposes the existing cached time-band rows to continuous
+candidate construction. A move with neither a known duration/band nor a within
+relationship requires the existing travel_band choice. Such an incomplete
+candidate remains visible but is neither automatically judged nor dispatched.
+The same Keeper selects one issued closed band in output; provider schema,
+parser, binder and compiler preserve it through the existing canonical stageMove
+owner. No new judgment request, time effect or replacement of known route time
+is added. Known routes remain host-owned; unknown/missing band input refuses
+before mutation. Registry failure withholds incomplete journeys explicitly.
+The old raw-RPC unknown-time contract remains compatible; the native path no
+longer silently chooses that fallback. Historical zero-time receipts are retained.

@@ -234,3 +234,32 @@ are byte-identical after checkout-path normalization; this is not full tsc green
 Browser chapter remains incomplete;45has stranded canonical move/event/scene
 and no publication. Next intent must continue at the actually reached scene,
 without replaying movement. No new judgment model or increased model budget.
+
+## Untimed native journeys retain the existing band parameter
+
+45's move truly changed place and had travel.basis=unknown,minutes0. It was
+not the exact reverse of43's20-minute edge, and no known timed path connected
+its endpoints. This is the raw §218.3 compatibility fallback, not arithmetic
+corruption. Root wiring loss: ContinuousTurn did not receive the existing
+band rows, and native move output had no travel_band slot.
+
+KernelBridge.timeBands reuses shadowBandRows; packet time handles use that
+same cache. Candidate construction reuses its original structural untimed
+predicate. Required-band candidates stay available to the same Keeper but
+are not pre-judged or dispatched. Packet schema/parser/binder/compiler carry
+one issued closed band; host-owned known timing cannot be replaced. Registry
+failure withholds incomplete journeys. No new semantic judgment/request.
+
+20unit seams pass. A real Pi/native-kernel component proves1Keeper+1consent,
+1move with actual local_travel default30minutes, and0time receipts. Earlier
+failed fixture attempts remain evidence; they queried options after close or
+looked for a scene not issued there, not live-player outcomes. Corrected test
+uses the current capsule's actual return option.15strict selected-graph errors
+are identical before/after, not a green full tsc. Broader known-road regression
+is running; browser remains at stranded45, no46 sent yet.
+
+The restarted-history candidate regression exposed a stale compiled producer:
+source table.open returns public_exchanges, while the local build lacks that
+field. The fixture preparation uses fresh source RPC but the restarted Keeper
+uses build/kernel/rpc.mjs. Preserve the original assertion and rebuild a clean
+matching checkout before accepting or diagnosing this as a product regression.

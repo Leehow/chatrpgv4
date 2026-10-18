@@ -115,6 +115,7 @@ export interface KernelBridge {
   call?: (method: string, params?: Record<string, unknown>) => Promise<unknown>;
   record?: (row: Record<string, unknown>) => void;
   playerContext?:()=>{investigators:string[];previousPublic:Array<{turn:number|string;player?:string|null;keeper:string;truncated?:boolean}>};
+  timeBands?:()=>Promise<import('./band-shadow-domain.ts').TimeBandRow[]>;
 }
 /** The kernel extension's turn-close port (`coc:turn-close`, contract §135.11). */
 export interface TurnClosePort {
@@ -478,7 +479,7 @@ export function createHybridEngine(options: HybridEngineOptions): {runDriver: Se
       call:async(method,params)=>object(await bound.call!(method,{...params,campaign:bound.campaign})),
       dispatch:(proposal,invocation)=>operations.dispatch(proposal,invocation),
       current:()=>!closed&&current===owner&&bridge===bound&&gateway===operations,record,
-      ...(packetPrescreen?{packet:true,...bound.playerContext?.()}:{})}):undefined;
+      ...(packetPrescreen?{packet:true,timeBands:bound.timeBands,...bound.playerContext?.()}:{})}):undefined;
     const policy={name:'single-keeper',version:'1',initial:()=>null,reduce:()=>null,next:(view:any):any=>{
       if(closer?.campaign===bridge?.campaign&&closer?.ended?.())return{kind:'finish',outcome:'undelivered',reason:'input_ended'};
       if(view.pendingProposals.length)return{kind:'operate',proposals:view.pendingProposals,reason:'keeper_tools'};

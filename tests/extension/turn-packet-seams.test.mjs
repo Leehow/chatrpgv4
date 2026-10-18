@@ -70,6 +70,22 @@ test('an unbound route stays visible to the Keeper and is required before settle
  assert.throws(()=>turnPacket(JSON.stringify({...packet,commands:[{kind:'move',to:'Library',travel_minutes:999}]})),/Invalid decision command/,'model cannot supply host-only travel values');
 });
 
+test('untimed journey bands share provider, parser, binding and canonical effect fields',()=>{
+ const bands=['adjacent','local_travel','long_travel'];
+ const choices=turnPacketMovementChoices([{effects:[{kind:'move',to:'Annex'}],travel_bands:bands,requires_via:true},
+  {effects:[{kind:'move',to:'Library',travel_minutes:17}]}]);
+ const schema=turnPacketProviderPayload({tools:[{name:'output',input_schema:TURN_PACKET_PARAMETERS}]},false,true,[],choices).tools[0].input_schema;
+ const moves=schema.properties.commands.anyOf[0].items.anyOf.filter(row=>row.properties?.kind?.const==='move');
+ const annex=moves.find(row=>row.properties.to.enum.includes('Annex'));
+ assert.deepEqual(annex.required,['kind','to','via','travel_band']);assert.deepEqual(annex.properties.travel_band.enum,bands);
+ assert.equal(moves.find(row=>row.properties.to.enum.includes('Library')).properties.travel_band,undefined);
+ const packet={version:3,commands:[{kind:'move',to:'Annex',via:'The established public road.'}],responses:[]};
+ for(const travel_band of [undefined,'invented'])assert.throws(()=>bindTurnPacketMoves({...packet,commands:[{...packet.commands[0],...(travel_band?{travel_band}:{})}]},choices),/requires one issued travel_band/);
+ const parsed=turnPacket(JSON.stringify({...packet,commands:[{...packet.commands[0],travel_band:'local_travel'}]}));
+ assert.deepEqual(compileTurnPacket(bindTurnPacketMoves(parsed,choices)).effects,[{kind:'move',to:'Annex',via:'The established public road.',travel_band:'local_travel'}]);
+ assert.throws(()=>bindTurnPacketMoves({...packet,commands:[{kind:'move',to:'Library',travel_band:'local_travel'}]},choices),/host-owned timing/);
+});
+
 test('route requirements share the transaction structural reachability rules',async()=>{
  const {moveAccess,stageMove}=await importSource('kernel-ts/apply/move.ts');
  const {ModuleGraph}=await importSource('kernel-ts/read/module-graph.ts');
