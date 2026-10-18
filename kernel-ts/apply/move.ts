@@ -25,7 +25,7 @@ export function stageMove(context: ApplyContext, effect: Row, travelRows?: Reado
     const { graph, world, turn, callId, ordinal } = context;
     const to = required(effect, 'to')!, current = graph.scene(world.active_scene), from = graph.handle(current);
     const exits = new Map(graph.sceneExits(current).map(exit => [exit.to, exit]));
-    const summary = validateEstablishment(effect.establish, ['summary', 'within']);
+    const summary = validateEstablishment(effect.establish, 'scene');
     // §187.2.1 / §204.3: the place the mint lies in, checked before anything is written; omitted, the place the party stands in.
     const within = summary === undefined ? undefined : establishedWithin(graph, row(effect.establish).within);
     let established = false, person: Row | null = null;

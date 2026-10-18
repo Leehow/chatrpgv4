@@ -223,6 +223,10 @@ export function boundImages(messages: any[], delivered: ReadonlySet<string> = ne
 export default function readerContext(pi: any, options: { cwd?: string; env?: NodeJS.ProcessEnv } = {}) {
 	const cwd = options.cwd ?? process.cwd(), env = options.env ?? process.env;
 	if(env.PI_COC_FINAL_OUTPUT==='1'){
+        let finalToolBatch:string[]=[];
+        pi.on('message_end',(event:any)=>{
+            if(event.message?.role==='assistant')finalToolBatch=(event.message.content??[]).filter((part:any)=>part.type==='toolCall').map((part:any)=>part.id);
+        });
         const artifactContext=()=>{
             const packet=JSON.parse(readFileSync(join(cwd,'task.json'),'utf8'));
             return {materials:packet.decision_context?packet.decision_context.settled_results?.materials:packet.materials,
@@ -236,11 +240,13 @@ export default function readerContext(pi: any, options: { cwd?: string; env?: No
         };
         const writer=createWriteTool(cwd,{operations:{writeFile:writeArtifact,mkdir:async path=>{await makeDirectory(path,{recursive:true});}}});
         const writeParameters=Type.Object({parts:Type.Array(Type.Object({text:Type.String({minLength:1,maxLength:64000}),materials:Type.Optional(Type.Array(Type.String({minLength:1}),{maxItems:128}))},{additionalProperties:false}),{minItems:1,maxItems:128})},{additionalProperties:false});
-        const nativeWriter={...writer,description:'Write the final draft from authored text parts. Text is concatenated exactly; include paragraph breaks in text. Optional materials names mark what that part conveys. The host owns the path, version and coverage positions.',
+        const nativeWriter={...writer,description:'Submit the final story from authored text parts as the sole tool call in this message. A successful write finishes this task immediately. Text is concatenated exactly; include paragraph breaks in text. Optional materials names mark what that part conveys. The host owns the path, version and coverage positions.',
             parameters:writeParameters,prepareArguments:(args:unknown)=>normalizeToolArgumentSyntax(writeParameters,args,{nativeValidation:true}).args,
             execute:async(id:string,args:unknown,signal?:AbortSignal,onUpdate?:any)=>{
+                if(finalToolBatch.length!==1||finalToolBatch[0]!==id)throw Error('Submit the final write as the sole tool call in its assistant message; nothing was written');
                 const {materials,required}=artifactContext(),artifact=compileDeliveryParts(args,materials,required);
-                return writer.execute(id,{path:'draft.json',content:JSON.stringify(artifact)},signal,onUpdate);
+                const result=await writer.execute(id,{path:'draft.json',content:JSON.stringify(artifact)},signal,onUpdate);
+                return {...result,terminate:true,details:{...(result.details&&typeof result.details==='object'?result.details:{}),final_artifact_submitted:true}};
             }};
 		// Declare the same closed paths the confinement gate executes, before a paid request.
 		for(const tool of [createReadTool(cwd),nativeWriter,

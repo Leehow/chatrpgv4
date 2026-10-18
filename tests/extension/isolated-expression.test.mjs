@@ -334,6 +334,22 @@ test('a failed native parts write cannot fall back to terminal prose',async t=>{
  assert.equal(requests,1);assert.deepEqual(prose,[]);
 });
 
+for(const mode of ['submitted','missing-marker','failed-tool','aborted-task'])test('native final submission completion boundary: '+mode,async t=>{
+ const home=await mkdtemp(join(tmpdir(),'expression-submission-'));t.after(()=>rm(home,{recursive:true,force:true}));
+ const prose=[],artifact={version:1,text:'The keeper remains outside.',coverage:[]};let requests=0;
+ const runtime={home,async runTask({request}){
+  requests++;request.onEvent({type:'message_end',message:{role:'assistant',provider:EXPRESSION_PROFILE.model.split('/')[0],model:EXPRESSION_PROFILE.model.split('/')[1],stopReason:'toolUse',content:[]}});
+  request.onEvent({type:'tool_execution_start',toolName:'write',args:{parts:[{text:artifact.text}]}});
+  await writeFile(join(request.cwd,'draft.json'),JSON.stringify(artifact));
+  request.onEvent({type:'tool_execution_end',toolName:'write',isError:mode==='failed-tool',result:{terminate:true,details:mode==='missing-marker'?{}:{final_artifact_submitted:true}}});
+  return {ok:mode!=='aborted-task',ms:1,error:mode==='aborted-task'?'Task was cancelled':undefined};
+ }};
+ const result=writeIsolatedExpression({runtime,campaign:'c',turn:1,run:'r',language:'en',decision:{scene:{},clock:{},people:[],recent_public:[],responses:[]},stream:{push:text=>prose.push(text)},record:async()=>{}});
+ if(mode==='submitted'){assert.equal((await result).text,artifact.text);assert.deepEqual(prose,[artifact.text]);}
+ else{await assert.rejects(result);assert.deepEqual(prose,[]);}
+ assert.equal(requests,1);
+});
+
 for(const declaration of ['quote','span','unknown','ambiguous','absent'])test('publication binds author coverage to one current material: '+declaration,async t=>{
  const home=await mkdtemp(join(tmpdir(),'expression-material-binding-'));t.after(()=>rm(home,{recursive:true,force:true}));
  const name='event:t1:Read the notice/notice',text='The notice says the office shuts at midday.';

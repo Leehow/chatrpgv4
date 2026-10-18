@@ -1,19 +1,21 @@
 /** Campaign-created places and evidence, projected through the ordinary graph readers. */
-import {isJsonObject, jsonDigest} from '../json.js';
+import {jsonDigest} from '../json.js';
 import {RpcError} from '../errors.js';
 import type {LoadedModule} from './campaign.js';
 import type {ModuleGraph} from './module-graph.js';
 import {array, normalize, row, string, type Row} from './values.js';
 import {isPlace} from './places.js';
+import {Check} from 'typebox/value';
+import {ClueEstablishment,PlaceEstablishment} from '../../shared/apply-structures.js';
 
 export function tableEntityId(kind: string, name: string): string {
     return `${kind}-table-${jsonDigest(normalize(name)).slice(0, 20)}`;
 }
 
-export function validateEstablishment(value: unknown, fields: readonly string[] = ['summary']): string | undefined {
+export function validateEstablishment(value: unknown, kind: 'scene'|'clue' = 'clue'): string | undefined {
     if (value === undefined) return undefined;
-    if (!isJsonObject(value) || Object.keys(value).some(key => !fields.includes(key)) || typeof value.summary !== 'string' || !value.summary.trim())
-        throw new RpcError('invalid_params', `establish requires a nonempty summary and no fields other than ${fields.join(', ')}`);
+    const schema=kind==='scene'?PlaceEstablishment:ClueEstablishment;
+    if (!Check(schema,value))throw new RpcError('invalid_params', `establish requires a nonempty summary and no fields other than ${Object.keys(schema.properties).join(', ')}`);
     return value.summary.trim();
 }
 

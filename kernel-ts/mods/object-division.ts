@@ -45,8 +45,9 @@
  * call that works today start requiring something new -- every call it touches is refused today.
  */
 import {RpcError} from '../errors.js';
-import {isJsonObject} from '../json.js';
-import {clone, equal, integer, length, normalize, number, repr, row, string, truth, values, type Row} from '../read/values.js';
+import {Check} from 'typebox/value';
+import {DocumentDivision} from '../../shared/apply-structures.js';
+import {clone, equal, integer, normalize, number, repr, row, string, truth, values, type Row} from '../read/values.js';
 import {asciiSlug} from '../write/text.js';
 import {divideDocument, ownershipChanged} from './documents.js';
 import {assertOwnershipChain, objectRegistry} from './objects.js';
@@ -117,10 +118,7 @@ export function validateDivision(world: Row, effect: Row, prior: Row | null, sou
             throw new RpcError('invalid_params', `${string(prior.name)} has a player edit that the Keeper cannot repartition`,
                 {fix: 'reset that edit through the document surface before dividing, or move the carrier whole; the Keeper cannot partition a player edit',
                  details: {field: 'object.document', name: string(prior.name), player_edited: true}});
-        const keys = isJsonObject(document) ? Object.keys(document).sort().join(',') : '';
-        if (!isJsonObject(document) || keys !== 'action,part_text,remainder_text' || document.action !== 'divide'
-            || typeof document.part_text !== 'string' || typeof document.remainder_text !== 'string'
-            || length(document.part_text) > 64000 || length(document.remainder_text) > 64000)
+        if (!Check(DocumentDivision,document))
             throw new RpcError('invalid_params', `${string(prior.name)} carries readable text, so the division must say what each resulting carrier contains`,
                 {fix: 'set document to {action:"divide", part_text:"the complete text on the separated part", remainder_text:"the complete text on what stays"}, in the campaign play_language',
                  details: {field: 'object.document', name: string(prior.name), required: ['action', 'part_text', 'remainder_text']}});

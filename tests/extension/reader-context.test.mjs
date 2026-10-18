@@ -64,7 +64,7 @@ const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "../..");
 
 const quote = value => "'" + value.replaceAll("'", "'\\''") + "'";
 
-for(const shape of ['decision','legacy'])test('the same final author corrects a rejected artifact write before acknowledging completion: '+shape,async t=>{
+for(const shape of ['decision','legacy'])test('the same final author corrects a rejected write and finishes at successful submission: '+shape,async t=>{
  const fixture=await confinementFixture(t),env={...fixture.env,PI_COC_FINAL_OUTPUT:'1'};delete env.PI_COC_READER_SOURCE;
  const path=join(fixture.cwd,'draft.json'),prior=JSON.stringify({version:1,text:'Prior complete draft.',coverage:[]});await writeFile(path,prior);
  const name='current-event/detail',text='The sign reads: \'Open at noon.\'';
@@ -77,6 +77,9 @@ for(const shape of ['decision','legacy'])test('the same final author corrects a 
   ()=>{requests++;return fauxAssistantMessage([fauxToolCall('write',bad)],{stopReason:'toolUse'});},
   async context=>{requests++;assert.equal(await readFile(path,'utf8'),prior,'the rejected write preserves the prior artifact');
    const reply=context.messages.filter(row=>row.role==='toolResult').at(-1);assert.equal(reply.isError,true);assert.match(JSON.stringify(reply.content),/parts\[0\]/);
+   return fauxAssistantMessage([fauxToolCall('read',{path:'task.json'}),fauxToolCall('write',good)],{stopReason:'toolUse'});},
+  async context=>{requests++;assert.equal(await readFile(path,'utf8'),prior,'a mixed tool batch cannot submit the final artifact');
+   const reply=context.messages.filter(row=>row.role==='toolResult').at(-1);assert.equal(reply.isError,true);assert.match(JSON.stringify(reply.content),/sole tool call/);
    return fauxAssistantMessage([fauxToolCall('write',good)],{stopReason:'toolUse'});},
   context=>{requests++;assert.equal(context.messages.filter(row=>row.role==='toolResult').at(-1).isError,false);return fauxAssistantMessage('Written.');}
  ]);
@@ -86,7 +89,7 @@ for(const shape of ['decision','legacy'])test('the same final author corrects a 
   systemPrompt:'Write the one confined final artifact.',extensionFactories:[{name:'author-context',factory:pi=>{const register=pi.registerTool.bind(pi);pi.registerTool=tool=>{registered.push(tool);register(tool);};readerContext(pi,{cwd:fixture.cwd,env});}}]});
  await resourceLoader.reload();const {session,extensionsResult}=await createAgentSession({cwd:fixture.cwd,agentDir:join(fixture.home,'agent'),resourceLoader,modelRuntime,model:faux.getModel(),tools:['read','write','edit','bash'],thinkingLevel:'off',settingsManager,sessionManager:SessionManager.inMemory()});
  t.after(()=>session.dispose());assert.deepEqual(extensionsResult.errors,[]);await session.bindExtensions({mode:'print'});await session.prompt('Write the final response.');
- assert.equal(requests,3,'one author task stays within the existing four-request budget');assert.deepEqual(JSON.parse(await readFile(path,'utf8')),artifact);
+ assert.equal(requests,3,'two refused attempts then one successful submission end the real Pi loop without an acknowledgment request');assert.deepEqual(JSON.parse(await readFile(path,'utf8')),artifact);
  const edit=registered.find(tool=>tool.name==='edit');
  await assert.rejects(edit.execute('invalid-edit',{path:'draft.json',edits:[{oldText:JSON.stringify(artifact.coverage),newText:JSON.stringify([{name,quote:'A quotation absent from the draft.'}])}]}),/Coverage quotation is absent/);
  assert.deepEqual(JSON.parse(await readFile(path,'utf8')),artifact,'invalid native edit also preserves the complete previous draft');

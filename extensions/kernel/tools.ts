@@ -8,6 +8,7 @@ import { StringEnum } from "@earendil-works/pi-ai";
 import { type TSchema, Type } from "typebox";
 import {TurnEvent} from "../../shared/turn-event.ts";
 import {MOVE_ESTABLISHMENT_DEPENDENCIES} from '../../shared/move-protocol.ts';
+import {ClueEstablishment,PlaceEstablishment,NpcReunion,DocumentDivision} from '../../shared/apply-structures.ts';
 
 export const COC_TOOL_NAMES = ["look", "lookup", "recall", "resolve", "apply", "ask", "narrate", "output"] as const;
 export type CocToolName = (typeof COC_TOOL_NAMES)[number];
@@ -219,8 +220,7 @@ const MoveEffect = Type.Object({
 	...IntentResult,
 	kind: StringEnum(["move"] as const, { description: "change the persistent gameplay locus; ordinary spatial description inside the current locus needs no move" }),
 	to: Type.String({ description: "the persistent gameplay locus chosen by the player, or the one an owed row says they were already told they reached. Reuse an existing place for its rooms or counters. For an ordinary new place consistent with established facts, supply establish and via in this same move; no source reading or adaptation job is required just because the graph lacks it. Do not substitute or relabel another place" }),
-	establish: Type.Optional(Type.Object({summary: Type.String({minLength: 1, description: "brief description of a new campaign place; preserve known causes and access conditions. This declares an addition, not a replacement of a registered source place"}),
-        within: Type.Optional(Type.Union([Type.String({minLength: 1, description: "The containing registered place; omitted uses the current scene, null establishes no containing place"}), Type.Null()]))}, {additionalProperties: false})),
+	establish: Type.Optional(PlaceEstablishment),
 	travel_minutes: Type.Optional(Type.Integer({ description: "minutes spent on the way; omitted means the road's own minutes (the book's, or the ones this table already travelled it in). The move itself advances the clock by the journey: add no time effect for the same journey. Give them (or travel_band) for a way no road has timed yet, or the clock does not move for it" })),
 	travel_band: Type.Optional(StringEnum(["adjacent", "local_travel", "long_travel"] as const, { description: "instead of travel_minutes: adjacent for two parts of one building or place (0 minutes), local_travel within one town or just outside it, long_travel between towns; the kernel takes the row's usual minutes and keeps them as this road's length" })),
 	via: Type.Optional(Type.String({ description: "how they got there when the way is not one of the exits you were given — through an unlatched upper window, down a coal chute, following someone in. Say it and the move lands; without it an unlisted destination is refused, and then the world stays where it was while your narration moves on" })),
@@ -235,7 +235,7 @@ const ClueEffect = Type.Object({
 		description:
 			"clue name; must be a clue obtainable in the current scene, or the one an owed row says the player was already told. An echo id from the capsule's worldlines.echoes (it starts with echo:) reveals what another worldline left standing here — you decide whether to show it and how to tell it, never what it says",
 	}),
-	establish: Type.Optional(Type.Object({summary: Type.String({minLength: 1, description: "new evidence discovered in this scene, consistent with established causes and the holder's knowledge; include how it was obtained. Existing authored clues use their existing names without establish. This records a campaign fact, not a quotation from the module"})}, {additionalProperties: false})),
+	establish: Type.Optional(ClueEstablishment),
 	how: Type.Optional(Sentence("how this clue was actually obtained here, or under its issued owed row; ordinary remote NPC reports use event.knowledge with heard/source/state, without an additional investigator action")),
 	from: Type.Optional(Type.String({ description: "the NPC who supplied this obtainable-here or issued owed clue; attribution only, not permission to obtain a distant authored clue. Name the known speaker so the disclosure goes on their ledger. Ordinary remote reports use event.knowledge with mode heard and actual source/state; NPC answers need no separate player selection" })),
 	label: Type.Optional(Type.String({ description: "short name of this clue in the player's language; omitted means the clue name" })),
@@ -267,7 +267,7 @@ const ClockEffect = Type.Object({
 });
 
 const ActivityFields = {
-    summary:Sentence('English account of current local activity, not a historical census'),
+    summary:Type.String({minLength:1,maxLength:200,pattern:'\\S',description:'English account of current local activity, not a historical census'}),
     basis:StringEnum(['observed','established','inferred'] as const,{description:'Observed or established local facts outrank an inferred routine; describe a supported actual transition with why'}),
     review_after_minutes:Type.Optional(Type.Integer({minimum:1,description:'Game minutes until this context should be reassessed, such as a known closing boundary; not a universal schedule'})),
 };
@@ -277,7 +277,7 @@ const SceneEffect = Type.Object({
     activity:Type.Object({...ActivityFields,
         service:Type.Optional(StringEnum(['open','closed','limited','unknown'] as const,{description:'Public service availability, separate from physical entry'})),
         crowd:Type.Optional(StringEnum(['empty','quiet','active','crowded','unknown'] as const,{description:'Plausible street/place activity at this local time; preserve era, land use and exceptions'})),
-    }),
+    },{additionalProperties:false}),
     why:Sentence('The local basis or cause of this contextual change'),
 });
 
@@ -354,10 +354,8 @@ const ObjectEffect = Type.Object({
       marks:Type.String({maxLength:2000,description:"Established physical appearance of the changed surface, in English; retain erasure/cross-out traces without inventing words"}),
       legibility:StringEnum(["legible","illegible","unknown"] as const,{description:"Whether overwritten writing remains visibly readable, from the actual method/outcome. Settle editing time before this operation"})}),
     Type.Object({action:StringEnum(["cancel_edit"] as const)}),
-    Type.Object({action:StringEnum(["divide"] as const),
-      part_text:Type.String({maxLength:64000,description:"Complete current text carried by the separated part after a document-bearing stack is divided, in the campaign's play_language"}),
-      remainder_text:Type.String({maxLength:64000,description:"Complete current text carried by the original remainder after a document-bearing stack is divided, in the campaign's play_language"})}),
-  ],{description:"Physical writing and reading. First acquisition: use an accepted definition (or define plus object in the same batch), and initialize with document.text and presentation; omit document.action. write/append modify an existing carrier only. Use the same from/to owner for open, close, show, observe, write, append or requested_edit. NPC reading needs show plus observe with actual reader and exact visible quote before narration; a glimpse requires an open surface and its actual quote. Initialize a carrier once; divide text atomically with its physical stack. Acquisition originals are retained"})),
+    DocumentDivision,
+  ],{allOf:[{if:Type.Object({action:Type.Literal('divide')}),then:DocumentDivision}],description:"Physical writing and reading. First acquisition: use an accepted definition (or define plus object in the same batch), and initialize with document.text and presentation; omit document.action. write/append modify an existing carrier only. Use the same from/to owner for open, close, show, observe, write, append or requested_edit. NPC reading needs show plus observe with actual reader and exact visible quote before narration; a glimpse requires an open surface and its actual quote. Initialize a carrier once; divide text atomically with its physical stack. Acquisition originals are retained"})),
   definition: Type.Optional(Type.String({description:"Accepted definition name when first placing the instance"})),
   source_object: Type.Optional(Type.String({description:"On first placement/adoption only: exact source_object handle supplied by lookup module when this is that authored physical thing. Never infer it from a display name or a similar weapon; omit for ordinary objects. Transfers preserve its identity"})),
   to: Type.String({description:"New owner: investigator, NPC, scene or existing container instance; here means the current scene"}),
@@ -517,17 +515,12 @@ export const MOOD_MAX = 120;
 const NpcEffect = Type.Object({
     activity:Type.Optional(Type.Object({...ActivityFields,
         wakefulness:StringEnum(['awake','asleep','resting','unknown'] as const,{description:'Current ordinary activity, not a combat condition. A routine inference cannot erase an observed awakening. Standalone variant; other changes go in separate effects.'}),
-    },{description:'Standalone temporal state. Record material waking or sleeping transitions, with this effect\'s why. Seat or move the person first, then record activity in a separate effect so it is stamped at their resulting place.'})),
+    },{additionalProperties:false,description:'Standalone temporal state. Record material waking or sleeping transitions, with this effect\'s why. Seat or move the person first, then record activity in a separate effect so it is stamped at their resulting place.'})),
 	kind: StringEnum(["npc"] as const, { description: "move someone on or off the stage, set where they stand with the party, record a rules condition, record that they died, change how they defend, or what they do in a fight; report what they set out to do and how it went; or write what they feel right now (mood)" }),
 	name: Type.String({ description: "for an existing NPC, use the exact supplied current view.id semantic handle; private refusal candidates[].name contains tool handles, while display_name is a display label. For someone genuinely new that the book never had, use what you are calling them, a description like \"the clerk at the archive window\" included, with walk_on. A person this table mints is named in play_language; apply person decides the word the player sees. Reuse the existing handle rather than creating another person under a display label" }),
 	walk_on: Type.Optional(Type.Boolean({ description: "true only on the effect that brings in someone the book never had -- a porter called up the stairs, a passer-by, a constable arriving -- establishing them at this table under name. Anyone this table already has -- the book's people included, introduced or not -- needs none: write to them by name, with to: here to bring them in (walk_on on them is read as exactly that, their arrival). A word nobody here carries is refused without it, and the refusal hands back both calls ready to send" })),
 	creature: Type.Optional(Type.Union([Type.String(), Type.Literal(true)], { description: "an animal or monster, not a person: a rules-catalog creature's name (lookup kind=catalog kinds=[\"creature\"]), whose stat block the kernel pins once, or true for one with no stat block yet. With walk_on it brings the creature in; alone it pins a block on a creature that has none, or completes a block that lacks what a fight reads (the refusal names what is missing; every number the block states is kept)" })),
-	reunion: Type.Optional(Type.Object({
-		background:Type.Optional(Type.Array(Type.String(),{maxItems:4})),
-		reports:Type.Optional(Type.Array(Type.String(),{maxItems:4})),
-		open_threads:Type.Optional(Type.Array(Type.String(),{maxItems:4})),
-		extend:Type.Optional(Type.Boolean()),
-	},{description:"At a real return encounter offered by the NPC view, establish a modest compatible offstage continuation without simulating it. Write English Keeper-facing background, this NPC's attributed reports and optional open threads, at most four lines of 600 characters each. Empty arrays establish a quiet interval. Preserve personality, prior facts and player decisions. This changes no location, item, money, skill, condition or promise fulfillment; use the proper effects for those. Same-interval history cannot be replaced; extend true appends only genuinely new compatible detail without copying old lines. Keep reunion alone in its NPC effect. A fully known reunion may share the final private record with public text; it needs no separate tool continuation. Narrate naturally in play_language."})),
+	reunion: Type.Optional(NpcReunion),
 	to: Type.Optional(Type.String({ description: "where they are now: a scene name, `here` for this scene, or `away` when that NPC actually leaves; the investigator leaving alone does not move the NPC from their existing place" })),
 	stance: Type.Optional(StringEnum(["hostile", "wary", "neutral", "warm"] as const, {
 		description: "your own reading of where they stand with the party; the kernel keeps the settled checks' account on its own, so set this only when you decide something the dice did not",
@@ -547,7 +540,7 @@ const NpcEffect = Type.Object({
 	conditions: Type.Optional(Type.Object({
 		gained: Type.Optional(Type.Array(Type.String(), { description: "rules conditions that became true of this NPC because of the settled fiction" })),
 		lost: Type.Optional(Type.Array(Type.String(), { description: "rules conditions that stopped being true of this NPC because of the settled fiction" })),
-	}, {
+	}, {additionalProperties:false,
 		description: "an explicit non-damage condition change, such as unconscious from poison or roused after its cause ends. Use the condition names the rules and current state expose. This variant stands alone in one npc effect; combine it with movement using two effects in the same batch. Death still uses dead: true",
 	})),
 	defense: Type.Optional(StringEnum(["dodge", "fight_back", "none"] as const, {

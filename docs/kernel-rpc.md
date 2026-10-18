@@ -48128,3 +48128,33 @@ that mere presence and ordinary greetings do not select a roll. This supplies
 missing rule context, never automatic authority, execution or another judgment.
 No current row, ambiguity or mismatch means ordinary consent remains unchanged;
 model claims cannot manufacture dispatcher evidence or establish presence.
+
+
+**A successful native final write is a terminal submission (2026-10-18).**
+The confined author's annotated-parts write is a commit operation, not a draft
+followed by another paid acknowledgment. It must be the sole tool in that
+assistant message. After candidate validation and the successful SDK file write,
+its host result carries terminate=true and a final_artifact_submitted marker.
+The unmodified Pi agent loop then ends normally at this successful tool batch;
+the final owner accepts this explicit completion event and revalidates the file.
+Failed or mixed-batch writes do not submit, terminate or permit prose fallback.
+Cancellation, provider failure, exhausted budgets and old interrupted drafts
+remain failures. No recovery of the previous failed turn's file is authorized.
+Direct prose and existing request budgets retain their boundaries. The source
+SDK terminate result and LangChain's returnDirect demonstrate this terminal
+tool pattern; no SDK patch, abort-as-success or new model is involved.
+
+**One structural owner for establishment and reunion envelopes (2026-10-18).**
+shared/apply-structures.ts declares the closed establishment and NPC reunion
+objects used both by the public tool and the kernel's structure gate. Reunion
+keeps optional background/reports/open_threads arrays of at most four nonblank
+lines of at most 600 Unicode codepoints, and optional boolean extend. Domain
+identity, encounter eligibility, history/extension constraints, normalization
+and atomic transactions remain with the existing kernel owners. The same
+bounded parity audit closes extra fields on activity, NPC conditions and the
+document divide envelope where the kernel already rejects them. It does not
+broaden this slice into new rules, simulated NPC behavior or model judgments.
+Document division also shares its schema with the canonical owner; its union
+has a divide-specific closed constraint so an open initialization branch cannot
+admit a malformed divide. Raw reunion null arrays, already invalid in the public
+schema, are refused rather than implicitly converted to empty arrays.

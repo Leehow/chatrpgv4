@@ -1,8 +1,10 @@
 /** Lazy encounter continuity. No offstage simulation and no mechanical effect inferred from prose. */
 import {RpcError} from '../errors.js';
-import {isJsonObject,jsonDigest} from '../json.js';
+import {jsonDigest} from '../json.js';
 import type {ModuleGraph} from '../read/module-graph.js';
 import {array,normalize,number,row,string,type Row} from '../read/values.js';
+import {Check,Errors} from 'typebox/value';
+import {NpcReunion,REUNION_LINE_FIELDS} from '../../shared/apply-structures.js';
 
 function presence(snapshot:Row,handle:string,names:Set<string>):boolean {
     if(typeof snapshot.active_scene==='string')return row(snapshot.npc_presence)[handle]===snapshot.active_scene;
@@ -47,13 +49,13 @@ export function reunionView(graph:ModuleGraph,world:Row,node:Row,records:Row[],s
         note:'When this encounter needs a continuation, invent only a modest compatible interval, or establish a quiet interval. Preserve personality, existing facts, commitments and player choices. Apply NPC reunion records background, attributed reports and optional open threads; it grants no mechanical effect. No offstage turns need to be simulated.'};
 }
 function checked(value:unknown):Row {
-    if(!isJsonObject(value)||Object.keys(value).some(k=>!['background','reports','open_threads','extend'].includes(k))
-        ||value.extend!==undefined&&typeof value.extend!=='boolean')throw new RpcError('invalid_params','Invalid NPC reunion shape');
+    if(!Check(NpcReunion,value)){
+        const key=Errors(NpcReunion,value).map(error=>error.instancePath.split('/')[1]).find(key=>(REUNION_LINE_FIELDS as readonly string[]).includes(key));
+        throw new RpcError('invalid_params',key?`reunion.${key} must contain at most four nonempty bounded lines`:'Invalid NPC reunion shape');
+    }
     const result:Row={};
-    for(const key of ['background','reports','open_threads']){
+    for(const key of REUNION_LINE_FIELDS){
         const lines=value[key]??[];
-        if(!Array.isArray(lines)||lines.length>4||lines.some(line=>typeof line!=='string'||!line.trim()||Array.from(line).length>600))
-            throw new RpcError('invalid_params',`reunion.${key} must contain at most four nonempty bounded lines`);
         result[key]=[...new Set(lines.map(line=>string(line).trim()))];
     }
     return result;

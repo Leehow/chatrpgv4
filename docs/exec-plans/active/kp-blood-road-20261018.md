@@ -207,3 +207,30 @@ It enriches the same Jev request, not automatic authority.6pure component cases
 and1real Pi/native-kernel wiring case pass; no new judgment model or request.
 The38 premature roll stays a model action-selection failure, not retroactively
 explained by the independently confirmed context wiring gap.
+
+## Terminal author submission and shared closed structures
+
+45 failed76seconds after parameter recovery: its author wrote a valid parts
+artifact with nonempty coverage, then failed an exact SDK edit, tried a forbidden
+shell command and read the draft. Its4-request budget aborted the next request.
+Do not salvage that aborted draft or raise the budget. Future successful native
+writes are terminal submissions, sole tool in the assistant batch, using the
+unmodified SDK terminate result. Owner requires host success marker, successful
+task, expected model and final file validation.26real-Pi tests and59isolated
+owner tests pass, including mixed-batch refusal and cancellation negatives.
+LangChain returnDirect and the locally installed Pi agent-loop source confirm
+this terminal-tool pattern.
+
+Shared apply-structures now own establishment, reunion and document division
+shape for both public schema and canonical validation. Reunion bounds count
+Unicode codepoints;600emoji accepted,601refused. Existing trim/eligibility/
+history/domain transactions remain. Activity/conditions extra fields now close
+where kernel already refused them; document union has a divide constraint to
+prevent initialization branches bypassing its closed shape.12parity/existing
+table-improvisation cases pass. Existing public-invalid null reunion arrays
+are now also refused at raw kernel input.25strict selected-graph diagnostics
+are byte-identical after checkout-path normalization; this is not full tsc green.
+
+Browser chapter remains incomplete;45has stranded canonical move/event/scene
+and no publication. Next intent must continue at the actually reached scene,
+without replaying movement. No new judgment model or increased model budget.
