@@ -4,7 +4,7 @@ export const CONTINUOUS_CONSENT_MIN=.6;
 /** Read-only operation meaning shared by the two consent producers. */
 export function continuousConsentLine<T>(line:T):T {
  if(!line||typeof line!=='object'||Array.isArray(line)||(line as {kind?:unknown}).kind!=='move')return line;
- return {...line,arrival_scope:{at:'destination approach or doorway',enter_building:false,open_door:false,start_interaction:false}};
+ return {...line,arrival_scope:{at:'destination approach or doorway',settles:['party_arrival']}};
 }
 export function continuousConsentDisposition(selection:unknown,veto:unknown):'authorized'|'not_authorized'|'uncertain' {
  if(typeof selection!=='number'||typeof veto!=='number'||!Number.isFinite(selection)||!Number.isFinite(veto)||selection<0||selection>1||veto<0||veto>1)return 'uncertain';

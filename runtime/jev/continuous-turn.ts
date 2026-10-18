@@ -16,6 +16,7 @@ const object=(value:unknown):Row=>value&&typeof value==='object'&&!Array.isArray
 const array=(value:unknown):any[]=>Array.isArray(value)?value:[];
 const text=(value:unknown):string=>typeof value==='string'?value:'';
 const hash=(value:unknown)=>createHash('sha256').update(JSON.stringify(value)).digest('hex');
+const normalizedName=(value:string)=>value.normalize('NFKC').toLowerCase().replace(/[\s\p{P}]+/gu,'');
 export const CONTINUOUS_TURN_FAMILY='continuous-turn';
 export const CONTINUOUS_TURN_GATE=.9;
 /** Routing only: all world mutations still require the unchanged selection/restriction gates. */
@@ -50,6 +51,7 @@ export class ContinuousTurn {
     prescreen?:Row;
     published=false;
     private reusable:number[]=[];
+    private screenedIndexes:number[]=[];
     private readonly identities=new Map<string,OperationIdentity>();
     private readonly options:ContinuousTurnOptions;
     constructor(options:ContinuousTurnOptions){this.options=options;}
@@ -59,7 +61,7 @@ export class ContinuousTurn {
         if(!revision||context.campaign!==this.options.campaign||!Number.isSafeInteger(context.turn))throw Error('continuous_scope_unavailable');
         const reads:ReadSet=[{kind:'world',resource:this.options.campaign,revision},
             {kind:'draft',resource:'input:'+this.options.run,revision:this.options.inputRevision},
-            {kind:'family',resource:CONTINUOUS_TURN_FAMILY,revision:this.options.packet?'packet-3':'2'}];
+            {kind:'family',resource:CONTINUOUS_TURN_FAMILY,revision:this.options.packet?'packet-4':'2'}];
         if(this.options.packet){
             const source=text(context.task_source_revision)||text(context.source_revision);
             if(!source)throw Error('continuous_source_scope_unavailable');
@@ -93,14 +95,30 @@ export class ContinuousTurn {
                 ...(typeof context.worldline==='string'?{worldline:context.worldline}:{}),
                 ...(Number.isSafeInteger(context.loop)?{loop:context.loop}:{}),audience:'keeper' as const};
             if(this.options.packet){
-                const lines=this.candidates.map(candidate=>{
+                this.prescreen={run:this.options.run,playerText:this.options.playerText,worldRevision:context.world_revision,
+                    taskRevision:context.task_world_revision,sourceRevision:context.task_source_revision??context.source_revision,
+                    choices:this.candidates.map(candidate=>({effects:keeperCall(candidate).args.effects}))};
+                const input=normalizedName(this.options.playerText);
+                const named=this.candidates.flatMap((candidate,index)=>{
+                    const description=object(object(object(candidate.basis).row).description);
+                    const names=[text(description.display_name),...array(object(object(candidate.detail).destination).names).filter(value=>typeof value==='string')];
+                    return names.some(name=>normalizedName(name)&&input.includes(normalizedName(name)))?[index]:[];
+                });
+                this.screenedIndexes=this.candidates.length===1?[0]:named.length===1?named:[];
+                if(!this.screenedIndexes.length){
+                    this.decided=true;
+                    this.options.record({lane:'continuous-turn',event:'selection_deferred',run:this.options.run,reason:'no_unique_named_destination',candidates:this.candidates.length});
+                    return;
+                }
+                const lines=this.screenedIndexes.map(index=>{
+                    const candidate=this.candidates[index];
                     const detail=object(candidate.detail),destination=object(detail.destination);
                     return continuousConsentLine({...object(array(keeperCall(candidate).args.effects)[0]),
                         registered_destination:{...destination,canonical_name:object(object(object(candidate.basis).row).description).display_name??candidate.bound.to,
                             aliases:array(destination.names).filter(value=>typeof value==='string'),
                             ...(text(detail.source_context)&&detail.source_context!==destination.summary?{source_context:detail.source_context}:{})}});
                 });
-                const batch:DecisionBatch={id:randomUUID(),model:JEV_MODEL,family:CONTINUOUS_TURN_FAMILY,familyVersion:'packet-3',scope,
+                const batch:DecisionBatch={id:randomUUID(),model:JEV_MODEL,family:CONTINUOUS_TURN_FAMILY,familyVersion:'packet-4',scope,
                     readSet:this.readSet(capsule),state:{current_player_words:this.options.playerText,
                         investigators:this.options.investigators??[],scene:object(capsule.where).scene??null,
                         previous_public:this.options.previousPublic??[],proposal:{tool:'apply',lines}},
@@ -191,8 +209,11 @@ export class ContinuousTurn {
                 if(this.options.packet){
                     const probability=(key:string)=>{const answer=answers[key],value=answer?.status==='answered'&&answer.type==='noul'?answer.noul:undefined;
                         return typeof value==='number'&&Number.isFinite(value)&&value>=0&&value<=1?value:undefined;};
-                    const choices=this.candidates.map((candidate,index)=>({effects:keeperCall(candidate).args.effects,
-                        selection:probability('consent_'+index),veto:probability('restriction_'+index)}));
+                    const choices=this.candidates.map((candidate,index)=>{
+                        const slot=this.screenedIndexes.indexOf(index);
+                        return {effects:keeperCall(candidate).args.effects,
+                            ...(slot>=0?{selection:probability('consent_'+slot),veto:probability('restriction_'+slot)}:{})};
+                    });
                     this.prescreen={run:this.options.run,playerText:this.options.playerText,worldRevision:object(this.snapshot._context).world_revision,
                         taskRevision:object(this.snapshot._context).task_world_revision,
                         sourceRevision:object(this.snapshot._context).task_source_revision??object(this.snapshot._context).source_revision,choices};

@@ -13,6 +13,6 @@ for(const route of['raw','provider-proxy'])for(const level of['medium','off'])te
 });
 test('prescreen and admission project the same non-entry arrival operation',()=>{
  assert.equal(typeof consent.continuousConsentLine,'function');const original={kind:'move',to:'Inn'};const projected=consent.continuousConsentLine(original);
- assert.deepEqual(projected.arrival_scope,{at:'destination approach or doorway',enter_building:false,open_door:false,start_interaction:false});assert.equal(original.arrival_scope,undefined);
+ assert.deepEqual(projected.arrival_scope,{at:'destination approach or doorway',settles:['party_arrival']});assert.equal(original.arrival_scope,undefined);
  assert.deepEqual(consent.continuousConsentLine({kind:'time',minutes:3}),{kind:'time',minutes:3});
 });

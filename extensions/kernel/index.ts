@@ -3709,7 +3709,7 @@ export default function (pi: ExtensionAPI, host: {capabilities?:RuntimeCapabilit
                 &&screened.sourceRevision===(current._context?.task_source_revision??current._context?.source_revision)){
                 const reviewedEffects=(proposal.effects??[]).map(index=>effects[index]);
                 const match=screened.choices?.find((choice:any)=>JSON.stringify(choice.effects)===JSON.stringify(reviewedEffects));
-                if(match){
+                if(match&&Number.isFinite(match.selection)&&Number.isFinite(match.veto)){
                     verdict={verdict:continuousConsentDisposition(match.selection,match.veto),grounds:'Reused input/world-bound prescreen selection and restriction.',reviewer:'jev',path:'typed'};
                     state.admission.set(key,verdict);
                 }

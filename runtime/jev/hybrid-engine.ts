@@ -513,6 +513,7 @@ export function createHybridEngine(options: HybridEngineOptions): {runDriver: Se
       },execute:async(proposal,invocation)=>{
         if(proposal.operation==='continuous_prepare'&&continuous){
           await continuous.prepare(invocation.signal);
+          if(packetPrescreen&&continuous.prescreen)api?.events.emit('coc:keeper-run',{...current,signal:invocation.signal,prescreen:continuous.prescreen});
           // The packet needs the same candidate material, not a speculative second action decision.
           if(turnPacketPrototype&&!packetPrescreen)continuous.decided=true;
           return{status:'ok',artifact:{kind:'continuous_turn',candidates:continuous.candidates.length}};
