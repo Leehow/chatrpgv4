@@ -188,6 +188,18 @@ test("read/write/edit stay in the task and bound source cache across traversal a
 	assert.equal(guard({ toolName: "pdf", input: { pages: [4] } }), undefined);
 });
 
+test('owned source JSON writes refuse malformed control characters before touching the existing artifact',async t=>{
+ const fixture=await confinementFixture(t),guard=createReaderToolGuard(fixture.cwd,fixture.env);
+ for(const path of ['draft.json','guidance.json','public-fields.json','review.json']){
+  await writeFile(join(fixture.cwd,path),'{}\n');
+  const refused=guard({toolName:'write',input:{path,content:'{"text":"first\nsecond"}'}});
+  assert.equal(refused.block,true);assert.match(refused.reason,/valid JSON.*Nothing was written/s);
+  assert.equal(await readFile(join(fixture.cwd,path),'utf8'),'{}\n');
+  assert.equal(guard({toolName:'write',input:{path,content:JSON.stringify({text:'first\nsecond'})}}),undefined);
+ }
+ assert.equal(guard({toolName:'write',input:{path:'notes/source.json',content:'unfinished scratch'}}),undefined);
+});
+
 test("an externally rebound PDF or cache fails closed before the private pdf tool runs", async t => {
 	const fixture = await confinementFixture(t);
 	const guard = createReaderToolGuard(fixture.cwd, {...fixture.env,

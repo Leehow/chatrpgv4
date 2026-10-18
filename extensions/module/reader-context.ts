@@ -160,6 +160,9 @@ export function createReaderToolGuard(cwd: string, env: NodeJS.ProcessEnv = proc
 		const first = target.relative.split(sep)[0];
 		if (first === "host-bin" || HOST_FILES.has(target.relative) || target.relative.endsWith('.jsonl'))
 			return blocked(event.toolName, "host-owned task inputs and executable wrappers are immutable");
+		if(env.PI_COC_READER_SOURCE&&event.toolName==='write'&&['draft.json','guidance.json','public-fields.json','review.json'].includes(target.relative)&&typeof event.input?.content==='string'){
+            try{JSON.parse(event.input.content);}catch(error){return blocked('write',`The ${target.relative} write is not valid JSON: ${(error as Error).message}. Nothing was written. Correct JSON escaping before retrying the write.`);}
+        }
 	};
 }
 
