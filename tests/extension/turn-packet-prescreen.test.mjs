@@ -123,6 +123,31 @@ for(const field of ['task_world_revision','task_source_revision'])test('changed 
  assert.equal(mutations,0);assert.equal(turn.outcome.status,'refused');
 });
 
+test('packet consent retains canonical destination descriptors instead of judging an opaque name',async()=>{
+ const destination={names:['Public Cafe'],summary:'The only diner in the town center.',where:['Main Street'],people:['the proprietor'],things:['red sign']};
+ const capsule={_context:{campaign:'c',turn:1,world_revision:'w',task_world_revision:'tw',source_revision:'s'},where:{scene:'office'}};
+ const turn=new ContinuousTurn({run:'r',inputRevision:'i',playerText:'I walk to that diner.',campaign:'c',packet:true,current:()=>true,record:()=>{},
+  call:async method=>method==='table.apply.options'?{candidates:[{effect:{kind:'move',to:'source-place-4'},description:{travel_minutes:3,display_name:'Source Place',source_identity:true,source_context:'The public street leads here.',destination}}]}:capsule,
+  decision:{decide:async batch=>answer(batch)},dispatch:async()=>{throw Error('projection only');}});
+ await turn.prepare(new AbortController().signal);
+ const view=turn.batch.state.proposal.lines[0].registered_destination;
+ assert.deepEqual(view,{...destination,canonical_name:'Source Place',aliases:destination.names,source_context:'The public street leads here.'});
+ assert.equal(turn.batches.length,1);
+});
+
+test('destination evidence uses one explicit long-context batch and fails closed beyond its limit',async()=>{
+ for(const [length,available] of [[40000,true],[300000,false]]){
+  let calls=0;
+  const turn=new ContinuousTurn({run:'r',inputRevision:'i',playerText:'I walk to that diner.',campaign:'c',packet:true,current:()=>true,record:()=>{},
+   call:async method=>method==='table.apply.options'?{candidates:[{effect:{kind:'move',to:'diner'},description:{travel_minutes:3,destination:{summary:'x'.repeat(length)}}}]}:
+    {_context:{campaign:'c',turn:1,world_revision:'w',task_world_revision:'tw',source_revision:'s'},where:{scene:'office'}},
+   decision:{decide:async batch=>{calls++;return answer(batch);}},dispatch:async()=>{throw Error('projection only');}});
+  const signal=new AbortController().signal;await turn.prepare(signal);await turn.decide(signal);
+  assert.equal(calls,available?1:0);assert.equal(turn.batches.length,available?1:0);
+  if(available){assert.equal(turn.batch.longContext,true);assert.equal(turn.batch.state.proposal.lines[0].registered_destination.summary.length,length);}
+ }
+});
+
 test('cleared negative movement candidates are absent from the Keeper material',async()=>{
  const capsule={_context:{campaign:'c',turn:1,worldline:'main',loop:0,world_revision:'w',task_world_revision:'tw',source_revision:'s',task_source_revision:'ts'},where:{scene:'office'}};
  const turn=new ContinuousTurn({run:'r',inputRevision:'i',playerText:'I walk to the library.',campaign:'c',packet:true,current:()=>true,record:()=>{},

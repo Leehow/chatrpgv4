@@ -6,7 +6,7 @@ import type {Candidate} from './step-policy.ts';
 import type {DecisionBatch,DecisionResult,Json,OperationProposal,ReadSet} from './contracts.ts';
 import {probabilityMassValid} from './contracts.ts';
 import type {DecisionPort} from './decision-port.ts';
-import {JEV_MODEL,packDecisionBatch,PackingError} from './question-packing.ts';
+import {JEV_MODEL,JEV_LONG_CONTEXT_LIMIT,packDecisionBatch,PackingError} from './question-packing.ts';
 import {TaskLease} from './task-context.ts';
 import {continuousConsentQuestions,continuousConsentDisposition,continuousConsentLine} from './continuous-consent.ts';
 import type {HostOperationContext,OperationIdentity} from '../../extensions/kernel/canonical-operation-dispatcher.ts';
@@ -93,9 +93,13 @@ export class ContinuousTurn {
                 ...(typeof context.worldline==='string'?{worldline:context.worldline}:{}),
                 ...(Number.isSafeInteger(context.loop)?{loop:context.loop}:{}),audience:'keeper' as const};
             if(this.options.packet){
-                const lines=this.candidates.map(candidate=>continuousConsentLine({...object(array(keeperCall(candidate).args.effects)[0]),
-                    registered_destination:{canonical_name:object(object(object(candidate.basis).row).description).display_name??candidate.bound.to,
-                        aliases:array(object(object(candidate.detail).destination).names).filter(value=>typeof value==='string')}}));
+                const lines=this.candidates.map(candidate=>{
+                    const detail=object(candidate.detail),destination=object(detail.destination);
+                    return continuousConsentLine({...object(array(keeperCall(candidate).args.effects)[0]),
+                        registered_destination:{...destination,canonical_name:object(object(object(candidate.basis).row).description).display_name??candidate.bound.to,
+                            aliases:array(destination.names).filter(value=>typeof value==='string'),
+                            ...(text(detail.source_context)&&detail.source_context!==destination.summary?{source_context:detail.source_context}:{})}});
+                });
                 const batch:DecisionBatch={id:randomUUID(),model:JEV_MODEL,family:CONTINUOUS_TURN_FAMILY,familyVersion:'packet-3',scope,
                     readSet:this.readSet(capsule),state:{current_player_words:this.options.playerText,
                         investigators:this.options.investigators??[],scene:object(capsule.where).scene??null,
@@ -105,7 +109,11 @@ export class ContinuousTurn {
                         criteria:{true:'Something besides the one routine journey needs to be handled, including any speech or NPC decision.',
                             false:'Only that journey is requested, with nothing else to decide or respond to.'}}]};
                 // One request or no automatic authority: never fan out a large scene into a foreground cascade.
-                packDecisionBatch(batch);this.batches=[batch];this.batch=batch;
+                try{packDecisionBatch(batch);}catch(error){
+                    if(!(error instanceof PackingError)||error.failure!=='packing_limit')throw error;
+                    batch.longContext=true;packDecisionBatch(batch);
+                }
+                this.batches=[batch];this.batch=batch;
                 this.options.record({lane:'continuous-turn',event:'prepared',run:this.options.run,packet:true,candidates:lines.length,
                     batches:[{candidates:lines.length,estimate:packDecisionBatch(batch).estimate}]});
                 return;
@@ -156,7 +164,7 @@ export class ContinuousTurn {
         if(!batch||!this.options.current()||signal.aborted)return;
         const lease=new TaskLease({owner:CONTINUOUS_TURN_FAMILY,goal:'Select already supported ordinary operations',scope:batch.scope,
             capabilities:['decision'],readSet:batch.readSet,signal,budget:{deadlineAt:Date.now()+DECISION_MS,
-                remainingInputTokens:64000,remainingOutputTokens:4000,remainingCostUsd:.02,remainingActions:this.batches.length}});
+                remainingInputTokens:batch.longContext?JEV_LONG_CONTEXT_LIMIT:64000,remainingOutputTokens:4000,remainingCostUsd:.02,remainingActions:this.batches.length}});
         try{
             const outcomes=await Promise.allSettled(this.batches.map(batch=>this.options.decision.decide(batch,lease)));
             const answers:DecisionResult['answers']={};
