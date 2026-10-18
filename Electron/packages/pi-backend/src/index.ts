@@ -9711,7 +9711,7 @@ export class PiHostBackend implements HostBackend {
       sessionId,
       affected: true,
       busy: this.sessionBusyForHotRestart(sessionId, live),
-      restartInFlight: this.extensionHotRestartInFlight.has(sessionId) || Boolean(live.pendingExtensionRestart),
+      restartInFlight: this.extensionHotRestartInFlight.has(sessionId),
     }]);
     if (!plan.restart.length) {
       if (plan.defer.length) live.pendingExtensionRestart = true;

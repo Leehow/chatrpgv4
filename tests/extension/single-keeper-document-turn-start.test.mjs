@@ -87,7 +87,11 @@ test('one Keeper writes the chosen suffix without append binding and the kernel 
     throw new Error('This deterministic writing seam must make no decision request');
   };
   t.after(()=>{globalThis.fetch=originalFetch;});
-  const engine=createHybridEngine({env:{...process.env,PI_COC_JEV_PRESELECT:'0'},decision:null});
+  const engine=createHybridEngine({env:{...process.env,PI_COC_JEV_PRESELECT:'0'},decision:{decide:async batch=>batch.family!=='continuous-action-admission'
+    ?{batchId:batch.id,status:'unavailable',answers:{},coverage:{required:[],answered:[],unknown:[]},issues:[]}
+    :({batchId:batch.id,status:'complete',
+    answers:Object.fromEntries(batch.questions.map(question=>[question.key,{status:'answered',type:'noul',noul:question.key.startsWith('restriction_')?.01:.99}])),
+    coverage:{required:batch.questions.map(question=>question.key),answered:batch.questions.map(question=>question.key),unknown:[]},issues:[]})}});
   const results=[],requestsAtApply=[],suffix='Gate code NOTE-B4.\n';
   const effect=owner=>({kind:'object',name:NAME,from:owner,to:owner,document:{action:'append',text:suffix},
     why:'The investigator writes the player-selected note in the carried notebook.'});

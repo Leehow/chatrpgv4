@@ -140,7 +140,7 @@ test('an unbound, differently bound or declined mechanics choice cannot gain cas
     }
 });
 
-test('registered journey consent reuses player references without unrelated authored history',async()=>{
+test('registered journey consent retains committed public history only as bounded reference evidence',async()=>{
  const chosen=options(),run=chosen.value.decision.decide;let seen;
  const proposed=admission.admissionRequest('apply',{effects:[{kind:'move',to:'Central Library',via:'public street'}]},
    {party:['Thomas Hayes'],consentOnly:true,destinations:[{requested:'Central Library',handle:'central-library',label:'Central Library'}]});
@@ -148,7 +148,7 @@ test('registered journey consent reuses player references without unrelated auth
    context:{...context,delivered:[{turn:0,player:'I came from the Central Library.',keeper:'UNRELATED_AUTHOR_RULE: payments first.'}]},
    decision:{decide:async(batch,lease)=>{seen=batch;return run(batch,lease);}}});
  assert.equal(result.verdict.verdict,'authorized');
- assert.deepEqual(seen.state.previous_public,[{turn:0,player:'I came from the Central Library.'}]);
+ assert.deepEqual(seen.state.previous_public,[{turn:0,player:'I came from the Central Library.',keeper:'UNRELATED_AUTHOR_RULE: payments first.'}]);
  assert.equal(seen.state.proposal.lines[0].registered_destination.label,'Central Library');
  assert.equal(seen.questions.length,2);assert.equal(chosen.calls(),1);
 });

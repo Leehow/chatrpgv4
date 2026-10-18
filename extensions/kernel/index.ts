@@ -3682,7 +3682,7 @@ export default function (pi: ExtensionAPI, host: {capabilities?:RuntimeCapabilit
 			if(malformed)throw new KernelError(malformed);
 			const moveMalformed=tool==='apply'?moveEstablishmentRefusal(payload.effects):undefined;
 			if(moveMalformed)throw new KernelError(moveMalformed);
-			if(!turnDecisionPort||!state.playerText)return;
+			if(!state.playerText)return;
 			const effects=Array.isArray(payload.effects)?payload.effects as Record<string,unknown>[]:[];
 			const current=await state.kernel.call<Record<string,any>>('table.capsule',{campaign:state.campaign,_context_read:true});
 			const basis=origin.basis as Record<string,any>|undefined;
@@ -3713,6 +3713,11 @@ export default function (pi: ExtensionAPI, host: {capabilities?:RuntimeCapabilit
                 }
             }
 			if(!verdict){
+				if(!turnDecisionPort){
+					state.admission.set(key,{verdict:'uncertain',grounds:'The typed admission owner is unconfigured.',reviewer:'jev',path:'typed',typedFailure:'unconfigured'});
+					await record({lane:'admission',verb:tool,turn:state.turn,path:'typed',reviewer:'jev',ok:false,reason:'unconfigured',jev_calls:0,ms:0});
+					throw unavailable('unconfigured');
+				}
 				const checked=await reviewAdmissionJevOnly({campaign:state.campaign,ctx:sessionCtx!,proposal,
 					context:admissionContextFor(state),signal,providerBudget,record,decision:turnDecisionPort});
 				await record({lane:'admission',verb:tool,turn:state.turn,path:'typed',reviewer:'jev',
@@ -6450,12 +6455,19 @@ export default function (pi: ExtensionAPI, host: {capabilities?:RuntimeCapabilit
 					throw refusal;
 				};
 				const ensurePending=async (params:Record<string,unknown>,ownedSignal?:AbortSignal,providerBudget?:TaskProviderBudget):Promise<Record<string,any>>=>{
-					try {return await reading!.ensure(readingModule!,params,ownedSignal,{providerBudget});}
+					const ensure=async(next:Record<string,unknown>)=>{
+						const reply=await reading!.ensure(readingModule!,next,ownedSignal,{providerBudget,
+							...(!ownedPreparation?{allowanceMs:sourceAnswerAllowanceMs()}:{} )});
+						if(reply.state==='pending')throw new KernelError({code:'needs',message:'the source is still being read',
+							details:{reason:'reading_timeout',...(reply.job_id?{job_id:reply.job_id}:{}),read}});
+						return reply;
+					};
+					try {return await ensure(params);}
 					catch(readFailure) {
 						if(!isKernelError(readFailure)||readFailure.details?.reason!=="reading_failed"||ownedSignal?.aborted)refuse(readFailure);
 						if(state.readingRetries.has(readKey))refuse(readFailure);
 						state.readingRetries.add(readKey);
-						try{return await reading!.ensure(readingModule!,{...params,retry:true},ownedSignal,{providerBudget});}
+						try{return await ensure({...params,retry:true});}
 						catch(repairFailure){return refuse(repairFailure);}
 					}
 				};
@@ -7154,7 +7166,7 @@ export default function (pi: ExtensionAPI, host: {capabilities?:RuntimeCapabilit
 				call: bridgeCall(kernel),
 				materialSources:(turn:number)=>finalOutput.inventory(campaign,turn),
                 playerContext:()=>({investigators:table?.party.map(person=>person.name)??[],
-                    previousPlayer:table?(table.delivered.length?table.delivered:table.recent).slice(-2).map(row=>({turn:row.turn,player:row.player??null})):[]}),
+                    previousPublic:table?decisionRecentPublic(table.recent,table.delivered):[]}),
                 referenceReplyStatus:()=>table?.referenceReplies?.size?{campaign:table.campaign,turn:table.turn,queued:true}:undefined,
 				runtime,
 				// The call ordinal lives here, so anything that has to write on the Keeper's behalf mints its

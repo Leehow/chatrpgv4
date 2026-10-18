@@ -114,7 +114,7 @@ export interface KernelBridge {
   campaign?: string;
   call?: (method: string, params?: Record<string, unknown>) => Promise<unknown>;
   record?: (row: Record<string, unknown>) => void;
-  playerContext?:()=>{investigators:string[];previousPlayer:Array<{turn:number|string;player:string|null}>};
+  playerContext?:()=>{investigators:string[];previousPublic:Array<{turn:number|string;player?:string|null;keeper:string;truncated?:boolean}>};
 }
 /** The kernel extension's turn-close port (`coc:turn-close`, contract §135.11). */
 export interface TurnClosePort {

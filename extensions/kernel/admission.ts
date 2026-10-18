@@ -18,6 +18,7 @@
  */
 
 import { createHash } from "node:crypto";
+import {decisionRecentPublic} from '../../runtime/isolated-expression.ts';
 import {continuousConsentQuestions,continuousConsentLine,CONTINUOUS_CONSENT_MIN} from "../../runtime/jev/continuous-consent.ts";
 import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { runLane, type KeptReservation, type LaneReplyEvidence, type LaneResult, type LaneTransport } from "../lanes/subsession.ts";
@@ -1296,14 +1297,14 @@ export async function reviewAdmissionJevOnly(options:PrimaryAdmissionReviewOptio
         }).map((quote:any)=>({quote:quote.quote,cash_debit:cashText(debit),merchandise_amount:quote.purchase_amount}));
         return [{index:row.index,cash_debit:cashText(debit),merchandise_amount:cashText(price),currency:String(row.currency),earlier_full_quotes:offers}];
     });
-    // A registered journey needs destination references, not incidental prior author prose.
-    // Cash and other operations retain their delivered terms and existing context.
+    // A registered journey may refer to directions an NPC just delivered. Use the same
+    // bounded public window as prescreen and the author, never private source notes.
     const knownJourneys=options.proposal.kinds?.length&&options.proposal.kinds.every(kind=>kind==='move')
         &&options.proposal.operations?.every(operation=>operation.kind==='move'&&operation.registered_destination);
     const state={current_player_words:context.playerText,...(mechanicsChoice?{current_mechanics_choice:mechanicsChoice}:{}),
         ...(context.interruptedPlayerText?{unfinished_player_words:context.interruptedPlayerText}:{}),
         investigators:context.investigators.map(row=>row.name),scene:context.scene??null,present:context.present,
-        previous_public:context.delivered.slice(-2).map(row=>({turn:row.turn,player:row.player??null,...(!knownJourneys?{keeper:row.keeper}:{})})),
+        previous_public:knownJourneys?decisionRecentPublic(context.delivered):context.delivered.slice(-2).map(row=>({turn:row.turn,player:row.player??null,keeper:row.keeper})),
         settled_this_turn:context.landed,
         ...(context.corrections?.length?{argument_corrections:context.corrections}:{}),
         proposal:{tool:options.proposal.tool,lines:(options.proposal.operations??options.proposal.lines).map(continuousConsentLine),...(options.proposal.kinds?{kinds:options.proposal.kinds}:{})},

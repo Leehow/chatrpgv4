@@ -28,6 +28,29 @@ import { openTable, waitForIdle } from "./harness.mjs";
 
 const ROOT = resolve(import.meta.dirname, "../..");
 
+test('ordinary pending mutation preparation yields within the consultation allowance and never retries as ready',async t=>{
+  const table=await openTable({env:{FAKE_KERNEL_MATERIAL_PENDING:'1',PI_COC_SOURCE_ANSWER_ALLOWANCE_MS:'37'},responses:[
+    fauxAssistantMessage([fauxToolCall('apply',{effects:[{kind:'move',to:'farm',travel_minutes:10}]})],{stopReason:'toolUse'}),
+    fauxAssistantMessage([fauxToolCall('output',{text:'You wait by the road.'})],{stopReason:'toolUse'}),
+  ]});
+  t.after(()=>table.dispose());
+  const waits=[];
+  table.emit('coc:reading-bridge',{async ensure(mid,params,signal,options){
+    waits.push({params,signal,options});
+    return{state:'pending',job_id:'retained-job',read:params,settled:new Promise(()=>{})};
+  },reading(){return true;}});
+  await table.session.prompt('I walk to the farm.');
+  assert.equal(waits.length,1,'one bounded foreground wait');
+  assert.equal(waits[0].options.allowanceMs,37);
+  const results=table.session.messages.filter(row=>row.role==='toolResult'&&row.toolName==='apply');
+  assert.equal(results.length,1);
+  assert.match(toolResultTexts(table.session,'apply')[0],/^needs: the source is still being read/m);
+  assert.equal(table.kernelRequests().filter(row=>row.method==='table.apply').length,1,'pending never retries the mutation as ready');
+  const refusals=table.telemetry().filter(row=>row.tool==='apply'&&row.ok===false);
+  assert.ok(refusals.every(row=>row.reason==='reading_timeout'));
+  assert.equal(refusals[0].job_id,'retained-job');
+});
+
 /** The text of every tool result the model was shown for `tool`, in order. */
 function toolResultTexts(session, tool) {
 	return session.messages

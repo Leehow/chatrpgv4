@@ -20,7 +20,7 @@ async function opened(workspace,assessed=true){const client=new RpcClient(worksp
  await client.ok('table.player_input',{campaign:'test-camp',text:'I accept the commission and ask for the public research leads.'});
  await client.ok('table.apply',{campaign:'test-camp',call_id:'t1-c1',effects:[
   ...(assessed?[{kind:'scene',name:'central-library',activity:{summary:'The library fixture is quiet and empty before this visit.',basis:'established',service:'open',crowd:'empty',review_after_minutes:60},why:'The controlled fixture has already assessed this destination.'}]:[]),{kind:'flag',name:'knott-commission-accepted',value:true},{kind:'clue',clue:'knott-research-leads',from:'Steven Knott'}]});
- await client.ok('table.narrate',{campaign:'test-camp',call_id:'t1-c2',text:'Knott has named the public research destinations.'});
+ await client.ok('table.narrate',{campaign:'test-camp',call_id:'t1-c2',text:'Knott has named the public research destinations. The Central Library has a red doorway, two blocks west.'});
 }finally{await client.close();}}
 function answer(batch,scope='travel_only',selection=.99,veto=.01){
  const candidates=batch.state.proposal?.lines??[];
@@ -43,6 +43,8 @@ test('a ready routine journey publishes actual movement without Keeper inference
  t.after(()=>table.dispose());await table.session.prompt('I walk to the Central Library.');
  assert.equal(requests,0,JSON.stringify({batches,events:table.telemetry().filter(x=>['continuous-turn','keeper-delivery'].includes(x.lane))}));
  assert.equal(batches.length,1,'prescreen must replace post-proposal consent, not precede it');
+ assert.ok(batches[0].state.previous_public.some(row=>row.keeper?.includes('red doorway, two blocks west.')),
+  'the same committed NPC directions must reach consent, not only the final author');
  assert.equal(table.entries('coc-final-delivery').filter(x=>x.event==='end'&&x.status==='completed').length,1);
  const turn=JSON.parse(readFileSync(join(table.workspace,'.coc/campaigns/test-camp/turns/0002.json'),'utf8'));
  assert.equal(turn.receipts.filter(x=>x.kind==='move').length,1);

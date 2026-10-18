@@ -32,6 +32,29 @@ async function opened(workspace){
 const env={PI_COC_LOOP_ENGINE:'hybrid-v1',PI_COC_JEV_PRESELECT:'0',PI_COC_ISOLATED_OUTPUT:'0',
     EXT_JEV_APIKEY:undefined,TYPESAFE_API_KEY:undefined};
 
+test('a missing decision owner holds player writes and repeated false success without issuing requests',async t=>{
+    const engine=createHybridEngine({env:{},decision:null});
+    const results=[];
+    const move={effects:[{kind:'time',minutes:5},{kind:'move',to:'Central Library'}]};
+    const table=await openTable({legacyDeliveryFixtures:false,realKernel:true,prepareWorkspace:opened,env,
+        runDriver:engine.runDriver,extraExtensions:[{name:'continuous',factory:engine.extension},
+            {name:'admission-results',factory:pi=>pi.on('tool_result',event=>{if(event.toolName==='apply')results.push(event);})}],
+        responses:[fauxAssistantMessage([fauxToolCall('apply',move)],{stopReason:'toolUse'}),
+            fauxAssistantMessage([fauxToolCall('apply',move)],{stopReason:'toolUse'}),
+            fauxAssistantMessage('{{public}}You arrive at the library.'),
+            fauxAssistantMessage('{{public}}You arrive at the library.')]});
+    t.after(()=>table.dispose());
+    await table.session.prompt('I walk to the Central Library, taking five minutes.');
+    assert.equal(results.length,2);
+    assert.ok(results.every(row=>row.details?.coc_error?.details?.reason==='typed_admission_unavailable'));
+    assert.ok(results.every(row=>row.details.coc_error.details.jev_reason==='unconfigured'));
+    assert.ok(table.telemetry().some(row=>row.lane==='admission'&&row.reused===true&&row.jev_calls===0));
+    const turn=JSON.parse(readFileSync(join(table.workspace,'.coc/campaigns/test-camp/turns/0001.json'),'utf8'));
+    assert.equal(turn.world.clock.minutes,0);
+    assert.equal(turn.receipts.filter(row=>['time','move'].includes(row.kind)).length,0);
+    assert.equal(table.entries('coc-final-delivery').filter(frame=>frame.event==='delta').map(frame=>frame.delta).join(''),'');
+});
+
 test('one Keeper writes NPC speech and commits heard knowledge without a second consent task',async t=>{
     const batches=[],privateResponses=[];let requests=0;
     const engine=createHybridEngine({env:{},decision:{decide:async batch=>{

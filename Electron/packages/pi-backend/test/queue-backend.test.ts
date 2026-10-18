@@ -7,6 +7,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { createPiHostBackend, FileQueueStore, type PiBackendOptions } from "../src/index.js";
 import { defaultStopEscalationHooks, type ProcessIdentity, type StopEscalationScheduler } from "../src/stop-escalation.js";
+import {readJevApiKey} from '../../../../extensions/jev/agent/config.js';
 
 let root = "";
 afterEach(async () => { if (root) await rm(root, { recursive: true, force: true, maxRetries: 10, retryDelay: 25 }); root = ""; });
@@ -64,6 +65,33 @@ async function fixture() {
 }
 
 describe("PiHostBackend message queue integration", () => {
+  it('a credential saved while busy refreshes exactly once at idle and reaches the next real spawn',async()=>{
+    const setup=await fixture(),extension=join(setup.agentDir,'extensions/jev');
+    await mkdir(join(extension,'agent'),{recursive:true});
+    await writeFile(join(extension,'agent/index.js'),'export default function() {}\n');
+    await writeFile(join(extension,'pipiui-extension.json'),JSON.stringify({id:'jev',name:'Jev',version:'0.1.0',
+      category:'integration',capabilities:['settings.read','settings.write'],agent:{extension:'agent/index.js'},defaultEnabled:true,settingsVersion:1,migrations:[],
+      app:{settings:{scope:'app',schema:{type:'object',properties:{'ext.jev.apiKey':{type:'string',format:'secret'}}}}}}));
+    const spawnKeys:Array<string|undefined>=[];
+    const backend=setup.create({profileMode:'isolated',resourceMode:'explicit',vaultDir:setup.agentDir,spawn:(_bin,_args,options)=>{
+      spawnKeys.push(readJevApiKey(options?.env));
+      return spawn(process.execPath,[new URL('./fake-pi.mjs',import.meta.url).pathname],options) as any;
+    }});
+    try{
+      await backend.handle('sendPrompt',['s1','__hold__']);
+      const owner=backend as any,live=owner.live.get('s1');
+      expect(live.mountedExtensionIds.has('jev')).toBe(true);
+      expect(await backend.handle('updateExtensionSettings',['jev',{'ext.jev.apiKey':'fixture-idle-jev-key'}])).toMatchObject({ok:true});
+      expect(live.pendingExtensionRestart).toBe(true);
+      expect(spawnKeys).toEqual([undefined]);
+      await owner.queueIdle('s1');
+      await eventually(()=>!owner.live.has('s1')&&!owner.extensionHotRestartInFlight.has('s1'));
+      await owner.queueIdle('s1');
+      await backend.handle('sendPrompt',['s1','hello after credential save']);
+      expect(spawnKeys).toEqual([undefined,'fixture-idle-jev-key']);
+      expect(owner.live.get('s1')).not.toBe(live);
+    }finally{await backend.close();}
+  });
   it("rejects a direct send before Pi starts and retains its failed queue row", async () => {
     const setup = await fixture();
     const spawnFailure = vi.fn(() => { throw new Error("fixture spawn refused"); });

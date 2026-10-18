@@ -31,7 +31,7 @@ export interface ContinuousTurnOptions {
     current:()=>boolean;
     record:(row:Row)=>void;
     packet?:boolean;
-    previousPlayer?:Array<{turn:number|string;player:string|null}>;
+    previousPublic?:Array<{turn:number|string;player?:string|null;keeper:string;truncated?:boolean}>;
     investigators?:string[];
 }
 
@@ -99,7 +99,7 @@ export class ContinuousTurn {
                 const batch:DecisionBatch={id:randomUUID(),model:JEV_MODEL,family:CONTINUOUS_TURN_FAMILY,familyVersion:'packet-3',scope,
                     readSet:this.readSet(capsule),state:{current_player_words:this.options.playerText,
                         investigators:this.options.investigators??[],scene:object(capsule.where).scene??null,
-                        previous_public:this.options.previousPlayer??[],proposal:{tool:'apply',lines}},
+                        previous_public:this.options.previousPublic??[],proposal:{tool:'apply',lines}},
                     questions:[...continuousConsentQuestions(lines.map(()=> 'move')),{key:'additional_work',target:'current_player_words',type:'noul',
                         instructions:'Does the current declaration select an activity besides one routine party journey? Judge selected additional work only, not destination selection, authorization or success. Arrival and ordinary route description belong to that journey. Speech, a greeting, a question, investigation, a transaction, a local task or another trip are additional work. A future or conditional proposal that needs discussion also has additional work. Constraints excluding entry, purchases or other acts do not themselves request additional activities.',
                         criteria:{true:'Something besides the one routine journey needs to be handled, including any speech or NPC decision.',

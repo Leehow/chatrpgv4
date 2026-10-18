@@ -85,7 +85,7 @@ test('the same Keeper receives a real rule result and then writes the public res
 
 
 function directTable(responses,extra={}) {
-  const {onFrame,extraExtensions=[],decision=null,...options}=extra;
+  const {onFrame,extraExtensions=[],decision=checkedRecovery,...options}=extra;
   const seen=[];
   const engine=createHybridEngine({env:{...process.env,PI_COC_JEV_PRESELECT:'0'},decision});
   return openTable({legacyDeliveryFixtures:false,realKernel:true,prepareWorkspace:seedOpening,
@@ -1538,7 +1538,7 @@ test('an opening html fence before the public marker needs no correction inferen
 for(const renameGrowth of [false,true])test('the next native request keeps six results ahead of a duplicated capsule and static brief'+(renameGrowth?' after handle expansion':''),async t=>{
   const {installContextPolicy}=await importSource('extensions/table/context-runtime.ts');
   const measure=await importSource('extensions/table/context-policy.ts');
-  const engine=createHybridEngine({env:{...process.env,PI_COC_JEV_PRESELECT:'0'},decision:null});
+  const engine=createHybridEngine({env:{...process.env,PI_COC_JEV_PRESELECT:'0'},decision:checkedRecovery});
   let expectedResults,sourceBefore,secondRequest,thirdRequest;
   const telemetry=[];
   const pressureDriver={...engine.runDriver,prepare:async context=>{
