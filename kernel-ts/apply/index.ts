@@ -131,8 +131,6 @@ export function createApplyHandlers(kernel: KernelContext, writer: ReturnType<ty
                 throw new RpcError('invalid_params', '_task_read_set must be boolean');
             if (params._lean !== undefined && typeof params._lean !== 'boolean')
                 throw new RpcError('invalid_params', '_lean must be boolean');
-            if (params._event_receipts !== undefined && typeof params._event_receipts !== 'boolean')
-                throw new RpcError('invalid_params', '_event_receipts must be boolean');
             const beforeTaskRevision = params._task_read_set === true
                 ? worldRevision(transaction.world, await campaign.party() as Row[], turn.receipts, turn.pending_choice) : undefined;
             const beforeTaskCore = params._task_read_set === true
@@ -517,8 +515,6 @@ export function createApplyHandlers(kernel: KernelContext, writer: ReturnType<ty
             // These are execution results, including no-op assignments, not copies of proposals.
             result.outcomes=[...effectReceipts].flatMap(([index,landed])=>operationOutcomes(landed,graph,staged).map(outcome=>({index,...outcome})));
             if(params.event!==undefined)result.outcome=graph.shownIds(eventOutcome([...array(turn.receipts),...receipts]));
-            if(params._event_receipts===true)result._event_receipts=receipts.filter(receipt=>receipt.kind==='event')
-                .map(receipt=>({id:receipt.id,name:receipt.event.name,ref:receipt.event.ref,scope:clone(receipt.event.scope)}));
             const pendingNames = receipts.filter(receipt => receipt.kind === 'person' && typeof receipt.deferred_name === 'string');
             if (pendingNames.length) result.names_pending_delivery = pendingNames.map(receipt => ({
                 who: receipt.name, name: receipt.deferred_name, ...(receipt.deferred_address != null ? { address: receipt.deferred_address } : {}) }));

@@ -211,13 +211,50 @@ test('event validation repair uses this successful canonical event without an ex
   ]});t.after(()=>table.dispose());await table.session.prompt('I spend a few minutes photographing the mark.');
  assert.deepEqual(table.extensionErrors,[]);assert.equal(requests,3);
  const repair=table.telemetry().filter(row=>row.lane==='held-operation'&&row.event==='parameter_failure_reconciled');assert.equal(repair.length,1);
- assert.notEqual(repair[0].failed_operation,repair[0].settled_operation);assert.equal(typeof repair[0].receipt,'string');
+ assert.notEqual(repair[0].failed_operation,repair[0].settled_operation);assert.equal(repair[0].completion_scope,'player_action');assert.ok(repair[0].receipts.length);
  assert.equal(batches.filter(row=>row.family==='held-act-outcome').length,0);
  assert.equal(table.entries('coc-final-delivery').filter(row=>row.event==='end'&&row.status==='completed').length,1);
  const replies=table.session.messages.filter(row=>row.role==='toolResult'&&row.toolName==='apply');
- assert.ok(JSON.stringify(replies[0]).includes('event_argument_validation'));assert.ok(!JSON.stringify(replies).includes('_event_receipts'),'private reconciliation metadata stays out of model messages');
+ assert.ok(JSON.stringify(replies[0]).includes('event_argument_validation'));assert.ok(!JSON.stringify(replies).includes('argumentCompletionKey'),'private reconciliation keys stay out of model messages');
  const turn=JSON.parse(readFileSync(join(table.workspace,'.coc/campaigns/test-camp/turns/0001.json'),'utf8'));
  assert.equal(turn.receipts.filter(row=>row.kind==='time').length,1);assert.equal(turn.receipts.filter(row=>row.kind==='event').length,1);assert.equal(turn.world.clock.minutes,4);
+});
+
+test('clue parameter corrections reuse the same player-action decision and release only its completed time',async t=>{
+ const batches=[];let requests=0;
+ const engine=createHybridEngine({env,decision:{decide:async batch=>{batches.push(batch);return answer(batch,.99);}}});
+ const clock={kind:'time',minutes:1,why:'Read the posted notice.'};
+ const clue={kind:'clue',clue:'A new posted notice',establish:{summary:'A posted office-hours notice.',how:'read it'}};
+ const attempts=[{effects:[clock,clue]},
+  {effects:[clock,{...clue,establish:{summary:'The selected hours notice.',how:'read it'}}]},
+  {effects:[clock,{...clue,establish:{summary:'The selected hours notice.'}}]},
+  {effects:[clock,{...clue,establish:{summary:'The selected hours notice.'},how:'The investigator reads it on the door.'}]}];
+ const table=await openTable({legacyDeliveryFixtures:false,realKernel:true,prepareWorkspace:opened,env,runDriver:engine.runDriver,
+  extraExtensions:[{name:'engine',factory:engine.extension}],responses:[...attempts.map(args=>()=>{requests++;return fauxAssistantMessage([rawToolCall('apply',args)],{stopReason:'toolUse'});}),
+   ()=>{requests++;return fauxAssistantMessage([fauxToolCall('output',brief)],{stopReason:'toolUse'});}]
+ });t.after(()=>table.dispose());await table.session.prompt('I spend a minute reading the posted notice.');
+ assert.deepEqual(table.extensionErrors,[]);assert.equal(requests,5);
+ assert.equal(batches.filter(row=>row.family==='continuous-action-admission').length,1);
+ assert.equal(batches.filter(row=>row.family==='held-act-outcome').length,0);
+ assert.equal(table.entries('coc-final-delivery').filter(row=>row.event==='end'&&row.status==='completed').length,1);
+ const repaired=table.telemetry().filter(row=>row.lane==='held-operation'&&row.event==='parameter_failure_reconciled');assert.equal(repaired.length,1,'bookkeeping variations share one held player-action row');
+ const turn=JSON.parse(readFileSync(join(table.workspace,'.coc/campaigns/test-camp/turns/0001.json'),'utf8'));
+ assert.equal(turn.receipts.filter(row=>row.kind==='time').length,1);assert.equal(turn.receipts.filter(row=>row.kind==='clue').length,1);assert.equal(turn.world.clock.minutes,1);
+});
+
+test('invalid NPC bookkeeping never becomes a refused player action',async t=>{
+ const batches=[];let requests=0;
+ const engine=createHybridEngine({env,decision:{decide:async batch=>{batches.push(batch);return answer(batch,.99);}}});
+ const table=await openTable({legacyDeliveryFixtures:false,realKernel:true,prepareWorkspace:opened,env,runDriver:engine.runDriver,
+  extraExtensions:[{name:'engine',factory:engine.extension}],responses:[
+   ()=>{requests++;return fauxAssistantMessage([rawToolCall('apply',{effects:[{kind:'npc',name:'Steven Knott',reunion:{elapsed_minutes:5,background:[],reports:[]}}]})],{stopReason:'toolUse'});},
+   ()=>{requests++;return fauxAssistantMessage([rawToolCall('apply',{effects:[{kind:'npc',name:'Steven Knott',stance:'warm'}]})],{stopReason:'toolUse'});},
+   ()=>{requests++;return fauxAssistantMessage([fauxToolCall('output',brief)],{stopReason:'toolUse'});}
+  ]});t.after(()=>table.dispose());await table.session.prompt('I greet Knott and ask him about the office.');
+ assert.deepEqual(table.extensionErrors,[]);assert.equal(requests,3);
+ assert.equal(batches.filter(row=>['continuous-action-admission','held-act-outcome'].includes(row.family)).length,0);
+ assert.ok(table.telemetry().some(row=>row.lane==='held-operation'&&row.event==='argument_outside_player_scope'));
+ assert.equal(table.entries('coc-final-delivery').filter(row=>row.event==='end'&&row.status==='completed').length,1);
 });
 
 test('an event-only native decision reaches the author and activates paraphrased material once',async t=>{

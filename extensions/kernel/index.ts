@@ -1,3 +1,4 @@
+import {Errors as argumentErrors} from 'typebox/value';
 import {SourceConsultations} from '../module/source-consultations.ts';
 import {CASH_CONSENT_POLICY} from "./admission.ts";
 import {boundCashAuthority} from './admission.ts';
@@ -21,7 +22,7 @@ import {DocumentReadCoverage} from './document-read-coverage.ts';
 import {openingInformationShape} from '../../runtime/opening-information.ts';
 import {writingDigest,canonicalWritingResult,matchWritingResult,completesRefusedAddition,type WritingMatch,type WritingCompletion} from '../../runtime/jev/document-completion.ts';
 import {RefusedDocumentOutcome, REFUSED_DOCUMENT_OUTCOME_FAMILY, REFUSED_DOCUMENT_OUTCOME_REASON, documentOutcomeDigest, type DocumentOutcomeVerdict} from '../../runtime/jev/refused-document-outcome.ts';
-import {HeldActOutcome, heldOperationKey, heldEventRepairKey, heldEventRepairEvidence, HELD_ACT_OUTCOME_FAMILY, HELD_ACT_OUTCOME_REASON, receiptLine} from '../../runtime/jev/held-act-outcome.ts';
+import {HeldActOutcome, heldOperationKey, HELD_ACT_OUTCOME_FAMILY, HELD_ACT_OUTCOME_REASON, receiptLine} from '../../runtime/jev/held-act-outcome.ts';
 import {DOCUMENT_RECORDING_INTENT_MIN, permitsReferenceOperation} from '../../runtime/jev/interaction-scope.ts';
 /**
  * The pi-coc kernel extension: it starts the compiled TypeScript kernel, wires the eight verbs onto RPC,
@@ -3393,19 +3394,22 @@ export default function (pi: ExtensionAPI, host: {capabilities?:RuntimeCapabilit
    * `admission_unavailable` refusal of the turn joins the turn's held basis (`holdUnavailable`).
    */
   const heldActs = new WeakMap<TableState, HeldActOutcome>();
-  const operationKeys = new WeakMap<TableState, Map<string,{operationKey:string;eventRepairKey?:string}>>();
+  const operationKeys = new WeakMap<TableState, Map<string,{operationKey:string;playerAction?:{key?:string;args?:Record<string,unknown>}}>>();
   function holdFailedOperation(state:TableState, tool:string, args:Record<string,unknown>, error:unknown, toolCallId?:string):void {
     if(!state.playerText || state.inputEnded?.turn===state.turn || state.closedThisRun)return;
     let boundary=heldActs.get(state);
     if(!boundary){boundary=new HeldActOutcome();heldActs.set(state,boundary);}
     const failure=error as {code?:string;details?:{reason?:string}};
+    const completion=operationKeys.get(state)?.get(toolCallId??'')?.playerAction;
+    if(failure.code==='invalid_params'&&completion&&!completion.key){
+      void record({lane:'held-operation',event:'argument_outside_player_scope',turn:state.turn,tool});return;
+    }
     const {campaign:_,call_id:__,...proposal}=args;
     boundary.hold({campaign:state.campaign,turn:state.turn,playerText:state.playerText,
       ...(state.documentWorldline?{worldline:state.documentWorldline}:{})},
-      {tool,lines:[JSON.stringify(proposal)],cause:String(failure.details?.reason??failure.code??'operation_failed'),
+      {tool,lines:[JSON.stringify(failure.code==='invalid_params'&&completion?.args?completion.args:proposal)],cause:failure.code==='invalid_params'?'invalid_params':String(failure.details?.reason??failure.code??'operation_failed'),
         operationKey:operationKeys.get(state)?.get(toolCallId??'')?.operationKey??heldOperationKey(tool,args),
-        ...(failure.code==='invalid_params'&&failure.details?.reason==='event_argument_validation'
-          ?{eventRepairKey:operationKeys.get(state)?.get(toolCallId??'')?.eventRepairKey??heldEventRepairKey(tool,args)}:{})},true);
+        ...(failure.code==='invalid_params'&&completion?.key?{argumentCompletionKey:completion.key}:{})},true);
   }
   function holdUnavailable(state: TableState, proposal: {tool: string; lines: string[]}, cause: string): void {
     if (!state.playerText) return;
@@ -3681,7 +3685,7 @@ export default function (pi: ExtensionAPI, host: {capabilities?:RuntimeCapabilit
 	 * turn record (`refused_moves`); the refusal reaches the Keeper unchanged.
 	 */
 	async function admitAction(state: TableState, tool: "resolve" | "apply", payload: Record<string, unknown>, signal?: AbortSignal, providerBudget?: TaskProviderBudget,
-		origin: Record<string, unknown> = {}, evidence: ClerkEvidence & { label?: string; run?: string; onVerdict?: (verdict: string) => void } = {}): Promise<AdmissionPartial | undefined> {
+		origin: Record<string, unknown> = {}, evidence: ClerkEvidence & { label?: string; run?: string; onVerdict?: (verdict: string) => void } = {},capture?: (proposal:AdmissionProposal|null)=>void): Promise<AdmissionPartial | undefined> {
 		try {
 		if(singleKeeper){
 			const malformed=documentWriteRefusal(tool,payload);
@@ -3701,8 +3705,11 @@ export default function (pi: ExtensionAPI, host: {capabilities?:RuntimeCapabilit
 			}
 			const scopeFor=await admissionScopeBuilder(state,tool,payload,current);
 			const proposal=admissionRequest(tool,payload,{...scopeFor(effects),consentOnly:true});
+            capture?.(proposal);
 			if(!proposal)return;
-			const key='continuous:'+keyDigest(JSON.stringify([state.playerText,current._context?.world_revision,proposal.key]));
+			const key='continuous:'+keyDigest(JSON.stringify([state.playerText,current._context?.world_revision,
+                current._context?.task_source_revision??current._context?.source_revision,
+                {tool:proposal.tool,operations:proposal.operations??proposal.lines,kinds:proposal.kinds,cash:proposal.cash??null}]));
 			const unavailable=(reason:string)=>new KernelError({code:'needs',message:'Jev could not establish authority for this proposal',
 				fix:admissionUnavailable(proposal,reason,'Typed consent did not establish authority.',1,'same_keeper').fix,
 				details:{reason:'typed_admission_unavailable',jev_reason:reason,recovery:'hold'}});
@@ -5956,7 +5963,6 @@ export default function (pi: ExtensionAPI, host: {capabilities?:RuntimeCapabilit
     if(spec.name==='apply'&&params.event!==undefined){
         const event=params.event as Record<string,any>,names=[...(Array.isArray(event.causes)?event.causes:[]),event.corrects];
         payload._event_sources=finalOutput.inventory(state.campaign,state.turn).filter(source=>names.includes(source.name));
-        if(singleKeeper)payload._event_receipts=true;
     }
 		const referenceScope = state.interactionScope !== undefined && state.interactionScope !== 'world';
 		const referenceDelivery = spec.name === 'narrate' && referenceScope;
@@ -5971,7 +5977,7 @@ export default function (pi: ExtensionAPI, host: {capabilities?:RuntimeCapabilit
 		if (spec.name === 'apply') delete payload.delivery;
         if(singleKeeper&&(spec.name==='apply'||spec.name==='resolve')){
             let keys=operationKeys.get(state);if(!keys){keys=new Map();operationKeys.set(state,keys);}
-            keys.set(toolCallId,{operationKey:heldOperationKey(spec.name,params),eventRepairKey:heldEventRepairKey(spec.name,params)});
+            keys.set(toolCallId,{operationKey:heldOperationKey(spec.name,params)});
         }
         const embeddedQuotes=spec.name==="apply"?payload.quotes:undefined;
         if(spec.name!=="narrate"&&spec.name!=="ask")delete payload.quotes;
@@ -5997,6 +6003,31 @@ export default function (pi: ExtensionAPI, host: {capabilities?:RuntimeCapabilit
 		// update channel; each frame becomes one partial result on the tool status line.
 		const onProgress = onUpdate ? (frame: KernelProgressFrame) => onUpdate(progressPartial(frame)) : undefined;
 		let timeReading: Record<string, unknown> | undefined;
+        const capturePlayerAction=(proposal:AdmissionProposal|null)=>{
+            const saved=operationKeys.get(state)?.get(toolCallId);
+            if(!saved)return;
+            delete saved.playerAction;
+            const currentArgs=spec.name==='apply'?{...params,effects:payload.effects,event:payload.event}:{...params,action:payload.action};
+            if(!state.party.length||argumentErrors(spec.parameters,currentArgs).length)return;
+            if(spec.name==='resolve'){
+                if(proposal){const args={tool:spec.name,action:payload.action};saved.playerAction={key:heldOperationKey('player-action-completion',args),args:structuredClone(args)};}
+                return;
+            }
+            if(spec.name!=='apply'||!Array.isArray(payload.effects)||effectShapeRefusal(spec.name,spec.parameters,currentArgs))return;
+            const effects=payload.effects as Record<string,unknown>[];
+            if(!effects.length&&payload.event===undefined)return;
+            if(!proposal){
+                // A missing object target is unresolved, not proven bookkeeping.
+                if(effects.some(effect=>effect.kind==='object'&&
+                    !(typeof effect.adopt==='string'&&effect.adopt.trim())&&
+                    !(typeof effect.from==='string'&&effect.from.trim()&&effect.from===effect.to)))return;
+                saved.playerAction={};return;
+            }
+            if(!proposal.effects?.length||proposal.effects.length!==proposal.lines.length
+                ||proposal.effects.some(index=>!Number.isSafeInteger(index)||index<0||index>=effects.length))return;
+            const args={tool:spec.name,effects:proposal.effects.map(index=>effects[index])};
+            saved.playerAction={key:heldOperationKey('player-action-completion',args),args:structuredClone(args)};
+        };
         let writingMatches:WritingMatch[]=[];
         let streamEvidence:Record<string,any>|undefined;
         let documentContinuation=false;
@@ -6305,7 +6336,7 @@ export default function (pi: ExtensionAPI, host: {capabilities?:RuntimeCapabilit
 			// §187.2.3: a place the Keeper is about to mint is placed in the book before admission and the kernel see it.
 			if (spec.name === "apply" && !host) await placeEstablishedMoves(payload, {env: process.env, campaign: state.campaign, turn: state.turn,
 				callId: String(payload.call_id ?? ""), call: (method, params) => state.kernel.call(method, params), record: row => record(row), signal: state.lanes.signal});
-			if (spec.name === "resolve" || spec.name === "apply") partial = await admitAction(state, spec.name, payload, signal, providerBudget, origin, evidence);
+			if (spec.name === "resolve" || spec.name === "apply") partial = await admitAction(state, spec.name, payload, signal, providerBudget, origin, evidence, capturePlayerAction);
 			if(replacements.length){
 				const remaining=new Set((Array.isArray(payload.effects)?payload.effects:[]).map(effectSignature));
 				if(replacements.some(group=>group.some(effect=>!remaining.has(effectSignature(effect)))))throw new KernelError({code:'needs',message:'An admitted subset cannot split an unpaid purchase replacement',
@@ -6376,7 +6407,7 @@ export default function (pi: ExtensionAPI, host: {capabilities?:RuntimeCapabilit
 				if (recovered) {
 					if (band!.field === "weapon") (payload.effects as Array<Record<string, unknown>>)[band!.index!].weapon = recovered.band;
 					// The same identity, retried once; admission and the Mod gates run again, as after a source preparation.
-					if(spec.name==='resolve'||spec.name==='apply')await admitAction(state, spec.name, payload, signal, providerBudget, origin);
+					if(spec.name==='resolve'||spec.name==='apply')await admitAction(state, spec.name, payload, signal, providerBudget, origin, evidence, capturePlayerAction);
 					if (mods && !(SINGLE_PASS_NARRATION && (spec.name === "narrate" || spec.name === "ask"))) await mods.prepare(spec.name, payload, signal, providerBudget);
 					try { result = (await invokeOperation()) ?? {}; }
 					catch (again) {
@@ -6399,7 +6430,7 @@ export default function (pi: ExtensionAPI, host: {capabilities?:RuntimeCapabilit
 							owedLeftOut.push(entry);
 							void record({ lane: "owed", event: "owed_left_out", stage: "kernel_refused", turn: state.turn, owed: entry.owed ?? null, reason: entry.reason, kind: entry.kind ?? null });
 						}
-						partial = (await admitAction(state, spec.name, payload, signal, providerBudget, origin, evidence)) ?? partial;
+						partial = (await admitAction(state, spec.name, payload, signal, providerBudget, origin, evidence, capturePlayerAction)) ?? partial;
 						if (mods && !referenceScope) await mods.prepare(spec.name, payload, signal, providerBudget);
 						try { result = (await invokeOperation()) ?? {}; break; }
 						catch (again) { refused = again; }
@@ -6484,7 +6515,7 @@ export default function (pi: ExtensionAPI, host: {capabilities?:RuntimeCapabilit
 					if(await prepare(toolCallId,readingModule,failure,ensurePending)===false)throw new KernelError({code:'needs',message:'The source preparation has no tracked mutation owner',details:{reason:'source_preparation_not_owned'}});
 				} else await ensurePending(read,signal);
 				// Retry the original identity only after the exact source publication; consent and Mod gates run again.
-				if(spec.name==='resolve'||spec.name==='apply')partial=(await admitAction(state,spec.name,payload,signal,providerBudget,origin,evidence))??partial;
+				if(spec.name==='resolve'||spec.name==='apply')partial=(await admitAction(state,spec.name,payload,signal,providerBudget,origin,evidence,capturePlayerAction))??partial;
 				if(mods){
 					const again=SINGLE_PASS_NARRATION&&(spec.name==='narrate'||spec.name==='ask')?undefined:await mods.prepare(spec.name,payload,signal,providerBudget);
 					if(spec.name==='narrate'||spec.name==='ask'){prepared=again;notePrepared(state,again);}
@@ -6526,14 +6557,12 @@ export default function (pi: ExtensionAPI, host: {capabilities?:RuntimeCapabilit
                 const scope={campaign:state.campaign,turn:state.turn,playerText:state.playerText??'',
                     ...(state.documentWorldline?{worldline:state.documentWorldline}:{})};
                 const boundary=heldActs.get(state),key=operationKeys.get(state)?.get(toolCallId)?.operationKey??heldOperationKey(spec.name,params);
-                const proof=heldEventRepairEvidence(scope,spec.name,params,result);
-                const repair=proof&&proof.key===operationKeys.get(state)?.get(toolCallId)?.eventRepairKey?proof:undefined;
-                const prior=repair?boundary?.basis?.held.filter(row=>row.cause==='event_argument_validation'&&row.eventRepairKey===repair.key)??[]:[];
-                boundary?.settled(scope,key,repair);
+                const completion=result.replayed===true?undefined:operationKeys.get(state)?.get(toolCallId)?.playerAction?.key;
+                const prior=completion?boundary?.basis?.held.filter(row=>row.cause==='invalid_params'&&row.argumentCompletionKey===completion)??[]:[];
+                boundary?.settled(scope,key,completion);
                 for(const row of prior)if(!boundary?.basis?.held.includes(row))await record({lane:'held-operation',event:'parameter_failure_reconciled',turn:state.turn,
-                    failed_operation:row.operationKey,settled_operation:key,receipt:repair!.receipt});
+                    failed_operation:row.operationKey,settled_operation:key,completion_scope:'player_action',completion_key:completion,receipts:result.receipts});
             }
-            delete result._event_receipts;
             const operationOrigin=dispatcher.hostOrigin(toolCallId);
             if(turnPacketPrototype&&spec.name==='apply'&&operationOrigin?.clerk==='continuous_turn'
                 &&keeperRun?.runId===operationOrigin.run&&!partial?.notLanded)

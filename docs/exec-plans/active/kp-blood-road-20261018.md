@@ -101,3 +101,19 @@ ACT guard incorrectly treats unreviewed NPC/note/clue/event bookkeeping as
 player-action failure. Next repair must reuse the existing consentOnly player
 action projection, preserve unclassified/authority/transport/partial holds,
 and prove changed target/cost/method or unrelated success cannot discharge it.
+
+## ACT failure ownership root repair
+
+Captured native failures19/24/27 proved the ACT hold tracked the whole apply
+envelope while existing consentOnly reviews only player actions. The same
+ordered raw player effects now own invalid-parameter holds and completion;
+NPC/event bookkeeping alone creates no player-action hold. Unknown shape,
+authorization, transport, replay and partial failures retain strict boundaries.
+Consent reuse binds current input/world/source and the actual reviewed proposal,
+so three clue metadata corrections need one Jev decision. No new model.
+
+Four source/kernel hold tests pass. Native negative publication, clue/time and
+NPC repair components pass; typed event diagnostic awaits latest clean build.
+A final defensive change clears capture on re-entry and validates current
+dispatched arguments. Gate10 passed: ext6063pass/9skip, integration2226pass/1skip,
+routing12pass, wall1339s. Chapter still incomplete; no intent28 sent.

@@ -18,7 +18,7 @@ export const HELD_ACT_OUTCOME_REASON = 'held_act_outcome';
 export const HELD_ROWS_MAX = 12;
 export const HELD_LINE_MAX = 300;
 
-export interface HeldRefusal {tool: string; lines: string[]; cause: string; operationKey?: string; eventRepairKey?:string}
+export interface HeldRefusal {tool: string; lines: string[]; cause: string; operationKey?: string; argumentCompletionKey?:string}
 export interface HeldActBasis {campaign: string; worldline?: string; turn: number; playerText: string; held: HeldRefusal[]; complete?: boolean}
 export type HeldActVerdict = {status: 'clean' | 'steer' | 'unclear' | 'claimed' | 'stale' | 'inactive';
   reason: string; probability?: number; basisHash?: string; draftHash?: string; attempt: number};
@@ -30,23 +30,6 @@ export function heldOperationKey(tool: string, args: Record<string, unknown>): s
     : value && typeof value === 'object' ? Object.fromEntries(Object.entries(value).sort(([a],[b])=>a.localeCompare(b)).map(([key,item])=>[key,ordered(item)])) : value;
   const {campaign: _, call_id: __, ...proposal} = args;
   return outcomeDigest({tool, proposal: ordered(proposal)});
-}
-/** A per-turn event name is a canonical identity, not a similarity of event prose. */
-export function heldEventRepairKey(tool:string,args:Record<string,unknown>):string|undefined {
-  const event=args.event as {name?:unknown}|undefined;
-  if(tool!=='apply'||!event||Array.isArray(event)||typeof event.name!=='string'||!event.name.trim()||[...event.name].length>120)return;
-  return heldOperationKey('event-argument-repair',{...args,event:{name:event.name.trim()}});
-}
-/** Only a canonical event written by this successful call proves its repair. */
-export function heldEventRepairEvidence(scope:Omit<HeldActBasis,'held'>,tool:string,args:Record<string,unknown>,result:Record<string,any>):{key:string;receipt:string}|undefined {
-  const key=heldEventRepairKey(tool,args);
-  if(!key||result.replayed===true||result.coc_error||result.admission?.not_landed||Array.isArray(result.not_landed)&&result.not_landed.length
-    ||!Array.isArray(result.receipts)||!Array.isArray(result._event_receipts))return;
-  const name=(args.event as {name:string}).name.trim();
-  const event=result._event_receipts.find((event:any)=>event&&typeof event.id==='string'&&result.receipts.includes(event.id)
-    &&event.name===name&&event.ref===`event:t${scope.turn}:${name}`&&event.scope?.campaign===scope.campaign
-    &&event.scope?.turn===scope.turn&&(scope.worldline===undefined||event.scope.worldline===scope.worldline));
-  return event?{key,receipt:event.id}:undefined;
 }
 /**
  * A settled receipt as the question shows it: its scalar fields, clipped. A projection of the kernel's own row, not a reading
@@ -72,19 +55,20 @@ export class HeldActOutcome {
     const complete = basis?.complete !== false && refusal.lines.every(line => [...line].length <= limit);
     const row = {tool: refusal.tool, lines: refusal.lines.map(line => [...line].slice(0, limit).join('')), cause: refusal.cause,
       ...(refusal.operationKey ? {operationKey: refusal.operationKey} : {}),
-      ...(refusal.eventRepairKey ? {eventRepairKey:refusal.eventRepairKey} : {})};
+      ...(refusal.cause==='invalid_params'&&refusal.argumentCompletionKey ? {argumentCompletionKey:refusal.argumentCompletionKey} : {})};
     const held = basis?.held ?? [];
+    if(row.argumentCompletionKey&&held.some(value=>value.cause==='invalid_params'&&value.argumentCompletionKey===row.argumentCompletionKey))return;
     if (held.some(value => JSON.stringify(value) === JSON.stringify(row))) return;
     if (held.length >= HELD_ROWS_MAX) { this.basis = {...basis!, complete: false}; this.revision++; return; }
     this.basis = {...input, held: [...held, row], ...(strict ? {complete} : {})}; this.revision++;
   }
   /** Called only after complete canonical settlement by the operation owner, never by a model. */
-  settled(input: Omit<HeldActBasis, 'held'>, operationKey: string, repair?:{key:string;receipt:string}): number {
+  settled(input: Omit<HeldActBasis, 'held'>, operationKey: string, argumentCompletionKey?:string): number {
     const basis = this.basis;
     if (!basis || basis.complete === false || basis.campaign !== input.campaign || basis.worldline !== input.worldline
       || basis.turn !== input.turn || basis.playerText !== input.playerText) return 0;
     const held = basis.held.filter(row => row.operationKey !== operationKey
-      &&!(row.cause==='event_argument_validation'&&row.eventRepairKey&&row.eventRepairKey===repair?.key&&repair.receipt)), removed = basis.held.length - held.length;
+      &&!(row.cause==='invalid_params'&&row.argumentCompletionKey&&row.argumentCompletionKey===argumentCompletionKey)), removed = basis.held.length - held.length;
     if (removed) { this.basis = held.length ? {...basis, held} : undefined; this.revision++; this.checked.clear(); }
     return removed;
   }
