@@ -145,3 +145,24 @@ disclosure here. Their native search protocols are provider-specific, so this
 implementation uses a bounded Jev relevance answer and Pi's public request hooks.
 No advertised token or latency reduction from those systems is attributed to
 PipiCOC; our actual requests and costs are measured separately.
+
+The local-position stress case also exposed a compound completion question.
+[TypeSafe Noul guidance](https://docs.typesafe.ai/primitives/noul) separates
+individual propositions, and its [fan-out pattern](https://docs.typesafe.ai/patterns/fan-out)
+recommends evaluating independent questions in one request and combining answers
+in code. The implementation now distinguishes selection, actual settlement and
+real obstacles for movement and feature changes. The context applicability batch
+also asks actual declared actions, rather than whether a model considers the full
+contract helpful. These are closed decisions with measured cost, not a scene
+generator or a claim that semantic mistakes are impossible.
+
+The bookstore attempt supplied both exact XML-style item-array envelopes and an
+invalid blank parent. Full-branch validation had suppressed the safe envelope
+decode and obscured the actual invalid field. Native prevalidation now keeps
+unambiguous representation repairs while preserving and refusing that blank.
+[Ajv's mutation guidance](https://ajv.js.org/guide/modifying-data.html) warns that
+union coercion can depend on branch order; this implementation instead uses
+explicit literal discriminators and requires equivalent decoded representations.
+[MiniMax's tool-use protocol](https://platform.minimax.io/docs/guides/text-m3-function-call)
+also reinforces keeping raw continuations intact. No property deletion, semantic
+default, action inference or successful transaction is obtained through decoding.

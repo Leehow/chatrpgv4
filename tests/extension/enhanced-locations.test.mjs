@@ -5,7 +5,7 @@ import {Check,Errors} from 'typebox/value';
 import {COC_TOOLS,COC_TOOL_NAMES} from '../../extensions/kernel/tools.ts';
 import {placeOperation} from '../../extensions/kernel/place-operation.ts';
 import {PlaceParameters,PlaceEffect} from '../../shared/place-structures.ts';
-import {admissionRequest,effectSignature,refusedMovesOf} from '../../extensions/kernel/admission.ts';
+import {admissionRequest,effectSignature,refusedMovesOf,registeredLocationDestination} from '../../extensions/kernel/admission.ts';
 import {KernelError} from '../../extensions/kernel/client.ts';
 import {emptyCalls,noteCall,applyEffectKinds} from '../../extensions/table/mod-sections.ts';
 import {locationContextBatch,locationContextRelevance,locationCoverageBatch,locationDecisionCoverage} from '../../extensions/table/location-relevance.ts';
@@ -28,7 +28,8 @@ test('input relevance selects context only, keeps uncertainty conservative and n
         const result=await locationContextRelevance(capsule,binding,{decide:async current=>({batchId:current.id,status:'complete',answers:Object.fromEntries(current.questions.map(q=>[q.key,{status:'answered',type:'noul',noul:probability}]))})},new AbortController().signal);
         assert.equal(result.needed,needed);assert.equal(result.review,needed);assert.equal(result.probabilities.move_selected,probability);assert.equal(result.to,undefined);
     }
-    assert.equal((await locationContextRelevance(capsule,binding,undefined,new AbortController().signal)).needed,true);
+    const fallback=await locationContextRelevance(capsule,binding,undefined,new AbortController().signal);
+    assert.equal(fallback.needed,true);assert.equal(fallback.review,false,'an unavailable applicability check discloses context without inventing a selected action');
     const reference=await locationContextRelevance(capsule,binding,{decide:async current=>({batchId:current.id,status:'complete',answers:Object.fromEntries(current.questions.map(q=>[q.key,{status:'answered',type:'noul',noul:q.key==='reference_selected'?.99:.01}]))})},new AbortController().signal);
     assert.equal(reference.needed,true);assert.equal(reference.review,false,'a location question alone does not require execution');
 });
@@ -76,12 +77,30 @@ test('native typed location commands use open destinations, the same effect and 
     assert.equal(Errors(turnPacketParameterSchema(false,[],[],false,undefined,true),packet).length,0);
     assert(Errors(turnPacketParameterSchema(false,[],[],false),packet).length,'quiet requests defer full location command detail');
     assert(Errors(turnPacketParameterSchema(true,[],[],false,undefined,true),packet).length,'a settled journey cannot be advertised again');
+    const localArrival={version:4,commands:[{kind:'place',action:'move',to:'here',at:'counter',relation:'beside'}]};
+    assert.equal(Errors(turnPacketParameterSchema(true,[],[],false,undefined,true),localArrival).length,0,'after arrival the Keeper can still refine the current local position');
+    assert(Errors(turnPacketParameterSchema(true,[],[],false,undefined,true),{...localArrival,commands:[{...localArrival.commands[0],travel_band:'adjacent'}]}).length,'local refinement cannot repeat travel time');
     assert.throws(()=>turnPacket(JSON.stringify({version:4,commands:[command,{kind:'move',to:'Office'}]})),/Only one destination/);
     assert.throws(()=>turnPacket(JSON.stringify({version:4,commands:[command,{kind:'time',band:'work',reason:'test'}]})));
     const feature={kind:'place',action:'feature',to:'Inn',at:'window',state:'open',passable:true};
     assert.deepEqual(compileTurnPacket(turnPacket(JSON.stringify({version:4,commands:[feature]}))).effects,[feature]);
     assert.throws(()=>turnPacket(JSON.stringify({version:4,commands:[{...command,travel_minutes:5}]})),/Invalid decision command/);
     assert.deepEqual(turnPacketResult({outcomes:[{kind:'place',status:'changed',position:{place:'Inn',at:'counter'}}]}).outcomes[0].position,{place:'Inn',at:'counter'});
+});
+
+test('enhanced consent reads exact observable references and invalidates changed reference context',()=>{
+    const view={name:'Ordinary Inn / Room',display_name:'Room',within:'Ordinary Inn',description:'A small room.',
+        position:{place:'Ordinary Inn / Room',at:'bed',relation:'beside'},private_summary:'NEVER_INCLUDE',
+        features:[{name:'window',description:'The window faces the rear alley.',state:'closed',passable:false,id:'private-id'},{name:'bed',description:'An iron bed.'}]};
+    const before=structuredClone(view),reference=registeredLocationDestination('here',view,['WINDOW']);
+    assert.deepEqual(reference.location.features,[{name:'window',description:'The window faces the rear alley.',state:'closed',passable:false}]);
+    assert.equal(reference.handle,view.name);assert.deepEqual(reference.inside,['Ordinary Inn']);assert.deepEqual(view,before);
+    assert(!JSON.stringify(reference).includes('NEVER_INCLUDE'));assert(!JSON.stringify(reference).includes('private-id'));
+    const effect={kind:'place',action:'move',to:'here',at:'window',relation:'beside'};
+    const proposal=admissionRequest('apply',{effects:[effect]},{party:['Investigator'],destinations:[reference]});
+    assert.deepEqual(proposal.operations[0].registered_destination,reference);assert(proposal.lines[0].includes('rear alley'));
+    const changed=structuredClone(reference);changed.location.features[0].state='open';
+    assert.notEqual(proposal.key,admissionRequest('apply',{effects:[effect]},{party:['Investigator'],destinations:[changed]}).key,'a changed canonical reference cannot reuse its old consent scope');
 });
 
 test('an independently selected activity after arrival uses canonical extra time without double counting travel',()=>{
@@ -124,6 +143,18 @@ test('native location arrays decode exact transport booleans without changing th
     }
     const literal={version:4,commands:[{kind:'time',band:'brief_activity',reason:'Look around',beyond_travel:'false'}]};
     assert.throws(()=>turnPacket(JSON.stringify(normalizeTurnPacketArguments(literal).args)),'false cannot satisfy a true-only flag');
+});
+
+test('an unrelated invalid parent does not hide behind native array envelopes',()=>{
+    const input={version:4,commands:[{...command,additions:{item:{name:'Ordinary Inn',within:'',description:'A public inn.',features:{item:{name:'window',description:'A wooden window.'}}}}}]};
+    const original=structuredClone(input),decoded=normalizeTurnPacketArguments(input);
+    assert.deepEqual(input,original);assert.equal(decoded.repairs,2);
+    assert.equal(decoded.args.commands[0].additions[0].within,'','invalid semantic values are never filled or omitted');
+    assert.throws(()=>turnPacket(JSON.stringify(decoded.args)),/additions\/0\/within/,'the real field reaches same-turn correction');
+    const corrected=structuredClone(decoded.args);delete corrected.commands[0].additions[0].within;
+    assert.doesNotThrow(()=>turnPacket(JSON.stringify(corrected)));
+    const unknown={version:4,commands:[{kind:'unissued',action:'move',additions:{item:{name:'Inn'}}}]};
+    assert.equal(normalizeTurnPacketArguments(unknown).args,unknown,'unknown discriminators never select a supported operation');
 });
 
 test('resident location declarations defer detailed grammar while canonical validators stay complete',()=>{

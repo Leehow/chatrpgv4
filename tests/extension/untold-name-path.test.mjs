@@ -77,7 +77,7 @@ test('§176.8: a person the budget cuts keeps the name path, through the Keeper\
 
   // The Keeper's request, through the installed context hook: the stub by its word, with the token and the line.
   const hooks = new Map(), bus = new Map();
-  api.installContextPolicy({on: (name, fn) => hooks.set(name, fn), events: {on: (name, fn) => bus.set(name, fn)}},
+  api.installContextPolicy({on: (name, fn) => hooks.set(name, fn), events: {on: (name, fn) => bus.set(name, fn), emit: (name, value) => bus.get(name)?.(value)}},
     () => {}, () => api.workpadStoreRoot(home));
   bus.get('coc:kernel-bridge')({campaign: 'c1', call});
   bus.get('coc:capsule')({capsule: input.capsule, context: input._context});

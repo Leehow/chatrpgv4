@@ -24,6 +24,8 @@ async function seedReadyHistoricalRegistration(workspace,{ready=true}={}){
     locks:api.createAdvisoryLocks(async()=>{}),env:{...process.env,GIT_CONFIG_GLOBAL:'/dev/null',GIT_CONFIG_NOSYSTEM:'1'}});
   const runtime=api.createKernelRuntime(context),call=(method,params={})=>runtime.handlers[method]({campaign:CAMPAIGN,...params});
   try{
+    // This fixture isolates writing from optional location-context selection.
+    await call('mods.configure',{id:'enhanced-locations',enabled:false});
     await call('mods.configure',{id:'enhanced-items',enabled:true});await call('table.open');
     const directory=join(workspace,'.coc/campaigns',CAMPAIGN),party=join(directory,'party');
     const sheet=await read(join(party,(await readdir(party)).find(name=>name.endsWith('.json'))));

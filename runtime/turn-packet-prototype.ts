@@ -65,7 +65,7 @@ export function requireTurnPacketNpcDestinations(packet:TurnPacket,choices:reado
 }
 /** Decode exact, bounded item envelopes only at declared array positions. */
 export function normalizeTurnPacketArguments(input:unknown):{args:unknown;repairs:number;integerRepairs?:number;booleanRepairs?:number} {
-  return normalizeToolArgumentSyntax(TURN_PACKET_PARAMETERS,input,{boundedIntegers:true,exactBooleans:true});
+  return normalizeToolArgumentSyntax(TURN_PACKET_PARAMETERS,input,{boundedIntegers:true,exactBooleans:true,partialTransport:true});
 }
 /** Current capabilities are data; the provider tool declaration stays invariant. */
 export function turnPacketParameterSchema(journeySettled=false,timeBands?:readonly string[],moveChoices?:readonly Record<string,unknown>[],sceneRequired=false,bindings?:DecisionBindings,locations=false):TSchema {
@@ -87,7 +87,9 @@ export function turnPacketParameterSchema(journeySettled=false,timeBands?:readon
     const stationary=sceneRequired?assessment:{};
     const local=locations?placeStationary:[],journey=locations?[placeMove]:[];
     const moving=sceneRequired?assessment:{allOf:[{if:{contains:Type.Union([Type.Object({kind:Type.Literal('move')}),Type.Object({kind:Type.Literal('place'),action:Type.Literal('move')})])},then:assessment}]};
-    if(journeySettled)schema.properties.commands=Type.Array(Type.Union([...local,issuedNpc,walkOn,scene,relationship]),{maxItems:12,...stationary});
+    const arrivedLocal=Type.Object({kind:Type.Literal('place'),action:Type.Literal('move'),to:Type.Literal('here'),at:atom(240),
+        relation:PlaceEffect.anyOf[0].properties.relation,additions:PlaceEffect.anyOf[0].properties.additions},{additionalProperties:false});
+    if(journeySettled)schema.properties.commands=Type.Array(Type.Union([...(locations?[arrivedLocal]:[]),...local,issuedNpc,walkOn,scene,relationship]),{maxItems:12,...stationary});
     else schema.properties.commands=Type.Union([Type.Array(Type.Union([...issuedMoves,...journey,Type.Object({...boundedTime.properties,beyond_travel:Type.Literal(true)},{additionalProperties:false}),...local,issuedNpc,walkOn,scene,relationship]),{maxItems:12,...moving}),Type.Array(Type.Union([boundedTime,...local,issuedNpc,walkOn,scene,relationship]),{maxItems:12,...stationary})]);
     if(sceneRequired)schema.required=[...new Set([...(schema.required??[]),'commands'])];
     return schema as TSchema;

@@ -69,7 +69,7 @@ test('§103.8/§194.1: the Keeper holds the book names; an epithet carrying one 
 
 	const input = await call('table.player_input', {text: 'I ask the man at the desk what he wants.'});
 	const rows = [], hooks = new Map(), bus = new Map();
-	api.installContextPolicy({on: (name, fn) => hooks.set(name, fn), events: {on: (name, fn) => bus.set(name, fn)}},
+	api.installContextPolicy({on: (name, fn) => hooks.set(name, fn), events: {on: (name, fn) => bus.set(name, fn), emit: (name, value) => bus.get(name)?.(value)}},
 		row => rows.push(row), () => api.workpadStoreRoot(home));
 	bus.get('coc:kernel-bridge')({campaign: 'c1', call});
 	bus.get('coc:capsule')({capsule: input.capsule, context: input._context});

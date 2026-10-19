@@ -771,7 +771,7 @@ export function installContextPolicy(pi: ExtensionAPI, writeTelemetry: (row: Row
                 invalidate();degraded(String(error?.message??'discovery_snapshot_unavailable'));}
         }
         if(!snapshot&&ticket===generation){discoveryUnavailable=discoveryMode()!=='full';capabilityRuntime.invalidate();modDiscovery.reset();pendingDiscovery=[];}
-        if(snapshot?.capsule.mods?.location_context){
+        if(snapshot?.capsule.mods?.location_context&&ticket===generation&&!inputLifetime.signal.aborted&&snapshot.binding.campaign===campaign&&snapshot.binding.turn===observedTurn){
             const key=JSON.stringify([snapshot.binding.campaign,snapshot.binding.turn,sourceOf(snapshot.binding)]);
             const reused=locationRelevance?.key===key;
             if(!reused)locationRelevance={key,promise:locationContextRelevance(snapshot.capsule,snapshot.binding,decision(),inputLifetime.signal,foregroundBudget?.())};

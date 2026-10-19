@@ -71,7 +71,7 @@ async function kernel(t, seed, content = join(root, 'content')) {
 /** The Keeper's request as the installed context hook assembles it, with one tool result carrying `text`: that result's text and the capsule. */
 async function keeperSees(game, input, text) {
 	const hooks = new Map(), bus = new Map();
-	api.installContextPolicy({on: (name, fn) => hooks.set(name, fn), events: {on: (name, fn) => bus.set(name, fn)}},
+	api.installContextPolicy({on: (name, fn) => hooks.set(name, fn), events: {on: (name, fn) => bus.set(name, fn), emit: (name, value) => bus.get(name)?.(value)}},
 		() => {}, () => api.workpadStoreRoot(game.home));
 	bus.get('coc:kernel-bridge')({campaign: 'c1', call: game.call});
 	bus.get('coc:capsule')({capsule: input.capsule, context: input._context});

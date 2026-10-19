@@ -22,9 +22,9 @@ export function locationContextBatch(capsule:Row,binding:Row):DecisionBatch {
   ]};
 }
 export async function locationContextRelevance(capsule:Row,binding:Row,decision:DecisionPort|undefined,signal:AbortSignal,parent?:TaskProviderBudget):Promise<Row> {
- if(!decision)return {needed:true,review:true,status:'fallback',reason:'unconfigured'};
+ if(!decision)return {needed:true,review:false,status:'fallback',reason:'unconfigured'};
  const result=await locationNoul(locationContextBatch(capsule,binding),decision,signal,parent);
- if(result.status!=='answered')return {...result,needed:true,review:true};
+ if(result.status!=='answered')return {...result,needed:true,review:false};
  const {move_selected,feature_selected,reference_selected}=result.probabilities;
  return {...result,needed:[move_selected,feature_selected,reference_selected].some(value=>value>.4),review:move_selected>.4||feature_selected>.4};
 }

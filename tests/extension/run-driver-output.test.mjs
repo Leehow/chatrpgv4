@@ -1572,7 +1572,7 @@ for(const renameGrowth of [false,true])test('the next native request keeps six r
   const seen=[];
   const table=await openTable({legacyDeliveryFixtures:false,realKernel:true,prepareWorkspace:seedOpening,
     runDriver:pressureDriver,env:{PI_COC_LOOP_ENGINE:'hybrid-v1'},
-    tableExtensionFactory:pi=>installContextPolicy({...pi,events:{...pi.events,on:(name,handler)=>pi.events.on(name,data=>{
+    tableExtensionFactory:pi=>installContextPolicy({...pi,events:{...pi.events,emit:pi.events.emit.bind(pi.events),on:(name,handler)=>pi.events.on(name,data=>{
       if(name==='coc:capsule')return handler({...data,capsule:inflate(data.capsule)});
       if(name==='coc:kernel-bridge'&&data.call)return handler({...data,call:async(method,...args)=>{
         const result=await data.call(method,...args);

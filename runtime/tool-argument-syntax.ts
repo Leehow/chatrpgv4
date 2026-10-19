@@ -8,6 +8,23 @@ type Result={args:unknown;repairs:number;integerRepairs:number;booleanRepairs?:n
 type Shape=TSchema&{type?:string;minimum?:number;maximum?:number;anyOf?:TSchema[];oneOf?:TSchema[];items?:TSchema|TSchema[];properties?:Record<string,TSchema>};
 const object=(value:unknown):value is Record<string,unknown>=>!!value&&typeof value==='object'&&!Array.isArray(value);
 const nativeSchemas=new WeakMap<object,TSchema>();
+const arrayEnvelope=(value:unknown):{values:unknown[]|undefined;layers:number}=>{
+ let candidate=value,layers=0;
+ while(object(candidate)&&Object.keys(candidate).length===1&&Object.hasOwn(candidate,'item')&&layers<4){candidate=candidate.item;layers++;}
+ return {values:Array.isArray(candidate)?candidate:layers?[candidate]:undefined,layers};
+};
+/** Literal discriminators exclude impossible branches without interpreting invalid fields. */
+function compatible(schema:TSchema,value:unknown,depth=0):boolean {
+ if(depth>32)return false;
+ const shape=schema as Shape,variants=shape.anyOf??shape.oneOf;
+ if(variants&&shape.type===undefined)return variants.some(branch=>compatible(branch,value,depth+1));
+ if(shape.type==='array'&&shape.items&&!Array.isArray(shape.items)){
+  const {values}=arrayEnvelope(value);
+  return !values||values.every(item=>compatible(shape.items as TSchema,item,depth+1));
+ }
+ return shape.type!=='object'||!object(value)||Object.entries(shape.properties??{}).every(([key,property])=>
+  !Object.hasOwn(value,key)||!Object.hasOwn(property,'const')||isDeepStrictEqual(value[key],property.const));
+}
 const valid=(schema:TSchema,value:unknown,native:boolean)=>{
  try{
   if(Value.Check(schema,value))return true;
@@ -21,7 +38,7 @@ const valid=(schema:TSchema,value:unknown,native:boolean)=>{
  }catch{return false;}
 };
 
-export function normalizeToolArgumentSyntax(schema:TSchema,input:unknown,options:{boundedIntegers?:boolean;exactBooleans?:boolean;nativeValidation?:boolean}={}):Result {
+export function normalizeToolArgumentSyntax(schema:TSchema,input:unknown,options:{boundedIntegers?:boolean;exactBooleans?:boolean;nativeValidation?:boolean;partialTransport?:boolean}={}):Result {
  const visit=(schema:TSchema,value:unknown,depth:number):Result=>{
   const shape=schema as Shape;
   const unchanged={args:value,repairs:0,integerRepairs:0};
@@ -36,21 +53,20 @@ export function normalizeToolArgumentSyntax(schema:TSchema,input:unknown,options
   }
   const variants=shape.anyOf??shape.oneOf;
   if(Array.isArray(variants)&&shape.type===undefined){
-   const matches=variants.map((branch:TSchema)=>({branch,result:visit(branch,value,depth+1)}))
-    .filter(({branch,result})=>valid(branch,result.args,options.nativeValidation===true));
-   return matches.length===1||shape.anyOf&&matches.length>1&&matches.every(match=>isDeepStrictEqual(match.result.args,matches[0].result.args))?matches[0].result:unchanged;
+   const visited=variants.map((branch:TSchema)=>({branch,result:visit(branch,value,depth+1)}));
+   const validMatches=visited.filter(({branch,result})=>valid(branch,result.args,options.nativeValidation===true));
+   const matches=validMatches.length?validMatches:options.partialTransport?visited.filter(({branch,result})=>compatible(branch,result.args)):[];
+   return matches.length===1||(shape.anyOf||options.partialTransport&&!validMatches.length)&&matches.length>1&&matches.every(match=>isDeepStrictEqual(match.result.args,matches[0].result.args))?matches[0].result:unchanged;
   }
   if(shape.type==='array'&&shape.items&&!Array.isArray(shape.items)){
-   let candidate=value,layers=0;
-   while(object(candidate)&&Object.keys(candidate).length===1&&Object.hasOwn(candidate,'item')&&layers<4){candidate=candidate.item;layers++;}
-   const values=Array.isArray(candidate)?candidate:layers?[candidate]:undefined;
+   const {values,layers}=arrayEnvelope(value);
    if(!values)return unchanged;
    const children=values.map(item=>visit(shape.items as TSchema,item,depth+1));
    const repairs=children.reduce((sum,child)=>sum+child.repairs,0);
    const integerRepairs=children.reduce((sum,child)=>sum+child.integerRepairs,0);
    const booleanRepairs=children.reduce((sum,child)=>sum+(child.booleanRepairs??0),0);
    const next=repairs||integerRepairs||booleanRepairs?children.map(child=>child.args):values;
-   if(layers&&!valid(schema,next,options.nativeValidation===true))return unchanged;
+   if(layers&&!options.partialTransport&&!valid(schema,next,options.nativeValidation===true))return unchanged;
    return layers||repairs||integerRepairs||booleanRepairs?{args:next,repairs:repairs+(layers?1:0),integerRepairs,...(booleanRepairs?{booleanRepairs}:{})}:unchanged;
   }
   if(shape.type==='object'&&object(value)){

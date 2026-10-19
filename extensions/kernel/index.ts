@@ -171,6 +171,7 @@ import {
 	type TypedReading,
 	typedDetails,
 	registeredDestination,
+    registeredLocationDestination,
 	reviewAdmissionPrimary,
 	reviewAdmissionJevOnly,
 	reviewedPerLine,
@@ -3116,6 +3117,17 @@ export default function (pi: ExtensionAPI, host: {capabilities?:RuntimeCapabilit
 			cashContext = {investigator: capsule.known?.investigator, quotes: capsule.known?.cash_quotes ?? [], previews:preview.cash_previews ?? [], consent_policy:CASH_CONSENT_POLICY};
 		}
 		if (tool === 'apply' && Array.isArray(payload.effects)) for (const effect of payload.effects as Array<Record<string, unknown>>) {
+            if(effect.kind==='place'&&typeof effect.to==='string'&&!destinations.some(value=>value.requested===effect.to&&value.location)){
+                try{
+                    const read=await state.kernel.call<Record<string,any>>('mods.locations.inspect',{campaign:state.campaign,name:effect.to,_context_read:true});
+                    if(read.place){
+                        const selected=payload.effects.filter((row:Record<string,unknown>)=>row.kind==='place'&&row.to===effect.to&&typeof row.at==='string').map((row:Record<string,unknown>)=>String(row.at));
+                        const location=registeredLocationDestination(effect.to,read.place,selected),existing=destinations.find(value=>value.requested===effect.to);
+                        if(existing)Object.assign(existing,location);else destinations.push(location);
+                    }
+                }catch{/* The canonical write reports missing references; a new draft is still a valid proposal. */}
+                continue;
+            }
 			if (effect.kind !== 'move' || typeof effect.to !== 'string' || destinations.some(value => value.requested === effect.to)) continue;
 			const where=suppliedCapsule?.where??{};
 			const projected=[where,...[where.exits,where.places,where.back].flatMap(value=>Array.isArray(value)?value:[])]
@@ -3134,7 +3146,7 @@ export default function (pi: ExtensionAPI, host: {capabilities?:RuntimeCapabilit
 		// The reviewer's scope for a set of this call's effects: the move targets among them, and nothing else (a part of a
 		// batch has the key a call carrying only that part would have, §32.4).
 		return (effects: Array<Record<string, unknown>>) => {
-			const targets = new Set(effects.filter((effect) => effect.kind === "move").map((effect) => effect.to));
+			const targets = new Set(effects.filter((effect) => effect.kind === "move"||effect.kind==='place').map((effect) => effect.to));
 			const own = destinations.filter((value) => targets.has(value.requested));
 			// §143.18: the investigator by name or by the sheet's handle, as the kernel reads `action.actor`. Until 2026-09-26 only
 			// the name was here, so a Keeper's `actor: "thomas-hayes"` read as an NPC and its punch was never reviewed (C4 turn 8).

@@ -96,10 +96,10 @@ test('a coc-npc-advice an older session recorded never reaches the model',async 
  assert(current.some(message=>message.role==='user'&&message.content==='Thank you. I am leaving now.'),'the player\'s words stay');
 });
 
-test('a replaced player input cannot resume old discovery on the new cancellation signal',async t=>{
+for(const phase of ['hydration','preselect'])test(`a replaced player input cannot resume old discovery after ${phase} on the new cancellation signal`,{timeout:30000},async t=>{
  const table=await readyNpc(t),entered=Promise.withResolvers(),release=Promise.withResolvers(),originalCall=table.call;
  let held=false;
- const delayed={...table,call:async(method,params)=>{const result=await originalCall(method,params);if(method==='table.workspace.read'&&params?.preselect&&!held){held=true;entered.resolve();await release.promise;}return result;}};
+ const delayed={...table,call:async(method,params)=>{const result=await originalCall(method,params);if(!held&&(phase==='hydration'?method==='table.untold':method==='table.workspace.read'&&params?.preselect)){held=true;entered.resolve();await release.promise;}return result;}};
  const session=host(t,delayed,true),oldFlag=process.env.PI_COC_JEV_PRESELECT,oldFetch=globalThis.fetch;let dispatches=0;
  process.env.PI_COC_JEV_PRESELECT='1';globalThis.fetch=async(_url,init)=>{dispatches++;return Response.json(supportWire(JSON.parse(init.body),()=>'skip'));};
  t.after(()=>{release.resolve();globalThis.fetch=oldFetch;if(oldFlag===undefined)delete process.env.PI_COC_JEV_PRESELECT;else process.env.PI_COC_JEV_PRESELECT=oldFlag;});
@@ -109,9 +109,11 @@ test('a replaced player input cannot resume old discovery on the new cancellatio
  const ctx={model:{contextWindow:1000000},getSystemPrompt:()=>''};
  const pending=(async()=>{let messages=[{role:'user',content:'Thank you. I am leaving now.'}];for(const fn of session.hooks.get('context')??[]){const result=await fn({messages},ctx);if(result?.messages)messages=result.messages;}return messages;})();
  await entered.promise;
+ const beforeReplacement=dispatches;
  for(const fn of session.hooks.get('input')??[])await fn({text:'I pause at the door.'});
  release.resolve();await pending;
- assert.equal(dispatches,0,'a retired request cannot spend the new input\'s provider capacity');
+ assert.equal(dispatches,beforeReplacement,'a retired request cannot spend the new input\'s provider capacity');
+ if(phase==='hydration')assert.equal(dispatches,0,'no applicability or discovery request starts after retired hydration');
 });
 
 async function personalityIdentityTable(t,{legacy}={}){

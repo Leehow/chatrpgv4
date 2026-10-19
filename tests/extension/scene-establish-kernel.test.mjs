@@ -233,6 +233,8 @@ test('the declarations: establish needs its capability and a well-formed file; e
 
 test('the shipped packages: whole within the instruction budget, their sizes measured', async t => {
   const game = await haunting(t);
+  // Historical full-instruction profile; location instructions are independently demand-only.
+  await game.call('mods.configure',{id:'enhanced-locations',enabled:false});
   const rows = (await game.call('table.capsule')).mods.instructions;
   const total = rows.reduce((sum, row) => sum + Buffer.byteLength(row.instruction, 'utf8'), 0);
   t.diagnostic(`instructions ${rows.map(row => `${row.mod}@${row.version}:${row.form}:${Buffer.byteLength(row.instruction, 'utf8')}`).join(' ')} total ${total}`);

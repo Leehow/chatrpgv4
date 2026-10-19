@@ -345,6 +345,8 @@ export interface AdmissionDestination {
 	shared?: string;
 	/** §204.5: the person whose name the move gave; the destination is where they are. */
 	person?: string;
+    /** Canonical observable location references, not permission or source secrets. */
+    location?: {position?:Record<string,unknown>;features:Array<Record<string,unknown>>};
 }
 
 export interface AdmissionScope {
@@ -420,6 +422,16 @@ export function registeredDestination(requested: string, entity: Record<string, 
 		...(text(entity.shared) ? { shared: text(entity.shared) } : {}),
 		...(text(person.display_name) ?? text(person.person) ? { person: text(person.display_name) ?? text(person.person) } : {}),
 	};
+}
+
+/** Only selected observable references accompany an enhanced location proposal. */
+export function registeredLocationDestination(requested:string,view:Record<string,any>,selected:readonly string[]=[]):AdmissionDestination {
+    const fields=(value:Record<string,unknown>,keys:string[])=>Object.fromEntries(keys.filter(key=>value[key]!==undefined).map(key=>[key,value[key]]));
+    return {...registeredDestination(requested,{name:view.name,display_name:view.display_name,summary:view.description,
+        inside:typeof view.within==='string'?[view.within]:[]}),location:{
+        ...(view.position?{position:fields(view.position,['place','at','relation'])}:{}),
+        features:(Array.isArray(view.features)?view.features:[]).filter((feature:Record<string,unknown>)=>selected.some(name=>norm(name)===norm(feature.name)))
+            .map((feature:Record<string,unknown>)=>fields(feature,['name','description','state','passable']))}};
 }
 
 /** Stable JSON: keys sorted, so the same proposal in a different field order reuses its verdict. */
@@ -562,7 +574,7 @@ export function admissionRequest(tool: string, payload: Record<string, unknown>,
 			const fields = Object.entries(effect)
 				.filter(([k, v]) => k !== "kind" && !k.startsWith("_") && v !== undefined && v !== null && v !== "")
 				.map(([k, v]) => `${k}=${typeof v === "string" ? JSON.stringify(v) : JSON.stringify(v)}`);
-			const registered = kind === 'move' ? destination(effect) : undefined;
+			const registered = kind === 'move'||kind==='place' ? destination(effect) : undefined;
 			// §197.3: who the effect itself says performs it, when that is not an investigator.
 			const acting = effectActingParty(effect, scope.party);
 			if (acting) fields.push(`acting_party=${JSON.stringify(acting)} (not an investigator)`);
@@ -570,7 +582,7 @@ export function admissionRequest(tool: string, payload: Record<string, unknown>,
 					...(registered.canonical_name ? {canonical_name: registered.canonical_name} : {}), ...(registered.aliases?.length ? {also_called: registered.aliases} : {}),
 					...(registered.access ? {access: registered.access} : {}), ...(registered.inside?.length ? {inside: registered.inside} : {}),
 					...(registered.relation_to_party ? {relation_to_party: registered.relation_to_party} : {}), ...(registered.shared ? {shared: registered.shared} : {}),
-					...(registered.person ? {person: registered.person} : {})})}` : ''}`;
+					...(registered.person ? {person: registered.person} : {}),...(registered.location?{location:registered.location}:{})})}` : ''}`;
 		};
 		const signatures = effects.map(effectSignature);
 		if(payload.event!==undefined&&!scope.consentOnly)return {tool:'apply',atomicEvent:true,
@@ -583,7 +595,7 @@ export function admissionRequest(tool: string, payload: Record<string, unknown>,
 		const key = canonical({ tool, effects: ordered ? signatures : signatures.sort(), destinations: scope.destinations ?? [], ...(scope.selectedDocumentRecording?{selectedDocumentRecording:true}:{}), ...(scope.cash ? {cash:scope.cash} : {}) });
 		// The key stays the whole batch's (§32.4); the lines are only the reviewed effects (§32.12.3).
 		return { tool: "apply", key, lines: shown.map((index) => describe(effects[index]!)), kinds: shown.map((index) => text(effects[index]!.kind) ?? "?"), effects: shown,
-			operations:shown.map(index=>{const effect=effects[index]!,registered=effect.kind==='move'?destination(effect):undefined;
+			operations:shown.map(index=>{const effect=effects[index]!,registered=effect.kind==='move'||effect.kind==='place'?destination(effect):undefined;
 				return {...Object.fromEntries(Object.entries(effect).filter(([key,value])=>!key.startsWith('_')&&value!==undefined)),
 					...(registered?{registered_destination:registered}:{})};}),
 			signatures: lineSignatures, ...(scope.cash?{cash:{...scope.cash,previews:(Array.isArray(scope.cash.previews)?scope.cash.previews:[]).flatMap((row:any)=>shown.includes(row.index)?[{...row,index:shown.indexOf(row.index)}]:[])}}:{}) };
@@ -1280,7 +1292,7 @@ export async function reviewAdmissionJevOnly(options:PrimaryAdmissionReviewOptio
     {ok:true;verdict:AdmissionVerdict;ms:number;meta:Record<string,unknown>}
     |{ok:false;reason:string;ms:number;meta:Record<string,unknown>}> {
     const clock=options.clock??hostClock,began=clock.now(),context=options.context;
-    const family='continuous-action-admission',version=options.proposal.kinds?.includes('place')?'8':'7';
+    const family='continuous-action-admission',version=options.proposal.kinds?.includes('place')?'9':'7';
     let mechanicsChoice:{action:string;choice:{name:string;binds:string;options:string[];prompt?:string}}|undefined;
     let mechanicsInput=false,mechanicsBinding:string|undefined;
     try{

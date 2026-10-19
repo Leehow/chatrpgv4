@@ -69,7 +69,7 @@ async function keeperSees(home, campaign, call, input, text) {
 /** Every message of that request, as the text the Keeper reads. */
 async function keeperRequest(home, campaign, call, input, text) {
 	const hooks = new Map(), bus = new Map();
-	api.installContextPolicy({on: (name, fn) => hooks.set(name, fn), events: {on: (name, fn) => bus.set(name, fn)}},
+	api.installContextPolicy({on: (name, fn) => hooks.set(name, fn), events: {on: (name, fn) => bus.set(name, fn), emit: (name, value) => bus.get(name)?.(value)}},
 		() => {}, () => api.workpadStoreRoot(home));
 	bus.get('coc:kernel-bridge')({campaign, call});
 	bus.get('coc:capsule')({capsule: input.capsule, context: input._context});

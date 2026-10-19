@@ -222,7 +222,7 @@ const recoveryText = open => {
 async function keeperRequest(game, {input, player, calls, host = []}) {
   const hooks = new Map(), bus = new Map();
   const telemetry = [];
-  api.installContextPolicy({on: (name, fn) => hooks.set(name, fn), events: {on: (name, fn) => bus.set(name, fn)}},
+  api.installContextPolicy({on: (name, fn) => hooks.set(name, fn), events: {on: (name, fn) => bus.set(name, fn), emit: (name, value) => bus.get(name)?.(value)}},
     row => telemetry.push(row), () => api.workpadStoreRoot(game.workspace));
   bus.get('coc:kernel-bridge')({campaign: 'c1', call: game.call});
   if (input) bus.get('coc:capsule')({capsule: input.capsule, context: input._context, epoch: `epoch-${input._context.turn}`});

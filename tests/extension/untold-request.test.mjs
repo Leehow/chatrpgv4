@@ -44,7 +44,7 @@ test('§194.1: the request carries an untold person\'s book name where the host 
 
   const input = await call('table.player_input', {text: 'I ask Steven Knott what he wants.'});
   const rows = [], hooks = new Map(), bus = new Map();
-  api.installContextPolicy({on: (name, fn) => hooks.set(name, fn), events: {on: (name, fn) => bus.set(name, fn)}},
+  api.installContextPolicy({on: (name, fn) => hooks.set(name, fn), events: {on: (name, fn) => bus.set(name, fn), emit: (name, value) => bus.get(name)?.(value)}},
     row => rows.push(row), () => api.workpadStoreRoot(home));
   bus.get('coc:kernel-bridge')({campaign: 'c1', call});
   bus.get('coc:capsule')({capsule: input.capsule, context: input._context});
@@ -90,7 +90,7 @@ test('§176.5/§194.1: with the epithet lane\'s word, the request shows his hand
   await call('epithets.submit', {entries: [{id: 'steven-knott', word: 'the ink-stained clerk'}]});
   const input = await call('table.player_input', {text: 'I ask the clerk what he wants.'});
   const rows = [], hooks = new Map(), bus = new Map();
-  api.installContextPolicy({on: (name, fn) => hooks.set(name, fn), events: {on: (name, fn) => bus.set(name, fn)}},
+  api.installContextPolicy({on: (name, fn) => hooks.set(name, fn), events: {on: (name, fn) => bus.set(name, fn), emit: (name, value) => bus.get(name)?.(value)}},
     row => rows.push(row), () => api.workpadStoreRoot(home));
   bus.get('coc:kernel-bridge')({campaign: 'c1', call});
   bus.get('coc:capsule')({capsule: input.capsule, context: input._context});
@@ -175,7 +175,7 @@ test('§194.1: the capsule and a tool result carrying an untold person\'s book n
   assert.ok(JSON.stringify(look).includes('Old Mae'), `the kernel's own look carries her book name: ${JSON.stringify(look)}`);
 
   const rows = [], hooks = new Map(), bus = new Map();
-  api.installContextPolicy({on: (name, fn) => hooks.set(name, fn), events: {on: (name, fn) => bus.set(name, fn)}},
+  api.installContextPolicy({on: (name, fn) => hooks.set(name, fn), events: {on: (name, fn) => bus.set(name, fn), emit: (name, value) => bus.get(name)?.(value)}},
     row => rows.push(row), () => api.workpadStoreRoot(home));
   bus.get('coc:kernel-bridge')({campaign: 'c1', call});
   bus.get('coc:capsule')({capsule: input.capsule, context: input._context});

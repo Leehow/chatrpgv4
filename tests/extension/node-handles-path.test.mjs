@@ -111,7 +111,7 @@ test('§185.5/§185.6: the lane names a reader-built book at the table, and afte
 
 	// The Keeper's request, through the installed context hook.
 	const hooks = new Map(), bus = new Map();
-	api.installContextPolicy({on: (name, fn) => hooks.set(name, fn), events: {on: (name, fn) => bus.set(name, fn)}},
+	api.installContextPolicy({on: (name, fn) => hooks.set(name, fn), events: {on: (name, fn) => bus.set(name, fn), emit: (name, value) => bus.get(name)?.(value)}},
 		() => {}, () => api.workpadStoreRoot(home));
 	bus.get('coc:kernel-bridge')({campaign: 'c1', call});
 	bus.get('coc:capsule')({capsule: input.capsule, context: input._context});

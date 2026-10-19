@@ -42,7 +42,7 @@ test('enhanced location admission names its entry and Keeper-creation semantics 
     const effect={kind:'place',action:'move',to:'Ordinary Inn',at:'counter',additions:[{name:'Ordinary Inn',description:'A public lobby.'}]};
     const proposal=admission.admissionRequest('apply',{effects:[effect]},{party:['Thomas Hayes'],consentOnly:true});
     const result=await admission.reviewAdmissionJevOnly({...selected.value,proposal});
-    assert.equal(batch.familyVersion,'8');assert.equal(batch.state.proposal.lines[0].to,effect.to);
+    assert.equal(batch.familyVersion,'9');assert.equal(batch.state.proposal.lines[0].to,effect.to);
     assert.match(batch.state.proposal.lines[0].arrival_scope.additions,/Keeper-authored/);
     assert.match(batch.questions[1].instructions,/entry or boundary crossing/);
     assert.equal(result.verdict.verdict,'uncertain');

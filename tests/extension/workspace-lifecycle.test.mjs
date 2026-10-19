@@ -35,7 +35,7 @@ test('source bodies survive a real same-turn scene round trip and a context-runt
   const rows = [], ctx = {model: {contextWindow: 1000000}};
   const setup = () => {
     const hooks = new Map(), bus = new Map();
-    api.installContextPolicy({on: (name, fn) => hooks.set(name, fn), events: {on: (name, fn) => bus.set(name, fn)}},
+    api.installContextPolicy({on: (name, fn) => hooks.set(name, fn), events: {on: (name, fn) => bus.set(name, fn), emit: (name, value) => bus.get(name)?.(value)}},
       row => rows.push(row), () => api.workpadStoreRoot(home));
     bus.get('coc:kernel-bridge')({campaign: 'c1', call});
     return {hooks, bus};

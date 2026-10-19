@@ -42,6 +42,18 @@ test('array bounds and duplicate item order survive exact envelope decoding',()=
  }
 });
 
+test('explicit prevalidation decoding preserves real errors, extra fields and union ambiguity',()=>{
+ const schema=COC_TOOLS.find(tool=>tool.name==='place').parameters;
+ const input={op:'submit',change:{action:'move',to:'Inn',additions:{item:{name:'Inn',within:'',description:'An inn.',unexpected:'retain'}}}};
+ assert.equal(normalizeToolArgumentSyntax(schema,input).args,input,'ordinary full-valid decoding is unchanged');
+ const decoded=normalizeToolArgumentSyntax(schema,input,{partialTransport:true});
+ assert.equal(decoded.args.change.additions[0].within,'');assert.equal(decoded.args.change.additions[0].unexpected,'retain');
+ assert.equal(Value.Check(schema,decoded.args),false,'decoding grants no validation or mutation authority');
+ const ambiguous=Type.Union([Type.Object({values:Type.Array(Type.String()),missing:Type.String()}),Type.Object({values:Type.Unknown(),missing:Type.String()})]);
+ const unclear={values:{item:'value'}};
+ assert.equal(normalizeToolArgumentSyntax(ambiguous,unclear,{partialTransport:true}).args,unclear,'different possible representations stay untouched');
+});
+
 test('the existing opt-in bounded integer grammar composes with nested array envelopes',()=>{
  const schema=Type.Object({commands:Type.Array(Type.Object({minutes:Type.Integer({minimum:1,maximum:60})}))});
  const input={commands:{item:{minutes:'45'}}};

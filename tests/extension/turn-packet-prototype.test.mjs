@@ -65,7 +65,8 @@ async function opened(workspace){const client=new RpcClient(workspace);try{await
 function answer(batch,p){const answers=Object.fromEntries(batch.questions.map(q=>{if(q.type==='noul')return[q.key,{status:'answered',type:'noul',noul:q.key.startsWith('restriction_')?1-p:p}];const choice=Object.keys(q.criteria).find(x=>x!=='none')??'none';return[q.key,{status:'answered',type:'choice',choice,confidence:.99,probabilities:Object.fromEntries(Object.keys(q.criteria).map(x=>[x,x===choice?.99:.01/(Object.keys(q.criteria).length-1)]))}];}));return{batchId:batch.id,status:'complete',answers,coverage:{required:Object.keys(answers),answered:Object.keys(answers),unknown:[]},issues:[],usage:{inputTokens:100,outputTokens:0}};}
 
 test('a missing route on direct place submit permits a corrected native arrival and fires the Mod trigger',async t=>{
- const engine=createHybridEngine({env,decision:{decide:async batch=>answer(batch,.99)}});
+ const batches=[];
+ const engine=createHybridEngine({env,decision:{decide:async batch=>{batches.push(batch);return answer(batch,.99);}}});
  const command={kind:'place',action:'move',to:'Ordinary Inn / Single room',via:'Along the street and up the inn stairs',travel_band:'adjacent',
   additions:[{name:'Ordinary Inn',description:'An ordinary inn.'},{name:'Single room',within:'Ordinary Inn',description:'A plain single room.',features:[{name:'window',description:'A wooden window.'}]}]};
  const {kind,via,...missingRoute}=command;
@@ -73,7 +74,8 @@ test('a missing route on direct place submit permits a corrected native arrival 
   extraExtensions:[{name:'engine',factory:engine.extension}],responses:[
    ()=>fauxAssistantMessage([fauxToolCall('place',{op:'submit',change:missingRoute})],{stopReason:'toolUse'}),
    ()=>fauxAssistantMessage([rawToolCall('output',{version:4,commands:[command,{kind:'scene',service:'open',crowd:'empty'}]})],{stopReason:'toolUse'}),
-   ()=>fauxAssistantMessage([rawToolCall('output',{version:4,commands:[{kind:'scene',service:'open',crowd:'empty'}]})],{stopReason:'toolUse'})
+   ()=>fauxAssistantMessage([rawToolCall('output',{version:4,commands:[{kind:'scene',service:'open',crowd:'empty'}]})],{stopReason:'toolUse'}),
+   ()=>fauxAssistantMessage([rawToolCall('output',{version:4,commands:[{kind:'place',action:'move',to:'here',at:'window',relation:'beside'}]})],{stopReason:'toolUse'})
   ]});
  t.after(()=>table.dispose());
  await table.session.prompt('I visit a nearby ordinary inn and enter a single room to look around.');
@@ -83,6 +85,12 @@ test('a missing route on direct place submit permits a corrected native arrival 
  assert(table.telemetry().some(row=>row.lane==='mod-sections'&&row.event==='selected'&&row.keys.some(section=>section.key.startsWith('enhanced-locations@')&&section.why.some(why=>['call:before_apply:place','context:before_apply:place'].includes(why)))),'the independent submit receives the locked location guidance');
  await table.session.prompt('I stay here and look around.');
  assert.deepEqual(table.extensionErrors,[]);
+ await table.session.prompt('I move beside the window.');
+ assert.deepEqual(table.extensionErrors,[]);
+ const reviewed=batches.filter(batch=>batch.family==='continuous-action-admission').flatMap(batch=>batch.state.proposal.lines).find(line=>line.at==='window');
+ assert.equal(reviewed.registered_destination.handle,command.to);
+ assert.deepEqual(reviewed.registered_destination.location.features,[{name:'window',description:'A wooden window.'}],'real canonical feature projection reaches the consent consumer');
+ assert.equal((await table.runtimeBridges().at(-1).call('table.capsule',{campaign:'test-camp'})).where.location.position.at,'window');
 });
 
 test('an empty spatial decision is corrected before any author or world change',async t=>{

@@ -48909,7 +48909,10 @@ unflagged time beside movement is refused before the generic union diagnostic,
 with a concrete explanation to omit duplicate travel or mark real extra activity.
 Without a journey the optional compatibility marker is harmless: the command is
 ordinary stationary time, as its declared schema and canonical apply already allow.
-Already host-settled journeys retain their existing continuation path. An unknown
+Already host-settled journeys retain their existing continuation path. With
+location detail active, that continuation may refine the current local position
+using a place move to `here` with an explicit feature, without another journey or
+travel time. It cannot advertise a second inter-place move. An unknown
 draft parent is an argument correction: return its exact field and explain that
 omission/JSON null leaves it outside registered containment. Never steer a missing
 parent into an arbitrary candidate or coerce the literal place name "null".
@@ -48921,14 +48924,29 @@ new investigator construction action. A generic selected goal such as visiting
 an ordinary inn can bind to a compatible Keeper-named instance. The independent
 reviewer still judges that match, route, entry, local positioning and current
 restrictions; no fixed score or fail-open exemption is introduced. Place consent
-uses family version 8; other kinds retain version 7. Refused enhanced journeys
+uses family version 9; other kinds retain version 7. For an already registered
+place, admission receives the same scoped destination identity used by legacy
+movement, plus its public observable description, current local position when
+applicable, and exact selected feature projections. These come from the canonical
+read-only location view, not Keeper rationale or private source summaries.
+They resolve references only and never supply permission; missing registration
+remains compatible with minimal additions. This metadata participates in the
+ordinary proposal/cache identity. Refused enhanced journeys
 also reach the existing refused-move delivery record.
 
 The native transport decoder handles exact `"true"`/`"false"` spellings only at
 declared boolean positions, alongside existing exact item-array envelopes and
 bounded decimal integers. It changes JSON representation, never selects an
 action, infers a target, loosens a schema or grants consent. It records boolean
-repairs separately. Union branches must still converge to one valid value.
+repairs separately. Union branches must still converge to the same representation.
+For native packets, exact envelope repairs survive an
+independent invalid field, so a blank parent is diagnosed as a blank parent
+rather than hiding behind an array-envelope error. Explicit schema literals
+identify applicable branches; ambiguous decoding stays unchanged. This decodes
+representation only: the complete canonical validator still rejects every
+invalid field before admission or mutation. No blank name/parent is converted
+to omission or null, and no additional property is discarded. Ordinary tools
+retain their existing fully-valid decoding policy.
 Creation-only establishment is explicitly described as no party movement in the
 delivered contract; an actual visit uses move with its minimal additions.
 
@@ -48957,12 +48975,16 @@ a model thinks a full contract would be helpful. Any answer > .4 discloses
 spatial-operation detail. A selected input discloses the location schemas and
 locked sections immediately, using a `context:before_apply:place` reason rather
 than recording a fictitious call. A negative result keeps the small entry;
-uncertainty or service failure conservatively discloses context. Movement or
-feature-selection uncertainty also enables the completion check; a service
-failure enables it conservatively. None of these decisions ever
+uncertainty or service failure conservatively discloses context. Answered
+movement/feature-selection uncertainty also enables the completion check. An
+unavailable applicability decision discloses material only; it cannot label every
+quiet input a selected spatial action. Ordinary mandatory write admission remains
+unchanged and cannot authorize through an unavailable service. These decisions never
 authorizes movement or supplies a world fact. A later actual place invocation
 still loads detail if the initial relevance decision missed it. The answer is
-memoized per accepted input; stale answers do not change a newer input.
+memoized per accepted input; a retired context request is checked before creating
+the review lease and cannot spend the newer input's provider capacity. Stale
+answers do not change a newer input.
 This is a short closed structure on the turn's critical path, satisfying both
 criteria for a tool-free typed decision. No text-generation lane is introduced.
 An addition accepts either a leaf name or an already qualified name under its

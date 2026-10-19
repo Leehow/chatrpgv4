@@ -351,5 +351,5 @@ test("with Jev unavailable every section whose gates hold and that names a topic
 		assert.ok(named.includes(section),`${section} in ${named.join(" | ")}`);
 	const rows=table.telemetry().filter(row=>row.lane==="mod-sections");
 	assert.ok(rows.some(row=>row.event==="fallback"&&row.reason==="unconfigured"));
-	assert.ok(rows.some(row=>row.event==="selected"&&row.keys.every(key=>key.why.every(why=>why==="fallback"||why==="due"||why.startsWith("call:")))));
+	assert.ok(rows.some(row=>row.event==="selected"&&row.keys.every(key=>key.why.every(why=>why==="fallback"||why==="due"||why.startsWith("call:")||why.startsWith('context:')))));
 });

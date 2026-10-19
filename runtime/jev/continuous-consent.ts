@@ -6,7 +6,8 @@ export function continuousConsentLine<T>(line:T):T {
  if(!line||typeof line!=='object'||Array.isArray(line))return line;
  const operation=line as {kind?:unknown;action?:unknown};
  if(operation.kind==='place'&&operation.action==='move')return {...line,arrival_scope:{at:'named destination and optional at feature position',settles:['party_arrival','local_position'],
-  additions:'Keeper-authored observable surroundings, not an investigator construction action. A selected generic destination may bind to a compatible named instance; judge compatibility and all current restrictions.'}};
+  additions:'Keeper-authored observable surroundings, not an investigator construction action. A selected generic destination may bind to a compatible named instance; judge compatibility and all current restrictions.',
+  references:'registered_destination supplies canonical observable identity, position and selected feature descriptions. Use these to resolve the target, never as permission or a claim that every feature is registered.'}};
  if(operation.kind!=='move')return line;
  return {...line,arrival_scope:{at:'destination approach or doorway',settles:['party_arrival']}};
 }

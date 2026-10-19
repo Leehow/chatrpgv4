@@ -67,6 +67,8 @@ test("the approved establishing contribution bumps the craft package while prese
 test("the actual kernel assembles the aligned whole instructions on every turn (§183)",async t=>{
 	const game=await kernel(t),call=(method,params={})=>game.call(method,{campaign:"aligned",...params});
 	await call("campaign.create",{id:"aligned",module:"the-haunting",pregen:"thomas-hayes",play_language:"en"});
+    // This historical alignment profile measures whole legacy instructions.
+    await call('mods.configure',{id:'enhanced-locations',enabled:false});
 	await call("table.open");
 	const first=await call("table.player_input",{text:"I take the keys and stay with this conversation."});
 	await call("table.narrate",{call_id:"t1-c1",text:"The conversation reaches a quiet resting point."});
