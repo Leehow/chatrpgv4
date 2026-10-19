@@ -10,23 +10,31 @@ const snapshot=()=>({_context:{campaign:'c1',worldline:'main',loop:0,turn:3,worl
   npc_references:{people:[{ref:'npc_1',display_name:'Vera'},{ref:'npc_2',display_name:'Doctor Bob'},
     {ref:'npc_3',display_name:'Unused person'}]}});
 
-function fixture({input='I ask Vera where to find Doctor Bob.',read,decision}={}){
+function fixture({input='I ask Vera where to find Doctor Bob.',read,decision,serial=false,bandPrerequisite=false}={}){
   const listeners=new Map(),rows=[],reads=[];let capsule=snapshot();
   const engine=createHybridEngine({env:{PI_COC_TURN_PACKET_PROTOTYPE:'1',PI_COC_PACKET_PRESCREEN:'1'},
     decision:decision??null,record:row=>rows.push(row)});
   const host={on(){},events:{on(name,fn){const list=listeners.get(name)??[];list.push(fn);listeners.set(name,list);},
     emit(name,value){for(const fn of listeners.get(name)??[])fn(value);}}};
   engine.extension(host);
-  host.events.emit('coc:kernel-bridge',{campaign:'c1',call:async(method,args)=>{
+  const invoke=async(method,args)=>{
     if(method==='table.capsule')return structuredClone(capsule);
-    if(method==='table.apply.options')return{candidates:[{effect:{kind:'move',to:'library'},description:{display_name:'Library',travel_minutes:10,unlock_when:{met:true}}}]};
+    if(method==='table.apply.options')return{candidates:[{effect:{kind:'move',to:'library'},description:{display_name:'Library',travel_minutes:10,unlock_when:{met:true}}},
+      ...(bandPrerequisite?[{effect:{kind:'move',to:'annex'},description:{display_name:'Annex',unlock_when:{met:true}}}]:[])]};
+    if(method==='fixture.bands')return[{handle:'local_travel',min:5,max:30,default:20}];
     if(method==='table.look'){
       reads.push(args.name);if(read)await read(args);
       return{name:args.name==='vera'?'Vera':args.name==='npc_2'?'Doctor Bob':args.name,
         id:args.name,summary:'PRIVATE_CARD_'+args.name,knowledge:['KNOWN_'+args.name]};
     }
     return{};
-  }});
+  };
+  let tail=Promise.resolve();
+  const call=(method,args)=>{
+    if(!serial)return invoke(method,args);
+    const result=tail.then(()=>invoke(method,args));tail=result.catch(()=>{});return result;
+  };
+  host.events.emit('coc:kernel-bridge',{campaign:'c1',call,timeBands:()=>call('fixture.bands',{})});
   host.events.emit('coc:operation-dispatcher',{dispatch:async()=>{throw Error('No writes in preparation test');}});
   const prepare=run=>engine.runDriver.prepare({runId:run,inputRevision:run,rawInput:input,session:{}});
   const prepared=prepare('first');
@@ -61,6 +69,16 @@ test('preparation starts before and overlaps existing judgment, then joins befor
   let projected=false;const projecting=f.project().then(value=>{projected=true;return value;});
   decisionGate.resolve();await deciding;assert.equal(projected,false);
   readGate.resolve();await projecting;assert.equal(f.reads.length,2);
+});
+
+for(const bands of [false,true])test('serial native RPC prioritizes judgment prerequisites, bands='+bands,async()=>{
+  const gate=deferred(),decisions=[];
+  const f=fixture({serial:true,bandPrerequisite:bands,input:'I go to Library, then ask Vera about Doctor Bob.',read:()=>gate.promise,
+    decision:{decide:async batch=>{decisions.push(batch);return{batchId:batch.id,status:'unavailable',answers:{},coverage:{},issues:[]};}}});
+  const preparing=f.prepared.ports.operations.execute({operation:'continuous_prepare'},{signal,stepId:'prepare'});
+  const deciding=preparing.then(()=>f.prepared.ports.decision.decide({signal}));
+  try{await new Promise(done=>setImmediate(done));assert.equal(decisions.length,1,'judgment must start while the optional RPC card is still blocked');}
+  finally{gate.resolve();await deciding;}
 });
 
 test('ambiguous offstage names are not guessed and quoted names grant no presence',async()=>{

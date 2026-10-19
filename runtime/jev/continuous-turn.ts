@@ -92,7 +92,6 @@ export class ContinuousTurn {
             if(signal.aborted||!this.options.current())throw Error('continuous_input_cancelled');
             this.readSet(capsule);
             this.snapshot=capsule;
-            this.options.prepareMaterials?.(capsule,signal);
             if(this.options.packet)this.prescreen=this.packet([]);
             if(object(capsule._context).turn===0){this.decided=true;return;}
             const applyOptions=await this.options.call('table.apply.options',{});
@@ -206,6 +205,10 @@ export class ContinuousTurn {
         }catch(error){
             this.decided=true;
             this.options.record({lane:'continuous-turn',event:'preparation_unavailable',run:this.options.run,reason:String(error)});
+        }finally{
+            // Serial RPC prerequisites finish first; native cards then overlap the remote decision.
+            if(this.snapshot._context&&!signal.aborted&&this.options.current())
+                this.options.prepareMaterials?.(this.snapshot,signal);
         }
     }
 
@@ -217,13 +220,15 @@ export class ContinuousTurn {
             capabilities:['decision'],readSet:batch.readSet,signal,budget:{deadlineAt:Date.now()+DECISION_MS,
                 remainingInputTokens:batch.longContext?JEV_LONG_CONTEXT_LIMIT:64000,remainingOutputTokens:4000,remainingCostUsd:.02,remainingActions:this.batches.length}});
         try{
+            this.options.record({lane:'continuous-turn',event:'decision_started',at:new Date().toISOString(),run:this.options.run,
+                batches:this.batches.length,questions:this.batches.reduce((count,batch)=>count+batch.questions.length,0)});
             const outcomes=await Promise.allSettled(this.batches.map(batch=>this.options.decision.decide(batch,lease)));
             const answers:DecisionResult['answers']={};
             for(const [index,outcome]of outcomes.entries()){
                 if(outcome.status==='rejected'){this.options.record({lane:'continuous-turn',event:'decision_unavailable',run:this.options.run,reason:String(outcome.reason)});continue;}
                 const result=outcome.value,issued=this.batches[index];
                 if(result.status==='complete'&&result.batchId===issued.id)for(const question of issued.questions)if(result.answers[question.key])answers[question.key]=result.answers[question.key];
-                this.options.record({lane:'continuous-turn',event:'decision',run:this.options.run,family:issued.family,model:issued.model,
+                this.options.record({lane:'continuous-turn',event:'decision',at:new Date().toISOString(),run:this.options.run,family:issued.family,model:issued.model,
                     status:result.status,answers:result.answers,usage:result.usage,ms:result.elapsedMs});
             }
             const result=outcomes.find(outcome=>outcome.status==='fulfilled');

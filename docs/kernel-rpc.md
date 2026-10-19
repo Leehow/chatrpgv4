@@ -48535,6 +48535,10 @@ Reader: one run-local preparation shared by continuous-turn and model projection
 Actor: the existing combined KP packet, ordinary kernel settlement and sole text
 SSE author. Independent existing Jev batches keep their current parallel join;
 material reads overlap them without changing their questions or write ordering.
+The serial native RPC queues the decision's apply-options prerequisite before
+optional person cards. JavaScript Promise concurrency alone cannot bypass that
+transport queue. A blocked optional card must not delay an otherwise ready Jev
+decision; projection still joins the card before dependent Keeper inference.
 
 AWS Parallel states join independent branches before their dependent successor
 (https://docs.aws.amazon.com/step-functions/latest/dg/state-parallel.html).

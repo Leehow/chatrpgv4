@@ -45,11 +45,11 @@ export class KeeperPreparation {
       &&typeof context.world_revision==='string'&&typeof context.source_revision==='string';
     const key=JSON.stringify([context,targets.people,capsule.voices]);
     if(reusable&&this.entry?.key===key){
-      this.options.record({event:'reuse',phase,people:targets.people.length,named:targets.named,reads:0});
+      this.options.record({event:'reuse',at:new Date().toISOString(),phase,people:targets.people.length,named:targets.named,reads:0});
       const people=await this.entry.promise;assertCurrent();return people;
     }
     const started=Date.now();
-    this.options.record({event:'start',phase,people:targets.people.length,named:targets.named,omitted:targets.omitted});
+    this.options.record({event:'start',at:new Date().toISOString(),phase,people:targets.people.length,named:targets.named,omitted:targets.omitted});
     const promise=Promise.all(targets.people.map(async person=>{
       const identity=text(person.id)||text(person.ref)||text(person.name);
       try{
@@ -65,7 +65,7 @@ export class KeeperPreparation {
       }
     })).then(people=>{
       assertCurrent();
-      this.options.record({event:'ready',phase,people:people.length,named:targets.named,reads:targets.people.length,
+      this.options.record({event:'ready',at:new Date().toISOString(),phase,people:people.length,named:targets.named,reads:targets.people.length,
         unavailable:people.filter(person=>person.coverage).length,ms:Date.now()-started});
       return people;
     });

@@ -21,7 +21,20 @@ Current quick verification: npm test130/130, preparation/continuous21/21 and
 current-context3/3 pass. Fresh before/after MiniMax tests reuse the retained
 Blood Road seed; each main-session player input is submitted separately after
 reading the actual previous reply. Keep complete-intent retries and failures.
-LAN focused/build and final live attribution/state/timing audit remain pending.
+Initial build passed; the442-file LAN focused run is still executing on30d4461f0.
+The first candidate sequence is retained, not promoted to successful acceptance:
+one movement parameter retry, an unusable direction label and an incomplete
+doctor answer remain. A fifth natural follow-up is part of that doctor's intent.
+
+Native transport inspection found a second scheduling boundary: kernel-ts/
+transport.ts awaits requests serially. Optional cards must not enter that queue
+before all decision prerequisites, including a conditionally needed band read.
+Two blocked-native-queue regressions were red (including a bands-only residual
+after the first ordering attempt), then26 preparation/continuous/context tests
+pass. Card prefetch now starts at preparation's final read barrier, before the
+existing remote decision. Timestamped start/ready/decision rows will verify
+actual overlap; there are no additional judgment requests. Fresh final-code
+MiniMax verification and terminal LAN evidence remain required.
 
 ## Final decision-only v4 verification, 2026-10-19
 
