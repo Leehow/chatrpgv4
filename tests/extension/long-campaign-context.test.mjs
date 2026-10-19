@@ -16,7 +16,7 @@ import {mkdir, mkdtemp, readFile, writeFile} from 'node:fs/promises';
 import {join, resolve} from 'node:path';
 import {pathToFileURL} from 'node:url';
 import {build} from 'esbuild';
-import {fauxAssistantMessage, fauxToolCall, getCurrentTools} from '@earendil-works/pi-ai';
+import {fauxAssistantMessage, fauxToolCall, getCurrentTools,getCurrentSystemMessage} from '@earendil-works/pi-ai';
 import {openTable, waitFor, waitForIdle} from './harness.mjs';
 import {convertToLlm} from './pi.mjs';
 
@@ -129,17 +129,16 @@ test('campaign length never reaches the provider: the branch outgrows the ceilin
 });
 
 test('a turn the policy cannot prepare is bounded, not answered with the whole stored branch', async t => {
-    // 2026-10-07 (§179.3a, enhanced-items 1.3.4): 96 KiB -> 104 KiB. "Documents on carriers" became a resident section
-    // (1,637 B situational -> 4,010 B on every request) and the Keeper tools gained the document operations, so the
-    // degraded request (prompt and tool checkpoint plus the diagnostic) measured 98,290 B on the Mac against 98,304,
-    // and crossed it on the Linux box.
-    // §235: the system/tool floor alone is 108,852 B; the degraded request is 109,234 B, above 104 KiB.
-    const ceiling = 120 * 1024;
+    // Exercise a feasible ceiling above the actual immutable system/tool checkpoint.
+    // A fixed byte count becomes the separately tested below-floor case whenever a canonical schema grows.
     const table = await openTable({realKernel: true, campaign: 'long-campaign-degraded', retainAt: directory,
-        env: {PI_COC_COMPACT_AT: '100', PI_COC_REQUEST_BYTES: String(ceiling)}, settings: {compaction: {enabled: false}},
+        env: {PI_COC_COMPACT_AT: '100', PI_COC_REQUEST_BYTES: String(api.REQUEST_BYTES)}, settings: {compaction: {enabled: false}},
         responses: [...keeperTurn(long(0)), ...Array.from({length: 4}, (_, turn) => keeperTurn(long(turn + 1))).flat()]});
     t.after(() => table.dispose());
     await waitForIdle(table.session, {timeoutMs: 60000});
+    const ceiling=api.sizeOf([getCurrentSystemMessage(branchMessages(table))])+4096;
+    assert.ok(ceiling<api.REQUEST_BYTES,'the test still constrains the request below the product default');
+    process.env.PI_COC_REQUEST_BYTES=String(ceiling);
     for (let turn = 1; turn <= 4; turn++) {
         await table.session.prompt(`玩家第 ${turn} 次行动。`);
         await waitForIdle(table.session, {timeoutMs: 60000});

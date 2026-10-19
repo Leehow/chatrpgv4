@@ -102,7 +102,7 @@ for(const [denied,seeded,stale,expired,sourceError,hybrid] of [[false,false,fals
     assert.deepEqual(tools.map(t=>t.name),declared.map(t=>t.name));
     assert.equal(apply.parameters.properties.effects.items.anyOf,undefined);
     assert.deepEqual(apply.parameters.properties.effects.items.properties.kind.enum,
-        declared.find(t=>t.name==='apply').parameters.properties.effects.items.anyOf.map(v=>v.properties.kind.enum?.[0]??v.properties.kind.const));
+        [...new Set(declared.find(t=>t.name==='apply').parameters.properties.effects.items.anyOf.map(v=>v.properties.kind.enum?.[0]??v.properties.kind.const))]);
     const detailNames=list=>new Set(list.filter(m=>m.customType==='coc-capability-detail').flatMap(m=>JSON.parse(m.content).capabilities.map(c=>c.name)));
     const sectionNames=list=>list.filter(m=>m.customType==='coc-mod-sections').flatMap(m=>JSON.parse(m.content).sections.map(s=>s.section));
     if(expired){

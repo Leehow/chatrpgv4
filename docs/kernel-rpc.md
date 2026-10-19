@@ -48382,4 +48382,5 @@ the first variant and dropping the others. The canonical apply validator remains
 the execution authority; catalogue selection remains disclosure only.
 Both closed move variants retain optional `why`, already consumed as consent
 evidence for involuntary displacement. It grants no authority and rewording it
-does not change the existing refusal identity.
+does not change the existing refusal identity. Its schema retains the existing
+200-character cause limit enforced by argument validation.
