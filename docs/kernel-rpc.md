@@ -48632,6 +48632,21 @@ dossiers are never automatically hydrated for the author. Existing NPC states,
 personality and directed relationships are projected rather than regenerated.
 New claims do not perform state changes or declare themselves delivered/heard.
 
+Service proposals distinguish inventory references from category literals.
+`service_at.items` accepts an issued reference or a closed `{label}` object
+(1-80 characters). A category is communication meaning, never an inventory
+identifier, stock assertion, charge or transfer. Bare strings remain references
+and retain their existing issuance guard; neither unknown references nor whole
+sentences are silently converted. The decision schema writes this distinction,
+the material hydrator preserves it, and the sole author renders the proposal.
+
+Native memory recovery caches resolved per-question decisions, not deferred
+`uncertain_attribution` choices. Existing saved uncertainty is also a cache miss.
+On the next ordinary recovery only unresolved questions return to the existing
+Jev port; resolved kind, audience, state and relation answers keep their exact
+source-bound cache keys. A single recovery retains its existing stop and budget
+rules; uncertainty never authorizes a guessed subject or an immediate retry loop.
+
 One issuance vocabulary consumes current visible places and prepared operation
 targets. Its role-specific actor, audience, entity, fact and source selections
 bind both the provider output schema and execution. A prepared destination must

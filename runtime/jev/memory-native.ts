@@ -18,6 +18,7 @@ export async function runNativeMemory(initial:unknown,options:{campaign:string;c
  type Saved={answers:Record<string,unknown>;tail:Promise<void>};
  const catalogs=new Map<string,Promise<Saved>>();
  const hash=(value:unknown)=>createHash('sha256').update(JSON.stringify(value)).digest('hex');
+ const reusable=(answer:any)=>answer?.status==='answered'&&!(answer.type==='choice'&&answer.choice==='uncertain_attribution');
  const cached:DecisionPort={async decide(batch,lease){
   const state=batch.state as {sources?:Array<{alias:string;text:string;role:string}>;exchange?:Array<{alias:string;text:string;role:string}>;prior?:Array<{alias:string}>};
   if(batch.family==='native-memory'&&state.exchange&&(!state.sources||state.sources.every(source=>state.exchange?.some(row=>row.alias===source.alias&&row.text===source.text&&row.role===source.role)))){
@@ -26,10 +27,10 @@ export async function runNativeMemory(initial:unknown,options:{campaign:string;c
    if(!entry){entry=(async()=>{try{const saved=JSON.parse(await readFile(file,'utf8'));if(saved.identity===identity)return {answers:saved.answers??{},tail:Promise.resolve()};}catch{}return {answers:{},tail:Promise.resolve()};})();catalogs.set(identity,entry);}
    const saved=await entry,answers:Record<string,unknown>={},missing:DecisionBatch['questions']=[],keys=new Map<string,string>();
    for(const q of batch.questions){const {key:_,...semantic}=q,k=hash({semantic,prior:priors?.filter(row=>q.target.endsWith(' '+row.alias))??[]});keys.set(q.key,k);const answer=saved.answers[k];
-    if(answer!==undefined&&bindDecisionAnswers({...batch,questions:[q]},{[q.key]:answer}).status==='complete')answers[q.key]=answer;else missing.push(q);
+    if(reusable(answer)&&bindDecisionAnswers({...batch,questions:[q]},{[q.key]:answer}).status==='complete')answers[q.key]=answer;else missing.push(q);
    }
    if(missing.length){requests++;const result=await options.port.decide({...batch,state:{...state,...(priors?{prior:priors.filter(row=>missing.some(q=>q.target.endsWith(' '+row.alias)))}:{})} as DecisionBatch['state'],questions:missing},lease);Object.assign(answers,result.answers);
-    if(!signal.aborted){for(const q of missing){const answer=result.answers[q.key];if(answer?.status==='answered'&&bindDecisionAnswers({...batch,questions:[q]},{[q.key]:answer}).status==='complete')saved.answers[keys.get(q.key)!]=answer;}
+    if(!signal.aborted){for(const q of missing){const answer=result.answers[q.key];if(reusable(answer)&&bindDecisionAnswers({...batch,questions:[q]},{[q.key]:answer}).status==='complete')saved.answers[keys.get(q.key)!]=answer;else delete saved.answers[keys.get(q.key)!];}
      saved.tail=saved.tail.catch(()=>{}).then(async()=>{await mkdir(root,{recursive:true});await writeMemoryArtifact(file,JSON.stringify({identity,answers:saved.answers}));});await saved.tail;
     }
    }

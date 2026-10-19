@@ -127,6 +127,23 @@ test('native negative and uncertain kind sets never request annotations',async()
  }
 });
 
+test('a deferred attribution is reconsidered after restart while its resolved questions are reused',async t=>{
+ const cwd=await mkdtemp(join(tmpdir(),'native-memory-deferred-'));t.after(()=>rm(cwd,{recursive:true,force:true}));
+ const p=packet({segments:[segment('keeper:1','keeper','Knott says that the doctor may be home.',{kind:'speech',speaker:{name:'Steven Knott',kind:'npc'}})]});
+ p.story_sources=structuredClone(p.step.segments);let attempt=0;const calls=[];
+ const options={cwd,campaign:'campaign',signal:new AbortController().signal,record:async()=>{},
+  call:async(_method,args)=>args.referenced.decisions.every(d=>d.outcome==='retain')?{status:'done',remaining:0,candidates:1}:{status:'pending',remaining:1},port:{async decide(batch){calls.push({attempt,questions:batch.questions.map(q=>q.key)});return answer(batch,q=>{
+   if(q.key.startsWith('kind_'))return q.target.endsWith(' belief')?'yes':'no';
+   if(q.key.startsWith('subject_'))return attempt===0?'uncertain_attribution':'name:knott';
+   return happySelection(q);
+  });}}};
+ assert.equal((await runNativeMemory(p,options)).status,'pending_review');attempt++;
+ const recovered=await runNativeMemory({...p,status:'pending'},options);
+ assert.ok(calls.filter(c=>c.attempt===1).flatMap(c=>c.questions).some(k=>k.startsWith('subject_')),'uncertainty must not be cached as a final attribution');
+ assert.ok(calls.filter(c=>c.attempt===1).flatMap(c=>c.questions).every(k=>k.startsWith('subject_')),'resolved classifications and relations remain reusable');
+ assert.equal(recovered.candidates,1);
+});
+
 test('native exact-state decisions survive restart without another provider judgment',async t=>{
  const cwd=await mkdtemp(join(tmpdir(),'native-memory-cache-'));t.after(()=>rm(cwd,{recursive:true,force:true}));let requests=0;const rows=[];
  const port={async decide(batch){requests++;return bindDecisionAnswers(batch,Object.fromEntries(batch.questions.map(q=>{const keys=Object.keys(q.criteria),choice=q.key.startsWith('retain_')?'skip':'no';return[q.key,{status:'answered',type:'choice',choice,confidence:.99,probabilities:Object.fromEntries(keys.map(k=>[k,k===choice?1:0]))}];})));}};

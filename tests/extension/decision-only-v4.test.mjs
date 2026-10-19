@@ -26,6 +26,18 @@ test('v4 declares communication recipients and selected content without prose fi
 });
 
 import {DecisionContent,decisionPerson,decisionCharacter,bindCreatedDecisionPerson} from '../../runtime/decision-content.ts';
+test('service categories can be proposed without creating inventory or inventing references',()=>{
+ const owner=new DecisionContent();owner.prepare('c:1',capsule,[],[],['Investigator']);
+ const fact={predicate:'service_at',provider:'npc_1',items:[{label:'Soup'},{label:'Coffee'}],when:{day_offset:0,hour:16,minute:45},fulfillment:'dine_in'};
+ const packet={version:4,commands:[{kind:'move',to:'Library'}],interactions:[{actor:'npc_1',to:['investigator_1'],act:'greet',content:[{new:fact}]}]};
+ assert.deepEqual(turnPacket(JSON.stringify(packet)),packet);
+ const selected=owner.hydrate(packet.interactions).responses[0].claims[0];
+ assert.equal(Errors(turnPacketParameterSchema(false,undefined,undefined,false,owner.bindings()),{version:4,interactions:packet.interactions}).length,0);
+ assert.deepEqual(selected.value,fact);assert.equal(selected.kind,'proposed_claim');
+ assert.ok(!owner.bindings().entities.includes('Soup'),'a proposed category is not issued inventory');
+ assert.throws(()=>owner.resolve({new:{...fact,items:['unissued-item']}},'npc_1'),/unissued item/);
+ assert.throws(()=>turnPacket(JSON.stringify({...packet,interactions:[{...packet.interactions[0],content:[{new:{...fact,items:[{label:'x'.repeat(81)}]}}]}]})));
+});
 const capsule={_context:{task_source_revision:'s1'},where:{scene:'Office',exits:[{to:'Library'}]},present:[{ref:'npc_1',display_name:'The clerk',knowledge:['A report about the office.'],keeper_note:'PRIVATE_CAUSE'}],npc_references:{people:[{ref:'npc_2',display_name:'The visitor'}]}};
 test('current carried writing is selectable without promoting historical speech into current state',()=>{
  const owner=new DecisionContent(),document={name:'Collection receipt',revision:3,text:'Collect tomorrow at noon. Already paid.',cut:false,open:false};

@@ -7,8 +7,9 @@ type Row=Record<string,any>;
 const ref=Type.String({minLength:1,maxLength:96});
 const closed=<T extends Record<string,TSchema>>(fields:T)=>Type.Object(fields,{additionalProperties:false});
 const when=closed({day_offset:Type.Integer({minimum:0,maximum:365}),hour:Type.Integer({minimum:0,maximum:23}),minute:Type.Integer({minimum:0,maximum:59})});
+const category=closed({label:Type.String({minLength:1,maxLength:80})});
 export const NewCommunicationFact=Type.Union([
- closed({predicate:Type.Literal('service_at'),provider:ref,items:Type.Array(ref,{minItems:1,maxItems:8,uniqueItems:true}),when,fulfillment:StringEnum(['dine_in','takeaway'])}),
+ closed({predicate:Type.Literal('service_at'),provider:ref,items:Type.Array(Type.Union([ref,category]),{minItems:1,maxItems:8,uniqueItems:true}),when,fulfillment:StringEnum(['dine_in','takeaway'])}),
  closed({predicate:Type.Literal('planned_visit'),actor:ref,to:ref,when}),
  closed({predicate:Type.Literal('whereabouts'),actor:ref,to:ref,when:StringEnum(['now','earlier_today','habitual'])}),
  Type.Object({predicate:Type.Literal('directions'),to:ref,
@@ -42,7 +43,7 @@ export function bindCommunicationParameters(schema:TSchema,bindings:DecisionBind
   if(p?.predicate){for(const key of ['provider','topic'])if(p[key])p[key]=selection(bindings.entities,true);
    if(p.actor)p.actor=selection(bindings.people,true);
    if(p.to)p.to=selection(bindings.places);
-   if(p.items)p.items.items=selection(bindings.entities,true);
+   if(p.items)p.items.items=Type.Union([selection(bindings.entities,true),category]);
    if(p.via)p.via.items=selection(bindings.places);
   }else if(p?.actor&&p?.act){p.actor=selection(bindings.people.filter(isNpcReference),true);if(p.to)p.to.items=selection(bindings.people,true);}
   if(p?.fact_ref)p.fact_ref=selection(narration?bindings.narrationFacts??bindings.facts:bindings.facts);
@@ -167,7 +168,7 @@ export class DecisionContent {
    if(typeof fact.to==='string'&&!this.places.has(fact.to))throw Error('A communication destination must select an issued place reference');
    for(const place of fact.via??[])if(!this.places.has(place))throw Error('A communication waypoint must select an issued place reference');
    for(const key of ['provider','actor','to','topic'])if(typeof fact[key]==='string'&&!this.entities.has(fact[key]))throw Error(`New communication content ${key} must select an issued entity reference`);
-   for(const item of [...fact.items??[],...fact.via??[]])if(!this.entities.has(item))throw Error('New communication content uses an unissued item or waypoint reference');
+   for(const item of [...fact.items??[],...fact.via??[]])if(typeof item==='string'&&!this.entities.has(item))throw Error('New communication content uses an unissued item or waypoint reference');
    const refs=[fact.provider,fact.actor,fact.to,fact.topic,...fact.items??[],...fact.via??[]].filter((value):value is string=>typeof value==='string');
    return {kind:'proposed_claim',value:structuredClone(fact),entities:[...new Set(refs)].flatMap(ref=>this.entityLabels.has(ref)?[{ref,display_name:this.entityLabels.get(ref)}]:[]),authority:'Communication content only; not a receipt, truth, order or completed action'};
   }
