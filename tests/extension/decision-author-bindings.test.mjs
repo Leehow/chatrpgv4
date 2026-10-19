@@ -57,7 +57,7 @@ test('the real author task cannot recycle prior rendered actor identities and ph
    settled_results:{outcomes:[{kind:'item',status:'changed',name:'Spare roll',from:'npc_1',to:'Jack Miller',quantity:1}]}},stream:{push(){}},record:async()=>{}});
  assert.ok(!JSON.stringify(task).includes('OLD_PAN_ACTION'));
  assert.ok(!JSON.stringify(task).includes('OLD_WRONG_COMPANION_NAME'));
- assert.deepEqual(task.decision_context.recent_public,[{turn:1,player:'I stay outside.'}]);
+ assert.deepEqual(task.decision_context.recent_public,[]);
  assert.equal(task.decision_context.settled_results.outcomes[0].to,'Jack Miller');
 });
 

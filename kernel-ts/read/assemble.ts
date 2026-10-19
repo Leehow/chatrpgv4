@@ -34,7 +34,7 @@ import {openIntents, shownIntentRef} from '../npc/intents.js';
 import {deferredNpcContext} from './deferred-context.js';
 import {allReceipts, coercionPressures} from '../resolve/coercion.js';
 import { capsuleOwed } from "../owed/index.js";
-import { FIRST_SIGHT_BUDGET, firstSightSection, fitFirstSight } from "../first-sight/index.js";
+import { FIRST_SIGHT_BUDGET, firstSightSection, fitFirstSight, placeDescribed } from "../first-sight/index.js";
 import { historicalSetting } from './historical-setting.js';
 import { HEAD_ESTABLISH } from "./establish.js";
 /**
@@ -323,7 +323,9 @@ export function publicSceneMaterial(campaign:CampaignSnapshot,graph:ModuleGraph,
     const entries=records.slice(0,3).map(record=>({turn:record.turn,text:record.rendered_text.slice(0,2000),
         ...(record.rendered_text.length>2000?{truncated:true}:{})}));
     while(entries.length&&jsonSize(entries)>7800)entries.pop();
-    return {authority:'Previously delivered public scene context, not new facts, presence or transaction authority.',entries:entries.reverse(),omitted:records.length-entries.length};
+    const description=placeDescribed(graph,graph.scene(world.active_scene));
+    return {authority:'Current source scenery and previously delivered public history; no population or transaction authority.',
+        ...(description?{description}:{}),entries:entries.reverse(),omitted:records.length-entries.length};
 }
 /**
  * What settled on a turn that ended with nothing said (contract §69). The mirror of `unrecorded`

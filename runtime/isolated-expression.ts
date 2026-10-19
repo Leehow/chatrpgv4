@@ -12,6 +12,7 @@ import {validateDeliveryArtifact,deliveryMaterialNames} from './final-output-art
 import {responseDecision} from './turn-packet-prototype.ts';
 import type {HydratedInteraction} from './decision-content.ts';
 import {isNpcReference} from './npc-references.ts';
+import {decisionDialogueContinuity} from './public-exchanges.ts';
 export {decisionRecentPublic} from './public-exchanges.ts';
 
 type Row=Record<string,any>;
@@ -34,6 +35,7 @@ export interface DecisionAuthorContext {
   failed_attempts?:Array<{tool:string;status:'uncommitted';reason:string}>;
   departure_scene?:Record<string,unknown>;
   departure_clock?:Record<string,unknown>;
+  style?:Record<string,unknown>;
 }
 /** Only current public identity projections; private dossiers never enter scene rendering. */
 export function decisionClock(clock:Row):Row {
@@ -44,7 +46,15 @@ export function decisionScene(capsule:Row):Row {
  const people=present.filter((person:Row)=>typeof person.ref==='string'&&typeof person.display_name==='string')
   .map((person:Row)=>({ref:person.ref,display_name:person.display_name,name_known:person.name_known===true}));
  const temporal=where.temporal??{};
+ const sight=capsule.first_sight??{},details=(value:Row)=>Object.fromEntries(['described','missing','undescribed','truncated'].filter(key=>value[key]!==undefined).map(key=>[key,value[key]]));
+ const firstPeople=(sight.people??[]).flatMap((item:Row)=>{
+  const person=present.find((person:Row)=>[person.id,person.ref,person.name].includes(item.id));
+  return person?.ref?[{ref:person.ref,display_name:person.display_name,...details(item)}]:[];
+ });
+ const first={...(sight.place?{place:details(sight.place)}:{}),...(firstPeople.length?{people:firstPeople}:{})};
+ const description=capsule.public_scene?.description??sight.place?.described;
  return {name:where.display_name??where.scene,temporal:Object.fromEntries(['current','review_required',...(temporal.current===true?['service','crowd','summary','basis']:[])].filter(key=>temporal[key]!==undefined).map(key=>[key,temporal[key]])),
+  ...(typeof description==='string'&&description.trim()?{description}:{}),...(Object.keys(first).length?{first_sight:first}:{}),
   presence:{authority:'Registered public people only, never a complete population census. Missing names do not establish emptiness. Current assessed temporal crowd controls population.',people,registered_complete:people.length===present.length,
    population:where.temporal?.current===true&&where.temporal?.crowd==='empty'?'empty':where.temporal?.current===true&&['quiet','active','crowded'].includes(where.temporal?.crowd)&&people.length?'populated':'unknown'}};
 }
@@ -134,7 +144,7 @@ export async function writeIsolatedExpression(input:{runtime:HostRuntime;campaig
   const {keeper_only,...expression}=brief??{};
   const player_input=typeof input.playerText==='string'&&input.playerText.length?input.playerText:undefined;
   const decision=input.decision?{...input.decision,
-   recent_public:[],
+   recent_public:decisionDialogueContinuity(input.decision.recent_public,input.decision.people),
    speech_allowed:input.decision.responses.some(response=>response.act!=='silent'),responses:input.decision.responses.map(value=>{
     const {location,claims,...proposal}=value as typeof value&{location?:Row};
     const response=responseDecision(proposal);

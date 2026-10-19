@@ -123,6 +123,25 @@ test('character state and directed relationships come from a narrow host project
  assert.ok(!JSON.stringify(person).includes('PRIVATE_'));
 });
 
+test('native personality descriptions and current embodied guidance survive the author projection',()=>{
+ const source={ref:'npc_1',display_name:'The clerk',personality:{description:'Practical and patient; pauses before a weighty answer.',origin:'table_supplement'},
+  variation:{stable:{speech:'Compact complete sentences.'},initial:{emotion:'Tentatively hopeful.'}},now:{feels:'Concerned',since_turn:3},
+  activity:{current:true,summary:'Resting a hand on the counter.'},reunion:{status:'available',required:true,elapsed_minutes:45},knowledge:['PRIVATE_FACT']};
+ const person=decisionPerson(source,[]);
+ assert.equal(person.personality.description,source.personality.description);
+ assert.deepEqual(person.variation,source.variation);assert.equal(person.activity.summary,source.activity.summary);
+ assert.equal(person.reunion.elapsed_minutes,45);assert.ok(!JSON.stringify(person).includes('PRIVATE_FACT'));
+ assert.equal(decisionPerson({...source,activity:{...source.activity,current:false,review_required:true}},[]).activity,undefined);
+});
+
+test('same-place public history is optional selectable evidence rather than mandatory new narration',()=>{
+ const owner=new DecisionContent(),text='The clerk set the cup beside the register.';
+ const view=owner.prepare('c:1',{...capsule,public_scene:{entries:[{turn:2,text}]}},[],[],['Investigator']);
+ const fact=view.facts.find(f=>f.kind==='public_scene_history');assert.equal(fact.value.text,text);
+ assert.equal(fact.availability,'supplemental');assert.deepEqual(owner.hydrate([],[{fact_ref:fact.ref}]).materials[0].value,{turn:2,text});
+ assert.throws(()=>owner.resolve({fact_ref:fact.ref},'npc_1'),/not an actor knowledge grant/);
+});
+
 test('a substantive answer cannot reach the author without selected communication meaning',()=>{
  for(const act of ['answer','ask','offer','clarify','report','warn'])for(const content of [undefined,[]])
   assert.throws(()=>turnPacket(JSON.stringify({version:4,interactions:[{actor:'npc_1',to:['investigator_1'],act,...(content?{content}:{})}]})),/content|response/);

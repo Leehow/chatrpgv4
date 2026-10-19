@@ -30,6 +30,20 @@ test('the decision author streams plain prose immediately from one complete inpu
  assert.equal(calls,1);assert.equal(result.text,prose.join(''));assert.equal(prose.length,2);
 });
 
+test('the sole direct author receives only relevant attributed prior dialogue and current style',async t=>{
+ const home=await mkdtemp(join(tmpdir(),'expression-public-continuity-'));t.after(()=>rm(home,{recursive:true,force:true}));let actual;
+ const style={register:'plain',axes:['Concrete sound and light.']};
+ const runtime={home,async runTask({request}){actual=JSON.parse(request.brief);
+  request.onEvent({type:'message_update',assistantMessageEvent:{type:'text_delta',delta:'The clerk looks up.'}});
+  request.onEvent({type:'message_end',message:{role:'assistant',provider:'opencode-go',model:'deepseek-v4.1-flash',stopReason:'stop',content:[{type:'text',text:'The clerk looks up.'}]}});return{ok:true,ms:1};}};
+ await writeIsolatedExpression({runtime,campaign:'c',turn:3,run:'r',language:'en',stream:{push(){}},record:async()=>{},
+  decision:{scene:{name:'Shop'},clock:{},people:[{ref:'npc_1',name:'Clerk',display_name:'Clerk'}],responses:[],style,
+   recent_public:decisionRecentPublic([{turn:1,player:'I ask the other person.',keeper:'WRONG_OLD_LOCATION',speech:[{speaker:'Stranger',text:'UNRELATED_WORDS'}]},
+    {turn:2,player:'I ask about my receipt.',keeper:'OLD_POSE_AND_NAME',speech:[{speaker:'Clerk',text:'Bring the receipt at noon.'},{speaker:'Stranger',text:'UNRELATED_WORDS'}]}])}});
+ assert.deepEqual(actual.decision_context.recent_public,[{turn:2,player:'I ask about my receipt.',keeper:'Clerk: Bring the receipt at noon.'}]);
+ assert.deepEqual(actual.decision_context.style,style);assert.ok(!JSON.stringify(actual).includes('UNRELATED_WORDS'));assert.ok(!JSON.stringify(actual).includes('OLD_POSE_AND_NAME'));
+});
+
 test('incremental author argument decoding preserves escape boundaries and exposes only text parts',()=>{
  const text='A "quoted" line.\nA slash \\ and a face '+String.fromCodePoint(0x1f642);
  for(const parts of [[{materials:['PRIVATE_NAME'],text}],{item:[{text,materials:['PRIVATE_NAME']}]},{item:{item:{text}}},{text}]){

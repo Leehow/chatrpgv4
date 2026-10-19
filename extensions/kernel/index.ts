@@ -5772,7 +5772,7 @@ export default function (pi: ExtensionAPI, host: {capabilities?:RuntimeCapabilit
             await record({lane:'first-sight',event:'render_scope',turn:state.turn,scene:current.where?.scene,
                 items:[...(sight.place?[sight.place.id]:[]),...(sight.people??[]).map((row:Record<string,any>)=>row.id)]});
 			const where=current.where??{};
-			decision={scene:decisionScene(current),clock:decisionClock(where.clock??{}),...decisionResponseScope(before,current,hydrated.responses),people,selected_materials:hydrated.materials,
+			decision={scene:decisionScene(sightView),clock:decisionClock(where.clock??{}),...decisionResponseScope(before,current,hydrated.responses),people,selected_materials:hydrated.materials,style:current.style,
 				recent_public:decisionRecentPublic(current.recent,state.delivered)};
 		}
         const failedAttempts=heldActs.get(state)?.uncommittedFailures();

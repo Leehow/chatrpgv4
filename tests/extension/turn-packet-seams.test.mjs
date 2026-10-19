@@ -36,6 +36,16 @@ test('even pure travel gives the author current public presence without NPC secr
  assert.equal(scene.presence.registered_complete,true);assert.ok(!JSON.stringify(scene).includes('SECRET'));
  assert.equal(decisionScene({present:[{kind:'creature'}]}).presence.registered_complete,false);
 });
+
+test('scene rendering retains current scenery and scoped first-sight details',()=>{
+ const scene=decisionScene({where:{scene:'Cafe'},public_scene:{description:'A ceiling fan turns above the counter.',entries:[{turn:1,text:'OLD_ACTION'}]},
+  present:[{id:'private-handle',ref:'npc_2',display_name:'The waitress',name_known:false}],
+  first_sight:{place:{id:'private-place',name:'Cafe',described:'A ceiling fan turns above the counter.'},
+   people:[{id:'private-handle',name:'SECRET_NAME',described:'A rolled sleeve and ink-stained fingers.'}]}});
+ assert.equal(scene.description,'A ceiling fan turns above the counter.');
+ assert.equal(scene.first_sight.people[0].ref,'npc_2');assert.equal(scene.first_sight.people[0].described,'A rolled sleeve and ink-stained fingers.');
+ assert.ok(!JSON.stringify(scene).includes('SECRET_NAME'));assert.ok(!JSON.stringify(scene).includes('private-handle'));assert.ok(!JSON.stringify(scene).includes('OLD_ACTION'));
+});
 test('elapsed duration and old assessment clocks are not competing current times in author material',()=>{
  assert.deepEqual(decisionClock({at:'1920-10-12T20:46',day_part:'evening',minutes:646,elapsed:'10 h 46 min'}),{at:'1920-10-12T20:46',day_part:'evening'});
  assert.deepEqual(decisionClock({minutes:646,elapsed:'10 h 46 min'}),{});

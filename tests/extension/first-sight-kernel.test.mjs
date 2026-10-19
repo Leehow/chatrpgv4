@@ -76,6 +76,7 @@ test('the opening capsule carries the place and the people the book lets the pla
   const game = await table(t);
   const capsule = await game.call('table.capsule');
   assert.deepEqual(capsule.first_sight.place, {id: 'sanyi-teahouse', name: '三义茶馆', described: ROOM});
+  assert.equal(capsule.public_scene.description,ROOM,'the current rendering projection shares the existing first-sight source');
   // §203.5 (amends §168.5): every person present is owed, whatever the node's visibility; a person the book gives no words
   // (刘桂芝, summarised by her name alone) is carried undescribed, and the keeper-only regulars by their summaries.
   assert.deepEqual(capsule.first_sight.people.slice(0, 2).map(person => person.name), ['王铁柱', '周敬之']);
@@ -116,6 +117,7 @@ test('a check lands: shown leaves for good, what the prose left out stays as mis
 
   const next = (await game.call('table.player_input', {text: '我找个空位坐下。'})).capsule;
   assert.equal(next.first_sight.place, undefined, 'the shown place is no longer owed');
+  assert.equal(next.public_scene.description,ROOM,'reunions retain current scenery after first-sight coverage completes');
   assert.deepEqual(next.first_sight.people.slice(0, 2), [
     {id: 'wang-tiezhu', name: '王铁柱', missing: ['赤着膊', '腰里别着扛包的麻绳']},
     {id: 'zhou-jingzhi', name: '周敬之', described: next.first_sight.people[1].described}]);

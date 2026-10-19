@@ -48700,6 +48700,32 @@ background evidence extraction remain. No new judge, whole-response rewrite or
 mandatory per-turn source decision is added. Next-turn continuity reads actual
 delivery and committed state without waiting for a proposed speech memory.
 
+### Host decision: rendering material survives compact decisions (owner 2026-10-19)
+
+The native author packet carries the current place description from the same
+`placeDescribed` producer used for first sight. `public_scene.description` is
+current source scenery; its older `entries` remain optional selectable material,
+not an automatic replay of former actors or actions. First-sight place and person
+details pass through the existing in-flight view; person identities are rebound
+to current public references and names. Current temporal assessment owns activity
+and population even when a descriptive source mentions a customary condition.
+The current style projection reaches the author as data without another prompt.
+
+Character projection accepts the existing personality description as well as
+profile expression, stable variation, current mood, directed relations and reunion
+metadata. An expired activity is not a current pose. Knowledge, secret dossiers,
+profile priorities and unchosen actions remain outside this projection. Relevant
+prior dialogue is bounded to two actual delivered exchanges with attributed
+speech by issued participants; only their exact utterances and associated player
+input survive, not previous rendered arrivals, names or physical actions. Older
+same-place public text can be selected through the existing fact catalog.
+
+Producer: current capsule/first-sight/personality views and delivered speech.
+Reader: scene, character and dialogue projections plus optional material refs.
+Actor: the same sole direct-SSE author. No new judgment, inference round, prompt
+reminder, copied KP prose or transaction authority is introduced. Acceptance
+requires coherent scene entry, reunion and dialogue, not cache/receipt counts alone.
+
 Producer: current scoped kernel views and existing source-selection results.
 Reader: the host-owned communication-reference catalog and canonical dispatch.
 Actor: existing kernel operations followed by the one direct prose author.
