@@ -218,6 +218,7 @@ const OwedRef = Type.Optional(Type.String({ description: "the name of a row of t
 
 const MoveEffectFields = {
 	...IntentResult,
+	why: Type.Optional(Type.String({description:'Existing cause evidence for action admission, including involuntary displacement; never an authorization grant.'})),
 	kind: StringEnum(["move"] as const, { description: "change the persistent gameplay locus; ordinary spatial description inside the current locus needs no move" }),
 	to: Type.String({ description: "the persistent gameplay locus chosen by the player, or the one an owed row says they were already told they reached. Reuse an existing place for its rooms or counters. For an ordinary new place consistent with established facts, supply establish and via in this same move; no source reading or adaptation job is required just because the graph lacks it. Do not substitute or relabel another place" }),
 	establish: Type.Optional(PlaceEstablishment),

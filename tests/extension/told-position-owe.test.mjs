@@ -171,12 +171,12 @@ test('§213.2: a told departure for a place the table does not have is owed with
     const later = steps(workspace, [['table.player_input', {text: 'I unlock my door.'}], ['table.capsule', {}]]);
     const shown = later[1].owed.find(entry => entry.name === 't3-owed-1');
     assert.deepEqual({kind: shown.kind, clerk: shown.clerk, effect: shown.effect}, {kind: 'move', clerk: false, effect: undefined}, 'the Keeper lands it, not the clerk');
-    const named = frames(workspace, [['table.apply', {call_id: 't4-c1', effects: [{kind: 'move', to: 'central-library', owed: 't3-owed-1'}]}]]);
-    assert.equal(named[0].error.details.reason, 'owed_unresolved', 'no effect lands a departure by name');
-    steps(workspace, [['table.apply', {call_id: 't4-c2', effects: [{kind: 'move', to: 'Rented room', establish: {summary: 'The investigator\'s rented room.'}, via: 'The cab brought him home.'}]}]]);
+    assert.deepEqual(shown.recovery,{mode:'originating_declaration',from:'hall-of-records',parameters:['to','via','establish']});
+    const [landed]=steps(workspace, [['table.apply', {call_id: 't4-c1', effects: [{kind: 'move', to: 'Rented room', establish: {summary: 'The investigator\'s rented room.'}, via: 'The cab brought him home.',owed:'t3-owed-1'}]}]]);
+    assert.equal(landed.receipts.length,1,'one canonical move settles this source-bound departure');
     const {open, closed} = ledger(workspace);
     assert.deepEqual(open, []);
-    assert.deepEqual(closed.map(entry => [entry.name, entry.how]), [['t3-owed-1', 'superseded']]);
+    assert.deepEqual(closed.map(entry => [entry.name, entry.how,entry.receipt]), [['t3-owed-1', 'landed',landed.receipts[0]]]);
 });
 
 test('§213.2: a turn that landed a move owes no departure', t => {

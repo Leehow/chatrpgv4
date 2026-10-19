@@ -48372,3 +48372,14 @@ https://json-schema.org/understanding-json-schema/reference/conditionals).
 Kubernetes server-side validation similarly distinguishes declared fields from
 unknown fields; its optional Ignore/Warn modes are not adopted here
 (https://kubernetes.io/docs/reference/using-api/api-concepts/).
+
+Multiple parameter variants of one effect retain one capability identity. The
+capability catalogue groups the same canonical kind/facet into one card whose
+detail is an `anyOf` of the complete original variants. Its version binds all
+variants. Fixed kind envelopes list each kind once. This prevents duplicate
+discovery identities without flattening required-field relations or selecting
+the first variant and dropping the others. The canonical apply validator remains
+the execution authority; catalogue selection remains disclosure only.
+Both closed move variants retain optional `why`, already consumed as consent
+evidence for involuntary displacement. It grants no authority and rewording it
+does not change the existing refusal identity.

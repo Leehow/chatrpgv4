@@ -124,7 +124,17 @@ export function capabilityCatalogue(tools: readonly CapabilityTool[]): Capabilit
     }
     if(cards.some(card=>!CORE_CAPABILITY_NAMES.includes(card.name)))
         throw Error('Capability catalogue has an unregistered core name');
-    return cards;
+    const groups=new Map<string,CapabilityCard[]>();
+    for(const card of cards){const group=groups.get(card.name)??[];group.push(card);groups.set(card.name,group);}
+    return [...groups.values()].map(group=>{
+        const first=group[0];if(group.length===1)return first;
+        if(group.some(card=>card.verb!==first.verb||card.effect!==first.effect
+            ||card.applicability!==first.applicability||card.exclusions!==first.exclusions))
+            throw Error('Conflicting canonical capability identity: '+first.name);
+        const detail={anyOf:group.map(card=>JSON.parse(card.detail))};
+        return {...first,...(group.some(card=>card.fields)?{fields:[...new Set(group.flatMap(card=>card.fields??[]))]}:{}),
+            detail:JSON.stringify(detail),version:versionOf({variants:group.map(card=>card.version)})};
+    });
 }
 
 const FIXED_NOTE = 'Effect kinds and what each is for are listed below. The exact fields of a kind arrive in the conversation as capability detail (a turn detail message, or attached to a result); for a kind whose detail you have not been shown, call lookup with kind capability and its name first. Every effect is still validated against its full canonical definition before anything is written.';
@@ -142,14 +152,14 @@ export function fixedCapabilityTools(tools: readonly CapabilityTool[]): Capabili
     const view = tools.map(tool => {
         if (tool.name !== 'apply') return tool;
         const projected = clone(tool);
-        const kinds = variantsOf(tool).map(variant => kindOf(variant)!);
+        const kinds = [...new Set(variantsOf(tool).map(variant => kindOf(variant)!))];
         // The canonical kind description is the author's own rule text; the host card covers kinds that have none.
-        const lines = variantsOf(tool).map(variant => {
+        const lines = [...new Set(variantsOf(tool).map(variant => {
             const kind = kindOf(variant)!, cards = catalogue.filter(card => card.effect === kind);
             const said = variant.properties.kind.description ?? (cards[0].fields ? undefined : cards[0].applicability);
             const facets = cards.some(card => card.fields) ? ' Detail: ' + cards.map(card => `${card.name} (${card.applicability})`).join('; ') : '';
             return `- ${kind}: ${said ?? ''}${facets}`.trimEnd();
-        });
+        }))];
         projected.description = `${tool.description}\n\n${FIXED_NOTE}\n${lines.join('\n')}`;
         projected.parameters.properties.effects.items = {type: 'object', required: ['kind'],
             properties: {kind: {type: 'string', enum: kinds}}, additionalProperties: true};

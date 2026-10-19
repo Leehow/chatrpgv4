@@ -25,6 +25,17 @@ const tools=api.offeredTools(api.COC_TOOLS,{});
 const apply=tools.find(t=>t.name==='apply');
 const variant=(tool,kind)=>tool.parameters.properties.effects.items.anyOf.find(v=>(v.properties.kind.const??v.properties.kind.enum?.[0])===kind);
 
+test('parameter variants share one discovery identity without losing any canonical branch',()=>{
+ const cards=api.capabilityCatalogue(tools);
+ assert.equal(new Set(cards.map(card=>card.name)).size,cards.length,'discovery names must be unique');
+ const moves=apply.parameters.properties.effects.items.anyOf.filter(v=>(v.properties.kind.const??v.properties.kind.enum?.[0])==='move');
+ assert.ok(moves.length>1,'exercise the actual registered move variants');
+ const detail=api.capabilityDetail(tools,['move']);assert.equal(detail.length,1);
+ assert.deepEqual(detail[0].fields,{anyOf:moves});
+ const changed=structuredClone(tools);variant(changed.find(t=>t.name==='apply'),'move').description='Changed bound variant';
+ assert.notEqual(api.capabilityDetail(changed,['move'])[0].version,detail[0].version);
+});
+
 test('§228.1 the fixed view keeps every kind and its rule text; the canonical definition still validates',()=>{
     const before=JSON.stringify(tools);
     const view=api.fixedCapabilityTools(tools);
@@ -34,7 +45,7 @@ test('§228.1 the fixed view keeps every kind and its rule text; the canonical d
     assert.deepEqual(view.map(t=>t.name),tools.map(t=>t.name));
     for(const tool of view)if(tool.name!=='apply')assert.equal(tool,tools.find(t=>t.name===tool.name));
     const projected=view.find(t=>t.name==='apply');
-    const kinds=apply.parameters.properties.effects.items.anyOf.map(v=>v.properties.kind.const??v.properties.kind.enum[0]);
+    const kinds=[...new Set(apply.parameters.properties.effects.items.anyOf.map(v=>v.properties.kind.const??v.properties.kind.enum[0]))];
     assert.deepEqual(projected.parameters.properties.effects.items.properties.kind.enum,kinds);
     assert.match(projected.description,/never send time for the same journey/);
     assert.match(projected.description,/npc-activity \(/);
