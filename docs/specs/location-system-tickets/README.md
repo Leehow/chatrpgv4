@@ -1,6 +1,8 @@
 # Enhanced Locations Mod implementation ledger
 
-Status: locally complete; publication not requested. Owner approval: 2026-10-19,
+Status: original implementation and F1–F4 failure repairs locally validated on
+source `549a92bda`; full regression exit 0. Publication not requested.
+Owner approval: 2026-10-19,
 including specification, tickets,
 implementation and real multi-place stress testing. The owner explicitly requires
 a location enhancement Mod and permits necessary kernel changes.
@@ -40,7 +42,7 @@ with all old context and registration gates intact is hollow completion.
 | EL-02 | [#117](https://github.com/Leehow/chatrpgv4/issues/117) | implemented; RPC regression passed | Atomic Mod writes, creation, local position, passages, feature continuity |
 | EL-03 | [#118](https://github.com/Leehow/chatrpgv4/issues/118) | implemented; host and live paths validated | Separate place tool, native decisions, admission and final author consumption |
 | EL-04 | [#119](https://github.com/Leehow/chatrpgv4/issues/119) | implemented; projection and live demand validated | Demand-loaded Mod contract/material, history projection and request evidence |
-| EL-05 | [#120](https://github.com/Leehow/chatrpgv4/issues/120) | locally complete; existing baseline failure recorded | Regression, real travel stress, restart/return continuity and final report |
+| EL-05 | [#120](https://github.com/Leehow/chatrpgv4/issues/120) | locally validated, including F1–F4 repairs; full regression passed | Regression, real travel stress, restart/return continuity and final report |
 
 The contract and per-issue acceptance govern the slices. Record actual completion,
 commits and validation here at meaningful milestones; do not close on code alone
@@ -203,3 +205,54 @@ when a ticket requires live evidence.
 - Native metadata confirms exit 0 and JUnit has zero failure/error nodes. Its 2236 leaf cases plus one parent suite match Node's 2237 pass summary. Both files and the source SHA-256 manifest are retained locally under `.coc/test-runs/enhanced-locations-20261019/final3-*`; critical implementation hashes match this checkout. The remote full-run archive preserves logs, source head, empty source diff, exit files and fixtures.
 - The final main/cold driver processes stopped normally, with no remaining owned campaign process. Final main state preserves the closed back window/broken latch and the original room; the cold campaign ends at the original pharmacy counter. All raw failed and successful evidence remains.
 - Acceptance report: [Enhanced Locations Mod acceptance](../../acceptance/enhanced-locations-20261019.md). Implementation and required acceptance are locally complete. Issues #115–#120 remain open pending publication; no push or App installation was requested/performed. Known provider/native publication limitations remain in the report rather than being counted as passing turns.
+
+## Owner failure follow-up
+
+The owner challenged the remaining failures after the first handoff. Calling the
+whole result complete overstated actual delivery. Preserve the earlier report
+and all raw evidence while repairing the confirmed failure paths.
+
+- F1: direct author replaces the actual provider 504 with a generic completion error. The minimized direct-author component repro is red (`followup-author-504-red2.log`); the first attempt lacked required fixture context and is not valid bug evidence.
+- F2: a corrected canonical object transfer still meets a held-act publication refusal. Reproduce the captured unknown-owner/valid-owner sequence in the real native component before changing the guard; do not remove consent or assert an uncommitted action.
+- F3: missing native output/private composition after observation. Inspect the exact completion and existing correction path; preserve provider/model attribution and never expose reasoning as prose. Provider-supported required tool choice is only a candidate until verified against the actual transport and reference/OOC behavior.
+- F4: remove the unused legacy generic caption rather than weaken its exact-key guard. The existing test is red (`followup-unused-caption-red.log`).
+- Required completion: focused regressions, appropriate complete regression and real natural-language continuation covering the corrected handoff/observation/compound location paths. Upstream availability itself cannot be guaranteed; specific failure reasons and canonical settlement must reach the player.
+
+Follow-up implementation checkpoint: direct author/notice causes pass (including a real native component 504 with settled receipts), corrected owner handover passes the full five-case recovery file, both captured M3 XML frames pass the real native component, and the actual product prompt contains no inherited compose/public-prose contract. The initial new full LAN run was stopped by its owning runner after fresh live global turn 11 exposed a second closed transport spelling: bare version-4 JSON. That raw failure remains retained. Native-only whole-packet restoration is now covered by the exact raw body and normal publication regression; restart full regression after this source stabilizes. No required-tool strategy is claimed: the exact MiniMax Messages endpoint currently documents auto only.
+
+Follow-up real-play checkpoint on source `549a92bda`:
+`enhanced-locations-followup-cold2-20261019` completed nine natural inputs with no
+unfinished delivery. Exact old failed observation now routes the bare v4 packet
+and produces a real author response. The same investigator shows the existing
+address note, returns to the authored house exterior, enters a new inn at its
+front desk, visits an unregistered child room, approaches its window without
+opening it and returns to the original pharmacy counter. The window approach
+initially omitted its move; the existing same-turn correction supplies it and
+only one stationary time receipt remains. The pharmacy definition/features
+compare equal after revisiting. OOC has zero tools and an unchanged
+position/clock. Its prose has a model-authored trailing reference marker, a
+cosmetic observation outside the repaired F1–F4 path. A normal process restart
+preserves the exact position/clock; the resumed natural conversation also
+completed successfully. All live runs were stopped normally. No scripted player,
+fabricated state or replacement Keeper was used.
+
+The live note sequence is showing/reading, not a physical ownership transfer;
+F2's invalid-owner/corrected-transfer proof is the real native component.
+`followup-profile-audit.json` confirms actual Keeper, author and NPC assistant
+metadata all use MiniMax M3.1/medium. Combined private workspace/raw live evidence
+is 82,903,235 logical bytes, below the admitted 512 MiB bound; all failed evidence
+remains. Native decision file `turn-packet-prototype.test.mjs` passes 50/50
+locally. Final LAN `all` completed as `run.8UX5Qp0X` on the same commit, and all
+eight changed production/caption hashes match the built runtime and full-test
+source. Its 707 extension files report 6256 total / 6247 pass / 0 fail / 9
+skipped; native integration is 2237/2237 and routing is 12/12. Every phase and the
+overall runner exited zero, wall 1171 seconds. Actual metadata and JUnit agree:
+2236 leaf cases plus one parent suite, no failure/error elements. The source
+overlay contains only the two progress documents. Formal local evidence is in
+`.coc/test-runs/enhanced-locations-20261019/followup-lan-final/` and the summary is
+`followup-lan-all2.log`; the complete remote archive remains retained.
+
+F1–F4 repair acceptance is complete at the source/runtime level. Upstream
+availability is not guaranteed. Cross-place observation of an ongoing street
+event was not established by these runs. No App packaging/installation, push,
+issue closure or retained-evidence deletion was performed.

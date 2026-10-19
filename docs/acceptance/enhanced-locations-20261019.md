@@ -1,7 +1,10 @@
 # Enhanced Locations Mod acceptance
 
-Status: locally complete, with the existing unrelated regression failure recorded
-below. Production source is committed through `5d6a1a308` on `0.9.8a`.
+Status: original implementation and F1–F4 failure repairs locally validated.
+The initial handoff left failures described below; its completion claim was too
+broad. Repair source is committed as `549a92bda` on `0.9.8a`; the final full
+regression completed with exit 0. This is source-runtime acceptance, not an App
+installation or acceptance of the proposed cross-place observation enhancement.
 This report distinguishes actual
 Keeper play, read-only state verification and controlled regression tests.
 
@@ -135,24 +138,24 @@ were retained. Turn 7 produced no required native composition and failed with
 `Expected a private composition brief or reference answer`. Its saved counter
 position stayed unchanged (`live-cold-failed-look-position.json`), which proves
 failure isolation, not a successfully played observation. Neither failure is
-counted as location exploration success. No money/author/NPC subsystem repair
-was added merely because this acceptance encountered it.
+counted as location exploration success. The initial checkpoint deferred the
+publication failures; the owner-requested follow-up below repairs those paths.
 
 These observations do not establish that all compound player actions or model
 tool arguments are reliable. They do establish the new place path, same-record
 revisits, local-pose distinction and persisted consequences in actual play.
-General author/provider failure reporting and unrelated NPC protocol redesign
-were not expanded into this task.
+The follow-up repairs bounded author/provider failure reporting and native
+publication; it does not redesign unrelated NPC behavior.
 The kernel enforces a declared `through:{place,feature}` against persistent
 passability; the Keeper still supplies the semantically appropriate route and
 boundary binding. V1 does not infer complete physical geometry from prose.
 
-## Regression and context measurements
+## Initial checkpoint regression and context measurements
 
-The latest quick gate is 130/130; TypeScript kernel checking passes. Location
+The initial quick gate is 130/130; TypeScript kernel checking passes. Location
 units are 27/27, native correction components 2/2, read-only/write RPC regression
 9/9 and cancellation guards 2/2. Historical migration originals remain unchanged.
-The final LAN snapshot's complete native-output file passes all 55 tests,
+That LAN snapshot's complete native-output file passes all 55 tests,
 including both six-result pressure variants.
 
 The six-result pressure fixture now captures the actual native call/results
@@ -170,9 +173,10 @@ pre-existing unused `turn_unfinished_notice` caption. Raw full-run exit codes ar
 deliberately interrupted runs; an interruption is not a pass.
 The unrelated caption's starting-point proof is
 `.coc/test-runs/enhanced-locations-20261019/baseline-unused-caption.txt`; neither
-its English source nor the exact-key guard changed in this task.
+its English source nor the exact-key guard changed at that checkpoint. The
+owner-requested follow-up removes the unused key without weakening the guard.
 
-Final complete LAN snapshot **`run.sq9sNUff`**, source
+Initial handoff's complete LAN snapshot **`run.sq9sNUff`**, source
 `5d6a1a3082bff2d9911b31be954c8878fd00e4e4`, wall 1162 seconds:
 
 | Phase | Result |
@@ -182,7 +186,8 @@ Final complete LAN snapshot **`run.sq9sNUff`**, source
 | Routing loop | 12/12; exit 0 |
 | Overall runner | Exit 1, solely the unchanged caption-key failure |
 
-There are no new regression failures. Local retained summary is
+That snapshot had no new regression failures, but still had a real failing gate.
+Local retained summary is
 `.coc/test-runs/enhanced-locations-20261019/final3-lan-all.log`. The complete
 remote archive is `/home/leehow/leehow/code/wt/codex-tests/.pytest-runs/chatrpgv4-wt-pi-coc-v2/run.sq9sNUff/`.
 The native run metadata and JUnit XML are also retained locally as
@@ -202,7 +207,7 @@ for the Keeper, final author and NPC tasks. Every observed tuple is
 `minimax-cn/MiniMax-M3.1-Flash-Preview` / `medium`. The two failed provider
 messages are the initial missing-provider setup and the retained author 504;
 neither is quota exhaustion. These are message counts, not played-turn counts.
-Final private workspace plus raw-run logical storage is 70,270,739 bytes
+Initial private workspace plus raw-run logical storage is 70,270,739 bytes
 (approximately 67 MiB), below the admitted 512 MiB bound (`storage-final.json`).
 No retained evidence was deleted.
 
@@ -213,6 +218,91 @@ deployment, formal-campaign mutation, branch/worktree deletion or evidence GC
 was performed. The installed App has not been used to claim this source change's
 acceptance. The versioned Mod and source runtime are the delivered implementation.
 The six linked issues remain open pending publication; their local implementation
-and validation states are recorded in the ticket index. All required source,
-real-play, restart and full-regression work for this goal is complete. The
-upstream/provider and protocol limitations above remain explicit.
+and validation states are recorded in the ticket index. The initial checkpoint
+above left known failures. Its completion claim is superseded by the owner
+failure follow-up below.
+
+
+## Owner failure follow-up (locally validated)
+
+The first handoff overstated completion. The owner asked for the failures to be
+fixed. The original records remain unchanged.
+
+- Direct author: an actual upstream HTTP 504 was wrapped as a generic completion error. The provider status and bounded cause now survive through the native publication boundary into the readable notice, alongside canonical settlement status. Component verification covers failure before prose and after a partial stream without a second author request. The upstream service itself is outside this repair.
+- Corrected handover: an invalid owner reference followed by a successful transfer still poisoned publication. A complete atomic apply unknown-entity refusal can now project as an uncommitted failed attempt beside actual receipts; unknown execution/partial transport still cannot. The real native component transfers one item and completes publication. The original hold is not blanket-cleared.
+- Native output: raw text_delta/text_end and private_reply proved complete M3 XML output frames were present; the post-filter thinking-only view was misleading. Both captured frames now restore exact arguments through the ordinary native boundary. Registration and text restoration now consume the same version-4 output schema. The actual product request test falsifies contradictory inherited compose/public instructions.
+- Fresh follow-up observation, global turn 11: the model returned a bare complete v4 decision twice. This remains a failed live turn. A whole closed v4 envelope is now restored only when the offered output schema itself declares v4. Existing legacy/setup bare arguments, reference prose and unknown versions retain their prior behavior. Exact raw bodies, XML boundary/string protections and native publication are covered; no force-tool strategy, model switch or semantic interpretation is introduced.
+- Unused caption: remove the unused generic unfinished key from the English source and the cached seed, leaving the exact-key test unchanged. A genuinely missing native output now reports that specific publication failure.
+
+Current gates: fast 130/130, kernel TypeScript checking passed, native decision
+file `turn-packet-prototype.test.mjs` 50/50, native handover recovery 5/5,
+direct-author/held/notice focused group 97/97
+before the additional native diagnostics, final diagnostic boundary 7/7,
+text-call file 31/31 and exact wire/whole-packet cases 6/6. These are
+deterministic/component evidence, not live play. The preliminary full run
+`run.Nytvt0M5` was interrupted with exit 143 after a fresh real turn exposed the
+bare-packet form; it is retained and is not a passing regression.
+
+### Real continuation after the repairs
+
+`enhanced-locations-followup-cold2-20261019` completed nine natural inputs on the
+same cold campaign, with no unfinished delivery. The subsequent normal restart
+run completed one further conversation. The initial failed follow-up global turn
+11 remains failed; later success does not rewrite it.
+
+| Behavior | Actual follow-up evidence |
+|---|---|
+| Repeat the previously failed observation without moving | Global 12 restores the exact whole v4 packet through the native boundary, publishes a real author response and preserves the pharmacy counter position |
+| Show the existing address note | Globals 13–14 produce a normal response and committed document show/observe receipts; this is not a physical ownership transfer |
+| Return to authored surroundings | Global 15 arrives at the existing Corbitt exterior |
+| Establish and enter another inn | Global 16 commits `旅馆大堂`, its front desk and the position at that desk |
+| Enter its unregistered child room | Global 17 commits `旅馆大堂 / 二楼空客房`, its parent and actual arrival |
+| Approach a window without opening it | Global 18 corrects an omitted move in the same turn, commits the window-side pose and retains only the original three-minute activity receipt |
+| Revisit the original pharmacy | Global 19 uses the separate place entry; definition/features compare equal and the counter-side pose is committed |
+| Ask an OOC location question | Global 20 uses zero tools; canonical position and clock remain unchanged |
+| Restart normally and resume conversation | Before/after startup position and clock compare equal; the next natural input delivers a normal response in the same pharmacy |
+
+The corrected unknown-owner/valid-owner **physical transfer** is proved by the
+real native component, not by the live note-showing turns. The OOC prose contains
+a model-authored trailing reference marker; this cosmetic observation remains
+outside F1–F4. These runs do not establish cross-place observation of an ongoing
+street event.
+
+Actual assistant metadata, rather than requested defaults, confirms Keeper,
+sole author and NPC tasks all used MiniMax M3.1 Flash Preview / medium. No
+provider error or quota exhaustion occurred in the successful follow-up runs.
+Evidence is retained in `followup-live-summary.json`,
+`followup-observation-telemetry.json`, `followup-spatial-receipts.json`,
+`followup-local-window-correction.json`, `followup-pharmacy-revisit.json`,
+`followup-after-reference.json`, `followup-after-restart.json` and
+`followup-profile-audit.json` under the task's existing test-run directory.
+All owned live driver processes were stopped normally. Combined private workspace
+and raw live evidence totals 82,903,235 logical bytes, below the admitted 512 MiB
+bound (`followup-final-capacity.json`); no evidence was deleted.
+
+### Final follow-up regression
+
+Full LAN `all` completed as **`run.8UX5Qp0X`**, source
+`549a92bdad780c56dde8eafe92de7a5ecdc6aec6`, wall 1171 seconds:
+
+| Phase | Result |
+|---|---|
+| Extension, 707 files | 6256 total / 6247 pass / 0 fail / 9 skipped; exit 0 |
+| Native TypeScript integration | 2237 pass / 0 fail; exit 0 |
+| Routing loop | 12 pass / 0 fail; exit 0 |
+| Overall runner | Exit 0 |
+
+Actual archived phase exits and native runner metadata all report zero. JUnit
+contains 2236 leaf testcase elements, zero failure/error elements and one parent
+suite, matching Node's 2237 pass count. The mirrored source overlay contains only
+the two progress-report documents. All eight changed production/caption source
+hashes match both the built runtime used by the real continuation and the full
+test source. No production code changed after that snapshot.
+
+The complete remote archive is
+`/home/leehow/leehow/code/wt/codex-tests/.pytest-runs/chatrpgv4-wt-pi-coc-v2/run.8UX5Qp0X/`.
+Local summary is `followup-lan-all2.log`; the actual exit files, native run
+metadata, JUnit, source head/diff/manifest and per-file exit accounting are
+retained in `followup-lan-final/`, including `verification.json`. The upstream
+provider can still fail; the repaired contract reports its actual known cause
+and preserves committed settlement instead of promising availability.
