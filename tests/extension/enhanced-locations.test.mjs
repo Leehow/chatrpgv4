@@ -36,14 +36,16 @@ test('input relevance selects context only, keeps uncertainty conservative and n
 test('spatial completion composes independent movement and feature answers without an invented confidence',async()=>{
     const binding={campaign:'test',turn:2},input={player_declaration:'I approach the window.',proposed_effects:[],settled_receipts:[]};
     const batch=locationCoverageBatch(input,binding);packDecisionBatch(batch);
-    assert.equal(batch.familyVersion,'3');assert.equal(batch.questions.length,6);assert(batch.questions.every(question=>question.type==='noul'));
-    const review=async values=>locationDecisionCoverage(input,binding,{decide:async current=>({batchId:current.id,status:'complete',answers:Object.fromEntries(current.questions.map(q=>[q.key,{status:'answered',type:'noul',noul:values[q.key]??.01}]))})},new AbortController().signal);
+    assert.equal(batch.familyVersion,'4');assert.equal(batch.questions.length,4);assert(batch.questions.every(question=>question.type==='noul'));
+    assert(!batch.questions.some(question=>question.key.endsWith('_accounted')),'typed operation presence is not a model judgment');
+    const review=async(values,effects=[])=>locationDecisionCoverage({...input,proposed_effects:effects},binding,{decide:async current=>({batchId:current.id,status:'complete',answers:Object.fromEntries(current.questions.map(q=>[q.key,{status:'answered',type:'noul',noul:values[q.key]??.01}]))})},new AbortController().signal);
     const missing=await review({move_selected:.99});
     assert.equal(missing.covered,false);assert.equal(missing.axes.move,'missing');assert.equal(missing.axes.feature,'not_selected');
     assert.equal(missing.probabilities.move_selected,.99);assert.equal(missing.probability,undefined,'independent answers have no aggregate probability');
     assert.equal(missing.to,undefined,'a completion finding never executes a destination');
-    const arrival=await review({move_selected:.99,move_accounted:.99});assert.equal(arrival.covered,true);
-    const omittedFeature=await review({move_selected:.99,move_accounted:.99,feature_selected:.99});
+    const move={kind:'move',to:'Ordinary Inn'};
+    const arrival=await review({move_selected:.99},[move]);assert.equal(arrival.covered,true);assert.equal(arrival.accounting.move,'proposed');
+    const omittedFeature=await review({move_selected:.99,feature_selected:.99},[move]);
     assert.equal(omittedFeature.covered,false);assert.equal(omittedFeature.axes.feature,'missing','a movement does not replace opening the window');
     const blocked=await review({move_selected:.99,move_blocked:.99});assert.equal(blocked.covered,true);assert.equal(blocked.axes.move,'blocked');
     const unsure=await review({move_selected:.5});assert.equal(unsure.covered,false);assert.equal(unsure.axes.move,'uncertain');
@@ -51,6 +53,14 @@ test('spatial completion composes independent movement and feature answers witho
     const unavailable=await locationDecisionCoverage(input,binding,undefined,new AbortController().signal);assert.equal(unavailable.covered,false);
     const partial=await locationDecisionCoverage(input,binding,{decide:async current=>({batchId:current.id,status:'complete',answers:{move_selected:{status:'answered',type:'noul',noul:.99}}})},new AbortController().signal);
     assert.equal(partial.status,'fallback');assert.equal(partial.covered,false,'all independent answers must be valid');
+    const selected={...input,initial_selection:{move:.95,feature:.02}};
+    const noRepeat={decide:async()=>{throw Error('An actual typed movement is judged by admission, not another completion question');}};
+    for(const [extra,source]of [[{proposed_effects:[move]},'proposed'],[{settled_receipts:[{kind:'move',from:'Room',to:'Ordinary Inn'}]},'committed']]){
+        const accounted=await locationDecisionCoverage({...selected,...extra},binding,noRepeat,new AbortController().signal);
+        assert.equal(accounted.covered,true);assert.equal(accounted.jev_calls,0);assert.equal(accounted.accounting.move,source);assert.equal(accounted.status,'accounted');
+    }
+    const missingBatch=locationCoverageBatch(selected,binding);
+    assert.deepEqual(missingBatch.questions.map(question=>question.key),['move_blocked'],'only the missing selected dimension asks about a real blocker');
 });
 test('the dedicated typed tool normalizes before canonical write admission, without another transaction',()=>{
     assert(COC_TOOL_NAMES.includes('place'));

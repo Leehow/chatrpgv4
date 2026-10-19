@@ -97,18 +97,18 @@ test('an empty spatial decision is corrected before any author or world change',
  let demand=()=>{};
  const engine=createHybridEngine({env,decision:{decide:async batch=>{
   if(batch.family!=='location-decision-coverage')return answer(batch,.99);
-  const moved=batch.state.proposed_effects.some(effect=>effect.kind==='place');
-  const values={move_selected:.99,move_accounted:moved?.99:.02,move_blocked:.01,feature_selected:.01,feature_accounted:.01,feature_blocked:.01};
+  const values={move_selected:.99,move_blocked:.01,feature_selected:.01,feature_blocked:.01};
   return {...answer(batch,.99),answers:Object.fromEntries(batch.questions.map(q=>[q.key,{status:'answered',type:'noul',noul:values[q.key]}]))};
  }}});
  const command={kind:'place',action:'move',to:'Ordinary Inn',via:'Along the street',travel_band:'adjacent',additions:[{name:'Ordinary Inn',description:'A modest public inn.'}]};
  const table=await openTable({legacyDeliveryFixtures:false,realKernel:true,prepareWorkspace:opened,env,runDriver:engine.runDriver,
-  extraExtensions:[{name:'engine',factory:engine.extension},{name:'location-relevance-fixture',factory:pi=>{demand=()=>pi.events.emit('coc:location-demand',{campaign:'test-camp',turn:1,review:true});}}],responses:[
+  extraExtensions:[{name:'engine',factory:engine.extension},{name:'location-relevance-fixture',factory:pi=>{demand=()=>pi.events.emit('coc:location-demand',{campaign:'test-camp',turn:1,review:true,selection:{move:.99,feature:.01}});}}],responses:[
    ()=>{demand();return fauxAssistantMessage([rawToolCall('output',{version:4})],{stopReason:'toolUse'});},
    ()=>fauxAssistantMessage([rawToolCall('output',{version:4,commands:[command,{kind:'scene',service:'open',crowd:'empty'}]})],{stopReason:'toolUse'})]});
  t.after(()=>table.dispose());await table.session.prompt('I enter an ordinary inn.');
  assert.deepEqual(table.extensionErrors,[]);
- assert(table.telemetry().some(row=>row.lane==='location-decision-coverage'&&row.probabilities?.move_accounted===.02&&row.covered===false));
+ assert(table.telemetry().some(row=>row.lane==='location-decision-coverage'&&row.axes?.move==='missing'&&row.accounting?.move===null&&row.covered===false));
+ assert(table.telemetry().some(row=>row.lane==='location-decision-coverage'&&row.covered===true&&row.jev_calls===0),'the corrected actual movement does not get a second semantic veto');
  assert.equal(table.entries('coc-final-delivery').filter(row=>row.event==='end'&&row.status==='completed').length,1);
  assert.equal((await table.runtimeBridges().at(-1).call('table.capsule',{campaign:'test-camp'})).where.scene,'Ordinary Inn');
  assert.equal(table.telemetry().filter(row=>row.lane==='turn-packet-prototype'&&row.ok===true).length,1,'the empty packet never publishes a false arrival');

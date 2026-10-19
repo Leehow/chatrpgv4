@@ -777,7 +777,7 @@ export function installContextPolicy(pi: ExtensionAPI, writeTelemetry: (row: Row
             if(!reused)locationRelevance={key,promise:locationContextRelevance(snapshot.capsule,snapshot.binding,decision(),inputLifetime.signal,foregroundBudget?.())};
             const relevance=await locationRelevance.promise;
             if(ticket===generation&&!inputLifetime.signal.aborted&&snapshot.binding.campaign===campaign&&snapshot.binding.turn===observedTurn){
-                if(relevance.needed){(turnCalls.context??=new Set()).add('place');pi.events.emit('coc:location-demand',{campaign,turn:observedTurn,review:relevance.review});}
+                if(relevance.needed){(turnCalls.context??=new Set()).add('place');pi.events.emit('coc:location-demand',{campaign,turn:observedTurn,review:relevance.review,selection:relevance.selection});}
                 record({lane:'location-context',...relevance,reused});
             }
         }
@@ -983,7 +983,7 @@ export function installContextPolicy(pi: ExtensionAPI, writeTelemetry: (row: Row
             &&(handoff.worldline??'main')===(snapshot.binding.worldline??'main')&&(handoff.loop??0)===(snapshot.binding.loop??0)
             &&handoff.source_revision===(snapshot.binding.task_source_revision??snapshot.binding.source_revision))
             discoveryTask=object(handoff.task);
-        const discoveryCalls={apply:new Set(turnCalls.apply),resolve:new Set(turnCalls.resolve)};
+        const discoveryCalls={apply:new Set(turnCalls.apply),resolve:new Set(turnCalls.resolve),context:new Set(turnCalls.context??[])};
         for(const op of discoveryTask.operations??[]){
             if(op.verb==='apply'&&typeof op.family==='string')discoveryCalls.apply.add(op.family);
             if(op.verb==='resolve'&&typeof op.family==='string')discoveryCalls.resolve.add(op.family);

@@ -26,30 +26,44 @@ export async function locationContextRelevance(capsule:Row,binding:Row,decision:
  const result=await locationNoul(locationContextBatch(capsule,binding),decision,signal,parent);
  if(result.status!=='answered')return {...result,needed:true,review:false};
  const {move_selected,feature_selected,reference_selected}=result.probabilities;
- return {...result,needed:[move_selected,feature_selected,reference_selected].some(value=>value>.4),review:move_selected>.4||feature_selected>.4};
+ return {...result,selection:{move:move_selected,feature:feature_selected},needed:[move_selected,feature_selected,reference_selected].some(value=>value>.4),review:move_selected>.4||feature_selected>.4};
+}
+const axes=['move','feature'] as const;
+function initialSelection(input:Row):Record<string,number>|undefined {
+ const selected=input.initial_selection;
+ return selected&&axes.every(axis=>typeof selected[axis]==='number'&&Number.isFinite(selected[axis])&&selected[axis]>=0&&selected[axis]<=1)?selected:undefined;
+}
+/** Presence is deterministic; only ordinary admission judges the operation's semantic scope. */
+function locationAccounting(input:Row):Row {
+ const effects:Row[]=input.proposed_effects??[],receipts:Row[]=input.settled_receipts??[];
+ const movement=(row:Row,committed=false)=>row.kind==='place'&&row.action==='move'||row.kind==='move'&&(committed?row.from!==row.to:!['here',input.current_place,input.current_display_name].includes(row.to));
+ const feature=(row:Row)=>row.kind==='place'&&row.action==='feature';
+ return {move:effects.some(row=>movement(row))?'proposed':receipts.some(row=>movement(row,true))?'committed':null,
+  feature:effects.some(feature)?'proposed':receipts.some(feature)?'committed':null};
 }
 export function locationCoverageBatch(input:Row,binding:Row):DecisionBatch {
  const revision=createHash('sha256').update(JSON.stringify(input)).digest('hex');
- return {id:'location-decision-coverage:v3:'+revision,model:JEV_MODEL,family:'location-decision-coverage',familyVersion:'3',
-  scope:{owner:'location-decision-coverage',campaign:binding.campaign,audience:'keeper'},readSet:[{kind:'draft',resource:'turn:'+binding.turn+':spatial-decision',revision},{kind:'family',resource:'location-decision-coverage',revision:'3'}],state:input as Json,
-  questions:[
+ const selected=initialSelection(input),accounting=locationAccounting(input);
+ const questions:DecisionBatch['questions']=selected?[]:[
    {key:'move_selected',type:'noul',target:'the current player declaration',instructions:'Does the player select an actual change of place or local position now? Entering/leaving a place and approaching a feature or corner are movement. Merely observing, asking a question, considering a conditional plan or describing where one already stands does not select movement. Judge only the declaration in the supplied current spatial context, not whether the proposal carried it out.'},
-   {key:'move_accounted',type:'noul',target:'movement in the proposed effects and settled receipts',instructions:'Is the movement selected by the current declaration actually represented by a corresponding move or place-move effect, or already completed by a corresponding committed movement/position receipt? An actual intermediate position can represent an attempted route. A time cost, population assessment, registration-only establishment, prose or response alone does not move the investigator. Arrival at a broad containing place is not the selected child or feature. A same-place effect without a meaningful selected local position does not account for approaching a feature. Judge actual movement evidence, not an inferred consequence of time.'},
-   {key:'move_blocked',type:'noul',target:'obstacles to the selected movement',instructions:'Does supplied current world evidence or a proposed typed NPC response establish a real obstacle or necessary unresolved choice that legitimately stops the selected movement? A known physical barrier or refusal of required access can stop it. A tool argument error, missing registration, elapsed time or a response that merely describes looking is not such an obstacle. Do not invent obstacles or new commitments for the player.'},
-   {key:'feature_selected',type:'noul',target:'the current player declaration',instructions:'Does the player select a physical state change of a persistent spatial feature now, such as opening/closing a particular door or window? Merely approaching, looking at or asking about that feature does not select a state change. Judge the declaration, not an embellishment in a proposed response.'},
-   {key:'feature_accounted',type:'noul',target:'feature changes in the proposed effects and settled receipts',instructions:'Is the persistent feature-state change selected by the declaration represented by a corresponding feature effect or already completed by a corresponding committed state-change receipt? Movement, elapsed time, a place definition, standing beside the feature or descriptive prose alone does not change its state. Judge only supplied state-changing effects and receipts, never assumed gestures.'},
-   {key:'feature_blocked',type:'noul',target:'obstacles to the selected feature change',instructions:'Does supplied current world evidence or a proposed typed NPC response establish a real obstacle or necessary unresolved choice that legitimately stops the selected feature-state change? A physical impediment or refusal of required access can stop it. A tool argument error, unregistered feature, elapsed time or observation alone is not such an obstacle. Do not invent a barrier or additional player commitment.'}
-  ]};
+   {key:'feature_selected',type:'noul',target:'the current player declaration',instructions:'Does the player select a physical state change of a persistent spatial feature now, such as opening/closing a particular door or window? Merely approaching, looking at or asking about that feature does not select a state change. Judge the declaration, not an embellishment in a proposed response.'}];
+ for(const axis of axes)if(!accounting[axis]&&(!selected||selected[axis]>.4))questions.push({key:axis+'_blocked',type:'noul',target:axis==='move'?'obstacles to the selected movement':'obstacles to the selected feature change',
+  instructions:'Does supplied world evidence or a proposed typed NPC response establish a real obstacle or necessary unresolved choice that legitimately stops the selected '+(axis==='move'?'movement':'feature-state change')+'? A known physical impediment or refusal of required access can stop it. A Keeper-proposed observable obstruction established in this same transaction can account for an attempt. A tool argument error, missing registration, elapsed time or observation alone is not an obstacle. Do not invent a barrier or additional player commitment.'});
+ return {id:'location-decision-coverage:v4:'+revision,model:JEV_MODEL,family:'location-decision-coverage',familyVersion:'4',
+  scope:{owner:'location-decision-coverage',campaign:binding.campaign,audience:'keeper'},readSet:[{kind:'draft',resource:'turn:'+binding.turn+':spatial-decision',revision},{kind:'family',resource:'location-decision-coverage',revision:'4'}],state:input as Json,questions};
 }
 export async function locationDecisionCoverage(input:Row,binding:Row,decision:DecisionPort|undefined,signal:AbortSignal,parent?:TaskProviderBudget):Promise<Row> {
- const result=await locationNoul(locationCoverageBatch(input,binding),decision,signal,parent);
+ const batch=locationCoverageBatch(input,binding),initial=initialSelection(input),accounting=locationAccounting(input);
+ const result:Row=batch.questions.length?await locationNoul(batch,decision,signal,parent):{status:'answered',probabilities:{},ms:0};
  if(result.status!=='answered')return {...result,covered:false};
- const axes=Object.fromEntries(['move','feature'].map(axis=>{
-  const selected=result.probabilities[axis+'_selected'],accounted=result.probabilities[axis+'_accounted'],blocked=result.probabilities[axis+'_blocked'];
-  const status=selected<=.4?'not_selected':accounted>=.6?'accounted':blocked>=.6?'blocked':selected>=.6?'missing':'uncertain';
+ const selection=initial??Object.fromEntries(axes.map(axis=>[axis,result.probabilities[axis+'_selected']]));
+ const disposition=Object.fromEntries(axes.map(axis=>{
+  const selected=selection[axis],blocked=result.probabilities[axis+'_blocked'];
+  const status=selected<=.4?'not_selected':accounting[axis]?'accounted':blocked>=.6?'blocked':selected>=.6?'missing':'uncertain';
   return [axis,status];
  }));
- return {...result,covered:Object.values(axes).every(status=>!['missing','uncertain'].includes(status)),axes};
+ return {...result,...(!batch.questions.length?{status:'accounted'}:{}),selection,accounting,jev_calls:batch.questions.length?1:0,
+  covered:Object.values(disposition).every(status=>!['missing','uncertain'].includes(status)),axes:disposition};
 }
 async function locationNoul(batch:DecisionBatch,decision:DecisionPort|undefined,signal:AbortSignal,parent?:TaskProviderBudget):Promise<Row> {
  if(!decision)return {status:'fallback',reason:'unconfigured'};

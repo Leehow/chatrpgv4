@@ -403,6 +403,7 @@ interface TableState {
     /** Location detail is read on demand, for this input only. */
     locationContextTurn?:number;
     locationReviewTurn?:number;
+    locationSelection?:{turn:number;move:number;feature:number};
   /** §163: a scope Jev could not settle plays as `world`; only a settled out-of-fiction request is `reference`. */
   interactionScope?: 'world' | 'reference';
   /** §233.10: `world` came from a settled verdict (Jev authorized a world action, or a document edit), not a fallback. */
@@ -1525,7 +1526,12 @@ export default function (pi: ExtensionAPI, host: {capabilities?:RuntimeCapabilit
 	let singleKeeper=false;
 	let turnDecisionPort:DecisionPort|undefined;
 	pi.events.on('coc:turn-decision-port',(value:DecisionPort|undefined)=>{turnDecisionPort=value&&typeof value.decide==='function'?value:undefined;});
-    pi.events.on('coc:location-demand',(value:{campaign?:string;turn?:number;review?:boolean})=>{if(table&&value.campaign===table.campaign&&value.turn===table.turn){table.locationContextTurn=table.turn;if(value.review===true)table.locationReviewTurn=table.turn;}});
+    pi.events.on('coc:location-demand',(value:{campaign?:string;turn?:number;review?:boolean;selection?:{move:number;feature:number}})=>{
+        if(!table||value.campaign!==table.campaign||value.turn!==table.turn)return;
+        table.locationContextTurn=table.turn;if(value.review===true)table.locationReviewTurn=table.turn;
+        if(value.selection&&[value.selection.move,value.selection.feature].every(value=>typeof value==='number'&&Number.isFinite(value)&&value>=0&&value<=1))
+            table.locationSelection={turn:table.turn,...value.selection};
+    });
 	let isolatedOutput=false;
 	let turnPacketPrototype=false;
 	let keeperRun:{runId:string;inputRevision:string;signal?:AbortSignal;recordCallId?:string;
@@ -5739,7 +5745,9 @@ export default function (pi: ExtensionAPI, host: {capabilities?:RuntimeCapabilit
             if(state.locationReviewTurn===state.turn&&state.interactionScope!=='reference'){
                 const status=await state.kernel.call<{receipts:Record<string,unknown>[]}>('table.status',{campaign:state.campaign,projection:'receipts',expected_turn:state.turn});
                 const receipts=status.receipts.map(receipt=>Object.fromEntries(['kind','action','from','to','position','feature','before','after'].filter(key=>receipt[key]!==undefined).map(key=>[key,receipt[key]])));
-                const coverage=await locationDecisionCoverage({player_declaration:state.playerText,current_place:before.where?.scene,current_position:before.where?.location?.position,
+                const selection=state.locationSelection?.turn===state.turn?state.locationSelection:undefined;
+                const coverage=await locationDecisionCoverage({player_declaration:state.playerText,current_place:before.where?.scene,current_display_name:before.where?.display_name,current_position:before.where?.location?.position,
+                    ...(selection?{initial_selection:{move:selection.move,feature:selection.feature}}:{}),
                     features:before.where?.location?.features??[],proposed_effects:compiled.effects,proposed_responses:compiled.responses,settled_receipts:receipts,known_failures:heldBoundary?.uncommittedFailures()??[]},
                     {campaign:state.campaign,turn:state.turn},turnDecisionPort,reply.signal??state.lanes.signal,foregroundProviderBudget?.());
                 await record({lane:'location-decision-coverage',turn:state.turn,...coverage});

@@ -1542,7 +1542,7 @@ for(const renameGrowth of [false,true])test('the next native request keeps six r
   const {installContextPolicy}=await importSource('extensions/table/context-runtime.ts');
   const measure=await importSource('extensions/table/context-policy.ts');
   const engine=createHybridEngine({env:{...process.env,PI_COC_JEV_PRESELECT:'0'},decision:checkedRecovery});
-  let expectedResults,expectedBatch,sourceBefore,secondRequest,thirdRequest;
+  let expectedResults,expectedCalls,sourceBefore,secondRequest,thirdRequest;
   const telemetry=[];
   const pressureDriver={...engine.runDriver,prepare:async context=>{
     const plan=await engine.runDriver.prepare(context),original=plan.ports.operations;
@@ -1558,8 +1558,6 @@ for(const renameGrowth of [false,true])test('the next native request keeps six r
         const operated=[...request.view.observations].reverse().find(row=>row.kind==='operate'&&row.toolResults?.length===6);
         if(operated){
           expectedResults=operated.toolResults;sourceBefore=JSON.stringify(expectedResults);
-          const ids=new Set(expectedResults.map(row=>row.toolCallId));
-          expectedBatch=rows.filter(row=>ids.has(row.toolCallId)||row.role==='assistant'&&row.content?.some(part=>part.type==='toolCall'&&ids.has(part.id)));
         }
         return rows;
       }}}};
@@ -1567,8 +1565,8 @@ for(const renameGrowth of [false,true])test('the next native request keeps six r
   const inflate=capsule=>({...capsule,
     module:{...capsule.module,fixture_static:'s'.repeat(2000)},
     ...(renameGrowth?{fixture_handles:Array(500).fill('qx')}:{}),
-    // Leave bounded room for mandatory disclosure packets; the six large results and ceiling stay fixed.
-    fixture_current:(capsule.where?.clock?.minutes??0)+':'+ 'c'.repeat(45000-4096)});
+    // Reserve the measured location grammar/disclosure growth; six results, handle expansion and ceiling stay fixed.
+    fixture_current:(capsule.where?.clock?.minutes??0)+':'+ 'c'.repeat(45000-16384)});
   const seen=[];
   const table=await openTable({legacyDeliveryFixtures:false,realKernel:true,prepareWorkspace:seedOpening,
     runDriver:pressureDriver,env:{PI_COC_LOOP_ENGINE:'hybrid-v1'},
@@ -1584,7 +1582,7 @@ for(const renameGrowth of [false,true])test('the next native request keeps six r
     })}},row=>telemetry.push(row)),
     extraExtensions:[{name:'driver',factory:engine.extension},{name:'capture',factory:pi=>pi.events.on('coc:final-delivery',row=>seen.push(row))}],
     responses:[()=>fauxAssistantMessage([fauxToolCall('apply',{effects:[{kind:'time',minutes:8}]})],{stopReason:'toolUse'}),
-      context=>{secondRequest=context;return fauxAssistantMessage(Array.from({length:6},()=>fauxToolCall('look',{focus:'investigator'})),{stopReason:'toolUse'});},
+      context=>{secondRequest=context;expectedCalls=fauxAssistantMessage(Array.from({length:6},()=>fauxToolCall('look',{focus:'investigator'})),{stopReason:'toolUse'});return expectedCalls;},
       context=>{thirdRequest=context;return fauxAssistantMessage('{{public}}You finish checking the desk.');}]
   });
   t.after(()=>table.dispose());
@@ -1594,14 +1592,19 @@ for(const renameGrowth of [false,true])test('the next native request keeps six r
   await table.session.prompt('I wait eight minutes and check my supplies.');
   assert(secondRequest);assert(thirdRequest);
   const ids=new Set(expectedResults.map(row=>row.toolCallId));
-  const fixed=thirdRequest.messages.filter(row=>!ids.has(row.toolCallId)&&!(row.role==='assistant'&&row.content?.some(part=>part.type==='toolCall'&&ids.has(part.id))));
+  // The run projection emits custom packets; Pi carries this original native batch separately.
+  assert.equal(expectedResults.length,6);
+  assert.deepEqual(new Set(expectedCalls.content.filter(part=>part.type==='toolCall').map(part=>part.id)),ids);
   const requestRow=telemetry.filter(row=>row.event==='request').at(-1);
-  assert.ok(measure.requestSize([...fixed,...expectedBatch])+requestRow.system_bytes<=measure.REQUEST_BYTES,
-    'fixture precondition: all mandatory packets, system and complete original batch fit the unchanged ceiling');
   const actual=thirdRequest.messages.filter(row=>row.role==='toolResult'&&expectedResults.some(expected=>expected.toolCallId===row.toolCallId));
+  if(actual.length!==expectedResults.length)t.diagnostic(JSON.stringify({request:requestRow,original_result_bytes:measure.requestSize(expectedResults),
+    consolidation:telemetry.filter(row=>row.event==='capsule_consolidation'),
+    messages:thirdRequest.messages.map(row=>({role:row.role,type:row.customType,bytes:measure.requestSize([row])}))}));
   assert.deepEqual(actual.map(row=>({id:row.toolCallId,content:row.content,isError:row.isError})),
     expectedResults.map(row=>({id:row.toolCallId,content:row.content,isError:row.isError})),'all six original read results reach the next provider request');
   assert.equal(JSON.stringify(expectedResults),sourceBefore);
+  if(renameGrowth)assert.ok(telemetry.some(row=>row.event==='capsule_consolidation'&&row.retained===true),'materialized current state reclaims the obsolete duplicate before the expanded native batch');
+  assert.ok(requestRow.request_bytes<=measure.REQUEST_BYTES,'the full measured request, including system material, keeps the unchanged ceiling');
   assert(measure.pairedTools(thirdRequest.messages));
   assert(measure.requestSize(thirdRequest.messages)<=measure.requestBudget(table.faux.getModel().contextWindow));
   const current=thirdRequest.messages.filter(row=>row.role==='user').flatMap(row=>row.content??[]).filter(row=>row.type==='text').map(row=>row.text).join('\n');

@@ -48974,7 +48974,8 @@ reference/structure lookup. These ask the declared action directly, not whether
 a model thinks a full contract would be helpful. Any answer > .4 discloses
 spatial-operation detail. A selected input discloses the location schemas and
 locked sections immediately, using a `context:before_apply:place` reason rather
-than recording a fictitious call. A negative result keeps the small entry;
+than recording a fictitious call. This context trigger also survives the version-2
+discovery snapshot copy. A negative result keeps the small entry;
 uncertainty or service failure conservatively discloses context. Answered
 movement/feature-selection uncertainty also enables the completion check. An
 unavailable applicability decision discloses material only; it cannot label every
@@ -48994,25 +48995,32 @@ require actual NPC presence, empty is a decided absence, and unknown is availabl
 for unassessed occupancy. Missing registry rows are not an automatic empty verdict.
 
 On an input positively selected by the typed location relevance review, every
-native packet receives one closed completion batch before any effects or prose.
-It compares the actual declaration, current location, proposed response,
-committed receipts and known atomic failures. Version 3 asks six independent
-Nouls in one fan-out request: movement selected, movement accounted for,
-movement blocked, feature change selected, feature change accounted for, and
-feature change blocked. For each axis, selection <= .4 requires no action;
-otherwise accounting >= .6 or a genuine obstacle/necessary choice >= .6 covers
-it. Selection >= .6 with neither is missing; intermediate selection is uncertain.
-Both axes must be covered. Preserve all six probabilities; do not manufacture
-an aggregate confidence. An already settled action and an actual intermediate
-position count; a glance/wait alone does not replace a selected visit. The
-review never selects or executes a destination. Refusal follows the same bounded
+native packet checks completion before any effects or prose. Version 4 reuses
+the first applicability batch's movement/feature selection probabilities. The
+host accounts for proposed or committed movement and feature-change operation
+classes deterministically. Their target, scope and restrictions are judged only
+by existing mandatory action admission; completion must not veto that same real
+step again. An actual intermediate journey counts as progress. Only a selected
+axis without an operation asks its independent blocked Noul, accepting a real
+obstacle/necessary choice at >= .6. A proposed observable obstruction established
+in the same transaction can account for an attempt; an argument error or absent
+registry row cannot. A standalone host without initial probabilities first asks
+the two independent selection Nouls in that same batch. Selection <= .4 requires
+no action; otherwise a corresponding operation or accepted blocker covers it.
+With neither, selection >= .6 is missing and intermediate selection is uncertain.
+Both axes must be covered. Preserve probabilities and typed accounting separately;
+never manufacture an aggregate confidence. Time/glance or establishment alone
+does not replace a selected visit. Review selects and executes no destination.
+Refusal follows the same bounded
 Keeper argument correction before authorship. The correction carries the actual
 current position and registered feature names, plus the exact local-move grammar;
 earlier prose and NPC movement cannot substitute for that investigator position.
 The batch shares the foreground
 provider budget and short-structure/critical-path exception. This atomic fan-out
-follows TypeSafe's Noul and fan-out guidance; the earlier compound question
-incorrectly accepted time alone for approaching a window in retained live play.
+follows TypeSafe's Noul/fan-out guidance and its separation of model judgment
+from deterministic facts. The earlier compound question accepted time alone for
+a window approach; a later duplicate semantic accounting question wrongly
+blocked a real room-to-lobby return. Both raw failures remain evidence.
 Provider declarations present object-union properties under an explicit object
 root while retaining the original branch constraints; registered validators do
 not change. This representation is checked for schema equivalence, not assumed
@@ -49020,8 +49028,8 @@ to cure every provider error.
 
 Time, population assessment and registration-only effects are not spatial
 execution. Completion review also checks packets with spatial effects so one
-chosen dimension cannot silently replace another. A containing place is not the
-selected child or feature position. Unresolved place/feature references in enhanced
+chosen dimension cannot silently replace another. Target and scope remain the
+mandatory consent owner's responsibility. Unresolved place/feature references in enhanced
 writes return field-specific argument corrections with reuse/creation guidance;
 they are not evidence of fictional impossibility.
 For a spatially reviewed decision or one with place effects under this Mod, the
