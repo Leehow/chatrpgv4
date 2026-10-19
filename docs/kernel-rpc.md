@@ -48723,8 +48723,8 @@ Character projection accepts the existing personality description as well as
 profile expression, stable variation, current mood, directed relations and reunion
 metadata. An expired activity is not a current pose. Knowledge, secret dossiers,
 profile priorities and unchosen actions remain outside this projection. Relevant
-prior dialogue is bounded to two actual delivered exchanges with attributed
-speech by issued participants; only their exact utterances and associated player
+prior dialogue uses the two latest public exchanges plus participant fallbacks,
+bounded to four groups of attributed speech by issued participants; only their exact utterances and associated player
 input survive, not previous rendered arrivals, names or physical actions. Older
 same-place public text can be selected through the existing fact catalog.
 
