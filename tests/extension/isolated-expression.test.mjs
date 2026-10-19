@@ -10,7 +10,60 @@ import {openTable} from './harness.mjs';
 import {api,root} from './object-usages-fixture.mjs';
 import {createHybridEngine} from '../../runtime/jev/hybrid-engine.ts';
 import {createFinalOutputOwner} from '../../extensions/kernel/final-output.ts';
+import {AuthorPartsStream} from '../../runtime/author-parts-stream.ts';
 const brief={scene:'An office.',narrative_content:[],npc_turns:[{speaker:'Steven Knott',intent:'Offer a meeting at dawn.',personality:'Practical',emotion:null}]};
+
+test('incremental author argument decoding preserves escape boundaries and exposes only text parts',()=>{
+ const text='A "quoted" line.\nA slash \\ and a face '+String.fromCodePoint(0x1f642);
+ for(const parts of [[{materials:['PRIVATE_NAME'],text}],{item:[{text,materials:['PRIVATE_NAME']}]},{item:{item:{text}}},{text}]){
+  const wire=JSON.stringify({parts,private:{text:'PRIVATE_BODY'}}).replace(String.fromCodePoint(0x1f642),'\\ud83d\\ude42');
+  for(let cut=0;cut<=wire.length;cut++){
+   const stream=new AuthorPartsStream();assert.equal(stream.push(wire.slice(0,cut))+stream.push(wire.slice(cut)),text);
+  }
+  const stream=new AuthorPartsStream();assert.equal([...wire].map(char=>stream.push(char)).join(''),text);
+ }
+});
+
+test('native author write arguments expose actual text deltas before the write completes',async t=>{
+ const home=await mkdtemp(join(tmpdir(),'expression-live-parts-'));t.after(()=>rm(home,{recursive:true,force:true}));const prose=[];
+ const {compileDeliveryParts}=await import('../../runtime/final-output-artifact.ts');
+ const runtime={home,async runTask({request}){
+  const update=assistantMessageEvent=>request.onEvent({type:'message_update',assistantMessageEvent});
+  update({type:'text_delta',delta:'Private preparation.'});
+  update({type:'toolcall_start',contentIndex:1,id:'w',toolName:'write'});
+  update({type:'toolcall_delta',contentIndex:1,delta:'{"parts":[{"text":"The clerk '});
+  assert.equal(prose.join(''),'The clerk ','the first provider fragment must be public before any complete argument or file exists');
+  update({type:'toolcall_delta',contentIndex:1,delta:'answers.\\n","materials":[]},{"text":"The road is open."}]}'});
+  assert.equal(prose.join(''),'The clerk answers.\nThe road is open.');
+  request.onEvent({type:'tool_execution_start',toolName:'write',args:{parts:[{text:'The clerk answers.\n'},{text:'The road is open.'}]}});
+  await writeFile(join(request.cwd,'draft.json'),JSON.stringify(compileDeliveryParts({parts:[{text:'The clerk answers.\n'},{text:'The road is open.'}]},[],[])));
+  request.onEvent({type:'tool_execution_end',toolName:'write',result:{terminate:true,details:{final_artifact_submitted:true}}});
+  request.onEvent({type:'message_end',message:{role:'assistant',provider:'opencode-go',model:'deepseek-v4.1-flash',stopReason:'toolUse',content:[]}});
+  return {ok:true,ms:1};
+ }};
+ const result=await writeIsolatedExpression({runtime,campaign:'c',turn:1,run:'r',brief,language:'en',stream:{push:text=>prose.push(text)},record:async()=>{}});
+ assert.equal(result.text,prose.join(''));assert.equal(prose.length,2,'do not repeat or split a completed artifact after generation');
+});
+
+for(const fault of ['invalid-coverage','changed-file','interrupted','extra-tool'])test('a streamed native artifact cannot bypass final validation: '+fault,async t=>{
+ const home=await mkdtemp(join(tmpdir(),'expression-live-refusal-'));t.after(()=>rm(home,{recursive:true,force:true}));const prose=[],records=[];let calls=0;
+ const runtime={home,async runTask({request}){
+  calls++;const update=assistantMessageEvent=>request.onEvent({type:'message_update',assistantMessageEvent});
+  update({type:'toolcall_start',contentIndex:0,id:'w',toolName:'write'});
+  update({type:'toolcall_delta',contentIndex:0,delta:'{"parts":[{"text":"The door opens.'});
+  assert.equal(prose.join(''),'The door opens.');
+  if(fault==='extra-tool')update({type:'toolcall_start',contentIndex:1,id:'r',toolName:'read'});
+  if(fault==='interrupted')request.onEvent({type:'message_end',message:{role:'assistant',stopReason:'error',content:[]}});
+  await writeFile(join(request.cwd,'draft.json'),JSON.stringify({version:1,text:fault==='changed-file'?'Different words.':'The door opens.',coverage:fault==='invalid-coverage'?[{name:'UNISSUED',start:0,end:4}]:[]}));
+  request.onEvent({type:'tool_execution_start',toolName:'write'});
+  request.onEvent({type:'tool_execution_end',toolName:'write',result:{terminate:true,details:{final_artifact_submitted:true}}});
+  request.onEvent({type:'message_end',message:{role:'assistant',provider:'opencode-go',model:'deepseek-v4.1-flash',stopReason:'toolUse',content:[]}});
+  return {ok:true,ms:1};
+ }};
+ await assert.rejects(writeIsolatedExpression({runtime,campaign:'c',turn:1,run:'r',brief,language:'en',stream:{push:text=>prose.push(text)},record:async row=>records.push(row)}));
+ assert.equal(calls,1);assert.equal(prose.join(''),'The door opens.');assert.equal(records.at(-1).event,'failed');
+ assert.ok(!records.some(row=>row.event==='written'));
+});
 
 test('departure continuity uses delivered turns across scene changes and preserves tail constraints',()=>{
  const current=[{turn:77,player:'I ask through the door.',keeper:'You remain outside.'},{turn:78,closed:'stranded',keeper:'An interrupted arrival.'}];
@@ -295,7 +348,7 @@ for(const mode of ['framed','framed-preamble','terminal','preamble','error','abo
   }
   const body=mode==='empty'?'':(mode.startsWith('framed')?'{{public}}':'')+'The clerk answers carefully.';
   task.request.onEvent({type:'message_update',assistantMessageEvent:{type:'text_delta',delta:body}});
-  assert.deepEqual(prose,mode==='framed'?['The clerk answers carefully.']:[],'only explicitly framed text without earlier tools may stream before task completion');
+  assert.deepEqual(prose,mode.startsWith('framed')?['The clerk answers carefully.']:[],'only explicitly framed public text streams; completed private tools do not disable the final stream');
   task.request.onEvent(terminal(mode==='mismatch'?'Different bytes.':body,['error','aborted','length'].includes(mode)?mode:'stop'));
   return{ok:true,ms:1};
  }};
