@@ -48736,9 +48736,9 @@ Actor: the same sole direct-SSE author. No new judgment, inference round, prompt
 reminder, copied KP prose or transaction authority is introduced. Acceptance
 requires coherent scene entry, reunion and dialogue, not cache/receipt counts alone.
 
-Optional material-name hints are measured after public-name projection and yield
-before the latest complete native result batch. Added rendering material cannot
-justify dropping original results when the authoritative request still fits.
+An optional omission diagnostic yields before a complete native result batch
+that otherwise fits. A required package-unavailability notice retains its own
+authority; adding scenery cannot make a status notice evict original answers.
 
 Producer: current scoped kernel views and existing source-selection results.
 Reader: the host-owned communication-reference catalog and canonical dispatch.

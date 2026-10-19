@@ -909,9 +909,9 @@ export function installContextPolicy(pi: ExtensionAPI, writeTelemetry: (row: Row
         let sourceHint:Row|undefined=names.length?{role:'custom',customType:'coc-material-source',display:false,timestamp:0,
             content:JSON.stringify({sources:names,authority:'Current-input reference names only; not disclosure or world authorization.'}),
             details:{coc_host:true,material_source:{campaign,turn:snapshot.binding.turn}}}:undefined;
-        if(sourceHint)sourceHint=rename([sourceHint])[0];
         // Reference-name hints duplicate the original answers. They cannot displace those answers.
-        if(sourceHint&&requestSize(rename([...initial.messages,...projectedTail(initial),sourceHint]))+systemBytes>ceiling){
+        if(sourceHint&&retainsLatestToolBatch(selected,initial.messages,snapshot.binding)
+            &&requestSize([...initial.messages,...projectedTail(initial),sourceHint])+systemBytes>ceiling){
             record({lane:'context',event:'material_source_hint_omitted',reason:'preserve_latest_tool_batch',bytes:requestSize([sourceHint])});
             sourceHint=undefined;
         }
@@ -927,7 +927,13 @@ export function installContextPolicy(pi: ExtensionAPI, writeTelemetry: (row: Row
             // Reserve a diagnostic only when one is needed. An optional workspace must not be
             // displaced by a hypothetical notice on an otherwise healthy, within-budget request.
             if(notice){
+                const beforeNotice=fitted;
                 fitted=project(Math.max(0,messageBudget-reserve-requestSize([notice])),{workspace,prescreen});
+                if(!omission&&retainsLatestToolBatch(selected,beforeNotice.messages,snapshot.binding)
+                    &&!retainsLatestToolBatch(selected,fitted.messages,snapshot.binding)){
+                    record({lane:'context',event:'diagnostic_omitted',reason:'preserve_latest_tool_batch',bytes:requestSize([notice])});
+                    fitted=beforeNotice;notice=undefined;
+                }
                 if(!omission&&fitted.degraded==='latest_tool_batch_omitted'&&why!==fitted.degraded){
                     notice=diagnostic(fitted.degraded);
                     fitted=project(Math.max(0,messageBudget-reserve-requestSize([notice])),{workspace,prescreen});
