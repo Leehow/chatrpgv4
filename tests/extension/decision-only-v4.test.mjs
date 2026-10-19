@@ -53,6 +53,8 @@ test('an actor observed document remains attributed and never grants another act
  const fact=prepared.facts.find(fact=>fact.kind==='observed_document');assert.ok(fact);
  assert.equal(fact.availability,'supplemental');assert.deepEqual(owner.resolve({fact_ref:fact.ref},'npc_1').value,observed);
  assert.throws(()=>owner.resolve({fact_ref:fact.ref},'npc_2'),/another actor/);
+ const schema=turnPacketParameterSchema(false,undefined,undefined,false,owner.bindings());
+ assert.ok(Errors(schema,{version:4,reveal:[{fact_ref:fact.ref}]}).length,'an actor-scoped observation cannot be offered as unscoped narration');
 });
 test('character projection cannot bypass the selected catalog with duplicate known or observed facts',()=>{
  const person={ref:'npc_1',display_name:'Clerk',state:{mood:'calm'},knows:[{summary:'Past claim'}],knowledge:['Claim'],observed_documents:[{writing:'Observed claim'}],recent_speech:[{statement:'Spoken claim'}]};

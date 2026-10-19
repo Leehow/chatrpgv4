@@ -48533,6 +48533,10 @@ The author receives no automatic previous-input quotations; needed history must
 arrive through selected material. Carried private writing is narration-only;
 NPC speech selects that actor's own observed excerpt, never an investigator's
 possession as an implicit grant of knowledge.
+Narration references enumerate only unscoped material. Actor-scoped speech,
+observations and plans remain available inside that actor's interaction, not in
+the unscoped reveal array. The issued schema and existing hydration agree on
+this scope; no second validation pass is added.
 Prepared NPC cards retain the issued actor reference even when duplicate fields
 are omitted. Their knowledge and bounded own-intention records enter the same
 actor-scoped supplemental catalog; omitting an identity during deduplication
