@@ -641,8 +641,10 @@ export class ModuleGraph {
         const existing = this.nodes.get(id);
         if (existing) return existing;
         if (!id || !name || !['scene', 'clue'].includes(kind)) throw new RpcError('invalid_params', 'Invalid campaign entity record');
-        const node: Row = {node_id: id, node_kind: kind, name, aliases: [], summary: record.summary,
-            visibility: 'keeper-only', properties: {name, semantic_name: name}, campaign_origin: {kind: 'table', reason: 'Established during play.', turn: record.turn}};
+        const node: Row = {node_id: id, node_kind: kind, name, aliases: record.location_mod ? [record.label] : [], summary: record.summary,
+            visibility: 'keeper-only', properties: {name, semantic_name: name,
+                ...(record.location_mod?{display_name:record.label,description:record.description}: {})}, campaign_origin: {kind: 'table', reason: 'Established during play.', turn: record.turn,
+                    ...(record.location_mod&&record.source_anchor?{source_anchor:record.source_anchor}:{})}};
         this.nodes.set(id, node);
         this.tableEntityNames.set(id, name);
         this.byKind.set(kind, [...this.kind(kind), node]);

@@ -1,3 +1,5 @@
+import {adviseLocationReference} from './location-reference.ts';
+import {placeOperation} from './place-operation.ts';
 import {DecisionContent,decisionPerson,bindCreatedDecisionPerson} from '../../runtime/decision-content.ts';
 import {Errors as argumentErrors} from 'typebox/value';
 import {SourceConsultations} from '../module/source-consultations.ts';
@@ -395,6 +397,8 @@ interface ForcedPlayerChoiceCue {
 }
 
 interface TableState {
+    /** Location detail is read on demand, for this input only. */
+    locationContextTurn?:number;
   /** §163: a scope Jev could not settle plays as `world`; only a settled out-of-fiction request is `reference`. */
   interactionScope?: 'world' | 'reference';
   /** §233.10: `world` came from a settled verdict (Jev authorized a world action, or a document edit), not a fallback. */
@@ -5889,6 +5893,10 @@ export default function (pi: ExtensionAPI, host: {capabilities?:RuntimeCapabilit
 		recoveredOutput?:{text:string;evidence:Record<string,any>},
         recordAuthority?:symbol,
 	): Promise<{ content: Array<{ type: "text"; text: string }>; details: Record<string, unknown>; terminate?: boolean }> {
+        if(spec.name==='place'&&params.op==='submit'){
+            const operation=placeOperation(spec.name,params);
+            spec=COC_TOOLS.find(tool=>tool.name===operation.name)!;params=operation.params;
+        }
         if(turnPacketPrototype&&table&&spec.name==='look'&&params.focus==='npc'&&isNpcReference(params.name))
             packetNpcReferences(table).require(packetNpcScope(table),[params.name]);
         if(turnPacketPrototype&&!recoveredOutput&&recordAuthority!==compiledDecisionAuthority){
@@ -6156,6 +6164,7 @@ export default function (pi: ExtensionAPI, host: {capabilities?:RuntimeCapabilit
         if (!resent) throw error;
         result = await state.kernel.call<Record<string, unknown>>(spec.method, resent, onProgress);
       }
+      if(spec.name==='place'&&result.status==='unregistered')result={...result,advice:await adviseLocationReference(result,{env:process.env,campaign:state.campaign,turn:state.turn,signal,record:row=>record(row)})};
       if(spec.name==='apply')await observeWritingCompletion(state,result,writingMatches);
 
       // §204.4: a model's committed mint is bound to the book in the background, independently of the next player turn.
@@ -6717,6 +6726,7 @@ export default function (pi: ExtensionAPI, host: {capabilities?:RuntimeCapabilit
 				...(spec.name === "recall" ? {response_bytes: Buffer.byteLength(JSON.stringify(result), "utf8")} : {}),
 			});
 			keepRead(true);
+            if(spec.name==='place')state.locationContextTurn=state.turn;
 			if (spec.name === 'apply' || spec.name === 'resolve') finalOutput.invalidateAdvice();
 			// Contract §34.12's look budget addendum (SL-72): a successful look/lookup/recall counts once here.
 			// A `lookup kind=source` still `pending` (§22.4.3, SL-36) counts once too, keyed on its own focus and
@@ -7006,6 +7016,7 @@ export default function (pi: ExtensionAPI, host: {capabilities?:RuntimeCapabilit
 	// Native isError is returned by the dispatcher; finalization still owns refusal accounting.
 	pi.on('tool_result', event => dispatcher.finalize(event));
 	async function finalizeOperation(event: ToolResultEvent) {
+        if(event.toolName==='place'&&(event.input as Record<string,unknown>)?.op==='submit'){const operation=placeOperation(event.toolName,event.input as Record<string,unknown>);event={...event,toolName:operation.name,input:operation.params};}
 		if (!COC_TOOL_NAMES.includes(event.toolName as never)) return;
 		const details = event.details as { coc_error?: { code?: unknown; message?: unknown } } | undefined;
 		if(singleKeeper && table && event.isError && ['apply','resolve'].includes(event.toolName) && !details?.coc_error)
@@ -8033,7 +8044,7 @@ export default function (pi: ExtensionAPI, host: {capabilities?:RuntimeCapabilit
 	pi.on('tool_call', (event, ctx) => {
 		// §175.1: a Keeper call that is not a read is this turn's writing; the steps after it can run without thinking. The
 		// host's own operations (the clerk's move before the first call) raise the same event and are not the Keeper's.
-		if (table && !STEP_READS.has(event.toolName) && !dispatcher.hostOrigin(event.toolCallId)) table.wroteThisTurn = true;
+		if (table && !(event.toolName==='place'&&(event.input as Record<string,unknown>)?.op==='inspect')&&!STEP_READS.has(event.toolName) && !dispatcher.hostOrigin(event.toolCallId)) table.wroteThisTurn = true;
 		return dispatcher.prepare(event, ctx);
 	});
 
@@ -8049,10 +8060,11 @@ export default function (pi: ExtensionAPI, host: {capabilities?:RuntimeCapabilit
 		return { messages: messages as never };
 	});
 	async function prepareOperation(event: ToolCallEvent, ctx: ExtensionContext): Promise<ToolCallEventResult | undefined> {
-		const name = event.toolName;
+		const operation=placeOperation(event.toolName,event.input as Record<string,unknown>);
+        const name = operation.name;
 		if (!COC_TOOL_NAMES.includes(name as never)) return;
-		const input = event.input as Record<string, unknown>;
-		takeSkillAnnotation(table?.skillRun, input);
+		const input = operation.params;
+		takeSkillAnnotation(table?.skillRun, event.input as Record<string,unknown>);
 		if (table?.skillRun) {
 			table.skillRun.tool_names.push(name);
 			if (name === "lookup" && input.kind === "source" && input.source_mode !== "answer") table.skillRun.diverged = true;
@@ -8835,7 +8847,7 @@ export default function (pi: ExtensionAPI, host: {capabilities?:RuntimeCapabilit
                 await packetTimeBandHandles(table);
             }
             const choices=keeperRun?.prescreen?.choices?turnPacketMovementChoices(keeperRun.prescreen.choices):undefined;
-            outgoing=turnPacketProviderPayload(outgoing,journeySettled,table?.interactionScope!=='reference',table?.packetTimeBands,choices,table?.packetSceneRequired??true,table?packetContent(table).bindings():undefined);
+            outgoing=turnPacketProviderPayload(outgoing,journeySettled,table?.interactionScope!=='reference',table?.packetTimeBands,choices,table?.packetSceneRequired??true,table?packetContent(table).bindings():undefined,!!table&&table.locationContextTurn===table.turn);
         }
 		if (outgoing !== event.payload) return outgoing;
 	});

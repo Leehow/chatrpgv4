@@ -8,8 +8,9 @@ import { StringEnum } from "@earendil-works/pi-ai";
 import { type TSchema, Type } from "typebox";
 import {TurnEvent} from "../../shared/turn-event.ts";
 import {ClueEstablishment,PlaceEstablishment,NpcReunion,DocumentDivision} from '../../shared/apply-structures.ts';
+import {PlaceEffect,PlaceParameters} from '../../shared/place-structures.ts';
 
-export const COC_TOOL_NAMES = ["look", "lookup", "recall", "resolve", "apply", "ask", "narrate", "output"] as const;
+export const COC_TOOL_NAMES = ["look", "lookup", "recall", "resolve", "apply", "place", "ask", "narrate", "output"] as const;
 export type CocToolName = (typeof COC_TOOL_NAMES)[number];
 
 /** State-changing calls: they mint a `call_id`, and they are refused once the turn is closed. */
@@ -983,12 +984,12 @@ export const COC_TOOLS: readonly CocToolSpec[] = [
 		label: "Apply",
 		method: "table.apply",
 		description:
-			"When this interaction establishes a nonnumeric occurrence, changes what someone knows or changes a directed relationship, include event in this same apply. Separate private summary and actual recipients from permitted materials. New heard knowledge bound to speech awaits accepted output; an unexecuted NPC intention uses outcome planned. The background memory lane extracts reports and cannot replace this canonical write. Unchanged atmosphere needs no event. Land this turn's changes to the world: move walks to another scene, clue gives the investigator a clue, time advances the clock, clock pins the opening datetime once when the book gives no full date, damage hurts, item and cash change possessions, handout displays a document without taking a physical object or transferring ownership, and map reveals only named source-backed regions the investigators learned. NPC answers and unsolicited disclosures may give clues or show handouts; their contents need no separate player selection. Do not add an item effect merely because a handout is shown. Use look focus map to inspect semantic map and region names; map why states what established that knowledge. The whole batch is validated before anything is written, and one bad effect writes none of them. What happens in narration without an apply did not happen. Viewing an already delivered map is a UI action and changes nothing. Worldline changes take effect after the canonical publication commit. Optional delivery or legacy narrate prepares and checks material only after all effects land; neither starts an author nor publishes prose. Use narrate with handoff:true when ready to publish the checked material. " + INTENT_RESULT_EXPLAINED,
+			"When this interaction establishes a nonnumeric occurrence, changes what someone knows or changes a directed relationship, include event in this same apply. Separate private summary and actual recipients from permitted materials. New heard knowledge bound to speech awaits accepted output; an unexecuted NPC intention uses outcome planned. The background memory lane extracts reports and cannot replace this canonical write. Unchanged atmosphere needs no event. Use the separate place tool for location work; an indivisible mixed batch can carry its same typed effect. Land this turn's changes to the world: clue gives the investigator a clue, time advances the clock, clock pins the opening datetime once when the book gives no full date, damage hurts, item and cash change possessions, handout displays a document without taking a physical object or transferring ownership, and map reveals only named source-backed regions the investigators learned. NPC answers and unsolicited disclosures may give clues or show handouts; their contents need no separate player selection. Do not add an item effect merely because a handout is shown. Use look focus map to inspect semantic map and region names; map why states what established that knowledge. The whole batch is validated before anything is written, and one bad effect writes none of them. What happens in narration without an apply did not happen. Viewing an already delivered map is a UI action and changes nothing. Worldline changes take effect after the canonical publication commit. Optional delivery or legacy narrate prepares and checks material only after all effects land; neither starts an author nor publishes prose. Use narrate with handoff:true when ready to publish the checked material. " + INTENT_RESULT_EXPLAINED,
 		promptSnippet: "Record established semantic changes with event, actor-specific knowledge and directed relationships; keep unexecuted NPC intentions planned. Land this turn's world changes: move, clue, time, handout, map, item, cash; apply clock pins the opening datetime once when the book gives no full date",
 		parameters: Type.Object({
 			using_skill: UsingSkill,
 			effects: Type.Optional(Type.Array(
-				Type.Union([EndingEffect, AdaptationEffect, ...MoveEffects, ClueEffect, ClockEffect,SceneEffect, TimeEffect, DamageEffect, ItemEffect, DefineEffect, UsageEffect, ObjectEffect, AbilityEffect, CashEffect, FlagEffect, NoteEffect, RulingEffect, DossierEffect, NpcEffect, PersonEffect, ThreatEffect, ForkEffect, SwitchEffect, MergeEffect, HandoutEffect, MapEffect]),
+				Type.Union([EndingEffect, AdaptationEffect, ...MoveEffects, ...PlaceEffect.anyOf, ClueEffect, ClockEffect,SceneEffect, TimeEffect, DamageEffect, ItemEffect, DefineEffect, UsageEffect, ObjectEffect, AbilityEffect, CashEffect, FlagEffect, NoteEffect, RulingEffect, DossierEffect, NpcEffect, PersonEffect, ThreatEffect, ForkEffect, SwitchEffect, MergeEffect, HandoutEffect, MapEffect]),
 				{ minItems: 0, description: "the changes to land this turn, in order; empty only for a meaningful semantic event" },
 			)),
 			event:Type.Optional(TurnEvent),
@@ -997,6 +998,11 @@ export const COC_TOOLS: readonly CocToolSpec[] = [
 			quotes: EmbeddedQuotationDrafts,
 		},{anyOf:[{required:['effects']},{required:['event']}]}),
 	},
+	{
+        name:'place',label:'Place',method:'mods.locations.inspect',
+        description:'Inspect a place without moving, or submit a location change. Reuse known identities; compatible new places can be established and entered atomically. Detailed Mod instructions: inspect need contract.',
+        promptSnippet:'Manage places and local features through Enhanced Locations.',parameters:PlaceParameters,
+    },
 	{
 		name: "ask",
 		label: "Ask",

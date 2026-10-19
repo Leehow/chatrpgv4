@@ -111,3 +111,13 @@ when a ticket requires live evidence.
 - RPC integration: 4/4 passed on leehow-pc; log `/home/leehow/leehow/code/wt/codex-tests/.pytest-runs/chatrpgv4-wt-pi-coc-v2/run.elEDqAlk/remote-integration.log`. Earlier failing logs retained.
 - Context projection keeps a stable small place entry and removes detailed location grammar from the resident apply declaration. Explicit inspection returns full canonical schemas and locked Mod sections. A request-only projection omits old host inspection detail, preserving raw history and assistant continuations. Native location schema is offered after a relevant place read in the current input, but complete canonical calls still execute without a read prerequisite.
 - Concurrent unrelated rendering repairs advanced HEAD through `771fe8c62`; their changes are preserved. Heavy focused regression is running before live acceptance.
+
+## Regression checkpoint and automatic continuation
+
+- Specification commit: `7f412a120`.
+- First LAN focused snapshot: 525 extension files, 4,634 passing / 15 failing assertions (plus skipped cases); integration 2,225 passing / 2 failing; routing loop 12/12. Log: `/home/leehow/leehow/code/wt/codex-tests/.pytest-runs/chatrpgv4-wt-pi-coc-v2/run.QcfXjXIq/remote-focused.log`. This is retained diagnostic evidence, not final acceptance.
+- New interface expectations and explicit legacy instruction-budget fixture profiles are being updated; original Python/frozen results are untouched. A required `using_skill` annotation is now present in both place variants. Provider system accounting uses the actual projected location declaration.
+- The existing `extension-words` unused `turn_unfinished_notice` finding is outside location scope and will be checked against baseline rather than silently altered.
+- Current local structural slice: 20/20. Latest LAN targeted batch: 48/49 before the annotation fix; latest code awaits repeat.
+- Shared LAN slot became busy. Unified exec session `34507` is an automatic, quiet 30-second retry of the canonical runner; it performs no source/evidence mutation while the runner reports another suite active. It runs the native-result pressure regression, annotation and original full-instruction profile checks when the slot is free. Continue by waiting on that session, then build-fetch the latest runtime and run real play. Do not treat waiting on the other owner as a blocked goal.
+- A single bounded local RPC file is being used for fast feedback while heavy work remains queued to LAN. No live campaign has been started yet.

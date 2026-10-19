@@ -5,6 +5,7 @@ import type {LoadedModule} from './campaign.js';
 import type {ModuleGraph} from './module-graph.js';
 import {array, normalize, row, string, type Row} from './values.js';
 import {isPlace} from './places.js';
+import {projectLocations} from './locations.js';
 import {Check} from 'typebox/value';
 import {ClueEstablishment,PlaceEstablishment} from '../../shared/apply-structures.js';
 
@@ -49,7 +50,8 @@ export function bookAnchor(graph: ModuleGraph, scene: Row): Row | null {
         seen.add(string(node.node_id));
         const out: Row[] = graph.out.get(string(node.node_id)) ?? [];
         const next: Row | undefined = out.find(rel => rel.relation_kind === 'located-in') ?? out.find(rel => rel.relation_kind === 'route-to');
-        node = next ? graph.nodes.get(string(next.to_node_id)) : undefined;
+        node = next ? graph.nodes.get(string(next.to_node_id)) : typeof row(node.campaign_origin).source_anchor==='string'
+            ? graph.find(node.campaign_origin.source_anchor,['scene'])??undefined : undefined;
     }
     return node && !graph.isTableEntity(node) ? node : null;
 }
@@ -66,6 +68,7 @@ export function establishTableEntity(graph: ModuleGraph, world: Row, turn: Row, 
 
 export function withTableEntities(module: LoadedModule, world: Row): LoadedModule {
     for (const record of array(world.table_entities)) module.graph.addTableEntity(row(record));
+    projectLocations(module.graph,world);
     const source = module.material;
     const material = (name: string): string => module.graph.isTableEntity(module.graph.find(name)) ? 'ready' : source(name);
     if (module.graph.materialOverride) module.graph.materialOverride = material;

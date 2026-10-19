@@ -12,7 +12,7 @@ import {fauxAssistantMessage,fauxToolCall} from "@earendil-works/pi-ai";
 import {openTable} from "./harness.mjs";
 
 const ROOT=resolve(import.meta.dirname,"../..");
-const SECTIONED=["narration-craft","natural-npc","enhanced-items","keeper-pacing","story-thread","historical-reference","hostile-creatures"];
+const SECTIONED=["enhanced-locations","narration-craft","natural-npc","enhanced-items","keeper-pacing","story-thread","historical-reference","hostile-creatures"];
 const temporary=await mkdtemp(join(tmpdir(),"mod-section-index-"));
 await symlink(join(ROOT,"node_modules"),join(temporary,"node_modules"),"dir");
 await build({stdin:{contents:[
@@ -129,7 +129,7 @@ test("within the budget every package is whole; over it, sectioned packages go i
 	const game=await kernel(t),call=await played(t,game);
 	await call("table.open");
 	const whole=byId((await call("table.player_input",{text:"I ask the clerk where the records are kept."})).capsule);
-	assert.ok([...whole.values()].every(row=>row.form==="full"));
+	assert.ok([...whole.values()].every(row=>row.mod==="enhanced-locations"?row.form==="indexed":row.form==="full"));
 	const sizes=new Map([...whole.values()].map(row=>[row.mod,Buffer.byteLength(row.instruction,"utf8")]));
 	const order=[...whole.keys()];
 	await call("table.narrate",{call_id:"t1-c1",text:"The clerk points down the hall."});
@@ -139,7 +139,7 @@ test("within the budget every package is whole; over it, sectioned packages go i
 	budget(t,before+sizes.get("keeper-pacing")-1);
 	const next=await call("table.player_input",{text:"I ask the clerk again."});
 	const rows=byId(next.capsule);
-	for(const id of order.slice(0,at))assert.equal(rows.get(id).form,"full",`${id} fits before keeper-pacing`);
+	for(const id of order.slice(0,at))assert.equal(rows.get(id).form,id==="enhanced-locations"?"indexed":"full",`${id} fits before keeper-pacing`);
 	const pacing=rows.get("keeper-pacing");
 	assert.equal(pacing.form,"indexed");
 	assert.ok(pacing.instruction.startsWith(api.INDEXED_LEAD));

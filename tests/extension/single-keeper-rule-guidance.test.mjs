@@ -68,7 +68,7 @@ test('the real Keeper context supplies practical NPC knowledge and separates fir
     assert.ok(delivered.includes('Keep hidden motives, undisclosed source facts, private thoughts, tool arguments and hosting explanations out of public prose'));
     const capsule=await table.runtimeBridges().at(-1).call('table.capsule',{campaign:'test-camp'});
     const instructions=capsule.mods.instructions;
-    assert.ok(instructions.every(row=>row.form==='full'),'guidance remains whole inside the existing budget');
+    assert.ok(instructions.every(row=>row.form===(row.mod==='enhanced-locations'?'indexed':'full')),'guidance remains whole inside the existing budget');
     const bytes=instructions.reduce((total,row)=>total+Buffer.byteLength(row.instruction,'utf8'),0);
     t.diagnostic(`Default package instructions: ${bytes} of 65536 bytes`);
     assert.ok(bytes<=65536);

@@ -9,16 +9,18 @@ import { advanceClock } from './clock.js';
 import { establishTableEntity, establishedWithin, validateEstablishment } from '../read/table-entities.js';
 import { isAmbiguity, recordOf, type ModuleGraph } from '../read/module-graph.js';
 import { aroundExit, bookRoadMinutes, personPlaces, placeRelation, returnRoute, roadKey, tableRoad } from '../read/places.js';
+import {clearLocationPosition,locationPolicyApplies} from '../read/locations.js';
 /** The options producer and transaction use the same structural route requirement. */
-export function moveAccess(graph:ModuleGraph,world:Row,current:Row,destination:Row,established=false) {
+export function moveAccess(graph:ModuleGraph,world:Row,current:Row,destination:Row,established=false,containmentIsRoute?:boolean) {
     const target=graph.handle(destination),trail=array(world.scene_trail).map(string);
-    const listed=graph.sceneExits(current).some(exit=>exit.to===target)||trail.includes(target)||established;
+    const listed=graph.sceneExits(current).some(exit=>exit.to===target)||trail.includes(target)||established||!!tableRoad(world,graph.handle(current),target);
     const road=listed?null:returnRoute(graph,current,destination);
-    const related=listed||road?null:placeRelation(graph,current,destination);
+    const containment=containmentIsRoute??!locationPolicyApplies(graph,world,current,destination);
+    const related=listed||road||!containment?null:placeRelation(graph,current,destination);
     const around=listed||road||related?null:aroundExit(graph,current,destination);
     return {listed,road,related,around,requiresVia:!listed&&!road&&!related&&!around};
 }
-export function stageMove(context: ApplyContext, effect: Row, travelRows?: ReadonlyMap<string, number> | null): {
+export function stageMove(context: ApplyContext, effect: Row, travelRows?: ReadonlyMap<string, number> | null,options:{containmentIsRoute?:boolean}={}): {
     receipt: Row;
     event: DomainEvent | null;
 } {
@@ -72,12 +74,12 @@ export function stageMove(context: ApplyContext, effect: Row, travelRows?: Reado
         if (!label)
             throw new RpcError('invalid_params', `${repr(target)} is where the party already stands`, { fix: "pass label to name this scene in the player's language, or move somewhere else" });
         (world.scene_labels ??= {})[target] = label;
-        return { receipt: { id: `move:${target}-t${turn.turn}-c${ordinal}`, kind: 'move', call_id: callId, from: target, to: target, from_label: label, to_label: label, minutes: 0, renamed: true, visibility: 'keeper', at: nowIso() }, event: null };
+        return { receipt: { id: context.mint(`move:${target}-t${turn.turn}-c${ordinal}`), kind: 'move', call_id: callId, from: target, to: target, from_label: label, to_label: label, minutes: 0, renamed: true, visibility: 'keeper', at: nowIso() }, event: null };
     }
     const trail = array(world.scene_trail).map(string), back = [...trail].reverse();
     const via = typeof effect.via === 'string' && effect.via.trim() ? effect.via : null;
     // §204.2: a road runs both ways, and a move within a place the two share needs no route of its own.
-    const {road,related,around,requiresVia}=moveAccess(graph,world,current,destination,established);
+    const {road,related,around,requiresVia}=moveAccess(graph,world,current,destination,established,options.containmentIsRoute);
     // §212.1: a road out of a place the party stands inside is a road from here.
     if (requiresVia && !via)
         throw new RpcError('not_reachable', `${repr(target)} is not reachable from ${repr(from)}`, {
@@ -121,7 +123,7 @@ export function stageMove(context: ApplyContext, effect: Row, travelRows?: Reado
         .find(entry => string(entry.kind) === 'time' && row(entry.until).journeys === 'before') : undefined;
     const journey = minutes;
     if (inside) minutes = 0;
-    const receipt: Row = { id: `move:${target}-t${turn.turn}-c${ordinal}`, kind: 'move', call_id: callId, from, to: target, from_label: sceneLabel(graph, world, current), to_label: label || sceneLabel(graph, world, destination), minutes, at: nowIso() };
+    const receipt: Row = { id: context.mint(`move:${target}-t${turn.turn}-c${ordinal}`), kind: 'move', call_id: callId, from, to: target, from_label: sceneLabel(graph, world, current), to_label: label || sceneLabel(graph, world, destination), minutes, at: nowIso() };
     if (travel) receipt.travel = travel;
     if (inside) receipt.inside_until = { receipt: string(inside.id), minutes: number(journey) };
     if (established) receipt.established = 'table';
@@ -137,6 +139,7 @@ export function stageMove(context: ApplyContext, effect: Row, travelRows?: Reado
         (world.scene_labels ??= {})[target] = label;
     world.scene_trail = trail.includes(target) ? trail.slice(0, trail.indexOf(target)) : [...trail, from];
     world.active_scene = target;
+    clearLocationPosition(world);
     if (row(world.ending).scope === 'chapter')
         world.ending.continued = true;
     // §168.3: the people the entrance seated walk on with the party when the book's playing order leads on.

@@ -1,0 +1,16 @@
+{
+  "id": "enhanced-locations",
+  "version": "1.0.0",
+  "game_api": "pipicoc.game.v1",
+  "state_version": 1,
+  "author": "PipiCOC",
+  "name": "Enhanced Locations",
+  "description": "Persistent places and local features for open natural-language exploration.",
+  "default_enabled": true,
+  "requires": ["locations.v1", "mods.package-files.v1", "instructions.sections.v1"],
+  "package_files": ["agent.md", "sections.json"],
+  "dependencies": {},
+  "conflicts": [],
+  "settings": {},
+  "contributes": {"instructions": "agent.md", "sections": "sections.json"}
+}

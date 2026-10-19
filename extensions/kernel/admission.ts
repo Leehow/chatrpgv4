@@ -373,7 +373,7 @@ export interface AdmissionScope {
  * that carries one of them is reviewed whole and refused whole; a batch of only the other kinds
  * (Keeper bookkeeping, NPC movement, pacing, world switches, Mod registration) is not reviewed.
  */
-export const TRIGGER_KINDS: ReadonlySet<string> = new Set(["move", "clue", "time", "cash", "item", "handout", "map", "object", "usage"]);
+export const TRIGGER_KINDS: ReadonlySet<string> = new Set(["move", "place", "clue", "time", "cash", "item", "handout", "map", "object", "usage"]);
 
 /** `resolve` decision families that are never a voluntary player action: the rules or the table run them. */
 const EXEMPT_DECISION_PREFIXES: readonly string[] = ["sanity:", "development:"];
@@ -451,6 +451,7 @@ export function continuousAdmissionKey(playerText:string,worldRevision:unknown,s
  * written (`time`'s band, until, stated and beyond_travel among them), and a verdict on one time cost was reused for another.
  */
 const IDENTIFYING_FIELDS: readonly string[] = [
+    "action","at","relation","through","additions","state","passable",
 	"to", "establish", "label", "travel_minutes", "travel_band", "via", "clue", "minutes", "band", "band_reach", "until", "stated", "beyond_travel", "delta",
 	"name", "regions", "region_labels", "level_labels", "subject", "from", "with", "quantity", "dice", "scope", "object",
 	"description", "category", "adopt", "condition", "weapon", "definition", "source_object", "document", "part", "offer", "handover", "check",
@@ -543,6 +544,7 @@ export function admissionRequest(tool: string, payload: Record<string, unknown>,
 		const reviewed = (effect: Record<string, unknown>): boolean => {
 			const kind = text(effect?.kind);
 			if (!kind || !TRIGGER_KINDS.has(kind)) return false;
+            if(kind==='place'&&effect.action==='establish')return false;
             if(scope.consentOnly&&['clue','handout'].includes(kind))return false;
 			if (kind === "cash" && effect.mode === "quote") return false;
 			if (kind === "move" && here.includes(norm(effect.to)) && !text(effect.label)) return false;

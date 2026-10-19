@@ -69,8 +69,11 @@ function validateIdentity(value: unknown): asserts value is OperationIdentity {
     || Object.hasOwn(value, 'request') && (!isPlainRecord(value.request) || !value.callId || value.request.call_id !== value.callId
       || typeof value.request.campaign !== 'string' || !value.request.campaign)) throw new ContractError('invalid_operation_identity');
 }
+function mutatingOperation(proposal:Pick<OperationProposal,'operation'|'args'>|undefined):boolean {
+  return !!proposal&&(['resolve','apply'].includes(proposal.operation)||proposal.operation==='place'&&proposal.args.op==='submit');
+}
 function settledMutation(proposal: OperationProposal, result: KernelToolResult | undefined): boolean {
-  return ['resolve', 'apply'].includes(proposal.operation) && !!result && !result.details.coc_error
+  return mutatingOperation(proposal) && !!result && !result.details.coc_error
     && (typeof result.details.receipt === 'string' || Array.isArray(result.details.receipts));
 }
 
@@ -167,7 +170,7 @@ export function createCanonicalOperationDispatcher(stages?: Stages) {
     /** The real public tool hooks execute once; this only binds their incumbent operation ownership. */
     async bindIncumbentScope(toolCallId: string, proposal: OperationProposal, context: HostOperationContext) {
       const task = context.task.context;
-      if (!stages || !['resolve', 'apply'].includes(proposal.operation) || proposal.capability !== proposal.operation
+      if (!stages || !mutatingOperation(proposal) || proposal.capability !== proposal.operation
         || proposal.taskId !== task.id || !task.capabilities.includes(proposal.capability)
         || signature(proposal.scope) !== signature(task.scope) || frames.has(toolCallId))
         throw new ContractError('incumbent_operation_out_of_scope');
@@ -200,13 +203,13 @@ export function createCanonicalOperationDispatcher(stages?: Stages) {
     hostOrigin(toolCallId: string): HostOperationContext['origin'] { return frames.get(toolCallId)?.context.origin; },
     async bindKernelCallId(toolCallId: string, callId: unknown): Promise<void> {
       const frame = frames.get(toolCallId);
-      if (!frame || !['resolve', 'apply'].includes(frame.proposal.operation)) return;
+      if (!frame || !mutatingOperation(frame.proposal)) return;
       if (!validCallId(callId) || frame.identity.callId && frame.identity.callId !== callId)
         throw new ContractError('operation_call_binding_mismatch');
       frame.identity.callId = callId;
       await frame.context.journal.save(structuredClone(frame.identity));
     },
-    tracksMutation(toolCallId: string): boolean { return ['resolve', 'apply'].includes(frames.get(toolCallId)?.proposal.operation ?? ''); },
+    tracksMutation(toolCallId: string): boolean { return mutatingOperation(frames.get(toolCallId)?.proposal); },
     providerBudget(toolCallId: string): TaskProviderBudget | undefined {
       const frame = frames.get(toolCallId);
       if (!frame) return undefined;
@@ -366,7 +369,7 @@ export function createCanonicalOperationDispatcher(stages?: Stages) {
           context.trace({ operationId: operation.id, stage: 'blocked', reason: reason.slice(0, 300) });
           return packet(operation, 'refused', { code: 'blocked', message: reason, reason: blocked.reason, terminate: blocked.terminate });
         }
-        if (spec.name === 'resolve' || spec.name === 'apply') {
+        if (mutatingOperation(operation)) {
           frame.identity.callId ??= stages.preparedCallId(operation.id);
           if (!frame.identity.callId) throw new ContractError('operation_call_binding_missing');
           await context.journal.save(structuredClone(frame.identity));

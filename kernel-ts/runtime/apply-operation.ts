@@ -22,6 +22,8 @@ import {recordOf, type ModuleGraph} from '../read/module-graph.js';
 import {obligationNodes, openGuards, sceneObligations} from '../read/obligations.js';
 import {unstatedDamage} from '../read/stated.js';
 import {activeMods} from '../read/mods.js';
+import {locationPolicyApplies} from '../read/locations.js';
+import {stageLocation} from '../mods/locations.js';
 import {destinationView, grantingCues, guardedWay, unlockGuard} from '../read/destination-rows.js';
 import {asVisit, clueCheck, clueRoute, earlierVisitTurns, otherRolls} from '../read/clue-check.js';
 
@@ -103,8 +105,11 @@ function movesWithin(graph:ModuleGraph,scene:Row):Array<[Row,Row]>{
  * it gives (a new place has no road yet). A move apply would refuse moves the preview clock by the minutes it names: the
  * real apply reports the refusal.
  */
-function previewClock(context:ApplyContext,effect:Row,travel:ReadonlyMap<string,number>|null,receipts:Row[]):void {
+function previewClock(context:ApplyContext,effect:Row,travel:ReadonlyMap<string,number>|null,receipts:Row[],mods:Row[]=[]):void {
     const before=number(row(context.world.clock).minutes);
+    if(effect.kind==='place'){
+        const result=stageLocation(context,effect,mods,travel);receipts.push(result.receipt);return;
+    }
     if(effect.kind==='time'){
         const bound=bindUntil(context,effect),minutes=bound.minutes;
         if(!integer(minutes)||number(minutes)<0)throw new RpcError('invalid_params','time minutes must be a non-negative integer',{details:{reason:'preview_clock_invalid'}});
@@ -144,6 +149,7 @@ export function ordinaryApplyHandlers(context: KernelContext): HandlerGroup {
             if(!Array.isArray(params.cash_effects))throw new RpcError('invalid_params','cash_effects must be an ordered apply batch');
             const world=clone(campaign.world),sheets=new Map<string,Row>(),previews:Row[]=[],clockReceipts:Row[]=[];
             let travel:ReadonlyMap<string,number>|null|undefined;
+            const mods=params.cash_effects.some(value=>isJsonObject(value)&&value.kind==='place')?await activeMods(context,campaign.world):[];
             const cashContext:CashContext={kernel:context,world,graph,turn:campaign.turn,campaign:{party:async()=>campaign.party},callId:'preview',ordinal:0,mint:base=>base};
             for(const [index,effect] of params.cash_effects.entries()){
                 if(!isJsonObject(effect))throw new RpcError('invalid_params','Each preview effect must be an object');
@@ -152,13 +158,13 @@ export function ordinaryApplyHandlers(context: KernelContext): HandlerGroup {
                     try{receipt=(await stageCash(cashContext,effect,sheets)).receipt;}
                     catch(error){if(!(error instanceof RpcError))throw error;throw new RpcError(error.code,error.message,{fix:error.fix,details:{...error.details,cash_index:index}});}
                     previews.push({index,...Object.fromEntries(['subject','subject_label','with','with_label','quote','category','settlement','living_standard','items','purchase_amount','spending_level','daily_total','delta','before','after','currency'].filter(key=>Object.hasOwn(receipt,key)).map(key=>[key,receipt[key]]))});
-                }else if(['time','move'].includes(string(effect.kind))&&params.cash_effects.slice(index+1).some(value=>isJsonObject(value)&&value.kind==='cash')){
+                }else if(['time','move','place'].includes(string(effect.kind))&&params.cash_effects.slice(index+1).some(value=>isJsonObject(value)&&value.kind==='cash')){
                     // §227.2: the purchase is previewed on the game day the batch reaches, by apply's own clock arithmetic
                     // (`bindUntil`, `stageMove` on this cloned world). Only a rolled or book-stated length is unknown here.
                     if(effect.kind==='time'&&(effect.band!=null||effect.stated!=null))
                         throw new RpcError('needs','Settle a rolled or book-stated time before previewing its subsequent purchases',{fix:'Apply the time effect first, then settle the purchase against the resulting game day.',details:{reason:'preview_clock_unknown',cash_index:index}});
-                    travel??=params.cash_effects.some(value=>isJsonObject(value)&&value.kind==='move'&&value.travel_band!=null)?(await owedBands(context)).travelMinutes:null;
-                    previewClock({graph,world,turn:campaign.turn,callId:'preview',ordinal:0,staged:()=>clockReceipts} as unknown as ApplyContext,effect,travel,clockReceipts);
+                    travel??=params.cash_effects.some(value=>isJsonObject(value)&&(value.kind==='move'||value.kind==='place')&&value.travel_band!=null)?(await owedBands(context)).travelMinutes:null;
+                    previewClock({graph,world,turn:campaign.turn,callId:'preview',ordinal:0,mint:(base:string)=>base,staged:()=>clockReceipts} as unknown as ApplyContext,effect,travel,clockReceipts,mods);
                 }
             }
             return {version:1,cash_previews:previews,world_revision:taskWorldRevision(campaign.world,campaign.party,campaign.turn.receipts,campaign.turn.pending_choice)};
@@ -166,7 +172,11 @@ export function ordinaryApplyHandlers(context: KernelContext): HandlerGroup {
         const scene=graph.scene(campaign.world.active_scene), where=whereSection(graph,campaign.world,scene,module.material), candidates: Row[]=[];
         // Contract §134.10: a candidate an unsettled stated obligation guards keeps its row and names the guard.
         const guards=openGuards(graph,campaign.world,scene);
-        const add=(effect:Row,description:Row,guard?:string)=>candidates.push({alias:`effect:${candidates.length}`,effect,description,...(guard?{guarded_by:guard}:{})});
+        const add=(effect:Row,description:Row,guard?:string)=>{
+            const target=effect.kind==='move'?graph.find(effect.to,['scene']):null;
+            const locations=target&&locationPolicyApplies(graph,campaign.world,scene,target);
+            candidates.push({alias:`effect:${candidates.length}`,effect,description:{...description,...(locations?{locations:true,requires_via:moveAccess(graph,campaign.world,scene,target!).requiresVia}:{})},...(guard?{guarded_by:guard}:{})});
+        };
         const records=await campaign.files('turns'),receipts=[...records.flatMap(record=>array(record.receipts)),...array(campaign.turn.receipts)];
         // §135.30.9.2 (SL-52 stage 2): a clue row carries the book's cues for it here -- the affordances of this scene that grant it.
         // §201.2 / §222.1: a clue the book finds by a check of a named skill says so, and whether a way the kernel can read has

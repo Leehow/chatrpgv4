@@ -53,7 +53,7 @@ export function decisionScene(capsule:Row):Row {
  });
  const first={...(sight.place?{place:details(sight.place)}:{}),...(firstPeople.length?{people:firstPeople}:{})};
  const description=capsule.public_scene?.description??sight.place?.described;
- return {name:where.display_name??where.scene,temporal:Object.fromEntries(['current','review_required',...(temporal.current===true?['service','crowd','summary','basis']:[])].filter(key=>temporal[key]!==undefined).map(key=>[key,temporal[key]])),
+ return {name:where.display_name??where.scene,...(where.location?{location:structuredClone(where.location)}:{}),temporal:Object.fromEntries(['current','review_required',...(temporal.current===true?['service','crowd','summary','basis']:[])].filter(key=>temporal[key]!==undefined).map(key=>[key,temporal[key]])),
   ...(typeof description==='string'&&description.trim()?{description}:{}),...(Object.keys(first).length?{first_sight:first}:{}),
   presence:{authority:'Registered public people only, never a complete population census. Missing names do not establish emptiness. Current assessed temporal crowd controls population.',people,registered_complete:people.length===present.length,
    population:where.temporal?.current===true&&where.temporal?.crowd==='empty'?'empty':where.temporal?.current===true&&['quiet','active','crowded'].includes(where.temporal?.crowd)&&people.length?'populated':'unknown'}};

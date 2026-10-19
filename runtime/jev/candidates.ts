@@ -398,7 +398,7 @@ export const owedMoveOpen = (capsule: Row): boolean => array(capsule.owed).map(o
 
 /** The same structural duration requirement for candidate construction and native dispatch. */
 export const moveNeedsTravelBand=(effect:Row,description:Row):boolean=>!Number.isInteger(effect.travel_minutes)
-  &&!text(effect.travel_band)&&!Number.isInteger(description.travel_minutes)&&!text(description.within);
+  &&!text(effect.travel_band)&&!Number.isInteger(description.travel_minutes)&&(!text(description.within)||description.locations===true);
 
 export function buildCandidates(reads: StateReads, rawInput: string, consumed: ReadonlySet<string> = new Set()): Candidate[] {
   const out: Candidate[] = [], seen = new Set<string>();

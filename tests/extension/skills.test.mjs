@@ -40,10 +40,10 @@ test("draft projection validates shape, preserves exactly three semantic cards, 
 	assert.equal(large.truncated, true);
 	assert.ok(Buffer.byteLength(JSON.stringify(large)) <= 1024);
 	assert.equal(cards.length, 3);
-	for (const spec of COC_TOOLS) {
-		assert.equal(spec.parameters.properties.using_skill.type, "string");
-		assert.ok(!spec.parameters.required?.includes("using_skill"));
-		assert.equal(spec.parameters.properties.run_id, undefined);
+	for (const spec of COC_TOOLS) for(const schema of spec.parameters.properties?[spec.parameters]:spec.parameters.anyOf) {
+		assert.equal(schema.properties.using_skill.type, "string");
+		assert.ok(!schema.required?.includes("using_skill"));
+		assert.equal(schema.properties.run_id, undefined);
 	}
 	const prompt = readFileSync(new URL("../../prompts/keeper.md", import.meta.url), "utf8");
 	assert.match(prompt, /Host capability suggestions are optional/);

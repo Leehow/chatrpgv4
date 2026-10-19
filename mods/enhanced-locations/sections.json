@@ -1,0 +1,30 @@
+{
+  "schema_version": 1,
+  "sections": [
+    {
+      "heading": null,
+      "kind": "resident"
+    },
+    {
+      "heading": "Identity and structure",
+      "triggers": [
+        "before_apply:place"
+      ],
+      "kind": "situational"
+    },
+    {
+      "heading": "Travel and local position",
+      "triggers": [
+        "before_apply:place"
+      ],
+      "kind": "situational"
+    },
+    {
+      "heading": "Continuity and authority",
+      "triggers": [
+        "before_apply:place"
+      ],
+      "kind": "situational"
+    }
+  ]
+}

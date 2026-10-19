@@ -34,7 +34,8 @@ function assertFixedView(projected,tools){
     assert.ok(projected,'selective mode always projects the fixed view');
     const view=projected.messages[0].toolsAdded;
     assert.deepEqual(view.map(tool=>tool.name),tools.map(tool=>tool.name),'nothing is narrowed or widened');
-    for(const tool of tools.filter(tool=>tool.name!=='apply'))assert.deepEqual(view.find(t=>t.name===tool.name),tool);
+    for(const tool of tools.filter(tool=>tool.name!=='apply'&&tool.name!=='place'))assert.deepEqual(view.find(t=>t.name===tool.name),tool);
+    assert.equal(view.find(tool=>tool.name==='place').parameters.properties.change.properties.action.anyOf.length,3,'location detail has its own demand-loaded envelope');
     const apply=view.find(tool=>tool.name==='apply'),items=apply.parameters.properties.effects.items;
     assert.ok(apply.description.startsWith(tools.find(tool=>tool.name==='apply').description));
     assert.deepEqual(items.required,['kind']);assert.equal(items.additionalProperties,true);

@@ -48947,3 +48947,12 @@ crossing is an explicit `through` reference, not a regex over route prose.
 Canonical legacy arrivals clear Mod local position. Public appearance and current
 features reach the sole author through source properties and `where.location`.
 Location-only changes use existing receipts without inventing a new event type.
+Registration creates no road to the departure place. A separate `source_anchor`
+preserves read-ahead navigation without a reachability edge; only actual travel
+creates travelled timing/trail facts. Inventing several rooms while entering a
+lobby must not declare a direct passage from the old office to every room.
+Legacy move calls involving an enhanced place or feature overlay use the same
+route/timing policy, including when the prescreen offers them. A containment
+hint cannot suppress an otherwise required journey band. Cash previews stage
+typed place effects on their private world through the same handler before
+previewing a later purchase; they do not approximate a new journey's clock.

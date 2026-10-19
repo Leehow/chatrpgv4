@@ -1,4 +1,5 @@
 /** Keeper and player read projections preserve the existing authored/state boundary. */
+import {locationPosition,locationFeatures} from './locations.js';
 import { pythonJsonDumps, compareUnicode, isJsonObject } from "../json.js";
 import { RpcError } from "../errors.js";
 import {npcReference,referencedNpc} from '../npc/references.js';
@@ -560,6 +561,7 @@ export function whereSection(graph: ModuleGraph, world: Row, scene: Row, materia
         notes.push("exit condition: " + describeCondition(condition));
     const where: Row = {
         scene: graph.handle(scene),
+        location:{position:locationPosition(world)??{place:graph.handle(scene)},features:locationFeatures(world).filter(feature=>feature.place===graph.handle(scene)).slice(0,32).map(({name,description,state,passable})=>({name,description,...(state!==undefined?{state}:{}),...(passable!==undefined?{passable}:{})}))},
         temporal:sceneTemporalView(graph,world,scene),
         ...(graph.sourceNeeds(scene,true).length?{runtime_inputs:graph.sourceNeeds(scene,true)}:{}),
         ...(graph.adaptationOrigin(scene.campaign_origin) ? {origin: graph.adaptationOrigin(scene.campaign_origin)} : {}),

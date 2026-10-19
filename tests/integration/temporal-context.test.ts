@@ -198,6 +198,8 @@ assert.ok(pyBool(pyEqual(pyAt(pyAt((await pyNext((await (async()=>{const __rows:
 }
 if(process.argv[1]===import.meta.filename)for(const [index,row] of ([{}]).entries())test("test_daily_life_table_is_mod_owned_and_disabled_strategy_keeps_world_facts"+(([{}]).length>1?' ['+index+']':''),async(t)=>{const temporary=temporaryPath(t);await test_daily_life_table_is_mod_owned_and_disabled_strategy_keeps_world_facts(await kernel(t,{}));});
 export async function test_daily_life_guidance_does_not_displace_existing_package_instructions(kernel:any){
+// Keep the original full-instruction fixture; section 242 tests the new demand-loaded package.
+await kernel.ok("mods.defaults",{id:"enhanced-locations",enabled:false});
 let instructions:any,daily:any,host:any;
 (await open_turn(kernel,"I look around."));
 instructions=pyAt(pyAt((await pyMethod(kernel,"table",["capsule"],{})),"mods"),"instructions");

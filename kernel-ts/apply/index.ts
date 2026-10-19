@@ -146,7 +146,7 @@ export function createApplyHandlers(kernel: KernelContext, writer: ReturnType<ty
                 throw new RpcError('invalid_params','A usage preparation batch contains only define, object and usage; apply other actions separately');
             if (effects.some(effect => isJsonObject(effect) && effect.kind === 'adaptation') && effects.length !== 1)
                 throw new RpcError('invalid_params', 'Accept an adaptation alone; ordinary effects belong to later calls');
-            const available = (kind: string) => kind === 'adaptation' ? !!contributions.adaptation : ['clock','clue','npc','item','cash','flag','note','person','ruling','threat','scene'].includes(kind) || (['define','object','ability','dossier','usage'].includes(kind)?!!contributions.mods:['fork','switch','merge'].includes(kind)?!!contributions.worldlines:['handout','map'].includes(kind)?!!contributions.asset:['time', 'damage', 'move'].includes(kind) ? !!contributions.resources : kind === 'ending' ? !!contributions.ending : false);
+            const available = (kind: string) => kind === 'adaptation' ? !!contributions.adaptation : ['clock','clue','npc','item','cash','flag','note','person','ruling','threat','scene'].includes(kind) || (['define','object','ability','dossier','usage','place'].includes(kind)?!!contributions.mods:['fork','switch','merge'].includes(kind)?!!contributions.worldlines:['handout','map'].includes(kind)?!!contributions.asset:['time', 'damage', 'move'].includes(kind) ? !!contributions.resources : kind === 'ending' ? !!contributions.ending : false);
             // A partial backend refuses unimplemented batches before any domain draws or writes.
             for (const [index, effect] of effects.entries())
                 if (isJsonObject(effect) && typeof effect.kind === 'string' && KINDS.includes(effect.kind) && !available(effect.kind))
@@ -154,12 +154,13 @@ export function createApplyHandlers(kernel: KernelContext, writer: ReturnType<ty
             const module = await loadCampaignModule(kernel, string((await campaign.readCampaign()).module_id), transaction.world, campaign.id), graph = module.graph;
             const fulfillment = params._fulfillments === undefined ? undefined : await prepareFulfillments({
                 kernel, campaign, world:transaction.world, turn, graph, effects:effects as Row[], bindings:params._fulfillments as unknown as FulfillmentSelection[]});
-            const authored: Row = { move: 'to', clue: 'clue', npc: 'name', handout: 'name', map: 'name' };
-            const kinds: Record<string, string[]> = { move: ['scene'], clue: ['clue'], npc: ['npc'], handout: ['handout', 'asset'], map: ['handout', 'asset'] };
-            const seated = effects.filter(isJsonObject).filter(effect => Object.hasOwn(authored, string(effect.kind)));
+            const authored: Row = { place: 'to', move: 'to', clue: 'clue', npc: 'name', handout: 'name', map: 'name' };
+            const kinds: Record<string, string[]> = { place: ['scene'], move: ['scene'], clue: ['clue'], npc: ['npc'], handout: ['handout', 'asset'], map: ['handout', 'asset'] };
+            const seated = effects.filter(isJsonObject).filter(effect => Object.hasOwn(authored, string(effect.kind))&&(effect.kind!=='place'||effect.action!=='establish'));
             const names = seated.map(effect => {
                 const name = effect[authored[string(effect.kind)]];
                 if (typeof name !== 'string') return name;
+                if(effect.kind==='place'&&name==='here')return graph.scene(string(transaction.world.active_scene)).node_id;
                 // §188.4 (§87.8): an `npc` effect's person is read by the junction, so a person this table calls by its own
                 // word meets the gate as the book's person it is; a word two people carry is left to `apply npc`'s refusal.
                 let person: Row | null = null;
@@ -171,7 +172,7 @@ export function createApplyHandlers(kernel: KernelContext, writer: ReturnType<ty
                 throw new RpcError('not_implemented', 'The source material contribution is not implemented in the TypeScript apply runtime');
             // §22.4.7 (SL-47): a move into a scene not yet read may land on its index text when the host asks (`_land_on_index`).
             const moves = new Map<unknown, {effect: number; land: boolean}>();
-            for (const [index, effect] of effects.entries()) if (isJsonObject(effect) && effect.kind === 'move' && typeof effect.to === 'string') {
+            for (const [index, effect] of effects.entries()) if (isJsonObject(effect) && (effect.kind === 'move'||effect.kind==='place'&&effect.action==='move') && typeof effect.to === 'string') {
                 const node = graph.find(effect.to, ['scene']);
                 moves.set(node?.node_id ?? effect.to, { effect: index, land: effect._land_on_index === true });
             }
@@ -254,7 +255,7 @@ export function createApplyHandlers(kernel: KernelContext, writer: ReturnType<ty
             const owedLedger = effects.some(effect => isJsonObject(effect) && effect.owed !== undefined) ? await readOwed(kernel, campaign.id) : null;
             const owedUsed = new Set<string>();
             // §218.3: a move that names a road row takes that row's usual minutes; the rows are read only when one does.
-            const travelRows = effects.some(effect => isJsonObject(effect) && effect.kind === 'move' && effect.travel_band != null) ? (await owedBands(kernel)).travelMinutes : null;
+            const travelRows = effects.some(effect => isJsonObject(effect) && (effect.kind==='move'||effect.kind==='place') && effect.travel_band != null) ? (await owedBands(kernel)).travelMinutes : null;
             for (const [index, given] of effects.entries()) {
                 try {
                     if (!isJsonObject(given) || typeof given.kind !== 'string')
@@ -288,6 +289,7 @@ export function createApplyHandlers(kernel: KernelContext, writer: ReturnType<ty
                         if (!contributions.adaptation) throw new RpcError('not_implemented', 'Adaptation acceptance is unavailable');
                         ({receipt, event} = await contributions.adaptation(context, effect) as {receipt: Row; event: DomainEvent});
                     }
+                    else if(kind==='place') ({receipt,event}=await contributions.mods!.locations(context,effect,travelRows));
                     else if (kind === 'move') {
                         const moved = stageMove(context, effect, travelRows);
                         receipt = moved.receipt;
@@ -369,7 +371,7 @@ export function createApplyHandlers(kernel: KernelContext, writer: ReturnType<ty
                     // A pacing tick has no canonical event (12.1 is closed at twenty-four kinds); its receipt carries it.
                     if (event)
                         events.push({ ...event, receipt: receipt.id });
-                    if (kind === 'move' && number(receipt.minutes) > 0) {
+                    if (receipt.kind === 'move' && number(receipt.minutes) > 0) {
                         events.push({ type: 'time-advanced', data: { minutes: receipt.minutes, why: 'travel', clock: clone(staged.clock) }, receipt: receipt.id });
                     }
                 }

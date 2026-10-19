@@ -13,13 +13,16 @@ export function operationOutcomes(receipts:Row[],graph:ModuleGraph,world:Row):Ro
     return receipts.flatMap<Row>(receipt=>{
         const kind=string(receipt.kind);
         if(receipt.visibility==='keeper')return [];
+        if(kind==='place')return [{kind,status:'changed',action:receipt.action,...(receipt.place?{place:receipt.place}:{}),
+            ...(receipt.position?{position:receipt.position}:{}),...(receipt.feature?{feature:receipt.feature,state:receipt.after}:{}),
+            ...(receipt.added?.length?{added:receipt.added}:{}),...(receipt.features?.length?{features:receipt.features}:{})}];
         if(kind==='item'&&typeof receipt.instance==='string')return [{kind,status:receipt.offer==='made'||receipt.offer==='declined'?'unchanged':'changed',
             name:receipt.label??receipt.name,from:owner(receipt.from_id,receipt.from_label??receipt.from),to:owner(receipt.subject,receipt.subject_label),
             quantity:receipt.quantity,...(receipt.offer?{offer:receipt.offer}:{})}];
         if(!['move','npc','time'].includes(kind)||kind==='npc'&&typeof receipt.to!=='string')return [];
         const person=kind==='npc'?graph.actor(receipt.handle):undefined;
         return [{kind,status:receipt.unchanged===true||receipt.renamed===true||kind==='move'&&receipt.from===receipt.to?'unchanged':'changed',
-            ...(kind==='move'?{from:receipt.from_label??place(receipt.from),to:receipt.to_label??place(receipt.to),minutes:receipt.minutes}:{}),
+            ...(kind==='move'?{from:receipt.from_label??place(receipt.from),to:receipt.to_label??place(receipt.to),minutes:receipt.minutes,...(receipt.position?{position:receipt.position}:{})}:{}),
             ...(kind==='npc'?{actor:(person&&npcReference(graph,world,person))||receipt.label||receipt.name,from:place(receipt.from),to:place(receipt.to)}:{}),
             ...(kind==='time'?{minutes:receipt.minutes,...(receipt.band!==undefined?{band:receipt.band}:{})}:{}),}];
     });

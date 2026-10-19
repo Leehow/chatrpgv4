@@ -134,7 +134,7 @@ function sample(schema) {
 
 test("every field a reviewed kind declares identifies it, except the rationale sentences why and how", () => {
 	const schemas = effectSchemas();
-	assert.deepEqual([...TRIGGER_KINDS].sort(), ["cash", "clue", "handout", "item", "map", "move", "object", "time", "usage"]);
+	assert.deepEqual([...TRIGGER_KINDS].sort(), ["cash", "clue", "handout", "item", "map", "move", "object", "place", "time", "usage"]);
 	const scope = { party: ["Thomas Hayes"] };
 	for (const kind of TRIGGER_KINDS) {
 		const schema = schemas.get(kind);

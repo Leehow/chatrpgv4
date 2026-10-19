@@ -285,7 +285,7 @@ test('pure define/adopt retains background deferral but adding a held usage forc
 });
 
 test('the same seven tools expose usage selection, an object alias, staged usage and optional define category', () => {
-  assert.deepEqual(COC_TOOL_NAMES, ['look', 'lookup', 'recall', 'resolve', 'apply', 'ask', 'narrate', "output"]);
+  assert.deepEqual(COC_TOOL_NAMES, ['look', 'lookup', 'recall', 'resolve', 'apply', 'place', 'ask', 'narrate', "output"]);
   const effects = COC_TOOLS.find(tool => tool.name === 'apply').parameters.properties.effects.items.anyOf;
   const byKind = kind => effects.find(effect => effect.properties.kind.enum?.includes(kind));
   assert.deepEqual(byKind('usage').required, ['kind', 'object', 'name', 'description']);

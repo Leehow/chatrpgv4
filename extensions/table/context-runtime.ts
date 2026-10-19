@@ -1,3 +1,4 @@
+import {locationToolDeclarations,projectLocationInspections} from './location-context.ts';
 import {createDecisionAdapter} from '../../runtime/jev/decision-adapter.ts';
 import {readJevApiKey,readJevPreselectAllowanceMs} from '../jev/agent/config.js';
 import {preparationBudget,preparationProviderBudget} from '../../runtime/jev/preparation-budget.ts';
@@ -661,12 +662,13 @@ export function installContextPolicy(pi: ExtensionAPI, writeTelemetry: (row: Row
         if (typeof ctx.sessionManager?.buildSessionProjection === 'function') {
             const system = getCurrentSystemMessage(ctx.sessionManager.buildSessionProjection().messages);
             // §184.3: the prompt text and the tool declarations the provider sees; the transcript timestamp is not sent.
-            return {systemBytes: system ? sizeOf(system) + 1 : 0,
-                systemDigest: system ? shortDigest({content: system.content, sections: system.sections ?? null, tools: system.toolsAdded ?? []}) : null};
+            const measured=system?{...system,toolsAdded:locationToolDeclarations(capabilityRuntime.project(system.toolsAdded??[])??system.toolsAdded??[])}:undefined;
+            return {systemBytes: measured ? sizeOf(measured) + 1 : 0,
+                systemDigest: measured ? shortDigest({content: measured.content, sections: measured.sections ?? null, tools: measured.toolsAdded}) : null};
         }
         const active = typeof pi.getActiveTools === 'function' ? new Set(pi.getActiveTools()) : undefined;
         const tools = typeof pi.getAllTools === 'function' ? pi.getAllTools().filter(tool => !active || active.has(tool.name)) : [];
-        const material = {system: typeof ctx.getSystemPrompt === 'function' ? ctx.getSystemPrompt() : '', tools};
+        const material = {system: typeof ctx.getSystemPrompt === 'function' ? ctx.getSystemPrompt() : '', tools:locationToolDeclarations(capabilityRuntime.project(tools)??tools)};
         return {systemBytes: sizeOf(material), systemDigest: shortDigest(material)};
     };
     const discoveryEvidence=(messages:readonly Row[])=>messages.filter(message=>message.role!=='custom'
@@ -1084,6 +1086,8 @@ export function installContextPolicy(pi: ExtensionAPI, writeTelemetry: (row: Row
                 &&Math.ceil((requestSize([...outgoing,sourceHint])+systemBytes)/BYTES_PER_TOKEN)<=available)outgoing.push(sourceHint);
         }
         if(materialScreen)outgoing=materialScreen.project(outgoing);
+        const locationHistory=projectLocationInspections(outgoing,snapshot.binding.turn);outgoing=locationHistory.messages;
+        if(locationHistory.omittedBytes)record({lane:'context',event:'location_detail_omitted',turn:snapshot.binding.turn,bytes:locationHistory.omittedBytes});
         if(singleKeeper&&policyFor(ctx.model)&&!result.degraded&&!result.overCeiling&&!omission){
             const journal=requestJournal.project({messages:outgoing,turn:snapshot.binding.turn,
                 key:JSON.stringify([snapshot.binding.campaign,snapshot.binding.worldline,snapshot.binding.loop,moduleId,
@@ -1119,7 +1123,8 @@ export function installContextPolicy(pi: ExtensionAPI, writeTelemetry: (row: Row
     }
     pi.on('context_with_system',event=>{
         const tools=getCurrentTools(event.messages as never);
-        const view=capabilityRuntime.project(tools as any);
+        const selectedView=capabilityRuntime.project(tools as any);
+        const view=locationToolDeclarations((selectedView??tools) as any);
         const current=getCurrentSystemMessage(event.messages as never) as Row|undefined;
         if(!current)return;
         const {toolsAdded:_added,toolsRemoved:_removed,...head}=current;
@@ -1128,7 +1133,7 @@ export function installContextPolicy(pi: ExtensionAPI, writeTelemetry: (row: Row
         const {toolsAdded:_tools,toolsRemoved:_removedAgain,...prose}=finalHead;
         const schemas=view??tools;
         record({lane:'context',event:'request_projection',
-            mode:view?'selected':'full',projected_request_bytes:sizeOf(messages),
+            mode:selectedView?'selected':'full_with_location_entry',projected_request_bytes:sizeOf(messages),
             projected_system_bytes:sizeOf(finalHead),system_prose_bytes:sizeOf(prose),
             tool_schema_bytes:sizeOf(schemas),canonical_tool_schema_bytes:sizeOf(tools),
             projected_request_digest:fingerprint(messages),
@@ -1141,8 +1146,12 @@ export function installContextPolicy(pi: ExtensionAPI, writeTelemetry: (row: Row
     pi.on('before_provider_request', event => {
         const payload=(event as unknown as Row).payload;
         requestJournal.commit();
+        const declared=Array.isArray(payload?.tools)?payload.tools:Array.isArray(payload?.functions)?payload.functions:[];
+        const declaredTool=(name:string)=>declared.find((tool:Row)=>(tool.function?.name??tool.name)===name);
         if(payload&&typeof payload==='object')record({lane:'context',event:'provider_projection',
             provider_projection_bytes:sizeOf(payload),provider_projection_digest:fingerprint(payload),
+            tool_declaration_bytes:sizeOf(declared),place_entry_bytes:declaredTool('place')?sizeOf(declaredTool('place')):0,
+            apply_entry_bytes:declaredTool('apply')?sizeOf(declaredTool('apply')):0,output_entry_bytes:declaredTool('output')?sizeOf(declaredTool('output')):0,
             measurement:'provider_adapter_json_bytes_before_later_hooks_not_wire_bytes_or_tokens'});
         // §228.2: a new disclosure counts as delivered only when the provider payload carries it; one that did not
         // survive is withdrawn and offered again on the next request.

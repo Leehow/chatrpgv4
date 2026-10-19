@@ -33,6 +33,7 @@ import { ESTABLISH_CAPABILITY, ESTABLISH_REVIEW_CAPABILITY, validateEstablishDec
 import { SECTIONS_CAPABILITY, DISCOVERY_CAPABILITY, validateSectionsDeclaration, validateSectionsContribution, packageSections, sectioned, sectionKey, instructionBudget, residentText, topicList, annotateGates, sceneFacts, type TurnFacts } from "./sections.js";
 import {TEMPORAL_CAPABILITY,temporalItems,temporalProviders} from './temporal-mod.js';
 import {IMPROVISED_WEAPON_CAPABILITY} from '../combat/improvised.js';
+import {LOCATIONS_CAPABILITY} from './locations.js';
 export const MOD_CAPABILITIES = new Set(["audit.source.v1", "checks.percentile.v1", "checks.presence.v1", "context.npc.v1", "definitions.v1", "objects.v1", "objects.state.v2", "objects.adopt.v1", "objects.documents.v1", "mods.order.v1", "mods.package-files.v1", "ui.documents.v1", "ui.documents.language.v1", "agents.tools.v1", "weapons.v1", "weapons.profile.v2", "spells.v1", "item-effects.v1", "setup.guidance.v1", "setup.aptitude.v1", "graph.vocabulary.v1", "graph.vocabulary.table.v1", "context.thread.v1", "context.pacing.v1"]);
 MOD_CAPABILITIES.add("objects.images.v1");
 MOD_CAPABILITIES.add("objects.image-references.v1");
@@ -77,6 +78,7 @@ MOD_CAPABILITIES.add(TEMPORAL_CAPABILITY);
 /** Contract §224.7: a package where an enabled package requires this rolls a declared first blow's unprepared held object as
  *  the weapons-table row it most resembles (`first_blow.preparation.improvised`, `action.improvised`); Enhanced Items 1.3.5 is the first. */
 MOD_CAPABILITIES.add(IMPROVISED_WEAPON_CAPABILITY);
+MOD_CAPABILITIES.add(LOCATIONS_CAPABILITY);
 /** Contract 28.3 and §180.8: the two dossier spines a package may add words to, a person's and a creature's. */
 export const VOCABULARY_SPINES = ["actor_profile_keys", "creature_profile_keys"] as const;
 const invalid = (message: string): never => {
@@ -871,7 +873,7 @@ function instructionRows(effective: Row[], world: Row): Row[] {
             base = { mod: mod.id, version: mod.version, settings: world.mods.active[mod.id].settings };
         const sections=sectioned(mod)?packageSections(mod):[];
         const discovery=sections.some(section=>section.index_contract_version===2);
-        if (!discovery && (!sectioned(mod) || total + bytes <= budget)) {
+        if (!array(mod.requires).includes(LOCATIONS_CAPABILITY) && !discovery && (!sectioned(mod) || total + bytes <= budget)) {
             total += bytes;
             const screening=sections.length?materialScreenRanges(text,sections):undefined;
             return { ...base, form: "full", instruction: text, ...(screening?{material_screen:screening}:{}) };

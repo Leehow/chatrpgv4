@@ -40,6 +40,7 @@ const COMMON: Readonly<Record<string, readonly string[]>> = {
 const EFFECTS: Readonly<Record<string, readonly [string, string]>> = {
     ending: ['Record an actual scenario ending.', 'A scene transition or an unfinished objective.'],
     adaptation: ['Record a supported campaign adaptation.', 'Changing original source truth or player choices.'],
+    place: ['Establish a compatible place, move or update a local feature through Enhanced Locations.', 'Unchosen travel, source redefinition or bypassing a real obstacle.'],
     move: ['Travel to an actual supported destination or perform a local transition.', 'A destination the player has not chosen.'],
     clue: ['Acquire a clue through an actual supported discovery.', 'A guess or unrevealed module truth.'],
     clock: ['Pin the opening local datetime when the source left it open.', 'Changing an already pinned anchor.'],
@@ -64,6 +65,7 @@ const EFFECTS: Readonly<Record<string, readonly [string, string]>> = {
     map: ['Reveal actual source-backed regions established in play.', 'Revealing unknown areas or changing source geometry.'],
 };
 const VERBS: Readonly<Record<string, string>> = {
+    place: 'Inspect a named place or use the Enhanced Locations Mod for supported travel and local features.',
     look: 'Inspect current named scenes, people, clues, equipment or rules already available at the table.',
     lookup: 'Consult source material, catalogues or rules, or discover missing capability detail.',
     recall: 'Read actual past dialogue, events or attributed memories.',
@@ -104,7 +106,7 @@ export function capabilityCatalogue(tools: readonly CapabilityTool[]): Capabilit
             if (!facets) {
                 const description = EFFECTS[effect];
                 if (!description) throw Error('Canonical effect needs a capability description: '+effect);
-                cards.push({name: effect, verb: 'apply', effect, applicability: description[0],
+                cards.push({name: effect==='place'?'place-change':effect, verb: 'apply', effect, applicability: description[0],
                     exclusions: description[1], detail: JSON.stringify(variant), version: versionOf(variant)});
                 continue;
             }

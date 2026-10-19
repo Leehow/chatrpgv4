@@ -23,6 +23,10 @@ import { magicEffects } from './effects.js';
 import {expressionCatalog} from '../read/expression-reference.js';
 import { packageSections, sectioned, sectionKey } from '../read/sections.js';
 import {EquipmentJobs} from './equipment.js';
+import {stageLocation} from './locations.js';
+import {isAmbiguity} from '../read/module-graph.js';
+import {locationView,locationProvider,locationCandidates} from '../read/locations.js';
+import {PlaceParameters,PlaceEffect} from '../../shared/place-structures.js';
 export { validateDefinition, validateDocumentSeed, definitionExpression } from './definition.js';
 export { projectInventory, projectSheet, weaponRows } from './projection.js';
 export { magicEffects, effectTarget, applyObjectEffects, saveEffectTarget, useItem, repairItem, castNpc } from './effects.js';
@@ -92,6 +96,19 @@ export function createModRuntime(context: KernelContext, sources: ModSources = {
     }
     return Object.freeze({
       ...createDocumentHandlers(writer, runtime, jobs),
+      'mods.locations.inspect': async params => {
+        if(params.need!==undefined&&(typeof params.need!=='string'||!['context','contract'].includes(params.need)))throw new RpcError('invalid_params','Location inspect need is context or contract');
+        const {campaign,module}=await readCampaign(context,params,false,false,writer.read);
+        const provider=locationProvider(await runtime.active(campaign.world));
+        const availability={enabled:!!provider,location_inspection:{turn:campaign.turn.turn,need:params.need??'context'},...(provider?{mod:provider.id,version:provider.version}:{})};
+        if(params.need==='contract')return {...availability,parameters:JSON.parse(JSON.stringify(PlaceParameters)),command:JSON.parse(JSON.stringify(PlaceEffect)),sections:provider?packageSections(provider).map(section=>({heading:section.heading,text:section.text})):[]};
+        try{return {...availability,place:locationView(module.graph,campaign.world,params.name)};}
+        catch(error){
+            if(!(error instanceof RpcError)||error.code!=='unknown_entity'||error.details?.reason==='ambiguous'||isAmbiguity(error))throw error;
+            return {...availability,status:'unregistered',query:params.name,coverage:'Partial known-place catalogue; absence is not source or world nonexistence.',
+                candidates:locationCandidates(module.graph,campaign.world),current:module.graph.handle(module.graph.scene(campaign.world.active_scene))};
+        }
+      },
       'mods.equipment.prepare': params => equipment.prepare(params),
       'mods.equipment.publish': params => equipment.publish(params),
       'mods.equipment.fail': params => equipment.fail(params),
@@ -189,7 +206,8 @@ export function createModRuntime(context: KernelContext, sources: ModSources = {
   }
   function apply(writer: ReturnType<typeof createWriteRuntime>) {
     const jobs = new ModJobs(context, runtime, writer, sources);
-    return Object.freeze({stage: (input: ApplyContext, effect: Row, sheets: Map<string, Row>) => stageModEffect(input, effect, sheets, jobs), projectInventory});
+    return Object.freeze({stage: (input: ApplyContext, effect: Row, sheets: Map<string, Row>) => stageModEffect(input, effect, sheets, jobs),
+        locations:async(input:ApplyContext,effect:Row,travelRows?:ReadonlyMap<string,number>|null)=>stageLocation(input,effect,await runtime.active(input.world),travelRows),projectInventory});
   }
   return Object.freeze({runtime, handlers, initializeCampaign, apply, magicEffects,
     resolveBeforeMain: (input: ModResolveInput) => resolveBeforeMain(context, runtime, input),

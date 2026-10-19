@@ -49,7 +49,7 @@ const playedAt = (graph: ModuleGraph, node: Row): Row[] =>
     graph.groupIncoming(node).filter(rel => rel.relation_kind === 'occurs-at').map(rel => placeNode(graph, rel.from_node_id))
         .filter((place): place is Row => !!place && place.node_kind === 'scene');
 /** The places `node` lies directly inside: `located-in` and `part-of` out of its group, `contains` into it. */
-const parentsOf = (graph: ModuleGraph, node: Row): Row[] => [
+export const parentsOf = (graph: ModuleGraph, node: Row): Row[] => [
     ...graph.groupOut(node).filter(rel => rel.relation_kind === 'located-in' || rel.relation_kind === 'part-of').map(rel => placeNode(graph, rel.to_node_id)),
     ...graph.groupIncoming(node).filter(rel => rel.relation_kind === 'contains').map(rel => placeNode(graph, rel.from_node_id)),
 ].filter((place): place is Row => !!place);

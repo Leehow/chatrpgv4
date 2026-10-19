@@ -5,6 +5,7 @@ import {Errors} from 'typebox/value';
 import {StringEnum} from '@earendil-works/pi-ai';
 import {NPC_REFERENCE_PATTERN,isNpcReference} from './npc-references.ts';
 import {Interaction,ExistingCommunicationFact,bindCommunicationParameters,type DecisionBindings,type InteractionDecision} from './decision-content.ts';
+import {PlaceEffect} from '../shared/place-structures.ts';
 const atom=(maxLength=160)=>Type.String({minLength:1,maxLength});
 
 const move=Type.Object({kind:Type.Literal('move'),to:atom(),via:Type.Optional(atom()),travel_band:Type.Optional(atom(64))},{additionalProperties:false});
@@ -16,9 +17,11 @@ const services=['open','closed','limited','unknown'] as const,crowds=['empty','q
 const scene=Type.Object({kind:Type.Literal('scene'),service:StringEnum([...services]),crowd:StringEnum([...crowds]),review_after_minutes:Type.Optional(Type.Integer({minimum:1,maximum:60}))},{additionalProperties:false});
 const time=Type.Object({kind:Type.Literal('time'),band:atom(64),reason:atom()},{additionalProperties:false});
 const relationship=Type.Object({kind:Type.Literal('relationship'),actor,toward:Type.String({pattern:'^(npc_[1-9][0-9]*|investigator_[1-9][0-9]*)$',maxLength:32}),affinity:StringEnum(['hostile','guarded','neutral','friendly'])},{additionalProperties:false});
-const commandSchemas=[move,npc,walkOn,scene,time,relationship];
+const placeMove=Type.Object(Type.Omit(PlaceEffect.anyOf[0],['travel_minutes']).properties,{additionalProperties:false});
+const placeStationary=[PlaceEffect.anyOf[1],PlaceEffect.anyOf[2]];
+const commandSchemas=[move,placeMove,...placeStationary,npc,walkOn,scene,time,relationship];
 // Travel owns its time. This bounded wire has no beyond-travel operation.
-const commands=Type.Union([Type.Array(Type.Union([move,npc,walkOn,scene,relationship]),{maxItems:12}),Type.Array(Type.Union([time,npc,walkOn,scene,relationship]),{maxItems:12})]);
+const commands=Type.Union([Type.Array(Type.Union([move,placeMove,...placeStationary,npc,walkOn,scene,relationship]),{maxItems:12}),Type.Array(Type.Union([time,...placeStationary,npc,walkOn,scene,relationship]),{maxItems:12})]);
 /** A model decides communication; the sole author owns all complete wording. */
 export const TURN_PACKET_PARAMETERS=Type.Object({version:Type.Literal(4),commands:Type.Optional(commands),interactions:Type.Optional(Type.Array(Interaction,{maxItems:12})),reveal:Type.Optional(Type.Array(ExistingCommunicationFact,{maxItems:8}))},{additionalProperties:false});
 export type ResponseDecision=InteractionDecision;
@@ -64,7 +67,7 @@ export function normalizeTurnPacketArguments(input:unknown):{args:unknown;repair
   return normalizeToolArgumentSyntax(TURN_PACKET_PARAMETERS,input,{boundedIntegers:true});
 }
 /** Current capabilities are data; the provider tool declaration stays invariant. */
-export function turnPacketParameterSchema(journeySettled=false,timeBands?:readonly string[],moveChoices?:readonly Record<string,unknown>[],sceneRequired=false,bindings?:DecisionBindings):TSchema {
+export function turnPacketParameterSchema(journeySettled=false,timeBands?:readonly string[],moveChoices?:readonly Record<string,unknown>[],sceneRequired=false,bindings?:DecisionBindings,locations=false):TSchema {
     const schema:Record<string,any>=structuredClone(TURN_PACKET_PARAMETERS);
     if(bindings){schema.properties.interactions.items=bindCommunicationParameters(schema.properties.interactions.items,bindings);schema.properties.reveal.items=bindCommunicationParameters(schema.properties.reveal.items,bindings,true);}
     const destinations=[...new Set((moveChoices??[]).filter(row=>row.kind==='move'&&typeof row.to==='string').map(row=>row.to as string))];
@@ -81,14 +84,15 @@ export function turnPacketParameterSchema(journeySettled=false,timeBands?:readon
     const boundedTime=timeBands?.length?Type.Object({...time.properties,band:StringEnum([...timeBands])},{additionalProperties:false}):time;
     const assessment={contains:scene,minContains:1};
     const stationary=sceneRequired?assessment:{};
-    const moving=sceneRequired?assessment:{allOf:[{if:{contains:Type.Object({kind:Type.Literal('move')})},then:assessment}]};
-    if(journeySettled)schema.properties.commands=Type.Array(Type.Union([issuedNpc,walkOn,scene,relationship]),{maxItems:12,...stationary});
-    else schema.properties.commands=Type.Union([Type.Array(Type.Union([...issuedMoves,issuedNpc,walkOn,scene,relationship]),{maxItems:12,...moving}),Type.Array(Type.Union([boundedTime,issuedNpc,walkOn,scene,relationship]),{maxItems:12,...stationary})]);
+    const local=locations?placeStationary:[],journey=locations?[placeMove]:[];
+    const moving=sceneRequired?assessment:{allOf:[{if:{contains:Type.Union([Type.Object({kind:Type.Literal('move')}),Type.Object({kind:Type.Literal('place'),action:Type.Literal('move')})])},then:assessment}]};
+    if(journeySettled)schema.properties.commands=Type.Array(Type.Union([...local,issuedNpc,walkOn,scene,relationship]),{maxItems:12,...stationary});
+    else schema.properties.commands=Type.Union([Type.Array(Type.Union([...issuedMoves,...journey,...local,issuedNpc,walkOn,scene,relationship]),{maxItems:12,...moving}),Type.Array(Type.Union([boundedTime,...local,issuedNpc,walkOn,scene,relationship]),{maxItems:12,...stationary})]);
     if(sceneRequired)schema.required=[...new Set([...(schema.required??[]),'commands'])];
     return schema as TSchema;
 }
 /** Restore the owned structural schema after Pi's non-strict Anthropic conversion. */
-export function turnPacketProviderPayload(payload:unknown,journeySettled=false,requireTool=true,timeBands?:readonly string[],moveChoices?:readonly Record<string,unknown>[],sceneRequired=false,bindings?:DecisionBindings):unknown {
+export function turnPacketProviderPayload(payload:unknown,journeySettled=false,requireTool=true,timeBands?:readonly string[],moveChoices?:readonly Record<string,unknown>[],sceneRequired=false,bindings?:DecisionBindings,locations=false):unknown {
   if(!object(payload)||!Array.isArray(payload.tools)||!Array.isArray(payload.messages))return payload;
   let changed=false;
   const tools=payload.tools.map((tool:unknown)=>{
@@ -96,7 +100,7 @@ export function turnPacketProviderPayload(payload:unknown,journeySettled=false,r
     changed=true;return {...tool,input_schema:TURN_PACKET_PARAMETERS};
   });
   if(!changed)return payload;
-  const schema=turnPacketParameterSchema(journeySettled,timeBands,moveChoices,sceneRequired,bindings);
+  const schema=turnPacketParameterSchema(journeySettled,timeBands,moveChoices,sceneRequired,bindings,locations);
   const messages=[...payload.messages,{role:'user',content:[{type:'text',text:JSON.stringify({output_parameter_schema:schema})}]}];
   return {...payload,tools,messages,...(requireTool&&payload.model==='MiniMax-M3.1-Flash-Preview'?{tool_choice:{type:'auto'}}:{})};
 }
@@ -122,7 +126,7 @@ export function bindTurnPacketMoves(packet:TurnPacket,choices:readonly Record<st
 export function turnPacket(text:string):TurnPacket {
  const raw=JSON.parse(text);
  if(object(raw)&&Array.isArray(raw.commands))for(const [index,command]of raw.commands.entries()){
-  const schema=commandSchemas.find(schema=>schema.properties.kind.const===command?.kind);
+  const schema=commandSchemas.find(schema=>schema.properties.kind.const===command?.kind&&(!(schema.properties as Record<string,any>).action||(schema.properties as Record<string,any>).action.const===command?.action));
   if(schema&&Errors(schema,command).length)throw parameterError(`commands[${index}]`,schema,command);
  }
  if(object(raw)&&Array.isArray(raw.interactions))for(const row of raw.interactions)responseDecision(row,(raw.commands??[]).filter((row:any)=>row?.kind==='walk_on').map((row:any)=>row.slot));
@@ -132,8 +136,9 @@ export function turnPacket(text:string):TurnPacket {
  const labels=commands.filter(a=>a.kind==='walk_on').map(a=>a.label.normalize('NFKC').trim().toLowerCase());
  if(new Set(labels).size!==labels.length||new Set(slots).size!==slots.length||commands.filter(a=>a.kind==='scene').length>1)throw Error('Duplicate newcomer labels, scene or slot');
  interactions.forEach(value=>responseDecision(value,slots));
- if(commands.filter(a=>a.kind==='move').length>1)throw Error('Only one destination per decision packet');
- if(commands.some(a=>a.kind==='move')&&commands.some(a=>a.kind==='time'))throw Error('Movement already owns travel time');
+ const journeys=commands.filter(a=>a.kind==='move'||a.kind==='place'&&a.action==='move');
+ if(journeys.length>1)throw Error('Only one destination per decision packet');
+ if(journeys.length&&commands.some(a=>a.kind==='time'))throw Error('Movement already owns travel time');
  return packet;
 }
 export function compileTurnPacket(packet:TurnPacket|BoundTurnPacket):{responses:ResponseDecision[];effects:Record<string,unknown>[];event?:{name:string;relationships:Array<{actor:string;toward:string;statement:string}>}} {
@@ -142,7 +147,7 @@ export function compileTurnPacket(packet:TurnPacket|BoundTurnPacket):{responses:
  const ordered=[...commands.filter(a=>!['walk_on','scene','relationship'].includes(a.kind)),...commands.filter(a=>a.kind==='walk_on'),...commands.filter(a=>a.kind==='scene')];
  return {responses:packet.interactions??[],...(directed.length?{event:{name:'Directed relationship update',relationships:directed.map(row=>({actor:row.actor,toward:row.toward,statement:JSON.stringify({kind:'directed_relationship',affinity:row.affinity})}))}}:{}),effects:ordered.map(a=>a.kind==='move'?{kind:'move',to:a.to,...(a.via?{via:a.via}:{}),
   ...('travel_minutes'in a&&a.travel_minutes!==undefined?{travel_minutes:a.travel_minutes}:{}),...(a.travel_band?{travel_band:a.travel_band}:{})}
-  :a.kind==='npc'?{kind:'npc',name:a.actor,to:a.to,why:a.reason}:a.kind==='walk_on'?{kind:'npc',name:a.label,to:'here',walk_on:true,_new_person:true,why:a.reason}
+  :a.kind==='place'?{...a}:a.kind==='npc'?{kind:'npc',name:a.actor,to:a.to,why:a.reason}:a.kind==='walk_on'?{kind:'npc',name:a.label,to:'here',walk_on:true,_new_person:true,why:a.reason}
   :a.kind==='scene'?{kind:'scene',name:'here',_population:true,activity:{service:a.service,crowd:a.crowd,basis:'established',summary:`Service is ${a.service}; crowd is ${a.crowd}.`,review_after_minutes:a.review_after_minutes??15},why:'Current place, clock and registered circumstances establish this population assessment.'}
   :a.kind==='time'?{kind:'time',band:a.band,why:a.reason}:(()=>{throw Error('Non-effect decision command reached the effect compiler');})())};
 }
@@ -152,11 +157,12 @@ export function turnPacketResult(value:unknown):{player_actions_complete:true;np
   if(Array.isArray(value.not_landed)&&value.not_landed.length||object(value.admission)&&value.admission.not_landed)
     throw Error('Part of the operation did not land; preserve its actual results and do not author completion');
   return {player_actions_complete:true,npc_actions_complete:true,outcomes:value.outcomes.map(row=>{
-    if(!object(row)||!['move','npc','time','item'].includes(row.kind)||!['changed','unchanged'].includes(row.status))throw Error('Invalid canonical operation outcome');
-    return Object.fromEntries(['kind','status','actor','name','from','to','minutes','band','quantity','offer'].filter(key=>row[key]!==undefined).map(key=>[key,row[key]]));
+    if(!object(row)||!['move','place','npc','time','item'].includes(row.kind)||!['changed','unchanged'].includes(row.status))throw Error('Invalid canonical operation outcome');
+    return Object.fromEntries(['kind','status','action','actor','name','from','to','minutes','band','quantity','offer','place','position','feature','state','added','features'].filter(key=>row[key]!==undefined).map(key=>[key,row[key]]));
   })};
 }
 export const TURN_PACKET_GUIDANCE='Submit one output packet {version:4,commands?,interactions?,reveal?}. Omit unchanged categories. Commands settle before communication; this is not an interleaved program. '
+ +'For places beyond issued routes or local positioning, use place. Inspect need contract supplies the typed location command for native output. Reuse known identities; complete valid location calls need no earlier manual read. '
  +'Use issued movement destinations and routes, optional issued travel bands, npc presence, walk_on, scene and stationary time commands. Movement owns travel time; never combine move and time. A changed directed attitude uses {kind:"relationship",actor:"issued npc_N",toward:"issued person reference",affinity:"hostile|guarded|neutral|friendly"}. Use the existing mechanical apply effects, resolve and ask for other real rules and state changes, never for prose or prospective event records. '
  +'An unassessed or expired scene needs {kind:"scene",service:"open|closed|limited|unknown",crowd:"empty|quiet|active|crowded|unknown",review_after_minutes?:1..60}. Determine population from the place, clock and circumstances; missing names never mean empty. If needed establish a temporary person with {kind:"walk_on",slot:"new_1",label:"public role appellation",reason:"why present"}; reuse existing people. '
  +'Interactions select {actor:"issued npc_N or declared new_N",to:["issued investigator_N or npc_N"],act:"answer|greet|ask|refuse|offer|acknowledge|clarify|report|warn",content?:[{fact_ref:"issued fact_N"}|{source_ref:"issued source_N"}|{new:registered constructor}]}. Silent is {actor,act:"silent",to?}, without content. '
