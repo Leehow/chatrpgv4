@@ -18,4 +18,6 @@ To approach the front desk, move to the same place with at:"front desk",relation
 
 One submit can create a compatible destination and enter it atomically. Mixed-domain apply uses the same kind:"place" effect. The kernel owns IDs, receipts, time arithmetic and atomicity; the Keeper owns semantic intent, consistency and minimal creation. Do not author receipt IDs, force source changes, use a generic JSON patch, or convert every turn into a location read. The sole final author uses committed appearance, features, position and outcomes. A disabled Mod preserves readable places but does not accept enhanced writes.
 
+Establish alone registers surroundings and moves nobody. When the player goes to a new room, use action:"move" with the room in additions and its qualified name in to. Time or NPC presence updates do not substitute for that arrival receipt.
+
 For a feature-only addition to an existing authored place, omit its description and supply only its name plus missing features. Source appearance is not replaced. When a route crosses an existing boundary, bind through:{place,feature}; its current passable:false is a concrete obstacle. Describe and resolve the player's actual attempt before changing that feature's state. An alternate route is a separate fictional claim for the Keeper to judge, not a way to clear a lock flag.

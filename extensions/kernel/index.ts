@@ -6972,6 +6972,7 @@ export default function (pi: ExtensionAPI, host: {capabilities?:RuntimeCapabilit
 				const normalized=turnPacketPrototype&&spec.name==='output'?normalizeTurnPacketArguments(supplied):normalizeToolArgumentSyntax(spec.parameters,supplied,{nativeValidation:true});
 				if(normalized.repairs)void record({lane:'arguments',event:'decision_array_normalized',tool:spec.name,repairs:normalized.repairs});
 				if(normalized.integerRepairs)void record({lane:'arguments',event:'decision_integer_normalized',tool:spec.name,repairs:normalized.integerRepairs});
+				if(normalized.booleanRepairs)void record({lane:'arguments',event:'decision_boolean_normalized',tool:spec.name,repairs:normalized.booleanRepairs});
 				const unwrapped = unwrapArgumentMarkup(spec.name, spec.parameters, normalized.args);
 				if (!unwrapped.ok) throw new Error(new KernelError(unwrapped.refusal).toToolText());
 				if (unwrapped.repairs.length) void record({ lane: "tool_arguments", event: "markup_unwrapped", tool: spec.name, repairs: unwrapped.repairs });

@@ -95,13 +95,12 @@ when a ticket requires live evidence.
 - Report actual provider request declaration/history size, available cache/input
   usage and latency separately. No token/latency saving is assumed from source bytes.
 
-## Current state
+## Specification checkpoint (historical)
 
 - Goal is active. Design and two GPT-6 Pro rounds are retained in the linked research.
 - Current owner clarification supersedes the draft's optional-guidance-only Mod
   boundary. Supporting kernel work is explicitly authorized.
-- Next: publish section 242 and file the bounded implementation issues, then execute
-  EL-01 through EL-05. No implementation validation has yet been claimed.
+- This checkpoint preceded publication of section 242 and issues #115–#120.
 
 ## Implementation checkpoint
 
@@ -119,5 +118,26 @@ when a ticket requires live evidence.
 - New interface expectations and explicit legacy instruction-budget fixture profiles are being updated; original Python/frozen results are untouched. A required `using_skill` annotation is now present in both place variants. Provider system accounting uses the actual projected location declaration.
 - The existing `extension-words` unused `turn_unfinished_notice` finding is outside location scope and will be checked against baseline rather than silently altered.
 - Current local structural slice: 20/20. Latest LAN targeted batch: 48/49 before the annotation fix; latest code awaits repeat.
-- Shared LAN slot became busy. Unified exec session `34507` is an automatic, quiet 30-second retry of the canonical runner; it performs no source/evidence mutation while the runner reports another suite active. It runs the native-result pressure regression, annotation and original full-instruction profile checks when the slot is free. Continue by waiting on that session, then build-fetch the latest runtime and run real play. Do not treat waiting on the other owner as a blocked goal.
-- A single bounded local RPC file is being used for fast feedback while heavy work remains queued to LAN. No live campaign has been started yet.
+- The shared LAN slot was temporarily busy. The queued pressure/profile run completed; its results are recorded below. No busy override was used.
+- At this checkpoint a bounded local RPC file supplied fast feedback and live play had not started.
+
+## Live acceptance started
+
+- Implementation commit: `f05190299`; working tree was clean at the start. Latest bounded local RPC: 6/6 passed (`.coc/test-runs/enhanced-locations-20261019/location-rpc-local-2.log`, canonical runner evidence `.coc/test-runs/integration-ts-VPRj5z/`). Structural checks 20/20, annotation schema 1/1, kernel TypeScript check passed.
+- LAN pressure regression now passes both normal and expanded-name cases. The two historical instruction profiles pass with Enhanced Locations explicitly disabled in their private fixture; original assertions/frozen files were not changed. Latest annotation test passes after distinguishing root object constraints from root union variants.
+- Runtime build fetched from leehow-pc (64 MiB LAN transfer); no App packaging.
+- First live attempt `enhanced-locations-live-20261019` stopped with actual `Provider is not configured: minimax-cn`, before KP inference. This is environment evidence, not a quota exhaustion or movement failure. The raw run remains.
+- Existing App credential is read by a transport-only wrapper and passed as `MINIMAX_CN_API_KEY` to the isolated driver process. No credential is printed, copied into source configuration or committed.
+- Initial credential-bridged run: `enhanced-locations-live-20261019-auth` (stopped), campaign `locations-stress-20261019`, private workspace `.coc/test-workspaces/enhanced-locations-01a154d0`. Startup and completed requests confirm MiniMax M3.1/medium. Its opening delivered the commission offer; the subsequent action stopped because the source Jev credential was unavailable. A transport-only bridge now reads both existing App credentials without writing secret copies.
+
+## Latest live repair checkpoint
+
+- The same campaign is retained across all restarts. There are no synthetic player turns or manually written campaign facts. Failed raw runs remain under `.coc/playtests/enhanced-locations-live-20261019*`.
+- `configured` exposed literal missing-parent arguments and the native move-plus-time prohibition. Field-specific parent correction and explicit post-arrival time now use the existing atomic transaction.
+- `repair1` exposed an uncertain location consent score (selection .42, restriction .12). Enhanced location consent now explains its actual entry/position scope and distinguishes Keeper additions from a player construction action. It retains the original thresholds and independent restrictions; no automatic authorization was added.
+- `repair2` turn 1 genuinely established and entered an ordinary hotel, delivered the clerk interaction, charged 30 travel minutes plus 2 activity minutes, and no lodging payment. Its first invalid parent was corrected within the actual turn. Turn 2 exposed an overly strict parser rule for a harmless standalone `beyond_travel` marker. The parser now agrees with its declared schema and canonical apply semantics.
+- Protocol regression: 62/62; location RPC regression: 7/7; current location/consent seam tests: 22/22; typed family tests: 14/14; kernel TypeScript check passed. Logs are in `.coc/test-runs/enhanced-locations-20261019/`. Tests and real play remain separate evidence.
+- Full runs `run.uloxHF70` and the following all-run were deliberately stopped with exit 143 for live repairs; neither is final passing evidence. Their raw artifacts were retained by the canonical runner. Do not count them as a completed regression.
+- `repair3` delivered the request to view a room, then exposed nested item envelopes with exact boolean strings. The existing schema-owned transport decoder now handles those exact booleans and records repairs; array/boolean transport regressions pass. The delivered schema and Mod also distinguish registration-only establishment from an actual move with additions.
+- Current live run: `enhanced-locations-live-20261019-repair4`, same campaign/workspace, explicit MiniMax M3.1/medium. Runtime fetched from `run.YnTsax3r`. Continue one natural player input at a time, validate room/local-feature/revisit/restart behavior, then run the final full LAN regression after the live path stabilizes.
+- Fast gate is again 130/130. The bounded Jev call is now classified in SL-00. The two historical fixture files passed all 28 cases on LAN (`run.v7PRZmAV`); their native counterpart fingerprints and revalidation record are updated without changing original/frozen assertion inventories. The complete migration checker reports 1,792/1,792 validated cases.

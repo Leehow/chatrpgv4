@@ -4,6 +4,7 @@ import {test} from 'node:test';
 import {readFileSync,mkdirSync,writeFileSync} from 'node:fs';
 import {join} from 'node:path';
 import {kernel,openTurn,campaignDir,RpcClient,CAMPAIGN,ROOT,type Row} from './support.ts';
+import {turnPacket,compileTurnPacket} from '../../runtime/turn-packet-prototype.ts';
 const state=(k:RpcClient)=>JSON.parse(readFileSync(join(campaignDir(k.workspace),'world.json'),'utf8'));
 const locations=(k:RpcClient)=>state(k).mods.state['enhanced-locations'].locations;
 const inspect=(k:RpcClient,name?:string)=>k.ok('mods.locations.inspect',{campaign:CAMPAIGN,...(name?{name}:{})});
@@ -132,4 +133,20 @@ test('a typed place journey and its subsequent purchase preview the same day wit
     await k.table('apply',{call_id:'t1-c2',effects});
     const paid=(await k.table('status',{projection:'receipts'})).receipts.filter((receipt:Row)=>receipt.kind==='cash'&&receipt.call_id==='t1-c2').at(-1);
     assert.equal(paid.delta,preview.cash_previews[0].delta);assert(state(k).clock.minutes>=1440);assert.equal(state(k).active_scene,'Roadside cafe');
+});
+
+test('a missing parent returns its exact correction and a native arrival plus activity shares one clock',async t=>{
+    const k=await kernel(t);await openTurn(k,'I visit an ordinary hotel and ask about a room.');
+    const before=state(k),journey={kind:'place',action:'move',to:'Ordinary Hotel',via:'Along the street',travel_band:'local_travel',additions:[{...hotel('Ordinary Hotel'),within:'null'}]};
+    const error=await k.tableErr('apply',{call_id:'t1-c1',effects:[journey]});
+    assert.equal(error.details.reason,'place_parent_unregistered');assert.equal(error.details.field,'additions[0].within');
+    assert.match(error.fix,/JSON null/);assert.deepEqual(state(k),before);
+    const packet=turnPacket(JSON.stringify({version:4,commands:[{...journey,additions:[hotel('Ordinary Hotel')]},
+        {kind:'time',band:'speak_briefly',reason:'Ask the clerk about a room.',beyond_travel:true}]}));
+    await k.table('apply',{call_id:'t1-c1',effects:compileTurnPacket(packet).effects});
+    const receipts=(await k.table('status',{projection:'receipts'})).receipts.filter((receipt:Row)=>receipt.call_id==='t1-c1');
+    assert.deepEqual(receipts.map((receipt:Row)=>receipt.kind),['move','time']);
+    assert.equal(receipts[1].beyond_travel,true);assert(receipts[0].minutes>=10);assert(receipts[1].minutes<=3);
+    assert.equal(state(k).clock.minutes-before.clock.minutes,receipts.reduce((sum:number,receipt:Row)=>sum+receipt.minutes,0));
+    assert.equal(state(k).active_scene,'Ordinary Hotel');assert.equal(locations(k).places.length,1);
 });

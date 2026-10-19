@@ -75641,7 +75641,7 @@
           "counterpart": {
             "file": "tests/integration/mod-director-text.test.ts",
             "name": "test_thread_is_organised_by_what_the_story_still_needs",
-            "sha256": "cde23f34e94132735d9fe3cb988f811496e353daf50bc0f8ffb30667cfeb9bde"
+            "sha256": "0f7278285bafe0923bd8417a5ac2d5d6acb2613d5e8d390f5c59b9b5850f7ee1"
           },
           "review": "statement-by-statement",
           "validation": {
@@ -75727,7 +75727,7 @@
           "counterpart": {
             "file": "tests/integration/mod-director-text.test.ts",
             "name": "test_a_clue_without_a_declared_check_keeps_its_gate_unspecified",
-            "sha256": "cde23f34e94132735d9fe3cb988f811496e353daf50bc0f8ffb30667cfeb9bde"
+            "sha256": "0f7278285bafe0923bd8417a5ac2d5d6acb2613d5e8d390f5c59b9b5850f7ee1"
           },
           "review": "statement-by-statement",
           "validation": {
@@ -75829,7 +75829,7 @@
           "counterpart": {
             "file": "tests/integration/mod-director-text.test.ts",
             "name": "test_a_discovered_clue_leaves_the_thread_and_the_capsule_carries_it",
-            "sha256": "cde23f34e94132735d9fe3cb988f811496e353daf50bc0f8ffb30667cfeb9bde"
+            "sha256": "0f7278285bafe0923bd8417a5ac2d5d6acb2613d5e8d390f5c59b9b5850f7ee1"
           },
           "review": "statement-by-statement",
           "validation": {
@@ -75915,7 +75915,7 @@
           "counterpart": {
             "file": "tests/integration/mod-director-text.test.ts",
             "name": "test_close_calls_count_major_wound_blows_once_per_turn",
-            "sha256": "cde23f34e94132735d9fe3cb988f811496e353daf50bc0f8ffb30667cfeb9bde"
+            "sha256": "0f7278285bafe0923bd8417a5ac2d5d6acb2613d5e8d390f5c59b9b5850f7ee1"
           },
           "review": "statement-by-statement",
           "validation": {
@@ -76001,7 +76001,7 @@
           "counterpart": {
             "file": "tests/integration/mod-director-text.test.ts",
             "name": "test_sections_exist_only_while_a_reader_is_on",
-            "sha256": "cde23f34e94132735d9fe3cb988f811496e353daf50bc0f8ffb30667cfeb9bde"
+            "sha256": "0f7278285bafe0923bd8417a5ac2d5d6acb2613d5e8d390f5c59b9b5850f7ee1"
           },
           "review": "statement-by-statement",
           "validation": {
@@ -76095,7 +76095,7 @@
           "counterpart": {
             "file": "tests/integration/mod-director-text.test.ts",
             "name": "test_narration_audit_joins_the_shared_audit_job",
-            "sha256": "cde23f34e94132735d9fe3cb988f811496e353daf50bc0f8ffb30667cfeb9bde"
+            "sha256": "0f7278285bafe0923bd8417a5ac2d5d6acb2613d5e8d390f5c59b9b5850f7ee1"
           },
           "review": "statement-by-statement",
           "validation": {
@@ -76193,7 +76193,7 @@
           "counterpart": {
             "file": "tests/integration/mod-director-text.test.ts",
             "name": "test_instructions_are_whole_on_every_turn_within_the_budget",
-            "sha256": "cde23f34e94132735d9fe3cb988f811496e353daf50bc0f8ffb30667cfeb9bde"
+            "sha256": "0f7278285bafe0923bd8417a5ac2d5d6acb2613d5e8d390f5c59b9b5850f7ee1"
           },
           "review": "statement-by-statement",
           "validation": {
@@ -76279,7 +76279,7 @@
           "counterpart": {
             "file": "tests/integration/mod-director-text.test.ts",
             "name": "test_a_scenario_scoped_clock_is_on_the_panel_before_its_danger_is_in_the_room",
-            "sha256": "cde23f34e94132735d9fe3cb988f811496e353daf50bc0f8ffb30667cfeb9bde"
+            "sha256": "0f7278285bafe0923bd8417a5ac2d5d6acb2613d5e8d390f5c59b9b5850f7ee1"
           },
           "review": "statement-by-statement",
           "validation": {
@@ -76397,7 +76397,7 @@
           "counterpart": {
             "file": "tests/integration/mod-director-text.test.ts",
             "name": "test_a_threat_clock_moves_only_through_apply_and_shows_what_the_book_makes_visible",
-            "sha256": "cde23f34e94132735d9fe3cb988f811496e353daf50bc0f8ffb30667cfeb9bde"
+            "sha256": "0f7278285bafe0923bd8417a5ac2d5d6acb2613d5e8d390f5c59b9b5850f7ee1"
           },
           "review": "statement-by-statement",
           "validation": {
@@ -76491,7 +76491,7 @@
           "counterpart": {
             "file": "tests/integration/mod-director-text.test.ts",
             "name": "test_a_threat_effect_names_what_it_could_not_find",
-            "sha256": "cde23f34e94132735d9fe3cb988f811496e353daf50bc0f8ffb30667cfeb9bde"
+            "sha256": "0f7278285bafe0923bd8417a5ac2d5d6acb2613d5e8d390f5c59b9b5850f7ee1"
           },
           "review": "statement-by-statement",
           "validation": {
@@ -76597,7 +76597,7 @@
           "counterpart": {
             "file": "tests/integration/mod-director-text.test.ts",
             "name": "test_the_offer_ledger_counts_what_was_within_reach_against_what_the_turn_took",
-            "sha256": "cde23f34e94132735d9fe3cb988f811496e353daf50bc0f8ffb30667cfeb9bde"
+            "sha256": "0f7278285bafe0923bd8417a5ac2d5d6acb2613d5e8d390f5c59b9b5850f7ee1"
           },
           "review": "statement-by-statement",
           "validation": {
@@ -76687,7 +76687,7 @@
           "counterpart": {
             "file": "tests/integration/mod-director-text.test.ts",
             "name": "test_an_offer_row_carries_both_what_it_costs_and_what_it_yields",
-            "sha256": "cde23f34e94132735d9fe3cb988f811496e353daf50bc0f8ffb30667cfeb9bde"
+            "sha256": "0f7278285bafe0923bd8417a5ac2d5d6acb2613d5e8d390f5c59b9b5850f7ee1"
           },
           "review": "statement-by-statement",
           "validation": {
@@ -76781,7 +76781,7 @@
           "counterpart": {
             "file": "tests/integration/mod-director-text.test.ts",
             "name": "test_an_affordance_is_an_offer_once_it_names_what_it_yields",
-            "sha256": "cde23f34e94132735d9fe3cb988f811496e353daf50bc0f8ffb30667cfeb9bde"
+            "sha256": "0f7278285bafe0923bd8417a5ac2d5d6acb2613d5e8d390f5c59b9b5850f7ee1"
           },
           "review": "statement-by-statement",
           "validation": {
@@ -142228,7 +142228,7 @@
           "counterpart": {
             "file": "tests/integration/temporal-context.test.ts",
             "name": "test_old_save_projects_need_without_inventing_records",
-            "sha256": "b3b04d784a49b9a17cdc2ebfb8843cae34d111fc44e4d89e7b80c3ea8191ac9f"
+            "sha256": "6507950387d64a206f73643b57149bd18a284a10842f954f629cc4a40d04bb79"
           },
           "review": "statement-by-statement",
           "validation": {
@@ -142334,7 +142334,7 @@
           "counterpart": {
             "file": "tests/integration/temporal-context.test.ts",
             "name": "test_precise_review_boundary_inside_same_day_part_does_not_auto_close",
-            "sha256": "b3b04d784a49b9a17cdc2ebfb8843cae34d111fc44e4d89e7b80c3ea8191ac9f"
+            "sha256": "6507950387d64a206f73643b57149bd18a284a10842f954f629cc4a40d04bb79"
           },
           "review": "statement-by-statement",
           "validation": {
@@ -142428,7 +142428,7 @@
           "counterpart": {
             "file": "tests/integration/temporal-context.test.ts",
             "name": "test_night_changes_applicability_not_the_recorded_world",
-            "sha256": "b3b04d784a49b9a17cdc2ebfb8843cae34d111fc44e4d89e7b80c3ea8191ac9f"
+            "sha256": "6507950387d64a206f73643b57149bd18a284a10842f954f629cc4a40d04bb79"
           },
           "review": "statement-by-statement",
           "validation": {
@@ -142526,7 +142526,7 @@
           "counterpart": {
             "file": "tests/integration/temporal-context.test.ts",
             "name": "test_awakened_person_survives_routine_guess_and_five_minutes",
-            "sha256": "b3b04d784a49b9a17cdc2ebfb8843cae34d111fc44e4d89e7b80c3ea8191ac9f"
+            "sha256": "6507950387d64a206f73643b57149bd18a284a10842f954f629cc4a40d04bb79"
           },
           "review": "statement-by-statement",
           "validation": {
@@ -142620,7 +142620,7 @@
           "counterpart": {
             "file": "tests/integration/temporal-context.test.ts",
             "name": "test_inferred_account_lands_once_the_observed_record_no_longer_applies",
-            "sha256": "b3b04d784a49b9a17cdc2ebfb8843cae34d111fc44e4d89e7b80c3ea8191ac9f"
+            "sha256": "6507950387d64a206f73643b57149bd18a284a10842f954f629cc4a40d04bb79"
           },
           "review": "statement-by-statement",
           "validation": {
@@ -142706,7 +142706,7 @@
           "counterpart": {
             "file": "tests/integration/temporal-context.test.ts",
             "name": "test_time_earlier_in_the_batch_decides_whether_the_record_still_applies",
-            "sha256": "b3b04d784a49b9a17cdc2ebfb8843cae34d111fc44e4d89e7b80c3ea8191ac9f"
+            "sha256": "6507950387d64a206f73643b57149bd18a284a10842f954f629cc4a40d04bb79"
           },
           "review": "statement-by-statement",
           "validation": {
@@ -142792,7 +142792,7 @@
           "counterpart": {
             "file": "tests/integration/temporal-context.test.ts",
             "name": "test_invalid_activity_rolls_back_time_and_scene_atomically",
-            "sha256": "b3b04d784a49b9a17cdc2ebfb8843cae34d111fc44e4d89e7b80c3ea8191ac9f"
+            "sha256": "6507950387d64a206f73643b57149bd18a284a10842f954f629cc4a40d04bb79"
           },
           "review": "statement-by-statement",
           "validation": {
@@ -142898,7 +142898,7 @@
           "counterpart": {
             "file": "tests/integration/temporal-context.test.ts",
             "name": "test_context_effects_replay_without_moving_or_transferring_objects",
-            "sha256": "b3b04d784a49b9a17cdc2ebfb8843cae34d111fc44e4d89e7b80c3ea8191ac9f"
+            "sha256": "6507950387d64a206f73643b57149bd18a284a10842f954f629cc4a40d04bb79"
           },
           "review": "statement-by-statement",
           "validation": {
@@ -142984,7 +142984,7 @@
           "counterpart": {
             "file": "tests/integration/temporal-context.test.ts",
             "name": "test_effect_order_binds_resulting_clock",
-            "sha256": "b3b04d784a49b9a17cdc2ebfb8843cae34d111fc44e4d89e7b80c3ea8191ac9f"
+            "sha256": "6507950387d64a206f73643b57149bd18a284a10842f954f629cc4a40d04bb79"
           },
           "review": "statement-by-statement",
           "validation": {
@@ -143074,7 +143074,7 @@
           "counterpart": {
             "file": "tests/integration/temporal-context.test.ts",
             "name": "test_leaving_person_marks_record_for_review_without_erasing_observation",
-            "sha256": "b3b04d784a49b9a17cdc2ebfb8843cae34d111fc44e4d89e7b80c3ea8191ac9f"
+            "sha256": "6507950387d64a206f73643b57149bd18a284a10842f954f629cc4a40d04bb79"
           },
           "review": "statement-by-statement",
           "validation": {
@@ -143160,7 +143160,7 @@
           "counterpart": {
             "file": "tests/integration/temporal-context.test.ts",
             "name": "test_opening_context_initializes_only_active_scene",
-            "sha256": "b3b04d784a49b9a17cdc2ebfb8843cae34d111fc44e4d89e7b80c3ea8191ac9f"
+            "sha256": "6507950387d64a206f73643b57149bd18a284a10842f954f629cc4a40d04bb79"
           },
           "review": "statement-by-statement",
           "validation": {
@@ -143258,7 +143258,7 @@
           "counterpart": {
             "file": "tests/integration/temporal-context.test.ts",
             "name": "test_daily_life_table_is_mod_owned_and_disabled_strategy_keeps_world_facts",
-            "sha256": "b3b04d784a49b9a17cdc2ebfb8843cae34d111fc44e4d89e7b80c3ea8191ac9f"
+            "sha256": "6507950387d64a206f73643b57149bd18a284a10842f954f629cc4a40d04bb79"
           },
           "review": "statement-by-statement",
           "validation": {
@@ -143352,7 +143352,7 @@
           "counterpart": {
             "file": "tests/integration/temporal-context.test.ts",
             "name": "test_daily_life_guidance_does_not_displace_existing_package_instructions",
-            "sha256": "b3b04d784a49b9a17cdc2ebfb8843cae34d111fc44e4d89e7b80c3ea8191ac9f"
+            "sha256": "6507950387d64a206f73643b57149bd18a284a10842f954f629cc4a40d04bb79"
           },
           "review": "statement-by-statement",
           "validation": {
@@ -143434,7 +143434,7 @@
           "counterpart": {
             "file": "tests/integration/temporal-context.test.ts",
             "name": "test_temporal_threshold_uses_the_configured_numeric_setting",
-            "sha256": "b3b04d784a49b9a17cdc2ebfb8843cae34d111fc44e4d89e7b80c3ea8191ac9f"
+            "sha256": "6507950387d64a206f73643b57149bd18a284a10842f954f629cc4a40d04bb79"
           },
           "review": "statement-by-statement",
           "validation": {
@@ -143520,7 +143520,7 @@
           "counterpart": {
             "file": "tests/integration/temporal-context.test.ts",
             "name": "test_temporal_table_validation_rejects_duplicate_items_before_install",
-            "sha256": "b3b04d784a49b9a17cdc2ebfb8843cae34d111fc44e4d89e7b80c3ea8191ac9f"
+            "sha256": "6507950387d64a206f73643b57149bd18a284a10842f954f629cc4a40d04bb79"
           },
           "review": "statement-by-statement",
           "validation": {
@@ -176026,6 +176026,28 @@
         "evidence": ".coc/experiments/npc-action-contract-20261018/browser-seams/focused2.log"
       },
       "limitation": "Deterministic component evidence; real browser chapter and clean full suite are separate."
+    },
+    {
+      "date": "2026-10-19",
+      "reason": "Enhanced Locations: two private fixtures explicitly select the historical full-instruction profile. All original assertions and parameters remain unchanged.",
+      "files": [
+        {
+          "file": "tests/integration/mod-director-text.test.ts",
+          "sha256": "0f7278285bafe0923bd8417a5ac2d5d6acb2613d5e8d390f5c59b9b5850f7ee1"
+        },
+        {
+          "file": "tests/integration/temporal-context.test.ts",
+          "sha256": "6507950387d64a206f73643b57149bd18a284a10842f954f629cc4a40d04bb79"
+        }
+      ],
+      "cases": 28,
+      "command": "RT_HOST=leehow-pc remote-test.sh run /Users/haoli/leehow/code/chatrpgv4-wt-pi-coc-v2 integration tests/integration/mod-director-text.test.ts tests/integration/temporal-context.test.ts",
+      "evidence": "/home/leehow/leehow/code/wt/codex-tests/.pytest-runs/chatrpgv4-wt-pi-coc-v2/run.v7PRZmAV/remote-integration.log",
+      "result": {
+        "exit": 0,
+        "passed": 28,
+        "failed": 0
+      }
     }
   ]
 }

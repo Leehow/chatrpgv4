@@ -48901,6 +48901,36 @@ bounded observable descriptions and feature state are explicit world-creation
 fields, not an exception permitting general event, dialogue or narrative text
 in the decision packet. All other section 241 decision-only boundaries remain.
 
+One journey may be followed in the same native packet by independently selected
+stationary activity using `time {band,reason,beyond_travel:true}`. This reuses the
+existing apply time flag, not a second clock. When both are present, the time command follows the journey;
+unflagged time beside movement is refused before the generic union diagnostic,
+with a concrete explanation to omit duplicate travel or mark real extra activity.
+Without a journey the optional compatibility marker is harmless: the command is
+ordinary stationary time, as its declared schema and canonical apply already allow.
+Already host-settled journeys retain their existing continuation path. An unknown
+draft parent is an argument correction: return its exact field and explain that
+omission/JSON null leaves it outside registered containment. Never steer a missing
+parent into an arbitrary candidate or coerce the literal place name "null".
+
+Consent reads the enhanced operation's real scope. `place action:move` reaches
+its named place and optional feature position, unlike the legacy approach-only
+move projection. Minimal additions describe Keeper-authored surroundings, not a
+new investigator construction action. A generic selected goal such as visiting
+an ordinary inn can bind to a compatible Keeper-named instance. The independent
+reviewer still judges that match, route, entry, local positioning and current
+restrictions; no fixed score or fail-open exemption is introduced. Place consent
+uses family version 8; other kinds retain version 7. Refused enhanced journeys
+also reach the existing refused-move delivery record.
+
+The native transport decoder handles exact `"true"`/`"false"` spellings only at
+declared boolean positions, alongside existing exact item-array envelopes and
+bounded decimal integers. It changes JSON representation, never selects an
+action, infers a target, loosens a schema or grants consent. It records boolean
+repairs separately. Union branches must still converge to one valid value.
+Creation-only establishment is explicitly described as no party movement in the
+delivered contract; an actual visit uses move with its minimal additions.
+
 Producer: the active Mod's canonical effect and existing source readers. Reader:
 effective graph, `place inspect`, current capsule and public author projection.
 Actor: the same Keeper selects the change, the kernel commits it, and the sole

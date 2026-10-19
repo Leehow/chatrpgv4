@@ -115,3 +115,22 @@ The synthesis accepts these points, while treating Pro's illustrative feature/re
 The first prompt did not supply this draft's architecture or desired tool shape. However, this was the owner's existing ChatGPT project, with attached historical architecture documents and account context. After completion, the Sources panel listed the earlier excluded 5.6 conversation under account memory. The exact retrieved content is not visible here. Therefore this is not claimed as a context-isolated blind review, and no claim is made that account memory had zero influence. No 5.6 answer was directly used in the synthesis. The current checkout and independently verified primary documentation remain authoritative for implementation observations.
 
 Only new research/design documents were written by this task. No production contract, source implementation, campaign record, model default or package was changed; no implementation/play acceptance is claimed. The source measurements and pure-memory probes retain their narrower scope.
+
+## Implementation follow-up: action scope (2026-10-19)
+
+A real test found that the old admission projection treated a location move as
+approach-only and did not explain Keeper-authored additions. The location-specific
+projection now describes its actual entry/local-position scope and leaves the
+independent model to judge the selected destination and restrictions.
+
+Two primary precedents were checked before this correction. [Inform action
+variables](https://ganelson.github.io/inform-website/book/WI_12_10.html) keep route
+attributes such as destination and passage with the action and demonstrate
+within-room positioning separately. [Generative Agents planning
+source](https://github.com/joonspk-research/generative_agents/blob/main/reverie/backend_server/persona/cognitive_modules/plan.py)
+binds an activity to a sector, arena and game object. These support separating
+an activity's selection from its concrete spatial binding. Neither establishes
+permission for arbitrary world creation; Inform uses an authored world and the
+agent simulation is not a player-consent system. Our generic-destination binding
+and Keeper creation boundary therefore remain project-specific decisions checked
+by the real game, not conclusions attributed to those systems.

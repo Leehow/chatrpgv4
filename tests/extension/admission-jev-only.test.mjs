@@ -36,6 +36,18 @@ test('uncertain typed admission never grants authority',async()=>{
     assert.equal(result.ok,true);assert.equal(result.verdict.verdict,'uncertain');
 });
 
+test('enhanced location admission names its entry and Keeper-creation semantics without granting uncertain consent',async()=>{
+    const selected=options('authorized',.42),decide=selected.value.decision.decide;let batch;
+    selected.value.decision={decide:(value,lease)=>{batch=value;return decide(value,lease);}};
+    const effect={kind:'place',action:'move',to:'Ordinary Inn',at:'counter',additions:[{name:'Ordinary Inn',description:'A public lobby.'}]};
+    const proposal=admission.admissionRequest('apply',{effects:[effect]},{party:['Thomas Hayes'],consentOnly:true});
+    const result=await admission.reviewAdmissionJevOnly({...selected.value,proposal});
+    assert.equal(batch.familyVersion,'8');assert.equal(batch.state.proposal.lines[0].to,effect.to);
+    assert.match(batch.state.proposal.lines[0].arrival_scope.additions,/Keeper-authored/);
+    assert.match(batch.questions[1].instructions,/entry or boundary crossing/);
+    assert.equal(result.verdict.verdict,'uncertain');
+});
+
 test('admission uses the Noul probability without a multiclass confidence',async()=>{
     const result=await admission.reviewAdmissionJevOnly(options('authorized',.86).value);
     assert.equal(result.ok,true);assert.equal(result.verdict.verdict,'authorized');

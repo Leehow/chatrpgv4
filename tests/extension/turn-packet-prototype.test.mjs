@@ -88,7 +88,8 @@ test('compact commands and response meanings have closed fields and bounded stri
  const reply={actor:'npc_1',to:['investigator_1'],act:'answer',content:[{fact_ref:'fact_1'}]};
  const packet={version:4,commands:[movement],interactions:[reply]};
  assert.deepEqual(compileTurnPacket(turnPacket(JSON.stringify(packet))),{responses:[reply],effects:[movement]});
- for(const bad of [{...brief,scene:'prose'},{...brief,actions:[]},{...brief,commands:[{...movement,passage:'prose'}]},{...brief,interactions:[{...reply,points:['a'.repeat(161)]}]},{...brief,commands:[movement,movement]},{...brief,commands:[movement,{kind:'time',band:'invented',reason:'travel'}]}])assert.throws(()=>turnPacket(JSON.stringify(bad)),/Invalid|Only one/);
+ for(const bad of [{...brief,scene:'prose'},{...brief,actions:[]},{...brief,commands:[{...movement,passage:'prose'}]},{...brief,interactions:[{...reply,points:['a'.repeat(161)]}]},{...brief,commands:[movement,movement]}])assert.throws(()=>turnPacket(JSON.stringify(bad)),/Invalid|Only one/);
+ assert.throws(()=>turnPacket(JSON.stringify({...brief,commands:[movement,{kind:'time',band:'invented',reason:'travel'}]})),/Movement already owns travel time/);
  assert.throws(()=>{const stream=new ExpressionPlanStream();stream.push('{{compose}}'+JSON.stringify(packet));stream.finish();},/Invalid private expression/);
 });
 

@@ -148,8 +148,8 @@ export function refusedMovesOf(tool: string, effects: unknown, error: unknown): 
 	const reason = String(error.details?.reason || error.code || "refused");
 	if (reason === REVIEW_PENDING) return [];
 	return effects.flatMap((effect) => {
-		const move = effect && typeof effect === "object" ? effect as { kind?: unknown; to?: unknown } : undefined;
-		if (move?.kind !== "move" || typeof move.to !== "string" || !move.to.trim()) return [];
+		const move = effect && typeof effect === "object" ? effect as { kind?: unknown; action?:unknown; to?: unknown } : undefined;
+		if (!(move?.kind === "move" || move?.kind === 'place' && move.action === 'move') || typeof move.to !== "string" || !move.to.trim()) return [];
 		return [{ to: [...move.to.trim()].slice(0, REFUSED_MOVE_TO_MAX).join(""), reason }];
 	});
 }
@@ -1280,7 +1280,7 @@ export async function reviewAdmissionJevOnly(options:PrimaryAdmissionReviewOptio
     {ok:true;verdict:AdmissionVerdict;ms:number;meta:Record<string,unknown>}
     |{ok:false;reason:string;ms:number;meta:Record<string,unknown>}> {
     const clock=options.clock??hostClock,began=clock.now(),context=options.context;
-    const family='continuous-action-admission',version='7';
+    const family='continuous-action-admission',version=options.proposal.kinds?.includes('place')?'8':'7';
     let mechanicsChoice:{action:string;choice:{name:string;binds:string;options:string[];prompt?:string}}|undefined;
     let mechanicsInput=false,mechanicsBinding:string|undefined;
     try{

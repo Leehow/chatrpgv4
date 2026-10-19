@@ -1,6 +1,6 @@
 /** Enhanced Locations stages only inside the existing apply transaction. */
 import {randomUUID} from 'node:crypto';
-import {Check} from 'typebox/value';
+import {Check,Errors} from 'typebox/value';
 import {PlaceEffect} from '../../shared/place-structures.js';
 import type {DomainEvent} from '../transactions.js';
 import type {ApplyContext} from '../apply/index.js';
@@ -13,8 +13,12 @@ import {locationProvider,locationPlace,locationFeature,locationPlaces,locationFe
 const blank=(value:unknown):boolean=>typeof value==='string'?!value.trim():Array.isArray(value)?value.some(blank):value!==null&&typeof value==='object'?Object.values(value).some(blank):false;
 
 export function stageLocation(context:ApplyContext,effect:Row,active:readonly Row[],travelRows?:ReadonlyMap<string,number>|null):{receipt:Row;event:DomainEvent|null} {
-    if(!Check(PlaceEffect,effect)||blank(effect))throw new RpcError('invalid_params','Invalid typed place command',{
-        fix:'Use the place contract: action move, establish or feature with only its declared fields.',details:{reason:'place_shape'}});
+    if(!Check(PlaceEffect,effect)||blank(effect)){
+        const schema=PlaceEffect.anyOf.find(schema=>schema.properties.action.const===effect.action)??PlaceEffect;
+        const fields=Errors(schema,effect).slice(0,4).map(error=>({field:error.instancePath,problem:error.message}));
+        throw new RpcError('invalid_params','Invalid typed place command',{
+            fix:'Correct details.fields using the place contract. Additions and features are JSON arrays, not item wrappers. Supply only declared fields and nonblank text.',details:{reason:'place_shape',fields}});
+    }
     const provider=locationProvider(active);
     if(!provider)throw new RpcError('needs','No active Mod provides locations.v1',{
         fix:'Enable Enhanced Locations through ordinary Mod configuration. Stored places remain readable.',details:{reason:'location_mod_inactive'}});
@@ -23,8 +27,15 @@ export function stageLocation(context:ApplyContext,effect:Row,active:readonly Ro
     const state:Row=modState.locations??={schema:1,places:[],features:[]};
     if(state.schema!==1)throw new RpcError('needs','Location state requires a compatible Mod migration');
     const added:string[]=[],features:string[]=[];
-    for(const draft of array(row(effect).additions)){
-        const parent=draft.within==null?null:graph.resolve(draft.within,['scene','location'],'containing place');
+    for(const [index,draft] of array(row(effect).additions).entries()){
+        let parent:Row|null=null;
+        if(draft.within!=null)try{parent=graph.resolve(draft.within,['scene','location'],'containing place');}
+        catch(error){
+            if(!(error instanceof RpcError))throw error;
+            throw new RpcError('invalid_params','The containing place is not uniquely registered',{
+                fix:'Use an exact known containing place, JSON null, or omit within when there is no registered parent. The literal string "null" is a place name, not JSON null. Do not invent containment in the departure room.',
+                details:{reason:'place_parent_unregistered',field:`additions[${index}].within`,requested:draft.within,candidates:error.details?.candidates??[]}});
+        }
         if(parent&&!isPlace(graph,parent))throw new RpcError('invalid_params','within must name a real containing place',{details:{reason:'within_not_a_place'}});
         const within=parent?graph.handle(parent):null;
         const name=within?`${within} / ${draft.name.trim()}`:draft.name.trim();

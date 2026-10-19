@@ -5,14 +5,16 @@ import {Check,Errors} from 'typebox/value';
 import {COC_TOOLS,COC_TOOL_NAMES} from '../../extensions/kernel/tools.ts';
 import {placeOperation} from '../../extensions/kernel/place-operation.ts';
 import {PlaceParameters,PlaceEffect} from '../../shared/place-structures.ts';
-import {admissionRequest,effectSignature} from '../../extensions/kernel/admission.ts';
+import {admissionRequest,effectSignature,refusedMovesOf} from '../../extensions/kernel/admission.ts';
+import {KernelError} from '../../extensions/kernel/client.ts';
 import {locationToolDeclarations,projectLocationInspections} from '../../extensions/table/location-context.ts';
 import {capabilityCatalogue} from '../../extensions/table/capability-catalogue.ts';
-import {turnPacket,compileTurnPacket,bindTurnPacketMoves,turnPacketParameterSchema,turnPacketResult} from '../../runtime/turn-packet-prototype.ts';
+import {turnPacket,normalizeTurnPacketArguments,compileTurnPacket,bindTurnPacketMoves,turnPacketParameterSchema,turnPacketResult} from '../../runtime/turn-packet-prototype.ts';
 import {decisionScene} from '../../runtime/isolated-expression.ts';
 import {locationReferenceBatch,locationReferenceAdvice,adviseLocationReference} from '../../extensions/kernel/location-reference.ts';
 import {packDecisionBatch} from '../../runtime/jev/question-packing.ts';
 import {moveNeedsTravelBand} from '../../runtime/jev/candidates.ts';
+import {continuousConsentLine,continuousConsentQuestions,continuousConsentDisposition} from '../../runtime/jev/continuous-consent.ts';
 
 const command={kind:'place',action:'move',to:'Ordinary Inn / Lobby',via:'Through the ordinary entrance',travel_band:'adjacent',
     additions:[{name:'Ordinary Inn',within:null,description:'An ordinary inn.'},{name:'Lobby',within:'Ordinary Inn',description:'A small lobby.',features:[{name:'counter',description:'A scarred wooden counter.'}]}]};
@@ -47,6 +49,48 @@ test('native typed location commands use open destinations, the same effect and 
     assert.deepEqual(compileTurnPacket(turnPacket(JSON.stringify({version:4,commands:[feature]}))).effects,[feature]);
     assert.throws(()=>turnPacket(JSON.stringify({version:4,commands:[{...command,travel_minutes:5}]})),/Invalid decision command/);
     assert.deepEqual(turnPacketResult({outcomes:[{kind:'place',status:'changed',position:{place:'Inn',at:'counter'}}]}).outcomes[0].position,{place:'Inn',at:'counter'});
+});
+
+test('an independently selected activity after arrival uses canonical extra time without double counting travel',()=>{
+    const extra={kind:'time',band:'speak_briefly',reason:'Ask the clerk about an available room.',beyond_travel:true};
+    const packet={version:4,commands:[command,extra,{kind:'scene',service:'open',crowd:'quiet'}]};
+    const schema=turnPacketParameterSchema(false,['speak_briefly'],[],false,undefined,true);
+    assert.equal(Errors(schema,packet).length,0);
+    const compiled=compileTurnPacket(turnPacket(JSON.stringify(packet)));
+    assert.deepEqual(compiled.effects[1],{kind:'time',band:'speak_briefly',why:extra.reason,beyond_travel:true});
+    assert.throws(()=>turnPacket(JSON.stringify({...packet,commands:[command,{kind:'time',band:extra.band,reason:extra.reason}]})),/Movement already owns travel time.*beyond_travel/);
+    assert.throws(()=>turnPacket(JSON.stringify({...packet,commands:[extra,command]})),/must follow the journey/);
+    assert.deepEqual(compileTurnPacket(turnPacket(JSON.stringify({...packet,commands:[extra]}))).effects,[compiled.effects[1]],'a harmless compatibility marker agrees with the ordinary stationary schema');
+    assert(Errors(schema,{...packet,commands:[command,{...extra,band:'invented'}]}).length,'issued time bands still bound the extra activity');
+});
+
+test('location consent distinguishes Keeper scene creation from the actual selected journey and restrictions',()=>{
+    const line=continuousConsentLine(command);
+    assert.equal(line.to,command.to);assert.deepEqual(line.additions,command.additions);
+    assert.match(line.arrival_scope.additions,/not an investigator construction/);
+    const questions=continuousConsentQuestions(['place']);
+    assert.match(questions[0].instructions,/need not supply its name/);
+    assert.match(questions[1].instructions,/entry or boundary crossing/);
+    assert.equal(continuousConsentDisposition(.42,.12),'uncertain','new semantics never predetermine approval');
+    assert.equal(continuousConsentDisposition(.95,.9),'not_authorized','a current restriction still vetoes a selected journey');
+    assert.deepEqual(refusedMovesOf('apply',[command,{kind:'place',action:'feature',to:'Inn',at:'window',state:'closed'}],new KernelError({code:'needs',message:'Uncertain',details:{reason:'action_admission_uncertain'}})),
+        [{to:command.to,reason:'action_admission_uncertain'}],'failed enhanced arrival reaches the existing delivery consumer');
+});
+
+test('native location arrays decode exact transport booleans without changing the selected operation',()=>{
+    const original={version:4,commands:{item:{...command,additions:{item:{name:'Ordinary Inn',description:'A modest inn.',features:{item:[{name:'window',description:'A casement.',passable:'false'}]}}}}}};
+    const before=structuredClone(original),decoded=normalizeTurnPacketArguments(original);
+    assert.equal(decoded.booleanRepairs,1);assert(decoded.repairs>=3);assert.deepEqual(original,before);
+    assert.equal(decoded.args.commands[0].additions[0].features[0].passable,false);
+    assert.equal(decoded.args.commands[0].action,'move');assert.equal(decoded.args.commands[0].to,command.to);
+    assert.doesNotThrow(()=>turnPacket(JSON.stringify(decoded.args)));
+    for(const value of ['yes','FALSE','0']){
+        const input={version:4,commands:[{kind:'place',action:'feature',to:'Inn',at:'window',passable:value}]};
+        assert.equal(normalizeTurnPacketArguments(input).args,input);
+        assert.throws(()=>turnPacket(JSON.stringify(input)));
+    }
+    const literal={version:4,commands:[{kind:'time',band:'brief_activity',reason:'Look around',beyond_travel:'false'}]};
+    assert.throws(()=>turnPacket(JSON.stringify(normalizeTurnPacketArguments(literal).args)),'false cannot satisfy a true-only flag');
 });
 
 test('resident location declarations defer detailed grammar while canonical validators stay complete',()=>{

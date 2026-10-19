@@ -4,7 +4,7 @@ import {Value} from 'typebox/value';
 import {validateToolArguments} from '@earendil-works/pi-ai';
 import {isDeepStrictEqual} from 'node:util';
 
-type Result={args:unknown;repairs:number;integerRepairs:number};
+type Result={args:unknown;repairs:number;integerRepairs:number;booleanRepairs?:number};
 type Shape=TSchema&{type?:string;minimum?:number;maximum?:number;anyOf?:TSchema[];oneOf?:TSchema[];items?:TSchema|TSchema[];properties?:Record<string,TSchema>};
 const object=(value:unknown):value is Record<string,unknown>=>!!value&&typeof value==='object'&&!Array.isArray(value);
 const nativeSchemas=new WeakMap<object,TSchema>();
@@ -21,11 +21,15 @@ const valid=(schema:TSchema,value:unknown,native:boolean)=>{
  }catch{return false;}
 };
 
-export function normalizeToolArgumentSyntax(schema:TSchema,input:unknown,options:{boundedIntegers?:boolean;nativeValidation?:boolean}={}):Result {
+export function normalizeToolArgumentSyntax(schema:TSchema,input:unknown,options:{boundedIntegers?:boolean;exactBooleans?:boolean;nativeValidation?:boolean}={}):Result {
  const visit=(schema:TSchema,value:unknown,depth:number):Result=>{
   const shape=schema as Shape;
   const unchanged={args:value,repairs:0,integerRepairs:0};
   if(depth>32)return unchanged;
+  if(options.exactBooleans&&shape.type==='boolean'&&(value==='true'||value==='false')){
+   const decoded=value==='true';
+   if(Value.Check(schema,decoded))return {args:decoded,repairs:0,integerRepairs:0,booleanRepairs:1};
+  }
   if(options.boundedIntegers&&shape.type==='integer'&&typeof shape.minimum==='number'&&Number.isFinite(shape.minimum)&&typeof shape.maximum==='number'&&Number.isFinite(shape.maximum)&&typeof value==='string'){
    const number=Number(value);
    if(Number.isSafeInteger(number)&&String(number)===value&&number>=shape.minimum&&number<=shape.maximum)return {args:number,repairs:0,integerRepairs:1};
@@ -44,18 +48,19 @@ export function normalizeToolArgumentSyntax(schema:TSchema,input:unknown,options
    const children=values.map(item=>visit(shape.items as TSchema,item,depth+1));
    const repairs=children.reduce((sum,child)=>sum+child.repairs,0);
    const integerRepairs=children.reduce((sum,child)=>sum+child.integerRepairs,0);
-   const next=repairs||integerRepairs?children.map(child=>child.args):values;
+   const booleanRepairs=children.reduce((sum,child)=>sum+(child.booleanRepairs??0),0);
+   const next=repairs||integerRepairs||booleanRepairs?children.map(child=>child.args):values;
    if(layers&&!valid(schema,next,options.nativeValidation===true))return unchanged;
-   return layers||repairs||integerRepairs?{args:next,repairs:repairs+(layers?1:0),integerRepairs}:unchanged;
+   return layers||repairs||integerRepairs||booleanRepairs?{args:next,repairs:repairs+(layers?1:0),integerRepairs,...(booleanRepairs?{booleanRepairs}:{})}:unchanged;
   }
   if(shape.type==='object'&&object(value)){
-   let next=value,repairs=0,integerRepairs=0;
+   let next=value,repairs=0,integerRepairs=0,booleanRepairs=0;
    for(const [key,property] of Object.entries(shape.properties??{})){
     if(!Object.hasOwn(value,key))continue;
     const child=visit(property as TSchema,value[key],depth+1);
-    if(child.repairs||child.integerRepairs){next={...next,[key]:child.args};repairs+=child.repairs;integerRepairs+=child.integerRepairs;}
+    if(child.repairs||child.integerRepairs||child.booleanRepairs){next={...next,[key]:child.args};repairs+=child.repairs;integerRepairs+=child.integerRepairs;booleanRepairs+=child.booleanRepairs??0;}
    }
-   return {args:next,repairs,integerRepairs};
+   return {args:next,repairs,integerRepairs,...(booleanRepairs?{booleanRepairs}:{})};
   }
   return unchanged;
  };

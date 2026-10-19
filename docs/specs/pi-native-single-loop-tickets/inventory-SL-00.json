@@ -31,6 +31,18 @@
   },
   "entries": [
     {
+      "file": "extensions/kernel/location-reference.ts",
+      "symbol": "adviseLocationReference",
+      "kind": "jev-adapter",
+      "callee": "createDecisionAdapter",
+      "count": 1,
+      "owner": "Enhanced Locations place inspection (contract 242)",
+      "path": "app-play-gated",
+      "role": "leaf",
+      "trace": "tests/extension/enhanced-locations.test.mjs",
+      "note": "One bounded batch of reference, container and scale choices after an unknown place inspection, with a configured Jev key. Advice only: no generation agent, world write, authorization or retry loop. Missing/uncertain advice never vetoes compatible creation."
+    },
+    {
       "file": "extensions/native-search/index.ts",
       "symbol": "<module>",
       "kind": "provider-direct",
