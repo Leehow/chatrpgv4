@@ -447,3 +447,22 @@ hashes and record old hash/execution/review. Original source hashes, cases and
 assertion inventory are machine-verified unchanged; frozen sources/oracle are
 untouched, guard code unchanged. test-tiers3/3passes. Current full native phase
 still running; preserve its immutable8de manifest failure as historical result.
+
+## Resumed identity/location/custody investigation (2026-10-19)
+
+The owner explicitly resumed root repair and consecutive MiniMax tests. The
+three retained errors are distinct: investigator_names was flat while prior
+prose already conflated the unnamed companion; intent53's actual packet selected
+both npc20 at departure and npc21 at arrival but supplied one resulting scene;
+intent54's actual canonical item receipts were filtered out by operationOutcomes,
+while its unopened spare-film definition was already wrong in the Keeper's
+structured apply. This does not prove a lost preexisting exposure state.
+
+Implement only deterministic existing-owner projections: role-bound cast,
+pre/post-presence response location/order, public physical item custody. No
+prompt constants or judgment models change. Regression tests initially red3/3;
+correctness acceptance still requires real consecutive inputs. Do not claim
+that arbitrary semantic contradiction is mechanically decidable from free prose.
+The film choice remains a separate acceptance item, not fixed merely because
+its actual item name now reaches the author. Other-owner search dirt remains
+excluded; same current mainline, no new disposable worktree.

@@ -149,8 +149,8 @@ export function turnPacketResult(value:unknown):{player_actions_complete:true;np
   if(Array.isArray(value.not_landed)&&value.not_landed.length||object(value.admission)&&value.admission.not_landed)
     throw Error('Part of the operation did not land; preserve its actual results and do not author completion');
   return {player_actions_complete:true,npc_actions_complete:true,outcomes:value.outcomes.map(row=>{
-    if(!object(row)||!['move','npc','time'].includes(row.kind)||!['changed','unchanged'].includes(row.status))throw Error('Invalid canonical operation outcome');
-    return Object.fromEntries(['kind','status','actor','from','to','minutes','band'].filter(key=>row[key]!==undefined).map(key=>[key,row[key]]));
+    if(!object(row)||!['move','npc','time','item'].includes(row.kind)||!['changed','unchanged'].includes(row.status))throw Error('Invalid canonical operation outcome');
+    return Object.fromEntries(['kind','status','actor','name','from','to','minutes','band','quantity','offer'].filter(key=>row[key]!==undefined).map(key=>[key,row[key]]));
   })};
 }
 export const TURN_PACKET_GUIDANCE='Submit ONE final native output call with {version:3,commands:[...],responses:[...]}. Commands settle before responses; this is not an interleaved program or a writing brief. '

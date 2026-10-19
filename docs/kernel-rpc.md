@@ -48172,3 +48172,43 @@ is added. Known routes remain host-owned; unknown/missing band input refuses
 before mutation. Registry failure withholds incomplete journeys explicitly.
 The old raw-RPC unknown-time contract remains compatible; the native path no
 longer silently chooses that fallback. Historical zero-time receipts are retained.
+
+## Decision-to-author identity, location and item custody (2026-10-19)
+
+The native sole author must receive role-bound public identities rather than
+an untyped investigator-name list alone. The host derives investigator cast
+rows from the frozen delivery speaker registry and NPC rows from current public
+references; it never invents a companion from player prose or splits personal
+names into guessed aliases. Prior delivered prose is historical reference,
+not a second actor registry.
+
+The packet may select both a departing person's reply and an arriving person's
+reply. The host binds each response to departure/current/offstage using the
+actual pre/post-settlement presence sets. Departure responses precede current
+responses, preserving order within each scope. Offstage speech remains allowed
+and never places its speaker. The author gets the departure scene and clock
+separately when needed. The same binding annotates public people. No semantic
+location classifier or additional consent request is introduced. Current public
+presence remains authoritative even when old narrative or a response mentions
+someone elsewhere.
+
+The canonical outcome projector additionally includes public item receipts:
+exact instance name, actual from/to labels and quantity. It does not include
+private definitions, hidden document contents, internal instance IDs, or
+keeper-only adoption receipts. Definition adoption is representation, never a
+new acquisition. The compact result decoder preserves these item transitions
+through frozen delivery preparation to the same author. Selection and generated
+response points cannot replace actual custody results.
+
+Writers: existing NPC placement/party and item receipt owners. Readers: native
+response binding, frozen delivery registry and sole author task. Actors: existing
+kernel transaction and final publication owners. No new judgment model, new
+photography state machine, semantic keyword rules or prompt amendment. These
+closed projections do not prove arbitrary generated prose semantically correct.
+
+Precedent: OpenAI Agents handoff input filters explicitly select the recipient's
+context (https://openai.github.io/openai-agents-python/handoffs/); ink keeps
+narrative control flow and persistent state in the runtime rather than deriving
+state from rendered lines (https://www.inklestudios.com/ink/web-tutorial/).
+Both support explicit role/state/location handoff, neither guarantees model
+compliance or grants private material access.

@@ -6,8 +6,16 @@ import {string,type Row} from '../read/values.js';
 
 export function operationOutcomes(receipts:Row[],graph:ModuleGraph,world:Row):Row[] {
     const place=(value:unknown)=>value==null?null:typeof value==='string'&&value!=='away'?sceneLabel(graph,world,graph.scene(value)):value;
-    return receipts.flatMap(receipt=>{
+    const owner=(id:unknown,label:unknown)=>{
+        const person=typeof id==='string'?graph.actor(id):null;
+        return person?npcReference(graph,world,person):label??null;
+    };
+    return receipts.flatMap<Row>(receipt=>{
         const kind=string(receipt.kind);
+        if(receipt.visibility==='keeper')return [];
+        if(kind==='item'&&typeof receipt.instance==='string')return [{kind,status:receipt.offer==='made'||receipt.offer==='declined'?'unchanged':'changed',
+            name:receipt.label??receipt.name,from:owner(receipt.from_id,receipt.from_label??receipt.from),to:owner(receipt.subject,receipt.subject_label),
+            quantity:receipt.quantity,...(receipt.offer?{offer:receipt.offer}:{})}];
         if(!['move','npc','time'].includes(kind)||kind==='npc'&&typeof receipt.to!=='string')return [];
         const person=kind==='npc'?graph.actor(receipt.handle):undefined;
         return [{kind,status:receipt.unchanged===true||receipt.renamed===true||kind==='move'&&receipt.from===receipt.to?'unchanged':'changed',

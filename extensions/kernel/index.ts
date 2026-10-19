@@ -12,7 +12,7 @@ import {ArtifactTextStream} from '../../runtime/final-output-stream.ts';
 import {moveEstablishmentRefusal} from '../../shared/move-protocol.ts';
 import {SAME_KEEPER_AFTER_RESULT_GUIDANCE} from '../../runtime/keeper-output-guidance.ts';
 import {scenePopulationRequired} from '../../runtime/scene-population.ts';
-import {ExpressionPlanStream,writeIsolatedExpression,decisionScene,decisionClock,decisionRecentPublic} from '../../runtime/isolated-expression.ts';
+import {ExpressionPlanStream,writeIsolatedExpression,decisionScene,decisionClock,decisionRecentPublic,decisionResponseScope} from '../../runtime/isolated-expression.ts';
 import {turnPacket,bindTurnPacketMoves,turnPacketMovementChoices,requireTurnPacketNpcDestinations,isNewNpcSlot,normalizeTurnPacketArguments,compileTurnPacket,turnPacketResult,turnPacketProviderPayload,TURN_PACKET_PARAMETERS,TURN_PACKET_GUIDANCE,type TurnPacket} from '../../runtime/turn-packet-prototype.ts';
 import {normalizeToolArgumentSyntax} from '../../runtime/tool-argument-syntax.ts';
 import {continuousConsentDisposition} from '../../runtime/jev/continuous-consent.ts';
@@ -5728,7 +5728,7 @@ export default function (pi: ExtensionAPI, host: {capabilities?:RuntimeCapabilit
             await record({lane:'first-sight',event:'render_scope',turn:state.turn,scene:current.where?.scene,
                 items:[...(sight.place?[sight.place.id]:[]),...(sight.people??[]).map((row:Record<string,any>)=>row.id)]});
 			const where=current.where??{};
-			decision={scene:decisionScene(current),clock:decisionClock(where.clock??{}),responses:compiled.responses,people,
+			decision={scene:decisionScene(current),clock:decisionClock(where.clock??{}),...decisionResponseScope(before,current,compiled.responses),people,
 				recent_public:decisionRecentPublic(current.recent,state.delivered)};
 		}
         if(heldActs.get(state)?.basis){

@@ -26,6 +26,8 @@ export interface DecisionAuthorContext {
   recent_public:Array<{turn:number|string;player?:string|null;keeper:string;truncated?:boolean}>;
   speech_allowed?:boolean;
   settled_results?:Record<string,unknown>;
+  departure_scene?:Record<string,unknown>;
+  departure_clock?:Record<string,unknown>;
 }
 /** Only current public identity projections; private dossiers never enter scene rendering. */
 export function decisionClock(clock:Row):Row {
@@ -40,6 +42,28 @@ export function decisionScene(capsule:Row):Row {
   presence:{authority:'Registered public people only, never a complete population census. Missing names do not establish emptiness. Current assessed temporal crowd controls population.',people,registered_complete:people.length===present.length,
    population:where.temporal?.current===true&&where.temporal?.crowd==='empty'?'empty':where.temporal?.current===true&&['quiet','active','crowded'].includes(where.temporal?.crowd)&&people.length?'populated':'unknown'},
   public_material:capsule.public_scene??{entries:[]}};
+}
+/** Bind roles and presence from issued identities; never infer them from narrative names. */
+export function decisionCast(investigators:string[],people:Row[],scene:Row):Row[] {
+ const present=new Map((scene.presence?.people??[]).map((person:Row)=>[person.ref,person]));
+ const npc=new Map<string,Row>();
+ for(const person of [...people,...(scene.presence?.people??[])])if(isNpcReference(person.ref)&&typeof person.display_name==='string')
+  npc.set(person.ref,{ref:person.ref,role:'npc',display_name:person.display_name,name_known:person.name_known===true,
+   presence:present.has(person.ref)?'current':'offstage'});
+ return [...[...new Set(investigators)].map((name,index)=>({ref:`investigator_${index+1}`,role:'player',display_name:name})),...npc.values()];
+}
+/** A response is speech, not a placement. Keep departure and arrival material distinct. */
+export function decisionResponseScope(before:Row,current:Row,responses:DecisionAuthorContext['responses']):{
+ responses:DecisionAuthorContext['responses'];departure_scene?:Row;departure_clock?:Row} {
+ const changed=before.where?.scene!==current.where?.scene;
+ const prior=new Set((before.present??[]).map((person:Row)=>person.ref));
+ const now=new Set((current.present??[]).map((person:Row)=>person.ref));
+ const bound=responses.map(response=>({...response,location:now.has(response.actor)
+  ?{scope:'current',scene:current.where?.display_name??current.where?.scene}
+  :changed&&prior.has(response.actor)?{scope:'departure',scene:before.where?.display_name??before.where?.scene}:{scope:'offstage'}}));
+ const departure=bound.filter(response=>response.location.scope==='departure');
+ return {responses:[...departure,...bound.filter(response=>response.location.scope!=='departure')],
+  ...(departure.length?{departure_scene:decisionScene(before),departure_clock:decisionClock(before.where?.clock??{})}:{})};
 }
 const string=(value:unknown):value is string=>typeof value==='string';
 export function expressionBrief(text:string):ExpressionBrief {
@@ -105,11 +129,14 @@ export async function writeIsolatedExpression(input:{runtime:HostRuntime;campaig
   const {keeper_only,...expression}=brief??{};
   const player_input=typeof input.playerText==='string'&&input.playerText.length?input.playerText:undefined;
   const decision=input.decision?{...input.decision,speech_allowed:input.decision.responses.some(response=>response.act!=='silent'),responses:input.decision.responses.map(value=>{
-    const response=responseDecision(value);
-    if(response.act==='silent')return {...response,mode:'nonverbal'};
+    const {location,...proposal}=value as typeof value&{location?:Row};
+    const response=responseDecision(proposal);
+    const scope=location?{location}:{};
+    if(response.act==='silent')return {...response,...scope,mode:'nonverbal'};
     const {points,...spoken}=response;
-    return {...spoken,mode:'speech_only',claims:points,...(response.act==='offer'?{player_acceptance:'pending'}:{})};
+    return {...spoken,...scope,mode:'speech_only',claims:points,...(response.act==='offer'?{player_acceptance:'pending'}:{})};
   })}:undefined;
+  if(decision)(decision as Row).cast=decisionCast(input.investigatorNames??[],decision.people,decision.scene);
   const packet={play_language:language,...(decision?{decision_context:decision}:expression),...(player_input!==undefined?{player_input}:{}),
     ...(input.result?{result:input.result}:{}),
     ...(input.investigatorNames?.length?{investigator_names:[...input.investigatorNames]}:{})};
