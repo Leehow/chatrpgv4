@@ -1,5 +1,6 @@
 import type {PrescreenSourceRuntime} from './prescreen-source-provider.ts';
 import {ContinuousTurn} from './continuous-turn.ts';
+import {KeeperPreparation} from './keeper-preparation.ts';
 import {SAME_KEEPER_OUTPUT_GUIDANCE,sameKeeperSystemPrompt} from '../keeper-output-guidance.ts';
 import {TURN_PACKET_GUIDANCE,turnPacketSystemPrompt} from '../turn-packet-prototype.ts';
 import {readCarriedViews,carriedSection} from './carried-views.ts';
@@ -473,6 +474,10 @@ export function createHybridEngine(options: HybridEngineOptions): {runDriver: Se
     steer=undefined;
     api?.events.emit('coc:keeper-run',current);
     const owner=current,bound=bridge,operations=gateway;
+    const preparation=turnPacketPrototype&&bound?.call&&bound.campaign?new KeeperPreparation({input:context.rawInput,
+      current:()=>!closed&&current===owner&&bridge===bound,
+      call:(method,params)=>bound.call!(method,{...params,campaign:bound.campaign}),
+      record:row=>record({lane:'keeper-preparation',run:context.runId,...row})}):undefined;
     if(packetPrescreen)record({lane:'continuous-turn',event:'owner_bound',run:context.runId,
       decision:!!decision,bridge:!!bound?.call,campaign:bound?.campaign??null,operations:!!operations});
     const continuous=decision&&bound?.call&&bound.campaign&&operations?new ContinuousTurn({
@@ -480,6 +485,7 @@ export function createHybridEngine(options: HybridEngineOptions): {runDriver: Se
       call:async(method,params)=>object(await bound.call!(method,{...params,campaign:bound.campaign})),
       dispatch:(proposal,invocation)=>operations.dispatch(proposal,invocation),
       current:()=>!closed&&current===owner&&bridge===bound&&gateway===operations,record,
+      ...(preparation?{prepareMaterials:(capsule:Row,signal:AbortSignal)=>preparation.warm(capsule,signal)}:{}),
       ...(packetPrescreen?{packet:true,timeBands:bound.timeBands,...bound.playerContext?.()}:{})}):undefined;
     const policy={name:'single-keeper',version:'1',initial:()=>null,reduce:()=>null,next:(view:any):any=>{
       if(closer?.campaign===bridge?.campaign&&closer?.ended?.())return{kind:'finish',outcome:'undelivered',reason:'input_ended'};
@@ -566,7 +572,7 @@ export function createHybridEngine(options: HybridEngineOptions): {runDriver: Se
           api?.events.emit('coc:native-search-policy',{enabled,allowed,campaign:bridge.campaign,
             worldline:object(capsule._context).worldline,loop:object(capsule._context).loop,
             run:context.runId,step:stepId,...(model?{model:`${model.provider}/${model.id}`}:{})});
-          const people=await Promise.all(array(capsule.present).map(async person=>{
+          const peopleWork=preparation?preparation.prepare(capsule,signal):Promise.all(array(capsule.present).map(async person=>{
             const identity=typeof person.id==='string'&&person.id.trim()?person.id:person.name;
             try{const full=object(await bridge!.call!('table.look',{campaign:bridge!.campaign,focus:'npc',name:identity,_context_read:true}));
               const voice=array(capsule.voices).find(voice=>voice.name===person.name)??{};
@@ -579,11 +585,12 @@ export function createHybridEngine(options: HybridEngineOptions): {runDriver: Se
           try{if(consultations&&(!consultations.campaign||consultations.campaign===bridge.campaign))
             taken=consultations.take({scene:object(capsule.where).scene,run:context.runId,scope:{worldline:scope.worldline,loop:scope.loop}});
           }catch(error){record({lane:'run',event:'source_context_unavailable',run:context.runId,reason:String(error)});}
-          const carried=taken?await readCarriedViews({call:(method,params)=>bridge!.call!(method,{...params,campaign:bridge!.campaign,_context_read:true}),people:[],
+          const carriedWork=taken?readCarriedViews({call:(method,params)=>bridge!.call!(method,{...params,campaign:bridge!.campaign,_context_read:true}),people:[],
             answers:taken.landed.map(entry=>({name:entry.focus,view:entry.answer?withSourceQuestion(entry.question,entry.answer):{status:'unavailable',reason:entry.unavailable}})),
             held:(taken.held??[]).map(entry=>({name:entry.focus,view:withSourceQuestion(entry.question,entry.answer)})),
             pending:taken.pending,sceneTexts:taken.texts,
             sceneRecords:(taken.records??[]).map(entry=>({...entry,view:{status:entry.unavailable?'unavailable':'landed',note:'Use the named scene or person view for its full current record.'}}))}):undefined;
+          const [people,carried]=await Promise.all([peopleWork,carriedWork]);
           if(carried){
             const passages=carriedPassages(carried.views,taken?.texts);
             if(passages.length)api?.events.emit('coc:carried-text',{campaign:bridge.campaign,turn:scope.turn,run:context.runId,passages});

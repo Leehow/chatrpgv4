@@ -48512,6 +48512,37 @@ evidence for involuntary displacement. It grants no authority and rewording it
 does not change the existing refusal identity. Its schema retains the existing
 200-character cause limit enforced by argument validation.
 
+### Host decision: parallel preparation before Keeper inference (owner 2026-10-19)
+
+Independent existing reads start before the existing continuous-turn decision.
+The same run-owned preparation joins current people and explicitly named known
+NPCs with ready source views before the first Keeper request. Names match only
+issued public labels or exact npc_N tokens; this is identity matching, not an
+intent classifier or permission. Ambiguous offstage labels do not select a
+person. At most eight named offstage records supplement current presence.
+Offstage cards remain Keeper-only and do not establish presence, communication,
+disclosure or execution authority. Actor-scoped author selection is unchanged.
+
+Preparation is reused only within the current input and an exact canonical
+campaign/worldline/loop/turn/source/world revision. Writes or a new scope require
+fresh preparation; an obsolete completion cannot become a current view. Missing
+revision identity disables reuse. Failed optional reads retain explicit coverage
+and the ordinary read tools remain available. No semantic tool result is guessed
+from a label, and no foreground judge or speculative author is introduced.
+
+Producer: the scoped capsule, public NPC reference list and existing native look.
+Reader: one run-local preparation shared by continuous-turn and model projection.
+Actor: the existing combined KP packet, ordinary kernel settlement and sole text
+SSE author. Independent existing Jev batches keep their current parallel join;
+material reads overlap them without changing their questions or write ordering.
+
+AWS Parallel states join independent branches before their dependent successor
+(https://docs.aws.amazon.com/step-functions/latest/dg/state-parallel.html).
+LangGraph similarly executes independent nodes in one superstep
+(https://docs.langchain.com/oss/javascript/langgraph/graph-api). These confirm
+the dependency boundary; this implementation needs no new workflow framework,
+shared concurrent writes or speculative narrative branch.
+
 ### Kernel decision: decision-only v4 communication contract (owner 2026-10-19)
 
 The owner approves docs/specs/decision-only-kp-v4.md. Native output version4

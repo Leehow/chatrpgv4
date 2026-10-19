@@ -37,6 +37,7 @@ export interface ContinuousTurnOptions {
     previousPublic?:Array<{turn:number|string;player?:string|null;keeper:string;truncated?:boolean}>;
     investigators?:string[];
     timeBands?:()=>Promise<TimeBandRow[]>;
+    prepareMaterials?:(capsule:Row,signal:AbortSignal)=>void;
 }
 
 const packetChoice=(candidate:Candidate):Row=>({effects:keeperCall(candidate).args.effects,
@@ -91,6 +92,7 @@ export class ContinuousTurn {
             if(signal.aborted||!this.options.current())throw Error('continuous_input_cancelled');
             this.readSet(capsule);
             this.snapshot=capsule;
+            this.options.prepareMaterials?.(capsule,signal);
             if(this.options.packet)this.prescreen=this.packet([]);
             if(object(capsule._context).turn===0){this.decided=true;return;}
             const applyOptions=await this.options.call('table.apply.options',{});

@@ -1,5 +1,28 @@
 # Keeper contracts and Blood Road browser acceptance
 
+## Parallel preparation follow-up (owner approved 2026-10-19)
+
+New approved scope: prefetch independent material and overlap existing decisions
+before KP, prefer one combined structured packet, preserve the direct SSE author,
+add no judgment model. The preceding v4 verification remains historical evidence.
+
+Confirmed gaps: current people are read only after continuous-turn judgment;
+explicitly named offstage people are absent from that first context; repeated
+same-input projections re-read the unchanged actors. The production engine
+regression fails5/6 before the change. One small run-local preparation now starts
+with continuous-turn snapshot acquisition, overlaps existing judgment, joins
+ready source views, and reuses only an exact same-input canonical revision.
+Public registered labels/exact npc_N tokens select at most eight named offstage
+cards; ambiguous labels, unavailable reads and omitted coverage remain explicit.
+This does not add presence, permission, disclosure, semantic classification or
+an author lane. Existing independent Jev batches already run concurrently.
+
+Current quick verification: npm test130/130, preparation/continuous21/21 and
+current-context3/3 pass. Fresh before/after MiniMax tests reuse the retained
+Blood Road seed; each main-session player input is submitted separately after
+reading the actual previous reply. Keep complete-intent retries and failures.
+LAN focused/build and final live attribution/state/timing audit remain pending.
+
 ## Final decision-only v4 verification, 2026-10-19
 
 Implementation is committed throughedb705a0e on0.9.8a. The prior entries below
