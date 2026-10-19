@@ -48284,3 +48284,22 @@ validated artifact without replaying it. Do not add a judge, inference request,
 post-author prose repair, provider-specific eager-streaming flag or simulated
 typing. Record transport kind, chunk count and first/last arrival times without
 logging text; validate upstream, host and browser timing in MiniMax live play.
+
+**Direct prose owner correction (owner 2026-10-18).** The current structured
+decision path hands one complete frozen context to one isolated Pi author.
+That author returns ordinary story text through text_delta, not JSON, native
+write arguments, draft.json, coverage declarations or a required public marker.
+The host forwards those actual deltas immediately. The author has no tool
+continuation and one provider request; this owner instruction supersedes the
+earlier tool-enabled final-author transport for this dedicated prose step only.
+Keeper, module readers and other text workers retain their existing tools.
+The older ExpressionBrief compatibility transport remains separate and does not
+define the current decision author's output. Existing completion, model,
+size/transport integrity and publication-owner checks remain. An interrupted
+stream stays interrupted, never a successful publication or a second full draft.
+Body quality does not block its first delivery. Subsequent validation belongs
+off the foreground path; any authorized correction is a version-bound local
+text replacement, never a whole-response regeneration or a world transaction.
+The retained intent67 native-argument burst is invalid for this owner's direct
+prose streaming acceptance, even though its individual websocket frames arrived
+before artifact completion.

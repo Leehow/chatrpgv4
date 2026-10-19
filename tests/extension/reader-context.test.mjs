@@ -11,6 +11,30 @@ import readerContext, { boundImages, confineReaderEnvironment, createReaderToolG
 import {compileDeliveryParts} from '../../runtime/final-output-artifact.ts';
 import {EmptySpeechStream} from '../../kernel-ts/write/speech-pass.ts';
 
+test('plain author wire timing retains only event metadata and character counts',async t=>{
+ const cwd=await mkdtemp(join(tmpdir(),'plain-author-wire-'));t.after(()=>rm(cwd,{recursive:true,force:true}));const hooks={};
+ const log=join(cwd,'requests.jsonl');
+ readerContext({on(name,fn){(hooks[name]??=[]).push(fn);},setActiveTools(){},registerTool(){}},{cwd,env:{PI_COC_HOME:cwd,PI_COC_FINAL_OUTPUT:'1',PI_COC_FINAL_TEXT:'1',PI_COC_READER_REQUESTS_LOG:log}});
+ const dispatch=async data=>{for(const hook of hooks.provider_stream_event)await hook({data},{});};
+ await dispatch({type:'content_block_delta',index:0,delta:{type:'thinking_delta',thinking:'private thought'}});
+ await dispatch({type:'content_block_delta',index:1,delta:{type:'text_delta',text:'public words'}});
+ await dispatch({type:'message_start',message:{secret:'not retained'}});
+ const raw=await readFile(log+'.stream.jsonl','utf8'),rows=raw.trim().split('\n').map(JSON.parse);
+ assert.equal(rows.length,2);assert.deepEqual(rows.map(({delta,characters})=>({delta,characters})),[{delta:'thinking_delta',characters:15},{delta:'text_delta',characters:12}]);
+ assert.ok(rows.every(row=>Number.isFinite(row.at)));assert.doesNotMatch(raw,/private thought|public words|secret/);
+});
+
+test('the dedicated prose Pi session exposes no writing or world tools to its provider',async t=>{
+ const home=await mkdtemp(join(tmpdir(),'plain-author-tools-'));t.after(()=>rm(home,{recursive:true,force:true}));let requests=0;
+ const faux=fauxProvider();faux.setResponses([context=>{requests++;assert.deepEqual(getCurrentTools(context.messages),[]);return fauxAssistantMessage('The clerk points east.');}]);
+ const runtime=await ModelRuntime.create({authPath:join(home,'auth.json'),modelsPath:null,modelsStorePath:join(home,'models-store.json'),refreshOnCreate:false,allowModelNetwork:false});runtime.registerNativeProvider(faux.provider);
+ const settingsManager=SettingsManager.inMemory({compaction:{enabled:false},retry:{enabled:false}});
+ const loader=new DefaultResourceLoader({cwd:home,agentDir:join(home,'agent'),noContextFiles:true,noSkills:true,noExtensions:true,systemPrompt:'Return ordinary story text.',settingsManager,
+  extensionFactories:[{name:'plain-author',factory:pi=>readerContext(pi,{cwd:home,env:{PI_COC_FINAL_OUTPUT:'1',PI_COC_FINAL_TEXT:'1',PI_COC_HOME:home}})}]});
+ await loader.reload();const {session,extensionsResult}=await createAgentSession({cwd:home,agentDir:join(home,'agent'),modelRuntime:runtime,model:faux.getModel(),settingsManager,resourceLoader:loader,sessionManager:SessionManager.inMemory(),tools:[],thinkingLevel:'off'});
+ try{assert.deepEqual(extensionsResult.errors,[]);await session.bindExtensions({mode:'print'});await session.prompt('All context is supplied.');assert.equal(requests,1);}finally{session.dispose();}
+});
+
 test('native author parts derive constants and exact positions from the text written once',()=>{
  const materials=[{name:'event/detail',kind:'fact',text:'A source wording with different punctuation.'},{name:'event/speech',kind:'speech'}];
  const prefix='Outside.\n\n',words='The sign says: \'Open at noon.\' 😀';

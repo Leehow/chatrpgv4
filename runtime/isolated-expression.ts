@@ -164,6 +164,7 @@ export async function writeIsolatedExpression(input:{runtime:HostRuntime;campaig
   };
   await record({lane:'isolated-expression',event:'start',campaign,turn,run,attempt,...profile,
     packet_bytes:Buffer.byteLength(JSON.stringify(packet)),context:player_input===undefined?'brief_only':'brief_and_player_input',...(keeper_only?{keeper_only}:{})});
+  if(input.decision)return writeDirectProse({runtime,packet,profile,attempt,campaign,turn,run,signal,stream,record});
   try {
     const outcome=await runtime.runTask({kind:'reader',request:{cwd:attempt,systemPrompt:(input.decision?DECISION_AUTHOR_INSTRUCTION:EXPRESSION_INSTRUCTION)+AUTHOR_TRANSPORT,
       brief:JSON.stringify(packet),...profile,pinnedModel:true,tools:'read,write,edit,bash',finalOutput:true,
@@ -252,4 +253,48 @@ export async function writeIsolatedExpression(input:{runtime:HostRuntime;campaig
     await record({lane:'isolated-expression',event:'failed',campaign,turn,run,attempt,...profile,reason:String(error)});
     throw error;
   }
+}
+
+/** The dedicated decision author owns text bytes, never a file or a tool argument. */
+async function writeDirectProse(input:{runtime:HostRuntime;packet:Row;profile:{model:string;thinking:string};attempt:string;campaign:string;turn:number;run:string;
+ signal?:AbortSignal;stream:{push:(text:string)=>void};record:(row:Row)=>Promise<void>}) {
+ const {runtime,packet,profile,attempt,campaign,turn,run,signal,stream,record}=input;
+ let raw='',sent='',finished=false,failure:unknown;const models=new Set<string>();
+ const transport={source:'text_delta',chunks:0,first_at:0,last_at:0};
+ const emit=()=>{
+  const head=raw.trimStart();if('{{public}}'.startsWith(head))return;
+  // Accept the old optional frame from compatibility hosts; the real author needs none.
+  const text=head.startsWith('{{public}}')?head.slice('{{public}}'.length):raw;
+  if(Buffer.byteLength(text)>64000)throw Error('Final text exceeds its budget');
+  if(!text.startsWith(sent))throw Error('The direct prose stream changed its exposed prefix');
+  const delta=text.slice(sent.length);sent=text;
+  if(delta){transport.first_at||=Date.now();transport.last_at=Date.now();transport.chunks++;stream.push(delta);}
+ };
+ try{
+  const outcome=await runtime.runTask({kind:'reader',request:{cwd:attempt,brief:JSON.stringify(packet),
+   systemPrompt:DECISION_AUTHOR_INSTRUCTION.replace('using the final artifact transport','using the direct text transport')
+    +' Direct text transport: the complete input is above. Return only ordinary story text. No JSON, public framing, file artifact, tool call or acknowledgment is needed.',
+   ...profile,pinnedModel:true,tools:'',finalOutput:true,finalText:true,maxRequests:1,timeoutMs:120000,eventLog:join(attempt,'events.jsonl'),onEvent:event=>{
+    if(failure)return;
+    try{
+     signal?.throwIfAborted();const message=event.message,update=event.assistantMessageEvent;
+     if(message?.role==='assistant'&&message.model){const actual=`${message.provider}/${message.model}`;models.add(actual);if(actual!==profile.model)throw Error('Unexpected isolated expression model');}
+     if(event.type==='tool_execution_start'||event.type==='message_update'&&update?.type==='toolcall_start')throw Error('The direct prose author cannot select a tool artifact');
+     if(event.type==='message_update'&&update?.type==='text_delta'){
+      if(finished)throw Error('An expression response is already complete');raw+=String(update.delta??'');emit();
+     }
+     if(event.type==='message_end'&&message?.role==='assistant'){
+      if(message.stopReason!=='stop')throw Error('Direct prose generation did not complete');
+      const text=(message.content??[]).filter((part:Row)=>part.type==='text').map((part:Row)=>part.text).join('');
+      if(raw&&raw!==text)throw Error('Expression completion differs from its stream');
+      if(!raw){raw=text;transport.source='completed_response';emit();}finished=true;
+     }
+    }catch(error){failure=error;throw error;}
+   }}},signal);
+  if(failure)throw failure;
+  if(!outcome.ok||!finished||!models.size||!sent.trim())throw Error(outcome.error??'Direct prose generation did not complete');
+  await writeFile(join(attempt,'response.txt'),sent);
+  await record({lane:'isolated-expression',event:'written',campaign,turn,run,attempt,...profile,ms:outcome.ms,usage:outcome.usage,actual_models:[...models],transport});
+  return {version:1 as const,text:sent,coverage:[],...profile};
+ }catch(error){await record({lane:'isolated-expression',event:'failed',campaign,turn,run,attempt,...profile,reason:String(error)});throw error;}
 }

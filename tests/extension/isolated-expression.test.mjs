@@ -13,6 +13,22 @@ import {createFinalOutputOwner} from '../../extensions/kernel/final-output.ts';
 import {AuthorPartsStream} from '../../runtime/author-parts-stream.ts';
 const brief={scene:'An office.',narrative_content:[],npc_turns:[{speaker:'Steven Knott',intent:'Offer a meeting at dawn.',personality:'Practical',emotion:null}]};
 
+test('the decision author streams plain prose immediately from one complete input without a tool artifact',async t=>{
+ const home=await mkdtemp(join(tmpdir(),'expression-direct-body-'));t.after(()=>rm(home,{recursive:true,force:true}));const prose=[];let calls=0;
+ const runtime={home,async runTask({request}){
+  calls++;assert.equal(request.tools,'');assert.equal(request.finalText,true);assert.equal(request.maxRequests,1);
+  const packet=JSON.parse(request.brief);assert.equal(packet.player_input,'I ask for directions.');assert.equal(packet.decision_context.scene.name,'Shop');
+  request.onEvent({type:'message_update',assistantMessageEvent:{type:'text_delta',delta:'The clerk points east. '}});
+  assert.equal(prose.join(''),'The clerk points east. ');
+  request.onEvent({type:'message_update',assistantMessageEvent:{type:'text_delta',delta:'You listen.'}});
+  assert.equal(prose.join(''),'The clerk points east. You listen.');
+  request.onEvent({type:'message_end',message:{role:'assistant',provider:'opencode-go',model:'deepseek-v4.1-flash',stopReason:'stop',content:[{type:'text',text:'The clerk points east. You listen.'}]}});
+  return {ok:true,ms:1};
+ }};
+ const result=await writeIsolatedExpression({runtime,campaign:'c',turn:1,run:'r',decision:{scene:{name:'Shop'},clock:{},people:[],recent_public:[],responses:[]},playerText:'I ask for directions.',language:'en',stream:{push:text=>prose.push(text)},record:async()=>{}});
+ assert.equal(calls,1);assert.equal(result.text,prose.join(''));assert.equal(prose.length,2);
+});
+
 test('incremental author argument decoding preserves escape boundaries and exposes only text parts',()=>{
  const text='A "quoted" line.\nA slash \\ and a face '+String.fromCodePoint(0x1f642);
  for(const parts of [[{materials:['PRIVATE_NAME'],text}],{item:[{text,materials:['PRIVATE_NAME']}]},{item:{item:{text}}},{text}]){
@@ -176,7 +192,7 @@ test('silent response decisions remain sparse in the actual author task',async t
  await assert.rejects(writeIsolatedExpression({runtime,campaign:'c',turn:1,run:'bad',language:'en',decision:{scene:{},clock:{},people:[],recent_public:[],responses:[{actor:'npc_11',act:'silent',points:['The clerk leaves.']}]},stream:{push(){}},record:async()=>{}}),/silent|response/i);
 });
 
-for(const artifact of ['valid','relative','absolute','bash','unordered','legacy-body','invalid','missing'])test('file author publishes only its explicit artifact, never the acknowledgment: '+artifact,async t=>{
+for(const artifact of ['valid','relative','absolute','bash','unordered','legacy-body','invalid','missing'])test('legacy file author publishes only its explicit artifact, never the acknowledgment: '+artifact,async t=>{
  const home=await mkdtemp(join(tmpdir(),'expression-file-'));t.after(()=>rm(home,{recursive:true,force:true}));
  const prose=[],records=[];let requests=0;
  const runtime={home,async runTask({request}){
@@ -188,7 +204,7 @@ for(const artifact of ['valid','relative','absolute','bash','unordered','legacy-
   request.onEvent({type:'message_end',message:{role:'assistant',provider:EXPRESSION_PROFILE.model.split('/')[0],model:EXPRESSION_PROFILE.model.split('/')[1],stopReason:'stop',content:[{type:'text',text:'{{public}}The draft is written. Private work notes.'}]}});
   return {ok:true,ms:1};
  }};
- const work=writeIsolatedExpression({runtime,campaign:'c',turn:14,run:'r',language:'en',decision:{scene:{},clock:{},people:[],recent_public:[],responses:[]},stream:{push:text=>prose.push(text)},record:async row=>records.push(row)});
+ const work=writeIsolatedExpression({runtime,campaign:'c',turn:14,run:'r',language:'en',brief,stream:{push:text=>prose.push(text)},record:async row=>records.push(row)});
  if(['valid','relative','absolute','bash','unordered'].includes(artifact)){
   const result=await work;assert.equal(result.text,'{{say:npc_1}}The road is open.{{/say}}');assert.equal(prose.join(''),result.text);assert.equal(records.at(-1).event,'written');
  }else {await assert.rejects(work);assert.deepEqual(prose,[]);assert.equal(records.at(-1).event,'failed');}
@@ -196,7 +212,7 @@ for(const artifact of ['valid','relative','absolute','bash','unordered','legacy-
  assert.ok(!prose.join('').includes('Private work notes'));
 });
 
-test('the host frames completed direct prose only after the successful task outcome',async t=>{
+test('legacy host frames completed direct prose only after the successful task outcome',async t=>{
  const home=await mkdtemp(join(tmpdir(),'expression-unframed-'));t.after(()=>rm(home,{recursive:true,force:true}));
  const prose=[];
  const body='The engine falls quiet beside the abandoned trailers.';
@@ -204,11 +220,11 @@ test('the host frames completed direct prose only after the successful task outc
   request.onEvent({type:'message_update',assistantMessageEvent:{type:'text_delta',delta:body}});
   request.onEvent({type:'message_end',message:{role:'assistant',provider:'opencode-go',model:'deepseek-v4.1-flash',stopReason:'stop',content:[{type:'text',text:body}]}});
   assert.deepEqual(prose,[],'unframed text is private until successful task completion');return {ok:true,ms:1};}};
- const result=await writeIsolatedExpression({runtime,campaign:'c',turn:1,run:'r',language:'en',decision:{scene:{},clock:{},people:[],recent_public:[],responses:[]},stream:{push:text=>prose.push(text)},record:async()=>{}});
+ const result=await writeIsolatedExpression({runtime,campaign:'c',turn:1,run:'r',language:'en',brief,stream:{push:text=>prose.push(text)},record:async()=>{}});
  assert.equal(result.text,body);assert.equal(prose.join(''),body);
 });
 
-for(const mode of ['speech-body','unknown-control','malformed-envelope','failed-task','mismatch','interrupted','tool-preamble'])test('buffered author transport preserves its structural boundaries: '+mode,async t=>{
+for(const mode of ['speech-body','unknown-control','malformed-envelope','failed-task','mismatch','interrupted','tool-preamble'])test('legacy buffered author transport preserves its structural boundaries: '+mode,async t=>{
  const home=await mkdtemp(join(tmpdir(),'expression-terminal-'));t.after(()=>rm(home,{recursive:true,force:true}));const prose=[];
  const body=mode==='speech-body'?'{{say:npc_1}}The road is open.{{/say}}':mode==='unknown-control'?'{{private}}Do not publish.':mode==='malformed-envelope'?'{"version":1,"wrong":"field"}':'The clerk closes the door.';
  const runtime={home,async runTask({request}){
@@ -220,7 +236,7 @@ for(const mode of ['speech-body','unknown-control','malformed-envelope','failed-
   request.onEvent({type:'message_update',assistantMessageEvent:{type:'text_delta',delta:body}});
   request.onEvent({type:'message_end',message:{role:'assistant',provider:'opencode-go',model:'deepseek-v4.1-flash',stopReason:mode==='interrupted'?'length':'stop',content:[{type:'text',text:mode==='mismatch'?body+' Different.':body}]}});
   return {ok:mode!=='failed-task',ms:1};}};
- const work=writeIsolatedExpression({runtime,campaign:'c',turn:1,run:'r',language:'en',decision:{scene:{},clock:{},people:[],recent_public:[],responses:[]},stream:{push:text=>prose.push(text)},record:async()=>{}});
+ const work=writeIsolatedExpression({runtime,campaign:'c',turn:1,run:'r',language:'en',brief,stream:{push:text=>prose.push(text)},record:async()=>{}});
  if(['tool-preamble','speech-body'].includes(mode)){assert.equal((await work).text,body);assert.equal(prose.join(''),body);}
  else {await assert.rejects(work);assert.deepEqual(prose,[]);}
 });
@@ -351,32 +367,30 @@ for(const mode of ['framed','framed-preamble','terminal','preamble','error','abo
   }
   const body=mode==='empty'?'':(mode.startsWith('framed')?'{{public}}':'')+'The clerk answers carefully.';
   task.request.onEvent({type:'message_update',assistantMessageEvent:{type:'text_delta',delta:body}});
-  assert.deepEqual(prose,mode.startsWith('framed')?['The clerk answers carefully.']:[],'only explicitly framed public text streams; completed private tools do not disable the final stream');
+  assert.deepEqual(prose,mode==='empty'||mode==='preamble'?[]:['The clerk answers carefully.'],'direct prose streams immediately; only the legacy tool preamble stays private');
   task.request.onEvent(terminal(mode==='mismatch'?'Different bytes.':body,['error','aborted','length'].includes(mode)?mode:'stop'));
   return{ok:true,ms:1};
  }};
- const task=writeIsolatedExpression({runtime,campaign:'c',turn:1,run:'r',decision:{scene:{},clock:{},responses:[],people:[],recent_public:[]},
+ const task=writeIsolatedExpression({runtime,campaign:'c',turn:1,run:'r',...(['preamble','framed-preamble'].includes(mode)?{brief}:{decision:{scene:{},clock:{},responses:[],people:[],recent_public:[]}}),
   result:{player_actions_complete:true,outcomes:[]},language:'en',stream:{push:text=>prose.push(text)},record:async()=>{}});
  if(['framed','framed-preamble','terminal','preamble'].includes(mode)){
   assert.equal((await task).text,'The clerk answers carefully.');assert.deepEqual(prose,['The clerk answers carefully.']);
  }else{
-  await assert.rejects(task);assert.deepEqual(prose,[]);
+  await assert.rejects(task);assert.deepEqual(prose,mode==='empty'?[]:['The clerk answers carefully.']);
  }
  assert.equal(requests,1,'terminal transport never starts a replacement author');
 });
 
-for(const file of [false,true])test('the same author artifact preserves declared current-material coverage: '+(file?'file':'direct'),async t=>{
- const home=await mkdtemp(join(tmpdir(),'expression-coverage-'));t.after(()=>rm(home,{recursive:true,force:true}));
- const material={name:'event:t1:Read the notice/notice',text:'The office closes at noon.',kind:'fact'};
+test('the plain author receives current materials without composing coverage metadata',async t=>{
+ const home=await mkdtemp(join(tmpdir(),'expression-plain-material-'));t.after(()=>rm(home,{recursive:true,force:true}));
+ const material={name:'event/notice',text:'The office closes at noon.',kind:'fact'};let requests=0;
  const text='The notice says the office shuts at midday.';
- const coverage=[{name:material.name,quote:'the office shuts at midday'}],artifact={version:1,text,coverage};
- let requests=0;const runtime={home,async runTask({request}){
-  requests++;const body=file?'The artifact is ready.':JSON.stringify(artifact);
-  if(file){request.onEvent({type:'tool_execution_start',toolName:'write',args:{path:'draft.json'}});await writeFile(join(request.cwd,'draft.json'),JSON.stringify(artifact));}
-  request.onEvent({type:'message_end',message:{role:'assistant',provider:EXPRESSION_PROFILE.model.split('/')[0],model:EXPRESSION_PROFILE.model.split('/')[1],stopReason:'stop',content:[{type:'text',text:body}]}});return {ok:true,ms:1};
+ const runtime={home,async runTask({request}){
+  requests++;assert.equal(request.finalText,true);assert.equal(request.tools,'');assert.deepEqual(JSON.parse(request.brief).decision_context.settled_results.materials,[material]);
+  request.onEvent({type:'message_end',message:{role:'assistant',provider:EXPRESSION_PROFILE.model.split('/')[0],model:EXPRESSION_PROFILE.model.split('/')[1],stopReason:'stop',content:[{type:'text',text}]}});return{ok:true,ms:1};
  }};
  const prose=[],result=await writeIsolatedExpression({runtime,campaign:'c',turn:1,run:'r',language:'en',decision:{scene:{},clock:{},people:[],recent_public:[],responses:[],settled_results:{materials:[material]}},stream:{push:value=>prose.push(value)},record:async()=>{}});
- assert.equal(requests,1);assert.equal(result.text,text);assert.equal(prose.join(''),text);assert.deepEqual(result.coverage,coverage);
+ assert.equal(requests,1);assert.equal(result.text,text);assert.equal(prose.join(''),text);assert.deepEqual(result.coverage,[]);
 });
 
 test('a failed native parts write cannot fall back to terminal prose',async t=>{
@@ -390,7 +404,7 @@ test('a failed native parts write cannot fall back to terminal prose',async t=>{
  assert.equal(requests,1);assert.deepEqual(prose,[]);
 });
 
-for(const mode of ['submitted','missing-marker','failed-tool','aborted-task'])test('native final submission completion boundary: '+mode,async t=>{
+for(const mode of ['submitted','missing-marker','failed-tool','aborted-task'])test('legacy native final submission completion boundary: '+mode,async t=>{
  const home=await mkdtemp(join(tmpdir(),'expression-submission-'));t.after(()=>rm(home,{recursive:true,force:true}));
  const prose=[],artifact={version:1,text:'The keeper remains outside.',coverage:[]};let requests=0;
  const runtime={home,async runTask({request}){
@@ -400,7 +414,7 @@ for(const mode of ['submitted','missing-marker','failed-tool','aborted-task'])te
   request.onEvent({type:'tool_execution_end',toolName:'write',isError:mode==='failed-tool',result:{terminate:true,details:mode==='missing-marker'?{}:{final_artifact_submitted:true}}});
   return {ok:mode!=='aborted-task',ms:1,error:mode==='aborted-task'?'Task was cancelled':undefined};
  }};
- const result=writeIsolatedExpression({runtime,campaign:'c',turn:1,run:'r',language:'en',decision:{scene:{},clock:{},people:[],recent_public:[],responses:[]},stream:{push:text=>prose.push(text)},record:async()=>{}});
+ const result=writeIsolatedExpression({runtime,campaign:'c',turn:1,run:'r',language:'en',brief,stream:{push:text=>prose.push(text)},record:async()=>{}});
  if(mode==='submitted'){assert.equal((await result).text,artifact.text);assert.deepEqual(prose,[artifact.text]);}
  else{await assert.rejects(result);assert.deepEqual(prose,[]);}
  assert.equal(requests,1);

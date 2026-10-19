@@ -222,7 +222,7 @@ export function boundImages(messages: any[], delivered: ReadonlySet<string> = ne
 
 export default function readerContext(pi: any, options: { cwd?: string; env?: NodeJS.ProcessEnv } = {}) {
 	const cwd = options.cwd ?? process.cwd(), env = options.env ?? process.env;
-	if(env.PI_COC_FINAL_OUTPUT==='1'){
+	if(env.PI_COC_FINAL_OUTPUT==='1'&&env.PI_COC_FINAL_TEXT!=='1'){
         let finalToolBatch:string[]=[];
         pi.on('message_end',(event:any)=>{
             if(event.message?.role==='assistant')finalToolBatch=(event.message.content??[]).filter((part:any)=>part.type==='toolCall').map((part:any)=>part.id);
@@ -263,6 +263,18 @@ export default function readerContext(pi: any, options: { cwd?: string; env?: No
 		});
 		activeCache(pi,env);
 	}
+	if(env.PI_COC_FINAL_OUTPUT==='1'&&env.PI_COC_FINAL_TEXT==='1'){
+        pi.on('session_start',()=>pi.setActiveTools([]));
+        pi.on('provider_stream_event',(event:any)=>{
+            const log=env.PI_COC_READER_REQUESTS_LOG,data=event.data??{},delta=data.delta??{};
+            if(!log||!['content_block_start','content_block_delta','content_block_stop','message_stop'].includes(data.type))return;
+            const kind=['text_delta','input_json_delta','thinking_delta'].includes(delta.type)?delta.type:undefined;
+            const value=kind==='text_delta'?delta.text:kind==='input_json_delta'?delta.partial_json:kind==='thinking_delta'?delta.thinking:undefined;
+            appendFileSync(log+'.stream.jsonl',JSON.stringify({at:Date.now(),event:data.type,index:data.index,
+                ...(kind?{delta:kind,characters:typeof value==='string'?value.length:0}:{})})+'\n');
+        });
+        activeCache(pi,env);
+    }
 	const configuredRequests = Number(env.PI_COC_READER_MAX_REQUESTS);
 	const maxRequests = Number.isInteger(configuredRequests) && configuredRequests > 0 ? configuredRequests : null;
 	let providerRequests = 0;
@@ -305,6 +317,7 @@ export default function readerContext(pi: any, options: { cwd?: string; env?: No
 			const output = path ? path.reduce((value: any, key) => value?.[key], bounded) : undefined;
 			appendFileSync(log, JSON.stringify({at: new Date().toISOString(), provider: ctx.model?.provider,
 				model: event.payload?.model, reasoning_effort: event.payload?.reasoning?.effort ?? event.payload?.reasoning_effort ?? event.payload?.output_config?.effort ?? null,
+				...(env.PI_COC_FINAL_TEXT==='1'?{output_transport:'plain_text',tool_count:Array.isArray(event.payload?.tools)?event.payload.tools.length:0}:{}),
 				...(leased ? {} : {output_bound: typeof output === "number" ? output : null})}) + "\n");
 		}
 		return bounded === event.payload ? undefined : bounded;

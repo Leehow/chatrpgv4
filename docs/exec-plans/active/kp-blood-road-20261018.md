@@ -1,6 +1,30 @@
 # Keeper contracts and Blood Road browser acceptance
 
-## Final recorded status (2026-10-19)
+## Current owner correction (2026-10-19)
+
+The task is resumed. Mainline and owned validation checkout are at315808942.
+The earlier handoff below is historical and does not close current acceptance.
+Intent67 proves incremental native tool arguments but only37ms of browser body
+growth; it is invalid for the owner's visible streaming acceptance.
+
+The owner requires one complete context -> one ordinary prose author request ->
+immediate SSE text forwarding; validation and any local span correction run
+in the background, without another judgment model or whole-draft regeneration.
+The current transport change explicitly disables every author tool and forwards
+ordinary text_delta bytes. It preserves settlement and publication binding,
+interruption status and one-request enforcement. Component checks92/92 and an
+actual Pi empty-tools session pass; exact current-material publication passes1/1.
+Raw provider timing keeps only event kinds, indices, lengths and timestamps.
+Live MiniMax browser verification and background correction remain outstanding.
+Existing single-pass policy disables the old verifier; the old speech overlay
+is not a general fact correction mechanism. Do not enable global rewrite policy.
+
+Owned server28 and Ego space5/pagep1 remain active. Preserve other owners'
+search and failure-diagnostic edits, including shared index and contract hunks.
+Goal is not complete. Lifecycle final audit remains required; no unrelated
+mount cleanup or destructive worktree removal is authorized.
+
+## Historical partial handoff (2026-10-19)
 
 Implementation is integrated locally into 0.9.8a through 6642c36b9. Production
 code is 8dec46d23; the later commit only revalidates the native test ledger.

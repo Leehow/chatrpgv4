@@ -279,7 +279,7 @@ test('invalid NPC bookkeeping never becomes a refused player action',async t=>{
  assert.equal(table.entries('coc-final-delivery').filter(row=>row.event==='end'&&row.status==='completed').length,1);
 });
 
-test('an event-only native decision reaches the author and activates paraphrased material once',async t=>{
+test('an event-only native decision reaches the plain author and activates exact current material once',async t=>{
  const batches=[];let requests=0;
  const engine=createHybridEngine({env,decision:{decide:async batch=>{batches.push(batch);return answer(batch,.99);}}});
  const event={name:'Read the notice',summary:'The investigator reads the posted notice.',material:'notice',materials:[{name:'notice',text:'The office closes at noon.',kind:'fact',visibility:'player'}]};
@@ -290,7 +290,7 @@ test('an event-only native decision reaches the author and activates paraphrased
  assert.equal(batches.filter(row=>row.family==='held-act-outcome').length,0);
  const turn=JSON.parse(readFileSync(join(table.workspace,'.coc/campaigns/test-camp/turns/0001.json'),'utf8'));
  assert.equal(turn.receipts.filter(row=>row.kind==='event').length,1);assert.equal(typeof turn.commit,'string');
- assert.equal(turn.rendered_text,'The notice says the office shuts at midday.');
+ assert.equal(turn.rendered_text,'The notice says: The office closes at noon.');
  assert.equal(turn.disclosures.filter(row=>row.status==='delivered'&&row.material.endsWith('/notice')).length,1);
 });
 

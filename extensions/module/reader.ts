@@ -73,6 +73,8 @@ export interface ReaderRequest {
 	tools?: string;
 	/** Selected final-prose task: confine the existing four tools to its immutable packet and artifact. */
 	finalOutput?: boolean;
+	/** Dedicated final prose: one complete input and a tool-free text stream. */
+	finalText?: boolean;
 	eventLog?: string;
 	source?: { pdf: string; cache: string; file_sha256?: string };
 	/** §186.1: the image-count budget of the child's context hook (`reading_images` for a reading's authors and reviewers). */
@@ -366,11 +368,12 @@ async function runOwnedReader(request: ReaderRequest, context: RuntimeContext): 
 	if(request.imageHistory)env.PI_COC_READER_IMAGE_HISTORY=String(request.imageHistory);else delete env.PI_COC_READER_IMAGE_HISTORY;
 	if (request.finalOutput) {
 		env.PI_COC_FINAL_OUTPUT = '1';
+		if(request.finalText)env.PI_COC_FINAL_TEXT='1';else delete env.PI_COC_FINAL_TEXT;
 		// Informational: the model the host chose for this author, so a substitute child can report it (tests).
 		if (request.model) env.PI_COC_FINAL_OUTPUT_MODEL = request.model; else delete env.PI_COC_FINAL_OUTPUT_MODEL;
 		env.PI_COC_READER_CHECK = join(request.cwd, 'host-bin', 'coc-read-check');
 		env.PATH = join(request.cwd, 'host-bin') + ':' + (env.PATH ?? '');
-	} else {delete env.PI_COC_FINAL_OUTPUT; delete env.PI_COC_FINAL_OUTPUT_MODEL;}
+	} else {delete env.PI_COC_FINAL_OUTPUT; delete env.PI_COC_FINAL_OUTPUT_MODEL;delete env.PI_COC_FINAL_TEXT;}
 	if (request.source) env.PI_COC_READER_SOURCE = JSON.stringify(request.source);
 	else delete env.PI_COC_READER_SOURCE;
 	// The subprocess is not a table: it must not think it should open one.
