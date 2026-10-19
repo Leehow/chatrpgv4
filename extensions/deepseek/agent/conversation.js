@@ -1,9 +1,9 @@
 /**
  * Conversation request adapter for contributed DeepSeek chat models.
  *
- * Pi's built-in `openai-responses` streamer is the session transport
+ * Pi's built-in `anthropic-messages` streamer is the session transport
  * (`api` + `baseUrl` + stored API key). This module is the host-owned,
- * testable seam: HTTPS Responses URLs, Bearer from the Pi credential store
+ * testable seam: HTTPS Messages URLs, x-api-key from the Pi credential store
  * (settings fallback), fail-closed without a key, and no key material in
  * thrown messages.
  */
@@ -11,6 +11,7 @@ import { buildDeepSeekRequest, buildDeepSeekRequestAsync, } from "./client.js";
 import { resolveBaseUrl, resolveSettingsApiKey } from "./config.js";
 import { DeepSeekFilesClient } from "./files/client.js";
 import { DEEPSEEK_BASE_URL, DEEPSEEK_CHAT_API } from "./models.js";
+import {messagesBaseUrl, rewriteMessagesPayload, rewriteMessagesImages} from './messages.js';
 export { DEEPSEEK_BASE_URL, DEEPSEEK_CHAT_API };
 const MISSING_KEY = "No DeepSeek API key configured — run /login deepseek-extended or set ext.deepseek.apiKey in settings";
 function isRecord(value) {
@@ -68,8 +69,18 @@ export function createConversationFilesClient(input = {}) {
         fetchImpl: input.fetchImpl,
     });
 }
+function messagesRequest(input, apiKey) {
+    return {url: `${messagesBaseUrl(input.baseUrl)}/v1/messages`,
+        headers: {'x-api-key':apiKey,'content-type':'application/json','anthropic-beta':'files-api-2025-04-14'},
+        body: {model:requireModelId(input.modelId),stream:true,messages:input.messages ?? [],max_tokens:384000,
+            ...(input.instructions ? {system:input.instructions} : {}),...(input.extra ?? {})}};
+}
 export function buildConversationRequest(input) {
     const apiKey = resolveDeepSeekApiKey(input.credentials);
+    if (!input.endpoint || input.endpoint === 'messages') {
+        const request = messagesRequest(input,apiKey);
+        return {...request,body:rewriteMessagesPayload(request.body)};
+    }
     return buildDeepSeekRequest({
         endpoint: input.endpoint ?? "responses",
         model: requireModelId(input.modelId),
@@ -83,6 +94,12 @@ export function buildConversationRequest(input) {
 }
 export async function buildConversationRequestAsync(input) {
     const apiKey = resolveDeepSeekApiKey(input.credentials);
+    if (!input.endpoint || input.endpoint === 'messages') {
+        const request = messagesRequest(input,apiKey);
+        request.body = rewriteMessagesPayload(await rewriteMessagesImages(request.body,
+            {baseUrl:messagesBaseUrl(input.baseUrl)}, {...input,apiKey,fetch:input.fetchImpl}));
+        return request;
+    }
     return buildDeepSeekRequestAsync({
         endpoint: input.endpoint ?? "responses",
         model: requireModelId(input.modelId),
@@ -104,7 +121,7 @@ export async function buildConversationRequestAsync(input) {
 export function conversationProviderTransport() {
     return {
         api: DEEPSEEK_CHAT_API,
-        baseUrl: resolveBaseUrl(),
+        baseUrl: messagesBaseUrl(),
         authHeader: true,
     };
 }

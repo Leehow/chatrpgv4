@@ -1,5 +1,5 @@
 import {deepseekSearchStream} from './search.js';
-import {getApiProvider} from '@earendil-works/pi-ai/compat';
+import {deepseekMessagesStream, messagesModel, messagesBaseUrl} from './messages.js';
 /**
  * Canonical `deepseek-extended` provider config (single source).
  *
@@ -29,17 +29,18 @@ export { apiKeyFromCredentials, buildConversationRequest, conversationProviderTr
 export function createDeepSeekProvider(options = {}) {
     const cfg = resolveDeepSeekConfig(options);
     const transport = conversationProviderTransport();
-    const baseUrl = options.baseUrl?.trim() ? cfg.baseUrl : transport.baseUrl;
+    const baseUrl = messagesBaseUrl(cfg.baseUrl);
+    const search = deepseekSearchStream(deepseekMessagesStream);
     return {
         name: DEEPSEEK_PROVIDER_NAME,
-        streamSimple: deepseekSearchStream((model, context, options) => getApiProvider(transport.api).streamSimple(model, context, options)),
+        streamSimple: (model, context, options) => search(messagesModel(model), context, options),
         api: transport.api,
         baseUrl,
         authHeader: transport.authHeader,
         ...(cfg.apiKey ? { apiKey: cfg.apiKey } : {}),
         // Synchronous by contract: the host loader does not await this factory, so
         // the catalog comes from the cache a background refresh left behind.
-        models: effectiveCatalog({ baseUrl, ...(options.cachePath ? { cachePath: options.cachePath } : {}) }),
+        models: effectiveCatalog({ baseUrl: cfg.baseUrl, ...(options.cachePath ? { cachePath: options.cachePath } : {}) }),
     };
 }
 /** Generic host/loader export — same factory, no DeepSeek-named import required. */

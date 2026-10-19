@@ -10,9 +10,8 @@ import {loadContributedAuthProvider} from '../../Electron/packages/pi-backend/sr
 import {retrieveDeepSeek} from '../../extensions/deepseek/agent/search.js';
 import {clearNativeSearchState,nativeSearchState,setNativeSearchPolicy,nativeSearchPayload,nativeSearchEvent} from '../../runtime/native-search.js';
 
-const model={id:'deepseek-flash',provider:'deepseek-extended',name:'DeepSeek',api:'openai-responses',baseUrl:'https://api.deepseek.com',
-  capabilities:{nativeSearch:{tools:['web_search']}},reasoning:true,input:['text','image'],cost:{input:0,output:0,cacheRead:0,cacheWrite:0},
-  contextWindow:1000000,maxTokens:2048,thinkingLevelMap:{low:'low',high:'high',max:'max'},compat:{supportsDeveloperRole:false}};
+const model={...createDeepSeekProvider({cachePath:'/nonexistent'}).models[0],provider:'deepseek-extended',baseUrl:'https://api.deepseek.com/anthropic'};
+const blocks=body=>body.messages.flatMap(message=>Array.isArray(message.content)?message.content:[]);
 const policy={campaign:'campaign',worldline:'main',loop:0,run:'run',step:'step',enabled:true,allowed:true,model:'deepseek-extended/deepseek-flash'};
 const note={role:'user',content:JSON.stringify({native_search_scope:{run:'run',step:'step'}}),timestamp:0};
 const system={role:'system',content:'Keeper instructions',timestamp:0,toolsAdded:[{name:'look',description:'Read the current scene',parameters:{type:'object',properties:{focus:{type:'string'}},required:['focus']}}]};
@@ -20,18 +19,21 @@ const context={messages:[system,note]};
 const key='synthetic-key-DO-NOT-EXPOSE';
 const source={url:'https://museum.example/lamps',title:'Period lamps',snippet:'A museum source.',summary:'Oil lamps were used in this period.',date:'2020-01-01T00:00:00Z'};
 const json=(value,status=200)=>new Response(JSON.stringify(value),{status,headers:{'content-type':'application/json'}});
-const fn=(name,args,id=name)=>({type:'function_call',id:`fc_${id}`,call_id:`call_${id}`,name,arguments:JSON.stringify(args),status:'completed'});
-const text=(value,id='text')=>({type:'message',id:`msg_${id}`,role:'assistant',status:'completed',content:[{type:'output_text',text:value,annotations:[]}]});
-const reasoning=id=>({type:'reasoning',id:`rs_${id}`,content:[{type:'reasoning_text',text:`Reasoning ${id}.`}],summary:[]});
-function frames(output,id='response',status='completed') {
-  const events=[{type:'response.created',response:{id,status:'in_progress',output:[]}}];
-  for(const [output_index,item]of output.entries()){
-    events.push({type:'response.output_item.added',output_index,item:{...item,...(item.type==='function_call'?{arguments:''}:item.type==='message'?{content:[]}: {})}});
-    if(item.type==='function_call')events.push({type:'response.function_call_arguments.delta',output_index,item_id:item.id,delta:item.arguments});
-    if(item.type==='message')events.push({type:'response.output_text.delta',output_index,item_id:item.id,content_index:0,delta:item.content[0].text});
-    events.push({type:'response.output_item.done',output_index,item});
+const fn=(name,args,id=name)=>({type:'tool_use',id:`call_${id}`,name,input:args});
+const text=value=>({type:'text',text:value});
+const reasoning=id=>({type:'thinking',thinking:`Reasoning ${id}.`,signature:`sig_${id}`});
+function frames(output,id='message',status='completed') {
+  const events=[{type:'message_start',message:{id,type:'message',role:'assistant',model:model.id,content:[],usage:{input_tokens:20,output_tokens:0}}}];
+  for(const [index,item]of output.entries()){
+    events.push({type:'content_block_start',index,content_block:{...item,...(item.type==='tool_use'?{input:{}}:item.type==='text'?{text:''}:{thinking:'',signature:''})}});
+    const delta=item.type==='tool_use'?{type:'input_json_delta',partial_json:JSON.stringify(item.input)}
+      :item.type==='text'?{type:'text_delta',text:item.text}:{type:'thinking_delta',thinking:item.thinking};
+    events.push({type:'content_block_delta',index,delta});
+    if(item.type==='thinking')events.push({type:'content_block_delta',index,delta:{type:'signature_delta',signature:item.signature}});
+    events.push({type:'content_block_stop',index});
   }
-  events.push({type:`response.${status}`,response:{id,status,output,...(status==='incomplete'?{incomplete_details:{reason:'max_output_tokens'}}:{}),usage:{input_tokens:20,output_tokens:30,total_tokens:50,input_tokens_details:{cached_tokens:0},output_tokens_details:{reasoning_tokens:1}}}});
+  events.push({type:'message_delta',delta:{stop_reason:status==='incomplete'?'max_tokens':output.some(item=>item.type==='tool_use')?'tool_use':'end_turn'},usage:{output_tokens:30}});
+  events.push({type:'message_stop'});
   return new Response(events.map(event=>`event: ${event.type}\ndata: ${JSON.stringify(event)}\n\n`).join(''),{headers:{'content-type':'text/event-stream'}});
 }
 function fixture(outputs,extra={}) {
@@ -40,7 +42,7 @@ function fixture(outputs,extra={}) {
   nativeSearchState().report=row=>reports.push(row);nativeSearchState().persist=row=>records.push(row);
   let index=0;
   const fetch=async(url,init)=>{
-    const wire={url:String(url),body:JSON.parse(init.body),init};wires.push(wire);
+    const wire={url:String(url).replace(/\?beta=true$/, ''),body:JSON.parse(init.body),init};wires.push(wire);
     if(wire.url.endsWith('/tools/search'))return extra.search?extra.search(wire):json({results:[source]});
     if(wire.url.endsWith('/tools/fetch'))return extra.fetch?extra.fetch(wire):json({title:source.title,content:'# Lamps\nMuseum page.'});
     const output=outputs[index++];assert(output,'Unexpected additional model request');return frames(output,`response_${index}`,extra.status);
@@ -52,22 +54,22 @@ function fixture(outputs,extra={}) {
 }
 afterEach(()=>{clearNativeSearchState();nativeSearchState().report=undefined;nativeSearchState().persist=undefined;});
 
-test('actual Pi Responses: search -> fetch -> game call -> game result -> final prose, with restart replay',async()=>{
+test('actual Pi Messages: search -> fetch -> game call -> game result -> final prose, with restart replay',async()=>{
   const f=fixture([[reasoning('search'),fn('web_search',{query:'1920s newsroom lamps',count:3})],
     [reasoning('fetch'),fn('web_fetch',{url:source.url})],[text('A sourced detail.'),fn('look',{focus:'scene'},'game')],[text('The room is lit by oil lamps.','final')]]);
   const first=await f.run(model,context,f.options).result();
   assert.equal(first.stopReason,'toolUse',first.errorMessage);
   assert.deepEqual(first.content.filter(row=>row.type==='toolCall').map(row=>row.name),['look']);
   assert.equal(first.usage.input,60);assert.equal(first.usage.output,90);
-  assert(f.wires.every(wire=>!wire.url.includes('/anthropic')));
+  assert(f.wires.filter(wire=>!wire.url.includes('/tools/')).every(wire=>wire.url==='https://api.deepseek.com/anthropic/v1/messages'));
   const search=f.wires.find(wire=>wire.url.endsWith('/tools/search'));
   assert.deepEqual(search.body,{query:'1920s newsroom lamps',count:3,need_content:false});
   assert.equal(search.init.headers.Authorization,`Bearer ${key}`);assert.equal(search.init.redirect,'error');
-  const models=f.wires.filter(wire=>wire.url.endsWith('/responses'));
+  const models=f.wires.filter(wire=>wire.url.endsWith('/messages'));
   assert(models.every(wire=>!wire.body.tools.some(tool=>tool.type==='web_search')));
   assert(models.every(wire=>wire.body.tools.some(tool=>tool.name==='look')));
-  assert.equal(models[0].body.reasoning.effort,'high');
-  assert(models[1].body.input.some(row=>row.type==='function_call_output'&&JSON.parse(row.output).results?.[0]?.url===source.url));
+  assert.equal(models[0].body.output_config.effort,'high');
+  assert(blocks(models[1].body).some(row=>row.type==='tool_result'&&JSON.parse(row.content).results?.[0]?.url===source.url));
   assert.equal(f.records[0].transport,'deepseek-search-api');
   assert(f.reports.some(row=>row.event==='response'&&row.sources.some(s=>s.url===source.url)));
   const saved=structuredClone(f.records);clearNativeSearchState();setNativeSearchPolicy({...policy,allowed:false});nativeSearchState().records=saved;
@@ -77,11 +79,11 @@ test('actual Pi Responses: search -> fetch -> game call -> game result -> final 
   assert.equal(final.stopReason,'stop',final.errorMessage);
   const replay=f.wires.at(-1).body;
   assert(!replay.tools.some(tool=>['web_search','web_fetch'].includes(tool.name)));
-  assert(replay.input.some(row=>row.type==='function_call'&&row.name==='web_search'));
-  assert(replay.input.some(row=>row.type==='function_call_output'&&row.output==='Actual scene data'));
-  assert(JSON.stringify(replay.input).includes('Committed host projection.'));
-  assert(!JSON.stringify(replay.input).includes('A sourced detail.'));
-  const thinking=replay.input.filter(row=>row.type==='reasoning');assert.equal(new Set(thinking.map(row=>row.id)).size,thinking.length);
+  assert(blocks(replay).some(row=>row.type==='tool_use'&&row.name==='web_search'));
+  assert(blocks(replay).some(row=>row.type==='tool_result'&&row.content==='Actual scene data'));
+  assert(JSON.stringify(replay.messages).includes('Committed host projection.'));
+  assert(!JSON.stringify(replay.messages).includes('A sourced detail.'));
+  const thinking=blocks(replay).filter(row=>row.type==='thinking');assert.equal(new Set(thinking.map(row=>row.signature)).size,thinking.length);
 });
 
 test('mixed search/game response executes only private retrieval and leaves the real game tool for Pi',async()=>{
@@ -94,7 +96,7 @@ test('mixed search/game response executes only private retrieval and leaves the 
   assert.equal(f.wires.length,2);
   const game=first.content[0];
   await f.run(model,{...context,messages:[system,note,first,{role:'toolResult',toolCallId:game.id,toolName:'look',content:[{type:'text',text:'Scene'}],isError:false,timestamp:1}]},f.options).result();
-  assert(f.wires.at(-1).body.input.some(row=>row.type==='function_call_output'&&JSON.parse(row.output||'null')?.results));
+  assert(blocks(f.wires.at(-1).body).some(row=>row.type==='tool_result'&&JSON.parse(row.content||'null')?.results));
 });
 
 test('streaming text/thinking stay incremental and content indices survive private search removal',async()=>{
@@ -175,7 +177,7 @@ test('foreign worldlines/loops/models, missing anchors, and incomplete pairs can
   for(const patch of [{worldline:'other'},{loop:1},{model:'deepseek-extended/other'},{anchor:'unmatched'},{content:record.content.slice(0,-1)}]){
     const f=fixture([[text('Continued.')]]);nativeSearchState().records=[{...record,...patch}];setNativeSearchPolicy({...policy,allowed:false});
     await f.run(model,{messages:[system,note,first]},f.options).result();
-    assert(!f.wires[0].body.input.some(row=>row.type==='function_call'&&row.name==='web_search'));
+    assert(!blocks(f.wires[0].body).some(row=>row.type==='tool_use'&&row.name==='web_search'));
   }
 });
 
@@ -224,6 +226,6 @@ test('identical assistant prose from different responses keeps each response pai
   const second=await secondRun.run(model,{messages:[system,note,first]},secondRun.options).result();assert.equal(second.stopReason,'stop',second.errorMessage);
   const finalRun=fixture([[text('Continued.')]]);setNativeSearchPolicy({...policy,allowed:false});
   await finalRun.run(model,{messages:[system,note,first,second]},finalRun.options).result();
-  const queries=finalRun.wires[0].body.input.filter(row=>row.type==='function_call'&&row.name==='web_search').map(row=>JSON.parse(row.arguments).query);
+  const queries=blocks(finalRun.wires[0].body).filter(row=>row.type==='tool_use'&&row.name==='web_search').map(row=>row.input.query);
   assert.deepEqual(queries,['first period source','second period source']);
 });

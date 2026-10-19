@@ -46,7 +46,7 @@ export function nativeSearchCapability(model) {
   }
   const origins={'deepseek-extended':['https://api.deepseek.com'],'openai':['https://api.openai.com'],'openai-codex':['https://chatgpt.com','https://api.openai.com'],'google':['https://generativelanguage.googleapis.com'],'anthropic':['https://api.anthropic.com'],'grok-build':['https://api.x.ai']};
   if (model?.baseUrl) {try {if (!origins[provider]?.includes(new URL(model.baseUrl).origin)) return;} catch {return;}}
-  if (provider === 'deepseek-extended' && api === 'openai-responses' && model.capabilities?.nativeSearch?.tools?.includes('web_search')) return {api, tools: ['web_search','web_fetch'], route: 'deepseek-search-api'};
+  if (provider === 'deepseek-extended' && ['openai-responses','anthropic-messages'].includes(api) && model.capabilities?.nativeSearch?.tools?.includes('web_search')) return {api, tools: ['web_search','web_fetch'], route: 'deepseek-search-api'};
   if (api === 'openai-codex-responses' && provider === 'openai-codex') return {api, tools: ['web_search']};
   if (api === 'openai-responses' && provider === 'openai') return {api, tools: ['web_search']};
   if (api === 'google-generative-ai' && provider === 'google' && (model.capabilities?.nativeSearch?.tools?.includes('web_search') || /^gemini-3(?:[.-])/.test(model.id))) return {api, tools: ['web_search']};

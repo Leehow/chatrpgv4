@@ -1,4 +1,4 @@
-/** Official DeepSeek Search/Fetch retrieval; direct connections keep Responses. */
+/** Official DeepSeek Search/Fetch retrieval; direct connections keep Messages. */
 import {privateSearchStream} from '../../../runtime/private-search.js';
 import {resolveDeepSeekApiKey} from './conversation.js';
 const LIMIT = 1_048_576;

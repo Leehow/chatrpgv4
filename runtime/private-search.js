@@ -16,6 +16,7 @@ const anchor = message => {
 };
 
 function declarations(api,tools) {
+  if (api === 'anthropic-messages') return tools.map(({name,description,parameters}) => ({name,description,input_schema:parameters}));
   return api === 'openai-completions' ? tools.map(({type,...definition}) => ({type:'function',function:definition})) : tools;
 }
 /** Retrieval calls never enter the ordinary game-tool dispatcher. */
@@ -30,9 +31,17 @@ export function privateSearchStream(fallback,{transport,tools,retrieve}) {
       const key = anchor(message);
       const record = key && records.findLast(row => row.anchor === key);
       if (!record) return [message];
-      const signatures = new Set(record.content.filter(row => row.role === 'assistant').flatMap(row => row.content)
-        .filter(block => block.type === 'thinking').map(block => block.thinkingSignature).filter(Boolean));
-      return [...clone(record.content), {...message,content:message.content.filter(block => block.type !== 'thinking' || !signatures.has(block.thinkingSignature))}];
+      const thinking = record.content.filter(row => row.role === 'assistant').flatMap(row => row.content)
+        .filter(block => block.type === 'thinking');
+      const remaining = [...thinking];
+      const content = message.content.filter(block => {
+        if (block.type !== 'thinking') return true;
+        const index = remaining.findIndex(saved => saved.thinking === block.thinking
+          && saved.thinkingSignature === block.thinkingSignature && saved.redacted === block.redacted);
+        if (index < 0) return true;
+        remaining.splice(index,1); return false;
+      });
+      return [...clone(record.content), {...message,content}];
     });
   }
   function completeExchange(messages) {
@@ -87,7 +96,9 @@ export function privateSearchStream(fallback,{transport,tools,retrieve}) {
           const project = message => ({...message,content:[...visible.content,...message.content.filter(block => !internal(block))]});
           const inner = fallback(model,{...context,messages:[...messages,...prefix]}, {...options,onPayload:async (payload, physical) => {
             const prepared = await options.onPayload?.(payload,physical) ?? payload;
-            declared = allowed() && (prepared.tool_choice == null || prepared.tool_choice === 'auto' || prepared.tool_choice === 'required');
+            const choice = prepared.tool_choice;
+            declared = allowed() && (choice == null || choice === 'auto' || choice === 'required'
+              || model.api === 'anthropic-messages' && ['auto','any'].includes(choice?.type));
             return {...prepared,tools:[...(prepared.tools ?? []).filter(tool => !names.has(tool.name ?? tool.function?.name)
               && tool.type !== 'web_search'),...(declared ? clone(declarations(model.api,tools)) : [])]};
           }});

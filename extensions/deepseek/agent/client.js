@@ -34,53 +34,6 @@ export function rewriteDeepSeekPayload(payload) {
     assertRequestBodySize(next);
     return next;
 }
-/**
- * Measured against the live API (2026-09-12, n=9 per cell): effort "low" alone
- * does NOT shorten DeepSeek's chain-of-thought (3.1-4.1k reasoning tokens on a
- * keeper-style turn, statistically identical to "high"), while this directive
- * caps it at ~250 (worst 824) with none-level latency — and reasoning keeps
- * flowing, so the tool-call `reasoning_content` contract stays intact, unlike
- * effort "none", which disables thinking outright.
- */
-export const THINKING_CAP_DIRECTIVE =
-    "Hard rule: internal reasoning must stay under 150 words. No long analysis, " +
-    "no enumerating possibilities, no restating rules. Decide on first judgment " +
-    "and spend the length on the visible answer.";
-const THINKING_CAP_MARKER = "internal reasoning must stay under";
-const THINKING_CAP_SKIP_EFFORTS = new Set(["none", "high", "max"]);
-/**
- * Prepend the thinking-cap developer message unless the caller made an
- * explicit thinking choice: "none" needs no cap, and "high"/"max" are the
- * deliberate escape hatches for hard turns. Low or unset effort gets the cap.
- * Idempotent: a payload already carrying the directive is returned unchanged.
- */
-export function applyThinkingCap(payload) {
-    if (!isRecord(payload) || !("input" in payload) && !Array.isArray(payload.messages))
-        return payload;
-    if (Array.isArray(payload.messages)) {
-        if (payload.thinking?.type === 'disabled' || THINKING_CAP_SKIP_EFFORTS.has(payload.output_config?.effort)) return payload;
-        const system = typeof payload.system === 'string' ? payload.system : payload.system ?? [];
-        if (JSON.stringify(system).includes(THINKING_CAP_MARKER)) return payload;
-        return {...payload, system: typeof system === 'string' ? THINKING_CAP_DIRECTIVE+'\n'+system : [{type:'text',text:THINKING_CAP_DIRECTIVE},...system]};
-    }
-    const effort = isRecord(payload.reasoning) && typeof payload.reasoning.effort === "string"
-        ? payload.reasoning.effort.trim().toLowerCase()
-        : "";
-    if (THINKING_CAP_SKIP_EFFORTS.has(effort))
-        return payload;
-    if (JSON.stringify(payload.input ?? "").includes(THINKING_CAP_MARKER))
-        return payload;
-    const directive = { role: "developer", content: [{ type: "input_text", text: THINKING_CAP_DIRECTIVE }] };
-    if (typeof payload.input === "string") {
-        return {
-            ...payload,
-            input: [directive, { role: "user", content: [{ type: "input_text", text: payload.input }] }],
-        };
-    }
-    if (Array.isArray(payload.input))
-        return { ...payload, input: [directive, ...payload.input] };
-    return payload;
-}
 function filesChannelFrom(options) {
     if (options.files)
         return options.files;

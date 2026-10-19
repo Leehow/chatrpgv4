@@ -25,9 +25,7 @@ export type TranscriptActivity =
   | { type: 'text'; id: string; contentIndex: number; segment?: number; content: string; final?: boolean }
   | { type: 'tool'; contentIndex: number; segment?: number; tool: TranscriptTool }
 
-/** Placeholder thinking activity opened after the last in-flight tool finishes.
- *  Providers that omit `thinking_delta` (openai-completions / xAI) otherwise
- *  leave a silent gap that the transcript paints as 已完成. */
+/** Legacy placeholder identity, retained only to discard old synthetic activities. */
 export const PENDING_THINKING_ID = 'thinking:pending'
 
 export type TranscriptSegment =
@@ -143,18 +141,6 @@ function mergeCitations(existing: TranscriptCitation[] | undefined, incoming: Tr
   return merged.length ? merged : existing
 }
 
-function allToolsFinished(tools: TranscriptTool[] | undefined): boolean {
-  return (tools?.length ?? 0) > 0 && (tools ?? []).every(tool => Boolean(tool.finished))
-}
-
-function openPendingThinking(activities: TranscriptActivity[]): boolean {
-  if (activities.some(isPendingThinking)) return false
-  const last = activities[activities.length - 1]
-  if (last?.type === 'thinking') return false
-  activities.push({ type: 'thinking', id: PENDING_THINKING_ID, contentIndex: -1, content: '' })
-  return true
-}
-
 export function activitiesFromMessage(message: Pick<ChatMessage, 'thinking' | 'tools' | 'activities'>): TranscriptActivity[] {
   return message.activities ?? [
     ...(message.thinking ? [{ type: 'thinking' as const, id: 'thinking', contentIndex: 0, content: message.thinking }] : []),
@@ -172,6 +158,7 @@ export function planTranscriptSegments(activities: TranscriptActivity[]): Transc
     }
   }
   for (const activity of activities) {
+    if (activity.type === 'thinking' && !activity.content.trim()) continue
     if (activity.type === 'text') {
       if (!activity.content) continue
       flush()
@@ -732,6 +719,7 @@ export function applyStreamEvent(previous: ChatMessage[], event: Exclude<StreamE
       : previous.map((item, i) => i === draftAt ? message : item)
     return at<0?[...previous,message]:previous.map((item,i)=>i===at?message:item);
   }
+  if (event.type === 'thinking' && !event.delta) return previous
   if (event.type === 'secret_redact') return applySecretRedact(previous, event.messages)
   if (event.type === 'error') return applyTurnError(previous, displaySecretPlaceholders(event.content))
   if (event.type === 'text' || event.type === 'thinking' || event.type === 'tool_call') {
@@ -940,7 +928,6 @@ export function applyStreamEvent(previous: ChatMessage[], event: Exclude<StreamE
         const contentIndex = event.contentIndex ?? (acts.reduce((highest, activity) => Math.max(highest, activity.contentIndex), -1) + 1)
         ownActivities().push({ type: 'tool', contentIndex, segment, tool: completed })
       }
-      if (allToolsFinished(nextTools)) openPendingThinking(ownActivities())
     } else if (activityIndex >= 0) {
       const nextActivities = ownActivities()
       nextActivities[activityIndex] = { ...nextActivities[activityIndex], tool } as TranscriptActivity
@@ -1003,7 +990,6 @@ export function applyStreamEvent(previous: ChatMessage[], event: Exclude<StreamE
       const contentIndex = event.outputIndex ?? (acts.reduce((highest, activity) => Math.max(highest, activity.contentIndex), -1) + 1)
       ownActivities().push({ type: 'tool', contentIndex, segment, tool })
     }
-    if (finished && allToolsFinished(nextTools)) openPendingThinking(ownActivities())
     if (event.sources?.length) {
       updated.citations = mergeCitations(updated.citations, event.sources.map(source => ({
         url: source.url,
@@ -1068,7 +1054,6 @@ export function applyStreamEvent(previous: ChatMessage[], event: Exclude<StreamE
       const contentIndex = event.outputIndex ?? (acts.reduce((highest, activity) => Math.max(highest, activity.contentIndex), -1) + 1)
       ownActivities().push({ type: 'tool', contentIndex, segment, tool })
     }
-    if (finished && allToolsFinished(nextTools) && updated.streaming) openPendingThinking(ownActivities())
   }
   if (event.type === 'citations') {
     const merged = mergeCitations(updated.citations, event.citations)
@@ -1102,7 +1087,6 @@ export function applyStreamEvent(previous: ChatMessage[], event: Exclude<StreamE
         nextActivities[activityIndex] = { ...nextActivities[activityIndex], tool: completed } as TranscriptActivity
       }
     }
-    if (updated.streaming && allToolsFinished(tools) && openPendingThinking(ownActivities())) changed = true
   }
   if (!changed) return previous
   if (tools !== undefined) updated.tools = tools
@@ -1212,8 +1196,7 @@ function historyMergedToolHop(message: Pick<ChatMessage, 'role' | 'content' | 'a
   return last?.type === 'tool' && Boolean(last.tool.finished)
 }
 
-/** Re-open the last tool-ended assistant so the next silent model hop still
- *  shows a live Thinking card instead of a pile of 已完成 steps. */
+/** Re-open the last tool-ended assistant while awaiting the next model response. */
 export function reopenAssistantForNextCompletion(
   messages: ChatMessage[],
   options?: { includeHistoryMergedToolHop?: boolean },
@@ -1228,7 +1211,6 @@ export function reopenAssistantForNextCompletion(
   const activities = (message.activities ?? activitiesFromMessage(message)).map(activity => activity.type === 'tool'
     ? { ...activity, tool: { ...activity.tool } }
     : { ...activity })
-  openPendingThinking(activities)
   const next = [...messages]
   next[index] = { ...message, streaming: true, activities }
   return next

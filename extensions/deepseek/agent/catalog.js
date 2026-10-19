@@ -142,7 +142,7 @@ function fromFamily(id, metadata) {
         compat: { ...DEEPSEEK_FAMILY_DEFAULTS.compat },
         capabilities: {
             hostedTools: { tools: [...DEEPSEEK_FAMILY_DEFAULTS.capabilities.hostedTools.tools] },
-            structuredOutputs: true,
+            structuredOutputs: false,
             nativeSearch: { tools: [...DEEPSEEK_FAMILY_DEFAULTS.capabilities.nativeSearch.tools] },
         },
         metadataSource: source,

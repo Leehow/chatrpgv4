@@ -42570,6 +42570,41 @@ carries the material tag to `checkReview` as checker metadata; no new authored f
 Only a supported independent inventory check can settle an empty reading as `read`. Probe `book-pregens-01` retained an
 empty published draft after opening Appendix A and ran zero reviewers; it is failed source-verification evidence.
 
+### 124.12 Messages transport amendment (owner 2026-10-19)
+
+DeepSeek Extended uses `anthropic-messages` at the configured Messages root
+(officially `https://api.deepseek.com/anthropic`). The ordinary `deepseek` and
+OpenCode Go providers are unchanged. The extension reuses Pi's Messages serializer
+and streamer; it does not fork Pi or introduce another inference loop.
+`thinking.type` is enabled/disabled and `output_config.effort` is low/high/max.
+Remove the extension's reasoning-length directive entirely. No replacement word,
+token or time limit on reasoning, warmup request or silent protocol fallback is added.
+
+Native thinking blocks and signatures remain provider/model/API-bound and replay
+unchanged beside their tool calls, including after restart. Old Responses history
+is not relabelled as native Messages thinking. For Flash, later system deltas are
+projected deterministically as complete effective prompt snapshots at their original
+history positions, after pending tool results. The initial system prompt remains
+fixed; Pro/unknown models use Pi's conservative collapsed-system fallback. Flash
+tool additions use deferred declarations and in-history tool_addition blocks.
+Removal/redefinition falls back to the current tool set and may invalidate cache
+from that boundary; unsupported removal controls are never sent.
+Cache reuse is reported only from provider usage, never inferred from placement.
+DeepSeek ignores Anthropic cache_control and budget_tokens, so neither implements
+this policy. No private mutable cache of prompts or thinking is authoritative.
+Messages exposes no structured-output format control. Its catalog declares
+structuredOutputs false, and explicit format requests fail without dispatch or
+protocol fallback rather than silently losing the format requirement.
+
+The existing foreground Search/Fetch grant, bounded private retrieval exchanges,
+assistant anchors, cancellation and official retrieval endpoints remain. Messages
+function declarations use input_schema; private retrieval is still dispatched only
+by its existing owner. Historical Responses search records retain their original
+API attribution and are converted at request time without rewriting evidence.
+Producer: the Pi transcript and original provider stream. Reader: this extension's
+Messages projection and the existing private search journal. Actor: the same Pi
+Keeper/child session and existing tool dispatcher, with no new semantic lane.
+
 ### 124.12.1 Fit the operation frontier without discarding half a fitting page (continuation, 2026-10-08)
 
 The evidence loop keeps the longest ordered prefix of its current 48-operation frontier page that passes the existing
@@ -48694,3 +48729,17 @@ hydrates this as proposed communication only. It does not start a form, collect
 values, authorize a search/trade, alter kernel requirements or commit resources.
 Producer: the KP's existing semantic decision. Reader: the same typed material
 binding. Actor: the sole author renders the selected roles in ordinary dialogue.
+
+### Host decision: observed reasoning and response waits (owner 2026-10-19)
+
+Only received, non-whitespace reasoning content opens a Thinking card or the
+thinking wait phase, matching dsh's empty-reasoning display rule. Tool completion,
+retry completion, a new inference request and opaque reasoning signatures do not
+prove that reasoning text is being generated. These gaps retain the independent
+response-wait indicator, elapsed time and stop control without synthesizing a
+reasoning activity. Live and reloaded transcripts apply the same visibility rule;
+raw provider thinking blocks, signatures and cache continuation remain intact.
+
+Producer: provider reasoning deltas and persisted transcript activities. Reader:
+the shared transcript planner and selected-turn wait state. Actor: the renderer
+shows real reasoning separately from waiting for the next model response.

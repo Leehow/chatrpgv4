@@ -99,10 +99,10 @@ describe('active-turn waiting placeholder', () => {
     act(() => { listener?.({ type: 'status', sessionId: 'welcome', status: 'started', pendingFollowUps: ['host'] }) })
     act(() => { listener?.({ type: 'tool_call', sessionId: 'welcome', toolCallId: 'bash-1', name: 'bash', delta: '{"command":"ls -la"}' }) })
     act(() => { listener?.({ type: 'tool_result', sessionId: 'welcome', toolCallId: 'bash-1', content: 'ok', isError: false }) })
-    const outer = await screen.findByRole('button', { name: /2 个步骤/ })
+    const outer = await screen.findByRole('button', { name: /1 个步骤/ })
     expect(outer.getAttribute('aria-expanded')).toBe('true')
     expect(outer.textContent).toContain('运行中')
-    expect(screen.getByRole('button', { name: /^Thinking/ }).closest('[data-activity-card="thinking"]')).toBeTruthy()
+    expect(screen.queryByRole('button', { name: /^Thinking/ })).toBeNull()
 
     // …and folds when the turn settles, even without a direct user send.
     act(() => { listener?.({ type: 'status', sessionId: 'welcome', status: 'settled' }) })
@@ -139,9 +139,9 @@ describe('active-turn waiting placeholder', () => {
     expect(retrying.textContent).toContain('Codex error: transient 500')
     expect(screen.getAllByLabelText('停止生成').length).toBeGreaterThan(0)
 
-    // The retry succeeds: the model restarts, so the wait reverts to thinking.
+    // A restarted request awaits a response without asserting reasoning.
     act(() => { listener?.({ type: 'auto_retry', sessionId: 'layout', phase: 'end', success: true, attempt: 2 }) })
-    await waitFor(() => expect(screen.getByTestId('waiting-placeholder').getAttribute('data-phase')).toBe('thinking'))
+    await waitFor(() => expect(screen.getByTestId('waiting-placeholder').getAttribute('data-phase')).toBe('continuing'))
     expect(screen.getByTestId('waiting-placeholder').textContent).not.toContain('正在重试')
     expect(screen.getAllByLabelText('停止生成').length).toBeGreaterThan(0)
 
@@ -173,9 +173,15 @@ describe('active-turn waiting placeholder', () => {
     // The turn owns the Composer too: the stop control replaces the send button.
     expect(screen.getAllByLabelText('停止生成').length).toBeGreaterThan(0)
 
-    // Thinking/tool keep the wait visible and move its phase.
+    // Empty/signature-only and whitespace deltas provide no visible reasoning.
+    act(() => { listener?.({ type: 'thinking', sessionId: 'layout', contentIndex: 0, delta: '' }) })
+    act(() => { listener?.({ type: 'thinking', sessionId: 'layout', contentIndex: 0, delta: ' \n' }) })
+    expect(screen.getByTestId('waiting-placeholder').getAttribute('data-phase')).toBe('awaiting')
+    expect(screen.queryByRole('button', { name: /^Thinking/ })).toBeNull()
+
+    // Real reasoning and tool content move the wait into their observed phases.
     act(() => { listener?.({ type: 'thinking', sessionId: 'layout', contentIndex: 0, delta: 'plan' }) })
-    expect(screen.getByTestId('waiting-placeholder').getAttribute('data-phase')).toBe('thinking')
+    await waitFor(() => expect(screen.getByTestId('waiting-placeholder').getAttribute('data-phase')).toBe('thinking'))
     act(() => { listener?.({ type: 'tool_call', sessionId: 'layout', toolCallId: 'bash-1', name: 'bash', delta: '{"command":"ls -la"}' }) })
     expect(screen.getByTestId('waiting-placeholder').getAttribute('data-phase')).toBe('tool')
     expect(screen.getByTestId('waiting-placeholder').textContent).toContain('bash · ls -la')
@@ -334,7 +340,7 @@ describe('active-turn waiting placeholder', () => {
     await waitFor(() => expect(screen.queryByTestId('waiting-placeholder')).toBeNull())
   })
 
-  it('reopens a thinking wait after the last tool finishes so a silent next completion is not a blank 生成中', async () => {
+  it('reopens a response wait after tools without an empty Thinking card', async () => {
     let listener: ((event: StreamEvent) => void) | undefined
     const base = createMockHost()
     const host: PipiHostAPI = { ...base, subscribeStream: (_sessionId, callback) => { listener = callback; return () => { listener = undefined } } }
@@ -352,20 +358,18 @@ describe('active-turn waiting placeholder', () => {
     act(() => { listener?.({ type: 'tool_result', sessionId: 'layout', toolCallId: 'status-1', content: 'ok', isError: false }) })
 
     const wait = await screen.findByTestId('waiting-placeholder')
-    expect(wait.getAttribute('data-phase')).toBe('thinking')
-    expect(wait.textContent).toContain('模型正在思考')
+    expect(wait.getAttribute('data-phase')).toBe('continuing')
+    expect(wait.textContent).toContain('等待模型响应')
     expect(screen.getAllByLabelText('停止生成').length).toBeGreaterThan(0)
-    const liveThinking = screen.getByRole('button', { name: /^Thinking/ })
-    expect(liveThinking.closest('[data-activity-card="thinking"]')).toBeTruthy()
-    expect(liveThinking.getAttribute('aria-expanded')).toBe('true')
+    expect(screen.queryByRole('button', { name: /^Thinking/ })).toBeNull()
     expect(screen.getByRole('button', { name: /个步骤/ }).textContent).toContain('运行中')
     expect(screen.getByRole('button', { name: /个步骤/ }).textContent).not.toContain('已完成')
     expect(container.querySelector('[data-session-id="layout"]')?.getAttribute('data-status')).toBe('running')
 
     // openai-codex-responses often emits an empty text part before the real
-    // conclusion. That must not hide the thinking wait.
+    // conclusion. That must not hide the response wait.
     act(() => { listener?.({ type: 'text', sessionId: 'layout', contentIndex: 0, delta: '' }) })
-    expect(screen.getByTestId('waiting-placeholder').textContent).toContain('模型正在思考')
+    expect(screen.getByTestId('waiting-placeholder').textContent).toContain('等待模型响应')
 
     act(() => { listener?.({ type: 'text', sessionId: 'layout', contentIndex: 0, delta: '设计方案可以定了' }) })
     await waitFor(() => expect(screen.queryByTestId('waiting-placeholder')).toBeNull())
@@ -388,11 +392,11 @@ describe('active-turn waiting placeholder', () => {
     expect(screen.getByTestId('waiting-placeholder').getAttribute('data-phase')).toBe('tool')
 
     act(() => { listener?.({ type: 'tool_result', sessionId: 'layout', toolCallId: 'b', content: 'ok', isError: false }) })
-    expect(screen.getByTestId('waiting-placeholder').getAttribute('data-phase')).toBe('thinking')
-    expect(screen.getByTestId('waiting-placeholder').textContent).toContain('模型正在思考')
+    expect(screen.getByTestId('waiting-placeholder').getAttribute('data-phase')).toBe('continuing')
+    expect(screen.getByTestId('waiting-placeholder').textContent).toContain('等待模型响应')
   })
 
-  it('keeps the silent next-hop thinking card after a history refresh when the last worker finishes', async () => {
+  it('keeps the response wait across history refresh without inventing reasoning', async () => {
     let listener: ((event: StreamEvent) => void) | undefined
     const agentListeners = new Set<(event: AgentEvent) => void>()
     let layoutHistory: HistoryEntry[] = [
@@ -422,7 +426,7 @@ describe('active-turn waiting placeholder', () => {
     act(() => { listener?.({ type: 'tool_result', sessionId: 'layout', toolCallId: 'status-2', content: 'ok', isError: false }) })
 
     await waitFor(() => {
-      expect(screen.getByTestId('waiting-placeholder').textContent).toContain('模型正在思考')
+      expect(screen.getByTestId('waiting-placeholder').textContent).toContain('等待模型响应')
       expect(screen.getByRole('button', { name: /个步骤/ }).textContent).toContain('运行中')
     })
 
@@ -459,7 +463,7 @@ describe('active-turn waiting placeholder', () => {
     act(() => { for (const push of agentListeners) push({ type: 'agent', agent: { ...worker, state: 'ok', endedAt: Date.now() } }) })
 
     await waitFor(() => {
-      expect(screen.getByTestId('waiting-placeholder').textContent).toContain('模型正在思考')
+      expect(screen.getByTestId('waiting-placeholder').textContent).toContain('等待模型响应')
       const steps = screen.getByRole('button', { name: /个步骤/ })
       expect(steps.textContent).toContain('运行中')
       expect(steps.textContent).not.toContain('已完成')

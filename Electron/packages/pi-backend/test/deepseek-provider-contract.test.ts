@@ -37,7 +37,7 @@ describe("DeepSeek Extended package through the app provider machinery", () => {
     if (!validation || !validation.ok) throw new Error("auth.provider contribution must validate");
     expect(validation.contribution.provider.id).toBe("deepseek-extended");
     expect(validation.contribution.provider.name).toBe("DeepSeek Extended");
-    expect(validation.contribution.provider.api).toBe("openai-responses");
+    expect(validation.contribution.provider.api).toBe("anthropic-messages");
     expect(validation.contribution.provider.models.map((model) => model.id)).toEqual(MODEL_IDS);
     // App-origin extensions default to disabled, and a disabled extension's
     // provider never reaches the picker.
@@ -49,7 +49,7 @@ describe("DeepSeek Extended package through the app provider machinery", () => {
     const loaded = await loadContributedAuthProvider(PACKAGE_DIR);
     expect(loaded?.id).toBe("deepseek-extended");
     const config = loaded?.config as { api?: string; models?: Array<{ id: string }> } | undefined;
-    expect(config?.api).toBe("openai-responses");
+    expect(config?.api).toBe("anthropic-messages");
     expect(config?.models?.map((model) => model.id)).toEqual(MODEL_IDS);
   });
 });

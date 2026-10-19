@@ -1443,7 +1443,7 @@ function AppContent({ host: injectedHost }: { host?: PipiHostAPI }) {
       setStreaming(true)
       setWaitingStartedAt(Date.now())
       setWaitingVisible(true)
-      setWaitingPhase(last && assistantEndedAwaitingModel(last) ? 'thinking' : waitingPhaseForTurn(liveMessages.length ? liveMessages : historyMessages))
+      setWaitingPhase(last && assistantEndedAwaitingModel(last) ? 'continuing' : waitingPhaseForTurn(liveMessages.length ? liveMessages : historyMessages))
       setWaitingDetail(undefined)
     }
     const resumeOrCloseLostSettle = (historyMessages: ChatMessage[], liveMessages = messagesRef.current) => {
@@ -1896,14 +1896,14 @@ function AppContent({ host: injectedHost }: { host?: PipiHostAPI }) {
           setSessions(current => current.map(session => session.id === event.sessionId ? { ...session, updatedAt: Date.now() } : session))
           // Any active main turn owns the wait, not just a local send. Follow-ups
           // after visible assistant output use `continuing` so the copy does not
-          // claim to wait for the first response. A tool-ended hop is thinking.
+          // claim to wait for the first response. A tool-ended hop awaits another response.
           if (!activeUserTurnRef.current) {
             const last = messagesRef.current[messagesRef.current.length - 1]
             activeUserTurnRef.current = true
             setWaitingStartedAt(Date.now())
             setWaitingVisible(true)
             setWaitingPhase(last && assistantEndedAwaitingModel(last)
-              ? 'thinking'
+              ? 'continuing'
               : waitingPhaseForTurn(messagesRef.current, event.pendingFollowUps))
             setWaitingDetail(undefined)
           }
@@ -1919,7 +1919,7 @@ function AppContent({ host: injectedHost }: { host?: PipiHostAPI }) {
       // output ends the first-token wait (streaming itself keeps going until
       // settled/stopped, which the Composer reflects). After the last tool
       // finishes, openai-completions providers often generate the next step
-      // with no thinking/text deltas — reopen a thinking wait so the tail
+      // with no thinking/text deltas — reopen a response wait so the tail
       // does not look idle while the composer still says 生成中.
       const turnClosed = !mainTurnOpenRef.current && (
         observedSessionStatusesRef.current[event.sessionId] === 'completed'
@@ -1969,7 +1969,7 @@ function AppContent({ host: injectedHost }: { host?: PipiHostAPI }) {
         if(event.frame.delta?.trim())setWaitingVisible(false)
       } else if (event.type === 'text') {
         if (event.delta.trim()) setWaitingVisible(false)
-      } else if (event.type === 'thinking') {
+      } else if (event.type === 'thinking' && event.delta.trim()) {
         setWaitingVisible(true)
         setWaitingPhase('thinking')
         setWaitingDetail(undefined)
@@ -1980,14 +1980,20 @@ function AppContent({ host: injectedHost }: { host?: PipiHostAPI }) {
         else setWaitingDetail(toolDisplaySummary(event.name, event.delta ?? ''))
       } else if (event.type === 'hosted_search') {
         setWaitingVisible(true)
-        setWaitingPhase('tool')
-        setWaitingDetail(toolDisplaySummary(event.kind, JSON.stringify({ query: event.query, phase: event.phase })))
+        if ((event.phase === 'completed' || event.phase === 'failed') && streamingAssistantToolsAllFinished(messagesRef.current)) {
+          setWaitingStartedAt(Date.now())
+          setWaitingPhase('continuing')
+          setWaitingDetail(undefined)
+        } else {
+          setWaitingPhase('tool')
+          setWaitingDetail(toolDisplaySummary(event.kind, JSON.stringify({ query: event.query, phase: event.phase })))
+        }
       } else if (event.type === 'hosted_code_interpreter') {
         if (event.phase === 'completed' || event.phase === 'failed') {
           if (streamingAssistantToolsAllFinished(messagesRef.current)) {
             setWaitingVisible(true)
             setWaitingStartedAt(Date.now())
-            setWaitingPhase('thinking')
+            setWaitingPhase('continuing')
             setWaitingDetail(undefined)
           } else {
             setWaitingPhase('tool')
@@ -2001,7 +2007,7 @@ function AppContent({ host: injectedHost }: { host?: PipiHostAPI }) {
         if (streamingAssistantToolsAllFinished(messagesRef.current)) {
           setWaitingVisible(true)
           setWaitingStartedAt(Date.now())
-          setWaitingPhase('thinking')
+          setWaitingPhase('continuing')
           setWaitingDetail(undefined)
         } else {
           setWaitingPhase('tool')
@@ -2010,7 +2016,7 @@ function AppContent({ host: injectedHost }: { host?: PipiHostAPI }) {
         // pi is backing off and retrying a failed provider call inside the open
         // turn. The turn is NOT over (queued messages correctly keep waiting for
         // its settle); surface the retry so the silence never reads as a wedged
-        // send. End reverts to thinking: the model restarts, or the turn's error
+        // send. End reverts to a response wait: the model restarts, or the turn's error
         // message lands right after retries are exhausted.
         if (event.phase === 'start') {
           setWaitingVisible(true)
@@ -2020,7 +2026,7 @@ function AppContent({ host: injectedHost }: { host?: PipiHostAPI }) {
           setWaitingDetail([span, event.error].filter(Boolean).join(' · ') || undefined)
           setWaitingPhase('retrying')
         } else {
-          setWaitingPhase('thinking')
+          setWaitingPhase(waitingPhaseForTurn(messagesRef.current))
           setWaitingDetail(undefined)
         }
       }

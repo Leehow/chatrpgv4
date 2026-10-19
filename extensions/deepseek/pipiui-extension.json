@@ -10,13 +10,13 @@
   "provider": {
    "id": "deepseek-extended",
    "name": "DeepSeek Extended",
-   "api": "openai-responses",
+   "api": "anthropic-messages",
    "oauth": false,
    "models": [
     {
      "id": "deepseek-flash",
      "name": "DeepSeek Flash",
-     "api": "openai-responses",
+     "api": "anthropic-messages",
      "input": [
       "text",
       "image"
@@ -38,10 +38,14 @@
       "max": "max"
      },
      "compat": {
-      "supportsStore": false,
-      "supportsDeveloperRole": false,
-      "requiresReasoningContentOnAssistantMessages": true,
-      "thinkingFormat": "deepseek"
+      "allowEmptySignature": true,
+      "forceAdaptiveThinking": true,
+      "supportsMidConvoSystemMessages": true,
+      "supportsMidConvoToolChanges": true,
+      "supportsMidConvoEffort": false,
+      "supportsEagerToolInputStreaming": true,
+      "supportsLongCacheRetention": false,
+      "supportsCacheControlOnTools": false
      },
      "capabilities": {
       "hostedTools": {
@@ -49,7 +53,7 @@
         "web_search"
        ]
       },
-      "structuredOutputs": true,
+      "structuredOutputs": false,
       "nativeSearch": {
        "tools": [
         "web_search"
@@ -60,7 +64,7 @@
     {
      "id": "deepseek-v4-pro",
      "name": "DeepSeek V4 Pro",
-     "api": "openai-responses",
+     "api": "anthropic-messages",
      "input": [
       "text"
      ],
@@ -81,10 +85,14 @@
       "max": "max"
      },
      "compat": {
-      "supportsStore": false,
-      "supportsDeveloperRole": false,
-      "requiresReasoningContentOnAssistantMessages": true,
-      "thinkingFormat": "deepseek"
+      "allowEmptySignature": true,
+      "forceAdaptiveThinking": true,
+      "supportsMidConvoSystemMessages": false,
+      "supportsMidConvoToolChanges": false,
+      "supportsMidConvoEffort": false,
+      "supportsEagerToolInputStreaming": true,
+      "supportsLongCacheRetention": false,
+      "supportsCacheControlOnTools": false
      },
      "capabilities": {
       "hostedTools": {
@@ -92,7 +100,7 @@
         "web_search"
        ]
       },
-      "structuredOutputs": true,
+      "structuredOutputs": false,
       "nativeSearch": {
        "tools": [
         "web_search"
@@ -100,7 +108,8 @@
       }
      }
     }
-   ]
+   ],
+   "baseUrl": "https://api.deepseek.com/anthropic"
   }
  },
  "agent": {

@@ -15,7 +15,7 @@ import { mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { dirname, join, parse, sep } from "node:path";
 import { fileURLToPath } from "node:url";
-import { DEEPSEEK_FAMILY_DEFAULTS, } from "./models.js";
+import { DEEPSEEK_FAMILY_DEFAULTS, deepseekMessagesCompat, } from "./models.js";
 export const CATALOG_CACHE_VERSION = 1;
 const CACHE_FILE = `deepseek-catalog-v${CATALOG_CACHE_VERSION}.json`;
 /** Default max age before a background refresh is attempted. */
@@ -123,10 +123,10 @@ function normalizeRow(raw) {
         contextWindow: positiveInt(raw.contextWindow, DEEPSEEK_FAMILY_DEFAULTS.contextWindow),
         maxTokens: positiveInt(raw.maxTokens, DEEPSEEK_FAMILY_DEFAULTS.maxTokens),
         thinkingLevelMap: { ...DEEPSEEK_FAMILY_DEFAULTS.thinkingLevelMap },
-        compat: { ...DEEPSEEK_FAMILY_DEFAULTS.compat },
+        compat: deepseekMessagesCompat(id),
         capabilities: {
             hostedTools: { tools: [...DEEPSEEK_FAMILY_DEFAULTS.capabilities.hostedTools.tools] },
-            structuredOutputs: true,
+            structuredOutputs: false,
             nativeSearch: { tools: [...DEEPSEEK_FAMILY_DEFAULTS.capabilities.nativeSearch.tools] },
         },
         ...(source ? { metadataSource: source } : {}),

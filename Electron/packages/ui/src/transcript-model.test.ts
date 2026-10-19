@@ -224,14 +224,15 @@ describe('transcript model', () => {
     expect(finishStreamingMessage(settled)).toBe(settled)
   })
 
-  it('opens a pending thinking block after the last tool so a silent next completion stays visible', () => {
+  it('awaits the next response without synthesizing reasoning after tools', () => {
     let messages: ChatMessage[] = []
     messages = applyStreamEvent(messages, { type: 'thinking', sessionId: 's', contentIndex: 0, segment: 0, delta: 'first look' })
     messages = applyStreamEvent(messages, { type: 'tool_call', sessionId: 's', toolCallId: 'read', name: 'read', delta: '{}' })
     messages = applyStreamEvent(messages, { type: 'tool_result', sessionId: 's', toolCallId: 'read', content: 'ok' })
     const pending = messages[0].activities?.filter(activity => activity.type === 'thinking') ?? []
-    expect(pending).toHaveLength(2)
-    expect(pending[1]).toMatchObject({ id: PENDING_THINKING_ID, content: '' })
+    expect(pending).toHaveLength(1)
+    expect(pending[0]).toMatchObject({ content: 'first look' })
+    expect(assistantEndedAwaitingModel(messages[0])).toBe(true)
     expect(messages[0].streaming).toBe(true)
 
     messages = applyStreamEvent(messages, { type: 'thinking', sessionId: 's', contentIndex: 0, segment: 1, delta: 'next look' })
@@ -301,7 +302,7 @@ describe('transcript model', () => {
     const restored = reopenAssistantForNextCompletion(history, { includeHistoryMergedToolHop: true })
     expect(restored).not.toBe(history)
     expect(restored[0]?.streaming).toBe(true)
-    expect(restored[0]?.activities?.some(activity => activity.type === 'thinking' && activity.id === PENDING_THINKING_ID)).toBe(true)
+    expect(restored[0]?.activities?.some(activity => activity.type === 'thinking' && activity.id === PENDING_THINKING_ID)).toBe(false)
   })
 
   it('keeps same-index thinking from later assistant messages as separate activities', () => {
@@ -514,10 +515,11 @@ describe('transcript model', () => {
     expect(messages[1].tools?.[0]).toMatchObject({ id: 'call-2', name: 'subagent_chain', input: '{"goal":"retry"}' })
   })
 
-  it('strips pending thinking when a live turn ends in error', () => {
+  it('strips legacy pending thinking when a live turn ends in error', () => {
     let messages: ChatMessage[] = []
     messages = applyStreamEvent(messages, { type: 'tool_call', sessionId: 's', toolCallId: 'read-1', name: 'read', delta: '{}' })
     messages = applyStreamEvent(messages, { type: 'tool_result', sessionId: 's', toolCallId: 'read-1', content: 'ok' })
+    messages[0].activities!.push({ type: 'thinking', id: PENDING_THINKING_ID, contentIndex: -1, content: '' })
     expect(messages[0].activities?.some(activity => activity.type === 'thinking' && activity.id === PENDING_THINKING_ID)).toBe(true)
     messages = applyStreamEvent(messages, { type: 'error', sessionId: 's', content: 'WebSocket error' })
     expect(messages[0].streaming).toBe(false)

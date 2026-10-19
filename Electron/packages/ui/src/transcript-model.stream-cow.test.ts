@@ -3,8 +3,7 @@ import { applyStreamEvent, PENDING_THINKING_ID, type ChatMessage } from './trans
 
 const lastMessage = (messages: ChatMessage[]) => messages[messages.length - 1]
 
-/** A mid-turn streaming assistant: thinking → two finished tools, so the last
- *  activity is the pending-thinking placeholder opened by the finished tools. */
+/** A mid-turn streaming assistant with real reasoning and two finished tools. */
 function seedStreamingTurn(): ChatMessage[] {
   let messages: ChatMessage[] = []
   messages = applyStreamEvent(messages, { type: 'thinking', sessionId: 's', contentIndex: 0, segment: 0, delta: '计划' })
@@ -20,7 +19,7 @@ describe('applyStreamEvent copy-on-write streaming state', () => {
     const messages = seedStreamingTurn()
     const before = lastMessage(messages)
     const beforeSnapshot = structuredClone(before)
-    expect(before.activities?.at(-1)).toMatchObject({ type: 'thinking', id: PENDING_THINKING_ID })
+    expect(before.activities?.at(-1)).toMatchObject({ type: 'tool', tool: { id: 'read-b', finished: true } })
 
     const first = applyStreamEvent(messages, { type: 'text', sessionId: 's', contentIndex: 1, segment: 1, delta: '结论' })
     const afterFirst = lastMessage(first)
@@ -32,8 +31,7 @@ describe('applyStreamEvent copy-on-write streaming state', () => {
     expect(afterFirst.tools?.[0]).toBe(before.tools?.[0])
     expect(afterFirst.tools?.[1]).toBe(before.tools?.[1])
     // Activities are copy-on-write: a new array, but untouched entries keep
-    // their object identity; the pending placeholder is dropped and the text
-    // activity lands at the end.
+    // their object identity; the text activity lands at the end.
     expect(afterFirst.activities).not.toBe(before.activities)
     expect(afterFirst.activities?.[0]).toBe(before.activities?.[0])
     expect(afterFirst.activities?.[1]).toBe(before.activities?.[1])
@@ -62,7 +60,7 @@ describe('applyStreamEvent copy-on-write streaming state', () => {
     expect(after.tools).toBe(before.tools)
     expect(after.activities).not.toBe(before.activities)
     // The first thinking block, both tool activities and their tool objects are
-    // untouched — the pending placeholder is replaced in place at its position.
+    // untouched while the next real reasoning block is appended.
     expect(after.activities?.[0]).toBe(before.activities?.[0])
     expect(after.activities?.[1]).toBe(before.activities?.[1])
     expect(after.activities?.[2]).toBe(before.activities?.[2])
@@ -95,7 +93,7 @@ describe('applyStreamEvent copy-on-write streaming state', () => {
     expect(after.tools?.[1]).toBe(before.tools?.[1])
     expect(after.tools?.[2]).toMatchObject({ id: 'read-c', name: 'read', input: '{"path":"c"}' })
     expect(after.tools?.[2]?.finished).toBeFalsy()
-    // New activities array (pending placeholder spliced, tool appended), with
+    // New activities array (tool appended), with
     // untouched entries stable and the activity sharing the new tool object.
     expect(after.activities).not.toBe(before.activities)
     expect(after.activities?.[0]).toBe(before.activities?.[0])
@@ -122,7 +120,7 @@ describe('applyStreamEvent copy-on-write streaming state', () => {
 
   it('returns the previous state untouched for no-op events', () => {
     const seeded = seedStreamingTurn()
-    // One text delta clears the pending placeholder so later no-ops are pure.
+    // Seed an existing text activity so later no-op deltas are pure.
     const messages = applyStreamEvent(seeded, { type: 'text', sessionId: 's', contentIndex: 1, segment: 1, delta: '结论' })
 
     // Unknown event types keep the exact previous array reference.
@@ -134,7 +132,7 @@ describe('applyStreamEvent copy-on-write streaming state', () => {
     // server_side_usage without the server-side usage record adds nothing.
     expect(applyStreamEvent(messages, { type: 'server_side_usage', sessionId: 's', usage: { input: 1, output: 1, cacheRead: 0, cacheWrite: 0, reasoning: 0, totalTokens: 2 } })).toBe(messages)
     // A tool_result for an unknown toolCallId while another tool is still
-    // running completes nothing and reopens no pending thinking.
+    // Running completes nothing and adds no reasoning.
     const withRunningTool = applyStreamEvent(messages, { type: 'tool_call', sessionId: 's', toolCallId: 'read-c', name: 'read', delta: '{}' })
     expect(applyStreamEvent(withRunningTool, { type: 'tool_result', sessionId: 's', toolCallId: 'missing', content: 'x' })).toBe(withRunningTool)
   })
@@ -215,10 +213,9 @@ describe('applyStreamEvent copy-on-write streaming state', () => {
     expect(message.citations).toEqual([{ url: 'https://x.example', title: 'X' }])
     expect(message.fileSources).toEqual([{ name: 'r.pdf' }])
     expect(message.serverSideToolUsage).toEqual({ SERVER_SIDE_TOOL_WEB_SEARCH: 1 })
-    // Insertion order preserved; finished tools reopen the pending placeholder,
-    // and the metadata-only events after them leave activities untouched.
-    expect((message.activities ?? []).map(activity => activity.type)).toEqual(['thinking', 'text', 'tool', 'tool', 'thinking'])
-    expect(message.activities?.at(-1)).toMatchObject({ type: 'thinking', id: PENDING_THINKING_ID })
+    // Finished tools do not manufacture a new reasoning block.
+    expect((message.activities ?? []).map(activity => activity.type)).toEqual(['thinking', 'text', 'tool', 'tool'])
+    expect(message.activities?.at(-1)).toMatchObject({ type: 'tool', tool: { finished: true } })
   })
 
   it('never mutates the previous message or its containers across a mixed burst', () => {

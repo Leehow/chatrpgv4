@@ -5,7 +5,7 @@
  * DeepSeek's own `GET /models`. What lives here is the knowledge the network
  * cannot supply:
  *
- * - transport invariants (`api`, `compat`) that belong to our Responses adapter
+ * - transport invariants (`api`, `compat`) that belong to our Messages adapter
  *   and must never be driven by a third-party metadata feed;
  * - curated per-id metadata verified against DeepSeek's published pricing page,
  *   which outranks models.dev for ids it covers;
@@ -17,8 +17,8 @@
 export const AUTH_PROVIDER_ID = "deepseek-extended";
 export const DEEPSEEK_PROVIDER_ID = AUTH_PROVIDER_ID;
 export const DEEPSEEK_PROVIDER_NAME = "DeepSeek Extended";
-export const DEEPSEEK_CHAT_API = "openai-responses";
-export const DEEPSEEK_RESPONSES_API = DEEPSEEK_CHAT_API;
+export const DEEPSEEK_CHAT_API = "anthropic-messages";
+export const DEEPSEEK_RESPONSES_API = "openai-responses";
 export const DEEPSEEK_BASE_URL = "https://api.deepseek.com";
 /** Current flagship. Vision-capable, so it is also the multimodal id. */
 export const DEEPSEEK_FLASH_MODEL_ID = "deepseek-flash";
@@ -48,30 +48,39 @@ const V4_THINKING = {
     max: "max",
 };
 /**
- * Transport invariants of our Responses adapter, not upstream metadata. A
+ * Transport invariants of our Messages adapter, not upstream metadata. A
  * discovered model inherits these unchanged: letting a metadata feed move them
  * would break streaming rather than merely misprice a row.
  */
 const V4_COMPAT = {
-    supportsStore: false,
-    supportsDeveloperRole: false,
-    requiresReasoningContentOnAssistantMessages: true,
-    thinkingFormat: "deepseek",
+    allowEmptySignature: true,
+    forceAdaptiveThinking: true,
+    supportsMidConvoSystemMessages: false,
+    supportsMidConvoToolChanges: false,
+    supportsMidConvoEffort: false,
+    supportsEagerToolInputStreaming: true,
+    supportsLongCacheRetention: false,
+    supportsCacheControlOnTools: false,
 };
+/** Only Flash has verified native system-snapshot support, matching dsh's catalog. */
+export function deepseekMessagesCompat(id) {
+    const flash = [DEEPSEEK_FLASH_MODEL_ID, ...DEEPSEEK_RETIRED_MODEL_IDS].includes(id);
+    return {...V4_COMPAT, supportsMidConvoSystemMessages: flash, supportsMidConvoToolChanges: flash};
+}
 /** Search/Fetch use the official retrieval APIs; Flash Responses ignores hosted web_search. */
 export const DEEPSEEK_HOSTED_TOOLS = {
     tools: ["web_search"],
 };
 export const DEEPSEEK_CAPABILITIES = {
     hostedTools: { tools: [...DEEPSEEK_HOSTED_TOOLS.tools] },
-    structuredOutputs: true,
+    structuredOutputs: false,
     nativeSearch: { tools: [...DEEPSEEK_HOSTED_TOOLS.tools] },
 };
 /**
  * Shape every discovered model inherits before metadata is applied: 1M context,
  * 384K output and the V4 thinking map are family-wide on this endpoint, and
  * native search is available through the official Search/Fetch APIs.
- * Ordinary Responses requests never receive a hosted-search declaration.
+ * Ordinary Messages requests never receive a hosted-search declaration.
  */
 export const DEEPSEEK_FAMILY_DEFAULTS = {
     api: DEEPSEEK_CHAT_API,
@@ -98,10 +107,10 @@ function model(id, name, overrides) {
         contextWindow: DEEPSEEK_FAMILY_DEFAULTS.contextWindow,
         maxTokens: DEEPSEEK_FAMILY_DEFAULTS.maxTokens,
         thinkingLevelMap: { ...DEEPSEEK_FAMILY_DEFAULTS.thinkingLevelMap },
-        compat: { ...DEEPSEEK_FAMILY_DEFAULTS.compat },
+        compat: deepseekMessagesCompat(id),
         capabilities: {
             hostedTools: { tools: [...DEEPSEEK_FAMILY_DEFAULTS.capabilities.hostedTools.tools] },
-            structuredOutputs: true,
+            structuredOutputs: false,
             nativeSearch: { tools: [...DEEPSEEK_FAMILY_DEFAULTS.capabilities.nativeSearch.tools] },
         },
         ...overrides,
@@ -152,7 +161,7 @@ export function cloneModel(source) {
             ? {
                 capabilities: {
                     hostedTools: { tools: [...source.capabilities.hostedTools.tools] },
-                    structuredOutputs: true,
+                    structuredOutputs: false,
                     nativeSearch: { tools: [...source.capabilities.nativeSearch.tools] },
                 },
             }
@@ -196,7 +205,7 @@ export function deepseekManifestModels() {
             hostedTools: {
                 tools: [...(item.capabilities?.hostedTools.tools ?? DEEPSEEK_HOSTED_TOOLS.tools)],
             },
-            structuredOutputs: true,
+            structuredOutputs: false,
             nativeSearch: {
                 tools: [...(item.capabilities?.nativeSearch.tools ?? DEEPSEEK_HOSTED_TOOLS.tools)],
             },

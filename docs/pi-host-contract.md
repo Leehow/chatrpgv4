@@ -539,6 +539,15 @@ foreground scope can retrieve or replay them. No Keeper tool is registered. Othe
 providers retain their hosted declarations and original protocol replay. See the
 2026-10-17 amendment in kernel contract §124.12 for bounds and failure behavior.
 
+**2026-10-19 Messages amendment:** DeepSeek Extended now uses the existing Pi
+Anthropic Messages streamer for ordinary and search-enabled requests. Its adapter
+preserves native thinking/signatures, projects Flash system changes as full
+in-history snapshots and sends explicit DeepSeek thinking/effort controls. It
+removes the reasoning-length directive. Official Search/Fetch and foreground
+authorization/replay remain unchanged. This supersedes the Responses transport
+in the preceding amendment; ordinary DeepSeek and Go are unchanged. See kernel
+contract section 124.12's Messages amendment.
+
 **2026-10-18 Go amendment:** An explicit stream-only override for Go DeepSeek
 models reuses the private retrieval/replay owner with the OpenCode client's
 unauthenticated Exa MCP search backend. Go keeps Chat Completions, its catalog,

@@ -13,10 +13,8 @@ import { dirname, join } from "node:path";
 import { test } from "node:test";
 import { fileURLToPath } from "node:url";
 import {
-	applyThinkingCap,
 	buildResponsesBody,
 	responsesUrl,
-	THINKING_CAP_DIRECTIVE,
 } from "../../extensions/deepseek/agent/client.js";
 import { resolveDeepSeekApiKey } from "../../extensions/deepseek/agent/conversation.js";
 import agent from "../../extensions/deepseek/agent/index.js";
@@ -97,18 +95,18 @@ function functionNameOf(tool) {
 	return typeof tool.function?.name === "string" ? tool.function.name : null;
 }
 
-test("扩展注册 deepseek-extended 并挂上 before_provider_request", () => {
+test("registers the shared Messages stream without a global payload hook", () => {
 	const { providers, hook } = mount();
 	assert.deepEqual([...providers.keys()], ["deepseek-extended"]);
 	assert.equal(DEEPSEEK_PROVIDER_ID, "deepseek-extended");
 	const registered = providers.get(DEEPSEEK_PROVIDER_ID);
 	assert.equal(registered.name, "DeepSeek Extended");
-	assert.equal(registered.api, "openai-responses");
+	assert.equal(registered.api, "anthropic-messages");
 	assert.deepEqual(
 		registered.models.map((model) => model.id),
 		["deepseek-flash", "deepseek-v4-pro"],
 	);
-	assert.ok(hook, "before_provider_request 钩子必须挂上");
+	assert.equal(hook, undefined, "The shared provider stream owns request policy");
 });
 
 test("每个模型都声明 hosted web_search，且只声明它", () => {
@@ -116,14 +114,14 @@ test("每个模型都声明 hosted web_search，且只声明它", () => {
 	for (const model of providers.get(DEEPSEEK_PROVIDER_ID).models) {
 		assert.deepEqual(model.capabilities?.hostedTools?.tools, ["web_search"]);
 		assert.deepEqual(model.capabilities?.nativeSearch?.tools, ["web_search"]);
-		assert.equal(model.capabilities?.structuredOutputs, true);
+		assert.equal(model.capabilities?.structuredOutputs, false);
 	}
 });
 
 test("清单与代码里的模型目录是同一份", () => {
 	const provider = MANIFEST.auth.provider;
 	assert.equal(provider.id, "deepseek-extended");
-	assert.equal(provider.api, "openai-responses");
+	assert.equal(provider.api, "anthropic-messages");
 	assert.deepEqual(
 		provider.models.map((model) => model.id),
 		DEEPSEEK_CONVERSATION_MODELS.map((model) => model.id),
@@ -156,87 +154,6 @@ test("hosted web_search 支持只按声明的模型能力判定", () => {
 	for (const id of ["deepseek-v4.1-flash-expires-on-0910", "deepseek-v4.1-flash", "deepseek-flash-preview", "deepseek-chat", "deepseek-reasoner", "totally-unknown", undefined, 42]) {
 		assert.equal(modelSupportsHostedWebSearch(id), false, String(id));
 	}
-});
-
-test("before_provider_request 只改写 deepseek-extended 的请求", async () => {
-	const { hook } = mount();
-	assert.ok(hook);
-
-	for (const provider of ["openai", "deepseek"]) {
-		const other = await hook.handler(
-			{ type: "before_provider_request", payload: { messages: [{ role: "user", content: "x" }] } },
-			{ model: { provider } },
-		);
-		assert.equal(other, undefined, `${provider} 不该被碰`);
-	}
-
-	const payload = {
-		model: "deepseek-v4-flash",
-		input: [{ role: "user", content: "hi" }],
-		tools: [
-			{ type: "function", function: { name: "bash", parameters: { type: "object" } } },
-			clientWebSearchTool(),
-			nestedFunctionTool("read"),
-			{ type: "custom", name: "web_search" },
-		],
-	};
-	const rewritten = await hook.handler(
-		{ type: "before_provider_request", payload },
-		{ model: { provider: "deepseek-extended", id: "deepseek-v4-flash" } },
-	);
-	const names = rewritten.tools.map(functionNameOf).filter((name) => name !== null);
-	assert.deepEqual(names, ["bash", "web_search", "read"]);
-	assert.equal(rewritten.tools.filter((tool) => tool.type === "web_search").length, 0);
-	assert.ok(rewritten.tools.some((tool) => tool.type === "custom" && tool.name === "web_search"));
-
-	// 目录外的模型：web_search 不注入、也不删；思考帽是 provider 级策略，照样戴上。
-	const unknown = await hook.handler(
-		{ type: "before_provider_request", payload },
-		{ model: { provider: "deepseek-extended", id: "unknown-future-model" } },
-	);
-	assert.deepEqual(unknown.tools, payload.tools);
-	assert.ok(!unknown.tools.some((tool) => tool.type === "web_search"));
-	assert.equal(unknown.input[0].role, "developer");
-	assert.ok(JSON.stringify(unknown.input[0]).includes("internal reasoning must stay under"));
-});
-
-test("思考帽：默认与 low 注入 150 词硬顶，none/high/max 原样放行", () => {
-	// 默认（无 reasoning 字段）：戴上。
-	const plain = applyThinkingCap({ model: "deepseek-v4-flash", input: [{ role: "user", content: "hi" }] });
-	assert.equal(plain.input[0].role, "developer");
-	assert.equal(plain.input[0].content[0].text, THINKING_CAP_DIRECTIVE);
-	assert.deepEqual(plain.input[1], { role: "user", content: "hi" });
-	// 字符串 input：转成 developer + user 两条。
-	const fromString = applyThinkingCap({ input: "hi" });
-	assert.equal(fromString.input[0].role, "developer");
-	assert.deepEqual(fromString.input[1], { role: "user", content: [{ type: "input_text", text: "hi" }] });
-	// low：戴上（实测 low 本身不限长，帽子才是）。
-	const low = applyThinkingCap({ input: [], reasoning: { effort: "low" } });
-	assert.equal(low.input[0].role, "developer");
-	// none/high/max：显式选择，原样放行。
-	for (const effort of ["none", "high", "max"]) {
-		const body = { input: [{ role: "user", content: "hi" }], reasoning: { effort } };
-		assert.equal(applyThinkingCap(body), body, effort);
-	}
-	// 幂等：已戴帽的 payload 不再加第二顶。
-	const twice = applyThinkingCap(plain);
-	assert.equal(twice, plain);
-});
-
-test("思考帽随钩子落到 deepseek-extended 请求，none 时不落", async () => {
-	const { hook } = mount();
-	const model = { provider: "deepseek-extended", id: "deepseek-v4-flash" };
-	const capped = await hook.handler(
-		{ type: "before_provider_request", payload: { model: "deepseek-v4-flash", input: [{ role: "user", content: "hi" }], reasoning: { effort: "low" } } },
-		{ model },
-	);
-	assert.equal(capped.input[0].role, "developer");
-	assert.equal(capped.input[0].content[0].text, THINKING_CAP_DIRECTIVE);
-	const uncapped = await hook.handler(
-		{ type: "before_provider_request", payload: { model: "deepseek-v4-flash", input: [{ role: "user", content: "hi" }], reasoning: { effort: "none" } } },
-		{ model },
-	);
-	assert.equal(uncapped.input[0].role, "user");
 });
 
 test("凭据链：设置兜底优先，缺 key 时是英文的可行动错误", () => {
@@ -276,12 +193,4 @@ test("移植过来的源码保持全英文", () => {
 		}
 	}
 	assert.deepEqual(offenders, [], `移植的源码里出现中文（多半是从上游整体覆盖导致的）：\n${offenders.join("\n")}`);
-});
-
-test('native Messages search preserves the DeepSeek thinking governor and explicit high/off choices',()=>{
- const low={messages:[{role:'user',content:'Read the room'}],system:'Original Keeper prompt',output_config:{effort:'low'},thinking:{type:'enabled'}};
- const capped=applyThinkingCap(low);assert(capped.system.startsWith(THINKING_CAP_DIRECTIVE));assert(capped.system.endsWith('Original Keeper prompt'));
- assert.deepEqual(applyThinkingCap({...low,output_config:{effort:'high'}}),{...low,output_config:{effort:'high'}});
- assert.deepEqual(applyThinkingCap({...low,thinking:{type:'disabled'}}),{...low,thinking:{type:'disabled'}});
- assert.deepEqual(applyThinkingCap(capped),capped);
 });

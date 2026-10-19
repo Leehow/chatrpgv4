@@ -643,14 +643,14 @@ describe('settled turn stays idle after a late streaming status', () => {
     act(() => { listener?.({ type: 'tool_result', sessionId: 'layout', toolCallId: 'note-1', content: 'ok', isError: false }) })
 
     const wait = await screen.findByTestId('waiting-placeholder')
-    expect(wait.textContent).toContain('模型正在思考')
+    expect(wait.textContent).toContain('等待模型响应')
     expect(screen.getByRole('button', { name: /个步骤/ }).textContent).toContain('运行中')
     expect(screen.getAllByLabelText('停止生成').length).toBeGreaterThan(0)
 
     // Production: empty-stop reconciliation from the previous turn emits this
     // after the follow-up already started its silent openai-codex conclusion.
     act(() => { listener?.({ type: 'status', sessionId: 'layout', status: 'settled', turnEpoch: 1 }) })
-    expect(screen.getByTestId('waiting-placeholder').textContent).toContain('模型正在思考')
+    expect(screen.getByTestId('waiting-placeholder').textContent).toContain('等待模型响应')
     expect(screen.getByRole('button', { name: /个步骤/ }).textContent).toContain('运行中')
     expect(screen.getByRole('button', { name: /个步骤/ }).textContent).not.toContain('已完成')
     expect(screen.getAllByLabelText('停止生成').length).toBeGreaterThan(0)

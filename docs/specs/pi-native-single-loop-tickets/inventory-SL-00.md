@@ -1,5 +1,16 @@
 # SL-00 control-flow inventory
 
+### DeepSeek Extended Messages (2026-10-19)
+
+`extensions/deepseek/agent/messages.js#deepseekMessagesStream#provider-direct#streamSimple`
+replaces the former `createDeepSeekProvider#getApiProvider.streamSimple` entry.
+It delegates one inference to Pi's existing Messages streamer, with native
+thinking/signature replay and Flash system/tool additions projected from the
+transcript. The same leaf serves ordinary, host and child callers; private
+retrieval remains foreground-gated by its existing owner. No new loop, reasoning
+length limit or automatic protocol fallback is introduced. Contract section
+124.12's Messages amendment and the DeepSeek Messages/search tests cover it.
+
 ### OpenCode Go keyless search (2026-10-18)
 
 `extensions/native-search/index.ts#<module>#provider-direct#getApiProvider.streamSimple`

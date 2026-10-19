@@ -69,7 +69,7 @@ test('the actual profile installer installs Jev and a relocatable DeepSeek auth 
   const providerDirectory = join(temporary, '.pi/coc-agent/extensions/deepseek');
   const provider = await loadContributedAuthProvider(providerDirectory, {cacheDir: null});
   assert.equal(provider.id, 'deepseek-extended');
-  assert.equal(provider.config.api, 'openai-responses');
+  assert.equal(provider.config.api, 'anthropic-messages');
   assert.equal(typeof provider.config.streamSimple, 'function');
   assert.ok(provider.config.models.some(model => model.id === 'deepseek-flash'));
   const host = await import(pathToFileURL(join(providerDirectory, 'agent/host.js')).href);
