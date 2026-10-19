@@ -1,37 +1,96 @@
 # Keeper contracts and Blood Road browser acceptance
 
-## Current apply recovery work (2026-10-19)
+## Current apply recovery batch (2026-10-19)
 
-Mainline and owned validation checkout baseline are ae0fbab77. The owner explicitly
-authorized the apply parameter protocol, cross-turn recovery and refusal cache
-repair, with direct plain SSE preserved and no added judgment model or prompt fix.
-Shared search and failure-notice files/hunks belong to other owners and remain
-excluded. Own shared-index edits are recorded as exact replacement pairs in
-browser-seams/apply-recovery-index-edits.json for selective index construction.
+Current production code is e7bfe0852 on0.9.8a and the owned validation branch.
+The owner authorized apply parameter protocol, cross-turn recovery and refusal
+cache repairs, preserving one plain-text SSE author and adding no judgment model
+or prompt patch. Other-owner search and turn-failure notice changes are excluded.
 
-The real retained intent70 failed3apply attempts,1Jev request and1cache reuse,
-53.608s with4KP requests and0author calls. Intent69's published Cafe arrival had
-no move receipt. The active single-Keeper path omitted told recovery authority.
-The new source-scoped recovery carries immutable originating declaration/commit
-through host-only context, keeps one existing consent batch, and consumes actual
-kernel owed-settlement receipts to retire the otherwise identical prior hold.
-Complete issued owed effects need0consent inferences. Parameter variants share
-required routes; event-only empty effects are host-owned. No author code changed.
+cf12b9fae binds owed recovery to the immutable originating declaration, delivered
+quote and commit. Existing consent questions share one batch with per-line scope;
+complete issued owed effects need no new consent. Actual canonical owed-settlement
+receipts alone retire an otherwise identical held operation. Event-only empty
+arrays and explicit establishment/route variants align provider and local apply.
+e6338eab3 registers the already-existing plain-author callsite in the flow ledger.
+d2a083c49 aligns prepared movement slots with the native interface and puts scene
+assessment conditions in the outgoing schema. It does not invent a default crowd.
+0cf53ad7e groups all parameter variants under one capability identity, preserving
+every original schema branch; it restores existing optional involuntary-cause why.
+1e934322c declares the already-enforced200-character cause limit, unique-kind test
+expectations and a feasible context-ceiling fixture derived from its actual floor.
+No product request budget was raised or validator weakened.
 
-The exact state regression fails on baseline ae0fbab77 and passes on current
-source. Current ordinary-negative-guard/native/protocol regression27/27 passes;
-other admission/signature components22/22 and known owed native1/1 pass. Kernel
-types pass. Latest author/language checks and live MiniMax acceptance are pending.
-No LAN box is reachable; these are bounded local component runs. Failed interim
-schema-walker and shape-validator experiments remain in the raw logs and have
-been corrected, not hidden. No full strict workspace typecheck is claimed.
+e7bfe0852 corrects another producer/reader seam: reunion is optional in§123.4 and
+is never a publication prerequisite, yet its view said needed and next:apply.
+It now says available,required:false,record capability. The note text is unchanged;
+no default reunion, offstage simulation, writer task or decision call is added.
+The earlier interpretation of74's reunion write as mandatory was wrong. Direct
+RPC proves return greetings publish without establishing an unchosen interval;
+explicit continuity still obeys stable scope, immutable history and atomic apply.
 
-Plain-author live intents68/69 on ae0fbab77 showed20/18 raw text deltas over
-1777/1055ms and visible DOM growth before completion, with1author request each.
-This establishes streaming, not complete gameplay correctness. Generic background
-prose correction remains separate and unimplemented; do not enable global rewrite.
-Owned browser space5/pagep1 and server29 are idle and retained for the same campaign.
-Lifecycle closeout remains required when the actual task ends. Goal not complete.
+Live MiniMax3.1FlashPreview/medium remains pinned in primary and author requests,
+verified from actual runtime logs for inputs73-80. No quota fallback occurred.
+Original69 published a Cafe arrival without movement;70 failed to recover it.
+71 closes t75-owed-1 with one real move receipt,2KP,1author,2tools,38.868s.
+The complete linked69-71 recovery costs124.821s,8KP,2author,8tools including the
+original failures; developer idle is excluded. Fresh72 costs30.756s,3KP,1author,
+3tools with2preflight retries, motivating the interface repair.
+
+On d2,73/74/75/76 complete in10.887/44.179/21.433/18.835s, KP1/2/1/1, author1each,
+tools1/2/1/1, zero tool failures/retrieval. 74's extra apply records optional NPC
+reunion and an event. On1e,77 costs15.577s,1KP/1author/1tool. 78 costs59.977s,
+3KP/1author/3tools: an invented activity effect is atomically refused, corrected
+NPC reunion plus scene then succeeds, and output renders once. Do not hide it.
+On e7,79/80 cost25.422/19.449s, KP2/1, author1each,tools2/1. Neither writes NPC
+bookkeeping or calls raw apply. 79 still needs one correction for an omitted scene
+command;80 completes once. Do not claim zero retries or a matched speedup.
+
+All captured73-80 deliveries visibly grow before provider completion. They have
+one plain author request and no foreground retrieval each. Latest79 has exactly
+one move;80 has no movement, charge or item transfer. Final scene is photo shop,
+clerk stays there and Vera stays Cafe. Cash178.5USD, unopened spare film and receipt
+remain with investigator, exposed film remains with clerk, owed.open[]. Receipt
+IDs for turns77-86 are19unique. Final JSON assertions and per-step/tool timings are
+under .coc/experiments/npc-action-contract-20261018/browser-seams/.
+
+Verification: original recovery test fails on ae0fbab77 and passes aftercf12.
+Native negative/recovery/protocol27/27, issued owed1/1, author/language98/98, packet
+component43/43, interface22/22 pass. Latest fast130/130 and kernel types pass.
+amax full run.X6yBgHcM atd2 exits1; duplicate capability/cause compatibility and
+old owed expectation failures were fixed, not hidden. Two failed files stopped
+progressing for over10minutes; only verified owned worker descendants were
+terminated with PID/cwd evidence retained, permitting remaining serial phases.
+Second full run.yqrpQ2U4 at0cf retains extension6139tests,6118pass,11fail,1cancel,
+9skip; integration2227tests,2226pass,0fail,1skip; routing12/12. Its four failed
+extension files and related guards pass64/64 serially on1e (run.1M1NlRLx).
+Optional reunion plus RPC/reference/language checks pass25/25 on e7(run.6sT2MzkB).
+This is composite evidence, not one green full run. No full strict workspace type
+or installed-App acceptance is claimed. All failed logs and scratch remain.
+
+Background audit: memory jobs39/46/52/58 each retain one deferred source because
+belief subject(39/46/52) or knowledge subject(58) is uncertain_attribution. Latest
+actual Jev requests0 for all4; annotations/kinds hit the existing caches. Pending
+is valid unresolved evidence, not an in-flight judgment. Cached planning still
+repeats in background and is not claimed optimized by this apply slice. Native
+source queues separately report15completed,7failed,1running at the last audit.
+They are not all finished. Do not force acceptance or rewrite status to clear a UI.
+
+Owned test server33 serves e7 at5174; formal5173/App untouched. Browser Ego7/p1 is
+retained, idle after input80; prior owned spaces5/6 no longer existed, and user
+spaces1/2 were preserved. Owned server restarts retain all source work/evidence;
+never describe interrupted or queued work as successful. The validation checkout
+is still required by the running test service. No branch/worktree removal or
+push occurred. Lifecycle closeout remains required at actual task closure; its
+prior system occupancy probe failed on unrelated WebDAV and must not be bypassed.
+
+Remaining limits: MiniMax non-strict tool output can omit a scene command despite
+the declared conditional schema; current deterministic preflight refuses before
+execution and one real retry is observed. Do not invent population or add a judge
+to hide this. Optional-reunion status is now truthful, but these two live samples
+are not a guarantee of future model choices. Generic background prose correction,
+background scheduling cleanup and the broader complete-chapter goal remain
+separate/uncompleted. The existing goal is still blocked, not complete.
 
 ## Historical partial handoff (2026-10-19)
 
