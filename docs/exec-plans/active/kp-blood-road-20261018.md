@@ -1,5 +1,54 @@
 # Keeper contracts and Blood Road browser acceptance
 
+## Final recorded status (2026-10-19)
+
+Implementation is integrated locally into 0.9.8a through 6642c36b9. Production
+code is 8dec46d23; the later commit only revalidates the native test ledger.
+The browser played a complete investigation segment through intent54 on
+ff932831b with MiniMax M3.1 Flash Preview / medium in every text lane. This is
+not a verified printed PDF chapter boundary or complete-correctness acceptance.
+The only subsequent production delta preserves containing-place error ordering;
+it passed the native regression and full integration execution.
+
+Full LAN execution run.6CTJRVAZ at8dec46d23: extensions6099pass/1fail/9skip;
+native integration2226pass/0fail/1skip; routing12pass. The raw overall exit is1
+and remains retained. Its sole failing extension check was the native source
+hash ledger. After actual case revalidation and ledger-only6642c36b9, that guard
+passes3/3 on the same LAN host (run.vtLJ1GkL, exit0). Production Git trees are
+identical across those revisions. This is composite verified evidence, not a
+single all-green full run. Ten skips remain explicit. No full strict-tsc pass
+is claimed over existing diagnostics.
+
+The54natural player inputs produced60attempts and34explicit parent groups.
+Whole-intent median51.590s/P95187.464s includes retries and clarifications;
+active foreground38.85minutes. The final window46-54 has8successful deliveries,
+each with one author call; intent50 is held and has no author call. All135
+canonical receipt IDs are unique. Publication success is not correctness.
+Known name/scene continuity and film-definition errors remain recorded; no
+runtime loss of already-available film definition was proved. No extra judgment
+model, private-consent expansion, photography subsystem or semantic regex was
+introduced to conceal those errors. Background19jobs are terminal:13completed,
+6failed (3provider transport errors,3substantive source-review refusals), with
+zeroqueued/running/awaiting-review. Original failed material is retained.
+
+Owned browser task and server are stopped; formal App and other-owner search
+changes are preserved. Lifecycle terminal state is persisted for exact tuple
+/Users/haoli/.codex/worktrees/kp-blood-road-20261018 and
+codex/kp-blood-road-validation-20261018. Closeout returned blocked_probe because
+lsof cannot stat unrelated WebDAV /Volumes/10.3.2.75 and reports incomplete
+information. Final audit remains audit_pending1: exact identity, clean, merged,
+terminal. Classification: retained:safety_probe_unavailable. The directory and
+branch remain; no quarantine, forced removal, mount change or probe bypass was
+performed. Next action is ordinary canonical closeout once the system occupancy
+probe is reliable; do not change unrelated mounts merely for cleanup. There is
+no CLI retained-state operation, so the raw terminal audit is not rewritten.
+This is a partial handoff, not a claim of full lifecycle closure or complete
+correctness. The goal remains blocked, not complete.
+
+Historical progress below is append-only context and may describe superseded
+intermediate states. Final raw logs, provenance, lifecycle classification and
+player-intent metrics are under the browser-seams diagnostics directory.
+
 ## Authorized objective
 
 Finish the remaining decision/execution and publication seams, integrate into
