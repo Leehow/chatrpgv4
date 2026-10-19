@@ -48284,31 +48284,3 @@ validated artifact without replaying it. Do not add a judge, inference request,
 post-author prose repair, provider-specific eager-streaming flag or simulated
 typing. Record transport kind, chunk count and first/last arrival times without
 logging text; validate upstream, host and browser timing in MiniMax live play.
-
-### Kernel decision: unfinished turns expose their actual failure (owner 2026-10-18)
-
-The stranded-turn lifecycle in §38 remains structural and never bypasses admission,
-review or transactional authority. Its terminal notice must identify the concrete
-failure instead of saying only that delivery is absent or inviting arbitrary input.
-Tool execution, native output preflight/publication and assistant completion write
-a bounded, turn-scoped diagnostic. The notice reads operation, error code, narrower
-reason and message, the host termination cause, and confirmed receipt count (null
-when the status read failed). Admission uncertainty additionally carries its actual
-selection/scope probabilities. It never copies command arguments, drafts, private
-reasoning, reviewer prompts or source material into that diagnostic. An empty final
-completion records its stop reason and block types, without copying block contents.
-
-The existing coc-delivery channel carries the diagnostic as system JSON and stores
-the same object in details.failure. This follows §23's structured system projection;
-it adds no language table or prose-generation request. Existing provider, review and
-commit notices retain priority. A recovered turn emits no terminal failure notice;
-a new turn never inherits the previous turn's errors. The original failed operation
-and later publication failure remain distinguishable. Receipt truth stays with the
-kernel; published mechanics remain visible and no rejected effect is replayed.
-
-Producer: real tool/output errors and assistant completion. Reader: the existing
-terminal-notice selector, live/history delivery projection and failure telemetry.
-Actor: the player/operator sees the failed operation and reason; this diagnostic
-itself authorizes no retry, world change or public story. Component checks must cover
-the retained missing-scene -> uncertain-admission -> held-input pattern, thinking-only
-completion, recovery and next-turn isolation. They are not live-play acceptance.
