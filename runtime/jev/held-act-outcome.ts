@@ -79,6 +79,13 @@ export class HeldActOutcome {
     if (removed) { this.basis = held.length ? {...basis, held} : undefined; this.revision++; this.checked.clear(); }
     return removed;
   }
+  /** Known atomic refusals are results, never completed effects or authority to retry them. */
+  uncommittedFailures():Array<{tool:string;status:'uncommitted';reason:string}>|undefined {
+    if(!this.basis)return [];
+    const causes=['invalid_params','action_not_authorized','action_admission_uncertain','admission_unavailable'];
+    if(this.basis.complete!==true||this.basis.held.some(row=>!causes.includes(row.cause)))return;
+    return this.basis.held.map(row=>({tool:row.tool,status:'uncommitted',reason:row.cause}));
+  }
   issuedCorrection(): void { this.correctionIssued = true; }
   async check(input: {draft: string; receipts: string[]; decision: DecisionPort; signal: AbortSignal; deadlineAt?: number;
     correctionAvailable: boolean; current: () => boolean; strict?: boolean}): Promise<HeldActVerdict> {

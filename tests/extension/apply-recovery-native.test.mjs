@@ -73,3 +73,25 @@ test('a current-action rejection cannot poison the same move with bound prior-tu
  assert.equal(record.receipts.filter(x=>x.kind==='move').length,1);
  assert.equal(table.entries('coc-final-delivery').filter(x=>x.event==='end'&&x.status==='completed').length,1,JSON.stringify({tools:table.session.messages.filter(x=>x.role==='toolResult').map(x=>({tool:x.toolName,error:x.details?.coc_error,receipts:x.details?.receipts,body:x.isError?x.content:undefined})),calls:table.session.messages.filter(x=>x.role==='assistant').flatMap(x=>x.content??[]).filter(x=>x.type==='toolCall'),held:table.telemetry().filter(x=>x.lane==='held-operation'||x.lane==='held_act_outcome')}));
 });
+
+test('a refused atomic cash and move batch does not suppress a later committed move in a native decision',async t=>{
+ const batches=[];const engine=createHybridEngine({env,decision:{decide:async batch=>{batches.push(batch);return answer(batch,batch.family==='continuous-action-admission'&&batch.state.proposal.kinds.includes('cash')?.01:.99);}}});
+ const destination={kind:'move',to:'central-library',travel_band:'local_travel'};
+ const table=await openTable({legacyDeliveryFixtures:false,realKernel:true,prepareWorkspace:async workspace=>{
+  process.env.PI_COC_KERNEL_CMD=JSON.stringify([...rpcCommand(),'--workspace',workspace,'--content',CONTENT_DIR]);const c=new RpcClient(workspace);try{await c.ok('table.open',{campaign:'test-camp'});await c.ok('table.narrate',{campaign:'test-camp',call_id:'t0-c1',text:'Knott waits at the office.'});}finally{await c.close();}
+ },env,runDriver:engine.runDriver,extraExtensions:[{name:'engine',factory:engine.extension}],responses:[
+  ()=>fauxAssistantMessage([fauxToolCall('apply',{effects:[{kind:'cash',delta:20,source:'found',why:'An unchosen advance payment.'},destination]})],{stopReason:'toolUse'}),
+  ()=>fauxAssistantMessage([fauxToolCall('apply',{effects:[destination]})],{stopReason:'toolUse'}),
+  ()=>fauxAssistantMessage([fauxToolCall('output',{version:4,commands:[{kind:'scene',service:'open',crowd:'quiet'},{kind:'walk_on',slot:'new_1',label:'The reference clerk',reason:'A staffed reference desk during service hours.'}]})],{stopReason:'toolUse'})]});
+ t.after(()=>table.dispose());await table.session.prompt('I leave the office and go to Central Library, stopping by the reference desk.');
+ const calls=table.session.messages.filter(row=>row.role==='toolResult'&&row.toolName==='apply');assert.equal(calls[0].isError,true);assert.notEqual(calls[1].isError,true,JSON.stringify(calls[1]));
+ const published=table.session.messages.findLast(row=>row.role==='toolResult'&&row.toolName==='output');assert.notEqual(published?.isError,true,JSON.stringify({published,errors:table.extensionErrors,telemetry:table.telemetry().slice(-12)}));
+ const record=JSON.parse(readFileSync(join(table.workspace,'.coc/campaigns/test-camp/turns/0001.json'),'utf8'));
+ assert.equal(record.receipts.filter(row=>row.kind==='move').length,1);assert.equal(record.receipts.filter(row=>row.kind==='cash').length,0);
+ assert.equal(table.entries('coc-final-delivery').filter(row=>row.event==='end'&&row.status==='completed').length,1);
+ const author=table.telemetry().find(row=>row.lane==='isolated-expression'&&row.event==='written');assert.ok(author);
+ const task=JSON.parse(readFileSync(join(author.attempt,'task.json'),'utf8'));
+ assert.deepEqual(task.decision_context.failed_attempts,[{tool:'apply',status:'uncommitted',reason:'action_not_authorized'}]);
+ assert.ok(task.result.outcomes.some(row=>row.kind==='move'&&row.status==='changed'));assert.ok(!task.result.outcomes.some(row=>row.kind==='cash'));
+ assert.ok(!batches.some(row=>row.family==='held-act-outcome'),'native state projection needs no prose judgment');assert.deepEqual(table.extensionErrors,[]);
+});

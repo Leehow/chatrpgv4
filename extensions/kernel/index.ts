@@ -5705,8 +5705,8 @@ export default function (pi: ExtensionAPI, host: {capabilities?:RuntimeCapabilit
 		reply:NonNullable<typeof keeperReply>,ctx?:ExtensionContext){
 		let operationResult:ReturnType<typeof turnPacketResult>={player_actions_complete:true,npc_actions_complete:true,outcomes:[]};
 		let decision:import('../../runtime/isolated-expression.ts').DecisionAuthorContext|undefined;
-        const held=heldActs.get(state)?.basis;
-		if(held&&(!turnPacketPrototype||held.held.some(row=>row.cause!=='invalid_params'))){
+        const heldBoundary=heldActs.get(state),held=heldBoundary?.basis;
+		if(held&&(!turnPacketPrototype||heldBoundary?.uncommittedFailures()===undefined)){
 			endInput(state,'held_act_unconfirmed',undefined,'settled_operation');
 			throw new KernelError({code:'needs',message:'A failed operation cannot release an unverified expression',details:{reason:HELD_ACT_OUTCOME_REASON}});
 		}
@@ -5775,9 +5775,14 @@ export default function (pi: ExtensionAPI, host: {capabilities?:RuntimeCapabilit
 			decision={scene:decisionScene(current),clock:decisionClock(where.clock??{}),...decisionResponseScope(before,current,hydrated.responses),people,selected_materials:hydrated.materials,
 				recent_public:decisionRecentPublic(current.recent,state.delivered)};
 		}
-        if(heldActs.get(state)?.basis){
+        const failedAttempts=heldActs.get(state)?.uncommittedFailures();
+        if(heldActs.get(state)?.basis&&(!decision||failedAttempts===undefined)){
             endInput(state,'held_act_unconfirmed',undefined,'settled_operation');
             throw new KernelError({code:'needs',message:'A failed operation cannot release an unverified expression',details:{reason:HELD_ACT_OUTCOME_REASON}});
+        }
+		if(decision&&failedAttempts?.length){
+            decision.failed_attempts=failedAttempts;
+            await record({lane:'held-operation',event:'native_failure_projected',turn:state.turn,failures:failedAttempts.length,jev_calls:0});
         }
 		if(!runtime)throw Error('The expression runtime is unavailable');
 		const legacy=decision?undefined:expression as import('../../runtime/isolated-expression.ts').ExpressionBrief;
@@ -5792,7 +5797,7 @@ export default function (pi: ExtensionAPI, host: {capabilities?:RuntimeCapabilit
 		return authored;
 	}
 	async function publishKeeperResult(state:TableState,reply:NonNullable<typeof keeperReply>,result:any,
-		authorModel:string,authorThinking:unknown,ctx?:ExtensionContext){
+		authorModel:string,authorThinking:unknown,ctx?:ExtensionContext,publicationAuthority?:symbol){
 		if(reply.bufferedText){
 			await guardHeldActDelivery(state,result.text,reply.signal);
 			reply.stream=await finalOutput.openStream(state.campaign,state.turn,reply.run);
@@ -5811,12 +5816,12 @@ export default function (pi: ExtensionAPI, host: {capabilities?:RuntimeCapabilit
 		}else{
 			const spec=COC_TOOLS.find(tool=>tool.name==='output')!;
 			const params=choice?{choice:publication}:publication;
-			let delivered=await runTool(spec,`keeper:${reply.run}:publish`,params,reply.signal,undefined,'explicit',ctx,reply.run,written);
+			let delivered=await runTool(spec,`keeper:${reply.run}:publish`,params,reply.signal,undefined,'explicit',ctx,reply.run,written,publicationAuthority);
 			const refusal=delivered.details.coc_error as {code?:string;details?:{reason?:string;shared?:unknown;joined?:unknown}}|undefined;
 			const nameRecovery=refusal?.code==='invalid_params'&&refusal.details?.reason==='untold_name'
 			&&[refusal.details.shared,refusal.details.joined].every(value=>value===undefined||Array.isArray(value)&&value.length===0);
 			if((refusal?.code==='commit_failed'||nameRecovery)&&!reply.signal?.aborted)
-			delivered=await runTool(spec,`keeper:${reply.run}:publish`,params,reply.signal,undefined,'explicit',ctx,reply.run,written);
+			delivered=await runTool(spec,`keeper:${reply.run}:publish`,params,reply.signal,undefined,'explicit',ctx,reply.run,written,publicationAuthority);
 			if(delivered.details.coc_error)throw new Error(String((delivered.details.coc_error as any).message));
 		}
 		state.renderedText=undefined;
@@ -5850,7 +5855,7 @@ export default function (pi: ExtensionAPI, host: {capabilities?:RuntimeCapabilit
                     return {content:[{type:'text' as const,text:JSON.stringify(refusal)}],details:{coc_error:refusal},terminate:!retry};
             }
 			const authored=await composeKeeperExpression(state,packet,reply,ctx);
-			await publishKeeperResult(state,reply,authored,authored.model,authored.thinking,ctx);
+			await publishKeeperResult(state,reply,authored,authored.model,authored.thinking,ctx,compiledDecisionAuthority);
 			return{content:[{type:'text' as const,text:'The turn was published.'}],details:{published:true},terminate:true};
 		}catch(error){
 			rememberTurnFailure(state,'output',error);
@@ -6109,7 +6114,9 @@ export default function (pi: ExtensionAPI, host: {capabilities?:RuntimeCapabilit
         [payload.text, payload.prompt].filter(value=>typeof value==='string').join('\n'), signal, providerBudget);
       if (!singleKeeper && (spec.name === 'narrate' || spec.name === 'ask')) await guardHeldActDelivery(state,
         [payload.text, payload.prompt].filter(value=>typeof value==='string').join('\n'), signal, providerBudget);
-      if (singleKeeper && (spec.name === 'narrate' || spec.name === 'ask')) await guardHeldActDelivery(state,
+      if (singleKeeper && (spec.name === 'narrate' || spec.name === 'ask')
+        &&!(turnPacketPrototype&&finalSelection&&recoveredOutput&&recordAuthority===compiledDecisionAuthority
+          &&heldActs.get(state)?.uncommittedFailures()!==undefined)) await guardHeldActDelivery(state,
         [payload.text, payload.prompt].filter(value=>typeof value==='string').join('\n'), signal, providerBudget);
       // §203.6: an establishing turn's draft is judged once before it commits; the record keeps the verdict (host-only).
       if (!singleKeeper && (spec.name === 'narrate' || spec.name === 'ask')) {

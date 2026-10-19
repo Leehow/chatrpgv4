@@ -820,3 +820,45 @@ core/seam23 cases now pass, as do four targeted real-host cases. Commit this
 follow-up and test the resulting runtime. Concurrent DeepSeek/UI edits remain
 other-owner changes. LAN all run.V7DsHnmw is still live on8b (integration phase);
 do not restart it or attribute its result to the newer role fix.
+
+### Canonical App exposed a native publication-state defect
+
+f80128896 was packaged from the owned clean validation checkout, PipiUI Dev
+signed,121 comparable runtime files byte-matched and staging empty. Driver D
+used the retained seed and actual MiniMax3.1/medium. The first three intents took
+15.331/16.934/22.512s. The two-question NPC inquiry took39.390s and answered only
+the doctor; its natural follow-up took25.788s and returned an explicit unknown
+about Vera. Count those together as65.178s, five KP requests, two authors and
+three tool calls (including one history recall). The full four-intent sequence
+therefore cost119.955s and eight KP requests, not a four-one-shot success or a
+35% speed win. Preserve the awkward causality and partial first answer as prose
+limitations, without adding a judgment model or a semantic word-list repair.
+
+Native Computer Use then sent normal inputs through the actual canonical App,
+using a process-only MiniMax test profile. New NPC dialogue completed in39s;
+its first apply used invalid kind activity, then corrected to npc.activity.
+The next move took59s and failed output with held_act_outcome even though the
+library move and30minutes landed. The KP initially batched invented advance
+cash/key transfer beside the requested move. Admission refused the atomic batch;
+later move-only and other independent writes succeeded. The held basis still
+vetoed all output. This is current failed acceptance, unrelated to the retained
+old ENOTDIR fault. Session evidence remains under turn-failure-app-2026-10-19T02-49-16-369Z
+and the actual App ui-session binding; new turns2/3 are distinguished by timestamps.
+
+The real-kernel regression reproduced committed move/no publication, then passed
+after projecting complete known-uncommitted failures as closed host status rows.
+The refusal ledger is not cleared. Unknown execution, partial settlement and
+incomplete coverage still block; no refused proposal text enters the author.
+Only native compilation gives its publication the private authority token.
+An additional downstream guard also judged the already-streamed native author;
+it now consumes that same scoped authority, while free-form Keeper publication
+retains the guard. Seven legacy rejection/false-success/unit cases pass. Final
+current-runtime MiniMax/App retest remains required after this change.
+
+Completed LAN validation: all run.V7DsHnmw on8b exits1 (extension6184 tests,
+6174pass/1fail/9skip; integration2228 tests,2227pass/1skip; routing12pass).
+Focused run.M4lROPDc onf801 exits1 (extension4010 tests,4009pass/1fail;
+integration2223 tests,2222pass/1skip; routing12pass). The sole failed file in
+both is the pre-existing extension-words inventory mismatch; do not alter that
+other-owner UI surface or call the suites green. Both runs are terminal and
+their remote evidence is retained. Neither run covers the newer held-state fix.

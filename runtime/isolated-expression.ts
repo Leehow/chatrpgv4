@@ -31,6 +31,7 @@ export interface DecisionAuthorContext {
   recent_public:Array<{turn:number|string;player?:string|null;keeper:string;truncated?:boolean}>;
   speech_allowed?:boolean;
   settled_results?:Record<string,unknown>;
+  failed_attempts?:Array<{tool:string;status:'uncommitted';reason:string}>;
   departure_scene?:Record<string,unknown>;
   departure_clock?:Record<string,unknown>;
 }

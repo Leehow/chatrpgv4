@@ -149,6 +149,17 @@ Preserve the current direct author transport: one tool-free task with one reques
 forward visible provider deltas immediately, retain the same text, use existing
 speech attribution. Do not buffer the full story and simulate streaming. Do not
 remove the current failure/publication guards or change kernel semantics.
+For native packets, an atomic attempt known not to have committed is a failure
+result, not a permanent veto over independent later results. Project only its
+closed tool/status/reason metadata alongside canonical settled results; keep
+the refusal ledger. Unknown execution, partial settlement or incomplete held
+coverage still veto author startup. The free-form Keeper guard is unchanged.
+This follows task-local error handling in [AWS Step Functions](https://docs.aws.amazon.com/step-functions/latest/dg/concepts-error-handling.html)
+and [Azure Durable Task](https://learn.microsoft.com/en-us/azure/durable-task/common/durable-task-error-handling):
+catch a failed activity explicitly rather than fail every later activity. Their
+workflow runtimes do not solve prose fidelity; our kernel receipts remain the
+only authority for actual changes, and the author receives no failed proposal
+text. This is an execution-state distinction, not a prompt correction.
 
 ## Memory and working-material continuity
 

@@ -124,6 +124,20 @@ test('only exact canonical settlement discharges a scoped operation failure',asy
  assert.equal(unknown.settled(scope,key),0);assert.ok(unknown.basis);
 });
 
+test('native failure projection preserves refusals and excludes ambiguous execution or clipped coverage',()=>{
+ const scope={campaign:'campaign',turn:4,playerText:'I leave.'};
+ for(const cause of ['invalid_params','action_not_authorized','action_admission_uncertain','admission_unavailable']){
+  const boundary=new HeldActOutcome();boundary.hold(scope,{tool:'apply',lines:['PRIVATE_REJECTED_PROPOSAL'],cause,operationKey:'failed'},true);
+  assert.deepEqual(boundary.uncommittedFailures(),[{tool:'apply',status:'uncommitted',reason:cause}]);assert.equal(boundary.basis.held.length,1);
+  assert.ok(!JSON.stringify(boundary.uncommittedFailures()).includes('PRIVATE_'));
+ }
+ for(const cause of ['transport','timeout','partial_settlement','operation_failed']){
+  const boundary=new HeldActOutcome();boundary.hold(scope,{tool:'apply',lines:['proposal'],cause},true);assert.equal(boundary.uncommittedFailures(),undefined);
+ }
+ const incomplete=new HeldActOutcome();incomplete.hold(scope,{tool:'apply',lines:['x'.repeat(12001)],cause:'action_not_authorized'},true);assert.equal(incomplete.uncommittedFailures(),undefined);
+ const legacy=new HeldActOutcome();legacy.hold(scope,{tool:'apply',lines:['proposal'],cause:'action_not_authorized'});assert.equal(legacy.uncommittedFailures(),undefined);
+});
+
 test('argument completion tracks the complete ordered player action, not its bookkeeping envelope',()=>{
  const scope={campaign:'campaign',worldline:'main',turn:4,playerText:'I inspect the mark.'};
  const full=heldOperationKey('apply',{effects:[{kind:'time',minutes:4}],event:{name:'Read',material:''}});

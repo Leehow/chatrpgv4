@@ -48555,3 +48555,17 @@ Reader: the host-owned communication-reference catalog and canonical dispatch.
 Actor: existing kernel operations followed by the one direct prose author.
 Unknown fields and unissued/stale references fail atomically before writes;
 model declarations cannot grant source access, hearer knowledge or success.
+
+Native decision publication distinguishes a rejected atomic attempt from an
+unknown execution result. A complete held basis containing only invalid
+parameters or the closed admission refusals action_not_authorized,
+action_admission_uncertain and admission_unavailable is known uncommitted.
+These attempts remain in the refusal ledger and reach the sole author as
+host-owned {tool,status:uncommitted,reason} rows, never as success, proposal
+text or outcomes. Only table.delivery.check supplies canonical settled results.
+An independently authorized command must still settle normally before author
+startup. Partial settlement, unknown transport/execution status and incomplete
+held coverage still block. Free-form Keeper publication retains its existing
+held-outcome guard. This catches the failure per operation without treating an
+abandoned uncommitted batch as a permanent veto over later successful results;
+no new semantic decision, model request or author retry is introduced.
