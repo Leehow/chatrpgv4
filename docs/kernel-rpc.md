@@ -48854,8 +48854,9 @@ mixed-domain apply and kernel validation:
 `move` may include additions, so a compatible hotel, lobby and first entry can
 commit in one operation. Additions do not authorize the player action. The same
 action-admission path, call identity, atomic staging, receipt ledger and recovery
-apply. No second transaction manager, preparation ticket, world JSON patch,
-automatic source generator or mandatory extra model round is introduced.
+apply. No second transaction manager, preparation ticket, world JSON patch or
+mandatory scene-generation agent is introduced. Context/completion decisions
+below are bounded closed reviews and do not generate a destination.
 Mixed-domain apply invokes this same handler and sees earlier staged state.
 Failed batches leave no place, position, feature, clock or resource changes.
 Retrying the same call replays the canonical result without another ID or charge.
@@ -48931,6 +48932,83 @@ repairs separately. Union branches must still converge to one valid value.
 Creation-only establishment is explicitly described as no party movement in the
 delivered contract; an actual visit uses move with its minimal additions.
 
+An enhanced move missing its route description is `invalid_params` with field
+`via` and reason `place_route_required`, not proof that the destination cannot be
+reached. It remains uncommitted and uses the existing same-player parameter
+correction path, including a corrected native packet after a direct submit.
+A declared impassable feature remains `not_reachable/place_barrier`; the native
+author receives that known atomic failure with the unchanged committed location
+and current feature state, so a real obstacle can be narrated without inventing
+an arrival. Other unknown reachability failures are not broadly exempted.
+
+Demand disclosure follows the actual entrance, not only the legacy tool name.
+A direct place submit and a native place command fire `before_apply:place` and
+invalidate the same cached context after their result. Any place invocation,
+including a refused argument shape, activates the complete place declaration and
+native location grammar for the remainder of this input. The following input
+returns to the small entry. This is request disclosure, not an execution/read
+prerequisite; canonical validation and complete direct calls remain available.
+
+Before the first Keeper request, the active provider's `mods.location_context`
+metadata enables one bounded Jev fan-out batch: whether the declaration selects
+movement, selects a persistent spatial-feature change, or requests a spatial
+reference/structure lookup. These ask the declared action directly, not whether
+a model thinks a full contract would be helpful. Any answer > .4 discloses
+spatial-operation detail. A selected input discloses the location schemas and
+locked sections immediately, using a `context:before_apply:place` reason rather
+than recording a fictitious call. A negative result keeps the small entry;
+uncertainty or service failure conservatively discloses context. Movement or
+feature-selection uncertainty also enables the completion check; a service
+failure enables it conservatively. None of these decisions ever
+authorizes movement or supplies a world fact. A later actual place invocation
+still loads detail if the initial relevance decision missed it. The answer is
+memoized per accepted input; stale answers do not change a newer input.
+This is a short closed structure on the turn's critical path, satisfying both
+criteria for a tool-free typed decision. No text-generation lane is introduced.
+An addition accepts either a leaf name or an already qualified name under its
+exact `within`; canonicalization never repeats that parent prefix. The declaration
+also states the existing occupancy contract explicitly: populated crowd values
+require actual NPC presence, empty is a decided absence, and unknown is available
+for unassessed occupancy. Missing registry rows are not an automatic empty verdict.
+
+On an input positively selected by the typed location relevance review, every
+native packet receives one closed completion batch before any effects or prose.
+It compares the actual declaration, current location, proposed response,
+committed receipts and known atomic failures. Version 3 asks six independent
+Nouls in one fan-out request: movement selected, movement accounted for,
+movement blocked, feature change selected, feature change accounted for, and
+feature change blocked. For each axis, selection <= .4 requires no action;
+otherwise accounting >= .6 or a genuine obstacle/necessary choice >= .6 covers
+it. Selection >= .6 with neither is missing; intermediate selection is uncertain.
+Both axes must be covered. Preserve all six probabilities; do not manufacture
+an aggregate confidence. An already settled action and an actual intermediate
+position count; a glance/wait alone does not replace a selected visit. The
+review never selects or executes a destination. Refusal follows the same bounded
+Keeper argument correction before authorship. The correction carries the actual
+current position and registered feature names, plus the exact local-move grammar;
+earlier prose and NPC movement cannot substitute for that investigator position.
+The batch shares the foreground
+provider budget and short-structure/critical-path exception. This atomic fan-out
+follows TypeSafe's Noul and fan-out guidance; the earlier compound question
+incorrectly accepted time alone for approaching a window in retained live play.
+Provider declarations present object-union properties under an explicit object
+root while retaining the original branch constraints; registered validators do
+not change. This representation is checked for schema equivalence, not assumed
+to cure every provider error.
+
+Time, population assessment and registration-only effects are not spatial
+execution. Completion review also checks packets with spatial effects so one
+chosen dimension cannot silently replace another. A containing place is not the
+selected child or feature position. Unresolved place/feature references in enhanced
+writes return field-specific argument corrections with reuse/creation guidance;
+they are not evidence of fictional impossibility.
+For a spatially reviewed decision or one with place effects under this Mod, the
+pure author receives committed outcomes and canonical location data without the
+raw unsettled player declaration. Other conversation retains its ordinary input.
+The Keeper retains that exact
+declaration and owns its execution. Local position can change through a place
+receipt without an inter-place move; narration renders that committed position.
+
 Producer: the active Mod's canonical effect and existing source readers. Reader:
 effective graph, `place inspect`, current capsule and public author projection.
 Actor: the same Keeper selects the change, the kernel commits it, and the sole
@@ -48942,11 +49020,14 @@ return agree. Actual feature changes reach operation outcomes.
 ### 242.4. Context, lifecycle and evidence
 
 Only a short entry instruction and stable bounded tool declaration are resident.
+Historical result disclosure marks its owning location package explicitly; only
+that package's sections and location capability detail may be omitted. Other
+package sections in a mixed result remain intact; unidentifiable history stays.
 The provider-facing declaration follows the existing capability-envelope seam:
 the place entry names its operation/action and apply defers detailed move/place
 fields to that entry. Registered validators retain the complete closed schemas.
 Contract inspection returns those schemas and locked package sections. Native
-location schema is disclosed after a place read in this input, without adding
+location schema is disclosed after a place invocation in this input, without adding
 an execution prerequisite for a complete valid call. This is request projection,
 not a permissive kernel patch interface.
 The package's detailed instructions are sectioned material returned by

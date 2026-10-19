@@ -5,6 +5,7 @@ import {createHash} from 'node:crypto';
 import {TaskLease} from '../../runtime/jev/task-context.ts';
 import type {DecisionPort} from '../../runtime/jev/decision-port.ts';
 import {judgeTopics,topicBindings,type Topic,type TopicInput,type TopicJudgement} from '../../runtime/jev/mod-section-topics.ts';
+import {placeOperation} from '../kernel/place-operation.ts';
 type Row=Record<string,any>;
 export const MOD_SECTIONS_MESSAGE='coc-mod-sections';
 /** The message's content ceiling (UTF-8 bytes); what does not fit is named in `omitted`. */
@@ -22,7 +23,7 @@ const bytes=(v:string)=>Buffer.byteLength(v,'utf8');
 
 export const indexedRows=(capsule:Row):Row[]=>array(object(capsule.mods).instructions).filter(row=>object(row).form==='indexed'&&object(row).index_contract_version!==2);
 /** The calls a trigger can name, made so far this turn: effect kinds of every apply, decision families of every resolve. */
-export type TurnCalls={apply:Set<string>;resolve:Set<string>};
+export type TurnCalls={apply:Set<string>;resolve:Set<string>;context?:Set<string>};
 export const emptyCalls=():TurnCalls=>({apply:new Set(),resolve:new Set()});
 /** A resolve's decision family: the settled one from its result, else the family prefix of the decision it named. */
 export function resolveFamily(input:Row,details:Row={}):string|undefined {
@@ -30,8 +31,13 @@ export function resolveFamily(input:Row,details:Row={}):string|undefined {
  const ref=[details.decision,object(input.action).decision].find(value=>typeof value==='string'&&value);
  return ref?String(ref).replace(/^decision:coc7:/,'').split(':')[0]||undefined:undefined;
 }
+export function applyEffectKinds(tool:string,input:Row):string[]{
+ const canonical=placeOperation(tool,input);
+ const effects=canonical.name==='apply'?array(canonical.params.effects):tool==='output'?array(input.commands).filter(effect=>object(effect).kind==='place'):[];
+ return effects.flatMap(effect=>typeof object(effect).kind==='string'?[object(effect).kind]:[]);
+}
 export function noteCall(calls:TurnCalls,tool:string,input:Row,details?:Row):void {
- if(tool==='apply')for(const effect of array(input.effects))if(typeof object(effect).kind==='string')calls.apply.add(object(effect).kind);
+ for(const kind of applyEffectKinds(tool,input))calls.apply.add(kind);
  if(tool==='resolve'){const family=resolveFamily(input,details);if(family)calls.resolve.add(family);}
 }
 
@@ -55,6 +61,7 @@ export function selectSections(capsule:Row,judgement:TopicJudgement|undefined,ca
   for(const trigger of array(section.triggers).map(String)){
    const [kind,name]=trigger.split(':');
    if(kind==='before_apply'&&calls.apply.has(name)||kind==='before_resolve'&&calls.resolve.has(name))why.push(`call:${trigger}`);
+   if(kind==='before_apply'&&calls.context?.has(name))why.push(`context:${trigger}`);
   }
   if(why.length)picked.push({key:String(section.key),mod:String(instruction.mod),version:String(instruction.version),heading:section.heading??null,why});
  }

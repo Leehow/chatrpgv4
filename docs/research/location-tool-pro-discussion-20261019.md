@@ -134,3 +134,14 @@ permission for arbitrary world creation; Inform uses an authored world and the
 agent simulation is not a player-consent system. Our generic-destination binding
 and Keeper creation boundary therefore remain project-specific decisions checked
 by the real game, not conclusions attributed to those systems.
+
+The live test also showed why demand loading must include the first spatial
+decision, rather than waiting for the Keeper to guess a hidden grammar.
+[Anthropic's advanced tool-use design](https://www.anthropic.com/engineering/advanced-tool-use)
+and [OpenAI's tool-search contract](https://developers.openai.com/api/docs/guides/tools-tool-search)
+both distinguish deferred definitions from executable capabilities and load
+selected definitions into the actual model context. That supports input-scoped
+disclosure here. Their native search protocols are provider-specific, so this
+implementation uses a bounded Jev relevance answer and Pi's public request hooks.
+No advertised token or latency reduction from those systems is attributed to
+PipiCOC; our actual requests and costs are measured separately.

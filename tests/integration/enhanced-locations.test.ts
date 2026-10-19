@@ -81,7 +81,7 @@ test('a shared parent supplies neither a free route nor zero travel and source f
     assert.equal(offered.description.locations,true);assert.equal(offered.description.requires_via,true);
     const legacy=await k.tableErr('apply',{call_id:'t1-c3',effects:[{kind:'move',to:'City / West'}]});assert.equal(legacy.code,'not_reachable');
     const error=await k.tableErr('apply',{call_id:'t1-c3',effects:[{kind:'place',action:'move',to:'City / West',travel_band:'local_travel'}]});
-    assert.equal(error.code,'not_reachable');
+    assert.equal(error.code,'invalid_params');assert.equal(error.details.reason,'place_route_required');assert.equal(error.details.field,'via');
     const moved=await k.table('apply',{call_id:'t1-c4',effects:[{kind:'place',action:'move',to:'City / West',via:'Across the city',travel_band:'local_travel'}]});
     assert(moved.outcomes[0].minutes>0);
     assert.equal((await inspect(k,authored)).place.features[0].name,'side corner');
@@ -149,4 +149,26 @@ test('a missing parent returns its exact correction and a native arrival plus ac
     assert.equal(receipts[1].beyond_travel,true);assert(receipts[0].minutes>=10);assert(receipts[1].minutes<=3);
     assert.equal(state(k).clock.minutes-before.clock.minutes,receipts.reduce((sum:number,receipt:Row)=>sum+receipt.minutes,0));
     assert.equal(state(k).active_scene,'Ordinary Hotel');assert.equal(locations(k).places.length,1);
+});
+
+test('a qualified child addition canonicalizes once and remains locally addressable',async t=>{
+    const k=await kernel(t);await openTurn(k,'I enter the inn room.');
+    await k.table('apply',{call_id:'t1-c1',effects:[{kind:'place',action:'move',to:'Inn / Room 203',via:'Through the entrance and up the stairs',travel_band:'adjacent',
+        additions:[hotel('Inn'),{...room('Inn'),name:'Inn / Room 203'}]}]});
+    const records=locations(k).places;
+    assert.deepEqual(records.map((record:Row)=>record.name),['Inn','Inn / Room 203']);assert.equal(records[1].label,'Room 203');
+    assert.equal((await inspect(k,'Room 203')).place.name,'Inn / Room 203');
+    await k.table('apply',{call_id:'t1-c2',effects:[{kind:'place',action:'establish',additions:[{name:'Inn / Room 203',within:'Inn'}]}]});
+    assert.deepEqual(locations(k).places.map((record:Row)=>record.id),records.map((record:Row)=>record.id));
+});
+
+test('an unregistered destination or local feature is a recoverable definition gap, not a physical barrier',async t=>{
+    const k=await kernel(t);await openTurn(k,'I visit the inn and approach its window.');
+    const missing=await k.tableErr('apply',{call_id:'t1-c1',effects:[{kind:'place',action:'move',to:'Inn',via:'Along the street'}]});
+    assert.equal(missing.code,'invalid_params');assert.equal(missing.details.field,'to');assert.equal(missing.details.reason,'place_reference_unresolved');
+    await k.table('apply',{call_id:'t1-c1',effects:[{kind:'place',action:'move',to:'Inn',via:'Along the street',travel_band:'adjacent',additions:[hotel('Inn')]}]});
+    const before=state(k),error=await k.tableErr('apply',{call_id:'t1-c2',effects:[{kind:'place',action:'move',to:'here',at:'window',relation:'beside'}]});
+    assert.equal(error.code,'invalid_params');assert.equal(error.details.field,'at');assert.deepEqual(state(k),before);
+    await k.table('apply',{call_id:'t1-c2',effects:[{kind:'place',action:'move',to:'here',at:'window',relation:'beside',additions:[{name:'Inn',features:[{name:'window',description:'A wooden window.',state:'closed',passable:false}]}]}]});
+    assert.equal(locations(k).position.at,'window');assert.equal(locations(k).places.length,1);
 });

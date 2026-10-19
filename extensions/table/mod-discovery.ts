@@ -49,7 +49,7 @@ export function createModDiscovery(deps:{
         if(currentInput!==inputEpoch){reset();inputEpoch=currentInput;budget={ms:deps.allowanceMs??6000,actions:16};}
         const situation=discoverySituation(capsule,task);
         const key=hash([binding.campaign,binding.worldline,binding.loop,binding.turn,request,
-            binding.task_source_revision??binding.source_revision,situation,all,[...calls.apply],[...calls.resolve],deps.mode?.()??'full']);
+            binding.task_source_revision??binding.source_revision,situation,all,[...calls.apply],[...calls.resolve],[...(calls.context??[])],deps.mode?.()??'full']);
         if(key===epoch)return;
         reset();epoch=key;started=Date.now();control=new AbortController();
         const mode=deps.mode?.()??'full';
@@ -77,7 +77,7 @@ export function createModDiscovery(deps:{
                 remainingInputTokens:200000,remainingOutputTokens:60000,remainingCostUsd:.02}});
         const due=(v:Row)=>v.due===true||array(v.triggers).some(t=>{
             const [kind,name]=String(t).split(':');
-            return kind==='before_apply'&&calls.apply.has(name)||kind==='before_resolve'&&calls.resolve.has(name);
+            return kind==='before_apply'&&(calls.apply.has(name)||calls.context?.has(name))||kind==='before_resolve'&&calls.resolve.has(name);
         });
         const available=all.filter(v=>v.gates_open!==false||due(v));
         const cards:DiscoveryCard[]=available.map(v=>({name:v.name,version:String(v.version),

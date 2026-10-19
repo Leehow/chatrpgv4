@@ -126,12 +126,12 @@ test('only exact canonical settlement discharges a scoped operation failure',asy
 
 test('native failure projection preserves refusals and excludes ambiguous execution or clipped coverage',()=>{
  const scope={campaign:'campaign',turn:4,playerText:'I leave.'};
- for(const cause of ['invalid_params','action_not_authorized','action_admission_uncertain','admission_unavailable']){
+ for(const cause of ['invalid_params','action_not_authorized','action_admission_uncertain','admission_unavailable','place_barrier']){
   const boundary=new HeldActOutcome();boundary.hold(scope,{tool:'apply',lines:['PRIVATE_REJECTED_PROPOSAL'],cause,operationKey:'failed'},true);
   assert.deepEqual(boundary.uncommittedFailures(),[{tool:'apply',status:'uncommitted',reason:cause}]);assert.equal(boundary.basis.held.length,1);
   assert.ok(!JSON.stringify(boundary.uncommittedFailures()).includes('PRIVATE_'));
  }
- for(const cause of ['transport','timeout','partial_settlement','operation_failed']){
+ for(const cause of ['transport','timeout','partial_settlement','operation_failed','not_reachable']){
   const boundary=new HeldActOutcome();boundary.hold(scope,{tool:'apply',lines:['proposal'],cause},true);assert.equal(boundary.uncommittedFailures(),undefined);
  }
  const incomplete=new HeldActOutcome();incomplete.hold(scope,{tool:'apply',lines:['x'.repeat(12001)],cause:'action_not_authorized'},true);assert.equal(incomplete.uncommittedFailures(),undefined);

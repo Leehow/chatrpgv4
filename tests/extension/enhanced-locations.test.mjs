@@ -7,6 +7,8 @@ import {placeOperation} from '../../extensions/kernel/place-operation.ts';
 import {PlaceParameters,PlaceEffect} from '../../shared/place-structures.ts';
 import {admissionRequest,effectSignature,refusedMovesOf} from '../../extensions/kernel/admission.ts';
 import {KernelError} from '../../extensions/kernel/client.ts';
+import {emptyCalls,noteCall,applyEffectKinds} from '../../extensions/table/mod-sections.ts';
+import {locationContextBatch,locationContextRelevance,locationCoverageBatch,locationDecisionCoverage} from '../../extensions/table/location-relevance.ts';
 import {locationToolDeclarations,projectLocationInspections} from '../../extensions/table/location-context.ts';
 import {capabilityCatalogue} from '../../extensions/table/capability-catalogue.ts';
 import {turnPacket,normalizeTurnPacketArguments,compileTurnPacket,bindTurnPacketMoves,turnPacketParameterSchema,turnPacketResult} from '../../runtime/turn-packet-prototype.ts';
@@ -18,6 +20,37 @@ import {continuousConsentLine,continuousConsentQuestions,continuousConsentDispos
 
 const command={kind:'place',action:'move',to:'Ordinary Inn / Lobby',via:'Through the ordinary entrance',travel_band:'adjacent',
     additions:[{name:'Ordinary Inn',within:null,description:'An ordinary inn.'},{name:'Lobby',within:'Ordinary Inn',description:'A small lobby.',features:[{name:'counter',description:'A scarred wooden counter.'}]}]};
+test('input relevance selects context only, keeps uncertainty conservative and names no destination',async()=>{
+    const capsule={mods:{location_context:{mod:'enhanced-locations',version:'1.0.1'}},turn:{player_text:'I enter an ordinary inn.'},where:{scene:'Office'}},binding={campaign:'test',turn:1};
+    const batch=locationContextBatch(capsule,binding);packDecisionBatch(batch);
+    assert.equal(batch.questions.length,3);assert(batch.questions.every(question=>question.type==='noul'));
+    for(const [probability,needed]of [[.96,true],[.02,false]]){
+        const result=await locationContextRelevance(capsule,binding,{decide:async current=>({batchId:current.id,status:'complete',answers:Object.fromEntries(current.questions.map(q=>[q.key,{status:'answered',type:'noul',noul:probability}]))})},new AbortController().signal);
+        assert.equal(result.needed,needed);assert.equal(result.review,needed);assert.equal(result.probabilities.move_selected,probability);assert.equal(result.to,undefined);
+    }
+    assert.equal((await locationContextRelevance(capsule,binding,undefined,new AbortController().signal)).needed,true);
+    const reference=await locationContextRelevance(capsule,binding,{decide:async current=>({batchId:current.id,status:'complete',answers:Object.fromEntries(current.questions.map(q=>[q.key,{status:'answered',type:'noul',noul:q.key==='reference_selected'?.99:.01}]))})},new AbortController().signal);
+    assert.equal(reference.needed,true);assert.equal(reference.review,false,'a location question alone does not require execution');
+});
+test('spatial completion composes independent movement and feature answers without an invented confidence',async()=>{
+    const binding={campaign:'test',turn:2},input={player_declaration:'I approach the window.',proposed_effects:[],settled_receipts:[]};
+    const batch=locationCoverageBatch(input,binding);packDecisionBatch(batch);
+    assert.equal(batch.familyVersion,'3');assert.equal(batch.questions.length,6);assert(batch.questions.every(question=>question.type==='noul'));
+    const review=async values=>locationDecisionCoverage(input,binding,{decide:async current=>({batchId:current.id,status:'complete',answers:Object.fromEntries(current.questions.map(q=>[q.key,{status:'answered',type:'noul',noul:values[q.key]??.01}]))})},new AbortController().signal);
+    const missing=await review({move_selected:.99});
+    assert.equal(missing.covered,false);assert.equal(missing.axes.move,'missing');assert.equal(missing.axes.feature,'not_selected');
+    assert.equal(missing.probabilities.move_selected,.99);assert.equal(missing.probability,undefined,'independent answers have no aggregate probability');
+    assert.equal(missing.to,undefined,'a completion finding never executes a destination');
+    const arrival=await review({move_selected:.99,move_accounted:.99});assert.equal(arrival.covered,true);
+    const omittedFeature=await review({move_selected:.99,move_accounted:.99,feature_selected:.99});
+    assert.equal(omittedFeature.covered,false);assert.equal(omittedFeature.axes.feature,'missing','a movement does not replace opening the window');
+    const blocked=await review({move_selected:.99,move_blocked:.99});assert.equal(blocked.covered,true);assert.equal(blocked.axes.move,'blocked');
+    const unsure=await review({move_selected:.5});assert.equal(unsure.covered,false);assert.equal(unsure.axes.move,'uncertain');
+    assert.equal((await review({move_selected:.4})).covered,true,'a negative selection does not force an action');
+    const unavailable=await locationDecisionCoverage(input,binding,undefined,new AbortController().signal);assert.equal(unavailable.covered,false);
+    const partial=await locationDecisionCoverage(input,binding,{decide:async current=>({batchId:current.id,status:'complete',answers:{move_selected:{status:'answered',type:'noul',noul:.99}}})},new AbortController().signal);
+    assert.equal(partial.status,'fallback');assert.equal(partial.covered,false,'all independent answers must be valid');
+});
 test('the dedicated typed tool normalizes before canonical write admission, without another transaction',()=>{
     assert(COC_TOOL_NAMES.includes('place'));
     const {kind,...change}=command,input={op:'submit',change};
@@ -101,6 +134,14 @@ test('resident location declarations defer detailed grammar while canonical vali
     const envelope=branches.find(branch=>branch.properties.kind.anyOf?.some(value=>value.const==='place'));
     assert(envelope);assert.equal(envelope.properties.additions,undefined);
     assert.equal(JSON.stringify(COC_TOOLS),before,'request projection never edits registered schemas');
+    const full=locationToolDeclarations(COC_TOOLS,true).find(tool=>tool.name==='place');
+    assert.equal(full.parameters.type,'object');assert(full.parameters.properties.change.properties.additions,'provider object fields remain explicit');
+    for(const input of [{op:'inspect'},{op:'submit',change:{action:'move',to:'Inn'}},{op:'inspect',change:{}},{op:'submit'},{op:'submit',change:{action:'move',to:'Inn',patch:{cash:5}}}])
+        assert.equal(Errors(full.parameters,input).length===0,Errors(canonical.parameters,input).length===0,'provider shape retains the canonical branch constraints');
+    const calls=emptyCalls();noteCall(calls,'place',{op:'submit',change:{action:'move',to:'Inn'}});
+    assert(calls.apply.has('place'),'the independent entrance fires the existing Mod trigger');
+    assert.deepEqual(applyEffectKinds('output',{commands:[command,{kind:'scene'}]}),['place']);
+    assert.deepEqual(applyEffectKinds('place',{op:'inspect'}),[],'a read is not a world mutation');
     const catalogue=capabilityCatalogue(COC_TOOLS);
     assert(catalogue.some(card=>card.name==='place'&&card.verb==='place'));
     assert(catalogue.some(card=>card.name==='place-change'&&card.effect==='place'));
@@ -115,6 +156,14 @@ test('only old host location results lose request detail; raw history and assist
     assert(view.omittedBytes>5000);assert.equal(view.messages[0],assistant);
     assert.equal(view.messages[1].toolCallId,'read-1');assert.deepEqual(raw,before);
     assert(view.messages[1].content[0].text.includes('historical_detail_omitted'));
+    const attached={role:'toolResult',toolName:'place',toolCallId:'move-1',details:{location_disclosure:{turn:3,index:1,package:'enhanced-locations'}},content:[{type:'text',text:'The move committed.'},
+        {type:'text',text:JSON.stringify({kind:'disclosed_detail',package_sections:[{package:'enhanced-locations',text:'Location guidance '.repeat(100)},{package:'historical-reference',text:'Keep this unrelated package guidance.'}],capability_detail:[{name:'place',parameters:PlaceParameters},{name:'resolve',description:'Keep this unrelated rule detail.'}]})}]};
+    const rawAttached=structuredClone(attached),projected=projectLocationInspections([attached],4).messages[0];
+    assert.equal(projected.content[0].text,'The move committed.');assert.deepEqual(attached,rawAttached);
+    const detail=JSON.parse(projected.content[1].text);assert.deepEqual(detail.package_sections,[{package:'historical-reference',text:'Keep this unrelated package guidance.'}]);
+    assert.deepEqual(detail.capability_detail,[{name:'resolve',description:'Keep this unrelated rule detail.'}]);
+    const unidentified=structuredClone(attached);delete unidentified.details.location_disclosure.package;
+    assert.equal(JSON.parse(projectLocationInspections([unidentified],4).messages[0].content[1].text).package_sections.length,2,'unidentified package history is preserved');
 });
 
 test('the sole author consumes committed public local position and feature state',()=>{

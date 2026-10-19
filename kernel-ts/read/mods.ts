@@ -33,7 +33,7 @@ import { ESTABLISH_CAPABILITY, ESTABLISH_REVIEW_CAPABILITY, validateEstablishDec
 import { SECTIONS_CAPABILITY, DISCOVERY_CAPABILITY, validateSectionsDeclaration, validateSectionsContribution, packageSections, sectioned, sectionKey, instructionBudget, residentText, topicList, annotateGates, sceneFacts, type TurnFacts } from "./sections.js";
 import {TEMPORAL_CAPABILITY,temporalItems,temporalProviders} from './temporal-mod.js';
 import {IMPROVISED_WEAPON_CAPABILITY} from '../combat/improvised.js';
-import {LOCATIONS_CAPABILITY} from './locations.js';
+import {LOCATIONS_CAPABILITY,locationProvider} from './locations.js';
 export const MOD_CAPABILITIES = new Set(["audit.source.v1", "checks.percentile.v1", "checks.presence.v1", "context.npc.v1", "definitions.v1", "objects.v1", "objects.state.v2", "objects.adopt.v1", "objects.documents.v1", "mods.order.v1", "mods.package-files.v1", "ui.documents.v1", "ui.documents.language.v1", "agents.tools.v1", "weapons.v1", "weapons.profile.v2", "spells.v1", "item-effects.v1", "setup.guidance.v1", "setup.aptitude.v1", "graph.vocabulary.v1", "graph.vocabulary.table.v1", "context.thread.v1", "context.pacing.v1"]);
 MOD_CAPABILITIES.add("objects.images.v1");
 MOD_CAPABILITIES.add("objects.image-references.v1");
@@ -809,6 +809,7 @@ export async function modContext(context: KernelContext, graph: ModuleGraph, wor
         expression_reference: {enabled:active.some(mod=>!!row(mod.contributes).expression_cards),play_language:evidence.play_language??null,
             revision:expressionCatalogRevision(active,evidence.play_language??null)},
         instructions: instructionRows(effective, world),
+        ...(locationProvider(active)?{location_context:{mod:locationProvider(active)!.id,version:locationProvider(active)!.version}}:{}),
         pending_contacts: contacts.slice(0, 12),
         relationships: relationships.slice(0, 12),
         objects: objectContext(world),

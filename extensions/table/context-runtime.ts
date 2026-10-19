@@ -1,4 +1,5 @@
 import {locationToolDeclarations,projectLocationInspections} from './location-context.ts';
+import {locationContextRelevance} from './location-relevance.ts';
 import {createDecisionAdapter} from '../../runtime/jev/decision-adapter.ts';
 import {readJevApiKey,readJevPreselectAllowanceMs} from '../jev/agent/config.js';
 import {preparationBudget,preparationProviderBudget} from '../../runtime/jev/preparation-budget.ts';
@@ -28,7 +29,7 @@ import {rankWorkspaceCandidates} from './workspace/reranker.ts';
 import {preparePrescreen,prescreenEnabled,reusePrescreen} from './prescreen.ts';
 import type {PrescreenSourceRuntime} from '../../runtime/jev/prescreen-source-provider.ts';
 import {createExpressionPreparation,EXPRESSION_MESSAGE} from './expression-reference.ts';
-import {createModSections,emptyCalls,noteCall,MOD_SECTIONS_MESSAGE} from './mod-sections.ts';
+import {createModSections,emptyCalls,noteCall,applyEffectKinds,MOD_SECTIONS_MESSAGE} from './mod-sections.ts';
 import {createTemporalAdvice,TEMPORAL_ADVICE_MESSAGE} from './temporal-advice.ts';
 import {createWritingSupportNames} from '../../runtime/writing-support.ts';
 import {bindingOf, customMessage, epochOf, sourceOf, historyView, metadata, quoteView, briefForTurn, projectedMessages, foldPlan,
@@ -94,6 +95,10 @@ export function installContextPolicy(pi: ExtensionAPI, writeTelemetry: (row: Row
     const record = (row: Row): void => writeTelemetry({...(observedTurn === undefined ? {} : {turn: observedTurn}), ...row});
     let failedGeneration: number | undefined, inputPending = false;
     let call: KernelCall | undefined, campaign: string | undefined, capsule: Row | undefined, rawBinding: unknown;
+    let locationDemand:{campaign:string;turn:number}|undefined;
+    let locationRelevance:{key:string;promise:Promise<Row>}|undefined;
+    const locationDetail=()=>!!locationDemand&&locationDemand.campaign===campaign&&locationDemand.turn===observedTurn;
+    pi.events.on('coc:location-demand',(data:Row)=>{if(data.campaign===campaign&&Number.isSafeInteger(data.turn))locationDemand={campaign:data.campaign,turn:data.turn};});
     let materialSources:((turn:number)=>Row[])|undefined;
     let referenceReplyStatus:(()=>{campaign:string;turn:number;queued:boolean}|undefined)|undefined;
     let sourceRuntime:PrescreenSourceRuntime|undefined,moduleId:string|undefined;
@@ -186,7 +191,7 @@ export function installContextPolicy(pi: ExtensionAPI, writeTelemetry: (row: Row
     // §228.2: this input's disclosure (capability detail and package sections), sent once at a stable place.
     const disclosure=createTurnDisclosure();
     /** §228.3: what a write used before its detail was delivered, attached to that call's own result. */
-    const attachments=new Map<string,{sections:string[];capabilities:string[]}>();
+    const attachments=new Map<string,{sections:string[];capabilities:string[];location:boolean}>();
     let pendingDiscovery:Row[]=[];
     const sectionKey=(key:string)=>'section:'+key,capabilityKey=(name:string)=>'capability:'+name;
     /** The sections a discovery packet carries, each with its key (the packet lists keys in the same order). */
@@ -324,6 +329,7 @@ export function installContextPolicy(pi: ExtensionAPI, writeTelemetry: (row: Row
     pi.on('tool_call', async event => {
         const input=object(event.input);
         noteCall(turnCalls,event.toolName,input);
+        const effectKinds=applyEffectKinds(event.toolName,input);
         if(discoveryMode()!=='full'&&discoveryUnavailable&&['apply','resolve'].includes(event.toolName)){
             record({lane:'context',event:'write_held',turn:observedTurn,tool:event.toolName,reason:'discovery_unavailable',
                 origin:object(hostOrigin?.(event.toolCallId)).origin==='policy'?'policy':'model',no_commit:true});
@@ -333,7 +339,7 @@ export function installContextPolicy(pi: ExtensionAPI, writeTelemetry: (row: Row
             .filter((mod:Row)=>mod.index_contract_version===2)
             .flatMap((mod:Row)=>(mod.sections??[]).filter((section:Row)=>(section.triggers??[]).some((trigger:string)=>{
                 const [kind,name]=trigger.split(':');
-                return kind==='before_apply'&&event.toolName==='apply'&&Array.isArray(input.effects)&&input.effects.some((effect:Row)=>effect.kind===name)
+                return kind==='before_apply'&&effectKinds.includes(name)
                     ||kind==='before_resolve'&&event.toolName==='resolve'&&turnCalls.resolve.has(name);
             })).map((section:Row)=>section.key));
         if(capsule)modDiscovery.know(capsule);
@@ -344,7 +350,7 @@ export function installContextPolicy(pi: ExtensionAPI, writeTelemetry: (row: Row
         const hostWrite=object(hostOrigin?.(event.toolCallId)).origin==='policy';
         const capabilities=hostWrite?[]:capabilityRuntime.used(event.toolName,input).filter(name=>!disclosure.has(capabilityKey(name)));
         if(!hostWrite&&(missing.length||capabilities.length)){
-            attachments.set(event.toolCallId,{sections:missing,capabilities});
+            attachments.set(event.toolCallId,{sections:missing,capabilities,location:event.toolName==='place'||effectKinds.includes('place')});
             disclosure.owe([...missing.map(sectionKey),...capabilities.map(capabilityKey)]);
             record({lane:'turn-disclosure',event:'owed',turn:observedTurn,tool:event.toolName,keys:missing,capabilities,no_hold:true});
         }else if(hostWrite&&missing.length)record({lane:'mod-discovery',event:'readiness_deferred',turn:observedTurn,origin:'policy',tool:event.toolName,keys:missing});
@@ -352,7 +358,7 @@ export function installContextPolicy(pi: ExtensionAPI, writeTelemetry: (row: Row
             reads.set(event.toolCallId, {kind: String(input.kind ?? input.focus ?? ''),
                 name: typeof input.name === 'string' ? input.name : undefined,
                 query: typeof input.query === 'string' ? input.query : undefined});
-        if (['apply', 'resolve', 'narrate', 'ask'].includes(event.toolName)) stateCalls.add(event.toolCallId);
+        if (['apply', 'resolve', 'narrate', 'ask'].includes(event.toolName)||effectKinds.includes('place')) stateCalls.add(event.toolCallId);
         noteCall(turnCalls, event.toolName, input);
         if (event.toolName === 'lookup' && input.kind === 'source'
             || event.toolName === 'apply' && Array.isArray(input.effects) && input.effects.some((effect: Row) => effect.kind === 'adaptation'))
@@ -376,7 +382,7 @@ export function installContextPolicy(pi: ExtensionAPI, writeTelemetry: (row: Row
         disclosure.attached([...rows.map(row=>sectionKey(row.key)),...detail.map(card=>capabilityKey(card.name))]);
         record({lane:'turn-disclosure',event:'attached',turn:observedTurn,tool:event.toolName,is_error:event.isError,
             keys:rows.map(row=>row.key),capabilities:detail.map(card=>card.name),bytes:Buffer.byteLength(text)});
-        return{content:[...event.content,{type:'text' as const,text}]};
+        return{content:[...event.content,{type:'text' as const,text}],...(owed.location?{details:{...object(event.details),location_disclosure:{turn:observedTurn,index:event.content.length,package:capsule?.mods?.location_context?.mod}}}:{})};
     };
     pi.on('tool_result',async event=>{
         const attached=await attachDisclosure(event);
@@ -662,13 +668,13 @@ export function installContextPolicy(pi: ExtensionAPI, writeTelemetry: (row: Row
         if (typeof ctx.sessionManager?.buildSessionProjection === 'function') {
             const system = getCurrentSystemMessage(ctx.sessionManager.buildSessionProjection().messages);
             // §184.3: the prompt text and the tool declarations the provider sees; the transcript timestamp is not sent.
-            const measured=system?{...system,toolsAdded:locationToolDeclarations(capabilityRuntime.project(system.toolsAdded??[])??system.toolsAdded??[])}:undefined;
+            const measured=system?{...system,toolsAdded:locationToolDeclarations(capabilityRuntime.project(system.toolsAdded??[])??system.toolsAdded??[],locationDetail())}:undefined;
             return {systemBytes: measured ? sizeOf(measured) + 1 : 0,
                 systemDigest: measured ? shortDigest({content: measured.content, sections: measured.sections ?? null, tools: measured.toolsAdded}) : null};
         }
         const active = typeof pi.getActiveTools === 'function' ? new Set(pi.getActiveTools()) : undefined;
         const tools = typeof pi.getAllTools === 'function' ? pi.getAllTools().filter(tool => !active || active.has(tool.name)) : [];
-        const material = {system: typeof ctx.getSystemPrompt === 'function' ? ctx.getSystemPrompt() : '', tools:locationToolDeclarations(capabilityRuntime.project(tools)??tools)};
+        const material = {system: typeof ctx.getSystemPrompt === 'function' ? ctx.getSystemPrompt() : '', tools:locationToolDeclarations(capabilityRuntime.project(tools)??tools,locationDetail())};
         return {systemBytes: sizeOf(material), systemDigest: shortDigest(material)};
     };
     const discoveryEvidence=(messages:readonly Row[])=>messages.filter(message=>message.role!=='custom'
@@ -765,6 +771,16 @@ export function installContextPolicy(pi: ExtensionAPI, writeTelemetry: (row: Row
                 invalidate();degraded(String(error?.message??'discovery_snapshot_unavailable'));}
         }
         if(!snapshot&&ticket===generation){discoveryUnavailable=discoveryMode()!=='full';capabilityRuntime.invalidate();modDiscovery.reset();pendingDiscovery=[];}
+        if(snapshot?.capsule.mods?.location_context){
+            const key=JSON.stringify([snapshot.binding.campaign,snapshot.binding.turn,sourceOf(snapshot.binding)]);
+            const reused=locationRelevance?.key===key;
+            if(!reused)locationRelevance={key,promise:locationContextRelevance(snapshot.capsule,snapshot.binding,decision(),inputLifetime.signal,foregroundBudget?.())};
+            const relevance=await locationRelevance.promise;
+            if(ticket===generation&&!inputLifetime.signal.aborted&&snapshot.binding.campaign===campaign&&snapshot.binding.turn===observedTurn){
+                if(relevance.needed){(turnCalls.context??=new Set()).add('place');pi.events.emit('coc:location-demand',{campaign,turn:observedTurn,review:relevance.review});}
+                record({lane:'location-context',...relevance,reused});
+            }
+        }
         // Pi 0.87 restores the canonical system/tool checkpoint after this hook. Reserve its
         // serialized size on every exit, including degraded turns, without treating it as history.
         const {systemBytes, systemDigest} = systemMeasure(ctx);
@@ -1124,7 +1140,7 @@ export function installContextPolicy(pi: ExtensionAPI, writeTelemetry: (row: Row
     pi.on('context_with_system',event=>{
         const tools=getCurrentTools(event.messages as never);
         const selectedView=capabilityRuntime.project(tools as any);
-        const view=locationToolDeclarations((selectedView??tools) as any);
+        const view=locationToolDeclarations((selectedView??tools) as any,locationDetail());
         const current=getCurrentSystemMessage(event.messages as never) as Row|undefined;
         if(!current)return;
         const {toolsAdded:_added,toolsRemoved:_removed,...head}=current;

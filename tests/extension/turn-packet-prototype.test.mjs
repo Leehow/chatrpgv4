@@ -64,6 +64,52 @@ const fauxToolCall=(name,args)=>rawToolCall(name,name==='output'?{...args,comman
 async function opened(workspace){const client=new RpcClient(workspace);try{await client.ok('table.open',{campaign:'test-camp'});await client.ok('table.narrate',{campaign:'test-camp',call_id:'t0-c1',text:'Knott waits at his desk.'});}finally{await client.close();}}
 function answer(batch,p){const answers=Object.fromEntries(batch.questions.map(q=>{if(q.type==='noul')return[q.key,{status:'answered',type:'noul',noul:q.key.startsWith('restriction_')?1-p:p}];const choice=Object.keys(q.criteria).find(x=>x!=='none')??'none';return[q.key,{status:'answered',type:'choice',choice,confidence:.99,probabilities:Object.fromEntries(Object.keys(q.criteria).map(x=>[x,x===choice?.99:.01/(Object.keys(q.criteria).length-1)]))}];}));return{batchId:batch.id,status:'complete',answers,coverage:{required:Object.keys(answers),answered:Object.keys(answers),unknown:[]},issues:[],usage:{inputTokens:100,outputTokens:0}};}
 
+test('a missing route on direct place submit permits a corrected native arrival and fires the Mod trigger',async t=>{
+ const engine=createHybridEngine({env,decision:{decide:async batch=>answer(batch,.99)}});
+ const command={kind:'place',action:'move',to:'Ordinary Inn / Single room',via:'Along the street and up the inn stairs',travel_band:'adjacent',
+  additions:[{name:'Ordinary Inn',description:'An ordinary inn.'},{name:'Single room',within:'Ordinary Inn',description:'A plain single room.',features:[{name:'window',description:'A wooden window.'}]}]};
+ const {kind,via,...missingRoute}=command;
+ const table=await openTable({legacyDeliveryFixtures:false,realKernel:true,prepareWorkspace:opened,env,runDriver:engine.runDriver,
+  extraExtensions:[{name:'engine',factory:engine.extension}],responses:[
+   ()=>fauxAssistantMessage([fauxToolCall('place',{op:'submit',change:missingRoute})],{stopReason:'toolUse'}),
+   ()=>fauxAssistantMessage([rawToolCall('output',{version:4,commands:[command,{kind:'scene',service:'open',crowd:'empty'}]})],{stopReason:'toolUse'}),
+   ()=>fauxAssistantMessage([rawToolCall('output',{version:4,commands:[{kind:'scene',service:'open',crowd:'empty'}]})],{stopReason:'toolUse'})
+  ]});
+ t.after(()=>table.dispose());
+ await table.session.prompt('I visit a nearby ordinary inn and enter a single room to look around.');
+ assert.deepEqual(table.extensionErrors,[]);
+ const capsule=await table.runtimeBridges().at(-1).call('table.capsule',{campaign:'test-camp'});
+ assert.equal(capsule.where.scene,command.to,JSON.stringify(table.session.messages.filter(message=>message.role==='toolResult'||message.role==='assistant').map(message=>({role:message.role,tool:message.toolName,error:message.errorMessage,content:message.content}))).slice(-6000));
+ assert(table.telemetry().some(row=>row.lane==='mod-sections'&&row.event==='selected'&&row.keys.some(section=>section.key.startsWith('enhanced-locations@')&&section.why.some(why=>['call:before_apply:place','context:before_apply:place'].includes(why)))),'the independent submit receives the locked location guidance');
+ await table.session.prompt('I stay here and look around.');
+ assert.deepEqual(table.extensionErrors,[]);
+});
+
+test('an empty spatial decision is corrected before any author or world change',async t=>{
+ let demand=()=>{};
+ const engine=createHybridEngine({env,decision:{decide:async batch=>{
+  if(batch.family!=='location-decision-coverage')return answer(batch,.99);
+  const moved=batch.state.proposed_effects.some(effect=>effect.kind==='place');
+  const values={move_selected:.99,move_accounted:moved?.99:.02,move_blocked:.01,feature_selected:.01,feature_accounted:.01,feature_blocked:.01};
+  return {...answer(batch,.99),answers:Object.fromEntries(batch.questions.map(q=>[q.key,{status:'answered',type:'noul',noul:values[q.key]}]))};
+ }}});
+ const command={kind:'place',action:'move',to:'Ordinary Inn',via:'Along the street',travel_band:'adjacent',additions:[{name:'Ordinary Inn',description:'A modest public inn.'}]};
+ const table=await openTable({legacyDeliveryFixtures:false,realKernel:true,prepareWorkspace:opened,env,runDriver:engine.runDriver,
+  extraExtensions:[{name:'engine',factory:engine.extension},{name:'location-relevance-fixture',factory:pi=>{demand=()=>pi.events.emit('coc:location-demand',{campaign:'test-camp',turn:1,review:true});}}],responses:[
+   ()=>{demand();return fauxAssistantMessage([rawToolCall('output',{version:4})],{stopReason:'toolUse'});},
+   ()=>fauxAssistantMessage([rawToolCall('output',{version:4,commands:[command,{kind:'scene',service:'open',crowd:'empty'}]})],{stopReason:'toolUse'})]});
+ t.after(()=>table.dispose());await table.session.prompt('I enter an ordinary inn.');
+ assert.deepEqual(table.extensionErrors,[]);
+ assert(table.telemetry().some(row=>row.lane==='location-decision-coverage'&&row.probabilities?.move_accounted===.02&&row.covered===false));
+ assert.equal(table.entries('coc-final-delivery').filter(row=>row.event==='end'&&row.status==='completed').length,1);
+ assert.equal((await table.runtimeBridges().at(-1).call('table.capsule',{campaign:'test-camp'})).where.scene,'Ordinary Inn');
+ assert.equal(table.telemetry().filter(row=>row.lane==='turn-packet-prototype'&&row.ok===true).length,1,'the empty packet never publishes a false arrival');
+ const written=table.telemetry().find(row=>row.lane==='isolated-expression'&&row.event==='written');
+ const task=JSON.parse(readFileSync(join(written.attempt,'task.json'),'utf8'));
+ assert.equal(task.player_input,undefined,'the pure location author receives committed outcomes rather than unsettled intent');
+ assert.equal(task.decision_context.scene.location.position.place,'Ordinary Inn');
+});
+
 test('the non-strict Anthropic request retains the complete owned schema without claiming strict decoding',()=>{
  const other={name:'look',input_schema:{type:'object',properties:{}}};
  const payload={model:'MiniMax-M3.1-Flash-Preview',thinking:{type:'adaptive'},output_config:{effort:'medium'},

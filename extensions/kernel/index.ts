@@ -18,6 +18,7 @@ import {scenePopulationRequired,sceneAssessmentExpiredDuringActivity} from '../.
 import {ExpressionPlanStream,writeIsolatedExpression,decisionScene,decisionClock,decisionRecentPublic,decisionResponseScope} from '../../runtime/isolated-expression.ts';
 import {turnPacket,bindTurnPacketMoves,turnPacketMovementChoices,requireTurnPacketNpcDestinations,isNewNpcSlot,normalizeTurnPacketArguments,compileTurnPacket,turnPacketResult,turnPacketProviderPayload,TURN_PACKET_PARAMETERS,TURN_PACKET_GUIDANCE,type TurnPacket} from '../../runtime/turn-packet-prototype.ts';
 import {normalizeToolArgumentSyntax} from '../../runtime/tool-argument-syntax.ts';
+import {locationDecisionCoverage} from '../table/location-relevance.ts';
 import {normalizeApplyArguments} from '../../shared/apply-protocol.ts';
 import {owedConsentPlan} from './owed-consent.ts';
 import {continuousConsentDisposition,CONTINUOUS_CONSENT_MIN} from '../../runtime/jev/continuous-consent.ts';
@@ -399,6 +400,7 @@ interface ForcedPlayerChoiceCue {
 interface TableState {
     /** Location detail is read on demand, for this input only. */
     locationContextTurn?:number;
+    locationReviewTurn?:number;
   /** §163: a scope Jev could not settle plays as `world`; only a settled out-of-fiction request is `reference`. */
   interactionScope?: 'world' | 'reference';
   /** §233.10: `world` came from a settled verdict (Jev authorized a world action, or a document edit), not a fallback. */
@@ -1521,6 +1523,7 @@ export default function (pi: ExtensionAPI, host: {capabilities?:RuntimeCapabilit
 	let singleKeeper=false;
 	let turnDecisionPort:DecisionPort|undefined;
 	pi.events.on('coc:turn-decision-port',(value:DecisionPort|undefined)=>{turnDecisionPort=value&&typeof value.decide==='function'?value:undefined;});
+    pi.events.on('coc:location-demand',(value:{campaign?:string;turn?:number;review?:boolean})=>{if(table&&value.campaign===table.campaign&&value.turn===table.turn){table.locationContextTurn=table.turn;if(value.review===true)table.locationReviewTurn=table.turn;}});
 	let isolatedOutput=false;
 	let turnPacketPrototype=false;
 	let keeperRun:{runId:string;inputRevision:string;signal?:AbortSignal;recordCallId?:string;
@@ -5709,6 +5712,7 @@ export default function (pi: ExtensionAPI, host: {capabilities?:RuntimeCapabilit
 		reply:NonNullable<typeof keeperReply>,ctx?:ExtensionContext){
 		let operationResult:ReturnType<typeof turnPacketResult>={player_actions_complete:true,npc_actions_complete:true,outcomes:[]};
 		let decision:import('../../runtime/isolated-expression.ts').DecisionAuthorContext|undefined;
+        let placeBoundAuthor=false;
         const heldBoundary=heldActs.get(state),held=heldBoundary?.basis;
 		if(held&&(!turnPacketPrototype||heldBoundary?.uncommittedFailures()===undefined)){
 			endInput(state,'held_act_unconfirmed',undefined,'settled_operation');
@@ -5718,12 +5722,26 @@ export default function (pi: ExtensionAPI, host: {capabilities?:RuntimeCapabilit
 			const packet=expression as TurnPacket,compiled=compileTurnPacket(packet);
             const newcomers=(packet.commands??[]).filter((row):row is Extract<NonNullable<TurnPacket['commands']>[number],{kind:'walk_on'}>=>row.kind==='walk_on');
             const before=await state.kernel.call<Record<string,any>>('table.capsule',{campaign:state.campaign,_context_read:true});
-            if((scenePopulationRequired(before)||compiled.effects.some(row=>row.kind==='move'))&&!compiled.effects.some(row=>row.kind==='scene'))throw new KernelError({code:'needs',message:'Assess scene service and population from the current place and clock with one scene command; missing registered names never means empty.'});
+            placeBoundAuthor=!!before.mods?.location_context&&(state.locationReviewTurn===state.turn||compiled.effects.some(effect=>effect.kind==='place'));
+            if(state.locationReviewTurn===state.turn&&state.interactionScope!=='reference'){
+                const status=await state.kernel.call<{receipts:Record<string,unknown>[]}>('table.status',{campaign:state.campaign,projection:'receipts',expected_turn:state.turn});
+                const receipts=status.receipts.map(receipt=>Object.fromEntries(['kind','action','from','to','position','feature','before','after'].filter(key=>receipt[key]!==undefined).map(key=>[key,receipt[key]])));
+                const coverage=await locationDecisionCoverage({player_declaration:state.playerText,current_place:before.where?.scene,current_position:before.where?.location?.position,
+                    features:before.where?.location?.features??[],proposed_effects:compiled.effects,proposed_responses:compiled.responses,settled_receipts:receipts,known_failures:heldBoundary?.uncommittedFailures()??[]},
+                    {campaign:state.campaign,turn:state.turn},turnDecisionPort,reply.signal??state.lanes.signal,foregroundProviderBudget?.());
+                await record({lane:'location-decision-coverage',turn:state.turn,...coverage});
+                if(!coverage.covered)throw new KernelError({code:'invalid_params',message:coverage.status==='answered'?'The selected spatial action is not accounted for by this decision':'The spatial decision completion could not be verified',
+                    fix:'Preserve the player declaration and successful receipts. Use the current_position below rather than an earlier narrated pose. For a local approach submit {kind:"place",action:"move",to:"here",at:"exact registered feature",relation:"beside"}; add only a missing compatible feature if needed. An NPC move, time/glance or registration alone does not move the investigator. A real obstacle or necessary open choice can stop an attempt. Do not narrate an arrival without its committed move.',
+                    details:{reason:'place_decision_incomplete',cause:coverage.reason??'place_decision_incomplete',transaction_state:'uncommitted',before_execution:true,current_place:before.where?.scene,current_position:before.where?.location?.position??null,
+                        known_features:(before.where?.location?.features??[]).map((feature:Record<string,unknown>)=>feature.name),...(coverage.axes?{axes:coverage.axes}:{})}});
+            }
+            const newlyMoving=compiled.effects.some(effect=>effect.kind==='move'||effect.kind==='place'&&effect.action==='move'&&effect.to!=='here'&&effect.to!==before.where?.scene);
+            if((scenePopulationRequired(before)||newlyMoving)&&!compiled.effects.some(row=>row.kind==='scene'))throw new KernelError({code:'needs',message:'Assess scene service and population from the current place and clock with one scene command; missing registered names never means empty.'});
             packetNpcReferences(state).require(packetNpcScope(state),[...compiled.responses.flatMap(row=>[row.actor,...row.to??[]]).filter(isNpcReference),
                 ...compiled.effects.filter(row=>row.kind==='npc'&&!row.walk_on).map(row=>String(row.name)),
                 ...(compiled.event?.relationships.flatMap(row=>[row.actor,row.toward]).filter(isNpcReference)??[])]);
             if(keeperRun?.runId===reply.run&&keeperRun.routineResult){
-                if(compiled.effects.some(effect=>effect.kind==='move'||effect.kind==='time'))throw new KernelError({code:'invalid_params',message:'The host already settled this input journey and its time; omit move and time commands'});
+                if(newlyMoving||compiled.effects.some(effect=>effect.kind==='time'))throw new KernelError({code:'invalid_params',message:'The host already settled this input journey and its time; omit repeated journeys and time commands'});
             }
 			// Resolve speakers before any writes; optional style is not an identity fallback.
 			const participantRefs=[...new Set(compiled.responses.flatMap(response=>[response.actor,...response.to??[]]).filter(isNpcReference))];
@@ -5796,7 +5814,7 @@ export default function (pi: ExtensionAPI, host: {capabilities?:RuntimeCapabilit
             operationResult=turnPacketResult(reply.stream.settledResults);
         }
 		const authored=await writeIsolatedExpression({runtime,campaign:state.campaign,turn:state.turn,run:reply.run,
-			brief:legacy,decision,...(decision?{result:operationResult}:{}),language:state.playLanguage||'en',playerText:reply.stream.playerText,investigatorNames:reply.stream.investigatorNames,
+			brief:legacy,decision,...(decision?{result:operationResult}:{}),language:state.playLanguage||'en',playerText:placeBoundAuthor?undefined:reply.stream.playerText,investigatorNames:reply.stream.investigatorNames,
 			signal:reply.signal,stream:reply.stream,record});
 		return authored;
 	}
@@ -6970,6 +6988,10 @@ export default function (pi: ExtensionAPI, host: {capabilities?:RuntimeCapabilit
 			prepareArguments: (args: unknown) => {
 				const supplied=spec.name==='apply'?normalizeApplyArguments(args):args;
 				const normalized=turnPacketPrototype&&spec.name==='output'?normalizeTurnPacketArguments(supplied):normalizeToolArgumentSyntax(spec.parameters,supplied,{nativeValidation:true});
+                if(table&&(spec.name==='place'||spec.name==='output'&&Array.isArray((normalized.args as Record<string,unknown>)?.commands)&&((normalized.args as Record<string,unknown>).commands as Record<string,unknown>[]).some(command=>command?.kind==='place'))){
+                    table.locationContextTurn=table.turn;
+                    pi.events.emit('coc:location-demand',{campaign:table.campaign,turn:table.turn});
+                }
 				if(normalized.repairs)void record({lane:'arguments',event:'decision_array_normalized',tool:spec.name,repairs:normalized.repairs});
 				if(normalized.integerRepairs)void record({lane:'arguments',event:'decision_integer_normalized',tool:spec.name,repairs:normalized.integerRepairs});
 				if(normalized.booleanRepairs)void record({lane:'arguments',event:'decision_boolean_normalized',tool:spec.name,repairs:normalized.booleanRepairs});

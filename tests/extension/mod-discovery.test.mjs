@@ -47,6 +47,18 @@ test('unavailable selection supplies the complete locked view with an explicit f
     assert.deepEqual(reads,[['test@2.0.0#0','test@2.0.0#1']]);
     controller.clear();
 });
+test('new context demand invalidates selection without pretending a mutation occurred',async()=>{
+    const reads=[],state=capsule(),turnCalls=calls();
+    state.mods.instructions[0].sections[0].triggers=['before_apply:place'];
+    const controller=createModDiscovery({read:read(reads),record:()=>{},mode:()=> 'selective',
+        decision:()=>({decide:async batch=>({batchId:batch.id,status:'complete',answers:Object.fromEntries(batch.questions.map(q=>[q.key,{status:'answered',type:'noul',noul:.01}]))})})});
+    assert.equal(await controller.message(state,binding,new AbortController().signal,turnCalls),undefined);
+    turnCalls.context=new Set(['place']);
+    const message=await controller.message(state,binding,new AbortController().signal,turnCalls);
+    assert.deepEqual(message.details.mod_sections.keys,['test@2.0.0#0']);
+    assert.equal(turnCalls.apply.size,0);assert.deepEqual(reads,[['test@2.0.0#0']]);
+    controller.clear();
+});
 test('an oversized complete view reports capacity rather than delivering a truncated selection',async()=>{
     const controller=createModDiscovery({read:read([]),record:()=>{},mode:()=> 'full',decision:()=>undefined,maxBytes:10});
     await assert.rejects(controller.message(capsule(),binding,new AbortController().signal,calls()),/mod_discovery_capacity/);

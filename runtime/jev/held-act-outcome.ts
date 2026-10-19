@@ -82,7 +82,7 @@ export class HeldActOutcome {
   /** Known atomic refusals are results, never completed effects or authority to retry them. */
   uncommittedFailures():Array<{tool:string;status:'uncommitted';reason:string}>|undefined {
     if(!this.basis)return [];
-    const causes=['invalid_params','action_not_authorized','action_admission_uncertain','admission_unavailable'];
+    const causes=['invalid_params','action_not_authorized','action_admission_uncertain','admission_unavailable','place_barrier'];
     if(this.basis.complete!==true||this.basis.held.some(row=>!causes.includes(row.cause)))return;
     return this.basis.held.map(row=>({tool:row.tool,status:'uncommitted',reason:row.cause}));
   }
