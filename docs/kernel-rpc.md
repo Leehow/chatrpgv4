@@ -48538,6 +48538,10 @@ bind both the provider output schema and execution. A prepared destination must
 not be advertised for movement but rejected as an unknown communication target.
 Unregistered descriptive waypoints/topics are not entity references. Invalid
 bindings remain errors; the host never silently removes them to commit a subset.
+Within that vocabulary, a communication subject is a person; visit/whereabouts
+destinations and route waypoints are places. Membership in a combined reference
+set never grants these incompatible roles. The producer supplies those roles;
+both schema binding and execution consume them without semantic classification.
 
 The host supplies selected fragments, public identity projections, actual
 outcomes and current scene/clock to the sole author once. Direct plain-text SSE,

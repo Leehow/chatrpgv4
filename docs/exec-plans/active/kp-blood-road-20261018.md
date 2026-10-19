@@ -794,3 +794,29 @@ movement/dialogue/relationship cases pass after this change. The owned c27
 all invocation was interrupted through its signal/retention path before rebuild;
 do not count it as complete. Validate the fresh runtime naturally before
 starting another full suite. No new model or semantic word-list classification.
+
+### Live C and browser role binding (2026-10-19)
+
+8b78104bf completed four natural MiniMax3.1/medium intents in86.942s, five KP
+requests, four author requests and four output submissions, no foreground source
+retrieval. The second KP request on directions followed a thinking-only provider
+completion. Canonical state records exactly one move, no duplicate payment and
+no loss of spare film. NPC inquiry selected an existing actor report. Catalog
+reuse was17/21 then20/21 references; crossing scene retired the old cast.
+This is one descriptive sample, not a guaranteed performance improvement.
+
+Canonical App was signed/rebuilt from8b and reopened, but it restored the old
+Canonical App validation failure-injection session. The displayed ENOTDIR was
+matched through native Computer Use to the retained test session-binding and
+verification records: expression-writes was deliberately a file during that
+test, then restored. Do not claim that old failure screen verifies normal v4
+play. Preserve its evidence and actually test a fresh normal App session.
+
+Owned browser inputs85/86 visibly streamed growing text.86 also selected the
+player as a whereabouts destination: the combined reference registry lacked
+role checks. Add a separate producer-owned place set and bind it in both schema
+and execution, retaining existing claim constructors. The red reproduction and
+core/seam23 cases now pass, as do four targeted real-host cases. Commit this
+follow-up and test the resulting runtime. Concurrent DeepSeek/UI edits remain
+other-owner changes. LAN all run.V7DsHnmw is still live on8b (integration phase);
+do not restart it or attribute its result to the newer role fix.

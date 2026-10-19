@@ -105,3 +105,12 @@ test('prepared place and operation references share one issuance vocabulary with
  const wrongAudience={...packet,interactions:[{...packet.interactions[0],to:['Marathon Cafe']}]};assert.ok(Errors(schema,wrongAudience).length);
  assert.ok(Errors(schema,{version:4,reveal:[{source_ref:'unissued source'}]}).length);
 });
+test('a communication audience cannot be mistaken for a location or a route waypoint',()=>{
+ const owner=new DecisionContent();owner.prepare('c:1',capsule,[],[],['Investigator']);
+ const schema=turnPacketProviderPayload({tools:[{name:'output',input_schema:{}}]},false,true,undefined,undefined,false,owner.bindings()).tools[0].input_schema;
+ for(const claim of [{predicate:'whereabouts',actor:'npc_1',to:'investigator_1',when:'habitual'},{predicate:'planned_visit',actor:'npc_1',to:'npc_2',when:{day_offset:1,hour:12,minute:0}},{predicate:'directions',to:'Library',via:['investigator_1']}]){
+  assert.throws(()=>owner.resolve({new:claim},'npc_1'),/place/);
+  assert.ok(Errors(schema,{version:4,interactions:[{actor:'npc_1',to:['investigator_1'],act:'answer',content:[{new:claim}]}]}).length);
+ }
+ assert.throws(()=>owner.resolve({new:{predicate:'whereabouts',actor:'Library',to:'Library',when:'now'}},'npc_1'),/person/);
+});

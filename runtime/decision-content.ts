@@ -28,7 +28,7 @@ export const Interaction=Type.Union([
 ]);
 export type InteractionDecision=Static<typeof Interaction>;
 export type HydratedInteraction=InteractionDecision&{claims?:Row[]};
-export interface DecisionBindings {entities:string[];people:string[];facts:string[];sources:string[]}
+export interface DecisionBindings {entities:string[];people:string[];places:string[];facts:string[];sources:string[]}
 /** Prepared schemas and execution use the same issued reference vocabulary. */
 export function bindCommunicationParameters(schema:TSchema,bindings:DecisionBindings):TSchema {
  const result=structuredClone(schema) as Row;
@@ -36,8 +36,11 @@ export function bindCommunicationParameters(schema:TSchema,bindings:DecisionBind
  const visit=(value:unknown)=>{
   if(!value||typeof value!=='object')return;
   if(Array.isArray(value)){value.forEach(visit);return;}const row=value as Row,p=row.properties;
-  if(p?.predicate){for(const key of ['provider','actor','to','topic'])if(p[key])p[key]=selection(bindings.entities,true);
-   for(const key of ['items','via'])if(p[key])p[key].items=selection(bindings.entities,true);
+  if(p?.predicate){for(const key of ['provider','topic'])if(p[key])p[key]=selection(bindings.entities,true);
+   if(p.actor)p.actor=selection(bindings.people,true);
+   if(p.to)p.to=selection(bindings.places);
+   if(p.items)p.items.items=selection(bindings.entities,true);
+   if(p.via)p.via.items=selection(bindings.places);
   }else if(p?.actor&&p?.act){p.actor=selection(bindings.people.filter(isNpcReference),true);if(p.to)p.to.items=selection(bindings.people,true);}
   if(p?.fact_ref)p.fact_ref=selection(bindings.facts);
   if(p?.source_ref)p.source_ref=selection(bindings.sources);
@@ -66,13 +69,14 @@ export class DecisionContent {
  private scope='';private ordinal=0;private aliases=new Map<string,string>();
  private facts=new Map<string,Fact>();private active=new Set<string>();private entities=new Set<string>();
  private people=new Set<string>();private listenerAliases=new Map<string,string|null>();
+ private places=new Set<string>();
  private entityLabels=new Map<string,string>();
  private reads=new Map<string,Row>();private sourceRevision:unknown;private bytes=0;private omitted=0;private previous=new Set<string>();
  assertCurrent(capsule:Row):void {if(this.sourceRevision!==undefined&&this.sourceRevision!==(capsule._context?.task_source_revision??capsule._context?.source_revision))throw Error('Prepared communication source revision changed');}
- forScope(scope:string):void {if(scope!==this.scope){this.scope=scope;this.active.clear();this.entities.clear();this.reads.clear();this.facts.clear();}}
+ forScope(scope:string):void {if(scope!==this.scope){this.scope=scope;this.active.clear();this.entities.clear();this.people.clear();this.places.clear();this.listenerAliases.clear();this.entityLabels.clear();this.reads.clear();this.facts.clear();}}
  observePerson(value:Row):void {if(isNpcReference(value.ref))this.reads.set(value.ref,structuredClone(value));}
  prepare(scope:string,capsule:Row,people:Row[],sources:Row[]=[],investigators:string[]=[],issuedPeople:string[]=[],prepared:Row[]=[]):Row {
-  this.forScope(scope);this.active.clear();this.entities.clear();this.people.clear();this.listenerAliases.clear();this.entityLabels.clear();this.bytes=0;this.omitted=0;this.sourceRevision=capsule._context?.task_source_revision??capsule._context?.source_revision;
+  this.forScope(scope);this.active.clear();this.entities.clear();this.people.clear();this.places.clear();this.listenerAliases.clear();this.entityLabels.clear();this.bytes=0;this.omitted=0;this.sourceRevision=capsule._context?.task_source_revision??capsule._context?.source_revision;
   for(const [i,name] of investigators.entries()){
    const ref=`investigator_${i+1}`;this.entities.add(ref);this.people.add(ref);this.listenerAlias(name,ref);this.entityLabels.set(ref,name);
    const known=capsule.known?.investigator;
@@ -84,7 +88,7 @@ export class DecisionContent {
    this.entities.add(person.ref);this.people.add(person.ref);
    if(typeof person.display_name==='string'){this.listenerAlias(person.display_name,person.ref);this.entityLabels.set(person.ref,person.display_name);}
   }
-  for(const key of ['scene'])if(typeof capsule.where?.[key]==='string')this.entities.add(capsule.where[key]);
+  for(const key of ['scene'])if(typeof capsule.where?.[key]==='string'){this.entities.add(capsule.where[key]);this.places.add(capsule.where[key]);}
   if(typeof capsule.where?.display_name==='string')this.entityLabels.set(capsule.where.scene,capsule.where.display_name);
   const visit=(value:unknown)=>{if(!value||typeof value!=='object')return;
    if(Array.isArray(value)){value.forEach(visit);return;}const row=value as Row;
@@ -92,8 +96,9 @@ export class DecisionContent {
    const id=row.to??row.ref??row.id??row.handle??row.name;
    if(typeof id==='string'&&typeof row.display_name==='string')this.entityLabels.set(id,row.display_name);
   };
-  visit(capsule.where?.exits);visit(capsule.where?.back);visit(capsule.where?.places);visit(capsule.exits);visit(capsule.nearby);visit(capsule.objects);visit(capsule.inventory);
-  for(const candidate of prepared)visit(candidate.operation?.effects);
+  const visitPlaces=(values:unknown)=>{visit(values);for(const row of rows(values)){const ref=row.to??row.ref??row.id??row.name;if(typeof ref==='string')this.places.add(ref);}};
+  visitPlaces(capsule.where?.exits);visitPlaces(capsule.where?.back);visitPlaces(capsule.where?.places);visitPlaces(capsule.exits);visit(capsule.nearby);visit(capsule.objects);visit(capsule.inventory);
+  for(const candidate of prepared){visit(candidate.operation?.effects);visitPlaces(rows(candidate.operation?.effects).filter(effect=>effect.kind==='move'));}
   for(const section of Object.values(capsule.known??{}))visit(section);
   for(const person of cast){
    if(!isNpcReference(person.ref))continue;
@@ -122,7 +127,7 @@ export class DecisionContent {
   this.facts.set(ref,{ref,...(actor?{actor}:{}),kind:evidence,value:structuredClone(value),revision:identity});this.active.add(ref);
  }
  addEntities(values:readonly string[]):void {for(const value of values)this.entities.add(value);}
- bindings():DecisionBindings {return {entities:[...this.entities],people:[...this.people],facts:[...this.active].filter(ref=>ref.startsWith('fact_')),sources:[...this.active].filter(ref=>ref.startsWith('source_'))};}
+ bindings():DecisionBindings {return {entities:[...this.entities],people:[...this.people],places:[...this.places],facts:[...this.active].filter(ref=>ref.startsWith('fact_')),sources:[...this.active].filter(ref=>ref.startsWith('source_'))};}
  private listenerAlias(value:string,ref:string):void {
   const key=value.normalize('NFKC').trim().toLowerCase(),prior=this.listenerAliases.get(key);
   this.listenerAliases.set(key,prior!==undefined&&prior!==ref?null:ref);
@@ -133,6 +138,9 @@ export class DecisionContent {
   if(selected.result_ref)return {kind:'canonical_result',field:selected.result_ref,authority:'Use the actual post-settlement scene, clock or outcomes from the host; this reference does not assert success'};
   if(selected.new){
    const fact=selected.new;
+   if(typeof fact.actor==='string'&&!this.people.has(fact.actor)&&!/^new_[1-4]$/.test(fact.actor))throw Error('A communication subject must select an issued person reference');
+   if(typeof fact.to==='string'&&!this.places.has(fact.to))throw Error('A communication destination must select an issued place reference');
+   for(const place of fact.via??[])if(!this.places.has(place))throw Error('A communication waypoint must select an issued place reference');
    for(const key of ['provider','actor','to','topic'])if(typeof fact[key]==='string'&&!this.entities.has(fact[key]))throw Error(`New communication content ${key} must select an issued entity reference`);
    for(const item of [...fact.items??[],...fact.via??[]])if(!this.entities.has(item))throw Error('New communication content uses an unissued item or waypoint reference');
    const refs=[fact.provider,fact.actor,fact.to,fact.topic,...fact.items??[],...fact.via??[]].filter((value):value is string=>typeof value==='string');

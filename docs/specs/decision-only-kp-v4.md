@@ -252,3 +252,29 @@ role-specific selections into the provider schema as well as local execution.
 The schema no longer advertises an arbitrary string waypoint as a reference.
 This adds no judgment, silently discarded argument or automatic world action.
 The interrupted c27 full-suite invocation is retained; it is not a completed run.
+
+Live C (8b78104bf, MiniMax3.1/medium) completed four consecutive player intents:
+confirmation16.139s, stationary directions23.322s, movement/greeting25.067s,
+and NPC inquiry22.414s. Total86.942s, five KP requests, four author requests,
+four output submissions and no foreground retrieval. The extra KP request was
+a provider thinking-only completion, not a tool refusal. Only the movement
+changed scene/clock; the paid service was not charged again and the spare film
+remained player-owned. The final inquiry selected an existing exact NPC report.
+All four new background jobs finished; four inherited pending jobs remain.
+
+The same-start historical v3 sample took133.823s with seven KP requests and six
+tool submissions. The observed difference is35.0%, not a controlled causal or
+statistical result. Dynamic reference enums also changed the tool prefix: most
+C requests reported only128 cache-read tokens. Catalog reuse is not proof of
+provider cache reuse. Recorded foreground admission contains one Jev call on
+the move; the experimental HTTP observer missed it, so total HTTP counts are
+unknown rather than zero.
+
+Browser inputs85/86 on8b verified visible incremental author text, but86 exposed
+a typed-reference defect: a whereabouts destination accepted investigator_1.
+The source role producer now separates people and places; both the provider
+schema and host binding require people for subjects and places for destinations
+and waypoints. The reproduction failed before the fix and passes after it.
+This preserves the existing constructors, exact material and transaction paths;
+it adds neither semantic name classification nor a judgment model. A fresh
+runtime/live validation is still required for this follow-up.
