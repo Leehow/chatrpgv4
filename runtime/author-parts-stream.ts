@@ -12,8 +12,10 @@ export class AuthorPartsStream {
   const path=[...frame.path,frame.kind==='array'?frame.index++:frame.key!];frame.phase='comma';return path;
  }
  private isText(path:(string|number)[]):boolean {
-  const names=path.filter(part=>typeof part==='string'&&part!=='item');
-  return names.length===2&&names[0]==='parts'&&names[1]==='text'&&path.filter(part=>part==='item').length<=4;
+  if(path[0]!=='parts'||path.at(-1)!=='text')return false;
+  let at=1;while(path[at]==='item'&&at<=4)at++;
+  if(typeof path[at]==='number')at++;
+  return at===path.length-1;
  }
  push(chunk:string):string {
   this.bytes+=Buffer.byteLength(chunk);if(this.bytes>128000)throw Error('Final artifact exceeds its transport budget');

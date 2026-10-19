@@ -22,6 +22,9 @@ test('incremental author argument decoding preserves escape boundaries and expos
   }
   const stream=new AuthorPartsStream();assert.equal([...wire].map(char=>stream.push(char)).join(''),text);
  }
+ for(const parts of [[{private:{text:'PRIVATE_BODY'}}],[{item:{text:'PRIVATE_BODY'}}],[[{text:'PRIVATE_BODY'}]]]){
+  const stream=new AuthorPartsStream();assert.equal(stream.push(JSON.stringify({parts})), '');
+ }
 });
 
 test('native author write arguments expose actual text deltas before the write completes',async t=>{
