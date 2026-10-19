@@ -333,3 +333,13 @@ entry. Its requests-started scenario now awaits both captured provider signals
 before shutdown; abort/nonblocking/no-late-submit assertions are unchanged.
 Original failure and a pre-change passing reproduction are retained;17/17cases
 pass with the actual request barrier. These are test-only repairs.
+
+Full native integration2227cases:2224pass,2fail,1skip; routing12pass.
+The loss diagnostic exact-shape assertion predates the approved uncommitted
+transaction marker; it now asserts that marker separately and preserves the
+original four loss fields exactly. The other red exposed a real ordering
+regression: shared place-envelope validation hid the established within_not_a_place
+reason for an empty container. stageMove now lets the existing containing-place
+validator own its field before the shared envelope validator; both reject
+before writes. This preserves §§187.2.1/204.3 rather than loosening the schema.
+No new model, prompt, parsing heuristic or source material.

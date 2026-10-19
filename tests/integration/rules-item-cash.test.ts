@@ -107,7 +107,11 @@ export async function test_loss_needs_the_item_on_the_sheet_and_takes_the_weapon
 let missing:any,lost:any,receipt:any,too_many:any,gone:any,after:any,narrated:any;
 (await open_turn(kernel));
 missing=(await pyMethod(kernel,"table_err",["apply"],{"call_id":"t1-c1","effects":[({["kind"]:"item",["name"]:"lantern",["quantity"]:(-1)})]}));
-assert.ok(pyBool((await (async()=>{const __left=pyEqual(pyAt(missing,"code"),"invalid_params");return pyBool(__left)?pyEqual(pyAt(missing,"details"),({["index"]:0,["name"]:"lantern",["held"]:0,["quantity"]:(-1)})):__left;})())),"tests/kernel/test_apply_item_cash.py:137 assert missing[\"code\"] == \"invalid_params\" and missing[\"details\"] == {\"index\": 0, \"name\": \"lantern\", \"held\": 0, \"quantity\": -1}");
+// Loss diagnostics retain the original fields plus the staged transaction boundary.
+assert.equal(missing.code,'invalid_params');
+const {transaction_state:transactionState,...lossDetails}=missing.details;
+assert.equal(transactionState,'uncommitted');
+assert.deepEqual(lossDetails,{index:0,name:'lantern',held:0,quantity:-1});
 (await pyMethod(kernel,"table",["apply"],{"call_id":"t1-c1","effects":[({["kind"]:"item",["name"]:"shotgun shells",["quantity"]:6})]}));
 lost=(await pyMethod(kernel,"table",["apply"],{"call_id":"t1-c2","effects":[({["kind"]:"item",["name"]:"shotgun shells",["quantity"]:(-2),["why"]:"打空两发"})]}));
 assert.ok(pyBool(pyEqual(pyAt(lost,"receipts"),["item:shotgun-shells-t1-c2"])),"tests/kernel/test_apply_item_cash.py:141 assert lost[\"receipts\"] == [\"item:shotgun-shells-t1-c2\"]");
