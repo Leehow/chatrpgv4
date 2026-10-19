@@ -316,3 +316,10 @@ shape, asserts exact npc_reunion_not_due plus the original no-judgment,
 bookkeeping-scope and delivered-result invariants.1/1target passes. Shared
 shape extra-field negatives remain separately covered. No production changes
 for these test repairs; old full-run failure evidence is not rewritten.
+
+A third obsolete assertion expected a second review when only invalid NPC
+bookkeeping changed around the exact same15-minute wait. The approved action-
+scoped cache intentionally reuses that decision. The1-minute then15-minute
+variant still requires2reviews. All3inline recovery cases pass after aligning
+this expectation; no-replay, first-public receipt, clock and failure-preservation
+assertions remain unchanged. Production source is still ff932831b.

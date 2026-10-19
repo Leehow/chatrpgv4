@@ -44,7 +44,7 @@ for(const [correct,prior] of [[true,false],[false,false],[false,true]])test(`a r
   }]});
  t.after(()=>table.dispose());await table.session.prompt('I stay here and wait fifteen minutes while Knott arranges the papers.');
  assert.deepEqual(table.extensionErrors,[]);assert.equal(requests,prior?3:2,JSON.stringify(table.telemetry().filter(row=>['keeper-delivery','admission'].includes(row.lane)).map(row=>({lane:row.lane,ok:row.ok,reason:row.reason,verdict:row.verdict}))));
- assert.equal(decisions,correct||prior?2:1,'changed proposals retain fresh existing consent review');
+ assert.equal(decisions,prior?2:1,'bookkeeping correction reuses the selected wait; a different duration retains fresh consent review');
  const delivered=table.entries('coc-final-delivery').filter(row=>row.event==='delta').map(row=>row.delta).join('');
  assert.ok(!delivered.includes('REJECTED_INLINE_BODY'));
  const first=await firstPublic;assert.equal(first.receipts.filter(row=>row.kind==='time').length,correct||prior?1:0);
