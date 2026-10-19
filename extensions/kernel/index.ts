@@ -17,6 +17,7 @@ import {turnPacket,bindTurnPacketMoves,turnPacketMovementChoices,requireTurnPack
 import {normalizeToolArgumentSyntax} from '../../runtime/tool-argument-syntax.ts';
 import {continuousConsentDisposition} from '../../runtime/jev/continuous-consent.ts';
 import {NpcReferences,isNpcReference} from '../../runtime/npc-references.ts';
+import {publicDialogue,type PublicDialogueLine} from '../../shared/public-dialogue.ts';
 import {documentEditInput} from '../../runtime/document-edit-input.ts';
 import {DocumentReadCoverage} from './document-read-coverage.ts';
 import {openingInformationShape} from '../../runtime/opening-information.ts';
@@ -733,8 +734,8 @@ interface TableState {
 	 * Earlier deliveries as the player saw them (the last four), the review's player-visible
 	 * context. After a restart the host has none, and the capsule's `recent` heads stand in.
 	 */
-	delivered: Array<{ turn: number | string; player?: string | null; keeper: string }>;
-	recent: Array<{ turn: number | string; player?: string | null; keeper: string }>;
+	delivered: Array<{ turn: number | string; player?: string | null; keeper: string; speech?:PublicDialogueLine[] }>;
+	recent: Array<{ turn: number | string; player?: string | null; keeper: string; speech?:PublicDialogueLine[] }>;
 	/** Verdicts by proposal key (contract §32.4): valid for this turn only, cleared with the next player input. */
 	admission: Map<string, AdmissionVerdict>;
 	/**
@@ -2663,7 +2664,7 @@ export default function (pi: ExtensionAPI, host: {capabilities?:RuntimeCapabilit
 				const keeper = asString(entry?.keeper);
 				if (!keeper) return [];
 				const turn = typeof entry?.turn === "number" ? entry.turn : asString(entry?.turn) ?? "?";
-				return [{ turn, player: asString(entry?.player) ?? null, keeper }];
+				return [{ turn, player: asString(entry?.player) ?? null, keeper, speech:publicDialogue(entry?.speech) }];
 			});
 		}
 	}
@@ -2954,7 +2955,7 @@ export default function (pi: ExtensionAPI, host: {capabilities?:RuntimeCapabilit
 		const keeper = asString(result.rendered_text);
 		if (!keeper) return;
 		const turn = typeof result.turn === "number" ? result.turn : state.turn;
-		state.delivered.push({ turn, player: state.playerText ?? null, keeper });
+		state.delivered.push({ turn, player: state.playerText ?? null, keeper, speech:publicDialogue(result.speech) });
 		while (state.delivered.length > 4) state.delivered.shift();
 	}
 

@@ -60,3 +60,9 @@ test('the real author task cannot recycle prior rendered actor identities and ph
  assert.deepEqual(task.decision_context.recent_public,[{turn:1,player:'I stay outside.'}]);
  assert.equal(task.decision_context.settled_results.outcomes[0].to,'Jack Miller');
 });
+
+test('public dialogue keeps actual attributed words and never falls back from an empty public name',async()=>{
+ const {publicDialogue}=await import('../../shared/public-dialogue.ts');
+ assert.deepEqual(publicDialogue([{who:{npc:'private-id',name:'SECRET',shown:'Clerk'},text:'The same receipt is valid.'},
+  {who:{name:'SECRET',shown:''},text:'Unresolved speaker.'},{text:'Unattributed narrative.'}]),[{speaker:'Clerk',text:'The same receipt is valid.'}]);
+});

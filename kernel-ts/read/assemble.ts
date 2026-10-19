@@ -1,6 +1,7 @@
 /** Assemble the existing capsule from read-only snapshots and validated content. */
 import { CampaignSnapshot, loadModule, type LoadedModule } from "./campaign.js";
 import {eventOutcome,eventScope,canonicalEvents,actorEventView} from '../turn-events.js';
+import {publicDialogue} from '../../shared/public-dialogue.js';
 import { DirectorGraph, TextGraph, Ontology } from "./content.js";
 import { RuleObservations } from "./rule-facts.js";
 import { SessionView } from "./session-view.js";
@@ -675,6 +676,7 @@ export async function buildCapsule(campaign: CampaignSnapshot, module: LoadedMod
             turn: record.turn,
             player: record.player_text ?? null,
             keeper: chars(record.rendered_text || "", 200),
+            ...(publicDialogue(record.speech).length?{speech:publicDialogue(record.speech)}:{}),
             ...(record.closed_by === "stranded"
                 ? { closed: "stranded", receipts: array(record.receipts).length }
                 : record.closed_how ? { closed: record.closed_how, receipts: array(record.receipts).length } : {})

@@ -104,7 +104,7 @@ async function cashReview(probabilities,playerText='I accept the actual 47 USD d
 test('typed cash approval produces the exact preview limit in the same batch',async()=>{
     const {review,batches,calls,context:actual}=await cashReview({cash_input_0:.99,cash_offer_0_0:.01});
     assert.equal(review.ok,true);assert.equal(calls,1);
-    assert.equal(batches[0].familyVersion,'5');
+    assert.equal(batches[0].familyVersion,'6');
     assert.deepEqual(review.verdict.cash_limits,[{index:0,amount:'47',basis:'input',evidence:actual.playerText}]);
     assert.equal(admission.boundCashAuthority(cashProposal,actual,review.verdict).verdict,'authorized');
 });
@@ -151,4 +151,16 @@ test('registered journey consent retains committed public history only as bounde
  assert.deepEqual(seen.state.previous_public,[{turn:0,player:'I came from the Central Library.',keeper:'UNRELATED_AUTHOR_RULE: payments first.'}]);
  assert.equal(seen.state.proposal.lines[0].registered_destination.label,'Central Library');
  assert.equal(seen.questions.length,2);assert.equal(chosen.calls(),1);
+});
+
+test('ordinary object consent sees prior public speech and player references without authored physical replay',async()=>{
+ const selected=options();let seen;
+ const payload={effects:[{kind:'object',name:'Photographed roll',from:'Thomas Hayes',to:'Clerk',handover:'given'}]};
+ const proposed=admission.admissionRequest('apply',payload,{party:['Thomas Hayes'],consentOnly:true});
+ await admission.reviewAdmissionJevOnly({...selected.value,proposal:proposed,context:{...context,playerText:'I give the photographed roll to the clerk.',
+  delivered:[{turn:0,player:'I ask about processing.',keeper:'OLD_AUTHOR_ACTION: puts the returned roll back in the pan.',speech:[{speaker:'Clerk',text:'The original payment covers processing.'}]}]},
+  decision:{decide:async(batch,lease)=>{seen=batch;return selected.value.decision.decide(batch,lease);}}});
+ assert.deepEqual(seen.state.previous_public,[{turn:0,player:'I ask about processing.',speech:[{speaker:'Clerk',text:'The original payment covers processing.'}]}]);
+ assert.ok(!JSON.stringify(seen.state).includes('OLD_AUTHOR_ACTION'));
+ assert.equal(seen.questions.length,2);assert.equal(selected.calls(),1);
 });

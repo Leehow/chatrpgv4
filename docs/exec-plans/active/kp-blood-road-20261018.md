@@ -488,3 +488,26 @@ Keeper bodies from both automatic author paths. Keeper/kernel history stays
 unchanged. A real task-capture regression is red before and green after this
 boundary; prompt constants remain byte-identical. This changes the old automatic
 recent-prose handoff contract explicitly instead of adding another warning.
+
+Live57-58 also failed before authorship (37s/53s). One malformed event-in-effects
+was rejected, then document-writing and explicitly selected roll transfers
+were refused/uncertain. A bounded3-call read-only public-state reconstruction
+kept questions/model/thresholds fixed: original .27/.57(selection/restriction),
+remove previous Keeper bodies .81/.30, remove unfinished input only .34/.59.
+It is not the retained exact wire and never establishes permission. The result
+supports the same rendered-history contamination at consent as at authorship.
+Preserve the original refusal; new inputs alone may seek new authority.
+
+For ordinary non-journey consent, retain prior player words and actual already-
+attributed speech, exclude old scene narrative bodies. Add bounded speaker/text
+projection from existing accepted speech rows to capsule.recent and the host's
+four-delivery window; empty public shown never falls back to a private name.
+Cash quotation bindings and registered-journey directional history retain their
+existing readers. Same two Noul questions per operation, no added judgment or
+RPC request. State family advances6; question text and .6/.4 gates unchanged.
+New request-capture regression red/green; focused22cases pass before version6.
+
+LAN focused c0f8c6685 finished exit0 in952s: extension4049pass/8skip across454
+files, native2222pass, routing12pass. This proves the earlier role/location/item
+projection revision; c2ef32527/0076ab312 and current consent delta need their own
+final validation. Do not attribute that immutable run to later code.

@@ -19,6 +19,7 @@
 
 import { createHash } from "node:crypto";
 import {decisionRecentPublic} from '../../runtime/public-exchanges.ts';
+import {publicDialogue,type PublicDialogueLine} from '../../shared/public-dialogue.ts';
 import {continuousConsentQuestions,continuousConsentLine,CONTINUOUS_CONSENT_MIN} from "../../runtime/jev/continuous-consent.ts";
 import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { runLane, type KeptReservation, type LaneReplyEvidence, type LaneResult, type LaneTransport } from "../lanes/subsession.ts";
@@ -598,7 +599,7 @@ export interface AdmissionContext {
 	scene?: string;
 	present: string[];
 	/** What the player has already been told, oldest first: the setup prologue, then earlier deliveries. */
-	delivered: Array<{ turn: number | string; player?: string | null; keeper: string }>;
+	delivered: Array<{ turn: number | string; player?: string | null; keeper: string; speech?:PublicDialogueLine[] }>;
 	/** What this turn has already settled through the kernel, in order. */
 	landed: string[];
 	/** Proposals already refused this turn, so a rewording is read as the same action. */
@@ -1275,7 +1276,7 @@ export async function reviewAdmissionJevOnly(options:PrimaryAdmissionReviewOptio
     {ok:true;verdict:AdmissionVerdict;ms:number;meta:Record<string,unknown>}
     |{ok:false;reason:string;ms:number;meta:Record<string,unknown>}> {
     const clock=options.clock??hostClock,began=clock.now(),context=options.context;
-    const family='continuous-action-admission',version='5';
+    const family='continuous-action-admission',version='6';
     let mechanicsChoice:{action:string;choice:{name:string;binds:string;options:string[];prompt?:string}}|undefined;
     let mechanicsInput=false,mechanicsBinding:string|undefined;
     try{
@@ -1309,7 +1310,8 @@ export async function reviewAdmissionJevOnly(options:PrimaryAdmissionReviewOptio
     const state={current_player_words:context.playerText,...(mechanicsChoice?{current_mechanics_choice:mechanicsChoice}:{}),
         ...(context.interruptedPlayerText?{unfinished_player_words:context.interruptedPlayerText}:{}),
         investigators:context.investigators.map(row=>row.name),scene:context.scene??null,present:context.present,
-        previous_public:knownJourneys?decisionRecentPublic(context.delivered):context.delivered.slice(-2).map(row=>({turn:row.turn,player:row.player??null,keeper:row.keeper})),
+        previous_public:knownJourneys?decisionRecentPublic(context.delivered):context.delivered.slice(-2).map(row=>({turn:row.turn,player:row.player??null,
+            ...(publicDialogue(row.speech).length?{speech:publicDialogue(row.speech)}:{})})),
         settled_this_turn:context.landed,
         ...(context.corrections?.length?{argument_corrections:context.corrections}:{}),
         proposal:{tool:options.proposal.tool,lines:(options.proposal.operations??options.proposal.lines).map(continuousConsentLine),...(options.proposal.kinds?{kinds:options.proposal.kinds}:{})},
@@ -1334,7 +1336,7 @@ export async function reviewAdmissionJevOnly(options:PrimaryAdmissionReviewOptio
     const outer=options.signal??new AbortController().signal;
     const signal=options.providerBudget?AbortSignal.any([outer,options.providerBudget.signal]):outer;
     let lease:TaskLease|undefined,accounting:ReturnType<typeof preparationBudget>|undefined;
-    const meta:Record<string,unknown>={typed_design:'continuous-consent-noul-v5',jev_calls:0};
+    const meta:Record<string,unknown>={typed_design:'continuous-consent-noul-v6',jev_calls:0};
     const failed=(reason:string)=>({ok:false as const,reason,ms:clock.now()-began,meta});
     try{
         if(!context.playerText.trim()||!batch.questions.length)return failed('no_consent_input');

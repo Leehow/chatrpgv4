@@ -48239,3 +48239,18 @@ intent, or automatically repeat past acts. This intentionally trades automatic
 prose continuity for one explicit selection owner; the existing Keeper can
 select a needed established fact through the ordinary event/material path.
 No prompt constant, extra model request or publication threshold changes.
+
+**Consent reads attributed dialogue, not prior authored scene bodies.** The
+bounded read-only comparison for browser64 reconstructs the public state: with
+unchanged questions/thresholds/model, selection .27/restriction .57 refuses;
+omitting previous Keeper bodies gives .81/.30; omitting only unfinished input
+still refuses at .34/.59. These are diagnostic results, never authority.
+For ordinary non-journey admission, previous_public now carries prior player
+words and bounded already-attributed public speech only. Existing accepted
+speech rows supply speaker/text through capsule.recent and the host delivered
+window. Do not extract speech from untagged prose or copy a private NPC name:
+use recorded shown when present, including an empty shown. Unknown dialogue is
+absent, not invented. Keep current words, unfinished words, actual settled
+results, cash quotation binding, Noul questions and thresholds unchanged.
+Registered journey reference history retains its existing directional-context
+path. No new RPC or judgment request is introduced; capsule byte bounds remain.
