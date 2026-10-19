@@ -101,7 +101,7 @@ export function turnPacketProviderPayload(payload:unknown,journeySettled=false,r
   });
   if(!changed)return payload;
   const parameters={journey_settled:journeySettled,scene_required:sceneRequired,
-    ...(timeBands?{time_bands:timeBands}:{}),...(moveChoices?{move_choices:moveChoices}:{}),
+    ...(timeBands?{time_bands:timeBands}:{}),...(moveChoices?{move_choices:moveChoices.filter(row=>row.kind==='move')}:{}),
     npc_destinations:turnPacketNpcDestinations(moveChoices),...(bindings?{references:bindings}:{})};
   const messages=[...payload.messages,{role:'user',content:[{type:'text',text:JSON.stringify({output_parameters:parameters})}]}];
   return {...payload,tools,messages,...(requireTool&&payload.model==='MiniMax-M3.1-Flash-Preview'?{tool_choice:{type:'auto'}}:{})};
