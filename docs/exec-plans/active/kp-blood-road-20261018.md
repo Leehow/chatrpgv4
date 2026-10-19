@@ -1,5 +1,32 @@
 # Keeper contracts and Blood Road browser acceptance
 
+## Author material quality follow-up, 2026-10-19
+
+Rendering-material wiring is committed through771fe8c62 and installed in the
+canonical stable-signed App. See docs/acceptance/author-scene-materials-20261019.md.
+Existing first sight, explicit place description, personality/current state/style
+and attributed participant dialogue now reach the sole direct-SSE author. General
+private summaries are not promoted into public scene history. No judgment model,
+prompt reminder or inference lane was added. A capacity regression uncovered by
+the added data is fixed: optional omission notices yield to complete original
+native results; mandatory missing-protocol notices retain their authority.
+
+Matched four driver intents:56.694s before versus57.585s after,4 versus5 KP calls,
+four authors each,zero retrieval. The extra final KP completion is thinking-only
+before existing tool recovery. Concrete scenery improves, but excess old dialogue
+and a clerk-pronoun drift remain; no universal speedup or fully natural prose is
+claimed. Final App entry/reunion/dialogue use23/12/14 UI seconds,4 KP/3authors.
+Real screenshots show the body growing before its final provider delta.
+
+Final focused checks pass130fast/119materials/34context/2capacity/1native output;
+related LAN integration12pass. Broadera6da evidence retains3extension failures,
+1integration failure and9skips. Three new failures are repaired and rerun; the
+remaining caption inventory failure also reproduces on before-changeaf211.
+No full final-build broad pass is claimed. All driver daemons are stopped. App
+771fe8 remains open and idle,121runtime files match,stable signing passes and
+staging is empty. Both owned verification checkouts are terminal and classified
+retained:verification_failed; source/evidence and concurrent location work stay.
+
 ## Current-state material boundary and cache follow-up, 2026-10-19
 
 Final source a8a6c14e6 is committed on0.9.8a and genuinely tested on MiniMax3.1/
