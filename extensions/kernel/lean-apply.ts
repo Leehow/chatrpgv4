@@ -20,6 +20,7 @@ import type { CocToolSpec } from "./tools.ts";
 import { SENTENCE_MAX } from "./tools.ts";
 import { readJevApiKey } from "../jev/agent/config.js";
 import {SAME_KEEPER_AFTER_RESULT_GUIDANCE} from '../../runtime/keeper-output-guidance.ts';
+import {TURN_PACKET_PARAMETERS,TURN_PACKET_GUIDANCE} from '../../runtime/turn-packet-prototype.ts';
 
 export const LEAN_APPLY_ENV = "PI_COC_LEAN_APPLY";
 
@@ -163,7 +164,9 @@ export function offeredTools(tools: readonly CocToolSpec[], env: Readonly<Record
         +(env.PI_COC_TURN_PACKET_PROTOTYPE==='1'?'':INTENT_APPLY_NOTE))
       :'Publish a required mechanical choice using its issued options and binding. '+(env.PI_COC_TURN_PACKET_PROTOTYPE==='1'?'Ordinary dialogue uses the native output packet and its isolated author.':env.PI_COC_ISOLATED_OUTPUT==='1'?'Ordinary dialogue is selected in the private {{compose}} JSON expression brief; the host invokes the isolated author. Use text only for an optional public preface.':'Ordinary dialogue belongs in the final {{public}} reply. Use text only for an optional public preface; no other author is called.')};
   }):tools;
-	return leanApplyEnabled(env) ? leanTools(current) : current;
+    const declared=env.PI_COC_TURN_PACKET_PROTOTYPE==='1'?current.map(spec=>spec.name==='output'
+      ?{...spec,parameters:TURN_PACKET_PARAMETERS,description:TURN_PACKET_GUIDANCE,promptSnippet:'Submit one private turn packet for settlement and final authoring'}:spec):current;
+	return leanApplyEnabled(env) ? leanTools(declared) : declared;
 }
 
 const INTENT_APPLY_NOTE='Record actor-specific knowledge and directed relationships separately. Heard knowledge must name its actual source and audience; bind prospective speech to its event material so it activates only after delivery. Empty effects are valid when recording a meaningful event. Never repeat a settled effect.';

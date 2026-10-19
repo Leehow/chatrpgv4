@@ -13,7 +13,7 @@ import {validateToolArguments} from '@earendil-works/pi-ai';
 import type {COC_TOOLS} from './tools.ts';
 
 /** How the call was written: the label before the JSON, whether it sat in an array, and which key held its arguments. */
-export type TextCallForm = {label: string | null; array: boolean; key: 'tool' | 'arguments' | 'parameters'};
+export type TextCallForm = {label: string | null; array: boolean; key: 'tool' | 'arguments' | 'parameters' | 'packet'};
 type Call = {name: string; arguments: Record<string, unknown>};
 type Envelope = {name: string; args: unknown; form: TextCallForm; error?: string};
 
@@ -91,6 +91,43 @@ function route(found: Envelope, tools: typeof COC_TOOLS): {call: Call} | {error:
 const FENCE = /```(?:json)?[ \t]*\n([\s\S]*?)\n[ \t]*```/g;
 const LABEL = /^([A-Za-z_][A-Za-z0-9_.-]*):\s*/;
 
+/** M3 tag boundaries may retain the model namespace after the server unwraps the outer call start. */
+function minimaxCalls(text:string):Envelope[]|undefined {
+    const namespace=']<]minimax[>[';
+    let body=text.trim();
+    const take=(pattern:RegExp):RegExpExecArray|undefined=>{
+        let rest=body.trimStart();
+        if(rest.startsWith(namespace))rest=rest.slice(namespace.length).trimStart();
+        const match=pattern.exec(rest);
+        if(match){body=rest.slice(match[0].length);return match;}
+    };
+    const wrapped=!!take(/^<tool_call>/),found:Envelope[]=[];
+    for(;;){
+        const name=take(/^<invoke name="([A-Za-z_][\w-]*)">/)?.[1];
+        if(!name)break;
+        const args:Record<string,unknown>=Object.create(null);
+        while(!take(/^<\/invoke>/)){
+            const parameter=take(/^<([A-Za-z_][\w-]*)>/)?.[1];
+            if(!parameter||Object.hasOwn(args,parameter))return;
+            const close=`</${parameter}>`;
+            let end=body.indexOf(close),parsed=false;
+            while(end!==-1){
+                let value=body.slice(0,end).trimEnd();
+                if(value.endsWith(namespace))value=value.slice(0,-namespace.length).trimEnd();
+                try{
+                    args[parameter]=JSON.parse(value);
+                    body=body.slice(end+close.length);parsed=true;break;
+                }catch{end=body.indexOf(close,end+close.length);}
+            }
+            if(!parsed)return;
+        }
+        found.push({name,args:{...args},form:{label:null,array:false,key:'parameters'}});
+    }
+    const closed=!!take(/^<\/tool_call>/);
+    if(wrapped&&!closed||body.trim()||!found.length)return;
+    return found;
+}
+
 /** Closed tagged call syntax only. Markup never becomes public text or an executable document. */
 function taggedCalls(text: string): Envelope[] | undefined {
     let body = text.trim();
@@ -147,7 +184,9 @@ function taggedCalls(text: string): Envelope[] | undefined {
 }
 
 /** The envelopes a complete assistant text body is, in written order, or `undefined` when it is not only a call list. */
-function textCallList(text: string): Envelope[] | undefined {
+function textCallList(text: string, tools?:typeof COC_TOOLS): Envelope[] | undefined {
+    const minimax=minimaxCalls(text);
+    if(minimax)return minimax;
     const tagged = taggedCalls(text);
     if (tagged) return tagged;
     let body = text.trim();
@@ -159,7 +198,13 @@ function textCallList(text: string): Envelope[] | undefined {
     const sources = fences.length ? fences.map(fence => fence[1].trim()) : [body];
     const found: Envelope[] = [];
     for (const source of sources) {
-        const read = envelopes(source, label ? label[1] : null);
+        let read = envelopes(source, label ? label[1] : null);
+        if(!read&&!label&&tools?.some(tool=>tool.name==='output'&&(tool.parameters as any).properties?.version?.const===4)){
+            try{
+                const packet=JSON.parse(source);
+                if(isObject(packet)&&packet.version===4)read=[{name:'output',args:packet,form:{label:null,array:false,key:'packet'}}];
+            }catch{ /* Other text keeps its existing public/private framing owner. */ }
+        }
         if (!read) return;
         found.push(...read);
     }
@@ -171,7 +216,7 @@ function textCallList(text: string): Envelope[] | undefined {
  * envelope routes; the envelopes and why, when one does not; `undefined` when the body is not only a call list.
  */
 export function readTextToolCalls(text: string, tools: typeof COC_TOOLS): TextCallReading | undefined {
-    const found = textCallList(text);
+    const found = textCallList(text,tools);
     if (!found) {
         const name = text.trim();
         if (tools.some(tool => tool.name === name)) return {kind: 'unroutable', envelopes: [{tool: name, error: 'The tool identifier has no argument object. Make the actual call with its required arguments.'}]};
@@ -220,7 +265,7 @@ export function restoreTextCallList<T extends {role?: string; content?: unknown;
     const blocks = message.content as Block[];
     if (blocks.some(block => block?.type === 'toolCall')) return;
     const text = blocks.filter(block => block?.type === 'text').map(block => String(block.text ?? '')).join('');
-    const found = text.trim() ? textCallList(text) : undefined;
+    const found = text.trim() ? textCallList(text,tools) : undefined;
     if (!found || !found.every(item => !item.error && isTool(item.name))) return;
     if (tools && found.some(item => 'error' in route(item, tools))) return;
     const calls = found.map(item => ({type: 'toolCall', id: `textcall_${randomUUID().replace(/-/g, '').slice(0, 24)}`, name: item.name,

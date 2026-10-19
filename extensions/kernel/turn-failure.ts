@@ -1,4 +1,5 @@
 import authored from '../../content/ui/en/extension.json' with {type:'json'};
+import {STATUS_CODES} from 'node:http';
 import {fill} from '../ui/words.ts';
 
 /** Bounded system diagnostics; never copy model content or operation arguments. */
@@ -53,9 +54,12 @@ export function turnFailureNotice(value:unknown, captions:Record<string,string>|
   :{line:(key:keyof typeof authored,values:Record<string,unknown>={})=>fill((captions as Record<string,string>)[key]??authored[key],values)};
  const rows=failure.failures.filter(row=>row&&typeof row.operation==='string'&&typeof row.code==='string');
  if(!rows.length)return;
+ const provider=rows.find(row=>row.code==='provider_error'),status=provider?.reason?.match(/^provider_http_([45]\d{2})$/)?.[1];
  let content:string;
- if(rows.some(row=>row.code==='ENOTDIR'))content=words.line('turn_failure_output_path');
+ if(provider)content=words.line('turn_failure_operation',{operation:provider.operation,code:status?`HTTP ${status} ${STATUS_CODES[status]??''}`:provider.reason??provider.code});
+ else if(rows.some(row=>row.code==='ENOTDIR'))content=words.line('turn_failure_output_path');
  else if(rows.some(row=>row.reason==='action_admission_uncertain'))content=words.line('turn_failure_admission');
+ else if(rows.some(row=>row.reason==='native_output_missing'))content=words.line('turn_failure_missing_output');
  else if(rows.some(row=>row.code==='invalid_json'))content=words.line('turn_failure_invalid_output');
  else if(rows.some(row=>row.code==='run_aborted'))content=words.line('turn_failure_interrupted');
  else if(rows.every(row=>row.code==='missing_final_output'))content=words.line('turn_failure_missing_output');

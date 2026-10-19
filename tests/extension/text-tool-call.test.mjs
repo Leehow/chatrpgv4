@@ -7,6 +7,44 @@ import {readTextToolCalls, restoreTextCallList, textToolCallFix, textToolCalls} 
 import {COC_TOOLS} from '../../extensions/kernel/tools.ts';
 import {openTable, waitForIdle, customMessages, assistantTexts} from './harness.mjs';
 import {createHybridEngine} from './hybrid-engine-fixture.mjs';
+import {TURN_PACKET_PARAMETERS} from '../../runtime/turn-packet-prototype.ts';
+
+const minimaxWire=JSON.parse(readFileSync(join(import.meta.dirname,'fixtures/location-native-wire-20261019.json'),'utf8'));
+const nativeOutputTools=COC_TOOLS.map(tool=>tool.name==='output'?{...tool,parameters:TURN_PACKET_PARAMETERS}:tool);
+test('an explicit version-4 packet is an output envelope only in the native version-4 loadout',()=>{
+    const packet={version:4,commands:[{kind:'time',band:'quick_observation',reason:'Read the visible labels.',beyond_travel:true}],interactions:[{actor:'npc_11',act:'silent',to:['investigator_1']}],reveal:[{fact_ref:'fact_6'}]};
+    for(const body of [JSON.stringify(packet),'```json\n'+JSON.stringify(packet)+'\n```']){
+        assert.deepEqual(textToolCalls(body,nativeOutputTools),[{name:'output',arguments:packet}]);
+        assert.equal(textToolCalls(body,COC_TOOLS),undefined);
+    }
+    for(const value of [{...packet,version:3},{...packet,extra:'private'},{commands:packet.commands},{profile:{name:'Hayes'}}])
+        assert.equal(textToolCalls(JSON.stringify(value),nativeOutputTools),undefined);
+    for(const body of ['{{reference}} '+JSON.stringify(packet),'Quoted data: '+JSON.stringify(packet)])
+        assert.equal(textToolCalls(body,nativeOutputTools),undefined);
+    for(const body of minimaxWire.bare_attempts){
+        assert.deepEqual(textToolCalls(body,nativeOutputTools),[{name:'output',arguments:JSON.parse(body)}]);
+        assert.equal(textToolCalls(body,COC_TOOLS),undefined);
+    }
+});
+test('captured MiniMax M3 invoke frames restore the exact versioned output arguments',()=>{
+    for(const body of minimaxWire.attempts)
+        assert.deepEqual(textToolCalls(body,nativeOutputTools),[{name:'output',arguments:{version:4}}]);
+});
+test('MiniMax M3 restoration preserves JSON values and rejects incomplete or broadened calls',()=>{
+    const ns=']<]minimax[>[';
+    const value=[{kind:'scene',service:'unknown',crowd:'unknown'}];
+    const frame=`${ns}<tool_call>${ns}<invoke name="output">${ns}<version>4${ns}</version>${ns}<commands>${JSON.stringify(value)}${ns}</commands>${ns}</invoke>${ns}</tool_call>`;
+    assert.deepEqual(textToolCalls(frame,nativeOutputTools),[{name:'output',arguments:{version:4,commands:value}}]);
+    const literal='The literal </name> and '+ns+' are private argument bytes.';
+    const look=`<invoke name="look"><focus>"scene"</focus><name>${JSON.stringify(literal)}</name></invoke>`;
+    assert.equal(textToolCalls(look,COC_TOOLS)[0].arguments.name,literal);
+    for(const body of [frame+' prose','{{reference}} '+frame,frame.replace(`${ns}</invoke>`,''),frame.replace(`${ns}</tool_call>`,''),
+        frame.replace('<version>4','<version>"4"'),frame.replace(`${ns}</invoke>`,`${ns}<version>4</version>${ns}</invoke>`),
+        frame.replace('<version>4','<extra>4'),frame.replace('name="output"','name="unknown"'),frame+look.replace('name="look"','name="unknown"')]){
+        assert.equal(textToolCalls(body,nativeOutputTools),undefined,body);
+        assert.equal(restoreTextCallList(fauxAssistantMessage(body),()=>true,nativeOutputTools),undefined);
+    }
+});
 
 const prose = 'You name the address. The clerk slides the register across the counter.\n\nThe ink is still wet.';
 const tagged = ['nested','html'].map(form => readFileSync(join(import.meta.dirname,'fixtures',`tagged-apply-${form}.txt`),'utf8'));

@@ -49097,3 +49097,71 @@ route/timing policy, including when the prescreen offers them. A containment
 hint cannot suppress an otherwise required journey band. Cash previews stage
 typed place effects on their private world through the same handler before
 previewing a later purchase; they do not approximate a new journey's clock.
+
+### 242.6. Failure follow-up
+
+An atomic canonical `apply` validation refusal with `unknown_entity` is an uncommitted
+attempt, including an invalid object-owner reference. Native publication can
+carry that bounded failed-attempt projection alongside actual current state and
+settled receipts after the Keeper corrects parameters. It does not mark the old
+proposal settled, clear unrelated holds, authorize an action, or assert an
+uncommitted outcome. Ambiguous transport/partial settlement still blocks this
+projection. Legacy held-prose checks and exact settlement identity remain.
+
+The direct author's non-success completion must retain the actual provider
+error. A leading HTTP error status becomes structured `provider_error` with a
+`provider_http_<status>` reason and a bounded cause chain. Readable notices use
+the standard HTTP status/reason, not HTML, private arguments or generic
+completion text. Committed receipts survive; a failed author is never a second
+world writer. Already streamed prose is not replaced by a retry. The existing
+unused generic unfinished caption has no consumer and is removed from the
+English source and cached seed keysets, without weakening the exact-key guard.
+
+Missing native output remains a transport failure, never permission to publish
+raw thinking or promote story prose to an OOC answer. Verify the actual prompt,
+existing correction and provider capability before changing this path. Provider
+tool-choice differences must not disable thinking, switch the requested model,
+or turn format enforcement into action authority.
+
+Raw stream reinspection supersedes the post-filter "thinking only" hypothesis:
+the cold observation contains complete MiniMax M3 `invoke`/named-parameter
+frames with the `]<]minimax[>[` namespace token, including a bare complete invoke
+whose outer opening tag the server omitted. The text-call restoration owner
+may decode that complete closed syntax only when each parameter contains an
+unchanged JSON value. Namespace markers are consumed at tag boundaries, never
+removed from argument strings. Duplicate parameters, mixed prose, incomplete
+invokes, extra fields, type conversion and unknown tools cannot route. A whole
+list still validates against the offered closed schemas before the existing
+Pi tool hooks, consent, canonical settlement and native author run it once.
+Nested XML values without complete JSON remain unsupported and receive normal
+correction; this slice does not guess semantic values or generalize XML repair.
+MiniMax's endpoint documents `auto` only, so forced `any`/named tool choice is
+rejected. Independent maintained parsers confirm M3's namespace and named-tag
+grammar: https://github.com/ggml-org/llama.cpp/blob/master/common/parsers/minimax-m3.cpp
+and https://github.com/vllm-project/vllm/blob/main/rust/src/parser/src/tool/minimax_m3.rs.
+Their broader schema conversions/tolerant parsing are not adopted here.
+
+Native output's versioned definition is produced by `offeredTools`, consumed
+both by tool registration and text restoration. A registration-only override
+left the latter validating v4 against the obsolete public-text schema. Keep
+one declared shape at both boundaries; provider schema projection and canonical
+runtime validation retain their own current constraints.
+
+A genuinely missing native packet after the existing one correction reports
+`native_output_missing` and the readable missing-final-result caption. Preserve
+the decoder's original cause in technical details; do not show its obsolete
+composition-brief terminology as an unexplained internal failure. Cancellation
+and truncation of an author remain distinct non-success completions, not HTTP
+provider errors.
+
+The first follow-up live observation returned the complete v4 decision as bare
+JSON twice, rather than a named native call. In the native v4 tool loadout only,
+the same restoration owner also accepts a whole version-4 packet as an explicit
+versioned output envelope, including a JSON fence. Its registered output schema
+must itself declare version 4. Other bare argument objects, reference prose,
+older delivery profiles and unknown versions are unchanged. Validate the entire
+unchanged object against that offered schema and dispatch the resulting output
+call through the normal path; never extract commands from surrounding prose,
+invent a missing version/name, or regard the packet as settled before receipts.
+This is a second closed transport spelling of the same decision, not a fallback
+author, generic argument-object inference or permission to execute player text.

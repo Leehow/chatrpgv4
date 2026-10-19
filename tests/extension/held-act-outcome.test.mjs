@@ -126,7 +126,7 @@ test('only exact canonical settlement discharges a scoped operation failure',asy
 
 test('native failure projection preserves refusals and excludes ambiguous execution or clipped coverage',()=>{
  const scope={campaign:'campaign',turn:4,playerText:'I leave.'};
- for(const cause of ['invalid_params','action_not_authorized','action_admission_uncertain','admission_unavailable','place_barrier']){
+ for(const cause of ['invalid_params','unknown_entity','action_not_authorized','action_admission_uncertain','admission_unavailable','place_barrier']){
   const boundary=new HeldActOutcome();boundary.hold(scope,{tool:'apply',lines:['PRIVATE_REJECTED_PROPOSAL'],cause,operationKey:'failed'},true);
   assert.deepEqual(boundary.uncommittedFailures(),[{tool:'apply',status:'uncommitted',reason:cause}]);assert.equal(boundary.basis.held.length,1);
   assert.ok(!JSON.stringify(boundary.uncommittedFailures()).includes('PRIVATE_'));
@@ -136,6 +136,7 @@ test('native failure projection preserves refusals and excludes ambiguous execut
  }
  const incomplete=new HeldActOutcome();incomplete.hold(scope,{tool:'apply',lines:['x'.repeat(12001)],cause:'action_not_authorized'},true);assert.equal(incomplete.uncommittedFailures(),undefined);
  const legacy=new HeldActOutcome();legacy.hold(scope,{tool:'apply',lines:['proposal'],cause:'action_not_authorized'});assert.equal(legacy.uncommittedFailures(),undefined);
+ const otherTool=new HeldActOutcome();otherTool.hold(scope,{tool:'resolve',lines:['proposal'],cause:'unknown_entity'},true);assert.equal(otherTool.uncommittedFailures(),undefined);
 });
 
 test('argument completion tracks the complete ordered player action, not its bookkeeping envelope',()=>{

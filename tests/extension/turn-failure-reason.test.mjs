@@ -2,6 +2,7 @@ import uiSeed from '../../content/ui/zh-Hans/extension.json' with {type:'json'};
 /** Real Pi/native-kernel component evidence; controlled responses are not live-play evidence. */
 import {test} from 'node:test';
 import assert from 'node:assert/strict';
+import {join} from 'node:path';
 import {fauxAssistantMessage,fauxToolCall} from '@earendil-works/pi-ai';
 import {openTable,customMessages,waitFor} from './harness.mjs';
 import {RpcClient} from '../integration/support.ts';
@@ -24,6 +25,35 @@ function answer(batch){
  return {batchId:batch.id,status:'complete',answers,coverage:{required:Object.keys(answers),answered:Object.keys(answers),unknown:[]},issues:[],usage:{inputTokens:100,outputTokens:0}};
 }
 const notices=table=>customMessages(table.session,'coc-delivery').filter(row=>row.details?.turn_unfinished);
+
+test('an actual native author failure reaches the player as HTTP 504 with committed state retained',async t=>{
+ const env={PI_COC_LOOP_ENGINE:'hybrid-v1',PI_COC_TURN_PACKET_PROTOTYPE:'1',PI_COC_JEV_PRESELECT:'0',PI_COC_MATERIAL_SCREEN:'0',EXT_JEV_APIKEY:undefined,TYPESAFE_API_KEY:undefined,
+  PI_COC_READER_CMD:JSON.stringify([process.execPath,join(import.meta.dirname,'fixtures/failed-direct-author.mjs')])};
+ const engine=createHybridEngine({env,decision:{decide:async batch=>answer(batch)}});
+ const table=await openTable({legacyDeliveryFixtures:false,realKernel:true,prepareWorkspace:opened,env,runDriver:engine.runDriver,
+  extraExtensions:[{name:'engine',factory:engine.extension}],responses:[fauxAssistantMessage([fauxToolCall('output',{version:4,commands:[{kind:'scene',service:'open',crowd:'quiet'}]})],{stopReason:'toolUse'})]});
+ t.after(()=>table.dispose());await table.session.prompt('I remain beside the desk.');
+ await waitFor(()=>notices(table).length===1,{label:'the original native author cause'});
+ const notice=notices(table)[0];assert.match(notice.content,/HTTP 504 Gateway Timeout/);
+ assert.ok(notice.content.includes(uiSeed.turn_failure_settlement_kept));
+ assert.doesNotMatch(notice.content,/PRIVATE_PROVIDER_ERROR_SENTINEL|<html>|internal/);
+ assert.ok(notice.details.failure.settled_receipts>0);
+ assert.match(JSON.stringify(notice.details.failure),/provider_http_504/);
+ assert.equal(table.entries('coc-final-delivery').filter(row=>row.event==='end'&&row.status==='completed').length,0);
+ assert.deepEqual(table.extensionErrors,[]);
+});
+
+test('native missing output identifies the failed publication stage instead of an internal composition error',async t=>{
+ const env={PI_COC_LOOP_ENGINE:'hybrid-v1',PI_COC_TURN_PACKET_PROTOTYPE:'1',PI_COC_JEV_PRESELECT:'0',PI_COC_MATERIAL_SCREEN:'0',EXT_JEV_APIKEY:undefined,TYPESAFE_API_KEY:undefined};
+ const engine=createHybridEngine({env,decision:{decide:async batch=>answer(batch)}});
+ const table=await openTable({legacyDeliveryFixtures:false,realKernel:true,prepareWorkspace:opened,env,runDriver:engine.runDriver,
+  extraExtensions:[{name:'engine',factory:engine.extension}],responses:[0,1].map(()=>fauxAssistantMessage([{type:'thinking',thinking:'PRIVATE_NATIVE_REASONING'}],{stopReason:'stop'}))});
+ t.after(()=>table.dispose());await table.session.prompt('I remain here.');
+ await waitFor(()=>notices(table).length===1,{label:'the native missing-output diagnostic'});
+ const notice=notices(table)[0];assert.ok(notice.content.includes(uiSeed.turn_failure_missing_output),JSON.stringify(notice));
+ assert.doesNotMatch(notice.content,/PRIVATE_NATIVE_REASONING|internal|composition/);
+ assert.match(JSON.stringify(notice.details.failure),/native_output_missing/);
+});
 
 test('native output refusal reaches the player with its actual consent cause and no invented settlement',async t=>{
  const env={PI_COC_LOOP_ENGINE:'hybrid-v1',PI_COC_TURN_PACKET_PROTOTYPE:'1',PI_COC_JEV_PRESELECT:'0',PI_COC_MATERIAL_SCREEN:'0',EXT_JEV_APIKEY:undefined,TYPESAFE_API_KEY:undefined};
@@ -106,4 +136,16 @@ test('readable notices keep filesystem causes and settlement truth without expos
  assert.equal(turnFailureNotice({status:'unfinished',failures:[null]}),undefined);
  assert.equal(turnFailureNotice(undefined),undefined);
  assert.equal(turnFailureNotice(failure,{turn_failure_details:'Projected detail label'}).label,'Projected detail label');
+});
+
+test('the readable provider failure keeps HTTP 504 rather than the final generic cause code',()=>{
+ const state={turn:1};
+ rememberTurnFailure(state,'output',Object.assign(new Error('The response provider returned HTTP 504 Gateway Timeout.',{cause:new Error('504 <html>PRIVATE_PROVIDER_BODY</html>')}),
+  {code:'provider_error',details:{reason:'provider_http_504'}}));
+ const failure={...unfinishedTurnFailure(state),settled_receipts:2};
+ const notice=turnFailureNotice(failure);
+ assert.match(notice.content,/HTTP 504 Gateway Timeout/);assert.match(notice.content,/Already settled actions are retained/);
+ assert.doesNotMatch(notice.content,/PRIVATE_PROVIDER_BODY|<html>|internal|provider_http_/);
+ assert.match(JSON.stringify(notice),/provider_http_504|HTTP 504/);
+ assert.match(JSON.stringify(failure),/504 <html>/,'the bounded original provider cause remains available in technical details');
 });

@@ -16,7 +16,7 @@ import {moveEstablishmentRefusal} from '../../shared/move-protocol.ts';
 import {SAME_KEEPER_AFTER_RESULT_GUIDANCE} from '../../runtime/keeper-output-guidance.ts';
 import {scenePopulationRequired,sceneAssessmentExpiredDuringActivity} from '../../runtime/scene-population.ts';
 import {ExpressionPlanStream,writeIsolatedExpression,decisionScene,decisionClock,decisionRecentPublic,decisionResponseScope} from '../../runtime/isolated-expression.ts';
-import {turnPacket,bindTurnPacketMoves,turnPacketMovementChoices,requireTurnPacketNpcDestinations,isNewNpcSlot,normalizeTurnPacketArguments,compileTurnPacket,turnPacketResult,turnPacketProviderPayload,TURN_PACKET_PARAMETERS,TURN_PACKET_GUIDANCE,type TurnPacket} from '../../runtime/turn-packet-prototype.ts';
+import {turnPacket,bindTurnPacketMoves,turnPacketMovementChoices,requireTurnPacketNpcDestinations,isNewNpcSlot,normalizeTurnPacketArguments,compileTurnPacket,turnPacketResult,turnPacketProviderPayload,type TurnPacket} from '../../runtime/turn-packet-prototype.ts';
 import {normalizeToolArgumentSyntax} from '../../runtime/tool-argument-syntax.ts';
 import {locationDecisionCoverage} from '../table/location-relevance.ts';
 import {applyEffectKinds} from '../table/mod-sections.ts';
@@ -6986,9 +6986,7 @@ export default function (pi: ExtensionAPI, host: {capabilities?:RuntimeCapabilit
 		preparedCallId: id => table?.mintedCallIds.get(id),
 	});
 	// The setup process's tool surface is only onboarding's `setup`: not one of the eight verbs is registered (contract §14.4).
-	for (const offered of setupMode ? [] : offeredTools(COC_TOOLS, process.env,{memoryQueryAvailable:!!memorySearch})) {
-        const spec=offered.name==='output'&&process.env.PI_COC_TURN_PACKET_PROTOTYPE==='1'
-            ?{...offered,parameters:TURN_PACKET_PARAMETERS,description:TURN_PACKET_GUIDANCE,promptSnippet:'Submit one private turn packet for settlement and final authoring'}:offered;
+	for (const spec of setupMode ? [] : offeredTools(COC_TOOLS, process.env,{memoryQueryAvailable:!!memorySearch})) {
 		const register=(spec:CocToolSpec)=>pi.registerTool({
 			name: spec.name,
 			label: spec.label,
@@ -8631,7 +8629,10 @@ export default function (pi: ExtensionAPI, host: {capabilities?:RuntimeCapabilit
 				await publishKeeperResult(state,reply,result,authorModel,authorThinking,ctx);
 				return{message:{...event.message,content:blocks.filter(b=>b.type!=='text')}};
 			}catch(error){
-                rememberTurnFailure(state,'output.publication',error);
+				const emptyFinal=event.message.stopReason==='stop'&&!reply.stream&&!blocks.some(block=>block.type==='text'&&String(block.text??'').trim());
+                const missingNativeOutput=turnPacketPrototype&&(emptyFinal||error instanceof Error&&['Native output submission is required','Expected a private composition brief or reference answer'].includes(error.message));
+                rememberTurnFailure(state,'output.publication',missingNativeOutput?Object.assign(new Error('The Keeper ended without submitting a native output packet.',{cause:error}),
+                    {code:'missing_final_output',details:{reason:'native_output_missing'}}):error);
 				if(reply.evidence)finalOutput.finishStream(reply.evidence,'publication_pending');
                 else if(reply.stream){
                     reply.stream.interrupt();
@@ -8639,7 +8640,6 @@ export default function (pi: ExtensionAPI, host: {capabilities?:RuntimeCapabilit
                 }
 				await record({lane:'keeper-delivery',turn:state.turn,ok:false,reason:String(error),
                     private_reply:reply.raw,model:`${event.message.provider}/${event.message.model}`,stop_reason:event.message.stopReason});
-				const emptyFinal=event.message.stopReason==='stop'&&!reply.stream&&!blocks.some(block=>block.type==='text'&&String(block.text??'').trim());
 				const privateProtocol=emptyFinal||error instanceof SyntaxError||error instanceof Error&&['Native output submission is required','Invalid private expression brief','Expected a private composition brief or reference answer'].includes(error.message);
 				if(isolatedOutput&&privateProtocol&&event.message.stopReason==='stop'&&!reply.stream&&!state.steeredThisTurn)state.deliveryFix={kind:'private_reply_protocol',text:turnPacketPrototype?'Submit the final private packet with the native output tool using its declared schema. Preserve all settled receipts; do not repeat effects. Use {{reference}} only for direct OOC answers.':'The private final response is missing or malformed. Continue this same turn with {{compose}} followed immediately by one JSON object: {scene:string,narrative_content:string[],npc_turns:[{speaker:string,intent:string,personality:string|null,emotion:string|null}],keeper_only?:string[],writing?:string|object}. No Markdown headings or code fences. Use {{reference}} only for a direct OOC answer. Keep already committed effects and rolls; never repeat them. Do not switch to public prose or expose private notes.'};
 				else if(isKernelError(error)&&error.details?.reason===HELD_ACT_OUTCOME_REASON){ /* The existing close owner has the correction or unfinished result. */ }

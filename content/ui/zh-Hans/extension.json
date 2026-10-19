@@ -92,7 +92,6 @@
   "table_open": "{title}  第 {turn} 回合  {scene}",
   "table_scene_unknown": "未知场景",
   "table_value_unknown": "？",
-  "turn_unfinished_notice": "这一回合结束时没有交付结果。已经结算的内容都还在——随便说句话就能继续。",
   "turn_failure_admission": "行动审核无法确认所选行动，因此该行动没有被执行。",
   "turn_failure_details": "技术细节",
   "turn_failure_interrupted": "回应在完成之前被中断。",

@@ -83,7 +83,7 @@ export class HeldActOutcome {
   uncommittedFailures():Array<{tool:string;status:'uncommitted';reason:string}>|undefined {
     if(!this.basis)return [];
     const causes=['invalid_params','action_not_authorized','action_admission_uncertain','admission_unavailable','place_barrier'];
-    if(this.basis.complete!==true||this.basis.held.some(row=>!causes.includes(row.cause)))return;
+    if(this.basis.complete!==true||this.basis.held.some(row=>!causes.includes(row.cause)&&!(row.tool==='apply'&&row.cause==='unknown_entity')))return;
     return this.basis.held.map(row=>({tool:row.tool,status:'uncommitted',reason:row.cause}));
   }
   issuedCorrection(): void { this.correctionIssued = true; }

@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import {test} from 'node:test';
-import {readFileSync} from 'node:fs';
+import {readFileSync,writeFileSync} from 'node:fs';
 import {join} from 'node:path';
 import {fauxAssistantMessage,fauxToolCall} from '@earendil-works/pi-ai';
 import {openTable} from './harness.mjs';
@@ -23,6 +23,34 @@ async function owedWorkspace(workspace,options={}){process.env.PI_COC_KERNEL_CMD
 function answer(batch,p=.99){return{batchId:batch.id,status:'complete',answers:Object.fromEntries(batch.questions.map(q=>[q.key,{status:'answered',type:'noul',noul:q.key.startsWith('restriction_')?1-p:p}])),coverage:{required:batch.questions.map(x=>x.key),answered:batch.questions.map(x=>x.key),unknown:[]},issues:[],usage:{inputTokens:100,outputTokens:0}};}
 const move={kind:'move',to:'Corner Cafe',via:'Across Main Street',establish:{summary:'A public cafe across the street.'},owed:'t1-owed-1'};
 const output={version:4,commands:[{kind:'scene',service:'open',crowd:'empty'}],interactions:[]};
+test('a corrected unknown owner does not poison the actual committed handover at native publication',async t=>{
+ const engine=createHybridEngine({env,decision:{decide:async batch=>answer(batch)}});
+ const effects=[{kind:'object',name:'Test notebook',to:'Steven Knott',from:'npc_1',handover:'given',why:'Hayes hands over his notebook.'}];
+ const corrected=effects.map(effect=>({...effect,from:'Thomas Hayes'}));
+ const table=await openTable({legacyDeliveryFixtures:false,realKernel:true,prepareWorkspace:async workspace=>{
+  const c=new RpcClient(workspace);try{
+   await c.ok('table.open',{campaign:'test-camp'});
+   const job=await c.ok('mods.job',{campaign:'test-camp',role:'create',input:{name:'Notebook',category:'item',description:'A plain paper notebook.'}});
+   writeFileSync(join(job.cwd,'result.json'),JSON.stringify({name:'Notebook',category:'item',description:'A plain paper notebook.',basis:'Present in this controlled component fixture.',parameters:{charges:null,effects:[]},player_view:{description:'A paper notebook.',fields:[]}}));
+   const accepted=await c.ok('mods.accept',{campaign:'test-camp',job:job.job});
+   await c.ok('table.apply',{campaign:'test-camp',call_id:'t0-c1',effects:[
+    {kind:'define',name:'Notebook',category:'item',_definition:accepted.definition,_provenance:accepted.provenance},{kind:'object',name:'Test notebook',definition:'Notebook',to:'Thomas Hayes'}]});
+   await c.ok('table.narrate',{campaign:'test-camp',call_id:'t0-c2',text:'Knott waits at his desk. Hayes holds a paper notebook.'});
+  }finally{await c.close();}
+ },env,runDriver:engine.runDriver,extraExtensions:[{name:'engine',factory:engine.extension}],responses:[
+  ()=>fauxAssistantMessage([fauxToolCall('apply',{effects})],{stopReason:'toolUse'}),
+  ()=>fauxAssistantMessage([fauxToolCall('apply',{effects:corrected})],{stopReason:'toolUse'}),
+  ()=>fauxAssistantMessage([fauxToolCall('output',{version:4,commands:[{kind:'scene',service:'open',crowd:'quiet'}]})],{stopReason:'toolUse'})]});
+ t.after(()=>table.dispose());await table.session.prompt('I give my notebook to Knott.');
+ const calls=table.session.messages.filter(row=>row.role==='toolResult'&&row.toolName==='apply');
+ assert.equal(calls[0].details.coc_error.code,'unknown_entity',JSON.stringify(calls[0]));assert.notEqual(calls[1].isError,true,JSON.stringify(calls[1]));
+ const published=table.session.messages.findLast(row=>row.role==='toolResult'&&row.toolName==='output');
+ assert.notEqual(published?.isError,true,'a fully committed corrected handover must reach the sole native author: '+JSON.stringify(published?.details));
+ const record=JSON.parse(readFileSync(join(table.workspace,'.coc/campaigns/test-camp/turns/0001.json'),'utf8'));
+ assert.equal(record.receipts.filter(row=>row.kind==='item').length,1,'the rejected transaction does not transfer a second item');
+ assert.equal(table.entries('coc-final-delivery').filter(row=>row.event==='end'&&row.status==='completed').length,1);
+ assert.deepEqual(table.extensionErrors,[]);
+});
 test('the active single-Keeper path settles a prior declared departure before this turn communication once',async t=>{
  const batches=[];const engine=createHybridEngine({env,decision:{decide:async batch=>{batches.push(batch);return answer(batch,(batch.state.line_contexts?.[0]?.current_player_words??batch.state.current_player_words)===original?.99:.01);}}});
  const table=await openTable({legacyDeliveryFixtures:false,realKernel:true,prepareWorkspace:owedWorkspace,env,runDriver:engine.runDriver,

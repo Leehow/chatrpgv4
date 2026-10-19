@@ -3,13 +3,38 @@ import {test} from 'node:test';
 import assert from 'node:assert/strict';
 import {readFileSync} from 'node:fs';
 import {join} from 'node:path';
-import {fauxAssistantMessage,fauxToolCall as rawToolCall,getCurrentTools} from '@earendil-works/pi-ai';
+import {fauxAssistantMessage,fauxToolCall as rawToolCall,getCurrentTools,getCurrentSystemPrompt} from '@earendil-works/pi-ai';
 import {turnPacket,normalizeTurnPacketArguments,compileTurnPacket,turnPacketResult,turnPacketProviderPayload,turnPacketParameterSchema,TURN_PACKET_PARAMETERS} from '../../runtime/turn-packet-prototype.ts';
 import {ExpressionPlanStream} from '../../runtime/isolated-expression.ts';
 import {createHybridEngine} from '../../runtime/jev/hybrid-engine.ts';
 import {openTable} from './harness.mjs';
 import {RpcClient,kernel,openTurn,importSource} from '../integration/support.ts';
 const brief={version:4,commands:[],interactions:[]};
+const minimaxWire=JSON.parse(readFileSync(join(import.meta.dirname,'fixtures/location-native-wire-20261019.json'),'utf8'));
+for(const [index,body]of [...minimaxWire.attempts,JSON.stringify({version:4})].entries())test(`MiniMax M3 output frame ${index+1} publishes once through the actual native boundary`,async t=>{
+ const engine=createHybridEngine({env,decision:{decide:async batch=>answer(batch,.99)}});
+ const table=await openTable({legacyDeliveryFixtures:false,realKernel:true,prepareWorkspace:opened,env,runDriver:engine.runDriver,
+  extraExtensions:[{name:'engine',factory:engine.extension}],responses:[
+   fauxAssistantMessage([rawToolCall('output',{version:4,commands:[{kind:'scene',service:'open',crowd:'quiet'}]})],{stopReason:'toolUse'}),
+   fauxAssistantMessage(body)]});
+ t.after(()=>table.dispose());await table.session.prompt('I remain by the desk.');
+ await table.session.prompt('I look around without moving.');
+ assert.equal(table.entries('coc-final-delivery').filter(row=>row.event==='end'&&row.status==='completed'&&row.turn===2).length,1);
+ assert.equal(table.telemetry().filter(row=>row.turn===2&&row.reason==='text_tool_call_routed'&&row.tool==='output').length,1);
+ assert.equal(table.telemetry().filter(row=>row.turn===2&&row.lane==='isolated-expression'&&row.event==='written').length,1);
+ assert.deepEqual(table.extensionErrors,[]);
+});
+test('the actual native Keeper request has one output contract rather than legacy prose instructions',async t=>{
+ let prompt;
+ const engine=createHybridEngine({env,decision:{decide:async batch=>answer(batch,.99)}});
+ const table=await openTable({legacyDeliveryFixtures:false,realKernel:true,prepareWorkspace:opened,env,runDriver:engine.runDriver,
+  systemPrompt:readFileSync(join(import.meta.dirname,'../../prompts/keeper.md'),'utf8'),
+  extraExtensions:[{name:'engine',factory:engine.extension}],responses:[context=>{prompt=getCurrentSystemPrompt(context.messages);return fauxAssistantMessage([rawToolCall('output',{version:4,commands:[{kind:'scene',service:'open',crowd:'quiet'}]})],{stopReason:'toolUse'});} ]});
+ t.after(()=>table.dispose());await table.session.prompt('I look around without moving.');
+ assert.equal(typeof prompt,'string');
+ for(const inherited of ['For unchanged conversation, begin the final reply with {{public}}','return {{compose}} followed','then supply a private expression brief.','Begin your complete final public prose with {{public}}'])
+  assert.ok(!prompt.includes(inherited),'native request contains a contradictory legacy instruction: '+inherited);
+});
 test('packet parameter refusals identify the exact field without coercing its JSON type',()=>{
  const packet={...brief,commands:[{kind:'move',to:'Central Library'},{kind:'scene',service:'open',crowd:'active',review_after_minutes:'45'}]};
  assert.throws(()=>turnPacket(JSON.stringify(packet)),/commands\[1\]\/review_after_minutes.*must be integer.*received string/);

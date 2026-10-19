@@ -1,0 +1,12 @@
+{
+  "source": ".coc/playtests/enhanced-locations-live-20261019-cold/events.jsonl, turn 7 text_end; corroborated by keeper-delivery.private_reply",
+  "attempts": [
+    "<invoke name=\"output\">]<]minimax[>[<version>4]<]minimax[>[</version>]<]minimax[>[</invoke>\n]<]minimax[>[</tool_call>",
+    "<invoke name=\"output\">\n<version>4</version>\n</invoke>\n]<]minimax[>[</tool_call>"
+  ],
+  "bare_source": ".coc/playtests/enhanced-locations-followup-cold-20261019, global turn 11; keeper-delivery.private_reply",
+  "bare_attempts": [
+    "{\"version\":4,\"commands\":[{\"kind\":\"time\",\"band\":\"quick_observation\",\"reason\":\"隔着玻璃柜查看成排小瓶上的手写标签\",\"beyond_travel\":true}],\"interactions\":[{\"actor\":\"npc_11\",\"act\":\"silent\",\"to\":[\"investigator_1\"]}],\"reveal\":[{\"fact_ref\":\"fact_6\"}]}",
+    "{\"version\":4,\"commands\":[{\"kind\":\"time\",\"band\":\"quick_observation\",\"reason\":\"隔着玻璃柜台查看成排小瓶上的手写标签\",\"beyond_travel\":true}],\"interactions\":[{\"actor\":\"npc_11\",\"act\":\"silent\",\"to\":[\"investigator_1\"]}],\"reveal\":[{\"fact_ref\":\"fact_6\"}]}"
+  ]
+}

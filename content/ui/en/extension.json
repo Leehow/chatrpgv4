@@ -92,7 +92,6 @@
   "table_open": "{title}  turn {turn}  {scene}",
   "table_scene_unknown": "unknown scene",
   "table_value_unknown": "?",
-  "turn_unfinished_notice": "This turn ended without a delivered result. Anything already settled is kept — send anything to continue.",
   "turn_failure_output_path": "The final response could not be written because its output path is not a directory (ENOTDIR).",
   "turn_failure_admission": "The action review could not confirm the selected action, so that action was not carried out.",
   "turn_failure_invalid_output": "The final response could not be read because its structured output was invalid.",

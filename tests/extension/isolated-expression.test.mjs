@@ -13,6 +13,19 @@ import {createFinalOutputOwner} from '../../extensions/kernel/final-output.ts';
 import {AuthorPartsStream} from '../../runtime/author-parts-stream.ts';
 const brief={scene:'An office.',narrative_content:[],npc_turns:[{speaker:'Steven Knott',intent:'Offer a meeting at dawn.',personality:'Practical',emotion:null}]};
 
+for(const partial of [false,true])test('the direct author retains the upstream 504 cause'+(partial?' after partial prose':''),async t=>{
+ const home=await mkdtemp(join(tmpdir(),'expression-provider-cause-'));t.after(()=>rm(home,{recursive:true,force:true}));
+ const prose=[],records=[],profile=expressionAuthorProfile(process.env);let calls=0;
+ const runtime={home,async runTask({request}){
+  calls++;if(partial)request.onEvent({type:'message_update',assistantMessageEvent:{type:'text_delta',delta:'The clerk looks up.'}});
+  request.onEvent({type:'message_end',message:{role:'assistant',provider:profile.model.split('/')[0],model:profile.model.split('/')[1],stopReason:'error',errorMessage:'504 <html><title>504 Gateway Time-out</title></html>',content:[]}});
+  return {ok:false,error:'The task did not complete'};
+ }};
+ await assert.rejects(writeIsolatedExpression({runtime,campaign:'c',turn:1,run:'r',language:'en',decision:{scene:{name:'Room'},clock:{},people:[],recent_public:[],responses:[]},stream:{push:text=>prose.push(text)},record:async row=>records.push(row)}),/504/);
+ assert.equal(calls,1);assert.equal(prose.join(''),partial?'The clerk looks up.':'');
+ assert.equal(records.at(-1).event,'failed');assert.ok(!records.some(row=>row.event==='written'));
+});
+
 test('the decision author streams plain prose immediately from one complete input without a tool artifact',async t=>{
  const home=await mkdtemp(join(tmpdir(),'expression-direct-body-'));t.after(()=>rm(home,{recursive:true,force:true}));const prose=[];let calls=0;
  const runtime={home,async runTask({request}){

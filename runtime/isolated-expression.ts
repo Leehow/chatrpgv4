@@ -3,6 +3,7 @@ import {mkdir,readFile,stat,writeFile} from 'node:fs/promises';
 import {existsSync} from 'node:fs';
 import {join,resolve} from 'node:path';
 import {randomUUID} from 'node:crypto';
+import {STATUS_CODES} from 'node:http';
 import type {HostRuntime} from './host.ts';
 import {readAuthorModelChoice} from './author-model.ts';
 import {ArtifactTextStream} from './final-output-stream.ts';
@@ -300,7 +301,14 @@ async function writeDirectProse(input:{runtime:HostRuntime;packet:Row;profile:{m
       if(finished)throw Error('An expression response is already complete');raw+=String(update.delta??'');emit();
      }
      if(event.type==='message_end'&&message?.role==='assistant'){
-      if(message.stopReason!=='stop')throw Error('Direct prose generation did not complete');
+      if(message.stopReason!=='stop'){
+       const upstream=typeof message.errorMessage==='string'?message.errorMessage.trim().slice(0,1200):undefined;
+       const providerError=message.stopReason==='error'&&!!upstream;
+       const status=providerError?upstream?.match(/^(?:Error:\s*)?(?:HTTP\s+)?([45]\d{2})(?=\s|:|$)/)?.[1]:undefined;
+       throw Object.assign(new Error(status?`The response provider returned HTTP ${status} ${STATUS_CODES[status]??''}.`
+        :`The direct prose author stopped with ${message.stopReason??'an unknown completion'} before completing its response.`,upstream?{cause:new Error(upstream)}:undefined),
+        {code:providerError?'provider_error':'author_completion_incomplete',details:{reason:status?`provider_http_${status}`:providerError?'provider_error':'author_completion_incomplete'}});
+      }
       const text=(message.content??[]).filter((part:Row)=>part.type==='text').map((part:Row)=>part.text).join('');
       if(raw&&raw!==text)throw Error('Expression completion differs from its stream');
       if(!raw){raw=text;transport.source='completed_response';emit();}finished=true;
