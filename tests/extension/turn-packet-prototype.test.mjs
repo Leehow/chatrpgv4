@@ -71,9 +71,8 @@ test('the non-strict Anthropic request retains the complete owned schema without
  const sent=turnPacketProviderPayload(payload);
  assert.deepEqual(sent.tools[1].input_schema.properties.responses,TURN_PACKET_PARAMETERS.properties.responses);
  assert.deepEqual(sent.tools[1].input_schema.required,TURN_PACKET_PARAMETERS.required);assert.equal(sent.tools[1].input_schema.additionalProperties,false);
- const parameters=JSON.parse(sent.messages.at(-1).content[0].text).output_parameters;
- assert.deepEqual(parameters,{journey_settled:false,scene_required:false,npc_destinations:['here','away']});
- const current=turnPacketParameterSchema();
+ const current=JSON.parse(sent.messages.at(-1).content[0].text).output_parameter_schema;
+ assert.deepEqual(current,turnPacketParameterSchema());
  for(const branch of current.properties.commands.anyOf){
   const bounded=branch.items.anyOf.find(row=>row.properties?.kind?.const==='npc');
   assert.deepEqual(bounded.properties.to.enum,['here','away']);assert.deepEqual(bounded.properties.actor,TURN_PACKET_PARAMETERS.properties.commands.anyOf[0].items.anyOf.find(row=>row.properties?.kind?.const==='npc').properties.actor);

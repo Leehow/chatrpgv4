@@ -87,10 +87,6 @@ export function turnPacketParameterSchema(journeySettled=false,timeBands?:readon
     if(sceneRequired)schema.required=[...new Set([...(schema.required??[]),'commands'])];
     return schema as TSchema;
 }
-/** Run the exact issued constraints locally before settlement, without a model judgment. */
-export function requireTurnPacketParameters(packet:TurnPacket,schema:TSchema):void {
-  if(Errors(schema,packet).length)throw parameterError('packet',schema,packet);
-}
 /** Restore the owned structural schema after Pi's non-strict Anthropic conversion. */
 export function turnPacketProviderPayload(payload:unknown,journeySettled=false,requireTool=true,timeBands?:readonly string[],moveChoices?:readonly Record<string,unknown>[],sceneRequired=false,bindings?:DecisionBindings):unknown {
   if(!object(payload)||!Array.isArray(payload.tools)||!Array.isArray(payload.messages))return payload;
@@ -100,10 +96,8 @@ export function turnPacketProviderPayload(payload:unknown,journeySettled=false,r
     changed=true;return {...tool,input_schema:TURN_PACKET_PARAMETERS};
   });
   if(!changed)return payload;
-  const parameters={journey_settled:journeySettled,scene_required:sceneRequired,
-    ...(timeBands?{time_bands:timeBands}:{}),...(moveChoices?{move_choices:moveChoices.filter(row=>row.kind==='move')}:{}),
-    npc_destinations:turnPacketNpcDestinations(moveChoices),...(bindings?{references:bindings}:{})};
-  const messages=[...payload.messages,{role:'user',content:[{type:'text',text:JSON.stringify({output_parameters:parameters})}]}];
+  const schema=turnPacketParameterSchema(journeySettled,timeBands,moveChoices,sceneRequired,bindings);
+  const messages=[...payload.messages,{role:'user',content:[{type:'text',text:JSON.stringify({output_parameter_schema:schema})}]}];
   return {...payload,tools,messages,...(requireTool&&payload.model==='MiniMax-M3.1-Flash-Preview'?{tool_choice:{type:'auto'}}:{})};
 }
 /** Keep bound routes immutable; fill only an explicitly issued open route slot. */

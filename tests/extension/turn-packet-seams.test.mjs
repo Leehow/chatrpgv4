@@ -52,7 +52,7 @@ test('MiniMax native routine uses its supported tool strategy without disabling 
  assert.equal(turnPacketProviderPayload({...payload,model:'other-model'}).tool_choice,undefined);
  assert.equal(turnPacketProviderPayload(payload,false,false).tool_choice,undefined,'known reference mode retains direct answers');
  const constrained=turnPacketProviderPayload(payload,false,true,['quick_observation','speak_briefly']);
- assert.deepEqual(JSON.parse(constrained.messages.at(-1).content[0].text).output_parameters.time_bands,['quick_observation','speak_briefly']);
+ assert.deepEqual(JSON.parse(constrained.messages.at(-1).content[0].text).output_parameter_schema,turnPacketParameterSchema(false,['quick_observation','speak_briefly']));
  const variants=turnPacketParameterSchema(false,['quick_observation','speak_briefly']).properties.commands.anyOf.flatMap(branch=>branch.items.anyOf);
  assert.deepEqual(variants.find(row=>row.properties.kind.const==='time').properties.band.enum,['quick_observation','speak_briefly']);
 });
@@ -60,7 +60,7 @@ test('MiniMax native routine uses its supported tool strategy without disabling 
 test('routine move schema selects issued destinations without free route text',()=>{
  const payload={model:'MiniMax-M3.1-Flash-Preview',messages:[],tools:[{name:'output',input_schema:TURN_PACKET_PARAMETERS}]};
  const sent=turnPacketProviderPayload(payload,false,true,['quick_observation'],[{kind:'move',to:'Library',via:'Main Street'}]);
- assert.deepEqual(JSON.parse(sent.messages.at(-1).content[0].text).output_parameters.move_choices,[{kind:'move',to:'Library',via:'Main Street'}]);
+ assert.deepEqual(JSON.parse(sent.messages.at(-1).content[0].text).output_parameter_schema,turnPacketParameterSchema(false,['quick_observation'],[{kind:'move',to:'Library',via:'Main Street'}]));
  const variants=turnPacketParameterSchema(false,['quick_observation'],[{kind:'move',to:'Library',via:'Main Street'}]).properties.commands.anyOf.flatMap(branch=>branch.items.anyOf);
  const move=variants.find(row=>row.properties.kind.const==='move');
  assert.deepEqual(move.properties.to.enum,['Library']);

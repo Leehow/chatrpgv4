@@ -48515,35 +48515,35 @@ does not change the existing refusal identity. Its schema retains the existing
 ### Host decision: stable decision protocol and current parameter data (owner 2026-10-19)
 
 The v4 output tool's structural JSON Schema is invariant across scene, actor,
-material and route changes. The host supplies only current reference bindings,
-movement choices, time bands, NPC destinations and scene/journey requirements
-as an output_parameters JSON block at the request tail, after retained history.
-Fixed structural rules are not repeated there. This is typed capability data,
-not prose or another model instruction. Those same bindings feed the exact
-parameter schema builder and deterministic preflight before any world write;
-issued references, scene assessment, settled journeys and route restrictions
-remain enforced, followed by existing admission and canonical transaction checks.
-No judgment model, retry allowance, author or prompt reminder is added. The sole
-author still consumes all selected settled material and streams plain text.
+material and route changes. The host supplies the exact current parameter schema
+as output_parameter_schema JSON data at the request tail, after retained history.
+This is capability data, not another model instruction. Existing packet parsing,
+reference hydration, scene assessment, route binding, admission and canonical
+transaction/publication checks remain authoritative. No duplicate full-schema
+preflight, judgment model, retry allowance, author or prompt reminder is added.
+The sole author still consumes all selected settled material and streams text.
 
-Producer: the host reads current native capability bindings.
-Reader: the KP receives its current parameter data alongside the fixed protocol.
-Actor: submitTurnPacket validates that schema before compiling/settling a packet.
-The exact schema is retained only when issued by the current provider request
-and cleared at the next player input. A zero-KP native routine has no issued
-model contract; its existing settled-receipt/current-scene publication checks
-remain authoritative. Never reconstruct a model contract from pre-move scene
-metadata to reject that native publication or request an unnecessary KP call.
-Cached prefixes are an optimization only; retired references never become valid
-because an old prefix or tool declaration is reused.
+Producer: turnPacketParameterSchema reads current native capability bindings.
+Reader: the KP receives that exact tail schema alongside the fixed tool protocol.
+Actor: the existing submission and settlement path enforces current references,
+routes, disclosure scope, scene assessment and canonical receipts. Zero-KP native
+routine publication retains those existing current-scene/receipt checks. Do not
+reconstruct a model contract from pre-move metadata to block a settled routine.
 
 Retained doctor traces show changing output definitions at tools/6 and negligible
 cache reads in both slow and control doctor calls. MiniMax documents a tools ->
-system -> messages prefix, corroborated by Anthropic's tool-caching documentation.
+system -> messages prefix, corroborated by Anthropic tool-caching documentation.
 Stabilizing this head repairs a proven reuse defect, not proof that provider
 queueing caused every latency outlier. Measure request-to-HTTP-headers separately
-from headers-to-first-increment and the remaining generation; missing cache-write
+from headers-to-first-increment and remaining generation; missing cache-write
 usage remains unknown. Wire deltas and visible App painting are separate gates.
+
+A compact parameter-table trial omitted the full tail schema. Its real MiniMax
+run twice selected an unissued waypoint and failed the intent. An added generic
+schema preflight also obscured the useful native binding error and blocked the
+zero-KP routine path. Both trials are withdrawn, with raw evidence retained;
+transport prefix reuse must not replace precise model-facing constraints or add
+redundant settlement checks.
 
 ### Host decision: parallel preparation before Keeper inference (owner 2026-10-19)
 
