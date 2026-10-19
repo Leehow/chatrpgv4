@@ -356,7 +356,7 @@ for(const mode of ['accepted','refused','dialogue','sparse-dialogue','wrapped-di
    assert.equal(task.result.outcomes[0].to,task.decision_context.scene.name);
    assert.equal(task.result.outcomes[0].minutes,turn.receipts.find(r=>r.kind==='move').minutes);
    const current=await table.runtimeBridges().at(-1).call('table.capsule',{campaign:'test-camp'});
-   assert.equal(task.decision_context.scene.description,current.public_scene.description,'current native scenery reaches the actual author task');
+   assert.equal(task.decision_context.scene.description,current.public_scene.description??current.first_sight?.place?.described,'current native scenery reaches the actual author task');
    assert.deepEqual(task.decision_context.style.axes,current.style.axes,'the authored style axes survive the native output owner');
    assert.deepEqual(task.decision_context.style.floor,current.style.floor);
    assert.equal(task.decision_context.style.language,current.style.language);

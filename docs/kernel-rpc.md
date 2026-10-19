@@ -48710,9 +48710,11 @@ private knowledge, plans, and offstage summaries are not fallback dialogue.
 This uses the existing participant read, adds no retrieval or judgment call,
 and remains past words rather than a new response or current world truth.
 
-The native author packet carries the current place description from the same
-`placeDescribed` producer used for first sight. `public_scene.description` is
-current source scenery; its older `entries` remain optional selectable material,
+The native author packet carries the explicitly authored `properties.description`
+through `public_scene.description`, and the already-issued first-sight view.
+General scene summaries are not promoted into the public-scene projection;
+in particular a table establishment summary may contain private context.
+The older `entries` remain optional selectable material,
 not an automatic replay of former actors or actions. First-sight place and person
 details pass through the existing in-flight view; person identities are rebound
 to current public references and names. Current temporal assessment owns activity
