@@ -114,6 +114,20 @@ test('uncertain choices hand existing destination material to the same Keeper an
  current={...current,_context:{...current._context,source_revision:'s1',world_revision:'w2'}};assert.equal((await packet()).prepared_operations,undefined);
 });
 
+test('packet material exposes only the same open movement slots as the executable packet',async()=>{
+ const current={...capsule,_context:{...capsule._context,source_revision:'s1'}};
+ const turn=new ContinuousTurn({run:'r',inputRevision:'i',campaign:'c1',playerText:'I go to the library.',session:{},current:()=>true,packet:true,
+  call:async method=>method==='table.apply.options'?moveOptions:current,record:()=>{},dispatch:async()=>{throw Error('No write');},
+  decision:choose()});
+ await turn.prepare(invocation.signal);await turn.decide(invocation.signal);
+ const material=turn.materials(current);assert.ok(material?.candidates.length);
+ for(const candidate of material.candidates){
+  const choice=turn.prescreen.choices.find(row=>row.effects[0].to===candidate.operation.effects[0].to);
+  assert.deepEqual(candidate.parameters.map(row=>row.name),[
+   ...(choice.requires_via===true?['via']:[]),...(choice.travel_bands?['travel_band']:[])]);
+ }
+});
+
 test('an oversized option defers its conditions explicitly and cannot authorize a different move',async()=>{
  const current={...capsule,_context:{...capsule._context,source_revision:'s1'}},seen=[];
  const turn=new ContinuousTurn({run:'r',inputRevision:'i',campaign:'c1',playerText:'I go to the library.',session:{},current:()=>true,

@@ -48345,3 +48345,30 @@ AWS Step Functions distinguishes retryable errors and explicit recovery transiti
 (https://docs.aws.amazon.com/step-functions/latest/dg/concepts-error-handling.html).
 Both support typed executable contracts; neither grants past actions authority or
 replaces this kernel's original-declaration and immutable-source checks.
+
+### Kernel decision: prepared packet parameters match executable capabilities (2026-10-19)
+
+The compact packet's prepared movement material exposes only its unbound `via`
+and `travel_band` slots. Generic apply parameters such as labels and numeric
+travel duration are not packet capabilities; a bound route is not an open slot.
+The provider schema and material projection consume the same issued requirements.
+Unknown fields and attempts to override bound values remain errors, not silently
+discarded operations. This removes contradictory interface material, not consent.
+
+The output schema declares the existing population precondition before inference:
+an array containing a move must contain a scene command; when the current capsule
+requires assessment, stationary output must contain one too. A fresh scoped capsule
+updates this requirement without a new read or model call. An applicable stationary
+scene does not request another assessment. Canonical preflight still rechecks the
+current state, including changes after the schema was issued. No scene service or
+population is inferred from missing names, and no assessment is auto-generated.
+
+Producer: candidate requirements and the scoped current capsule. Reader: prepared
+material and the provider's owned JSON Schema. Actor: existing packet compiler and
+canonical scene preflight. This adds neither a judgment request nor an author call.
+JSON Schema `contains` and conditional subschemas express these requirements
+(https://json-schema.org/understanding-json-schema/reference/array and
+https://json-schema.org/understanding-json-schema/reference/conditionals).
+Kubernetes server-side validation similarly distinguishes declared fields from
+unknown fields; its optional Ignore/Warn modes are not adopted here
+(https://kubernetes.io/docs/reference/using-api/api-concepts/).

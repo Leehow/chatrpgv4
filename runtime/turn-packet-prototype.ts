@@ -65,7 +65,7 @@ export function normalizeTurnPacketArguments(input:unknown):{args:unknown;repair
   return normalizeToolArgumentSyntax(TURN_PACKET_PARAMETERS,input,{boundedIntegers:true});
 }
 /** Restore this owned declaration after Pi's non-strict Anthropic conversion. */
-export function turnPacketProviderPayload(payload:unknown,journeySettled=false,requireTool=true,timeBands?:readonly string[],moveChoices?:readonly Record<string,unknown>[]):unknown {
+export function turnPacketProviderPayload(payload:unknown,journeySettled=false,requireTool=true,timeBands?:readonly string[],moveChoices?:readonly Record<string,unknown>[],sceneRequired=false):unknown {
   if(!object(payload)||!Array.isArray(payload.tools))return payload;
   let changed=false;
   const tools=payload.tools.map((tool:unknown)=>{
@@ -83,8 +83,11 @@ export function turnPacketProviderPayload(payload:unknown,journeySettled=false,r
         ...(group.via?{via:atom()}:{}),...(group.bands?{travel_band:StringEnum(group.bands)}:{})},{additionalProperties:false}));
     const issuedNpc=Type.Object({...npc.properties,to:StringEnum(turnPacketNpcDestinations(moveChoices))},{additionalProperties:false});
     const boundedTime=timeBands?.length?Type.Object({...time.properties,band:StringEnum([...timeBands])},{additionalProperties:false}):time;
-    if(journeySettled)schema.properties.commands=Type.Array(Type.Union([issuedNpc,walkOn,scene]),{maxItems:12});
-    else schema.properties.commands=Type.Union([Type.Array(Type.Union([...issuedMoves,issuedNpc,walkOn,scene]),{maxItems:12}),Type.Array(Type.Union([boundedTime,issuedNpc,walkOn,scene]),{maxItems:12})]);
+    const assessment={contains:scene,minContains:1};
+    const stationary=sceneRequired?assessment:{};
+    const moving=sceneRequired?assessment:{allOf:[{if:{contains:Type.Object({kind:Type.Literal('move')})},then:assessment}]};
+    if(journeySettled)schema.properties.commands=Type.Array(Type.Union([issuedNpc,walkOn,scene]),{maxItems:12,...stationary});
+    else schema.properties.commands=Type.Union([Type.Array(Type.Union([...issuedMoves,issuedNpc,walkOn,scene]),{maxItems:12,...moving}),Type.Array(Type.Union([boundedTime,issuedNpc,walkOn,scene]),{maxItems:12,...stationary})]);
     changed=true;return {...tool,input_schema:schema};
   });
   return changed?{...payload,tools,...(requireTool&&payload.model==='MiniMax-M3.1-Flash-Preview'?{tool_choice:{type:'auto'}}:{})}:payload;

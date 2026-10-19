@@ -1,7 +1,22 @@
 /** Deterministic seam regressions; these are not live gameplay evidence. */
 import {test} from 'node:test';
 import assert from 'node:assert/strict';
+import {Errors} from 'typebox/value';
 import {turnPacketProviderPayload,bindTurnPacketMoves,turnPacketMovementChoices,compileTurnPacket,turnPacket,TURN_PACKET_PARAMETERS} from '../../runtime/turn-packet-prototype.ts';
+
+test('issued output schema declares movement and stale-scene assessment before generation',()=>{
+ const payload={tools:[{name:'output',input_schema:TURN_PACKET_PARAMETERS}]};
+ const choices=[{kind:'move',to:'Library',via:'Main Street'}];
+ const schema=(required)=>turnPacketProviderPayload(payload,false,true,[],choices,required).tools[0].input_schema;
+ const packet=commands=>({version:3,commands,responses:[]});
+ const movement={kind:'move',to:'Library'},assessment={kind:'scene',service:'open',crowd:'quiet'};
+ assert.ok(Errors(schema(false),packet([movement])).length,'movement without assessment must not be advertised as valid');
+ assert.equal(Errors(schema(false),packet([movement,assessment])).length,0);
+ assert.equal(Errors(schema(false),packet([])).length,0,'valid stationary scene needs no new assessment');
+ assert.ok(Errors(schema(true),packet([])).length,'stale stationary scene requires assessment');
+ assert.equal(Errors(schema(true),packet([assessment])).length,0);
+ assert.equal(payload.tools[0].input_schema,TURN_PACKET_PARAMETERS,'never mutate the static tool declaration');
+});
 
 test('NPC destinations expose and enforce the same closed issued capabilities',()=>{
  const payload={tools:[{name:'output',input_schema:TURN_PACKET_PARAMETERS}]};

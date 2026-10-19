@@ -495,6 +495,7 @@ interface TableState {
 	/** §168.5: the first-sight items each turn's capsule handed the Keeper, and the checks of deliveries still running. */
 	firstSight: FirstSightTracker;
 	packetTimeBands?:string[];
+	packetSceneRequired?:boolean;
 	packetParameterRefused?:boolean;
 	/** §168.5: `turn|item` pairs whose omission while their check ran is already on the telemetry line. */
 	firstSightOmitted: Set<string>;
@@ -1541,6 +1542,10 @@ export default function (pi: ExtensionAPI, host: {capabilities?:RuntimeCapabilit
 		keeperRun={...value,...(keeperRun&&keeperRun.runId===value.runId&&keeperRun.inputRevision===value.inputRevision
 			?{recordCallId:keeperRun.recordCallId,routineResult:keeperRun.routineResult,prescreen:value.prescreen??keeperRun.prescreen}:{})};
 	});
+	pi.events.on('coc:capsule',(value:any)=>{
+        if(table&&value?.campaign===table.campaign&&value.turn===table.turn)
+            table.packetSceneRequired=scenePopulationRequired(value.capsule??{});
+    });
 	pi.on('message_start',event=>{
 		if(!singleKeeper||event.message.role!=='assistant'||!table||!keeperRun)return;
 		const owner=keeperRun,state=table,signal=owner.signal,ctx=sessionCtx;
@@ -7827,7 +7832,7 @@ export default function (pi: ExtensionAPI, host: {capabilities?:RuntimeCapabilit
 			state.mapAttachments = [];
 			// A new player input is a new context (contract §32.4): no verdict outlives it.
 			state.playerText = text;
-			state.packetTimeBands=undefined;state.packetParameterRefused=false;
+			state.packetTimeBands=undefined;state.packetSceneRequired=undefined;state.packetParameterRefused=false;
 			state.interactionScope = undefined;
 			state.interactionScopeSettled = undefined;
 			state.selectedWriting = false;
@@ -8782,7 +8787,7 @@ export default function (pi: ExtensionAPI, host: {capabilities?:RuntimeCapabilit
                 await packetTimeBandHandles(table);
             }
             const choices=keeperRun?.prescreen?.choices?turnPacketMovementChoices(keeperRun.prescreen.choices):undefined;
-            outgoing=turnPacketProviderPayload(outgoing,journeySettled,table?.interactionScope!=='reference',table?.packetTimeBands,choices);
+            outgoing=turnPacketProviderPayload(outgoing,journeySettled,table?.interactionScope!=='reference',table?.packetTimeBands,choices,table?.packetSceneRequired??true);
         }
 		if (outgoing !== event.payload) return outgoing;
 	});

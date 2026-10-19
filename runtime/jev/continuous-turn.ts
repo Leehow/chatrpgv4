@@ -287,7 +287,10 @@ export class ContinuousTurn {
         const candidates:Row[]=[],coverage={complete:0,partial:0,omitted:0};
         const packet={authority:'Current host-issued option material, not authorization or a disclosure grant. Reuse these facts before looking them up again.',candidates,coverage};
         const fits=(row:Row)=>Buffer.byteLength(JSON.stringify({...packet,candidates:[...candidates,row]}),'utf8')<=24*1024-128;
-        for(const index of this.reusable){const candidate=this.candidates[index],meta={name:candidate.label,operation:keeperCall(candidate).args,parameters:candidate.unbound};
+        for(const index of this.reusable){const candidate=this.candidates[index];
+            const parameters=this.options.packet&&candidate.family==='move'
+                ?candidate.unbound.filter(parameter=>parameter.required&&['via','travel_band'].includes(parameter.name)):candidate.unbound;
+            const meta={name:candidate.label,operation:keeperCall(candidate).args,parameters};
             const complete={...meta,...(candidate.detail?{conditions:candidate.detail}:{}),...(candidate.routeFact?{condition:candidate.routeFact}:{})};
             if(fits(complete)){candidates.push(complete);coverage.complete++;continue;}
             const partial={...meta,material_coverage:'Source conditions omitted for bounded context; read the named target if those conditions are needed.'};
