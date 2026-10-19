@@ -48512,6 +48512,32 @@ evidence for involuntary displacement. It grants no authority and rewording it
 does not change the existing refusal identity. Its schema retains the existing
 200-character cause limit enforced by argument validation.
 
+### Host decision: stable decision protocol and current parameter data (owner 2026-10-19)
+
+The v4 output tool's structural JSON Schema is invariant across scene, actor,
+material and route changes. The host supplies the exact current parameter schema
+as an output_parameter_schema JSON block at the request tail, after retained
+history. This is typed capability data, not prose or another model instruction.
+The same schema builder feeds deterministic preflight before any world write;
+issued references, scene assessment, settled journeys and route restrictions
+remain enforced, followed by existing admission and canonical transaction checks.
+No judgment model, retry allowance, author or prompt reminder is added. The sole
+author still consumes all selected settled material and streams plain text.
+
+Producer: turnPacketParameterSchema reads current native capability bindings.
+Reader: the KP receives its exact tail schema alongside the fixed tool protocol.
+Actor: submitTurnPacket validates that schema before compiling/settling a packet.
+Cached prefixes are an optimization only; retired references never become valid
+because an old prefix or tool declaration is reused.
+
+Retained doctor traces show changing output definitions at tools/6 and negligible
+cache reads in both slow and control doctor calls. MiniMax documents a tools ->
+system -> messages prefix, corroborated by Anthropic's tool-caching documentation.
+Stabilizing this head repairs a proven reuse defect, not proof that provider
+queueing caused every latency outlier. Measure request-to-HTTP-headers separately
+from headers-to-first-increment and the remaining generation; missing cache-write
+usage remains unknown. Wire deltas and visible App painting are separate gates.
+
 ### Host decision: parallel preparation before Keeper inference (owner 2026-10-19)
 
 Independent existing reads start before the existing continuous-turn decision.
