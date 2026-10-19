@@ -66,3 +66,14 @@ test('public dialogue keeps actual attributed words and never falls back from an
  assert.deepEqual(publicDialogue([{who:{npc:'private-id',name:'SECRET',shown:'Clerk'},text:'The same receipt is valid.'},
   {who:{name:'SECRET',shown:''},text:'Unresolved speaker.'},{text:'Unattributed narrative.'}]),[{speaker:'Clerk',text:'The same receipt is valid.'}]);
 });
+
+test('population expiry retirement cannot bypass initial, moved, reversed or changed calendar context',async()=>{
+ const {sceneAssessmentExpiredDuringActivity}=await import('../../runtime/scene-population.ts');
+ const before={where:{scene:'Office',clock:{minutes:0,at:'1975-07-01T09:00',day_part:'morning'},temporal:{current:true,crowd:'quiet'}},present:[{ref:'npc_1'}]};
+ const after={...before,where:{...before.where,clock:{minutes:45,at:'1975-07-01T09:45',day_part:'morning'},temporal:{current:false}}};
+ assert.equal(sceneAssessmentExpiredDuringActivity(before,after,[{kind:'time'}]),true);
+ for(const [a,b,effects] of [[before,after,[]],[before,after,[{kind:'move'},{kind:'time'}]],[{...before,where:{...before.where,temporal:{current:false}}},after,[{kind:'time'}]],
+  [before,{...after,where:{...after.where,scene:'Other'}},[{kind:'time'}]],
+  ...[{minutes:-1},{at:'1975-07-02T09:45'},{day_part:'evening'}].map(clock=>[before,{...after,where:{...after.where,clock:{...after.where.clock,...clock}}},[{kind:'time'}]])])
+  assert.equal(sceneAssessmentExpiredDuringActivity(a,b,effects),false);
+});

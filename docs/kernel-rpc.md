@@ -48254,3 +48254,14 @@ absent, not invented. Keep current words, unfinished words, actual settled
 results, cash quotation binding, Noul questions and thresholds unchanged.
 Registered journey reference history retains its existing directional-context
 path. No new RPC or judgment request is introduced; capsule byte bounds remain.
+
+**Expiry during a settled stationary activity.** A valid population assessment
+may expire when a native time command advances the clock. At that same final
+output only, retire the expired assessment and render current canonical people
+with unknown population; do not refuse after the selected time/effects landed.
+This exception requires the same scene, previously current assessment, an
+actually advanced numeric clock within the same date and day part, a time command and now explicitly noncurrent
+temporal data. It never copies the old service/crowd into the author. Initial
+unassessed scenes, movement and live population contradictions keep their
+existing guards. Record retirement only; no model, reclassification, time
+replay, reset of TTL, new actor or changed publication authority is introduced.

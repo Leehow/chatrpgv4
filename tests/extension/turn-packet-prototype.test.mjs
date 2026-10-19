@@ -489,3 +489,25 @@ test('reordered identical refused object operations reuse the native negative ve
  assert.ok(table.telemetry().some(row=>row.lane==='admission'&&row.reused&&row.verdict==='not_authorized'));
  assert.equal(table.entries('coc-final-delivery').filter(row=>row.event==='end'&&row.status==='completed').length,0);
 });
+
+test('a stationary activity retires expired population material without blocking already settled output',async t=>{
+ const batches=[];const engine=createHybridEngine({env,decision:{decide:async batch=>{batches.push(batch);return answer(batch,.99);}}});
+ const assessed=async workspace=>{const client=new RpcClient(workspace);try{
+  await client.ok('table.open',{campaign:'test-camp'});
+  await client.ok('table.apply',{campaign:'test-camp',call_id:'t0-c1',effects:compileTurnPacket({...brief,commands:[{kind:'scene',service:'open',crowd:'quiet',review_after_minutes:1}]}).effects});
+  await client.ok('table.narrate',{campaign:'test-camp',call_id:'t0-c2',text:'Knott waits at his desk.'});
+ }finally{await client.close();}};
+ const table=await openTable({legacyDeliveryFixtures:false,realKernel:true,prepareWorkspace:assessed,env,runDriver:engine.runDriver,
+  extraExtensions:[{name:'engine',factory:engine.extension}],responses:[()=>fauxAssistantMessage([rawToolCall('output',{
+   ...brief,commands:[{kind:'time',band:'quick_observation',reason:'Look at the selected office record while remaining here.'}]
+  })],{stopReason:'toolUse'})]});
+ t.after(()=>table.dispose());await table.session.prompt('I spend time reading the office records and remain at the desk.');
+ assert.deepEqual(table.extensionErrors,[]);
+ const author=table.telemetry().find(row=>row.lane==='isolated-expression'&&row.event==='written');assert.ok(author);
+ const task=JSON.parse(readFileSync(join(author.attempt,'task.json'),'utf8'));
+ assert.equal(task.decision_context.scene.temporal.current,false);
+ assert.equal(task.decision_context.scene.temporal.crowd,undefined);
+ assert.equal(task.result.outcomes.filter(row=>row.kind==='time').length,1);
+ assert.equal(batches.filter(batch=>batch.family==='continuous-action-admission').length,1);
+ assert.equal(table.entries('coc-final-delivery').filter(row=>row.event==='end'&&row.status==='completed').length,1);
+});

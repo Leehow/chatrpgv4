@@ -11,7 +11,7 @@ import { SINGLE_PASS_NARRATION } from '../../kernel-ts/runtime/narration-policy.
 import {ArtifactTextStream} from '../../runtime/final-output-stream.ts';
 import {moveEstablishmentRefusal} from '../../shared/move-protocol.ts';
 import {SAME_KEEPER_AFTER_RESULT_GUIDANCE} from '../../runtime/keeper-output-guidance.ts';
-import {scenePopulationRequired} from '../../runtime/scene-population.ts';
+import {scenePopulationRequired,sceneAssessmentExpiredDuringActivity} from '../../runtime/scene-population.ts';
 import {ExpressionPlanStream,writeIsolatedExpression,decisionScene,decisionClock,decisionRecentPublic,decisionResponseScope} from '../../runtime/isolated-expression.ts';
 import {turnPacket,bindTurnPacketMoves,turnPacketMovementChoices,requireTurnPacketNpcDestinations,isNewNpcSlot,normalizeTurnPacketArguments,compileTurnPacket,turnPacketResult,turnPacketProviderPayload,TURN_PACKET_PARAMETERS,TURN_PACKET_GUIDANCE,type TurnPacket} from '../../runtime/turn-packet-prototype.ts';
 import {normalizeToolArgumentSyntax} from '../../runtime/tool-argument-syntax.ts';
@@ -5716,7 +5716,10 @@ export default function (pi: ExtensionAPI, host: {capabilities?:RuntimeCapabilit
 				operationResult=turnPacketResult(settled.details);
 			}
 			const current=await state.kernel.call<Record<string,any>>('table.capsule',{campaign:state.campaign,_context_read:true});
-            if(scenePopulationRequired(current)&&!compiled.effects.some(row=>row.kind==='scene'))throw new KernelError({code:'needs',message:'Scene population remains unassessed or conflicts with current registered presence; preserve receipts and complete the scene assessment before rendering.'});
+            if(scenePopulationRequired(current)&&!compiled.effects.some(row=>row.kind==='scene')){
+                if(!sceneAssessmentExpiredDuringActivity(before,current,compiled.effects))throw new KernelError({code:'needs',message:'Scene population remains unassessed or conflicts with current registered presence; preserve receipts and complete the scene assessment before rendering.'});
+                await record({lane:'scene-population',event:'assessment_retired',turn:state.turn,reason:'settled_stationary_activity',population:'unknown'});
+            }
             for(const newcomer of newcomers){
                 const person=await state.kernel.call<Record<string,any>>('table.look',{campaign:state.campaign,focus:'npc',name:newcomer.label,_context_read:true});
                 if(typeof person.ref!=='string'||typeof person.display_name!=='string')throw Error('The created NPC reference projection is unavailable');
