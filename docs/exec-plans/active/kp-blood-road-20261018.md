@@ -263,3 +263,56 @@ source table.open returns public_exchanges, while the local build lacks that
 field. The fixture preparation uses fresh source RPC but the restarted Keeper
 uses build/kernel/rpc.mjs. Preserve the original assertion and rebuild a clean
 matching checkout before accepting or diagnosing this as a product regression.
+
+## Browser chapter closure on ff932831b
+
+The clean matching build passes all19prescreen component cases, including
+the unchanged restarted public-history assertion. The prior red was mixed
+source/build evidence and is retained as such. Browser server20 uses this
+exact committed build, MiniMax-M3.1-Flash-Preview/medium for all lanes.
+
+Real browser inputs46–54 continued the same campaign without replaying45's
+move.46author1write ended immediately;47reported to county health;48issued
+local_travel settled30minutes;52paid1.50USD for an editor call;53moved70minutes
+to the photo shop;54handed over film, booked5.50USD rush processing and
+received a tomorrow-noon claim receipt. The investigation/source-records/
+mine-evidence/health-report/editor-file/photo-custody arc has a natural chapter
+stop here. This is not full-module completion or proof photos are developed.
+
+50is preserved as undelivered: uncertain cash admission and bad event actor
+preceded time/event receipts, and the cross-step guard refused the author.
+51–52naturally continued without duplicate receipts. Its two visible characters
+were the first frame of a full persisted unfinished notice, not leaked KP text
+or writer truncation. The notice later displayed completely.
+
+Known author problems remain visible: the colleague repeatedly receives the
+PC's name;48invents a diner despite correct empty-road input;53blends that
+diner's woman back into the new shop. Canonical route/time and final-public
+bytes match the actual packets and artifact. No source/wire mismatch was
+proved for these narrative errors, and no semantic regex, extra judge, or
+prompt patch was added to conceal them. Delivered is not fully correct.
+
+Latest queue audit19terminal jobs:13completed,6failed;0queued/running/review.
+Original3provider500 failures and3source-review refusals remain failures,
+not pending work or passes. Final full LAN gate on ff932831b is running at
+run.eCzkZef8; closure screenshot retained beside the real campaign.
+
+54item qualification: the transferred object was adopted from the bare inventory
+label for spare film and the Keeper defined it as unopened. No separate already-
+exposed roll existed in prior canonical inventory. This is a concrete semantic
+mismatch with the requested developed evidence; it cannot be treated as proved
+correct film custody. It is not evidence that an existing exposure-state machine
+corrupted inventory. The narrative chapter reached a handoff, but this handoff
+is not fully correct. Do not add photography simulation, semantic regexes or a
+judgment lane to conceal the mismatch. Browser task closed after screenshot;
+only its owned test server stopped, campaigns and original failures retained.
+
+Final full gate initially flags2test files. mod-build-skew temp ESM bundle
+used packages:external without a node_modules resolution root; its loader now
+uses the existing npc-voice-package symlink pattern.6/6local tests pass.
+The bookkeeping fixture used a now-schema-invalid extra elapsed_minutes and
+never reached its intended canonical failure. It now uses the valid reunion
+shape, asserts exact npc_reunion_not_due plus the original no-judgment,
+bookkeeping-scope and delivered-result invariants.1/1target passes. Shared
+shape extra-field negatives remain separately covered. No production changes
+for these test repairs; old full-run failure evidence is not rewritten.

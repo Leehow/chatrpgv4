@@ -265,12 +265,14 @@ test('invalid NPC bookkeeping never becomes a refused player action',async t=>{
  const engine=createHybridEngine({env,decision:{decide:async batch=>{batches.push(batch);return answer(batch,.99);}}});
  const table=await openTable({legacyDeliveryFixtures:false,realKernel:true,prepareWorkspace:opened,env,runDriver:engine.runDriver,
   extraExtensions:[{name:'engine',factory:engine.extension}],responses:[
-   ()=>{requests++;return fauxAssistantMessage([rawToolCall('apply',{effects:[{kind:'npc',name:'Steven Knott',reunion:{elapsed_minutes:5,background:[],reports:[]}}]})],{stopReason:'toolUse'});},
+   // A schema-valid reunion still fails the canonical return-encounter precondition.
+   ()=>{requests++;return fauxAssistantMessage([rawToolCall('apply',{effects:[{kind:'npc',name:'Steven Knott',reunion:{background:[],reports:[]}}]})],{stopReason:'toolUse'});},
    ()=>{requests++;return fauxAssistantMessage([rawToolCall('apply',{effects:[{kind:'npc',name:'Steven Knott',stance:'warm'}]})],{stopReason:'toolUse'});},
    ()=>{requests++;return fauxAssistantMessage([fauxToolCall('output',brief)],{stopReason:'toolUse'});}
   ]});t.after(()=>table.dispose());await table.session.prompt('I greet Knott and ask him about the office.');
  assert.deepEqual(table.extensionErrors,[]);assert.equal(requests,3);
  assert.equal(batches.filter(row=>['continuous-action-admission','held-act-outcome'].includes(row.family)).length,0);
+ assert.ok(table.session.messages.some(row=>row.role==='toolResult'&&row.details?.coc_error?.details?.reason==='npc_reunion_not_due'));
  assert.ok(table.telemetry().some(row=>row.lane==='held-operation'&&row.event==='argument_outside_player_scope'));
  assert.equal(table.entries('coc-final-delivery').filter(row=>row.event==='end'&&row.status==='completed').length,1);
 });
