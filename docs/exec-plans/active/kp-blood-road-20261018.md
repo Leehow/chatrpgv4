@@ -6,6 +6,33 @@ New approved scope: prefetch independent material and overlap existing decisions
 before KP, prefer one combined structured packet, preserve the direct SSE author,
 add no judgment model. The preceding v4 verification remains historical evidence.
 
+Final status: committed througha93e9d7e5, independently built and genuinely tested
+on MiniMax3.1/medium. See docs/acceptance/parallel-keeper-preparation-20261019.md.
+Final six consecutive intentions use6 KP/6 authors/6 successful outputs, zero
+retrieval and no parameter retry. Same four baseline inputs cost69.567s before
+versus79.194s final; rounds are4/4 in both. Thus no net speed improvement or
+round-count reduction is established. The doctor's one KP request slows from
+10.936 to27.746s, with first nonempty delta3.818 to15.735s; material preparation
+is19-41ms. Retain the initial candidate's partial answers/retry, not just the
+better final sample. No unsupported latency attribution or new judge.
+
+All6 final memory jobs finish. State/item/cash boundaries are verified; exactly
+two30minute moves across the six intents. The existing route selector defers
+these declarations, so actual live overlap with an early Jev verdict is not
+proven by this sample. The serial-RPC blocked-card regressions prove eligible
+judgments can overlap reads; actual logs prove first-request preparation/reuse.
+
+Final targeted LAN91/91, fast130/130, language5/5 and module typecheck pass.
+The preceding30d broad focused run finishes:4031 extension tests4030pass/1 known
+caption-inventory failure;2223 integration tests2222pass/1skip; routing12pass.
+Do not relabel that broad run as finala93, or claim whole-repository green.
+All before/initial-after/final drivers stopped cleanly. Canonical installed App
+remainsedb705; this batch is source/runtime-driver acceptance, not a new App
+package or visible-UI acceptance claim. Owned validation closeout remains.
+Closeout completed classification: terminal, retained_verification_failed;
+audit still reports its two dependency symlinks as dirty. This is an explicit
+retention with the known broad red check, not a clean/deleted/audit_ok claim.
+
 Confirmed gaps: current people are read only after continuous-turn judgment;
 explicitly named offstage people are absent from that first context; repeated
 same-input projections re-read the unchanged actors. The production engine
