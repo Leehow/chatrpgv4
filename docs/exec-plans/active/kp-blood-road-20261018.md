@@ -343,3 +343,58 @@ reason for an empty container. stageMove now lets the existing containing-place
 validator own its field before the shared envelope validator; both reject
 before writes. This preserves §§187.2.1/204.3 rather than loosening the schema.
 No new model, prompt, parsing heuristic or source material.
+
+## Open follow-up: actual object identity in the existing consent request
+
+The54film audit found a concrete context omission, not a lost preexisting
+exposed-roll definition. KP newly defined the spare film as unopened before
+handing it over. The capsule object projection omits definition.description;
+reviewed operations and settled receipt IDs also omit it. No full live Jev
+batch is retained, but the source producer proves the omission. Candidate
+repair: enrich only reviewed object/item operation targets with an exact
+existing table.look focus=object result (name/description/owner/quantity/state),
+using the existing same consent batch and cache key. Keep same-batch proposed
+definitions distinct from committed definitions. Never enrich only lines: native
+consent reads operations. No new judge/question/semantic regex. Investigating
+minimal safe wiring and fixture/live recheck; not implemented yet.
+
+Primary precedent checked: TypeSafe concepts/state says related application
+facts belong together in one structured state, questions remain separate:
+https://docs.typesafe.ai/concepts/state . OPA external-data input pattern sends
+selected-resource metadata from its owner and can cache locally, avoiding a
+policy-layer remote query: https://www.openpolicyagent.org/docs/external-data .
+Both support state enrichment, not a second evaluation stage. Our kernel stays
+authoritative and only selected, permitted attributes may cross this boundary.
+
+Current latest code8dec46d23 final all session85859/run.6CTJRVAZ remains running
+on LAN. Do not mutate its remote source or call another heavy workflow. If a
+new candidate lands, preserve this run and verify final code separately.
+
+The raw-description consent-enrichment candidate above is rejected under the
+existing §32.3 epistemic boundary (Nothing Keeper-only travels). Definition
+description is Keeper material, not player_view; the approved destination
+identity exception does not extend to arbitrary object properties. Exclusion
+from public consent is therefore intentional, not an authorization wiring bug.
+Do not add a private factual-consistency remit or a second question to catch
+this one film case. Permitted public identity projection would not establish
+the hidden unopened/exposed mismatch. Check whether KP already retained its
+own same-run definition arguments before adding duplicate capsule material.
+No code was written for this rejected candidate, no new judgment/API calls.
+
+The54KP second request did retain its own unopened definition: assistant
+toolCall arguments segment7193bytes/digest8e92d74a53de exactly matches the
+persisted first message (session15789/request projection15820). Wire body was
+not retained, but actual outgoing context projection is checked. This is a
+semantic continuity error despite available KP material. Do not add duplicate
+capsule material or violate public-consent privacy to mask it. The proposed
+context change is closed/rejected, not pending implementation.
+
+Latest full8dec46d23: all696extension files finished; onlytest-tiers ledger
+check is red because rules-item-cash native counterpart changed after its
+recorded validation. All11native cases in that file were actually rerun within
+the19/19integration diagnostics run and statement review preserves original
+loss fields plus separately checks uncommitted. Update only native counterpart
+hashes and record old hash/execution/review. Original source hashes, cases and
+assertion inventory are machine-verified unchanged; frozen sources/oracle are
+untouched, guard code unchanged. test-tiers3/3passes. Current full native phase
+still running; preserve its immutable8de manifest failure as historical result.

@@ -29231,7 +29231,7 @@
           "counterpart": {
             "file": "tests/integration/rules-item-cash.test.ts",
             "name": "test_item_with_a_weapon_profile_reaches_the_sheet_the_line_and_the_event",
-            "sha256": "95c6a3445b40d2158ea8ccca4f71406200d7812c88faedd52343964efee5ad10"
+            "sha256": "81b87026533046ae12bf4397c3d0c1f145e9a06af747c871d807ea2a6c19cc77"
           },
           "review": "statement-by-statement",
           "validation": {
@@ -29292,6 +29292,14 @@
               },
               "fullCurrentSourceByteExact": false,
               "remainingSnapshotFilesExact": 1409
+            },
+            "revalidated": {
+              "priorNativeSha256": "95c6a3445b40d2158ea8ccca4f71406200d7812c88faedd52343964efee5ad10",
+              "command": "node --test tests/integration/world-minted-place.test.ts tests/integration/rules-item-cash.test.ts",
+              "result": "passed",
+              "cases": 19,
+              "evidence": ".coc/experiments/npc-action-contract-20261018/browser-seams/final-integration-diagnostics.log",
+              "review": "Original loss diagnostic fields remain exactly compared; the approved transaction_state=uncommitted transport marker is separately asserted. Other native cases in this file are unchanged."
             }
           },
           "migrationNotes": "Every original assertion and fixture input preserved. Native production RPC, exact disk receipts/events/sheets and mechanics projection retained; in-process skill/profile helpers call current production API. Stated operations uses native KPI offers implementation. Parser varargs and Set union outputs manually corrected to original semantics."
@@ -29342,7 +29350,7 @@
           "counterpart": {
             "file": "tests/integration/rules-item-cash.test.ts",
             "name": "test_item_without_a_weapon_is_kit_and_quantities_merge",
-            "sha256": "95c6a3445b40d2158ea8ccca4f71406200d7812c88faedd52343964efee5ad10"
+            "sha256": "81b87026533046ae12bf4397c3d0c1f145e9a06af747c871d807ea2a6c19cc77"
           },
           "review": "statement-by-statement",
           "validation": {
@@ -29403,6 +29411,14 @@
               },
               "fullCurrentSourceByteExact": false,
               "remainingSnapshotFilesExact": 1409
+            },
+            "revalidated": {
+              "priorNativeSha256": "95c6a3445b40d2158ea8ccca4f71406200d7812c88faedd52343964efee5ad10",
+              "command": "node --test tests/integration/world-minted-place.test.ts tests/integration/rules-item-cash.test.ts",
+              "result": "passed",
+              "cases": 19,
+              "evidence": ".coc/experiments/npc-action-contract-20261018/browser-seams/final-integration-diagnostics.log",
+              "review": "Original loss diagnostic fields remain exactly compared; the approved transaction_state=uncommitted transport marker is separately asserted. Other native cases in this file are unchanged."
             }
           },
           "migrationNotes": "Every original assertion and fixture input preserved. Native production RPC, exact disk receipts/events/sheets and mechanics projection retained; in-process skill/profile helpers call current production API. Stated operations uses native KPI offers implementation. Parser varargs and Set union outputs manually corrected to original semantics."
@@ -29473,7 +29489,7 @@
           "counterpart": {
             "file": "tests/integration/rules-item-cash.test.ts",
             "name": "test_unknown_weapon_profile_is_needs_with_the_eras_ids_and_the_batch_does_not_write",
-            "sha256": "95c6a3445b40d2158ea8ccca4f71406200d7812c88faedd52343964efee5ad10"
+            "sha256": "81b87026533046ae12bf4397c3d0c1f145e9a06af747c871d807ea2a6c19cc77"
           },
           "review": "statement-by-statement",
           "validation": {
@@ -29534,6 +29550,14 @@
               },
               "fullCurrentSourceByteExact": false,
               "remainingSnapshotFilesExact": 1409
+            },
+            "revalidated": {
+              "priorNativeSha256": "95c6a3445b40d2158ea8ccca4f71406200d7812c88faedd52343964efee5ad10",
+              "command": "node --test tests/integration/world-minted-place.test.ts tests/integration/rules-item-cash.test.ts",
+              "result": "passed",
+              "cases": 19,
+              "evidence": ".coc/experiments/npc-action-contract-20261018/browser-seams/final-integration-diagnostics.log",
+              "review": "Original loss diagnostic fields remain exactly compared; the approved transaction_state=uncommitted transport marker is separately asserted. Other native cases in this file are unchanged."
             }
           },
           "migrationNotes": "Every original assertion and fixture input preserved. Native production RPC, exact disk receipts/events/sheets and mechanics projection retained; in-process skill/profile helpers call current production API. Stated operations uses native KPI offers implementation. Parser varargs and Set union outputs manually corrected to original semantics."
@@ -29612,7 +29636,7 @@
           "counterpart": {
             "file": "tests/integration/rules-item-cash.test.ts",
             "name": "test_loss_needs_the_item_on_the_sheet_and_takes_the_weapon_row_with_it",
-            "sha256": "95c6a3445b40d2158ea8ccca4f71406200d7812c88faedd52343964efee5ad10"
+            "sha256": "81b87026533046ae12bf4397c3d0c1f145e9a06af747c871d807ea2a6c19cc77"
           },
           "review": "statement-by-statement",
           "validation": {
@@ -29673,6 +29697,14 @@
               },
               "fullCurrentSourceByteExact": false,
               "remainingSnapshotFilesExact": 1409
+            },
+            "revalidated": {
+              "priorNativeSha256": "95c6a3445b40d2158ea8ccca4f71406200d7812c88faedd52343964efee5ad10",
+              "command": "node --test tests/integration/world-minted-place.test.ts tests/integration/rules-item-cash.test.ts",
+              "result": "passed",
+              "cases": 19,
+              "evidence": ".coc/experiments/npc-action-contract-20261018/browser-seams/final-integration-diagnostics.log",
+              "review": "Original loss diagnostic fields remain exactly compared; the approved transaction_state=uncommitted transport marker is separately asserted. Other native cases in this file are unchanged."
             }
           },
           "migrationNotes": "Every original assertion and fixture input preserved. Native production RPC, exact disk receipts/events/sheets and mechanics projection retained; in-process skill/profile helpers call current production API. Stated operations uses native KPI offers implementation. Parser varargs and Set union outputs manually corrected to original semantics."
@@ -29719,7 +29751,7 @@
           "counterpart": {
             "file": "tests/integration/rules-item-cash.test.ts",
             "name": "test_a_given_shotgun_resolves_and_combat_counts_its_own_magazine_and_skill",
-            "sha256": "95c6a3445b40d2158ea8ccca4f71406200d7812c88faedd52343964efee5ad10"
+            "sha256": "81b87026533046ae12bf4397c3d0c1f145e9a06af747c871d807ea2a6c19cc77"
           },
           "review": "statement-by-statement",
           "validation": {
@@ -29780,6 +29812,14 @@
               },
               "fullCurrentSourceByteExact": false,
               "remainingSnapshotFilesExact": 1409
+            },
+            "revalidated": {
+              "priorNativeSha256": "95c6a3445b40d2158ea8ccca4f71406200d7812c88faedd52343964efee5ad10",
+              "command": "node --test tests/integration/world-minted-place.test.ts tests/integration/rules-item-cash.test.ts",
+              "result": "passed",
+              "cases": 19,
+              "evidence": ".coc/experiments/npc-action-contract-20261018/browser-seams/final-integration-diagnostics.log",
+              "review": "Original loss diagnostic fields remain exactly compared; the approved transaction_state=uncommitted transport marker is separately asserted. Other native cases in this file are unchanged."
             }
           },
           "migrationNotes": "Every original assertion and fixture input preserved. Native production RPC, exact disk receipts/events/sheets and mechanics projection retained; in-process skill/profile helpers call current production API. Stated operations uses native KPI offers implementation. Parser varargs and Set union outputs manually corrected to original semantics."
@@ -29834,7 +29874,7 @@
           "counterpart": {
             "file": "tests/integration/rules-item-cash.test.ts",
             "name": "test_sheet_skill_value_matches_the_weapon_tables_spelling_and_falls_back_to_the_rulebook_base",
-            "sha256": "95c6a3445b40d2158ea8ccca4f71406200d7812c88faedd52343964efee5ad10"
+            "sha256": "81b87026533046ae12bf4397c3d0c1f145e9a06af747c871d807ea2a6c19cc77"
           },
           "review": "statement-by-statement",
           "validation": {
@@ -29895,6 +29935,14 @@
               },
               "fullCurrentSourceByteExact": false,
               "remainingSnapshotFilesExact": 1409
+            },
+            "revalidated": {
+              "priorNativeSha256": "95c6a3445b40d2158ea8ccca4f71406200d7812c88faedd52343964efee5ad10",
+              "command": "node --test tests/integration/world-minted-place.test.ts tests/integration/rules-item-cash.test.ts",
+              "result": "passed",
+              "cases": 19,
+              "evidence": ".coc/experiments/npc-action-contract-20261018/browser-seams/final-integration-diagnostics.log",
+              "review": "Original loss diagnostic fields remain exactly compared; the approved transaction_state=uncommitted transport marker is separately asserted. Other native cases in this file are unchanged."
             }
           },
           "migrationNotes": "Every original assertion and fixture input preserved. Native production RPC, exact disk receipts/events/sheets and mechanics projection retained; in-process skill/profile helpers call current production API. Stated operations uses native KPI offers implementation. Parser varargs and Set union outputs manually corrected to original semantics."
@@ -29993,7 +30041,7 @@
           "counterpart": {
             "file": "tests/integration/rules-item-cash.test.ts",
             "name": "test_cash_builds_the_finance_block_from_the_era_table_and_moves_it",
-            "sha256": "95c6a3445b40d2158ea8ccca4f71406200d7812c88faedd52343964efee5ad10"
+            "sha256": "81b87026533046ae12bf4397c3d0c1f145e9a06af747c871d807ea2a6c19cc77"
           },
           "review": "statement-by-statement",
           "validation": {
@@ -30054,6 +30102,14 @@
               },
               "fullCurrentSourceByteExact": false,
               "remainingSnapshotFilesExact": 1409
+            },
+            "revalidated": {
+              "priorNativeSha256": "95c6a3445b40d2158ea8ccca4f71406200d7812c88faedd52343964efee5ad10",
+              "command": "node --test tests/integration/world-minted-place.test.ts tests/integration/rules-item-cash.test.ts",
+              "result": "passed",
+              "cases": 19,
+              "evidence": ".coc/experiments/npc-action-contract-20261018/browser-seams/final-integration-diagnostics.log",
+              "review": "Original loss diagnostic fields remain exactly compared; the approved transaction_state=uncommitted transport marker is separately asserted. Other native cases in this file are unchanged."
             }
           },
           "migrationNotes": "Every original assertion and fixture input preserved. Native production RPC, exact disk receipts/events/sheets and mechanics projection retained; in-process skill/profile helpers call current production API. Stated operations uses native KPI offers implementation. Parser varargs and Set union outputs manually corrected to original semantics."
@@ -30076,7 +30132,7 @@
           "counterpart": {
             "file": "tests/integration/rules-item-cash.test.ts",
             "name": "test_improvised_object_keeps_name_and_uses_selected_profile",
-            "sha256": "95c6a3445b40d2158ea8ccca4f71406200d7812c88faedd52343964efee5ad10"
+            "sha256": "81b87026533046ae12bf4397c3d0c1f145e9a06af747c871d807ea2a6c19cc77"
           },
           "review": "statement-by-statement",
           "validation": {
@@ -30137,6 +30193,14 @@
               },
               "fullCurrentSourceByteExact": false,
               "remainingSnapshotFilesExact": 1409
+            },
+            "revalidated": {
+              "priorNativeSha256": "95c6a3445b40d2158ea8ccca4f71406200d7812c88faedd52343964efee5ad10",
+              "command": "node --test tests/integration/world-minted-place.test.ts tests/integration/rules-item-cash.test.ts",
+              "result": "passed",
+              "cases": 19,
+              "evidence": ".coc/experiments/npc-action-contract-20261018/browser-seams/final-integration-diagnostics.log",
+              "review": "Original loss diagnostic fields remain exactly compared; the approved transaction_state=uncommitted transport marker is separately asserted. Other native cases in this file are unchanged."
             }
           },
           "migrationNotes": "Every original assertion and fixture input preserved. Native production RPC, exact disk receipts/events/sheets and mechanics projection retained; in-process skill/profile helpers call current production API. Stated operations uses native KPI offers implementation. Parser varargs and Set union outputs manually corrected to original semantics."
@@ -30231,7 +30295,7 @@
           "counterpart": {
             "file": "tests/integration/rules-item-cash.test.ts",
             "name": "test_a_cash_amount_needs_a_source_and_a_cited_price_is_resolved_from_the_printed_list",
-            "sha256": "95c6a3445b40d2158ea8ccca4f71406200d7812c88faedd52343964efee5ad10"
+            "sha256": "81b87026533046ae12bf4397c3d0c1f145e9a06af747c871d807ea2a6c19cc77"
           },
           "review": "statement-by-statement",
           "validation": {
@@ -30292,6 +30356,14 @@
               },
               "fullCurrentSourceByteExact": false,
               "remainingSnapshotFilesExact": 1409
+            },
+            "revalidated": {
+              "priorNativeSha256": "95c6a3445b40d2158ea8ccca4f71406200d7812c88faedd52343964efee5ad10",
+              "command": "node --test tests/integration/world-minted-place.test.ts tests/integration/rules-item-cash.test.ts",
+              "result": "passed",
+              "cases": 19,
+              "evidence": ".coc/experiments/npc-action-contract-20261018/browser-seams/final-integration-diagnostics.log",
+              "review": "Original loss diagnostic fields remain exactly compared; the approved transaction_state=uncommitted transport marker is separately asserted. Other native cases in this file are unchanged."
             }
           },
           "migrationNotes": "Every original assertion and fixture input preserved. Native production RPC, exact disk receipts/events/sheets and mechanics projection retained; in-process skill/profile helpers call current production API. Stated operations uses native KPI offers implementation. Parser varargs and Set union outputs manually corrected to original semantics."
@@ -30358,7 +30430,7 @@
           "counterpart": {
             "file": "tests/integration/rules-item-cash.test.ts",
             "name": "test_spending_level_settles_an_occasional_purchase_without_debiting_cash",
-            "sha256": "95c6a3445b40d2158ea8ccca4f71406200d7812c88faedd52343964efee5ad10"
+            "sha256": "81b87026533046ae12bf4397c3d0c1f145e9a06af747c871d807ea2a6c19cc77"
           },
           "review": "statement-by-statement",
           "validation": {
@@ -30419,6 +30491,14 @@
               },
               "fullCurrentSourceByteExact": false,
               "remainingSnapshotFilesExact": 1409
+            },
+            "revalidated": {
+              "priorNativeSha256": "95c6a3445b40d2158ea8ccca4f71406200d7812c88faedd52343964efee5ad10",
+              "command": "node --test tests/integration/world-minted-place.test.ts tests/integration/rules-item-cash.test.ts",
+              "result": "passed",
+              "cases": 19,
+              "evidence": ".coc/experiments/npc-action-contract-20261018/browser-seams/final-integration-diagnostics.log",
+              "review": "Original loss diagnostic fields remain exactly compared; the approved transaction_state=uncommitted transport marker is separately asserted. Other native cases in this file are unchanged."
             }
           },
           "migrationNotes": "Every original assertion and fixture input preserved. Native production RPC, exact disk receipts/events/sheets and mechanics projection retained; in-process skill/profile helpers call current production API. Stated operations uses native KPI offers implementation. Parser varargs and Set union outputs manually corrected to original semantics."
@@ -30461,7 +30541,7 @@
           "counterpart": {
             "file": "tests/integration/rules-item-cash.test.ts",
             "name": "test_the_capsule_tells_the_keeper_the_balance_and_what_this_table_has_already_charged",
-            "sha256": "95c6a3445b40d2158ea8ccca4f71406200d7812c88faedd52343964efee5ad10"
+            "sha256": "81b87026533046ae12bf4397c3d0c1f145e9a06af747c871d807ea2a6c19cc77"
           },
           "review": "statement-by-statement",
           "validation": {
@@ -30522,6 +30602,14 @@
               },
               "fullCurrentSourceByteExact": false,
               "remainingSnapshotFilesExact": 1409
+            },
+            "revalidated": {
+              "priorNativeSha256": "95c6a3445b40d2158ea8ccca4f71406200d7812c88faedd52343964efee5ad10",
+              "command": "node --test tests/integration/world-minted-place.test.ts tests/integration/rules-item-cash.test.ts",
+              "result": "passed",
+              "cases": 19,
+              "evidence": ".coc/experiments/npc-action-contract-20261018/browser-seams/final-integration-diagnostics.log",
+              "review": "Original loss diagnostic fields remain exactly compared; the approved transaction_state=uncommitted transport marker is separately asserted. Other native cases in this file are unchanged."
             }
           },
           "migrationNotes": "Every original assertion and fixture input preserved. Native production RPC, exact disk receipts/events/sheets and mechanics projection retained; in-process skill/profile helpers call current production API. Stated operations uses native KPI offers implementation. Parser varargs and Set union outputs manually corrected to original semantics."
