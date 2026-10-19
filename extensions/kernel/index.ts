@@ -14,7 +14,7 @@ import {moveEstablishmentRefusal} from '../../shared/move-protocol.ts';
 import {SAME_KEEPER_AFTER_RESULT_GUIDANCE} from '../../runtime/keeper-output-guidance.ts';
 import {scenePopulationRequired,sceneAssessmentExpiredDuringActivity} from '../../runtime/scene-population.ts';
 import {ExpressionPlanStream,writeIsolatedExpression,decisionScene,decisionClock,decisionRecentPublic,decisionResponseScope} from '../../runtime/isolated-expression.ts';
-import {turnPacket,bindTurnPacketMoves,turnPacketMovementChoices,requireTurnPacketNpcDestinations,isNewNpcSlot,normalizeTurnPacketArguments,compileTurnPacket,turnPacketResult,turnPacketProviderPayload,TURN_PACKET_PARAMETERS,TURN_PACKET_GUIDANCE,type TurnPacket} from '../../runtime/turn-packet-prototype.ts';
+import {turnPacket,bindTurnPacketMoves,turnPacketMovementChoices,requireTurnPacketNpcDestinations,isNewNpcSlot,normalizeTurnPacketArguments,compileTurnPacket,turnPacketResult,turnPacketProviderPayload,turnPacketParameterSchema,requireTurnPacketParameters,TURN_PACKET_PARAMETERS,TURN_PACKET_GUIDANCE,type TurnPacket} from '../../runtime/turn-packet-prototype.ts';
 import {normalizeToolArgumentSyntax} from '../../runtime/tool-argument-syntax.ts';
 import {normalizeApplyArguments} from '../../shared/apply-protocol.ts';
 import {owedConsentPlan} from './owed-consent.ts';
@@ -5845,6 +5845,7 @@ export default function (pi: ExtensionAPI, host: {capabilities?:RuntimeCapabilit
             try{
                 const parsed=turnPacket(JSON.stringify(params));
                 const choices=owner.prescreen?.choices?turnPacketMovementChoices(owner.prescreen.choices):undefined;
+                requireTurnPacketParameters(parsed,turnPacketParameterSchema(!!owner.routineResult?.outcomes.some(row=>row.kind==='move'),state.packetTimeBands,choices,state.packetSceneRequired??true,packetContent(state).bindings()));
                 packet=choices?bindTurnPacketMoves(parsed,choices):requireTurnPacketNpcDestinations(parsed);
                 if((packet.commands??[]).some(row=>row.kind==='time')){
                     const bands=await packetTimeBandHandles(state);

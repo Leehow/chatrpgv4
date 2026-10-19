@@ -63,12 +63,8 @@ export function requireTurnPacketNpcDestinations(packet:TurnPacket,choices:reado
 export function normalizeTurnPacketArguments(input:unknown):{args:unknown;repairs:number;integerRepairs?:number} {
   return normalizeToolArgumentSyntax(TURN_PACKET_PARAMETERS,input,{boundedIntegers:true});
 }
-/** Restore this owned declaration after Pi's non-strict Anthropic conversion. */
-export function turnPacketProviderPayload(payload:unknown,journeySettled=false,requireTool=true,timeBands?:readonly string[],moveChoices?:readonly Record<string,unknown>[],sceneRequired=false,bindings?:DecisionBindings):unknown {
-  if(!object(payload)||!Array.isArray(payload.tools))return payload;
-  let changed=false;
-  const tools=payload.tools.map((tool:unknown)=>{
-    if(!object(tool)||tool.name!=='output'||!object(tool.input_schema))return tool;
+/** Current capabilities are data; the provider tool declaration stays invariant. */
+export function turnPacketParameterSchema(journeySettled=false,timeBands?:readonly string[],moveChoices?:readonly Record<string,unknown>[],sceneRequired=false,bindings?:DecisionBindings):TSchema {
     const schema:Record<string,any>=structuredClone(TURN_PACKET_PARAMETERS);
     if(bindings){schema.properties.interactions.items=bindCommunicationParameters(schema.properties.interactions.items,bindings);schema.properties.reveal.items=bindCommunicationParameters(schema.properties.reveal.items,bindings);}
     const destinations=[...new Set((moveChoices??[]).filter(row=>row.kind==='move'&&typeof row.to==='string').map(row=>row.to as string))];
@@ -89,9 +85,24 @@ export function turnPacketProviderPayload(payload:unknown,journeySettled=false,r
     if(journeySettled)schema.properties.commands=Type.Array(Type.Union([issuedNpc,walkOn,scene,relationship]),{maxItems:12,...stationary});
     else schema.properties.commands=Type.Union([Type.Array(Type.Union([...issuedMoves,issuedNpc,walkOn,scene,relationship]),{maxItems:12,...moving}),Type.Array(Type.Union([boundedTime,issuedNpc,walkOn,scene,relationship]),{maxItems:12,...stationary})]);
     if(sceneRequired)schema.required=[...new Set([...(schema.required??[]),'commands'])];
-    changed=true;return {...tool,input_schema:schema};
+    return schema as TSchema;
+}
+/** Run the exact issued constraints locally before settlement, without a model judgment. */
+export function requireTurnPacketParameters(packet:TurnPacket,schema:TSchema):void {
+  if(Errors(schema,packet).length)throw parameterError('packet',schema,packet);
+}
+/** Restore the owned structural schema after Pi's non-strict Anthropic conversion. */
+export function turnPacketProviderPayload(payload:unknown,journeySettled=false,requireTool=true,timeBands?:readonly string[],moveChoices?:readonly Record<string,unknown>[],sceneRequired=false,bindings?:DecisionBindings):unknown {
+  if(!object(payload)||!Array.isArray(payload.tools)||!Array.isArray(payload.messages))return payload;
+  let changed=false;
+  const tools=payload.tools.map((tool:unknown)=>{
+    if(!object(tool)||tool.name!=='output'||!object(tool.input_schema))return tool;
+    changed=true;return {...tool,input_schema:TURN_PACKET_PARAMETERS};
   });
-  return changed?{...payload,tools,...(requireTool&&payload.model==='MiniMax-M3.1-Flash-Preview'?{tool_choice:{type:'auto'}}:{})}:payload;
+  if(!changed)return payload;
+  const schema=turnPacketParameterSchema(journeySettled,timeBands,moveChoices,sceneRequired,bindings);
+  const messages=[...payload.messages,{role:'user',content:[{type:'text',text:JSON.stringify({output_parameter_schema:schema})}]}];
+  return {...payload,tools,messages,...(requireTool&&payload.model==='MiniMax-M3.1-Flash-Preview'?{tool_choice:{type:'auto'}}:{})};
 }
 /** Keep bound routes immutable; fill only an explicitly issued open route slot. */
 export function bindTurnPacketMoves(packet:TurnPacket,choices:readonly Record<string,unknown>[]):BoundTurnPacket {
