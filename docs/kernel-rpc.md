@@ -48783,3 +48783,167 @@ raw provider thinking blocks, signatures and cache continuation remain intact.
 Producer: provider reasoning deltas and persisted transcript activities. Reader:
 the shared transcript planner and selected-turn wait state. Actor: the renderer
 shows real reasoning separately from waiting for the next model response.
+
+## 242. Enhanced Locations Mod: places, local position and open travel
+
+Owner approval (2026-10-19): design, specify, ticket, implement and live-test the
+location system as an independently versioned enhancement Mod. Supporting kernel
+changes are allowed. This section supersedes the implicit-parent and
+shared-ancestor timing rules of sections 187/204 for the new capability; existing
+legacy calls retain their compatibility shape. Design evidence and implementation
+ledger: `docs/specs/location-system-and-tool.md` and
+`docs/specs/location-system-tickets/README.md`.
+
+### 242.1. Ownership and identity
+
+`mods/enhanced-locations` ships versioned instructions and requires the named
+kernel capability `locations.v1`. It is enabled by default for new campaigns.
+Existing campaigns use ordinary Mod configuration, not an unsolicited rewrite of
+their lock. The last active provider in Mod order owns new location writes.
+Its state lives in `world.mods.state[provider.id].locations` with `schema: 1`,
+`places`, `features`, and optional `position`. The existing Mod state-version
+migration machinery remains authoritative. Stored records remain readable when
+the package is disabled or unavailable; no stored identity or transcript is
+deleted, renamed or migrated by display-name inference.
+
+A place is a durable enterable area. A feature is a durable reference within one
+place, such as a desk, door, window or corner; it is not automatically a scene or
+inventory object. Position is `{place, at?, relation?}` for the party. The fiction
+may contain further places without the kernel having enumerated them. Source
+coverage, containment, traversability, current state and public knowledge are
+separate facts. A narrative scene/episode does not allocate another place ID.
+
+The host mints immutable opaque IDs when a draft first commits. Names are model
+references, not IDs. New child places have qualified canonical names under their
+explicit parent. Identical leaf names in different parents are distinct. Exact
+qualified names always resolve; leaf names resolve in current scope or uniquely,
+otherwise return ambiguity with candidate names. `within` is explicit and may
+be null; omission never means the departure room. A draft reuses an identical
+known place and rejects conflicting redefinition of registered facts. Authored
+places are read-only; their current feature state is a campaign overlay.
+
+### 242.2. One location command and one transaction
+
+The model-facing `place` tool has two operations:
+
+- `inspect`: optional `name` (default current place), `need: context|contract`.
+  This reads remote as well as current places without moving. Context returns
+  identity, containment, children, features, position and provider availability.
+  Contract returns the active package's location sections on demand.
+- `submit`: one typed `change`, normalized by the host to
+  `apply {effects:[{kind:place,...change}]}` before admission and dispatch.
+
+`PlaceEffect` is the shared closed schema for the tool, native decision command,
+mixed-domain apply and kernel validation:
+
+- `action: move`, `to` is an open semantic place name; optional `at` and
+  `relation` select a feature/local position, `via` describes the route, optional
+  `through: {place,feature}` binds an actual crossed boundary, and
+  `travel_band` selects a rule-table journey length. Internal/explicit apply can
+  also carry validated `travel_minutes` under the existing timing authority.
+- `action: establish` creates only the supplied minimum structure, without a
+  journey. `additions` is a bounded parent-before-child array of
+  `{name, within?, description?, features?}`. New places require description;
+  feature-only additions to an existing place omit it. A feature is
+  `{name, description, state?, passable?}` in that place. Descriptions are public
+  observable facts established by the Keeper, not secrets or prewritten prose.
+- `action: feature`, `to` names its place and `at` its existing feature; `state`
+  and/or `passable` changes only those fields through a normal authorized effect.
+  It does not overwrite descriptions or create inventory.
+
+`move` may include additions, so a compatible hotel, lobby and first entry can
+commit in one operation. Additions do not authorize the player action. The same
+action-admission path, call identity, atomic staging, receipt ledger and recovery
+apply. No second transaction manager, preparation ticket, world JSON patch,
+automatic source generator or mandatory extra model round is introduced.
+Mixed-domain apply invokes this same handler and sees earlier staged state.
+Failed batches leave no place, position, feature, clock or resource changes.
+Retrying the same call replays the canonical result without another ID or charge.
+
+The handler reuses canonical movement for travel, trail, current scene, clock,
+arrival hooks and `move` receipts. Containment never proves a passage or supplies
+zero time. Known book roads and travelled timing retain their authority. A
+Keeper-described route can reach an unlisted compatible destination; missing
+registration is not an in-world wall. Known impassable features produce a
+specific refusal when the declared route crosses them; missing graph edges alone
+do not. No shared-city zero-time inference is made. Local positioning within the
+same place records a `place` receipt without pretending to leave and re-enter it.
+Any canonical legacy arrival clears obsolete local position. Relative position
+is open text, not a fixed pose ontology. Looking at a feature is a read and never
+changes position.
+
+### 242.3. Decision, source and public rendering
+
+The Keeper decides whether a natural-language target denotes an authored place,
+registered place, subplace or local feature. Existing Jev scene placement remains
+advisory closed matching, with no-match/uncertain exits; it cannot veto ordinary
+improvisation, invent source truth or become world authority. Context inspection
+supplies scoped candidates. Source lookup and Historical Reference remain
+available for a real question about established facts or the era; neither is a
+mandatory generation/reviewer chain for every room. There is no keyword intent
+router, building-template bank or finite place taxonomy.
+
+A named inspection with no exact identity returns `status:unregistered`, a bounded
+candidate catalogue and explicit partial coverage. The host asks Jev for identity,
+containing place and scale (place, subplace, feature, uncertain) against that
+catalogue with none/uncertain exits. Candidate origin distinguishes authored,
+table and Mod records. This is advice delivered to the Keeper, never a rewritten
+target, permission, exhaustive search or refusal. Outage/uncertainty leaves
+ordinary compatible creation available. The output is a short closed structure
+on the inspection's critical path, satisfying both single-completion criteria;
+it is not a text-authoring lane. Exact known reads and valid writes need no
+additional Jev call.
+
+Native `output` accepts the same `kind:place` command. Unlike the legacy issued
+`move` choices, its target is not an exhaustive destination enum. A complete
+valid command can execute immediately without an earlier manual read. The
+bounded observable descriptions and feature state are explicit world-creation
+fields, not an exception permitting general event, dialogue or narrative text
+in the decision packet. All other section 241 decision-only boundaries remain.
+
+Producer: the active Mod's canonical effect and existing source readers. Reader:
+effective graph, `place inspect`, current capsule and public author projection.
+Actor: the same Keeper selects the change, the kernel commits it, and the sole
+author renders committed public details and outcomes. General/private source
+summaries are never promoted into public appearance. The author receives current
+position and persisted observable features so a first description and later
+return agree. Actual feature changes reach operation outcomes.
+
+### 242.4. Context, lifecycle and evidence
+
+Only a short entry instruction and stable bounded tool declaration are resident.
+The provider-facing declaration follows the existing capability-envelope seam:
+the place entry names its operation/action and apply defers detailed move/place
+fields to that entry. Registered validators retain the complete closed schemas.
+Contract inspection returns those schemas and locked package sections. Native
+location schema is disclosed after a place read in this input, without adding
+an execution prerequisite for a complete valid call. This is request projection,
+not a permissive kernel patch interface.
+The package's detailed instructions are sectioned material returned by
+`place inspect need:contract`; ordinary capsule context includes current place
+and position, not the whole place catalog. Detailed location inspection is an
+explicit read. No compulsory read is required to authorize an already valid call.
+The host may omit its own obsolete inspection-detail text from later provider
+requests; raw transcript records and provider-required assistant/reasoning
+continuations must remain intact. Declaration bytes, request bytes, provider
+cache/input usage and latency are distinct measurements, not inferred savings.
+
+Acceptance covers unknown compatible entry, two equally named rooms under
+different hotels, parent/room/feature distinction, read versus local movement,
+barrier state continuity, atomic rollback/replay, mixed batches, native commands,
+remote inspection, disabled/versioned Mod reads and real natural-language travel
+with restart/return. Real play uses the canonical driver and approved model;
+synthetic transaction tests do not stand in for play. Raw evidence is retained.
+
+### 242.5. Implementation decisions
+
+The v1 package uses existing `state_version`/migration operations; its record
+schema remains 1. New places are appended parent before child with immutable
+host UUIDs and qualified handles. The registration path checks exact name keys
+before minting: the legacy `placeOf` convenience may collapse a subplace to its
+parent and is inappropriate for an explicit new child. Existing source feature
+overlays omit description rather than replacing source appearance. Boundary
+crossing is an explicit `through` reference, not a regex over route prose.
+Canonical legacy arrivals clear Mod local position. Public appearance and current
+features reach the sole author through source properties and `where.location`.
+Location-only changes use existing receipts without inventing a new event type.
