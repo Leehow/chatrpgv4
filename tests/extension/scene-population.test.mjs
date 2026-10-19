@@ -10,7 +10,7 @@ test('an empty registered cast does not assert an empty scene',()=>{
  assert.equal(scene.presence.population,'unknown');assert.equal(scene.presence.complete,undefined);
 });
 test('scene assessment and a temporary role share the normal transaction, with a local response slot',()=>{
- const packet=turnPacket(JSON.stringify({version:3,commands:[{kind:'scene',service:'open',crowd:'quiet'},{kind:'walk_on',slot:'new_1',label:'the day attendant',reason:'The public shop is staffed this afternoon.'}],responses:[{actor:'new_1',act:'answer',points:['We are open.']}]}));
+ const packet=turnPacket(JSON.stringify({version:4,commands:[{kind:'scene',service:'open',crowd:'quiet'},{kind:'walk_on',slot:'new_1',label:'the day attendant',reason:'The public shop is staffed this afternoon.'}],interactions:[{actor:'new_1',to:['investigator_1'],act:'answer',content:[{result_ref:'scene'}]}]}));
  const compiled=compileTurnPacket(packet);
  assert.equal(compiled.effects[0].kind,'npc');assert.equal(compiled.effects[0].walk_on,true);assert.equal(compiled.effects[0].to,'here');
  assert.equal(compiled.effects[1].kind,'scene');assert.equal(compiled.effects[1].activity.review_after_minutes,15);

@@ -1,0 +1,117 @@
+{
+  "move": {
+    "version": 4,
+    "commands": [
+      {
+        "kind": "move",
+        "to": "cafe"
+      },
+      {
+        "kind": "scene",
+        "service": "open",
+        "crowd": "quiet"
+      }
+    ],
+    "interactions": [
+      {
+        "actor": "npc_1",
+        "to": [
+          "investigator_1"
+        ],
+        "act": "greet"
+      }
+    ]
+  },
+  "sourced_answer": {
+    "version": 4,
+    "interactions": [
+      {
+        "actor": "npc_1",
+        "to": [
+          "investigator_1"
+        ],
+        "act": "answer",
+        "content": [
+          {
+            "fact_ref": "clinic_hours"
+          },
+          {
+            "source_ref": "source_clinic_hours"
+          }
+        ]
+      }
+    ]
+  },
+  "npc_to_npc": {
+    "version": 4,
+    "interactions": [
+      {
+        "actor": "npc_1",
+        "to": [
+          "npc_2"
+        ],
+        "act": "ask",
+        "content": [
+          {
+            "fact_ref": "paid_pickup"
+          }
+        ]
+      }
+    ]
+  },
+  "future_visit_claim": {
+    "version": 4,
+    "interactions": [
+      {
+        "actor": "npc_1",
+        "to": [
+          "investigator_1"
+        ],
+        "act": "report",
+        "content": [
+          {
+            "new": {
+              "predicate": "planned_visit",
+              "actor": "npc_2",
+              "to": "bar",
+              "when": {
+                "day_offset": 1,
+                "hour": 14,
+                "minute": 0
+              }
+            }
+          }
+        ]
+      }
+    ]
+  },
+  "offer_not_purchase": {
+    "version": 4,
+    "interactions": [
+      {
+        "actor": "npc_1",
+        "to": [
+          "investigator_1"
+        ],
+        "act": "offer",
+        "content": [
+          {
+            "new": {
+              "predicate": "service_at",
+              "provider": "npc_1",
+              "items": [
+                "coffee"
+              ],
+              "when": {
+                "day_offset": 1,
+                "hour": 6,
+                "minute": 30
+              },
+              "fulfillment": "takeaway"
+            }
+          }
+        ]
+      }
+    ]
+  }
+}

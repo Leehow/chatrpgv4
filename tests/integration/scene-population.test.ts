@@ -10,7 +10,7 @@ test('an unnamed staffed scene gets a real temporary person and time-bound popul
  await k.table('player_input',{text:'I visit the public shop.'});
  await k.table('apply',{call_id:'t1-c1',effects:[{kind:'move',to:'Fixture Shop',travel_minutes:3,via:'street',establish:{summary:'A public shop with a counter.',within:null}}]});
  const before=await k.table('capsule');assert.equal(before.present.length,0);assert.equal(scenePopulationRequired(before),true);
- const packet=turnPacket(JSON.stringify({version:3,commands:[{kind:'walk_on',slot:'new_1',label:'the day attendant',reason:'The open public shop is staffed during this shift.'},{kind:'scene',service:'open',crowd:'quiet'}],responses:[{actor:'new_1',act:'answer',points:['We are open.']}]}));
+ const packet=turnPacket(JSON.stringify({version:4,commands:[{kind:'walk_on',slot:'new_1',label:'the day attendant',reason:'The open public shop is staffed during this shift.'},{kind:'scene',service:'open',crowd:'quiet'}],interactions:[{actor:'new_1',to:['investigator_1'],act:'answer',content:[{result_ref:'scene'}]}]}));
  const birth=await k.table('apply',{call_id:'t1-c2',effects:compileTurnPacket(packet).effects});
  const current=await k.table('capsule');assert.equal(scenePopulationRequired(current),false);
  const person=current.present.find((p:any)=>p.display_name==='the day attendant');assert.match(person.ref,/^npc_\d+$/);
@@ -28,7 +28,7 @@ test('an unnamed staffed scene gets a real temporary person and time-bound popul
  await k.table('player_input',{text:'I wait for the next shift.'});
  await k.table('apply',{call_id:'t2-c1',effects:[{kind:'time',minutes:16,why:'A wait passes.'}]});
  const expired=await k.table('capsule');assert.equal(scenePopulationRequired(expired),true);assert.ok(expired.where.temporal.review_reasons.includes('review_boundary_reached'));
- const empty=compileTurnPacket({version:3,commands:[{kind:'scene',service:'closed',crowd:'empty'}],responses:[]}).effects;
+ const empty=compileTurnPacket({version:4,commands:[{kind:'scene',service:'closed',crowd:'empty'}],interactions:[]}).effects;
  await k.tableErr('apply',{call_id:'t2-c2',effects:empty});
  await k.table('apply',{call_id:'t2-c3',effects:[{kind:'npc',name:person.ref,to:'away',why:'The day shift leaves.'},...empty]});
  const closed=await k.table('capsule');assert.equal(closed.where.temporal.crowd,'empty');assert.equal(scenePopulationRequired(closed),false);
@@ -37,7 +37,7 @@ test('an unnamed staffed scene gets a real temporary person and time-bound popul
 });
 test('the opening can establish a temporary local person through the same narrow owner',async t=>{
  const k=await kernel(t);await createCampaign(k);await k.table('open');
- const effects=compileTurnPacket({version:3,commands:[{kind:'walk_on',slot:'new_1',label:'the visiting delivery attendant',reason:'A courier is waiting at the public office during business hours.'},{kind:'scene',service:'open',crowd:'quiet'}],responses:[]}).effects;
+ const effects=compileTurnPacket({version:4,commands:[{kind:'walk_on',slot:'new_1',label:'the visiting delivery attendant',reason:'A courier is waiting at the public office during business hours.'},{kind:'scene',service:'open',crowd:'quiet'}],interactions:[]}).effects;
  await k.table('apply',{call_id:'t0-c1',effects});
  const state=await k.table('capsule');assert.match(state.present.find((p:any)=>p.display_name==='the visiting delivery attendant').ref,/^npc_\d+$/);
  assert.equal(scenePopulationRequired(state),false);

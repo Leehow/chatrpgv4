@@ -9,7 +9,7 @@ import {ExpressionPlanStream} from '../../runtime/isolated-expression.ts';
 import {createHybridEngine} from '../../runtime/jev/hybrid-engine.ts';
 import {openTable} from './harness.mjs';
 import {RpcClient,kernel,openTurn,importSource} from '../integration/support.ts';
-const brief={version:3,commands:[],responses:[]};
+const brief={version:4,commands:[],interactions:[]};
 test('packet parameter refusals identify the exact field without coercing its JSON type',()=>{
  const packet={...brief,commands:[{kind:'move',to:'Central Library'},{kind:'scene',service:'open',crowd:'active',review_after_minutes:'45'}]};
  assert.throws(()=>turnPacket(JSON.stringify(packet)),/commands\[1\]\/review_after_minutes.*must be integer.*received string/);
@@ -22,13 +22,27 @@ test('packet parameter refusals identify the exact field without coercing its JS
   assert.match(error.message,/<additional-property>/);assert.ok(!error.message.includes('private-submitted-material'));assert.ok(error.message.length<=1600);return true;
  });
 });
-test('selected information uses the existing closed event schema and one compiled apply payload',()=>{
- const event={name:'Read the notice',materials:[{name:'notice',text:'The office closes at noon.',kind:'fact',visibility:'player'}]};
- const packet=turnPacket(JSON.stringify({...brief,event})),compiled=compileTurnPacket(packet);
- assert.deepEqual(compiled,{responses:[],effects:[],event});
- assert.throws(()=>turnPacket(JSON.stringify({...brief,event:{...event,prose:'An invented narrative brief'}})),/additional/);
- assert.throws(()=>turnPacket(JSON.stringify({...brief,event:{...event,materials:[{...event.materials[0],author_instruction:'Write a scene'}]}})),/additional/);
- assert.ok(TURN_PACKET_PARAMETERS.properties.event.properties.materials);
+test('selected information references existing host material and refuses event prose',()=>{
+   const event={name:'Read the notice',materials:[{name:'notice',text:'The office closes at noon.',kind:'fact',visibility:'player'}]};
+   assert.throws(()=>turnPacket(JSON.stringify({...brief,event})),/additional/);
+   const packet=turnPacket(JSON.stringify({...brief,reveal:[{source_ref:'source_1'}]}));
+   assert.deepEqual(compileTurnPacket(packet),{responses:[],effects:[]});
+   assert.equal(TURN_PACKET_PARAMETERS.properties.event,undefined);
+  });
+test('directed relationship commands settle once and reach the sole author as current state',async t=>{
+ let ref='npc_1';const batches=[];
+ const engine=createHybridEngine({env,decision:{decide:async batch=>{batches.push(batch);return answer(batch,.99);}}});
+ const table=await openTable({legacyDeliveryFixtures:false,realKernel:true,prepareWorkspace:opened,env,runDriver:engine.runDriver,
+  extraExtensions:[{name:'engine',factory:engine.extension}],responses:[()=>fauxAssistantMessage([fauxToolCall('output',{version:4,commands:[{kind:'relationship',actor:ref,toward:'investigator_1',affinity:'friendly'}],interactions:[{actor:ref,to:['investigator_1'],act:'acknowledge'}]})],{stopReason:'toolUse'})]});
+ t.after(()=>table.dispose());
+ ref=(await table.runtimeBridges().at(-1).call('table.capsule',{campaign:'test-camp'})).present.find(person=>person.name==='Steven Knott').ref;
+ await table.session.prompt('I thank the visitor for his help and stay by the desk.');
+ assert.deepEqual(table.extensionErrors,[]);
+ const author=table.telemetry().filter(row=>row.lane==='isolated-expression'&&row.event==='written');assert.equal(author.length,1);
+ const task=JSON.parse(readFileSync(join(author[0].attempt,'task.json'),'utf8'));
+ assert.ok(task.decision_context.people.find(person=>person.ref===ref).relationships.some(row=>row.toward==='investigator_1'&&row.affinity==='friendly'));
+ assert.equal(table.telemetry().filter(row=>row.lane==='turn-packet-prototype'&&row.ok===true).length,1);
+ assert.equal(batches.filter(batch=>batch.family==='continuous-action-admission').length,0);
 });
 test('native argument normalization repairs only canonical decimal strings within declared integer bounds',()=>{
  const original={...brief,commands:[{kind:'scene',service:'open',crowd:'quiet',review_after_minutes:'45'}]};
@@ -69,16 +83,16 @@ test('the non-strict Anthropic request retains the complete owned schema without
 });
 
 test('compact commands and response meanings have closed fields and bounded strings',()=>{
- const reply={actor:'npc_1',act:'answer',points:['The meeting is at noon.']};
- const packet={version:3,commands:[movement],responses:[reply]};
+ const reply={actor:'npc_1',to:['investigator_1'],act:'answer',content:[{fact_ref:'fact_1'}]};
+ const packet={version:4,commands:[movement],interactions:[reply]};
  assert.deepEqual(compileTurnPacket(turnPacket(JSON.stringify(packet))),{responses:[reply],effects:[movement]});
- for(const bad of [{...brief,scene:'prose'},{...brief,actions:[]},{...brief,commands:[{...movement,passage:'prose'}]},{...brief,responses:[{...reply,points:['a'.repeat(161)]}]},{...brief,commands:[movement,movement]},{...brief,commands:[movement,{kind:'time',band:'invented',reason:'travel'}]}])assert.throws(()=>turnPacket(JSON.stringify(bad)),/Invalid|Only one/);
+ for(const bad of [{...brief,scene:'prose'},{...brief,actions:[]},{...brief,commands:[{...movement,passage:'prose'}]},{...brief,interactions:[{...reply,points:['a'.repeat(161)]}]},{...brief,commands:[movement,movement]},{...brief,commands:[movement,{kind:'time',band:'invented',reason:'travel'}]}])assert.throws(()=>turnPacket(JSON.stringify(bad)),/Invalid|Only one/);
  assert.throws(()=>{const stream=new ExpressionPlanStream();stream.push('{{compose}}'+JSON.stringify(packet));stream.finish();},/Invalid private expression/);
 });
 
 test('silent decisions cannot carry a second free-text world-change channel',()=>{
- const packet=responses=>JSON.stringify({version:3,commands:[],responses});
- assert.deepEqual(turnPacket(packet([{actor:'npc_1',act:'silent'}])).responses,[{actor:'npc_1',act:'silent'}]);
+ const packet=responses=>JSON.stringify({version:4,commands:[],interactions:responses});
+ assert.deepEqual(turnPacket(packet([{actor:'npc_1',act:'silent'}])).interactions,[{actor:'npc_1',act:'silent'}]);
  for(const fields of [{points:['The guest leaves.']},{points:[]},{stance:'Gets up and leaves.'},{observations:['Leaves the inn.']}])
   assert.throws(()=>turnPacket(packet([{actor:'npc_1',act:'silent',...fields}])),/silent|response/i);
 });
@@ -86,10 +100,10 @@ test('silent decisions cannot carry a second free-text world-change channel',()=
 for(const fault of ['unissued_npc_destination','silent_world_change'])test('native preflight repairs '+fault+' before any world write or author',async t=>{
  const batches=[];let requests=0,ref='npc_1';
  const engine=createHybridEngine({env,decision:{decide:async batch=>{batches.push(batch);return answer(batch,.99);}}});
- const good=()=>({version:3,commands:[{kind:'npc',actor:ref,to:'away',reason:'The visitor leaves.'},{kind:'scene',service:'open',crowd:'empty'}],responses:[{actor:ref,act:'silent'}]});
+ const good=()=>({version:4,commands:[{kind:'npc',actor:ref,to:'away',reason:'The visitor leaves.'},{kind:'scene',service:'open',crowd:'empty'}],interactions:[{actor:ref,act:'silent'}]});
  const table=await openTable({legacyDeliveryFixtures:false,realKernel:true,prepareWorkspace:opened,env,runDriver:engine.runDriver,
   extraExtensions:[{name:'engine',factory:engine.extension}],responses:[
-   ()=>{requests++;const packet=good();if(fault==='unissued_npc_destination')packet.commands[0].to='An unissued street';else packet.responses[0].points=['The visitor leaves.'];return fauxAssistantMessage([rawToolCall('output',packet)],{stopReason:'toolUse'});},
+   ()=>{requests++;const packet=good();if(fault==='unissued_npc_destination')packet.commands[0].to='An unissued street';else packet.interactions[0].points=['The visitor leaves.'];return fauxAssistantMessage([rawToolCall('output',packet)],{stopReason:'toolUse'});},
    context=>{requests++;assert.ok(context.messages.some(message=>message.role==='toolResult'&&message.isError));return fauxAssistantMessage([rawToolCall('output',good())],{stopReason:'toolUse'});}
   ]});
  t.after(()=>table.dispose());
@@ -114,9 +128,9 @@ test('schema and capability failures share one correction allowance and cannot l
  const engine=createHybridEngine({env,decision:{decide:async batch=>{batches.push(batch);return answer(batch,.99);}}});
  const table=await openTable({legacyDeliveryFixtures:false,realKernel:true,prepareWorkspace:opened,env,runDriver:engine.runDriver,
   extraExtensions:[{name:'engine',factory:engine.extension}],responses:[
-   ()=>{requests++;return fauxAssistantMessage([rawToolCall('output',{version:3,commands:[],responses:[{actor:ref,act:'silent',points:['Leaves.']}]})],{stopReason:'toolUse'});},
-   ()=>{requests++;return fauxAssistantMessage([rawToolCall('output',{version:3,commands:[{kind:'npc',actor:ref,to:'invented street',reason:'Leaves.'}],responses:[]})],{stopReason:'toolUse'});},
-   ()=>{requests++;return fauxAssistantMessage([rawToolCall('output',{version:3,commands:[],responses:[]})],{stopReason:'toolUse'});}
+   ()=>{requests++;return fauxAssistantMessage([rawToolCall('output',{version:4,commands:[],interactions:[{actor:ref,act:'silent',points:['Leaves.']}]})],{stopReason:'toolUse'});},
+   ()=>{requests++;return fauxAssistantMessage([rawToolCall('output',{version:4,commands:[{kind:'npc',actor:ref,to:'invented street',reason:'Leaves.'}],interactions:[]})],{stopReason:'toolUse'});},
+   ()=>{requests++;return fauxAssistantMessage([rawToolCall('output',{version:4,commands:[],interactions:[]})],{stopReason:'toolUse'});}
   ]});t.after(()=>table.dispose());
  ref=(await table.runtimeBridges().at(-1).call('table.capsule',{campaign:'test-camp'})).present.find(person=>person.name==='Steven Knott').ref;
  await table.session.prompt('I remain by the desk.');
@@ -218,27 +232,20 @@ test('a refused earlier write cannot publish false success through native output
  assert.equal(table.entries('coc-final-delivery').filter(r=>r.event==='delta').length,0);
 });
 
-test('event validation repair uses this successful canonical event without an extra publication judge',async t=>{
- const batches=[];let requests=0;
- const engine=createHybridEngine({env,decision:{decide:async batch=>{batches.push(batch);return answer(batch,.99);}}});
- const initial={effects:[{kind:'time',minutes:4}],event:{name:'Photograph the mark',summary:'The proposed event.',material:'',materials:[{name:'view',kind:'description',visibility:'player',text:'The selected view.'}]}};
- const repaired={effects:initial.effects,event:{name:initial.event.name,summary:'The corrected canonical event.'}};
- const table=await openTable({legacyDeliveryFixtures:false,realKernel:true,prepareWorkspace:opened,env,runDriver:engine.runDriver,
-  extraExtensions:[{name:'engine',factory:engine.extension}],responses:[
-   ()=>{requests++;return fauxAssistantMessage([rawToolCall('apply',initial)],{stopReason:'toolUse'});},
-   ()=>{requests++;return fauxAssistantMessage([rawToolCall('apply',repaired)],{stopReason:'toolUse'});},
-   ()=>{requests++;return fauxAssistantMessage([fauxToolCall('output',brief)],{stopReason:'toolUse'});}
-  ]});t.after(()=>table.dispose());await table.session.prompt('I spend a few minutes photographing the mark.');
- assert.deepEqual(table.extensionErrors,[]);assert.equal(requests,3);
- const repair=table.telemetry().filter(row=>row.lane==='held-operation'&&row.event==='parameter_failure_reconciled');assert.equal(repair.length,1);
- assert.notEqual(repair[0].failed_operation,repair[0].settled_operation);assert.equal(repair[0].completion_scope,'player_action');assert.ok(repair[0].receipts.length);
- assert.equal(batches.filter(row=>row.family==='held-act-outcome').length,0);
- assert.equal(table.entries('coc-final-delivery').filter(row=>row.event==='end'&&row.status==='completed').length,1);
- const replies=table.session.messages.filter(row=>row.role==='toolResult'&&row.toolName==='apply');
- assert.ok(JSON.stringify(replies[0]).includes('event_argument_validation'));assert.ok(!JSON.stringify(replies).includes('argumentCompletionKey'),'private reconciliation keys stay out of model messages');
- const turn=JSON.parse(readFileSync(join(table.workspace,'.coc/campaigns/test-camp/turns/0001.json'),'utf8'));
- assert.equal(turn.receipts.filter(row=>row.kind==='time').length,1);assert.equal(turn.receipts.filter(row=>row.kind==='event').length,1);assert.equal(turn.world.clock.minutes,4);
-});
+test('model event writes are refused atomically before their accompanying mechanics',async t=>{
+   const batches=[];let requests=0;
+   const engine=createHybridEngine({env,decision:{decide:async batch=>{batches.push(batch);return answer(batch,.99);}}});
+   const illegal={effects:[{kind:'time',minutes:4}],event:{name:'A response',summary:'Complete dialogue.'}};
+   const table=await openTable({legacyDeliveryFixtures:false,realKernel:true,prepareWorkspace:opened,env,runDriver:engine.runDriver,
+    extraExtensions:[{name:'engine',factory:engine.extension}],responses:[
+     ()=>{requests++;return fauxAssistantMessage([rawToolCall('apply',illegal)],{stopReason:'toolUse'});},
+     ()=>{requests++;return fauxAssistantMessage([fauxToolCall('output',brief)],{stopReason:'toolUse'});}
+    ]});t.after(()=>table.dispose());await table.session.prompt('I wait beside the desk.');
+   const turn=JSON.parse(readFileSync(join(table.workspace,'.coc/campaigns/test-camp/turns/0001.json'),'utf8'));
+   assert.equal(turn.receipts.filter(row=>['time','event'].includes(row.kind)).length,0);
+   assert.ok(JSON.stringify(table.session.messages.filter(row=>row.role==='toolResult'&&row.toolName==='apply')).includes('event'));
+   assert.equal(batches.filter(row=>row.family==='held-act-outcome').length,0);
+  });
 
 test('clue parameter corrections reuse the same player-action decision and release only its completed time',async t=>{
  const batches=[];let requests=0;
@@ -254,7 +261,7 @@ test('clue parameter corrections reuse the same player-action decision and relea
    ()=>{requests++;return fauxAssistantMessage([fauxToolCall('output',brief)],{stopReason:'toolUse'});}]
  });t.after(()=>table.dispose());await table.session.prompt('I spend a minute reading the posted notice.');
  assert.deepEqual(table.extensionErrors,[]);assert.equal(requests,5);
- assert.equal(batches.filter(row=>row.family==='continuous-action-admission').length,1);
+ assert.equal(batches.filter(row=>row.family==='continuous-action-admission').length,1,JSON.stringify(table.telemetry().filter(row=>row.lane==='held-operation'||row.lane==='keeper-delivery').slice(-8)));
  assert.equal(batches.filter(row=>row.family==='held-act-outcome').length,0);
  assert.equal(table.entries('coc-final-delivery').filter(row=>row.event==='end'&&row.status==='completed').length,1);
  const repaired=table.telemetry().filter(row=>row.lane==='held-operation'&&row.event==='parameter_failure_reconciled');assert.equal(repaired.length,1,'bookkeeping variations share one held player-action row');
@@ -275,24 +282,19 @@ test('invalid NPC bookkeeping never becomes a refused player action',async t=>{
  assert.deepEqual(table.extensionErrors,[]);assert.equal(requests,3);
  assert.equal(batches.filter(row=>['continuous-action-admission','held-act-outcome'].includes(row.family)).length,0);
  assert.ok(table.session.messages.some(row=>row.role==='toolResult'&&row.details?.coc_error?.details?.reason==='npc_reunion_not_due'));
- assert.ok(table.telemetry().some(row=>row.lane==='held-operation'&&row.event==='argument_outside_player_scope'));
+ assert.ok(table.telemetry().some(row=>row.lane==='held-operation'&&row.event==='argument_outside_player_scope'),JSON.stringify(table.session.messages.filter(row=>row.role==='toolResult').map(row=>({name:row.toolName,details:row.details,content:row.content})).slice(-4)));
  assert.equal(table.entries('coc-final-delivery').filter(row=>row.event==='end'&&row.status==='completed').length,1);
 });
 
-test('an event-only native decision reaches the plain author and activates exact current material once',async t=>{
- const batches=[];let requests=0;
- const engine=createHybridEngine({env,decision:{decide:async batch=>{batches.push(batch);return answer(batch,.99);}}});
- const event={name:'Read the notice',summary:'The investigator reads the posted notice.',material:'notice',materials:[{name:'notice',text:'The office closes at noon.',kind:'fact',visibility:'player'}]};
- const table=await openTable({legacyDeliveryFixtures:false,realKernel:true,prepareWorkspace:opened,env,runDriver:engine.runDriver,
-  extraExtensions:[{name:'engine',factory:engine.extension}],responses:[()=>{requests++;return fauxAssistantMessage([fauxToolCall('output',{...brief,event})],{stopReason:'toolUse'});}]
- });t.after(()=>table.dispose());await table.session.prompt('I read the posted notice.');
- assert.deepEqual(table.extensionErrors,[]);assert.equal(requests,1);
- assert.equal(batches.filter(row=>row.family==='held-act-outcome').length,0);
- const turn=JSON.parse(readFileSync(join(table.workspace,'.coc/campaigns/test-camp/turns/0001.json'),'utf8'));
- assert.equal(turn.receipts.filter(row=>row.kind==='event').length,1);assert.equal(typeof turn.commit,'string');
- assert.equal(turn.rendered_text,'The notice says: The office closes at noon.');
- assert.equal(turn.disclosures.filter(row=>row.status==='delivered'&&row.material.endsWith('/notice')).length,1);
-});
+test('an event-only model packet cannot reach the author or create an occurrence',async t=>{
+   const engine=createHybridEngine({env,decision:null});
+   const event={name:'Read the notice',materials:[{name:'notice',text:'The office closes at noon.',kind:'fact',visibility:'player'}]};
+   const table=await openTable({legacyDeliveryFixtures:false,realKernel:true,prepareWorkspace:opened,env,runDriver:engine.runDriver,
+    extraExtensions:[{name:'engine',factory:engine.extension}],responses:[()=>fauxAssistantMessage([fauxToolCall('output',{...brief,event})],{stopReason:'toolUse'})]});
+   t.after(()=>table.dispose());await table.session.prompt('I read the posted notice.');
+   assert.equal(table.telemetry().filter(row=>row.lane==='isolated-expression'&&row.event==='start').length,0);
+   const client=new RpcClient(table.workspace);try{const status=await client.ok('table.status',{campaign:'test-camp'});assert.equal(status.receipts.filter(row=>row.kind==='event').length,0);}finally{await client.close();}
+  });
 
 test('native schema rejects extra movement fields before consent and permits one corrected submission',async t=>{
  const batches=[];let requests=0;
@@ -315,23 +317,23 @@ for(const mode of ['accepted','refused','dialogue','sparse-dialogue','wrapped-di
  const batches=[];let requests=0,submittedSchema;
  const engine=createHybridEngine({env,decision:{decide:async batch=>{batches.push(batch);return answer(batch,mode==='refused'?.01:.99);}}});
  const packet={...brief,commands:mode==='activity'?[{kind:'time',band:'brief_activity',reason:'arrange notes'}]:mode.endsWith('dialogue')||mode==='planned'?[]:[movement]};
- if(mode==='sparse-dialogue'||mode==='wrapped-dialogue'||mode==='unknown-dialogue'||mode==='offer-dialogue')packet.responses=[{actor:'npc_1',act:'answer',points:['The meeting is at noon.']}];
- if(mode==='offer-dialogue')packet.responses[0].act='offer';
- if(mode==='unknown-dialogue')packet.responses[0].actor='npc_999999';
- if(mode==='wrapped-dialogue')packet.responses[0].points={item:{item:packet.responses[0].points}};
+ if(mode==='sparse-dialogue'||mode==='wrapped-dialogue'||mode==='unknown-dialogue'||mode==='offer-dialogue')packet.interactions=[{actor:'npc_1',to:['investigator_1'],act:'answer',content:[{new:{predicate:'planned_visit',actor:'npc_1',to:'pending-place',when:{day_offset:0,hour:12,minute:0}}}]}];
+ if(mode==='offer-dialogue')packet.interactions[0].act='offer';
+ if(mode==='unknown-dialogue')packet.interactions[0].actor='npc_999999';
+ if(mode==='wrapped-dialogue')packet.interactions[0].content={item:packet.interactions[0].content};
  const table=await openTable({legacyDeliveryFixtures:false,realKernel:true,prepareWorkspace:opened,env,runDriver:engine.runDriver,
    extraExtensions:[{name:'engine',factory:engine.extension}],responses:[context=>{requests++;const output=getCurrentTools(context.messages).find(tool=>tool.name==='output');assert.equal(getCurrentTools(context.messages).some(tool=>tool.name==='apply'),true);assert.equal(getCurrentTools(context.messages).some(tool=>tool.name==='resolve'),true);submittedSchema=output;return fauxAssistantMessage([{type:'text',text:'Private planning preamble.'},fauxToolCall('output',packet)],{stopReason:'toolUse'});}]});
  t.after(()=>table.dispose());
- if(packet.responses.length){
+ if(packet.interactions.length){
   const capsule=await table.runtimeBridges().at(-1).call('table.capsule',{campaign:'test-camp'});
   if(mode==='unknown-dialogue'){
    const world=JSON.parse(readFileSync(join(table.workspace,'.coc/campaigns/test-camp/world.json'),'utf8'));
-   packet.responses[0].actor=Object.values(world.npc_references.by_node).find(ref=>!capsule.present.some(row=>row.ref===ref));
-   assert.ok(packet.responses[0].actor,'the forged reference must exist but remain unissued');
-  }else packet.responses[0].actor=capsule.present.find(row=>row.name==='Steven Knott').ref;
+   packet.interactions[0].actor=Object.values(world.npc_references.by_node).find(ref=>!capsule.present.some(row=>row.ref===ref));
+   assert.ok(packet.interactions[0].actor,'the forged reference must exist but remain unissued');
+  }else {packet.interactions[0].actor=capsule.present.find(row=>row.name==='Steven Knott').ref;const content=packet.interactions[0].content.item??packet.interactions[0].content;content[0].new.actor=packet.interactions[0].actor;content[0].new.to=capsule.where.scene;}
  }
  await table.session.prompt(mode==='activity'?'I spend a few minutes arranging my notes.':mode==='refused'?'I stay at the desk. I do not leave.':mode.endsWith('dialogue')?'I ask Knott when he can meet.':mode==='planned'?'I might go to the library later.':'I walk along the street to the Central Library.');
- assert.deepEqual(table.extensionErrors,[]);assert.equal(requests,1);assert.equal(submittedSchema.parameters.additionalProperties,false);assert.deepEqual(Object.keys(submittedSchema.parameters.properties),['version','commands','responses','event']);
+ assert.deepEqual(table.extensionErrors,[]);assert.equal(requests,1);assert.equal(submittedSchema.parameters.additionalProperties,false);assert.deepEqual(Object.keys(submittedSchema.parameters.properties),['version','commands','interactions','reveal']);
  const rows=table.telemetry(),writes=rows.filter(r=>r.lane==='turn-packet-prototype');
  assert.equal(rows.filter(r=>r.lane==='run'&&r.type==='step_start'&&r.kind==='infer').length,mode==='unknown-dialogue'?2:1,'count actual inference steps: '+JSON.stringify(rows.filter(r=>r.lane==='keeper-delivery'||r.lane==='tool').slice(-4)));
  assert.equal(batches.filter(b=>b.family==='continuous-action-admission').length,['accepted','refused','activity'].includes(mode)?1:0);
@@ -353,7 +355,7 @@ for(const mode of ['accepted','refused','dialogue','sparse-dialogue','wrapped-di
    assert.equal(task.result.outcomes[0].minutes,turn.receipts.find(r=>r.kind==='move').minutes);
    assert.equal(task.result.player_actions_complete,true);assert.equal(task.settled_actions,undefined,'proposals are not reconstructed as committed results');
  }
- if(mode==='sparse-dialogue'||mode==='wrapped-dialogue'||mode==='offer-dialogue'){const task=JSON.parse(readFileSync(join(authors[0].attempt,'task.json'),'utf8'));assert.equal(task.npc_turns,undefined);assert.equal(task.decision_context.responses[0].mode,'speech_only');if(mode==='offer-dialogue')assert.equal(task.decision_context.responses[0].player_acceptance,'pending');assert.equal(task.decision_context.responses[0].claims[0],'The meeting is at noon.');assert.equal(task.decision_context.people[0].ref,packet.responses[0].actor);assert.equal(typeof task.decision_context.people[0].name_known,'boolean');assert.equal(task.decision_context.people[0].name,task.decision_context.people[0].display_name);assert.equal(task.decision_context.people[0].knowledge,undefined);assert.equal(task.decision_context.people[0].keeper_note,undefined);}
+ if(mode==='sparse-dialogue'||mode==='wrapped-dialogue'||mode==='offer-dialogue'){const task=JSON.parse(readFileSync(join(authors[0].attempt,'task.json'),'utf8'));assert.equal(task.npc_turns,undefined);assert.equal(task.decision_context.responses[0].mode,'speech_only');if(mode==='offer-dialogue')assert.equal(task.decision_context.responses[0].player_acceptance,'pending');assert.equal(task.decision_context.responses[0].claims[0].value.predicate,'planned_visit');assert.equal(task.decision_context.responses[0].claims[0].value.when.hour,12);assert.equal(task.decision_context.people[0].ref,packet.interactions[0].actor);assert.equal(typeof task.decision_context.people[0].name_known,'boolean');assert.equal(task.decision_context.people[0].name,task.decision_context.people[0].display_name);assert.equal(task.decision_context.people[0].knowledge,undefined);assert.equal(task.decision_context.people[0].keeper_note,undefined);}
  if(mode==='unknown-dialogue')assert.equal(writes.length,0,'unknown speaker cannot execute a write or start the author');
  if(mode==='refused')assert.equal(table.entries('coc-final-delivery').filter(r=>r.event==='delta').length,0);
  if(mode==='activity'){
@@ -367,12 +369,13 @@ for(const mode of ['accepted','refused','dialogue','sparse-dialogue','wrapped-di
  if(['dialogue','sparse-dialogue','planned'].includes(mode))assert.ok(writes.every(row=>row.effects.every(effect=>effect.kind==='scene')),'unchanged dialogue may assess the scene but executes no physical/player action');
 });
 
-test('array dialect decoding is lossless and never drops extra fields or invalid scalars',()=>{
- const reply={actor:'npc_1',act:'answer',points:{item:{item:'The meeting is at noon.'}}};
- const packet={version:3,commands:[],responses:{item:reply}};
- const result=normalizeTurnPacketArguments(packet);assert.equal(result.repairs,2);assert.deepEqual(turnPacket(JSON.stringify(result.args)).responses[0].points,['The meeting is at noon.']);assert.equal(normalizeTurnPacketArguments(result.args).args,result.args);
- for(const points of [{item:['noon'],secret:'keep'},{item:42}])assert.throws(()=>turnPacket(JSON.stringify(normalizeTurnPacketArguments({...brief,responses:[{...reply,points}]}).args)),/Invalid/);
-});
+test('array dialect decoding preserves selected reference objects and rejects prose',()=>{
+   const reply={actor:'npc_1',to:['investigator_1'],act:'answer',content:{item:{fact_ref:'fact_1'}}};
+   const packet={version:4,interactions:{item:reply}};
+   const result=normalizeTurnPacketArguments(packet);assert.ok(result.repairs>=1);
+   assert.deepEqual(turnPacket(JSON.stringify(result.args)).interactions[0].content,[{fact_ref:'fact_1'}]);
+   assert.throws(()=>turnPacket(JSON.stringify({...brief,interactions:[{...reply,content:[{fact_ref:'fact_1',text:'Complete dialogue.'}]}]})));
+  });
 
 test('NPC presence and travel compile into one existing effect transaction',()=>{
  const action={kind:'npc',actor:'npc_1',to:'Central Library',reason:'the selected companion joins the journey'};

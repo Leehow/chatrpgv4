@@ -17,19 +17,19 @@ test('only supplied references bind, and a new input retires the preceding bindi
  assert.doesNotThrow(()=>refs.require('campaign:2',['npc_17']),'known off-stage people bind from supplied material without inventing presence');
 });
 test('the native wire binds both speech and presence by reference rather than a free name',()=>{
- const packet=actor=>JSON.stringify({version:3,commands:[{kind:'npc',actor,to:'Library',reason:'selected escort'}],responses:[{actor,act:'answer',points:['The library opens at noon.']}]});
- assert.equal(turnPacket(packet('npc_17')).responses[0].actor,'npc_17');
+ const packet=actor=>JSON.stringify({version:4,commands:[{kind:'npc',actor,to:'Library',reason:'selected escort'}],interactions:[{actor,to:['investigator_1'],act:'answer',content:[{fact_ref:'fact_1'}]}]});
+ assert.equal(turnPacket(packet('npc_17')).interactions[0].actor,'npc_17');
  for(const actor of ['The clerk','npc_0','npc_017'])assert.throws(()=>turnPacket(packet(actor)));
 });
 
 test('only one exact issued public appellation normalizes to its original actor reference',()=>{
  const refs=new NpcReferences();const scope='c:8';
  refs.observe(scope,{present:[{ref:'npc_1',display_name:'The clerk',name:'Hidden name',name_known:false}]});
- const original={version:3,commands:[],responses:[{actor:' the CLERK ',act:'answer',points:['The receipt is ready.']}]};
+ const original={version:4,commands:[],interactions:[{actor:' the CLERK ',to:['investigator_1'],act:'answer',content:[{fact_ref:'fact_1'}]}]};
  const bound=refs.bindActors(scope,original);
- assert.equal(bound.repairs,1);assert.equal(turnPacket(JSON.stringify(bound.args)).responses[0].actor,'npc_1');
- assert.equal(original.responses[0].actor,' the CLERK ');
- for(const actor of ['Hidden name','clerk','npc_01'])assert.equal(refs.bindActors(scope,{...original,responses:[{actor,act:'silent'}]}).repairs,0);
+ assert.equal(bound.repairs,1);assert.equal(turnPacket(JSON.stringify(bound.args)).interactions[0].actor,'npc_1');
+ assert.equal(original.interactions[0].actor,' the CLERK ');
+ for(const actor of ['Hidden name','clerk','npc_01'])assert.equal(refs.bindActors(scope,{...original,interactions:[{actor,act:'silent'}]}).repairs,0);
  refs.observe(scope,{ref:'npc_2',display_name:'The clerk',name_known:false});
  assert.equal(refs.bindActors(scope,original).repairs,0,'two same-name identities remain ambiguous');
  refs.observe('c:9',{present:[]});assert.equal(refs.bindActors(scope,original).repairs,0);

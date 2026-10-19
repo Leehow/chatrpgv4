@@ -116,6 +116,7 @@ export interface KernelBridge {
   record?: (row: Record<string, unknown>) => void;
   playerContext?:()=>{investigators:string[];previousPublic:Array<{turn:number|string;player?:string|null;keeper:string;truncated?:boolean}>};
   timeBands?:()=>Promise<import('./band-shadow-domain.ts').TimeBandRow[]>;
+  decisionMaterials?:(capsule:Row,people:Row[])=>Row|undefined;
 }
 /** The kernel extension's turn-close port (`coc:turn-close`, contract §135.11). */
 export interface TurnClosePort {
@@ -587,17 +588,21 @@ export function createHybridEngine(options: HybridEngineOptions): {runDriver: Se
             const passages=carriedPassages(carried.views,taken?.texts);
             if(passages.length)api?.events.emit('coc:carried-text',{campaign:bridge.campaign,turn:scope.turn,run:context.runId,passages});
           }
+          const decisionMaterials=turnPacketPrototype?bridge.decisionMaterials?.(capsule,[...array(capsule.present),...people]):undefined;
+          if(decisionMaterials)record({lane:'run',event:'decision_material_catalog',run:context.runId,step:stepId,coverage:decisionMaterials.coverage,bytes:Buffer.byteLength(JSON.stringify(decisionMaterials),'utf8')});
           const preparedOperations=continuous?.materials(capsule);
           if(preparedOperations)record({lane:'run',event:'prepared_material_reuse',run:context.runId,step:stepId,
             candidates:array(preparedOperations.candidates).length,coverage:preparedOperations.coverage,bytes:Buffer.byteLength(JSON.stringify(preparedOperations),'utf8')});
           messages.push({role:'custom',customType:CLERK_TYPE,display:false,timestamp:Date.now(),
-            content:JSON.stringify({authority:'Keeper-only current state and actor perspectives; no disclosure grant',people,
+            content:JSON.stringify({authority:'Keeper-only current state and actor perspectives; no disclosure grant',people:decisionMaterials?people.map(person=>Object.fromEntries(Object.entries(person).filter(([key])=>!['knowledge','authored_knowledge','knowledge_reports','cognition','recent_speech','commitments','believes','authored_beliefs'].includes(key)))):people,...(decisionMaterials?{decision_materials:decisionMaterials}:{}),
               ...(preparedOperations?{prepared_operations:preparedOperations}:{}),
               ...(continuous?.outcome?{host_operations:continuous.outcome,note:'These are actual outcomes, not proposals. Do not repeat settled effects. Continue the chosen action using current state.'}:{}),
               ...(enabled?{historical_reference:allowed?HISTORY_OFFER:HISTORY_UNAVAILABLE}:{}),
               ...(allowed?{native_search_scope:{run:context.runId,step:stepId}}:{}),
               ...(carried?{sources:carriedSection(carried)}:{})}),details:{coc_host:true,campaign:bridge.campaign,turn:scope.turn}});
         }
+        if(turnPacketPrototype)messages.push({role:'custom',customType:'coc-host',display:false,timestamp:Date.now(),details:{coc_host:true,scope:'turn',campaign:bridge?.campaign,turn},content:TURN_PACKET_GUIDANCE});
+        else {
         messages.push({role:'custom',customType:'coc-host',display:false,timestamp:Date.now(),details:{coc_host:true,scope:'turn',campaign:bridge?.campaign,turn},content:
           (isolatedOutput?'You are the Keeper and content planner.':'You are the sole Keeper and author.')+' Use current state, actual dialogue, relevant evidence and each character\'s own knowledge. Choose and execute necessary rules through resolve/apply; never invent a roll or replace the player\'s action. Read missing material when needed. Ordinary speech needs no attempted task. Continue playable conversation through minor discrepancies; clarify naturally later. '
           +(turnPacketPrototype?'look and lookup read evidence; they never move people. Routine party travel uses the private move command below; the host compiles and settles it before publication. NPC presence uses an npc command in that same packet. Never repeat settled effects, execute unchosen actions or charge journey time twice. ':'look and lookup read evidence; they never move people. Party travel needs an apply move effect; NPC movement needs an npc effect. Wait for the result before describing arrival. Compare location, clock, ownership and settled receipts with prior prose; reconcile only an earlier missed action the player actually chose, once through existing effects. Never execute unchosen actions, infer state changes from prose, repeat settled effects or charge journey time twice. ')
@@ -608,6 +613,7 @@ export function createHybridEngine(options: HybridEngineOptions): {runDriver: Se
           +'For apply npc.name, resolve action.actor, event speaker/audience, knowledge actor/source and relationship actor/toward, use the NPC\'s supplied current view.id semantic handle; private refusal candidates[].name supplies such tool handles, while display_name is a display label. Investigators keep registered names. Public prose and say tags use the permitted display label, never the operational handle. An existing person is not a new walk-on. '
           +(isolatedOutput?'Before recording prospective speech, select the NPC message responding to the current player input. Put the chosen message and conversational aim in intent. Use keeper_only for adjudication, background boundaries and reasons the character is not choosing to tell the listener now. Narrative content carries the selected visible scene and actions. When selected public content depends on a settled result, include the actual relevant public outcome, including an agreed price if communicating it. The spending cap is not the agreed price. Do not hide a necessary public result only in keeper_only or turn an already paid arrangement into a new offer. For prospective replies, speech material.text contains intended meaning rather than finished wording. The isolated author chooses the actual words. Unexpressed or changed prospective heard facts remain pending; do not treat intended words as already heard. Already acquired player-input knowledge omits a future material binding; source is its actual speaker and actor is its actual hearer. ':'For prospective heard knowledge, speech material.text contains the exact public words you will use; choose them once and reuse those words verbatim inside the actual speaker\'s say span. Do not treat bound speech as a semantic brief to paraphrase later. Unspoken or changed words stay pending without stopping prose. Already acquired player-input knowledge omits a future material binding; source is its actual speaker and actor is its actual hearer. ')
           +'Use the play language and {{say:Public Name}}...{{/say}} for NPC speech. Do not repeat the player\'s question merely to fill space. Public text contains no private plans, unrevealed facts or backstage explanation; NPCs do not know everything you know.'});
+        }
         record({lane:'run',event:'keeper_context',run:context.runId,step:stepId});
         return messages as any;
       }},

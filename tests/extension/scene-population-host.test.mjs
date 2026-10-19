@@ -20,7 +20,7 @@ test('the Keeper creates a temporary shop attendant and answers in the same nati
    await k.ok('table.apply',{campaign:'test-camp',call_id:'t1-c1',effects:[{kind:'move',to:'Fixture Shop',via:'street',travel_minutes:3,establish:{summary:'A shop with an ordinary service counter.',within:null}}]});
    await k.ok('table.narrate',{campaign:'test-camp',call_id:'t1-c2',text:'The shop counter is ahead.'});
   }finally{await k.close();}
- },responses:[()=>{requests++;return fauxAssistantMessage([fauxToolCall('output',{version:3,commands:[{kind:'walk_on',slot:'new_1',label:'the shop attendant',reason:'The shop serves customers during this local shift.'},{kind:'scene',service:'open',crowd:'quiet'}],responses:[{actor:'new_1',act:'answer',points:['We are open.']}]})],{stopReason:'toolUse'});}]});
+ },responses:[()=>{requests++;return fauxAssistantMessage([fauxToolCall('output',{version:4,commands:[{kind:'walk_on',slot:'new_1',label:'the shop attendant',reason:'The shop serves customers during this local shift.'},{kind:'scene',service:'open',crowd:'quiet'}],interactions:[{actor:'new_1',to:['investigator_1'],act:'answer',content:[{result_ref:'scene'}]}]})],{stopReason:'toolUse'});}]});
  t.after(()=>table.dispose());await table.session.prompt('I ask the shop attendant whether they are open, without buying anything.');
  const written=table.telemetry().find(r=>r.lane==='isolated-expression'&&r.event==='written');
  assert.ok(written,JSON.stringify(table.telemetry().filter(r=>r.lane==='keeper-delivery'||r.lane==='turn-packet-prototype')));

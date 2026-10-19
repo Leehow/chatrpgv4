@@ -1,5 +1,33 @@
 # Keeper contracts and Blood Road browser acceptance
 
+## Decision-only contract redesign (owner 2026-10-19)
+
+The owner again forbids Keeper-authored complete dialogue and event materials.
+NPC decisions select meaning, current state and directed relationships; the sole
+final author chooses all wording. Existing source material is selected through
+host-bound references (existing Jev selection), while new fiction supplies only
+necessary structured elements. No new judgment model or prompt-reminder patch.
+The owner explicitly requests external precedent and a GPT Pro schema/prompt
+review. The current Pro conversation is Ego2/p1, model visibly Pro, request sent
+2026-10-19T07:39Z. Preserve this consultation and its resulting artifacts.
+
+Current main is0ee69e1de, not the2be99914d measurement/App revision. Other-owner
+search/failure changes have since been committed; do not silently attribute old
+measurements to this new revision. The browser validation service remains2be.
+Read-only red probe current-contract-red.json proves both native output and raw
+apply accept an entire speech event; points also admits finished short dialogue.
+The response schema rejects explicit audience, emotional state and relationship
+fields. Narrowing maxLength would not prove semantic intent-only behavior.
+
+Confirmed writer/reader/action failure: TURN_PACKET_PARAMETERS embeds TurnEvent;
+TurnEvent demands exact future speech text; the offered raw apply event repeats
+that contract. The native system transform replaces only Public response and
+keeps inherited event obligations. The host then separately authors that text.
+Fix the contract and all model-visible entry paths together, preserving kernel
+transactions, private source scopes, disclosure timing and direct author SSE.
+Design must not count a plan as something already said or heard. No production
+implementation is claimed while the Pro design review is still in progress.
+
 ## Whole-intent comparison (owner approved 2026-10-19)
 
 The acceptance question is whether material reuse and structured Keeper decisions
@@ -661,3 +689,88 @@ consent scope, authority-sensitive cache identity and shared structural schemas.
 Then deterministic regression plus continuous natural MiniMax browser play;
 measure full intents and actual state, not publication alone. Other-owner
 failure-notice and search edits remain excluded from integration commits.
+
+### Decision-only review result (2026-10-19T08:39Z)
+
+The concise GPT Pro follow-up completed. Retained pro-final.txt contains its
+schema and prompt drafts. The long first answer was interrupted; its partial
+observations are retained rather than represented as a completed review.
+Pro agrees that shared decision/prose/occurrence write authority is the cause,
+and recommends removing generic event and free-text points/intent/stance from
+model writes. Existing state/relationship projections belong to the host.
+
+Design and explicit limitations are in docs/specs/decision-only-kp-v4.md. The
+review's external command urn is not an actual existing registry and cannot be
+installed unresolved. Its no-tags author instruction also conflicts with current
+host attribution; preserve existing framing and direct SSE. The executable probe
+binds only real current move/scene signatures and two example fact constructors.
+Five positive and17 negative cases pass, zero model calls. This is schema-shape
+and alias-role evidence only, not production, full mechanic or live acceptance.
+No production source, prompt, model policy, kernel semantics or App was changed
+in this design pass. Next implementation must close all model-origin dispatcher
+paths together and preserve the complete actual mechanical capability set.
+
+### v4 implementation in progress (owner approval 2026-10-19)
+
+The owner approved implementation after the design review. Current main remains
+0ee69e1de with scoped uncommitted work. No new judgment model or provider policy.
+Native v4 removes model event/summary/material/speech/points/intent/stance writes,
+adds actor/addressee/content selections, and preserves existing mechanical tools.
+The host reference catalog binds exact prepared actor knowledge and explicitly
+safe source fragments; unchanged aliases can be reissued and retired refs refuse.
+Only selected fragments reach the sole direct-SSE author. Character expression,
+state and directed relationships use narrow host projections. Structured new
+claims remain communications rather than actions or heard memories.
+
+The red-capable production-interface test initially failed3/3 and now passes.
+Direct author first-delta and silent-response structural guards pass. Real kernel
+host cases cover temporary NPC creation and one shared output, unchanged rule
+execution, atomic rejection of mixed old event/mechanical writes, refused-action
+publication blocking, and successful mechanical parameter recovery. The recovery
+migration exposed an own-property event:undefined in capturePlayerAction: strict
+lean schema rejected the internal reconstruction. Omitting only absent internal
+fields restores the original completed-action evidence; the two original
+regressions pass without lowering consent or publication guards.
+
+A fixed directed-relationship command is being connected to the existing event
+transaction through an unforgeable host-only execution token. The model cannot
+supply the resulting internal event. New communication constructors are closed;
+actual post-settlement scene/clock/outcomes may be selected without copying them.
+No per-turn generated schema, generic statement constructor or prose detector.
+
+LAN run.cmT2EWyM on leehow-pc is a retained earlier source snapshot. Its extension
+phase finished703 files with7 failing files: several unmigrated v3 fixtures, the
+now-fixed mechanical recovery/author guards, a false task-inventory classification
+of a material-scope begin method, and a pre-existing unused turn_unfinished_notice
+surface key. The scope method has been renamed forScope to describe its actual
+non-model work. Native integration/routing are still running. Do not call this
+snapshot green or attribute its results to later local edits. MiniMax v4 live
+acceptance and a final fresh-source validation remain outstanding.
+
+### v4 live failure and contract correction (2026-10-19T09:52Z)
+
+Retained run kp-decision-v4-20261019 uses the source runtime, MiniMax3.1/medium
+in KP and author. Two natural inputs took13.470/16.661seconds, one KP request and
+one author each, no foreground retrieval. The second did not answer a stationary
+directions question: the wire accepted answer without content. This is failed
+intent evidence, not a speed pass. Require substantive communication content and
+add the demonstrated directions constructor; its advice never moves anyone.
+
+The canonical relationship writer stores statement under evidence[], whereas
+the first host projection read a top-level statement. The real-kernel author
+task regression went red, then green after reading the canonical shape. Project
+only the newest canonical affinity per target. Created-person aliases now bind
+nested proposed-claim reference positions without changing exact original text.
+A gateway regression carrying policy origin also went red before removing that
+origin's broad bypass. Only the private compiled-decision token can write the
+host-generated relationship event. No judgment model or prompt-only fix.
+
+Current local validation: packet44/44, prescreen19/19, reference/seam/core23/23
+before the additional latest-affinity case (decision-only now11/11), direct
+gateway plus real relationship2/2, author transport/structural subset13/13.
+Integration tsc still reports only the previously recorded callback/unknown-error
+and driver declaration baseline; do not call it green. Earlier LAN integration
+2228/2228 and routing12/12 passed, but belong to the earlier snapshot. Another
+owner currently occupies the LAN box; a read-only30second monitor waits for idle
+and then automatically build-fetches this source. Fresh MiniMax and final suite
+remain required. Existing DeepSeek edits and shared docs are other-owner work.

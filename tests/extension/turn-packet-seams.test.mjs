@@ -8,7 +8,7 @@ test('issued output schema declares movement and stale-scene assessment before g
  const payload={tools:[{name:'output',input_schema:TURN_PACKET_PARAMETERS}]};
  const choices=[{kind:'move',to:'Library',via:'Main Street'}];
  const schema=(required)=>turnPacketProviderPayload(payload,false,true,[],choices,required).tools[0].input_schema;
- const packet=commands=>({version:3,commands,responses:[]});
+ const packet=commands=>({version:4,commands,interactions:[]});
  const movement={kind:'move',to:'Library'},assessment={kind:'scene',service:'open',crowd:'quiet'};
  assert.ok(Errors(schema(false),packet([movement])).length,'movement without assessment must not be advertised as valid');
  assert.equal(Errors(schema(false),packet([movement,assessment])).length,0);
@@ -23,7 +23,7 @@ test('NPC destinations expose and enforce the same closed issued capabilities',(
  const schema=turnPacketProviderPayload(payload,false,true,[],[{kind:'move',to:'Library'}]).tools[0].input_schema;
  const npc=schema.properties.commands.anyOf[0].items.anyOf.find(row=>row.properties?.kind?.const==='npc');
  assert.deepEqual(npc.properties.to.enum,['here','away','Library']);
- const packet={version:3,commands:[{kind:'npc',actor:'npc_1',to:'street',reason:'leaves'}],responses:[]};
+ const packet={version:4,commands:[{kind:'npc',actor:'npc_1',to:'street',reason:'leaves'}],interactions:[]};
  assert.throws(()=>bindTurnPacketMoves(packet,[{kind:'move',to:'Library'}]),/NPC destination/);
  for(const to of ['here','away','Library'])assert.equal(bindTurnPacketMoves({...packet,commands:[{...packet.commands[0],to}]},[{kind:'move',to:'Library'}]).commands[0].to,to);
 });
@@ -63,7 +63,7 @@ test('routine move schema selects issued destinations without free route text',(
  const move=variants.find(row=>row.properties.kind.const==='move');
  assert.deepEqual(move.properties.to.enum,['Library']);
  assert.equal(move.properties.via,undefined);
- const packet={version:3,commands:[{kind:'move',to:'Library'}],responses:[]};
+ const packet={version:4,commands:[{kind:'move',to:'Library'}],interactions:[]};
  assert.deepEqual(bindTurnPacketMoves(packet,[{kind:'move',to:'Library',via:'Main Street'}]).commands,[{kind:'move',to:'Library',via:'Main Street'}]);
  assert.throws(()=>bindTurnPacketMoves({...packet,commands:[{kind:'move',to:'Library',via:'Side Alley'}]},[{kind:'move',to:'Library'}]));
  assert.throws(()=>bindTurnPacketMoves(packet,[]));
@@ -76,13 +76,13 @@ test('an unbound route stays visible to the Keeper and is required before settle
  const moves=schema.properties.commands.anyOf[0].items.anyOf.filter(row=>row.properties?.kind?.const==='move');
  assert.deepEqual(moves.find(row=>row.properties.to.enum.includes('Outskirts')).required,['kind','to','via']);
  assert.equal(moves.find(row=>row.properties.to.enum.includes('Library')).properties.via,undefined);
- const packet={version:3,commands:[{kind:'move',to:'Outskirts'}],responses:[]};
+ const packet={version:4,commands:[{kind:'move',to:'Outskirts'}],interactions:[]};
  assert.throws(()=>bindTurnPacketMoves(packet,choices),/requires.*via/);
  const bound=bindTurnPacketMoves({...packet,commands:[{kind:'move',to:'Outskirts',via:'Follow the selected east road to the billboard.'}]},choices);
  assert.deepEqual(compileTurnPacket(bound).effects,bound.commands);
  assert.equal(compileTurnPacket(bindTurnPacketMoves({...packet,commands:[{kind:'move',to:'Library'}]},choices)).effects[0].travel_minutes,17);
  assert.equal(compileTurnPacket(bindTurnPacketMoves({...packet,commands:[{kind:'move',to:'Library'}]},[{kind:'move',to:'Library',travel_band:'local_travel'}])).effects[0].travel_band,'local_travel');
- assert.throws(()=>turnPacket(JSON.stringify({...packet,commands:[{kind:'move',to:'Library',travel_minutes:999}]})),/Invalid decision command/,'model cannot supply host-only travel values');
+ assert.throws(()=>turnPacket(JSON.stringify({...packet,commands:[{kind:'move',to:'Library',travel_minutes:999}]})),/Invalid decision/,'model cannot supply host-only travel values');
 });
 
 test('untimed journey bands share provider, parser, binding and canonical effect fields',()=>{
@@ -94,7 +94,7 @@ test('untimed journey bands share provider, parser, binding and canonical effect
  const annex=moves.find(row=>row.properties.to.enum.includes('Annex'));
  assert.deepEqual(annex.required,['kind','to','via','travel_band']);assert.deepEqual(annex.properties.travel_band.enum,bands);
  assert.equal(moves.find(row=>row.properties.to.enum.includes('Library')).properties.travel_band,undefined);
- const packet={version:3,commands:[{kind:'move',to:'Annex',via:'The established public road.'}],responses:[]};
+ const packet={version:4,commands:[{kind:'move',to:'Annex',via:'The established public road.'}],interactions:[]};
  for(const travel_band of [undefined,'invented'])assert.throws(()=>bindTurnPacketMoves({...packet,commands:[{...packet.commands[0],...(travel_band?{travel_band}:{})}]},choices),/requires one issued travel_band/);
  const parsed=turnPacket(JSON.stringify({...packet,commands:[{...packet.commands[0],travel_band:'local_travel'}]}));
  assert.deepEqual(compileTurnPacket(bindTurnPacketMoves(parsed,choices)).effects,[{kind:'move',to:'Annex',via:'The established public road.',travel_band:'local_travel'}]);

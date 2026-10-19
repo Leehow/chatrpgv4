@@ -48511,3 +48511,36 @@ Both closed move variants retain optional `why`, already consumed as consent
 evidence for involuntary displacement. It grants no authority and rewording it
 does not change the existing refusal identity. Its schema retains the existing
 200-character cause limit enforced by argument validation.
+
+### Kernel decision: decision-only v4 communication contract (owner 2026-10-19)
+
+The owner approves docs/specs/decision-only-kp-v4.md. Native output version4
+separates commands, interactions and reveal selections. Model writes cannot
+carry event, summary, materials.text, speech, knowledge/relationship statements,
+points or free-text intent/stance. No v3-to-v4 adapter preserves those fields.
+Existing mechanical apply effects, resolve and ask remain canonical; mixed
+model-origin apply event/delivery/narration paths are refused before writes,
+including direct operation gateway execution. Host-compiled settlement is
+explicitly separate and retains existing admission, failures and receipts.
+
+A communication selects issued actor and audience references, a closed speech
+act and content references or registered closed new-claim constructors. The
+host prepares exact actor-scoped knowledge and safe source fragments, preserving
+provenance and evidence class. It validates reference type, current scope and
+speaker eligibility before any command settles. Private causes and whole source
+dossiers are never automatically hydrated for the author. Existing NPC states,
+personality and directed relationships are projected rather than regenerated.
+New claims do not perform state changes or declare themselves delivered/heard.
+
+The host supplies selected fragments, public identity projections, actual
+outcomes and current scene/clock to the sole author once. Direct plain-text SSE,
+publication authority, speech attribution, held-operation recovery and existing
+background evidence extraction remain. No new judge, whole-response rewrite or
+mandatory per-turn source decision is added. Next-turn continuity reads actual
+delivery and committed state without waiting for a proposed speech memory.
+
+Producer: current scoped kernel views and existing source-selection results.
+Reader: the host-owned communication-reference catalog and canonical dispatch.
+Actor: existing kernel operations followed by the one direct prose author.
+Unknown fields and unissued/stale references fail atomically before writes;
+model declarations cannot grant source access, hearer knowledge or success.

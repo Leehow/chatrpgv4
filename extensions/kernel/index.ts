@@ -1,3 +1,4 @@
+import {DecisionContent,decisionPerson,bindCreatedDecisionPerson} from '../../runtime/decision-content.ts';
 import {Errors as argumentErrors} from 'typebox/value';
 import {SourceConsultations} from '../module/source-consultations.ts';
 import {CASH_CONSENT_POLICY} from "./admission.ts";
@@ -2627,6 +2628,12 @@ export default function (pi: ExtensionAPI, host: {capabilities?:RuntimeCapabilit
 
 	/** What the capsule says the player can see: the scene's name, who is on stage, who plays, and the recent exchange. */
 	const npcReferences=new WeakMap<TableState,NpcReferences>();
+    const contentReferences=new WeakMap<TableState,DecisionContent>();
+    const compiledDecisionAuthority=Symbol('compiled-decision');
+    function packetContent(state:TableState):DecisionContent {
+        let content=contentReferences.get(state);if(!content){content=new DecisionContent();contentReferences.set(state,content);}
+        content.forScope(packetNpcScope(state));return content;
+    }
     function packetNpcScope(state:TableState):string {
         return JSON.stringify([state.campaign,state.sourceAnswerScope?.worldline??state.documentWorldline??'main',state.sourceAnswerScope?.loop??0,state.turn]);
     }
@@ -2634,7 +2641,7 @@ export default function (pi: ExtensionAPI, host: {capabilities?:RuntimeCapabilit
         let refs=npcReferences.get(state);if(!refs){refs=new NpcReferences();npcReferences.set(state,refs);}return refs;
     }
     function observeNpcReferences(state:TableState,value:unknown):void {
-        if(turnPacketPrototype)packetNpcReferences(state).observe(packetNpcScope(state),value);
+        if(turnPacketPrototype){packetNpcReferences(state).observe(packetNpcScope(state),value);if(value&&typeof value==='object')packetContent(state).observePerson(value as Record<string,any>);}
     }
 	function noteCapsule(state: TableState, capsule: unknown): void {
         observeNpcReferences(state,capsule);
@@ -5705,29 +5712,38 @@ export default function (pi: ExtensionAPI, host: {capabilities?:RuntimeCapabilit
 		}
 		if(turnPacketPrototype){
 			const packet=expression as TurnPacket,compiled=compileTurnPacket(packet);
-            const newcomers=packet.commands.filter((row):row is Extract<TurnPacket['commands'][number],{kind:'walk_on'}>=>row.kind==='walk_on');
+            const newcomers=(packet.commands??[]).filter((row):row is Extract<NonNullable<TurnPacket['commands']>[number],{kind:'walk_on'}>=>row.kind==='walk_on');
             const before=await state.kernel.call<Record<string,any>>('table.capsule',{campaign:state.campaign,_context_read:true});
             if((scenePopulationRequired(before)||compiled.effects.some(row=>row.kind==='move'))&&!compiled.effects.some(row=>row.kind==='scene'))throw new KernelError({code:'needs',message:'Assess scene service and population from the current place and clock with one scene command; missing registered names never means empty.'});
-            packetNpcReferences(state).require(packetNpcScope(state),[...compiled.responses.filter(row=>!isNewNpcSlot(row.actor)).map(row=>row.actor),
-                ...compiled.effects.filter(row=>row.kind==='npc'&&!row.walk_on).map(row=>String(row.name))]);
+            packetNpcReferences(state).require(packetNpcScope(state),[...compiled.responses.flatMap(row=>[row.actor,...row.to??[]]).filter(isNpcReference),
+                ...compiled.effects.filter(row=>row.kind==='npc'&&!row.walk_on).map(row=>String(row.name)),
+                ...(compiled.event?.relationships.flatMap(row=>[row.actor,row.toward]).filter(isNpcReference)??[])]);
             if(keeperRun?.runId===reply.run&&keeperRun.routineResult){
                 if(compiled.effects.some(effect=>effect.kind==='move'||effect.kind==='time'))throw new KernelError({code:'invalid_params',message:'The host already settled this input journey and its time; omit move and time commands'});
             }
 			// Resolve speakers before any writes; optional style is not an identity fallback.
-			const people=await Promise.all([...new Set(compiled.responses.filter(response=>!isNewNpcSlot(response.actor)).map(response=>response.actor))].map(async actor=>{
+			const participantRefs=[...new Set(compiled.responses.flatMap(response=>[response.actor,...response.to??[]]).filter(isNpcReference))];
+            const people=await Promise.all(participantRefs.map(async actor=>{
 				const person=await state.kernel.call<Record<string,any>>('table.look',{campaign:state.campaign,focus:'npc',name:actor,_context_read:true});
                 if(person.ref!==actor||typeof person.display_name!=='string'||typeof person.name_known!=='boolean')throw Error('The NPC reference projection is unavailable');
-				return {ref:actor,name:person.display_name,display_name:person.display_name,name_known:person.name_known,
-                    ...Object.fromEntries(['personality','social_role'].filter(key=>person[key]!==undefined).map(key=>[key,person[key]]))};
+				return decisionPerson(person,[...(before.present??[]),...(before.npc_references?.people??[]),...state.party.map((person,index)=>({ref:`investigator_${index+1}`,name:person.name,display_name:person.name}))]);
 			}));
-			if(compiled.effects.length||compiled.event){
+			const materialOwner=packetContent(state);materialOwner.assertCurrent(before);
+            materialOwner.addEntities(newcomers.map(row=>row.slot));
+            let hydrated:ReturnType<DecisionContent['hydrate']>;
+            try{hydrated=materialOwner.hydrate(compiled.responses,packet.reveal??[]);}catch(error){throw new KernelError({code:'invalid_params',message:error instanceof Error?error.message:String(error),details:{reason:'decision_material_binding',transaction_state:'uncommitted'}});}
+            if(compiled.event)for(const relation of compiled.event.relationships){
+                const match=/^investigator_([1-9][0-9]*)$/.exec(relation.toward);
+                if(match){const person=state.party[Number(match[1])-1];if(!person)throw new KernelError({code:'invalid_params',message:'Unissued relationship recipient',details:{transaction_state:'uncommitted'}});relation.toward=person.name;}
+            }
+            if(compiled.effects.length||compiled.event){
 				const owner=keeperRun;
 				if(!owner||owner.runId!==reply.run)throw Error('The turn packet owner is stale');
 				const toolCallId=`keeper:${reply.run}:record`;
 				owner.recordCallId??=mintCallId(state);
 				state.mintedCallIds.set(toolCallId,owner.recordCallId);
 				const settled=await runTool(COC_TOOLS.find(tool=>tool.name==='apply')!,toolCallId,
-					{effects:compiled.effects,...(compiled.event?{event:compiled.event}:{})},reply.signal,undefined,'explicit',ctx);
+					{effects:compiled.effects,...(compiled.event?{event:compiled.event}:{})},reply.signal,undefined,'explicit',ctx,undefined,undefined,compiledDecisionAuthority);
 				await record({lane:'turn-packet-prototype',turn:state.turn,run:reply.run,effects:compiled.effects,
 					ok:!settled.details.coc_error,jev_extra_calls:0});
 				if(settled.details.coc_error)throw new KernelError(settled.details.coc_error as ConstructorParameters<typeof KernelError>[0]);
@@ -5742,16 +5758,21 @@ export default function (pi: ExtensionAPI, host: {capabilities?:RuntimeCapabilit
                 const person=await state.kernel.call<Record<string,any>>('table.look',{campaign:state.campaign,focus:'npc',name:newcomer.label,_context_read:true});
                 if(typeof person.ref!=='string'||typeof person.display_name!=='string')throw Error('The created NPC reference projection is unavailable');
                 packetNpcReferences(state).observe(packetNpcScope(state),person);
-                compiled.responses=compiled.responses.map(row=>row.actor===newcomer.slot?{...row,actor:person.ref}:row);
-                if(!people.some(row=>row.ref===person.ref))people.push({ref:person.ref,name:person.display_name,display_name:person.display_name,name_known:person.name_known===true,...Object.fromEntries(['personality','social_role'].filter(key=>person[key]!==undefined).map(key=>[key,person[key]]))});
+                bindCreatedDecisionPerson(hydrated,newcomer.slot,{ref:person.ref,display_name:person.display_name});
+                if(!people.some(row=>row.ref===person.ref))people.push(decisionPerson(person,[...(current.present??[]),...(current.npc_references?.people??[]),...state.party.map((person,index)=>({ref:`investigator_${index+1}`,name:person.name,display_name:person.name}))]));
             }
-			// The single author renders the settled scene; departure targets are still owed, not checked against this prose.
+			for(const actor of new Set(compiled.event?.relationships.map(row=>row.actor)??[])){
+                const person=await state.kernel.call<Record<string,any>>('table.look',{campaign:state.campaign,focus:'npc',name:actor,_context_read:true});
+                const index=people.findIndex(row=>row.ref===actor),projected=decisionPerson(person,[...(current.present??[]),...(current.npc_references?.people??[]),...state.party.map((person,index)=>({ref:`investigator_${index+1}`,name:person.name,display_name:person.name}))]);
+                if(index>=0)people[index]=projected;
+            }
+            // The single author renders the settled scene; departure targets are still owed, not checked against this prose.
             state.firstSight.take(state.turn);
             const sightView=firstSightView(state,current,state.turn) as Record<string,any>,sight=sightView.first_sight??{};
             await record({lane:'first-sight',event:'render_scope',turn:state.turn,scene:current.where?.scene,
                 items:[...(sight.place?[sight.place.id]:[]),...(sight.people??[]).map((row:Record<string,any>)=>row.id)]});
 			const where=current.where??{};
-			decision={scene:decisionScene(current),clock:decisionClock(where.clock??{}),...decisionResponseScope(before,current,compiled.responses),people,
+			decision={scene:decisionScene(current),clock:decisionClock(where.clock??{}),...decisionResponseScope(before,current,hydrated.responses),people,selected_materials:hydrated.materials,
 				recent_public:decisionRecentPublic(current.recent,state.delivered)};
 		}
         if(heldActs.get(state)?.basis){
@@ -5820,9 +5841,9 @@ export default function (pi: ExtensionAPI, host: {capabilities?:RuntimeCapabilit
                 const parsed=turnPacket(JSON.stringify(params));
                 const choices=owner.prescreen?.choices?turnPacketMovementChoices(owner.prescreen.choices):undefined;
                 packet=choices?bindTurnPacketMoves(parsed,choices):requireTurnPacketNpcDestinations(parsed);
-                if(packet.commands.some(row=>row.kind==='time')){
+                if((packet.commands??[]).some(row=>row.kind==='time')){
                     const bands=await packetTimeBandHandles(state);
-                    if(packet.commands.some(row=>row.kind==='time'&&!bands.includes(row.band)))throw Error('time.band must select one issued rule handle: '+bands.join(', '));
+                    if((packet.commands??[]).some(row=>row.kind==='time'&&!bands.includes(row.band)))throw Error('time.band must select one issued rule handle: '+bands.join(', '));
                 }
             }catch(error){
                     const {retry,refusal}=refusePacketParameters(state,error,ctx);
@@ -5861,9 +5882,14 @@ export default function (pi: ExtensionAPI, host: {capabilities?:RuntimeCapabilit
 		ctx?: ExtensionContext,
 		finalRun?: string,
 		recoveredOutput?:{text:string;evidence:Record<string,any>},
+        recordAuthority?:symbol,
 	): Promise<{ content: Array<{ type: "text"; text: string }>; details: Record<string, unknown>; terminate?: boolean }> {
         if(turnPacketPrototype&&table&&spec.name==='look'&&params.focus==='npc'&&isNpcReference(params.name))
             packetNpcReferences(table).require(packetNpcScope(table),[params.name]);
+        if(turnPacketPrototype&&!recoveredOutput&&recordAuthority!==compiledDecisionAuthority){
+            const forbidden=spec.name==='apply'?['event','text','delivery','narrate','handoff','quotes','summary','materials']:spec.name==='narrate'||spec.name==='ask'?['text','delivery','handoff']:[];
+            if(forbidden.some(key=>Object.hasOwn(params,key)))throw new KernelError({code:'invalid_params',message:'Decision-only model operations cannot write event or prose fields. Select communication through output.',details:{reason:'decision_only_write',before_execution:true}});
+        }
         const publicName=spec.name;
         const finalSelection=publicName==='output';
         if(singleKeeper&&turnPacketPrototype&&finalSelection&&!recoveredOutput){
@@ -6046,7 +6072,7 @@ export default function (pi: ExtensionAPI, host: {capabilities?:RuntimeCapabilit
             const saved=operationKeys.get(state)?.get(toolCallId);
             if(!saved)return;
             delete saved.playerAction;
-            const currentArgs=spec.name==='apply'?{...params,effects:payload.effects,event:payload.event}:{...params,action:payload.action};
+            const currentArgs=spec.name==='apply'?{...params,...(payload.effects!==undefined?{effects:payload.effects}:{}),...(payload.event!==undefined?{event:payload.event}:{})}:{...params,action:payload.action};
             if(!state.party.length||argumentErrors(spec.parameters,currentArgs).length)return;
             if(spec.name==='resolve'){
                 if(proposal){const args={tool:spec.name,action:payload.action};saved.playerAction={key:heldOperationKey('player-action-completion',args),args:structuredClone(args)};}
@@ -7259,6 +7285,10 @@ export default function (pi: ExtensionAPI, host: {capabilities?:RuntimeCapabilit
 				moduleId: readingModule,
 				call: bridgeCall(kernel),
 				materialSources:(turn:number)=>finalOutput.inventory(campaign,turn),
+                decisionMaterials:(capsule:Record<string,any>,people:Record<string,any>[])=>{
+                    if(!table||!turnPacketPrototype)return undefined;
+                    return packetContent(table).prepare(packetNpcScope(table),capsule,people,finalOutput.decisionSources(table.campaign,table.turn,capsule),table.party.map(person=>person.name),packetNpcReferences(table).current(packetNpcScope(table)));
+                },
                 playerContext:()=>({investigators:table?.party.map(person=>person.name)??[],
                     previousPublic:table?decisionRecentPublic(table.recent,table.delivered):[]}),
                 timeBands:async()=>{const rows=await shadowBandRows(kernel,'time');if(rows?.kind!=='time')throw Error('Travel-band registry is unavailable');return rows.rows;},
@@ -7282,7 +7312,7 @@ export default function (pi: ExtensionAPI, host: {capabilities?:RuntimeCapabilit
                 publishRoutine:async(run:string,signal:AbortSignal)=>{
                     if(!operationGate.open||!turnPacketPrototype||keeperRun?.runId!==run||!keeperRun.routineResult)
                         throw new KernelError({code:'needs',message:'The routine expression owner is unavailable or stale'});
-                    return submitTurnPacket({version:3,commands:[],responses:[]},signal,sessionCtx);
+                    return submitTurnPacket({version:4},signal,sessionCtx);
                 },
 				canParallelize: (calls: Parameters<typeof parallelReadBatch>[0]) => operationGate.open && singleKeeper && !!table
 					&& ['open', 'acting'].includes(table.state) && table.inputEnded?.turn !== table.turn

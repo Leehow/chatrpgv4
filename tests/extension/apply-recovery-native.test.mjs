@@ -22,12 +22,12 @@ async function owedWorkspace(workspace,options={}){process.env.PI_COC_KERNEL_CMD
 }finally{await c.close();}}
 function answer(batch,p=.99){return{batchId:batch.id,status:'complete',answers:Object.fromEntries(batch.questions.map(q=>[q.key,{status:'answered',type:'noul',noul:q.key.startsWith('restriction_')?1-p:p}])),coverage:{required:batch.questions.map(x=>x.key),answered:batch.questions.map(x=>x.key),unknown:[]},issues:[],usage:{inputTokens:100,outputTokens:0}};}
 const move={kind:'move',to:'Corner Cafe',via:'Across Main Street',establish:{summary:'A public cafe across the street.'},owed:'t1-owed-1'};
-const output={version:3,commands:[{kind:'scene',service:'open',crowd:'empty'}],responses:[]};
-test('the active single-Keeper path settles a prior declared departure beside this turn event once',async t=>{
+const output={version:4,commands:[{kind:'scene',service:'open',crowd:'empty'}],interactions:[]};
+test('the active single-Keeper path settles a prior declared departure before this turn communication once',async t=>{
  const batches=[];const engine=createHybridEngine({env,decision:{decide:async batch=>{batches.push(batch);return answer(batch,(batch.state.line_contexts?.[0]?.current_player_words??batch.state.current_player_words)===original?.99:.01);}}});
  const table=await openTable({legacyDeliveryFixtures:false,realKernel:true,prepareWorkspace:owedWorkspace,env,runDriver:engine.runDriver,
   extraExtensions:[{name:'engine',factory:engine.extension}],responses:[
-   ()=>fauxAssistantMessage([fauxToolCall('apply',{effects:[move],event:{name:'The investigator introduces himself',summary:'The investigator introduces himself at the cafe.'}})],{stopReason:'toolUse'}),
+   ()=>fauxAssistantMessage([fauxToolCall('apply',{effects:[move]})],{stopReason:'toolUse'}),
    ()=>fauxAssistantMessage([fauxToolCall('output',output)],{stopReason:'toolUse'})]});t.after(()=>table.dispose());
  await table.session.prompt('I introduce myself at the counter, without ordering.');
  assert.deepEqual(table.extensionErrors,[]);

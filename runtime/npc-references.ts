@@ -28,17 +28,18 @@ export class NpcReferences {
    if(!value||typeof value!=='object'||Array.isArray(value))return value;
    const row=value as Row;
    if(typeof row.actor!=='string'||isNpcReference(row.actor))return row;
-   const refs=this.publicNames.get(row.actor.normalize('NFKC').trim().toLowerCase());
+   const refs=this.publicNames.get(String(row.actor).normalize('NFKC').trim().toLowerCase());
    if(refs?.size!==1)return row;
    const ref=[...refs][0];if(!this.issued.has(ref))return row;
    repairs++;return {...row,actor:ref};
   };
   const value=input as Row;
-  return{args:{...value,...(Array.isArray(value.responses)?{responses:value.responses.map(bind)}:{}),
+  return{args:{...value,...(Array.isArray(value.interactions)?{interactions:value.interactions.map(bind)}:{}),
    ...(Array.isArray(value.commands)?{commands:value.commands.map(command=>command?.kind==='npc'?bind(command):command)}:{})},repairs};
  }
  require(scope:string,references:readonly string[]):void {
   if(references.some(ref=>!isNpcReference(ref)||this.scope!==scope||!this.issued.has(ref)))
    throw Error('Unknown or unissued NPC reference; use a ref from the supplied current NPC material');
  }
+ current(scope:string):string[] {return this.scope===scope?[...this.issued]:[];}
 }

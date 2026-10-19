@@ -510,6 +510,7 @@ export function createFinalOutputOwner(deps: {runtime: () => HostRuntime | undef
   }
 
   return {observe,observeSupport,check, write,openStream,
+    decisionSources:(campaign:string,turn:number,capsule:Row)=>epoch===campaign+':'+turn?[...sources.values()].filter(source=>source.material&&(!source.binding||digest(source.binding)===digest(writingSupportBinding(capsule._context)))).map(source=>({name:source.name,revision:source.revision,...structuredClone(source.material)})):[],
     pendingPublication:async(campaign:string)=>{
       const root=deps.runtime()?.home,directory=root?join(root,'.coc','delivery-writes'):undefined;
       if(!directory||!existsSync(directory))return undefined;

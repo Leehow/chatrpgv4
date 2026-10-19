@@ -31,8 +31,8 @@ test('native output refusal reaches the player with its actual consent cause and
  const move={kind:'move',to:'Central Library'};
  const table=await openTable({legacyDeliveryFixtures:false,realKernel:true,prepareWorkspace:opened,env,
   runDriver:engine.runDriver,extraExtensions:[{name:'engine',factory:engine.extension}],responses:[
-   fauxAssistantMessage([fauxToolCall('output',{version:3,commands:[move],responses:[]})],{stopReason:'toolUse'}),
-   fauxAssistantMessage([fauxToolCall('output',{version:3,commands:[move,{kind:'scene',service:'unknown',crowd:'quiet'}],responses:[]})],{stopReason:'toolUse'}),
+   fauxAssistantMessage([fauxToolCall('output',{version:4,commands:[move],interactions:[]})],{stopReason:'toolUse'}),
+   fauxAssistantMessage([fauxToolCall('output',{version:4,commands:[move,{kind:'scene',service:'unknown',crowd:'quiet'}],interactions:[]})],{stopReason:'toolUse'}),
    fauxAssistantMessage([{type:'thinking',thinking:'PRIVATE_NEXT_TURN'}],{stopReason:'stop'}),
    fauxAssistantMessage([{type:'thinking',thinking:'PRIVATE_NEXT_TURN'}],{stopReason:'stop'})
   ]});

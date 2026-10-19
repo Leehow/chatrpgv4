@@ -39,7 +39,7 @@ test('a ready routine journey publishes actual movement without Keeper inference
  const engine=createHybridEngine({env,decision:{decide:async batch=>{batches.push(batch);const result=answer(batch);result.answers.additional_work.noul=.21;return result;}}});
  const table=await openTable({legacyDeliveryFixtures:false,realKernel:true,prepareWorkspace:opened,env,runDriver:engine.runDriver,
   extraExtensions:[{name:'engine',factory:engine.extension}],responses:[()=>{requests++;return fauxAssistantMessage([
-   fauxToolCall('output',{version:3,commands:[{kind:'move',to:'Central Library'}],responses:[]})],{stopReason:'toolUse'});} ]});
+   fauxToolCall('output',{version:4,commands:[{kind:'move',to:'Central Library'}],interactions:[]})],{stopReason:'toolUse'});} ]});
  t.after(()=>table.dispose());await table.session.prompt('I walk to the Central Library.');
  assert.equal(requests,0,JSON.stringify({batches,events:table.telemetry().filter(x=>['continuous-turn','keeper-delivery'].includes(x.lane))}));
  assert.equal(batches.length,1,'prescreen must replace post-proposal consent, not precede it');
@@ -49,6 +49,7 @@ test('a ready routine journey publishes actual movement without Keeper inference
  const turn=JSON.parse(readFileSync(join(table.workspace,'.coc/campaigns/test-camp/turns/0002.json'),'utf8'));
  assert.equal(turn.receipts.filter(x=>x.kind==='move').length,1);
  const writer=table.telemetry().find(x=>x.lane==='isolated-expression'&&x.event==='written');
+ assert.ok(writer,JSON.stringify(table.session.messages.filter(row=>row.role==='toolResult').map(row=>({tool:row.toolName,details:row.details})))+' '+JSON.stringify(table.telemetry().filter(row=>row.lane==='keeper-delivery').slice(-3)));
  const task=JSON.parse(readFileSync(join(writer.attempt,'task.json'),'utf8'));
  assert.equal(task.result.outcomes.filter(x=>x.kind==='move'&&x.status==='changed').length,1);
  assert.deepEqual(table.session.getActiveToolNames().sort(),['look','lookup','recall','resolve','apply','ask','output'].sort(),'routine travel skips inference while the complete chapter retains production rules');
@@ -72,8 +73,8 @@ test('an untimed native route settles its issued band with one Keeper and one co
    returnTo=offered.effect.to;returnVia=offered.description.requires_via?'The same public road.':undefined;
    await client.ok('table.narrate',{campaign:'test-camp',call_id:'t3-c1',text:'The investigator remains at the annex, ready to return.'});
   }finally{await client.close();}},extraExtensions:[{name:'engine',factory:engine.extension}],responses:[()=>{requests++;return fauxAssistantMessage([
-   rawToolCall('output',{version:3,commands:[{kind:'move',to:returnTo,travel_band:'local_travel',...(returnVia?{via:returnVia}:{})},
-    {kind:'scene',service:'open',crowd:'quiet'}],responses:[]})],{stopReason:'toolUse'});} ]});
+   rawToolCall('output',{version:4,commands:[{kind:'move',to:returnTo,travel_band:'local_travel',...(returnVia?{via:returnVia}:{})},
+    {kind:'scene',service:'open',crowd:'quiet'}],interactions:[]})],{stopReason:'toolUse'});} ]});
  t.after(()=>table.dispose());await table.session.prompt('I walk back to '+startLabel+'.');
  assert.deepEqual(table.extensionErrors,[]);assert.equal(requests,1);
  assert.equal(batches.filter(batch=>batch.family==='continuous-turn').length,0,'an incomplete journey is not prescreened or executed');
@@ -90,7 +91,7 @@ test('an unassessed arrival uses one existing Keeper decision without another co
  const engine=createHybridEngine({env,decision:{decide:async batch=>{batches.push(batch);return answer(batch);}}});
  const table=await openTable({legacyDeliveryFixtures:false,realKernel:true,prepareWorkspace:workspace=>opened(workspace,false),env,runDriver:engine.runDriver,
   extraExtensions:[{name:'engine',factory:engine.extension}],responses:[()=>{requests++;return fauxAssistantMessage([
-   fauxToolCall('output',{version:3,commands:[],responses:[]})],{stopReason:'toolUse'});} ]});
+   fauxToolCall('output',{version:4,commands:[],interactions:[]})],{stopReason:'toolUse'});} ]});
  t.after(()=>table.dispose());await table.session.prompt('I walk to the Central Library.');
  assert.equal(requests,1);assert.equal(batches.length,1);
  assert.equal(table.telemetry().filter(row=>row.lane==='continuous-turn'&&row.event==='scene_population_required').length,1);
@@ -102,7 +103,7 @@ test('an indirect destination keeps issued choices and receives one narrow admis
  const engine=createHybridEngine({env,decision:{decide:async batch=>{batches.push(batch);return answer(batch);}}});
  const table=await openTable({legacyDeliveryFixtures:false,realKernel:true,prepareWorkspace:opened,env,runDriver:engine.runDriver,
   extraExtensions:[{name:'engine',factory:engine.extension}],responses:[()=>{requests++;return fauxAssistantMessage([
-   fauxToolCall('output',{version:3,commands:[{kind:'move',to:'central-library'}],responses:[]})],{stopReason:'toolUse'});} ]});
+   fauxToolCall('output',{version:4,commands:[{kind:'move',to:'central-library'}],interactions:[]})],{stopReason:'toolUse'});} ]});
  t.after(()=>table.dispose());await table.session.prompt('I walk to that red doorway two blocks west.');
  assert.equal(requests,1);assert.equal(batches.length,1);assert.notEqual(batches[0].family,'continuous-turn');
  assert.equal(batches[0].state.proposal.lines.length,1);assert.equal(batches[0].questions.length,2);
@@ -128,7 +129,7 @@ test('a restarted journey retains full delivered directions past 200 characters 
     }
    }finally{await client.close();}
   },extraExtensions:[{name:'engine',factory:engine.extension}],responses:[()=>{requests++;return fauxAssistantMessage([
-   fauxToolCall('output',{version:3,commands:[{kind:'move',to:'central-library'}],responses:[]})],{stopReason:'toolUse'});} ]});
+   fauxToolCall('output',{version:4,commands:[{kind:'move',to:'central-library'}],interactions:[]})],{stopReason:'toolUse'});} ]});
  t.after(()=>table.dispose());await table.session.prompt('I go to that red doorway two blocks west.');
  assert.equal(batches.length,1);assert.equal(requests,1);
  const previous=batches[0].state.previous_public;
@@ -138,23 +139,24 @@ test('a restarted journey retains full delivered directions past 200 characters 
 });
 
 for(const work of [.5,.99])test('remaining-work probability '+work+' preserves movement and asks the Keeper only for responses',async t=>{
- let requests=0;let actorRef;const batches=[];
+ let requests=0;let actorRef,meetingPlace;const batches=[];
  const engine=createHybridEngine({env,decision:{decide:async batch=>{batches.push(batch);const result=answer(batch,'travel_then_dialogue');result.answers.additional_work.noul=work;return result;}}});
  const table=await openTable({legacyDeliveryFixtures:false,realKernel:true,prepareWorkspace:opened,env,runDriver:engine.runDriver,
   extraExtensions:[{name:'engine',factory:engine.extension}],responses:[context=>{requests++;
    assert.ok(JSON.stringify(context.messages).includes('host_operations'));
    assert.ok(getCurrentTools(context.messages).some(x=>x.name==='apply'));
    assert.ok(getCurrentTools(context.messages).some(x=>x.name==='resolve'));
-   return fauxAssistantMessage([fauxToolCall('output',{version:3,commands:[],responses:[
-    {actor:actorRef,act:'answer',points:['The meeting is at noon.']} ]})],{stopReason:'toolUse'});} ]});
- t.after(()=>table.dispose());actorRef=(await table.runtimeBridges().at(-1).call('table.capsule',{campaign:'test-camp'})).present.find(row=>row.name==='Steven Knott').ref;await table.session.prompt('I walk to the Central Library, then ask Knott over the telephone when we can meet.');
+   return fauxAssistantMessage([fauxToolCall('output',{version:4,commands:[],interactions:[
+    {actor:actorRef,to:['investigator_1'],act:'answer',content:[{new:{predicate:'planned_visit',actor:actorRef,to:meetingPlace,when:{day_offset:0,hour:12,minute:0}}}]} ]})],{stopReason:'toolUse'});} ]});
+ t.after(()=>table.dispose());{const capsule=await table.runtimeBridges().at(-1).call('table.capsule',{campaign:'test-camp'});actorRef=capsule.present.find(row=>row.name==='Steven Knott').ref;meetingPlace=capsule.where.scene;}await table.session.prompt('I walk to the Central Library, then ask Knott over the telephone when we can meet.');
  assert.equal(requests,1);assert.equal(batches.length,1);
  const turn=JSON.parse(readFileSync(join(table.workspace,'.coc/campaigns/test-camp/turns/0002.json'),'utf8'));
  assert.equal(turn.receipts.filter(x=>x.kind==='move').length,1);
  const writer=table.telemetry().find(x=>x.lane==='isolated-expression'&&x.event==='written');
+ assert.ok(writer,JSON.stringify(table.session.messages.filter(row=>row.role==='toolResult').map(row=>({tool:row.toolName,details:row.details}))));
  const task=JSON.parse(readFileSync(join(writer.attempt,'task.json'),'utf8'));
  assert.equal(task.result.outcomes.filter(x=>x.kind==='move').length,1);
- assert.equal(task.decision_context.responses[0].claims[0],'The meeting is at noon.');
+ assert.equal(task.decision_context.responses[0].claims[0].kind,'proposed_claim');assert.equal(task.decision_context.responses[0].claims[0].value.when.hour,12);
 });
 
 for(const field of ['task_world_revision','task_source_revision'])test('changed '+field+' invalidates prescreen execution before mutation',async()=>{
@@ -221,7 +223,7 @@ for(const mode of ['plan','condition','discussion','uncertain'])test('a '+mode+'
  const engine=createHybridEngine({env,decision:{decide:async batch=>{batches.push(batch);return answer(batch,'other',selection,veto);}}});
  const table=await openTable({legacyDeliveryFixtures:false,realKernel:true,prepareWorkspace:opened,env,runDriver:engine.runDriver,
   extraExtensions:[{name:'engine',factory:engine.extension}],responses:[()=>{requests++;return fauxAssistantMessage([
-   fauxToolCall('output',{version:3,commands:[{kind:'move',to:'central-library'}],responses:[]})],{stopReason:'toolUse'});} ]});
+   fauxToolCall('output',{version:4,commands:[{kind:'move',to:'central-library'}],interactions:[]})],{stopReason:'toolUse'});} ]});
  t.after(()=>table.dispose());
  const inputs={plan:'I will go to the library tomorrow.',condition:'I go to the library only if Knott first agrees; he has not answered.',
   discussion:'I ask whether we should go to the library; I am not leaving.',uncertain:'I go back there.'};
@@ -238,7 +240,7 @@ test('a Keeper packet cannot replay a journey the host already settled',async t=
  const engine=createHybridEngine({env,decision:{decide:async batch=>{batches.push(batch);return answer(batch,'travel_then_dialogue');}}});
  const table=await openTable({legacyDeliveryFixtures:false,realKernel:true,prepareWorkspace:opened,env,runDriver:engine.runDriver,
   extraExtensions:[{name:'engine',factory:engine.extension}],responses:[fauxAssistantMessage([
-   fauxToolCall('output',{version:3,commands:[{kind:'move',to:'central-library'}],responses:[]})],{stopReason:'toolUse'})]});
+   fauxToolCall('output',{version:4,commands:[{kind:'move',to:'central-library'}],interactions:[]})],{stopReason:'toolUse'})]});
  t.after(()=>table.dispose());await table.session.prompt('I walk to the Central Library and ask for the opening hours.');
  assert.equal(batches.length,1);
  const turn=JSON.parse(readFileSync(join(table.workspace,'.coc/campaigns/test-camp/turns/0002.json'),'utf8'));
@@ -251,8 +253,8 @@ test('a host journey blocked by a tool hook cannot start the author through an e
  const table=await openTable({legacyDeliveryFixtures:false,realKernel:true,prepareWorkspace:opened,env,runDriver:engine.runDriver,
   extraExtensions:[{name:'engine',factory:engine.extension},{name:'block-host-move',factory(pi){
    pi.on('tool_call',event=>event.toolName==='apply'?{block:true,reason:'Fixture blocks the selected journey before execution.'}:undefined);
-  }}],responses:[fauxAssistantMessage([fauxToolCall('output',{version:3,commands:[],responses:[
-   {actor:'npc_1',act:'answer',points:['We have arrived at the library.']} ]})],{stopReason:'toolUse'})]});
+  }}],responses:[fauxAssistantMessage([fauxToolCall('output',{version:4,commands:[],interactions:[
+   {actor:'npc_1',to:['investigator_1'],act:'answer',content:[{result_ref:'outcomes'}]} ]})],{stopReason:'toolUse'})]});
  t.after(()=>table.dispose());await table.session.prompt('I walk to the Central Library.');
  assert.equal(table.telemetry().filter(x=>x.lane==='isolated-expression'&&x.event==='start').length,0);
  assert.equal(table.entries('coc-final-delivery').filter(x=>x.event==='delta').length,0);

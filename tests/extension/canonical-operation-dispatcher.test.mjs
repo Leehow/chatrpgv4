@@ -113,6 +113,7 @@ function dispatcherProbe(control) {
 			});
 			pi.on("session_start", () => {
 				pi.setActiveTools([...SEVEN, "host_dispatch_test"]);
+				if(control.nativeDecision)pi.events.emit('coc:loop-engine',{engine:'hybrid-v1',turnPacketPrototype:true});
 				if (control.mods) pi.events.emit("coc:mods-bridge", control.mods);
 			});
 			pi.on("tool_call", (event) => {
@@ -128,7 +129,7 @@ function dispatcherProbe(control) {
 	};
 }
 
-async function openDispatchTable(t, { campaign = "dispatcher-test", realKernel = false, responses, env = {}, mods, registerCleanup = true }) {
+async function openDispatchTable(t, { campaign = "dispatcher-test", realKernel = false, responses, env = {}, mods, registerCleanup = true, nativeDecision = false }) {
 	const records = new Map();
 	const control = {
 		table: undefined,
@@ -143,6 +144,7 @@ async function openDispatchTable(t, { campaign = "dispatcher-test", realKernel =
 		journalEvents: [],
 		finalizeActions: new Map(),
 		mods,
+		nativeDecision,
 		journal: {
 			async load(id) { return records.get(id) && structuredClone(records.get(id)); },
 			async save(identity) {
@@ -171,6 +173,16 @@ async function play(table) {
 function resultFor(table, name) {
 	return table.session.messages.find((message) => message.role === "toolResult" && message.toolName === name);
 }
+
+test('native decision-only dispatch refuses mixed prose before any world write',async t=>{
+ const {table,control}=await openDispatchTable(t,{nativeDecision:true,responses:[dispatchCall(),...closeTurn()]});
+ const owner=task('dispatcher-test',['apply']);
+ control.scenarios.push({proposal:proposal(owner,{id:'host-op-forged-prose',operation:'apply',args:{effects:[{kind:'time',minutes:5,why:'Mixed write'}],event:{name:'Forged response',summary:'Complete dialogue.',materials:[{name:'Speech',text:'Complete dialogue.',visibility:'player',kind:'speech'}]}}}),context:hostContext(control,owner,{origin:{origin:'policy',run:'native-test',step:'native-test:s1',clerk:'continuous_turn'}})});
+ await play(table);
+ assert.notEqual(control.observations[0].status,'succeeded');
+ assert.equal(table.kernelRequests().filter(row=>row.method==='table.apply').length,0);
+ assert.match(JSON.stringify(control.observations[0]),/decision|prose|event/i);
+});
 
 test("conformance: host and ordinary look share the public hook/executor/result path and seven verbs remain intact", async (t) => {
 	const { table, control } = await openDispatchTable(t, {
