@@ -40,8 +40,7 @@ export function decisionScene(capsule:Row):Row {
  const temporal=where.temporal??{};
  return {name:where.display_name??where.scene,temporal:Object.fromEntries(['current','review_required',...(temporal.current===true?['service','crowd','summary','basis']:[])].filter(key=>temporal[key]!==undefined).map(key=>[key,temporal[key]])),
   presence:{authority:'Registered public people only, never a complete population census. Missing names do not establish emptiness. Current assessed temporal crowd controls population.',people,registered_complete:people.length===present.length,
-   population:where.temporal?.current===true&&where.temporal?.crowd==='empty'?'empty':where.temporal?.current===true&&['quiet','active','crowded'].includes(where.temporal?.crowd)&&people.length?'populated':'unknown'},
-  public_material:capsule.public_scene??{entries:[]}};
+   population:where.temporal?.current===true&&where.temporal?.crowd==='empty'?'empty':where.temporal?.current===true&&['quiet','active','crowded'].includes(where.temporal?.crowd)&&people.length?'populated':'unknown'}};
 }
 /** Bind roles and presence from issued identities; never infer them from narrative names. */
 export function decisionCast(investigators:string[],people:Row[],scene:Row):Row[] {
@@ -128,7 +127,9 @@ export async function writeIsolatedExpression(input:{runtime:HostRuntime;campaig
   if(!brief&&!input.decision)throw Error("Expression input is unavailable");
   const {keeper_only,...expression}=brief??{};
   const player_input=typeof input.playerText==='string'&&input.playerText.length?input.playerText:undefined;
-  const decision=input.decision?{...input.decision,speech_allowed:input.decision.responses.some(response=>response.act!=='silent'),responses:input.decision.responses.map(value=>{
+  const decision=input.decision?{...input.decision,
+   recent_public:input.decision.recent_public.map(({turn,player})=>({turn,...(player!==undefined?{player}:{})})),
+   speech_allowed:input.decision.responses.some(response=>response.act!=='silent'),responses:input.decision.responses.map(value=>{
     const {location,...proposal}=value as typeof value&{location?:Row};
     const response=responseDecision(proposal);
     const scope=location?{location}:{};

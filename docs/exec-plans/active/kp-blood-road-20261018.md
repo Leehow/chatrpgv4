@@ -466,3 +466,25 @@ that arbitrary semantic contradiction is mechanically decidable from free prose.
 The film choice remains a separate acceptance item, not fixed merely because
 its actual item name now reaches the author. Other-owner search dirt remains
 excluded; same current mainline, no new disposable worktree.
+
+Live55 was not a successful recovery:96seconds/19UIsteps, no author/publication.
+The proposed photography method exposed a film leader despite the player's
+no-opening constraint, so the original refusal is not evidence of a false veto.
+Two reordered equivalent object operations did repeat typed consent; native
+cache identity used unsorted JSON despite ordinary admission's canonical helper.
+Native actor-name submissions also repeated refusals. c2ef32527 fixes stable
+native keys and unique issued-public-label normalization. Actual Pi negative
+replay regression proves1review and0false publications; membership/ambiguity/
+privacy and changed-authority boundaries remain tested.
+
+Live56 atc2ef32527 returned the spare roll canonically and completed one author
+in34seconds. The actual task correctly carried that item receipt and player/NPC
+cast. The body nonetheless replayed the previous put-it-back-in-the-pan action
+from raw history. The same old scene turn60 entered through public_material and
+recent_public. This refutes the sufficiency of adding current fields alone.
+Close the rendered-history feedback loop at the sole author's input: keep prior
+player declarations and current selected/canonical material, omit old rendered
+Keeper bodies from both automatic author paths. Keeper/kernel history stays
+unchanged. A real task-capture regression is red before and green after this
+boundary; prompt constants remain byte-identical. This changes the old automatic
+recent-prose handoff contract explicitly instead of adding another warning.

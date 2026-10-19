@@ -346,7 +346,7 @@ for(const mode of ['accepted','refused','dialogue','sparse-dialogue','wrapped-di
    const turn=JSON.parse(readFileSync(join(table.workspace,'.coc/campaigns/test-camp/turns/0001.json'),'utf8'));
    assert.equal(turn.receipts.filter(r=>r.kind==='move').length,1);
    const task=JSON.parse(readFileSync(join(authors[0].attempt,'task.json'),'utf8'));
-   assert.equal(task.scene,undefined);assert.equal(task.narrative_content,undefined);assert.ok(task.decision_context.scene.name);assert.ok(task.decision_context.clock.day_part);assert.equal(task.decision_context.recent_public.at(-1)?.keeper,'Knott waits at his desk.');assert.ok(!JSON.stringify(task.decision_context.scene.public_material).includes('Knott waits at his desk.'));
+   assert.equal(task.scene,undefined);assert.equal(task.narrative_content,undefined);assert.ok(task.decision_context.scene.name);assert.ok(task.decision_context.clock.day_part);assert.ok(task.decision_context.recent_public.length>0);assert.ok(task.decision_context.recent_public.every(row=>!Object.hasOwn(row,'keeper')));assert.equal(task.decision_context.scene.public_material,undefined);
    assert.equal(task.result.outcomes[0].kind,'move');
    assert.equal(task.result.outcomes[0].status,'changed');
    assert.equal(task.result.outcomes[0].to,task.decision_context.scene.name);

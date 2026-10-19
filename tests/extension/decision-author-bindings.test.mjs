@@ -46,3 +46,17 @@ test('native consent identity ignores object key ordering while retaining every 
  for(const [input,world,source,proposal] of [['Other input','w','s',a],['I check the roll.','w2','s',a],['I check the roll.','w','s2',a],['I check the roll.','w','s',{...a,operations:[{...a.operations[0],to:'Clerk'}]}]])
   assert.notEqual(admission.continuousAdmissionKey(input,world,source,proposal),key);
 });
+
+test('the real author task cannot recycle prior rendered actor identities and physical actions',async t=>{
+ const {mkdtemp,rm}=await import('node:fs/promises');const {tmpdir}=await import('node:os');const {join}=await import('node:path');
+ const home=await mkdtemp(join(tmpdir(),'author-history-boundary-'));t.after(()=>rm(home,{recursive:true,force:true}));let task;
+ const scene=expression.decisionScene({where:{scene:'Shop'},present:[],public_scene:{entries:[{turn:1,text:'OLD_PAN_ACTION'}]}});
+ const runtime={home,async runTask(value){task=JSON.parse(value.request.brief);value.request.onEvent({type:'message_end',message:{role:'assistant',provider:'opencode-go',model:'deepseek-v4.1-flash',stopReason:'stop',content:[{type:'text',text:'The roll is back in your bag.'}]}});return{ok:true,ms:1};}};
+ await expression.writeIsolatedExpression({runtime,campaign:'c',turn:2,run:'r',language:'en',investigatorNames:['Jack Miller'],
+  decision:{scene,clock:{},people:[],responses:[],recent_public:[{turn:1,player:'I stay outside.',keeper:'OLD_WRONG_COMPANION_NAME'}],
+   settled_results:{outcomes:[{kind:'item',status:'changed',name:'Spare roll',from:'npc_1',to:'Jack Miller',quantity:1}]}},stream:{push(){}},record:async()=>{}});
+ assert.ok(!JSON.stringify(task).includes('OLD_PAN_ACTION'));
+ assert.ok(!JSON.stringify(task).includes('OLD_WRONG_COMPANION_NAME'));
+ assert.deepEqual(task.decision_context.recent_public,[{turn:1,player:'I stay outside.'}]);
+ assert.equal(task.decision_context.settled_results.outcomes[0].to,'Jack Miller');
+});

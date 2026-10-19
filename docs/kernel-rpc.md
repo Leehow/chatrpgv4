@@ -48225,3 +48225,17 @@ source revision and every reviewed operation/cash field. Reordering JSON keys
 cannot cause another verdict request; changing any actual reviewed value still
 invalidates it. Negative/uncertain results remain reusable and never become
 permission. The browser61 failure and its unsuccessful original input remain.
+
+**Rendered-history feedback boundary (browser62).** This supersedes the automatic
+native-author prose forwarding above: recent_public keeps prior turn/player
+input only, not prior Keeper bodies. decisionScene omits historical rendered
+public_material.entries from the author task, including the departure scene.
+The original kernel capsule and Keeper history remain intact. Current selected
+response meanings, canonical materials/results, cast, population, clock and
+pre/post location bindings are the author's factual input. A previous rendered
+paragraph is not a current decision or state snapshot. Never extract replacement
+facts with a new model, rewrite historical evidence, infer facts from player
+intent, or automatically repeat past acts. This intentionally trades automatic
+prose continuity for one explicit selection owner; the existing Keeper can
+select a needed established fact through the ordinary event/material path.
+No prompt constant, extra model request or publication threshold changes.
