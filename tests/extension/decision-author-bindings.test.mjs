@@ -3,6 +3,19 @@ import assert from 'node:assert/strict';
 import * as expression from '../../runtime/isolated-expression.ts';
 import {turnPacketResult} from '../../runtime/turn-packet-prototype.ts';
 import {importSource} from '../integration/support.ts';
+import {decisionPerson} from '../../runtime/decision-content.ts';
+import {decisionDialogueContinuity} from '../../runtime/public-exchanges.ts';
+
+test('returning participants retain their last public words across an intervening scene without exposing private material',()=>{
+ const speech=(turn,statement)=>({turn,statement,authority:'conversation_report',attribution:{kind:'speech',speaker:{kind:'npc',name:'PRIVATE_OLD_NAME'}}});
+ const person=decisionPerson({ref:'npc_1',display_name:'Clerk',recent_speech:[speech(2,'Earlier offer.'),speech(4,'The film is here; collect tomorrow.'),
+  {turn:5,statement:'PRIVATE_PLAN',authority:'internal',attribution:{kind:'speech',speaker:{kind:'npc'}}}],knowledge:['PRIVATE_FACT']},[]);
+ const history=decisionDialogueContinuity([{turn:5,keeper:'OLD_ARRIVAL',speech:[{speaker:'Waitress',text:'Other scene.'}]}],[person]);
+ assert.deepEqual(history,[{turn:4,player:null,keeper:'Clerk: The film is here; collect tomorrow.'}]);
+ assert.ok(!JSON.stringify(person).includes('PRIVATE'));
+ assert.equal(decisionDialogueContinuity([{turn:4,keeper:'Old action',speech:[{speaker:'Clerk',text:'The film is here; collect tomorrow.'}]}],[person]).length,1);
+ assert.deepEqual(decisionDialogueContinuity([],[person,{...person,ref:'npc_2'}]),[],'ambiguous public names cannot acquire another identity through fallback');
+});
 
 test('the existing author owner binds investigators as player roles distinct from NPCs',()=>{
  assert.equal(typeof expression.decisionCast,'function');

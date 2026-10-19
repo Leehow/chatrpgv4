@@ -48702,6 +48702,14 @@ delivery and committed state without waiting for a proposed speech memory.
 
 ### Host decision: rendering material survives compact decisions (owner 2026-10-19)
 
+The latest committed own utterance group of each supplied participant also reaches
+the author as attributed past conversation when absent from the global recent
+window. An intervening visit to another scene must not erase the returning
+participant's last exchange. Only `conversation_report` speech is eligible;
+private knowledge, plans, and offstage summaries are not fallback dialogue.
+This uses the existing participant read, adds no retrieval or judgment call,
+and remains past words rather than a new response or current world truth.
+
 The native author packet carries the current place description from the same
 `placeDescribed` producer used for first sight. `public_scene.description` is
 current source scenery; its older `entries` remain optional selectable material,

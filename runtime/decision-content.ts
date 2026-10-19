@@ -215,7 +215,11 @@ export function decisionPerson(person:Row,cast:Row[]):Row {
   }
  }
  const profile=person.personality?.profile?.profile??person.personality?.profile;
+ const speech=rows(person.recent_speech).filter(line=>line.authority==='conversation_report'&&line.attribution?.kind==='speech'&&line.attribution?.speaker?.kind==='npc'&&Number.isFinite(Number(line.turn))&&typeof line.statement==='string');
+ const lastTurn=Math.max(...speech.map(line=>Number(line.turn)));
+ const lastSpeech=speech.filter(line=>Number(line.turn)===lastTurn).slice(-6).map(line=>line.statement.slice(0,800));
  return {ref:person.ref,name:person.display_name,display_name:person.display_name,name_known:person.name_known===true,
+  ...(lastSpeech.length?{last_public_exchange:{turn:lastTurn,words:lastSpeech}}:{}),
   ...(typeof profile?.expression==='string'?{speech_style:profile.expression}:{}),
   ...(typeof person.personality?.description==='string'?{personality:{description:person.personality.description,origin:person.personality.origin}}:{}),
   ...(person.variation?{variation:structuredClone(person.variation)}:{}),

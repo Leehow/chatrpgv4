@@ -17,11 +17,20 @@ export function decisionDialogueContinuity(exchanges:PublicExchange[],people:Row
   const key=name.normalize('NFKC').trim(),prior=names.get(key);
   names.set(key,prior&&prior.ref!==person.ref?null:prior===null?null:person);
  }
- return exchanges.flatMap(entry=>{
+ const selected=exchanges.flatMap(entry=>{
   const speech=(entry.speech??[]).flatMap(line=>{
    const person=typeof line.speaker==='string'?names.get(line.speaker.normalize('NFKC').trim()):undefined;
    return person&&typeof line.text==='string'&&line.text.trim()?[`${person.display_name}: ${line.text}`]:[];
   }).slice(-6);
   return speech.length?[{turn:entry.turn,player:entry.player,keeper:speech.join('\n')}]:[];
- }).slice(-2);
+ });
+ const fallback=people.flatMap(person=>{
+  const entry=person.last_public_exchange;
+  if(typeof person.display_name!=='string'||names.get(person.display_name.normalize('NFKC').trim())?.ref!==person.ref)return [];
+  if(!entry||!Number.isFinite(Number(entry.turn))||exchanges.some(row=>Number(row.turn)===Number(entry.turn)
+   &&row.speech?.some(line=>typeof line.speaker==='string'&&names.get(line.speaker.normalize('NFKC').trim())?.ref===person.ref)))return [];
+  const speech=(entry.words??[]).filter((text:unknown)=>typeof text==='string'&&text.trim()).slice(-6);
+  return speech.length?[{turn:entry.turn,player:null,keeper:speech.map((text:string)=>`${person.display_name}: ${text}`).join('\n')}]:[];
+ });
+ return [...fallback,...selected].sort((a,b)=>Number(a.turn)-Number(b.turn)).slice(-4);
 }
