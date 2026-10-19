@@ -100,8 +100,10 @@ export function turnPacketProviderPayload(payload:unknown,journeySettled=false,r
     changed=true;return {...tool,input_schema:TURN_PACKET_PARAMETERS};
   });
   if(!changed)return payload;
-  const schema=turnPacketParameterSchema(journeySettled,timeBands,moveChoices,sceneRequired,bindings);
-  const messages=[...payload.messages,{role:'user',content:[{type:'text',text:JSON.stringify({output_parameter_schema:schema})}]}];
+  const parameters={journey_settled:journeySettled,scene_required:sceneRequired,
+    ...(timeBands?{time_bands:timeBands}:{}),...(moveChoices?{move_choices:moveChoices}:{}),
+    npc_destinations:turnPacketNpcDestinations(moveChoices),...(bindings?{references:bindings}:{})};
+  const messages=[...payload.messages,{role:'user',content:[{type:'text',text:JSON.stringify({output_parameters:parameters})}]}];
   return {...payload,tools,messages,...(requireTool&&payload.model==='MiniMax-M3.1-Flash-Preview'?{tool_choice:{type:'auto'}}:{})};
 }
 /** Keep bound routes immutable; fill only an explicitly issued open route slot. */

@@ -4,7 +4,7 @@ import assert from 'node:assert/strict';
 import {readFileSync} from 'node:fs';
 import {join} from 'node:path';
 import {fauxAssistantMessage,fauxToolCall as rawToolCall,getCurrentTools} from '@earendil-works/pi-ai';
-import {turnPacket,normalizeTurnPacketArguments,compileTurnPacket,turnPacketResult,turnPacketProviderPayload,TURN_PACKET_PARAMETERS} from '../../runtime/turn-packet-prototype.ts';
+import {turnPacket,normalizeTurnPacketArguments,compileTurnPacket,turnPacketResult,turnPacketProviderPayload,turnPacketParameterSchema,TURN_PACKET_PARAMETERS} from '../../runtime/turn-packet-prototype.ts';
 import {ExpressionPlanStream} from '../../runtime/isolated-expression.ts';
 import {createHybridEngine} from '../../runtime/jev/hybrid-engine.ts';
 import {openTable} from './harness.mjs';
@@ -71,7 +71,9 @@ test('the non-strict Anthropic request retains the complete owned schema without
  const sent=turnPacketProviderPayload(payload);
  assert.deepEqual(sent.tools[1].input_schema.properties.responses,TURN_PACKET_PARAMETERS.properties.responses);
  assert.deepEqual(sent.tools[1].input_schema.required,TURN_PACKET_PARAMETERS.required);assert.equal(sent.tools[1].input_schema.additionalProperties,false);
- const current=JSON.parse(sent.messages.at(-1).content[0].text).output_parameter_schema;
+ const parameters=JSON.parse(sent.messages.at(-1).content[0].text).output_parameters;
+ assert.deepEqual(parameters,{journey_settled:false,scene_required:false,npc_destinations:['here','away']});
+ const current=turnPacketParameterSchema();
  for(const branch of current.properties.commands.anyOf){
   const bounded=branch.items.anyOf.find(row=>row.properties?.kind?.const==='npc');
   assert.deepEqual(bounded.properties.to.enum,['here','away']);assert.deepEqual(bounded.properties.actor,TURN_PACKET_PARAMETERS.properties.commands.anyOf[0].items.anyOf.find(row=>row.properties?.kind?.const==='npc').properties.actor);

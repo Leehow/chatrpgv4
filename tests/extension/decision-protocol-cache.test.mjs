@@ -13,10 +13,12 @@ test('current decision references and route restrictions do not invalidate the t
  assert.deepEqual(first.tools,next.tools,'issued values belong in the request tail, never the reusable tool head');
  const a=prefixSnapshot(first,model),b=prefixSnapshot(next,model);
  assert.deepEqual(a.prefixes.slice(0,3),b.prefixes.slice(0,3),'tools, system and retained history remain identical');
- const tail=sent=>JSON.parse(sent.messages.at(-1).content.at(-1).text).output_parameter_schema;
+ const tail=sent=>JSON.parse(sent.messages.at(-1).content.at(-1).text).output_parameters;
  assert.ok(JSON.stringify(tail(first)).includes('fact_1'));
  assert.ok(JSON.stringify(tail(next)).includes('fact_2'));
  assert.notDeepEqual(tail(first),tail(next),'the exact current restrictions are still supplied');
+ assert.deepEqual(tail(first),{journey_settled:false,scene_required:true,time_bands:['brief'],move_choices:[{kind:'move',to:'place_1',travel_minutes:30}],npc_destinations:['here','away','place_1'],references:bindings(1)});
+ assert.ok(Buffer.byteLength(first.messages.at(-1).content[0].text)<1024,'do not resend the structural schema at the tail');
  assert.equal(first.messages[0].content[0].text,'Retained exact history');
  assert.deepEqual(body().tools[0].input_schema,TURN_PACKET_PARAMETERS);
 });
