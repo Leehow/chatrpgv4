@@ -19,6 +19,7 @@ import {ExpressionPlanStream,writeIsolatedExpression,decisionScene,decisionClock
 import {turnPacket,bindTurnPacketMoves,turnPacketMovementChoices,requireTurnPacketNpcDestinations,isNewNpcSlot,normalizeTurnPacketArguments,compileTurnPacket,turnPacketResult,turnPacketProviderPayload,TURN_PACKET_PARAMETERS,TURN_PACKET_GUIDANCE,type TurnPacket} from '../../runtime/turn-packet-prototype.ts';
 import {normalizeToolArgumentSyntax} from '../../runtime/tool-argument-syntax.ts';
 import {locationDecisionCoverage} from '../table/location-relevance.ts';
+import {applyEffectKinds} from '../table/mod-sections.ts';
 import {normalizeApplyArguments} from '../../shared/apply-protocol.ts';
 import {owedConsentPlan} from './owed-consent.ts';
 import {continuousConsentDisposition,CONTINUOUS_CONSENT_MIN} from '../../runtime/jev/continuous-consent.ts';
@@ -7000,7 +7001,7 @@ export default function (pi: ExtensionAPI, host: {capabilities?:RuntimeCapabilit
 			prepareArguments: (args: unknown) => {
 				const supplied=spec.name==='apply'?normalizeApplyArguments(args):args;
 				const normalized=turnPacketPrototype&&spec.name==='output'?normalizeTurnPacketArguments(supplied):normalizeToolArgumentSyntax(spec.parameters,supplied,{nativeValidation:true});
-                if(table&&(spec.name==='place'||spec.name==='output'&&Array.isArray((normalized.args as Record<string,unknown>)?.commands)&&((normalized.args as Record<string,unknown>).commands as Record<string,unknown>[]).some(command=>command?.kind==='place'))){
+                if(table&&(spec.name==='place'||normalized.args&&typeof normalized.args==='object'&&applyEffectKinds(spec.name,normalized.args as Record<string,unknown>).includes('place'))){
                     table.locationContextTurn=table.turn;
                     pi.events.emit('coc:location-demand',{campaign:table.campaign,turn:table.turn});
                 }

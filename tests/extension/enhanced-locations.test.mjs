@@ -172,6 +172,7 @@ test('resident location declarations defer detailed grammar while canonical vali
     const calls=emptyCalls();noteCall(calls,'place',{op:'submit',change:{action:'move',to:'Inn'}});
     assert(calls.apply.has('place'),'the independent entrance fires the existing Mod trigger');
     assert.deepEqual(applyEffectKinds('output',{commands:[command,{kind:'scene'}]}),['place']);
+    assert.deepEqual(applyEffectKinds('apply',{effects:[command,{kind:'cash'}]}),['place','cash'],'mixed canonical calls disclose location detail through the same closed effect path');
     assert.deepEqual(applyEffectKinds('place',{op:'inspect'}),[],'a read is not a world mutation');
     const catalogue=capabilityCatalogue(COC_TOOLS);
     assert(catalogue.some(card=>card.name==='place'&&card.verb==='place'));

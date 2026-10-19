@@ -48960,7 +48960,7 @@ and current feature state, so a real obstacle can be narrated without inventing
 an arrival. Other unknown reachability failures are not broadly exempted.
 
 Demand disclosure follows the actual entrance, not only the legacy tool name.
-A direct place submit and a native place command fire `before_apply:place` and
+A direct place submit, native place command and mixed apply place effect fire `before_apply:place` and
 invalidate the same cached context after their result. Any place invocation,
 including a refused argument shape, activates the complete place declaration and
 native location grammar for the remainder of this input. The following input
