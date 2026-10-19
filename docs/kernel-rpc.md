@@ -48569,3 +48569,13 @@ held coverage still block. Free-form Keeper publication retains its existing
 held-outcome guard. This catches the failure per operation without treating an
 abandoned uncommitted batch as a permanent veto over later successful results;
 no new semantic decision, model request or author retry is introduced.
+
+Communication input_requirements(topic,fields) selects a procedural claim about
+details the listener should supply. Fields are the closed semantic roles
+subject_name, person_name, location, time_range, record_type, purpose, quantity
+and budget. They are not authored questions or arbitrary slot text. Topic binds
+to the current issued entity set; fields are unique and nonempty. The host
+hydrates this as proposed communication only. It does not start a form, collect
+values, authorize a search/trade, alter kernel requirements or commit resources.
+Producer: the KP's existing semantic decision. Reader: the same typed material
+binding. Actor: the sole author renders the selected roles in ordinary dialogue.

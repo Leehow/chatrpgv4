@@ -1,9 +1,10 @@
 # Decision-only Keeper and sole prose author
 
-Status: implementation connected in the working tree, under validation,
-2026-10-19. Base revision: `0ee69e1de` on `0.9.8a`. The installed App has not yet
-been replaced by this change. Design-probe results below remain separate from
-production-path and live-test evidence.
+Status: implemented through `c057cbc9f` on `0.9.8a` and installed in the
+canonical signed App,2026-10-19. The bounded MiniMax and actual-App results,
+including partial answers and the unrelated full-suite failure, are recorded in
+[the acceptance report](../acceptance/decision-only-kp-v4-20261019.md).
+Design probes remain separate from production-path and live-test evidence.
 
 The owner forbids the Keeper from drafting complete dialogue or event materials.
 The intended chain is prepared material -> compact semantic decision -> existing
@@ -84,6 +85,19 @@ directions question produced an empty answer plan. Substantive speech acts now
 require nonempty selected content; greetings, acknowledgments and refusals may
 omit it. This validates the presence of communication meaning, not its relevance.
 Directions are communication only and never imply movement.
+
+Canonical App validation also demonstrated a missing generic procedural meaning:
+the clerk could not express which input details a search needs, and selected
+directions instead. input_requirements(topic,fields) now represents that claim
+with closed information-role names, not a free-text answer or arbitrary slots.
+It neither starts work nor overrides actual mechanical requirements. This uses
+the established distinction between requested parameters and task execution in
+[Rasa collect steps](https://rasa.com/docs/reference/primitives/flows/)
+and [Dialogflow form parameters](https://docs.cloud.google.com/dialogflow/cx/docs/concept/parameter).
+Those systems normally collect values to execute a task; here the constructor
+only supplies NPC communication meaning to the author and runs no extra stage.
+The red regression rejects the required answer under the preceding schema;
+the narrow addition retains one KP decision and one author.
 
 A new claim is not a state write. Mentioning a proposed visit does not move its
 subject; offering takeaway does not place an order or debit a purse. Establishing

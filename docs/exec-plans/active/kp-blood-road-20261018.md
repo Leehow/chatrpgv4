@@ -862,3 +862,58 @@ integration2223 tests,2222pass/1skip; routing12pass). The sole failed file in
 both is the pre-existing extension-words inventory mismatch; do not alter that
 other-owner UI surface or call the suites green. Both runs are terminal and
 their remote evidence is retained. Neither run covers the newer held-state fix.
+
+### Final current-source evidence (c057cbc9f)
+
+LAN all run.n2BfDKl2 is terminal, exit1:703 extension files,6187tests with
+6177pass/1fail/9skip; integration2228tests with2227pass/1skip; routing12pass.
+The same existing extension-words inventory mismatch is the sole failure.
+Local24 decision/author/real-kernel regressions and7 held/false-success cases
+pass. No production-path integration type error appears; prior test/driver
+tsc baseline remains. Do not describe the entire repository as green.
+
+Canonical App c057 was PipiUI Dev signed,121 comparable runtime files match,
+staging empty, actual executable confirmed. Main-session native Computer Use
+completed four consecutive inputs: greet a temporary library clerk, ask which
+search information is needed, move to Hall of Records without applying/paying,
+and ask about service availability. Each uses one KP, one MiniMax3.1/medium
+author and one output, no tool refusals/retrieval. Engine times are13.148,
+16.623,13.520,11.346s; these exclude UI connection overhead. The second answer
+offers directions rather than requested fields, so it is partial; the last
+answers open with redundant spatial advice. Preserve these quality limitations.
+State remains correctly in Hall of Records at11:03, cash15, no automatic research.
+
+Native AX sampled growing reply text and actual text_delta transport, while
+sampling began to observe public text after the last raw chunk. This establishes
+incremental rendering without a typewriter implementation, not a measured
+first-paint-before-provider-end claim. Retained browser85/86 DOM traces remain
+separate. Ego space9 was authoritatively missing on resume; no replacement
+space was created as recovery, and the now-unused owned server36 was stopped.
+The real canonical App is left on the current normal response.
+
+The comparison/report is docs/acceptance/decision-only-kp-v4-20261019.md. It
+separates old controls, current live samples, whole-intent follow-ups, stable
+material references, provider cache reads and incomplete Jev HTTP observations.
+No controlled reuse-off comparison was authorized/implemented; do not attribute
+all speed differences to reuse. All five new D memory jobs finished; four old
+explicitly deferred paragraphs remain, without forced guessed attribution.
+Final closeout must classify the owned validation checkout, preserving its two
+untracked dependency links and other-owner main-tree edits.
+
+### Procedural meaning follow-up, still under validation
+
+Do not treat the3/4 substantive App responses as fully satisfying the approved
+interface. The missing answer has an identifiable representation gap: none of
+the five new-content constructors can say which information a listener needs
+to provide. A generic input_requirements(topic,fields) adds eight closed
+information-role labels, not a library-specific response, new judge, free text
+slot or new execution stage. External Rasa/Dialogs parameter-collection designs
+confirm the separation of information roles from execution; our constructor is
+communication only and creates no form or resource change.
+
+The new regression was red on the preceding schema, then21 core/author cases
+pass after the constructor addition. Current installed verified App remains
+c057 until the follow-up is committed/rebuilt. The acceptance report is a
+revision-bound draft. Fresh MiniMax procedural questioning and movement, current
+source regression and package verification are still required. Reactivate the
+owned retained validation checkout for this work, preserving dependency links.

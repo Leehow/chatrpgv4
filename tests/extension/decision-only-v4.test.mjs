@@ -114,3 +114,12 @@ test('a communication audience cannot be mistaken for a location or a route wayp
  }
  assert.throws(()=>owner.resolve({new:{predicate:'whereabouts',actor:'Library',to:'Library',when:'now'}},'npc_1'),/person/);
 });
+
+test('a procedural answer can select required information without writing the answer or starting work',()=>{
+ const packet={version:4,interactions:[{actor:'npc_1',to:['investigator_1'],act:'answer',content:[{new:{predicate:'input_requirements',topic:'Library',fields:['subject_name','location','time_range']}}]}]};
+ assert.deepEqual(turnPacket(JSON.stringify(packet)),packet);
+ const owner=new DecisionContent();owner.prepare('c:1',capsule,[],[],['Investigator']);
+ const claim=owner.hydrate(packet.interactions).responses[0].claims[0];assert.equal(claim.kind,'proposed_claim');assert.deepEqual(claim.value.fields,['subject_name','location','time_range']);
+ assert.equal(packet.commands,undefined);assert.equal(claim.executed,undefined);
+ for(const fields of [['Please tell me the address and approximate year.'],['location','location']])assert.throws(()=>turnPacket(JSON.stringify({...packet,interactions:[{...packet.interactions[0],content:[{new:{...packet.interactions[0].content[0].new,fields}}]}]})));
+});

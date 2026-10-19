@@ -15,7 +15,8 @@ export const NewCommunicationFact=Type.Union([
   heading:Type.Optional(StringEnum(['north','northeast','east','southeast','south','southwest','west','northwest','left','right','straight'])),
   via:Type.Optional(Type.Array(ref,{minItems:1,maxItems:8})),retrace:Type.Optional(Type.Literal(true))},
   {additionalProperties:false,anyOf:[{required:['heading']},{required:['via']},{required:['retrace']}]}),
- closed({predicate:Type.Literal('knowledge_status'),topic:ref,status:StringEnum(['unknown','uncertain','withheld'])})
+ closed({predicate:Type.Literal('knowledge_status'),topic:ref,status:StringEnum(['unknown','uncertain','withheld'])}),
+ closed({predicate:Type.Literal('input_requirements'),topic:ref,fields:Type.Array(StringEnum(['subject_name','person_name','location','time_range','record_type','purpose','quantity','budget']),{minItems:1,maxItems:8,uniqueItems:true})})
 ]);
 export const ExistingCommunicationFact=Type.Union([closed({fact_ref:ref}),closed({source_ref:ref}),closed({result_ref:StringEnum(['scene','outcomes','clock'])})]);
 export const CommunicationContent=Type.Union([ExistingCommunicationFact,closed({new:NewCommunicationFact})]);
