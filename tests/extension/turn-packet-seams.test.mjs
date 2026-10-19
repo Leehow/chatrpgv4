@@ -2,12 +2,12 @@
 import {test} from 'node:test';
 import assert from 'node:assert/strict';
 import {Errors} from 'typebox/value';
-import {turnPacketProviderPayload,bindTurnPacketMoves,turnPacketMovementChoices,compileTurnPacket,turnPacket,TURN_PACKET_PARAMETERS} from '../../runtime/turn-packet-prototype.ts';
+import {turnPacketParameterSchema,turnPacketProviderPayload,bindTurnPacketMoves,turnPacketMovementChoices,compileTurnPacket,turnPacket,TURN_PACKET_PARAMETERS} from '../../runtime/turn-packet-prototype.ts';
 
 test('issued output schema declares movement and stale-scene assessment before generation',()=>{
  const payload={tools:[{name:'output',input_schema:TURN_PACKET_PARAMETERS}]};
  const choices=[{kind:'move',to:'Library',via:'Main Street'}];
- const schema=(required)=>turnPacketProviderPayload(payload,false,true,[],choices,required).tools[0].input_schema;
+ const schema=(required)=>turnPacketParameterSchema(false,[],choices,required);
  const packet=commands=>({version:4,commands,interactions:[]});
  const movement={kind:'move',to:'Library'},assessment={kind:'scene',service:'open',crowd:'quiet'};
  assert.ok(Errors(schema(false),packet([movement])).length,'movement without assessment must not be advertised as valid');
@@ -20,7 +20,7 @@ test('issued output schema declares movement and stale-scene assessment before g
 
 test('NPC destinations expose and enforce the same closed issued capabilities',()=>{
  const payload={tools:[{name:'output',input_schema:TURN_PACKET_PARAMETERS}]};
- const schema=turnPacketProviderPayload(payload,false,true,[],[{kind:'move',to:'Library'}]).tools[0].input_schema;
+ const schema=turnPacketParameterSchema(false,[],[{kind:'move',to:'Library'}]);
  const npc=schema.properties.commands.anyOf[0].items.anyOf.find(row=>row.properties?.kind?.const==='npc');
  assert.deepEqual(npc.properties.to.enum,['here','away','Library']);
  const packet={version:4,commands:[{kind:'npc',actor:'npc_1',to:'street',reason:'leaves'}],interactions:[]};
@@ -45,21 +45,23 @@ test('elapsed duration and old assessment clocks are not competing current times
 });
 
 test('MiniMax native routine uses its supported tool strategy without disabling thinking or changing other providers',()=>{
- const payload={model:'MiniMax-M3.1-Flash-Preview',thinking:{type:'adaptive'},output_config:{effort:'medium'},tools:[{name:'output',input_schema:TURN_PACKET_PARAMETERS}]};
+ const payload={model:'MiniMax-M3.1-Flash-Preview',thinking:{type:'adaptive'},output_config:{effort:'medium'},messages:[],tools:[{name:'output',input_schema:TURN_PACKET_PARAMETERS}]};
  const sent=turnPacketProviderPayload(payload);
  assert.deepEqual(sent.tool_choice,{type:'auto'});
  assert.equal(sent.thinking,payload.thinking);assert.equal(sent.output_config,payload.output_config);
  assert.equal(turnPacketProviderPayload({...payload,model:'other-model'}).tool_choice,undefined);
  assert.equal(turnPacketProviderPayload(payload,false,false).tool_choice,undefined,'known reference mode retains direct answers');
  const constrained=turnPacketProviderPayload(payload,false,true,['quick_observation','speak_briefly']);
- const variants=constrained.tools[0].input_schema.properties.commands.anyOf.flatMap(branch=>branch.items.anyOf);
+ assert.deepEqual(JSON.parse(constrained.messages.at(-1).content[0].text).output_parameters.time_bands,['quick_observation','speak_briefly']);
+ const variants=turnPacketParameterSchema(false,['quick_observation','speak_briefly']).properties.commands.anyOf.flatMap(branch=>branch.items.anyOf);
  assert.deepEqual(variants.find(row=>row.properties.kind.const==='time').properties.band.enum,['quick_observation','speak_briefly']);
 });
 
 test('routine move schema selects issued destinations without free route text',()=>{
- const payload={model:'MiniMax-M3.1-Flash-Preview',tools:[{name:'output',input_schema:TURN_PACKET_PARAMETERS}]};
+ const payload={model:'MiniMax-M3.1-Flash-Preview',messages:[],tools:[{name:'output',input_schema:TURN_PACKET_PARAMETERS}]};
  const sent=turnPacketProviderPayload(payload,false,true,['quick_observation'],[{kind:'move',to:'Library',via:'Main Street'}]);
- const variants=sent.tools[0].input_schema.properties.commands.anyOf.flatMap(branch=>branch.items.anyOf);
+ assert.deepEqual(JSON.parse(sent.messages.at(-1).content[0].text).output_parameters.move_choices,[{kind:'move',to:'Library',via:'Main Street'}]);
+ const variants=turnPacketParameterSchema(false,['quick_observation'],[{kind:'move',to:'Library',via:'Main Street'}]).properties.commands.anyOf.flatMap(branch=>branch.items.anyOf);
  const move=variants.find(row=>row.properties.kind.const==='move');
  assert.deepEqual(move.properties.to.enum,['Library']);
  assert.equal(move.properties.via,undefined);
@@ -72,7 +74,7 @@ test('routine move schema selects issued destinations without free route text',(
 
 test('an unbound route stays visible to the Keeper and is required before settlement',()=>{
  const choices=turnPacketMovementChoices([{effects:[{kind:'move',to:'Outskirts'}],requires_via:true},{effects:[{kind:'move',to:'Library',via:'Main Street',travel_minutes:17}]}]);
- const schema=turnPacketProviderPayload({tools:[{name:'output',input_schema:TURN_PACKET_PARAMETERS}]},false,true,[],choices).tools[0].input_schema;
+ const schema=turnPacketParameterSchema(false,[],choices);
  const moves=schema.properties.commands.anyOf[0].items.anyOf.filter(row=>row.properties?.kind?.const==='move');
  assert.deepEqual(moves.find(row=>row.properties.to.enum.includes('Outskirts')).required,['kind','to','via']);
  assert.equal(moves.find(row=>row.properties.to.enum.includes('Library')).properties.via,undefined);
@@ -89,7 +91,7 @@ test('untimed journey bands share provider, parser, binding and canonical effect
  const bands=['adjacent','local_travel','long_travel'];
  const choices=turnPacketMovementChoices([{effects:[{kind:'move',to:'Annex'}],travel_bands:bands,requires_via:true},
   {effects:[{kind:'move',to:'Library',travel_minutes:17}]}]);
- const schema=turnPacketProviderPayload({tools:[{name:'output',input_schema:TURN_PACKET_PARAMETERS}]},false,true,[],choices).tools[0].input_schema;
+ const schema=turnPacketParameterSchema(false,[],choices);
  const moves=schema.properties.commands.anyOf[0].items.anyOf.filter(row=>row.properties?.kind?.const==='move');
  const annex=moves.find(row=>row.properties.to.enum.includes('Annex'));
  assert.deepEqual(annex.required,['kind','to','via','travel_band']);assert.deepEqual(annex.properties.travel_band.enum,bands);

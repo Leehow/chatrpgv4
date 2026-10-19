@@ -48529,6 +48529,11 @@ author still consumes all selected settled material and streams plain text.
 Producer: the host reads current native capability bindings.
 Reader: the KP receives its current parameter data alongside the fixed protocol.
 Actor: submitTurnPacket validates that schema before compiling/settling a packet.
+The exact schema is retained only when issued by the current provider request
+and cleared at the next player input. A zero-KP native routine has no issued
+model contract; its existing settled-receipt/current-scene publication checks
+remain authoritative. Never reconstruct a model contract from pre-move scene
+metadata to reject that native publication or request an unnecessary KP call.
 Cached prefixes are an optimization only; retired references never become valid
 because an old prefix or tool declaration is reused.
 

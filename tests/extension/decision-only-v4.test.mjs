@@ -1,7 +1,7 @@
 /** Real contract regression: no complete prose can use the old model write entrances. */
 import {test} from 'node:test';
 import assert from 'node:assert/strict';
-import {turnPacket,turnPacketProviderPayload,TURN_PACKET_PARAMETERS} from '../../runtime/turn-packet-prototype.ts';
+import {turnPacket,turnPacketParameterSchema,TURN_PACKET_PARAMETERS} from '../../runtime/turn-packet-prototype.ts';
 import {Errors} from 'typebox/value';
 import {offeredTools} from '../../extensions/kernel/lean-apply.ts';
 import {COC_TOOLS} from '../../extensions/kernel/tools.ts';
@@ -95,7 +95,7 @@ test('the newest canonical directed attitude wins over older relationship eviden
 test('prepared place and operation references share one issuance vocabulary with the provider',()=>{
  const owner=new DecisionContent();owner.prepare('c:1',{...capsule,where:{...capsule.where,places:[{name:'Marathon Cafe',line:'A known cafe.'}]}},[],[],['Investigator'],[],[{operation:{effects:[{kind:'move',to:'Clinic'}]}}]);
  for(const to of ['Marathon Cafe','Clinic'])assert.equal(owner.resolve({new:{predicate:'directions',to,retrace:true}},'npc_1').value.to,to);
- const schema=turnPacketProviderPayload({tools:[{name:'output',input_schema:{}}]},false,true,undefined,undefined,false,owner.bindings()).tools[0].input_schema;
+ const schema=turnPacketParameterSchema(false,undefined,undefined,false,owner.bindings());
  const packet={version:4,interactions:[{actor:'npc_1',to:['investigator_1'],act:'answer',content:[{new:{predicate:'directions',to:'Marathon Cafe',retrace:true}}]}]};
  assert.equal(Errors(schema,packet).length,0);
  for(const fields of [{to:'unissued destination',retrace:true},{to:'Marathon Cafe',via:['unissued waypoint']},{to:'Marathon Cafe',retrace:true,heading:'east'}]){
@@ -107,7 +107,7 @@ test('prepared place and operation references share one issuance vocabulary with
 });
 test('a communication audience cannot be mistaken for a location or a route waypoint',()=>{
  const owner=new DecisionContent();owner.prepare('c:1',capsule,[],[],['Investigator']);
- const schema=turnPacketProviderPayload({tools:[{name:'output',input_schema:{}}]},false,true,undefined,undefined,false,owner.bindings()).tools[0].input_schema;
+ const schema=turnPacketParameterSchema(false,undefined,undefined,false,owner.bindings());
  for(const claim of [{predicate:'whereabouts',actor:'npc_1',to:'investigator_1',when:'habitual'},{predicate:'planned_visit',actor:'npc_1',to:'npc_2',when:{day_offset:1,hour:12,minute:0}},{predicate:'directions',to:'Library',via:['investigator_1']}]){
   assert.throws(()=>owner.resolve({new:claim},'npc_1'),/place/);
   assert.ok(Errors(schema,{version:4,interactions:[{actor:'npc_1',to:['investigator_1'],act:'answer',content:[{new:claim}]}]}).length);

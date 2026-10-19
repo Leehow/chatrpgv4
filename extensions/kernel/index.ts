@@ -498,6 +498,7 @@ interface TableState {
 	firstSight: FirstSightTracker;
 	packetTimeBands?:string[];
 	packetSceneRequired?:boolean;
+	packetParameterSchema?:ReturnType<typeof turnPacketParameterSchema>;
 	packetParameterRefused?:boolean;
 	/** §168.5: `turn|item` pairs whose omission while their check ran is already on the telemetry line. */
 	firstSightOmitted: Set<string>;
@@ -5845,7 +5846,7 @@ export default function (pi: ExtensionAPI, host: {capabilities?:RuntimeCapabilit
             try{
                 const parsed=turnPacket(JSON.stringify(params));
                 const choices=owner.prescreen?.choices?turnPacketMovementChoices(owner.prescreen.choices):undefined;
-                requireTurnPacketParameters(parsed,turnPacketParameterSchema(!!owner.routineResult?.outcomes.some(row=>row.kind==='move'),state.packetTimeBands,choices,state.packetSceneRequired??true,packetContent(state).bindings()));
+                if(state.packetParameterSchema)requireTurnPacketParameters(parsed,state.packetParameterSchema);
                 packet=choices?bindTurnPacketMoves(parsed,choices):requireTurnPacketNpcDestinations(parsed);
                 if((packet.commands??[]).some(row=>row.kind==='time')){
                     const bands=await packetTimeBandHandles(state);
@@ -7880,6 +7881,7 @@ export default function (pi: ExtensionAPI, host: {capabilities?:RuntimeCapabilit
 			// A new player input is a new context (contract §32.4): no verdict outlives it.
 			state.playerText = text;
 			state.packetTimeBands=undefined;state.packetSceneRequired=undefined;state.packetParameterRefused=false;
+			state.packetParameterSchema=undefined;
 			state.interactionScope = undefined;
 			state.interactionScopeSettled = undefined;
 			state.selectedWriting = false;
@@ -8836,7 +8838,9 @@ export default function (pi: ExtensionAPI, host: {capabilities?:RuntimeCapabilit
                 await packetTimeBandHandles(table);
             }
             const choices=keeperRun?.prescreen?.choices?turnPacketMovementChoices(keeperRun.prescreen.choices):undefined;
-            outgoing=turnPacketProviderPayload(outgoing,journeySettled,table?.interactionScope!=='reference',table?.packetTimeBands,choices,table?.packetSceneRequired??true,table?packetContent(table).bindings():undefined);
+            const bindings=table?packetContent(table).bindings():undefined;
+            if(table)table.packetParameterSchema=turnPacketParameterSchema(journeySettled,table.packetTimeBands,choices,table.packetSceneRequired??true,bindings);
+            outgoing=turnPacketProviderPayload(outgoing,journeySettled,table?.interactionScope!=='reference',table?.packetTimeBands,choices,table?.packetSceneRequired??true,bindings);
         }
 		if (outgoing !== event.payload) return outgoing;
 	});
