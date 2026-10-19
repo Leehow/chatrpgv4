@@ -1,6 +1,6 @@
 # Decision-only Keeper and sole prose author
 
-Status: implemented through `c057cbc9f` on `0.9.8a` and installed in the
+Status: implemented through `edb705a0e` on `0.9.8a` and installed in the
 canonical signed App,2026-10-19. The bounded MiniMax and actual-App results,
 including partial answers and the unrelated full-suite failure, are recorded in
 [the acceptance report](../acceptance/decision-only-kp-v4-20261019.md).
@@ -80,7 +80,7 @@ field semantics; add a constructor only for a demonstrated unsupported semantic
 operation. No model generates a fresh schema each turn.
 
 The implemented constructors are service_at, planned_visit, whereabouts,
-knowledge_status and directions. The last was added after a live stationary
+knowledge_status, directions and input_requirements. Directions was added after a live stationary
 directions question produced an empty answer plan. Substantive speech acts now
 require nonempty selected content; greetings, acknowledgments and refusals may
 omit it. This validates the presence of communication meaning, not its relevance.

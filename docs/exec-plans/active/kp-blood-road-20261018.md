@@ -1,5 +1,56 @@
 # Keeper contracts and Blood Road browser acceptance
 
+## Final decision-only v4 verification, 2026-10-19
+
+Implementation is committed throughedb705a0e on0.9.8a. The prior entries below
+are a chronological ledger, not current pending work. The current bounded
+acceptance report is docs/acceptance/decision-only-kp-v4-20261019.md.
+
+Final LAN all run.kraThuCC finished at exit1 after1207s: extension6188tests,
+6178pass/1fail/9skip; integration2228tests,2227pass/1skip; routing12pass.
+The sole failure remains the unrelated shipped-but-unused turn_unfinished_notice
+caption inventory. The task does not edit other-owner UI code or a test baseline
+to hide it. Fast130/130 and focused21 core/author cases pass onedb705.
+
+Consecutive real-driver E onedb705 completes four natural player intentions in
+15.303/13.699/23.516/42.756s, total95.274s: five KP requests, four sole authors,
+five tools including one offstage-doctor look. All selected output packets are
+v4 structured decisions, not finished dialogue. Final state proves one30minute
+move, retained spare film/receipt, exposed film still with clerk and no fee
+repeated. The extra look contributes no new selected communication material;
+its36.3ms read is followed by a22.388s extra KP inference. Existing read freedom
+still allows that choice; no new judge or reminder is added. Same-scene material
+references reuse17/21 then20/21; the changed scene issues7 fragments and the
+post-look inference reuses7/7. This is not proof of a KV-cache latency gain.
+
+E memory jobs87-89 are done. Job90 explicitly defers keeper:1 because the belief
+subject is uncertain; seven candidates are retained. Recorded background work
+uses four Jev batches/3858ms and does not block publication. Four older deferred
+segments remain separate. Do not conflate speaker metadata with the owner of
+every embedded belief or silently count pending extraction as done.
+
+Native Computer Use operates the actual canonical edb705 App. The procedural
+question, confirmation and return movement are visibly completed; MiniMax3.1/
+medium attribution, canonical executable, strict signature and package receipt
+are rechecked. The latest UI response reports16s. Historical ENOTDIR details
+match the retained deliberate fault injection; the path is now a directory.
+Prior AX/browser observations and real author deltas remain separate evidence;
+do not claim every short reply visibly paints before provider completion.
+
+Driver E stopped cleanly after four completed turns. Validation checkout
+/Users/haoli/.codex/worktrees/kp-blood-road-20261018 is terminal. Canonical
+lifecycle closeout returns retained_verification_failed because all is not
+green; audit still reports the exact dirty terminal checkout, containing only
+the two retained dependency symlinks. The branch/path are classified retained,
+not removed or clean. No force cleanup, evidence deletion or other-owner edits.
+
+This closes the approved implementation and bounded validation batch, with
+explicit limitations: no controlled reuse-off speed attribution, optional extra
+reads, incomplete multi-question answers in earlier D, one author-added player
+question in App prose, uncertain background extraction, and the unrelated
+repository-wide red check. None is represented as a universal correctness or
+performance guarantee, or as a completed Blood Road chapter playthrough.
+
 ## Decision-only contract redesign (owner 2026-10-19)
 
 The owner again forbids Keeper-authored complete dialogue and event materials.
@@ -917,3 +968,28 @@ c057 until the follow-up is committed/rebuilt. The acceptance report is a
 revision-bound draft. Fresh MiniMax procedural questioning and movement, current
 source regression and package verification are still required. Reactivate the
 owned retained validation checkout for this work, preserving dependency links.
+
+### edb705 current App sequence and remaining terminal gate
+
+edb705a0e is committed on0.9.8a and fast-forwarded to the reactivated owned
+validation checkout. npm test130/130 and21 focused core/author cases pass.
+Canonical App was rebuilt and launched with process-only MiniMax3.1/medium;
+121 runtime files match and staging is empty. Native UI confirms real reply:
+the procedural query now selects input_requirements fields rather than directions.
+It costs21s UI/16.938s engine, two KP requests including a real upstream500,
+one author/output. Confirmation costs15s UI/14.411s engine, one KP/author/output,
+selects fact_2/fact_3 and repeats a requirements constructor. Return movement
+costs16s UI/15.396s engine, one KP/author/output. It reaches Central Library
+at11:33 with the prior clerk, no research/payment. Note the return author adds
+an unrequested investigator question; preserve this prose limitation.
+
+No additional judgment model, free-text slot, stage or reminder was introduced.
+Current full-suite handle21646 is the edb705 LAN all invocation; poll that exact
+live handle or authoritative remote process state, do not start a duplicate.
+The completed c057 full run and current edb fast/focused/App results are separate.
+Finish the latest full suite, update the report with actual exit/failures,
+verify the current canonical executable/registry, classify the owned validation
+checkout through lifecycle audit and commit only the task's remaining docs.
+The goal remains active until these gates are inspected. Other-owner DeepSeek/UI
+and shared-contract edits remain untouched. App pid76194 is the latest owned
+canonical launch; source helperserver36/pid54279 has been stopped, driver D stopped.
