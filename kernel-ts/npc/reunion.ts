@@ -44,8 +44,8 @@ export function reunionView(graph:ModuleGraph,world:Row,node:Row,records:Row[],s
     if(accepted.content_digest)return {status:'established',elapsed_minutes:accepted.elapsed_minutes,background:accepted.background,
         reports:accepted.reports,open_threads:accepted.open_threads,origin:'table_established',
         note:'Keep established background unchanged. Reports remain this person\'s claims; open threads are not obligations. Additional unestablished detail may use reunion extend true.'};
-    return {status:'needed',elapsed_minutes:interval.elapsed_minutes,last_seen_words:interval.last_words,
-        next:{tool:'apply',kind:'npc',name:graph.displayName(node),field:'reunion'},
+    return {status:'available',required:false,elapsed_minutes:interval.elapsed_minutes,last_seen_words:interval.last_words,
+        record:{tool:'apply',kind:'npc',name:graph.displayName(node),field:'reunion'},
         note:'When this encounter needs a continuation, invent only a modest compatible interval, or establish a quiet interval. Preserve personality, existing facts, commitments and player choices. Apply NPC reunion records background, attributed reports and optional open threads; it grants no mechanical effect. No offstage turns need to be simulated.'};
 }
 function checked(value:unknown):Row {

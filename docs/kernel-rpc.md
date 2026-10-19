@@ -20592,6 +20592,20 @@ A configured NPC session may supply the same advice automatically once per actua
 
 An NPC view offers reunion only when this person is currently present, a prior committed meaningful encounter exists, an intervening committed absence exists and positive game time elapsed. The kernel derives the interval from actual committed presence/speech/receipts and the game clock; the model never invents interval identifiers or intermediate turns. The offer carries the last known encounter and elapsed time, with existing personality, directed evidence and commitments beside it.
 
+An unrecorded interval is `status: available, required: false`, with an optional
+`record` capability rather than an imperative `next` operation. It is not a task,
+missing prerequisite or publication gate. Ordinary greetings and conversation may
+reuse established character facts without any reunion write. Choosing to add new
+offstage continuity still uses the existing explicit apply and immutable interval
+checks. Merely reading the offer creates no record, author work or decision call.
+The producer is reunionView, readers are the capsule, NPC look and perspective,
+and the Keeper alone selects whether to record new content. Existing generic
+capability discovery is not evidence that this optional operation was selected.
+This follows the distinction between optional annotations and validation duties
+in JSON Schema (https://json-schema.org/understanding-json-schema/reference/annotations)
+and MCP's separation of hints from execution behavior
+(https://blog.modelcontextprotocol.io/posts/2026-03-16-tool-annotations/).
+
 The tool-enabled Keeper can generate a modest continuation during its ordinary work and establish it with the existing apply npc effect: reunion contains bounded background, reports and open_threads arrays of new English Keeper-facing strings. Background is table-established continuity, reports remain this NPC's attributed claims, and open_threads are possibilities, not player obligations. An unchanged quiet interval is valid. The effect cannot create a person, change game parameters, move or transfer anything, fulfill a promise, or combine with another NPC mutation; actual effects require their existing operations. Source facts and player decisions remain authoritative.
 
 The existing apply transaction writes one core character reunion record and a canonical NPC receipt. Same-interval identical content reuses the accepted record; different content refuses instead of rewriting the past. Derived summaries and memory continue after delivery. Reading later encounters reuses accepted continuity and never reruns offstage simulation. A new return after another genuine absence has its own interval. This path adds no foreground author subprocess: the current Keeper already is a tool-enabled Pi agent and only the minimal canonical acceptance is synchronous.

@@ -178,6 +178,6 @@ test('§188.4: an item given under the table\'s word is a meeting with that pers
 	await turn('I spend an hour at the library.', [{kind: 'move', to: 'central-library', travel_minutes: 60}], 'You are at the library.');
 	await turn('I go back to Knott.', [{kind: 'move', to: start, travel_minutes: 60}]);
 	const reunion = (await call('table.look', {focus: 'npc', name: 'Steven Knott'})).reunion;
-	assert.equal(reunion?.status, 'needed', 'the gift was a meeting with him, read by his identity');
+	assert.equal(reunion?.status, 'available', 'the gift was a meeting with him, read by his identity');
 	assert.equal(reunion.elapsed_minutes, 120);
 });

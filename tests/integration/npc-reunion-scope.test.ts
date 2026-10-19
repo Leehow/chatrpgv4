@@ -21,6 +21,13 @@ function fixture(){
     {turn:1,commit:'away',world:{active_scene:'central-library',npc_presence:{...presence},clock:{minutes:60}},speech:[],receipts:[]}
   ]};
 }
+test('an unrecorded reunion is optional availability, never a pending write',()=>{
+  const {world,records}=fixture(),before=JSON.stringify({world,records});
+  const offer=reunionView(graph,world,node,records,stable);
+  assert.equal(offer.status,'available');assert.equal(offer.required,false);
+  assert.equal(offer.next,undefined);assert.deepEqual(offer.record,{tool:'apply',kind:'npc',name:graph.displayName(node),field:'reunion'});
+  assert.equal(JSON.stringify({world,records}),before,'a read never invents or accepts a quiet interval');
+});
 test('reunion wider event scope preserves the original accepted interval key',()=>{
   const {world,records}=fixture();
   const narrow=reunionInterval(graph,world,node,records,stable);

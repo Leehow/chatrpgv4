@@ -113,6 +113,22 @@ test('the response bank is retired: its methods are unknown and an older campaig
  assert.equal(await readFile(file,'utf8'),bytes,'the old file is left where it was, untouched');
 });
 
+test('a return greeting publishes without establishing unchosen reunion background',async t=>{
+ const {client,home}=await opened(t),campaign='npc-test';
+ await client.call('table.narrate',{campaign,call_id:'t0-c1',text:'{{say:Steven Knott}}Welcome.{{/say}}'});
+ await client.call('table.player_input',{campaign,text:'I visit the library.'});
+ await client.call('table.apply',{campaign,call_id:'t1-c1',effects:[{kind:'move',to:'central-library',travel_minutes:60}]});
+ await client.call('table.narrate',{campaign,call_id:'t1-c2',text:'You reach the library.'});
+ await client.call('table.player_input',{campaign,text:'I return and greet Knott.'});
+ await client.call('table.apply',{campaign,call_id:'t2-c1',effects:[{kind:'move',to:'commission-briefing',travel_minutes:60}]});
+ assert.equal((await client.call('table.look',{campaign,focus:'npc',name:'Steven Knott'})).reunion.required,false);
+ await client.call('table.narrate',{campaign,call_id:'t2-c2',text:'{{say:Steven Knott}}Good to see you again.{{/say}}'});
+ const turn=JSON.parse(await readFile(join(home,'.coc/campaigns/npc-test/turns/0002.json'),'utf8'));
+ assert.equal(turn.receipts.filter(row=>row.kind==='move').length,1);
+ assert.equal(turn.receipts.filter(row=>row.kind==='npc').length,0,'greeting does not auto-establish a quiet interval');
+ assert.equal((await client.call('table.look',{campaign,focus:'npc',name:'Steven Knott'})).reunion.status,'available');
+});
+
 test('a reunion is generated at an actual return, accepted once, and survives reload without simulated intermediate turns',async t=>{
  const {client,connect}=await opened(t),campaign='npc-test';
  const continuity={background:['Knott spent the interval sorting ordinary correspondence.'],reports:['He says the office has been quiet.'],open_threads:[]};
@@ -124,7 +140,7 @@ test('a reunion is generated at an actual return, accepted once, and survives re
  await client.call('table.player_input',{campaign,text:'I return to Knott.'});
  await client.call('table.apply',{campaign,call_id:'t2-c1',effects:[{kind:'move',to:'commission-briefing',travel_minutes:60}]});
  const before=await client.call('table.look',{campaign,focus:'npc',name:'Steven Knott'});
- assert.equal(before.reunion.status,'needed');assert.equal(before.reunion.elapsed_minutes,120);
+ assert.equal(before.reunion.status,'available');assert.equal(before.reunion.required,false);assert.equal(before.reunion.next,undefined);assert.equal(before.reunion.elapsed_minutes,120);
  const arrival=[{kind:'npc',name:'Steven Knott',to:'here',reunion:continuity,why:'The investigator returns to his office.'}];
  assert.equal(splitNpcMood(arrival),1);
  const params={campaign,call_id:'t2-c2',effects:arrival};
