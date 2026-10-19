@@ -48532,6 +48532,13 @@ dossiers are never automatically hydrated for the author. Existing NPC states,
 personality and directed relationships are projected rather than regenerated.
 New claims do not perform state changes or declare themselves delivered/heard.
 
+One issuance vocabulary consumes current visible places and prepared operation
+targets. Its role-specific actor, audience, entity, fact and source selections
+bind both the provider output schema and execution. A prepared destination must
+not be advertised for movement but rejected as an unknown communication target.
+Unregistered descriptive waypoints/topics are not entity references. Invalid
+bindings remain errors; the host never silently removes them to commit a subset.
+
 The host supplies selected fragments, public identity projections, actual
 outcomes and current scene/clock to the sole author once. Direct plain-text SSE,
 publication authority, speech attribution, held-operation recovery and existing

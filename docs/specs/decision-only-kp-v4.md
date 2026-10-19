@@ -241,3 +241,14 @@ the question. Each used one KP packet and one author, without retrieval. The
 empty answer exposed the missing content requirement and directions constructor.
 It is not counted as a successful speed comparison. A fresh build and consecutive
 live test are required after the fix.
+
+Live run kp-decision-v4-b-20261019 tested committed c27b789a5. Confirmation took
+20.044s (including one upstream500 retry), and stationary directions27.633s.
+The latter still failed the intent: Marathon Cafe was advertised in prepared
+movement but absent from the communication entity set; after refusal the KP
+submitted an acknowledgment without directions. The follow-up joins visible
+place and prepared-operation targets into the one reference set and binds its
+role-specific selections into the provider schema as well as local execution.
+The schema no longer advertises an arbitrary string waypoint as a reference.
+This adds no judgment, silently discarded argument or automatic world action.
+The interrupted c27 full-suite invocation is retained; it is not a completed run.

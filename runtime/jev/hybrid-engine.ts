@@ -116,7 +116,7 @@ export interface KernelBridge {
   record?: (row: Record<string, unknown>) => void;
   playerContext?:()=>{investigators:string[];previousPublic:Array<{turn:number|string;player?:string|null;keeper:string;truncated?:boolean}>};
   timeBands?:()=>Promise<import('./band-shadow-domain.ts').TimeBandRow[]>;
-  decisionMaterials?:(capsule:Row,people:Row[])=>Row|undefined;
+  decisionMaterials?:(capsule:Row,people:Row[],prepared?:Row[])=>Row|undefined;
 }
 /** The kernel extension's turn-close port (`coc:turn-close`, contract §135.11). */
 export interface TurnClosePort {
@@ -588,9 +588,9 @@ export function createHybridEngine(options: HybridEngineOptions): {runDriver: Se
             const passages=carriedPassages(carried.views,taken?.texts);
             if(passages.length)api?.events.emit('coc:carried-text',{campaign:bridge.campaign,turn:scope.turn,run:context.runId,passages});
           }
-          const decisionMaterials=turnPacketPrototype?bridge.decisionMaterials?.(capsule,[...array(capsule.present),...people]):undefined;
-          if(decisionMaterials)record({lane:'run',event:'decision_material_catalog',run:context.runId,step:stepId,coverage:decisionMaterials.coverage,bytes:Buffer.byteLength(JSON.stringify(decisionMaterials),'utf8')});
           const preparedOperations=continuous?.materials(capsule);
+          const decisionMaterials=turnPacketPrototype?bridge.decisionMaterials?.(capsule,[...array(capsule.present),...people],array(preparedOperations?.candidates)):undefined;
+          if(decisionMaterials)record({lane:'run',event:'decision_material_catalog',run:context.runId,step:stepId,coverage:decisionMaterials.coverage,bytes:Buffer.byteLength(JSON.stringify(decisionMaterials),'utf8')});
           if(preparedOperations)record({lane:'run',event:'prepared_material_reuse',run:context.runId,step:stepId,
             candidates:array(preparedOperations.candidates).length,coverage:preparedOperations.coverage,bytes:Buffer.byteLength(JSON.stringify(preparedOperations),'utf8')});
           messages.push({role:'custom',customType:CLERK_TYPE,display:false,timestamp:Date.now(),

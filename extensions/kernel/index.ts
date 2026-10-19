@@ -7285,9 +7285,9 @@ export default function (pi: ExtensionAPI, host: {capabilities?:RuntimeCapabilit
 				moduleId: readingModule,
 				call: bridgeCall(kernel),
 				materialSources:(turn:number)=>finalOutput.inventory(campaign,turn),
-                decisionMaterials:(capsule:Record<string,any>,people:Record<string,any>[])=>{
+                decisionMaterials:(capsule:Record<string,any>,people:Record<string,any>[],prepared:Record<string,any>[]=[] )=>{
                     if(!table||!turnPacketPrototype)return undefined;
-                    return packetContent(table).prepare(packetNpcScope(table),capsule,people,finalOutput.decisionSources(table.campaign,table.turn,capsule),table.party.map(person=>person.name),packetNpcReferences(table).current(packetNpcScope(table)));
+                    return packetContent(table).prepare(packetNpcScope(table),capsule,people,finalOutput.decisionSources(table.campaign,table.turn,capsule),table.party.map(person=>person.name),packetNpcReferences(table).current(packetNpcScope(table)),prepared);
                 },
                 playerContext:()=>({investigators:table?.party.map(person=>person.name)??[],
                     previousPublic:table?decisionRecentPublic(table.recent,table.delivered):[]}),
@@ -8828,7 +8828,7 @@ export default function (pi: ExtensionAPI, host: {capabilities?:RuntimeCapabilit
                 await packetTimeBandHandles(table);
             }
             const choices=keeperRun?.prescreen?.choices?turnPacketMovementChoices(keeperRun.prescreen.choices):undefined;
-            outgoing=turnPacketProviderPayload(outgoing,journeySettled,table?.interactionScope!=='reference',table?.packetTimeBands,choices,table?.packetSceneRequired??true);
+            outgoing=turnPacketProviderPayload(outgoing,journeySettled,table?.interactionScope!=='reference',table?.packetTimeBands,choices,table?.packetSceneRequired??true,table?packetContent(table).bindings():undefined);
         }
 		if (outgoing !== event.payload) return outgoing;
 	});

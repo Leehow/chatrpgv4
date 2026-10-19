@@ -1,7 +1,8 @@
 /** Real contract regression: no complete prose can use the old model write entrances. */
 import {test} from 'node:test';
 import assert from 'node:assert/strict';
-import {turnPacket,TURN_PACKET_PARAMETERS} from '../../runtime/turn-packet-prototype.ts';
+import {turnPacket,turnPacketProviderPayload,TURN_PACKET_PARAMETERS} from '../../runtime/turn-packet-prototype.ts';
+import {Errors} from 'typebox/value';
 import {offeredTools} from '../../extensions/kernel/lean-apply.ts';
 import {COC_TOOLS} from '../../extensions/kernel/tools.ts';
 const env={PI_COC_LOOP_ENGINE:'hybrid-v1',PI_COC_TURN_PACKET_PROTOTYPE:'1'};
@@ -90,4 +91,17 @@ test('the newest canonical directed attitude wins over older relationship eviden
  const cast=[{ref:'investigator_1',name:'Investigator',display_name:'Investigator'}];
  const person=decisionPerson({ref:'npc_1',display_name:'The clerk',relationships:['friendly','hostile'].map(affinity=>({toward:'Investigator',evidence:[{statement:JSON.stringify({kind:'directed_relationship',affinity}),authority:'canonical_event'}]}))},cast);
  assert.deepEqual(person.relationships,[{toward:'investigator_1',affinity:'friendly'}]);
+});
+test('prepared place and operation references share one issuance vocabulary with the provider',()=>{
+ const owner=new DecisionContent();owner.prepare('c:1',{...capsule,where:{...capsule.where,places:[{name:'Marathon Cafe',line:'A known cafe.'}]}},[],[],['Investigator'],[],[{operation:{effects:[{kind:'move',to:'Clinic'}]}}]);
+ for(const to of ['Marathon Cafe','Clinic'])assert.equal(owner.resolve({new:{predicate:'directions',to,retrace:true}},'npc_1').value.to,to);
+ const schema=turnPacketProviderPayload({tools:[{name:'output',input_schema:{}}]},false,true,undefined,undefined,false,owner.bindings()).tools[0].input_schema;
+ const packet={version:4,interactions:[{actor:'npc_1',to:['investigator_1'],act:'answer',content:[{new:{predicate:'directions',to:'Marathon Cafe',retrace:true}}]}]};
+ assert.equal(Errors(schema,packet).length,0);
+ for(const fields of [{to:'unissued destination',retrace:true},{to:'Marathon Cafe',via:['unissued waypoint']},{to:'Marathon Cafe',retrace:true,heading:'east'}]){
+  const value={...packet,interactions:[{...packet.interactions[0],content:[{new:{predicate:'directions',...fields}}]}]};
+  assert.equal(Errors(schema,value).length===0,fields.heading==='east');
+ }
+ const wrongAudience={...packet,interactions:[{...packet.interactions[0],to:['Marathon Cafe']}]};assert.ok(Errors(schema,wrongAudience).length);
+ assert.ok(Errors(schema,{version:4,reveal:[{source_ref:'unissued source'}]}).length);
 });

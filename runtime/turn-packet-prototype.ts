@@ -4,7 +4,7 @@ import {Type,type TSchema,type Static} from 'typebox';
 import {Errors} from 'typebox/value';
 import {StringEnum} from '@earendil-works/pi-ai';
 import {NPC_REFERENCE_PATTERN,isNpcReference} from './npc-references.ts';
-import {Interaction,ExistingCommunicationFact,type InteractionDecision} from './decision-content.ts';
+import {Interaction,ExistingCommunicationFact,bindCommunicationParameters,type DecisionBindings,type InteractionDecision} from './decision-content.ts';
 const atom=(maxLength=160)=>Type.String({minLength:1,maxLength});
 
 const move=Type.Object({kind:Type.Literal('move'),to:atom(),via:Type.Optional(atom()),travel_band:Type.Optional(atom(64))},{additionalProperties:false});
@@ -64,12 +64,13 @@ export function normalizeTurnPacketArguments(input:unknown):{args:unknown;repair
   return normalizeToolArgumentSyntax(TURN_PACKET_PARAMETERS,input,{boundedIntegers:true});
 }
 /** Restore this owned declaration after Pi's non-strict Anthropic conversion. */
-export function turnPacketProviderPayload(payload:unknown,journeySettled=false,requireTool=true,timeBands?:readonly string[],moveChoices?:readonly Record<string,unknown>[],sceneRequired=false):unknown {
+export function turnPacketProviderPayload(payload:unknown,journeySettled=false,requireTool=true,timeBands?:readonly string[],moveChoices?:readonly Record<string,unknown>[],sceneRequired=false,bindings?:DecisionBindings):unknown {
   if(!object(payload)||!Array.isArray(payload.tools))return payload;
   let changed=false;
   const tools=payload.tools.map((tool:unknown)=>{
     if(!object(tool)||tool.name!=='output'||!object(tool.input_schema))return tool;
     const schema:Record<string,any>=structuredClone(TURN_PACKET_PARAMETERS);
+    if(bindings){schema.properties.interactions.items=bindCommunicationParameters(schema.properties.interactions.items,bindings);schema.properties.reveal.items=bindCommunicationParameters(schema.properties.reveal.items,bindings);}
     const destinations=[...new Set((moveChoices??[]).filter(row=>row.kind==='move'&&typeof row.to==='string').map(row=>row.to as string))];
     const groups=new Map<string,{destinations:string[];via:boolean;bands?:string[]}>();
     for(const to of destinations){

@@ -774,3 +774,23 @@ and driver declaration baseline; do not call it green. Earlier LAN integration
 owner currently occupies the LAN box; a read-only30second monitor waits for idle
 and then automatically build-fetches this source. Fresh MiniMax and final suite
 remain required. Existing DeepSeek edits and shared docs are other-owner work.
+
+### Committed v4 follow-up: unify reference issuance
+
+c27b789a5 was committed on0.9.8a and fast-forwarded into the existing owned
+validation checkout. Its browser build and LAN runtime build run.M9724ACM pass.
+Live B confirmation20.044s includes a genuine MiniMax500 then successful retry.
+Directions27.633s fails: the first packet uses Marathon Cafe (a supplied prepared
+destination and where.places entry), but the communication catalog omitted both
+producers. It also advertised only string types for ref-valued parameters, so
+the KP filled unissued descriptive waypoints/topics; its correction dropped
+the answer in favor of acknowledgment. Retain both packets and actual prose.
+
+The one catalog now consumes where.places and prepared operation effects, and
+its person/entity/fact/source sets also populate the provider output schema.
+Unissued descriptive text is not an entity reference. The same local binding
+still refuses mismatches without mutation. Core/seam22cases and4real-host
+movement/dialogue/relationship cases pass after this change. The owned c27
+all invocation was interrupted through its signal/retention path before rebuild;
+do not count it as complete. Validate the fresh runtime naturally before
+starting another full suite. No new model or semantic word-list classification.

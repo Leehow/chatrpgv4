@@ -28,6 +28,22 @@ export const Interaction=Type.Union([
 ]);
 export type InteractionDecision=Static<typeof Interaction>;
 export type HydratedInteraction=InteractionDecision&{claims?:Row[]};
+export interface DecisionBindings {entities:string[];people:string[];facts:string[];sources:string[]}
+/** Prepared schemas and execution use the same issued reference vocabulary. */
+export function bindCommunicationParameters(schema:TSchema,bindings:DecisionBindings):TSchema {
+ const result=structuredClone(schema) as Row;
+ const selection=(values:string[],slots=false)=>Type.String({enum:[...new Set([...values,...(slots?['new_1','new_2','new_3','new_4']:[])])]});
+ const visit=(value:unknown)=>{
+  if(!value||typeof value!=='object')return;
+  if(Array.isArray(value)){value.forEach(visit);return;}const row=value as Row,p=row.properties;
+  if(p?.predicate){for(const key of ['provider','actor','to','topic'])if(p[key])p[key]=selection(bindings.entities,true);
+   for(const key of ['items','via'])if(p[key])p[key].items=selection(bindings.entities,true);
+  }else if(p?.actor&&p?.act){p.actor=selection(bindings.people.filter(isNpcReference),true);if(p.to)p.to.items=selection(bindings.people,true);}
+  if(p?.fact_ref)p.fact_ref=selection(bindings.facts);
+  if(p?.source_ref)p.source_ref=selection(bindings.sources);
+  for(const child of Object.values(row))visit(child);
+ };visit(result);return result as TSchema;
+}
 /** Bind only declared entity positions; exact quoted source values stay untouched. */
 export function bindCreatedDecisionPerson(selected:{responses:HydratedInteraction[];materials:Row[]},slot:string,person:{ref:string;display_name:string}):void {
  const bindFact=(claim:Row)=>{
@@ -55,7 +71,7 @@ export class DecisionContent {
  assertCurrent(capsule:Row):void {if(this.sourceRevision!==undefined&&this.sourceRevision!==(capsule._context?.task_source_revision??capsule._context?.source_revision))throw Error('Prepared communication source revision changed');}
  forScope(scope:string):void {if(scope!==this.scope){this.scope=scope;this.active.clear();this.entities.clear();this.reads.clear();this.facts.clear();}}
  observePerson(value:Row):void {if(isNpcReference(value.ref))this.reads.set(value.ref,structuredClone(value));}
- prepare(scope:string,capsule:Row,people:Row[],sources:Row[]=[],investigators:string[]=[],issuedPeople:string[]=[]):Row {
+ prepare(scope:string,capsule:Row,people:Row[],sources:Row[]=[],investigators:string[]=[],issuedPeople:string[]=[],prepared:Row[]=[]):Row {
   this.forScope(scope);this.active.clear();this.entities.clear();this.people.clear();this.listenerAliases.clear();this.entityLabels.clear();this.bytes=0;this.omitted=0;this.sourceRevision=capsule._context?.task_source_revision??capsule._context?.source_revision;
   for(const [i,name] of investigators.entries()){
    const ref=`investigator_${i+1}`;this.entities.add(ref);this.people.add(ref);this.listenerAlias(name,ref);this.entityLabels.set(ref,name);
@@ -76,7 +92,8 @@ export class DecisionContent {
    const id=row.to??row.ref??row.id??row.handle??row.name;
    if(typeof id==='string'&&typeof row.display_name==='string')this.entityLabels.set(id,row.display_name);
   };
-  visit(capsule.where?.exits);visit(capsule.where?.back);visit(capsule.exits);visit(capsule.nearby);visit(capsule.objects);visit(capsule.inventory);
+  visit(capsule.where?.exits);visit(capsule.where?.back);visit(capsule.where?.places);visit(capsule.exits);visit(capsule.nearby);visit(capsule.objects);visit(capsule.inventory);
+  for(const candidate of prepared)visit(candidate.operation?.effects);
   for(const section of Object.values(capsule.known??{}))visit(section);
   for(const person of cast){
    if(!isNpcReference(person.ref))continue;
@@ -105,6 +122,7 @@ export class DecisionContent {
   this.facts.set(ref,{ref,...(actor?{actor}:{}),kind:evidence,value:structuredClone(value),revision:identity});this.active.add(ref);
  }
  addEntities(values:readonly string[]):void {for(const value of values)this.entities.add(value);}
+ bindings():DecisionBindings {return {entities:[...this.entities],people:[...this.people],facts:[...this.active].filter(ref=>ref.startsWith('fact_')),sources:[...this.active].filter(ref=>ref.startsWith('source_'))};}
  private listenerAlias(value:string,ref:string):void {
   const key=value.normalize('NFKC').trim().toLowerCase(),prior=this.listenerAliases.get(key);
   this.listenerAliases.set(key,prior!==undefined&&prior!==ref?null:ref);
