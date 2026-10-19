@@ -2435,6 +2435,18 @@
       "role": "leaf",
       "trace": "tests: memory-native-recovery and memory-story-decision",
       "note": "Stage10: one typed parallel story batch; candidate author remains MiniMax. Pending judgment retains the exact-source draft without generative fallback."
+    },
+    {
+      "file": "runtime/isolated-expression.ts",
+      "symbol": "writeDirectProse",
+      "kind": "reader-task",
+      "callee": "runtime.runTask",
+      "count": 1,
+      "owner": "dedicated plain prose author (owner 2026-10-18)",
+      "path": "app-play-gated",
+      "role": "driver",
+      "trace": "One frozen decision context -> one tool-free Pi author request -> direct text_delta delivery",
+      "note": "Mutually exclusive with the ExpressionBrief compatibility task. The host pins the selected author profile, exposes no tools and allows one provider request. No semantic judge, file envelope or whole-draft regeneration."
     }
   ]
 }
