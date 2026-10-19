@@ -48514,6 +48514,26 @@ does not change the existing refusal identity. Its schema retains the existing
 
 ### Host decision: stable decision protocol and current parameter data (owner 2026-10-19)
 
+Current state is the decision basis; historical content is optional selected
+material. The communication catalog labels current physical writing as current
+and prior speech, commitments, observations and reference passages as supplemental.
+The current capsule's owned-document excerpts enter this catalog unchanged,
+including revision, truncation and access metadata. This does not grant an NPC
+knowledge of private writing: actor-observed document excerpts remain actor-scoped
+historical reports. A later revision or removed carrier retires the old current
+reference. Only selected references reach the sole direct-streaming prose author;
+neither old presence nor a remembered claim becomes current state. Current
+documents enter before optional historical reports under the existing catalog
+budget. No extra judgment, inference or instruction-reminder pass is introduced.
+In v4 decision mode, the request journal checkpoints current projections at each
+new input turn instead of replaying previous mutable state plus revisions.
+Within-input tool/result continuations retain their exact order and pairing.
+Stable tool, system and source prefixes remain eligible for provider caching.
+The author receives no automatic previous-input quotations; needed history must
+arrive through selected material. Carried private writing is narration-only;
+NPC speech selects that actor's own observed excerpt, never an investigator's
+possession as an implicit grant of knowledge.
+
 The v4 output tool's structural JSON Schema is invariant across scene, actor,
 material and route changes. The host supplies the exact current parameter schema
 as output_parameter_schema JSON data at the request tail, after retained history.

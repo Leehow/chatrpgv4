@@ -66,7 +66,7 @@ export function normalizeTurnPacketArguments(input:unknown):{args:unknown;repair
 /** Current capabilities are data; the provider tool declaration stays invariant. */
 export function turnPacketParameterSchema(journeySettled=false,timeBands?:readonly string[],moveChoices?:readonly Record<string,unknown>[],sceneRequired=false,bindings?:DecisionBindings):TSchema {
     const schema:Record<string,any>=structuredClone(TURN_PACKET_PARAMETERS);
-    if(bindings){schema.properties.interactions.items=bindCommunicationParameters(schema.properties.interactions.items,bindings);schema.properties.reveal.items=bindCommunicationParameters(schema.properties.reveal.items,bindings);}
+    if(bindings){schema.properties.interactions.items=bindCommunicationParameters(schema.properties.interactions.items,bindings);schema.properties.reveal.items=bindCommunicationParameters(schema.properties.reveal.items,bindings,true);}
     const destinations=[...new Set((moveChoices??[]).filter(row=>row.kind==='move'&&typeof row.to==='string').map(row=>row.to as string))];
     const groups=new Map<string,{destinations:string[];via:boolean;bands?:string[]}>();
     for(const to of destinations){

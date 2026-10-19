@@ -18,6 +18,7 @@ test('the decision author streams plain prose immediately from one complete inpu
  const runtime={home,async runTask({request}){
   calls++;assert.equal(request.tools,'');assert.equal(request.finalText,true);assert.equal(request.maxRequests,1);
   const packet=JSON.parse(request.brief);assert.equal(packet.player_input,'I ask for directions.');assert.equal(packet.decision_context.scene.name,'Shop');
+  assert.ok(!request.brief.includes('RETIRED_PLAYER_INPUT'));assert.ok(!request.brief.includes('RETIRED_SCENE_PROSE'));
   request.onEvent({type:'message_update',assistantMessageEvent:{type:'text_delta',delta:'The clerk points east. '}});
   assert.equal(prose.join(''),'The clerk points east. ');
   request.onEvent({type:'message_update',assistantMessageEvent:{type:'text_delta',delta:'You listen.'}});
@@ -25,7 +26,7 @@ test('the decision author streams plain prose immediately from one complete inpu
   request.onEvent({type:'message_end',message:{role:'assistant',provider:'opencode-go',model:'deepseek-v4.1-flash',stopReason:'stop',content:[{type:'text',text:'The clerk points east. You listen.'}]}});
   return {ok:true,ms:1};
  }};
- const result=await writeIsolatedExpression({runtime,campaign:'c',turn:1,run:'r',decision:{scene:{name:'Shop'},clock:{},people:[],recent_public:[],responses:[]},playerText:'I ask for directions.',language:'en',stream:{push:text=>prose.push(text)},record:async()=>{}});
+ const result=await writeIsolatedExpression({runtime,campaign:'c',turn:1,run:'r',decision:{scene:{name:'Shop'},clock:{},people:[],recent_public:[{turn:0,player:'RETIRED_PLAYER_INPUT',keeper:'RETIRED_SCENE_PROSE'}],responses:[]},playerText:'I ask for directions.',language:'en',stream:{push:text=>prose.push(text)},record:async()=>{}});
  assert.equal(calls,1);assert.equal(result.text,prose.join(''));assert.equal(prose.length,2);
 });
 

@@ -18,6 +18,18 @@ const context=(turn,extra=[])=>[
 const input=(turn,messages=context(turn),budget=50000,key='same-source')=>({turn,messages,budget,key});
 const call={role:'assistant',timestamp:2,content:[{type:'toolCall',id:'call-a',name:'look',arguments:{}}]};
 const answer={role:'toolResult',timestamp:3,toolCallId:'call-a',toolName:'look',content:[{type:'text',text:'The door is closed.'}]};
+test('decision mode replaces prior-input snapshots while preserving within-input tool continuations',()=>{
+ const journal=createRequestJournal({currentInputOnly:true});
+ const before=context(1);before[1]=customMessage('coc-capsule',{where:'Old shop',turn:{number:1},private_marker:'RETIRED_STATE'});
+ const first=journal.project(input(1,before));journal.commit();
+ const after=context(2);after[1]=customMessage('coc-capsule',{where:'Library',turn:{number:2}});
+ const next=journal.project(input(2,after));journal.commit();
+ assert.equal(next.observation.reset,'current_input');assert.ok(!JSON.stringify(next.messages).includes('RETIRED_STATE'));
+ assert.deepEqual(next.messages[0],first.messages[0],'the unchanged source prefix remains reusable');
+ const continued=journal.project(input(2,[...after,call,answer]));
+ assert.equal(continued.observation.reset,undefined);assert.ok(pairedTools(continued.messages));
+ assert.deepEqual(continued.messages.slice(0,next.messages.length),next.messages);
+});
 
 test('successive inputs and tool continuations only append; snapshots reconstruct current state',()=>{
   const journal=createRequestJournal();

@@ -134,7 +134,7 @@ export async function writeIsolatedExpression(input:{runtime:HostRuntime;campaig
   const {keeper_only,...expression}=brief??{};
   const player_input=typeof input.playerText==='string'&&input.playerText.length?input.playerText:undefined;
   const decision=input.decision?{...input.decision,
-   recent_public:input.decision.recent_public.map(({turn,player})=>({turn,...(player!==undefined?{player}:{})})),
+   recent_public:[],
    speech_allowed:input.decision.responses.some(response=>response.act!=='silent'),responses:input.decision.responses.map(value=>{
     const {location,claims,...proposal}=value as typeof value&{location?:Row};
     const response=responseDecision(proposal);

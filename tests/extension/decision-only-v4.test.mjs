@@ -25,8 +25,39 @@ test('v4 declares communication recipients and selected content without prose fi
   assert.throws(()=>turnPacket(JSON.stringify({...packet,interactions:[{...packet.interactions[0],...fields}]})));
 });
 
-import {DecisionContent,decisionPerson,bindCreatedDecisionPerson} from '../../runtime/decision-content.ts';
+import {DecisionContent,decisionPerson,decisionCharacter,bindCreatedDecisionPerson} from '../../runtime/decision-content.ts';
 const capsule={_context:{task_source_revision:'s1'},where:{scene:'Office',exits:[{to:'Library'}]},present:[{ref:'npc_1',display_name:'The clerk',knowledge:['A report about the office.'],keeper_note:'PRIVATE_CAUSE'}],npc_references:{people:[{ref:'npc_2',display_name:'The visitor'}]}};
+test('current carried writing is selectable without promoting historical speech into current state',()=>{
+ const owner=new DecisionContent(),document={name:'Collection receipt',revision:3,text:'Collect tomorrow at noon. Already paid.',cut:false,open:false};
+ const view={...capsule,own:{documents:[document]},present:[{...capsule.present[0],recent_speech:[{statement:'Collect in four days.',turn:2}]}]};
+ const prepared=owner.prepare('c:1',view,[],[],['Investigator']);
+ const current=prepared.facts.find(fact=>fact.kind==='current_document');
+ assert.ok(current,'the current physical document must be selectable');
+ assert.equal(current.availability,'current');assert.deepEqual(current.value,document);
+ const history=prepared.facts.find(fact=>fact.kind==='recent_speech');
+ assert.equal(history.availability,'supplemental');assert.equal(history.value.turn,2);
+ assert.deepEqual(owner.hydrate([],[{fact_ref:current.ref}]).materials[0].value,document);
+ assert.throws(()=>owner.resolve({fact_ref:current.ref},'npc_1'),/Private carried writing/);
+ const schema=turnPacketParameterSchema(false,undefined,undefined,false,owner.bindings());
+ assert.equal(Errors(schema,{version:4,reveal:[{fact_ref:current.ref}]}).length,0);
+ assert.ok(Errors(schema,{version:4,interactions:[{actor:'npc_1',to:['investigator_1'],act:'answer',content:[{fact_ref:current.ref}]}]}).length);
+ const next=owner.prepare('c:2',{...view,own:{documents:[{...document,revision:4,text:'Collect at one.'}]}},[],[],['Investigator']);
+ assert.throws(()=>owner.resolve({fact_ref:current.ref}),/retired|Unissued/);
+ assert.equal(next.facts.find(fact=>fact.kind==='current_document').value.text,'Collect at one.');
+ owner.prepare('c:3',{...view,own:{documents:[]}},[],[],['Investigator']);
+ assert.throws(()=>owner.resolve({fact_ref:next.facts.find(fact=>fact.kind==='current_document').ref}),/retired|Unissued/);
+});
+test('an actor observed document remains attributed and never grants another actor knowledge',()=>{
+ const owner=new DecisionContent(),observed={document:'Collection receipt',revision:2,observed_turn:2,writing:'Collect tomorrow at noon.',scope:'excerpt'};
+ const prepared=owner.prepare('c:1',capsule,[{ref:'npc_1',observed_documents:[observed]}]);
+ const fact=prepared.facts.find(fact=>fact.kind==='observed_document');assert.ok(fact);
+ assert.equal(fact.availability,'supplemental');assert.deepEqual(owner.resolve({fact_ref:fact.ref},'npc_1').value,observed);
+ assert.throws(()=>owner.resolve({fact_ref:fact.ref},'npc_2'),/another actor/);
+});
+test('character projection cannot bypass the selected catalog with duplicate known or observed facts',()=>{
+ const person={ref:'npc_1',display_name:'Clerk',state:{mood:'calm'},knows:[{summary:'Past claim'}],knowledge:['Claim'],observed_documents:[{writing:'Observed claim'}],recent_speech:[{statement:'Spoken claim'}]};
+ assert.deepEqual(decisionCharacter(person),{ref:'npc_1',display_name:'Clerk',state:{mood:'calm'}});
+});
 test('exact prepared actor facts preserve attribution and exclude unselected private causes',()=>{
  const owner=new DecisionContent(),view=owner.prepare('c:1',capsule,[],[{name:'Public text',text:'Exact original fragment.'}],['Investigator']);
  assert.ok(!JSON.stringify(view).includes('PRIVATE_CAUSE'));

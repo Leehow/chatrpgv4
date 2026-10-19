@@ -29,9 +29,9 @@ export const Interaction=Type.Union([
 ]);
 export type InteractionDecision=Static<typeof Interaction>;
 export type HydratedInteraction=InteractionDecision&{claims?:Row[]};
-export interface DecisionBindings {entities:string[];people:string[];places:string[];facts:string[];sources:string[]}
+export interface DecisionBindings {entities:string[];people:string[];places:string[];facts:string[];sources:string[];narrationFacts?:string[]}
 /** Prepared schemas and execution use the same issued reference vocabulary. */
-export function bindCommunicationParameters(schema:TSchema,bindings:DecisionBindings):TSchema {
+export function bindCommunicationParameters(schema:TSchema,bindings:DecisionBindings,narration=false):TSchema {
  const result=structuredClone(schema) as Row;
  const selection=(values:string[],slots=false)=>Type.String({enum:[...new Set([...values,...(slots?['new_1','new_2','new_3','new_4']:[])])]});
  const visit=(value:unknown)=>{
@@ -43,7 +43,7 @@ export function bindCommunicationParameters(schema:TSchema,bindings:DecisionBind
    if(p.items)p.items.items=selection(bindings.entities,true);
    if(p.via)p.via.items=selection(bindings.places);
   }else if(p?.actor&&p?.act){p.actor=selection(bindings.people.filter(isNpcReference),true);if(p.to)p.to.items=selection(bindings.people,true);}
-  if(p?.fact_ref)p.fact_ref=selection(bindings.facts);
+  if(p?.fact_ref)p.fact_ref=selection(narration?bindings.narrationFacts??bindings.facts:bindings.facts);
   if(p?.source_ref)p.source_ref=selection(bindings.sources);
   for(const child of Object.values(row))visit(child);
  };visit(result);return result as TSchema;
@@ -64,7 +64,12 @@ export function bindCreatedDecisionPerson(selected:{responses:HydratedInteractio
 }
 const rows=(x:unknown):Row[]=>Array.isArray(x)?x.filter(v=>v&&typeof v==='object'):[];
 const digest=(x:unknown)=>createHash('sha256').update(JSON.stringify(x)).digest('hex');
-interface Fact {ref:string;actor?:string;kind:string;value:unknown;revision:string}
+const MATERIAL_FIELDS=['knowledge','knows','authored_knowledge','knowledge_reports','cognition','recent_speech','commitments','believes','authored_beliefs'] as const;
+/** Epistemic material has one selectable catalog, not a second implicit disclosure path. */
+export function decisionCharacter(person:Row):Row {
+ return Object.fromEntries(Object.entries(person).filter(([key])=>!(MATERIAL_FIELDS as readonly string[]).includes(key)&&key!=='observed_documents'));
+}
+interface Fact {ref:string;actor?:string;kind:string;availability:'current'|'supplemental';value:unknown;revision:string}
 /** Aliases survive unchanged material; current issuance and scoped contents do not. */
 export class DecisionContent {
  private scope='';private ordinal=0;private aliases=new Map<string,string>();
@@ -101,34 +106,38 @@ export class DecisionContent {
   visitPlaces(capsule.where?.exits);visitPlaces(capsule.where?.back);visitPlaces(capsule.where?.places);visitPlaces(capsule.exits);visit(capsule.nearby);visit(capsule.objects);visit(capsule.inventory);
   for(const candidate of prepared){visit(candidate.operation?.effects);visitPlaces(rows(candidate.operation?.effects).filter(effect=>effect.kind==='move'));}
   for(const section of Object.values(capsule.known??{}))visit(section);
+  for(const document of rows(capsule.own?.documents))if(typeof document.text==='string'&&document.text.trim())
+   this.issue('fact',document,undefined,'current_document','current');
   for(const person of cast){
    if(!isNpcReference(person.ref))continue;
-   for(const field of ['knowledge','knows','authored_knowledge','knowledge_reports','cognition','recent_speech','commitments','believes','authored_beliefs']){
+   for(const field of MATERIAL_FIELDS){
     const values=Array.isArray(person[field])?person[field]:[];
     for(const value of values){const content=typeof value==='string'?value:typeof value?.statement==='string'||field==='knows'&&typeof value?.summary==='string'?value:undefined;
      if(content!==undefined)this.issue('fact',content,person.ref,field);
     }
    }
+   for(const document of rows(person.observed_documents))if(typeof document.writing==='string'&&document.writing.trim())
+    this.issue('fact',document,person.ref,'observed_document');
   }
   for(const clue of rows(capsule.known?.clues_here))if(clue.discovered===true&&typeof clue.summary==='string')
-   this.issue('fact',{name:clue.name,summary:clue.summary},undefined,'discovered_source_clue');
-  for(const material of rows(capsule.outcome?.public_materials))if(material.visibility==='player')this.issue('fact',material,undefined,'canonical_material');
+   this.issue('fact',{name:clue.name,summary:clue.summary},undefined,'discovered_source_clue','current');
+  for(const material of rows(capsule.outcome?.public_materials))if(material.visibility==='player')this.issue('fact',material,undefined,'canonical_material','current');
   for(const source of sources)if(typeof source.text==='string'&&source.text.trim())this.issue('source',{name:source.name,text:source.text,authority:source.authority??'reference_only'},undefined,'reference_only');
   const reused=[...this.active].filter(ref=>this.previous.has(ref)).length;this.previous=new Set(this.active);
   return {coverage:{issued:this.active.size,reused_refs:reused,omitted:this.omitted,byte_limit:32768},facts:[...this.active].map(key=>{const {revision,...fact}=this.facts.get(key)!;return fact;}),entities:[...this.entities],
    authority:'Exact prepared content references only. Actor-scoped facts belong to that actor; a report, belief or plan is not world truth. A selection is not a transaction or proof of delivery.'};
  }
- private issue(kind:'fact'|'source',value:unknown,actor:string|undefined,evidence:string):void {
+ private issue(kind:'fact'|'source',value:unknown,actor:string|undefined,evidence:string,availability:'current'|'supplemental'='supplemental'):void {
   const identity=digest({kind,value,actor,evidence});let ref=this.aliases.get(identity);
   if(ref&&this.active.has(ref))return;
   const cost=Buffer.byteLength(JSON.stringify(value))+320;
   if(this.active.size>=256||cost>16000||this.bytes+cost>32768){this.omitted++;return;}
   if(!ref){if(this.aliases.size>=2048)this.aliases.delete(this.aliases.keys().next().value!);ref=`${kind}_${++this.ordinal}`;this.aliases.set(identity,ref);}
   this.bytes+=cost;
-  this.facts.set(ref,{ref,...(actor?{actor}:{}),kind:evidence,value:structuredClone(value),revision:identity});this.active.add(ref);
+  this.facts.set(ref,{ref,...(actor?{actor}:{}),kind:evidence,availability,value:structuredClone(value),revision:identity});this.active.add(ref);
  }
  addEntities(values:readonly string[]):void {for(const value of values)this.entities.add(value);}
- bindings():DecisionBindings {return {entities:[...this.entities],people:[...this.people],places:[...this.places],facts:[...this.active].filter(ref=>ref.startsWith('fact_')),sources:[...this.active].filter(ref=>ref.startsWith('source_'))};}
+ bindings():DecisionBindings {return {entities:[...this.entities],people:[...this.people],places:[...this.places],facts:[...this.active].filter(ref=>ref.startsWith('fact_')&&this.facts.get(ref)?.kind!=='current_document'),narrationFacts:[...this.active].filter(ref=>ref.startsWith('fact_')),sources:[...this.active].filter(ref=>ref.startsWith('source_'))};}
  private listenerAlias(value:string,ref:string):void {
   const key=value.normalize('NFKC').trim().toLowerCase(),prior=this.listenerAliases.get(key);
   this.listenerAliases.set(key,prior!==undefined&&prior!==ref?null:ref);
@@ -150,6 +159,7 @@ export class DecisionContent {
   const key=selected.fact_ref??selected.source_ref,fact=this.facts.get(key);
   if(!fact||!this.active.has(key)||(selected.source_ref!==undefined)!==key.startsWith('source_'))throw Error('Unissued, retired or wrong-kind communication reference');
   if(fact.actor&&fact.actor!==actor)throw Error('This fact belongs to another actor perspective');
+  if(actor&&fact.kind==='current_document')throw Error('Private carried writing is narration material; select this actor observed document for its speech');
   const {revision,...hydrated}=fact;return structuredClone(hydrated);
  }
  hydrate(interactions:InteractionDecision[],reveal:unknown[]=[]):{responses:HydratedInteraction[];materials:Row[]} {

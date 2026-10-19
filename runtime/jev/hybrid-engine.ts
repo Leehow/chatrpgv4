@@ -1,6 +1,7 @@
 import type {PrescreenSourceRuntime} from './prescreen-source-provider.ts';
 import {ContinuousTurn} from './continuous-turn.ts';
 import {KeeperPreparation} from './keeper-preparation.ts';
+import {decisionCharacter} from '../decision-content.ts';
 import {SAME_KEEPER_OUTPUT_GUIDANCE,sameKeeperSystemPrompt} from '../keeper-output-guidance.ts';
 import {TURN_PACKET_GUIDANCE,turnPacketSystemPrompt} from '../turn-packet-prototype.ts';
 import {readCarriedViews,carriedSection} from './carried-views.ts';
@@ -601,7 +602,7 @@ export function createHybridEngine(options: HybridEngineOptions): {runDriver: Se
           if(preparedOperations)record({lane:'run',event:'prepared_material_reuse',run:context.runId,step:stepId,
             candidates:array(preparedOperations.candidates).length,coverage:preparedOperations.coverage,bytes:Buffer.byteLength(JSON.stringify(preparedOperations),'utf8')});
           messages.push({role:'custom',customType:CLERK_TYPE,display:false,timestamp:Date.now(),
-            content:JSON.stringify({authority:'Keeper-only current state and actor perspectives; no disclosure grant',people:decisionMaterials?people.map(person=>Object.fromEntries(Object.entries(person).filter(([key])=>!['knowledge','authored_knowledge','knowledge_reports','cognition','recent_speech','commitments','believes','authored_beliefs'].includes(key)))):people,...(decisionMaterials?{decision_materials:decisionMaterials}:{}),
+            content:JSON.stringify({authority:'Keeper-only current state and actor perspectives; no disclosure grant',people:decisionMaterials?people.map(decisionCharacter):people,...(decisionMaterials?{decision_materials:decisionMaterials}:{}),
               ...(preparedOperations?{prepared_operations:preparedOperations}:{}),
               ...(continuous?.outcome?{host_operations:continuous.outcome,note:'These are actual outcomes, not proposals. Do not repeat settled effects. Continue the chosen action using current state.'}:{}),
               ...(enabled?{historical_reference:allowed?HISTORY_OFFER:HISTORY_UNAVAILABLE}:{}),

@@ -82,7 +82,7 @@ function payloadContains(value:unknown,content:string,seen=new Set<object>()):bo
 export function installContextPolicy(pi: ExtensionAPI, writeTelemetry: (row: Row) => void,
     workpadRoot?: () => string | undefined, materialScreen?:MaterialScreenPort): void {
     const nameWritingSupport=createWritingSupportNames();
-    const requestJournal=createRequestJournal();
+    const requestJournal=createRequestJournal({currentInputOnly:process.env.PI_COC_TURN_PACKET_PROTOTYPE==='1'});
     const originalReads=createSnapshotReadCache();
     pi.on('session_start',()=>{requestJournal.reset();originalReads.clear();});
     pi.on('session_shutdown',()=>{requestJournal.reset();originalReads.clear();});

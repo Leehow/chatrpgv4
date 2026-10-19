@@ -38,7 +38,7 @@ function patchValues(before:any,after:any,path='',patch:Row[]=[]):Row[]{
   return patch;
 }
 
-export function createRequestJournal(){
+export function createRequestJournal(options:{currentInputOnly?:boolean}={}){
   let committed:State|undefined,pending:State|undefined,resetReason='initial';
   const reset=(reason='initial')=>{committed=undefined;pending=undefined;resetReason=reason;};
   function project(input:Input):{messages:Row[];observation:Row}{
@@ -86,6 +86,7 @@ export function createRequestJournal(){
     if(!committed)return checkpoint(resetReason);
     if(committed.key!==input.key)return checkpoint('identity_changed');
     if(input.turn<committed.turn)return checkpoint('turn_rewound');
+    if(options.currentInputOnly&&input.turn!==committed.turn)return checkpoint('current_input');
     const next:State={...committed,turn:input.turn,budget:input.budget,messages:structuredClone(committed.messages),
       snapshots:new Map(committed.snapshots),native:new Map(committed.native),opaque:new Set(committed.opaque),privateResponses:new Set(committed.privateResponses)};
     const additions:Row[]=[],updates:Row[]=[],retired:string[]=[];
