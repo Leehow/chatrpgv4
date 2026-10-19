@@ -357,7 +357,10 @@ for(const mode of ['accepted','refused','dialogue','sparse-dialogue','wrapped-di
    assert.equal(task.result.outcomes[0].minutes,turn.receipts.find(r=>r.kind==='move').minutes);
    const current=await table.runtimeBridges().at(-1).call('table.capsule',{campaign:'test-camp'});
    assert.equal(task.decision_context.scene.description,current.public_scene.description,'current native scenery reaches the actual author task');
-   assert.deepEqual(task.decision_context.style,current.style,'the authored style data survives the native output owner');
+   assert.deepEqual(task.decision_context.style.axes,current.style.axes,'the authored style axes survive the native output owner');
+   assert.deepEqual(task.decision_context.style.floor,current.style.floor);
+   assert.equal(task.decision_context.style.language,current.style.language);
+   assert.ok(task.decision_context.style.directives.length,'turn-specific style selection survives without comparison to the next turn');
    assert.equal(task.result.player_actions_complete,true);assert.equal(task.settled_actions,undefined,'proposals are not reconstructed as committed results');
  }
  if(mode==='sparse-dialogue'||mode==='wrapped-dialogue'||mode==='offer-dialogue'){const task=JSON.parse(readFileSync(join(authors[0].attempt,'task.json'),'utf8'));assert.equal(task.npc_turns,undefined);assert.equal(task.decision_context.responses[0].mode,'speech_only');if(mode==='offer-dialogue')assert.equal(task.decision_context.responses[0].player_acceptance,'pending');assert.equal(task.decision_context.responses[0].claims[0].value.predicate,'planned_visit');assert.equal(task.decision_context.responses[0].claims[0].value.when.hour,12);assert.equal(task.decision_context.people[0].ref,packet.interactions[0].actor);assert.equal(typeof task.decision_context.people[0].name_known,'boolean');assert.equal(task.decision_context.people[0].name,task.decision_context.people[0].display_name);assert.equal(task.decision_context.people[0].knowledge,undefined);assert.equal(task.decision_context.people[0].keeper_note,undefined);}
