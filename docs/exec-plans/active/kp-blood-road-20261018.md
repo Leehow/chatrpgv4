@@ -1,5 +1,42 @@
 # Keeper contracts and Blood Road browser acceptance
 
+## Doctor latency follow-up, 2026-10-19
+
+Final retained source3a1ac54b6 is installed in the canonical stable-signed App.
+See docs/acceptance/doctor-kp-cache-latency-20261019.md for all successful and
+withdrawn trials. Root local defect: changing current values in output tool
+definitions breaks tools -> system -> history prefix reuse. The fixed structural
+tool head now carries exact current parameter schema data at the request tail.
+The kernel extension has no net change againstdea5d5ff3: no additional validation
+pass, judgment model, prompt reminder or altered transaction/admission authority.
+Compact parameter data and a redundant full-schema gate were withdrawn after
+real failures; those records remain. Do not silently revive either trial.
+
+The historical27.746s doctor generation spends15.733s before HTTP headers versus
+3.816s in the10.936s control; first content follows headers in2ms in both.
+Both are almost cold. Final doctor is4.245s KP/1.945s first increment/13.317s
+whole turn, but a journal checkpoint and provider variability confound causal
+cache attribution. The4-intent final sequence costs67.933s including an extra
+pickup clarification,5 KP/5 authors/5 outputs, zero parameter refusal/retrieval.
+It does not establish fewer rounds, universal correctness or stable speedup.
+
+Final related LAN198/198, fast130/130, language5/5 pass. The broader48155 run
+retains its10 extension failures (8 old schema-location assertions,1 redundant
+gate regression,1 pre-existing caption inventory) and1 campaign-create timeout.
+All newly affected cases and the timeout file rerun green in the198-case final
+batch; the unused-caption baseline is not edited or claimed fixed.
+
+Actual final App movement and dialogue complete at UI21/12s (kernel-to-delivery
+16.164/10.969s); MiniMax3.1/medium is verified. Native frame capture shows partial
+prose on screen before the provider's last delta and publication completion,
+proving real visible SSE for the sampled turn.121runtime files match, strict
+signature passes, staging is empty, canonical path is unique. Previous App
+uncertain consent and incomplete expanded answer remain known limitations.
+All final driver/withdrawn run daemons are stopped and raw evidence preserved.
+Lifecycle closeout classifies the terminal owned checkout as
+retained_verification_failed; its dependency symlinks and failure evidence are
+retained. The known broad caption failure is not a claimed full-suite pass.
+
 ## Parallel preparation follow-up (owner approved 2026-10-19)
 
 New approved scope: prefetch independent material and overlap existing decisions
