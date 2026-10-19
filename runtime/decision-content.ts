@@ -67,7 +67,11 @@ const digest=(x:unknown)=>createHash('sha256').update(JSON.stringify(x)).digest(
 const MATERIAL_FIELDS=['knowledge','knows','authored_knowledge','knowledge_reports','cognition','recent_speech','commitments','believes','authored_beliefs'] as const;
 /** Epistemic material has one selectable catalog, not a second implicit disclosure path. */
 export function decisionCharacter(person:Row):Row {
- return Object.fromEntries(Object.entries(person).filter(([key])=>!(MATERIAL_FIELDS as readonly string[]).includes(key)&&key!=='observed_documents'));
+ const result=Object.fromEntries(Object.entries(person).filter(([key])=>!(MATERIAL_FIELDS as readonly string[]).includes(key)&&!['observed_documents','tried'].includes(key)));
+ if(result.ledger&&typeof result.ledger==='object'){
+  const {intents,...ledger}=result.ledger;result.ledger=ledger;
+ }
+ return result;
 }
 interface Fact {ref:string;actor?:string;kind:string;availability:'current'|'supplemental';value:unknown;revision:string}
 /** Aliases survive unchanged material; current issuance and scoped contents do not. */
@@ -118,6 +122,11 @@ export class DecisionContent {
    }
    for(const document of rows(person.observed_documents))if(typeof document.writing==='string'&&document.writing.trim())
     this.issue('fact',document,person.ref,'observed_document');
+   for(const intent of [...rows(person.ledger?.intents),...rows(person.tried)]){
+    const statement=intent.intent??intent.text;
+    if(typeof statement==='string'&&statement.trim())this.issue('fact',{statement,status:intent.status,
+     since_turn:intent.since_turn,turn:intent.last_turn??intent.turn},person.ref,'npc_intention');
+   }
   }
   for(const clue of rows(capsule.known?.clues_here))if(clue.discovered===true&&typeof clue.summary==='string')
    this.issue('fact',{name:clue.name,summary:clue.summary},undefined,'discovered_source_clue','current');

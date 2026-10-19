@@ -58,6 +58,15 @@ test('character projection cannot bypass the selected catalog with duplicate kno
  const person={ref:'npc_1',display_name:'Clerk',state:{mood:'calm'},knows:[{summary:'Past claim'}],knowledge:['Claim'],observed_documents:[{writing:'Observed claim'}],recent_speech:[{statement:'Spoken claim'}]};
  assert.deepEqual(decisionCharacter(person),{ref:'npc_1',display_name:'Clerk',state:{mood:'calm'}});
 });
+test('existing own plans are selectable attributed plans, never executed results or another actor knowledge',()=>{
+ const owner=new DecisionContent(),intent={ref:'internal-ref',text:'Develop the film before tomorrow noon.',status:'planned',since_turn:2,last_turn:2};
+ const view=owner.prepare('c:1',capsule,[{ref:'npc_1',ledger:{intents:[intent]}}]);
+ const fact=view.facts.find(fact=>fact.kind==='npc_intention');assert.ok(fact);
+ assert.equal(fact.availability,'supplemental');assert.equal(fact.actor,'npc_1');assert.equal(fact.value.status,'planned');
+ assert.equal(fact.value.ref,undefined);assert.equal(owner.resolve({fact_ref:fact.ref},'npc_1').value.statement,intent.text);
+ assert.throws(()=>owner.resolve({fact_ref:fact.ref},'npc_2'),/another actor/);
+ assert.deepEqual(decisionCharacter({ref:'npc_1',tried:[intent],ledger:{intents:[intent],stance:'neutral'}}),{ref:'npc_1',ledger:{stance:'neutral'}});
+});
 test('exact prepared actor facts preserve attribution and exclude unselected private causes',()=>{
  const owner=new DecisionContent(),view=owner.prepare('c:1',capsule,[],[{name:'Public text',text:'Exact original fragment.'}],['Investigator']);
  assert.ok(!JSON.stringify(view).includes('PRIVATE_CAUSE'));

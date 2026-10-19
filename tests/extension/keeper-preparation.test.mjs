@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {createHybridEngine} from '../../runtime/jev/hybrid-engine.ts';
 import {preparationPeople} from '../../runtime/jev/keeper-preparation.ts';
+import {DecisionContent} from '../../runtime/decision-content.ts';
 
 const signal=new AbortController().signal;
 const deferred=()=>{let resolve;const promise=new Promise(done=>{resolve=done;});return{promise,resolve};};
@@ -34,7 +35,9 @@ function fixture({input='I ask Vera where to find Doctor Bob.',read,decision,ser
     if(!serial)return invoke(method,args);
     const result=tail.then(()=>invoke(method,args));tail=result.catch(()=>{});return result;
   };
-  host.events.emit('coc:kernel-bridge',{campaign:'c1',call,timeBands:()=>call('fixture.bands',{})});
+  const materials=new DecisionContent();
+  host.events.emit('coc:kernel-bridge',{campaign:'c1',call,timeBands:()=>call('fixture.bands',{}),
+    decisionMaterials:(capsule,people)=>materials.prepare('c:1',capsule,people)});
   host.events.emit('coc:operation-dispatcher',{dispatch:async()=>{throw Error('No writes in preparation test');}});
   const prepare=run=>engine.runDriver.prepare({runId:run,inputRevision:run,rawInput:input,session:{}});
   const prepared=prepare('first');
@@ -50,6 +53,13 @@ test('the first Keeper context includes an explicitly named offstage person by i
   assert.ok(context.people.some(person=>person.summary==='PRIVATE_CARD_npc_2'));
   assert.deepEqual(f.reads.sort(),['npc_2','vera']);
   assert.equal(context.people.some(person=>person.summary==='PRIVATE_CARD_npc_3'),false);
+});
+test('deduplicated preparation retains actor binding so its fresh material reaches the catalog',async()=>{
+ const f=fixture(),context=await f.project();
+ for(const [ref,value]of [['npc_1','KNOWN_vera'],['npc_2','KNOWN_npc_2']])
+  assert.ok(context.decision_materials.facts.some(fact=>fact.actor===ref&&fact.value===value),ref);
+ assert.ok(context.people.every(person=>person.ref));
+ assert.ok(context.people.every(person=>person.knowledge===undefined));
 });
 
 test('unchanged same-input projections reuse preparation; a write or new input reads fresh',async()=>{

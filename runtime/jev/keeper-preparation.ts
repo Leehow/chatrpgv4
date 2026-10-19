@@ -55,10 +55,12 @@ export class KeeperPreparation {
       try{
         const full=object(await this.options.call('table.look',{focus:'npc',name:identity,_context_read:true}));
         assertCurrent();
+        if(full.ref&&person.ref&&full.ref!==person.ref)throw Error('keeper_preparation_actor_changed');
         const voice=array(capsule.voices).find(voice=>voice.name===person.name)??{};
         // Only exact duplicate fields already supplied by the capsule are omitted.
-        return Object.fromEntries(Object.entries(full).filter(([field,value])=>field==='name'
-          ||full.name!==person.name||![person,voice].some(supplied=>Object.hasOwn(supplied,field)&&JSON.stringify(supplied[field])===JSON.stringify(value))));
+        return {...Object.fromEntries(Object.entries(full).filter(([field,value])=>field==='name'||field==='ref'
+          ||full.name!==person.name||![person,voice].some(supplied=>Object.hasOwn(supplied,field)&&JSON.stringify(supplied[field])===JSON.stringify(value)))),
+          ...(isNpcReference(person.ref)?{ref:person.ref}:{})};
       }catch{
         assertCurrent();
         return{name:person.name??person.display_name,...(person.ref?{ref:person.ref}:{}),coverage:'unavailable; use look if needed'};

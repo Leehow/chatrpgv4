@@ -48533,6 +48533,11 @@ The author receives no automatic previous-input quotations; needed history must
 arrive through selected material. Carried private writing is narration-only;
 NPC speech selects that actor's own observed excerpt, never an investigator's
 possession as an implicit grant of knowledge.
+Prepared NPC cards retain the issued actor reference even when duplicate fields
+are omitted. Their knowledge and bounded own-intention records enter the same
+actor-scoped supplemental catalog; omitting an identity during deduplication
+must not silently discard the newly read material. An intention retains its
+planned/attempted/terminal status and never becomes an executed outcome.
 
 The v4 output tool's structural JSON Schema is invariant across scene, actor,
 material and route changes. The host supplies the exact current parameter schema
