@@ -49,11 +49,15 @@ test('current carried writing is selectable without promoting historical speech 
 });
 test('an actor observed document remains attributed and never grants another actor knowledge',()=>{
  const owner=new DecisionContent(),observed={document:'Collection receipt',revision:2,observed_turn:2,writing:'Collect tomorrow at noon.',scope:'excerpt'};
- const prepared=owner.prepare('c:1',capsule,[{ref:'npc_1',observed_documents:[observed]}]);
+ const prepared=owner.prepare('c:1',capsule,[{ref:'npc_1',observed_documents:[observed]}],[],['Investigator']);
  const fact=prepared.facts.find(fact=>fact.kind==='observed_document');assert.ok(fact);
  assert.equal(fact.availability,'supplemental');assert.deepEqual(owner.resolve({fact_ref:fact.ref},'npc_1').value,observed);
  assert.throws(()=>owner.resolve({fact_ref:fact.ref},'npc_2'),/another actor/);
  const schema=turnPacketParameterSchema(false,undefined,undefined,false,owner.bindings());
+ const uncorrelated=turnPacketParameterSchema(false,undefined,undefined,false,{...owner.bindings(),factActors:undefined});
+ assert.equal(Errors(uncorrelated,{version:4,interactions:[{actor:'npc_2',to:['investigator_1'],act:'answer',content:[{fact_ref:fact.ref}]}]}).length,0,'existence-only binding reproduces the original wrong-actor gap');
+ assert.ok(Errors(schema,{version:4,interactions:[{actor:'npc_2',to:['investigator_1'],act:'answer',content:[{fact_ref:fact.ref}]}]}).length,'issued fact references must remain correlated with their owning actor');
+ assert.equal(Errors(schema,{version:4,interactions:[{actor:'npc_1',to:['investigator_1'],act:'answer',content:[{fact_ref:fact.ref}]}]}).length,0);
  assert.ok(Errors(schema,{version:4,reveal:[{fact_ref:fact.ref}]}).length,'an actor-scoped observation cannot be offered as unscoped narration');
 });
 test('character projection cannot bypass the selected catalog with duplicate known or observed facts',()=>{

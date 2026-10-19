@@ -48537,6 +48537,9 @@ Narration references enumerate only unscoped material. Actor-scoped speech,
 observations and plans remain available inside that actor's interaction, not in
 the unscoped reveal array. The issued schema and existing hydration agree on
 this scope; no second validation pass is added.
+For interaction content, the current parameter schema also correlates an issued
+actor-scoped fact reference with its owning actor using JSON Schema conditions.
+Reference existence alone never permits a different speaker to select it.
 Prepared NPC cards retain the issued actor reference even when duplicate fields
 are omitted. Their knowledge and bounded own-intention records enter the same
 actor-scoped supplemental catalog; omitting an identity during deduplication
