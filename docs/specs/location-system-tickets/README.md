@@ -1,6 +1,7 @@
 # Enhanced Locations Mod implementation ledger
 
-Status: active. Owner approval: 2026-10-19, including specification, tickets,
+Status: locally complete; publication not requested. Owner approval: 2026-10-19,
+including specification, tickets,
 implementation and real multi-place stress testing. The owner explicitly requires
 a location enhancement Mod and permits necessary kernel changes.
 
@@ -34,12 +35,12 @@ with all old context and registration gates intact is hollow completion.
 
 | Slice | Issue | State | Outcome |
 |---|---|---|---|
-| EL-00 | [#115](https://github.com/Leehow/chatrpgv4/issues/115) | specified | Normative contract, Mod boundary and acceptance plan |
-| EL-01 | [#116](https://github.com/Leehow/chatrpgv4/issues/116) | implemented; validation active | Versioned package, capability, stable state and graph/read projection |
+| EL-00 | [#115](https://github.com/Leehow/chatrpgv4/issues/115) | specified; locally accepted | Normative contract, Mod boundary and acceptance plan |
+| EL-01 | [#116](https://github.com/Leehow/chatrpgv4/issues/116) | implemented; locally validated | Versioned package, capability, stable state and graph/read projection |
 | EL-02 | [#117](https://github.com/Leehow/chatrpgv4/issues/117) | implemented; RPC regression passed | Atomic Mod writes, creation, local position, passages, feature continuity |
-| EL-03 | [#118](https://github.com/Leehow/chatrpgv4/issues/118) | implemented; host regression active | Separate place tool, native decisions, admission and final author consumption |
-| EL-04 | [#119](https://github.com/Leehow/chatrpgv4/issues/119) | implemented; projection regression active | Demand-loaded Mod contract/material, history projection and request evidence |
-| EL-05 | [#120](https://github.com/Leehow/chatrpgv4/issues/120) | in progress | Regression, real travel stress, restart/return continuity and final report |
+| EL-03 | [#118](https://github.com/Leehow/chatrpgv4/issues/118) | implemented; host and live paths validated | Separate place tool, native decisions, admission and final author consumption |
+| EL-04 | [#119](https://github.com/Leehow/chatrpgv4/issues/119) | implemented; projection and live demand validated | Demand-loaded Mod contract/material, history projection and request evidence |
+| EL-05 | [#120](https://github.com/Leehow/chatrpgv4/issues/120) | locally complete; existing baseline failure recorded | Regression, real travel stress, restart/return continuity and final report |
 
 The contract and per-issue acceptance govern the slices. Record actual completion,
 commits and validation here at meaningful milestones; do not close on code alone
@@ -186,3 +187,19 @@ when a ticket requires live evidence.
 - `repair14` turn 10 then exposed an overconstraint in completion review: semantic accounting (.58 then .49) vetoed an actual legacy room-to-lobby move before ordinary admission. Coverage version 4 now reuses the input's independent selection probabilities and accounts for typed operation classes in code. Mandatory consent remains the sole target/scope authority. Only a selected missing dimension asks its obstacle question; a real operation needs no duplicate completion inference. Empty/time-only replacement still fails its missing dimension.
 - The context discovery clone also retains the selected `context` families instead of dropping that third set. No destination is selected or authorized by discovery.
 - Version 4 unit checks 27/27, native correction components 2/2, fast gate 130/130 and the kernel TypeScript check pass. Runtime fetched from LAN `run.aTSNpLcn`, including the recorded working-tree overlay. Active real run is `enhanced-locations-live-20261019-repair15` on the same campaign; final full regression and restart/state continuity remain required.
+
+## Final live acceptance
+
+- Production repair `5d6a1a308` is committed. `repair15` genuinely returned from the room to the existing front desk; actual completion metadata records `jev_calls:0`, preserving ordinary admission and successful registered-reference correction.
+- Before/after a stopped/restarted driver, the room definition, window state and front-desk position compare exactly equal. The retained `restart` run later committed a window-side position and described the original narrow crack, then closed the back window while preserving its broken latch. Read-only RPC confirms the actual state; neither uncommitted proposals nor failed deliveries count as arrivals.
+- A fresh campaign, `locations-cold-20261019`, in the same private workspace used canonical pregen creation. It visited the authored Corbitt exterior, established/entered an unregistered pharmacy, approached its counter, returned to the authored place, used standalone `place inspect` and revisited the same pharmacy. Complete definitions/features compare equal; a final separate local move committed the counter position. The real run was stopped normally after turn 10.
+- Keep failures visible: a composite restart command failed on feature/NPC parameters without committing; the next arrival committed but its author received an actual MiniMax HTTP 504. Another restart turn and fresh observation failed the native publication protocol. Fresh commission transfer corrected an invalid owner but encountered held-act publication after settlement. None is counted as successful location delivery, and none was repaired by changing campaign facts or widening into unrelated subsystems.
+- Actual Keeper, author and NPC assistant metadata all report MiniMax M3.1/medium (`live-all-profile-audit.json`); no quota exhaustion or model substitution occurred. The shared private workspace plus all raw live runs is approximately 67 MiB, below the admitted 512 MiB bound, with no evidence deletion.
+- Final LAN `all` completed against `5d6a1a308`; the complete native-output file is 55/55, including both pressure cases. Full results follow below. The compact acceptance report is `docs/acceptance/enhanced-locations-20261019.md`.
+
+## Final regression and handoff
+
+- Complete final LAN `run.sq9sNUff` at `5d6a1a308`: extension 6243 total / 6233 pass / 1 fail / 9 skipped; native integration 2237/2237; routing 12/12; overall exit 1, 1162 seconds. The only failure is the unchanged, pre-existing unused caption guard. No new regression remains.
+- Native metadata confirms exit 0 and JUnit has zero failure/error nodes. Its 2236 leaf cases plus one parent suite match Node's 2237 pass summary. Both files and the source SHA-256 manifest are retained locally under `.coc/test-runs/enhanced-locations-20261019/final3-*`; critical implementation hashes match this checkout. The remote full-run archive preserves logs, source head, empty source diff, exit files and fixtures.
+- The final main/cold driver processes stopped normally, with no remaining owned campaign process. Final main state preserves the closed back window/broken latch and the original room; the cold campaign ends at the original pharmacy counter. All raw failed and successful evidence remains.
+- Acceptance report: [Enhanced Locations Mod acceptance](../../acceptance/enhanced-locations-20261019.md). Implementation and required acceptance are locally complete. Issues #115–#120 remain open pending publication; no push or App installation was requested/performed. Known provider/native publication limitations remain in the report rather than being counted as passing turns.
