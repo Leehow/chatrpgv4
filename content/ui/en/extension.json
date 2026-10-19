@@ -92,5 +92,15 @@
   "table_open": "{title}  turn {turn}  {scene}",
   "table_scene_unknown": "unknown scene",
   "table_value_unknown": "?",
-  "turn_unfinished_notice": "This turn ended without a delivered result. Anything already settled is kept — send anything to continue."
+  "turn_unfinished_notice": "This turn ended without a delivered result. Anything already settled is kept — send anything to continue.",
+  "turn_failure_output_path": "The final response could not be written because its output path is not a directory (ENOTDIR).",
+  "turn_failure_admission": "The action review could not confirm the selected action, so that action was not carried out.",
+  "turn_failure_invalid_output": "The final response could not be read because its structured output was invalid.",
+  "turn_failure_interrupted": "The response was interrupted before completion.",
+  "turn_failure_missing_output": "The Keeper ended its response without submitting a final result.",
+  "turn_failure_operation": "The {operation} step failed (error: {code}). Open technical details for the recorded cause.",
+  "turn_failure_no_settlement": "No actions were settled.",
+  "turn_failure_settlement_kept": "Already settled actions are retained.",
+  "turn_failure_settlement_unknown": "Settlement status could not be verified.",
+  "turn_failure_details": "Technical details"
 }

@@ -4,9 +4,9 @@ import assert from 'node:assert/strict';
 import {nativeSearchState, clearNativeSearchState, setNativeSearchPolicy, nativeSearchPayload, nativeSearchEvent,
   nativeSearchCapability, nativeSearchStream} from '../../runtime/native-search.js';
 import {getApiProvider} from '@earendil-works/pi-ai/compat';
-const model={id:'deepseek-flash',provider:'deepseek-extended',name:'DeepSeek',api:'openai-responses',baseUrl:'https://api.deepseek.com',
+const model={id:'claude',provider:'anthropic',name:'Anthropic',api:'anthropic-messages',baseUrl:'https://api.anthropic.com',
   capabilities:{nativeSearch:{tools:['web_search']}},reasoning:false,input:['text'],cost:{input:0,output:0,cacheRead:0,cacheWrite:0},contextWindow:1000000,maxTokens:2048};
-const policy={campaign:'campaign',worldline:'main',loop:0,run:'run',step:'step',enabled:true,allowed:true,model:'deepseek-extended/deepseek-flash'};
+const policy={campaign:'campaign',worldline:'main',loop:0,run:'run',step:'step',enabled:true,allowed:true,model:'anthropic/claude'};
 const note={role:'user',content:JSON.stringify({kind:'single_loop_step',native_search_scope:{run:'run',step:'step'}}),timestamp:1};
 afterEach(clearNativeSearchState);
 function enable(){setNativeSearchPolicy(policy);return nativeSearchState();}
@@ -25,14 +25,14 @@ function sse(content,stop,id){return events(content,stop,id).map(e=>`event: ${e.
 const originals=[{type:'server_tool_use',id:'srv-search',name:'web_search',input:{query:'1920s newsroom'}},
  {type:'web_search_tool_result',tool_use_id:'srv-search',content:[{type:'web_search_result',title:'Period source',url:'https://museum.example/source',encrypted_content:'opaque-source-body'}]}];
 const gameTool={type:'tool_use',id:'tool-game',name:'look',input:{focus:'scene'}};
-const run=nativeSearchStream((m,c,o)=>getApiProvider(m.api).streamSimple(m,c,o),{api:'anthropic-messages',baseUrl:'https://api.deepseek.com/anthropic'});
+const run=nativeSearchStream((m,c,o)=>getApiProvider(m.api).streamSimple(m,c,o),{api:'anthropic-messages',resume:true});
 function options(fetch){return {apiKey:'test-only-not-a-real-key',maxTokens:2048,cacheRetention:'none',onPayload:body=>nativeSearchPayload(body,model),
  onProviderStreamEvent:(data,physical)=>nativeSearchEvent({data,provider:physical.provider,model:physical.id}),fetch};}
 test('official capabilities are protocol-specific; unknown and Responses-only gateways are not inferred',()=>{
  assert.equal(nativeSearchCapability({...model,provider:'unknown'}),undefined);
  assert.equal(nativeSearchCapability({...model,provider:'grok-build',capabilities:{nativeSearch:{tools:[]}}}),undefined);
  assert.equal(nativeSearchCapability({...model,baseUrl:'https://unverified-proxy.example'}),undefined);
- assert.equal(nativeSearchCapability(model).route,'deepseek-messages');
+ assert.equal(nativeSearchCapability({...model,id:'deepseek-flash',provider:'deepseek-extended',api:'openai-responses',baseUrl:'https://api.deepseek.com'}).route,'deepseek-search-api');
  assert.equal(nativeSearchPayload({input:[],tools:[{type:'function',name:'web_search'}]},{...model,provider:'unknown'}),undefined);
 });
 test('Mod/grant/model gates remove hosted search without changing game tool declarations or forcing tool_choice',()=>{
@@ -127,7 +127,9 @@ test('the native-search launch mount has a required emitted runtime entry',async
 });
 
 test('DeepSeek fallback Responses never advertises a search tool that its server ignores',()=>{
- enable();const result=nativeSearchPayload({input:[],tools:[{type:'function',name:'look'}]},model);
+ const deepseek={...model,id:'deepseek-flash',provider:'deepseek-extended',api:'openai-responses',baseUrl:'https://api.deepseek.com'};
+ setNativeSearchPolicy({...policy,model:'deepseek-extended/deepseek-flash'});
+ const result=nativeSearchPayload({input:[],tools:[{type:'function',name:'look'}]},deepseek);
  assert(!result.tools.some(tool=>tool.type==='web_search'));
 });
 

@@ -1,5 +1,48 @@
 # Keeper contracts and Blood Road browser acceptance
 
+## Whole-intent comparison (owner approved 2026-10-19)
+
+The acceptance question is whether material reuse and structured Keeper decisions
+preserve ordinary play while reducing the time to complete a player intention.
+Local seam regressions, cache-read tokens and publication alone do not answer it.
+No new judgment model, prompt patch or production optimization is authorized by
+this measurement batch. Other-owner dirty search/notice work stays excluded.
+
+Use the committed 2be99914d tree and its canonical signed App. First compare the
+existing same-revision legacy decision mode (packet=0, isolated author=1) with
+the current default native packet mode. Both retain the same material facilities
+and MiniMax M3.1 Flash Preview / medium for all lanes. This isolates the decision
+interface; it is not a reconstruction of the product before all reuse changes.
+Keep this limitation explicit instead of attributing the whole difference to
+both changes. Historical runs are context only unless their controls match.
+
+Capture one quiescent retained campaign seed through test-workspace.mjs and
+materialize private CoW arms. Use the real RPC driver, one natural player input
+per actual response; no generated player script, synthetic settlement or edited
+campaign state. Warm same-scene dialogue, known movement and genuine exploration
+must be distinguished. Every refusal/retry belongs to its complete intention.
+Report full wait, first public text, Keeper/author requests, tool/retrieval calls,
+actual state and actor/item continuity. Startup is separate; cold/warm results
+are explicit. Small samples are descriptive, not a statistical speed guarantee.
+
+Audit actual sent material identities across adjacent turns and source-answer
+retirement. prepared_material_reuse is same-turn option reuse (turn equality is
+required), not proof of a persistent cross-turn working set. Existing held source
+answers, current NPC hydration and retained history must be counted separately.
+Browser acceptance observes provider deltas and painted text before completion;
+canonical App startup/signature/resource provenance is a separate gate.
+
+Measurement precedent: Google Benchmark's user guide separates warm-up and
+repetitions (https://github.com/google/benchmark/blob/main/docs/user_guide.md).
+NVIDIA GenAI-Perf separates first-token, request and inter-token latency
+(https://docs.nvidia.com/deeplearning/triton-inference-server/archives/triton-inference-server-2640/user-guide/docs/perf_benchmark/genai-perf-README.html).
+Their micro/server workloads do not establish gameplay correctness or eliminate
+provider variance; retain real natural play and report whole-intent outcomes.
+
+Current state: canonical App packaging exited0 from2be99914d, stable certificate
+108232C5A713C15A869FC4C267E18D2E35CD276C. App launch/browser acceptance remains.
+The LAN all run.yWhVbJYn is still executing. No new player input since80 yet.
+
 ## Current apply recovery batch (2026-10-19)
 
 Current production code is e7bfe0852 on0.9.8a and the owned validation branch.

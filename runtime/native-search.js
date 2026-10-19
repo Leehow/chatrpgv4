@@ -1,4 +1,4 @@
-/** Provider-hosted search and exact protocol replay. No external search client or reference library. */
+/** Provider search grants, transport routing and exact protocol replay. */
 import {createHash} from 'node:crypto';
 import {getApiProvider} from '@earendil-works/pi-ai/compat';
 import {AssistantMessageEventStream} from '@earendil-works/pi-ai/utils/event-stream';
@@ -29,6 +29,15 @@ export function clearNativeSearchState() {
 }
 export function nativeSearchCapability(model) {
   const api = model?.api, provider = model?.provider;
+  if (provider === 'opencode-go' && api === 'openai-completions'
+    && ['deepseek-v4.1-flash','deepseek-v4-flash','deepseek-v4-pro'].includes(model.id)) {
+    try {
+      const url = new URL(model.baseUrl);
+      if (url.origin === 'https://opencode.ai' && ['/zen/go/v1','/inference/go/openai/v1'].includes(url.pathname.replace(/\/$/,''))) {
+        return {api,tools:['web_search'],route:'opencode-keyless-search'};
+      }
+    } catch { return; }
+  }
   const extension = nativeSearchState().capabilities?.get(provider);
   if (extension && api === extension.api) {
     if (extension.models && !extension.models.includes(model.id)) return;
@@ -37,7 +46,7 @@ export function nativeSearchCapability(model) {
   }
   const origins={'deepseek-extended':['https://api.deepseek.com'],'openai':['https://api.openai.com'],'openai-codex':['https://chatgpt.com','https://api.openai.com'],'google':['https://generativelanguage.googleapis.com'],'anthropic':['https://api.anthropic.com'],'grok-build':['https://api.x.ai']};
   if (model?.baseUrl) {try {if (!origins[provider]?.includes(new URL(model.baseUrl).origin)) return;} catch {return;}}
-  if (provider === 'deepseek-extended' && api === 'openai-responses' && model.capabilities?.nativeSearch?.tools?.includes('web_search')) return {api: 'anthropic-messages', tools: ['web_search'], route: 'deepseek-messages'};
+  if (provider === 'deepseek-extended' && api === 'openai-responses' && model.capabilities?.nativeSearch?.tools?.includes('web_search')) return {api, tools: ['web_search','web_fetch'], route: 'deepseek-search-api'};
   if (api === 'openai-codex-responses' && provider === 'openai-codex') return {api, tools: ['web_search']};
   if (api === 'openai-responses' && provider === 'openai') return {api, tools: ['web_search']};
   if (api === 'google-generative-ai' && provider === 'google' && (model.capabilities?.nativeSearch?.tools?.includes('web_search') || /^gemini-3(?:[.-])/.test(model.id))) return {api, tools: ['web_search']};
@@ -120,7 +129,7 @@ function completeExactProtocol(record) {
   return calls.size === results.size;
 }
 function restore(payload, api, model, binding) {
-  const records = nativeSearchState().records.filter(r => r.api === api && r.model === `${model.provider}/${model.id}` && r.campaign === binding?.campaign && r.worldline === binding?.worldline && r.loop === binding?.loop && (!r.exactReplay || completeExactProtocol(r)));
+  const records = nativeSearchState().records.filter(r => !r.transport && r.api === api && r.model === `${model.provider}/${model.id}` && r.campaign === binding?.campaign && r.worldline === binding?.worldline && r.loop === binding?.loop && (!r.exactReplay || completeExactProtocol(r)));
   if (!records.length) return payload;
   if (api === 'anthropic-messages') return {...payload, messages: (payload.messages ?? []).map(message => {
     if (message.role !== 'assistant') return message;
@@ -150,6 +159,8 @@ export function nativeSearchPayload(payload, model) {
   if (!payload || typeof payload !== 'object') return;
   const state = nativeSearchState(), policy = state.policy, capability = nativeSearchCapability(model);
   if (!capability || !policy?.campaign) return;
+  // Private retrieval owners dispatch functions and restore normalized pairs themselves.
+  if (['deepseek-search-api','opencode-keyless-search'].includes(capability.route)) return {...payload,tools:withoutLocalSearch(payload.tools).filter(tool => !searchTool(tool) && tool.name !== 'web_fetch')};
   const api = Array.isArray(payload.messages) && capability?.route ? 'anthropic-messages' : model.api;
   let body = restore(payload, api, model, policy);
   const allowed = nativeSearchAllowed(model) && (!capability.route || api === capability.api) && body.tool_choice !== 'none'

@@ -529,6 +529,24 @@ verb and does not modify the separate active-cache extension.
 
 Historical Reference uses the shared native-search request/stream adapter (kernel contract §124.12). It declares hosted tools on verified provider protocols and records original server blocks as private session entries before Pi normalization. Request replay restores those blocks only beside their matching assistant message, campaign/worldline and model. Google generateContent uses SDK config.tools. DeepSeek keeps its ordinary Responses provider and all other handlers; granted foreground search and its same-run continuation use the verified Anthropic Messages transport. Child lanes do not inherit the host-issued run/step note. Exa, its query lane, independent reference library and secret control are retired; existing evidence is preserved. No Pi source patch or new standalone research model is introduced.
 
+**2026-10-17 amendment:** DeepSeek keeps Responses for search-enabled requests too.
+Its provider-private `web_search`/`web_fetch` functions call the official
+`/v1/tools/search` and `/v1/tools/fetch` JSON APIs with the resolved conversation
+credential, then continue the same Pi stream. The Messages search route above is
+historical. Normalized private call/result pairs use the existing search journal,
+with a distinct transport marker and assistant anchor; only the matching current
+foreground scope can retrieve or replay them. No Keeper tool is registered. Other
+providers retain their hosted declarations and original protocol replay. See the
+2026-10-17 amendment in kernel contract §124.12 for bounds and failure behavior.
+
+**2026-10-18 Go amendment:** An explicit stream-only override for Go DeepSeek
+models reuses the private retrieval/replay owner with the OpenCode client's
+unauthenticated Exa MCP search backend. Go keeps Chat Completions, its catalog,
+credential and attribution headers; no Go key leaves for the search endpoint.
+DS direct remains on official Search/Fetch. The foreground Mod grant is shared,
+but transports and replay stay model-bound and independently identified. This
+does not call the separate Console hosted-search endpoint. See kernel §124.12.
+
 ## 2026-10-13: RunDriver final-expression phase
 
 Approved specification: docs/specs/run-driver-streaming-output.md; kernel contract section 236. The same input RunDriver schedules final expression after an explicit prepared-material handoff, through the existing product operation port. The preparation tool does not run the author. The existing tool-enabled Pi child receives public material initially and returns an incrementally decoded artifact; only its text field travels to the parent delivery stream. Existing provider selection, budget, cancellation and task confinement remain. No raw provider path, second run loop or new HTTP service is introduced. Stable delivery events use existing RPC/IPC transport and journal/replay identity; the run ends successfully only after canonical publication. Implementation and acceptance remain pending.

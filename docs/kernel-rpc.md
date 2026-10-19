@@ -20871,13 +20871,88 @@ SL-44 ticket's Comments.
 
 **Native search replacement (owner, 2026-10-09).** This addendum supersedes the Exa retrieval, query-author lane, source-selection batch, scene-prefetch store, price-anchor library, catalog/read/saved lookup modes and background Deep-lite rules below. Historical Reference now enables provider-hosted search inside the same foreground Pi Keeper inference. No external search client, auxiliary researcher, generated-summary handoff or independent reference library is created. Existing reference files and play evidence are preserved but never read or written by this path.
 
-- The generic Pi native-search adapter owns request declarations and exact provider-protocol continuation. It supports official OpenAI/Codex Responses, xAI Responses, Google generateContent and Anthropic Messages according to verified provider capabilities. Unsupported gateways are unavailable, never guessed from a model's name. Google SDK tools live under config.tools. DeepSeek Responses cannot search; only foreground search-enabled DeepSeek requests use its verified Anthropic-compatible Messages transport. All other DeepSeek extension behavior and non-search requests retain their existing transport and handlers.
+- The generic Pi native-search adapter owns request declarations and exact provider-protocol continuation. It supports official OpenAI/Codex Responses, xAI Responses, Google generateContent and Anthropic Messages according to verified provider capabilities. Unsupported gateways are unavailable, never guessed from a model's name. Google SDK tools live under config.tools. DeepSeek uses the official Search/Fetch APIs described in the 2026-10-17 amendment below. All other DeepSeek extension behavior and non-search requests retain their existing transport and handlers.
 - The active campaign Mod and the existing historical need/interruption decision grant optional search for the current Keeper step. Setup, child lanes, disabled Mods and unrelated requests do not inherit it. A stable session binding is checked before each request; model, campaign, worldline and run changes revoke the grant. The Keeper chooses queries in its ordinary inference. Search failure or absence creates no gameplay obligation and never authorizes an action, roll or world change.
 - Provider-native search results remain untrusted external reference. Authored fiction, previously delivered details, quotations and kernel receipts remain primary. References may inform compatible appearance, practices and NPC dialogue, with actual source period/place/units preserved. Ordinary new-item quotations use established scales; only a concrete player challenge calls for a targeted price check. References never supply hidden module truth, consent or settled effects.
 - Original server tool/result blocks and source metadata are captured before Pi normalization and retained only as session entries and telemetry. The outgoing request restores original protocol blocks when their corresponding assistant message is still present. Content identity and native call ids bind restoration; compaction never invents missing evidence, and another campaign/model cannot receive it. No model copies encrypted source bodies, provider ids or call ids. Search records are distinct from kernel tool execution and must not be executed locally.
 - Search declarations coexist with game functions. The host does not force tool_choice=none after searching. A native search followed by an ordinary game tool call must retain the server tool/result pair and the local call/result pair in the next provider request. Anthropic pause_turn is continued with the original blocks, not counted as a delivered Keeper answer. Cancellation and provider errors keep their ordinary semantics.
 - The profile-installed DeepSeek auth-provider module uses the same compiled extension bundle as its agent entry, including the shared native-search adapter. Its exported provider and host factories keep their existing contract. Raw cross-package source imports must not survive profile installation; loading the installed provider must work without a repository runtime directory beside the writable profile.
 - Three ends: the provider writes native search blocks; the Pi request/stream adapter captures and restores them; the same Keeper uses them and invokes the existing game gateway. Validation checks actual outbound requests and native events, followed by real driver play for search -> game tools -> narration. Direct API probes and offline protocol fixtures are separate evidence.
+
+**DeepSeek official Search/Fetch replacement (owner, 2026-10-17).** Keep the
+`deepseek-flash` model id: the official API serves V4.1 Flash 1017 under that id
+without a client migration. Replace the DeepSeek-only Messages search route with
+`POST https://api.deepseek.com/v1/tools/search` and `/v1/tools/fetch`. Flash still
+ignores the Responses hosted `web_search` declaration; do not send that declaration
+or switch conversation protocols. Official references: [API guide](https://api-docs.deepseek.com/guides/search/),
+[Responses compatibility](https://api-docs.deepseek.com/guides/responses_api/), and
+[Harness direct API implementation](https://github.com/deepseek-ai/deepseek-harness/tree/master/packages/web/web-deepseek-api).
+The guide and Harness agree on direct retrieval without an auxiliary model call;
+Harness still retains Messages as a separate selectable provider, not a requirement.
+
+- The existing foreground grant alone exposes provider-private `web_search` and
+  `web_fetch` function declarations. The provider executes these functions against
+  the official endpoints with the same resolved API key and resumes the same Pi
+  Responses streamer. They are never registered as Keeper verbs or sent to Pi's
+  ordinary game-tool dispatcher. Child lanes, setup, disabled Mods, stale bindings,
+  unrelated origins and restrictive tool choices cannot acquire retrieval.
+- Search accepts a 1--128 Unicode-character query and count 1--50 (default 10),
+  requests summaries without full page content, and does not forward private host
+  context as `ori_question`. Fetch accepts an HTTP(S) URL without credentials and
+  returns Markdown. Results explicitly remain untrusted external content. Preserve
+  source URLs, titles, summaries, dates and uncertainty. No separate research model,
+  reference database, credential, dependency or product-default change is added.
+- The provider writes bounded private call/result pairs to the existing
+  `coc-native-search` journal, tagged `transport: deepseek-search-api`. The same
+  adapter restores normalized Pi pairs only beside the matching assistant anchor,
+  model, campaign, worldline and loop. It keeps current host-projected prose and
+  ordinary game call/result pairs. Old Messages evidence remains readable and is
+  never rewritten as new-API evidence. Search/fetch events use the existing source
+  reporting seam so the same Keeper and final-output bibliography consumer see them.
+- Recheck the grant before each dispatch and after each response. Cancellation or
+  changed scope cannot publish a late result. Use a 30-second retrieval deadline,
+  reject redirects, bound each response and retained exchange to 1 MiB, and bound
+  one inference to four retrievals. A failure returns a private unavailable result
+  and closes optional search for the run while normal game functions remain usable;
+  no automatic retries or silent Messages fallback. Streaming text and thinking,
+  usage accounting and ordinary provider errors retain their existing semantics.
+- Deterministic verification must traverse the actual Pi Responses serializer:
+  search, fetch, ordinary game call, actual game result and final text; also cover
+  mixed calls, restart replay, revocation, child isolation, malformed/oversized
+  results, HTTP errors, cancellation and late responses. Direct live API probes
+  establish endpoint/auth behavior separately from real driver play acceptance.
+
+**OpenCode Go keyless retrieval (owner, 2026-10-18).** For the built-in
+`opencode-go` DeepSeek Flash/Pro models on the verified `opencode.ai` Go routes,
+Historical Reference uses the OpenCode client's public Exa MCP search protocol.
+The same Go Chat Completions streamer chooses a private `web_search` function;
+the host sends one `tools/call` request for `web_search_exa` to
+`https://mcp.exa.ai/mcp`, then returns the result to that same inference. This is
+client retrieval, not a hosted Go tool or Console subscription entitlement.
+No Exa/DS credential, account sign-in, auxiliary model or reference library is
+required. DS direct connections retain the official Search/Fetch route above.
+
+- Reuse the existing grant, normalized private exchange, assistant anchor,
+  cancellation, four-call bound and source-reporting owner. A stream-only Go
+  override preserves its built-in catalog, model selection, attribution headers,
+  credential and ordinary game dispatcher. Only the explicit Go DeepSeek model
+  ids and Go API paths acquire this route; setup, child lanes, other models and
+  proxy origins remain unavailable. Disabling the Mod revokes new retrieval while
+  retaining matching historical evidence for normal continuation.
+- Search is the only new Go operation. Its query is 1--128 Unicode characters,
+  with 1--8 results (default 8). Accept JSON or SSE MCP replies, reject protocol
+  errors and malformed results, retain titles/URLs/content/publication dates as
+  untrusted reference, reject redirects, and bound the response to 256 KiB and
+  dispatch to 25 seconds. No conversation key, session header, private context or
+  original player question is sent to Exa. A failure closes optional search for
+  the run without retrying another service or preventing normal game calls.
+- Primary precedent is OpenCode's [Exa adapter](https://github.com/anomalyco/opencode/blob/214fb7fdbab9ad13773629839f1178382400cf97/packages/core/src/plugin/websearch/exa.ts)
+  and [bounded MCP transport](https://github.com/anomalyco/opencode/blob/214fb7fdbab9ad13773629839f1178382400cf97/packages/core/src/plugin/websearch/mcp.ts).
+  Its optional credential is deliberately omitted here; prior live probes proved
+  a Go function call, unauthenticated Exa result and Go answer continuation.
+  Verify the actual Pi serializer, credential separation, game-tool continuation,
+  restart replay, revocation and failure paths; API probes remain distinct from
+  real driver/App acceptance.
 
 
 **Selected preparation (2026-09-30 approved repair).** A positive Jev historical-support decision selects one bounded preparation attempt before the next turn-writing Keeper step. The host projects its purpose, requests the historical lookup through that same Keeper's native tool channel, and retires the preparation after a tool result. It does not delegate a query author or add a research/summarization agent. The stable tool declarations remain unchanged; this step requests `lookup` and permits only the existing historical subtype for the preparation itself. Existing source scope, Mod, credential, quote-challenge, library-first and retrieval-budget gates remain authoritative. The host clears the native constraint after the read, closure, agent end or a new run; ordinary gameplay and later player inputs do not inherit it. Empty, unavailable, cancelled and refused results end the preparation without a gameplay obligation or a repeat loop. Unsupported native control falls back to one advisory attempt rather than blocking a turn. The need batch separates the value of background detail from immediate interruption; these are host preparation judgments, not additional investigator actions under the compile's action-only policy. Existing thresholds are retained. Query/objective distinguish authored fiction and the chosen historical/style analogue, and selected excerpts are integrated into the current scene or NPC reply while preserving canon.
@@ -48036,9 +48111,7 @@ Emit issued choices after preparation even when no verdict exists. Missing selec
 
 Movement scope names only the settled operation: arrival_scope {at:'destination approach or doorway',settles:['party_arrival']}. The prior enter_building/open_door/start_interaction:false fields had no kernel reader and incorrectly represented unclaimed follow-on effects as negative assertions. They are removed together with broad multi-target evaluation, not as a standalone gate relaxation. The kernel still owns actual movement, entry/interaction remain separate operations, and current explicit restrictions are still judged independently. Cross-check: TypeSafe documents large unrelated state and indirection as failure modes; Anthropic context/tool guidance recommends narrowly relevant structured information rather than global inventories.
 
-
 **Final-author artifact ownership (2026-10-18).** The isolated author has two explicit transports for the same existing final artifact, never two independent publications. An assistant response begins with the existing public marker or ordered version1/text envelope and can stream normally. Selecting the confined draft.json write/edit path before exposure instead makes that file authoritative: it must contain the existing ordered {"version":1,"text":"story","coverage":[]} artifact, is decoded and completed with ArtifactTextStream before exposure, and the final assistant acknowledgment stays private. A selected file cannot fall back to its acknowledgment after a failed write or invalid artifact; a streamed response cannot later select a file. Unframed arbitrary assistant text is not implicitly public, including in decision-author mode. No summary-word detection, semantic model, post-author repair loop or extra mandatory write is introduced. The producer is the author, the reader is writeIsolatedExpression, and the existing final-output owner alone settles publication. Retain draft, response and events as evidence. This closes the observed write-to-file / publish-the-acknowledgment mismatch while preserving one-request streaming for ordinary direct prose. Cross-check: Anthropic tool guidance calls for distinct tool purposes and explicit ergonomic contracts; its tool-use protocol separates tool results from assistant text rather than treating them as interchangeable artifacts.
-
 
 **Schema-owned array dialect normalization (2026-10-18).** Live MiniMax native calls repeatedly carried exact single-key item envelopes at declared array positions (cash.items and note.entities), even after precise refusal text. These are the same transport shape already normalized for output.commands/responses, not a cash or note semantic issue. Use one recursive canonical-schema normalizer at the native Keeper argument boundary, shared by output and ordinary tools, before strict preflight/Pi validation. At declared arrays only, unwrap at most four exact item layers and wrap a remaining valid single item; preserve order/values/unknown fields and accept a repair only when the resulting array validates against that exact declared schema. For ordinary tools whose existing Pi validator owns scalar coercion, prove array acceptability using that same validator on an isolated copy, then return the uncoerced scalar values to the real validator. This composes already-supported numeric strings with envelope decoding without adding scalar conversion. Native output retains strict validation and its separately opted-in bounded integer grammar. A union is traversed only when one repaired branch validates uniquely, or overlapping anyOf branches all converge to exactly the same canonical value; oneOf remains unique. No JSON-string parsing, additional scalar coercion, generic singleton-object guessing, flattening of stray effects, removed fields or semantic changes. The whole original argument remains available; invalid/ambiguous/deep envelopes stay unchanged for the existing refusal. Runtime/canonical parsers remain strict and admission/publication owners are unchanged. Record only repair counts and tool name. This narrowly supersedes the previous effectShapeRefusal blanket statement for malformed arrays only for proven, schema-valid exact envelopes; it does not make arbitrary objects arrays. Producer: provider-native arguments; reader: shared argument normalizer; actor: existing preflight/validator/dispatcher. Prior art: MiniMax's official tool-use guide documents XML parameter transport and type-aware conversion; maintained XML parsers expose explicit array-shape policies because XML cardinality is ambiguous. The local canonical schema supplies that policy, not prose or another model.
 
@@ -48123,7 +48196,6 @@ non-file JSON transport remains a compatibility input, not the advertised file
 writer protocol. ProseMirror marks and W3C annotation selectors support deriving
 locations from annotated text rather than asking a model to duplicate text.
 
-
 **Closed establishment fields and native registered contact context (2026-10-18).**
 The public apply schema mirrors the kernel establishment envelope: a clue has
 only summary; a place has summary and optional within (registered place name,
@@ -48142,7 +48214,6 @@ that mere presence and ordinary greetings do not select a roll. This supplies
 missing rule context, never automatic authority, execution or another judgment.
 No current row, ambiguity or mismatch means ordinary consent remains unchanged;
 model claims cannot manufacture dispatcher evidence or establish presence.
-
 
 **A successful native final write is a terminal submission (2026-10-18).**
 The confined author's annotated-parts write is a commit operation, not a draft
@@ -48172,7 +48243,6 @@ Document division also shares its schema with the canonical owner; its union
 has a divide-specific closed constraint so an open initialization branch cannot
 admit a malformed divide. Raw reunion null arrays, already invalid in the public
 schema, are refused rather than implicitly converted to empty arrays.
-
 
 **Native untimed journeys keep their existing closed travel-band slot (2026-10-18).**
 The kernel bridge exposes the existing cached time-band rows to continuous
@@ -48317,6 +48387,49 @@ text replacement, never a whole-response regeneration or a world transaction.
 The retained intent67 native-argument burst is invalid for this owner's direct
 prose streaming acceptance, even though its individual websocket frames arrived
 before artifact completion.
+
+### Kernel decision: unfinished turns expose their actual failure (owner 2026-10-18)
+
+The stranded-turn lifecycle in §38 remains structural and never bypasses admission,
+review or transactional authority. Its terminal notice must identify the concrete
+failure instead of saying only that delivery is absent or inviting arbitrary input.
+Tool execution, native output preflight/publication and assistant completion write
+a bounded, turn-scoped diagnostic. The notice reads operation, error code, narrower
+reason and message, the host termination cause, and confirmed receipt count (null
+when the status read failed). Admission uncertainty additionally carries its actual
+selection/scope probabilities. It never copies command arguments, drafts, private
+reasoning, reviewer prompts or source material into that diagnostic. An empty final
+completion records its stop reason and block types, without copying block contents.
+
+The existing coc-delivery channel stores the diagnostic in details.failure. Its body
+is a readable, concrete failure summary from the existing UI-words presenter, with
+settlement status based on the confirmed receipt count. Raw JSON never belongs in
+the body. The host projects a typed failureNotice for live and persisted history;
+the renderer shows its summary and a Technical details disclosure, closed by default.
+Opening that disclosure reveals the bounded diagnostic. Historical notices with
+details.failure use this same projection without rewriting their original records.
+The disclosure uses the existing ActivityCard button with aria-expanded, consistent
+with the [WAI-ARIA disclosure pattern](https://www.w3.org/WAI/ARIA/apg/patterns/disclosure/)
+and [HTML details' default-closed behavior](https://developer.mozilla.org/en-US/docs/Web/HTML/Reference/Elements/details).
+Existing provider, review and
+commit notices retain priority. A recovered turn emits no terminal failure notice;
+a new turn never inherits the previous turn's errors. The original failed operation
+and later publication failure remain distinguishable. Receipt truth stays with the
+kernel; published mechanics remain visible and no rejected effect is replayed.
+
+Producer: real tool/output errors and assistant completion. Reader: the existing
+terminal-notice selector, live/history delivery projection and failure telemetry.
+Actor: the player/operator sees the failed operation and reason; this diagnostic
+itself authorizes no retry, world change or public story. Component checks must cover
+the retained missing-scene -> uncertain-admission -> held-input pattern, thinking-only
+completion, recovery and next-turn isolation. They are not live-play acceptance.
+
+Targeted precedent check: [Node Error.cause](https://nodejs.org/api/errors.html#errorcause)
+preserves an underlying failure through a wrapper; [OpenTelemetry exception logs](https://opentelemetry.io/docs/specs/semconv/exceptions/exceptions-logs/)
+preserve exception type and message. Both support retaining the originating diagnostic
+rather than replacing it with terminal status. Neither decides action authorization or
+provides player narration; this host retains those existing boundaries and publishes
+only bounded error metadata through its existing notice channel.
 
 ### Kernel decision: apply recovery keeps its source authority (owner 2026-10-19)
 

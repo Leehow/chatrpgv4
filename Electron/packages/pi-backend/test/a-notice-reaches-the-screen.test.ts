@@ -102,6 +102,32 @@ const NOTICE = [
 ].join("\n\n");
 
 describe("a notice the host places reaches the screen when it is placed", () => {
+  it("keeps the actual unfinished operation and cause visible live and after reload", async () => {
+    const { backend, sessionPath, presentations, off } = await fixture();
+    try {
+      await backend.handle("sendPrompt", ["s1", "hello"]);
+      const failure = { turn: 70, status: "unfinished", stopped_by: "held_act_unconfirmed", settled_receipts: 0,
+        failures: [{ operation: "apply", code: "needs", reason: "action_admission_uncertain",
+          message: "The typed consent decision is uncertain", admission: { selection: [0.46], scope: [0.62], minimum: 0.6 } }] };
+      const content = "```json\n" + JSON.stringify(failure, null, 2) + "\n```";
+      await deliverLikePi(backend, sessionPath, {
+        id: "concrete-failure", customType: "coc-delivery", content,
+        details: { coc_delivery: true, turn: 70, turn_unfinished: true, failure },
+      });
+      await eventually(() => presentations.some(entry => entry.id === "concrete-failure"));
+      const history = await backend.handle("getSessionHistory", ["s1", 0, 500]) as any[];
+      for (const entry of [presentations.find(row => row.id === "concrete-failure"), history.find(row => row.id === "concrete-failure")]) {
+        expect(entry.content).toContain("action review could not confirm");
+        expect(entry.content).toContain("No actions were settled");
+        expect(entry.content).not.toContain("```");
+        expect(entry.failureNotice.label).toBe("Technical details");
+        expect(JSON.parse(entry.failureNotice.details)).toEqual(failure);
+        expect(entry.role).toBe("assistant");
+      }
+      expect(await readFile(sessionPath,"utf8")).toContain(JSON.stringify(content));
+    } finally { off(); await backend.close(); }
+  });
+
   it("projects provider outcomes identically live and after reload without classifying notice text", async () => {
     const { backend, sessionPath, presentations, off } = await fixture();
     try {

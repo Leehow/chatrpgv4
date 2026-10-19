@@ -58,7 +58,7 @@ const V4_COMPAT = {
     requiresReasoningContentOnAssistantMessages: true,
     thinkingFormat: "deepseek",
 };
-/** Native search is supplied by the generic Pi Messages route; Responses ignores web_search. */
+/** Search/Fetch use the official retrieval APIs; Flash Responses ignores hosted web_search. */
 export const DEEPSEEK_HOSTED_TOOLS = {
     tools: ["web_search"],
 };
@@ -70,7 +70,7 @@ export const DEEPSEEK_CAPABILITIES = {
 /**
  * Shape every discovered model inherits before metadata is applied: 1M context,
  * 384K output and the V4 thinking map are family-wide on this endpoint, and
- * native search is available through the verified Anthropic-compatible route.
+ * native search is available through the official Search/Fetch APIs.
  * Ordinary Responses requests never receive a hosted-search declaration.
  */
 export const DEEPSEEK_FAMILY_DEFAULTS = {

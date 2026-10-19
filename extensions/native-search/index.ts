@@ -1,10 +1,14 @@
 /** Generic Pi request/stream seam for provider-hosted search (contract 124.12). */
 import {streamSimple as anthropicStream} from '@earendil-works/pi-ai/api/anthropic-messages';
+import {getApiProvider} from '@earendil-works/pi-ai/compat';
+import {openCodeSearchStream} from '../../runtime/opencode-search.js';
 import {nativeSearchStream, nativeSearchState, clearNativeSearchState, setNativeSearchPolicy, nativeSearchPayload, nativeSearchEvent, NATIVE_SEARCH_ENTRY} from '../../runtime/native-search.js';
 export default function (pi: any) {
   // A stream-only override keeps Pi's built-in model catalog and authentication.
   pi.registerProvider('anthropic', {api:'anthropic-messages', streamSimple:nativeSearchStream(anthropicStream,
     {api:'anthropic-messages',streamSimple:anthropicStream,resume:true})});
+  pi.registerProvider('opencode-go', {api:'openai-completions',streamSimple:openCodeSearchStream(
+    (model: any, context: any, options: any) => getApiProvider('openai-completions').streamSimple(model,context,options))});
   let campaign: string | undefined;
   pi.events.on('coc:native-search-policy', (policy: any) => {
     if (policy?.campaign && policy.campaign === campaign) setNativeSearchPolicy(policy);

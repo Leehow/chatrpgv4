@@ -1,3 +1,4 @@
+import uiSeed from '../../content/ui/zh-Hans/extension.json' with {type:'json'};
 /**
  * 一个完整玩家回合走过扩展的所有接缝：工具面、胶囊注入、call_id 铸造、交付替换。
  */
@@ -347,6 +348,8 @@ test("§22.4.4 a reading failure never reaches the prose: the refusal hands the 
 	assert.equal(narrates.length, 1);
 	assert.equal(narrates[0].params.text, draft, "the delivered receipt is the Keeper's draft");
 	assert.deepEqual(table.telemetry().filter(row => row.lane === "delivery" && row.reason === "reading_wait"), []);
+	assert.equal(customMessages(table.session,"coc-delivery").filter(row=>row.details?.turn_unfinished).length,0,
+        "a recovered source error must not produce a terminal failure notice");
 });
 
 test("a settled thinking-only run returns a service notice and releases the turn", async t => {
@@ -363,8 +366,9 @@ test("a settled thinking-only run returns a service notice and releases the turn
 	await waitFor(() => customMessages(table.session, "coc-delivery").some(message => message.details.turn_unfinished),
 		{ label: "the settled run's generic service notice" });
 	const notices = customMessages(table.session, "coc-delivery").filter(message => message.details.turn_unfinished);
-	assert.equal(notices.length, 1, "one settled run gets one cause-neutral result");
-	assert.match(notices[0].content, /没有交付结果|without a delivered result/i);
+	assert.equal(notices.length, 1, "one settled run gets one diagnostic result");
+	assert.ok(notices[0].content.includes(uiSeed.turn_failure_missing_output));
+	assert.match(JSON.stringify(notices[0].details.failure), /thinking/);
 
 	// SL-87: the next input waits for the concrete event the test is about, §73's own close of the stranded turn (its
 	// `released` row), not only for the notice: on a loaded box the player spoke between the notice and the release, and the

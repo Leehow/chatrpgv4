@@ -1,3 +1,4 @@
+import {turnFailureNotice} from '../../../../extensions/kernel/turn-failure.js';
 import { CocOnboardingHost, CocOnboardingRegistry, type CocOnboardingOptions } from './coc-onboarding.js';
 import { automaticImageModel, imageModelOptions } from '../../../../extensions/image-gen/agent/selection.js';
 import { timelineAnchors, transcriptPrefix } from './coc-timeline.js';
@@ -1598,7 +1599,10 @@ function visibleHistoryEntry(entry: any, secrets: RevealedSecret[] = [], languag
     const details = entry.details ?? entry.data;
     const providerNotice = entry.customType === "coc-delivery" && details?.provider_outage === true
       && typeof details.terminal === "boolean" ? (details.terminal ? "failed" : "recovered") : undefined;
-    return { id: entry.id, role: placedByHost ? "assistant" : "user", content: redactText(content, secrets), timestamp: asTime(entry.timestamp), ...(placedByHost ? { placedByHost: true as const } : {}), ...(help ? { help } : {}), ...(providerNotice ? { providerNotice } : {}) };
+    const failure = entry.customType === "coc-delivery" && details?.turn_unfinished === true
+      ? turnFailureNotice(details.failure, words.ui?.words.extension) : undefined;
+    const failureNotice = failure ? {label:failure.label, details:redactText(JSON.stringify(details.failure,null,2),secrets)} : undefined;
+    return { id: entry.id, role: placedByHost ? "assistant" : "user", content: redactText(failure?.content ?? content, secrets), timestamp: asTime(entry.timestamp), ...(placedByHost ? { placedByHost: true as const } : {}), ...(help ? { help } : {}), ...(providerNotice ? { providerNotice } : {}), ...(failureNotice ? {failureNotice} : {}) };
   }
   if (entry?.type === "compaction") {
     return {

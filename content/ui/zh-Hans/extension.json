@@ -92,5 +92,15 @@
   "table_open": "{title}  第 {turn} 回合  {scene}",
   "table_scene_unknown": "未知场景",
   "table_value_unknown": "？",
-  "turn_unfinished_notice": "这一回合结束时没有交付结果。已经结算的内容都还在——随便说句话就能继续。"
+  "turn_unfinished_notice": "这一回合结束时没有交付结果。已经结算的内容都还在——随便说句话就能继续。",
+  "turn_failure_admission": "行动审核无法确认所选行动，因此该行动没有被执行。",
+  "turn_failure_details": "技术细节",
+  "turn_failure_interrupted": "回应在完成之前被中断。",
+  "turn_failure_invalid_output": "最终回应无法读取，因为它的结构化输出无效。",
+  "turn_failure_missing_output": "守秘人在没有提交最终结果的情况下结束了回应。",
+  "turn_failure_no_settlement": "没有结算任何行动。",
+  "turn_failure_operation": "「{operation}」这一步失败（错误：{code}）。打开技术细节查看记录的原因。",
+  "turn_failure_output_path": "最终回应无法写入，因为它的输出路径不是目录（ENOTDIR）。",
+  "turn_failure_settlement_kept": "已经结算的行动予以保留。",
+  "turn_failure_settlement_unknown": "结算状态无法核实。"
 }

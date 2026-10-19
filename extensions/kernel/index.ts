@@ -17,7 +17,8 @@ import {turnPacket,bindTurnPacketMoves,turnPacketMovementChoices,requireTurnPack
 import {normalizeToolArgumentSyntax} from '../../runtime/tool-argument-syntax.ts';
 import {normalizeApplyArguments} from '../../shared/apply-protocol.ts';
 import {owedConsentPlan} from './owed-consent.ts';
-import {continuousConsentDisposition} from '../../runtime/jev/continuous-consent.ts';
+import {continuousConsentDisposition,CONTINUOUS_CONSENT_MIN} from '../../runtime/jev/continuous-consent.ts';
+import {turnFailure,rememberTurnFailure,unfinishedTurnFailure,turnFailureNotice,type TurnFailureState} from './turn-failure.ts';
 import {NpcReferences,isNpcReference} from '../../runtime/npc-references.ts';
 import {publicDialogue,type PublicDialogueLine} from '../../shared/public-dialogue.ts';
 import {documentEditInput} from '../../runtime/document-edit-input.ts';
@@ -567,6 +568,7 @@ interface TableState {
 	runAbandoned?: boolean;
 	/** This settled run already scheduled the generic no-delivery notice. */
 	turnNoticeSent?: boolean;
+	turnFailure?: TurnFailureState['turnFailure'];
 	/** §200.6: the host ended the Keeper's run for this turn's input (the unfinished notice declared while a run was still
 	 * going, or a history store that cannot write). Every later call on this turn is refused before it runs and the run is
 	 * cut. Keyed by turn: the next player input opens another turn and so another door. */
@@ -2608,6 +2610,7 @@ export default function (pi: ExtensionAPI, host: {capabilities?:RuntimeCapabilit
 			const status = await state.kernel.call<Record<string, unknown>>("table.status", { campaign: state.campaign });
 			rows = Array.isArray(status?.mechanics) ? (status.mechanics as Array<Record<string, unknown>>) : [];
 			labels = status?.labels;
+			turnFailure(state).settled_receipts = Array.isArray(status.receipts) ? status.receipts.length : undefined;
 		} catch (error) {
 			void record({ lane: "delivery", turn, ok: false, reason: "settled_without_delivery",
 				detail: error instanceof Error ? error.message : String(error) });
@@ -3757,6 +3760,8 @@ export default function (pi: ExtensionAPI, host: {capabilities?:RuntimeCapabilit
 					throw unavailable(checked.reason);
 				}
 				verdict=boundCashAuthority(proposal,admissionContextFor(state),checked.verdict);
+				if(verdict.verdict==='uncertain')rememberTurnFailure(state,tool,{code:'needs',message:'The typed consent decision is uncertain',
+					details:{reason:'action_admission_uncertain',admission_probabilities:{selection:checked.meta.line_admit_probabilities,scope:checked.meta.line_scope_probabilities,minimum:CONTINUOUS_CONSENT_MIN}}});
 				state.admission.set(key,verdict);
 			}else await record({lane:'admission',verb:tool,turn:state.turn,path:'typed',reviewer:'jev',reused:true,jev_calls:0,verdict:verdict.verdict,ms:0});
 			if(verdict.typedFailure)throw unavailable(verdict.typedFailure);
@@ -4965,13 +4970,13 @@ export default function (pi: ExtensionAPI, host: {capabilities?:RuntimeCapabilit
 	}
 
 	async function emitTurnUnfinishedNotice(state: TableState, turn: number): Promise<void> {
-		let line = "This turn ended without a delivered result. Anything already settled is kept — send anything to continue.";
-		try { line = (await surface.words()).line("turn_unfinished_notice"); }
-		catch { /* an unreadable content root still owes the player the English line */ }
-		if (table !== state || state.lanes.signal.aborted) return;
+		if (table !== state || state.turn !== turn || state.lanes.signal.aborted) return;
+		const failure = unfinishedTurnFailure(state);
+		const words = await surface.words();
+		const line = turnFailureNotice(failure, words)!.content;
 		pi.sendMessage({ customType: "coc-delivery", content: line, display: true,
-			details: { coc_delivery: true, turn, turn_unfinished: true } }, { triggerTurn: false });
-		void record({ lane: "delivery", turn, ok: true, reason: "turn_unfinished_notice" });
+			details: { coc_delivery: true, turn, turn_unfinished: true, failure } }, { triggerTurn: false });
+		void record({ lane: "delivery", turn, ok: true, reason: "turn_unfinished_notice", failure });
 	}
 
 	/**
@@ -5801,6 +5806,7 @@ export default function (pi: ExtensionAPI, host: {capabilities?:RuntimeCapabilit
         const refusal={code:'invalid_params',message:error instanceof Error?error.message:String(error),
             ...(isKernelError(error)&&error.fix?{fix:error.fix}:{}),
             details:{...(isKernelError(error)?error.details:{}),reason:'turn_packet_parameters',...(beforeCommit?{before_commit:true}:{before_execution:true})}};
+        rememberTurnFailure(state,'output.parameters',refusal);
         void record({lane:'arguments',event:'packet_parameters_refused',turn:state.turn,retry,phase:beforeCommit?'before_commit':'before_execution',jev_calls:0});
         return {retry,refusal};
     }
@@ -5826,6 +5832,7 @@ export default function (pi: ExtensionAPI, host: {capabilities?:RuntimeCapabilit
 			await publishKeeperResult(state,reply,authored,authored.model,authored.thinking,ctx);
 			return{content:[{type:'text' as const,text:'The turn was published.'}],details:{published:true},terminate:true};
 		}catch(error){
+			rememberTurnFailure(state,'output',error);
 			if(!reply.evidence&&!reply.stream&&isKernelError(error)&&error.code==='invalid_params'&&error.details?.transaction_state==='uncommitted'){
                 const {retry,refusal}=refusePacketParameters(state,error,ctx,true);
                 return {content:[{type:'text' as const,text:JSON.stringify(refusal)}],details:{coc_error:refusal},terminate:!retry};
@@ -5836,7 +5843,8 @@ export default function (pi: ExtensionAPI, host: {capabilities?:RuntimeCapabilit
 			state.runAbandoned=true;
 			await record({lane:'keeper-delivery',turn:state.turn,ok:false,reason:String(error),transport:'native-output'});
 			return{content:[{type:'text' as const,text:errorText(error)}],terminate:true,details:{coc_error:{
-				code:isKernelError(error)?error.code:'invalid_params',message:error instanceof Error?error.message:String(error)}}};
+				code:isKernelError(error)?error.code:'invalid_params',message:error instanceof Error?error.message:String(error),
+                ...(isKernelError(error)?{details:error.details,retryable:error.retryable,next:error.next,fix:error.fix}:{})}}};
 		}
 	}
 
@@ -6754,6 +6762,7 @@ export default function (pi: ExtensionAPI, host: {capabilities?:RuntimeCapabilit
 			};
 		} catch (error) {
 			if(streamEvidence)finalOutput.finishStream(streamEvidence,'publication_pending');
+			rememberTurnFailure(state,spec.name,error);
 			if(singleKeeper && ['apply','resolve'].includes(spec.name)) holdFailedOperation(state,spec.name,params,error,toolCallId);
 			if(spec.name==='apply'&&!host)error=await purchaseRecovery(state).failure(payload,error,state.turn);
 			if (spec.name === "resolve") noteCombatSceneRequired(state, error);
@@ -8443,6 +8452,7 @@ export default function (pi: ExtensionAPI, host: {capabilities?:RuntimeCapabilit
 			legMark = now;
 			const blocks = (event.message.content ?? []) as Array<{type?: string}>;
 			const stopReason = (event.message as {stopReason?: string}).stopReason ?? null;
+			if(table)turnFailure(table).completion={stop_reason:stopReason,blocks:blocks.map(block=>block.type??'?')};
 			const ms = mark === undefined ? null : now - mark;
 			const named = providerRequestModel;
 			providerRequestModel = undefined;
@@ -8528,6 +8538,7 @@ export default function (pi: ExtensionAPI, host: {capabilities?:RuntimeCapabilit
 				await publishKeeperResult(state,reply,result,authorModel,authorThinking,ctx);
 				return{message:{...event.message,content:blocks.filter(b=>b.type!=='text')}};
 			}catch(error){
+                rememberTurnFailure(state,'output.publication',error);
 				if(reply.evidence)finalOutput.finishStream(reply.evidence,'publication_pending');
                 else if(reply.stream){
                     reply.stream.interrupt();

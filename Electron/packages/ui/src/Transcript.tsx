@@ -371,6 +371,12 @@ export const MessageView = memo(function MessageView({ message, showFooter, elap
   if (message.role === 'compaction') return <CompactionDivider message={message} />
   if (message.role === 'user') return signal ? <article className="message user-message subagent-signal-message"><div className="subagent-signal-stack"><SubagentSignalCard content={message.content} documentBasePath={documentBasePath} onOpenDocument={onOpenDocument} />{time}</div></article> : <article className="message user-message" data-user-prompt={message.id}><div className="user-message-stack"><UserMessageBubble text={message.content} images={message.images} /></div>{footer}</article>
   if (message.role === 'tool') { const notice = parseSubagentNotice(message.content); return notice ? <article className="message assistant-message"><CollapsibleActivityCard kind="result" label="子任务" summary={notice.name} meta={`${notice.ok ? '成功' : '失败'} · ${notice.cost}`} error={!notice.ok}><pre><TruncatedText text={message.content} /></pre></CollapsibleActivityCard>{footer}</article> : <article className="system-message tool-message"><div><TruncatedText text={message.content} /></div>{footer}</article> }
+  if (message.role === 'assistant' && message.failureNotice) return <article className="message assistant-message turn-failure-notice" role="status">
+    <p>{message.content}</p>
+    <CollapsibleActivityCard kind="result" summary={message.failureNotice.label} error meta="" defaultExpanded={false}>
+      <pre>{message.failureNotice.details}</pre>
+    </CollapsibleActivityCard>{footer}
+  </article>
   if (message.role === 'assistant' && message.providerNotice) return <article className="message assistant-message provider-notice" role="status">
     <CollapsibleActivityCard kind="result" summary={message.providerNotice === 'recovered'
       ? transcriptWord(transcriptWords, 'provider_recovered') : transcriptWord(transcriptWords, 'provider_failed')}

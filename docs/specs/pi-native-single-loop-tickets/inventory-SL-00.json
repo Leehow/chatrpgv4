@@ -31,6 +31,42 @@
   },
   "entries": [
     {
+      "file": "extensions/native-search/index.ts",
+      "symbol": "<module>",
+      "kind": "provider-direct",
+      "callee": "getApiProvider.streamSimple",
+      "count": 1,
+      "owner": "Foreground native-search adapter",
+      "path": "app-play-gated",
+      "role": "leaf",
+      "trace": "tests/extension/opencode-search.test.mjs",
+      "note": "Stream-only Go override delegates to the existing Pi Chat Completions API; private keyless search uses the same foreground grant and no auxiliary model. Contract 124.12, 2026-10-18 amendment."
+    },
+    {
+      "file": "runtime/opencode-search.js",
+      "symbol": "retrieveOpenCode",
+      "kind": "network",
+      "callee": "globalThis.fetch",
+      "count": 1,
+      "owner": "Foreground OpenCode-compatible keyless search",
+      "path": "app-play-gated",
+      "role": "leaf",
+      "trace": "tests/extension/opencode-search.test.mjs",
+      "note": "One bounded unauthenticated Exa MCP search under the existing Mod/run/step grant. Conversation credentials and attribution headers are not forwarded. Contract 124.12, 2026-10-18 amendment."
+    },
+    {
+      "file": "extensions/deepseek/agent/search.js",
+      "symbol": "retrieveDeepSeek",
+      "kind": "network",
+      "callee": "globalThis.fetch",
+      "count": 1,
+      "owner": "DeepSeek foreground native-search adapter",
+      "path": "app-play-gated",
+      "role": "leaf",
+      "trace": "tests/extension/deepseek-search.test.mjs",
+      "note": "One bounded official Search or Fetch JSON request under the existing foreground grant; no auxiliary model. The existing Pi Responses streamer remains the sole inference transport; private retrieval pairs share its native-search journal. Contract 124.12, 2026-10-17 amendment."
+    },
+    {
       "file": "Electron/packages/pi-backend/src/browser-watch-bridge.ts",
       "symbol": "BrowserWatchCallbackRegistry.deliver",
       "kind": "network",

@@ -1,5 +1,25 @@
 # SL-00 control-flow inventory
 
+### OpenCode Go keyless search (2026-10-18)
+
+`extensions/native-search/index.ts#<module>#provider-direct#getApiProvider.streamSimple`
+delegates to the existing Pi Chat Completions streamer.
+`runtime/opencode-search.js#retrieveOpenCode#network#globalThis.fetch` performs one
+bounded, unauthenticated Exa MCP search. Both are `app-play-gated` leaves under
+the existing foreground Mod/run/step grant, not auxiliary models or a reference
+library. `runtime/private-search.js` shares normalized exchange/replay ownership
+with DS direct official retrieval. Contract section 124.12 and
+`tests/extension/opencode-search.test.mjs` cover this seam.
+
+### DeepSeek official Search/Fetch (2026-10-17)
+
+`extensions/deepseek/agent/search.js#retrieveDeepSeek#network#globalThis.fetch`
+is an `app-play-gated` leaf owned by the foreground native-search adapter. It
+performs one bounded Search or Fetch JSON request with no auxiliary model,
+under the existing Mod/run/step grant. The provider continues the existing Pi
+Responses streamer and journals private retrieval pairs; it registers no Keeper
+verb. Contract §124.12 and `tests/extension/deepseek-search.test.mjs` cover this seam.
+
 ### Grok transport observation (2026-10-09)
 
 `extensions/grok-build-oauth/agent/provider.js#createGrokBuildProvider#provider-direct#api.streamSimple`

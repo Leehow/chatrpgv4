@@ -1,4 +1,4 @@
-import {nativeSearchStream} from '../../../runtime/native-search.js';
+import {deepseekSearchStream} from './search.js';
 import {getApiProvider} from '@earendil-works/pi-ai/compat';
 /**
  * Canonical `deepseek-extended` provider config (single source).
@@ -32,12 +32,7 @@ export function createDeepSeekProvider(options = {}) {
     const baseUrl = options.baseUrl?.trim() ? cfg.baseUrl : transport.baseUrl;
     return {
         name: DEEPSEEK_PROVIDER_NAME,
-        streamSimple: nativeSearchStream((model, context, options) => getApiProvider(transport.api).streamSimple(model, context, options),
-          {api: 'anthropic-messages', baseUrl: baseUrl.replace(/\/v1$/, '') + '/anthropic',
-            preparePayload: (body, options) => {
-              const effort = {minimal:'low',low:'low',medium:'high',high:'high',xhigh:'high',max:'max'}[options?.reasoning];
-              return effort ? {...body,output_config:{...body.output_config,effort}} : body;
-            }}),
+        streamSimple: deepseekSearchStream((model, context, options) => getApiProvider(transport.api).streamSimple(model, context, options)),
         api: transport.api,
         baseUrl,
         authHeader: transport.authHeader,
