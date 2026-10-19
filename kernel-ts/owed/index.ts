@@ -336,7 +336,9 @@ export function capsuleOwed(graph: ModuleGraph, world: Row, stored: unknown, par
             if (entry.kind === 'object') {
                 try { known = !!findNamedObject(row(row(world.objects).definitions),row(entry.effect).definition); } catch { ambiguous = true; }
             }
-            return { name: entry.name, turn: entry.turn, kind: entry.kind, what: entry.what, quote: entry.quote ?? null,
+            const departure=entry.kind==='move'&&!entry.effect&&row(entry.departure).from;
+            return { name: entry.name, turn: entry.turn, kind: entry.kind,
+            ...(departure?{recovery:{mode:'originating_declaration',from:row(entry.departure).from,parameters:['to','via','establish']}}:{what:entry.what}),quote: entry.quote ?? null,
             ...(entry.effect ? { effect: entry.effect } : {}),
             ...(entry.kind === 'object' && entry.effect && !queuedDefinition(world,row(entry.effect).definition)
                 && !known && !ambiguous

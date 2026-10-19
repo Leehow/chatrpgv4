@@ -438,9 +438,9 @@ export function keyDigest(key: string): string {
 	return createHash("sha256").update(key).digest("hex").slice(0, 12);
 }
 /** One native verdict identity; JSON key order is transport, array order is meaning. */
-export function continuousAdmissionKey(playerText:string,worldRevision:unknown,sourceRevision:unknown,proposal:AdmissionProposal):string {
+export function continuousAdmissionKey(playerText:string,worldRevision:unknown,sourceRevision:unknown,proposal:AdmissionProposal,authority:unknown='current'):string {
  return 'continuous:'+keyDigest(canonical([playerText,worldRevision,sourceRevision,
-  {tool:proposal.tool,operations:proposal.operations??proposal.lines,kinds:proposal.kinds,cash:proposal.cash??null}]));
+  {tool:proposal.tool,operations:proposal.operations??proposal.lines,kinds:proposal.kinds,cash:proposal.cash??null},authority]));
 }
 
 /**
@@ -1035,6 +1035,8 @@ export async function reviewAdmission(options: AdmissionReviewOptions): Promise<
 
 export interface PrimaryAdmissionReviewOptions extends AdmissionReviewOptions {
 	campaign: string;
+	/** One immutable declaration scope per reviewed line; absent for ordinary current actions. */
+	lineContexts?: AdmissionContext[];
 	env?: NodeJS.ProcessEnv;
 	/** An explicit port for isolated tests and offline replay; production uses the shared adapter. */
 	decision?: DecisionPort;
@@ -1276,7 +1278,7 @@ export async function reviewAdmissionJevOnly(options:PrimaryAdmissionReviewOptio
     {ok:true;verdict:AdmissionVerdict;ms:number;meta:Record<string,unknown>}
     |{ok:false;reason:string;ms:number;meta:Record<string,unknown>}> {
     const clock=options.clock??hostClock,began=clock.now(),context=options.context;
-    const family='continuous-action-admission',version='6';
+    const family='continuous-action-admission',version='7';
     let mechanicsChoice:{action:string;choice:{name:string;binds:string;options:string[];prompt?:string}}|undefined;
     let mechanicsInput=false,mechanicsBinding:string|undefined;
     try{
@@ -1308,6 +1310,8 @@ export async function reviewAdmissionJevOnly(options:PrimaryAdmissionReviewOptio
     const knownJourneys=options.proposal.kinds?.length&&options.proposal.kinds.every(kind=>kind==='move')
         &&options.proposal.operations?.every(operation=>operation.kind==='move'&&operation.registered_destination);
     const state={current_player_words:context.playerText,...(mechanicsChoice?{current_mechanics_choice:mechanicsChoice}:{}),
+        ...(options.lineContexts?{line_contexts:options.lineContexts.map(scope=>({current_player_words:scope.playerText,
+            previous_public:scope.delivered.slice(-2).map(row=>({turn:row.turn,player:row.player??null,...(publicDialogue(row.speech).length?{speech:publicDialogue(row.speech)}:{})}))}))}:{}),
         ...(context.interruptedPlayerText?{unfinished_player_words:context.interruptedPlayerText}:{}),
         investigators:context.investigators.map(row=>row.name),scene:context.scene??null,present:context.present,
         previous_public:knownJourneys?decisionRecentPublic(context.delivered):context.delivered.slice(-2).map(row=>({turn:row.turn,player:row.player??null,
@@ -1321,6 +1325,15 @@ export async function reviewAdmissionJevOnly(options:PrimaryAdmissionReviewOptio
         scope:{owner:family,campaign:options.campaign,audience:'player'},
         readSet:[{kind:'draft',resource:'turn:'+context.turn+':consent',revision},{kind:'family',resource:family,revision:version}],
         state:state as DecisionBatch['state'],questions:continuousConsentQuestions(options.proposal.lines.map((_,index)=>options.proposal.kinds?.[index]??''))};
+    if(options.lineContexts){
+        if(options.lineContexts.length!==options.proposal.lines.length)throw Error('Consent line context count differs from its operations');
+        for(const question of batch.questions){
+            const index=Number(question.key.slice(question.key.lastIndexOf('_')+1));
+            // Only field paths change; the same two questions and thresholds judge each operation.
+            question.instructions=String(question.instructions).replaceAll('current_player_words',`line_contexts[${index}].current_player_words`)
+                .replaceAll('previous_public',`line_contexts[${index}].previous_public`);
+        }
+    }
     for(const [index,requirement] of cashRequirements.entries()){
         batch.questions.push({key:'cash_input_'+index,target:'cash_requirements['+index+']',type:'noul',
             instructions:'Does `current_player_words` explicitly accept the exact actual purse withdrawal in this cash requirement? This is the full cash_debit including earlier daily spending, not merely the new merchandise_amount. Judge the player\'s accepted amount, never copy permission from the proposed debit. A generic accept without the amount or a bound full quotation is insufficient.',
@@ -1369,7 +1382,7 @@ export async function reviewAdmissionJevOnly(options:PrimaryAdmissionReviewOptio
         const uncertain=refused<0&&probabilities.some((p,index)=>p!<CONTINUOUS_ADMISSION_MIN_PROBABILITY||scopeProbabilities[index]!<CONTINUOUS_ADMISSION_MIN_PROBABILITY);
         const verdict=refused>=0?'not_authorized':uncertain?'uncertain':'authorized';
         const grounds='Typed consent review '+(refused>=0?'refused line '+(refused+1):uncertain?'could not establish the proposed scope':'accepted the proposed scope')
-            +'; current player words: '+JSON.stringify(context.playerText.slice(0,200));
+            +'; declaration words: '+JSON.stringify((options.lineContexts?.[Math.max(0,refused)]??context).playerText.slice(0,200));
         const cashLimits:NonNullable<AdmissionVerdict['cash_limits']>=refused>=0?[]:cashRequirements.flatMap((requirement:any,index:number)=>{
             if(!mechanicsInput&&probability('cash_input_'+index)!>=CONTINUOUS_ADMISSION_MIN_PROBABILITY)
                 return [{index:requirement.index,amount:requirement.cash_debit,basis:'input' as const,evidence:context.playerText}];

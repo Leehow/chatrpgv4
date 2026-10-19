@@ -7,6 +7,7 @@ import type { CampaignSnapshot, LoadedModule } from './campaign.js';
 import { array, number, row, string, truth, chars, type Row } from './values.js';
 import {taskViews} from './task-views.js';
 import {legacyWorkspaceSettings} from '../mods/retired-workspace.js';
+import {owedSourceRecords} from '../owed/provenance.js';
 
 export const MEMORY_COVERAGE_BYTES = 4096;
 const RECENT_TURNS = 20;
@@ -191,6 +192,7 @@ export async function contextBinding(campaign: CampaignSnapshot, module: LoadedM
     };
     if (options.revisionsOnly) return binding;
     return {...binding,
+        ...(array(capsule.owed).length?{owed_sources:await owedSourceRecords(campaign,capsule)}:{}),
         // §187.4: the window the brief's rosters were ordered by; the host rebuilds the brief when it changes.
         brief_window: await briefWindow(campaign.context, module, campaign.world),
         memory_coverage: await memoryCoverage(campaign)

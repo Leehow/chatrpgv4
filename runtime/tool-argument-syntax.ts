@@ -31,7 +31,7 @@ export function normalizeToolArgumentSyntax(schema:TSchema,input:unknown,options
    if(Number.isSafeInteger(number)&&String(number)===value&&number>=shape.minimum&&number<=shape.maximum)return {args:number,repairs:0,integerRepairs:1};
   }
   const variants=shape.anyOf??shape.oneOf;
-  if(Array.isArray(variants)){
+  if(Array.isArray(variants)&&shape.type===undefined){
    const matches=variants.map((branch:TSchema)=>({branch,result:visit(branch,value,depth+1)}))
     .filter(({branch,result})=>valid(branch,result.args,options.nativeValidation===true));
    return matches.length===1||shape.anyOf&&matches.length>1&&matches.every(match=>isDeepStrictEqual(match.result.args,matches[0].result.args))?matches[0].result:unchanged;

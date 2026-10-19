@@ -7,7 +7,6 @@
 import { StringEnum } from "@earendil-works/pi-ai";
 import { type TSchema, Type } from "typebox";
 import {TurnEvent} from "../../shared/turn-event.ts";
-import {MOVE_ESTABLISHMENT_DEPENDENCIES} from '../../shared/move-protocol.ts';
 import {ClueEstablishment,PlaceEstablishment,NpcReunion,DocumentDivision} from '../../shared/apply-structures.ts';
 
 export const COC_TOOL_NAMES = ["look", "lookup", "recall", "resolve", "apply", "ask", "narrate", "output"] as const;
@@ -114,13 +113,14 @@ export function effectShapeRefusal(tool: string, parameters: TSchema, args: unkn
 	if (tool !== "apply" || !args || typeof args !== "object" || Array.isArray(args)) return undefined;
 	const effects = (args as Record<string, unknown>).effects;
 	if (!Array.isArray(effects)) return undefined;
-	const branches = effectBranches(parameters), kinds = branches.map(branch => branch.kind);
+	const branches = effectBranches(parameters), kinds = [...new Set(branches.map(branch => branch.kind))];
 	if (!kinds.length) return undefined;
 	const unchanged = "Nothing in this call was written; send it again corrected.";
 	for (const [index, value] of effects.entries()) {
 		if (!value || typeof value !== "object" || Array.isArray(value)) continue;
 		const effect = value as Record<string, unknown>, kind = effect.kind, field = `effects[${index}]`;
-		const branch = typeof kind === "string" ? branches.find(entry => entry.kind === kind) : undefined;
+		const matches=typeof kind==='string'?branches.filter(entry=>entry.kind===kind):[];
+		const branch=matches.find(entry=>entry.required.every(key=>Object.hasOwn(effect,key)))??matches[0];
 		if (!branch) {
 			const shown = typeof kind === "string" ? JSON.stringify(kind) : "missing";
 			const toolName = typeof kind === "string" && (COC_TOOL_NAMES as readonly string[]).includes(kind);
@@ -216,7 +216,7 @@ const AdaptationEffect = Type.Object({
 /** §158.5: the owed row this effect lands -- what an earlier delivered turn told the player and the ledger lacked. */
 const OwedRef = Type.Optional(Type.String({ description: "the name of a row of the capsule's owed section that this effect lands: what an earlier turn already told the player happened. Send that row's own effect with it, unchanged; the kernel refuses a name that is not open or an effect that does not land it. Leave it out for anything the player chose this turn" }));
 
-const MoveEffect = Type.Object({
+const MoveEffectFields = {
 	...IntentResult,
 	kind: StringEnum(["move"] as const, { description: "change the persistent gameplay locus; ordinary spatial description inside the current locus needs no move" }),
 	to: Type.String({ description: "the persistent gameplay locus chosen by the player, or the one an owed row says they were already told they reached. Reuse an existing place for its rooms or counters. For an ordinary new place consistent with established facts, supply establish and via in this same move; no source reading or adaptation job is required just because the graph lacks it. Do not substitute or relabel another place" }),
@@ -226,7 +226,12 @@ const MoveEffect = Type.Object({
 	via: Type.Optional(Type.String({ description: "how they got there when the way is not one of the exits you were given — through an unlatched upper window, down a coal chute, following someone in. Say it and the move lands; without it an unlisted destination is refused, and then the world stays where it was while your narration moves on" })),
 	label: Type.Optional(Type.String({ description: "a public display name for the SAME registered gameplay locus in the player's language. Use only what the player has learned; a private source heading is not a public name. Omitted reuses the recorded public label or an explicitly public source identity, otherwise a neutral scene caption. It cannot substitute a different locus" })),
 	owed: OwedRef,
-}, {dependentRequired: MOVE_ESTABLISHMENT_DEPENDENCIES});
+};
+const {establish:_optionalEstablishment,...registeredMoveFields}=MoveEffectFields;
+const MoveEffects=[
+    Type.Object({...MoveEffectFields,establish:PlaceEstablishment,via:Type.String({minLength:1})},{additionalProperties:false}),
+    Type.Object(registeredMoveFields,{additionalProperties:false}),
+];
 
 const ClueEffect = Type.Object({
 	...IntentResult,
@@ -981,15 +986,15 @@ export const COC_TOOLS: readonly CocToolSpec[] = [
 		promptSnippet: "Record established semantic changes with event, actor-specific knowledge and directed relationships; keep unexecuted NPC intentions planned. Land this turn's world changes: move, clue, time, handout, map, item, cash; apply clock pins the opening datetime once when the book gives no full date",
 		parameters: Type.Object({
 			using_skill: UsingSkill,
-			effects: Type.Array(
-				Type.Union([EndingEffect, AdaptationEffect, MoveEffect, ClueEffect, ClockEffect,SceneEffect, TimeEffect, DamageEffect, ItemEffect, DefineEffect, UsageEffect, ObjectEffect, AbilityEffect, CashEffect, FlagEffect, NoteEffect, RulingEffect, DossierEffect, NpcEffect, PersonEffect, ThreatEffect, ForkEffect, SwitchEffect, MergeEffect, HandoutEffect, MapEffect]),
+			effects: Type.Optional(Type.Array(
+				Type.Union([EndingEffect, AdaptationEffect, ...MoveEffects, ClueEffect, ClockEffect,SceneEffect, TimeEffect, DamageEffect, ItemEffect, DefineEffect, UsageEffect, ObjectEffect, AbilityEffect, CashEffect, FlagEffect, NoteEffect, RulingEffect, DossierEffect, NpcEffect, PersonEffect, ThreatEffect, ForkEffect, SwitchEffect, MergeEffect, HandoutEffect, MapEffect]),
 				{ minItems: 0, description: "the changes to land this turn, in order; empty only for a meaningful semantic event" },
-			),
+			)),
 			event:Type.Optional(TurnEvent),
 			delivery: Type.Optional(CarriedDelivery),
 			narrate: Type.Optional(Type.String({ description: withPlainProse("Legacy untrusted draft material to prepare/check after effects land; never published by apply. Use narrate handoff:true to submit the checked material for final expression. If an effect is refused, already settled effects still stand") })),
 			quotes: EmbeddedQuotationDrafts,
-		}),
+		},{anyOf:[{required:['effects']},{required:['event']}]}),
 	},
 	{
 		name: "ask",

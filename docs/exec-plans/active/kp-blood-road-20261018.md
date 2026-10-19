@@ -1,28 +1,37 @@
 # Keeper contracts and Blood Road browser acceptance
 
-## Current owner correction (2026-10-19)
+## Current apply recovery work (2026-10-19)
 
-The task is resumed. Mainline and owned validation checkout are at315808942.
-The earlier handoff below is historical and does not close current acceptance.
-Intent67 proves incremental native tool arguments but only37ms of browser body
-growth; it is invalid for the owner's visible streaming acceptance.
+Mainline and owned validation checkout baseline are ae0fbab77. The owner explicitly
+authorized the apply parameter protocol, cross-turn recovery and refusal cache
+repair, with direct plain SSE preserved and no added judgment model or prompt fix.
+Shared search and failure-notice files/hunks belong to other owners and remain
+excluded. Own shared-index edits are recorded as exact replacement pairs in
+browser-seams/apply-recovery-index-edits.json for selective index construction.
 
-The owner requires one complete context -> one ordinary prose author request ->
-immediate SSE text forwarding; validation and any local span correction run
-in the background, without another judgment model or whole-draft regeneration.
-The current transport change explicitly disables every author tool and forwards
-ordinary text_delta bytes. It preserves settlement and publication binding,
-interruption status and one-request enforcement. Component checks92/92 and an
-actual Pi empty-tools session pass; exact current-material publication passes1/1.
-Raw provider timing keeps only event kinds, indices, lengths and timestamps.
-Live MiniMax browser verification and background correction remain outstanding.
-Existing single-pass policy disables the old verifier; the old speech overlay
-is not a general fact correction mechanism. Do not enable global rewrite policy.
+The real retained intent70 failed3apply attempts,1Jev request and1cache reuse,
+53.608s with4KP requests and0author calls. Intent69's published Cafe arrival had
+no move receipt. The active single-Keeper path omitted told recovery authority.
+The new source-scoped recovery carries immutable originating declaration/commit
+through host-only context, keeps one existing consent batch, and consumes actual
+kernel owed-settlement receipts to retire the otherwise identical prior hold.
+Complete issued owed effects need0consent inferences. Parameter variants share
+required routes; event-only empty effects are host-owned. No author code changed.
 
-Owned server28 and Ego space5/pagep1 remain active. Preserve other owners'
-search and failure-diagnostic edits, including shared index and contract hunks.
-Goal is not complete. Lifecycle final audit remains required; no unrelated
-mount cleanup or destructive worktree removal is authorized.
+The exact state regression fails on baseline ae0fbab77 and passes on current
+source. Current ordinary-negative-guard/native/protocol regression27/27 passes;
+other admission/signature components22/22 and known owed native1/1 pass. Kernel
+types pass. Latest author/language checks and live MiniMax acceptance are pending.
+No LAN box is reachable; these are bounded local component runs. Failed interim
+schema-walker and shape-validator experiments remain in the raw logs and have
+been corrected, not hidden. No full strict workspace typecheck is claimed.
+
+Plain-author live intents68/69 on ae0fbab77 showed20/18 raw text deltas over
+1777/1055ms and visible DOM growth before completion, with1author request each.
+This establishes streaming, not complete gameplay correctness. Generic background
+prose correction remains separate and unimplemented; do not enable global rewrite.
+Owned browser space5/pagep1 and server29 are idle and retained for the same campaign.
+Lifecycle closeout remains required when the actual task ends. Goal not complete.
 
 ## Historical partial handoff (2026-10-19)
 
@@ -535,3 +544,18 @@ LAN focused c0f8c6685 finished exit0 in952s: extension4049pass/8skip across454
 files, native2222pass, routing12pass. This proves the earlier role/location/item
 projection revision; c2ef32527/0076ab312 and current consent delta need their own
 final validation. Do not attribute that immutable run to later code.
+
+## Apply recovery owner continuation (2026-10-19)
+
+Authorized: fix apply parameter contracts, cross-turn reconciliation and refusal
+cache together; preserve plain SSE, add no judge model or prompt-only repair.
+Current failure evidence: intent69 delivered Cafe arrival without a move receipt;
+intent70 made3failed apply attempts,1Jev request and1negative-cache reuse,53.608s,
+4KP requests,0author calls. All original evidence remains retained.
+The active single-Keeper admission branch omits told authority entirely; the
+legacy remembered-before-told ordering is not the whole production cause.
+Implement kernel-bound originating-turn recovery context, per-line existing
+consent scope, authority-sensitive cache identity and shared structural schemas.
+Then deterministic regression plus continuous natural MiniMax browser play;
+measure full intents and actual state, not publication alone. Other-owner
+failure-notice and search edits remain excluded from integration commits.

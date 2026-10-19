@@ -31,6 +31,13 @@ export function heldOperationKey(tool: string, args: Record<string, unknown>): s
   const {campaign: _, call_id: __, ...proposal} = args;
   return outcomeDigest({tool, proposal: ordered(proposal)});
 }
+/** Only canonical owed receipts can retire the same formerly refused operation without its authority annotation. */
+export function heldRecoveryOperationKey(tool:string,args:Record<string,unknown>,receipts:Record<string,unknown>[]):string|undefined {
+  if(tool!=='apply'||!Array.isArray(args.effects))return;
+  const effects=args.effects as Record<string,unknown>[],owed=effects.filter(effect=>typeof effect.owed==='string');
+  if(!owed.length||!owed.every(effect=>receipts.some(receipt=>receipt.owed===effect.owed)))return;
+  return heldOperationKey(tool,{...args,effects:effects.map(({owed:_,...effect})=>effect)});
+}
 /**
  * A settled receipt as the question shows it: its scalar fields, clipped. A projection of the kernel's own row, not a reading
  * of it; which act it carries is Jev's to judge.

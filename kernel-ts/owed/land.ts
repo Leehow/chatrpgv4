@@ -95,16 +95,22 @@ export async function owedRowFor(campaign: { readTurnRecord(turn: number): Promi
     const entry = ledger.open.find(value => value.name === name);
     if (!name || !entry)
         throw refusal('owed_unknown', `${repr(given.owed)} names no open owed row`, 'Leave owed out, or name a row of the capsule\'s owed section exactly as it is written.', { owed: given.owed ?? null, open });
-    if (!entry.effect && entry.kind === 'move')
-        throw refusal('owed_unresolved', 'This owed departure names no place the table has, so no effect lands it by name.',
-            'Leave owed out: land the departure with an ordinary apply move to the place the delivery sent the party (establish {summary} and via when the table has no such place); that move closes this row.', {owed:name});
-    if (!entry.effect)
+    const departure = !entry.effect && entry.kind === 'move' && given.kind === 'move'
+        && text(row(entry.departure).from) && text(given.to).trim();
+    if (departure && (sceneKey(graph, world.active_scene) !== sceneKey(graph, row(entry.departure).from)
+        || sceneKey(graph, given.to) === sceneKey(graph, row(entry.departure).from)))
+        throw refusal('owed_position_stale', 'The owed departure no longer starts at the current position.',
+            'Refresh the canonical position; do not repeat an already completed journey.', {owed:name});
+    if (!entry.effect && !departure)
         throw refusal('owed_unresolved', 'This owed row has no issued settlement effect.',
             'Do not guess an effect or attach this owed name to a different action. Resolve its ownership or definition through the existing preparation path; unrelated actions omit owed.', {owed:name});
-    if (entry.kind !== given.kind || !lands(graph, world, party, entry, given))
+    if (entry.kind !== given.kind || !departure && !lands(graph, world, party, entry, given))
         throw refusal('owed_mismatch', `this ${text(given.kind)} effect does not land owed row ${name} (${text(entry.what)})`,
             'Send the row\'s effect exactly as the capsule\'s owed section gives it, with owed; for a different action, leave owed out.', { owed: name, effect: entry.effect ?? null });
     const record = await campaign.readTurnRecord(Number(entry.turn));
+    if (departure && (!record?.commit || record.closed_by !== 'narrate' || !text(record.player_text).trim()))
+        throw refusal('owed_source_stale', 'The owed departure has no committed originating declaration.',
+            'Refresh the source record; never infer recovery authority from a name alone.', {owed:name});
     const equipment = entry.kind === 'object' && entry.equipment_basis === true
         && (await campaign.party()).some(person => person.id === entry.owner_id && Array.isArray(person.equipment)
             && person.equipment.filter((value: unknown) => (typeof value === 'string' ? value : row(value).name) === row(entry.effect).adopt && !row(value).object_id).length === 1);

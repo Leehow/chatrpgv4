@@ -104,7 +104,10 @@ test("a batch that differs only in why reuses the verdict: the rationale is outs
 /** Each effect schema of the `apply` tool, by its kind. */
 function effectSchemas() {
 	const schemas = COC_TOOLS.find((tool) => tool.name === "apply").parameters.properties.effects.items.anyOf;
-	return new Map(schemas.map((schema) => [schema.properties.kind.const ?? schema.properties.kind.enum?.[0], schema]));
+	const merged=new Map();
+	for(const schema of schemas){const kind=schema.properties.kind.const??schema.properties.kind.enum?.[0],prior=merged.get(kind);
+		merged.set(kind,{...schema,properties:{...prior?.properties,...schema.properties}});}
+	return merged;
 }
 
 /** A value of the field's declared type, so the probe is a well-formed effect field and not just any string. */

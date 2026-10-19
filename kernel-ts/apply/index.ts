@@ -513,6 +513,8 @@ export function createApplyHandlers(kernel: KernelContext, writer: ReturnType<ty
             const ordinaryReceipts = receipts.filter(receipt => !isNpcVariationRoll(receipt));
             for(const receipt of receipts)if(receipt.kind==='event')receipt.event.effects=ordinaryReceipts.filter(item=>item!==receipt).map(item=>item.id);
             const result: Row = { receipts: ids, markers: markersOf({ ...turn, receipts: [...array(turn.receipts).filter(receipt=>!isNpcVariationRoll(receipt)), ...ordinaryReceipts] }, ordinaryReceipts), world: { active_scene: staged.active_scene, clock: staged.clock }, material_ready: material === 'ready', material };
+            const owedSettlements=receipts.filter(receipt=>typeof receipt.owed==='string');
+            if(owedSettlements.length)result._owed_settlements=owedSettlements.map(({id,owed,told_turn})=>({id,owed,told_turn}));
             // These are execution results, including no-op assignments, not copies of proposals.
             result.outcomes=[...effectReceipts].flatMap(([index,landed])=>operationOutcomes(landed,graph,staged).map(outcome=>({index,...outcome})));
             if(params.event!==undefined)result.outcome=graph.shownIds(eventOutcome([...array(turn.receipts),...receipts]));

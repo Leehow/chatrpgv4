@@ -48303,3 +48303,45 @@ text replacement, never a whole-response regeneration or a world transaction.
 The retained intent67 native-argument burst is invalid for this owner's direct
 prose streaming acceptance, even though its individual websocket frames arrived
 before artifact completion.
+
+### Kernel decision: apply recovery keeps its source authority (owner 2026-10-19)
+
+The current single-Keeper path uses the same owed-state authority as the legacy
+path. A resolved owed effect is settled on its exact delivered source, without
+another consent request. An unresolved told departure is not an arbitrary move
+grant: the kernel binds its quote, originating committed turn and unchanged
+source position; the existing consent questions judge its proposed destination
+against that originating player's declaration. Mixed calls retain their atomic
+transaction and current actions retain their current declaration. The existing
+questions, thresholds and judge model are unchanged; independently scoped lines
+share one decision batch. No prose parsing or new semantic classifier is added.
+
+Host-only context carries validated owed source records. Recovery identity joins
+source turn/commit, original declaration, owed mode and operation to the current
+world/source revisions. Current-action refusal caches cannot poison a recovery;
+changed or missing source evidence cannot reuse an old authority. The kernel
+rechecks quote, open row and departure position at settlement. A recovery closes
+once with its real receipt; it never rewrites delivered prose or repeats movement.
+
+The apply schema declares establishment and route together as explicit variants
+with the same required fields for provider and local validation. Event-only calls obtain
+the fixed empty effects array from the host. Structural checks precede consent.
+A retry instruction only names an executable recovery; unresolved rows never
+receive the false promise that copying their owed name alone skips all review.
+Canonical apply returns host-only _owed_settlements, bound to the returned receipt
+IDs. The host consumes and removes it; only this actual settlement proof can retire
+a previously refused identical operation whose only difference was its owed
+authority annotation. A changed route, effect, event or partial result cannot.
+The direct plain-text SSE author and its one-request foreground boundary remain.
+
+Producer: canonical owed ledger plus immutable originating turn. Reader: host-only
+context, current admission and apply staging. Actor: existing consent scopes each
+operation; the kernel alone settles it. Acceptance checks actual scene/receipts,
+closed owed rows, repeated refusal/cache behavior and visible author streaming.
+
+Precedent: JSON Schema conditional validation supports expressing field-dependent
+requirements (https://json-schema.org/understanding-json-schema/reference/conditionals).
+AWS Step Functions distinguishes retryable errors and explicit recovery transitions
+(https://docs.aws.amazon.com/step-functions/latest/dg/concepts-error-handling.html).
+Both support typed executable contracts; neither grants past actions authority or
+replaces this kernel's original-declaration and immutable-source checks.

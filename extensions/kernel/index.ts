@@ -15,6 +15,8 @@ import {scenePopulationRequired,sceneAssessmentExpiredDuringActivity} from '../.
 import {ExpressionPlanStream,writeIsolatedExpression,decisionScene,decisionClock,decisionRecentPublic,decisionResponseScope} from '../../runtime/isolated-expression.ts';
 import {turnPacket,bindTurnPacketMoves,turnPacketMovementChoices,requireTurnPacketNpcDestinations,isNewNpcSlot,normalizeTurnPacketArguments,compileTurnPacket,turnPacketResult,turnPacketProviderPayload,TURN_PACKET_PARAMETERS,TURN_PACKET_GUIDANCE,type TurnPacket} from '../../runtime/turn-packet-prototype.ts';
 import {normalizeToolArgumentSyntax} from '../../runtime/tool-argument-syntax.ts';
+import {normalizeApplyArguments} from '../../shared/apply-protocol.ts';
+import {owedConsentPlan} from './owed-consent.ts';
 import {continuousConsentDisposition} from '../../runtime/jev/continuous-consent.ts';
 import {NpcReferences,isNpcReference} from '../../runtime/npc-references.ts';
 import {publicDialogue,type PublicDialogueLine} from '../../shared/public-dialogue.ts';
@@ -23,7 +25,7 @@ import {DocumentReadCoverage} from './document-read-coverage.ts';
 import {openingInformationShape} from '../../runtime/opening-information.ts';
 import {writingDigest,canonicalWritingResult,matchWritingResult,completesRefusedAddition,type WritingMatch,type WritingCompletion} from '../../runtime/jev/document-completion.ts';
 import {RefusedDocumentOutcome, REFUSED_DOCUMENT_OUTCOME_FAMILY, REFUSED_DOCUMENT_OUTCOME_REASON, documentOutcomeDigest, type DocumentOutcomeVerdict} from '../../runtime/jev/refused-document-outcome.ts';
-import {HeldActOutcome, heldOperationKey, HELD_ACT_OUTCOME_FAMILY, HELD_ACT_OUTCOME_REASON, receiptLine} from '../../runtime/jev/held-act-outcome.ts';
+import {HeldActOutcome, heldOperationKey, heldRecoveryOperationKey, HELD_ACT_OUTCOME_FAMILY, HELD_ACT_OUTCOME_REASON, receiptLine} from '../../runtime/jev/held-act-outcome.ts';
 import {DOCUMENT_RECORDING_INTENT_MIN, permitsReferenceOperation} from '../../runtime/jev/interaction-scope.ts';
 /**
  * The pi-coc kernel extension: it starts the compiled TypeScript kernel, wires the eight verbs onto RPC,
@@ -3706,20 +3708,26 @@ export default function (pi: ExtensionAPI, host: {capabilities?:RuntimeCapabilit
 					verdict:'authorized',ms:0,origin:'policy'});
 				return;
 			}
+			const recovery=tool==='apply'?owedConsentPlan(effects,current,state.playerText):undefined;
+			const reviewedEffects=recovery?.effects??effects;
 			const scopeFor=await admissionScopeBuilder(state,tool,payload,current);
-			let proposal=admissionRequest(tool,payload,{...scopeFor(effects),consentOnly:true});
-			if(!proposal){capture?.(null);return;}
+			let proposal=admissionRequest(tool,tool==='apply'?{...payload,effects:reviewedEffects}:payload,{...scopeFor(reviewedEffects),consentOnly:true});
+			if(!proposal){capture?.(null);if(recovery?.told.length)await record({lane:'admission',verb:tool,turn:state.turn,path:'told',verdict:'authorized',jev_calls:0,owed:recovery.told});return;}
             proposal=capsuleContactProposal(proposal,payload,current);
             capture?.(proposal);
+            const context=admissionContextFor(state);
+            const lineContexts=recovery?.sources.some(Boolean)?(proposal.effects??[]).map(index=>{const source=recovery.sources[index];return source?{...context,
+                playerText:source.player_text,interruptedPlayerText:undefined,refused:[],corrections:[],
+                delivered:context.delivered.filter(row=>typeof row.turn!=='number'||row.turn<source.turn)}:context;}):undefined;
 			const key=continuousAdmissionKey(state.playerText,current._context?.world_revision,
                 current._context?.task_source_revision??current._context?.source_revision,
-                proposal);
+                proposal,recovery?.identity??'current');
 			const unavailable=(reason:string)=>new KernelError({code:'needs',message:'Jev could not establish authority for this proposal',
 				fix:admissionUnavailable(proposal,reason,'Typed consent did not establish authority.',1,'same_keeper').fix,
 				details:{reason:'typed_admission_unavailable',jev_reason:reason,recovery:'hold'}});
 			let verdict=state.admission.get(key);
             const screened=keeperRun?.prescreen;
-            if(!verdict&&tool==='apply'&&screened&&screened.run===keeperRun?.runId&&screened.playerText===state.playerText
+            if(!verdict&&tool==='apply'&&recovery?.identity==='current'&&screened&&screened.run===keeperRun?.runId&&screened.playerText===state.playerText
                 &&screened.worldRevision===current._context?.world_revision&&screened.taskRevision===current._context?.task_world_revision
                 &&screened.sourceRevision===(current._context?.task_source_revision??current._context?.source_revision)){
                 const reviewedEffects=(proposal.effects??[]).map(index=>effects[index]);
@@ -3736,7 +3744,7 @@ export default function (pi: ExtensionAPI, host: {capabilities?:RuntimeCapabilit
 					throw unavailable('unconfigured');
 				}
 				const checked=await reviewAdmissionJevOnly({campaign:state.campaign,ctx:sessionCtx!,proposal,
-					context:admissionContextFor(state),signal,providerBudget,record,decision:turnDecisionPort});
+					context,...(lineContexts?{lineContexts}:{}),signal,providerBudget,record,decision:turnDecisionPort});
 				await record({lane:'admission',verb:tool,turn:state.turn,path:'typed',reviewer:'jev',
 					ok:checked.ok,ms:checked.ms,...checked.meta,...(checked.ok?{verdict:checked.verdict.verdict}:{reason:checked.reason})});
 				if(!checked.ok){
@@ -6578,9 +6586,13 @@ export default function (pi: ExtensionAPI, host: {capabilities?:RuntimeCapabilit
                 const completion=result.replayed===true?undefined:operationKeys.get(state)?.get(toolCallId)?.playerAction?.key;
                 const prior=completion?boundary?.basis?.held.filter(row=>row.cause==='invalid_params'&&row.argumentCompletionKey===completion)??[]:[];
                 boundary?.settled(scope,key,completion);
+                const proved=Array.isArray(result._owed_settlements)?result._owed_settlements.filter((row:any)=>result.receipts.includes(row.id)):[];
+                const recovered=heldRecoveryOperationKey(spec.name,params,proved);
+                if(recovered)boundary?.settled(scope,recovered);
                 for(const row of prior)if(!boundary?.basis?.held.includes(row))await record({lane:'held-operation',event:'parameter_failure_reconciled',turn:state.turn,
                     failed_operation:row.operationKey,settled_operation:key,completion_scope:'player_action',completion_key:completion,receipts:result.receipts});
             }
+            delete result._owed_settlements;
             const operationOrigin=dispatcher.hostOrigin(toolCallId);
             if(turnPacketPrototype&&spec.name==='apply'&&operationOrigin?.clerk==='continuous_turn'
                 &&keeperRun?.runId===operationOrigin.run&&!partial?.notLanded)
@@ -6743,7 +6755,7 @@ export default function (pi: ExtensionAPI, host: {capabilities?:RuntimeCapabilit
 			if (spec.name === "apply" && isKernelError(error)
 				&& ["admission_unavailable", "action_not_authorized", "review_timeout"].includes(String(error.details?.reason))) {
 				const names = [...new Set((Array.isArray(params.effects) ? params.effects : []).flatMap((effect: any) =>
-					typeof effect?.owed === "string" && (state.owed ?? []).some(row => row.name === effect.owed) ? [effect.owed] : []))];
+					typeof effect?.owed === "string" && (state.owed ?? []).some(row => row.name === effect.owed && row.effect && typeof row.effect === 'object') ? [effect.owed] : []))];
 				if (names.length) error = new KernelError({code: error.code, message: error.message,
 					fix: `The refused effects did not land. Resend only the effects for open owed rows ${names.join(", ")} in a separate apply this turn; they use the told basis without player-choice review. Previously delivered fiction still stands. For the remaining effects only: ${error.fix ?? "leave them unsettled"}`,
 					details: {...error.details, owed_retry: names}});
@@ -6899,7 +6911,8 @@ export default function (pi: ExtensionAPI, host: {capabilities?:RuntimeCapabilit
 			// the literal's body without its quotes -- is decoded between the two, so the label rule and every reader after it
 			// see the text.
 			prepareArguments: (args: unknown) => {
-				const normalized=turnPacketPrototype&&spec.name==='output'?normalizeTurnPacketArguments(args):normalizeToolArgumentSyntax(spec.parameters,args,{nativeValidation:true});
+				const supplied=spec.name==='apply'?normalizeApplyArguments(args):args;
+				const normalized=turnPacketPrototype&&spec.name==='output'?normalizeTurnPacketArguments(supplied):normalizeToolArgumentSyntax(spec.parameters,supplied,{nativeValidation:true});
 				if(normalized.repairs)void record({lane:'arguments',event:'decision_array_normalized',tool:spec.name,repairs:normalized.repairs});
 				if(normalized.integerRepairs)void record({lane:'arguments',event:'decision_integer_normalized',tool:spec.name,repairs:normalized.integerRepairs});
 				const unwrapped = unwrapArgumentMarkup(spec.name, spec.parameters, normalized.args);

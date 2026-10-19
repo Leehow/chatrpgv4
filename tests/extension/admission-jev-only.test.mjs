@@ -104,7 +104,7 @@ async function cashReview(probabilities,playerText='I accept the actual 47 USD d
 test('typed cash approval produces the exact preview limit in the same batch',async()=>{
     const {review,batches,calls,context:actual}=await cashReview({cash_input_0:.99,cash_offer_0_0:.01});
     assert.equal(review.ok,true);assert.equal(calls,1);
-    assert.equal(batches[0].familyVersion,'6');
+    assert.equal(batches[0].familyVersion,'7');
     assert.deepEqual(review.verdict.cash_limits,[{index:0,amount:'47',basis:'input',evidence:actual.playerText}]);
     assert.equal(admission.boundCashAuthority(cashProposal,actual,review.verdict).verdict,'authorized');
 });
