@@ -1,5 +1,37 @@
 # Keeper contracts and Blood Road browser acceptance
 
+## Current-state material boundary and cache follow-up, 2026-10-19
+
+Final source a8a6c14e6 is committed on0.9.8a and genuinely tested on MiniMax3.1/
+medium. See docs/acceptance/current-material-boundary-20261019.md. Current owned
+writing and attributed observed writing/plans are selectable; prepared actor
+references survive deduplication. V4 replaces prior-input mutable state frames,
+keeps within-input tool pairing, and omits automatic author quotations. Schema
+scope now matches existing hydration for narration and each actor's own facts.
+No new judge, prompt reminder or inference lane; direct author SSE is preserved.
+
+Final six intentions complete in83.976s,7 KP/6authors/7outputs,0retrieval and no
+extra player clarification. The one movement correction (unissued incidental
+food offer) is included. Matched first four:67.710s/6 KP before versus58.958s/5 KP
+final,12.9% sampled improvement, without claiming universal reduction or cache
+causality. Canonical cash/items remain correct; exactly two30minute moves.
+Actual author increments are retained. Final LAN251/251 and fast130/130 pass;
+this is not a new full-suite or installed-App acceptance result.
+
+Historical128-token cache root remains open: final seven real requests read
+49,408–57,088tokens, and exact wire bodies match the final hook with invariant
+tool/system/settings/book prefixes. Raw usage rules out an observed start-frame
+counter overwrite; there is no host128token cache cap. Historical full wire
+bodies were not retained, so server residency/eviction/routing is not inferred.
+No speculative provider/endpoint/model-policy patch is claimed as a cure.
+
+Five new memory jobs finish; doctor90 keeps one uncertain belief-subject
+annotation deferred (3Jev calls/3.406s, not timeout). Four pending jobs are seed
+inheritance. All intermediate failures/probe artifacts remain, including the
+one invalid observer run. All live drivers stopped. Canonical App is still3a1ac5;
+this turn does not package foreign dirty UI/provider work. Lifecycle closeout
+retains the owned validation checkout and its intentional dependency symlinks.
+
 ## Doctor latency follow-up, 2026-10-19
 
 Final retained source3a1ac54b6 is installed in the canonical stable-signed App.
