@@ -436,6 +436,11 @@ function canonical(value: unknown): string {
 export function keyDigest(key: string): string {
 	return createHash("sha256").update(key).digest("hex").slice(0, 12);
 }
+/** One native verdict identity; JSON key order is transport, array order is meaning. */
+export function continuousAdmissionKey(playerText:string,worldRevision:unknown,sourceRevision:unknown,proposal:AdmissionProposal):string {
+ return 'continuous:'+keyDigest(canonical([playerText,worldRevision,sourceRevision,
+  {tool:proposal.tool,operations:proposal.operations??proposal.lines,kinds:proposal.kinds,cash:proposal.cash??null}]));
+}
 
 /**
  * The fields that identify an effect (§32.4.1): every field a reviewed kind declares in the `apply` schema except the

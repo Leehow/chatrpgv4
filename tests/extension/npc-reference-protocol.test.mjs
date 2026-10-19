@@ -21,3 +21,16 @@ test('the native wire binds both speech and presence by reference rather than a 
  assert.equal(turnPacket(packet('npc_17')).responses[0].actor,'npc_17');
  for(const actor of ['The clerk','npc_0','npc_017'])assert.throws(()=>turnPacket(packet(actor)));
 });
+
+test('only one exact issued public appellation normalizes to its original actor reference',()=>{
+ const refs=new NpcReferences();const scope='c:8';
+ refs.observe(scope,{present:[{ref:'npc_1',display_name:'The clerk',name:'Hidden name',name_known:false}]});
+ const original={version:3,commands:[],responses:[{actor:' the CLERK ',act:'answer',points:['The receipt is ready.']}]};
+ const bound=refs.bindActors(scope,original);
+ assert.equal(bound.repairs,1);assert.equal(turnPacket(JSON.stringify(bound.args)).responses[0].actor,'npc_1');
+ assert.equal(original.responses[0].actor,' the CLERK ');
+ for(const actor of ['Hidden name','clerk','npc_01'])assert.equal(refs.bindActors(scope,{...original,responses:[{actor,act:'silent'}]}).repairs,0);
+ refs.observe(scope,{ref:'npc_2',display_name:'The clerk',name_known:false});
+ assert.equal(refs.bindActors(scope,original).repairs,0,'two same-name identities remain ambiguous');
+ refs.observe('c:9',{present:[]});assert.equal(refs.bindActors(scope,original).repairs,0);
+});

@@ -35,3 +35,14 @@ test('canonical physical custody reaches the compact result without private defi
  assert.deepEqual(outcomes,[{kind:'item',status:'changed',name:'Exposed roll',from:'Jack Miller',to:'Clerk',quantity:1}]);
  assert.deepEqual(turnPacketResult({outcomes}).outcomes,outcomes);
 });
+
+test('native consent identity ignores object key ordering while retaining every authority boundary',async()=>{
+ const admission=await import('../../extensions/kernel/admission.ts');
+ assert.equal(typeof admission.continuousAdmissionKey,'function');
+ const a={tool:'apply',lines:['ignored when operations exist'],kinds:['object'],operations:[{kind:'object',name:'Exposed roll',definition:'Film',to:'Jack Miller'}]};
+ const b={...a,operations:[{to:'Jack Miller',definition:'Film',name:'Exposed roll',kind:'object'}]};
+ const key=admission.continuousAdmissionKey('I check the roll.','w','s',a);
+ assert.equal(admission.continuousAdmissionKey('I check the roll.','w','s',b),key);
+ for(const [input,world,source,proposal] of [['Other input','w','s',a],['I check the roll.','w2','s',a],['I check the roll.','w','s2',a],['I check the roll.','w','s',{...a,operations:[{...a.operations[0],to:'Clerk'}]}]])
+  assert.notEqual(admission.continuousAdmissionKey(input,world,source,proposal),key);
+});

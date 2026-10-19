@@ -103,7 +103,9 @@ for(const fault of ['unissued_npc_destination','silent_world_change'])test('nati
  assert.equal(task.result.npc_actions_complete,true);
  assert.deepEqual(task.result.outcomes.filter(row=>row.kind==='npc').map(row=>({actor:row.actor,to:row.to,status:row.status})),[{actor:ref,to:'away',status:'changed'}]);
  assert.ok(!task.decision_context.scene.presence.people.some(person=>person.ref===ref));
- assert.deepEqual(task.decision_context.responses,[{actor:ref,act:'silent',mode:'nonverbal'}]);
+ assert.deepEqual(task.decision_context.responses,[{actor:ref,act:'silent',location:{scope:'offstage'},mode:'nonverbal'}]);
+ assert.deepEqual(task.decision_context.cast.filter(person=>person.role==='player').map(person=>person.display_name),task.investigator_names);
+ assert.equal(task.decision_context.cast.find(person=>person.ref===ref).presence,'offstage');
  assert.equal(batches.filter(batch=>batch.family==='continuous-action-admission').length,0,'NPC-only movement and malformed parameters need no player-action judgment');
 });
 
@@ -471,4 +473,19 @@ test('renaming the current scene is never projected as an arrival',async()=>{
  const {operationOutcomes}=await importSource('kernel-ts/apply/outcomes.ts');
  const outcome=operationOutcomes([{kind:'move',from:'scene',to:'scene',from_label:'New label',to_label:'New label',renamed:true,minutes:0}],{},{});
  assert.deepEqual(outcome,[{kind:'move',status:'unchanged',from:'New label',to:'New label',minutes:0}]);
+});
+
+test('reordered identical refused object operations reuse the native negative verdict',async t=>{
+ const batches=[];
+ const engine=createHybridEngine({env,decision:{decide:async batch=>{batches.push(batch);return answer(batch,.01);}}});
+ const table=await openTable({legacyDeliveryFixtures:false,realKernel:true,prepareWorkspace:opened,env,runDriver:engine.runDriver,
+  extraExtensions:[{name:'engine',factory:engine.extension}],responses:[
+   ()=>fauxAssistantMessage([rawToolCall('apply',{effects:[{kind:'object',name:'Unchosen parcel',definition:'Parcel',to:'Thomas Hayes'}]})],{stopReason:'toolUse'}),
+   ()=>fauxAssistantMessage([rawToolCall('apply',{effects:[{to:'Thomas Hayes',definition:'Parcel',name:'Unchosen parcel',kind:'object'}]})],{stopReason:'toolUse'}),
+   ()=>fauxAssistantMessage([rawToolCall('output',brief)],{stopReason:'toolUse'})]});
+ t.after(()=>table.dispose());await table.session.prompt('I remain at the desk and ask what the clerk knows.');
+ assert.deepEqual(table.extensionErrors,[]);
+ assert.equal(batches.filter(batch=>batch.family==='continuous-action-admission').length,1);
+ assert.ok(table.telemetry().some(row=>row.lane==='admission'&&row.reused&&row.verdict==='not_authorized'));
+ assert.equal(table.entries('coc-final-delivery').filter(row=>row.event==='end'&&row.status==='completed').length,0);
 });

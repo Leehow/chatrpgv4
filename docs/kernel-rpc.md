@@ -48212,3 +48212,16 @@ narrative control flow and persistent state in the runtime rather than deriving
 state from rendered lines (https://www.inklestudios.com/ink/web-tutorial/).
 Both support explicit role/state/location handoff, neither guarantees model
 compliance or grants private material access.
+
+**Closed identity normalization and stable native consent identity.** At native
+argument preparation only, an actor equal after NFKC/trim/case normalization to
+exactly one already-issued public display_name may bind to that issued npc_N.
+Never split names, infer nicknames, use private names, bind a creature, mint an
+identity or resolve an ambiguous/stale alias. Canonical packet parsing and the
+reference membership check remain strict. Record only a normalization count.
+The existing native consent cache uses the same sorted-key serializer as the
+ordinary admission owner, retaining array order, current input, world revision,
+source revision and every reviewed operation/cash field. Reordering JSON keys
+cannot cause another verdict request; changing any actual reviewed value still
+invalidates it. Negative/uncertain results remain reusable and never become
+permission. The browser61 failure and its unsuccessful original input remain.

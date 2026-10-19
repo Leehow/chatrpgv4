@@ -155,6 +155,7 @@ import {
 	effectSignature,
 	remainderAttempt,
 	keyDigest,
+    continuousAdmissionKey,
 	lateAdmission,
 	NO_GROUNDS,
 	REVIEW_PENDING,
@@ -3709,9 +3710,9 @@ export default function (pi: ExtensionAPI, host: {capabilities?:RuntimeCapabilit
 			if(!proposal){capture?.(null);return;}
             proposal=capsuleContactProposal(proposal,payload,current);
             capture?.(proposal);
-			const key='continuous:'+keyDigest(JSON.stringify([state.playerText,current._context?.world_revision,
+			const key=continuousAdmissionKey(state.playerText,current._context?.world_revision,
                 current._context?.task_source_revision??current._context?.source_revision,
-                {tool:proposal.tool,operations:proposal.operations??proposal.lines,kinds:proposal.kinds,cash:proposal.cash??null}]));
+                proposal);
 			const unavailable=(reason:string)=>new KernelError({code:'needs',message:'Jev could not establish authority for this proposal',
 				fix:admissionUnavailable(proposal,reason,'Typed consent did not establish authority.',1,'same_keeper').fix,
 				details:{reason:'typed_admission_unavailable',jev_reason:reason,recovery:'hold'}});
@@ -6907,6 +6908,9 @@ export default function (pi: ExtensionAPI, host: {capabilities?:RuntimeCapabilit
 				const embedded=omitEmptyEmbeddedArguments(spec.name,stripped.args);
 				if(embedded.fields.length)void record({lane:'arguments',event:'empty_embedded_omitted',tool:spec.name,fields:embedded.fields});
                 if(turnPacketPrototype&&spec.name==='output'&&table){
+                    const bound=packetNpcReferences(table).bindActors(packetNpcScope(table),embedded.args);
+                    embedded.args=bound.args as typeof embedded.args;
+                    if(bound.repairs)void record({lane:'arguments',event:'public_actor_reference_normalized',tool:spec.name,repairs:bound.repairs});
                     try{turnPacket(JSON.stringify(embedded.args));}
                     catch(error){const {refusal}=refusePacketParameters(table,error);throw Error(new KernelError(refusal).toToolText());}
                 }
