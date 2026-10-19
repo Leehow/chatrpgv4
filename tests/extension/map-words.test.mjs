@@ -17,10 +17,10 @@
  */
 import { strict as assert } from "node:assert";
 import { existsSync, readFileSync } from "node:fs";
-import { mkdtemp, mkdir, readFile, readdir, symlink, writeFile } from "node:fs/promises";
+import { mkdtemp, mkdir, readFile, readdir, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
-import { test } from "node:test";
+import { after, test } from "node:test";
 import { pathToFileURL } from "node:url";
 import { build } from "esbuild";
 import {
@@ -39,6 +39,8 @@ const response = (packet, drop = [], translate = text => `<${text}>`) => ({proto
 /** The kernel halves this seam needs, emitted the way the other kernel-facing suites emit theirs. */
 const kernelBundle = await (async () => {
 	const directory = await mkdtemp(join(tmpdir(), "map-words-kernel-"));
+	after(() => rm(directory, { recursive: true, force: true }));
+	await symlink(join(REPO, "node_modules"), join(directory, "node_modules"), "dir");
 	const outfile = join(directory, "api.mjs");
 	await build({
 		stdin: {

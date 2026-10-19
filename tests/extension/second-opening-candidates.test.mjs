@@ -15,7 +15,7 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import { spawn } from "node:child_process";
 import { createHash } from "node:crypto";
-import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, readFile, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
@@ -27,6 +27,7 @@ const REFS = [{ page: 1 }];
 /** The kernel's own `startSceneCandidates` and `resolveStartScene`, bundled from `kernel-ts/write/source.ts`. */
 async function kernelApi(t) {
 	const out = await mkdtemp(join(tmpdir(), "coc-second-opening-api-"));
+	await symlink(join(REPO, "node_modules"), join(out, "node_modules"), "dir");
 	t.after(() => rm(out, { recursive: true, force: true }));
 	const file = join(out, "api.mjs");
 	await build({ stdin: { contents: [

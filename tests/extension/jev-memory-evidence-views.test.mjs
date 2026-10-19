@@ -1,6 +1,6 @@
 /** Shared T09 evidence projections retain authority and closed attribution at every consumer. */
 import { strict as assert } from "node:assert";
-import { mkdtemp, readFile, rm } from "node:fs/promises";
+import { mkdtemp, readFile, rm, symlink } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
@@ -11,6 +11,7 @@ const ROOT = resolve(import.meta.dirname, "../..");
 let api, bundle;
 before(async () => {
 	bundle = await mkdtemp(join(tmpdir(), "jev-memory-evidence-"));
+	await symlink(join(ROOT, "node_modules"), join(bundle, "node_modules"), "dir");
 	const outfile = join(bundle, "memory-evidence.mjs");
 	await build({ stdin: { contents: [
 		"export {ModuleGraph} from './kernel-ts/read/module-graph.ts';",

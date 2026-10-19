@@ -15,7 +15,7 @@
  */
 import assert from 'node:assert/strict';
 import { after, test } from 'node:test';
-import { mkdtemp, rm } from 'node:fs/promises';
+import { mkdtemp, rm, symlink } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
@@ -23,6 +23,7 @@ import { build } from 'esbuild';
 
 const ROOT = resolve(import.meta.dirname, '../..');
 const temporary = await mkdtemp(join(tmpdir(), 'pi-coc impossible check '));
+await symlink(join(ROOT, 'node_modules'), join(temporary, 'node_modules'), 'dir');
 after(async () => { await rm(temporary, { recursive: true, force: true }); });
 await build({
   stdin: {

@@ -349,6 +349,7 @@ test("shutdown is nonblocking, aborts both models and neither retries nor backlo
 	});
 	table.commit(1);
 	await waitFor(() => table.rows("lane-call").filter(row => row.phase === "start").length === 2, { label: "both models started" });
+	await waitFor(() => signals.length === 2, { label: "both provider requests entered" });
 	table.commit(2);
 	await table.hook("session_shutdown");
 	assert.equal(signals.length,2);assert.ok(signals.every(signal=>signal?.aborted),'both real provider requests are aborted without awaiting their replies');

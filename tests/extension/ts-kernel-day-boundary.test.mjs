@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import {mkdtemp, rm} from 'node:fs/promises';
+import {mkdtemp, rm, symlink} from 'node:fs/promises';
 import {tmpdir} from 'node:os';
 import {join, resolve} from 'node:path';
 import {pathToFileURL} from 'node:url';
@@ -8,6 +8,7 @@ import {build} from 'esbuild';
 
 const ROOT = resolve(import.meta.dirname, '../..');
 const temporary = await mkdtemp(join(tmpdir(), 'pi-coc-day-boundary-'));
+await symlink(join(ROOT, 'node_modules'), join(temporary, 'node_modules'), 'dir');
 after(() => rm(temporary, {recursive: true, force: true}));
 await build({stdin: {contents: "export {gameDayOf} from './kernel-ts/healing/day.ts';", resolveDir: ROOT, loader: 'ts', sourcefile: 'day.ts'},
   outfile: join(temporary, 'day.mjs'), bundle: true, format: 'esm', platform: 'node', target: 'node22', packages: 'external', logLevel: 'silent'});

@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import {mkdtemp, readFile, rm} from 'node:fs/promises';
+import {mkdtemp, readFile, rm, symlink} from 'node:fs/promises';
 import {tmpdir} from 'node:os';
 import {join, resolve} from 'node:path';
 import {pathToFileURL} from 'node:url';
@@ -13,6 +13,7 @@ test('generation-v2 voice packages cannot activate on a runtime without generati
   const manifest = JSON.parse(await readFile(join(root, 'mods/npc-voice/mod.json'), 'utf8'));
   assert.ok(manifest.requires.includes(CAPABILITY), 'the package must require the runtime that can regenerate and bind its jobs');
   const home = await mkdtemp(join(tmpdir(), 'voice-generation-compatibility-'));
+  await symlink(join(root, 'node_modules'), join(home, 'node_modules'), 'dir');
   t.after(() => rm(home, {recursive: true, force: true}));
   await build({
     stdin: {contents: `export {createKernelContext} from './kernel-ts/context.ts';

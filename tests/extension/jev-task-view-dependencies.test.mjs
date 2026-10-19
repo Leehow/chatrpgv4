@@ -1,6 +1,6 @@
 /** Closed task-view dependency and host invalidation conformance; fixtures are not gameplay. */
 import { strict as assert } from "node:assert";
-import { mkdtemp, rm } from "node:fs/promises";
+import { mkdtemp, rm, symlink } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
@@ -14,6 +14,7 @@ const ROOT = resolve(import.meta.dirname, "../..");
 let taskViews, taskWorldRevision, worldRevision, LABELS, SILENT_REASON, kernelBundle;
 before(async () => {
 	kernelBundle = await mkdtemp(join(tmpdir(), "jev-task-view-kernel-"));
+	await symlink(join(ROOT, "node_modules"), join(kernelBundle, "node_modules"), "dir");
 	const outfile = join(kernelBundle, "task-views.mjs");
 	await build({ stdin: { contents: "export {taskViews} from './kernel-ts/read/task-views.ts'; export {taskWorldRevision,worldRevision} from './kernel-ts/read/context.ts'; export {LABELS,SILENT_REASON} from './kernel-ts/voice/fields.ts';",
 		resolveDir: ROOT, sourcefile: "task-view-entry.ts", loader: "ts" }, bundle: true, packages: "external", platform: "node", format: "esm",

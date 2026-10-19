@@ -323,3 +323,13 @@ scoped cache intentionally reuses that decision. The1-minute then15-minute
 variant still requires2reviews. All3inline recovery cases pass after aligning
 this expectation; no-replay, first-public receipt, clock and failure-preservation
 assertions remain unchanged. Production source is still ff932831b.
+
+Whole-class fixture audit found8additional failing temp ESM kernel loaders
+(9directories) without external dependency resolution. All use the existing
+node_modules symlink pattern;40/40local cases pass. map-words24/24passes.
+The unrelated rule-options loader is unchanged because this run proves no gap.
+The journal shutdown test raced its lane-start telemetry against actual provider
+entry. Its requests-started scenario now awaits both captured provider signals
+before shutdown; abort/nonblocking/no-late-submit assertions are unchanged.
+Original failure and a pre-change passing reproduction are retained;17/17cases
+pass with the actual request barrier. These are test-only repairs.
