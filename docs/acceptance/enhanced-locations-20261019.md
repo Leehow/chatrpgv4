@@ -1,6 +1,13 @@
 # Enhanced Locations Mod acceptance
 
-Status: original implementation and F1–F4 failure repairs locally validated.
+Current follow-up: Enhanced Locations 1.1.2 is installed in the canonical App.
+The release source is `28c4a5df515fc4d6c14cd606c610e66a50486da2`. Actual
+observation/history play and native UI refresh/cold restoration have passed.
+Final full coverage completed with two initial 15-second cancellations; both
+unchanged files then passed serially, 13/13. The original overall exit 1 is
+retained. Source, package, evidence and remaining limits are recorded below.
+
+Historical baseline: original implementation and F1–F4 failure repairs validated.
 The initial handoff left failures described below; its completion claim was too
 broad. Repair source is committed as `549a92bda` on `0.9.8a`; the final full
 regression completed with exit 0. This is source-runtime acceptance, not an App
@@ -12,7 +19,8 @@ Keeper play, read-only state verification and controlled regression tests.
 
 The versioned `enhanced-locations` Mod owns location enhancement, requires
 `locations.v1`, and stores schema-1 places/features in the existing campaign Mod
-state. Its package is version 1.0.1. The kernel mints stable identities and uses
+state. Its initial package was version 1.0.1; the observation follow-up below
+delivers 1.1.2. The kernel mints stable identities and uses
 the existing transaction, admission, travel arithmetic, receipts and replay.
 Fresh campaigns enable its default package. Existing campaigns retain their
 lock and adopt/upgrade it through ordinary Mod configuration; the retained main
@@ -211,7 +219,7 @@ Initial private workspace plus raw-run logical storage is 70,270,739 bytes
 (approximately 67 MiB), below the admitted 512 MiB bound (`storage-final.json`).
 No retained evidence was deleted.
 
-## Delivery boundary
+## Initial source-only delivery boundary
 
 All implementation commits are local. No push, App packaging/installation,
 deployment, formal-campaign mutation, branch/worktree deletion or evidence GC
@@ -306,3 +314,198 @@ metadata, JUnit, source head/diff/manifest and per-file exit accounting are
 retained in `followup-lan-final/`, including `verification.json`. The upstream
 provider can still fail; the repaired contract reports its actual known cause
 and preserves committed settlement instead of promising availability.
+
+## Observation follow-up and canonical App acceptance
+
+### Delivered extension
+
+Mod 1.1.2 retains state version 1 and the additive locations schema. Its named
+v1/v2 observation capabilities add directed, sense-specific relations, bounded
+observations at exact target points, canonical observed clocks and stable named
+situations. Containment alone grants neither passage nor sight/hearing. The
+Keeper authors compatible public surroundings and progress; the kernel owns
+identity, clocks, transactions, receipts, rollback and replay. There is no generic
+offstage simulator or fixed elapsed-time event table.
+
+The host derives an observation's source from the actual party position. The
+optional target `at` never doubles as the observer's position. Ordinary `view`
+authoring creates the matching sensory relation without making the Keeper copy
+the source point. Remote newcomers use ordinary canonical NPC creation and retain
+their identity at the target; viewing them does not place them in the room or
+give the final author their private actor dossier.
+
+`place` remains separate from general apply context. Detailed location grammar
+and Mod sections are disclosed on relevant requests; the resident native schema
+contains a compact entry. All complete writes reach the existing atomic handler.
+Native explicit waiting now forwards the existing minutes path, and observation
+consent retains the proposed execution order without changing either consent
+threshold or adding a veto axis. The sole author receives committed findings and
+is explicitly asked to render the selected look/listen result.
+
+Normative details: location specification and kernel RPC section 243. The source
+changes include `e666b2eea`, `f8fbac6a4`, `f6944e6cf`, `1940cbd74`, `e9f046173`,
+`5b30dad0f`, `e44ebaf88` and the final history read-through `28c4a5df5`. The
+final package includes independently committed mainline work through that
+freeze, including scalar-transport repair `e92ab7601`. Subsequent concurrent
+uncommitted dialogue changes are excluded from this release and remain owned
+by their separate task.
+
+The final read seam projects up to four delivered observations of the exact
+target point and sense, with their original viewpoints, canonical public people
+and observed clocks. Unpublished settlement never becomes player knowledge.
+An actual focused read reaches the sole author for this input only, bounded to
+two target/sense groups; it grants no remote actor card or fresh perception.
+The existing answered location-context decision may prepare one unambiguous
+current route through the normal bounded discovery read and packing budget.
+Quiet, unavailable and ambiguous decisions do not automatically fetch history.
+This adds neither a semantic classifier nor an observation/time effect.
+
+### Actual Keeper decisions
+
+The main agent supplied one natural player input per real RPC turn. The final
+author and supporting live lanes used MiniMax M3.1 Flash Preview / medium. No
+scripted player, synthetic Keeper, staged argument or hand-edited campaign was
+used as play evidence. The retained workspace is
+`.coc/test-workspaces/enhanced-locations-01a154d0`.
+
+| Actual decision | Evidence and interpretation |
+|---|---|
+| Pharmacy doorway to street | Source global turn 25 establishes the real approach and observes an ordinary street, binding the new newspaper seller once as npc_13. |
+| Tea-shop window overlooking the street | Installed-runtime global turn 27 enters the tea shop and observes that same npc_13 remotely, without moving him into the room. |
+| Explicit waiting | Source turn 31 commits five minutes, from game minute 217 to 222, before the observation. Both consent lines pass; the author receives the committed facts. Its omission of those facts is preserved as failed narrative acceptance. |
+| Later delivery progress | Package `e44ebaf88`, global turn 32, advances to minute 227 and actually narrates the same seller's progress outside the window. |
+| Closing the window | Global turn 34 commits the window's closed state and retains the party at the window seat. |
+| Looking through closed glass | Global turn 35 observes the same seller again at minute 233, narrating his route past the shops while glass remains closed. This is real sight continuity, not a completed separate hearing observation. |
+| Refer to previous observations | Source global turn 40 identifies the same canonical person from four delivered records at minutes 217, 222, 227 and 233. The next quiet input uses no tools or history preparation. Clock, position, features and observations stay unchanged. |
+| Repeat the reference through the final installed runtime | Release global turn 42 correctly identifies the same recorded person using those four observations. The sole author is MiniMax M3.1/medium; the only issued tool is output, with no settlement or new perception. |
+
+Raw runs are `enhanced-locations-observation-live3-20261019`,
+`enhanced-locations-observation-packaged2-20261019`,
+`enhanced-locations-observation-ordered-20261019` and
+`enhanced-locations-observation-packaged4-20261019` under `.coc/playtests/`.
+History evidence is `enhanced-locations-observation-reference3-20261019` and
+`enhanced-locations-observation-release-20261019`, with
+`reference3-audit.json` and `release-reference-audit.json` in the audit directory.
+Audits, failed attempts and package records are under
+`.coc/test-runs/enhanced-locations-observations-20261019/`.
+
+Failures remain evidence: an unresolved invented source point; an empty-parent
+shape; an unconfirmed purchase correctly refused; an unissued communication
+reference; repeated native commands with kind move plus place-only fields; and
+the former uncertain observation consent. None is silently rewritten as success.
+The failed compound close/look/listen retained its settled Listen failure but
+did not close the window. Normal subsequent player choices closed it and then
+looked through it successfully. The final prose includes a brief uncommitted
+leaving-the-window phrase; canonical position remains the window seat. Model
+protocol mistakes and small prose continuity errors remain possible.
+
+Earlier history questions also remain failed: general recall lacked observation
+identity, a focused read initially exposed only the latest record, and another
+author received no actual history read. The repair connects delivered-history
+projection, demand preparation and current-input author consumption. Their
+incorrect answers are not rewritten or counted as passing reference turns.
+
+Named incident phase/participant retention, separate hearing, blocked views,
+elapsed arithmetic, failed publication, rollback/replay and privacy have direct
+TS/component/RPC coverage. A controlled argument fixture is structural evidence;
+this follow-up did not observe a naturally occurring live argument and does not
+claim that exact live case.
+
+### Native App and provenance
+
+The one real bundle is `/Applications/PipiCOC.app`, with the build-directory
+backlink pointing to it. The installed receipt identifies `28c4a5df5`, Mod 1.1.2,
+arm64 and the stable PipiUI Dev certificate. Strict signing verification passes;
+all five packaging runs remove their own staging directories. Cached local
+runtime/Electron archives supplied packaging; no large Internet payload batch
+was started.
+
+Native UI acceptance uses a private product profile,
+`Pipi/pipicoc-observation-acceptance-20261019`, and the retained test workspace.
+With the running executable and private profile verified, PID 60929 prepares a
+new built-in scenario through the actual UI. Its campaign is
+`game-9824efe0-ad75-4197-8f22-3cbf5d51b40d`. The Mod panel shows Enhanced Locations
+1.1.2 enabled in this campaign and retains that state after refresh. The actual
+session JSONL records MiniMax M3.1 and medium. After normal quit and a new PID
+75881, the same session, 10:00 clock, Mod and model return correctly. No player
+fictional action was submitted through this UI setup check; actual fictional
+acceptance remains the canonical driver method above.
+
+The final release was then cold-launched as PID 26063 through that same private
+profile. It restored the test session, its 10:00 clock, MiniMax M3.1/medium and
+enabled Mod 1.1.2. Refresh completed through the real UI and the App quit
+normally. `app-release-cold.png`, `app-release-cold-ax.txt` and
+`app-release-audit.json` identify this final package separately from earlier
+candidates. No fictional turn is claimed from the GUI setup campaign.
+
+`app-private-mod112.png`, `app-private-cold.png`, their AX captures and
+`app-private-audit.json` are the valid native evidence. Initial restored-window
+captures had ambiguous process/profile provenance and are explicitly
+invalid-for-acceptance; they remain retained. Nonblocking optional-provider
+registration warnings in the private profile are retained in `app-process.log`;
+this acceptance validates MiniMax, not those other providers.
+
+The final installed kernel, host and table JavaScript bytes match the frozen
+amax full-test snapshot exactly (`amax-compiled-parity.json`). All 660 tracked
+source blobs and three immutable Mod files checked against the final receipt
+commit match (`installed-source-audit-5.json`). Its only test-source overlay was
+this progress report, not production code. The earlier
+`lan-compiled-parity.json` belongs to an earlier candidate and is not attributed
+to the final history repair.
+
+`final-app-hygiene-5.json` verifies the real canonical bundle, stable certificate
+leaf, deep strict signature, build-directory backlink, sole LaunchServices and
+Spotlight root registration, all five removed staging directories and unchanged
+installed runtime hashes. An initial audit invocation used an invalid inline
+requirement specification; its error log is retained beside the corrected
+verification, with no package mutation.
+
+### Final validation gates
+
+Typecheck, quick 130/130, ordered admission/concurrency/language 44/44 and author
+components 68/68 pass. Earlier native-interface, privacy, explicit-wait and
+transaction suites are retained with their actual outcomes. Final RPC
+`run.lpByYTUr` passes 21/21. The complete earlier full run `run.vLk4T0ZP`, source
+`e9f046173`, passes extension 6272 total / 6263 pass / 9 skipped, integration
+2243/2243 and routing 12/12, overall exit 0 (1179 seconds).
+
+The final full run `run.mWDp0tBc` and installed-runtime read-only continuation
+were superseded by the frozen release validation. The leehow-pc host became
+unreachable during collection of `run.mWDp0tBc`; its overall result remains
+indeterminate. Only this task's stale local SSH client and wrappers were later
+terminated; this does not establish a remote exit code. The interrupted obsolete
+run `run.YMEnuGyf` remains exit 143, never a green run.
+
+Final source `28c4a5df5`, amax **`run.Js73wt6w`**, wall 1153 seconds:
+
+| Phase | Actual result |
+|---|---|
+| Extension, 710 files at 32-file concurrency | 6277 total / 6266 pass / 0 assertion failures / 2 cancelled at the existing 15-second limit / 9 skipped; exit 1 |
+| Native TypeScript integration | 2243/2243; runner exit 0, JUnit 2242 leaf cases plus the parent, zero failures/errors |
+| Routing loop | 12/12; exit 0 |
+| Original overall runner | Exit 1; unchanged raw result |
+| Same-source serial retry | memory-native-recovery.test.mjs 5/5 and parallel-reads.test.mjs 8/8; both exit 0, no cancellation |
+
+The two first-run cancellations were the legacy native-recovery and overlapping
+native-read cases. Serial retries used the same frozen production source and
+compiled hashes, the same tests and their unchanged 15-second bounds. They
+establish recovery at lower concurrency, not proof of the precise original
+timeout cause or a passing original full-run exit. All other passing cases
+remain from the complete run; no timeout/baseline was weakened to turn it green.
+
+Local phase exits, runner metadata, JUnit, source overlay and retry logs are in
+`lan-release-final/`, including `verification.json`. The retained remote archive
+is `/home/lihao/chatrpgv4-testbox/wt/codex-tests/.pytest-runs/chatrpgv4-wt-pi-coc-v2/run.Js73wt6w/`.
+Additional final checks pass: kernel typecheck, quick 130/130, interface/language
+10/10, request pressure 2/2, the new native history/privacy/input-expiry component
+and the actual-RPC delivered-history/bound/restart case. These controlled tests
+remain distinct from the installed real play above.
+
+`final-capacity-2.json` records a complete retained-tree logical-byte upper bound
+of about 71.4 MiB, counting each path and including the reused seed, below the
+admitted 512 MiB bound, with more than 125 GiB free at measurement. No campaign,
+raw play evidence or shared object was removed. All task-owned live drivers and
+GUI processes were stopped normally.
+Implementation and acceptance documentation are committed locally; no push is
+requested. Natural live argument/hearing acceptance and reliable arbitrary model
+compound arguments remain outside the evidence established here.

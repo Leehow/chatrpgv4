@@ -1,9 +1,12 @@
 # Enhanced Locations Mod implementation ledger
 
-Status: association/observation extension active from clean source `8412a2258`.
-Original implementation and F1–F4 repairs passed full regression. The owner now
-authorizes the new observation work, seam audit, canonical App rebuild/package
-and actual App testing. Push/publication is not requested.
+Status: observation and history seams delivered as Mod 1.1.2, frozen release
+source `28c4a5df515fc4d6c14cd606c610e66a50486da2`. Canonical App packaging,
+installed-runtime play and private native UI cold restore/refresh are validated.
+Final full coverage had two initial timeouts; both unchanged files passed the
+same-source serial retry (13/13). The original full-run exit 1 is retained.
+Original implementation and F1–F4 repairs also retain their earlier passing full
+regression. Push/publication is not requested.
 Owner approval: 2026-10-19,
 including specification, tickets,
 implementation and real multi-place stress testing. The owner explicitly requires
@@ -46,9 +49,9 @@ with all old context and registration gates intact is hollow completion.
 | EL-03 | [#118](https://github.com/Leehow/chatrpgv4/issues/118) | implemented; host and live paths validated | Separate place tool, native decisions, admission and final author consumption |
 | EL-04 | [#119](https://github.com/Leehow/chatrpgv4/issues/119) | implemented; projection and live demand validated | Demand-loaded Mod contract/material, history projection and request evidence |
 | EL-05 | [#120](https://github.com/Leehow/chatrpgv4/issues/120) | locally validated, including F1–F4 repairs; full regression passed | Regression, real travel stress, restart/return continuity and final report |
-| EL-06 | local, contract §243 | implemented; focused regression active | Directed sensory relations, scoped observation receipts, independent incident and observation clocks |
-| EL-07 | local, contract §243.4 | implemented; actual native components passed | Read/disclosure, native packet, admission, canonical outcome and sole-author observation consumption |
-| EL-08 | local, owner continuation | pending EL-06/07 | Three-end seam audit, regression, real cross-place play, stable-signed canonical App package and UI acceptance |
+| EL-06 | local, contract §243 | implemented; RPC and live sight continuity validated | Directed sensory relations, scoped observation receipts, independent incident and observation clocks |
+| EL-07 | local, contract §243.4 | implemented; native and actual sole-author reads validated | Demand read/disclosure, native packet, ordered consent, committed findings and bounded delivered-history consumption |
+| EL-08 | local, owner continuation | locally accepted with documented test and live-case limits | Seam repairs, full coverage plus two unchanged serial retries, real cross-place play, canonical stable-signed App and private UI cold restore/refresh |
 
 The contract and per-issue acceptance govern the slices. Record actual completion,
 commits and validation here at meaningful milestones; do not close on code alone
@@ -472,3 +475,38 @@ overall result is assumed. The final frozen-source full regression moves to
 amax under its existing suite lock. Final rebuild, installed-reference and native
 cold-UI checks will use the new read-through source; prior App candidate evidence
 retains its own commit attribution.
+
+### Final frozen release and acceptance
+
+Release source `28c4a5df5` is installed once at `/Applications/PipiCOC.app` as
+Mod 1.1.2. The build-directory backlink resolves there. The stable PipiUI Dev
+signature, exact canonical LaunchServices/Spotlight registration, three runtime
+bundle hashes and removal of all five task-owned staging directories pass the
+final audit. All 660 tracked source blobs and three immutable Mod files match the
+receipt. Other task-owned working changes were left untouched and are excluded.
+
+The final installed RPC turn, global 42, correctly answers the same-person
+question using four delivered observation clocks. It adds no time, perception,
+movement or feature change. The actual author is MiniMax M3.1/medium. A separate
+native cold launch, PID 26063, restores the private test session, enabled Mod
+1.1.2, model and clock, refreshes the real Mod UI and quits normally. This is GUI
+setup/read evidence, separately identified from actual fictional play.
+
+Final amax all run.Js73wt6w covers every extension file, integration and routing:
+extension 6277 total / 6266 pass / 0 assertion failures / 2 timeouts / 9 skipped;
+integration 2243/2243 with zero JUnit errors/failures; routing 12/12. Original
+overall exit 1 is retained. Both timed-out files then pass serially on the same
+source and compiled bytes: 5/5 and 8/8, with unchanged 15-second bounds. This
+does not prove the original timeout cause or rewrite the first-run result.
+The installed kernel/host/table bytes equal that frozen amax build exactly.
+
+Final local quick 130/130, interface/language 10/10, pressure 2/2, native
+history/privacy/expiry and actual-RPC history/bound/restart checks also pass.
+The unreachable earlier leehow-pc run remains indeterminate; the deliberately
+stopped older run remains exit 143. All original evidence survives. Real play
+proved a continuing remote newspaper seller; a natural live argument and
+separate hearing remain unclaimed, with those structures covered by RPC tests.
+
+The full evidence, precise validation exits, source/package provenance and
+remaining model argument/prose limits are recorded in
+[the acceptance report](../../acceptance/enhanced-locations-20261019.md).
