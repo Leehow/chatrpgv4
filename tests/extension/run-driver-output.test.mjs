@@ -1447,20 +1447,22 @@ test('a rejected reply remains private and preserves its original bytes for diag
 for(const parallel of [false,true])test('the real next Keeper request retains its whole native success and refusal batch under background pressure'+(parallel?' with parallel reads':''),async t=>{
   const measure=await importSource('extensions/table/context-policy.ts');
   const engine=createHybridEngine({env:{...process.env,PI_COC_JEV_PRESELECT:'0'},decision:null});
-  let firstBytes=0,ceiling=0,expectedResults,expectedCalls,secondRequest,sourceBefore;
+  let firstBytes=0,firstProjectionBytes=0,ceiling=0,expectedResults,expectedCalls,secondRequest,sourceBefore;
   const pressureDriver={...engine.runDriver,prepare:async context=>{
     const plan=await engine.runDriver.prepare(context),original=plan.ports.projection;
     return {...plan,ports:{...plan.ports,projection:{project:async request=>{
       const rows=await original.project(request);
       const operated=[...request.view.observations].reverse().find(row=>row.kind==='operate'&&row.toolResults?.length);
-      if(!operated)return rows;
+      if(!operated){firstProjectionBytes=measure.requestSize(rows);return rows;}
       expectedResults=operated.toolResults;
       expectedCalls=[...request.view.observations].reverse().find(row=>row.kind==='infer')?.message.content;
       sourceBefore=JSON.stringify(expectedResults);
       const batchBytes=measure.requestSize([{role:'assistant',content:expectedCalls},...expectedResults]);
-      const hostBytes=measure.requestSize(rows.filter(row=>row.customType==='coc-host'));
-      const padding=ceiling-firstBytes-hostBytes-Math.floor(batchBytes/2);
-      assert(padding>0,'fixed context alone fits the unchanged ceiling');
+      // firstBytes already contains the original host; count only refreshed projection growth.
+      const projectionGrowth=measure.requestSize(rows)-firstProjectionBytes;
+      const padding=ceiling-firstBytes-projectionGrowth-Math.floor(batchBytes/2);
+      assert(padding>0,`fixed context alone fits the unchanged ceiling: ${JSON.stringify({ceiling,firstBytes,projectionGrowth,batchBytes,padding})}`);
+      assert(firstBytes+projectionGrowth+batchBytes+padding>ceiling,'the whole native batch still creates real background pressure');
       return rows.map(row=>row.customType!=='coc-clerk'?row:{...row,content:JSON.stringify({
         ...JSON.parse(row.content),background_fixture:'PRIVATE_REFRESHED_BACKGROUND '+ 'x'.repeat(padding)})});
     }}}};
@@ -1478,7 +1480,7 @@ for(const parallel of [false,true])test('the real next Keeper request retains it
   });
   t.after(()=>table.dispose());ceiling=measure.requestBudget(table.faux.getModel().contextWindow);
   await table.session.prompt('I check the desk and ask whether that unfamiliar person is here.');
-  assert(secondRequest,'the same Keeper makes its normal continuation');
+  assert(secondRequest,'the same Keeper makes its normal continuation; '+JSON.stringify({notices:customMessages(table.session,'coc-delivery').map(row=>row.details),tail:table.telemetry().slice(-8)}).slice(0,4000));
   assert.equal(expectedResults.length,2);assert(expectedResults.some(row=>row.isError));assert(expectedResults.some(row=>!row.isError));
   const native=secondRequest.messages.filter(row=>row.role==='toolResult');
   assert.deepEqual(native.map(row=>({id:row.toolCallId,content:row.content,isError:row.isError})),

@@ -12,16 +12,18 @@ import {placeModeConflict} from '../../extensions/kernel/place-operation.ts';
 import {streamSimple} from '@earendil-works/pi-ai/api/anthropic-messages';
 import {readFileSync} from 'node:fs';
 
-test('actual non-strict Anthropic wire retains explicit place mode guidance after root guards are removed',async()=>{
+test('actual non-strict Anthropic wire retains actions and required fields after session schema roundtrip',async()=>{
  const model={...JSON.parse(readFileSync(new URL('../../node_modules/@earendil-works/pi-ai/dist/providers/data/minimax-cn.json',import.meta.url)))['anthropic-messages']['chat:MiniMax-M2.7'],id:'MiniMax-M3.1-Flash-Preview',compat:{forceAdaptiveThinking:true}};
  const tools=offeredTools(COC_TOOLS,{PI_COC_LOOP_ENGINE:'hybrid-v1',PI_COC_TURN_PACKET_PROTOTYPE:'1',EXT_JEV_APIKEY:'fixture'});
- for(const detail of [false,true]){
-  const place=locationToolDeclarations(tools,detail).find(row=>row.name==='place');let payload;
+ for(const restored of [tools,structuredClone(tools),JSON.parse(JSON.stringify(tools))])for(const detail of [false,true]){
+  const place=locationToolDeclarations(restored,detail).find(row=>row.name==='place');let payload;
   const controller=new AbortController();
   await streamSimple(model,{messages:[{role:'system',content:'Fixture',toolsAdded:[place],timestamp:0},{role:'user',content:'Fixture',timestamp:0}]},{apiKey:'fixture',signal:controller.signal,onPayload:body=>{payload=body;controller.abort();}}).result();
   const schema=payload.tools[0].input_schema;
   assert.equal(schema.anyOf,undefined,'exercise the actual non-strict serializer limitation');
   assert.deepEqual(schema.properties.action.enum,['inspect','move','establish','feature','relate','observe']);
+  assert.deepEqual(schema.required,['action'],'restoring JSON must not erase the action discriminator');
+  if(detail){assert.equal(schema.properties.facts.type,'array');assert.equal(schema.properties.scope.type,'string');assert(schema.properties.access);}
   assert.equal(schema.properties.to.type,'string');assert.equal(schema.properties.relation.type,'string');
   assert.match(schema.properties.action.description,/No op or change wrapper/);
   assert.match(schema.properties.action.description,/feature requires to and at, optional state\/passable/);
