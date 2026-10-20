@@ -21,7 +21,7 @@ test('all entrances preserve the same typed observation and demand-only grammar'
     assert(Check(small,{op:'inspect',need:'observation',name:'Street'}));assert.equal(JSON.stringify(small).includes('assessed_clock'),false);
     assert(!Check(PlaceEffect,{...observe,teleport:true}));assert(!Check(PlaceEffect,{...observe,facts:['x'.repeat(601)]}));
 });
-test('disclosed location grammar is deduplicated and native location detail stays in its applicable request tail',()=>{
+test('disclosed location grammar is deduplicated and native location detail uses the same applicable request schema',()=>{
     const canonical=COC_TOOLS.find(tool=>tool.name==='place').parameters;
     const detailed=locationToolDeclarations(COC_TOOLS,true).find(tool=>tool.name==='place').parameters;
     const {kind,...change}=observe;
@@ -30,10 +30,10 @@ test('disclosed location grammar is deduplicated and native location detail stay
     const tools=[{name:'output',parameters:TURN_PACKET_PARAMETERS}];
     assert.deepEqual(locationToolDeclarations(tools,false)[0].parameters,TURN_PACKET_ENTRY_PARAMETERS);
     const payload={model:'MiniMax-M3.1-Flash-Preview',tools:[{name:'output',input_schema:TURN_PACKET_PARAMETERS}],messages:[]};
-    const sent=needed=>turnPacketProviderPayload(payload,false,true,undefined,undefined,false,undefined,needed);
-    assert.deepEqual(sent(false).tools,sent(true).tools,'applicability changes no cached tool prefix');
-    assert.deepEqual(sent(false).tools[0].input_schema,TURN_PACKET_ENTRY_PARAMETERS);
-    const schema=needed=>JSON.parse(sent(needed).messages.at(-1).content[0].text).output_parameter_schema;
+    const sent=needed=>turnPacketProviderPayload(payload,turnPacketParameterSchema(false,undefined,undefined,false,undefined,needed));
+    assert.notDeepEqual(sent(false).tools,sent(true).tools,'native grammar reflects actual applicability');
+    assert.deepEqual(sent(false).tools[0].input_schema,turnPacketParameterSchema(false));
+    const schema=needed=>sent(needed).tools[0].input_schema;
     assert(!Check(schema(false),{version:4,commands:[observe]}));assert(Check(schema(true),{version:4,commands:[observe]}));
     assert(Check(TURN_PACKET_PARAMETERS,{version:4,commands:[observe]}),'the complete host validator is unchanged');
 });
