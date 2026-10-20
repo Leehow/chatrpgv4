@@ -1,7 +1,7 @@
 import {adviseLocationReference} from './location-reference.ts';
 import {locationDescription} from './location-description.ts';
 import {settledAdmissionEvidence} from './settled-admission.ts';
-import {placeOperation,placeModeConflict} from './place-operation.ts';
+import {placeOperation,placeModeConflict,normalizePlaceTarget} from './place-operation.ts';
 import {immediatelyPrecedingUnfinished} from './admission.ts';
 import {createPlaceCallEvidence} from '../../runtime/place-call-evidence.ts';
 import {DecisionContent,decisionPerson,bindCreatedDecisionPerson} from '../../runtime/decision-content.ts';
@@ -7071,7 +7071,10 @@ export default function (pi: ExtensionAPI, host: {capabilities?:RuntimeCapabilit
 			prepareArguments: (args: unknown) => {
 				if(spec.name==='place'&&table)placeProtocol.prepare(args,table.turn);
 				if(spec.name==='place'&&placeModeConflict(args))throw new Error(new KernelError({code:'invalid_params',message:'place inspect is read-only and cannot accept change',fix:'If you intend this location change, explicitly retry with the intended action and its fields at the top level, for example {action:"move",to,at}. Do not send op or change. For a read, omit change and use name/at/sense/need. Nothing was executed; never repeat successful receipts.'}).toToolText());
-				const supplied=spec.name==='apply'?normalizeApplyArguments(args):args;
+                let targetArgs=args;
+                if(spec.name==='place')try{targetArgs=normalizePlaceTarget(args);}catch(error){if(isKernelError(error))throw new Error(error.toToolText());throw error;}
+                if(targetArgs!==args)void record({lane:'arguments',event:'place_target_alias_normalized',tool:'place',from:'name',to:'to'});
+                const supplied=spec.name==='apply'?normalizeApplyArguments(args):targetArgs;
 				const normalized=turnPacketPrototype&&spec.name==='output'?normalizeTurnPacketArguments(supplied):normalizeToolArgumentSyntax(spec.parameters,supplied,{nativeValidation:true});
                 if(table&&(spec.name==='place'||normalized.args&&typeof normalized.args==='object'&&applyEffectKinds(spec.name,normalized.args as Record<string,unknown>).includes('place'))){
                     table.locationContextTurn=table.turn;
