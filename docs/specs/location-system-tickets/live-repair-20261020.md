@@ -97,3 +97,75 @@ Campaign: locations-cold-20261019, turns95–106, private workspace
 
 Completed live acceptance episodes, follow-up regression checks and final App /
 worktree audits remain outstanding. This plan is not a completion claim or a goal.
+
+## Live follow-up at f34576e00
+
+- Authored records hall reuse and a new corner restaurant were delivered through
+  installed App RPC. Restaurant arrival retained current custody. The menu
+  overview was sparse; the subsequent ordinary NPC question produced actual
+  menu terms. That quote exposed a separate numeric projection bug: canonical
+  decimal values became {value:...} after structuredClone. The final author
+  misread the45-cent bill as a45-cent item and added20cents again. No debit occurred.
+- A regression with actual canonical decimal types and RPC serialization failed
+  as observed, then passed using the existing kernel value clone. The author
+  instruction now distinguishes bill totals from unit prices. Commitf34576e00
+  contains only this projection/instruction/test slice. No scene-specific data
+  or historical price was patched. Original contradictory prose remains retained.
+- Required follow-up: confirm the bill and complete service in the same private
+  copy after canonical rebuild, then merchant/purchase/revisit.
+
+## Final Mod guidance slice
+
+-84e423b5f focused LAN run passed449 extension files, native integration and
+ routing loop (exit0,1042s).
+- Turn112 naturally reproduced mixed hosted search plus client lookup; the
+ repaired envelope returned10actual sources and complete protocol, with no2013.
+- Turn114 paid25USD and handed over one .38 revolver in one acceptance.
+- Turn115 retained the committed return movement but rejected an unselected
+ room survey after repeated mutation/inspection schema mistakes. Mod1.1.5 now
+ explicitly distinguishes native reads/writes and ordinary arrival from chosen
+ focused observation. Guard refusal is retained, not bypassed.
+- Final own-code candidatea0866ddc2 is running full LAN validation and canonical
+ packaging. Return continuity and final weapon definition still need live audit.
+
+## Final closeout — 2026-10-20
+
+Completed within the approved repair slice. Earlier pending statements above are
+historical progress notes; this section is the current acceptance status.
+
+- Shared repairs landed in be7c6a7ff,84e423b5f,f34576e00,55dbc6016,
+  a0866ddc2,5eafeab59,c0c3b4bd7;8538cae0e updates a movement test fixture.
+  Enhanced Locations1.1.6 retains state schema1. Foreign NPC work is excluded.
+- Turn117 exposed premature termination across distinct parameter errors;
+  bounded distinct correction now passes7focused checks without bypassing
+  repeated-error, admission or atomicity guards.
+- Turn118 arrived but omitted selected reading. Independent current-input
+  observation completion now checks scope/facts separately from movement;
+  unit20/20 and real native-RPC components2/2 passed. Turn119 actually read the
+  menu, retained an observation at1920-10-12T19:15, and performed no cash effect.
+- Real installed-runtime episodes also confirmed authored destination reuse,
+  new restaurant and merchant registration, completed meal, one25USD purchase
+  and handover, hosted-search recovery, and office revisit without custody reset.
+  Closing cash30USD; key/address/new weapon remain owned; weapon definitionv1.
+- Final all-phase LAN run at8538cae0e passed: ext715files/6306passes/0failures,
+  integration2246/2246 and loop12/12; all four phase/result exit records0,
+  wall1212s. Retained remote run:
+  /home/leehow/leehow/code/wt/codex-tests/.pytest-runs/location-shared-be7c6/run.mV3mA4yA/.
+  Earlier a0866 amax transport-loss result is unverified and not counted.
+- Canonical App runtimec0c3b4bd7/Mod1.1.6 packaged and strict-signature verified;
+  installed hashes match the clean frozen runtime. Staging empty; only canonical
+  LaunchServices/Spotlight registration. Native CUA observed the ready canonical
+  UI. Live story validation used its RPC runtime, not a complete GUI replay.
+- Unique raw play evidence keeps the exact current-task native-App-managed
+  validation checkout terminal retained at detached8538cae0e, clean tracked
+  source. No other worktree adopted; no evidence removed. Native App creation
+  was used; Python lifecycle CLI was not executed under the Python-free rule.
+- Full local report and audits:
+  .coc/test-runs/location-system-repair-20261020/REPORT.md.
+  Final storage audit68,494,359bytes growth+raw, below512MiB,124GBfree.
+- Explicit limits: separate fresh-setup selection failure remains unfixed;
+  historical search succeeded but used a decade query and mixed sources, not
+  independently authenticated historical storefront details. Meal pacing and
+  minor NPC greeting repetition remain narrative limitations. No full-scenario,
+  pursuit or universal cross-location observation acceptance is claimed.
+- Original saves, failed turns and raw provider errors preserved. Nothing pushed.
