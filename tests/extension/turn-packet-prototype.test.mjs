@@ -222,7 +222,7 @@ test('an empty spatial decision is corrected before any author or world change',
  let demand=()=>{};
  const engine=createHybridEngine({env,decision:{decide:async batch=>{
   if(batch.family!=='location-decision-coverage')return answer(batch,.99);
-  const values={move_selected:.99,move_satisfied:.01,move_blocked:.01,feature_selected:.01,feature_satisfied:.01,feature_blocked:.01};
+  const values={move_selected:.99,move_satisfied:batch.state.proposed_effects?.some(row=>row.kind==='place'&&row.action==='move'&&row.to==='Ordinary Inn')?.99:.01,move_blocked:.01,feature_selected:.01,feature_satisfied:.01,feature_blocked:.01};
   return {...answer(batch,.99),answers:Object.fromEntries(batch.questions.map(q=>[q.key,{status:'answered',type:'noul',noul:values[q.key]}]))};
  }}});
  const command={kind:'place',action:'move',to:'Ordinary Inn',via:'Along the street',travel_band:'adjacent',additions:[{name:'Ordinary Inn',description:'A modest public inn.'}]};
@@ -233,7 +233,7 @@ test('an empty spatial decision is corrected before any author or world change',
  t.after(()=>table.dispose());await table.session.prompt('I enter an ordinary inn.');
  assert.deepEqual(table.extensionErrors,[]);
  assert(table.telemetry().some(row=>row.lane==='location-decision-coverage'&&row.axes?.move==='missing'&&row.accounting?.move===null&&row.covered===false));
- assert(table.telemetry().some(row=>row.lane==='location-decision-coverage'&&row.covered===true&&row.jev_calls===0),'the corrected actual movement does not get a second semantic veto');
+ assert(table.telemetry().some(row=>row.lane==='location-decision-coverage'&&row.covered===true&&row.jev_calls===1&&row.axes.move==='accounted'),'the corrected selected journey is covered by the existing completion batch');
  assert.equal(table.entries('coc-final-delivery').filter(row=>row.event==='end'&&row.status==='completed').length,1);
  assert.equal((await table.runtimeBridges().at(-1).call('table.capsule',{campaign:'test-camp'})).where.scene,'Ordinary Inn');
  assert.equal(table.telemetry().filter(row=>row.lane==='turn-packet-prototype'&&row.ok===true).length,1,'the empty packet never publishes a false arrival');
