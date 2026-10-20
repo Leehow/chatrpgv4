@@ -274,7 +274,8 @@ test("§32.12.3.1.1: a line whose review failed is reviewed on the resend beside
 	assert.equal(cash[1].key, cash[0].key, "the resend's cash line is kept under the key the whole batch's review gave it");
 	const item = rows.filter((row) => line(row) === 1);
 	assert.deepEqual(item.map((row) => [row.verdict, row.reused]), [["authorized", false], ["authorized", true]], "the item line reused beside the same cash line");
-	const keyed = besideBatch(admissionRequest("apply", { effects: [PAY] }, { party: [] }), { lines: ["item"], signatures: [effectSignature(LANTERN)] });
-	assert.equal(cash[1].key, keyDigest(keyed.key), "the key is the lone cash key extended by the item's signature");
+	const keyed = besideBatch(admissionRequest("apply", { effects: [PAY] }, { party: [] }), { lines: ["item"], signatures: [effectSignature(LANTERN)] },
+		{operations:[{kind:'item',name:'brass lantern',from:'Storekeeper'}],signatures:[effectSignature(LANTERN)]});
+	assert.equal(cash[1].key, keyDigest(keyed.key), "the retry keeps both its batch-mate signature and its ordered preceding item");
 	assert.deepEqual(kernelCalls(table, "table.apply").map((entry) => entry.params.effects.map((effect) => effect.name ?? effect.kind)), [["brass lantern", "cash"]]);
 });

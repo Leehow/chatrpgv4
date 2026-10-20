@@ -54,6 +54,11 @@ test('native standalone location settlement precedes a selected wait and final o
   extraExtensions:[{name:'engine',factory:engine.extension}],responses:[async()=>{
    scene=(await table.runtimeBridges().at(-1).call('table.capsule',{campaign:'test-camp'})).where.scene;
    table.emit('coc:location-demand',{campaign:'test-camp',turn:1,review:true,selection:{move:.99,feature:.01,observation:.99}});
+   return fauxAssistantMessage([fauxToolCall('output',{version:4,commands:[{kind:'scene',service:'open',crowd:'quiet'},
+    {kind:'place',action:'move',to:scene,at:'desk',relation:'beside'},{kind:'place',action:'move',to:scene,at:'street window',relation:'beside'}],interactions:[]})],{stopReason:'toolUse'});
+  },()=>{
+   const refusal=table.session.messages.findLast(row=>row.role==='toolResult'&&row.toolName==='output');
+   assert.equal(refusal.isError,true);assert.match(JSON.stringify(refusal.content),/first call place/,'parameter feedback exposes the independent location route');
    return fauxAssistantMessage([fauxToolCall('place',{op:'submit',change:{action:'move',to:scene,at:'street window',relation:'beside',additions:[{name:scene,features:[{name:'street window',description:'A tall window overlooking the pavement.'}]}]}})],{stopReason:'toolUse'});
   },()=>fauxAssistantMessage([fauxToolCall('apply',{effects:[{kind:'time',minutes:2,why:'Wait at the window as selected.'}]})],{stopReason:'toolUse'}),
   ()=>fauxAssistantMessage([fauxToolCall('output',{version:4,commands:[{kind:'scene',service:'open',crowd:'quiet'},{kind:'place',action:'observe',to:scene,at:'street window',sense:'sight',access:'clear',scope:'The pavement through the window.',facts:['A cart passes the window.']}],interactions:[]})],{stopReason:'toolUse'})]});

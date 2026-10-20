@@ -18,7 +18,7 @@ import {moveEstablishmentRefusal} from '../../shared/move-protocol.ts';
 import {SAME_KEEPER_AFTER_RESULT_GUIDANCE} from '../../runtime/keeper-output-guidance.ts';
 import {scenePopulationRequired,sceneAssessmentExpiredDuringActivity} from '../../runtime/scene-population.ts';
 import {ExpressionPlanStream,writeIsolatedExpression,decisionScene,decisionClock,decisionRecentPublic,decisionResponseScope,decisionObservationScope} from '../../runtime/isolated-expression.ts';
-import {turnPacket,bindTurnPacketMoves,turnPacketMovementChoices,requireTurnPacketNpcDestinations,isNewNpcSlot,normalizeTurnPacketArguments,compileTurnPacket,turnPacketResult,turnPacketParameterSchema,turnPacketProviderPayload,TurnPacketParameterError,type TurnPacket} from '../../runtime/turn-packet-prototype.ts';
+import {TURN_PACKET_LOCATION_STEPS,turnPacket,bindTurnPacketMoves,turnPacketMovementChoices,requireTurnPacketNpcDestinations,isNewNpcSlot,normalizeTurnPacketArguments,compileTurnPacket,turnPacketResult,turnPacketParameterSchema,turnPacketProviderPayload,TurnPacketParameterError,type TurnPacket} from '../../runtime/turn-packet-prototype.ts';
 import {normalizeToolArgumentSyntax} from '../../runtime/tool-argument-syntax.ts';
 import {locationDecisionCoverage} from '../table/location-relevance.ts';
 import {applyEffectKinds} from '../table/mod-sections.ts';
@@ -4322,6 +4322,16 @@ export default function (pi: ExtensionAPI, host: {capabilities?:RuntimeCapabilit
 						statuses.push(refusedBefore[index] ? await statusOf(() => admitOne(entry.proposal, { rows: lineRows(frame, index), streak, buffer })) : { admitted: false, skipped: true });
 					return combineLines(p, lines, statuses, frame, buffer);
 				}
+				if (kept.some(Boolean) && p.ordered) {
+					const streak={counted:false},buffer:Array<Record<string,unknown>>=[];
+					const statuses=await Promise.all(lines.map(async(entry,index)=>{
+						if(kept[index])return statusOf(()=>admitOne(entry.proposal,{rows:lineRows(frame,index),streak,buffer}));
+						const got=await admitLines(entry.proposal,effects,{rows:lineRows(frame,index),streak,buffer},
+							{...frame,numbers:[frame.numbers[index]!]});
+						return got[0]!;
+					}));
+					return combineLines(p,lines,statuses,frame,buffer);
+				}
 				if (kept.some(Boolean)) {
 					const statuses: LineStatus[] = p.lines.map(() => ({ admitted: true }));
 					const fresh = lines.flatMap((_, index) => kept[index] ? [] : [index]);
@@ -5771,7 +5781,7 @@ export default function (pi: ExtensionAPI, host: {capabilities?:RuntimeCapabilit
                     {campaign:state.campaign,turn:state.turn},turnDecisionPort,reply.signal??state.lanes.signal,foregroundProviderBudget?.());
                 await record({lane:'location-decision-coverage',turn:state.turn,...coverage});
                 if(!coverage.covered)throw new KernelError({code:'invalid_params',message:coverage.status==='answered'?'The selected spatial action is not accounted for by this decision':'The spatial decision completion could not be verified',
-                    fix:'Preserve the player declaration and successful receipts. Use the current_position below rather than an earlier narrated pose. Every independently selected environmental reading or view also needs a matching {kind:"place",action:"observe",to,sense,access,scope,facts}; arrival and greetings do not read its contents. Include the actual perceived contents, not merely a description of the writing surface. Archival research and carried-document reading use their existing research/document outcomes; they do not independently require a place observation. Do not repeat current-input settled observations. For a local approach submit {kind:"place",action:"move",to:"here",at:"exact registered feature",relation:"beside"}; add only a missing compatible feature if needed. An NPC move, time/glance or registration alone does not move the investigator. A real obstacle or necessary open choice can stop an attempt. Do not narrate an arrival without its committed move.',
+                    fix:'Preserve the player declaration and successful receipts. Use the current_position below rather than an earlier narrated pose. Every independently selected environmental reading or view also needs a matching {kind:"place",action:"observe",to,sense,access,scope,facts}; arrival and greetings do not read its contents. Include the actual perceived contents, not merely a description of the writing surface. Archival research and carried-document reading use their existing research/document outcomes; they do not independently require a place observation. Do not repeat current-input settled observations. For a local approach before a wait or return, use the separate place tool {op:"submit",change:{action:"move",to:"here",at:"exact registered feature",relation:"beside"}}; add only a missing compatible feature if needed. An NPC move, time/glance or registration alone does not move the investigator. A real obstacle or necessary open choice can stop an attempt. Do not narrate an arrival without its committed move.',
                     details:{reason:'place_decision_incomplete',cause:coverage.reason??'place_decision_incomplete',transaction_state:'uncommitted',before_execution:true,current_place:before.where?.scene,current_position:before.where?.location?.position??null,
                         known_features:(before.where?.location?.features??[]).map((feature:Record<string,unknown>)=>feature.name),...(coverage.axes?{axes:coverage.axes}:{})}});
             }
@@ -5901,7 +5911,7 @@ export default function (pi: ExtensionAPI, host: {capabilities?:RuntimeCapabilit
 	}
     function refusePacketParameters(state:TableState,error:unknown,ctx?:ExtensionContext,beforeCommit=false){
         const refusal={code:'invalid_params',message:error instanceof Error?error.message:String(error),
-            ...(isKernelError(error)&&error.fix?{fix:error.fix}:{}),
+            ...((isKernelError(error)&&error.fix)||state.locationReviewTurn===state.turn?{fix:[isKernelError(error)?error.fix:undefined,state.locationReviewTurn===state.turn?TURN_PACKET_LOCATION_STEPS:undefined].filter(Boolean).join(' ')}:{}),
             details:{...(isKernelError(error)?error.details:{}),...(error instanceof TurnPacketParameterError?{parameter_fields:error.fields}:{}),reason:isKernelError(error)&&error.details?.reason?error.details.reason:'turn_packet_parameters',parameter_phase:'turn_packet_parameters',...(beforeCommit?{before_commit:true}:{before_execution:true})}};
         const failures=state.packetParameterFailures??=new Set<string>();
         const signature=JSON.stringify([refusal.details.reason,error instanceof TurnPacketParameterError?error.fields:refusal.message]);
