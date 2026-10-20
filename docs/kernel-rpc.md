@@ -49284,6 +49284,22 @@ collapsed details; a prior recall failure must not stand in for a later capsule
 load failure. Scope the event to the current Keeper run. This records diagnosis
 only; it neither retries state changes nor invents settlement proof.
 
+Spatial completion also recognizes a requested result already established by
+canonical state. When no typed operation/receipt accounts for a selected axis,
+the same bounded Jev batch may independently ask whether the recorded current
+position or recorded feature state already satisfies it. Mere presence in the
+same enclosing scene is not arrival at a requested feature. Missing state,
+unpublished prose and proposed observations are not proof. Keep the existing
+0.6 completion threshold, require complete typed answers and leave ordinary
+action admission unchanged. This read-only result creates no movement, feature
+change or receipt. Uncertainty remains incomplete. The producer is existing
+canonical position/feature state, the reader is location coverage v5 and the
+actor is its existing publication gate. Kubernetes current/desired state and
+Unity's separate current-distance/destination APIs support checking established
+arrival before demanding another transition; neither determines TRPG meaning.
+References: https://kubernetes.io/docs/concepts/architecture/controller/
+and https://docs.unity.com/en-us/engine/7000.0/script-reference/unityengine/ai/navmeshagent.
+
 Owner approval (2026-10-19): complete the location association graph, observation
 times and ongoing-event continuity, audit their complete wiring, then rebuild,
 package and test the canonical App. This extends section 242 rather than creating

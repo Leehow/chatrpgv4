@@ -41,16 +41,25 @@ function locationAccounting(input:Row):Row {
  return {move:effects.some(row=>movement(row))?'proposed':receipts.some(row=>movement(row,true))?'committed':null,
   feature:effects.some(feature)?'proposed':receipts.some(feature)?'committed':null};
 }
+function satisfactionAvailable(input:Row,axis:typeof axes[number]):boolean {
+ if(axis==='move')return !!input.current_position&&typeof input.current_place==='string'&&input.current_position.place===input.current_place;
+ return Array.isArray(input.features)&&input.features.some((feature:Row)=>typeof feature.state==='string'||typeof feature.passable==='boolean');
+}
 export function locationCoverageBatch(input:Row,binding:Row):DecisionBatch {
  const revision=createHash('sha256').update(JSON.stringify(input)).digest('hex');
  const selected=initialSelection(input),accounting=locationAccounting(input);
  const questions:DecisionBatch['questions']=selected?[]:[
    {key:'move_selected',type:'noul',target:'the current player declaration',instructions:'Does the player select an actual change of place or local position now? Entering/leaving a place and approaching a feature or corner are movement. Merely observing, asking a question, considering a conditional plan or describing where one already stands does not select movement. Judge only the declaration in the supplied current spatial context, not whether the proposal carried it out.'},
    {key:'feature_selected',type:'noul',target:'the current player declaration',instructions:'Does the player select a physical state change of a persistent spatial feature now, such as opening/closing a particular door or window? Merely approaching, looking at or asking about that feature does not select a state change. Judge the declaration, not an embellishment in a proposed response.'}];
- for(const axis of axes)if(!accounting[axis]&&(!selected||selected[axis]>.4))questions.push({key:axis+'_blocked',type:'noul',target:axis==='move'?'obstacles to the selected movement':'obstacles to the selected feature change',
+ for(const axis of axes)if(!accounting[axis]&&(!selected||selected[axis]>.4)){
+  if(satisfactionAvailable(input,axis))questions.push({key:axis+'_satisfied',type:'noul',target:axis==='move'?'the recorded current position':'the recorded current feature state',
+   instructions:axis==='move'?'Does the canonical current_position already satisfy the destination and local pose requested by the player, so no new movement is needed? Being in the same enclosing place does not establish arrival at its requested window, desk or corner. Require the recorded place and local reference/relation to support the requested position. Proposed observations, prior prose and an intended future arrival are not evidence of current position. If current state is insufficient or contradicts the requested position, answer no.'
+    :'Does the canonical recorded state of the requested feature already satisfy the player-selected physical result, so no new state change is needed? Require the actual matching feature and its recorded state. A description, proposed response or observation does not establish a change. Missing state or a different feature cannot satisfy it.'});
+  questions.push({key:axis+'_blocked',type:'noul',target:axis==='move'?'obstacles to the selected movement':'obstacles to the selected feature change',
   instructions:'Does supplied world evidence or a proposed typed NPC response establish a real obstacle or necessary unresolved choice that legitimately stops the selected '+(axis==='move'?'movement':'feature-state change')+'? A known physical impediment or refusal of required access can stop it. A Keeper-proposed observable obstruction established in this same transaction can account for an attempt. A tool argument error, missing registration, elapsed time or observation alone is not an obstacle. Do not invent a barrier or additional player commitment.'});
- return {id:'location-decision-coverage:v4:'+revision,model:JEV_MODEL,family:'location-decision-coverage',familyVersion:'4',
-  scope:{owner:'location-decision-coverage',campaign:binding.campaign,audience:'keeper'},readSet:[{kind:'draft',resource:'turn:'+binding.turn+':spatial-decision',revision},{kind:'family',resource:'location-decision-coverage',revision:'4'}],state:input as Json,questions};
+ }
+ return {id:'location-decision-coverage:v5:'+revision,model:JEV_MODEL,family:'location-decision-coverage',familyVersion:'5',
+  scope:{owner:'location-decision-coverage',campaign:binding.campaign,audience:'keeper'},readSet:[{kind:'draft',resource:'turn:'+binding.turn+':spatial-decision',revision},{kind:'family',resource:'location-decision-coverage',revision:'5'}],state:input as Json,questions};
 }
 export async function locationDecisionCoverage(input:Row,binding:Row,decision:DecisionPort|undefined,signal:AbortSignal,parent?:TaskProviderBudget):Promise<Row> {
  const batch=locationCoverageBatch(input,binding),initial=initialSelection(input),accounting=locationAccounting(input);
@@ -58,8 +67,8 @@ export async function locationDecisionCoverage(input:Row,binding:Row,decision:De
  if(result.status!=='answered')return {...result,covered:false};
  const selection=initial??Object.fromEntries(axes.map(axis=>[axis,result.probabilities[axis+'_selected']]));
  const disposition=Object.fromEntries(axes.map(axis=>{
-  const selected=selection[axis],blocked=result.probabilities[axis+'_blocked'];
-  const status=selected<=.4?'not_selected':accounting[axis]?'accounted':blocked>=.6?'blocked':selected>=.6?'missing':'uncertain';
+  const selected=selection[axis],blocked=result.probabilities[axis+'_blocked'],satisfied=result.probabilities[axis+'_satisfied'];
+  const status=selected<=.4?'not_selected':accounting[axis]?'accounted':satisfied>=.6?'already_satisfied':blocked>=.6?'blocked':selected>=.6?'missing':'uncertain';
   return [axis,status];
  }));
  return {...result,...(!batch.questions.length?{status:'accounted'}:{}),selection,accounting,jev_calls:batch.questions.length?1:0,

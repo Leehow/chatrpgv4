@@ -36,7 +36,7 @@ test('input relevance selects context only, keeps uncertainty conservative and n
 test('spatial completion composes independent movement and feature answers without an invented confidence',async()=>{
     const binding={campaign:'test',turn:2},input={player_declaration:'I approach the window.',proposed_effects:[],settled_receipts:[]};
     const batch=locationCoverageBatch(input,binding);packDecisionBatch(batch);
-    assert.equal(batch.familyVersion,'4');assert.equal(batch.questions.length,4);assert(batch.questions.every(question=>question.type==='noul'));
+    assert.equal(batch.familyVersion,'5');assert.equal(batch.questions.length,4);assert(batch.questions.every(question=>question.type==='noul'));
     assert(!batch.questions.some(question=>question.key.endsWith('_accounted')),'typed operation presence is not a model judgment');
     const review=async(values,effects=[])=>locationDecisionCoverage({...input,proposed_effects:effects},binding,{decide:async current=>({batchId:current.id,status:'complete',answers:Object.fromEntries(current.questions.map(q=>[q.key,{status:'answered',type:'noul',noul:values[q.key]??.01}]))})},new AbortController().signal);
     const missing=await review({move_selected:.99});
@@ -77,6 +77,26 @@ test('the dedicated typed tool normalizes before canonical write admission, with
     assert.notEqual(effectSignature({...command,at:'window'}),effectSignature({...command,at:'counter'}),'local target belongs to admission identity');
     assert(moveNeedsTravelBand({kind:'move',to:'West'},{within:'City',locations:true}),'containment cannot suppress an enhanced journey duration');
     assert(!Check(PlaceEffect,{...command,patch:{cash:100}}));
+});
+
+test('an already established local position can satisfy completion without another move',async()=>{
+    const input={player_declaration:'I sit by the window and look outside.',current_place:'Tea room',current_position:{place:'Tea room',at:'window table',relation:'beside'},features:[{name:'window table'}],initial_selection:{move:.49,feature:.02},proposed_effects:[],settled_receipts:[]};
+    const review=async(probability)=>locationDecisionCoverage(input,{campaign:'test',turn:3},{decide:async batch=>({batchId:batch.id,status:'complete',answers:Object.fromEntries(batch.questions.map(question=>[question.key,{status:'answered',type:'noul',noul:question.key==='move_satisfied'?probability:.01}]))})},new AbortController().signal);
+    const covered=await review(.99);assert.equal(covered.covered,true);assert.equal(covered.axes.move,'already_satisfied');assert.equal(covered.accounting.move,null);assert.equal(covered.to,undefined);
+    assert.equal((await review(.49)).covered,false,'uncertain established satisfaction does not bypass completion');
+    assert.match(locationCoverageBatch(input,{campaign:'test',turn:3}).questions.find(question=>question.key==='move_satisfied').instructions,/same enclosing place/);
+    const noPosition={...input,current_position:undefined};
+    assert.equal(locationCoverageBatch(noPosition,{campaign:'test',turn:3}).questions.some(question=>question.key==='move_satisfied'),false,'a narrated pose alone is not established state');
+});
+
+test('already satisfied feature state still requires complete evidence-bound answers',async()=>{
+    const input={player_declaration:'I open the window.',current_place:'Room',features:[{name:'window',state:'open',passable:true}],initial_selection:{move:.01,feature:.99},proposed_effects:[],settled_receipts:[]},binding={campaign:'test',turn:4};
+    const result=await locationDecisionCoverage(input,binding,{decide:async batch=>({batchId:batch.id,status:'complete',answers:Object.fromEntries(batch.questions.map(question=>[question.key,{status:'answered',type:'noul',noul:question.key==='feature_satisfied'?.99:.01}]))})},new AbortController().signal);
+    assert.equal(result.covered,true);assert.equal(result.axes.feature,'already_satisfied');assert.equal(result.accounting.feature,null);
+    const unavailable=await locationDecisionCoverage(input,binding,undefined,new AbortController().signal);assert.equal(unavailable.covered,false);
+    const partial=await locationDecisionCoverage(input,binding,{decide:async batch=>({batchId:batch.id,status:'complete',answers:{feature_satisfied:{status:'answered',type:'noul',noul:.99}}})},new AbortController().signal);
+    assert.equal(partial.covered,false);assert.equal(partial.status,'fallback');
+    assert.equal(locationCoverageBatch({...input,features:[{name:'window'}]},binding).questions.some(question=>question.key==='feature_satisfied'),false);
 });
 
 test('native typed location commands use open destinations, the same effect and one journey limit',()=>{
