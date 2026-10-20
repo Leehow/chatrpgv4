@@ -78,4 +78,9 @@ test('selected prior public words reach the actual author as optional history ra
  assert.equal(task.decision_context.recent_public[0].keeper,'Waitress: '+old.value.statement);
  assert.equal(task.decision_context.recent_public.length,1);
  assert.ok(!JSON.stringify(task).includes('OLD_PRIVATE_LABEL'));
+ await writeIsolatedExpression({runtime,campaign:'c',turn:3,run:'r2',language:'en',playerText:'Is that address still a useful lead?',
+  decision:{scene:{name:'Cafe'},clock:{},people:[{ref:'npc_1',display_name:'Waitress'}],responses:[{actor:'npc_1',to:['investigator_1'],act:'answer',content:[{fact_ref:'fact_1'}],claims:[old]}],recent_public:[]},stream:{push(){}},record:async()=>{}});
+ assert.equal(task.decision_context.speech_allowed,true);
+ assert.deepEqual(task.decision_context.responses[0].claims,[{kind:'existing_account_response',value:{scope:'current_player_input',new_information:false,prior_turns:[1]}}]);
+ assert.ok(!JSON.stringify(task.decision_context.responses).includes(old.value.statement));
 });

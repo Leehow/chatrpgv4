@@ -15,15 +15,18 @@ export function decisionResponseHistory(responses:Row[],people:Row[],turn:number
  const cast=new Map(people.map(person=>[person.ref,person]));
  const history:PublicExchange[]=[];
  const current=responses.map(response=>{
-  if(!Array.isArray(response.claims))return response;
+  if(!Array.isArray(response.claims)||response.act==='silent')return response;
+  const priorTurns=new Set<number>();
   const claims=response.claims.filter((claim:Row)=>{
    const value=claim.value,person=cast.get(response.actor);
    if(claim.kind!=='recent_speech'||claim.actor!==response.actor||typeof person?.display_name!=='string'
     ||value?.authority!=='conversation_report'||value.attribution?.kind!=='speech'||value.attribution?.speaker?.kind!=='npc'
     ||typeof value.statement!=='string'||!Number.isSafeInteger(value.turn)||value.turn>=turn)return true;
+   priorTurns.add(value.turn);
    history.push({turn:Number(value.turn),player:null,keeper:'',speech:[{speaker:person.display_name,text:value.statement}]});
    return false;
   });
+  if(!claims.length&&priorTurns.size)claims.push({kind:'existing_account_response',value:{scope:'current_player_input',new_information:false,prior_turns:[...priorTurns]}});
   return {...response,claims};
  });
  return {responses:current,history};

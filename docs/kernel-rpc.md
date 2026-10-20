@@ -49429,7 +49429,12 @@ The author assembler moves those rows from response claims into the existing
 participant-scoped `recent_public` input. Current typed claims, authored knowledge,
 new reports and explicit confirmations remain response content. A response still
 keeps its selected act/recipients and the current player input; only the old
-words lose the false obligation to be spoken again. Duplicate exact historical
+words lose the false obligation to be spoken again. If these were all the
+selected claims, one `existing_account_response` proposition retains the current
+reply: `{scope:"current_player_input",new_information:false,prior_turns:[...]}`.
+Empty claims must not erase a selected answer. This permits a response within the
+existing public account without asserting a new confirmation or a world change.
+Duplicate exact historical
 lines merge by turn/speaker. There is no new validation refusal, semantic judge,
 request, prompt reminder or author instruction. Unattributed/unknown rows keep
 their existing treatment rather than being inferred public.
