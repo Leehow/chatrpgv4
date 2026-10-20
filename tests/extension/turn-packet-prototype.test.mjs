@@ -228,7 +228,7 @@ test('an empty spatial decision is corrected before any author or world change',
  }}});
  const command={kind:'place',action:'move',to:'Ordinary Inn',via:'Along the street',travel_band:'adjacent',additions:[{name:'Ordinary Inn',description:'A modest public inn.'}]};
  const table=await openTable({legacyDeliveryFixtures:false,realKernel:true,prepareWorkspace:opened,env,runDriver:engine.runDriver,
-  extraExtensions:[{name:'engine',factory:engine.extension},{name:'location-relevance-fixture',factory:pi=>{demand=()=>pi.events.emit('coc:location-demand',{campaign:'test-camp',turn:1,review:true,selection:{move:.99,feature:.01}});}}],responses:[
+  extraExtensions:[{name:'engine',factory:engine.extension},{name:'location-relevance-fixture',factory:pi=>{demand=()=>pi.events.emit('coc:location-demand',{campaign:'test-camp',turn:1,review:true,selection:{move:.99,feature:.01,observation:.01}});}}],responses:[
    ()=>{demand();return fauxAssistantMessage([rawToolCall('output',{version:4})],{stopReason:'toolUse'});},
    ()=>fauxAssistantMessage([rawToolCall('output',{version:4,commands:[command,{kind:'scene',service:'open',crowd:'empty'}]})],{stopReason:'toolUse'})]});
  t.after(()=>table.dispose());await table.session.prompt('I enter an ordinary inn.');
