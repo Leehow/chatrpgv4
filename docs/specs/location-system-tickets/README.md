@@ -2,25 +2,50 @@
 
 ## Active repair — Python-free scene preparation and real story continuation
 
-Latest gate, 2026-10-20: source `64ffa7dab` passes the 130-test fast suite,
-21 location/schema checks, both issued/unissued actor regressions and kernel
-typecheck in the isolated source checkout. The approved native schema wiring is
-integrated; the concurrent NPC prototype is excluded. Source-connected scenery
-creation/review/acceptance and ordinary tea-room creation have real-run evidence.
-Unassisted exploration is still under live validation: failed compound decisions
-and the later simple window approach are retained, not counted as successes.
-In the latter, the Keeper added three minutes of observation not selected by
-that input; consent correctly refused the proposal. No local arrival was committed.
+Final bounded repair gate, 2026-10-20: runtime source `7458be04a` is
+installed in the sole canonical `/Applications/PipiCOC.app`. Its four kernel/host
+artifacts match the frozen source; stable PipiUI Dev signing passes, staging is
+empty, and the concurrent NPC prototype is excluded. No push was performed.
 
-Amax source, dependencies, outputs, npm cache and temporary test files now use
-`/mnt/sdd/code/chatrpgv4-testbox` on `/dev/sdd` (1.4 TiB available when checked).
-The old root-partition tree remains preserved. The `bdac0cf13` full run had zero
-assertion failures but one 15-second memory recovery timeout; its serial retry
-also timed out. Integration and loop phases passed. A local phase diagnostic
-completed the unchanged recovery assertions in 6.96 seconds; that does not prove
-the amax cause or make its failed run pass. A fresh full run of `64ffa7dab` uses
-an independent `locations-native-64ffa` scratch name after the other owner was idle.
-Final packaging and canonical App acceptance must bind the final source revision.
+Amax source, dependencies, outputs, npm cache and temporary test files use
+`/mnt/sdd/code/chatrpgv4-testbox` on the data disk. Both local runner copies keep
+that default and preserve existing worktrees/source overlays. The old root tree
+and original failure evidence remain intact. Exact-source full regression exits
+0: extension 6300 tests / 6291 passed / 9 skipped; integration 2246 / 2245 passed /
+1 skipped; routing 12 / 12 passed. No failed tests. Fast130, kernel typecheck and
+the seven-test actual RPC observation suite also pass. The preceding47899 remote
+all completed exit0 even though its local transport was stopped with143; both
+facts and every earlier failed run remain recorded separately.
+
+The existing scenery methods are operational: ordinary compatible places use
+Enhanced Locations, while source-connected changes retain creation, independent
+review and explicit acceptance. The real private campaign preserved its existing
+clerk, added a distinct tea-room keeper, and continued through upstairs/street
+viewpoints. Latest installed-runtime run `location-app-route-20261020` delivered
+three input-bound turns: window observation after two real corrections; a natural
+clarification that delivered the previously omitted visual result and advanced
+three minutes; return to the inn with observation and greeting by the same
+`npc_12`. Final cold read: inn lobby,14:17, same clerk. No save edit or fake
+Keeper was used. The new investigative target route itself has direct RPC
+coverage; the latest live observations did not require a targeted remote roll.
+
+Limits remain explicit: one delivered draft initially omitted the selected
+observation; several native proposals needed correction; live turns took47-245
+seconds. This is bounded continuity evidence, not a zero-error claim or hostile
+pursuit acceptance. Prior consent/target refusals and partial settlements remain
+failures. The source-connected scenery and earlier invited-follow results have
+their original evidence; no NPC prototype is imported to improve this record.
+
+Native App QA used a temporary binding in the private test profile to cold-read
+the actual campaign's investigator,14:17 lobby state, original clue and NPC board.
+World SHA256 remained unchanged and the exact original binding was restored.
+The existing setup transcript was neither replaced nor passed off as the RPC
+story history. This establishes panel wiring, not GUI transcript restoration.
+
+Raw acceptance, models, hashes and final worktree classifications are in
+`.coc/test-runs/python-free-scene-repair-20261019/REPORT.md` and its referenced
+files. Both owned validation checkouts retain unique original evidence at their
+existing paths; no campaign/evidence archive is deleted.
 
 Owner direction, 2026-10-19: remove active Python execution, investigate the
 previously implemented scenery method, repair it, then continue actual play.
