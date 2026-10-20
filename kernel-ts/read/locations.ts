@@ -74,6 +74,7 @@ export function locationView(graph:ModuleGraph,world:Row,name?:unknown):Row {
     const place=locationPlace(graph,world,name),handle=graph.handle(place);
     const stored=locationPlaces(world).find(record=>record.id===place.node_id);
     return {name:handle,display_name:graph.displayName(place),origin:stored?'mod':'existing',
+        ...(destinationIdentity(place)?{identity:destinationIdentity(place)}:{}),
         ...(stored?.within?{within:stored.within}:{}),parents:parentsOf(graph,place).map(parent=>graph.handle(parent)),
         ...(typeof row(place.properties).description==='string'?{description:place.properties.description}:{}),
         children:[...graph.nodes.values()].filter(child=>isPlace(graph,child)&&parentsOf(graph,child).some(parent=>parent.node_id===place.node_id)).map(child=>({name:graph.handle(child),display_name:graph.displayName(child)})),

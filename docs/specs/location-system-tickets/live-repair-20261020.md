@@ -564,3 +564,38 @@ change and green afterward. Do not infer a kind, loosen catalog validation or
 alter the original failed records. Source remains unfrozen until this small
 correction is committed; stopped only the idle own latest-all queue (no child)
 before advancing its source, while the earlier a830 LAN run continues untouched.
+
+Original Mod24 turn35 ended naturally after the UI's5min7s, with4failed tools
+and no final story. Move to commission-briefing,2features and the office-window
+observation actually committed at19:47. Preserve them; do not replay the30minute
+journey. Initial output omitted movement; another assistant message put output
+before apply and was refused whole. A later final completion falsely rejected
+committed movement (.26) and held the observed contents (.57). Exact evidence:
+location24-round35-coverage.json and raw session/turn0035.
+
+Route isolation dropped the canonical handle's display identity. The missing
+feature list is capsule budget cropping, not an absent registration or proof of
+stale world state. Supply endpoint identities without unrelated catalogue prose,
+read current features through the existing location inspection, and isolate the
+perception-coverage question from unrelated proposed NPC/service acts. Native
+completion and current receipt records retain their existing authority/gates.
+Production-shaped live-Jev diagnostics (not acceptance) now give route .72 and
+observation .72; wrong route .02, wrong observation .05, missing contents .41
+remain unadmitted. No threshold or turn-time limit changed.
+
+The delivery-order message-shape gate omitted dedicated place writes. The new
+real host test first failed0vs2refusals, then passed with both calls blocked;
+place inspection remains read-only. Native feedback names output instead of the
+retired narrate surface. Shared packet guidance explicitly places earlier writes
+before output and says inspection does not perform travel. Own changes in the
+shared kernel/packet files remain separate from the other chat's NPC prototype.
+
+Main-source current checks:19/19 location/readiness,11/11including a real-RPC
+pressure specimen where capsule cropping removes the target window but the
+registered state still reaches completion, plus delivery-order positive/read
+control1/1. Existing test assertions follow the separate observation family and
+continue checking exact failures, reference context, facts and single authoring.
+a830full LAN exit1,1228s:6348extensionpass/1fixturefail,2246integrationpass,
+12loop pass. Only failure is clerk-write-readiness matching wording before Mod23
+condensation; assert the shipped gain-before-consume and payment-order rules
+without changing production behavior. Latest clean validation remains pending.

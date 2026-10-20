@@ -53,19 +53,51 @@ function satisfactionAvailable(input:Row,axis:typeof axes[number]):boolean {
  return Array.isArray(input.features)&&input.features.some((feature:Row)=>typeof feature.state==='string'||typeof feature.passable==='boolean');
 }
 const movementSatisfaction="Does location_steps represent the route selected in player_declaration, with each requested intermediate stop and return in order? Each destination is a movement endpoint; the initial starting point is not an extra visit. Committed steps have already happened. Proposed steps are explicit moves queued for this batch and count for this pre-execution route check. A wait is not a movement endpoint. Merely ending at the starting place does not represent an omitted intermediate visit. Judge this route representation, not whether proposed steps already happened or whether prior prose describes them. When no destination is recorded, current_position can satisfy only a stationary request without an omitted intervening visit. Being in the same enclosing place does not establish a requested window, desk or corner.";
+/** Exact read facts, not a possibly cropped capsule or a catalogue of unrelated places. */
+export function locationCoverageContext(read:Row,operations:readonly Row[]):Row {
+ const place=read.place;
+ if(!place||typeof place.name!=='string')throw Error('The current location inspection has no registered place');
+ const names=new Set([place.name,...operations.flatMap(row=>[row.from,row.to,row.place,row.position?.place,row.observation?.from?.place,row.observation?.to?.place]).filter(value=>typeof value==='string')]);
+ const refs=[place,...(read.catalogue??[]).filter((row:Row)=>row.kind==='place')],seen=new Set<string>();
+ const place_identities=refs.filter((row:Row)=>names.has(row.name)&&!seen.has(row.name)&&!!seen.add(row.name)).map((row:Row)=>({name:row.name,
+  ...(typeof row.display_name==='string'?{display_name:row.display_name}:{}),...(row.identity?{identity:structuredClone(row.identity)}:{})}));
+ return {current_place:place.name,current_display_name:place.display_name??place.name,current_position:structuredClone(place.position??{place:place.name}),
+  features:structuredClone(place.features??[]),place_identities};
+}
+function namedPoint(point:Row,input:Row):Row {
+ const ref=(input.place_identities??[]).find((ref:Row)=>ref.name===point.place)
+  ??(point.place===input.current_place?{display_name:input.current_display_name}:undefined);
+ return {...point,...(typeof ref?.display_name==='string'?{display_name:ref.display_name}:{}),...(ref?.identity?{identity:structuredClone(ref.identity)}:{})};
+}
 /** Only typed canonical chronology crosses the route review boundary. */
 export function locationRouteBatch(input:Row,binding:Row):DecisionBatch {
  const project=(row:Row,stage:string):Row|undefined=>{
-  if(row.kind==='place'&&row.action==='move')return {stage,destination:row.position??Object.fromEntries([['place',row.to==='here'?input.current_place??row.to:row.to],['at',row.at],['relation',row.relation]].filter(([,value])=>value!==undefined))};
-  if(row.kind==='move'&&(stage==='committed'?row.from!==row.to:!['here',input.current_place,input.current_display_name].includes(row.to)))return {stage,destination:{place:row.to}};
+  if(row.kind==='place'&&row.action==='move')return {stage,destination:namedPoint(row.position??Object.fromEntries([['place',row.to==='here'?input.current_place??row.to:row.to],['at',row.at],['relation',row.relation]].filter(([,value])=>value!==undefined)),input)};
+  if(row.kind==='move'&&(stage==='committed'?row.from!==row.to:!['here',input.current_place,input.current_display_name].includes(row.to)))return {stage,destination:namedPoint(row.position??{place:row.to},input)};
   if(row.kind==='time')return {stage,...(row.until?{wait_until:row.until}:row.minutes!==undefined?{wait_minutes:row.minutes}:{wait:true})};
  };
  const location_steps=[...(input.settled_receipts??[]).map((row:Row)=>project(row,'committed')),...(input.proposed_effects??[]).map((row:Row)=>project(row,'proposed'))].filter(Boolean);
  const state={player_declaration:input.player_declaration,location_steps,...(!location_steps.some((step:Row)=>step.destination)?{current_position:input.current_position??null}:{})};
  const revision=createHash('sha256').update(JSON.stringify(state)).digest('hex');
- return {id:'location-route-coverage:v1:'+revision,model:JEV_MODEL,family:'location-route-coverage',familyVersion:'1',scope:{owner:'location-route-coverage',campaign:binding.campaign,audience:'keeper'},
+ return {id:'location-route-coverage:v2:'+revision,model:JEV_MODEL,family:'location-route-coverage',familyVersion:'2',scope:{owner:'location-route-coverage',campaign:binding.campaign,audience:'keeper'},
   readSet:[{kind:'draft',resource:'turn:'+binding.turn+':route',revision}],state:state as Json,
   questions:[{key:'move_satisfied',type:'noul',target:'location_steps',instructions:movementSatisfaction}]};
+}
+/** Perception coverage reads perception evidence; other proposed acts remain with their own owners. */
+export function locationObservationBatch(input:Row,binding:Row):DecisionBatch {
+ const project=(row:Row,stage:string):Row|undefined=>{
+  if(row.kind!=='place'||row.action!=='observe')return;
+  if(stage==='committed')return row.observation?{stage,...structuredClone(row.observation)}:undefined;
+  return {stage,from:input.current_position??null,to:{place:row.to==='here'?input.current_place:row.to,...(row.at?{at:row.at}:{})},
+   ...Object.fromEntries(['sense','access','scope','facts','view','people','situations','additions'].filter(key=>row[key]!==undefined).map(key=>[key,structuredClone(row[key])]))};
+ };
+ const observations=[...(input.settled_receipts??[]).map((row:Row)=>project(row,'committed')),...(input.proposed_effects??[]).map((row:Row)=>project(row,'proposed'))].filter(Boolean);
+ const state={player_declaration:input.player_declaration,observations,place_identities:input.place_identities??[{name:input.current_place??null,display_name:input.current_display_name??null}],
+  current_position:input.current_position??null,reference_context:{recent_public:input.recent_public??[],people:input.people??[]}};
+ const revision=createHash('sha256').update(JSON.stringify(state)).digest('hex');
+ return {id:'location-observation-coverage:v1:'+revision,model:JEV_MODEL,family:'location-observation-coverage',familyVersion:'1',
+  scope:{owner:'location-observation-coverage',campaign:binding.campaign,audience:'keeper'},readSet:[{kind:'draft',resource:'turn:'+binding.turn+':observation',revision}],state:state as Json,
+  questions:[{key:'observation_satisfied',type:'noul',target:'observations',instructions:'Do the current-input observe operations or receipts cover the focused sensory target and requested contents in the player declaration? Require the actual target, scope and facts or a supported blocked attempt. Arrival, a greeting, registration, old observations and unrelated scenery do not cover a separate chosen reading or view. Judge coverage only, not consent or invented truth.'}]};
 }
 export function locationCoverageBatch(input:Row,binding:Row):DecisionBatch {
  const revision=createHash('sha256').update(JSON.stringify(input)).digest('hex');
@@ -90,8 +122,9 @@ export function locationCoverageBatch(input:Row,binding:Row):DecisionBatch {
 export async function locationDecisionCoverage(input:Row,binding:Row,decision:DecisionPort|undefined,signal:AbortSignal,parent?:TaskProviderBudget):Promise<Row> {
  const batch=locationCoverageBatch(input,binding),initial=initialSelection(input),accounting=locationAccounting(input);
  const route=batch.questions.some(question=>question.key==='move_satisfied')?locationRouteBatch(input,binding):undefined;
- const other={...batch,questions:batch.questions.filter(question=>question.key!=='move_satisfied')};
- const requests=[...(other.questions.length?[other]:[]),...(route?[route]:[])];
+ const observation=batch.questions.some(question=>question.key==='observation_satisfied')?locationObservationBatch(input,binding):undefined;
+ const other={...batch,questions:batch.questions.filter(question=>!['move_satisfied','observation_satisfied'].includes(question.key))};
+ const requests=[...(other.questions.length?[other]:[]),...(route?[route]:[]),...(observation?[observation]:[])];
  const began=Date.now(),answers=await Promise.all(requests.map(request=>locationNoul(request,decision,signal,parent)));
  const failed=answers.find(result=>result.status!=='answered');
  if(failed)return {...failed,covered:false,jev_calls:requests.length};

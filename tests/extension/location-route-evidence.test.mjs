@@ -32,9 +32,10 @@ test('independent route and observation reviews start concurrently and keep thei
   return {batchId:batch.id,status:'complete',answers:Object.fromEntries(batch.questions.map(q=>[q.key,{status:'answered',type:'noul',noul:q.key==='move_satisfied'?.49:.99}]))};}};
  const result=await locationDecisionCoverage(input,binding,decision,new AbortController().signal);
  assert.equal(result.covered,false);assert.equal(result.axes.move,'uncertain');assert.equal(result.axes.observation,'accounted');assert.equal(result.jev_calls,2);
- const route=batches.find(batch=>batch.family==='location-route-coverage'),other=batches.find(batch=>batch.family==='location-decision-coverage');
+ const route=batches.find(batch=>batch.family==='location-route-coverage'),other=batches.find(batch=>batch.family==='location-observation-coverage');
  assert(route);assert(other);assert(!other.questions.some(q=>q.key==='move_satisfied'));
- assert.deepEqual(result.decision_basis.additional[0].request,packDecisionBatch(route).request);
- assert.deepEqual(Object.keys(result.decision_basis.answers),other.questions.map(q=>q.key));
- assert.equal(result.decision_basis.additional[0].answers.move_satisfied,.49);
+ assert.deepEqual(result.decision_basis.request,packDecisionBatch(route).request);
+ assert.deepEqual(result.decision_basis.additional[0].request,packDecisionBatch(other).request);
+ assert.deepEqual(Object.keys(result.decision_basis.additional[0].answers),other.questions.map(q=>q.key));
+ assert.equal(result.decision_basis.answers.move_satisfied,.49);
 });

@@ -56,6 +56,19 @@ const visibleTexts = (session) => [
 const applies = (session) => session.kernelRequests().filter((entry) => entry.method === "table.apply").length;
 const closed = (rows) => rows.some((row) => row.tool === "output" && row.event === "turn-closed");
 
+test('a dedicated place write behind output is refused before either call, while inspection stays read-only',async t=>{
+ for(const [input,write] of [[{action:'establish',additions:[{name:'Inn',description:'A brick inn.'}]},true],[{action:'inspect',name:'Inn'},false]]){
+  const table=await openTable({responses:[
+   fauxAssistantMessage([fauxToolCall('output',{text:FILED}),fauxToolCall('place',input)],{stopReason:'toolUse'}),
+   fauxAssistantMessage([fauxToolCall('output',{text:FILED})],{stopReason:'toolUse'}),
+  ]});t.after(()=>table.dispose());await table.session.prompt('I look toward the inn.');await waitForIdle(table.session);
+  const refused=table.telemetry().filter(row=>row.reason==='effect_behind_delivery');
+  assert.equal(refused.length,write?2:0,JSON.stringify(refused));
+  assert.equal(applies(table),0,'the rejected batch does not register a place');
+  assert(assistantTexts(table.session).includes(FILED));
+ }
+});
+
 // The terminal ask is a closed option that still exists. A combat-defence ask does not: §11.5.1
 // "The combat choice buttons are retired for new player defenses", and the host refuses one as stale
 // before it can deliver (§11.5: investigator defence is settled by the standing preference, never `ask`).

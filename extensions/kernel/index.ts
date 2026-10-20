@@ -22,7 +22,7 @@ import {scenePopulationRequired,sceneAssessmentExpiredDuringActivity} from '../.
 import {ExpressionPlanStream,writeIsolatedExpression,decisionScene,decisionClock,decisionRecentPublic,decisionResponseScope,decisionObservationScope} from '../../runtime/isolated-expression.ts';
 import {TURN_PACKET_LOCATION_STEPS,turnPacket,bindTurnPacketMoves,turnPacketMovementChoices,requireTurnPacketNpcDestinations,isNewNpcSlot,normalizeTurnPacketArguments,compileTurnPacket,turnPacketResult,turnPacketParameterSchema,turnPacketProviderPayload,TurnPacketParameterError,type TurnPacket} from '../../runtime/turn-packet-prototype.ts';
 import {normalizeToolArgumentSyntax} from '../../runtime/tool-argument-syntax.ts';
-import {locationDecisionCoverage} from '../table/location-relevance.ts';
+import {locationDecisionCoverage,locationCoverageContext} from '../table/location-relevance.ts';
 import {applyEffectKinds} from '../table/mod-sections.ts';
 import {normalizeApplyArguments} from '../../shared/apply-protocol.ts';
 import {owedConsentPlan} from './owed-consent.ts';
@@ -5780,17 +5780,19 @@ export default function (pi: ExtensionAPI, host: {capabilities?:RuntimeCapabilit
                 const status=await state.kernel.call<{receipts:Record<string,unknown>[]}>('table.status',{campaign:state.campaign,projection:'receipts',expected_turn:state.turn});
                 const receipts=status.receipts.map(receipt=>Object.fromEntries(['kind','action','from','to','place','position','feature','before','after','observation','minutes','clock_before','clock_after','until'].filter(key=>receipt[key]!==undefined).map(key=>[key,receipt[key]])));
                 const selection=state.locationSelection?.turn===state.turn?state.locationSelection:undefined;
-                const coverage=await locationDecisionCoverage({player_declaration:state.playerText,current_place:before.where?.scene,current_display_name:before.where?.display_name,current_clock:before.where?.clock,current_position:before.where?.location?.position,
+                const locationRead=await state.kernel.call<Record<string,any>>('mods.locations.inspect',{campaign:state.campaign,need:'context'});
+                const spatial=locationCoverageContext(locationRead,[...receipts,...compiled.effects]);
+                const coverage=await locationDecisionCoverage({player_declaration:state.playerText,...spatial,current_clock:before.where?.clock,
                     recent_public:decisionRecentPublic(before.recent,state.delivered).slice(-1),
                     people:[...new Map([...(before.npc_references?.people??[]),...(before.present??[])].filter(person=>person.ref).map(person=>[person.ref,person])).values()].map((person:any)=>Object.fromEntries(['ref','display_name','name_known'].filter(key=>person[key]!==undefined).map(key=>[key,person[key]]))),
                     ...(selection?{initial_selection:{move:selection.move,feature:selection.feature,observation:selection.observation}}:{}),
-                    features:before.where?.location?.features??[],proposed_effects:compiled.effects,proposed_responses:compiled.responses,settled_receipts:receipts,known_failures:heldBoundary?.uncommittedFailures()??[]},
+                    proposed_effects:compiled.effects,proposed_responses:compiled.responses,settled_receipts:receipts,known_failures:heldBoundary?.uncommittedFailures()??[]},
                     {campaign:state.campaign,turn:state.turn},turnDecisionPort,reply.signal??state.lanes.signal,foregroundProviderBudget?.());
                 await record({lane:'location-decision-coverage',turn:state.turn,...coverage});
                 if(!coverage.covered)throw new KernelError({code:'invalid_params',message:coverage.status==='answered'?'The selected spatial action is not accounted for by this decision':'The spatial decision completion could not be verified',
                     fix:'Preserve the player declaration and successful receipts. Use the current_position below rather than an earlier narrated pose. Every independently selected environmental reading or view also needs a matching {kind:"place",action:"observe",to,sense,access,scope,facts}; arrival and greetings do not read its contents. Include the actual perceived contents, not merely a description of the writing surface. Archival research and carried-document reading use their existing research/document outcomes; they do not independently require a place observation. Do not repeat current-input settled observations. For a local approach before a wait or return, use the separate place tool {action:"move",to:"here",at:"exact registered feature",relation:"beside"}; add only a missing compatible feature if needed. An NPC move, time/glance or registration alone does not move the investigator. A real obstacle or necessary open choice can stop an attempt. Do not narrate an arrival without its committed move.',
-                    details:{reason:'place_decision_incomplete',cause:coverage.reason??'place_decision_incomplete',transaction_state:'uncommitted',before_execution:true,current_place:before.where?.scene,current_position:before.where?.location?.position??null,
-                        known_features:(before.where?.location?.features??[]).map((feature:Record<string,unknown>)=>feature.name),...(coverage.axes?{axes:coverage.axes}:{})}});
+                    details:{reason:'place_decision_incomplete',cause:coverage.reason??'place_decision_incomplete',transaction_state:'uncommitted',before_execution:true,current_place:spatial.current_place,current_position:spatial.current_position,
+                        known_features:spatial.features.map((feature:Record<string,unknown>)=>feature.name),...(coverage.axes?{axes:coverage.axes}:{})}});
             }
             const newlyMoving=compiled.effects.some(effect=>effect.kind==='move'||effect.kind==='place'&&effect.action==='move'&&effect.to!=='here'&&effect.to!==before.where?.scene);
             if((scenePopulationRequired(before)||newlyMoving)&&!compiled.effects.some(row=>row.kind==='scene'))throw new KernelError({code:'needs',message:'Assess scene service and population from the current place and clock with one scene command; missing registered names never means empty.'});
@@ -8257,7 +8259,9 @@ export default function (pi: ExtensionAPI, host: {capabilities?:RuntimeCapabilit
 		if (state.deliveryAheadOfEffect?.has(event.toolCallId)) {
 			state.deliveryOrderRefused = true;
 			await record({ tool: name, started_at: new Date().toISOString(), ok: false, code: "blocked", reason: "effect_behind_delivery" });
-			return { block: true, reason: DELIVERY_ORDER_REASON };
+			return { block: true, reason: turnPacketPrototype
+                ?'This assistant message placed output before a state-changing tool. Neither call executed. Call the still-needed place/apply/resolve operation first, read its actual result, then call output in a new assistant message. Do not replay successful earlier receipts. output closes this input; put no other state-changing tool after it.'
+                :DELIVERY_ORDER_REASON };
 		}
 		// Contract §78, second shape: an effect in this message was refused, and this narrate was
 		// written before that answer existed. The turn has not closed yet, so the repair is available
@@ -8749,8 +8753,8 @@ export default function (pi: ExtensionAPI, host: {capabilities?:RuntimeCapabilit
 		// written. Neither reads a word of the prose.
 		const calls = blocks.filter((b) => b.type === "toolCall");
 		const delivery = calls.findIndex((b) => b.name === "output");
-		const effects = calls.map((b, index) => ({ name: String(b.name), index }))
-			.filter((call) => EFFECT_TOOLS.has(call.name));
+		const effects = calls.map((b, index) => ({ name: String(b.name), index, input:b.arguments as Record<string,unknown> }))
+			.filter((call) => EFFECT_TOOLS.has(call.name)||call.name==='place'&&call.input?.action!=='inspect'&&call.input?.op!=='inspect');
 		// The shape is recorded whether or not the refusal is still available to spend: once spent, the
 		// same shape is what says the delivery that lands carried no answer, and the player is told.
 		const ahead = delivery >= 0 && effects.some((call) => call.index > delivery);

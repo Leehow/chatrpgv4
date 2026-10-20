@@ -17,10 +17,10 @@ test('focused perception selection crosses the demand event, rejects omission an
    {kind:'place',action:'observe',to:scene,sense:'sight',access:'clear',scope:'The visible ledger label on the desk.',facts:['The ledger label reads Records ledger.']}],interactions:[]})],{stopReason:'toolUse'});} ]});
  t.after(()=>table.dispose());await table.session.prompt('I look closely at the ledger label on the desk and read it.');
  assert.equal(requests,2);
- const coverage=batches.filter(b=>b.family==='location-decision-coverage');assert.equal(coverage.length,2);
- assert(coverage.every(b=>b.state.initial_selection.observation===.99),'the event cannot drop the selected observation');
- assert(coverage.every(b=>b.state.recent_public?.at(-1)?.keeper==='The office is open.'),'spatial references retain the actual preceding public exchange');
- assert(coverage.every(b=>Array.isArray(b.state.people)&&b.state.people.some(person=>person.ref&&person.display_name)),'opaque NPC references require their canonical public names');
+ const coverage=batches.filter(b=>['location-decision-coverage','location-observation-coverage'].includes(b.family));assert.equal(coverage.length,2);
+ assert.equal(coverage.find(b=>b.family==='location-decision-coverage').state.initial_selection.observation,.99,'the event cannot drop the selected observation');
+ assert(coverage.every(b=>(b.state.reference_context??b.state).recent_public?.at(-1)?.keeper==='The office is open.'),'spatial references retain the actual preceding public exchange');
+ assert(coverage.every(b=>{const people=(b.state.reference_context??b.state).people;return Array.isArray(people)&&people.some(person=>person.ref&&person.display_name); }),'opaque NPC references require their canonical public names');
  assert(coverage.every(b=>!b.questions.some(q=>q.key==='observation_selected')),'an already decisive selection is reused');
  const refused=table.session.messages.filter(m=>m.role==='toolResult'&&m.isError);assert.match(JSON.stringify(refused),/place_decision_incomplete/);
  const turn=JSON.parse(readFileSync(join(table.workspace,'.coc/campaigns/test-camp/turns/0001.json')));
@@ -32,9 +32,33 @@ test('focused perception selection crosses the demand event, rejects omission an
  assert.equal(table.entries('coc-final-delivery').filter(r=>r.event==='end'&&r.status==='completed').length,1);
 });
 
+test('completion reads registered feature state even when capsule pressure removes it',async t=>{
+ let table,scene,checked=false;
+ const engine=createHybridEngine({env,decision:{decide:async batch=>{
+  if(batch.family==='location-decision-coverage'&&batch.questions.some(q=>q.key==='feature_satisfied')){
+   checked=true;assert(batch.state.features.some(f=>f.name==='Target window'&&f.state==='closed'));
+  }
+  return answer(batch);
+ }}});
+ table=await openTable({legacyDeliveryFixtures:false,realKernel:true,prepareWorkspace:opened,env,runDriver:engine.runDriver,
+  extraExtensions:[{name:'engine',factory:engine.extension}],responses:[async()=>{
+   const c=await table.runtimeBridges().at(-1).call('table.capsule',{campaign:'test-camp'});scene=c.where.scene;
+   table.emit('coc:location-demand',{campaign:'test-camp',turn:1,review:true,selection:{move:.01,feature:.99,observation:.01}});
+   const features=Array.from({length:16},(_,i)=>({name:i===15?'Target window':`Wall panel ${i}`,description:'A dark painted wooden fitting. '.repeat(30),...(i===15?{state:'closed'}:{})}));
+   return fauxAssistantMessage([fauxToolCall('place',{action:'establish',additions:[{name:scene,features}]})],{stopReason:'toolUse'});
+  },async()=>{
+   const c=await table.runtimeBridges().at(-1).call('table.capsule',{campaign:'test-camp'});
+   assert(!c.where.location?.features?.some(f=>f.name==='Target window'),'the actual capsule pressure must remove the relevant feature');
+   return fauxAssistantMessage([fauxToolCall('output',{version:4,commands:[{kind:'scene',service:'open',crowd:'quiet'}]})],{stopReason:'toolUse'});
+  }]});
+ t.after(()=>table.dispose());await table.session.prompt('I close the target window if it is still open.');
+ assert(checked,'completion must judge the full registered state, not the cropped capsule');
+ assert.equal(table.entries('coc-final-delivery').filter(r=>r.event==='end'&&r.status==='completed').length,1);
+});
+
 test('current-input observation receipts retain their focus and facts for final completion without a duplicate write',async t=>{
  let table,scene;const batches=[];
- const engine=createHybridEngine({env,decision:{decide:async batch=>{batches.push(batch);if(batch.family==='location-decision-coverage')assert(batch.state.settled_receipts.some(r=>r.observation?.facts?.includes('The label reads Current records.')),'the receipt projection must retain actual observed contents');return answer(batch);}}});
+ const engine=createHybridEngine({env,decision:{decide:async batch=>{batches.push(batch);if(batch.family==='location-observation-coverage')assert(batch.state.observations.some(r=>r.stage==='committed'&&r.facts?.includes('The label reads Current records.')),'the receipt projection must retain actual observed contents');return answer(batch);}}});
  table=await openTable({legacyDeliveryFixtures:false,realKernel:true,prepareWorkspace:opened,env,runDriver:engine.runDriver,
   extraExtensions:[{name:'engine',factory:engine.extension}],responses:[async()=>{
    const c=await table.runtimeBridges().at(-1).call('table.capsule',{campaign:'test-camp'});scene=c.where.scene;
@@ -44,7 +68,7 @@ test('current-input observation receipts retain their focus and facts for final 
    return fauxAssistantMessage([fauxToolCall('output',{version:4,commands:[{kind:'scene',service:'open',crowd:'quiet'}]})],{stopReason:'toolUse'});
   }]});
  t.after(()=>table.dispose());await table.session.prompt('I read the visible label on the desk.');
- assert.equal(batches.filter(b=>b.family==='location-decision-coverage').length,1);
+ assert.equal(batches.filter(b=>b.family==='location-observation-coverage').length,1);
  const turn=JSON.parse(readFileSync(join(table.workspace,'.coc/campaigns/test-camp/turns/0001.json')));
  assert.equal(turn.receipts.filter(r=>r.kind==='place'&&r.action==='observe').length,1);
  assert.equal(table.entries('coc-final-delivery').filter(r=>r.event==='end'&&r.status==='completed').length,1);

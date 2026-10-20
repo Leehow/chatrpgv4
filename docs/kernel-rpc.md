@@ -49296,6 +49296,28 @@ array advertises nonempty strings, matching kernel validation. Omit the filter
 to search all kinds; item is the ordinary equipment/price filter. Empty-string
 placeholders are invalid input, never silently rewritten into a chosen kind.
 
+The existing delivery-order gate recognizes dedicated place writes as effects,
+including establishment and observation; action/op inspect remains read-only.
+An output followed by a place write in one assistant message is refused before
+either executes, exactly like output followed by apply. Native feedback names
+the actual output/place/apply tools and the uncommitted batch, retaining the
+existing refusal allowance. The provider instruction places required earlier
+effects before output and explicitly distinguishes a remote inspection from
+the selected journey. This does not synthesize a move or bypass completion.
+
+**Completion evidence after a native place write.** Capsule where is a bounded
+reading projection: a cropped feature list is not the full current location.
+Before spatial completion, the host reads the existing location inspection for
+the current place and takes its exact position/features. Only names, display
+names and authored identity aliases for places referenced by the current
+receipts/proposal accompany that proof; no unrelated catalogue prose crosses
+into the review. Canonical handles remain unchanged. The route review carries
+the matching identity at each endpoint. Observation coverage has its own bounded
+question over actual current-input observations, their scope/facts and public
+reference context; unrelated NPC/service proposals do not decide that question.
+Selection, obstacles, admission and .60/.40 thresholds remain with their existing
+owners. These projections do not create movement, observations or permissions.
+
 An atomic canonical `apply` validation refusal with `unknown_entity` is an uncommitted
 attempt, including an invalid object-owner reference. Native publication can
 carry that bounded failed-attempt projection alongside actual current state and

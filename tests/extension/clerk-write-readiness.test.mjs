@@ -135,6 +135,7 @@ test('a failed ordinary expense receives the shipped place service guidance with
     const detail=JSON.parse(patched.content.at(-1).text);
     const delivered=detail.package_sections.find(section=>section.package===manifest.id&&section.section==='Continuity and authority');
     assert(delivered,'ordinary cash use must disclose the active place service instructions');
-    assert.match(delivered.text,/actual delivery with item gain before consumption loss/);
+    assert.match(delivered.text,/requires item quantity gain from its established supplier, then consumption loss/);
+    assert.match(delivered.text,/Payment selected after completion cannot execute first/);
     assert.equal(reads.length,1,'unrelated place and author sections are not loaded for this expense');
 });
