@@ -57,7 +57,7 @@ test('enhanced location admission names its entry and Keeper-creation semantics 
     const effect={kind:'place',action:'move',to:'Ordinary Inn',at:'counter',additions:[{name:'Ordinary Inn',description:'A public lobby.'}]};
     const proposal=admission.admissionRequest('apply',{effects:[effect]},{party:['Thomas Hayes'],consentOnly:true});
     const result=await admission.reviewAdmissionJevOnly({...selected.value,proposal});
-    assert.equal(batch.familyVersion,'16');assert.equal(batch.state.proposal.lines[0].to,effect.to);
+    assert.equal(batch.familyVersion,'17');assert.equal(batch.state.proposal.lines[0].to,effect.to);
     assert.match(batch.state.proposal.lines[0].arrival_scope.additions,/Keeper-authored/);
     assert.match(batch.questions[1].instructions,/entry or boundary crossing/);
     assert.equal(result.verdict.verdict,'uncertain');
@@ -89,7 +89,7 @@ test('observation consent reads ordered waits without treating them as already s
     selected.value.decision={decide:async(value,lease)=>{batch=value;const answer=await decide(value,lease);
         answer.answers.restriction_0.noul=.99;return answer;}};
     const result=await admission.reviewAdmissionJevOnly({...selected.value,proposal:joined});
-    assert.equal(batch.familyVersion,'12');
+    assert.equal(batch.familyVersion,'17');
     assert.deepEqual(batch.state.proposal.execution.preceding,[wait]);
     assert.match(batch.state.proposal.execution.authority,/not settled facts/);
     assert.equal(batch.state.proposal.lines.length,1);
@@ -273,7 +273,7 @@ test('native move consent asks about the typed journey while retaining reference
  const result=await admission.reviewAdmissionJevOnly({...selected.value,proposal,context:{...context,playerText:'At eight I return to the window; for now I stay here.',
   currentPosition:{place:'Dining room',at:'Long table',relation:'beside'},currentClock:{at:'1920-10-12T19:00'},
   interruptedPlayerText:'I wait, then return to the window.',delivered:[{turn:0,player:'I look out.',keeper:'The street window faces the hotel entrance.'}]}});
- assert.equal(batch.familyVersion,'16');assert.equal(batch.questions.length,2);
+ assert.equal(batch.familyVersion,'17');assert.equal(batch.questions.length,2);
  assert.match(batch.questions[0].instructions,/proposal.lines\[0\].to/);
  assert.doesNotMatch(batch.questions[0].instructions,/Action feature|For action observe/);
  assert.match(batch.questions[1].instructions,/unmet prerequisite/);

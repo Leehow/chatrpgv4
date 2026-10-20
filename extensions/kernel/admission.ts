@@ -28,6 +28,7 @@ import { createHash } from "node:crypto";
 import {decisionRecentPublic} from '../../runtime/public-exchanges.ts';
 import {publicDialogue,type PublicDialogueLine} from '../../shared/public-dialogue.ts';
 import {continuousConsentQuestions,continuousConsentLine,CONTINUOUS_CONSENT_MIN} from "../../runtime/jev/continuous-consent.ts";
+import {declarationSegments,conditionalExecutionPositions,CONSENT_ORDER_CONTEXT} from '../../runtime/jev/consent-order-context.ts';
 import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { runLane, type KeptReservation, type LaneReplyEvidence, type LaneResult, type LaneTransport } from "../lanes/subsession.ts";
 import { KernelError } from "./client.ts";
@@ -1311,8 +1312,8 @@ export async function reviewAdmissionJevOnly(options:PrimaryAdmissionReviewOptio
     {ok:true;verdict:AdmissionVerdict;ms:number;meta:Record<string,unknown>}
     |{ok:false;reason:string;ms:number;meta:Record<string,unknown>}> {
     const clock=options.clock??hostClock,began=clock.now(),context=options.context;
-    const nativeMove=options.proposal.operations?.some(operation=>operation.kind==='place'&&operation.action==='move');
-    const family='continuous-action-admission',version=nativeMove?'16':context.currentPosition?'15':context.currentClock?'13':options.proposal.ordered||options.proposal.kinds?.includes('place')?'12':'7';
+    const nativeLocation=options.proposal.operations?.some(operation=>operation.kind==='place');
+    const family='continuous-action-admission',version=nativeLocation?'17':context.currentPosition?'15':context.currentClock?'13':options.proposal.ordered||options.proposal.kinds?.includes('place')?'12':'7';
     let mechanicsChoice:{action:string;choice:{name:string;binds:string;options:string[];prompt?:string}}|undefined;
     let mechanicsInput=false,mechanicsBinding:string|undefined;
     try{
@@ -1343,9 +1344,10 @@ export async function reviewAdmissionJevOnly(options:PrimaryAdmissionReviewOptio
     // bounded public window as prescreen and the author, never private source notes.
     const knownJourneys=options.proposal.operations?.length&&options.proposal.operations.every(operation=>
         (operation.kind==='move'||operation.kind==='place'&&operation.action==='move')&&operation.registered_destination);
-    const state={current_player_words:context.playerText,...(mechanicsChoice?{current_mechanics_choice:mechanicsChoice}:{}),
+    const typedLines=options.proposal.operations?.map(continuousConsentLine);
+    const state={current_player_words:context.playerText,...(nativeLocation?{declaration_segments:declarationSegments(context.playerText)}:{}),...(mechanicsChoice?{current_mechanics_choice:mechanicsChoice}:{}),
         ...(options.lineContexts?{line_contexts:options.lineContexts.map(scope=>({current_player_words:scope.playerText,
-            previous_public:scope.delivered.slice(-2).map(row=>({turn:row.turn,player:row.player??null,...(publicDialogue(row.speech).length?{speech:publicDialogue(row.speech)}:{})}))}))}:{}),
+            ...(nativeLocation?{declaration_segments:declarationSegments(scope.playerText)}:{}),previous_public:scope.delivered.slice(-2).map(row=>({turn:row.turn,player:row.player??null,...(publicDialogue(row.speech).length?{speech:publicDialogue(row.speech)}:{})}))}))}:{}),
         ...(context.interruptedPlayerText?{unfinished_player_words:context.interruptedPlayerText}:{}),
         investigators:context.investigators.map(row=>row.name),scene:context.scene??null,present:context.present,
         ...(context.currentClock?{current_clock:context.currentClock}:{}),
@@ -1354,7 +1356,7 @@ export async function reviewAdmissionJevOnly(options:PrimaryAdmissionReviewOptio
             ...(publicDialogue(row.speech).length?{speech:publicDialogue(row.speech)}:{})})),
         settled_this_turn:context.landed,
         ...(context.corrections?.length?{argument_corrections:context.corrections}:{}),
-        proposal:{tool:options.proposal.tool,lines:(options.proposal.operations??options.proposal.lines).map(continuousConsentLine),...(options.proposal.kinds?{kinds:options.proposal.kinds}:{}),
+        proposal:{tool:options.proposal.tool,lines:nativeLocation&&typedLines?conditionalExecutionPositions(typedLines,options.proposal.preceding?.operations??[],context.currentPosition):typedLines??options.proposal.lines.map(continuousConsentLine),...(options.proposal.kinds?{kinds:options.proposal.kinds}:{}),
             ...(options.proposal.ordered?{execution:{order:'Earlier operations execute before later lines in this same proposed atomic batch.',
                 preceding:(options.proposal.preceding?.operations??[]).map(continuousConsentLine),
                 authority:'These are proposed operations, not settled facts. Each needs independent consent and canonical validation. Outside plans supply no prerequisite.'}}:{})},
@@ -1382,6 +1384,10 @@ export async function reviewAdmissionJevOnly(options:PrimaryAdmissionReviewOptio
             question.instructions=String(question.instructions).replaceAll('current_player_words',`line_contexts[${index}].current_player_words`)
                 .replaceAll('previous_public',`line_contexts[${index}].previous_public`);
         }
+    }
+    if(nativeLocation)for(const question of batch.questions)if(question.key.startsWith('restriction_')){
+        const index=Number(question.key.slice('restriction_'.length));
+        question.instructions=String(question.instructions)+CONSENT_ORDER_CONTEXT.replaceAll('declaration_segments',options.lineContexts?`line_contexts[${index}].declaration_segments`:'declaration_segments');
     }
     for(const [index,requirement] of cashRequirements.entries()){
         batch.questions.push({key:'cash_input_'+index,target:'cash_requirements['+index+']',type:'noul',

@@ -50162,3 +50162,11 @@ Partial transport normalization may select a union branch only when its required
 ### Location request footprint (2026-10-20)
 
 Enhanced Locations1.1.22 retains a small resident discovery paragraph. Existing detailed continuation and receipt instructions move verbatim into its situational Continuity and authority section, triggered by place/cash/item events. Native action recipes retain exact required fields with less redundant prose. No request ceiling, canonical tool validator or acceptance threshold increases.
+
+### Verbatim declaration order and conditional position (2026-10-20)
+
+Native place admission family17 adds declaration_segments: exact punctuation-delimited source spans with numeric source indices. Their concatenation equals current_player_words; a bounded tail coalesces rather than drops text. This is syntax only, never intent extraction, language detection, an action plan or authorization. Keep the full original declaration, references, current clock, actual receipts and both existing probability gates.
+
+For each reviewed operation, execution_position.before/after exposes the canonical starting position advanced through typed preceding movements. Every such position is conditional_on_earlier_approval; it is not settled state, a successful result or consent. A move may expose its proposed destination/local point as after; an observation keeps its before position. Canonical current_position is unchanged. This reader-only projection does not validate routes, move the party, calculate time or replace the kernel. An unknown starting position remains null.
+
+The host writes both projections from original words and typed operations; existing independent admission questions read them and still gate the actual tool. Original turn29 full-state replay with both projections: first move .84/.29, return .81/.21, observation .88/.25; missing earlier movement .66/.45 holds; future-only movement .24/.51 refuses. The component-only variants were inadequate and are not adopted independently. Actual App acceptance remains required.
