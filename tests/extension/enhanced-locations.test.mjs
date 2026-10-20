@@ -36,7 +36,7 @@ test('input relevance selects context only, keeps uncertainty conservative and n
 test('spatial completion composes independent movement and feature answers without an invented confidence',async()=>{
     const binding={campaign:'test',turn:2},input={player_declaration:'I approach the window.',proposed_effects:[],settled_receipts:[]};
     const batch=locationCoverageBatch(input,binding);packDecisionBatch(batch);
-    assert.equal(batch.familyVersion,'8');assert.equal(batch.questions.length,6);assert(batch.questions.every(question=>question.type==='noul'));
+    assert.equal(batch.familyVersion,'9');assert.equal(batch.questions.length,6);assert(batch.questions.every(question=>question.type==='noul'));
     assert(!batch.questions.some(question=>question.key.endsWith('_accounted')),'typed operation presence is not a model judgment');
     const review=async(values,effects=[])=>locationDecisionCoverage({...input,proposed_effects:effects},binding,{decide:async current=>({batchId:current.id,status:'complete',answers:Object.fromEntries(current.questions.map(q=>[q.key,{status:'answered',type:'noul',noul:values[q.key]??.01}]))})},new AbortController().signal);
     const missing=await review({move_selected:.99});
@@ -44,8 +44,8 @@ test('spatial completion composes independent movement and feature answers witho
     assert.equal(missing.probabilities.move_selected,.99);assert.equal(missing.probability,undefined,'independent answers have no aggregate probability');
     assert.equal(missing.to,undefined,'a completion finding never executes a destination');
     const move={kind:'move',to:'Ordinary Inn'};
-    const arrival=await review({move_selected:.99},[move]);assert.equal(arrival.covered,true);assert.equal(arrival.accounting.move,'proposed');
-    const omittedFeature=await review({move_selected:.99,feature_selected:.99},[move]);
+    const arrival=await review({move_selected:.99,move_satisfied:.99},[move]);assert.equal(arrival.covered,true);assert.equal(arrival.accounting.move,'proposed');
+    const omittedFeature=await review({move_selected:.99,move_satisfied:.99,feature_selected:.99},[move]);
     assert.equal(omittedFeature.covered,false);assert.equal(omittedFeature.axes.feature,'missing','a movement does not replace opening the window');
     const blocked=await review({move_selected:.99,move_blocked:.99});assert.equal(blocked.covered,true);assert.equal(blocked.axes.move,'blocked');
     const unsure=await review({move_selected:.5});assert.equal(unsure.covered,false);assert.equal(unsure.axes.move,'uncertain');
@@ -54,10 +54,10 @@ test('spatial completion composes independent movement and feature answers witho
     const partial=await locationDecisionCoverage(input,binding,{decide:async current=>({batchId:current.id,status:'complete',answers:{move_selected:{status:'answered',type:'noul',noul:.99}}})},new AbortController().signal);
     assert.equal(partial.status,'fallback');assert.equal(partial.covered,false,'all independent answers must be valid');
     const selected={...input,initial_selection:{move:.95,feature:.02,observation:.01}};
-    const noRepeat={decide:async()=>{throw Error('An actual typed movement is judged by admission, not another completion question');}};
+    const completeMovement={decide:async batch=>({batchId:batch.id,status:'complete',answers:Object.fromEntries(batch.questions.map(q=>[q.key,{status:'answered',type:'noul',noul:q.key==='move_satisfied'?.99:.01}]))})};
     for(const [extra,source]of [[{proposed_effects:[move]},'proposed'],[{settled_receipts:[{kind:'move',from:'Room',to:'Ordinary Inn'}]},'committed']]){
-        const accounted=await locationDecisionCoverage({...selected,...extra},binding,noRepeat,new AbortController().signal);
-        assert.equal(accounted.covered,true);assert.equal(accounted.jev_calls,0);assert.equal(accounted.accounting.move,source);assert.equal(accounted.status,'accounted');
+        const accounted=await locationDecisionCoverage({...selected,...extra},binding,completeMovement,new AbortController().signal);
+        assert.equal(accounted.covered,true);assert.equal(accounted.jev_calls,1);assert.equal(accounted.accounting.move,source);assert.equal(accounted.axes.move,'accounted');
     }
     const missingBatch=locationCoverageBatch(selected,binding);
     assert.deepEqual(missingBatch.questions.map(question=>question.key),['move_blocked'],'only the missing selected dimension asks about a real blocker');
@@ -252,4 +252,11 @@ test('Jev reference advice keeps source, registered features, no-match and uncer
     const before=structuredClone(read),rows=[];
     const failed=await adviseLocationReference(read,{env:{},campaign:'c1',turn:2,record:row=>rows.push(row),decision:{decide:async()=>{throw Error('Unavailable');}}});
     assert.equal(failed.status,'unavailable');assert.deepEqual(read,before);assert.equal(rows[0].status,'unavailable');
+});
+
+test('returning to the current endpoint does not account for an omitted intermediate visit',async()=>{
+ const input={player_declaration:'I leave the window for the counter, wait until six, then return to this window.',current_place:'Dining room',current_position:{place:'Dining room',at:'window',relation:'beside'},initial_selection:{move:.99,feature:.01,observation:.01},proposed_effects:[{kind:'place',action:'move',to:'Dining room',at:'window',relation:'beside'}],settled_receipts:[{kind:'time',before:30,after:45}]};
+ const batches=[];const result=await locationDecisionCoverage(input,{campaign:'test',turn:4},{decide:async batch=>{batches.push(batch);return{batchId:batch.id,status:'complete',answers:Object.fromEntries(batch.questions.map(q=>[q.key,{status:'answered',type:'noul',noul:.01}]))};}},new AbortController().signal);
+ assert.equal(result.covered,false,'one final move cannot stand in for the omitted counter visit');assert.equal(result.axes.move,'missing');
+ const question=batches[0]?.questions.find(q=>q.key==='move_satisfied');assert(question,'the existing completion batch judges the entire movement selection');assert.match(question.instructions,/intermediate/);assert.match(question.instructions,/order/);
 });

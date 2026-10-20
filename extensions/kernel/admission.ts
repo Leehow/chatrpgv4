@@ -616,6 +616,7 @@ export interface AdmissionContext {
 	investigators: Array<{ name: string; occupation?: string }>;
 	scene?: string;
 	/** The fresh canonical capsule clock, never host wall time or an inferred duration. */
+	currentPosition?: Record<string,unknown>;
 	currentClock?: {minutes:number;at?:string;day?:number;hh?:string;mm?:string;day_part?:string};
 	present: string[];
 	/** What the player has already been told, oldest first: the setup prologue, then earlier deliveries. */
@@ -1303,7 +1304,7 @@ export async function reviewAdmissionJevOnly(options:PrimaryAdmissionReviewOptio
     {ok:true;verdict:AdmissionVerdict;ms:number;meta:Record<string,unknown>}
     |{ok:false;reason:string;ms:number;meta:Record<string,unknown>}> {
     const clock=options.clock??hostClock,began=clock.now(),context=options.context;
-    const family='continuous-action-admission',version=context.currentClock?'13':options.proposal.ordered||options.proposal.kinds?.includes('place')?'12':'7';
+    const family='continuous-action-admission',version=context.currentPosition?'14':context.currentClock?'13':options.proposal.ordered||options.proposal.kinds?.includes('place')?'12':'7';
     let mechanicsChoice:{action:string;choice:{name:string;binds:string;options:string[];prompt?:string}}|undefined;
     let mechanicsInput=false,mechanicsBinding:string|undefined;
     try{
@@ -1340,6 +1341,7 @@ export async function reviewAdmissionJevOnly(options:PrimaryAdmissionReviewOptio
         ...(context.interruptedPlayerText?{unfinished_player_words:context.interruptedPlayerText}:{}),
         investigators:context.investigators.map(row=>row.name),scene:context.scene??null,present:context.present,
         ...(context.currentClock?{current_clock:context.currentClock}:{}),
+        ...(context.currentPosition?{current_position:context.currentPosition}:{}),
         previous_public:knownJourneys?decisionRecentPublic(context.delivered):context.delivered.slice(-2).map(row=>({turn:row.turn,player:row.player??null,
             ...(publicDialogue(row.speech).length?{speech:publicDialogue(row.speech)}:{})})),
         settled_this_turn:context.landed,
@@ -1360,6 +1362,7 @@ export async function reviewAdmissionJevOnly(options:PrimaryAdmissionReviewOptio
     }
     for(const question of batch.questions)if(question.key.startsWith('restriction_'))question.instructions=String(question.instructions)
         +' current_clock, when present, is the latest canonical local game time before this proposal, including all successful earlier calls. Use its absolute local time to evaluate a selected future-only condition; elapsed receipt minutes alone do not establish a local time. A clock fact grants no consent or physical service completion.'
+        +' current_position, when present, is the latest canonical local position before this proposal. If the player selects moving to a position before waiting or another action there, require that position now or an independently approved earlier move in this atomic batch; eventual return to the current endpoint does not fulfill the intermediate visit. Do not replace a selected approach with a wait at the old position.'
         +' Actual canonical outcomes in settled_this_turn can establish a completed prerequisite. Receipt identifiers alone do not establish its content. Payment or elapsed time alone does not establish movement, seating, receipt of goods or an unrecorded activity. Prior public narration resolves references only, never current consent.';
     if(options.lineContexts){
         if(options.lineContexts.length!==options.proposal.lines.length)throw Error('Consent line context count differs from its operations');

@@ -3766,7 +3766,8 @@ export default function (pi: ExtensionAPI, host: {capabilities?:RuntimeCapabilit
 			if(!proposal){capture?.(null);if(recovery?.told.length)await record({lane:'admission',verb:tool,turn:state.turn,path:'told',verdict:'authorized',jev_calls:0,owed:recovery.told});return;}
             proposal=capsuleContactProposal(proposal,payload,current);
             capture?.(proposal);
-            const context={...admissionContextFor(state),...(current.where?.clock?{currentClock:current.where.clock}:{})};
+            const context={...admissionContextFor(state),...(current.where?.clock?{currentClock:current.where.clock}:{}),
+                ...(current.where?.scene?{scene:current.where.scene}:{}),...(current.where?.location?.position?{currentPosition:current.where.location.position}:{})};
             const lineContexts=recovery?.sources.some(Boolean)?(proposal.effects??[]).map(index=>{const source=recovery.sources[index];return source?{...context,
                 playerText:source.player_text,interruptedPlayerText:undefined,refused:[],corrections:[],
                 delivered:context.delivered.filter(row=>typeof row.turn!=='number'||row.turn<source.turn)}:context;}):undefined;
@@ -5775,7 +5776,7 @@ export default function (pi: ExtensionAPI, host: {capabilities?:RuntimeCapabilit
                 const status=await state.kernel.call<{receipts:Record<string,unknown>[]}>('table.status',{campaign:state.campaign,projection:'receipts',expected_turn:state.turn});
                 const receipts=status.receipts.map(receipt=>Object.fromEntries(['kind','action','from','to','position','feature','before','after','observation'].filter(key=>receipt[key]!==undefined).map(key=>[key,receipt[key]])));
                 const selection=state.locationSelection?.turn===state.turn?state.locationSelection:undefined;
-                const coverage=await locationDecisionCoverage({player_declaration:state.playerText,current_place:before.where?.scene,current_display_name:before.where?.display_name,current_position:before.where?.location?.position,
+                const coverage=await locationDecisionCoverage({player_declaration:state.playerText,current_place:before.where?.scene,current_display_name:before.where?.display_name,current_clock:before.where?.clock,current_position:before.where?.location?.position,
                     ...(selection?{initial_selection:{move:selection.move,feature:selection.feature,observation:selection.observation}}:{}),
                     features:before.where?.location?.features??[],proposed_effects:compiled.effects,proposed_responses:compiled.responses,settled_receipts:receipts,known_failures:heldBoundary?.uncommittedFailures()??[]},
                     {campaign:state.campaign,turn:state.turn},turnDecisionPort,reply.signal??state.lanes.signal,foregroundProviderBudget?.());

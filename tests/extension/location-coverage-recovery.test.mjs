@@ -11,7 +11,7 @@ const input={player_declaration:'I leave the lunchroom, enter a nearby open shop
 const answer=(observed,selected=.02)=>({decide:async batch=>{
  observed.push(batch);
  return {batchId:batch.id,status:'complete',answers:Object.fromEntries(batch.questions.map(q=>[q.key,
-  {status:'answered',type:'noul',noul:q.key==='feature_selected'?selected:.01}]))};
+  {status:'answered',type:'noul',noul:q.key==='feature_selected'?selected:q.key==='move_satisfied'?.99:.01}]))};
 }});
 test('ambiguous preliminary feature relevance is clarified against the committed journey',async()=>{
  const observed=[],before=structuredClone(input);
@@ -33,17 +33,17 @@ test('clarification cannot discharge a selected uncommitted feature change or an
 
 test('arrival alone cannot discharge a separately selected focused reading',async()=>{
  const selected={player_declaration:'I return to the cafe and read the names and prices on the board, without ordering.',current_place:'Office',initial_selection:{move:.99,feature:.01,observation:.99},proposed_effects:[{kind:'place',action:'move',to:'Cafe',via:'The known public street.'}],settled_receipts:[]};
- const decide=covered=>({decide:async batch=>({batchId:batch.id,status:'complete',answers:Object.fromEntries(batch.questions.map(q=>[q.key,{status:'answered',type:'noul',noul:q.key==='observation_satisfied'?covered:.01}]))})});
+ const decide=covered=>({decide:async batch=>({batchId:batch.id,status:'complete',answers:Object.fromEntries(batch.questions.map(q=>[q.key,{status:'answered',type:'noul',noul:q.key==='observation_satisfied'?covered:q.key==='move_satisfied'?.99:.01}]))})});
  const missing=await locationDecisionCoverage(selected,binding,decide(.99),new AbortController().signal);
  assert.equal(missing.covered,false);assert.equal(missing.axes.observation,'missing');
  const observed={...selected,proposed_effects:[...selected.proposed_effects,{kind:'place',action:'observe',to:'Cafe',at:'Menu board',sense:'sight',access:'clear',scope:'Names and prices',facts:['Stew 25 cents; bread 10 cents; coffee 10 cents.']}]};
  assert.equal((await locationDecisionCoverage(observed,binding,decide(.99),new AbortController().signal)).covered,true);
  assert.equal((await locationDecisionCoverage(observed,binding,decide(.01),new AbortController().signal)).covered,false,'an unrelated or incomplete look is not the chosen reading');
 });
-test('ordinary arrival adds no observation obligation or extra decision',async()=>{
+test('ordinary arrival adds no observation obligation while movement coverage is checked',async()=>{
  const ordinary={initial_selection:{move:.99,feature:.01,observation:.01},proposed_effects:[{kind:'place',action:'move',to:'Cafe'}],settled_receipts:[]};
- const result=await locationDecisionCoverage(ordinary,binding,{decide:async()=>{throw Error('No extra inference is needed');}},new AbortController().signal);
- assert.equal(result.covered,true);assert.equal(result.jev_calls,0);
+ const result=await locationDecisionCoverage(ordinary,binding,{decide:async batch=>{assert.deepEqual(batch.questions.map(q=>q.key),['move_satisfied']);return{batchId:batch.id,status:'complete',answers:{move_satisfied:{status:'answered',type:'noul',noul:.99}}};}},new AbortController().signal);
+ assert.equal(result.covered,true);assert.equal(result.jev_calls,1);
 });
 
 test('focused reading alone activates the same completion lane and cannot reuse old observation state',async()=>{

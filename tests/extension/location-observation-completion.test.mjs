@@ -49,7 +49,7 @@ test('current-input observation receipts retain their focus and facts for final 
 });
 
 test('native standalone location settlement precedes a selected wait and final observation',async t=>{
- let table,scene;const engine=createHybridEngine({env,decision:{decide:async batch=>answer(batch)}});
+ let table,scene,positionAtWait;const engine=createHybridEngine({env,decision:{decide:async batch=>{if(batch.family==='continuous-action-admission'&&batch.state.proposal.kinds?.includes('time'))positionAtWait=batch.state.current_position;return answer(batch);}}});
  table=await openTable({legacyDeliveryFixtures:false,realKernel:true,prepareWorkspace:opened,env,runDriver:engine.runDriver,
   extraExtensions:[{name:'engine',factory:engine.extension}],responses:[async()=>{
    scene=(await table.runtimeBridges().at(-1).call('table.capsule',{campaign:'test-camp'})).where.scene;
@@ -67,6 +67,7 @@ test('native standalone location settlement precedes a selected wait and final o
  const turn=JSON.parse(readFileSync(join(table.workspace,'.coc/campaigns/test-camp/turns/0001.json')));
  const move=turn.receipts.findIndex(row=>row.kind==='place'&&row.action==='move'),wait=turn.receipts.findIndex(row=>row.kind==='time'),observe=turn.receipts.findIndex(row=>row.kind==='place'&&row.action==='observe');
  assert(move>=0&&wait>move&&observe>wait,'canonical receipt order must be move, wait, observe: '+JSON.stringify(turn.receipts));
+ assert.equal(positionAtWait?.at,'street window','the real subsequent time review reads the committed current local position');
  assert.equal(turn.receipts.filter(row=>row.kind==='place'&&row.action==='move').length,1,'final publication never replays the already settled position');
  assert.equal(table.telemetry().filter(row=>row.lane==='isolated-expression'&&row.event==='written').length,1);
  assert.equal(table.entries('coc-final-delivery').filter(row=>row.event==='end'&&row.status==='completed').length,1);

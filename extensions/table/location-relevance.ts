@@ -51,6 +51,7 @@ function satisfactionAvailable(input:Row,axis:typeof axes[number]):boolean {
  if(axis==='move')return !!input.current_position&&typeof input.current_place==='string'&&input.current_position.place===input.current_place;
  return Array.isArray(input.features)&&input.features.some((feature:Row)=>typeof feature.state==='string'||typeof feature.passable==='boolean');
 }
+const movementSatisfaction="Do the canonical current_position and current-input ordered settled_receipts plus proposed_effects cover the entire movement selected by the player, including every intermediate place or local position and its order relative to waits and other actions? Judge the complete itinerary, not just its final endpoint. Leaving a window for a counter, waiting there, then returning to the same window still requires both movements in that order; an unchanged final position or one unrelated move cannot cover the trip. Existing current state can satisfy a request to remain at an already recorded position only when no unexecuted intervening movement is selected. Being in the same enclosing place does not establish a requested window, desk or corner. Actual ordered receipts and proposed operations are evidence; prior prose, observations, time alone and intended future arrival are not movement receipts. Judge coverage and ordering, not consent or invented truth.";
 export function locationCoverageBatch(input:Row,binding:Row):DecisionBatch {
  const revision=createHash('sha256').update(JSON.stringify(input)).digest('hex');
  const selected=initialSelection(input),accounting=locationAccounting(input);
@@ -60,15 +61,16 @@ export function locationCoverageBatch(input:Row,binding:Row):DecisionBatch {
    {key:'observation_selected',type:'noul',target:'the current player declaration',instructions:observationSelection}];
  const questions=selectionQuestions.filter(question=>{const axis=question.key.replace('_selected','');return !selected||selected[axis]===undefined||uncertain(selected[axis]);});
  if(accounting.observation&&(!selected||selected.observation===undefined||selected.observation>.4))questions.push({key:'observation_satisfied',type:'noul',target:'the current-input proposed or committed perception',instructions:'Do the current-input observe operations or receipts cover the focused sensory target and requested contents in the player declaration? Require the actual target, scope and facts or a supported blocked attempt. Arrival, a greeting, registration, old observations and unrelated scenery do not cover a separate chosen reading or view. Judge coverage only, not consent or invented truth.'});
+ if(accounting.move&&(!selected||selected.move===undefined||selected.move>.4))questions.push({key:'move_satisfied',type:'noul',target:'the complete selected movement sequence',instructions:movementSatisfaction});
  for(const axis of axes)if(!accounting[axis]&&(!selected||selected[axis]===undefined||selected[axis]>.4)){
   if(satisfactionAvailable(input,axis))questions.push({key:axis+'_satisfied',type:'noul',target:axis==='move'?'the recorded current position':'the recorded current feature state',
-   instructions:axis==='move'?'Does the canonical current_position already satisfy the destination and local pose requested by the player, so no new movement is needed? Being in the same enclosing place does not establish arrival at its requested window, desk or corner. Require the recorded place and local reference/relation to support the requested position. Proposed observations, prior prose and an intended future arrival are not evidence of current position. If current state is insufficient or contradicts the requested position, answer no.'
+   instructions:axis==='move'?movementSatisfaction
     :'Does the canonical recorded state of the requested feature already satisfy the player-selected physical result, so no new state change is needed? Require the actual matching feature and its recorded state. A description, proposed response or observation does not establish a change. Missing state or a different feature cannot satisfy it.'});
   questions.push({key:axis+'_blocked',type:'noul',target:'obstacles to the selected '+axis,
   instructions:'Does supplied world evidence or a proposed typed NPC response establish a real obstacle or necessary unresolved choice that legitimately stops the selected '+axis+'? A known physical impediment, sensory obstruction or refusal of required access can stop it. A Keeper-proposed observable obstruction established in this same transaction can account for an attempt. A tool argument error, missing registration, elapsed time or an unrelated action alone is not an obstacle. Do not invent a barrier or additional player commitment.'});
  }
- return {id:'location-decision-coverage:v8:'+revision,model:JEV_MODEL,family:'location-decision-coverage',familyVersion:'8',
-  scope:{owner:'location-decision-coverage',campaign:binding.campaign,audience:'keeper'},readSet:[{kind:'draft',resource:'turn:'+binding.turn+':spatial-decision',revision},{kind:'family',resource:'location-decision-coverage',revision:'8'}],state:input as Json,questions};
+ return {id:'location-decision-coverage:v9:'+revision,model:JEV_MODEL,family:'location-decision-coverage',familyVersion:'9',
+  scope:{owner:'location-decision-coverage',campaign:binding.campaign,audience:'keeper'},readSet:[{kind:'draft',resource:'turn:'+binding.turn+':spatial-decision',revision},{kind:'family',resource:'location-decision-coverage',revision:'9'}],state:input as Json,questions};
 }
 export async function locationDecisionCoverage(input:Row,binding:Row,decision:DecisionPort|undefined,signal:AbortSignal,parent?:TaskProviderBudget):Promise<Row> {
  const batch=locationCoverageBatch(input,binding),initial=initialSelection(input),accounting=locationAccounting(input);
@@ -77,7 +79,7 @@ export async function locationDecisionCoverage(input:Row,binding:Row,decision:De
  const selection=Object.fromEntries(axes.map(axis=>[axis,initial&&initial[axis]!==undefined&&!uncertain(initial[axis])?initial[axis]:result.probabilities[axis+'_selected']]));
  const disposition=Object.fromEntries(axes.map(axis=>{
   const selected=selection[axis],blocked=result.probabilities[axis+'_blocked'],satisfied=result.probabilities[axis+'_satisfied'];
-  const status=selected<=.4?'not_selected':accounting[axis]?(axis!=='observation'||satisfied>=.6?'accounted':satisfied<=.4?'missing':'uncertain'):satisfied>=.6?'already_satisfied':blocked>=.6?'blocked':selected>=.6?'missing':'uncertain';
+  const status=selected<=.4?'not_selected':accounting[axis]?(!['move','observation'].includes(axis)||satisfied>=.6?'accounted':satisfied<=.4?'missing':'uncertain'):satisfied>=.6?'already_satisfied':blocked>=.6?'blocked':selected>=.6?'missing':'uncertain';
   return [axis,status];
  }));
  return {...result,...(!batch.questions.length?{status:'accounted'}:{}),selection,accounting,jev_calls:batch.questions.length?1:0,
