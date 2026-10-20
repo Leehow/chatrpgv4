@@ -36,8 +36,10 @@ test('current-input observation receipts retain their focus and facts for final 
   extraExtensions:[{name:'engine',factory:engine.extension}],responses:[async()=>{
    const c=await table.runtimeBridges().at(-1).call('table.capsule',{campaign:'test-camp'});scene=c.where.scene;
    table.emit('coc:location-demand',{campaign:'test-camp',turn:1,review:true,selection:{move:.01,feature:.01,observation:.99}});
-   return fauxAssistantMessage([fauxToolCall('apply',{effects:[{kind:'place',action:'observe',to:scene,sense:'sight',access:'clear',scope:'The visible label.',facts:['The label reads Current records.']}]})],{stopReason:'toolUse'});
-  },()=>fauxAssistantMessage([fauxToolCall('output',{version:4,commands:[{kind:'scene',service:'open',crowd:'quiet'}]})],{stopReason:'toolUse'})]});
+   // Seed an actual current-input receipt; native apply no longer advertises place writes.
+   await table.runtimeBridges().at(-1).call('table.apply',{campaign:'test-camp',call_id:'t1-c1',effects:[{kind:'place',action:'observe',to:scene,sense:'sight',access:'clear',scope:'The visible label.',facts:['The label reads Current records.']}]});
+   return fauxAssistantMessage([fauxToolCall('output',{version:4,commands:[{kind:'scene',service:'open',crowd:'quiet'}]})],{stopReason:'toolUse'});
+  }]});
  t.after(()=>table.dispose());await table.session.prompt('I read the visible label on the desk.');
  assert.equal(batches.filter(b=>b.family==='location-decision-coverage').length,1);
  const turn=JSON.parse(readFileSync(join(table.workspace,'.coc/campaigns/test-camp/turns/0001.json')));
