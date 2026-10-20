@@ -135,7 +135,8 @@ export function bindTurnPacketMoves(packet:TurnPacket,choices:readonly Record<st
 export function turnPacket(text:string,parameters?:TSchema):TurnPacket {
  const raw=JSON.parse(text);
  if(object(raw)&&Array.isArray(raw.commands))for(const [index,command]of raw.commands.entries()){
-  const schema=commandSchemas.find(schema=>schema.properties.kind.const===command?.kind&&(!(schema.properties as Record<string,any>).action||(schema.properties as Record<string,any>).action.const===command?.action));
+  const actionSchema=commandSchemas.find(schema=>(schema.properties as Record<string,any>).action?.const===command?.action&&command?.action!==undefined);
+  const schema=actionSchema??commandSchemas.find(schema=>schema.properties.kind.const===command?.kind&&(!(schema.properties as Record<string,any>).action||(schema.properties as Record<string,any>).action.const===command?.action));
   if(schema&&Errors(schema,command).length)throw parameterError(`commands[${index}]`,schema,command);
  }
  if(object(raw)&&Array.isArray(raw.interactions))for(const row of raw.interactions)responseDecision(row,(raw.commands??[]).filter((row:any)=>row?.kind==='walk_on').map((row:any)=>row.slot));

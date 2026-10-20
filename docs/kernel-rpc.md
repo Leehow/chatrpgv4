@@ -49202,6 +49202,11 @@ by `to` (or `name` for inspection). The observer comes from current position;
 its window belongs in that position or the sensory path, never as a fabricated
 feature of the remote courtyard. This clarifies existing endpoint semantics.
 
+A command carrying a declared location action is diagnosed against that action's
+closed constructor. An incorrect kind reports the required literal rather than
+only unrelated extra-field errors from a legacy move constructor. Submission is
+still refused unchanged; the existing single correction allowance is preserved.
+
 ## 243. Enhanced Locations: spatial relations and observation continuity
 
 Owner approval (2026-10-19): complete the location association graph, observation
