@@ -253,5 +253,12 @@ test('a spatial prerequisite reads the current position without relaxing consent
  const selected=options(),decide=selected.value.decision.decide;let batch;selected.value.decision={decide:async(value,lease)=>{batch=value;const answer=await decide(value,lease);answer.answers.restriction_0.noul=.99;return answer;}};
  const proposal=admission.admissionRequest('apply',{effects:[{kind:'time',until:{time:'18:00'},why:'Wait at the counter.'}]},{party:['Thomas Hayes'],consentOnly:true});
  const result=await admission.reviewAdmissionJevOnly({...selected.value,proposal,context:{...context,playerText:'I go to the counter, wait until six, then return to the window.',currentClock:{minutes:465,at:'1920-10-12T17:45'},currentPosition:{place:'Dining room',at:'window',relation:'beside'}}});
- assert.equal(batch.state.current_position.at,'window');assert.equal(batch.familyVersion,'14');assert.equal(batch.questions.length,2);assert.match(batch.questions.find(q=>q.key==='restriction_0').instructions,/intermediate visit/);assert.equal(result.verdict.verdict,'not_authorized');
+ assert.equal(batch.state.current_position.at,'window');assert.equal(batch.familyVersion,'15');assert.equal(batch.questions.length,2);assert.match(batch.questions.find(q=>q.key==='restriction_0').instructions,/intermediate visit/);assert.equal(result.verdict.verdict,'not_authorized');
+});
+
+test('a selected movement establishes the position prerequisite rather than requiring arrival first',async()=>{
+ const selected=options(),decide=selected.value.decision.decide;let batch;selected.value.decision={decide:async(value,lease)=>{batch=value;return decide(value,lease);}};
+ const proposal=admission.admissionRequest('apply',{effects:[{kind:'place',action:'move',to:'Dining room',at:'counter',relation:'beside'}]},{party:['Thomas Hayes'],consentOnly:true});
+ await admission.reviewAdmissionJevOnly({...selected.value,proposal,context:{...context,playerText:'I go to the counter, wait until six, then return to the window.',currentPosition:{place:'Dining room',at:'window',relation:'beside'}}});
+ const instruction=batch.questions.find(q=>q.key==='restriction_0').instructions;assert.match(instruction,/move itself establishes arrival/);assert(!instruction.includes('before this time proposal'));assert.equal(batch.state.current_position.at,'window');assert.equal(batch.questions.length,2);
 });

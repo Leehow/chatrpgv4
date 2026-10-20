@@ -1304,7 +1304,7 @@ export async function reviewAdmissionJevOnly(options:PrimaryAdmissionReviewOptio
     {ok:true;verdict:AdmissionVerdict;ms:number;meta:Record<string,unknown>}
     |{ok:false;reason:string;ms:number;meta:Record<string,unknown>}> {
     const clock=options.clock??hostClock,began=clock.now(),context=options.context;
-    const family='continuous-action-admission',version=context.currentPosition?'14':context.currentClock?'13':options.proposal.ordered||options.proposal.kinds?.includes('place')?'12':'7';
+    const family='continuous-action-admission',version=context.currentPosition?'15':context.currentClock?'13':options.proposal.ordered||options.proposal.kinds?.includes('place')?'12':'7';
     let mechanicsChoice:{action:string;choice:{name:string;binds:string;options:string[];prompt?:string}}|undefined;
     let mechanicsInput=false,mechanicsBinding:string|undefined;
     try{
@@ -1360,10 +1360,12 @@ export async function reviewAdmissionJevOnly(options:PrimaryAdmissionReviewOptio
         if(question.key.startsWith('restriction_'))question.instructions=String(question.instructions)
             +' Evaluate this line at its execution position in proposal.execution: after the listed preceding operations and earlier proposal.lines, conditional on their independent approval and validation. An explicitly selected wait or arrival in that prefix can satisfy its timing or position prerequisite; it need not have settled before this atomic batch is reviewed. Later lines and intentions outside the batch cannot satisfy an earlier prerequisite.';
     }
-    for(const question of batch.questions)if(question.key.startsWith('restriction_'))question.instructions=String(question.instructions)
+    for(const question of batch.questions)if(question.key.startsWith('restriction_')){question.instructions=String(question.instructions)
         +' current_clock, when present, is the latest canonical local game time before this proposal, including all successful earlier calls. Use its absolute local time to evaluate a selected future-only condition; elapsed receipt minutes alone do not establish a local time. A clock fact grants no consent or physical service completion.'
-        +' current_position, when present, is the latest canonical local position before this proposal. If the player selects moving to a position before waiting or another action there, require that position now or an independently approved earlier move in this atomic batch; eventual return to the current endpoint does not fulfill the intermediate visit. Do not replace a selected approach with a wait at the old position.'
         +' Actual canonical outcomes in settled_this_turn can establish a completed prerequisite. Receipt identifiers alone do not establish its content. Payment or elapsed time alone does not establish movement, seating, receipt of goods or an unrecorded activity. Prior public narration resolves references only, never current consent.';
+        if(options.proposal.kinds?.[Number(question.key.slice('restriction_'.length))]==='time')question.instructions+=
+            ' current_position, when present, is the latest canonical local position before this time proposal. If the player selects moving to a position before waiting there, require that position now or an independently approved earlier move in this atomic batch; eventual return to the current endpoint does not fulfill the intermediate visit. Do not replace a selected approach with a wait at the old position.';
+    }
     if(options.lineContexts){
         if(options.lineContexts.length!==options.proposal.lines.length)throw Error('Consent line context count differs from its operations');
         for(const question of batch.questions){
