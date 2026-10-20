@@ -47,6 +47,17 @@ keeps that answering continuation rather than handing the query to the story aut
 and [Anthropic tool results](https://platform.claude.com/docs/en/agents-and-tools/tool-use/handle-tool-calls)
 confirm the result-to-answer continuation; our story author deliberately receives
 only selected fictional material.
+When a locations provider is active (`capsule.mods.location_context`), the native
+ContinuousTurn clerk retains issued destination choices as advisory material but
+does not automatically execute a movement prefix. The Keeper plans the selected
+feature changes and travel together through the existing location transaction.
+The legacy automatic travel path remains for tables without that provider. No
+semantic keyword checks, new Jev request or weaker consent gate is introduced.
+This follows [Evennia exit traversal](https://www.evennia.com/docs/latest/Components/Exits.html),
+where pre-move checks precede location mutation; Unity
+[SetDestination](https://docs.unity3d.com/6000.0/Documentation/ScriptReference/AI.NavMeshAgent.SetDestination.html)
+only requests movement, so it does not establish completion of other selected
+interactions. Here the feature-aware Mod owns the whole action transaction.
 No public RPC arguments, source authority,
 consent threshold or package lock is changed by this internal task projection.
 

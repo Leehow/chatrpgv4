@@ -31,6 +31,22 @@ function choose(confidence=.99){
 }
 const invocation={stepId:'s1',signal:new AbortController().signal};
 
+for(const active of [true,false])test('a location provider owns travel before feature changes; provider active='+active,async()=>{
+ let judgments=0,writes=0;const records=[];
+ const current={...capsule,_context:{...capsule._context,source_revision:'s1'},...(active?{mods:{location_context:{mod:'locations-under-test',version:'1.0.0'}}}:{})};
+ const turn=new ContinuousTurn({run:'r',inputRevision:'i',campaign:'c1',playerText:'I push the rear door open and return to Central Library.',session:{},current:()=>true,packet:true,
+  call:async method=>method==='table.apply.options'?moveOptions:current,record:row=>records.push(row),dispatch:async()=>{writes++;return{status:'succeeded'};},
+  decision:{decide:async batch=>{judgments++;return{batchId:batch.id,status:'complete',answers:Object.fromEntries(batch.questions.map(q=>[q.key,{status:'answered',type:'noul',noul:q.key.startsWith('consent_')?.99:.01}])),issues:[],coverage:{required:batch.questions.map(q=>q.key),answered:batch.questions.map(q=>q.key),unknown:[]}};}}});
+ await turn.prepare(invocation.signal);await turn.decide(invocation.signal);
+ assert.equal(turn.prescreen.choices.length,1,'registered destinations stay available to the Keeper');
+ if(active){
+  assert.equal(judgments,0,'the provider needs no competing automatic travel decision');
+  assert.deepEqual(turn.selected,[]);assert.equal((await turn.execute(invocation.signal)).status,'refused');assert.equal(writes,0);
+  assert.ok(turn.materials(current)?.candidates.length,'reuse source material without consuming the selected action');
+  assert.ok(records.some(row=>row.reason==='location_provider_owns_movement'));
+ }else{assert.equal(judgments,1);assert.equal(turn.selected.length,1,'the existing legacy fast path retains its authority');}
+});
+
 test('packet mode exposes a route slot without judging or executing an incomplete journey',async()=>{
  let judgments=0,writes=0;
  const turn=new ContinuousTurn({run:'r',inputRevision:'i',campaign:'c1',playerText:'I go to Central Library.',session:{},current:()=>true,packet:true,

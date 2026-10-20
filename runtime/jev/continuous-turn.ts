@@ -126,6 +126,11 @@ export class ContinuousTurn {
                 ...(Number.isSafeInteger(context.loop)?{loop:context.loop}:{}),audience:'keeper' as const};
             if(this.options.packet){
                 this.prescreen=this.packet(this.candidates.map(packetChoice));
+                if(object(capsule.mods).location_context){
+                    this.decided=true;
+                    this.options.record({lane:'continuous-turn',event:'selection_deferred',run:this.options.run,reason:'location_provider_owns_movement',candidates:this.candidates.length});
+                    return;
+                }
                 const input=normalizedName(this.options.playerText);
                 const named=this.candidates.flatMap((candidate,index)=>{
                     const description=object(object(object(candidate.basis).row).description);

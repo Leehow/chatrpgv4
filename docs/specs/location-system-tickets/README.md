@@ -74,6 +74,16 @@ reference channel and gives explicit result-owned reply guidance. An unshipped
 reference-author experiment and its fixture logs are invalid-for-intent and
 invalid-for-acceptance; their source edits were removed without touching the
 concurrent owner hunk. The interrupted 457 full run is also retained.
+Source 2ad7a1fa4 delivered ready plus all three reviewed changes through the
+front Keeper; explicit acceptance then produced accepted, with no movement/time.
+Real fictional input 63 then exposed a separate seam: ContinuousTurn committed
+travel before the location review, leaving the selected door change unhandled.
+The automatic move-only classifier gave additional_work=.13 while the later
+location review gave feature_selected=.77. Preserve that partial movement.
+A location provider now owns movement planning; the clerk keeps destination
+material but executes no prefix while that provider is active. Controlled active/
+inactive regressions fail before repair and pass after (14/14); no new semantic
+classifier or decision call is introduced.
 Evidence: `.coc/test-runs/python-free-scene-repair-20261019/`.
 
 Status: observation and history seams delivered as Mod 1.1.2, frozen release
