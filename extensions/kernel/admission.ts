@@ -301,7 +301,7 @@ export interface AdmissionProposal {
 	lines: string[];
 	/** Same operations as lines, projected by the host without parsing prose. */
 	operations?: Record<string,unknown>[];
-	/** Observation batches execute in order; their split reviews retain the proposed prefix, not settled authority. */
+	/** Order-sensitive batches retain the proposed prefix in split reviews, never settled authority. */
 	ordered?: true;
 	preceding?: { operations: Record<string,unknown>[]; signatures: string[] };
 	/** An `apply` batch's effect kinds, in order: closed contract enums the typed route reads (§32.10). */
@@ -595,10 +595,10 @@ export function admissionRequest(tool: string, payload: Record<string, unknown>,
 		// Each line's own signature, taken before the sort below reorders `signatures` in place.
 		const lineSignatures = shown.map((index) => signatures[index]!);
 		const observation = effects.some(effect => effect.kind === 'place' && effect.action === 'observe');
-		const ordered = observation || effects.some(effect => effect.kind === 'object' || effect.kind === 'usage');
+		const ordered = observation || effects.some(effect => ['time','clock','move','object','usage'].includes(String(effect.kind)) || effect.kind === 'place' && effect.action === 'move');
 		const key = canonical({ tool, effects: ordered ? signatures : signatures.sort(), destinations: scope.destinations ?? [], ...(scope.selectedDocumentRecording?{selectedDocumentRecording:true}:{}), ...(scope.cash ? {cash:scope.cash} : {}) });
 		// The key stays the whole batch's (§32.4); the lines are only the reviewed effects (§32.12.3).
-		return { tool: "apply", key, ...(observation ? { ordered: true as const } : {}), lines: shown.map((index) => describe(effects[index]!)), kinds: shown.map((index) => text(effects[index]!.kind) ?? "?"), effects: shown,
+		return { tool: "apply", key, ...(ordered ? { ordered: true as const } : {}), lines: shown.map((index) => describe(effects[index]!)), kinds: shown.map((index) => text(effects[index]!.kind) ?? "?"), effects: shown,
 			operations:shown.map(index=>{const effect=effects[index]!,registered=effect.kind==='move'||effect.kind==='place'?destination(effect):undefined;
 				return {...Object.fromEntries(Object.entries(effect).filter(([key,value])=>!key.startsWith('_')&&value!==undefined)),
 					...(registered?{registered_destination:registered}:{})};}),
@@ -615,6 +615,8 @@ export interface AdmissionContext {
 	interruptedPlayerText?: string;
 	investigators: Array<{ name: string; occupation?: string }>;
 	scene?: string;
+	/** The fresh canonical capsule clock, never host wall time or an inferred duration. */
+	currentClock?: {minutes:number;at?:string;day?:number;hh?:string;mm?:string;day_part?:string};
 	present: string[];
 	/** What the player has already been told, oldest first: the setup prologue, then earlier deliveries. */
 	delivered: Array<{ turn: number | string; player?: string | null; keeper: string; speech?:PublicDialogueLine[] }>;
@@ -1125,7 +1127,7 @@ export function lineProposal(proposal: AdmissionProposal, index: number): Admiss
  * §32.12.3.1.1 (SL-104), pure: `proposal` as proposed beside `beside` -- the other reviewed lines of its call. It carries
  * them for the lane to read, and its key is extended by their signatures, order-free, so a verdict given beside them is
  * reused only beside the same lines (§32.4's `why` and the other rationale fields stay outside, as `effectSignature` has
- * them). Observation prefixes additionally retain execution order. With no batch-mates or prefix the proposal is
+ * them). Order-sensitive prefixes additionally retain execution order. With no batch-mates or prefix the proposal is
  * returned as it is: a one-line call keeps the key it always had.
  */
 export function besideBatch(proposal: AdmissionProposal, beside: AdmissionProposal["beside"], preceding?: AdmissionProposal["preceding"]): AdmissionProposal {
@@ -1301,7 +1303,7 @@ export async function reviewAdmissionJevOnly(options:PrimaryAdmissionReviewOptio
     {ok:true;verdict:AdmissionVerdict;ms:number;meta:Record<string,unknown>}
     |{ok:false;reason:string;ms:number;meta:Record<string,unknown>}> {
     const clock=options.clock??hostClock,began=clock.now(),context=options.context;
-    const family='continuous-action-admission',version=options.proposal.ordered||options.proposal.kinds?.includes('place')?'12':'7';
+    const family='continuous-action-admission',version=context.currentClock?'13':options.proposal.ordered||options.proposal.kinds?.includes('place')?'12':'7';
     let mechanicsChoice:{action:string;choice:{name:string;binds:string;options:string[];prompt?:string}}|undefined;
     let mechanicsInput=false,mechanicsBinding:string|undefined;
     try{
@@ -1337,6 +1339,7 @@ export async function reviewAdmissionJevOnly(options:PrimaryAdmissionReviewOptio
             previous_public:scope.delivered.slice(-2).map(row=>({turn:row.turn,player:row.player??null,...(publicDialogue(row.speech).length?{speech:publicDialogue(row.speech)}:{})}))}))}:{}),
         ...(context.interruptedPlayerText?{unfinished_player_words:context.interruptedPlayerText}:{}),
         investigators:context.investigators.map(row=>row.name),scene:context.scene??null,present:context.present,
+        ...(context.currentClock?{current_clock:context.currentClock}:{}),
         previous_public:knownJourneys?decisionRecentPublic(context.delivered):context.delivered.slice(-2).map(row=>({turn:row.turn,player:row.player??null,
             ...(publicDialogue(row.speech).length?{speech:publicDialogue(row.speech)}:{})})),
         settled_this_turn:context.landed,
@@ -1356,6 +1359,7 @@ export async function reviewAdmissionJevOnly(options:PrimaryAdmissionReviewOptio
             +' Evaluate this line at its execution position in proposal.execution: after the listed preceding operations and earlier proposal.lines, conditional on their independent approval and validation. An explicitly selected wait or arrival in that prefix can satisfy its timing or position prerequisite; it need not have settled before this atomic batch is reviewed. Later lines and intentions outside the batch cannot satisfy an earlier prerequisite.';
     }
     for(const question of batch.questions)if(question.key.startsWith('restriction_'))question.instructions=String(question.instructions)
+        +' current_clock, when present, is the latest canonical local game time before this proposal, including all successful earlier calls. Use its absolute local time to evaluate a selected future-only condition; elapsed receipt minutes alone do not establish a local time. A clock fact grants no consent or physical service completion.'
         +' Actual canonical outcomes in settled_this_turn can establish a completed prerequisite. Receipt identifiers alone do not establish its content. Payment or elapsed time alone does not establish movement, seating, receipt of goods or an unrecorded activity. Prior public narration resolves references only, never current consent.';
     if(options.lineContexts){
         if(options.lineContexts.length!==options.proposal.lines.length)throw Error('Consent line context count differs from its operations');

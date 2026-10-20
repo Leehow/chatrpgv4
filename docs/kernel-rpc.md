@@ -50054,3 +50054,15 @@ The recovery must direct completion of selected movement or waiting before
 settlement when required, never command immediate consumption or replay an
 unchanged refused transaction. Coverage arithmetic and consent thresholds stay
 unchanged.
+
+### Current-clock and execution-order admission seam (2026-10-20)
+
+Native action admission already reads a fresh canonical capsule before each proposal. Its continuous consent review must receive that capsule's complete public game clock as current_clock, including its local calendar minute or day/hour/minute anchor. Elapsed minutes from a receipt alone cannot establish that a future-only condition has become executable. No host wall clock, prose timestamp or guessed opening time supplies this fact. This is a projection of the existing read, with no extra model call or kernel transaction.
+
+Clock-changing proposed apply batches (time, clock, move, enhanced place travel) retain canonical execution order in their reuse key and in whole-batch and split-line review. Existing order-sensitive object and usage batches use the same execution projection. A preceding selected wait or arrival is a conditional prerequisite inside that atomic batch, never an already settled fact. A later operation cannot authorize an earlier one; independent consent, canonical validation, all-or-nothing execution and the existing selection/restriction thresholds remain unchanged. The continuous consent family is version 13 when the current canonical clock is supplied.
+
+Writer: the existing table.capsule read in admitAction and admissionRequest's ordered effect list. Reader: reviewAdmissionJevOnly current_clock and proposal.execution. Actor: the same consent decision gates the existing apply transaction; successful public receipts remain the sole settlement evidence. Real-RPC regression covers a successful wait followed by a new native review with the advanced absolute clock. Ordered ordinary-service regression covers a wait followed by eating, reversal and an explicit independent restriction. These components do not replace original-session App play.
+
+External checks: LangGraph's documented state updates make committed state available to subsequent nodes, while Temporal's workflow definition separates workflow-defined time from host wall time. These confirm using the current canonical clock and actual effect sequence; their workflow engines and replay machinery are not introduced here.
+https://github.com/langchain-ai/docs/blob/main/src/oss/langgraph/graph-api.mdx
+https://docs.temporal.io/workflow-definition

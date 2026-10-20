@@ -3766,7 +3766,7 @@ export default function (pi: ExtensionAPI, host: {capabilities?:RuntimeCapabilit
 			if(!proposal){capture?.(null);if(recovery?.told.length)await record({lane:'admission',verb:tool,turn:state.turn,path:'told',verdict:'authorized',jev_calls:0,owed:recovery.told});return;}
             proposal=capsuleContactProposal(proposal,payload,current);
             capture?.(proposal);
-            const context=admissionContextFor(state);
+            const context={...admissionContextFor(state),...(current.where?.clock?{currentClock:current.where.clock}:{})};
             const lineContexts=recovery?.sources.some(Boolean)?(proposal.effects??[]).map(index=>{const source=recovery.sources[index];return source?{...context,
                 playerText:source.player_text,interruptedPlayerText:undefined,refused:[],corrections:[],
                 delivered:context.delivered.filter(row=>typeof row.turn!=='number'||row.turn<source.turn)}:context;}):undefined;

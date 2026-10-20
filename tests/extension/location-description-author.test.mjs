@@ -50,7 +50,7 @@ test('first sight in an authored module scene receives the same Mod craft withou
  t.after(()=>table.dispose());await table.session.prompt('I introduce myself to the landlord.');
  const author=table.telemetry().find(row=>row.lane==='isolated-expression'&&row.event==='written');assert.ok(author,JSON.stringify(table.telemetry().slice(-6)));
  const task=JSON.parse(await readFile(join(author.attempt,'task.json'),'utf8'));
- assert.equal(task.decision_context.location_description?.version,'1.1.13');
+ assert.equal(task.decision_context.location_description?.version,JSON.parse(await readFile(new URL('../../mods/enhanced-locations/mod.json',import.meta.url),'utf8')).version);
  assert(task.decision_context.scene.first_sight?.place,'this is the authored opening place');
  assert(!task.result.outcomes.some(row=>row.kind==='move'||row.kind==='place'),'appearance guidance does not require fabricating a player perception or journey');
 });

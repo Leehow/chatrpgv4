@@ -96,6 +96,26 @@ test('observation consent reads ordered waits without treating them as already s
     assert.equal(result.verdict.verdict,'not_authorized','the ordered prefix cannot override a current restriction');
 });
 
+test('ordinary service consent retains the time prefix without requiring an observation',async()=>{
+ const wait={kind:'time',minutes:14,why:'Wait until service opens.'};
+ const meal={kind:'time',band:'brief_activity',why:'Eat the selected meal.'};
+ const scope={party:['Thomas Hayes'],consentOnly:true};
+ const proposal=admission.admissionRequest('apply',{effects:[wait,meal]},scope);
+ const reversed=admission.admissionRequest('apply',{effects:[meal,wait]},scope);
+ assert.notEqual(proposal.key,reversed.key,'a later wait cannot authorize an earlier meal');
+ const own=admission.lineProposal(proposal,1);
+ assert.deepEqual(own.preceding?.operations,[wait]);
+ const selected=options(),decide=selected.value.decision.decide;let batch;
+ selected.value.decision={decide:async(value,lease)=>{batch=value;const answer=await decide(value,lease);answer.answers.restriction_0.noul=.99;return answer;}};
+ const result=await admission.reviewAdmissionJevOnly({...selected.value,proposal:own,
+  context:{...context,playerText:'I wait until five, then eat the soup, bread and coffee; pay no more than one dollar.',currentClock:{minutes:406,at:'1920-10-12T16:46',day_part:'afternoon'}}});
+ assert.deepEqual(batch.state.proposal.execution.preceding,[wait]);
+ assert.equal(batch.state.current_clock.at,'1920-10-12T16:46');
+ assert.equal(batch.familyVersion,'13');
+ assert.equal(batch.questions.length,2);
+ assert.equal(result.verdict.verdict,'not_authorized','the prefix never waives independent restrictions');
+});
+
 test('a confident Jev refusal stands without asking a generative judge',async()=>{
     const selected=options('not_authorized');
     const result=await admission.reviewAdmissionJevOnly(selected.value);
