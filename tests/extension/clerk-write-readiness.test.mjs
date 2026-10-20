@@ -12,18 +12,18 @@
 import assert from 'node:assert/strict';
 import {test} from 'node:test';
 import {build} from 'esbuild';
-import {mkdtemp,rm,symlink} from 'node:fs/promises';
+import {mkdtemp,rm,symlink,readFile} from 'node:fs/promises';
 import {tmpdir} from 'node:os';
 import {join,resolve} from 'node:path';
 import {pathToFileURL} from 'node:url';
 const root=resolve(import.meta.dirname,'../..'),temp=await mkdtemp(join(tmpdir(),'clerk-write-readiness-'));
 await symlink(join(root,'node_modules'),join(temp,'node_modules'),'dir');
-await build({stdin:{contents:"export {installContextPolicy} from './extensions/table/context-runtime.ts';",resolveDir:root},
+await build({stdin:{contents:"export {installContextPolicy} from './extensions/table/context-runtime.ts'; export {parseSections} from './kernel-ts/read/sections.ts';",resolveDir:root},
     outfile:join(temp,'api.mjs'),bundle:true,packages:'external',format:'esm',platform:'node',target:'node24',logLevel:'silent'});
 const api=await import(pathToFileURL(join(temp,'api.mjs')).href);
 test.after(()=>rm(temp,{recursive:true,force:true}));
 
-function install(){
+function install(instruction){
     const hooks=new Map(),bus=new Map(),rows=[];
     const on=(name,handler)=>{const list=bus.get(name)??[];list.push(handler);bus.set(name,list);};
     const pi={on:(name,handler)=>hooks.set(name,handler),events:{on,emit:(name,value)=>{for(const handler of bus.get(name)??[])handler(value);}},
@@ -35,10 +35,11 @@ function install(){
         mods:{instructions:[{mod:'narration-craft',version:'2.6.0',form:'indexed',index_contract_version:2,instruction:'Core.',
             sections:[{key:'narration-craft@2.6.0#6',heading:'Establishing a place',gates_open:true,topics:[],gates:[],triggers:['state:establish','before_apply:move'],
                 applicability:{what:'Arriving somewhere.',not_for:'Staying put.',examples:[]}}]}]}};
+    if(instruction)capsule.mods.instructions=[instruction];
     const binding={version:1,campaign:'game',worldline:'main',loop:0,turn:30,source_revision:'a'.repeat(64)};
     const reads=[];
     pi.events.emit('coc:kernel-bridge',{campaign:'game',call:async(method,args)=>{
-        if(method==='mods.sections'){reads.push(...args.keys);return{sections:args.keys.map(key=>({key,text:'Open on what the place does to arrivals.'}))};}
+        if(method==='mods.sections'){reads.push(...args.keys);return{sections:args.keys.map(key=>({key,text:instruction?.sections.find(section=>section.key===key)?.text??'Open on what the place does to arrivals.'}))};}
         if(method==='table.capsule')return{...capsule,_context:binding};
         if(method==='table.untold')return{};
         return{cards:[],_snapshot:'fixture'};
@@ -118,4 +119,22 @@ test('§228.3 a Keeper write before any prepared request of the input still gets
     const call=await write(hooks,'call-keeper-0|fc_0');
     assert.equal(call.verdict,undefined);
     assert.deepEqual(call.detail?.package_sections,establishing);
+});
+
+test('a failed ordinary expense receives the shipped place service guidance without a location call',async()=>{
+    const path=join(root,'mods/enhanced-locations');
+    const manifest=JSON.parse(await readFile(join(path,'mod.json'),'utf8'));
+    const sections=api.parseSections(manifest,JSON.parse(await readFile(join(path,'sections.json'),'utf8')),await readFile(join(path,'agent.md'),'utf8'));
+    const instruction={mod:manifest.id,version:manifest.version,form:'indexed',index_contract_version:2,instruction:'Core.',
+        sections:sections.map((section,index)=>({...section,key:`${manifest.id}@${manifest.version}#${index}`,gates_open:true,topics:[],gates:[]}))};
+    const {hooks,reads}=install(instruction),input={effects:[{kind:'cash',mode:'settle',category:'living',items:[{name:'Soup',quantity:1,unit_price:.2}]}]};
+    assert.equal(await hooks.get('tool_call')({toolName:'apply',toolCallId:'service-expense',input}),undefined);
+    const content=[{type:'text',text:'needs: The service has not yet completed.'}];
+    const patched=await hooks.get('tool_result')({toolName:'apply',toolCallId:'service-expense',input,content,details:{},isError:true});
+    assert.deepEqual(patched?.content.slice(0,-1),content,'the original refusal remains intact');
+    const detail=JSON.parse(patched.content.at(-1).text);
+    const delivered=detail.package_sections.find(section=>section.package===manifest.id&&section.section==='Continuity and authority');
+    assert(delivered,'ordinary cash use must disclose the active place service instructions');
+    assert.match(delivered.text,/actual delivery with item gain before consumption loss/);
+    assert.equal(reads.length,1,'unrelated place and author sections are not loaded for this expense');
 });
