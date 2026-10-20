@@ -1,6 +1,6 @@
 /** Request-only location detail: canonical validators and raw messages stay complete. */
 import {Type} from 'typebox';
-import {locationCommandEntry} from '../../shared/place-structures.ts';
+import {locationCommandEntry,locationCommandOwner} from '../../shared/place-structures.ts';
 type Row=Record<string,any>;
 const object=(value:unknown):value is Row=>!!value&&typeof value==='object'&&!Array.isArray(value);
 const action=Type.Union([Type.Literal('move'),Type.Literal('establish'),Type.Literal('feature'),Type.Literal('relate'),Type.Literal('observe')]);
@@ -28,7 +28,7 @@ function declarationObject(schema:Row):Row {
 export function locationToolDeclarations<T extends {name:string;parameters:any;description?:string}>(tools:readonly T[],detail=false):T[] {
     return tools.map(tool=>{
         if(tool.name==='place')return {...tool,parameters:detail?declarationObject(tool.parameters):entry};
-        if(tool.name==='output'&&!detail)return {...tool,parameters:locationCommandEntry(tool.parameters)};
+        if(tool.name==='output')return {...tool,parameters:detail?locationCommandOwner(tool.parameters):locationCommandEntry(tool.parameters)};
         if(tool.name!=='apply'||!Array.isArray(tool.parameters?.properties?.effects?.items?.anyOf))return tool;
         const projected=structuredClone(tool),variants=projected.parameters.properties.effects.items.anyOf as Row[];
         const location=variants.filter(variant=>['move','place'].includes(variant.properties?.kind?.const??variant.properties?.kind?.enum?.[0]));

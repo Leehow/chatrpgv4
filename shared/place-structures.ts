@@ -34,6 +34,19 @@ export const PlaceParameters=Type.Union([
 ]);
 export type LocationEffect=Static<typeof PlaceEffect>;
 
+/** An applicable location provider owns party movement before provider conversion. */
+export function locationCommandOwner<T extends Record<string,any>>(parameters:T):T {
+    if(!parameters.properties?.commands)return parameters;
+    const projected=structuredClone(parameters);
+    for(const commands of projected.properties.commands.anyOf??[projected.properties.commands]){
+        const variants=commands.items?.anyOf;
+        if(Array.isArray(variants)&&variants.some(variant=>variant.properties?.kind?.const==='place'))
+            commands.items.anyOf=variants.filter(variant=>variant.properties?.kind?.const!=='move');
+    }
+    projected.description='The location provider owns party movement and observation through kind place and its action. Issued destinations are reference material; a place move can visit a compatible unlisted destination with minimal additions.';
+    return projected;
+}
+
 /** Request-only native grammar; complete validation always uses PlaceEffect. */
 export function locationCommandEntry<T extends Record<string,any>>(parameters:T):T {
     if(!parameters.properties?.commands)return parameters;

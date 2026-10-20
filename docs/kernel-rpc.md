@@ -49217,6 +49217,17 @@ When the current schema requires a scene assessment, its contains diagnostic
 names the scene constructor and its service/crowd choices. An opaque array error
 must not hide the missing assessment from the Keeper's existing correction turn.
 
+An applicable location provider owns the offered party-movement constructor.
+Both the public tool projection before provider conversion and the request-bound
+native schema omit legacy kind=move while retaining the typed place actions.
+Base tables keep issued legacy moves. This is declaration ownership, not an
+argument rewrite or permission to bypass source, consent or transaction gates.
+The canonical full validator remains available for compatibility. Anthropic's
+advanced-tool-use guidance identifies overlapping tools as a selection hazard;
+MiniMax's compatibility documentation promises tool transport, not strict JSON
+decoding. These support clarifying ownership, not assuming a guaranteed model
+fix; acceptance still requires real calls and preserved failures.
+
 ## 243. Enhanced Locations: spatial relations and observation continuity
 
 Owner approval (2026-10-19): complete the location association graph, observation

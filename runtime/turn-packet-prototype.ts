@@ -5,7 +5,7 @@ import {Errors} from 'typebox/value';
 import {StringEnum} from '@earendil-works/pi-ai';
 import {NPC_REFERENCE_PATTERN,isNpcReference} from './npc-references.ts';
 import {Interaction,ExistingCommunicationFact,bindCommunicationParameters,type DecisionBindings,type InteractionDecision} from './decision-content.ts';
-import {PlaceEffect,locationCommandEntry} from '../shared/place-structures.ts';
+import {PlaceEffect,locationCommandEntry,locationCommandOwner} from '../shared/place-structures.ts';
 const atom=(maxLength=160)=>Type.String({minLength:1,maxLength});
 
 const move=Type.Object({kind:Type.Literal('move'),to:atom(),via:Type.Optional(atom()),travel_band:Type.Optional(atom(64))},{additionalProperties:false});
@@ -107,7 +107,7 @@ export function turnPacketParameterSchema(journeySettled=false,timeBands?:readon
     if(journeySettled)schema.properties.commands=Type.Array(Type.Union([...(locations?[arrivedLocal]:[]),...local,issuedNpc,walkOn,scene,relationship]),{maxItems:12,...stationary});
     else schema.properties.commands=Type.Union([Type.Array(Type.Union([...issuedMoves,...journey,Type.Object({...boundedTime.properties,beyond_travel:Type.Literal(true)},timeOptions),...local,issuedNpc,walkOn,scene,relationship]),{maxItems:12,...moving}),Type.Array(Type.Union([boundedTime,...local,issuedNpc,walkOn,scene,relationship]),{maxItems:12,...stationary})]);
     if(sceneRequired)schema.required=[...new Set([...(schema.required??[]),'commands'])];
-    return schema as TSchema;
+    return locations?locationCommandOwner(schema as TSchema):schema as TSchema;
 }
 /** Restore the owned structural schema after Pi's non-strict Anthropic conversion. */
 export function turnPacketProviderPayload(payload:unknown,schema:TSchema=turnPacketParameterSchema(),requireTool=true):unknown {
