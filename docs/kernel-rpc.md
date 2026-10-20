@@ -49143,6 +49143,12 @@ unchanged; runtime validation and transaction ownership do not change. The real
 return journey exposed repeated inspect/change validation failures before the
 Keeper obtained the read contract; keep those failures as acceptance evidence.
 
+Mod1.1.5 further distinguishes ordinary arrival atmosphere and presence checks
+from a selected focused observation. The former use committed appearance and
+assessed population. They do not authorize a whole-room survey. A real refusal
+of the unchosen survey remains valid, with the committed journey retained; no
+consent threshold, automatic batch splitting or observation authority changes.
+
 #### Decimal financial outcomes (live follow-up)
 
 Receipt amounts use the kernel's canonical numeric value type. Cash outcome
