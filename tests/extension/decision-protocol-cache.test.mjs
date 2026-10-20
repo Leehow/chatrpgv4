@@ -8,22 +8,19 @@ const model={provider:'minimax-cn',id:'MiniMax-M3.1-Flash-Preview',api:'anthropi
 const body=()=>({model:model.id,tools:[{name:'output',input_schema:TURN_PACKET_PARAMETERS}],system:[{type:'text',text:'Stable instructions'}],messages:[{role:'user',content:[{type:'text',text:'Retained exact history'}]}]});
 const bindings=n=>({people:['npc_'+n,'investigator_1'],entities:['npc_'+n,'place_'+n],places:['place_'+n],facts:['fact_'+n],sources:[]});
 
-test('current decision references and route restrictions do not invalidate the tool/system/history prefix',()=>{
- const first=turnPacketProviderPayload(body(),false,true,['brief'],[{kind:'move',to:'place_1',travel_minutes:30}],true,bindings(1));
- const next=turnPacketProviderPayload(body(),false,true,['long'],[{kind:'move',to:'place_2',requires_via:true,travel_bands:['long']}],false,bindings(2));
- assert.deepEqual(first.tools,next.tools,'issued values belong in the request tail, never the reusable tool head');
+test('native tool restrictions match the current request while actual messages remain untouched',()=>{
+ const schema1=turnPacketParameterSchema(false,['brief'],[{kind:'move',to:'place_1',travel_minutes:30}],true,bindings(1));
+ const schema2=turnPacketParameterSchema(false,['long'],[{kind:'move',to:'place_2',requires_via:true,travel_bands:['long']}],false,bindings(2));
+ const first=turnPacketProviderPayload(body(),schema1),next=turnPacketProviderPayload(body(),schema2);
+ assert.deepEqual(first.tools[0].input_schema,schema1);assert.deepEqual(next.tools[0].input_schema,schema2);
+ assert.notDeepEqual(first.tools,next.tools,'do not preserve a misleading static declaration for cache reuse');
+ assert.deepEqual(first.messages,body().messages);assert.deepEqual(next.messages,body().messages);
+ assert.deepEqual(first.system,next.system);assert.deepEqual(body().tools[0].input_schema,TURN_PACKET_PARAMETERS);
  const a=prefixSnapshot(first,model),b=prefixSnapshot(next,model);
- assert.deepEqual(a.prefixes.slice(0,3),b.prefixes.slice(0,3),'tools, system and retained history remain identical');
- const tail=sent=>JSON.parse(sent.messages.at(-1).content.at(-1).text).output_parameter_schema;
- assert.ok(JSON.stringify(tail(first)).includes('fact_1'));
- assert.ok(JSON.stringify(tail(next)).includes('fact_2'));
- assert.notDeepEqual(tail(first),tail(next),'the exact current restrictions are still supplied');
-
- assert.equal(first.messages[0].content[0].text,'Retained exact history');
- assert.deepEqual(body().tools[0].input_schema,TURN_PACKET_PARAMETERS);
+ assert.notDeepEqual(a.prefixes,b.prefixes,'cache reuse is measured, not assumed unchanged');
 });
 
-test('the exact tail schema still declares retired references, wrong routes and missing assessment invalid',()=>{
+test('the exact native schema still declares retired references, wrong routes and missing assessment invalid',()=>{
  const schema=turnPacketParameterSchema(false,['brief'],[{kind:'move',to:'place_1',travel_minutes:30}],true,bindings(1));
  const packet={version:4,commands:[{kind:'move',to:'place_1'},{kind:'scene',service:'open',crowd:'quiet'}],interactions:[{actor:'npc_1',to:['investigator_1'],act:'answer',content:[{fact_ref:'fact_1'}]}]};
  assert.equal(Errors(schema,packet).length,0);

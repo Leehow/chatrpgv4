@@ -75,7 +75,7 @@ export function requireTurnPacketNpcDestinations(packet:TurnPacket,choices:reado
 export function normalizeTurnPacketArguments(input:unknown):{args:unknown;repairs:number;integerRepairs?:number;booleanRepairs?:number;textRepairs?:number} {
   return normalizeToolArgumentSyntax(TURN_PACKET_PARAMETERS,input,{boundedIntegers:true,exactBooleans:true,partialTransport:true});
 }
-/** Current capabilities are data; the provider tool declaration stays invariant. */
+/** One current parameter contract for the native declaration and submission. */
 export function turnPacketParameterSchema(journeySettled=false,timeBands?:readonly string[],moveChoices?:readonly Record<string,unknown>[],sceneRequired=false,bindings?:DecisionBindings,locations=false):TSchema {
     const schema:Record<string,any>=structuredClone(TURN_PACKET_PARAMETERS);
     if(bindings){schema.properties.interactions.items=bindCommunicationParameters(schema.properties.interactions.items,bindings);schema.properties.reveal.items=bindCommunicationParameters(schema.properties.reveal.items,bindings,true);}
@@ -103,17 +103,15 @@ export function turnPacketParameterSchema(journeySettled=false,timeBands?:readon
     return schema as TSchema;
 }
 /** Restore the owned structural schema after Pi's non-strict Anthropic conversion. */
-export function turnPacketProviderPayload(payload:unknown,journeySettled=false,requireTool=true,timeBands?:readonly string[],moveChoices?:readonly Record<string,unknown>[],sceneRequired=false,bindings?:DecisionBindings,locations=false):unknown {
+export function turnPacketProviderPayload(payload:unknown,schema:TSchema=turnPacketParameterSchema(),requireTool=true):unknown {
   if(!object(payload)||!Array.isArray(payload.tools)||!Array.isArray(payload.messages))return payload;
   let changed=false;
   const tools=payload.tools.map((tool:unknown)=>{
     if(!object(tool)||tool.name!=='output'||!object(tool.input_schema))return tool;
-    changed=true;return {...tool,input_schema:TURN_PACKET_ENTRY_PARAMETERS};
+    changed=true;return {...tool,input_schema:schema};
   });
   if(!changed)return payload;
-  const schema=turnPacketParameterSchema(journeySettled,timeBands,moveChoices,sceneRequired,bindings,locations);
-  const messages=[...payload.messages,{role:'user',content:[{type:'text',text:JSON.stringify({output_parameter_schema:schema})}]}];
-  return {...payload,tools,messages,...(requireTool&&payload.model==='MiniMax-M3.1-Flash-Preview'?{tool_choice:{type:'auto'}}:{})};
+  return {...payload,tools,...(requireTool&&payload.model==='MiniMax-M3.1-Flash-Preview'?{tool_choice:{type:'auto'}}:{})};
 }
 /** Keep bound routes immutable; fill only an explicitly issued open route slot. */
 export function bindTurnPacketMoves(packet:TurnPacket,choices:readonly Record<string,unknown>[]):BoundTurnPacket {
@@ -134,7 +132,7 @@ export function bindTurnPacketMoves(packet:TurnPacket,choices:readonly Record<st
         ...(bands?{travel_band:command.travel_band}:typeof selected.travel_band==='string'?{travel_band:selected.travel_band}:{})};
   })};
 }
-export function turnPacket(text:string):TurnPacket {
+export function turnPacket(text:string,parameters?:TSchema):TurnPacket {
  const raw=JSON.parse(text);
  if(object(raw)&&Array.isArray(raw.commands))for(const [index,command]of raw.commands.entries()){
   const schema=commandSchemas.find(schema=>schema.properties.kind.const===command?.kind&&(!(schema.properties as Record<string,any>).action||(schema.properties as Record<string,any>).action.const===command?.action));
@@ -149,6 +147,7 @@ export function turnPacket(text:string):TurnPacket {
   }
  }
  if(Errors(TURN_PACKET_PARAMETERS,raw).length)throw parameterError('packet',TURN_PACKET_PARAMETERS,raw);
+ if(parameters&&Errors(parameters,raw).length)throw parameterError('packet',parameters,raw);
  const packet=raw as TurnPacket,commands=packet.commands??[],interactions=packet.interactions??[];
  const slots=commands.filter(a=>a.kind==='walk_on').map(a=>a.slot);
  const labels=commands.filter(a=>a.kind==='walk_on').map(a=>a.label.normalize('NFKC').trim().toLowerCase());

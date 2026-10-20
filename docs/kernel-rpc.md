@@ -49563,3 +49563,14 @@ retained. Precedent: Ajv documents explicit reversible schema-driven coercion
 (https://ajv.js.org/coercion.html); jsonrepair separates syntax repair from data
 semantics (https://github.com/josdejong/jsonrepair). Neither justifies broad
 coercion here; no dependency or new model request is introduced.
+
+### Native parameter authority (2026-10-20)
+
+The current compiled output JSON Schema replaces the permissive native tool schema
+and the request-tail copy. The provider and deterministic submission preflight
+consume the same request-bound schema. Current issued references, actor ownership,
+route/time and assessment restrictions are not merely prose metadata. Canonical
+revision, consent and transaction/publication checks remain separate authorities.
+No forced-decoding support is claimed for MiniMax auto tool selection. This
+supersedes the invariant-native-schema cache compromise above; cache reuse is
+measured, not protected at the expense of an honest parameter contract.

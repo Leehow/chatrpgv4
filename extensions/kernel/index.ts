@@ -16,7 +16,7 @@ import {moveEstablishmentRefusal} from '../../shared/move-protocol.ts';
 import {SAME_KEEPER_AFTER_RESULT_GUIDANCE} from '../../runtime/keeper-output-guidance.ts';
 import {scenePopulationRequired,sceneAssessmentExpiredDuringActivity} from '../../runtime/scene-population.ts';
 import {ExpressionPlanStream,writeIsolatedExpression,decisionScene,decisionClock,decisionRecentPublic,decisionResponseScope,decisionObservationScope} from '../../runtime/isolated-expression.ts';
-import {turnPacket,bindTurnPacketMoves,turnPacketMovementChoices,requireTurnPacketNpcDestinations,isNewNpcSlot,normalizeTurnPacketArguments,compileTurnPacket,turnPacketResult,turnPacketProviderPayload,TurnPacketParameterError,type TurnPacket} from '../../runtime/turn-packet-prototype.ts';
+import {turnPacket,bindTurnPacketMoves,turnPacketMovementChoices,requireTurnPacketNpcDestinations,isNewNpcSlot,normalizeTurnPacketArguments,compileTurnPacket,turnPacketResult,turnPacketParameterSchema,turnPacketProviderPayload,TurnPacketParameterError,type TurnPacket} from '../../runtime/turn-packet-prototype.ts';
 import {normalizeToolArgumentSyntax} from '../../runtime/tool-argument-syntax.ts';
 import {locationDecisionCoverage} from '../table/location-relevance.ts';
 import {applyEffectKinds} from '../table/mod-sections.ts';
@@ -509,6 +509,7 @@ interface TableState {
 	packetTimeBands?:string[];
 	packetSceneRequired?:boolean;
 	packetParameterRefused?:boolean;
+	packetParameters?:{turn:number;run?:string;schema:ReturnType<typeof turnPacketParameterSchema>};
 	/** §168.5: `turn|item` pairs whose omission while their check ran is already on the telemetry line. */
 	firstSightOmitted: Set<string>;
 	/** The last delivered prose, the first-sight check's `earlier` (§168.5). */
@@ -7046,7 +7047,7 @@ export default function (pi: ExtensionAPI, host: {capabilities?:RuntimeCapabilit
                     const bound=packetNpcReferences(table).bindActors(packetNpcScope(table),embedded.args);
                     embedded.args=bound.args as typeof embedded.args;
                     if(bound.repairs)void record({lane:'arguments',event:'public_actor_reference_normalized',tool:spec.name,repairs:bound.repairs});
-                    try{turnPacket(JSON.stringify(embedded.args));}
+                    try{turnPacket(JSON.stringify(embedded.args),table.packetParameters?.turn===table.turn&&table.packetParameters.run===keeperRun?.runId?table.packetParameters.schema:undefined);}
                     catch(error){const {refusal}=refusePacketParameters(table,error);throw Error(new KernelError(refusal).toToolText());}
                 }
 				const moveRefusal=spec.name==='apply'?moveEstablishmentRefusal((embedded.args as Record<string,unknown>).effects):undefined;
@@ -7950,7 +7951,7 @@ export default function (pi: ExtensionAPI, host: {capabilities?:RuntimeCapabilit
 			state.mapAttachments = [];
 			// A new player input is a new context (contract §32.4): no verdict outlives it.
 			state.playerText = text;
-			state.packetTimeBands=undefined;state.packetSceneRequired=undefined;state.packetParameterRefused=false;
+			state.packetTimeBands=undefined;state.packetSceneRequired=undefined;state.packetParameters=undefined;state.packetParameterRefused=false;
 			state.interactionScope = undefined;
 			state.interactionScopeSettled = undefined;
 			state.selectedWriting = false;
@@ -8910,7 +8911,9 @@ export default function (pi: ExtensionAPI, host: {capabilities?:RuntimeCapabilit
                 await packetTimeBandHandles(table);
             }
             const choices=keeperRun?.prescreen?.choices?turnPacketMovementChoices(keeperRun.prescreen.choices):undefined;
-            outgoing=turnPacketProviderPayload(outgoing,journeySettled,table?.interactionScope!=='reference',table?.packetTimeBands,choices,table?.packetSceneRequired??true,table?packetContent(table).bindings():undefined,!!table&&table.locationContextTurn===table.turn);
+            const schema=turnPacketParameterSchema(journeySettled,table?.packetTimeBands,choices,table?.packetSceneRequired??true,table?packetContent(table).bindings():undefined,!!table&&table.locationContextTurn===table.turn);
+            if(table)table.packetParameters={turn:table.turn,run:keeperRun?.runId,schema};
+            outgoing=turnPacketProviderPayload(outgoing,schema,table?.interactionScope!=='reference');
         }
 		if (outgoing !== event.payload) return outgoing;
 	});

@@ -12,8 +12,8 @@ test('explicit selected minutes survive every native entrance without selecting 
  const normalized=normalizeTurnPacketArguments({version:4,commands:[{...command,minutes:'5'}]});
  assert.equal(normalized.args.commands[0].minutes,5);assert.doesNotThrow(()=>turnPacket(JSON.stringify(normalized.args)));
  for(const change of [{band:'momentary'},{minutes:-1},{minutes:undefined}])assert.throws(()=>turnPacket(JSON.stringify({...packet,commands:[{...command,...change}]})));
- const payload=turnPacketProviderPayload({model:'MiniMax-M3.1-Flash-Preview',tools:[{name:'output',input_schema:TURN_PACKET_PARAMETERS}],messages:[]},false,true,['momentary']);
- assert.equal(Errors(JSON.parse(payload.messages.at(-1).content[0].text).output_parameter_schema,packet).length,0);
+ const payload=turnPacketProviderPayload({model:'MiniMax-M3.1-Flash-Preview',tools:[{name:'output',input_schema:TURN_PACKET_PARAMETERS}],messages:[]},turnPacketParameterSchema(false,['momentary']));
+ assert.equal(Errors(payload.tools[0].input_schema,packet).length,0);
  const travel={kind:'move',to:'Library'},after={...command,beyond_travel:true};
  assert.doesNotThrow(()=>turnPacket(JSON.stringify({...packet,commands:[travel,after]})));
  assert.throws(()=>turnPacket(JSON.stringify({...packet,commands:[travel,command]})),/Movement already owns travel time/);
@@ -75,17 +75,17 @@ test('MiniMax native routine uses its supported tool strategy without disabling 
  assert.deepEqual(sent.tool_choice,{type:'auto'});
  assert.equal(sent.thinking,payload.thinking);assert.equal(sent.output_config,payload.output_config);
  assert.equal(turnPacketProviderPayload({...payload,model:'other-model'}).tool_choice,undefined);
- assert.equal(turnPacketProviderPayload(payload,false,false).tool_choice,undefined,'known reference mode retains direct answers');
- const constrained=turnPacketProviderPayload(payload,false,true,['quick_observation','speak_briefly']);
- assert.deepEqual(JSON.parse(constrained.messages.at(-1).content[0].text).output_parameter_schema,turnPacketParameterSchema(false,['quick_observation','speak_briefly']));
+ assert.equal(turnPacketProviderPayload(payload,turnPacketParameterSchema(),false).tool_choice,undefined,'known reference mode retains direct answers');
+ const constrained=turnPacketProviderPayload(payload,turnPacketParameterSchema(false,['quick_observation','speak_briefly']));
+ assert.deepEqual(constrained.tools[0].input_schema,turnPacketParameterSchema(false,['quick_observation','speak_briefly']));
  const variants=turnPacketParameterSchema(false,['quick_observation','speak_briefly']).properties.commands.anyOf.flatMap(branch=>branch.items.anyOf);
  assert.deepEqual(variants.find(row=>row.properties.kind.const==='time').properties.band.enum,['quick_observation','speak_briefly']);
 });
 
 test('routine move schema selects issued destinations without free route text',()=>{
  const payload={model:'MiniMax-M3.1-Flash-Preview',messages:[],tools:[{name:'output',input_schema:TURN_PACKET_PARAMETERS}]};
- const sent=turnPacketProviderPayload(payload,false,true,['quick_observation'],[{kind:'move',to:'Library',via:'Main Street'}]);
- assert.deepEqual(JSON.parse(sent.messages.at(-1).content[0].text).output_parameter_schema,turnPacketParameterSchema(false,['quick_observation'],[{kind:'move',to:'Library',via:'Main Street'}]));
+ const sent=turnPacketProviderPayload(payload,turnPacketParameterSchema(false,['quick_observation'],[{kind:'move',to:'Library',via:'Main Street'}]));
+ assert.deepEqual(sent.tools[0].input_schema,turnPacketParameterSchema(false,['quick_observation'],[{kind:'move',to:'Library',via:'Main Street'}]));
  const variants=turnPacketParameterSchema(false,['quick_observation'],[{kind:'move',to:'Library',via:'Main Street'}]).properties.commands.anyOf.flatMap(branch=>branch.items.anyOf);
  const move=variants.find(row=>row.properties.kind.const==='move');
  assert.deepEqual(move.properties.to.enum,['Library']);
