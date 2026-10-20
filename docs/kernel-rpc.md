@@ -49131,6 +49131,17 @@ has not been handed over. This is public narration context, not NPC knowledge or
 a transfer. Producer: existing item/custody transactions and sheets; reader:
 capsule and decisionScene; actor: the sole author preserves current possession.
 
+#### Decimal financial outcomes (live follow-up)
+
+Receipt amounts use the kernel's canonical numeric value type. Cash outcome
+projection must use the kernel value clone, never structuredClone: the latter
+erases decimal prototypes and silently serializes them as objects. Preserve exact
+line items, quantities, unit prices, amounts and the bill total across real RPC
+serialization and the host decoder. Test decimal-valued receipts through that
+wire boundary. The prose author uses the bill total and item breakdown as given;
+a total is not a line item's unit price and may not acquire invented surcharges.
+No price, quote, debit, coverage or ownership rule changes.
+
 #### Mixed-tool continuation context envelope (live follow-up)
 
 The real MiniMax turn107 returned a pending server search beside a local place

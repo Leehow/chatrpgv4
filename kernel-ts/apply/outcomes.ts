@@ -2,7 +2,7 @@
 import type {ModuleGraph} from '../read/module-graph.js';
 import {sceneLabel} from '../read/capsule.js';
 import {npcReference} from '../npc/references.js';
-import {string,type Row} from '../read/values.js';
+import {string,clone,type Row} from '../read/values.js';
 import {publicObservation} from '../read/location-observations.js';
 
 export function operationOutcomes(receipts:Row[],graph:ModuleGraph,world:Row):Row[] {
@@ -16,7 +16,7 @@ export function operationOutcomes(receipts:Row[],graph:ModuleGraph,world:Row):Ro
         if(receipt.visibility==='keeper')return [];
         if(kind==='cash')return [{kind,status:receipt.settlement==='quote'?'unchanged':'changed',
             transaction:receipt.settlement==='quote'?'quoted':receipt.settlement==='cancelled'?'cancelled':'settled',
-            ...Object.fromEntries(['settlement','category','currency','before','after','purchase_amount','items','quote'].filter(key=>receipt[key]!==undefined).map(key=>[key,structuredClone(receipt[key])])),
+            ...Object.fromEntries(['settlement','category','currency','before','after','purchase_amount','items','quote'].filter(key=>receipt[key]!==undefined).map(key=>[key,clone(receipt[key])])),
             ...(receipt.purpose??receipt.why?{purpose:receipt.purpose??receipt.why}:{}),
             ...(receipt.price_name?{name:receipt.price_name}:{}),
             subject:receipt.subject_label??receipt.subject??null,
