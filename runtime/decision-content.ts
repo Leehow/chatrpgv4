@@ -27,7 +27,8 @@ export const Interaction=Type.Union([
  closed({actor,act:Type.Literal('silent'),to:Type.Optional(to)}),
  closed({actor,to,act:StringEnum(['greet','refuse','acknowledge']),content:Type.Optional(Type.Array(CommunicationContent,{minItems:1,maxItems:8}))}),
  closed({actor,to,act:StringEnum(['confirm','recap']),content:Type.Array(Type.Union(ExistingCommunicationFact.anyOf.slice(0,2)),{minItems:1,maxItems:8})}),
- closed({actor,to,act:StringEnum(['answer','ask','offer','clarify','report','warn']),content:Type.Array(CommunicationContent,{minItems:1,maxItems:8})})
+ closed({actor,to,act:Type.Literal('answer'),content:Type.Array(CommunicationContent,{minItems:1,maxItems:8})}),
+ closed({actor,to,act:StringEnum(['ask','offer','clarify','report','warn']),content:Type.Array(CommunicationContent,{minItems:1,maxItems:8})})
 ]);
 export type InteractionDecision=Static<typeof Interaction>;
 export type HydratedInteraction=InteractionDecision&{claims?:Row[]};
@@ -38,22 +39,19 @@ export function bindCommunicationParameters(schema:TSchema,bindings:DecisionBind
  const selection=(values:string[],slots=false)=>Type.String({enum:[...new Set([...values,...(slots?['new_1','new_2','new_3','new_4']:[])])]});
  const owned=new Map<string,string[]>();
  for(const [ref,actor] of Object.entries(bindings.factActors??{}))owned.set(actor,[...owned.get(actor)??[],ref]);
- const visit=(value:unknown)=>{
+ const visit=(value:unknown,answer=false)=>{
   if(!value||typeof value!=='object')return;
-  if(Array.isArray(value)){value.forEach(visit);return;}const row=value as Row,p=row.properties;
+  if(Array.isArray(value)){value.forEach(child=>visit(child,answer));return;}const row=value as Row,p=row.properties;
+  if(p?.actor&&p?.act)answer=p.act.const==='answer';
   if(p?.predicate){for(const key of ['provider','topic'])if(p[key])p[key]=selection(bindings.entities,true);
    if(p.actor)p.actor=selection(bindings.people,true);
    if(p.to)p.to=selection(bindings.places);
    if(p.items)p.items.items=Type.Union([selection(bindings.entities,true),category]);
    if(p.via)p.via.items=selection(bindings.places);
   }else if(p?.actor&&p?.act){p.actor=selection(bindings.people.filter(isNpcReference),true);if(p.to)p.to.items=selection(bindings.people,true);}
-  if(p?.fact_ref)p.fact_ref=selection(narration?bindings.narrationFacts??bindings.facts:bindings.facts);
+  if(p?.fact_ref)p.fact_ref=selection(narration?bindings.narrationFacts??bindings.facts:bindings.facts.filter(ref=>!answer||!bindings.pastSpeech?.includes(ref)));
   if(p?.source_ref)p.source_ref=selection(bindings.sources);
-  for(const child of Object.values(row))visit(child);
-  if(p?.actor&&p?.act&&(p.act.enum??[p.act.const]).includes('answer')&&bindings.pastSpeech?.length)row.allOf=[...row.allOf??[],{
-   if:{required:['act'],properties:{act:{const:'answer'}}},
-   then:{properties:{content:{items:{not:{required:['fact_ref'],properties:{fact_ref:{enum:bindings.pastSpeech}}}}}}}
-  }];
+  for(const child of Object.values(row))visit(child,answer);
   if(p?.actor&&p?.act&&owned.size)row.allOf=[...row.allOf??[],...[...owned].map(([actor,refs])=>({
    if:{required:['content'],properties:{content:{contains:{required:['fact_ref'],properties:{fact_ref:{enum:refs}}}}}},
    then:{properties:{actor:{const:actor}}}
