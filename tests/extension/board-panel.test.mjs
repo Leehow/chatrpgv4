@@ -7,7 +7,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { EventEmitter } from "node:events";
-import { mkdir, mkdtemp, readFile, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, realpath, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -118,7 +118,7 @@ test("a seen map arrives as pixels and its private geometry stops at this hop", 
 		// §39.4: the picture leaves this hop by the path of the PNG the renderer stored, never inline --
 		// an invoke answer returns through a bridge capped at 4 MiB, and two whole maps were over it.
 		assert.equal(map.image, undefined);
-		assert.equal(dirname(map.image_path), join(home, ".coc", "campaigns", "c1", "map-views"));
+		assert.equal(dirname(map.image_path), await realpath(join(home, ".coc", "campaigns", "c1", "map-views")));
 		assert.deepEqual([...(await readFile(map.image_path)).subarray(0, 8)], [137, 80, 78, 71, 13, 10, 26, 10]);
 		assert.equal(map.regions[0].label, "Entry Hall");
 		// The words are still the module's: nothing has projected this tag, and a card that is not

@@ -134,7 +134,7 @@ function pendingStatus(result: Record<string, any>): Record<string, any> {
         // fiction, re-read at the moment it is sent.
         result.service_status = 'The retained preparation is still running in the background. No fictional event or player action has happened. Do not poll it again in this turn.'
             + ' For an out-of-fiction query, follow reference_answer_instruction and end the reference reply. For a fictional input, close the turn with output on what the player actually said'
-            + ' while keeping the preparation, the wait and the destination out of the fiction.'
+            + '; keep the preparation, the wait and the destination out of the fiction.'
             + ` After new player input, the only call that reports on it is lookup kind=adaptation action=status name=${JSON.stringify(result.name ?? '')}.`;
         result.retry_after_ms = 2000;
     }
