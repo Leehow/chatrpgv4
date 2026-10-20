@@ -41,7 +41,7 @@ test('arrival alone cannot discharge a separately selected focused reading',asyn
  assert.equal((await locationDecisionCoverage(observed,binding,decide(.01),new AbortController().signal)).covered,false,'an unrelated or incomplete look is not the chosen reading');
 });
 test('ordinary arrival adds no observation obligation while movement coverage is checked',async()=>{
- const ordinary={initial_selection:{move:.99,feature:.01,observation:.01},proposed_effects:[{kind:'place',action:'move',to:'Cafe'}],settled_receipts:[]};
+ const ordinary={player_declaration:'I walk to the Cafe.',current_place:'Office',initial_selection:{move:.99,feature:.01,observation:.01},proposed_effects:[{kind:'place',action:'move',to:'Cafe'}],settled_receipts:[]};
  const result=await locationDecisionCoverage(ordinary,binding,{decide:async batch=>{assert.deepEqual(batch.questions.map(q=>q.key),['move_satisfied']);return{batchId:batch.id,status:'complete',answers:{move_satisfied:{status:'answered',type:'noul',noul:.99}}};}},new AbortController().signal);
  assert.equal(result.covered,true);assert.equal(result.jev_calls,1);
 });

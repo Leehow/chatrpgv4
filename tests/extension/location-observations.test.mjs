@@ -18,14 +18,14 @@ test('all entrances preserve the same typed observation and demand-only grammar'
     assert.deepEqual(compileTurnPacket(packet).effects,[observe]);
     assert(Check(turnPacketParameterSchema(false,undefined,undefined,false,undefined,true),packet));
     const small=locationToolDeclarations(COC_TOOLS,false).find(tool=>tool.name==='place').parameters;
-    assert(Check(small,{op:'inspect',need:'observation',name:'Street'}));assert.equal(JSON.stringify(small).includes('assessed_clock'),false);
+    assert(Check(small,{action:'inspect',need:'observation',name:'Street'}));assert.equal(JSON.stringify(small).includes('assessed_clock'),false);
     assert(!Check(PlaceEffect,{...observe,teleport:true}));assert(!Check(PlaceEffect,{...observe,facts:['x'.repeat(601)]}));
 });
 test('disclosed location grammar is deduplicated and native location detail uses the same applicable request schema',()=>{
     const canonical=COC_TOOLS.find(tool=>tool.name==='place').parameters;
     const detailed=locationToolDeclarations(COC_TOOLS,true).find(tool=>tool.name==='place').parameters;
     const {kind,...change}=observe;
-    assert(Check(canonical,{op:'submit',change}));assert(Check(detailed,{op:'submit',change}));
+    assert(Check(canonical,{op:'submit',change}));assert(Check(detailed,change));assert(!Check(detailed,{op:'submit',change}),'legacy compatibility does not leak back into advertised native grammar');
     assert(JSON.stringify(detailed).length<JSON.stringify(canonical).length,'full detail must not duplicate its union beside a merged property copy');
     const tools=[{name:'output',parameters:TURN_PACKET_PARAMETERS}];
     assert.deepEqual(locationToolDeclarations(tools,false)[0].parameters,TURN_PACKET_ENTRY_PARAMETERS);

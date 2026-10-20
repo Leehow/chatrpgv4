@@ -23,7 +23,7 @@ function compatible(schema:TSchema,value:unknown,depth=0):boolean {
   return !values||values.every(item=>compatible(shape.items as TSchema,item,depth+1));
  }
  return shape.type!=='object'||!object(value)||Object.entries(shape.properties??{}).every(([key,property])=>
-  !Object.hasOwn(value,key)||!Object.hasOwn(property,'const')||isDeepStrictEqual(value[key],property.const));
+  !Object.hasOwn(property,'const')||(!Object.hasOwn(value,key)?!shape.required?.includes(key):isDeepStrictEqual(value[key],property.const)));
 }
 const valid=(schema:TSchema,value:unknown,native:boolean)=>{
  try{

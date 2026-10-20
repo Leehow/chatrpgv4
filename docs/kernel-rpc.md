@@ -50154,3 +50154,11 @@ Native place move consent asks about the actual proposed journey and optional lo
 The request-only place action description lists the minimal grammar of every advertised action. In particular feature edits an existing feature through state/passable; registering missing scenery uses establish additions with name/features. These recipes share the canonical validator and do not coerce malformed calls or create a second writer.
 
 The original turn28 provider, normalized and prepare arguments were identically move. Exact-request replay gave selection .49; the focused movement question retained the entire state and gave .69, with explicit-stay selection .39. Future-only movement remains subject to the unchanged restriction gate. Deleting reference context was rejected: it improved one input but lost spatial deixis. Primary precedent: https://docs.typesafe.ai/model-jaggedness/jev-1.13 recommends direct conditions and fewer hops; https://www.anthropic.com/research/writing-tools-for-agents recommends actionable parameter descriptions and actual failure evaluation. These inform the question and interface; they confer no authority.
+
+### Required literal discriminators in partial transport decoding (2026-10-20)
+
+Partial transport normalization may select a union branch only when its required literal discriminator is present and equal. A missing discriminator is not evidence for that branch. Keep unexpected fields for the canonical validator; never fill a missing action or convert a read into a write. This restores legacy submit array-envelope decoding after native flat action branches were added. Ambiguous representations remain untouched.
+
+### Location request footprint (2026-10-20)
+
+Enhanced Locations1.1.22 retains a small resident discovery paragraph. Existing detailed continuation and receipt instructions move verbatim into its situational Continuity and authority section, triggered by place/cash/item events. Native action recipes retain exact required fields with less redundant prose. No request ceiling, canonical tool validator or acceptance threshold increases.
