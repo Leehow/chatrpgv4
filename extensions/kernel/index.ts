@@ -5841,7 +5841,7 @@ export default function (pi: ExtensionAPI, host: {capabilities?:RuntimeCapabilit
 			const where=current.where??{};
 			decision={scene:decisionScene(sightView),clock:decisionClock(where.clock??{}),...decisionResponseScope(before,current,hydrated.responses),people,selected_materials:hydrated.materials,style:current.style,
 				recent_public:decisionRecentPublic(current.recent,state.delivered)};
-            if(state.locationReviewTurn===state.turn||compiled.effects.some(effect=>effect.kind==='place'||effect.kind==='move'))
+            if(sight.place||state.locationReviewTurn===state.turn||compiled.effects.some(effect=>effect.kind==='place'||effect.kind==='move'))
                 decision.location_description=await locationDescription(current,keys=>state.kernel.call('mods.sections',{campaign:state.campaign,keys}));
 		}
         const failedAttempts=heldActs.get(state)?.uncommittedFailures();
