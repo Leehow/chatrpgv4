@@ -306,18 +306,19 @@ for(const fault of ['unissued_npc_destination','silent_world_change'])test('nati
  assert.equal(batches.filter(batch=>batch.family==='continuous-action-admission').length,0,'NPC-only movement and malformed parameters need no player-action judgment');
 });
 
-test('schema and capability failures share one correction allowance and cannot later publish success',async t=>{
+test('schema and capability failures share two bounded corrections and cannot publish after a third refusal',async t=>{
  let requests=0,ref='npc_1';const batches=[];
  const engine=createHybridEngine({env,decision:{decide:async batch=>{batches.push(batch);return answer(batch,.99);}}});
  const table=await openTable({legacyDeliveryFixtures:false,realKernel:true,prepareWorkspace:opened,env,runDriver:engine.runDriver,
   extraExtensions:[{name:'engine',factory:engine.extension}],responses:[
    ()=>{requests++;return fauxAssistantMessage([rawToolCall('output',{version:4,commands:[],interactions:[{actor:ref,act:'silent',points:['Leaves.']}]})],{stopReason:'toolUse'});},
    ()=>{requests++;return fauxAssistantMessage([rawToolCall('output',{version:4,commands:[{kind:'npc',actor:ref,to:'invented street',reason:'Leaves.'}],interactions:[]})],{stopReason:'toolUse'});},
-   ()=>{requests++;return fauxAssistantMessage([rawToolCall('output',{version:4,commands:[],interactions:[]})],{stopReason:'toolUse'});}
+   ()=>{requests++;return fauxAssistantMessage([rawToolCall('output',{version:4,commands:[{kind:'time',minutes:-1,reason:'Invalid duration.'}],interactions:[]})],{stopReason:'toolUse'});},
+   ()=>{requests++;return fauxAssistantMessage([rawToolCall('output',{version:4,commands:[{kind:'scene',service:'open',crowd:'quiet'}],interactions:[]})],{stopReason:'toolUse'});}
   ]});t.after(()=>table.dispose());
  ref=(await table.runtimeBridges().at(-1).call('table.capsule',{campaign:'test-camp'})).present.find(person=>person.name==='Steven Knott').ref;
  await table.session.prompt('I remain by the desk.');
- assert.equal(requests,2);assert.equal(batches.length,0);
+ assert.equal(requests,3);assert.equal(batches.length,0);
  assert.equal(table.telemetry().filter(row=>row.lane==='isolated-expression'&&row.event==='start').length,0);
  assert.equal(table.entries('coc-final-delivery').filter(row=>row.event==='delta').length,0);
  const state=await table.runtimeBridges().at(-1).call('table.capsule',{campaign:'test-camp'});
