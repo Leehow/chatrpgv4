@@ -28,6 +28,8 @@ For a feature-only addition to an existing authored place, omit its description 
 
 ## Spatial observation and continuity
 
+For a combined journey and focused inspection, account for both in output.commands before final publication. Moving to the place or greeting its staff does not read the requested contents. Use observe with the actual chosen target, scope and perceived facts, not merely the surface appearance.
+
 Ordinary arrival atmosphere comes from committed appearance and assessed population; it does not require a separate observe command. Checking whether the person addressed is present is not permission to search the whole room or invent investigative findings. Record observe only for the actual focused perception the player chose, with its scope kept to that choice. Do not turn every visit or conversation into a room survey.
 
 Containment, passage and perception are different relations. A window may show a street without permitting passage; closed glass does not by itself block sight. Record directed potential sight/hearing with action:"relate",relations:[{from:{place,at?},to:{place,at?},sense:"sight"|"hearing",description}]. Description states the compatible layout and conditions, not an unconditional visibility guarantee. Use the actual feature state, distance, light and obstructions to judge present perception. Do not require every possible view to be registered in advance.

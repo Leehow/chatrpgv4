@@ -23,7 +23,7 @@ const command={kind:'place',action:'move',to:'Ordinary Inn / Lobby',via:'Through
 test('input relevance selects context only, keeps uncertainty conservative and names no destination',async()=>{
     const capsule={mods:{location_context:{mod:'enhanced-locations',version:'1.0.1'}},turn:{player_text:'I enter an ordinary inn.'},where:{scene:'Office'}},binding={campaign:'test',turn:1};
     const batch=locationContextBatch(capsule,binding);packDecisionBatch(batch);
-    assert.equal(batch.questions.length,3);assert(batch.questions.every(question=>question.type==='noul'));
+    assert.equal(batch.questions.length,4);assert(batch.questions.every(question=>question.type==='noul'));
     for(const [probability,needed]of [[.96,true],[.02,false]]){
         const result=await locationContextRelevance(capsule,binding,{decide:async current=>({batchId:current.id,status:'complete',answers:Object.fromEntries(current.questions.map(q=>[q.key,{status:'answered',type:'noul',noul:probability}]))})},new AbortController().signal);
         assert.equal(result.needed,needed);assert.equal(result.review,needed);assert.equal(result.probabilities.move_selected,probability);assert.equal(result.to,undefined);
@@ -36,7 +36,7 @@ test('input relevance selects context only, keeps uncertainty conservative and n
 test('spatial completion composes independent movement and feature answers without an invented confidence',async()=>{
     const binding={campaign:'test',turn:2},input={player_declaration:'I approach the window.',proposed_effects:[],settled_receipts:[]};
     const batch=locationCoverageBatch(input,binding);packDecisionBatch(batch);
-    assert.equal(batch.familyVersion,'6');assert.equal(batch.questions.length,4);assert(batch.questions.every(question=>question.type==='noul'));
+    assert.equal(batch.familyVersion,'7');assert.equal(batch.questions.length,6);assert(batch.questions.every(question=>question.type==='noul'));
     assert(!batch.questions.some(question=>question.key.endsWith('_accounted')),'typed operation presence is not a model judgment');
     const review=async(values,effects=[])=>locationDecisionCoverage({...input,proposed_effects:effects},binding,{decide:async current=>({batchId:current.id,status:'complete',answers:Object.fromEntries(current.questions.map(q=>[q.key,{status:'answered',type:'noul',noul:values[q.key]??.01}]))})},new AbortController().signal);
     const missing=await review({move_selected:.99});
@@ -53,7 +53,7 @@ test('spatial completion composes independent movement and feature answers witho
     const unavailable=await locationDecisionCoverage(input,binding,undefined,new AbortController().signal);assert.equal(unavailable.covered,false);
     const partial=await locationDecisionCoverage(input,binding,{decide:async current=>({batchId:current.id,status:'complete',answers:{move_selected:{status:'answered',type:'noul',noul:.99}}})},new AbortController().signal);
     assert.equal(partial.status,'fallback');assert.equal(partial.covered,false,'all independent answers must be valid');
-    const selected={...input,initial_selection:{move:.95,feature:.02}};
+    const selected={...input,initial_selection:{move:.95,feature:.02,observation:.01}};
     const noRepeat={decide:async()=>{throw Error('An actual typed movement is judged by admission, not another completion question');}};
     for(const [extra,source]of [[{proposed_effects:[move]},'proposed'],[{settled_receipts:[{kind:'move',from:'Room',to:'Ordinary Inn'}]},'committed']]){
         const accounted=await locationDecisionCoverage({...selected,...extra},binding,noRepeat,new AbortController().signal);
@@ -80,7 +80,7 @@ test('the dedicated typed tool normalizes before canonical write admission, with
 });
 
 test('an already established local position can satisfy completion without another move',async()=>{
-    const input={player_declaration:'I sit by the window and look outside.',current_place:'Tea room',current_position:{place:'Tea room',at:'window table',relation:'beside'},features:[{name:'window table'}],initial_selection:{move:.99,feature:.02},proposed_effects:[],settled_receipts:[]};
+    const input={player_declaration:'I sit by the window.',current_place:'Tea room',current_position:{place:'Tea room',at:'window table',relation:'beside'},features:[{name:'window table'}],initial_selection:{move:.99,feature:.02},proposed_effects:[],settled_receipts:[]};
     const review=async(probability)=>locationDecisionCoverage(input,{campaign:'test',turn:3},{decide:async batch=>({batchId:batch.id,status:'complete',answers:Object.fromEntries(batch.questions.map(question=>[question.key,{status:'answered',type:'noul',noul:question.key==='move_satisfied'?probability:.01}]))})},new AbortController().signal);
     const covered=await review(.99);assert.equal(covered.covered,true);assert.equal(covered.axes.move,'already_satisfied');assert.equal(covered.accounting.move,null);assert.equal(covered.to,undefined);
     assert.equal((await review(.49)).covered,false,'uncertain established satisfaction does not bypass completion');

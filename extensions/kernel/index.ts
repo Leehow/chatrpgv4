@@ -403,7 +403,7 @@ interface TableState {
     /** Location detail is read on demand, for this input only. */
     locationContextTurn?:number;
     locationReviewTurn?:number;
-    locationSelection?:{turn:number;move:number;feature:number};
+    locationSelection?:{turn:number;move:number;feature:number;observation?:number};
     observationReferences?:{turn:number;queries:Array<{scope:string;to:Record<string,unknown>;sense:string;records:Record<string,unknown>[]}>};
   /** §163: a scope Jev could not settle plays as `world`; only a settled out-of-fiction request is `reference`. */
   interactionScope?: 'world' | 'reference';
@@ -1528,11 +1528,11 @@ export default function (pi: ExtensionAPI, host: {capabilities?:RuntimeCapabilit
 	let singleKeeper=false;
 	let turnDecisionPort:DecisionPort|undefined;
 	pi.events.on('coc:turn-decision-port',(value:DecisionPort|undefined)=>{turnDecisionPort=value&&typeof value.decide==='function'?value:undefined;});
-    pi.events.on('coc:location-demand',(value:{campaign?:string;turn?:number;review?:boolean;selection?:{move:number;feature:number};references?:Record<string,any>})=>{
+    pi.events.on('coc:location-demand',(value:{campaign?:string;turn?:number;review?:boolean;selection?:{move:number;feature:number;observation?:number};references?:Record<string,any>})=>{
         if(!table||value.campaign!==table.campaign||value.turn!==table.turn)return;
         table.locationContextTurn=table.turn;if(value.review===true)table.locationReviewTurn=table.turn;
         if(value.references)rememberObservationReferences(table,value.references);
-        if(value.selection&&[value.selection.move,value.selection.feature].every(value=>typeof value==='number'&&Number.isFinite(value)&&value>=0&&value<=1))
+        if(value.selection&&[value.selection.move,value.selection.feature,...(value.selection.observation===undefined?[]:[value.selection.observation])].every(value=>typeof value==='number'&&Number.isFinite(value)&&value>=0&&value<=1))
             table.locationSelection={turn:table.turn,...value.selection};
     });
 	let isolatedOutput=false;
@@ -5761,15 +5761,15 @@ export default function (pi: ExtensionAPI, host: {capabilities?:RuntimeCapabilit
             placeBoundAuthor=!!before.mods?.location_context&&(state.locationReviewTurn===state.turn||compiled.effects.some(effect=>effect.kind==='place'));
             if(state.locationReviewTurn===state.turn&&state.interactionScope!=='reference'){
                 const status=await state.kernel.call<{receipts:Record<string,unknown>[]}>('table.status',{campaign:state.campaign,projection:'receipts',expected_turn:state.turn});
-                const receipts=status.receipts.map(receipt=>Object.fromEntries(['kind','action','from','to','position','feature','before','after'].filter(key=>receipt[key]!==undefined).map(key=>[key,receipt[key]])));
+                const receipts=status.receipts.map(receipt=>Object.fromEntries(['kind','action','from','to','position','feature','before','after','observation'].filter(key=>receipt[key]!==undefined).map(key=>[key,receipt[key]])));
                 const selection=state.locationSelection?.turn===state.turn?state.locationSelection:undefined;
                 const coverage=await locationDecisionCoverage({player_declaration:state.playerText,current_place:before.where?.scene,current_display_name:before.where?.display_name,current_position:before.where?.location?.position,
-                    ...(selection?{initial_selection:{move:selection.move,feature:selection.feature}}:{}),
+                    ...(selection?{initial_selection:{move:selection.move,feature:selection.feature,observation:selection.observation}}:{}),
                     features:before.where?.location?.features??[],proposed_effects:compiled.effects,proposed_responses:compiled.responses,settled_receipts:receipts,known_failures:heldBoundary?.uncommittedFailures()??[]},
                     {campaign:state.campaign,turn:state.turn},turnDecisionPort,reply.signal??state.lanes.signal,foregroundProviderBudget?.());
                 await record({lane:'location-decision-coverage',turn:state.turn,...coverage});
                 if(!coverage.covered)throw new KernelError({code:'invalid_params',message:coverage.status==='answered'?'The selected spatial action is not accounted for by this decision':'The spatial decision completion could not be verified',
-                    fix:'Preserve the player declaration and successful receipts. Use the current_position below rather than an earlier narrated pose. For a local approach submit {kind:"place",action:"move",to:"here",at:"exact registered feature",relation:"beside"}; add only a missing compatible feature if needed. An NPC move, time/glance or registration alone does not move the investigator. A real obstacle or necessary open choice can stop an attempt. Do not narrate an arrival without its committed move.',
+                    fix:'Preserve the player declaration and successful receipts. Use the current_position below rather than an earlier narrated pose. Every independently selected focused reading or view also needs a matching {kind:"place",action:"observe",to,sense,access,scope,facts}; arrival and greetings do not read its contents. Include the actual perceived contents, not merely a description of the writing surface. Do not repeat current-input settled observations. For a local approach submit {kind:"place",action:"move",to:"here",at:"exact registered feature",relation:"beside"}; add only a missing compatible feature if needed. An NPC move, time/glance or registration alone does not move the investigator. A real obstacle or necessary open choice can stop an attempt. Do not narrate an arrival without its committed move.',
                     details:{reason:'place_decision_incomplete',cause:coverage.reason??'place_decision_incomplete',transaction_state:'uncommitted',before_execution:true,current_place:before.where?.scene,current_position:before.where?.location?.position??null,
                         known_features:(before.where?.location?.features??[]).map((feature:Record<string,unknown>)=>feature.name),...(coverage.axes?{axes:coverage.axes}:{})}});
             }
