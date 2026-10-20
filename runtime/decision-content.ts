@@ -26,30 +26,32 @@ const to=Type.Array(ref,{minItems:1,maxItems:16,uniqueItems:true});
 export const Interaction=Type.Union([
  closed({actor,act:Type.Literal('silent'),to:Type.Optional(to)}),
  closed({actor,to,act:StringEnum(['greet','refuse','acknowledge']),content:Type.Optional(Type.Array(CommunicationContent,{minItems:1,maxItems:8}))}),
- closed({actor,to,act:Type.Literal('confirm'),content:Type.Array(Type.Union(ExistingCommunicationFact.anyOf.slice(0,2)),{minItems:1,maxItems:8})}),
- closed({actor,to,act:StringEnum(['answer','ask','offer','clarify','report','warn']),content:Type.Array(CommunicationContent,{minItems:1,maxItems:8})})
+ closed({actor,to,act:StringEnum(['confirm','recap']),content:Type.Array(Type.Union(ExistingCommunicationFact.anyOf.slice(0,2)),{minItems:1,maxItems:8})}),
+ closed({actor,to,act:Type.Literal('answer'),content:Type.Array(CommunicationContent,{minItems:1,maxItems:8})}),
+ closed({actor,to,act:StringEnum(['ask','offer','clarify','report','warn']),content:Type.Array(CommunicationContent,{minItems:1,maxItems:8})})
 ]);
 export type InteractionDecision=Static<typeof Interaction>;
 export type HydratedInteraction=InteractionDecision&{claims?:Row[]};
-export interface DecisionBindings {entities:string[];people:string[];places:string[];facts:string[];sources:string[];narrationFacts?:string[];factActors?:Record<string,string>}
+export interface DecisionBindings {entities:string[];people:string[];places:string[];facts:string[];sources:string[];narrationFacts?:string[];factActors?:Record<string,string>;pastSpeech?:string[]}
 /** Prepared schemas and execution use the same issued reference vocabulary. */
 export function bindCommunicationParameters(schema:TSchema,bindings:DecisionBindings,narration=false):TSchema {
  const result=structuredClone(schema) as Row;
  const selection=(values:string[],slots=false)=>Type.String({enum:[...new Set([...values,...(slots?['new_1','new_2','new_3','new_4']:[])])]});
  const owned=new Map<string,string[]>();
  for(const [ref,actor] of Object.entries(bindings.factActors??{}))owned.set(actor,[...owned.get(actor)??[],ref]);
- const visit=(value:unknown)=>{
+ const visit=(value:unknown,answer=false)=>{
   if(!value||typeof value!=='object')return;
-  if(Array.isArray(value)){value.forEach(visit);return;}const row=value as Row,p=row.properties;
+  if(Array.isArray(value)){value.forEach(child=>visit(child,answer));return;}const row=value as Row,p=row.properties;
+  if(p?.actor&&p?.act)answer=p.act.const==='answer';
   if(p?.predicate){for(const key of ['provider','topic'])if(p[key])p[key]=selection(bindings.entities,true);
    if(p.actor)p.actor=selection(bindings.people,true);
    if(p.to)p.to=selection(bindings.places);
    if(p.items)p.items.items=Type.Union([selection(bindings.entities,true),category]);
    if(p.via)p.via.items=selection(bindings.places);
   }else if(p?.actor&&p?.act){p.actor=selection(bindings.people.filter(isNpcReference),true);if(p.to)p.to.items=selection(bindings.people,true);}
-  if(p?.fact_ref)p.fact_ref=selection(narration?bindings.narrationFacts??bindings.facts:bindings.facts);
+  if(p?.fact_ref)p.fact_ref=selection(narration?bindings.narrationFacts??bindings.facts:bindings.facts.filter(ref=>!answer||!bindings.pastSpeech?.includes(ref)));
   if(p?.source_ref)p.source_ref=selection(bindings.sources);
-  for(const child of Object.values(row))visit(child);
+  for(const child of Object.values(row))visit(child,answer);
   if(p?.actor&&p?.act&&owned.size)row.allOf=[...row.allOf??[],...[...owned].map(([actor,refs])=>({
    if:{required:['content'],properties:{content:{contains:{required:['fact_ref'],properties:{fact_ref:{enum:refs}}}}}},
    then:{properties:{actor:{const:actor}}}
@@ -156,7 +158,7 @@ export class DecisionContent {
   this.facts.set(ref,{ref,...(actor?{actor}:{}),kind:evidence,availability,value:structuredClone(value),revision:identity});this.active.add(ref);
  }
  addEntities(values:readonly string[]):void {for(const value of values)this.entities.add(value);}
- bindings():DecisionBindings {return {entities:[...this.entities],people:[...this.people],places:[...this.places],facts:[...this.active].filter(ref=>ref.startsWith('fact_')&&!['current_document','public_scene_history'].includes(this.facts.get(ref)?.kind??'')),narrationFacts:[...this.active].filter(ref=>ref.startsWith('fact_')&&!this.facts.get(ref)?.actor),sources:[...this.active].filter(ref=>ref.startsWith('source_')),factActors:Object.fromEntries([...this.active].flatMap(ref=>this.facts.get(ref)?.actor?[[ref,this.facts.get(ref)!.actor!]]:[]))};}
+ bindings():DecisionBindings {return {entities:[...this.entities],people:[...this.people],places:[...this.places],facts:[...this.active].filter(ref=>ref.startsWith('fact_')&&!['current_document','public_scene_history'].includes(this.facts.get(ref)?.kind??'')),narrationFacts:[...this.active].filter(ref=>ref.startsWith('fact_')&&!this.facts.get(ref)?.actor),sources:[...this.active].filter(ref=>ref.startsWith('source_')),pastSpeech:[...this.active].filter(ref=>this.facts.get(ref)?.kind==='recent_speech'),factActors:Object.fromEntries([...this.active].flatMap(ref=>this.facts.get(ref)?.actor?[[ref,this.facts.get(ref)!.actor!]]:[]))};}
  private listenerAlias(value:string,ref:string):void {
   const key=value.normalize('NFKC').trim().toLowerCase(),prior=this.listenerAliases.get(key);
   this.listenerAliases.set(key,prior!==undefined&&prior!==ref?null:ref);
@@ -190,7 +192,9 @@ export class DecisionContent {
     if(!ref)throw Error('Unissued or non-person communication audience');return ref;
    });
    if(to?.includes(response.actor))throw Error('A speaker cannot be its own addressee');
-   return {...response,...(to?{to}:{}),...('content'in response?{claims:(response.content??[]).map(content=>{const basis=this.resolve(content,response.actor);return response.act==='confirm'?{kind:'confirmation',value:{unchanged:true,basis}}:basis;})}:{})};
+   return {...response,...(to?{to}:{}),...('content'in response?{claims:(response.content??[]).map(content=>{const basis=this.resolve(content,response.actor);
+    if(response.act==='answer'&&basis.kind==='recent_speech')throw Error('Prior public speech requires an explicit continuity relation: confirm or recap');
+    return response.act==='confirm'?{kind:'confirmation',value:{unchanged:true,basis}}:response.act==='recap'?{kind:'retrospective_report',value:{basis}}:basis;})}:{})};
   });
   return {responses,materials:reveal.map(content=>this.resolve(content))};
  }
