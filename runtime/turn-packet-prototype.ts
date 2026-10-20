@@ -101,7 +101,7 @@ export function turnPacketParameterSchema(journeySettled=false,timeBands?:readon
     const assessment={contains:scene,minContains:1};
     const stationary=sceneRequired?assessment:{};
     const local=locations?placeStationary.map(command=>command.properties.action.const==='observe'?Type.Omit(command,['relations']):command):[],journey=locations?[placeMove]:[];
-    const moving=sceneRequired?assessment:{allOf:[{if:{contains:Type.Union([Type.Object({kind:Type.Literal('move')}),Type.Object({kind:Type.Literal('place'),action:Type.Literal('move')})])},then:assessment}]};
+    const moving=sceneRequired?assessment:{allOf:[{if:{contains:locations?Type.Object({kind:Type.Literal('place'),action:Type.Literal('move')}):Type.Object({kind:Type.Literal('move')})},then:assessment}]};
     const arrivedLocal=Type.Object({kind:Type.Literal('place'),action:Type.Literal('move'),to:Type.Literal('here'),at:atom(240),
         relation:PlaceEffect.anyOf[0].properties.relation,additions:PlaceEffect.anyOf[0].properties.additions},{additionalProperties:false});
     if(journeySettled)schema.properties.commands=Type.Array(Type.Union([...(locations?[arrivedLocal]:[]),...local,issuedNpc,walkOn,scene,relationship]),{maxItems:12,...stationary});

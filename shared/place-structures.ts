@@ -43,8 +43,7 @@ export function locationCommandOwner<T extends Record<string,any>>(parameters:T)
         if(Array.isArray(variants)&&variants.some(variant=>variant.properties?.kind?.const==='place'))
             commands.items.anyOf=variants.filter(variant=>variant.properties?.kind?.const!=='move');
     }
-    projected.description='The location provider owns party movement and observation through kind place and its action. Issued destinations are reference material; a place move can visit a compatible unlisted destination with minimal additions.';
-    return projected;
+    return {...projected,description:'The location provider owns party movement and observation through kind place and its action. Issued destinations are reference material; a place move can visit a compatible unlisted destination with minimal additions.'};
 }
 
 /** Request-only native grammar; complete validation always uses PlaceEffect. */
