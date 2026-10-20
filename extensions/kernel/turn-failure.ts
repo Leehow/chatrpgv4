@@ -59,6 +59,7 @@ export function turnFailureNotice(value:unknown, captions:Record<string,string>|
  if(provider)content=words.line('turn_failure_operation',{operation:provider.operation,code:status?`HTTP ${status} ${STATUS_CODES[status]??''}`:provider.reason??provider.code});
  else if(rows.some(row=>row.code==='ENOTDIR'))content=words.line('turn_failure_output_path');
  else if(rows.some(row=>row.reason==='action_admission_uncertain'))content=words.line('turn_failure_admission');
+ else if(rows.some(row=>row.reason==='place_observation_point_unresolved'))content=words.line('turn_failure_observation_point');
  else if(rows.some(row=>row.reason==='native_output_missing'))content=words.line('turn_failure_missing_output');
  else if(rows.some(row=>row.code==='invalid_json'))content=words.line('turn_failure_invalid_output');
  else if(rows.some(row=>row.code==='run_aborted'))content=words.line('turn_failure_interrupted');

@@ -5878,7 +5878,7 @@ export default function (pi: ExtensionAPI, host: {capabilities?:RuntimeCapabilit
         if(!retry)endInput(state,'parameter_protocol_repeated',ctx,'settled_operation');
         const refusal={code:'invalid_params',message:error instanceof Error?error.message:String(error),
             ...(isKernelError(error)&&error.fix?{fix:error.fix}:{}),
-            details:{...(isKernelError(error)?error.details:{}),reason:'turn_packet_parameters',...(beforeCommit?{before_commit:true}:{before_execution:true})}};
+            details:{...(isKernelError(error)?error.details:{}),reason:isKernelError(error)&&error.details?.reason?error.details.reason:'turn_packet_parameters',parameter_phase:'turn_packet_parameters',...(beforeCommit?{before_commit:true}:{before_execution:true})}};
         rememberTurnFailure(state,'output.parameters',refusal);
         void record({lane:'arguments',event:'packet_parameters_refused',turn:state.turn,retry,phase:beforeCommit?'before_commit':'before_execution',jev_calls:0});
         return {retry,refusal};

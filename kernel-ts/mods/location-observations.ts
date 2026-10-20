@@ -11,8 +11,8 @@ function point(context:ApplyContext,value:Row,field:string):Row {
     catch(error){
         if(!(error instanceof RpcError)||error.code!=='unknown_entity')throw error;
         throw new RpcError('invalid_params','The observation point needs its exact identity or minimal compatible definition',{
-            fix:'Use the intended exact place/feature, or add its missing compatible definition in additions. Preserve the selected observation; missing registration is not a physical obstruction.',
-            details:{...error.details,reason:'place_observation_point_unresolved',field,requested:value}});
+            fix:'Use the intended exact place/feature. An at value must be a feature inside its place: add it with additions:[{name:place,features:[{name:at,description:...}]}], not as a child place. For ordinary observation, use view to describe the path from the actual current viewpoint; a door along that path is not the observer position. Missing registration is not a physical obstruction.',
+            details:{...error.details,reason:'place_observation_point_unresolved',field,requested:value,current_viewpoint:currentObservationPoint(context.graph,context.world)}});
     }
 }
 
@@ -38,9 +38,11 @@ export function stageLocationObservation(context:ApplyContext,state:Row,effect:R
                 details:{reason:'place_observation_blocked_shape'}});
     }else{
         if(!array(effect.facts).length)throw new RpcError('invalid_params','A successful observation needs at least one actual perceived fact');
+        if(from.place!==to.place&&!matchingObservationRelations(world,from,to,effect.sense).length&&effect.view)
+            stagePerceptualRelations(context,state,[{from,to,sense:effect.sense,description:effect.view}]);
         if(from.place!==to.place&&!matchingObservationRelations(world,from,to,effect.sense).length)
             throw new RpcError('invalid_params','This cross-place observation needs its logical sensory relation',{
-                fix:'Preserve the selected viewpoint. Supply the compatible relation in relations and any missing minimal definitions in additions, or describe a real obstruction with access blocked. Missing registration alone is not an obstruction.',
+                fix:'Preserve the actual current viewpoint. Supply view describing the compatible sensory path to this target; the host fills its endpoints. Use additions for missing target definitions. Explicit relations are also supported. Use access blocked only for a real obstruction, never missing registration.',
                 details:{reason:'place_observation_relation_required',from,to,sense:effect.sense}});
     }
     const person=(name:string)=>{

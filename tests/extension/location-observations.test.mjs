@@ -12,6 +12,8 @@ import {continuousConsentLine,continuousConsentQuestions} from '../../runtime/je
 const observe={kind:'place',action:'observe',to:'Street',at:'steps',sense:'sight',access:'limited',scope:'The entrance pavement.',facts:['The man in a cap remains by the entrance.'],people:['npc_1']};
 test('all entrances preserve the same typed observation and demand-only grammar',()=>{
     assert(Check(PlaceEffect,observe));assert(Check(PlaceParameters,{op:'inspect',need:'observation',name:'Street',at:'steps',sense:'hearing'}));
+    assert(Check(PlaceEffect,{...observe,view:'Through the open doorway from the actual counter.'}));
+    assert(!Check(PlaceEffect,{...observe,view:'x'.repeat(601)}));
     const packet=turnPacket(JSON.stringify({version:4,commands:[observe]}));
     assert.deepEqual(compileTurnPacket(packet).effects,[observe]);
     assert(Check(turnPacketParameterSchema(false,undefined,undefined,false,undefined,true),packet));

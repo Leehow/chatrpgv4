@@ -20,7 +20,7 @@ export const PlaceEffect=Type.Union([
     Type.Object({kind:Type.Literal('place'),action:Type.Literal('feature'),to:name(),at:name(),state:Type.Optional(fact()),passable:Type.Optional(Type.Boolean())},{additionalProperties:false}),
     Type.Object({kind:Type.Literal('place'),action:Type.Literal('relate'),relations,additions},{additionalProperties:false,description:'Establish minimal directed sight/hearing relations; no movement or player observation.'}),
     Type.Object({kind:Type.Literal('place'),action:Type.Literal('observe'),to:name(),at:Type.Optional(name()),sense:sense(),access:Type.Union([Type.Literal('clear'),Type.Literal('limited'),Type.Literal('blocked')]),
-        scope:observedFact(),facts:Type.Array(observedFact(),{maxItems:6}),reason:Type.Optional(observedFact()),people:Type.Optional(Type.Array(name(),{maxItems:8})),situations:Type.Optional(Type.Array(ObservedSituation,{maxItems:4})),
+        scope:observedFact(),facts:Type.Array(observedFact(),{maxItems:6}),view:Type.Optional(Type.String({minLength:1,maxLength:600,description:'Compatible sensory path from the actual current position to this target, through any door or window. Seeds a missing relation; reuses an existing one. Does not move the observer.'})),reason:Type.Optional(observedFact()),people:Type.Optional(Type.Array(name(),{maxItems:8})),situations:Type.Optional(Type.Array(ObservedSituation,{maxItems:4})),
         relations:Type.Optional(relations),additions},{additionalProperties:false,description:'Record actual selected perception from the current position. Missing compatible layout can be supplied inline. People stay at the target; blocked attempts establish no target facts.'}),
 ]);
 export const PlaceChange=Type.Union(PlaceEffect.anyOf.map(effect=>{

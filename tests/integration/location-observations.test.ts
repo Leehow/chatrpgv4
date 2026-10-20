@@ -118,3 +118,28 @@ test('observation writes are atomic, replayable and additive to old schema-1 loc
     assert.equal((await k.tableErr('apply',{call_id:'t2-c1',effects:[initial]})).details.reason,'location_mod_inactive');
     assert.equal(locations(k).places[0].id,identity);
 });
+
+test('an ordinary view derives the actual counter position without registering its doorway as a viewpoint',async t=>{
+    const k=await kernel(t);await street(k);
+    await k.table('narrate',{call_id:'t1-c2',text:'The entrance is visible from the inn.'});
+    await k.table('player_input',{text:'I stay at the counter and look outside through the doorway.'});
+    await k.table('apply',{call_id:'t2-c1',effects:[{kind:'place',action:'move',to:'Inn room',at:'counter',relation:'beside',via:'Inside the inn',travel_band:'adjacent',
+        additions:[{name:'Inn room',features:[{name:'counter',description:'A counter opposite the entrance.'}]}]}]});
+    const before=world(k),wrong={...relation,from:{place:'Inn room',at:'doorway'}};
+    const rejected=await k.tableErr('apply',{call_id:'t2-c2',effects:[{...initial,relations:[wrong]}]});
+    assert.equal(rejected.details.reason,'place_observation_point_unresolved');assert.equal(rejected.details.field,'relations[0].from');
+    assert.deepEqual(rejected.details.current_viewpoint,{place:'Inn room',at:'counter'});
+    assert.match(rejected.fix,/features/);assert.match(rejected.fix,/not as a child place/);assert.match(rejected.fix,/use view/);
+    assert.deepEqual(world(k),before);
+    const child=await k.tableErr('apply',{call_id:'t2-c2',effects:[{...initial,relations:[wrong],additions:[{name:'doorway',within:'Inn room',description:'The open doorway.'}]}]});
+    assert.equal(child.details.reason,'place_observation_point_unresolved');assert.deepEqual(world(k),before);
+    const description='From the counter, the open doorway shows the pavement at the entrance.';
+    const result=await k.table('apply',{call_id:'t2-c2',effects:[{...initial,view:description}]});
+    assert.deepEqual(result.outcomes[0].observation.from,{place:'Inn room',at:'counter'});
+    assert.deepEqual(locations(k).position,before.mods.state['enhanced-locations'].locations.position);
+    assert.equal(locations(k).relations.length,1);assert.equal(locations(k).relations[0].description,description);
+    assert.equal(locations(k).features.some((feature:Row)=>feature.name==='doorway'),false);
+    assert.equal(locations(k).places.some((place:Row)=>place.name.endsWith('doorway')),false);
+    await k.table('apply',{call_id:'t2-c3',effects:[{...initial,view:'The same view through the entrance from beside the counter.'}]});
+    assert.equal(locations(k).relations.length,1);assert.equal(locations(k).relations[0].description,description,'a new wording reuses established layout');
+});

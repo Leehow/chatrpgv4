@@ -303,3 +303,28 @@ issue closure or retained-evidence deletion was performed.
 - Evidence root: `.coc/test-runs/enhanced-locations-observations-20261019/`.
   Real player use, full regression, final seam audit and canonical App package/UI
   testing remain required. The earlier accepted campaigns and raw failures remain.
+
+### First real observation and corrective interface
+
+The actual MiniMax M3.1/medium input at the pharmacy counter failed before any
+settlement (`enhanced-locations-observation-live-20261019`, local turn 1 / global
+22). The Keeper used an unregistered doorway as its source while the party stayed
+at the counter, then added a child place instead of a local feature. Raw attempts,
+`place_observation_point_unresolved`, the repeated-parameter stop and zero receipts
+remain retained. That input is failure evidence, not a successful observation.
+
+Enhanced Locations 1.1.1 adds `view` for a sensory path from the canonical current
+position, reusing an existing relation. Explicit relation endpoints remain strict;
+the correction now names the actual viewpoint and explains feature registration.
+Native wrapping retains the kernel cause instead of replacing it with a packet
+phase. The dedicated registration-cause caption is projected by a real tool-enabled
+MiniMax presenter; no hand-authored language table was added.
+
+Kernel typecheck, four observation interface cases, fourteen UI/language guards
+and the quick gate 130/130 pass. Two native observation/author components pass;
+the new concrete-failure notice component also passes (`native-failure-5.log`).
+Its two initial fixture runs omitted required scene assessment and exhausted their
+controlled response queue; preserve them as invalid for the intended assertion.
+The new counter/doorway RPC regression, current full regression, real continuation
+and canonical App acceptance remain open. Concurrent dialogue work was committed
+independently as `e49911ca6`; its changes were not absorbed into this repair.

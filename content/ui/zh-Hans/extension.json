@@ -101,5 +101,6 @@
   "turn_failure_operation": "「{operation}」这一步失败（错误：{code}）。打开技术细节查看记录的原因。",
   "turn_failure_output_path": "最终回应无法写入，因为它的输出路径不是目录（ENOTDIR）。",
   "turn_failure_settlement_kept": "已经结算的行动予以保留。",
-  "turn_failure_settlement_unknown": "结算状态无法核实。"
+  "turn_failure_settlement_unknown": "结算状态无法核实。",
+  "turn_failure_observation_point": "由于其指定的地点或局部要素尚未登记，该观察记录无法保存。地点参数需要修正；这并不表示故事中确实存在实体障碍。"
 }

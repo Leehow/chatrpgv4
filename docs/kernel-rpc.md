@@ -49181,7 +49181,7 @@ elapsed fictional time, persisted consequences and delivered limited knowledge.
 Adding unused graph fields, synthesizing an incident in a test script, or passing
 only structural tests is not live acceptance.
 
-Enhanced Locations 1.1.0 requires `locations.observation.v1` as well as
+Enhanced Locations 1.1.1 requires `locations.observation.v1` as well as
 `locations.v1`. Its state version and location schema remain 1: optional arrays
 `relations`, `situations` and `observations` are additive. Old packages and old
 campaign state remain valid; normal Mod configuration adopts the new immutable
@@ -49205,13 +49205,31 @@ The same `PlaceEffect`, transaction and admission support two additional actions
   structural redefinition is an argument correction, not a new physical barrier.
   This is Keeper world authoring, like establishment, not player construction.
 - `observe`: `to`, optional target `at`, `sense`, `access:clear|limited|blocked`,
-  `scope`, `facts`, optional `reason`, `people`, `situations`, `relations` and
+  `scope`, `facts`, optional `view`, `reason`, `people`, `situations`, `relations` and
   `additions`. The host obtains the source point from the actual party position.
   Compatible missing places/features/relations can be added in this command;
   no earlier inspect or graph-registration ritual is required. Cross-place
   observation needs a matching directed relation from that actual viewpoint.
   A local observation needs no cross-place relation. A missing relation requests
   its logical definition, never asserts the destination is invisible in fiction.
+
+For ordinary cross-place observation, `view` is a bounded compatible sensory-path
+description. If no matching relation exists, the host records that path using
+the actual current viewpoint, requested target and sense. Existing matching
+relations are reused; a paraphrased `view` does not redefine them. A door or
+window along the path belongs in that description, not in the observer's `at`
+unless the party actually moved there. Explicit `relations` remain available
+for other viewpoints and retain exact endpoint validation. Missing `at` features
+are added under `additions[].features`, never as child places. Corrections include
+the actual viewpoint and distinguish the missing local-feature definition.
+
+The first real observation on 1.1.0 exposed that endpoint burden: the Keeper
+used a narrative doorway as its source while the party remained at a counter,
+then registered a child place instead of a feature. All attempts rolled back.
+Version 1.1.1 fixes the interface, preserving immutable installed 1.1.0 packages.
+Native argument wrapping preserves the original kernel reason and records its
+packet phase separately. A missing observation point receives a projected
+specific registration-cause caption in the player notice; raw details stay folded.
 
 `scope` states the actual observed portion; a named target feature gives that
 portion durable identity. A sight of one street corner never updates the whole
@@ -49312,6 +49330,11 @@ knowledge/state separation. Their continuous real-time simulation differs from
 this TRPG: here the existing Keeper establishes compatible bounded progress when
 needed. Neither precedent supplies permission for secret disclosure or a
 deterministic time-to-event table.
+
+Unreal's [Line Of Sight To](https://dev.epicgames.com/documentation/en-us/unreal-engine/BlueprintAPI/Controller/LineOfSightTo)
+also defaults the viewpoint to the observer's current eye position. This supports
+host-derived observation origins; its geometric visibility checks are not copied
+into a semantic TRPG world.
 
 - https://docs.openra.net/en/playtest/traits/#frozenunderfog
 - https://github.com/0ad/0ad/blob/master/binaries/data/mods/public/simulation/components/Fogging.js

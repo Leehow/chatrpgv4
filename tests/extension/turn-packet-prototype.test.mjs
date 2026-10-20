@@ -97,7 +97,7 @@ test('a cross-place observation reaches the actual sole author without moving th
    {kind:'place',action:'move',to:'Office annex',at:'glass partition',relation:'beside',via:'Through the side door into the annex',travel_band:'adjacent',
     additions:[{name:'Office annex',within:office,description:'A small waiting annex beside the office.',features:[{name:'glass partition',description:'A clear glass panel.',state:'closed',passable:false}]}]},
    {kind:'place',action:'observe',to:office,sense:'sight',access:'limited',scope:'Only the desk visible through the glass.',facts:['The same visitor remains beside the original desk.'],people:[ref],
-    relations:[{from:{place:office+' / Office annex',at:'glass partition'},to:{place:office},sense:'sight',description:'The annex glass panel shows the office desk.'}]},
+    view:'The annex glass panel shows the office desk from the current position.'},
    {kind:'scene',service:'open',crowd:'empty'}]})],{stopReason:'toolUse'})]});
  t.after(()=>table.dispose());
  const before=await table.runtimeBridges().at(-1).call('table.capsule',{campaign:'test-camp'});office=before.where.scene;ref=before.present.find(person=>person.name==='Steven Knott').ref;

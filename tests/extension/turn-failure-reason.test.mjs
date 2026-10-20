@@ -55,6 +55,26 @@ test('native missing output identifies the failed publication stage instead of a
  assert.match(JSON.stringify(notice.details.failure),/native_output_missing/);
 });
 
+test('a native observation point refusal preserves its concrete registration cause in the player notice',async t=>{
+ let office;
+ const env={PI_COC_LOOP_ENGINE:'hybrid-v1',PI_COC_TURN_PACKET_PROTOTYPE:'1',PI_COC_JEV_PRESELECT:'0',PI_COC_MATERIAL_SCREEN:'0',EXT_JEV_APIKEY:undefined,TYPESAFE_API_KEY:undefined};
+ const engine=createHybridEngine({env,decision:{decide:async batch=>{
+  const result=answer(batch);
+  if(batch.family==='continuous-action-admission')for(const question of batch.questions)if(question.type==='noul')result.answers[question.key].noul=question.key.startsWith('restriction_')?.01:.99;
+  return result;
+ }}});
+ const observation=()=>fauxAssistantMessage([fauxToolCall('output',{version:4,commands:[{kind:'place',action:'observe',to:office,at:'unregistered doorway',sense:'sight',access:'clear',scope:'The doorway.',facts:['The door is open.']},{kind:'scene',service:'open',crowd:'quiet'}]})],{stopReason:'toolUse'});
+ const table=await openTable({legacyDeliveryFixtures:false,realKernel:true,prepareWorkspace:opened,env,runDriver:engine.runDriver,
+  extraExtensions:[{name:'engine',factory:engine.extension}],responses:[observation,observation]});
+ t.after(()=>table.dispose());office=(await table.runtimeBridges().at(-1).call('table.capsule',{campaign:'test-camp'})).where.scene;
+ await table.session.prompt('I stay here and look through the doorway.');
+ await waitFor(()=>notices(table).length===1,{label:'the concrete observation registration cause'});
+ const notice=notices(table)[0];assert.ok(notice.content.includes(uiSeed.turn_failure_observation_point));
+ assert.ok(notice.content.includes(uiSeed.turn_failure_no_settlement));assert.equal(notice.details.failure.settled_receipts,0);
+ assert.match(JSON.stringify(notice.details.failure),/place_observation_point_unresolved/);
+ assert.doesNotMatch(notice.content,/turn_packet_parameters|[{}]/);assert.deepEqual(table.extensionErrors,[]);
+});
+
 test('native output refusal reaches the player with its actual consent cause and no invented settlement',async t=>{
  const env={PI_COC_LOOP_ENGINE:'hybrid-v1',PI_COC_TURN_PACKET_PROTOTYPE:'1',PI_COC_JEV_PRESELECT:'0',PI_COC_MATERIAL_SCREEN:'0',EXT_JEV_APIKEY:undefined,TYPESAFE_API_KEY:undefined};
  const engine=createHybridEngine({env,decision:{decide:async batch=>answer(batch)}});

@@ -94,6 +94,7 @@
   "table_value_unknown": "?",
   "turn_failure_output_path": "The final response could not be written because its output path is not a directory (ENOTDIR).",
   "turn_failure_admission": "The action review could not confirm the selected action, so that action was not carried out.",
+  "turn_failure_observation_point": "The observation could not be recorded because its requested place or local feature is not registered. The location parameters need correction; this does not establish a physical obstruction in the story.",
   "turn_failure_invalid_output": "The final response could not be read because its structured output was invalid.",
   "turn_failure_interrupted": "The response was interrupted before completion.",
   "turn_failure_missing_output": "The Keeper ended its response without submitting a final result.",

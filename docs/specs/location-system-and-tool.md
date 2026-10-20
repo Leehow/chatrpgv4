@@ -333,7 +333,7 @@ If a corner later needs an independent persistent identity, promote the existing
 The owner extended the work to a location association graph and repeated
 observations of the same incident from different places, then requested a wiring
 audit, canonical App rebuild/package and actual App testing. Contract section
-243 owns the exact shape; this is Enhanced Locations 1.1.0, not a parallel
+243 owns the exact shape; this is Enhanced Locations 1.1.1, not a parallel
 movement/event engine.
 
 Existing place identity/containment remains the graph foundation. Typed directed
