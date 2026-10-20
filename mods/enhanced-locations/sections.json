@@ -7,8 +7,7 @@
     },
     {
       "heading": "Place description for the author",
-      "triggers": ["before_apply:place"],
-      "kind": "situational"
+      "kind": "reference"
     },
     {
       "heading": "Identity and structure",

@@ -64,6 +64,7 @@ MOD_CAPABILITIES.add(MOOD_CAPABILITY);
 MOD_CAPABILITIES.add(VARIATION_CAPABILITY);
 /** Contract §183.1: a package declares the sections of its instruction, so a table over the instruction budget can index it. */
 MOD_CAPABILITIES.add(SECTIONS_CAPABILITY);
+MOD_CAPABILITIES.add('instructions.sections.reference.v1');
 MOD_CAPABILITIES.add(DISCOVERY_CAPABILITY);
 /** Contract §23.5: a player-only game clock following the transcript viewport. */
 MOD_CAPABILITIES.add("ui.clock.v1");
@@ -877,7 +878,7 @@ function instructionRows(effective: Row[], world: Row): Row[] {
             base = { mod: mod.id, version: mod.version, settings: world.mods.active[mod.id].settings };
         const sections=sectioned(mod)?packageSections(mod):[];
         const discovery=sections.some(section=>section.index_contract_version===2);
-        if (!array(mod.requires).includes(LOCATIONS_CAPABILITY) && !discovery && (!sectioned(mod) || total + bytes <= budget)) {
+        if (!array(mod.requires).includes(LOCATIONS_CAPABILITY) && !discovery && !sections.some(section=>section.kind==='reference') && (!sectioned(mod) || total + bytes <= budget)) {
             total += bytes;
             const screening=sections.length?materialScreenRanges(text,sections):undefined;
             return { ...base, form: "full", instruction: text, ...(screening?{material_screen:screening}:{}) };

@@ -1,16 +1,29 @@
 {
   "id": "enhanced-locations",
-  "version": "1.1.12",
+  "version": "1.1.13",
   "game_api": "pipicoc.game.v1",
   "state_version": 1,
   "author": "PipiCOC",
   "name": "Enhanced Locations",
   "description": "Persistent places, sensory relations and observation continuity for open exploration.",
   "default_enabled": true,
-  "requires": ["locations.v1", "locations.observation.v1", "locations.observation.v2", "mods.package-files.v1", "instructions.sections.v1"],
-  "package_files": ["agent.md", "sections.json"],
+  "requires": [
+    "locations.v1",
+    "locations.observation.v1",
+    "locations.observation.v2",
+    "mods.package-files.v1",
+    "instructions.sections.v1",
+    "instructions.sections.reference.v1"
+  ],
+  "package_files": [
+    "agent.md",
+    "sections.json"
+  ],
   "dependencies": {},
   "conflicts": [],
   "settings": {},
-  "contributes": {"instructions": "agent.md", "sections": "sections.json"}
+  "contributes": {
+    "instructions": "agent.md",
+    "sections": "sections.json"
+  }
 }

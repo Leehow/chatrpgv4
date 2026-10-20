@@ -16,6 +16,7 @@ import type { ModuleGraph } from "./module-graph.js";
 import { array, row, string, number, integer, numeric, type Row } from "./values.js";
 
 export const SECTIONS_CAPABILITY = "instructions.sections.v1";
+export const REFERENCE_SECTIONS_CAPABILITY = "instructions.sections.reference.v1";
 export const DISCOVERY_CAPABILITY = "instructions.discovery.v1";
 /** The UTF-8 bytes of package instructions a request carries whole before sectioned packages go indexed (§183.3). */
 export const INSTRUCTION_BUDGET = 65536;
@@ -45,7 +46,7 @@ function refuse(manifest: Row, message: string, details: Row = {}): never {
 
 export type Section = {
     readonly heading: string | null;
-    readonly kind: "resident" | "situational";
+    readonly kind: "resident" | "situational" | "reference";
     readonly topics: readonly string[];
     readonly gates: readonly string[];
     readonly triggers: readonly string[];
@@ -112,9 +113,12 @@ export function parseSections(manifest: Row, raw: unknown, markdown: string): Se
             refuse(manifest, `two entries name ${heading === null ? "the preamble" : `"## ${heading}"`}`, { entry: at, heading });
         seen.add(heading);
         const kind = entry.kind;
-        if (kind !== "resident" && kind !== "situational")
-            refuse(manifest, `section ${at}: kind is resident or situational`, { entry: at, kind: kind ?? null });
+        if (kind !== "resident" && kind !== "situational" && kind !== "reference")
+            refuse(manifest, `section ${at}: kind is resident, situational or reference`, { entry: at, kind: kind ?? null });
         const has = (key: string) => Object.hasOwn(entry, key);
+        if(kind==='reference'&&(!array(manifest.requires).includes(REFERENCE_SECTIONS_CAPABILITY)
+            ||Object.keys(entry).some(key=>!['heading','kind'].includes(key))))
+            refuse(manifest, `section ${at}: a reference section requires ${REFERENCE_SECTIONS_CAPABILITY} and has no automatic selectors`, {entry:at});
         if (kind === "resident" && ["topics", "gates", "triggers", "topic_threshold","applicability","category","dependencies"].some(has))
             refuse(manifest, `section ${at}: a resident section rides every turn and names no topics, gates or triggers`, { entry: at });
         const list = (key: string): unknown[] => {

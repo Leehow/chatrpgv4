@@ -50038,3 +50038,19 @@ ordinary destination and supplier before a later service transaction. Read the
 successful result before relying on it. An inquiry alone still authorizes no
 purchase or consumption; enhanced location details remain in the final packet.
 
+An indexed instruction section may use kind reference with the required
+instructions.sections.reference.v1 capability. It has no topics, gates, triggers
+or discovery selectors and is never automatically selected. Its issued key,
+heading and byte count remain in the locked package index for explicit
+mods.sections reads. A package containing reference sections is always indexed,
+even within the whole-instruction budget. Enhanced Locations uses this for the
+sole author's place-description craft: the Keeper carries its index, while the
+existing author resolver loads its text exactly once when needed. No audience
+classifier, additional model phase or new content-reading RPC is introduced.
+
+Covered-service quotation recovery preserves the player's action order and all
+unmet prerequisites. A selected expense does not establish present readiness.
+The recovery must direct completion of selected movement or waiting before
+settlement when required, never command immediate consumption or replay an
+unchanged refused transaction. Coverage arithmetic and consent thresholds stay
+unchanged.

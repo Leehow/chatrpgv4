@@ -72,6 +72,9 @@ test('a mistaken synchronous quote for a chosen covered service is corrected, th
   t.after(()=>table.dispose());
   await table.session.prompt('Fill the tank; it needs three gallons.');
   await waitFor(()=>assistantTexts(table.session).some(s=>s.includes('total 1.71')),{label:'bound completed fill-up'});
+  const correction=table.session.messages.find(message=>message.role==='toolResult'&&message.details?.coc_error?.details?.reason==='chosen_covered_quote')?.details.coc_error;
+  assert.ok(correction);assert.match(correction.fix,/selected order and unmet prerequisites/);
+  assert.match(correction.fix,/arrival or waiting/);assert(!correction.fix.includes('narrate completion now'));
   const record=JSON.parse(await readFile(join(table.workspace,'.coc/campaigns/test-camp/turns/0001.json'),'utf8'));
   assert.equal(record.receipts.filter(r=>r.kind==='cash').length,1);
   assert.equal(record.receipts.find(r=>r.kind==='cash').delta,0);
