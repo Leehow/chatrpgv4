@@ -49403,6 +49403,12 @@ plus an explicitly ordered prefix; batch and line reuse keys include that order.
 The existing selection and restriction questions and thresholds remain binding;
 place-family version 11 adds this execution context without another veto axis.
 
+The sole author renders the committed observation findings that answer the
+selected look or listen. The facts live in result.outcomes[].observation.facts;
+the identity-only decision_context.observations index does not replace them.
+Ambient room prose and a separate NPC response cannot stand in for this answer.
+This is author guidance, not another semantic completion gate.
+
 The transaction analogy is limited: [PostgreSQL](https://www.postgresql.org/docs/current/transaction-iso.html)
 and [SQLite](https://www.sqlite.org/isolation.html) both let later operations see
 their own transaction's earlier writes. This supports ordered staging, but says

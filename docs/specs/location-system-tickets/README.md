@@ -427,3 +427,14 @@ two questions, thresholds and normal refusal behavior remain. Focused admission,
 line concurrency/reuse and language tests pass 44/44. A fresh natural wait/look
 is running through the canonical source driver; current full LAN and packaged
 UI acceptance remain open. No controlled fixture is live-play evidence.
+
+Source global turn 31 now commits the explicit five minutes and observes the
+same npc_13 at game minute 222, from the unchanged tea-shop window. Consent is
+authorized on both lines (selection .93/.83, restriction .13/.19). One preceding
+attempt failed on an unissued communication reference and a malformed retry;
+it remains intact with no settlement. The final-author task contains the full
+committed street facts, but its delivered prose omitted them in favor of an
+unrelated tea offer. This is not complete narrative acceptance. The existing
+location author note now positively asks for the selected observation findings,
+without adding a review gate or changing the other task's dialogue constraints.
+The author component suite passes; packaged real continuation is still required.
