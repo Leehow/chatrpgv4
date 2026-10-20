@@ -25,6 +25,9 @@ export function operationOutcomes(receipts:Row[],graph:ModuleGraph,world:Row):Ro
             ...(receipt.observation?{observation:publicObservation(graph,world,receipt.observation)}:{}),
             ...(receipt.position?{position:receipt.position}:{}),...(receipt.feature?{feature:receipt.feature,state:receipt.after}:{}),
             ...(receipt.added?.length?{added:receipt.added}:{}),...(receipt.features?.length?{features:receipt.features}:{})}];
+        if(kind==='item'&&typeof receipt.instance!=='string'&&receipt.quantity!==undefined)return [{kind,status:'changed',
+            name:receipt.label??receipt.name,from:owner(receipt.from_id,receipt.from_label??receipt.from),to:receipt.subject_label??receipt.subject,
+            quantity:receipt.quantity,before:receipt.before,after:receipt.after,...(receipt.why?{purpose:receipt.why}:{})}];
         if(kind==='item'&&typeof receipt.instance==='string')return [{kind,status:receipt.offer==='made'||receipt.offer==='declined'?'unchanged':'changed',
             name:receipt.label??receipt.name,from:owner(receipt.from_id,receipt.from_label??receipt.from),to:owner(receipt.subject,receipt.subject_label),
             quantity:receipt.quantity,...(receipt.offer?{offer:receipt.offer}:{})}];

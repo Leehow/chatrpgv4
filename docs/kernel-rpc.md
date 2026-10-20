@@ -50014,3 +50014,17 @@ an earlier prerequisite, but payment or elapsed time alone does not prove arriva
 seating, delivery of food or any other unrecorded action. No uncertain verdict is
 automatically retried or promoted. This repairs supplied evidence, not a specific
 restaurant or probability.
+
+### Ordinary delivery and consumption
+
+Quantity-based equipment changes use the existing item transaction owner. Its
+public outcomes must retain signed quantity, before/after holdings, the current
+public supplier and recipient, and the settled effect's reason as purpose.
+The same projection serves immediate apply results and frozen final preparation.
+A gain followed by a consumption remains two executed transitions even when
+final holdings return to zero. Managed-instance transfers keep their existing
+projection; keeper-only receipts remain excluded. The author packet preserves
+these public outcome fields and does not infer consumption from a negative
+quantity without its actual purpose. Payment and elapsed time alone never prove
+delivery or consumption. The location Mod guides an ordinary chosen service to
+these existing effects; no service simulator or new intention ledger is added.
