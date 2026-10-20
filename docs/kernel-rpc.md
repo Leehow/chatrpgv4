@@ -49267,6 +49267,30 @@ previewing a later purchase; they do not approximate a new journey's clock.
 
 ### 242.6. Failure follow-up
 
+**Native service context parity (2026-10-20).** A visit can include a chosen
+purchase, quotation or NPC handover. The native admission producer must retain
+the existing actual-cost policy and its kernel preview on the corresponding
+cash line, the existing closed-field acting-party attribution on a handover,
+and current-input refused proposals. The same typed reviewer reads these facts;
+the Keeper still performs independently admitted operations through ordinary
+apply/place. A nominal covered price is not an actual purse withdrawal. NPC
+initiative does not imply player acceptance, payment or an unwanted bargain.
+Uncertainty and explicit restrictions retain the unchanged .60/.40 gates.
+No cost arithmetic, semantic classification or automatic settlement moves to
+the host. Reworded refusals remain refusals, never receipts.
+After a current-input negative or uncertain action review, suspend the optional
+quote-to-settlement correction. A quote may retain an offer without transferring
+goods or debiting cash; every later actual settlement still requires its normal
+independent admission. Do not use a narrower hypothetical cash-only review to
+force a previously refused complete service back into execution.
+
+Containment names are graph identities, not filesystem paths. A new standalone
+place omits within or uses JSON null; no root-path sentinel is invented or
+silently converted. The demand-loaded location instructions and native schema
+must state this at the new-place entry point. A door approach may use an
+established local feature and relation; bare location arrival does not itself
+grant entry through a closed barrier.
+
 An atomic canonical `apply` validation refusal with `unknown_entity` is an uncommitted
 attempt, including an invalid object-owner reference. Native publication can
 carry that bounded failed-attempt projection alongside actual current state and

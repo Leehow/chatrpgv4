@@ -2550,6 +2550,8 @@ export default function (pi: ExtensionAPI, host: {capabilities?:RuntimeCapabilit
     }
     async function correctCoveredQuote(state:TableState,payload:Record<string,any>,signal?:AbortSignal,providerBudget?:TaskProviderBudget):Promise<void> {
         if(!state.playerText||!sessionCtx)return;
+        // A quotation grants no execution authority; never force a refused service back into settlement.
+        if(state.admissionRefused.length)return;
         for(const effect of Array.isArray(payload.effects)?payload.effects:[]){
             if(effect?.kind!=='cash'||effect.mode!=='quote'||!Array.isArray(effect.items))continue;
             const candidate={...effect,mode:'settle',bill:effect.bill??effect.quote};delete candidate.quote;delete candidate.settlement;

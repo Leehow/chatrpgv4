@@ -528,3 +528,27 @@ cf137aa97 full LAN all ended red in1220s: background-pressure fixture already fi
 The unchanged setup-card focus passes1/1 in1703ms; the earlier full-run cap refusal remains retained and no setup code, cap or fixture changed. Further deduplication in Mod1.1.23 preserves travel/service order, item delivery and consumption, unknown cash preview recovery and receipt rules. Restore the original240KiB positive fixture input as well; verify it on clean source before claiming that no byte budget grew. Shared-source Mod behavior16/16 and asker-coexistence1/1 pass.
 
 ac6ea5277 clean focused run passes all but the synthetic240KiB traffic positive: its measured fixed floor remains247286B even after Mod23 deduplication. Do not continue a peripheral compression loop or delete required observation fields. Use the already-validated248KiB input for this positive fixture, retaining all pressure/clipping assertions and the unchanged below-floor refusal case. No production context cap, Mod section cap, .60/.40 admission boundary or120s live criterion changes. This is an explicit fixture input correction, not a pass claim for the240KiB run. The Mod/NPC coexistence regression passes in clean source.
+
+Canonical a830c53c0 / Enhanced Locations1.1.23 turn32 completed61.945s,
+zero tool errors: counter move, absolute wait to19:15, return and observation.
+Turn33 ended naturally334.798s with8 UI tool failures. Initial place used
+within:"/" and failed atomically; corrected place succeeded. The later purchase,
+not the move, was refused; the earlier doorway-refusal hypothesis is disproved.
+The quote corrector then demanded settlement despite the current-input refusal,
+causing repeated contradictory service retries. Native admission also dropped
+legacy cost-preview policy and closed-field NPC agency from typed operations.
+Add their existing meaning plus retained refusal context, never infer consent.
+Suspend the optional quote conversion after a negative/uncertain action review;
+a quote still spends/transfers nothing. Demand-loaded Mod1.1.24 clarifies exact
+parent names/null and explicit outside feature position without a root sentinel.
+
+New service-context regression first failed because native cash policy was absent.
+Real-RPC quote-after-refusal regression first failed (no delivery), then passed
+with conversion suspended; existing chosen-covered-service correction still passes.
+Read-only live-Jev controls service33-native-context-results.json (not acceptance):
+explicit complete bread purchase authorized; original availability question still
+refused/held, price-only/no-purchase refuse, unaccepted actual debit holds, NPC
+giving requested bread admits and explicit refusal rejects. No threshold changes.
+Do not force an ambiguous inquiry into a purchase to make this trace green.
+Latest a830 full LAN run captured source19:36:45Z; source snapshot is complete
+before advancing the clean frozen local checkout. Full result remains pending.

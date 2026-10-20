@@ -607,8 +607,11 @@ export function admissionRequest(tool: string, payload: Record<string, unknown>,
 		const key = canonical({ tool, effects: ordered ? signatures : signatures.sort(), destinations: scope.destinations ?? [], ...(scope.selectedDocumentRecording?{selectedDocumentRecording:true}:{}), ...(scope.cash ? {cash:scope.cash} : {}) });
 		// The key stays the whole batch's (§32.4); the lines are only the reviewed effects (§32.12.3).
 		return { tool: "apply", key, ...(ordered ? { ordered: true as const } : {}), lines: shown.map((index) => describe(effects[index]!)), kinds: shown.map((index) => text(effects[index]!.kind) ?? "?"), effects: shown,
-			operations:shown.map(index=>{const effect=effects[index]!,registered=effect.kind==='move'||effect.kind==='place'?destination(effect):undefined;
+			operations:shown.map((index,lineIndex)=>{const effect=effects[index]!,registered=effect.kind==='move'||effect.kind==='place'?destination(effect):undefined;
+				const acting=effectActingParty(effect,scope.party);
 				return {...Object.fromEntries(Object.entries(effect).filter(([key,value])=>!key.startsWith('_')&&value!==undefined)),
+					...(acting?{acting_party:acting}:{}),
+					...(effect.kind==='cash'&&scope.cash?{registered_cash_context:{previews:(scope.cash.previews??[]).filter((row:any)=>row.index===index).map((row:any)=>({...row,index:lineIndex})),quotes:scope.cash.quotes??[],consent_policy:CASH_CONSENT_POLICY}}:{}),
 					...(registered?{registered_destination:registered}:{})};}),
 			signatures: lineSignatures, ...(scope.cash?{cash:{...scope.cash,previews:(Array.isArray(scope.cash.previews)?scope.cash.previews:[]).flatMap((row:any)=>shown.includes(row.index)?[{...row,index:shown.indexOf(row.index)}]:[])}}:{}) };
 	}
@@ -1313,7 +1316,8 @@ export async function reviewAdmissionJevOnly(options:PrimaryAdmissionReviewOptio
     |{ok:false;reason:string;ms:number;meta:Record<string,unknown>}> {
     const clock=options.clock??hostClock,began=clock.now(),context=options.context;
     const nativeLocation=options.proposal.operations?.some(operation=>operation.kind==='place');
-    const family='continuous-action-admission',version=nativeLocation?'17':context.currentPosition?'15':context.currentClock?'13':options.proposal.ordered||options.proposal.kinds?.includes('place')?'12':'7';
+    const serviceContext=options.proposal.operations?.some(operation=>operation.registered_cash_context||operation.acting_party);
+    const family='continuous-action-admission',version=serviceContext?'18':nativeLocation?'17':context.currentPosition?'15':context.currentClock?'13':options.proposal.ordered||options.proposal.kinds?.includes('place')?'12':'7';
     let mechanicsChoice:{action:string;choice:{name:string;binds:string;options:string[];prompt?:string}}|undefined;
     let mechanicsInput=false,mechanicsBinding:string|undefined;
     try{
@@ -1355,6 +1359,7 @@ export async function reviewAdmissionJevOnly(options:PrimaryAdmissionReviewOptio
         previous_public:knownJourneys?decisionRecentPublic(context.delivered):context.delivered.slice(-2).map(row=>({turn:row.turn,player:row.player??null,
             ...(publicDialogue(row.speech).length?{speech:publicDialogue(row.speech)}:{})})),
         settled_this_turn:context.landed,
+        ...(context.refused.length?{refused_this_turn:context.refused}:{}),
         ...(context.corrections?.length?{argument_corrections:context.corrections}:{}),
         proposal:{tool:options.proposal.tool,lines:nativeLocation&&typedLines?conditionalExecutionPositions(typedLines,options.proposal.preceding?.operations??[],context.currentPosition):typedLines??options.proposal.lines.map(continuousConsentLine),...(options.proposal.kinds?{kinds:options.proposal.kinds}:{}),
             ...(options.proposal.ordered?{execution:{order:'Earlier operations execute before later lines in this same proposed atomic batch.',
@@ -1366,6 +1371,11 @@ export async function reviewAdmissionJevOnly(options:PrimaryAdmissionReviewOptio
         scope:{owner:family,campaign:options.campaign,audience:'player'},
         readSet:[{kind:'draft',resource:'turn:'+context.turn+':consent',revision},{kind:'family',resource:family,revision:version}],
         state:state as DecisionBatch['state'],questions:continuousConsentQuestions(options.proposal.lines.map((_,index)=>options.proposal.kinds?.[index]??''),options.proposal.operations?.map(operation=>typeof operation.action==='string'?operation.action:undefined))};
+    for(const question of batch.questions){
+        const index=Number(question.key.slice(question.key.lastIndexOf('_')+1)),operation=options.proposal.operations?.[index];
+        if(operation?.registered_cash_context)question.instructions+=` Use this line's registered_cash_context kernel preview and actual delta. ${CASH_CONSENT_POLICY}`;
+        if(operation?.acting_party)question.instructions+=' acting_party names the non-investigator actor from this effect\'s closed fields. NPC initiative is not an investigator choice: giving or offering an object does not need a player request. Still require consent for the investigator\'s voluntary payment, promise, accepted bargain or keeping something explicitly refused. The actor label alone grants no such commitment.';
+    }
     if(options.proposal.ordered)for(const question of batch.questions){
         if(question.key.startsWith('restriction_'))question.instructions=String(question.instructions)
             +' Evaluate this line at its execution position in proposal.execution: after the listed preceding operations and earlier proposal.lines, conditional on their independent approval and validation. An explicitly selected wait or arrival in that prefix can satisfy its timing or position prerequisite; it need not have settled before this atomic batch is reviewed. Later lines and intentions outside the batch cannot satisfy an earlier prerequisite.';

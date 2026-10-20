@@ -112,6 +112,20 @@ test('a price-only question remains an offer and cannot complete or charge a cov
   assert.ok(!record.receipts.some(r=>r.kind==='flag'&&r.name==='tank-filled'));
 });
 
+test('a refused service can retain a quotation without a contradictory forced settlement',async t=>{
+  const bill={...expense('purchase'),bill:'Fill-up'};
+  const table=await openTable({realKernel:true,prepareWorkspace:ready,responses:[
+    fauxAssistantMessage([fauxToolCall('apply',{effects:[bill]})],{stopReason:'toolUse'}),
+    fauxAssistantMessage([fauxToolCall('apply',{effects:[{...bill,mode:'quote',quote:'Fill-up'}],narrate:'The attendant quotes the bill; the pump stays off.'}),fauxToolCall('output',{})],{stopReason:'toolUse'}),
+  ],laneResponses:{admission:[fauxAssistantMessage(JSON.stringify({verdict:'not_authorized',grounds:'The player asks whether service is available; completion is not selected yet.',missing:'resolve the availability question'}))]}});
+  t.after(()=>table.dispose());await table.session.prompt('Are you still open? I would like some gasoline.');
+  await waitFor(()=>assistantTexts(table.session).some(s=>s.includes('pump stays off')),{label:'offer after refused service'});
+  const record=JSON.parse(await readFile(join(table.workspace,'.coc/campaigns/test-camp/turns/0001.json'),'utf8'));
+  assert.equal(record.receipts.filter(r=>r.kind==='cash').length,1);
+  assert.equal(record.receipts.find(r=>r.kind==='cash').settlement,'quote');
+  assert.equal(table.session.messages.filter(m=>m.role==='toolResult'&&m.details?.coc_error?.details?.reason==='chosen_covered_quote').length,0);
+});
+
 test('decimal-string unit prices survive native tools, exact kernel settlement and bound NPC prose',async t=>{
   const bill={...expense('purchase'),bill:'Fill-up',items:[{name:'Gasoline',quantity:3,unit_price:'0.57'}]};
   const text='The attendant fills the tank. "Per gallon {{price:Fill-up:unit}}, total {{price:Fill-up:total}}."';
