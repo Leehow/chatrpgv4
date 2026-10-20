@@ -41,8 +41,9 @@ export function publicObservation(graph:ModuleGraph,world:Row,value:Row):Row {
 }
 /** Small current-viewpoint route index, never an automatic census of connected scenes. */
 export function observationRoutes(graph:ModuleGraph,world:Row):Row[] {
+    const relations=locationRelations(world);if(!relations.length)return [];
     const from=currentObservationPoint(graph,world);
-    return locationRelations(world).filter(relation=>covers(row(relation.from),from)).slice(0,8).map(relation=>({
+    return relations.filter(relation=>covers(row(relation.from),from)).slice(0,8).map(relation=>({
         to:clone(row(relation.to)),sense:relation.sense,description:relation.description,
         read:{op:'inspect',need:'observation',name:relation.to.place,...(relation.to.at?{at:relation.to.at}:{}),sense:relation.sense}}));
 }

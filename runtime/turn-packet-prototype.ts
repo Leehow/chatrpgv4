@@ -5,7 +5,7 @@ import {Errors} from 'typebox/value';
 import {StringEnum} from '@earendil-works/pi-ai';
 import {NPC_REFERENCE_PATTERN,isNpcReference} from './npc-references.ts';
 import {Interaction,ExistingCommunicationFact,bindCommunicationParameters,type DecisionBindings,type InteractionDecision} from './decision-content.ts';
-import {PlaceEffect} from '../shared/place-structures.ts';
+import {PlaceEffect,locationCommandEntry} from '../shared/place-structures.ts';
 const atom=(maxLength=160)=>Type.String({minLength:1,maxLength});
 
 const move=Type.Object({kind:Type.Literal('move'),to:atom(),via:Type.Optional(atom()),travel_band:Type.Optional(atom(64))},{additionalProperties:false});
@@ -25,6 +25,7 @@ const commandSchemas=[move,placeMove,...placeStationary,npc,walkOn,scene,time,re
 const commands=Type.Union([Type.Array(Type.Union([move,placeMove,postTravelTime,...placeStationary,npc,walkOn,scene,relationship]),{maxItems:12}),Type.Array(Type.Union([time,...placeStationary,npc,walkOn,scene,relationship]),{maxItems:12})]);
 /** A model decides communication; the sole author owns all complete wording. */
 export const TURN_PACKET_PARAMETERS=Type.Object({version:Type.Literal(4),commands:Type.Optional(commands),interactions:Type.Optional(Type.Array(Interaction,{maxItems:12})),reveal:Type.Optional(Type.Array(ExistingCommunicationFact,{maxItems:8}))},{additionalProperties:false});
+export const TURN_PACKET_ENTRY_PARAMETERS=locationCommandEntry(TURN_PACKET_PARAMETERS);
 export type ResponseDecision=InteractionDecision;
 export type TurnPacket=Static<typeof TURN_PACKET_PARAMETERS>;
 export type BoundTurnPacket=Omit<TurnPacket,'commands'>&{commands:Array<NonNullable<TurnPacket['commands']>[number]&{travel_minutes?:number}>};
@@ -100,7 +101,7 @@ export function turnPacketProviderPayload(payload:unknown,journeySettled=false,r
   let changed=false;
   const tools=payload.tools.map((tool:unknown)=>{
     if(!object(tool)||tool.name!=='output'||!object(tool.input_schema))return tool;
-    changed=true;return {...tool,input_schema:TURN_PACKET_PARAMETERS};
+    changed=true;return {...tool,input_schema:TURN_PACKET_ENTRY_PARAMETERS};
   });
   if(!changed)return payload;
   const schema=turnPacketParameterSchema(journeySettled,timeBands,moveChoices,sceneRequired,bindings,locations);

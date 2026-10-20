@@ -1,5 +1,6 @@
 /** Request-only location detail: canonical validators and raw messages stay complete. */
 import {Type} from 'typebox';
+import {locationCommandEntry} from '../../shared/place-structures.ts';
 type Row=Record<string,any>;
 const object=(value:unknown):value is Row=>!!value&&typeof value==='object'&&!Array.isArray(value);
 const action=Type.Union([Type.Literal('move'),Type.Literal('establish'),Type.Literal('feature'),Type.Literal('relate'),Type.Literal('observe')]);
@@ -9,20 +10,24 @@ const entry=Type.Object({using_skill:Type.Optional(Type.String()),op:Type.Union(
 /** Explicit properties keep object unions legible to provider tool serializers. */
 function declarationObject(schema:Row):Row {
     if(!Array.isArray(schema.anyOf)||!schema.anyOf.every((branch:Row)=>branch.type==='object'))return schema;
-    const properties:Row={};
+    const properties:Row={},variants=new Map<string,Map<string,unknown>>();
     for(const branch of schema.anyOf)for(const [key,value] of Object.entries(branch.properties??{})){
-        if(!properties[key])properties[key]=value;
-        else if(JSON.stringify(properties[key])!==JSON.stringify(value))properties[key]=Type.Union([properties[key],value]);
+        if(!variants.has(key))variants.set(key,new Map());
+        variants.get(key)!.set(JSON.stringify(value),value);
     }
+    for(const [key,values] of variants)properties[key]=values.size===1?[...values.values()][0]:Type.Union([...values.values()] as any);
     for(const key of Object.keys(properties))properties[key]=declarationObject(properties[key]);
     const required=(schema.anyOf[0].required??[]).filter((key:string)=>schema.anyOf.every((branch:Row)=>(branch.required??[]).includes(key)));
-    return {...schema,type:'object',properties,required,additionalProperties:false};
+    const branches=schema.anyOf.map((branch:Row)=>({type:'object',properties:Object.fromEntries(Object.entries(branch.properties??{}).map(([key,value]:[string,any])=>
+        [key,value.const!==undefined||Array.isArray(value.enum)?value:{}])),required:branch.required??[],additionalProperties:branch.additionalProperties??true}));
+    return {...schema,type:'object',properties,required,anyOf:branches,additionalProperties:false};
 }
 
 /** Like the existing apply capability envelope: the registered full validator is never changed. */
 export function locationToolDeclarations<T extends {name:string;parameters:any;description?:string}>(tools:readonly T[],detail=false):T[] {
     return tools.map(tool=>{
         if(tool.name==='place')return {...tool,parameters:detail?declarationObject(tool.parameters):entry};
+        if(tool.name==='output'&&!detail)return {...tool,parameters:locationCommandEntry(tool.parameters)};
         if(tool.name!=='apply'||!Array.isArray(tool.parameters?.properties?.effects?.items?.anyOf))return tool;
         const projected=structuredClone(tool),variants=projected.parameters.properties.effects.items.anyOf as Row[];
         const location=variants.filter(variant=>['move','place'].includes(variant.properties?.kind?.const??variant.properties?.kind?.enum?.[0]));

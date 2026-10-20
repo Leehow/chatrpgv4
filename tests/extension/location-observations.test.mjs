@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import {test} from 'node:test';
 import {Check} from 'typebox/value';
 import {PlaceEffect,PlaceParameters} from '../../shared/place-structures.ts';
-import {turnPacket,compileTurnPacket,turnPacketParameterSchema,turnPacketResult} from '../../runtime/turn-packet-prototype.ts';
+import {turnPacket,compileTurnPacket,turnPacketParameterSchema,turnPacketResult,turnPacketProviderPayload,TURN_PACKET_PARAMETERS,TURN_PACKET_ENTRY_PARAMETERS} from '../../runtime/turn-packet-prototype.ts';
 import {decisionCast,decisionObservationScope} from '../../runtime/isolated-expression.ts';
 import {locationToolDeclarations} from '../../extensions/table/location-context.ts';
 import {COC_TOOLS} from '../../extensions/kernel/tools.ts';
@@ -20,6 +20,22 @@ test('all entrances preserve the same typed observation and demand-only grammar'
     const small=locationToolDeclarations(COC_TOOLS,false).find(tool=>tool.name==='place').parameters;
     assert(Check(small,{op:'inspect',need:'observation',name:'Street'}));assert.equal(JSON.stringify(small).includes('assessed_clock'),false);
     assert(!Check(PlaceEffect,{...observe,teleport:true}));assert(!Check(PlaceEffect,{...observe,facts:['x'.repeat(601)]}));
+});
+test('disclosed location grammar is deduplicated and native location detail stays in its applicable request tail',()=>{
+    const canonical=COC_TOOLS.find(tool=>tool.name==='place').parameters;
+    const detailed=locationToolDeclarations(COC_TOOLS,true).find(tool=>tool.name==='place').parameters;
+    const {kind,...change}=observe;
+    assert(Check(canonical,{op:'submit',change}));assert(Check(detailed,{op:'submit',change}));
+    assert(JSON.stringify(detailed).length<JSON.stringify(canonical).length,'full detail must not duplicate its union beside a merged property copy');
+    const tools=[{name:'output',parameters:TURN_PACKET_PARAMETERS}];
+    assert.deepEqual(locationToolDeclarations(tools,false)[0].parameters,TURN_PACKET_ENTRY_PARAMETERS);
+    const payload={model:'MiniMax-M3.1-Flash-Preview',tools:[{name:'output',input_schema:TURN_PACKET_PARAMETERS}],messages:[]};
+    const sent=needed=>turnPacketProviderPayload(payload,false,true,undefined,undefined,false,undefined,needed);
+    assert.deepEqual(sent(false).tools,sent(true).tools,'applicability changes no cached tool prefix');
+    assert.deepEqual(sent(false).tools[0].input_schema,TURN_PACKET_ENTRY_PARAMETERS);
+    const schema=needed=>JSON.parse(sent(needed).messages.at(-1).content[0].text).output_parameter_schema;
+    assert(!Check(schema(false),{version:4,commands:[observe]}));assert(Check(schema(true),{version:4,commands:[observe]}));
+    assert(Check(TURN_PACKET_PARAMETERS,{version:4,commands:[observe]}),'the complete host validator is unchanged');
 });
 test('observation newcomers bind after placement without a second identity or implicit speech',()=>{
     const packet=turnPacket(JSON.stringify({version:4,commands:[{kind:'walk_on',slot:'new_1',label:'Man in cap',reason:'He is beside the steps.'},{...observe,to:'here',at:undefined,people:['new_1']}]}));

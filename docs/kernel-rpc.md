@@ -49312,6 +49312,24 @@ target as a journey. Relations/establishment remain Keeper structural authoring.
 Consent family 10 changes these meanings; thresholds and independent restrictions
 remain unchanged. No additional Jev generation or completion-veto axis is added.
 
+Observation-defining fields (`relations`, `sense`, `access`, `facts`, `people`,
+`situations`, `view` and a blocked-view `reason`) participate in the existing
+effect/admission reuse key. A changed sensory scope or participant set cannot
+reuse authority for an earlier observation. An empty relation overlay yields an
+empty route index without resolving an unrelated active scene; existing readers
+that already supply their scene do not acquire a new world-state prerequisite.
+
+Provider declarations are projections, never canonical validators. A disclosed
+place object carries one deduplicated property grammar, with compact branch
+selectors retaining each action's required/allowed fields, rather than duplicating
+its full object union beside merged copies of those same properties. The
+resident native output declaration uses the same shallow place-action envelope;
+its existing per-request parameter-schema message supplies full location fields
+only when location context is applicable. This keeps the provider's declaration
+stable while the complete host validator still accepts valid first calls and
+rejects invalid combinations. Request budgets and evidence-retention priorities
+are unchanged.
+
 ### 243.5. Acceptance and implementation decisions
 
 Required deterministic checks cover directed relations, separate senses, closed

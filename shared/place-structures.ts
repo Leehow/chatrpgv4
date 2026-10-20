@@ -32,3 +32,16 @@ export const PlaceParameters=Type.Union([
     Type.Object({using_skill,op:Type.Literal('submit'),change:PlaceChange},{additionalProperties:false}),
 ]);
 export type LocationEffect=Static<typeof PlaceEffect>;
+
+/** Request-only native grammar; complete validation always uses PlaceEffect. */
+export function locationCommandEntry<T extends Record<string,any>>(parameters:T):T {
+    if(!parameters.properties?.commands)return parameters;
+    const projected=structuredClone(parameters);
+    for(const commands of projected.properties.commands.anyOf??[projected.properties.commands]){
+        const variants=commands.items?.anyOf;
+        if(!Array.isArray(variants)||!variants.some(variant=>variant.properties?.kind?.const==='place'))continue;
+        commands.items.anyOf=[...variants.filter(variant=>variant.properties?.kind?.const!=='place'),Type.Object({kind:Type.Literal('place'),
+            action:Type.Union(PlaceEffect.anyOf.map(effect=>effect.properties.action))},{additionalProperties:true,description:'Location action; place inspect need contract supplies the exact fields. Complete valid calls execute directly.'})];
+    }
+    return projected;
+}

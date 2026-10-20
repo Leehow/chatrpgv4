@@ -94,7 +94,7 @@ test('campaign length never reaches the provider: the branch outgrows the ceilin
     const stored = api.sizeOf(branchMessages(table));
     assert.ok(stored > ceiling, `the branch outgrew the ceiling: ${stored} > ${ceiling}`);
     const largest = Math.max(...requests.map(request => request.bytes));
-    assert.ok(largest <= ceiling, `the largest request stayed under the ceiling: ${largest} <= ${ceiling}`);
+    assert.ok(largest <= ceiling, `the largest request stayed under the ceiling: ${largest} <= ${ceiling}; tools ${JSON.stringify(getCurrentTools(requests.at(-1).messages).map(tool=>({name:tool.name,bytes:api.sizeOf(tool),itemKeys:Object.keys(tool.parameters?.properties?.effects?.items??{})})))}`);
     // M1 freezes a measured request-size distribution as a broad comparison interval: the existing
     // bounded path carries a real brief/history payload, while no percentile may cross its ceiling.
     const rows = table.telemetry().filter(row => row.lane === 'context' && row.event === 'request');

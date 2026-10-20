@@ -328,3 +328,27 @@ controlled response queue; preserve them as invalid for the intended assertion.
 The new counter/doorway RPC regression, current full regression, real continuation
 and canonical App acceptance remain open. Concurrent dialogue work was committed
 independently as `e49911ca6`; its changes were not absorbed into this repair.
+
+### Broad regression exposed remaining seams
+
+LAN focused `run.IcPaVTmX` tested source `e666b2eea` and exited 1: extension
+4320 pass / 15 fail / 9 skip (4344 total), native integration 2233 pass / 2 fail,
+routing 12/12, wall 1023 seconds. The failures reduce to missing observation
+fields in admission keys, eager route lookup without an active scene, two stale
+declaration/version assertions, and request-capacity pressure. Preserve the full
+remote archive; this is not a green regression run.
+
+The key now includes actual observation scope/content. Empty relation overlays
+avoid unrelated scene resolution. Detailed place declarations deduplicate common
+fields and retain compact per-action required/allowed-field constraints. Native
+output has a stable shallow location declaration; full current grammar stays in
+the existing applicable-request schema tail, with the complete canonical validator
+unchanged. No budget, consent threshold or retained-tool-result priority increased.
+
+All named failures have focused source regressions passing: metadata/discovery
+28/28; full long-context plus observation interfaces 10/10; survivor/pressure 6/6;
+the final compact-branch pressure rerun 6/6; current native/interface grammar
+31/31. One intermediate grammar check caught loss of branch constraints; those
+constraints were restored compactly before acceptance. Kernel typecheck passes.
+The current LAN runtime was fetched in `run.X82zKHJP` (64 MiB LAN). Fresh RPC,
+real-play continuation and final full/App gates remain open.
