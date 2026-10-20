@@ -239,7 +239,7 @@ test('an empty spatial decision is corrected before any author or world change',
  assert.equal(table.telemetry().filter(row=>row.lane==='turn-packet-prototype'&&row.ok===true).length,1,'the empty packet never publishes a false arrival');
  const written=table.telemetry().find(row=>row.lane==='isolated-expression'&&row.event==='written');
  const task=JSON.parse(readFileSync(join(written.attempt,'task.json'),'utf8'));
- assert.equal(task.player_input,undefined,'the pure location author receives committed outcomes rather than unsettled intent');
+ assert.equal(task.player_input,'I enter an ordinary inn.','the author preserves current quoted intent alongside authoritative committed outcomes');
  assert.equal(task.decision_context.scene.location.position.place,'Ordinary Inn');
 });
 
