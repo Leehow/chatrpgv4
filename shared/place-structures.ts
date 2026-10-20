@@ -1,5 +1,6 @@
 /** Enhanced Locations v1: one bounded command at every entrance (contract 242). */
 import {Type,type Static} from 'typebox';
+import {legibleClosedSchema} from './native-schema.ts';
 const name=()=>Type.String({minLength:1,maxLength:240});
 const fact=()=>Type.String({minLength:1,maxLength:1200});
 const feature=Type.Object({name:name(),description:fact(),state:Type.Optional(fact()),passable:Type.Optional(Type.Boolean())},{additionalProperties:false});
@@ -43,7 +44,7 @@ export function locationCommandOwner<T extends Record<string,any>>(parameters:T)
         if(Array.isArray(variants)&&variants.some(variant=>variant.properties?.kind?.const==='place'))
             commands.items.anyOf=variants.filter(variant=>variant.properties?.kind?.const!=='move');
     }
-    return {...projected,description:'The location provider owns party movement and observation through kind place and its action. Issued destinations are reference material; a place move can visit a compatible unlisted destination with minimal additions.'};
+    return legibleClosedSchema({...projected,description:'The location provider owns party movement and observation through kind place and its action. Issued destinations are reference material; a place move can visit a compatible unlisted destination with minimal additions.'});
 }
 
 /** Request-only native grammar; complete validation always uses PlaceEffect. */

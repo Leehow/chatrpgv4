@@ -49228,6 +49228,16 @@ MiniMax's compatibility documentation promises tool transport, not strict JSON
 decoding. These support clarifying ownership, not assuming a guaranteed model
 fix; acceptance still requires real calls and preserved failures.
 
+Applicable location command unions also expose ordinary array items, object
+properties and closed string enums. Original anyOf branches remain intact and
+authoritative; these added constraints are redundant projections of closed
+branches. Open object unions remain untouched. The same compiled view reaches
+native declaration and deterministic preflight. Equivalence checks cover valid,
+mixed and invalid commands. No semantic argument repair or new world rule is
+introduced, and declaration legibility alone is not live acceptance.
+The observation projection explicitly retains additionalProperties=false after
+omitting relations; omitting a field must not open the command constructor.
+
 ## 243. Enhanced Locations: spatial relations and observation continuity
 
 Owner approval (2026-10-19): complete the location association graph, observation

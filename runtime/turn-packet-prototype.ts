@@ -100,7 +100,7 @@ export function turnPacketParameterSchema(journeySettled=false,timeBands?:readon
     const boundedTime=timeBands?.length?Type.Object({...time.properties,band:Type.Optional(StringEnum([...timeBands]))},timeOptions):time;
     const assessment={contains:scene,minContains:1};
     const stationary=sceneRequired?assessment:{};
-    const local=locations?placeStationary.map(command=>command.properties.action.const==='observe'?Type.Omit(command,['relations']):command):[],journey=locations?[placeMove]:[];
+    const local=locations?placeStationary.map(command=>command.properties.action.const==='observe'?Type.Omit(command,['relations'],{additionalProperties:false}):command):[],journey=locations?[placeMove]:[];
     const moving=sceneRequired?assessment:{allOf:[{if:{contains:locations?Type.Object({kind:Type.Literal('place'),action:Type.Literal('move')}):Type.Object({kind:Type.Literal('move')})},then:assessment}]};
     const arrivedLocal=Type.Object({kind:Type.Literal('place'),action:Type.Literal('move'),to:Type.Literal('here'),at:atom(240),
         relation:PlaceEffect.anyOf[0].properties.relation,additions:PlaceEffect.anyOf[0].properties.additions},{additionalProperties:false});

@@ -1,0 +1,41 @@
+/** Declaration evidence only; real model adherence is a separate live gate. */
+import {test} from 'node:test';
+import assert from 'node:assert/strict';
+import {Errors} from 'typebox/value';
+import {turnPacketParameterSchema,TURN_PACKET_PARAMETERS} from '../../runtime/turn-packet-prototype.ts';
+import {legibleClosedSchema} from '../../shared/native-schema.ts';
+
+test('location command fields are explicit without replacing their original union guards',()=>{
+ const schema=turnPacketParameterSchema(false,['brief'],[],false,undefined,true);
+ assert.equal(schema.properties.commands.type,'array');
+ const items=schema.properties.commands.items;
+ assert.equal(items.type,'object');assert.ok(items.properties.action.enum.includes('observe'));
+ assert.ok(items.properties.action.enum.includes('move'));
+ assert.ok(items.properties.kind.enum.includes('place'));assert.ok(!items.properties.kind.enum.includes('move'));
+ assert.ok(Array.isArray(schema.properties.commands.anyOf));
+ const observation={version:4,commands:[{kind:'place',action:'observe',to:'Lobby',sense:'sight',access:'limited',scope:'The desk.',facts:[]}]};
+ assert.equal(Errors(schema,observation).length,0);
+ for(const command of [{...observation.commands[0],action:'move'},{...observation.commands[0],kind:'move'},{...observation.commands[0],access:'invented'},{...observation.commands[0],extra:true}])
+  assert.ok(Errors(schema,{version:4,commands:[command]}).length);
+ assert.equal(TURN_PACKET_PARAMETERS.properties.commands.type,undefined,'the canonical schema is immutable');
+});
+
+test('redundant views accept exactly the same valid and mixed command shapes',()=>{
+ const original={anyOf:[
+  {type:'array',items:{anyOf:[
+   {type:'object',properties:{action:{type:'string',const:'move'},to:{type:'string',minLength:1}},required:['action','to'],additionalProperties:false},
+   {type:'object',properties:{action:{type:'string',const:'observe'},to:{type:'string',minLength:1},facts:{type:'array',items:{type:'string'}}},required:['action','to','facts'],additionalProperties:false}
+  ]},maxItems:3},
+  {type:'array',items:{type:'object',properties:{action:{type:'string',const:'wait'},minutes:{type:'integer',minimum:0}},required:['action','minutes'],additionalProperties:false},maxItems:3}
+ ]};
+ const before=structuredClone(original),view=legibleClosedSchema(original);
+ assert.deepEqual(original,before);assert.deepEqual(view.anyOf,original.anyOf);
+ const seeds=[{action:'move',to:'Lobby'},{action:'observe',to:'Lobby',facts:[]},{action:'wait',minutes:3}];
+ const cases=[[],...seeds.map(value=>[value]),seeds,[...seeds,seeds[0]],null,{},'invalid'];
+ for(const seed of seeds)for(const key of ['action','to','facts','minutes','extra'])for(const value of [null,'',true,2,[],{},'move','observe','wait'])cases.push([{...seed,[key]:value}]);
+ for(const value of cases)assert.equal(Errors(view,value).length===0,Errors(original,value).length===0,JSON.stringify(value));
+ const open={anyOf:[{type:'object',properties:{a:{type:'string'}},additionalProperties:true},{type:'object',properties:{b:{type:'string'}},additionalProperties:false}]};
+ assert.deepEqual(legibleClosedSchema(open),open);
+ const patterned={anyOf:[{type:'object',properties:{},patternProperties:{'^x':{type:'integer'}},additionalProperties:false},{type:'object',properties:{tag:{const:'closed'}},additionalProperties:false}]};
+ assert.deepEqual(legibleClosedSchema(patterned),patterned);
+});

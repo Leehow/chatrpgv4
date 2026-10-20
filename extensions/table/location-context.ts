@@ -10,7 +10,7 @@ const entry=Type.Object({using_skill:Type.Optional(Type.String()),op:Type.Union(
 /** Explicit properties keep object unions legible to provider tool serializers. */
 function declarationObject(schema:Row):Row {
     if(!Array.isArray(schema.anyOf)||!schema.anyOf.every((branch:Row)=>branch.type==='object'))return schema;
-    schema={...schema,anyOf:schema.anyOf.map((branch:Row)=>branch.properties?.action?.const==='observe'?Type.Omit(branch as any,['relations']):branch)};
+    schema={...schema,anyOf:schema.anyOf.map((branch:Row)=>branch.properties?.action?.const==='observe'?Type.Omit(branch as any,['relations'],{additionalProperties:false}):branch)};
     const properties:Row={},variants=new Map<string,Map<string,unknown>>();
     for(const branch of schema.anyOf)for(const [key,value] of Object.entries(branch.properties??{})){
         if(!variants.has(key))variants.set(key,new Map());
