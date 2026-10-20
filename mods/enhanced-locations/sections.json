@@ -6,6 +6,11 @@
       "kind": "resident"
     },
     {
+      "heading": "Place description for the author",
+      "triggers": ["before_apply:place"],
+      "kind": "situational"
+    },
+    {
       "heading": "Identity and structure",
       "triggers": [
         "before_apply:place"

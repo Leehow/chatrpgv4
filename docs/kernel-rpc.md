@@ -49965,3 +49965,31 @@ the question. No keyword router or receipt-based blanket exemption is added.
 The final author always receives the current quoted player input, including
 location turns. Past public conversation cannot replace that input. Canonical
 activity time deltas and cumulative observation clocks retain distinct scopes.
+
+### Mod-owned place description (owner2026-10-20)
+
+The active location provider may declare the indexed section `Place description
+for the author`. On a location-selected input, arrival or place command, the host
+reads that exact issued section through mods.sections and checks its locked
+provider, version and key. It supplies the section to the existing sole author,
+not another generator. Disabled/replaced packages and unrelated conversation
+contribute no description text. The section remains inside the location Mod;
+the base owns routing and authority only. Both author transports read it once.
+
+The Mod permits imaginative completion of unrecorded ordinary visible appearance
+consistent with year, locality, venue and established play. Sparse historical
+references guide that completion rather than defining an exhaustive inventory.
+Exterior, threshold, layout, relative position, furniture forms/materials and
+sensory texture form a connected viewpoint-led passage when the player arrives
+or examines a place. Description is not forced into a universal scene template,
+word count or list of senses. Existing private facts, checks, purchases, people,
+obstacles, routes and feature state retain their existing authorities. New usable
+structure belongs in the Keeper's ordinary place transaction; decorative prose
+does not silently open another route or settle a different action. Delivered
+appearance is established play on return, not a new random rendering each time.
+
+Writer: the locked Mod section and Keeper's committed scene material. Reader:
+the host's location-only section resolver and both final-author transports.
+Action: the sole author realizes the selected scene with compatible visual
+completion; normal publication records its prose. Acceptance checks the actual
+author request and original App story, not only the Mod file's presence.

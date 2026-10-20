@@ -36,7 +36,7 @@ test('input relevance selects context only, keeps uncertainty conservative and n
 test('spatial completion composes independent movement and feature answers without an invented confidence',async()=>{
     const binding={campaign:'test',turn:2},input={player_declaration:'I approach the window.',proposed_effects:[],settled_receipts:[]};
     const batch=locationCoverageBatch(input,binding);packDecisionBatch(batch);
-    assert.equal(batch.familyVersion,'7');assert.equal(batch.questions.length,6);assert(batch.questions.every(question=>question.type==='noul'));
+    assert.equal(batch.familyVersion,'8');assert.equal(batch.questions.length,6);assert(batch.questions.every(question=>question.type==='noul'));
     assert(!batch.questions.some(question=>question.key.endsWith('_accounted')),'typed operation presence is not a model judgment');
     const review=async(values,effects=[])=>locationDecisionCoverage({...input,proposed_effects:effects},binding,{decide:async current=>({batchId:current.id,status:'complete',answers:Object.fromEntries(current.questions.map(q=>[q.key,{status:'answered',type:'noul',noul:values[q.key]??.01}]))})},new AbortController().signal);
     const missing=await review({move_selected:.99});

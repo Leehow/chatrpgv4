@@ -1,4 +1,5 @@
 import {adviseLocationReference} from './location-reference.ts';
+import {locationDescription} from './location-description.ts';
 import {placeOperation} from './place-operation.ts';
 import {DecisionContent,decisionPerson,bindCreatedDecisionPerson} from '../../runtime/decision-content.ts';
 import {Errors as argumentErrors} from 'typebox/value';
@@ -5840,6 +5841,8 @@ export default function (pi: ExtensionAPI, host: {capabilities?:RuntimeCapabilit
 			const where=current.where??{};
 			decision={scene:decisionScene(sightView),clock:decisionClock(where.clock??{}),...decisionResponseScope(before,current,hydrated.responses),people,selected_materials:hydrated.materials,style:current.style,
 				recent_public:decisionRecentPublic(current.recent,state.delivered)};
+            if(state.locationReviewTurn===state.turn||compiled.effects.some(effect=>effect.kind==='place'||effect.kind==='move'))
+                decision.location_description=await locationDescription(current,keys=>state.kernel.call('mods.sections',{campaign:state.campaign,keys}));
 		}
         const failedAttempts=heldActs.get(state)?.uncommittedFailures();
         if(heldActs.get(state)?.basis&&(!decision||failedAttempts===undefined)){
