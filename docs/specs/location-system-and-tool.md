@@ -13,6 +13,10 @@ explicit acceptance for source-connected graph changes.
 All private tool-enabled tasks enforce the existing host-issued checker boundary
 for shell calls. General file-task access grants no interpreter or arbitrary
 shell execution; existing non-source file-tool scope remains unchanged.
+The existing presentation owner additionally issues its generated `node check.mjs`
+with a host-only SHA-256. The hook captures that checker and the host Node wrapper,
+refuses edits and rejects changed bytes before execution. No arbitrary Node or
+shell inspection is granted.
 Adaptation authors inspect the supplied focused JSON with read and finish through
 submit_adaptation. The worker failure preserves its actual timeout/provider/error
 cause even if the child process exits zero.

@@ -71,6 +71,8 @@ export interface ReaderRequest {
 	 * calls reading the packaged app, the build output and their own event log instead of the task.
 	 */
 	tools?: string;
+	/** Host-generated presentation checker digest; permits only node check.mjs. */
+	localCheck?: string;
 	/** Selected final-prose task: confine the existing four tools to its immutable packet and artifact. */
 	finalOutput?: boolean;
 	/** Dedicated final prose: one complete input and a tool-free text stream. */
@@ -345,6 +347,7 @@ async function runOwnedReader(request: ReaderRequest, context: RuntimeContext): 
 	}
 	const [bin, ...args] = command;
 	const env: NodeJS.ProcessEnv = { ...context.env, PI_CODING_AGENT_DIR: context.agentHome };
+	if(request.localCheck)env.PI_COC_READER_LOCAL_CHECK=request.localCheck;else delete env.PI_COC_READER_LOCAL_CHECK;
 	if(request.providerBudget)env.PI_COC_PROVIDER_BUDGET="ipc-v1";else delete env.PI_COC_PROVIDER_BUDGET;
 	if(request.providerBudget?.callOutputTokens)env.PI_COC_PROVIDER_OUTPUT_LIMIT=String(request.providerBudget.callOutputTokens);else delete env.PI_COC_PROVIDER_OUTPUT_LIMIT;
 	if (request.audit) env.PI_COC_AUDIT_CONTROL = resolvePath(request.cwd, request.audit.control);

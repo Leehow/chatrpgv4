@@ -15,7 +15,7 @@ import { basename, delimiter, dirname, isAbsolute, join, relative, resolve, sep 
 
 type ToolCall = { toolName: string; input?: Record<string, unknown> };
 type ToolGate = { block: true; reason: string } | undefined;
-type AllowedCheck = { command: string; wrapper: string; bytes: Buffer };
+type AllowedCheck = { command: string; wrapper: string; bytes: Buffer; script?:{path:string;bytes:Buffer} };
 
 const UNICODE_SPACES = /[\u00A0\u2000-\u200A\u202F\u205F\u3000]/g;
 // §151.2.1: `review-plan.json` binds a review to its candidate for the repair round; a reader child never writes it.
@@ -109,6 +109,16 @@ function sourceRoots(cwd: string, env: NodeJS.ProcessEnv): { task: string; pdf?:
 }
 
 function captureCheck(cwd: string, taskRoot: string, env: NodeJS.ProcessEnv): { allowed?: AllowedCheck; error?: string } {
+	if(env.PI_COC_READER_LOCAL_CHECK){
+		try{
+			const path=join(cwd,'check.mjs'),wrapper=join(cwd,'host-bin','node');
+			for(const file of [path,wrapper])if(!lstatSync(file).isFile()||lstatSync(file).isSymbolicLink()||!within(taskRoot,realpathSync(file)))throw Error();
+			if(realpathSync((env.PATH??'').split(delimiter)[0])!==realpathSync(join(cwd,'host-bin')))throw Error();
+			const bytes=readFileSync(path);
+			if(createHash('sha256').update(bytes).digest('hex')!==env.PI_COC_READER_LOCAL_CHECK)throw Error();
+			return{allowed:{command:'node check.mjs',wrapper,bytes:readFileSync(wrapper),script:{path,bytes}}};
+		}catch{return{error:'the host-generated presentation checker is unavailable or changed'};}
+	}
 	let task: any;
 	try { task = JSON.parse(readFileSync(join(cwd, "task.json"), "utf8")); }
 	catch { return { error: "the host task could not be captured" }; }
@@ -130,7 +140,9 @@ function captureCheck(cwd: string, taskRoot: string, env: NodeJS.ProcessEnv): { 
 function unchanged(check: AllowedCheck): boolean {
 	try {
 		const info = lstatSync(check.wrapper);
-		return info.isFile() && !info.isSymbolicLink() && readFileSync(check.wrapper).equals(check.bytes);
+		const script=check.script,scriptInfo=script?lstatSync(script.path):undefined;
+		return info.isFile() && !info.isSymbolicLink() && readFileSync(check.wrapper).equals(check.bytes)
+			&&(!script||!!scriptInfo?.isFile()&&!scriptInfo.isSymbolicLink()&&readFileSync(script.path).equals(script.bytes));
 	} catch { return false; }
 }
 
@@ -296,7 +308,14 @@ export default function readerContext(pi: any, options: { cwd?: string; env?: No
 	// Every private authoring session shares the same execution boundary. A general
 	// file-tool task is not authority to start an interpreter or another shell.
 	const guard = createReaderToolGuard(cwd, env);
-	pi.on("tool_call", (event: ToolCall) => confinedFiles || event.toolName === 'bash' ? guard(event) : undefined);
+	pi.on("tool_call", (event: ToolCall) => {
+		if(env.PI_COC_READER_LOCAL_CHECK&&['write','edit'].includes(event.toolName)){
+			const path=toolPath(event.input?.path),target=path?resolve(cwd,path):undefined;
+			if(target&&(target===join(cwd,'check.mjs')||within(join(cwd,'host-bin'),target)))return blocked(event.toolName,'host-generated checker files are immutable');
+		}
+		return confinedFiles || event.toolName === 'bash' ? guard(event) : undefined;
+	});
+	if(env.PI_COC_READER_LOCAL_CHECK)confineReaderEnvironment(cwd,env);
 	if (confinedFiles) {
 		confineReaderEnvironment(cwd, env);
 		if (env.PI_COC_READER_SOURCE) pi.registerTool({...createBashTool(cwd),

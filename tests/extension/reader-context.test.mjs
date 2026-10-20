@@ -88,6 +88,22 @@ const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "../..");
 
 const quote = value => "'" + value.replaceAll("'", "'\\''") + "'";
 
+test('a presentation keeps its exact host-issued Node checker and refuses changed code or arbitrary execution',async t=>{
+ const home=await mkdtemp(join(tmpdir(),'presentation-check-boundary-'));t.after(()=>rm(home,{recursive:true,force:true}));
+ await mkdir(join(home,'host-bin'));
+ const script='console.log("Host presentation check");\n',wrapper='#!/bin/sh\nexec '+quote(process.execPath)+' "$@"\n';
+ await writeFile(join(home,'check.mjs'),script);await writeFile(join(home,'host-bin','node'),wrapper);
+ const env={PI_COC_HOME:home,PI_COC_READER_LOCAL_CHECK:createHash('sha256').update(script).digest('hex'),PATH:join(home,'host-bin')};
+ const hooks=[];readerContext({on(name,fn){if(name==='tool_call')hooks.push(fn);},registerTool(){}},{cwd:home,env});
+ const decision=async event=>(await Promise.all(hooks.map(hook=>hook(event)))).find(value=>value?.block);
+ assert.equal(await decision({toolName:'bash',input:{command:'node check.mjs'}}),undefined);
+ for(const command of ['python3 -V','node -e "console.log(1)"','node check.mjs; python3 -V'])assert.ok(await decision({toolName:'bash',input:{command}}));
+ for(const path of ['check.mjs','host-bin/node'])for(const toolName of ['write','edit'])assert.ok(await decision({toolName,input:{path}}));
+ assert.equal(await decision({toolName:'write',input:{path:'presentation.json'}}),undefined);
+ await writeFile(join(home,'check.mjs'),'changed');assert.ok(await decision({toolName:'bash',input:{command:'node check.mjs'}}));
+ await writeFile(join(home,'check.mjs'),script);await writeFile(join(home,'host-bin','node'),'changed');assert.ok(await decision({toolName:'bash',input:{command:'node check.mjs'}}));
+});
+
 test('private adaptation and Mod children reject unissued shell execution before any process runs',async t=>{
  const home=await mkdtemp(join(tmpdir(),'private-task-execution-'));t.after(()=>rm(home,{recursive:true,force:true}));
  for(const extra of [{},{PI_COC_ADAPTATION_SUBMIT_ROLE:'create'},{PI_COC_ADAPTATION_SUBMIT_ROLE:'review'}]){

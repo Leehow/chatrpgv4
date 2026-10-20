@@ -1,6 +1,7 @@
 /** Shared file-attempt mechanics; the owner runner executes and callers decide what to keep. */
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
+import {createHash} from 'node:crypto';
 import type { ReaderRequest, ReaderOutcome } from "./reader.ts";
 
 export type PresentationDecision = { done: true } | { done: false; findings: unknown };
@@ -33,12 +34,13 @@ export async function runPresentationAttempt(options: PresentationAttemptOptions
 	const { attempt } = options;
 	await mkdir(attempt, { recursive: true });
 	await writeFile(join(attempt, "check.mjs"), options.checkSource);
+	const localCheck=createHash('sha256').update(options.checkSource).digest('hex');
 	for (let round = 1; round <= 2; round++) {
 		const brief = await options.prepareRound(round);
 		const outcome = await options.runner({
 			...(options.priority ? {priority: options.priority} : {}),
 			...(options.providerBudget ? {providerBudget: options.providerBudget} : {}), cwd: attempt, systemPrompt: options.systemPrompt, model: options.model, thinking: options.thinking,
-			signal: options.signal, eventLog: join(attempt, `events-${round}.jsonl`), timeoutMs: 120000, brief,
+			signal: options.signal, eventLog: join(attempt, `events-${round}.jsonl`), timeoutMs: 120000, brief,localCheck,
 		});
 		if (options.recordOutcome) await options.recordOutcome(outcome, round);
 		if (!outcome.ok || options.signal?.aborted)

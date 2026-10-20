@@ -4,6 +4,7 @@ import { mkdtemp, readFile, readdir, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
+import {createHash} from 'node:crypto';
 import { runPresentationAttempt } from "../../extensions/module/presentation-attempt.ts";
 
 const OK = { ok: true, code: 0, timedOut: false, ms: 1, stderr: "", command: [] };
@@ -35,6 +36,7 @@ test("the helper establishes the attempt and checker, forwards execution setting
 		assert.deepEqual(await json(join(request.cwd, "packet.json")), { round: 1 });
 		assert.deepEqual(request, {
 			cwd: options.attempt, systemPrompt: options.systemPrompt, model: options.model, thinking: "high",
+			localCheck:createHash('sha256').update(options.checkSource).digest('hex'),
 			signal: controller.signal, timeoutMs: 120000, eventLog: join(options.attempt, "events-1.jsonl"), brief: "owner brief 1",
 		});
 		await writeFile(request.eventLog, '{"owner":"event"}\n');
