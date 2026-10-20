@@ -140,6 +140,7 @@ function oracle(operation,data) {
   // Keyed by the question, not by the order it was asked in: the runner is free to reorder.
   // A question can carry a path or an id minted for this run; those are the run, not the question.
   const question=api.pythonJsonDumps({operation,...data})
+    .replaceAll(temporary,'/tmp')
     .replaceAll(ROOT,'<root>').replace(/\/(?:private\/)?(?:tmp|var)\/[^"']*/g,'<temp>')
     .replace(/\b[0-9a-f]{8}-?[0-9a-f]{4}-?[0-9a-f]{4}-?[0-9a-f]{4}-?[0-9a-f]{12}\b/g,'<id>');
   const key=`read-${operation}-${createHash('sha256').update(question).digest('hex').slice(0,16)}`;
@@ -357,6 +358,7 @@ test('mechanics match Python without exposing unlabeled NPC identities',async()=
   // was there. The capture predates them, so they are narrowed out of the comparison and asserted
   // just below; the real path is covered by `tests/kernel/test_declared_dice.py`.
   const narrowed=value=>api.pythonJsonDumps(value)
+    .replaceAll(JSON.stringify(path),'"<attachment>"')
     .replace(/"(?:\/private)?\/(?:var|tmp)\/[^"]*handout\.md"/g,'"<attachment>"')
     .replace(/, ?"(?:available|document)": ?(?:true|false|"[a-z]+")/g,'')
     .replace(/, ?"(?:bonus|penalty)": ?\d+/g,'')

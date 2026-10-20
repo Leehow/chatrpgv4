@@ -14,8 +14,10 @@ const env={PI_COC_LOOP_ENGINE:'hybrid-v1',PI_COC_TURN_PACKET_PROTOTYPE:'1',PI_CO
  PI_COC_READER_CMD:JSON.stringify([process.execPath,join(import.meta.dirname,'fixtures/isolated-expression-writer.mjs')])};
 // Controlled semantic answers explicitly assess the fixture scene; they are not gameplay.
 const fauxToolCall=(name,args)=>rawToolCall(name,name==='output'?{...args,commands:[...args.commands,{kind:'scene',service:'open',crowd:'empty'}]}:args);
-async function opened(workspace,assessed=true){const client=new RpcClient(workspace);try{
+async function opened(workspace,assessed=true,locations=false){const client=new RpcClient(workspace);try{
  await client.ok('table.open',{campaign:'test-camp'});
+ // This fixture owns the base automatic journey; the location provider has its own planner.
+ if(!locations)await client.ok('mods.configure',{campaign:'test-camp',id:'enhanced-locations',enabled:false});
  await client.ok('table.narrate',{campaign:'test-camp',call_id:'t0-c1',text:'Knott waits beside his desk.'});
  await client.ok('table.player_input',{campaign:'test-camp',text:'I accept the commission and ask for the public research leads.'});
  await client.ok('table.apply',{campaign:'test-camp',call_id:'t1-c1',effects:[
@@ -61,7 +63,7 @@ test('an untimed native route settles its issued band with one Keeper and one co
  const engine=createHybridEngine({env,decision:{decide:async batch=>{batches.push(batch);const result=answer(batch);
   for(const [key,value] of Object.entries(result.answers))if(key.startsWith('consent_'))value.noul=.99;return result;}}});
  const table=await openTable({legacyDeliveryFixtures:false,realKernel:true,env,runDriver:engine.runDriver,
-  prepareWorkspace:async workspace=>{await opened(workspace);const client=new RpcClient(workspace);try{
+  prepareWorkspace:async workspace=>{await opened(workspace,true,true);const client=new RpcClient(workspace);try{
    const current=await client.table('capsule',{campaign:'test-camp'}),start=current.where.scene;startLabel=current.where.display_name;
    const bands=await client.ok('rules.bands',{field:'time.band'});expectedMinutes=bands.rows.find(row=>row.handle==='local_travel').default;
    await client.ok('table.player_input',{campaign:'test-camp',text:'The controlled fixture establishes an untimed annex.'});
