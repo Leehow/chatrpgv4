@@ -49165,6 +49165,38 @@ call through the normal path; never extract commands from surrounding prose,
 invent a missing version/name, or regard the packet as settled before receipts.
 This is a second closed transport spelling of the same decision, not a fallback
 author, generic argument-object inference or permission to execute player text.
+### 242.7. Python-free preparation and location ownership repair (2026-10-20)
+
+All private tool-enabled children enforce the host-issued shell boundary. Source
+and final file confinement remains; other file tasks retain their file scope.
+The presentation owner issues its generated Node checker with a host-only SHA-256.
+The child captures script and Node wrapper, refuses edits and checks unchanged
+bytes before executing the exact command. General shell/interpreter calls are
+unavailable. Historical immutable tests and migration evidence remain preserved.
+
+Adaptation preparation projects existing_locations and task-local locations.json
+from current Mod geometry. Creator and reviewer reuse these records without
+treating them as original source anchors. Geometry and position join freshness;
+unrelated Mod jobs and observation-history caches do not. The private submission
+tool declares actual arrays and all eight closed operation shapes from the shared
+kernel inventory. Source support and independent review still precede acceptance.
+Worker failure preserves the actual error/timeout even after a zero process exit.
+
+Adaptation results provide reference_answer_instruction. The front Keeper answers
+OOC service queries directly through {{reference}} using actual status, reason and
+reviewed changes. Ready differs from accepted. Acceptance remains the dedicated
+one-effect transaction. The story author does not take over this reference reply.
+Pending guidance distinguishes service queries from fictional action; there is
+no automatic acceptance, polling loop or additional author lane.
+
+With an active capsule.mods.location_context provider, ContinuousTurn retains
+issued destination choices and material but defers automatic movement prefixes.
+The Keeper plans selected feature changes and travel through the same canonical
+location transaction. A move-only prescreen must not consume arrival before a
+selected door interaction is considered. Tables without a provider retain their
+legacy fast path. This reads a typed capability rather than classifying text or
+adding another decision. Consent gates and receipt authority remain unchanged.
+
 ## 243. Enhanced Locations: spatial relations and observation continuity
 
 Owner approval (2026-10-19): complete the location association graph, observation
