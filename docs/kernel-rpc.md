@@ -49197,6 +49197,11 @@ selected door interaction is considered. Tables without a provider retain their
 legacy fast path. This reads a typed capability rather than classifying text or
 adding another decision. Consent gates and receipt authority remain unchanged.
 
+Observation declarations label `at` as an optional feature of the target named
+by `to` (or `name` for inspection). The observer comes from current position;
+its window belongs in that position or the sensory path, never as a fabricated
+feature of the remote courtyard. This clarifies existing endpoint semantics.
+
 ## 243. Enhanced Locations: spatial relations and observation continuity
 
 Owner approval (2026-10-19): complete the location association graph, observation

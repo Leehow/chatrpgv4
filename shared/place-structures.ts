@@ -10,6 +10,7 @@ const additions=Type.Optional(Type.Array(PlaceAddition,{minItems:1,maxItems:12})
 export const SpatialPoint=Type.Object({place:name(),at:Type.Optional(name())},{additionalProperties:false});
 const sense=()=>Type.Union([Type.Literal('sight'),Type.Literal('hearing')]);
 const observedFact=()=>Type.String({minLength:1,maxLength:600});
+const targetFeature=()=>Type.String({minLength:1,maxLength:240,description:'Optional existing feature of the observation target named by to or name. Omit when observing the whole target. The observer window comes from current position or view, never this field.'});
 export const PerceptualRelation=Type.Object({from:SpatialPoint,to:SpatialPoint,sense:sense(),description:observedFact()},{additionalProperties:false});
 const relations=Type.Array(PerceptualRelation,{minItems:1,maxItems:8});
 export const ObservedSituation=Type.Object({name:name(),summary:observedFact(),status:Type.Union([Type.Literal('ongoing'),Type.Literal('ended'),Type.Literal('unknown')]),participants:Type.Optional(Type.Array(name(),{maxItems:8}))},{additionalProperties:false});
@@ -19,7 +20,7 @@ export const PlaceEffect=Type.Union([
     Type.Object({kind:Type.Literal('place'),action:Type.Literal('establish'),additions:Type.Array(PlaceAddition,{minItems:1,maxItems:12})},{additionalProperties:false,description:'Register observable surroundings only; no party movement. To visit a new room or place, use action move with additions instead.'}),
     Type.Object({kind:Type.Literal('place'),action:Type.Literal('feature'),to:name(),at:name(),state:Type.Optional(fact()),passable:Type.Optional(Type.Boolean())},{additionalProperties:false}),
     Type.Object({kind:Type.Literal('place'),action:Type.Literal('relate'),relations,additions},{additionalProperties:false,description:'Establish minimal directed sight/hearing relations; no movement or player observation.'}),
-    Type.Object({kind:Type.Literal('place'),action:Type.Literal('observe'),to:name(),at:Type.Optional(name()),sense:sense(),access:Type.Union([Type.Literal('clear'),Type.Literal('limited'),Type.Literal('blocked')]),
+    Type.Object({kind:Type.Literal('place'),action:Type.Literal('observe'),to:name(),at:Type.Optional(targetFeature()),sense:sense(),access:Type.Union([Type.Literal('clear'),Type.Literal('limited'),Type.Literal('blocked')]),
         scope:observedFact(),facts:Type.Array(observedFact(),{maxItems:6}),view:Type.Optional(Type.String({minLength:1,maxLength:600,description:'Compatible sensory path from the actual current position to this target, through any door or window. Seeds a missing relation; reuses an existing one. Does not move the observer.'})),reason:Type.Optional(observedFact()),people:Type.Optional(Type.Array(name(),{maxItems:8})),situations:Type.Optional(Type.Array(ObservedSituation,{maxItems:4})),
         relations:Type.Optional(relations),additions},{additionalProperties:false,description:'Record actual selected perception from the current position. Missing compatible layout can be supplied inline. People stay at the target; blocked attempts establish no target facts.'}),
 ]);
@@ -28,7 +29,7 @@ export const PlaceChange=Type.Union(PlaceEffect.anyOf.map(effect=>{
     return Type.Object(Object.fromEntries(Object.entries(effect.properties).filter(([key])=>key!=='kind')),{additionalProperties:false,...(description?{description}:{})});
 }));
 export const PlaceParameters=Type.Union([
-    Type.Object({using_skill,op:Type.Literal('inspect'),name:Type.Optional(name()),at:Type.Optional(name()),sense:Type.Optional(sense()),need:Type.Optional(Type.Union([Type.Literal('context'),Type.Literal('contract'),Type.Literal('observation')]))},{additionalProperties:false}),
+    Type.Object({using_skill,op:Type.Literal('inspect'),name:Type.Optional(name()),at:Type.Optional(targetFeature()),sense:Type.Optional(sense()),need:Type.Optional(Type.Union([Type.Literal('context'),Type.Literal('contract'),Type.Literal('observation')]))},{additionalProperties:false}),
     Type.Object({using_skill,op:Type.Literal('submit'),change:PlaceChange},{additionalProperties:false}),
 ]);
 export type LocationEffect=Static<typeof PlaceEffect>;
