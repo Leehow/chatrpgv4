@@ -177,9 +177,8 @@ test('a turn with more tool traffic than the ceiling allows keeps the newest evi
     // Mac against 204,800: the floor again. The squeeze still has to bind at 212 KiB.
     // 2026-10-08 (§203): the same protected full-guidance floor needs 224 KiB; no production budget changes.
     // §235: after dropping old traffic, the protected request is 231,601 B, above the previous 224 KiB.
-    // Restoring the serialized observation schema raises the required floor to 247,285 B.
-    // This positive fixture needs a viable floor; production limits and the below-floor refusal case stay fixed.
-    const ceiling = 248 * 1024;
+    // Deduplicated location guidance leaves room for the restored observation fields at the original ceiling.
+    const ceiling = 240 * 1024;
     const table = await openTable({realKernel: true, campaign: 'long-campaign-squeeze', retainAt: directory,
         env: {PI_COC_COMPACT_AT: '100', PI_COC_REQUEST_BYTES: String(ceiling)}, settings: {compaction: {enabled: false}},
         responses: [...keeperTurn(long(0)), ...Array.from({length: 3}, (_, turn) => busyTurn(long(turn + 1), 14)).flat()]});

@@ -50184,3 +50184,7 @@ Regression crosses both structuredClone and JSON roundtrip before the real Anthr
 ### Explicit native place target alias (2026-10-20)
 
 At the dedicated place-tool boundary only, explicit move/feature/observe may spell their target as name or to. Normalize the fixed field alias before canonical validation and routing; retain all other values and fields. If both are present they must be identical strings, otherwise refuse invalid_params before any work. The original request remains in protocol evidence. Log the syntactic alias normalization separately. Never infer an action: inspect, missing/unknown action and legacy wrapped calls are not upgraded. The resulting canonical effect still uses to and runs all existing admission, Mod and transaction gates.
+
+### Location instruction coexistence (2026-10-20)
+
+Enhanced Locations1.1.23 removes duplicated transport prose already present in its resident and Travel sections, and condenses only repeated continuation guidance. Preserve canonical-state precedence, pending-source uncertainty, ordinary communication and receipt authority. The16384-byte situational-section ceiling remains unchanged: location guidance must leave room for simultaneously selected NPC topic sections. Verify actual provider requests include the asker section alongside location guidance, rather than increasing the cap or weakening topic selection.
