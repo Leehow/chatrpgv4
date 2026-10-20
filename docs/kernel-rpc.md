@@ -49315,3 +49315,45 @@ deterministic time-to-event table.
 
 - https://docs.openra.net/en/playtest/traits/#frozenunderfog
 - https://github.com/0ad/0ad/blob/master/binaries/data/mods/public/simulation/components/Fogging.js
+
+### Dialogue confirmation and bounded public portrayal (2026-10-19)
+
+A selected old statement and a new response proposition are distinct. Native v4
+adds interaction `act: "confirm"` with nonempty existing fact/source references
+only. The host resolves the same issued, actor-scoped references, then hydrates
+one `confirmation` claim per reference: `{unchanged:true,basis:<exact prior>}`.
+This confirms the speaker's earlier account/arrangement, never proves the account
+true or executes the promised action. New claims cannot use this constructor.
+Ordinary answers, corrections, offers and unselected material retain their
+existing boundaries. The sole author supplies the actual confirmation wording.
+
+The existing NPC read projects explicit source `properties.appearance` as
+`public_appearance` independently of the first-sight delivery ledger. It never
+falls back to biography, generic summary or private establishment reasons.
+For an incidental NPC without authored appearance, the same read may supply
+`last_public_rendering`: the latest committed stationary rendering in the current
+canonical scene and branch/circuit with this NPC as the only attributed speaker.
+Movement, NPC transitions, mixed/unresolved speakers, other scenes and failed
+publication are ineligible. The bounded excerpt (at most 1200 characters) is
+past public evidence, not an appearance inference, knowledge grant, action or
+presence record. No text classifier or additional model produces it.
+
+Writer: the existing committed delivery record/source appearance. Reader:
+`npcView`, `decisionPerson`, and participant-scoped
+`recent_public[].portrayal`. Actor: the existing direct prose author. Only the
+current kernel snapshot and successful receipts authorize physical changes.
+Current public names still override historical labels; no private dossier is
+forwarded. The author instruction, direct SSE transport and publication checks
+are unchanged. Tests must exercise the actual kernel read and author task as
+well as rejecting other-person/scene/movement history.
+
+The retained receipt-confirmation retry was a complete prose response rejected
+for missing native output, not an empty provider answer or missing evidence.
+MiniMax's endpoint-specific contract currently supports only automatic tool
+selection (https://platform.minimax.io/docs/api-reference/text-chat-anthropic).
+Claude's tool documentation likewise distinguishes automatic selection from
+required tool calls (https://platform.claude.com/docs/en/agents-and-tools/tool-use/overview).
+This supports preserving the existing bounded recovery rather than claiming
+unsupported forced decoding. No new judge, prompt reminder, endpoint switch or
+execution from discarded prose is introduced. Live acceptance counts recovery
+as an additional KP call and reports any remaining protocol noncompliance.

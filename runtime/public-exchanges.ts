@@ -1,6 +1,6 @@
 /** Pure bounded public dialogue shared by canonical recovery and host consumers. */
 type Row=Record<string,any>;
-export interface PublicExchange {turn:number|string;player?:string|null;keeper:string;truncated?:boolean;speech?:Array<{speaker:string;text:string}>}
+export interface PublicExchange {turn:number|string;player?:string|null;keeper:string;truncated?:boolean;portrayal?:Row;speech?:Array<{speaker:string;text:string}>}
 
 export function decisionRecentPublic(recent:Row[]=[],delivered:Row[]=[]):PublicExchange[] {
  const byTurn=new Map<number,Row>();
@@ -32,5 +32,14 @@ export function decisionDialogueContinuity(exchanges:PublicExchange[],people:Row
   const speech=(entry.words??[]).filter((text:unknown)=>typeof text==='string'&&text.trim()).slice(-6);
   return speech.length?[{turn:entry.turn,player:null,keeper:speech.map((text:string)=>`${person.display_name}: ${text}`).join('\n')}]:[];
  });
- return [...fallback,...selected].sort((a,b)=>Number(a.turn)-Number(b.turn)).slice(-4);
+ const result:PublicExchange[]=[...fallback,...selected];
+ for(const person of people){
+  const portrayal=person.last_public_rendering;
+  if(!portrayal||typeof portrayal.text!=='string'||!portrayal.text.trim()
+   ||typeof person.display_name!=='string'||names.get(person.display_name.normalize('NFKC').trim())?.ref!==person.ref)continue;
+  const prior=result.find(entry=>Number(entry.turn)===Number(portrayal.turn));
+  if(prior)prior.portrayal={...portrayal,actor:person.ref};
+  else result.push({turn:portrayal.turn,player:null,keeper:'',portrayal:{...portrayal,actor:person.ref}});
+ }
+ return result.sort((a,b)=>Number(a.turn)-Number(b.turn)).slice(-4);
 }

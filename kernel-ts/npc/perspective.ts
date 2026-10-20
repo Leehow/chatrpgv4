@@ -42,6 +42,23 @@ export function npcRecentSpeech(graph:ModuleGraph,node:Row,records:Row[],scope:R
             statement:line.text,turn:record.turn,authority:'conversation_report',attribution:{kind:'speech',speaker:{kind:'npc',name}}
         }))).slice(-6);
 }
+/** Exact prior public staging is continuity evidence, never current state or an inferred identity. */
+export function npcPublicRendering(graph:ModuleGraph,node:Row,records:Row[],scope:Row={}):Row|null {
+    const handle=graph.handle(node),scene=scope.scene;
+    if(typeof scene!=='string'||!scene)return null;
+    const record=records.filter(record=>record.commit&&current(record,scope)
+        &&record.closed_how!=='stranded'&&(!record.interaction_scope||record.interaction_scope==='world')
+        &&(scope.turn==null||number(record.turn)<number(scope.turn))
+        &&(row(row(record.world).scene).name??row(record.world).active_scene)===scene
+        &&!array(record.receipts).some(receipt=>['move','npc'].includes(row(receipt).kind))
+        &&typeof record.rendered_text==='string'&&record.rendered_text.trim()
+        &&array(record.speech).length>0&&array(record.speech).every(line=>row(line.who).npc===handle))
+        .sort((a,b)=>number(b.turn)-number(a.turn))[0];
+    if(!record)return null;
+    const text=Array.from(record.rendered_text).slice(0,1200).join('');
+    return {turn:record.turn,scene,text,...(text.length<record.rendered_text.length?{truncated:true}:{}),
+        authority:'Past public rendering only; not current action, presence, physical state or selected response content'};
+}
 export function npcCommitments(graph:ModuleGraph,node:Row,memory:Row[],scope:Row={}):Row[]{
     const names=namesOf(graph,node);
     return memory.filter(value=>current(value,scope)&&value.kind==='promise'

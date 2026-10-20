@@ -19,13 +19,14 @@ import {remembersAcrossLoops} from './worldline.js';
 import {personalityView,sourceRelationships} from '../npc/material.js';
 import { intentsView, shownIntentRef } from '../npc/intents.js';
 import {currentNpcMood, npcVariation} from '../npc/variation.js';
-import {npcRelationships,npcRecentSpeech,npcCommitments} from '../npc/perspective.js';
+import {npcRelationships,npcRecentSpeech,npcCommitments,npcPublicRendering} from '../npc/perspective.js';
 import {reunionView} from '../npc/reunion.js';
 import {cardAction,cardTactic} from '../combat/standing.js';
 import {mechRow} from './mech-line.js';
 import { MASK_KEY } from '../voice/fields.js';
 import { weaknessChain, type ChainReads } from "./weaknesses.js";
 import { containers, placesWithin, personNamedLocations, roadMinutes } from "./places.js";
+import {personAppearance} from '../first-sight/index.js';
 import {npcActivityView,sceneTemporalView} from './temporal.js';
 export const jsonSize = (value: any): number => Buffer.byteLength(pythonJsonDumps(value), "utf8");
 /**
@@ -1075,6 +1076,10 @@ export function npcView(graph: ModuleGraph, world: Row, node: Row, ledger: Row =
     // table reads the rest in the fight itself. `combat` is the saved fight, so a Keeper's hold shows only in its round.
     // With the disposition table, a person without a disposition also carries what one is inferred from.
     Object.assign(view, cardAction(graph, world, node, combat, dispositions));
+    const appearance=personAppearance(graph,node);
+    if(appearance)view.public_appearance=appearance;
+    const portrayal=npcPublicRendering(graph,node,records,{...scope,scene:row(world.npc_presence)[handle]});
+    if(portrayal)view.last_public_rendering=portrayal;
     const authored = withoutChainIds(graph.shownIds(graph.entityView(node).properties), chain);
     if (truth(authored))
         view.properties = authored;

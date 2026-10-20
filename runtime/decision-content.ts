@@ -26,6 +26,7 @@ const to=Type.Array(ref,{minItems:1,maxItems:16,uniqueItems:true});
 export const Interaction=Type.Union([
  closed({actor,act:Type.Literal('silent'),to:Type.Optional(to)}),
  closed({actor,to,act:StringEnum(['greet','refuse','acknowledge']),content:Type.Optional(Type.Array(CommunicationContent,{minItems:1,maxItems:8}))}),
+ closed({actor,to,act:Type.Literal('confirm'),content:Type.Array(Type.Union(ExistingCommunicationFact.anyOf.slice(0,2)),{minItems:1,maxItems:8})}),
  closed({actor,to,act:StringEnum(['answer','ask','offer','clarify','report','warn']),content:Type.Array(CommunicationContent,{minItems:1,maxItems:8})})
 ]);
 export type InteractionDecision=Static<typeof Interaction>;
@@ -74,7 +75,7 @@ const digest=(x:unknown)=>createHash('sha256').update(JSON.stringify(x)).digest(
 const MATERIAL_FIELDS=['knowledge','knows','authored_knowledge','knowledge_reports','cognition','recent_speech','commitments','believes','authored_beliefs'] as const;
 /** Epistemic material has one selectable catalog, not a second implicit disclosure path. */
 export function decisionCharacter(person:Row):Row {
- const result=Object.fromEntries(Object.entries(person).filter(([key])=>!(MATERIAL_FIELDS as readonly string[]).includes(key)&&!['observed_documents','tried'].includes(key)));
+ const result=Object.fromEntries(Object.entries(person).filter(([key])=>!(MATERIAL_FIELDS as readonly string[]).includes(key)&&!['observed_documents','tried','last_public_rendering'].includes(key)));
  if(result.ledger&&typeof result.ledger==='object'){
   const {intents,...ledger}=result.ledger;result.ledger=ledger;
  }
@@ -189,7 +190,7 @@ export class DecisionContent {
     if(!ref)throw Error('Unissued or non-person communication audience');return ref;
    });
    if(to?.includes(response.actor))throw Error('A speaker cannot be its own addressee');
-   return {...response,...(to?{to}:{}),...('content'in response?{claims:(response.content??[]).map(content=>this.resolve(content,response.actor))}:{})};
+   return {...response,...(to?{to}:{}),...('content'in response?{claims:(response.content??[]).map(content=>{const basis=this.resolve(content,response.actor);return response.act==='confirm'?{kind:'confirmation',value:{unchanged:true,basis}}:basis;})}:{})};
   });
   return {responses,materials:reveal.map(content=>this.resolve(content))};
  }
@@ -219,6 +220,8 @@ export function decisionPerson(person:Row,cast:Row[]):Row {
  const lastTurn=Math.max(...speech.map(line=>Number(line.turn)));
  const lastSpeech=speech.filter(line=>Number(line.turn)===lastTurn).slice(-6).map(line=>line.statement.slice(0,800));
  return {ref:person.ref,name:person.display_name,display_name:person.display_name,name_known:person.name_known===true,
+  ...(typeof person.public_appearance==='string'&&person.public_appearance.trim()?{public_appearance:person.public_appearance}:{}),
+  ...(person.last_public_rendering?{last_public_rendering:structuredClone(person.last_public_rendering)}:{}),
   ...(lastSpeech.length?{last_public_exchange:{turn:lastTurn,words:lastSpeech}}:{}),
   ...(typeof profile?.expression==='string'?{speech_style:profile.expression}:{}),
   ...(typeof person.personality?.description==='string'?{personality:{description:person.personality.description,origin:person.personality.origin}}:{}),
