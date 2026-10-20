@@ -31,12 +31,12 @@ test('public appearance survives every author projection while private biography
 test('the kernel reuses only a committed stationary single-speaker public portrayal in the same scene',async()=>{
  const {npcPublicRendering}=await importSource('kernel-ts/npc/perspective.ts');
  assert.equal(typeof npcPublicRendering,'function');
- const graph={handle:()=> 'Clerk'};const node={};
+ const graph={handle:()=> 'Clerk',find:()=>null};const node={};
  const base={turn:3,commit:'c',rendered_text:'The clerk nods. He sets down the cup.',world:{active_scene:'Shop'},receipts:[],speech:[{who:{npc:'Clerk',shown:'Clerk'},text:'Welcome.'}]};
  assert.equal(npcPublicRendering(graph,node,[base],{scene:'Shop'}).text,base.rendered_text);
- for(const changed of [{commit:null},{world:{active_scene:'Elsewhere'}},{receipts:[{kind:'move'}]},
+ for(const changed of [{commit:null},{closed_how:'stranded'},{interaction_scope:'reference'},{turn:8},{world:{active_scene:'Elsewhere'}},{receipts:[{kind:'move'}]},
   {speech:[...base.speech,{who:{npc:'Other'},text:'Goodbye.'}]},{worldline:'other'}])
-  assert.equal(npcPublicRendering(graph,node,[{...base,...changed}],{scene:'Shop',worldline:'current'}),null);
+  assert.equal(npcPublicRendering(graph,node,[{...base,...changed}],{scene:'Shop',worldline:'current',turn:5}),null);
 });
 
 test('the actual NPC read and direct author task preserve portrayal without promoting it into selected speech',async t=>{

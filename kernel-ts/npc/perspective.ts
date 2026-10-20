@@ -1,6 +1,6 @@
 /** A person's directed reports and own words; relevance never grants another person's knowledge. */
 import {jsonDigest} from '../json.js';
-import type {ModuleGraph} from '../read/module-graph.js';
+import {sameNode,type ModuleGraph} from '../read/module-graph.js';
 import {memoryEvidenceView} from '../read/memory.js';
 import {array,normalize,number,row,string,type Row} from '../read/values.js';
 import {personalityView,personalitySourceRevision,sourceRelationships} from './material.js';
@@ -45,11 +45,14 @@ export function npcRecentSpeech(graph:ModuleGraph,node:Row,records:Row[],scope:R
 /** Exact prior public staging is continuity evidence, never current state or an inferred identity. */
 export function npcPublicRendering(graph:ModuleGraph,node:Row,records:Row[],scope:Row={}):Row|null {
     const handle=graph.handle(node),scene=scope.scene;
+    const sceneNode=typeof scene==='string'?graph.find(scene,['scene']):null;
+    const atScene=(record:Row)=>{const closed=row(row(record.world).scene).name??row(record.world).active_scene;
+        return typeof closed==='string'&&(sceneNode?sameNode(graph,closed,sceneNode):closed===scene);};
     if(typeof scene!=='string'||!scene)return null;
     const record=records.filter(record=>record.commit&&current(record,scope)
         &&record.closed_how!=='stranded'&&(!record.interaction_scope||record.interaction_scope==='world')
         &&(scope.turn==null||number(record.turn)<number(scope.turn))
-        &&(row(row(record.world).scene).name??row(record.world).active_scene)===scene
+        &&atScene(record)
         &&!array(record.receipts).some(receipt=>['move','npc'].includes(row(receipt).kind))
         &&typeof record.rendered_text==='string'&&record.rendered_text.trim()
         &&array(record.speech).length>0&&array(record.speech).every(line=>row(line.who).npc===handle))
