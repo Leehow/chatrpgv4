@@ -223,7 +223,7 @@ test('an empty spatial decision is corrected before any author or world change',
  let demand=()=>{};
  const engine=createHybridEngine({env,decision:{decide:async batch=>{
   if(batch.family!=='location-decision-coverage')return answer(batch,.99);
-  const values={move_selected:.99,move_blocked:.01,feature_selected:.01,feature_blocked:.01};
+  const values={move_selected:.99,move_satisfied:.01,move_blocked:.01,feature_selected:.01,feature_satisfied:.01,feature_blocked:.01};
   return {...answer(batch,.99),answers:Object.fromEntries(batch.questions.map(q=>[q.key,{status:'answered',type:'noul',noul:values[q.key]}]))};
  }}});
  const command={kind:'place',action:'move',to:'Ordinary Inn',via:'Along the street',travel_band:'adjacent',additions:[{name:'Ordinary Inn',description:'A modest public inn.'}]};
