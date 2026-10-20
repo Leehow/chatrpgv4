@@ -15,6 +15,7 @@ test('native place can commit a step before later mechanics with compact provide
  for(const view of [tools,locationToolDeclarations(tools),locationToolDeclarations(tools,true)]){
   const place=view.find(row=>row.name==='place');
   assert(Check(place.parameters,read));assert(Check(place.parameters,write),'a nonpublishing location step must be available before a later wait or service');
+  assert(!Check(place.parameters,{...write,op:'inspect'}),'a read declaration never accepts a state-changing payload');
  }
  assert(JSON.stringify(locationToolDeclarations(tools).find(row=>row.name==='place').parameters).length<JSON.stringify(tools.find(row=>row.name==='place').parameters).length/2,'full location fields remain demand-only provider context');
  assert(!Check(tools.find(row=>row.name==='place').parameters,{...write,change:{...write.change,travel_minutes:0}}),'the native validator still prohibits invented travel arithmetic');

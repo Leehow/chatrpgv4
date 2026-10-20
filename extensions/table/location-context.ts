@@ -13,9 +13,13 @@ export function locationIdentityContext(read:Row):Row|undefined {
 }
 const object=(value:unknown):value is Row=>!!value&&typeof value==='object'&&!Array.isArray(value);
 const action=Type.String({enum:['move','establish','feature','relate','observe']});
-const entry=Type.Object({using_skill:Type.Optional(Type.String()),op:Type.String({enum:['inspect','submit'],description:'inspect reads name/need without change; submit executes one change.'}),
+const entry=legibleClosedSchema(Type.Union([
+ Type.Object({using_skill:Type.Optional(Type.String()),op:Type.Literal('inspect'),
     name:Type.Optional(Type.String()),at:Type.Optional(Type.String({description:'Optional existing feature of the named observation target; the observer position is already current.'})),sense:Type.Optional(Type.Union([Type.Literal('sight'),Type.Literal('hearing')])),need:Type.Optional(Type.Union([Type.Literal('context'),Type.Literal('contract'),Type.Literal('observation')])),
-    change:Type.Optional(Type.Object({action},{additionalProperties:true,description:'Typed location change; inspect need contract supplies its exact schema. Complete valid calls execute directly.'}))},{additionalProperties:false});
+ },{additionalProperties:false}),
+ Type.Object({using_skill:Type.Optional(Type.String()),op:Type.Literal('submit'),
+    change:Type.Object({action},{additionalProperties:true,description:'Typed location change; inspect need contract supplies its exact schema. Complete valid calls execute directly.'})},{additionalProperties:false})
+]));
 /** Explicit properties keep object unions legible to provider tool serializers. */
 function declarationObject(schema:Row):Row {
     if(!Array.isArray(schema.anyOf)||!schema.anyOf.every((branch:Row)=>branch.type==='object'))return schema;
