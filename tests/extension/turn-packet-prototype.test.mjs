@@ -703,3 +703,29 @@ test('a stationary activity retires expired population material without blocking
  assert.equal(batches.filter(batch=>batch.family==='continuous-action-admission').length,1);
  assert.equal(table.entries('coc-final-delivery').filter(row=>row.event==='end'&&row.status==='completed').length,1);
 });
+
+test('a scene assessment supplement after settled NPC travel uses a fresh call and retains every prior outcome',async t=>{
+ let ref;const engine=createHybridEngine({env,decision:{decide:async batch=>answer(batch,.99)}});
+ const prepare=async workspace=>{const k=new RpcClient(workspace);try{
+  await k.ok('table.open',{campaign:'test-camp'});
+  await k.ok('table.apply',{campaign:'test-camp',call_id:'t0-c1',effects:compileTurnPacket({version:4,commands:[{kind:'scene',service:'open',crowd:'quiet',review_after_minutes:30}]}).effects});
+  await k.ok('table.narrate',{campaign:'test-camp',call_id:'t0-c2',text:'Knott waits at his desk.'});
+ }finally{await k.close();}};
+ const table=await openTable({legacyDeliveryFixtures:false,realKernel:true,prepareWorkspace:prepare,env,runDriver:engine.runDriver,
+  extraExtensions:[{name:'engine',factory:engine.extension}],responses:[
+   ()=>fauxAssistantMessage([rawToolCall('output',{version:4,commands:[{kind:'npc',actor:ref,to:'away',reason:'Knott leaves when asked.'},{kind:'time',minutes:2,reason:'Wait the two minutes explicitly selected.'}]})],{stopReason:'toolUse'}),
+   ()=>fauxAssistantMessage([rawToolCall('output',{version:4,commands:[{kind:'scene',service:'open',crowd:'empty',review_after_minutes:30}]})],{stopReason:'toolUse'})
+  ]});t.after(()=>table.dispose());
+ ref=(await table.runtimeBridges().at(-1).call('table.capsule',{campaign:'test-camp'})).present.find(person=>person.name==='Steven Knott').ref;
+ await table.session.prompt('I ask the visitor to leave and wait here for two minutes.');
+ assert.deepEqual(table.extensionErrors,[]);
+ const errors=table.session.messages.filter(row=>row.role==='toolResult'&&row.details?.coc_error).map(row=>row.details.coc_error);
+ assert.equal(errors.length,1,JSON.stringify(errors));assert.match(errors[0].message,/Scene population remains unassessed/);
+ const author=table.telemetry().find(row=>row.lane==='isolated-expression'&&row.event==='written');assert.ok(author,JSON.stringify(errors));
+ const task=JSON.parse(readFileSync(join(author.attempt,'task.json'),'utf8'));
+ assert.equal(task.result.outcomes.filter(row=>row.kind==='npc'&&row.status==='changed').length,1);
+ assert.equal(task.result.outcomes.filter(row=>row.kind==='time').length,1);
+ const turn=JSON.parse(readFileSync(join(table.workspace,'.coc/campaigns/test-camp/turns/0001.json'),'utf8'));
+ assert.equal(turn.receipts.filter(row=>row.kind==='npc').length,1);assert.equal(turn.receipts.filter(row=>row.kind==='time').length,1);assert.equal(turn.receipts.filter(row=>row.kind==='scene').length,1);
+ assert.equal(table.entries('coc-final-delivery').filter(row=>row.event==='end'&&row.status==='completed').length,1);
+});

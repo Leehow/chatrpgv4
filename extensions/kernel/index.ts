@@ -1537,7 +1537,7 @@ export default function (pi: ExtensionAPI, host: {capabilities?:RuntimeCapabilit
     });
 	let isolatedOutput=false;
 	let turnPacketPrototype=false;
-	let keeperRun:{runId:string;inputRevision:string;signal?:AbortSignal;recordCallId?:string;
+	let keeperRun:{runId:string;inputRevision:string;signal?:AbortSignal;recordCallId?:string;packetRecordIds?:Map<string,string>;
         routineResult?:ReturnType<typeof turnPacketResult>;prescreen?:Record<string,any>}|undefined;
 	let keeperReply:{decoder:ArtifactTextStream|ExpressionPlanStream;stream?:Awaited<ReturnType<typeof finalOutput.openStream>>;work:Promise<void>;error?:unknown;evidence?:Record<string,any>;run:string;signal?:AbortSignal;raw:string;bufferedText?:string}|undefined;
 	let finalHandoff: {campaign:string;turn:number;run:string;params:Record<string,unknown>} | undefined;
@@ -1561,7 +1561,7 @@ export default function (pi: ExtensionAPI, host: {capabilities?:RuntimeCapabilit
 		}});
 	pi.events.on('coc:keeper-run',(value:any)=>{
 		keeperRun={...value,...(keeperRun&&keeperRun.runId===value.runId&&keeperRun.inputRevision===value.inputRevision
-			?{recordCallId:keeperRun.recordCallId,routineResult:keeperRun.routineResult,prescreen:value.prescreen??keeperRun.prescreen}:{})};
+			?{recordCallId:keeperRun.recordCallId,packetRecordIds:keeperRun.packetRecordIds,routineResult:keeperRun.routineResult,prescreen:value.prescreen??keeperRun.prescreen}:{})};
 	});
 	pi.events.on('coc:capsule',(value:any)=>{
         if(table&&value?.campaign===table.campaign&&value.turn===table.turn)
@@ -5794,11 +5794,15 @@ export default function (pi: ExtensionAPI, host: {capabilities?:RuntimeCapabilit
             if(compiled.effects.length||compiled.event){
 				const owner=keeperRun;
 				if(!owner||owner.runId!==reply.run)throw Error('The turn packet owner is stale');
-				const toolCallId=`keeper:${reply.run}:record`;
-				owner.recordCallId??=mintCallId(state);
-				state.mintedCallIds.set(toolCallId,owner.recordCallId);
+				const params={effects:compiled.effects,...(compiled.event?{event:compiled.event}:{})};
+                const identity=createHash('sha256').update(JSON.stringify(params,(_key,value)=>value&&typeof value==='object'&&!Array.isArray(value)
+                    ?Object.fromEntries(Object.entries(value).sort(([left],[right])=>left<right?-1:left>right?1:0)):value)).digest('hex');
+                const ids=owner.packetRecordIds??=new Map<string,string>();
+                if(!ids.has(identity))ids.set(identity,mintCallId(state));
+                const toolCallId=`keeper:${reply.run}:record:${identity}`;
+				state.mintedCallIds.set(toolCallId,ids.get(identity)!);
 				const settled=await runTool(COC_TOOLS.find(tool=>tool.name==='apply')!,toolCallId,
-					{effects:compiled.effects,...(compiled.event?{event:compiled.event}:{})},reply.signal,undefined,'explicit',ctx,undefined,undefined,compiledDecisionAuthority);
+					params,reply.signal,undefined,'explicit',ctx,undefined,undefined,compiledDecisionAuthority);
 				await record({lane:'turn-packet-prototype',turn:state.turn,run:reply.run,effects:compiled.effects,
 					ok:!settled.details.coc_error,jev_extra_calls:0});
 				if(settled.details.coc_error)throw new KernelError(settled.details.coc_error as ConstructorParameters<typeof KernelError>[0]);

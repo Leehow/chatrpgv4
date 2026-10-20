@@ -49207,6 +49207,12 @@ closed constructor. An incorrect kind reports the required literal rather than
 only unrelated extra-field errors from a legacy move constructor. Submission is
 still refused unchanged; the existing single correction allowance is preserved.
 
+Native output records bind host call IDs to canonical parameter identity within
+the current Keeper run. An unchanged record reuses its ID; a changed supplement
+gets a fresh ID. A scene assessment following already committed NPC movement is
+a supplement, not a mutation of the earlier call. Final rendering still reads
+all canonical settled results; no previous effect is rolled back or invented.
+
 ## 243. Enhanced Locations: spatial relations and observation continuity
 
 Owner approval (2026-10-19): complete the location association graph, observation
