@@ -64,8 +64,8 @@ import { AUTHORED_MAP_WORDS, KEEPER_MAP_WORDS, mapCardTexts, type MapWordsOption
 import { argumentLimitRefusal, documentWriteRefusal, effectShapeRefusal, COC_TOOLS, COC_TOOL_NAMES, type CocToolSpec, WRITE_TOOLS } from "./tools.ts";
 import { unwrapArgumentMarkup } from "./tool-argument-markup.ts";
 import { finalDeliveryAction, leanApplyEnabled, offeredTools } from "./lean-apply.ts";
-import { stripDialectPrefixes, omitEmptyEmbeddedArguments } from "./dialect-prefix.ts";
 import {admissionRefusalScope} from './refusal-scope.ts';
+import { stripDialectPrefixes, omitEmptyEmbeddedArguments } from "./dialect-prefix.ts";
 import { decodeSerializedStrings } from "./encoded-string-argument.ts";
 import type {TaskProviderBudget} from '../../runtime/jev/provider-budget.ts';
 import type {Prepared as ReviewPrepared, ReviewMode} from '../mods/index.ts';
@@ -6233,17 +6233,17 @@ export default function (pi: ExtensionAPI, host: {capabilities?:RuntimeCapabilit
         result = await state.kernel.call<Record<string, unknown>>(spec.method, resent, onProgress);
       }
       if(spec.name==='place'&&result.status==='unregistered')result={...result,advice:await adviseLocationReference(result,{env:process.env,campaign:state.campaign,turn:state.turn,signal,record:row=>record(row)})};
-      if(spec.name==='apply')await observeWritingCompletion(state,result,writingMatches);
-
-      // §204.4: a model's committed mint is bound to the book in the background, independently of the next player turn.
-      if (spec.name === 'apply' && !host && evidence.label === 'model' && Array.isArray(payload.effects)
-        && payload.effects.some(effect => effect && typeof effect === 'object' && effect.kind === 'move' && effect.establish !== undefined)) {
       if(turnPacketPrototype&&spec.name==='place'&&params.need==='contract'){
         const command=structuredClone(result.command) as Record<string,any>|undefined;
         for(const branch of command?.anyOf??[])if(branch.properties?.action?.const==='move')delete branch.properties.travel_minutes;
         result={...result,parameters:offeredTools(COC_TOOLS,process.env).find(tool=>tool.name==='place')!.parameters,command,
           write_route:{tool:'output',field:'commands',instruction:'Submit kind place with its action fields directly. No op or change wrapper. Select an issued travel_band for a journey; do not supply travel_minutes.'}};
       }
+      if(spec.name==='apply')await observeWritingCompletion(state,result,writingMatches);
+
+      // §204.4: a model's committed mint is bound to the book in the background, independently of the next player turn.
+      if (spec.name === 'apply' && !host && evidence.label === 'model' && Array.isArray(payload.effects)
+        && payload.effects.some(effect => effect && typeof effect === 'object' && effect.kind === 'move' && effect.establish !== undefined)) {
         const sourceReader = reading;
         placeBindings.start({campaign: state.campaign, turn: state.turn, moduleId: readingModule,
           receipts: Array.isArray(result.receipts) ? result.receipts : [],
@@ -6374,14 +6374,14 @@ export default function (pi: ExtensionAPI, host: {capabilities?:RuntimeCapabilit
 					const sourceRead = { purpose: answerOnly ? "answer" : "detail", focus: params.query, question: sourceQuestion,
 						...(mapPreparation ? {material:'map'} : {}) };
 					let memoEnvelope = false;
+					const sourceOwner=JSON.stringify([readingModule,fromStep?.run??`turn:${askedTurn}`]);
+					const waiting=answerOnly&&params.retry!==true?pendingAnswers.pendingFor(state.campaign,{scene:askedAt,turn:askedTurn,
+						focus:String(params.query),owner:sourceOwner,scope:askedScope}):undefined;
 					// §217.2: an answer that landed at this scene while this run was deciding, and was not handed to it yet, answers
 					// the lookup first (as the memo does), so a lookup that raced the landing never starts a second reading. The
 					// resend, or `retry: true`, reads the book. No question is matched against another.
 					const landedFirst = answerOnly && params.retry !== true && fromStep?.run
 						? pendingAnswers.landedFor(state.campaign, {scene: askedAt, run: fromStep.run, scope: askedScope}) : [];
-					const sourceOwner=JSON.stringify([readingModule,fromStep?.run??`turn:${askedTurn}`]);
-					const waiting=answerOnly&&params.retry!==true?pendingAnswers.pendingFor(state.campaign,{scene:askedAt,turn:askedTurn,
-						focus:String(params.query),owner:sourceOwner,scope:askedScope}):undefined;
 					if(waiting){
 						sourceAnswer={...pendingAnswer({},waiting),...(waiting.question!==String(sourceQuestion)?{requested_question:{question:String(sourceQuestion),status:'deferred',
 							note:'This different question has not been read or answered. The existing source task continues; use current registered material for selected actions and do not reword this focus to start more work in this input.'}}:{})};
