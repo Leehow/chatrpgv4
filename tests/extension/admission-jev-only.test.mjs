@@ -116,6 +116,17 @@ test('ordinary service consent retains the time prefix without requiring an obse
  assert.equal(result.verdict.verdict,'not_authorized','the prefix never waives independent restrictions');
 });
 
+test('physical delivery precedes consumption even when the batch has no clock or observation',()=>{
+ const gain={kind:'item',name:'Soup',from:'Server',to:'Thomas Hayes',quantity:1};
+ const consume={kind:'item',name:'Soup',to:'Thomas Hayes',quantity:-1};
+ const scope={party:['Thomas Hayes'],consentOnly:true};
+ const proposed=admission.admissionRequest('apply',{effects:[gain,consume]},scope);
+ const reversed=admission.admissionRequest('apply',{effects:[consume,gain]},scope);
+ assert.notEqual(proposed.key,reversed.key,'kernel execution order also matters for physical services');
+ assert.deepEqual(admission.lineProposal(proposed,1).preceding?.operations,[gain]);
+ assert.deepEqual(admission.lineProposal(reversed,0).preceding?.operations,[]);
+});
+
 test('a confident Jev refusal stands without asking a generative judge',async()=>{
     const selected=options('not_authorized');
     const result=await admission.reviewAdmissionJevOnly(selected.value);

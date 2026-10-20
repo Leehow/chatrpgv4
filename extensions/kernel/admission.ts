@@ -595,7 +595,7 @@ export function admissionRequest(tool: string, payload: Record<string, unknown>,
 		// Each line's own signature, taken before the sort below reorders `signatures` in place.
 		const lineSignatures = shown.map((index) => signatures[index]!);
 		const observation = effects.some(effect => effect.kind === 'place' && effect.action === 'observe');
-		const ordered = observation || effects.some(effect => ['time','clock','move','object','usage'].includes(String(effect.kind)) || effect.kind === 'place' && effect.action === 'move');
+		const ordered = effects.length > 1 || observation || effects.some(effect => effect.kind === 'object' || effect.kind === 'usage');
 		const key = canonical({ tool, effects: ordered ? signatures : signatures.sort(), destinations: scope.destinations ?? [], ...(scope.selectedDocumentRecording?{selectedDocumentRecording:true}:{}), ...(scope.cash ? {cash:scope.cash} : {}) });
 		// The key stays the whole batch's (§32.4); the lines are only the reviewed effects (§32.12.3).
 		return { tool: "apply", key, ...(ordered ? { ordered: true as const } : {}), lines: shown.map((index) => describe(effects[index]!)), kinds: shown.map((index) => text(effects[index]!.kind) ?? "?"), effects: shown,

@@ -50066,3 +50066,9 @@ Writer: the existing table.capsule read in admitAction and admissionRequest's or
 External checks: LangGraph's documented state updates make committed state available to subsequent nodes, while Temporal's workflow definition separates workflow-defined time from host wall time. These confirm using the current canonical clock and actual effect sequence; their workflow engines and replay machinery are not introduced here.
 https://github.com/langchain-ai/docs/blob/main/src/oss/langgraph/graph-api.mdx
 https://docs.temporal.io/workflow-definition
+
+### Ordered physical service completion (2026-10-20)
+
+The next real App round confirmed that current_clock reached 17:00 but the Keeper proposed only payment, NPC activity and time, never delivery or consumption. Enhanced Locations 1.1.14 therefore carries service execution guidance in its existing situational continuity section: executable physical delivery precedes consumption; payment follows the player's selected order; rolled/stated time that prevents cash preview is settled with the selected physical work before a subsequent expense call. Terms and limits must be checked before fulfillment. No food simulator, source template, extra model, timeout or consent exemption is introduced.
+
+Every multi-effect apply batch retains execution order, including an item gain followed by consumption without a clock or observation. Split reviews see their proposed prefix under independent validation; reversing delivery and consumption must produce a distinct reuse key. The earlier clock-only fix is generalized to the actual existing transaction loop, rather than enumerating effect families that might depend on one another.
