@@ -301,6 +301,9 @@ export interface AdmissionProposal {
 	lines: string[];
 	/** Same operations as lines, projected by the host without parsing prose. */
 	operations?: Record<string,unknown>[];
+	/** Observation batches execute in order; their split reviews retain the proposed prefix, not settled authority. */
+	ordered?: true;
+	preceding?: { operations: Record<string,unknown>[]; signatures: string[] };
 	/** An `apply` batch's effect kinds, in order: closed contract enums the typed route reads (§32.10). */
 	kinds?: string[];
 	/**
@@ -591,10 +594,11 @@ export function admissionRequest(tool: string, payload: Record<string, unknown>,
             kinds:['event'],eventEffectSignatures:signatures,...(scope.cash?{cash:scope.cash}:{})};
 		// Each line's own signature, taken before the sort below reorders `signatures` in place.
 		const lineSignatures = shown.map((index) => signatures[index]!);
-		const ordered = effects.some(effect => effect.kind === 'object' || effect.kind === 'usage');
+		const observation = effects.some(effect => effect.kind === 'place' && effect.action === 'observe');
+		const ordered = observation || effects.some(effect => effect.kind === 'object' || effect.kind === 'usage');
 		const key = canonical({ tool, effects: ordered ? signatures : signatures.sort(), destinations: scope.destinations ?? [], ...(scope.selectedDocumentRecording?{selectedDocumentRecording:true}:{}), ...(scope.cash ? {cash:scope.cash} : {}) });
 		// The key stays the whole batch's (§32.4); the lines are only the reviewed effects (§32.12.3).
-		return { tool: "apply", key, lines: shown.map((index) => describe(effects[index]!)), kinds: shown.map((index) => text(effects[index]!.kind) ?? "?"), effects: shown,
+		return { tool: "apply", key, ...(observation ? { ordered: true as const } : {}), lines: shown.map((index) => describe(effects[index]!)), kinds: shown.map((index) => text(effects[index]!.kind) ?? "?"), effects: shown,
 			operations:shown.map(index=>{const effect=effects[index]!,registered=effect.kind==='move'||effect.kind==='place'?destination(effect):undefined;
 				return {...Object.fromEntries(Object.entries(effect).filter(([key,value])=>!key.startsWith('_')&&value!==undefined)),
 					...(registered?{registered_destination:registered}:{})};}),
@@ -1111,6 +1115,9 @@ export function lineProposal(proposal: AdmissionProposal, index: number): Admiss
 	const besideSignatures = [...others(signatures), ...(proposal.beside?.signatures ?? [])];
 	const { beside: _batchBeside, ...rest } = proposal;
 	return { ...rest, lines: [proposal.lines[index]!], ...(proposal.kinds ? { kinds: [proposal.kinds[index] ?? "?"] } : {}),
+		...(proposal.operations ? { operations: [proposal.operations[index]!] } : {}),
+		...(proposal.ordered ? { preceding: { operations: [...(proposal.preceding?.operations ?? []), ...(proposal.operations?.slice(0,index) ?? [])],
+			signatures: [...(proposal.preceding?.signatures ?? []), ...signatures.slice(0,index)] } } : {}),
 		...(proposal.effects ? { effects: [proposal.effects[index]!] } : {}), signatures: [signatures[index]!],
 		...(lines.length ? { beside: { lines, signatures: besideSignatures } } : {}) };
 }
@@ -1118,12 +1125,14 @@ export function lineProposal(proposal: AdmissionProposal, index: number): Admiss
  * §32.12.3.1.1 (SL-104), pure: `proposal` as proposed beside `beside` -- the other reviewed lines of its call. It carries
  * them for the lane to read, and its key is extended by their signatures, order-free, so a verdict given beside them is
  * reused only beside the same lines (§32.4's `why` and the other rationale fields stay outside, as `effectSignature` has
- * them). With no batch-mates the proposal is returned as it is: a one-line call keeps the key it always had.
+ * them). Observation prefixes additionally retain execution order. With no batch-mates or prefix the proposal is
+ * returned as it is: a one-line call keeps the key it always had.
  */
-export function besideBatch(proposal: AdmissionProposal, beside: AdmissionProposal["beside"]): AdmissionProposal {
-	if (!beside?.lines.length) return proposal;
-	return { ...proposal, beside: { lines: [...beside.lines], signatures: [...beside.signatures] },
-		key: canonical({ line: proposal.key, beside: [...beside.signatures].sort() }) };
+export function besideBatch(proposal: AdmissionProposal, beside: AdmissionProposal["beside"], preceding?: AdmissionProposal["preceding"]): AdmissionProposal {
+	if (!beside?.lines.length && !preceding) return proposal;
+	return { ...proposal, ...(beside?.lines.length ? { beside: { lines: [...beside.lines], signatures: [...beside.signatures] } } : {}),
+		...(preceding ? { ordered: true as const, preceding: { operations: [...preceding.operations], signatures: [...preceding.signatures] } } : {}),
+		key: canonical({ line: proposal.key, beside: [...(beside?.signatures ?? [])].sort(), ...(preceding ? { preceding: preceding.signatures } : {}) }) };
 }
 /**
  * §32.12.3.1: the batch's typed answer as line `index` reads it on its own -- that line's verdict and confidence, which
@@ -1292,7 +1301,7 @@ export async function reviewAdmissionJevOnly(options:PrimaryAdmissionReviewOptio
     {ok:true;verdict:AdmissionVerdict;ms:number;meta:Record<string,unknown>}
     |{ok:false;reason:string;ms:number;meta:Record<string,unknown>}> {
     const clock=options.clock??hostClock,began=clock.now(),context=options.context;
-    const family='continuous-action-admission',version=options.proposal.kinds?.includes('place')?'10':'7';
+    const family='continuous-action-admission',version=options.proposal.ordered||options.proposal.kinds?.includes('place')?'11':'7';
     let mechanicsChoice:{action:string;choice:{name:string;binds:string;options:string[];prompt?:string}}|undefined;
     let mechanicsInput=false,mechanicsBinding:string|undefined;
     try{
@@ -1332,13 +1341,20 @@ export async function reviewAdmissionJevOnly(options:PrimaryAdmissionReviewOptio
             ...(publicDialogue(row.speech).length?{speech:publicDialogue(row.speech)}:{})})),
         settled_this_turn:context.landed,
         ...(context.corrections?.length?{argument_corrections:context.corrections}:{}),
-        proposal:{tool:options.proposal.tool,lines:(options.proposal.operations??options.proposal.lines).map(continuousConsentLine),...(options.proposal.kinds?{kinds:options.proposal.kinds}:{})},
+        proposal:{tool:options.proposal.tool,lines:(options.proposal.operations??options.proposal.lines).map(continuousConsentLine),...(options.proposal.kinds?{kinds:options.proposal.kinds}:{}),
+            ...(options.proposal.ordered?{execution:{order:'Earlier operations execute before later lines in this same proposed atomic batch.',
+                preceding:(options.proposal.preceding?.operations??[]).map(continuousConsentLine),
+                authority:'These are proposed operations, not settled facts. Each needs independent consent and canonical validation. Outside plans supply no prerequisite.'}}:{})},
         ...(cashRequirements.length?{cash_requirements:cashRequirements}:{})};
     const revision=createHash('sha256').update(JSON.stringify(state)).digest('hex');
     const batch:DecisionBatch={id:family+':'+revision,model:ADMISSION_JEV_MODEL,family,familyVersion:version,
         scope:{owner:family,campaign:options.campaign,audience:'player'},
         readSet:[{kind:'draft',resource:'turn:'+context.turn+':consent',revision},{kind:'family',resource:family,revision:version}],
         state:state as DecisionBatch['state'],questions:continuousConsentQuestions(options.proposal.lines.map((_,index)=>options.proposal.kinds?.[index]??''))};
+    if(options.proposal.ordered)for(const question of batch.questions){
+        if(question.key.startsWith('restriction_'))question.instructions=String(question.instructions)
+            +' Evaluate this line at its execution position in proposal.execution: after the listed preceding operations and earlier proposal.lines, conditional on their independent approval and validation. An explicitly selected wait or arrival in that prefix can satisfy its timing or position prerequisite; it need not have settled before this atomic batch is reviewed. Later lines and intentions outside the batch cannot satisfy an earlier prerequisite.';
+    }
     if(options.lineContexts){
         if(options.lineContexts.length!==options.proposal.lines.length)throw Error('Consent line context count differs from its operations');
         for(const question of batch.questions){

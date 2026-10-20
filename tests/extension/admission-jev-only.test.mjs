@@ -42,7 +42,7 @@ test('enhanced location admission names its entry and Keeper-creation semantics 
     const effect={kind:'place',action:'move',to:'Ordinary Inn',at:'counter',additions:[{name:'Ordinary Inn',description:'A public lobby.'}]};
     const proposal=admission.admissionRequest('apply',{effects:[effect]},{party:['Thomas Hayes'],consentOnly:true});
     const result=await admission.reviewAdmissionJevOnly({...selected.value,proposal});
-    assert.equal(batch.familyVersion,'10');assert.equal(batch.state.proposal.lines[0].to,effect.to);
+    assert.equal(batch.familyVersion,'11');assert.equal(batch.state.proposal.lines[0].to,effect.to);
     assert.match(batch.state.proposal.lines[0].arrival_scope.additions,/Keeper-authored/);
     assert.match(batch.questions[1].instructions,/entry or boundary crossing/);
     assert.equal(result.verdict.verdict,'uncertain');
@@ -53,6 +53,34 @@ test('admission uses the Noul probability without a multiclass confidence',async
     assert.equal(result.ok,true);assert.equal(result.verdict.verdict,'authorized');
     assert.deepEqual(result.meta.line_admit_probabilities,[.86]);
     assert.equal(result.meta.jev_confidence,undefined);
+});
+
+test('observation consent reads ordered waits without treating them as already settled or bypassing restrictions',async()=>{
+    const wait={kind:'time',minutes:5,why:'The selected rest.'};
+    const observe={kind:'place',action:'observe',to:'Street',sense:'sight',access:'clear',scope:'The opposite pavement',facts:['The seller reaches the next shop.']};
+    const scope={party:['Thomas Hayes'],consentOnly:true};
+    const proposal=admission.admissionRequest('apply',{effects:[wait,observe]},scope);
+    const reversed=admission.admissionRequest('apply',{effects:[observe,wait]},scope);
+    assert.notEqual(proposal.key,reversed.key,'observing before waiting is a different transaction');
+    const own=admission.lineProposal(proposal,1),earlier=admission.lineProposal(reversed,0);
+    assert.deepEqual(own.operations,[observe],'a split line contains only its own operation');
+    assert.deepEqual(own.preceding.operations,[wait]);
+    assert.deepEqual(earlier.preceding.operations,[],'a later wait cannot supply an earlier prerequisite');
+    const alone=admission.admissionRequest('apply',{effects:[observe]},scope);
+    const joined=admission.besideBatch(alone,own.beside,own.preceding);
+    const first=admission.besideBatch(alone,earlier.beside,earlier.preceding);
+    assert.notEqual(joined.key,first.key,'identical siblings in a different order must be reviewed again');
+    const selected=options(),decide=selected.value.decision.decide;let batch;
+    selected.value.decision={decide:async(value,lease)=>{batch=value;const answer=await decide(value,lease);
+        answer.answers.restriction_0.noul=.99;return answer;}};
+    const result=await admission.reviewAdmissionJevOnly({...selected.value,proposal:joined});
+    assert.equal(batch.familyVersion,'11');
+    assert.deepEqual(batch.state.proposal.execution.preceding,[wait]);
+    assert.match(batch.state.proposal.execution.authority,/not settled facts/);
+    assert.equal(batch.state.proposal.lines.length,1);
+    assert.equal(batch.questions.length,2,'the same selection and restriction questions remain');
+    assert.match(batch.questions[1].instructions,/independent approval and validation/);
+    assert.equal(result.verdict.verdict,'not_authorized','the ordered prefix cannot override a current restriction');
 });
 
 test('a confident Jev refusal stands without asking a generative judge',async()=>{

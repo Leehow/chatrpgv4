@@ -392,3 +392,10 @@ schema tail both carry this grammar. Its mutual exclusion follows the official
 Acceptance must prove a real explicit wait advances the canonical clock, then
 the same remote person/incident can be observed at the later game minute. Pure
 reference replies and repeated preparation reads still advance nothing.
+
+Admission must see the same operation order as settlement. A selected wait or
+arrival in the same proposed atomic batch is a possible prerequisite for a later
+observation, conditional on that earlier operation's independent approval and
+validation. A split review carries only its own operation and its ordered prefix;
+reuse keys preserve the prefix order. Outside plans and future-only conditions
+remain binding. No confidence threshold or permission boundary changes.

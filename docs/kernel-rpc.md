@@ -49393,6 +49393,21 @@ The detailed decision and required elapsed-observation evidence are in the
 explicit-wait section of the location specification. Earlier zero-minute receipts
 remain unchanged and do not count as completed waiting.
 
+Observation admission preserves the proposed transaction's execution order.
+An earlier selected wait or arrival in that same batch can satisfy a later
+observation's timing or position prerequisite when it executes. This is proposed
+context, not a claim that it has settled: every earlier operation must still
+pass its own consent review and canonical validation. An intention outside the
+batch supplies no prerequisite. A split line carries only its own operation,
+plus an explicitly ordered prefix; batch and line reuse keys include that order.
+The existing selection and restriction questions and thresholds remain binding;
+place-family version 11 adds this execution context without another veto axis.
+
+The transaction analogy is limited: [PostgreSQL](https://www.postgresql.org/docs/current/transaction-iso.html)
+and [SQLite](https://www.sqlite.org/isolation.html) both let later operations see
+their own transaction's earlier writes. This supports ordered staging, but says
+nothing about player permission, which remains independently required here.
+
 - https://docs.openra.net/en/playtest/traits/#frozenunderfog
 - https://github.com/0ad/0ad/blob/master/binaries/data/mods/public/simulation/components/Fogging.js
 

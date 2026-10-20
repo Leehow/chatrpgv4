@@ -411,3 +411,19 @@ partial evidence are retained. It is not a green full regression. Repeat the
 final RPC/full runs, rebuild the App with exact waiting, continue the real clock/
 observation test and finish native UI acceptance. Other dialogue work and its
 untracked acceptance report remain independently owned.
+
+### Ordered observation consent follow-up
+
+The exact-wait package correctly compiled minutes=5, but global turn 29 held
+the subsequent observation as uncertain (selection .86, restriction .46). No
+effect settled. The concrete seam audit found order-free observation reuse and
+lost/overbroad operation context in split-line reviews. Whether those omissions
+caused this particular probability is a hypothesis, pending real verification.
+
+The existing consent path now carries ordered proposed prefixes, narrows split
+operations to their own line, and keys observation reuse by order. Each prefix
+operation still requires independent consent and canonical validation. The same
+two questions, thresholds and normal refusal behavior remain. Focused admission,
+line concurrency/reuse and language tests pass 44/44. A fresh natural wait/look
+is running through the canonical source driver; current full LAN and packaged
+UI acceptance remain open. No controlled fixture is live-play evidence.

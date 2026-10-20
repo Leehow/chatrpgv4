@@ -3183,7 +3183,7 @@ export default function (pi: ExtensionAPI, host: {capabilities?:RuntimeCapabilit
 			const effect = effects[proposal.effects?.[index] ?? index] ?? {};
 			const own = lineProposal(proposal, index);
 			const alone = admissionRequest(tool, { effects: [effect] }, scopeFor([effect]));
-			return { line, effect, proposal: alone ? besideBatch(alone, own.beside) : { ...own, key: `${proposal.key}#${index}` } };
+			return { line, effect, proposal: alone ? besideBatch(alone, own.beside, own.preceding) : { ...own, key: `${proposal.key}#${index}` } };
 		});
 	}
 
