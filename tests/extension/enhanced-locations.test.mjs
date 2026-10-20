@@ -156,10 +156,10 @@ test('native location arrays decode exact transport booleans without changing th
 });
 
 test('an unrelated invalid parent does not hide behind native array envelopes',()=>{
-    const input={version:4,commands:[{...command,additions:{item:{name:'Ordinary Inn',within:'',description:'A public inn.',features:{item:{name:'window',description:'A wooden window.'}}}}}]};
+    const input={version:4,commands:[{...command,additions:{item:{name:'Ordinary Inn',within:42,description:'A public inn.',features:{item:{name:'window',description:'A wooden window.'}}}}}]};
     const original=structuredClone(input),decoded=normalizeTurnPacketArguments(input);
     assert.deepEqual(input,original);assert.equal(decoded.repairs,2);
-    assert.equal(decoded.args.commands[0].additions[0].within,'','invalid semantic values are never filled or omitted');
+    assert.equal(decoded.args.commands[0].additions[0].within,42,'wrongly typed parent values are never filled or omitted');
     assert.throws(()=>turnPacket(JSON.stringify(decoded.args)),/additions\/0\/within/,'the real field reaches same-turn correction');
     const corrected=structuredClone(decoded.args);delete corrected.commands[0].additions[0].within;
     assert.doesNotThrow(()=>turnPacket(JSON.stringify(corrected)));

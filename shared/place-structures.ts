@@ -3,7 +3,7 @@ import {Type,type Static} from 'typebox';
 const name=()=>Type.String({minLength:1,maxLength:240});
 const fact=()=>Type.String({minLength:1,maxLength:1200});
 const feature=Type.Object({name:name(),description:fact(),state:Type.Optional(fact()),passable:Type.Optional(Type.Boolean())},{additionalProperties:false});
-export const PlaceAddition=Type.Object({name:Type.String({minLength:1,maxLength:240,description:'The leaf name, or an already qualified name under within. The parent prefix is never repeated.'}),within:Type.Optional(Type.Union([name(),Type.Null()],{description:'The exact containing place. Omit or use JSON null for no registered parent; never the literal string null.'})),description:Type.Optional(fact()),
+export const PlaceAddition=Type.Object({name:Type.String({minLength:1,maxLength:240,description:'The leaf name, or an already qualified name under within. The parent prefix is never repeated.'}),within:Type.Optional(Type.Union([name(),Type.Null(),Type.Literal('')],{description:'The exact containing place. Omit, use JSON null or an empty string for no registered parent; never the literal string null.'})),description:Type.Optional(fact()),
     features:Type.Optional(Type.Array(feature,{maxItems:16}))},{additionalProperties:false});
 const using_skill=Type.Optional(Type.String({description:'Optional exact currently offered skill card name; host-only annotation, never authority.'}));
 const additions=Type.Optional(Type.Array(PlaceAddition,{minItems:1,maxItems:12}));

@@ -75,6 +75,19 @@ test('a native observation point refusal preserves its concrete registration cau
  assert.doesNotMatch(notice.content,/turn_packet_parameters|[{}]/);assert.deepEqual(table.extensionErrors,[]);
 });
 
+test('a native shape failure exposes the exact field constraint without values or JSON in the notice',async t=>{
+ const env={PI_COC_LOOP_ENGINE:'hybrid-v1',PI_COC_TURN_PACKET_PROTOTYPE:'1',PI_COC_JEV_PRESELECT:'0',PI_COC_MATERIAL_SCREEN:'0',EXT_JEV_APIKEY:undefined,TYPESAFE_API_KEY:undefined};
+ const engine=createHybridEngine({env,decision:{decide:async batch=>answer(batch)}});
+ const invalid=()=>fauxAssistantMessage([fauxToolCall('output',{version:4,commands:[{kind:'place',action:'observe',to:'here',sense:'sight',access:'clear',scope:'The doorway.',facts:42}]})],{stopReason:'toolUse'});
+ const table=await openTable({legacyDeliveryFixtures:false,realKernel:true,prepareWorkspace:opened,env,runDriver:engine.runDriver,
+  extraExtensions:[{name:'engine',factory:engine.extension}],responses:[invalid,invalid]});
+ t.after(()=>table.dispose());await table.session.prompt('I look through the doorway.');
+ await waitFor(()=>notices(table).length===1,{label:'the exact native field constraint'});
+ const notice=notices(table)[0];assert.match(notice.content,/commands\[0\]\/facts: must be array/);
+ assert.doesNotMatch(notice.content,/[{}]|42|turn_packet_parameters/);assert.equal(notice.details.failure.settled_receipts,0);
+ assert.match(JSON.stringify(notice.details.failure),/parameter|parameters/);assert.deepEqual(table.extensionErrors,[]);
+});
+
 test('native output refusal reaches the player with its actual consent cause and no invented settlement',async t=>{
  const env={PI_COC_LOOP_ENGINE:'hybrid-v1',PI_COC_TURN_PACKET_PROTOTYPE:'1',PI_COC_JEV_PRESELECT:'0',PI_COC_MATERIAL_SCREEN:'0',EXT_JEV_APIKEY:undefined,TYPESAFE_API_KEY:undefined};
  const engine=createHybridEngine({env,decision:{decide:async batch=>answer(batch)}});

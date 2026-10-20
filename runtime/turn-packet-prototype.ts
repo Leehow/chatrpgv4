@@ -12,7 +12,7 @@ const move=Type.Object({kind:Type.Literal('move'),to:atom(),via:Type.Optional(at
 const actor=Type.String({pattern:NPC_REFERENCE_PATTERN,maxLength:32,description:'The supplied stable npc_N reference, never a display name.'});
 const npc=Type.Object({kind:Type.Literal('npc'),actor,to:atom(),reason:atom()},{additionalProperties:false});
 const slot=Type.String({pattern:'^new_[1-4]$'});
-const walkOn=Type.Object({kind:Type.Literal('walk_on'),slot,label:atom(80),reason:atom()},{additionalProperties:false});
+const walkOn=Type.Object({kind:Type.Literal('walk_on'),slot,label:atom(80),to:Type.Optional(Type.String({minLength:1,maxLength:240,description:'Exact established place for this new person; defaults to here. An observed remote person stays at that target.'})),reason:atom()},{additionalProperties:false});
 const services=['open','closed','limited','unknown'] as const,crowds=['empty','quiet','active','crowded','unknown'] as const;
 const scene=Type.Object({kind:Type.Literal('scene'),service:StringEnum([...services]),crowd:{...StringEnum([...crowds]),description:'Occupancy: empty means no other people, decided from circumstances; quiet/active/crowded require actual NPC placement in this scene. Use unknown when occupancy is unassessed. Missing registered names alone do not establish empty.'},review_after_minutes:Type.Optional(Type.Integer({minimum:1,maximum:60}))},{additionalProperties:false});
 const time=Type.Object({kind:Type.Literal('time'),band:atom(64),reason:atom(),beyond_travel:Type.Optional(Type.Literal(true))},{additionalProperties:false});
@@ -34,14 +34,20 @@ const object=(value:unknown):value is Record<string,any>=>!!value&&typeof value=
 const bounded=(value:unknown,max=160)=>typeof value==='string'&&!!value.trim()&&value.length<=max;
 const keys=(value:Record<string,unknown>,allowed:string[])=>Object.keys(value).every(key=>allowed.includes(key));
 /** Diagnose with the declared schema before Pi can coerce supplied values. */
+export class TurnPacketParameterError extends Error {
+ fields:string[];
+ constructor(message:string,fields:string[]){super(message);this.name='TurnPacketParameterError';this.fields=fields;}
+}
 function parameterError(label:string,schema:TSchema,value:unknown):Error {
- const findings=Errors(schema,value).slice(0,4).map(error=>{
+ const errors=Errors(schema,value).slice(0,4);
+ const findings=errors.map(error=>{
   if(error.keyword==='additionalProperties'||error.schemaPath.endsWith('/additionalProperties'))return `${label}/<additional-property>: must not have additional properties`;
   const received=error.instancePath.split('/').slice(1).reduce<unknown>((row,key)=>object(row)||Array.isArray(row)?(row as Record<string,unknown>)[key.replace(/~1/g,'/').replace(/~0/g,'~')]:undefined,value);
   const type=received===null?'null':Array.isArray(received)?'array':typeof received;
   return `${label}${error.instancePath}: ${error.message} (${error.keyword} ${JSON.stringify(error.params)}); received ${type}`;
  });
- return Error(`Invalid decision command: ${findings.join('; ')||`${label} requires nonblank bounded strings`}`.slice(0,1600));
+ const fields=errors.map(error=>`${label}${error.keyword==='additionalProperties'?'/<additional-property>':error.instancePath}: ${error.message}`.slice(0,300));
+ return new TurnPacketParameterError(`Invalid decision command: ${findings.join('; ')||`${label} requires nonblank bounded strings`}`.slice(0,1600),fields);
 }
 export function responseDecision(value:unknown,slots:readonly string[]=[]):ResponseDecision {
  const schema=Interaction.anyOf.find(schema=>(schema.properties.act as any).const===(value as any)?.act||(schema.properties.act as any).enum?.includes((value as any)?.act))??Interaction;
@@ -86,7 +92,7 @@ export function turnPacketParameterSchema(journeySettled=false,timeBands?:readon
     const boundedTime=timeBands?.length?Type.Object({...time.properties,band:StringEnum([...timeBands])},{additionalProperties:false}):time;
     const assessment={contains:scene,minContains:1};
     const stationary=sceneRequired?assessment:{};
-    const local=locations?placeStationary:[],journey=locations?[placeMove]:[];
+    const local=locations?placeStationary.map(command=>command.properties.action.const==='observe'?Type.Omit(command,['relations']):command):[],journey=locations?[placeMove]:[];
     const moving=sceneRequired?assessment:{allOf:[{if:{contains:Type.Union([Type.Object({kind:Type.Literal('move')}),Type.Object({kind:Type.Literal('place'),action:Type.Literal('move')})])},then:assessment}]};
     const arrivedLocal=Type.Object({kind:Type.Literal('place'),action:Type.Literal('move'),to:Type.Literal('here'),at:atom(240),
         relation:PlaceEffect.anyOf[0].properties.relation,additions:PlaceEffect.anyOf[0].properties.additions},{additionalProperties:false});
@@ -158,14 +164,15 @@ export function compileTurnPacket(packet:TurnPacket|BoundTurnPacket):{responses:
  const commands=packet.commands??[];
  const directed=commands.filter(a=>a.kind==='relationship');
  const observed=(a:typeof commands[number])=>a.kind==='place'&&a.action==='observe';
+ const definitions=commands.flatMap(a=>a.kind==='place'&&a.action==='observe'&&a.additions?[{kind:'place',action:'establish',additions:a.additions}]:[]);
  const ordered=[...commands.filter(a=>!['walk_on','scene','relationship'].includes(a.kind)&&!observed(a)),...commands.filter(a=>a.kind==='walk_on'),...commands.filter(a=>a.kind==='scene'),...commands.filter(observed)];
  const newcomers=new Map(commands.filter(a=>a.kind==='walk_on').map(a=>[a.slot,a.label]));
  const person=(name:string)=>newcomers.get(name)??name;
- return {responses:packet.interactions??[],...(directed.length?{event:{name:'Directed relationship update',relationships:directed.map(row=>({actor:row.actor,toward:row.toward,statement:JSON.stringify({kind:'directed_relationship',affinity:row.affinity})}))}}:{}),effects:ordered.map(a=>a.kind==='move'?{kind:'move',to:a.to,...(a.via?{via:a.via}:{}),
+ return {responses:packet.interactions??[],...(directed.length?{event:{name:'Directed relationship update',relationships:directed.map(row=>({actor:row.actor,toward:row.toward,statement:JSON.stringify({kind:'directed_relationship',affinity:row.affinity})}))}}:{}),effects:[...definitions,...ordered.map(a=>a.kind==='move'?{kind:'move',to:a.to,...(a.via?{via:a.via}:{}),
   ...('travel_minutes'in a&&a.travel_minutes!==undefined?{travel_minutes:a.travel_minutes}:{}),...(a.travel_band?{travel_band:a.travel_band}:{})}
-  :a.kind==='place'?a.action==='observe'?{...a,...(a.people?{people:a.people.map(person)}:{}),...(a.situations?{situations:a.situations.map(situation=>({...situation,...(situation.participants?{participants:situation.participants.map(person)}:{})}))}:{})}:{...a}:a.kind==='npc'?{kind:'npc',name:a.actor,to:a.to,why:a.reason}:a.kind==='walk_on'?{kind:'npc',name:a.label,to:'here',walk_on:true,_new_person:true,why:a.reason}
+  :a.kind==='place'?a.action==='observe'?{...Object.fromEntries(Object.entries(a).filter(([key])=>key!=='additions')),...(a.people?{people:a.people.map(person)}:{}),...(a.situations?{situations:a.situations.map(situation=>({...situation,...(situation.participants?{participants:situation.participants.map(person)}:{})}))}:{})}:{...a}:a.kind==='npc'?{kind:'npc',name:a.actor,to:a.to,why:a.reason}:a.kind==='walk_on'?{kind:'npc',name:a.label,to:a.to??'here',walk_on:true,_new_person:true,why:a.reason}
   :a.kind==='scene'?{kind:'scene',name:'here',_population:true,activity:{service:a.service,crowd:a.crowd,basis:'established',summary:`Service is ${a.service}; crowd is ${a.crowd}.`,review_after_minutes:a.review_after_minutes??15},why:'Current place, clock and registered circumstances establish this population assessment.'}
-  :a.kind==='time'?{kind:'time',band:a.band,why:a.reason,...(a.beyond_travel===true?{beyond_travel:true}:{})}:(()=>{throw Error('Non-effect decision command reached the effect compiler');})())};
+  :a.kind==='time'?{kind:'time',band:a.band,why:a.reason,...(a.beyond_travel===true?{beyond_travel:true}:{})}:(()=>{throw Error('Non-effect decision command reached the effect compiler');})())]};
 }
 /** Public result fields come from kernel outcomes, never from submitted commands. */
 export function turnPacketResult(value:unknown):{player_actions_complete:true;npc_actions_complete:true;outcomes:Record<string,unknown>[]} {

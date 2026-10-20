@@ -134,6 +134,28 @@ test('a standalone place observation survives frozen final preparation into the 
  assert.equal(task.decision_context.observations[0].people[0].ref,ref);
 });
 
+test('an observation atomically creates a remote place and person without adding a local actor card',async t=>{
+ let office;
+ const engine=createHybridEngine({env,decision:{decide:async batch=>answer(batch,.99)}});
+ const table=await openTable({legacyDeliveryFixtures:false,realKernel:true,prepareWorkspace:opened,env,runDriver:engine.runDriver,
+  extraExtensions:[{name:'engine',factory:engine.extension}],responses:[()=>fauxAssistantMessage([rawToolCall('output',{version:4,commands:[
+   {kind:'walk_on',slot:'new_1',label:'Boy selling newspapers',to:'Street outside',reason:'An ordinary street vendor counting coins.'},
+   {kind:'place',action:'observe',to:'Street outside',sense:'sight',access:'limited',scope:'The entrance pavement.',facts:['A boy is counting coins beside his newspaper bundle.'],view:'From the current desk through the open doorway.',people:['new_1'],
+    additions:[{name:'Street outside',within:'',description:'The ordinary street outside this office.'}],situations:[{name:'Selling newspapers',summary:'The boy is counting his change.',status:'ongoing',participants:['new_1']}]},
+   {kind:'scene',service:'open',crowd:'quiet'}]})],{stopReason:'toolUse'})]});
+ t.after(()=>table.dispose());office=(await table.runtimeBridges().at(-1).call('table.capsule',{campaign:'test-camp'})).where.scene;
+ await table.session.prompt('I stay beside the desk and watch the newspaper seller outside through the doorway.');
+ assert.deepEqual(table.extensionErrors,[]);
+ assert.deepEqual(table.session.messages.filter(message=>message.role==='toolResult'&&message.details?.coc_error).map(message=>message.details.coc_error),[]);
+ const current=await table.runtimeBridges().at(-1).call('table.capsule',{campaign:'test-camp'});assert.equal(current.where.scene,office);
+ const written=table.telemetry().find(row=>row.lane==='isolated-expression'&&row.event==='written');assert.ok(written);
+ const task=JSON.parse(readFileSync(join(written.attempt,'task.json'),'utf8')),observed=task.decision_context.observations[0].people[0];
+ assert.equal(task.decision_context.cast.find(person=>person.ref===observed.ref).presence,'observed');
+ assert.equal(task.decision_context.people.some(person=>person.ref===observed.ref),false,'remote observation does not expose a private speech/profile card');
+ assert.equal(current.present.some(person=>person.ref===observed.ref),false);
+ assert.equal((await table.runtimeBridges().at(-1).call('table.look',{campaign:'test-camp',focus:'npc',name:observed.ref})).scene,'Street outside');
+});
+
 test('a missing route on direct place submit permits a corrected native arrival and fires the Mod trigger',async t=>{
  const batches=[];
  const engine=createHybridEngine({env,decision:{decide:async batch=>{batches.push(batch);return answer(batch,.99);}}});

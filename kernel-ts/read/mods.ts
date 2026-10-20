@@ -34,7 +34,7 @@ import { SECTIONS_CAPABILITY, DISCOVERY_CAPABILITY, validateSectionsDeclaration,
 import {TEMPORAL_CAPABILITY,temporalItems,temporalProviders} from './temporal-mod.js';
 import {IMPROVISED_WEAPON_CAPABILITY} from '../combat/improvised.js';
 import {LOCATIONS_CAPABILITY,locationProvider} from './locations.js';
-import {LOCATION_OBSERVATION_CAPABILITY} from './location-observations.js';
+import {LOCATION_OBSERVATION_CAPABILITY,LOCATION_OBSERVATION_V2_CAPABILITY} from './location-observations.js';
 export const MOD_CAPABILITIES = new Set(["audit.source.v1", "checks.percentile.v1", "checks.presence.v1", "context.npc.v1", "definitions.v1", "objects.v1", "objects.state.v2", "objects.adopt.v1", "objects.documents.v1", "mods.order.v1", "mods.package-files.v1", "ui.documents.v1", "ui.documents.language.v1", "agents.tools.v1", "weapons.v1", "weapons.profile.v2", "spells.v1", "item-effects.v1", "setup.guidance.v1", "setup.aptitude.v1", "graph.vocabulary.v1", "graph.vocabulary.table.v1", "context.thread.v1", "context.pacing.v1"]);
 MOD_CAPABILITIES.add("objects.images.v1");
 MOD_CAPABILITIES.add("objects.image-references.v1");
@@ -81,6 +81,7 @@ MOD_CAPABILITIES.add(TEMPORAL_CAPABILITY);
 MOD_CAPABILITIES.add(IMPROVISED_WEAPON_CAPABILITY);
 MOD_CAPABILITIES.add(LOCATIONS_CAPABILITY);
 MOD_CAPABILITIES.add(LOCATION_OBSERVATION_CAPABILITY);
+MOD_CAPABILITIES.add(LOCATION_OBSERVATION_V2_CAPABILITY);
 /** Contract 28.3 and §180.8: the two dossier spines a package may add words to, a person's and a creature's. */
 export const VOCABULARY_SPINES = ["actor_profile_keys", "creature_profile_keys"] as const;
 const invalid = (message: string): never => {

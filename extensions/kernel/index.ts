@@ -16,7 +16,7 @@ import {moveEstablishmentRefusal} from '../../shared/move-protocol.ts';
 import {SAME_KEEPER_AFTER_RESULT_GUIDANCE} from '../../runtime/keeper-output-guidance.ts';
 import {scenePopulationRequired,sceneAssessmentExpiredDuringActivity} from '../../runtime/scene-population.ts';
 import {ExpressionPlanStream,writeIsolatedExpression,decisionScene,decisionClock,decisionRecentPublic,decisionResponseScope,decisionObservationScope} from '../../runtime/isolated-expression.ts';
-import {turnPacket,bindTurnPacketMoves,turnPacketMovementChoices,requireTurnPacketNpcDestinations,isNewNpcSlot,normalizeTurnPacketArguments,compileTurnPacket,turnPacketResult,turnPacketProviderPayload,type TurnPacket} from '../../runtime/turn-packet-prototype.ts';
+import {turnPacket,bindTurnPacketMoves,turnPacketMovementChoices,requireTurnPacketNpcDestinations,isNewNpcSlot,normalizeTurnPacketArguments,compileTurnPacket,turnPacketResult,turnPacketProviderPayload,TurnPacketParameterError,type TurnPacket} from '../../runtime/turn-packet-prototype.ts';
 import {normalizeToolArgumentSyntax} from '../../runtime/tool-argument-syntax.ts';
 import {locationDecisionCoverage} from '../table/location-relevance.ts';
 import {applyEffectKinds} from '../table/mod-sections.ts';
@@ -5805,7 +5805,8 @@ export default function (pi: ExtensionAPI, host: {capabilities?:RuntimeCapabilit
                 if(typeof person.ref!=='string'||typeof person.display_name!=='string')throw Error('The created NPC reference projection is unavailable');
                 packetNpcReferences(state).observe(packetNpcScope(state),person);
                 bindCreatedDecisionPerson(hydrated,newcomer.slot,{ref:person.ref,display_name:person.display_name});
-                if(!people.some(row=>row.ref===person.ref))people.push(decisionPerson(person,[...(current.present??[]),...(current.npc_references?.people??[]),...state.party.map((person,index)=>({ref:`investigator_${index+1}`,name:person.name,display_name:person.name}))]));
+                if(((current.present??[]).some((row:Record<string,unknown>)=>row.ref===person.ref)||(packet.interactions??[]).some(row=>row.actor===newcomer.slot))&&!people.some(row=>row.ref===person.ref))
+                    people.push(decisionPerson(person,[...(current.present??[]),...(current.npc_references?.people??[]),...state.party.map((person,index)=>({ref:`investigator_${index+1}`,name:person.name,display_name:person.name}))]));
             }
 			for(const actor of new Set(compiled.event?.relationships.map(row=>row.actor)??[])){
                 const person=await state.kernel.call<Record<string,any>>('table.look',{campaign:state.campaign,focus:'npc',name:actor,_context_read:true});
@@ -5878,7 +5879,7 @@ export default function (pi: ExtensionAPI, host: {capabilities?:RuntimeCapabilit
         if(!retry)endInput(state,'parameter_protocol_repeated',ctx,'settled_operation');
         const refusal={code:'invalid_params',message:error instanceof Error?error.message:String(error),
             ...(isKernelError(error)&&error.fix?{fix:error.fix}:{}),
-            details:{...(isKernelError(error)?error.details:{}),reason:isKernelError(error)&&error.details?.reason?error.details.reason:'turn_packet_parameters',parameter_phase:'turn_packet_parameters',...(beforeCommit?{before_commit:true}:{before_execution:true})}};
+            details:{...(isKernelError(error)?error.details:{}),...(error instanceof TurnPacketParameterError?{parameter_fields:error.fields}:{}),reason:isKernelError(error)&&error.details?.reason?error.details.reason:'turn_packet_parameters',parameter_phase:'turn_packet_parameters',...(beforeCommit?{before_commit:true}:{before_execution:true})}};
         rememberTurnFailure(state,'output.parameters',refusal);
         void record({lane:'arguments',event:'packet_parameters_refused',turn:state.turn,retry,phase:beforeCommit?'before_commit':'before_execution',jev_calls:0});
         return {retry,refusal};

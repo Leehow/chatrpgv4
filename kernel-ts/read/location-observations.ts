@@ -6,6 +6,7 @@ import {locationStates,locationPlace,locationFeature,locationPosition} from './l
 import {array,clone,number,row,type Row} from './values.js';
 
 export const LOCATION_OBSERVATION_CAPABILITY='locations.observation.v1';
+export const LOCATION_OBSERVATION_V2_CAPABILITY='locations.observation.v2';
 export const locationRelations=(world:Row):Row[]=>locationStates(world).flatMap(state=>array(state.relations));
 export const locationSituations=(world:Row):Row[]=>locationStates(world).flatMap(state=>array(state.situations));
 export const locationObservations=(world:Row):Row[]=>locationStates(world).flatMap(state=>array(state.observations));

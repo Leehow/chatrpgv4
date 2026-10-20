@@ -352,3 +352,29 @@ the final compact-branch pressure rerun 6/6; current native/interface grammar
 constraints were restored compactly before acceptance. Kernel typecheck passes.
 The current LAN runtime was fetched in `run.X82zKHJP` (64 MiB LAN). Fresh RPC,
 real-play continuation and final full/App gates remain open.
+
+### Second real decision and remaining actor seam
+
+On 1.1.1, the original counter glance delivered successfully but used NPC activity
+and zero-minute time rather than an observation; it is not evidence of the new
+observation writer. The next natural approach/look did select observe and view,
+but repeated an empty parent string and failed native shape validation twice
+(live2 local turn 2 / global 24, zero receipts). Preserve that full failed packet.
+It also exposed missing native placement of genuinely new remote observed people.
+
+Mod 1.1.2 adds the named v2 capability, explicit empty-parent syntax, focused-look
+guidance and target-bound newcomer slots. Canonical NPC placement stays unchanged;
+the native compiler establishes observation additions before its target-bound
+walk-ons in the same atomic batch. Remote observations do not add private local
+actor cards. Ordinary request grammar advertises view; legacy inline relation
+calls remain accepted by the complete validator. Typed parameter diagnostics now
+retain exact safe field constraints in the projected failure notice, without JSON
+or supplied values.
+
+Current typecheck, quick gate 130/130 and focused grammar/language/admission 45/45
+pass. Three actual native components pass (`native-seams-7.log`), covering remote
+place/person creation, privacy and both concrete failure paths. New RPC negatives
+cover empty-parent scope and cross-domain rollback/replay. LAN RPC is queued behind
+the unrelated `kp-blood-road-20261018` suite, without modifying its checkout or
+processes. Current full regression, real continuity and canonical App acceptance
+remain required; no source/component result substitutes for them.

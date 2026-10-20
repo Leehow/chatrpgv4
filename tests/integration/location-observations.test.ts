@@ -4,6 +4,7 @@ import {test} from 'node:test';
 import {readFileSync} from 'node:fs';
 import {join} from 'node:path';
 import {kernel,openTurn,campaignDir,RpcClient,CAMPAIGN,type Row} from './support.ts';
+import {compileTurnPacket,turnPacket} from '../../runtime/turn-packet-prototype.ts';
 const world=(k:RpcClient)=>JSON.parse(readFileSync(join(campaignDir(k.workspace),'world.json'),'utf8'));
 const locations=(k:RpcClient)=>world(k).mods.state['enhanced-locations'].locations;
 const inspect=(k:RpcClient,extra:Row={})=>k.ok('mods.locations.inspect',{campaign:CAMPAIGN,need:'observation',name:'Street',at:'front steps',sense:'sight',...extra});
@@ -142,4 +143,31 @@ test('an ordinary view derives the actual counter position without registering i
     assert.equal(locations(k).places.some((place:Row)=>place.name.endsWith('doorway')),false);
     await k.table('apply',{call_id:'t2-c3',effects:[{...initial,view:'The same view through the entrance from beside the counter.'}]});
     assert.equal(locations(k).relations.length,1);assert.equal(locations(k).relations[0].description,description,'a new wording reuses established layout');
+});
+
+test('an explicit empty parent is root only, without accepting blank facts or guessing unknown parents',async t=>{
+    const k=await kernel(t);await openTurn(k,'I look at the ordinary building across the street.');
+    const effect={kind:'place',action:'establish',additions:[{name:'Across the street',within:'',description:'An ordinary independent building.'}]};
+    await k.table('apply',{call_id:'t1-c1',effects:[effect]});
+    const saved=world(k),place=locations(k).places.find((place:Row)=>place.name==='Across the street');assert.equal(place.within,null);
+    for(const [index,change] of [{name:'',within:''},{name:'Blank description',within:'',description:''},{name:'Unknown parent',within:'null'},{name:'Whitespace parent',within:' '}].entries()){
+        const error=await k.tableErr('apply',{call_id:'t1-c2',effects:[{...effect,additions:[{...effect.additions[0],...change}]}]});
+        assert.equal(error.code,'invalid_params',String(index));assert.deepEqual(world(k),saved);
+    }
+});
+
+test('native remote creation shares NPC and place rollback, then reuses the one created identity',async t=>{
+    const k=await kernel(t);await openTurn(k,'I stay here and watch the vendor outside.');
+    const before=world(k),packet={version:4,commands:[{kind:'walk_on',slot:'new_1',label:'Street vendor',to:'Outside',reason:'Selling papers outside.'},
+        {kind:'place',action:'observe',to:'Outside',sense:'sight',access:'clear',scope:'The entrance pavement.',view:'The open doorway shows the street from here.',facts:['The vendor counts his coins.'],
+            additions:[{name:'Outside',within:'',description:'The street outside the current room.'}],people:['new_1']}]};
+    const effects=compileTurnPacket(turnPacket(JSON.stringify(packet))).effects;
+    const invalid=structuredClone(effects);invalid.at(-1)!.people=['Unregistered person'];
+    assert.equal((await k.tableErr('apply',{call_id:'t1-c1',effects:invalid})).details.reason,'place_observation_person_unresolved');
+    assert.deepEqual(world(k),before,'the staged place, person, relation and observation all roll back');
+    const result=await k.table('apply',{call_id:'t1-c1',effects});
+    const ref=result.outcomes.find((outcome:Row)=>outcome.action==='observe').observation.people[0].ref;
+    assert.equal((await k.table('look',{focus:'npc',name:ref})).scene,'Outside');assert.equal(world(k).active_scene,before.active_scene);
+    assert.equal((await k.table('capsule')).present.some((person:Row)=>person.ref===ref),false);
+    const saved=world(k);assert.equal((await k.table('apply',{call_id:'t1-c1',effects})).replayed,true);assert.deepEqual(world(k),saved);
 });

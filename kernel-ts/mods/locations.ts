@@ -23,6 +23,7 @@ function reference<T>(field:string,requested:string,resolve:()=>T):T {
 }
 
 export function stageLocation(context:ApplyContext,effect:Row,active:readonly Row[],travelRows?:ReadonlyMap<string,number>|null):{receipt:Row;event:DomainEvent|null} {
+    if(Array.isArray(effect.additions))effect={...effect,additions:effect.additions.map(draft=>draft&&typeof draft==='object'&&draft.within===''?{...draft,within:null}:draft)};
     if(!Check(PlaceEffect,effect)||blank(effect)){
         const schema=PlaceEffect.anyOf.find(schema=>schema.properties.action.const===effect.action)??PlaceEffect;
         const fields=Errors(schema,effect).slice(0,4).map(error=>({field:error.instancePath,problem:error.message}));

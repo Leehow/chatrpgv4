@@ -7,7 +7,7 @@ export interface TurnFailureState {
  turn:number;
  turnFailure?:{
   turn:number;
-  failures:Array<{operation:string;code:string;message:string;reason?:string;cause?:string;admission?:{selection:number[];scope:number[];minimum?:number}}>;
+  failures:Array<{operation:string;code:string;message:string;reason?:string;cause?:string;parameters?:string[];admission?:{selection:number[];scope:number[];minimum?:number}}>;
   completion?:{stop_reason:string|null;blocks:string[]};
   settled_receipts?:number;
  };
@@ -28,6 +28,7 @@ export function rememberTurnFailure(state:TurnFailureState,operation:string,erro
   message:syntax?'Invalid JSON at this operation.':short(row?.message)??String(error).slice(0,1200),
   ...(short(details?.reason)?{reason:short(details?.reason)}:{}),
   ...(short(details?.jev_reason??details?.cause)?{cause:short(details?.jev_reason??details?.cause)}:{}),
+  ...(Array.isArray(details?.parameter_fields)?{parameters:details.parameter_fields.filter((value):value is string=>typeof value==='string').slice(0,4).map(value=>value.slice(0,300))}:{}),
   ...(scores?{admission:{selection:probabilities(scores.selection),scope:probabilities(scores.scope),
    ...(typeof scores.minimum==='number'&&Number.isFinite(scores.minimum)?{minimum:scores.minimum}:{})}}:{})};
  const failures=turnFailure(state).failures;
@@ -66,7 +67,7 @@ export function turnFailureNotice(value:unknown, captions:Record<string,string>|
  else if(rows.every(row=>row.code==='missing_final_output'))content=words.line('turn_failure_missing_output');
  else {
   const row=rows.at(-1)!;
-  content=words.line('turn_failure_operation',{operation:row.operation,code:row.reason??row.code});
+  content=words.line('turn_failure_operation',{operation:row.operation,code:row.parameters?.slice(0,2).join('; ')||row.reason||row.code});
  }
  content+=' '+(failure.settled_receipts===0?words.line('turn_failure_no_settlement')
   :typeof failure.settled_receipts==='number'?words.line('turn_failure_settlement_kept')

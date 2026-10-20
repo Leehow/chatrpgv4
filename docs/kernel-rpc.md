@@ -49181,7 +49181,8 @@ elapsed fictional time, persisted consequences and delivered limited knowledge.
 Adding unused graph fields, synthesizing an incident in a test script, or passing
 only structural tests is not live acceptance.
 
-Enhanced Locations 1.1.1 requires `locations.observation.v1` as well as
+Enhanced Locations 1.1.2 requires `locations.observation.v1` and
+`locations.observation.v2` as well as
 `locations.v1`. Its state version and location schema remain 1: optional arrays
 `relations`, `situations` and `observations` are additive. Old packages and old
 campaign state remain valid; normal Mod configuration adopts the new immutable
@@ -49353,6 +49354,32 @@ Unreal's [Line Of Sight To](https://dev.epicgames.com/documentation/en-us/unreal
 also defaults the viewpoint to the observer's current eye position. This supports
 host-derived observation origins; its geometric visibility checks are not copied
 into a semantic TRPG world.
+
+### 243.6. Real-decision interface follow-up
+
+The next live input exposed two further seams. An explicitly empty `within` is
+now a closed spelling of no registered parent, equivalent to null/omission;
+only that field and exact empty string normalize to null. Other blank content
+and nonempty unregistered parents remain invalid. No parent is guessed.
+
+Native `walk_on` gains optional `to`, defaulting to here. This places a genuinely
+new person at the exact established observed place through the existing NPC
+effect. Observation additions are staged first in the same atomic batch, then
+newcomers, then observations. New slots bind the same identities in people and
+incident participants. Creating a remote person moves no existing person or
+investigator. Remote observation alone adds no speech or private NPC author card.
+The source position remains actual; an approach still requires its own move.
+
+Ordinary observation request schemas advertise `view`, while general relation
+authoring uses relate. Legacy inline relations remain accepted by the complete
+host validator, without duplicating that interface in the new observation guide.
+Mod 1.1.2 documents focused observations and remote newcomer slots and requires
+the v2 capability; installed 1.1.0/1.1.1 packages remain immutable.
+
+Typed native shape failures retain bounded validator field paths and messages,
+without values or schema-parameter JSON. The existing projected failure caption
+shows those exact technical constraints in its error value. The complete error
+and raw parameters remain folded, and canonical settlement is unchanged.
 
 - https://docs.openra.net/en/playtest/traits/#frozenunderfog
 - https://github.com/0ad/0ad/blob/master/binaries/data/mods/public/simulation/components/Fogging.js
