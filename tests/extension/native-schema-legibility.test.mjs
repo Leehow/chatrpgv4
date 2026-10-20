@@ -39,3 +39,14 @@ test('redundant views accept exactly the same valid and mixed command shapes',()
  const patterned={anyOf:[{type:'object',properties:{},patternProperties:{'^x':{type:'integer'}},additionalProperties:false},{type:'object',properties:{tag:{const:'closed'}},additionalProperties:false}]};
  assert.deepEqual(legibleClosedSchema(patterned),patterned);
 });
+
+test('already projected properties expose closed enums without changing their accepted records',()=>{
+ const branch=action=>({type:'object',properties:{action:{type:'string',const:action}},required:['action'],additionalProperties:false});
+ const original={type:'object',properties:{action:{anyOf:[{const:'move',type:'string'},{const:'observe',type:'string'}]}},required:['action'],additionalProperties:false,anyOf:[branch('move'),branch('observe')]};
+ const view=legibleClosedSchema(original);
+ assert.deepEqual(view.properties.action.enum,['move','observe']);
+ assert.deepEqual(view.anyOf,original.anyOf);
+ for(const value of [{action:'move'},{action:'observe'},{action:'inspect'},{action:'move',change:{}},{},null])
+  assert.equal(Errors(view,value).length===0,Errors(original,value).length===0,JSON.stringify(value));
+ assert.equal(original.properties.action.enum,undefined);
+});

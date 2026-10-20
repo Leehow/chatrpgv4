@@ -49231,12 +49231,20 @@ fix; acceptance still requires real calls and preserved failures.
 Applicable location command unions also expose ordinary array items, object
 properties and closed string enums. Original anyOf branches remain intact and
 authoritative; these added constraints are redundant projections of closed
-branches. Open object unions remain untouched. The same compiled view reaches
+branches. Open branches are never closed by projection. The same compiled view reaches
 native declaration and deterministic preflight. Equivalence checks cover valid,
 mixed and invalid commands. No semantic argument repair or new world rule is
 introduced, and declaration legibility alone is not live acceptance.
 The observation projection explicitly retains additionalProperties=false after
 omitting relations; omitting a field must not open the command constructor.
+The dedicated place declaration exposes inspect/submit and action string enums
+in ordinary properties as well, so a writing change is not presented as a read.
+
+In native mode, ordinary resolve binds a currently issued investigator_N actor
+reference to its current party member before schema, consent and kernel work.
+Exact party names retain priority; unknown or out-of-range references are not
+guessed. This bridges the native actor namespace without weakening recovery or
+turning a parameter failure into an accepted action.
 
 ## 243. Enhanced Locations: spatial relations and observation continuity
 

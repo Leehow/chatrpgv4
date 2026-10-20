@@ -729,3 +729,30 @@ test('a scene assessment supplement after settled NPC travel uses a fresh call a
  assert.equal(turn.receipts.filter(row=>row.kind==='npc').length,1);assert.equal(turn.receipts.filter(row=>row.kind==='time').length,1);assert.equal(turn.receipts.filter(row=>row.kind==='scene').length,1);
  assert.equal(table.entries('coc-final-delivery').filter(row=>row.event==='end'&&row.status==='completed').length,1);
 });
+
+test('a current investigator reference reaches ordinary resolve as its issued actor without creating a false held failure',async t=>{
+ const engine=createHybridEngine({env,decision:{decide:async batch=>answer(batch,.99)}});
+ const table=await openTable({legacyDeliveryFixtures:false,realKernel:true,prepareWorkspace:opened,env,runDriver:engine.runDriver,
+  extraExtensions:[{name:'engine',factory:engine.extension}],responses:[
+   ()=>fauxAssistantMessage([rawToolCall('resolve',{action:{actor:'investigator_1',intent:'investigate',skill:'Spot Hidden',goal:'Notice signs around the desk',method:'Look carefully at the desk'}})],{stopReason:'toolUse'}),
+   ()=>fauxAssistantMessage([fauxToolCall('output',brief)],{stopReason:'toolUse'})
+  ]});t.after(()=>table.dispose());await table.session.prompt('I examine the desk carefully for useful signs.');
+ assert.deepEqual(table.extensionErrors,[]);
+ assert.deepEqual(table.session.messages.filter(row=>row.role==='toolResult'&&row.details?.coc_error).map(row=>row.details.coc_error),[]);
+ const turn=JSON.parse(readFileSync(join(table.workspace,'.coc/campaigns/test-camp/turns/0001.json'),'utf8'));
+ assert.equal(turn.receipts.filter(row=>row.kind==='roll').length,1);
+ assert.equal(table.entries('coc-final-delivery').filter(row=>row.event==='end'&&row.status==='completed').length,1);
+});
+
+test('an unissued investigator reference remains refused without a roll or publication',async t=>{
+ const engine=createHybridEngine({env,decision:{decide:async batch=>answer(batch,.99)}});
+ const table=await openTable({legacyDeliveryFixtures:false,realKernel:true,prepareWorkspace:opened,env,runDriver:engine.runDriver,
+  extraExtensions:[{name:'engine',factory:engine.extension}],responses:[
+   ()=>fauxAssistantMessage([rawToolCall('resolve',{action:{actor:'investigator_999',intent:'investigate',skill:'Spot Hidden',goal:'Notice signs around the desk',method:'Look carefully at the desk'}})],{stopReason:'toolUse'})
+  ]});t.after(()=>table.dispose());await table.session.prompt('I examine the desk carefully for useful signs.');
+ const errors=table.session.messages.filter(row=>row.role==='toolResult'&&row.details?.coc_error).map(row=>row.details.coc_error);
+ assert.ok(errors.some(row=>row.code==='unknown_entity'),JSON.stringify(errors));
+ const turn=JSON.parse(readFileSync(join(table.workspace,'.coc/campaigns/test-camp/turns/0001.json'),'utf8'));
+ assert.equal(turn.receipts.filter(row=>row.kind==='roll').length,0);
+ assert.equal(table.entries('coc-final-delivery').filter(row=>row.event==='end'&&row.status==='completed').length,0);
+});

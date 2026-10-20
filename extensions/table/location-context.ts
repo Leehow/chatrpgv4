@@ -1,10 +1,11 @@
 /** Request-only location detail: canonical validators and raw messages stay complete. */
 import {Type} from 'typebox';
 import {locationCommandEntry,locationCommandOwner} from '../../shared/place-structures.ts';
+import {legibleClosedSchema} from '../../shared/native-schema.ts';
 type Row=Record<string,any>;
 const object=(value:unknown):value is Row=>!!value&&typeof value==='object'&&!Array.isArray(value);
-const action=Type.Union([Type.Literal('move'),Type.Literal('establish'),Type.Literal('feature'),Type.Literal('relate'),Type.Literal('observe')]);
-const entry=Type.Object({using_skill:Type.Optional(Type.String()),op:Type.Union([Type.Literal('inspect'),Type.Literal('submit')]),
+const action=Type.String({enum:['move','establish','feature','relate','observe']});
+const entry=Type.Object({using_skill:Type.Optional(Type.String()),op:Type.String({enum:['inspect','submit'],description:'inspect reads name/need without change; submit executes one change.'}),
     name:Type.Optional(Type.String()),at:Type.Optional(Type.String({description:'Optional existing feature of the named observation target; the observer position is already current.'})),sense:Type.Optional(Type.Union([Type.Literal('sight'),Type.Literal('hearing')])),need:Type.Optional(Type.Union([Type.Literal('context'),Type.Literal('contract'),Type.Literal('observation')])),
     change:Type.Optional(Type.Object({action},{additionalProperties:true,description:'Typed location change; inspect need contract supplies its exact schema. Complete valid calls execute directly.'}))},{additionalProperties:false});
 /** Explicit properties keep object unions legible to provider tool serializers. */
@@ -27,7 +28,7 @@ function declarationObject(schema:Row):Row {
 /** Like the existing apply capability envelope: the registered full validator is never changed. */
 export function locationToolDeclarations<T extends {name:string;parameters:any;description?:string}>(tools:readonly T[],detail=false):T[] {
     return tools.map(tool=>{
-        if(tool.name==='place')return {...tool,parameters:detail?declarationObject(tool.parameters):entry};
+        if(tool.name==='place')return {...tool,parameters:detail?legibleClosedSchema(declarationObject(tool.parameters)):entry};
         if(tool.name==='output')return {...tool,parameters:detail?locationCommandOwner(tool.parameters):locationCommandEntry(tool.parameters)};
         if(tool.name!=='apply'||!Array.isArray(tool.parameters?.properties?.effects?.items?.anyOf))return tool;
         const projected=structuredClone(tool),variants=projected.parameters.properties.effects.items.anyOf as Row[];

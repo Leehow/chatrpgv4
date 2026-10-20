@@ -7047,6 +7047,13 @@ export default function (pi: ExtensionAPI, host: {capabilities?:RuntimeCapabilit
 				for (const { field, prefix } of stripped.strips) void record({ lane: "arguments", event: "dialect_prefix_stripped", tool: spec.name, field, prefix });
 				const embedded=omitEmptyEmbeddedArguments(spec.name,stripped.args);
 				if(embedded.fields.length)void record({lane:'arguments',event:'empty_embedded_omitted',tool:spec.name,fields:embedded.fields});
+                if(turnPacketPrototype&&spec.name==='resolve'&&table&&embedded.args&&typeof embedded.args==='object'){
+                    const operation=embedded.args as Record<string,any>,actor=operation.action?.actor;
+                    const reference=typeof actor==='string'&&!table.party.some(person=>person.name===actor)?/^investigator_([1-9][0-9]*)$/.exec(actor):null;
+                    const person=reference?table.party[Number(reference[1])-1]:undefined;
+                    if(person){embedded.args={...operation,action:{...operation.action,actor:person.name}} as typeof embedded.args;
+                        void record({lane:'arguments',event:'public_actor_reference_normalized',tool:spec.name,repairs:1});}
+                }
                 if(turnPacketPrototype&&spec.name==='output'&&table){
                     const bound=packetNpcReferences(table).bindActors(packetNpcScope(table),embedded.args);
                     embedded.args=bound.args as typeof embedded.args;
