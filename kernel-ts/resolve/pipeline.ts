@@ -5,6 +5,7 @@ import { isJsonObject } from '../json.js';
 import { RESOLVER_NAMES } from '../capabilities.js';
 import { actor as findActor, actorKnown } from '../read/handlers.js';
 import { calledPerson } from '../read/capsule.js';
+import { observationTargetAccessible } from '../read/location-observations.js';
 import { SessionView, active, boutActive, defenseOptions } from '../read/session-view.js';
 import { semanticName } from '../read/rule-facts.js';
 import { array, entries, equal, integer, kebab, normalize, normalizeText, number, repr, row, string, truth, type Row } from '../read/values.js';
@@ -249,6 +250,7 @@ export class ResolvePipeline {
      * still be chased (`fledFromHere`), with their flight's receipt id. Only a chase start reaches them (`run`).
      */
     fledTarget: { handle: string; node: Row; flight: string } | null = null;
+    private remoteInvestigativeTarget = false;
     private presentCandidates(): Row[] {
         return entries(this.context.world.npc_presence).flatMap(([name, at]) => {
             const present = this.context.graph.actor(name);
@@ -271,6 +273,11 @@ export class ResolvePipeline {
             // quarry the Keeper wrote away in their flight's turn is still grabbed by the pursuer).
             if (active(this.sessions.chase) && array(this.sessions.chase!.participants).some(p => isJsonObject(p) && string(p.actor_id) === handle))
                 return node;
+            if (this.intent === 'investigate' && this.context.party().some(sheet => sheet.id === this.context.actorId)
+                && observationTargetAccessible(this.context.graph, this.context.world, node)) {
+                this.remoteInvestigativeTarget = true;
+                return node;
+            }
             // ... and a person who ran from here can still be chased until their flight's window closes; `run` admits
             // only the chase start at them.
             const flight = fledFromHere(this.context).get(handle);
@@ -737,6 +744,10 @@ export class ResolvePipeline {
         const push = pushing ? await preparePush(context) : null;
         const npc = this.npcTarget();
         const routed = await this.route(npc);
+        if (this.remoteInvestigativeTarget && routed.some(ref => ref !== ORDINARY && ref !== OBSERVE))
+            throw new RpcError('unknown_entity', 'A remote observed target is available only to an investigative check', {
+                fix: 'Preserve the current viewpoint; observation does not grant physical reach or local presence.'
+            });
         if (this.fledTarget && !routed.includes(CHASE_START))
             this.fledFromHereRefusal(this.fledTarget);
         const candidates = this.restrict(routed);

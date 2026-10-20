@@ -19,6 +19,17 @@ export function currentObservationPoint(graph:ModuleGraph,world:Row):Row {
     const position=locationPosition(world);
     return {place:graph.handle(graph.scene(world.active_scene)),...(position?.at?{at:position.at}:{})};
 }
+/** Perceptual access permits an investigative attempt, never a new percept or physical reach. */
+export function observationTargetAccessible(graph:ModuleGraph,world:Row,node:Row):boolean {
+    const from=currentObservationPoint(graph,world),presence=row(world.npc_presence)[graph.handle(node)];
+    return locationRelations(world).some(relation=>{
+        if(row(relation.to).place!==presence||!covers(row(relation.from),from))return false;
+        const latest=locationObservations(world).find(observation=>observation.sense===relation.sense
+            &&spatialPointKey(row(observation.to))===spatialPointKey(row(relation.to))
+            &&spatialPointKey(row(observation.from))===spatialPointKey(from));
+        return latest?.access!=='blocked';
+    });
+}
 const covers=(edge:Row,point:Row)=>edge.place===point.place&&(edge.at===undefined||edge.at===point.at);
 export function matchingObservationRelations(world:Row,from:Row,to:Row,sense:string):Row[] {
     return locationRelations(world).filter(relation=>relation.sense===sense&&covers(row(relation.from),from)&&covers(row(relation.to),to));

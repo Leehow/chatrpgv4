@@ -49688,3 +49688,37 @@ revision, consent and transaction/publication checks remain separate authorities
 No forced-decoding support is claimed for MiniMax auto tool selection. This
 supersedes the invariant-native-schema cache compromise above; cache reuse is
 measured, not protected at the expense of an honest parameter contract.
+
+### Observation routes and investigative targets (2026-10-20)
+
+A person across a registered observation route remains remote. An investigator
+may bind that person's current canonical place as an investigate target when a
+sight or hearing route covers the actual current viewpoint and destination.
+A latest blocked assessment from that viewpoint excludes that route until it is
+reassessed; other senses remain independent. The routed rule must be an ordinary
+check or Psychology observation. This eligibility grants neither a new percept
+nor local presence, physical contact, combat, treatment, social settlement or
+pursuit. A person who has left the route's destination is unavailable.
+
+No same-minute prior percept is required: the check may obtain a first or later
+observation, and elapsed game time is a reason to reassess rather than reject.
+Last-seen records alone never grant a route. Missing routes, mismatched viewpoints
+and blocked access retain the existing refusal. The Keeper can register minimal
+compatible spatial access with the existing Mod tool before resolving a detail.
+
+Writer: place relate/observe and existing NPC/position effects. Reader: the
+resolve target binder consumes the existing Mod route and latest assessment.
+Actor: the Keeper requests the selected investigative check and records its
+actual perceptual outcome; the ordinary rules and transaction remain settlement
+authority. No new semantic keyword routing, automatic perception or threshold
+change is introduced. Ambiguous execution still cannot authorize publication.
+
+External comparison: Unreal AI Perception distinguishes currently perceived
+actors from merely known actors
+(https://dev.epicgames.com/documentation/unreal-engine/API/Runtime/AIModule/UAIPerceptionComponent).
+Godot RayCast3D checks an object along a directed query from a particular origin
+(https://docs.godotengine.org/en/4.5/classes/class_raycast3d.html).
+Both separate perceptual access from place membership. This product uses
+Keeper-assessed registered routes instead of a physics simulation; an
+investigative check can assess what is visible without requiring its own result
+as a prerequisite. RPC tests remain separate from live acceptance.

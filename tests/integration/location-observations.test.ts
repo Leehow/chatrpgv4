@@ -187,3 +187,31 @@ test('native remote creation shares NPC and place rollback, then reuses the one 
     assert.equal((await k.table('capsule')).present.some((person:Row)=>person.ref===ref),false);
     const saved=world(k);assert.equal((await k.table('apply',{call_id:'t1-c1',effects})).replayed,true);assert.deepEqual(world(k),saved);
 });
+
+test('a current observation route binds an investigative target without granting local reach',async t=>{
+    const k=await kernel(t);await street(k);
+    await k.table('narrate',{call_id:'t1-c2',text:'Two men stand at the entrance.'});
+    await k.table('player_input',{text:'I watch the men through the upstairs window.'});await room(k);
+    const action={actor:'Thomas Hayes',intent:'investigate',decision:'core-check:ordinary-check',skill:'Spot Hidden',
+        target:'Man in cap',goal:'See what the man at the entrance is holding.',method:'Watch through the clear window.',stakes:'The detail remains unclear.'};
+    const before=world(k);
+    assert.equal((await k.tableErr('resolve',{call_id:'t2-c2',action})).code,'unknown_entity');
+    assert.deepEqual(world(k),before,'a remote person without a current observation route cannot be targeted');
+    await k.table('apply',{call_id:'t2-c2',effects:[{kind:'place',action:'relate',relations:[relation]}]});
+    const resolved=await k.table('resolve',{call_id:'t2-c3',action});
+    assert(resolved.receipts.length>0);assert.equal(resolved.outcome.skill,'Spot Hidden');
+    const after=world(k);assert.equal(after.active_scene,'Inn room');assert.equal(after.npc_presence['Man in cap'],'Street');
+    assert.equal((await k.tableErr('resolve',{call_id:'t2-c4',action:{...action,intent:'combat',decision:'combat:attack',skill:'Handgun',weapon:'.38 Revolver'}})).code,'unknown_entity');
+    assert.equal((await k.tableErr('resolve',{call_id:'t2-c4',action:{...action,decision:'core-check:combined-check'}})).code,'unknown_entity');
+    await k.table('apply',{call_id:'t2-c4',effects:[{kind:'time',minutes:1,why:'A minute of the selected observation passes.'}]});
+    const stale=world(k),later=await k.table('resolve',{call_id:'t2-c5',action});assert(later.receipts.length>0);assert.deepEqual(world(k),stale,'a later check does not write a new observation or move anyone');
+    await k.table('apply',{call_id:'t2-c6',effects:[initial]});
+    await k.table('apply',{call_id:'t2-c7',effects:[{...initial,access:'blocked',reason:'The curtain covers the window.',facts:[],people:[],situations:[]}]});
+    assert.equal((await k.tableErr('resolve',{call_id:'t2-c8',action})).code,'unknown_entity');
+    await k.table('apply',{call_id:'t2-c8',effects:[initial]});
+    await k.table('apply',{call_id:'t2-c9',effects:[{kind:'place',action:'move',to:'here'}]});
+    assert.equal((await k.tableErr('resolve',{call_id:'t2-c10',action})).code,'unknown_entity','a different current viewpoint cannot borrow the window percept');
+    await k.table('apply',{call_id:'t2-c10',effects:[{kind:'place',action:'move',to:'here',at:'window',relation:'beside'}]});await k.table('apply',{call_id:'t2-c11',effects:[initial]});
+    await k.table('apply',{call_id:'t2-c12',effects:[{kind:'npc',name:'Man in cap',to:'away',why:'He leaves during the selected observation.'}]});
+    assert.equal((await k.tableErr('resolve',{call_id:'t2-c13',action})).code,'unknown_entity','last-seen identity is not current presence');
+});
