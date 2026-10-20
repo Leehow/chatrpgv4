@@ -7,7 +7,7 @@ export interface TurnFailureState {
  turn:number;
  turnFailure?:{
   turn:number;
-  failures:Array<{operation:string;code:string;message:string;reason?:string;cause?:string;parameters?:string[];admission?:{selection:number[];scope:number[];minimum?:number}}>;
+  failures:Array<{operation:string;code:string;message:string;reason?:string;cause?:string;provider_message?:string;parameters?:string[];admission?:{selection:number[];scope:number[];minimum?:number}}>;
   completion?:{stop_reason:string|null;blocks:string[]};
   settled_receipts?:number;
  };
@@ -27,6 +27,7 @@ export function rememberTurnFailure(state:TurnFailureState,operation:string,erro
  const failure={operation,code:short(row?.code)??(syntax?'invalid_json':'internal'),
   message:syntax?'Invalid JSON at this operation.':short(row?.message)??String(error).slice(0,1200),
   ...(short(details?.reason)?{reason:short(details?.reason)}:{}),
+  ...(short(details?.provider_message)?{provider_message:short(details?.provider_message)}:{}),
   ...(short(details?.jev_reason??details?.cause)?{cause:short(details?.jev_reason??details?.cause)}:{}),
   ...(Array.isArray(details?.parameter_fields)?{parameters:details.parameter_fields.filter((value):value is string=>typeof value==='string').slice(0,4).map(value=>value.slice(0,300))}:{}),
   ...(scores?{admission:{selection:probabilities(scores.selection),scope:probabilities(scores.scope),
@@ -36,6 +37,21 @@ export function rememberTurnFailure(state:TurnFailureState,operation:string,erro
  failures.push(failure);
  if(failures.length>6)failures.splice(3,1);
  if(row?.cause!==undefined&&row.cause!==error&&depth<2)rememberTurnFailure(state,operation+'.cause',row.cause,depth+1);
+}
+/** Parse the provider error envelope, never an arbitrary response body, for the public cause. */
+export function rememberProviderFailure(state:TurnFailureState,detail:string|undefined):void{
+ const status=detail?.match(/^(?:Provider )?([45]\d{2})(?:\s|:)/)?.[1];
+ let message:string|undefined=detail&&!/[{}<>]/.test(detail)?detail.slice(0,240):undefined;
+ if(detail&&status){
+  const start=detail.indexOf('{');
+  if(start>=0)try{const body=JSON.parse(detail.slice(start));
+   if(body?.type==='error'&&typeof body.error?.type==='string'&&typeof body.error?.message==='string')message=body.error.message.slice(0,240);
+  }catch{/* Only the structured error message is safe to project. */}
+ }
+ if(state.turnFailure?.turn===state.turn)state.turnFailure.failures=state.turnFailure.failures.filter(row=>!row.operation.startsWith('keeper.provider'));
+ rememberTurnFailure(state,'keeper.provider',{code:'provider_error',message:'The primary Keeper provider request failed.',
+  details:{reason:status?'provider_http_'+status:'provider_error',...(message?{provider_message:message}:{})},
+  ...(detail?{cause:new Error(detail.slice(0,1200))}:{})});
 }
 export function unfinishedTurnFailure(state:TurnFailureState&{inputEnded?:{turn:number;cause:string};runAbandoned?:boolean}){
  const diagnostic=turnFailure(state);
@@ -58,7 +74,7 @@ export function turnFailureNotice(value:unknown, captions:Record<string,string>|
  const provider=rows.find(row=>row.code==='provider_error'),status=provider?.reason?.match(/^provider_http_([45]\d{2})$/)?.[1];
  const runtime=rows.findLast(row=>row.operation==='keeper.runtime'&&row.code==='driver_error');
  let content:string;
- if(provider)content=words.line('turn_failure_operation',{operation:provider.operation,code:status?`HTTP ${status} ${STATUS_CODES[status]??''}`:provider.reason??provider.code});
+ if(provider)content=words.line('turn_failure_operation',{operation:provider.operation,code:(status?`HTTP ${status} ${STATUS_CODES[status]??''}`:provider.reason??provider.code)+(provider.provider_message?': '+provider.provider_message:'')});
  else if(runtime)content=words.line('turn_failure_operation',{operation:runtime.operation,code:runtime.message});
  else if(rows.some(row=>row.code==='ENOTDIR'))content=words.line('turn_failure_output_path');
  else if(rows.some(row=>row.reason==='action_admission_uncertain'))content=words.line('turn_failure_admission');

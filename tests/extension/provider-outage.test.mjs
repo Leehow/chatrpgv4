@@ -155,7 +155,7 @@ test("a terminal provider failure returns a service notice and releases the stra
 	const afterFailure = notices(session);
 	assert.equal(afterFailure.length, 1, "the failed run returns one visible service result");
 	assert.equal(afterFailure[0].details.terminal, true);
-	assert.match(afterFailure[0].content, /没能完成|could not finish/i);
+	assert.match(afterFailure[0].content, /HTTP 500 Internal Server Error/);
 
 	await session.session.prompt("I try the handle.");
 	await waitForIdle(session.session);
@@ -219,6 +219,6 @@ test("terminal wording wins when the failed call also crossed the long-outage th
 	const told = notices(session);
 	assert.equal(told.length, 1, "long and terminal are one failed run, not two player notices");
 	assert.equal(told[0].details.terminal, true);
-	assert.match(told[0].content, /没能完成|could not finish/i,
+	assert.match(told[0].content, /HTTP 500 Internal Server Error/,
 		"terminal wording must replace the recovered-outage footnote");
 });

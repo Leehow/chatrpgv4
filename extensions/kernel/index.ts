@@ -23,7 +23,7 @@ import {applyEffectKinds} from '../table/mod-sections.ts';
 import {normalizeApplyArguments} from '../../shared/apply-protocol.ts';
 import {owedConsentPlan} from './owed-consent.ts';
 import {continuousConsentDisposition,CONTINUOUS_CONSENT_MIN} from '../../runtime/jev/continuous-consent.ts';
-import {turnFailure,rememberTurnFailure,unfinishedTurnFailure,turnFailureNotice,type TurnFailureState} from './turn-failure.ts';
+import {turnFailure,rememberTurnFailure,rememberProviderFailure,unfinishedTurnFailure,turnFailureNotice,type TurnFailureState} from './turn-failure.ts';
 import {NpcReferences,isNpcReference} from '../../runtime/npc-references.ts';
 import {publicDialogue,type PublicDialogueLine} from '../../shared/public-dialogue.ts';
 import {documentEditInput} from '../../runtime/document-edit-input.ts';
@@ -4724,6 +4724,7 @@ export default function (pi: ExtensionAPI, host: {capabilities?:RuntimeCapabilit
 		// included -- so it, and not a turn boundary, is what ends a streak and clears a terminal failure.
 		if (stopReason !== "error") {
 			state.terminalProviderFailure = undefined;
+			if(state.turnFailure?.turn===state.turn)state.turnFailure.failures=state.turnFailure.failures.filter(row=>!row.operation.startsWith('keeper.provider'));
 			state.providerOutage = 0;
 			state.providerOutageNotified = false;
 			return;
@@ -4731,6 +4732,7 @@ export default function (pi: ExtensionAPI, host: {capabilities?:RuntimeCapabilit
 		state.providerOutage += 1;
 		const streak = state.providerOutage;
 		state.terminalProviderFailure = { ms, streak };
+		rememberProviderFailure(state, detail);
 		const escalate = streak >= 2 && !state.providerOutageNotified;
 		if (escalate) state.providerOutageNotified = true;
 		// The player is told only about a call that hung long enough to be the wait they sat through.
@@ -5014,7 +5016,8 @@ export default function (pi: ExtensionAPI, host: {capabilities?:RuntimeCapabilit
 		const words = await surface.words();
 		const line = turnFailureNotice(failure, words)!.content;
 		pi.sendMessage({ customType: "coc-delivery", content: line, display: true,
-			details: { coc_delivery: true, turn, turn_unfinished: true, failure } }, { triggerTurn: false });
+			details: { coc_delivery: true, turn, turn_unfinished: true, failure,
+				...(state.terminalProviderFailure?{provider_outage:true,terminal:true,...state.terminalProviderFailure}:{}) } }, { triggerTurn: false });
 		void record({ lane: "delivery", turn, ok: true, reason: "turn_unfinished_notice", failure });
 	}
 
@@ -7731,8 +7734,7 @@ export default function (pi: ExtensionAPI, host: {capabilities?:RuntimeCapabilit
 		// it invites the resend that cannot work.
 		if (!table.reviewNoticeSent && !table.commitNoticeSent) {
 			if (undelivered && table.terminalProviderFailure) {
-				const failure = table.terminalProviderFailure;
-				await tellProviderNotice(table, { ms: failure.ms ?? 0, streak: failure.streak }, true, settledTurn);
+				await tellTurnUnfinishedNotice(table, settledTurn);
 			} else if (undelivered && table.sourceWait && !table.preparationWait && !table.turnNoticeSent) {
 				// §22.4.4 (SL-37): no draft at all while a source read is pending: the host's source-wait notice is the
 				// fallback, re-read first (§47); a reading that is no longer in flight falls back to the generic notice.

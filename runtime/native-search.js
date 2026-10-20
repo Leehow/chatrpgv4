@@ -174,6 +174,29 @@ function restore(payload, api, model, binding) {
   }
   return {...payload, input};
 }
+/** Mixed deferred calls require a pure tool-result message, even when the host supplied fresh context. */
+function serverContinuationMessages(messages) {
+  const result=[];
+  for(let index=0;index<messages.length;index++){
+    const message=messages[index],blocks=Array.isArray(message.content)?message.content:[];
+    result.push(message);
+    if(message.role!=='assistant')continue;
+    const locals=blocks.filter(b=>b.type==='tool_use').map(b=>b.id),done=new Set(blocks.filter(b=>b.type==='web_search_tool_result').map(b=>b.tool_use_id));
+    if(!locals.length||!blocks.some(b=>b.type==='server_tool_use'&&!done.has(b.id)))continue;
+    const users=[];let next=index+1;
+    while(messages[next]?.role==='user')users.push(messages[next++]);
+    const content=users.flatMap(row=>typeof row.content==='string'?[{type:'text',text:row.content}]:row.content??[]);
+    const results=content.filter(b=>b.type==='tool_result'),extra=content.filter(b=>b.type!=='tool_result');
+    if(!extra.length||!locals.every(id=>results.filter(b=>b.tool_use_id===id).length===1))continue;
+    const last=results.at(-1),existing=typeof last.content==='string'?[{type:'text',text:last.content}]:last.content??[];
+    result.push({...users[0],content:[...results.slice(0,-1),{...last,content:[...existing,
+      {type:'text',text:'<conversation_context role="user" is_tool_output="false">'},...extra,
+      {type:'text',text:'</conversation_context>'}]}]});
+    nativeSearchState().report?.({event:'continuation_context_enveloped',user_blocks:extra.length,client_results:results.length});
+    index=next-1;
+  }
+  return result;
+}
 /** Applies after Pi has built its API-specific request. Tool-choice restrictions remain authoritative. */
 export function nativeSearchPayload(payload, model) {
   if (!payload || typeof payload !== 'object') return;
@@ -183,6 +206,7 @@ export function nativeSearchPayload(payload, model) {
   if (['deepseek-search-api','opencode-keyless-search'].includes(capability.route)) return {...payload,tools:withoutLocalSearch(payload.tools).filter(tool => !searchTool(tool) && tool.name !== 'web_fetch')};
   const api = Array.isArray(payload.messages) && capability?.route ? 'anthropic-messages' : model.api;
   let body = restore(payload, api, model, policy);
+  if(api==='anthropic-messages'&&Array.isArray(body.messages))body={...body,messages:serverContinuationMessages(body.messages)};
   const allowed = nativeSearchAllowed(model) && (!capability.route || api === capability.api) && body.tool_choice !== 'none'
     && body.tool_choice?.type !== 'none' && body.config?.toolConfig?.functionCallingConfig?.mode !== 'NONE';
   const google = api === 'google-generative-ai';

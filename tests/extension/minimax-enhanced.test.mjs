@@ -135,6 +135,14 @@ test('mixed client and deferred server tools retain exact continuation without i
   assert(wires[1].tools.some(tool=>tool.name==='web_search'));
   assert.equal(wires[1].messages.filter(row=>row.role==='user').flatMap(row=>row.content??[]).filter(block=>block.tool_use_id==='search_deferred').length,0,'the host never fabricates a server result');
   assert.equal(nativeSearchState().records.length,2);
+  const supplemental={role:'user',content:[{type:'text',text:'Fresh host context: no journey is settled.'}],timestamp:2};
+  await stream(model,{messages:[note,first,{role:'toolResult',toolCallId:'local_deferred',toolName:'look',content:[{type:'text',text:'A public room'}],isError:false,timestamp:1},supplemental]},opts).result();
+  const follow=wires[2].messages.findLast(row=>row.role==='user');
+  assert.deepEqual(follow.content.map(b=>b.type),['tool_result'],'pending server continuation has no top-level host text');
+  const contextBlock=follow.content[0].content.find(b=>b.type==='text'&&b.text.includes('conversation_context'));
+  assert(contextBlock,'supplementary context is preserved as user-role context, never fabricated search output');
+  assert.match(JSON.stringify(follow.content[0].content),/no journey is settled/);
+  assert.deepEqual(wires[2].messages.find(row=>row.role==='assistant').content,originals);
 });
 test('incomplete MiniMax server pairs without a continuation are unavailable',()=>{
   fixture();setNativeSearchPolicy(policy);

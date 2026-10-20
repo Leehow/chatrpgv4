@@ -196,3 +196,14 @@ test('the readable provider failure keeps HTTP 504 rather than the final generic
  assert.match(JSON.stringify(notice),/provider_http_504|HTTP 504/);
  assert.match(JSON.stringify(failure),/504 <html>/,'the bounded original provider cause remains available in technical details');
 });
+
+test('a primary Keeper HTTP400 preserves its structured cause at the player boundary',async t=>{
+ const error='400 {"type":"error","error":{"type":"invalid_request_error","message":"invalid params, tool call result does not follow tool call (2013)"},"request_id":"diagnostic-request"}';
+ const table=await openTable({responses:Array.from({length:3},()=>fauxAssistantMessage([],{stopReason:'error',errorMessage:error}))});t.after(()=>table.dispose());
+ await table.session.prompt('I enter the records office.');
+ await waitFor(()=>notices(table).length===1,{label:'primary Keeper provider cause'});
+ const notice=notices(table)[0];assert.match(notice.content,/HTTP 400 Bad Request/);
+ assert.match(notice.content,/tool call result does not follow tool call \(2013\)/);
+ assert.doesNotMatch(notice.content,/diagnostic-request|[{}]|send anything/);
+ assert.match(JSON.stringify(notice.details.failure),/diagnostic-request/);
+});

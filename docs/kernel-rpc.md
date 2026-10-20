@@ -49131,6 +49131,34 @@ has not been handed over. This is public narration context, not NPC knowledge or
 a transfer. Producer: existing item/custody transactions and sheets; reader:
 capsule and decisionScene; actor: the sole author preserves current possession.
 
+#### Mixed-tool continuation context envelope (live follow-up)
+
+The real MiniMax turn107 returned a pending server search beside a local place
+inspection. A pure local tool_result continuation succeeds; appending the host's
+fresh context as a top-level text block returns HTTP400/code2013. Anthropic's
+server-tool contract independently requires only tool_result blocks in that
+immediate user message. The transport therefore envelopes supplementary user-role
+content inside the final real client result's content, explicitly labelled as
+conversation context rather than tool output. Preserve every original block and
+its order inside that envelope, keep the real tool result and raw assistant
+protocol unchanged, create no server result, and never elevate user content to a
+system instruction. Apply only to a mixed pending-server response with all client
+results present. Pure server pauses and ordinary completed calls are unchanged.
+The normalized transport is derived on every replay; persisted history remains
+original. Producer: SDK-serialized supplementary user context; reader: provider's
+legal tool-result envelope; actor: the same Keeper inference after actual server
+continuation. A wire regression must include the real host-context shape, not
+only a bare client result. A short live protocol probe is diagnostic evidence,
+not campaign play evidence.
+
+Terminal primary-Keeper provider errors must use the existing structured
+unfinished-turn diagnostic and receipt count. Preserve the bounded raw cause in
+collapsed details and render the HTTP status plus a bounded provider error message
+when it is a structured API error. Do not substitute a generic connection/no-result
+notice, claim no state changed without receipt evidence, or promise that new input
+will repair an invalid request. This is the same failure path used by isolated
+author errors, not a second diagnostic channel.
+
 ### 242.4. Context, lifecycle and evidence
 
 Only a short entry instruction and stable bounded tool declaration are resident.

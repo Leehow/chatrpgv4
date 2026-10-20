@@ -66,11 +66,34 @@ Campaign: locations-cold-20261019, turns95–106, private workspace
 - External comparison: TypeSafe Noul/entity alignment, Anthropic server tools,
   MiniMax server/interleaved tools, and Neo4j exact-key MERGE. No external payload
   or dependency was downloaded. MiniMax live compatibility remains unverified.
-- Amax probe: LAN reachable and idle, data-disk runner policy read. No heavy suite
-  has run for this change yet. Use a frozen own-change revision, not foreign WIP.
+- Own changes were reviewed and committed as be7c6a7ff, excluding the concurrent
+  NPC prototype. A clean App-managed validation checkout freezes that revision.
+- Frozen focused regression checks: 57/57 passed; kernel type check passed.
+  Amax full extension/integration/loop run passed at be7c6a7ff (exit0,1130s,
+  714 extension files), on /mnt/sdd in a unique namespace preserving earlier WIP.
+- Canonical App packaged from be7c6a7ff with the stable PipiUI Dev identity;
+  strict signature verification passed and staging was removed. The first
+  packaging attempt lacked a local Electron dependency link and is retained.
+- Fresh native setup failed twice before play: the model selected an installed
+  module instead of the built-in starter, then attempted unavailable PDF paths.
+  Retained run: locations-system-setup-20261020. No fresh-campaign success claimed.
+- Continued play uses a closed retained seed in a private CoW workspace. The
+  workspace helper omitted adaptation-sources; the required 660,993-byte tree
+  was added through shareTestTree after the real RPC exposed the missing file.
+  No campaign JSON was edited. mods.configure upgraded only the private copy
+  to Enhanced Locations1.1.3. Native startup confirms MiniMax3.1/medium.
 
 ## Remaining gates
 
-Independent source integration/freeze, remaining regressions, full LAN checks,
-canonical packaging and live acceptance remain outstanding. This plan is not a
-completion claim or a goal.
+- First continued live turn107 exposed MiniMax HTTP400/code2013 after a mixed
+  deferred search/place inspection. No movement settled. A controlled protocol
+  diagnostic confirms pure client result200, appended host context400, enveloped
+  user-role context200 with an actual server result. The transport now preserves
+  that context inside the real client-result envelope; raw assistant history and
+  server authority remain unchanged. SDK wire regression now includes host text.
+- The primary-provider terminal path incorrectly used generic outage prose. It
+  now uses the existing unfinished-turn diagnostic, real receipt count, bounded
+  structured API cause and collapsed raw details. Recovered errors are cleared.
+
+Completed live acceptance episodes, follow-up regression checks and final App /
+worktree audits remain outstanding. This plan is not a completion claim or a goal.
