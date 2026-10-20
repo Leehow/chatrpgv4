@@ -637,39 +637,51 @@ export class ModuleGraph {
     }
     /** Install persisted campaign content without modifying the source graph. */
     addTableEntity(record: Row): Row {
-        const id = string(record.id), name = string(record.name), kind = string(record.kind);
-        const existing = this.nodes.get(id);
-        if (existing) return existing;
-        if (!id || !name || !['scene', 'clue'].includes(kind)) throw new RpcError('invalid_params', 'Invalid campaign entity record');
-        const node: Row = {node_id: id, node_kind: kind, name, aliases: record.location_mod ? [record.label] : [], summary: record.summary,
-            visibility: 'keeper-only', properties: {name, semantic_name: name,
-                ...(record.location_mod?{display_name:record.label,description:record.description}: {})}, campaign_origin: {kind: 'table', reason: 'Established during play.', turn: record.turn,
-                    ...(record.location_mod&&record.source_anchor?{source_anchor:record.source_anchor}:{})}};
-        this.nodes.set(id, node);
-        this.tableEntityNames.set(id, name);
-        this.byKind.set(kind, [...this.kind(kind), node]);
-        for (const key of this.nameKeys(node)) {
-            const normalized = normalize(key);
-            this.names.set(normalized, new Set([...(this.names.get(normalized) ?? []), id]));
+        return this.addTableEntities([record])[0];
+    }
+    /** Register the complete identity set before resolving persisted cross-record references. */
+    addTableEntities(records: readonly Row[]): Row[] {
+        const pending: Row[] = [];
+        const nodes = records.map(record => {
+            const id = string(record.id), name = string(record.name), kind = string(record.kind);
+            const existing = this.nodes.get(id);
+            if (existing) return existing;
+            if (!id || !name || !['scene', 'clue'].includes(kind)) throw new RpcError('invalid_params', 'Invalid campaign entity record');
+            const node: Row = {node_id: id, node_kind: kind, name, aliases: record.location_mod ? [record.label] : [], summary: record.summary,
+                visibility: 'keeper-only', properties: {name, semantic_name: name,
+                    ...(record.location_mod?{display_name:record.label,description:record.description}: {})}, campaign_origin: {kind: 'table', reason: 'Established during play.', turn: record.turn,
+                        ...(record.location_mod&&record.source_anchor?{source_anchor:record.source_anchor}:{})}};
+            this.nodes.set(id, node);
+            this.tableEntityNames.set(id, name);
+            this.byKind.set(kind, [...this.kind(kind), node]);
+            for (const key of this.nameKeys(node)) {
+                const normalized = normalize(key);
+                this.names.set(normalized, new Set([...(this.names.get(normalized) ?? []), id]));
+            }
+            pending.push(record);
+            return node;
+        });
+        for (const record of pending) {
+            const id = string(record.id), kind = string(record.kind);
+            // §187.2.1: a minted scene's way back to the scene the party left, and the book place it lies in. A handle the
+            // current graph no longer resolves writes no relation; the record keeps it.
+            const relate = (to: Row | null, relation_kind: string) => {
+                if (!to || to.node_id === id) return;
+                const relation = {from_node_id: id, to_node_id: to.node_id, relation_kind, properties: {}, campaign_origin: {kind: 'table'}};
+                this.out.set(id, [...(this.out.get(id) ?? []), relation]);
+                this.incoming.set(to.node_id, [...(this.incoming.get(to.node_id) ?? []), relation]);
+            };
+            // Persisted parent identities may occur later in the combined ordinary/Mod record set.
+            if (kind === 'scene' && typeof record.within === 'string') relate(this.find(record.within, ['scene', 'location']), 'located-in');
+            if (kind === 'scene' && typeof record.from === 'string') relate(this.find(record.from, ['scene']), 'route-to');
+            if (kind === 'clue' && record.scene) {
+                const scene = this.scene(record.scene);
+                const relation = {from_node_id: id, to_node_id: scene.node_id, relation_kind: 'discoverable-at', properties: {}};
+                this.out.set(id, [relation]);
+                this.incoming.set(scene.node_id, [...(this.incoming.get(scene.node_id) ?? []), relation]);
+            }
         }
-        // §187.2.1: a minted scene's way back to the scene the party left, and the book place it lies in. A handle the
-        // current graph no longer resolves writes no relation; the record keeps it.
-        const relate = (to: Row | null, relation_kind: string) => {
-            if (!to || to.node_id === id) return;
-            const relation = {from_node_id: id, to_node_id: to.node_id, relation_kind, properties: {}, campaign_origin: {kind: 'table'}};
-            this.out.set(id, [...(this.out.get(id) ?? []), relation]);
-            this.incoming.set(to.node_id, [...(this.incoming.get(to.node_id) ?? []), relation]);
-        };
-        // §204.3: `within` may name a place this table established earlier (installed before this one, in record order).
-        if (kind === 'scene' && typeof record.within === 'string') relate(this.find(record.within, ['scene', 'location']), 'located-in');
-        if (kind === 'scene' && typeof record.from === 'string') relate(this.find(record.from, ['scene']), 'route-to');
-        if (kind === 'clue' && record.scene) {
-            const scene = this.scene(record.scene);
-            const relation = {from_node_id: id, to_node_id: scene.node_id, relation_kind: 'discoverable-at', properties: {}};
-            this.out.set(id, [relation]);
-            this.incoming.set(scene.node_id, [...(this.incoming.get(scene.node_id) ?? []), relation]);
-        }
-        return node;
+        return nodes;
     }
     isTableEntity(node: Row | null | undefined): boolean {
         return !!node && this.tableEntityNames.has(string(node.node_id));

@@ -16,7 +16,10 @@ export function locationPolicyApplies(graph:ModuleGraph,world:Row,...places:Row[
     return places.some(node=>locationPlaces(world).some(place=>place.id===node.node_id)||locationFeatures(world).some(feature=>feature.place===graph.handle(node)));
 }
 export function projectLocations(graph:ModuleGraph,world:Row):void {
-    for(const place of locationPlaces(world))graph.addTableEntity({...place,kind:'scene',summary:place.description,location_mod:true});
+    graph.addTableEntities(locationEntities(world));
+}
+export function locationEntities(world:Row):Row[] {
+    return locationPlaces(world).map(place=>({...place,kind:'scene',summary:place.description,location_mod:true}));
 }
 /** Names are exact normalized references. Local leaf matching is structural, never fuzzy. */
 export function locationPlace(graph:ModuleGraph,world:Row,name:unknown):Row {

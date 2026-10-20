@@ -56,8 +56,10 @@ export function turnFailureNotice(value:unknown, captions:Record<string,string>|
  const rows=failure.failures.filter(row=>row&&typeof row.operation==='string'&&typeof row.code==='string');
  if(!rows.length)return;
  const provider=rows.find(row=>row.code==='provider_error'),status=provider?.reason?.match(/^provider_http_([45]\d{2})$/)?.[1];
+ const runtime=rows.findLast(row=>row.operation==='keeper.runtime'&&row.code==='driver_error');
  let content:string;
  if(provider)content=words.line('turn_failure_operation',{operation:provider.operation,code:status?`HTTP ${status} ${STATUS_CODES[status]??''}`:provider.reason??provider.code});
+ else if(runtime)content=words.line('turn_failure_operation',{operation:runtime.operation,code:runtime.message});
  else if(rows.some(row=>row.code==='ENOTDIR'))content=words.line('turn_failure_output_path');
  else if(rows.some(row=>row.reason==='action_admission_uncertain'))content=words.line('turn_failure_admission');
  else if(rows.some(row=>row.reason==='place_observation_point_unresolved'))content=words.line('turn_failure_observation_point');

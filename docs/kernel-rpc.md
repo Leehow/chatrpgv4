@@ -49265,6 +49265,25 @@ and https://modelcontextprotocol.io/specification/2025-06-18/server/tools.
 
 ## 243. Enhanced Locations: spatial relations and observation continuity
 
+Campaign graph hydration registers every persisted ordinary and Mod place/clue
+identity before installing any of their relationships. A clue can reference a
+Mod-owned place, and a persisted scene can refer to another record stored later.
+Hydration order is not fictional existence. Keep first-record identity ownership,
+strict missing clue-target errors and idempotent projections; do not mutate source
+graphs or rewrite saved campaigns to repair a projection. Writer: existing place
+and clue transactions; reader: loadCampaignModule; actor: ordinary capsule, clue
+and location readers. Nodes-before-relationships import in Neo4j and indexed node
+references in glTF confirm the separation; these systems do not supply our world
+authority or storage. References: https://neo4j.com/docs/operations-manual/current/tutorial/neo4j-admin-import/
+and https://registry.khronos.org/glTF/specs/2.0/glTF-2.0.html.
+
+A fatal active-run driver error reaches the existing unfinished-turn diagnostic
+with its actual bounded error, before agent_end chooses the player notice. It
+takes priority over earlier recoverable tool-read errors. Preserve both in the
+collapsed details; a prior recall failure must not stand in for a later capsule
+load failure. Scope the event to the current Keeper run. This records diagnosis
+only; it neither retries state changes nor invents settlement proof.
+
 Owner approval (2026-10-19): complete the location association graph, observation
 times and ongoing-event continuity, audit their complete wiring, then rebuild,
 package and test the canonical App. This extends section 242 rather than creating

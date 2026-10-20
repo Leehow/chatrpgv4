@@ -5,7 +5,7 @@ import type {LoadedModule} from './campaign.js';
 import type {ModuleGraph} from './module-graph.js';
 import {array, normalize, row, string, type Row} from './values.js';
 import {isPlace} from './places.js';
-import {projectLocations} from './locations.js';
+import {locationEntities} from './locations.js';
 import {Check} from 'typebox/value';
 import {ClueEstablishment,PlaceEstablishment} from '../../shared/apply-structures.js';
 
@@ -67,8 +67,7 @@ export function establishTableEntity(graph: ModuleGraph, world: Row, turn: Row, 
 }
 
 export function withTableEntities(module: LoadedModule, world: Row): LoadedModule {
-    for (const record of array(world.table_entities)) module.graph.addTableEntity(row(record));
-    projectLocations(module.graph,world);
+    module.graph.addTableEntities([...array(world.table_entities).map(row), ...locationEntities(world)]);
     const source = module.material;
     const material = (name: string): string => module.graph.isTableEntity(module.graph.find(name)) ? 'ready' : source(name);
     if (module.graph.materialOverride) module.graph.materialOverride = material;

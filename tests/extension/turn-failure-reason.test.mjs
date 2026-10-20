@@ -26,6 +26,20 @@ function answer(batch){
 }
 const notices=table=>customMessages(table.session,'coc-delivery').filter(row=>row.details?.turn_unfinished);
 
+test('a fatal active-run capsule error reaches the notice with its actual cause',async t=>{
+ const env={PI_COC_LOOP_ENGINE:'hybrid-v1',PI_COC_TURN_PACKET_PROTOTYPE:'1',PI_COC_JEV_PRESELECT:'0',PI_COC_MATERIAL_SCREEN:'0',EXT_JEV_APIKEY:undefined,TYPESAFE_API_KEY:undefined};
+ const engine=createHybridEngine({env,decision:{decide:async batch=>answer(batch)}});
+ const table=await openTable({legacyDeliveryFixtures:false,realKernel:true,prepareWorkspace:opened,env,runDriver:engine.runDriver,
+  extraExtensions:[{name:'engine',factory:engine.extension}],responses:[]});t.after(()=>table.dispose());
+ const bridge=table.runtimeBridges().at(-1),cause="no scene named 'Ordinary tea room' in the module graph";
+ table.emit('coc:kernel-bridge',{...bridge,call:async(method,params)=>{if(method==='table.capsule')throw Error(cause);return bridge.call(method,params);}});
+ await table.session.prompt('I sit beside the window.');
+ await waitFor(()=>notices(table).length===1,{label:'the fatal runtime cause'});
+ const notice=notices(table)[0];assert.ok(notice.content.includes(cause),notice.content);
+ assert.ok(notice.details.failure.failures.some(row=>row.operation==='keeper.runtime'&&row.message===cause));
+ assert.doesNotMatch(notice.content,/[{}]|missing_final_output/);
+});
+
 test('an actual native author failure reaches the player as HTTP 504 with committed state retained',async t=>{
  const env={PI_COC_LOOP_ENGINE:'hybrid-v1',PI_COC_TURN_PACKET_PROTOTYPE:'1',PI_COC_JEV_PRESELECT:'0',PI_COC_MATERIAL_SCREEN:'0',EXT_JEV_APIKEY:undefined,TYPESAFE_API_KEY:undefined,
   PI_COC_READER_CMD:JSON.stringify([process.execPath,join(import.meta.dirname,'fixtures/failed-direct-author.mjs')])};

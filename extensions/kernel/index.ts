@@ -1930,6 +1930,9 @@ export default function (pi: ExtensionAPI, host: {capabilities?:RuntimeCapabilit
 
 	async function record(entry: Record<string, unknown>): Promise<void> {
 		const run = table?.skillRun;
+		if(table&&entry.lane==='run'&&entry.type==='run_end'&&entry.status==='failed'&&entry.reason==='driver_error'
+			&&entry.runId===keeperRun?.runId&&typeof entry.error==='string')
+			rememberTurnFailure(table,'keeper.runtime',{code:'driver_error',message:entry.error});
 		// Stamp ownership before the first await; a detached settlement carries its own run_id.
 		const line = { turn: table?.turn ?? null, ...entry, ...(run ? { run_id: run.run_id } : {}) };
 		if (run && COC_TOOL_NAMES.includes(entry.tool as never) && entry.ok === false) {

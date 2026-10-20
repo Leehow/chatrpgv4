@@ -3,13 +3,43 @@ import assert from 'node:assert/strict';
 import {test} from 'node:test';
 import {readFileSync,mkdirSync,writeFileSync} from 'node:fs';
 import {join} from 'node:path';
-import {kernel,openTurn,campaignDir,RpcClient,CAMPAIGN,ROOT,type Row} from './support.ts';
+import {kernel,openTurn,campaignDir,RpcClient,CAMPAIGN,ROOT,importSource,type Row} from './support.ts';
 import {turnPacket,compileTurnPacket} from '../../runtime/turn-packet-prototype.ts';
 const state=(k:RpcClient)=>JSON.parse(readFileSync(join(campaignDir(k.workspace),'world.json'),'utf8'));
 const locations=(k:RpcClient)=>state(k).mods.state['enhanced-locations'].locations;
 const inspect=(k:RpcClient,name?:string)=>k.ok('mods.locations.inspect',{campaign:CAMPAIGN,...(name?{name}:{})});
 const hotel=(name:string)=>({name,within:null,description:`The public entrance of ${name}.`});
 const room=(parent:string)=>({name:'Room 203',within:parent,description:`A small room in ${parent}.`,features:[{name:'window',description:'A narrow wooden window.',state:'closed',passable:false}]});
+
+test('campaign graph hydration resolves forward references once and retains strict missing targets',async()=>{
+    const {ModuleGraph}=await importSource('kernel-ts/read/module-graph.ts');
+    const raw={nodes:[],relations:[],claims:[]},before=structuredClone(raw),graph=new ModuleGraph('fixture',raw,'digest',{});
+    const records=[{id:'clue-table-scratch',kind:'clue',name:'Scratch',scene:'Annex / Room'},
+        {id:'scene-table-room',kind:'scene',name:'Annex / Room',within:'Annex'},
+        {id:'scene-table-annex',kind:'scene',name:'Annex'}];
+    graph.addTableEntities(records);
+    assert.ok(graph.sceneClueIds(graph.scene('Annex / Room')).includes('clue-table-scratch'));
+    assert.ok(graph.groupOut(graph.scene('Annex / Room')).some((edge:Row)=>edge.relation_kind==='located-in'&&edge.to_node_id==='scene-table-annex'));
+    graph.addTableEntities([...records].reverse());
+    assert.equal(graph.groupOut(graph.scene('Annex / Room')).filter((edge:Row)=>edge.relation_kind==='located-in').length,1);
+    assert.equal(graph.groupIncoming(graph.scene('Annex / Room')).filter((edge:Row)=>edge.relation_kind==='discoverable-at').length,1);
+    assert.equal(graph.addTableEntity({...records[2],name:'Replacement'}).name,'Annex');
+    assert.throws(()=>graph.addTableEntity({id:'clue-table-missing',kind:'clue',name:'Missing target',scene:'Unregistered'}),/no scene named/);
+    assert.deepEqual(raw,before);
+});
+
+test('new clues in Mod places remain readable across every reload and a fresh kernel process',async t=>{
+    const k=await kernel(t);await openTurn(k,'I enter an unlisted tea room and examine its window.');
+    await k.table('apply',{call_id:'t1-c1',effects:[{kind:'place',action:'move',to:'Ordinary tea room',via:'Across the street',travel_band:'adjacent',additions:[hotel('Ordinary tea room')]}]});
+    await k.table('apply',{call_id:'t1-c2',effects:[{kind:'clue',clue:'A scratch on the window',how:'Seen while examining the window.',establish:{summary:'A fresh scratch crosses the glass.'}}]});
+    const restarted=new RpcClient(k.workspace);t.after(()=>restarted.close());
+    for(const client of [k,restarted]){
+        assert.equal((await client.table('capsule')).where.scene,'Ordinary tea room');
+        assert.ok((await client.table('look',{focus:'clues'})).discovered_clues.includes('A scratch on the window'));
+        assert.equal((await client.table('status')).receipts.filter((receipt:Row)=>receipt.kind==='clue').length,1);
+    }
+    assert.equal(locations(k).places.filter((place:Row)=>place.name==='Ordinary tea room').length,1);
+});
 
 test('places have scoped durable identities, public detail, local position and remote reads',async t=>{
     const k=await kernel(t);await openTurn(k,'I visit a nearby ordinary hotel.');
