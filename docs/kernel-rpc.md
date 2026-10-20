@@ -49386,17 +49386,12 @@ and raw parameters remain folded, and canonical settlement is unchanged.
 
 ### Dialogue confirmation and bounded public portrayal (2026-10-19)
 
-The first live candidate still selected old words through ordinary `answer`.
 A selected old statement and a new response proposition are distinct. Native v4
-adds interactions `act: "confirm"` and `act: "recap"` with nonempty existing fact/source references
+adds interaction `act: "confirm"` with nonempty existing fact/source references
 only. The host resolves the same issued, actor-scoped references, then hydrates
 one `confirmation` claim per reference: `{unchanged:true,basis:<exact prior>}`.
 This confirms the speaker's earlier account/arrangement, never proves the account
-true or executes the promised action. `recap` hydrates a `retrospective_report`
-with the exact earlier basis. Issued `recent_speech` references cannot be selected
-as an ordinary `answer`: its bound schema excludes them and hydration enforces
-the same rule. The Keeper must explicitly choose confirmation or retrospective
-retelling; no code infers the player intention. New claims cannot use these constructors.
+true or executes the promised action. New claims cannot use this constructor.
 Ordinary answers, corrections, offers and unselected material retain their
 existing boundaries. The sole author supplies the actual confirmation wording.
 

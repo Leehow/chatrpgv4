@@ -63,16 +63,3 @@ test('the actual NPC read and direct author task preserve portrayal without prom
  assert.equal(packet.decision_context.recent_public[0].portrayal.text,record.rendered_text);
  assert.equal(packet.decision_context.responses[0].claims,undefined);
 });
-
-test('a native answer cannot disguise an old public utterance as a newly selected claim',async()=>{
- const {Errors}=await import('typebox/value');const {turnPacketParameterSchema}=await import('../../runtime/turn-packet-prototype.ts');
- const owner=new DecisionContent();const catalog=owner.prepare('c:2',{where:{scene:'Cafe'},present:[{ref:'npc_1',display_name:'Waitress',recent_speech:[{statement:'The doctor lives at the end of the north road.',turn:1,authority:'conversation_report'}]}]},[],[],['Visitor']);
- const answer={actor:'npc_1',to:['investigator_1'],act:'answer',content:[{fact_ref:catalog.facts[0].ref}]};
- const schema=turnPacketParameterSchema(false,undefined,undefined,false,owner.bindings());
- assert.ok(Errors(schema,{version:4,interactions:[answer]}).length,'the actual issued provider schema must require a continuity relation for old speech');
- assert.throws(()=>owner.hydrate([answer]),/continuity relation/);
- for(const act of ['confirm','recap']){
-  const response={...answer,act};assert.equal(Errors(schema,{version:4,interactions:[response]}).length,0);
-  assert.equal(owner.hydrate([response]).responses[0].claims[0].value.basis.value.statement,'The doctor lives at the end of the north road.');
- }
-});
