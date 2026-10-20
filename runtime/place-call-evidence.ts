@@ -2,8 +2,8 @@
 import {createHash} from 'node:crypto';
 type Row=Record<string,any>;
 export function createPlaceCallEvidence(record:(row:Row)=>void){
- let turn:number|undefined,raw:Row|undefined,normalized=false,prepared=false;
- const enter=(next:number)=>{if(turn!==next){turn=next;raw=undefined;normalized=false;prepared=false;}};
+ let turn:number|undefined,raw:Row|undefined,normalized=false,prepared=false,requested=false;
+ const enter=(next:number)=>{if(turn!==next){turn=next;raw=undefined;normalized=false;prepared=false;requested=false;}};
  const bounded=(value:unknown)=>{
   try{
    const json=JSON.stringify(value??null),bytes=Buffer.byteLength(json);
@@ -12,6 +12,12 @@ export function createPlaceCallEvidence(record:(row:Row)=>void){
  };
  const emit=(row:Row)=>{try{record({lane:'place-protocol',turn,...row});}catch{/* Diagnostics never decide a tool result. */}};
  return {
+  request(payload:Row,next:number){
+   enter(next);if(requested||!payload||!Array.isArray(payload.tools))return;
+   const tool=(payload.tools??[]).find((row:Row)=>(row.function?.name??row.name)==='place');
+   if(!tool)return;requested=true;const schema=tool.input_schema??tool.parameters??tool.function?.parameters??{};
+   emit({phase:'request_schema',fields:Object.keys(schema.properties??{}),required:schema.required??[],action:bounded(schema.properties?.action),root_union_branches:(schema.anyOf??schema.oneOf??[]).length});
+  },
   provider(event:Row,next:number){
    enter(next);if(event.api!=='anthropic-messages')return;
    const data=event.data??{};

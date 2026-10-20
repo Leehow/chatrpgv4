@@ -27,3 +27,9 @@ test('diagnostic recorder failure does not affect tool argument preparation',()=
  const trace=createPlaceCallEvidence(()=>{throw Error('diagnostic store unavailable');});
  assert.doesNotThrow(()=>trace.prepare({action:'move',to:'Inn'},1));
 });
+test('request diagnostics retain only place schema shape once per turn',()=>{
+ const rows=[],trace=createPlaceCallEvidence(row=>rows.push(row)),payload={headers:{Authorization:'PRIVATE_KEY'},messages:[{content:'PRIVATE_STORY'}],tools:[{name:'place',input_schema:{type:'object',properties:{action:{type:'string',enum:['inspect','move']},to:{type:'string'}},required:['action']}}]};
+ trace.request(payload,2);trace.request(payload,2);assert.equal(rows.length,1);assert.equal(rows[0].phase,'request_schema');assert.deepEqual(rows[0].fields,['action','to']);
+ payload.tools[0].input_schema.properties.action.enum.push('other');assert.deepEqual(rows[0].action.arguments.enum,['inspect','move']);
+ assert(!JSON.stringify(rows).includes('PRIVATE_'));assert.doesNotThrow(()=>trace.request(null,3));
+});

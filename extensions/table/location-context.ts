@@ -14,7 +14,8 @@ export function locationIdentityContext(read:Row):Row|undefined {
 const object=(value:unknown):value is Row=>!!value&&typeof value==='object'&&!Array.isArray(value);
 const action=Type.String({enum:['move','establish','feature','relate','observe']});
 const read=Type.Object({using_skill:Type.Optional(Type.String()),action:Type.Literal('inspect'),name:Type.Optional(Type.String()),at:Type.Optional(Type.String()),sense:Type.Optional(Type.Union([Type.Literal('sight'),Type.Literal('hearing')])),need:Type.Optional(Type.Union([Type.Literal('context'),Type.Literal('contract'),Type.Literal('observation')]))},{additionalProperties:false});
-const entry={type:'object',properties:{...read.properties,action:Type.String({enum:['inspect',...action.enum]})},required:['action'],additionalProperties:true,
+const entry={type:'object',properties:{...read.properties,action:Type.String({enum:['inspect',...action.enum]}),
+ to:Type.String({description:'Write destination; inspect uses name.'}),relation:Type.String(),via:Type.String(),state:Type.String(),passable:Type.Boolean()},required:['action'],additionalProperties:true,
  anyOf:[read,Type.Object({using_skill:Type.Optional(Type.String()),action},{additionalProperties:true})]};
 /** One explicit action survives serializers that omit root union guards. */
 function describeModes(schema:Row):Row {

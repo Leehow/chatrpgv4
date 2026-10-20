@@ -1933,6 +1933,7 @@ export default function (pi: ExtensionAPI, host: {capabilities?:RuntimeCapabilit
 
 	pi.events.on('coc:native-search-event', (entry: Record<string, unknown>) => {void record(entry);});
     const placeProtocol=createPlaceCallEvidence(row=>{void record(row).catch(()=>{});});
+    pi.on('before_provider_request',event=>{if(table)placeProtocol.request(event.payload as any,table.turn);});
     pi.on('provider_stream_event',event=>{if(table)placeProtocol.provider(event,table.turn);});
     pi.on('message_end',event=>{if(table)placeProtocol.message(event.message as any,table.turn);});
 

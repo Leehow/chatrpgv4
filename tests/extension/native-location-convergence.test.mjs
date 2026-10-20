@@ -22,6 +22,7 @@ test('actual non-strict Anthropic wire retains explicit place mode guidance afte
   const schema=payload.tools[0].input_schema;
   assert.equal(schema.anyOf,undefined,'exercise the actual non-strict serializer limitation');
   assert.deepEqual(schema.properties.action.enum,['inspect','move','establish','feature','relate','observe']);
+  assert.equal(schema.properties.to.type,'string');assert.equal(schema.properties.relation.type,'string');
   assert.match(schema.properties.action.description,/No op or change wrapper/);
   assert.match(schema.properties.action.description,/feature requires to and at, optional state\/passable/);
   assert.match(schema.properties.action.description,/establish requires additions/);
