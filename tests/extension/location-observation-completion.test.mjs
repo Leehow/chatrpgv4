@@ -72,11 +72,12 @@ test('native standalone location settlement precedes a selected wait and final o
    assert.equal(refusal.isError,true);assert.match(JSON.stringify(refusal.content),/explicitly retry with the intended action/);
    const status=await table.runtimeBridges().at(-1).call('table.status',{campaign:'test-camp',projection:'receipts'});
    assert(!status.receipts.some(row=>row.kind==='place'&&row.action==='move'),'a conflicting read must not commit movement');
-   return fauxAssistantMessage([fauxToolCall('place',{action:'move',to:scene,at:'street window',relation:'beside',additions:[{name:scene,features:[{name:'street window',description:'A tall window overlooking the pavement.'}]}]})],{stopReason:'toolUse'});
+   return fauxAssistantMessage([fauxToolCall('place',{action:'move',name:scene,at:'street window',relation:'beside',additions:[{name:scene,features:[{name:'street window',description:'A tall window overlooking the pavement.'}]}]})],{stopReason:'toolUse'});
   },()=>fauxAssistantMessage([fauxToolCall('apply',{effects:[{kind:'time',minutes:2,why:'Wait at the window as selected.'}]})],{stopReason:'toolUse'}),
   ()=>fauxAssistantMessage([fauxToolCall('output',{version:4,commands:[{kind:'scene',service:'open',crowd:'quiet'},{kind:'place',action:'observe',to:scene,at:'street window',sense:'sight',access:'clear',scope:'The pavement through the window.',facts:['A cart passes the window.']}],interactions:[]})],{stopReason:'toolUse'})]});
  t.after(()=>table.dispose());await table.session.prompt('I walk to the street window, wait two minutes, then look at the pavement.');
  const call=table.session.messages.findLast(row=>row.role==='toolResult'&&row.toolName==='place');assert.notEqual(call?.isError,true,JSON.stringify(call));
+ assert(table.telemetry().some(row=>row.event==='place_target_alias_normalized'),'the native prepare boundary normalizes the explicit alias before the actual write');
  const turn=JSON.parse(readFileSync(join(table.workspace,'.coc/campaigns/test-camp/turns/0001.json')));
  const move=turn.receipts.findIndex(row=>row.kind==='place'&&row.action==='move'),wait=turn.receipts.findIndex(row=>row.kind==='time'),observe=turn.receipts.findIndex(row=>row.kind==='place'&&row.action==='observe');
  assert(move>=0&&wait>move&&observe>wait,'canonical receipt order must be move, wait, observe: '+JSON.stringify(turn.receipts));
