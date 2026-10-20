@@ -26,7 +26,6 @@ const to=Type.Array(ref,{minItems:1,maxItems:16,uniqueItems:true});
 export const Interaction=Type.Union([
  closed({actor,act:Type.Literal('silent'),to:Type.Optional(to)}),
  closed({actor,to,act:StringEnum(['greet','refuse','acknowledge']),content:Type.Optional(Type.Array(CommunicationContent,{minItems:1,maxItems:8}))}),
- closed({actor,to,act:Type.Literal('confirm'),content:Type.Array(Type.Union(ExistingCommunicationFact.anyOf.slice(0,2)),{minItems:1,maxItems:8})}),
  closed({actor,to,act:StringEnum(['answer','ask','offer','clarify','report','warn']),content:Type.Array(CommunicationContent,{minItems:1,maxItems:8})})
 ]);
 export type InteractionDecision=Static<typeof Interaction>;
@@ -102,6 +101,19 @@ export class DecisionContent {
   }
   for(const ref of issuedPeople)if(isNpcReference(ref)){this.entities.add(ref);this.people.add(ref);}
   const cast=[...rows(capsule.npc_references?.people),...rows(capsule.present),...people,...this.reads.values()];
+  const publicAliases=new Map<string,Set<string>>();
+  const aliasKey=(value:string)=>value.normalize('NFKC').trim().toLowerCase();
+  for(const person of cast)if(isNpcReference(person.ref))for(const key of ['ref','id','name','display_name'])if(typeof person[key]==='string'){
+   const keyValue=aliasKey(person[key]),refs=publicAliases.get(keyValue)??new Set<string>();
+   refs.add(person.ref);publicAliases.set(keyValue,refs);
+  }
+  const ownPublicSpeech=(value:Row,person:Row,field:string)=>{
+   if(!value||value.authority!=='conversation_report'||value.attribution?.kind!=='speech'
+    ||value.attribution.speaker?.kind!=='npc'||typeof value.statement!=='string'||!Number.isSafeInteger(value.turn))return false;
+   const speaker=value.attribution.speaker.name;
+   const refs=typeof speaker==='string'?publicAliases.get(aliasKey(speaker)):undefined;
+   return field==='recent_speech'||refs?.size===1&&refs.has(person.ref);
+  };
   for(const person of cast)if(isNpcReference(person.ref)){
    this.entities.add(person.ref);this.people.add(person.ref);
    if(typeof person.display_name==='string'){this.listenerAlias(person.display_name,person.ref);this.entityLabels.set(person.ref,person.display_name);}
@@ -125,7 +137,7 @@ export class DecisionContent {
    for(const field of MATERIAL_FIELDS){
     const values=Array.isArray(person[field])?person[field]:[];
     for(const value of values){const content=typeof value==='string'?value:typeof value?.statement==='string'||field==='knows'&&typeof value?.summary==='string'?value:undefined;
-     if(content!==undefined)this.issue('fact',content,person.ref,field);
+     if(content!==undefined)this.issue('fact',content,person.ref,ownPublicSpeech(content,person,field)?'public_speech_history':field);
     }
    }
    for(const document of rows(person.observed_documents))if(typeof document.writing==='string'&&document.writing.trim())
@@ -190,7 +202,7 @@ export class DecisionContent {
     if(!ref)throw Error('Unissued or non-person communication audience');return ref;
    });
    if(to?.includes(response.actor))throw Error('A speaker cannot be its own addressee');
-   return {...response,...(to?{to}:{}),...('content'in response?{claims:(response.content??[]).map(content=>{const basis=this.resolve(content,response.actor);return response.act==='confirm'?{kind:'confirmation',value:{unchanged:true,basis}}:basis;})}:{})};
+   return {...response,...(to?{to}:{}),...('content'in response?{claims:(response.content??[]).map(content=>this.resolve(content,response.actor))}:{})};
   });
   return {responses,materials:reveal.map(content=>this.resolve(content))};
  }

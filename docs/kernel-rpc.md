@@ -49419,14 +49419,10 @@ nothing about player permission, which remains independently required here.
 
 ### Dialogue confirmation and bounded public portrayal (2026-10-19)
 
-A selected old statement and a new response proposition are distinct. Native v4
-adds interaction `act: "confirm"` with nonempty existing fact/source references
-only. The host resolves the same issued, actor-scoped references, then hydrates
-one `confirmation` claim per reference: `{unchanged:true,basis:<exact prior>}`.
-This confirms the speaker's earlier account/arrangement, never proves the account
-true or executes the promised action. New claims cannot use this constructor.
-Ordinary answers, corrections, offers and unselected material retain their
-existing boundaries. The sole author supplies the actual confirmation wording.
+A selected old statement and a new response proposition are distinct. The tested
+additional confirm act is withdrawn: wrapping historical evidence in a fresh
+confirmation restored the same false obligation to repeat it. The original
+interaction vocabulary remains unchanged; history ownership is a host concern.
 
 The existing NPC read projects explicit source `properties.appearance` as
 `public_appearance` independently of the first-sight delivery ledger. It never
@@ -49445,10 +49441,13 @@ presence record. No text classifier or additional model produces it.
 Live correction: adding a confirmation option did not prevent ordinary answers
 from selecting whole old utterances; forcing a new speech-act choice also failed
 and was reverted. An exact selected `recent_speech` row with canonical NPC
-speech attribution is already-public history, not a newly proposed statement.
+speech attribution, or an own public report/commitment whose attributed speaker
+uniquely resolves to the actor by explicit cast ref/id/name/display name, is already-public history, not a newly proposed statement.
 The author assembler moves those rows from response claims into the existing
-participant-scoped `recent_public` input. Current typed claims, authored knowledge,
-new reports and explicit confirmations remain response content. A response still
+participant-scoped `recent_public` input. The catalog issues these as `public_speech_history`, deduplicating the same row
+across material fields. Other-speaker, ambiguous or unattributed reports are not
+reclassified. Current typed claims, authored knowledge and new reports remain
+response content. A response still
 keeps its selected act/recipients and the current player input; only the old
 words lose the false obligation to be spoken again. If these were all the
 selected claims, one `existing_account_response` proposition retains the current

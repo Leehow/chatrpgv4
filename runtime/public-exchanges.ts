@@ -19,7 +19,7 @@ export function decisionResponseHistory(responses:Row[],people:Row[],turn:number
   const priorTurns=new Set<number>();
   const claims=response.claims.filter((claim:Row)=>{
    const value=claim.value,person=cast.get(response.actor);
-   if(claim.kind!=='recent_speech'||claim.actor!==response.actor||typeof person?.display_name!=='string'
+   if(!['recent_speech','public_speech_history'].includes(claim.kind)||claim.actor!==response.actor||typeof person?.display_name!=='string'
     ||value?.authority!=='conversation_report'||value.attribution?.kind!=='speech'||value.attribution?.speaker?.kind!=='npc'
     ||typeof value.statement!=='string'||!Number.isSafeInteger(value.turn)||value.turn>=turn)return true;
    priorTurns.add(value.turn);

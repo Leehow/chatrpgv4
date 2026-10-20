@@ -5,18 +5,22 @@ import {turnPacket} from '../../runtime/turn-packet-prototype.ts';
 import {decisionDialogueContinuity} from '../../runtime/public-exchanges.ts';
 import {importSource} from '../integration/support.ts';
 
-test('a confirmation expresses continuity of an issued report without turning its old wording into a fresh claim',()=>{
+test('own attributed public reports share historical identity across material fields without demoting other sources',()=>{
+ const speech={statement:'Collect tomorrow at noon.',turn:1,authority:'conversation_report',attribution:{kind:'speech',speaker:{kind:'npc',name:'Canonical clerk'}}};
  const owner=new DecisionContent();
- const catalog=owner.prepare('c:2',{where:{scene:'Shop'},present:[{ref:'npc_1',display_name:'Clerk',
-  commitments:[{statement:'Collect tomorrow at noon. No extra fee.',turn:1,authority:'conversation_report'}]}]},[],[],['Visitor']);
- const ref=catalog.facts[0].ref;
- const packet=turnPacket(JSON.stringify({version:4,interactions:[{actor:'npc_1',to:['investigator_1'],act:'confirm',content:[{fact_ref:ref}]}]}));
- const response=owner.hydrate(packet.interactions).responses[0];
- assert.equal(response.claims[0].kind,'confirmation');
- assert.equal(response.claims[0].value.unchanged,true);
- assert.equal(response.claims[0].value.basis.value.statement,'Collect tomorrow at noon. No extra fee.');
- assert.throws(()=>turnPacket(JSON.stringify({version:4,interactions:[{actor:'npc_1',to:['investigator_1'],act:'confirm',content:[{new:{predicate:'knowledge_status',topic:'Shop',status:'unknown'}}]}]})));
- assert.throws(()=>owner.hydrate([{actor:'npc_2',to:['investigator_1'],act:'confirm',content:[{fact_ref:ref}]}]),/another actor/);
+ const catalog=owner.prepare('c:2',{where:{scene:'Shop'},present:[{ref:'npc_1',name:'Canonical clerk',display_name:'Clerk',
+  recent_speech:[speech],commitments:[speech],knowledge_reports:[speech,
+   {...speech,statement:'Another speaker said this.',attribution:{kind:'speech',speaker:{kind:'npc',name:'Other'}}},
+   {...speech,statement:'An ambiguous speaker said this.',attribution:{kind:'speech',speaker:{kind:'npc',name:'Shared'}}},
+   {...speech,statement:'Authored source.',authority:'source_authored'}]},
+  {ref:'npc_2',display_name:'Other'},{ref:'npc_3',display_name:'Shared'},{ref:'npc_4',display_name:'Shared'}]},[],[],['Visitor']);
+ assert.equal(catalog.facts.filter(row=>row.kind==='public_speech_history').length,1);
+ assert.equal(catalog.facts.filter(row=>row.kind==='knowledge_reports').length,3);
+ const ref=catalog.facts.find(row=>row.kind==='public_speech_history').ref;
+ const packet=turnPacket(JSON.stringify({version:4,interactions:[{actor:'npc_1',to:['investigator_1'],act:'answer',content:[{fact_ref:ref}]}]}));
+ assert.equal(owner.hydrate(packet.interactions).responses[0].claims[0].kind,'public_speech_history');
+ assert.throws(()=>owner.hydrate([{actor:'npc_2',to:['investigator_1'],act:'answer',content:[{fact_ref:ref}]}]),/another actor/);
+ assert.throws(()=>turnPacket(JSON.stringify({version:4,interactions:[{actor:'npc_1',to:['investigator_1'],act:'confirm',content:[{fact_ref:ref}]}]})));
 });
 
 test('public appearance survives every author projection while private biography does not',()=>{
@@ -67,7 +71,7 @@ test('the actual NPC read and direct author task preserve portrayal without prom
 test('selected prior public words reach the actual author as optional history rather than mandatory fresh claims',async t=>{
  const {writeIsolatedExpression}=await import('../../runtime/isolated-expression.ts');const {mkdtemp,rm}=await import('node:fs/promises');
  const {join}=await import('node:path');const {tmpdir}=await import('node:os');const home=await mkdtemp(join(tmpdir(),'selected-history-'));t.after(()=>rm(home,{recursive:true,force:true}));let task;
- const old={ref:'fact_1',actor:'npc_1',kind:'recent_speech',value:{statement:'The doctor lives north. I cannot promise he is home.',turn:1,authority:'conversation_report',attribution:{kind:'speech',speaker:{kind:'npc',name:'OLD_PRIVATE_LABEL'}}}};
+ const old={ref:'fact_1',actor:'npc_1',kind:'public_speech_history',value:{statement:'The doctor lives north. I cannot promise he is home.',turn:1,authority:'conversation_report',attribution:{kind:'speech',speaker:{kind:'npc',name:'OLD_PRIVATE_LABEL'}}}};
  const fresh={kind:'proposed_claim',value:{predicate:'knowledge_status',topic:'npc_2',status:'uncertain'}};
  const runtime={home,async runTask(value){task=JSON.parse(value.request.brief);value.request.onEvent({type:'message_end',message:{role:'assistant',provider:'opencode-go',model:'deepseek-v4.1-flash',stopReason:'stop',content:[{type:'text',text:'The address is still the one I know.'}]}});return{ok:true,ms:1};}};
  await writeIsolatedExpression({runtime,campaign:'c',turn:3,run:'r',language:'en',playerText:'Is that address still a useful lead?',
