@@ -9,6 +9,7 @@ import {observedDocuments} from '../mods/document-visibility.js';
 import {canonicalEvents,actorEventView} from '../turn-events.js';
 import {remembersAcrossLoops} from '../read/worldline.js';
 import {currentNpcMood, npcVariation} from './variation.js';
+import {deriveCommittedSpeechSpans} from '../../runtime/jev/committed-speech-spans.ts';
 
 function namesOf(graph:ModuleGraph,node:Row):Set<string>{
     return new Set(graph.nameKeys(node).map(normalize));
@@ -58,8 +59,14 @@ export function npcPublicRendering(graph:ModuleGraph,node:Row,records:Row[],scop
         &&array(record.speech).length>0&&array(record.speech).every(line=>row(line.who).npc===handle))
         .sort((a,b)=>number(b.turn)-number(a.turn))[0];
     if(!record)return null;
-    const text=Array.from(record.rendered_text).slice(0,1200).join('');
-    return {turn:record.turn,scene,text,...(text.length<record.rendered_text.length?{truncated:true}:{}),
+    const speech=deriveCommittedSpeechSpans({markedText:record.marked_text,renderedText:record.rendered_text,speech:record.speech});
+    if(speech.status!=='verified')return null;
+    let cursor=0;const parts:string[]=[];
+    for(const span of speech.spans){parts.push(record.rendered_text.slice(cursor,span.start));cursor=span.end;}
+    parts.push(record.rendered_text.slice(cursor));
+    const narration=parts.join('').trim();if(!narration)return null;
+    const text=Array.from(narration).slice(0,1200).join('');
+    return {turn:record.turn,scene,text,...(text.length<narration.length?{truncated:true}:{}),
         authority:'Past public rendering only; not current action, presence, physical state or selected response content'};
 }
 export function npcCommitments(graph:ModuleGraph,node:Row,memory:Row[],scope:Row={}):Row[]{

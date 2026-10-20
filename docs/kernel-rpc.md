@@ -49402,9 +49402,25 @@ For an incidental NPC without authored appearance, the same read may supply
 `last_public_rendering`: the latest committed stationary rendering in the current
 canonical scene and branch/circuit with this NPC as the only attributed speaker.
 Movement, NPC transitions, mixed/unresolved speakers, other scenes and failed
-publication are ineligible. The bounded excerpt (at most 1200 characters) is
+publication are ineligible. Verified canonical speech spans are removed from
+that rendering; previous words travel only through dialogue history. Unverifiable
+span alignment gives no portrayal rather than guessing text ownership.
+The bounded excerpt (at most 1200 characters) is
 past public evidence, not an appearance inference, knowledge grant, action or
 presence record. No text classifier or additional model produces it.
+
+Live correction: adding a confirmation option did not prevent ordinary answers
+from selecting whole old utterances; forcing a new speech-act choice also failed
+and was reverted. An exact selected `recent_speech` row with canonical NPC
+speech attribution is already-public history, not a newly proposed statement.
+The author assembler moves those rows from response claims into the existing
+participant-scoped `recent_public` input. Current typed claims, authored knowledge,
+new reports and explicit confirmations remain response content. A response still
+keeps its selected act/recipients and the current player input; only the old
+words lose the false obligation to be spoken again. Duplicate exact historical
+lines merge by turn/speaker. There is no new validation refusal, semantic judge,
+request, prompt reminder or author instruction. Unattributed/unknown rows keep
+their existing treatment rather than being inferred public.
 
 Writer: the existing committed delivery record/source appearance. Reader:
 `npcView`, `decisionPerson`, and participant-scoped

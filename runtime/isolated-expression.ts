@@ -13,7 +13,7 @@ import {validateDeliveryArtifact,deliveryMaterialNames} from './final-output-art
 import {responseDecision} from './turn-packet-prototype.ts';
 import type {HydratedInteraction} from './decision-content.ts';
 import {isNpcReference} from './npc-references.ts';
-import {decisionDialogueContinuity} from './public-exchanges.ts';
+import {decisionDialogueContinuity,decisionResponseHistory} from './public-exchanges.ts';
 export {decisionRecentPublic} from './public-exchanges.ts';
 
 type Row=Record<string,any>;
@@ -157,10 +157,11 @@ export async function writeIsolatedExpression(input:{runtime:HostRuntime;campaig
   if(!brief&&!input.decision)throw Error("Expression input is unavailable");
   const {keeper_only,...expression}=brief??{};
   const player_input=typeof input.playerText==='string'&&input.playerText.length?input.playerText:undefined;
+  const dialogue=input.decision?decisionResponseHistory(input.decision.responses,input.decision.people,turn):undefined;
   const decision=input.decision?{...input.decision,
    people:input.decision.people.map(({last_public_exchange,last_public_rendering,...person})=>person),
-   recent_public:decisionDialogueContinuity(input.decision.recent_public,input.decision.people),
-   speech_allowed:input.decision.responses.some(response=>response.act!=='silent'),responses:input.decision.responses.map(value=>{
+   recent_public:decisionDialogueContinuity([...input.decision.recent_public,...dialogue!.history],input.decision.people),
+   speech_allowed:input.decision.responses.some(response=>response.act!=='silent'),responses:dialogue!.responses.map(value=>{
     const {location,claims,...proposal}=value as typeof value&{location?:Row};
     const response=responseDecision(proposal);
     if(response.act==='silent'&&claims!==undefined)throw Error('A silent response cannot contain claims');

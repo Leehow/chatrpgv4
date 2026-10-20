@@ -10,6 +10,25 @@ export function decisionRecentPublic(recent:Row[]=[],delivered:Row[]=[]):PublicE
   ...(Array.isArray(entry.speech)?{speech:entry.speech}: {})}));
 }
 
+/** Selected transcripts remain prior public evidence, never mandatory fresh assertions. */
+export function decisionResponseHistory(responses:Row[],people:Row[],turn:number):{responses:Row[];history:PublicExchange[]} {
+ const cast=new Map(people.map(person=>[person.ref,person]));
+ const history:PublicExchange[]=[];
+ const current=responses.map(response=>{
+  if(!Array.isArray(response.claims))return response;
+  const claims=response.claims.filter((claim:Row)=>{
+   const value=claim.value,person=cast.get(response.actor);
+   if(claim.kind!=='recent_speech'||claim.actor!==response.actor||typeof person?.display_name!=='string'
+    ||value?.authority!=='conversation_report'||value.attribution?.kind!=='speech'||value.attribution?.speaker?.kind!=='npc'
+    ||typeof value.statement!=='string'||!Number.isSafeInteger(value.turn)||value.turn>=turn)return true;
+   history.push({turn:Number(value.turn),player:null,keeper:'',speech:[{speaker:person.display_name,text:value.statement}]});
+   return false;
+  });
+  return {...response,claims};
+ });
+ return {responses:current,history};
+}
+
 /** Prior utterances keep their speaker; old rendered actions never become current staging. */
 export function decisionDialogueContinuity(exchanges:PublicExchange[],people:Row[]):PublicExchange[] {
  const names=new Map<string,Row|null>();
@@ -17,13 +36,18 @@ export function decisionDialogueContinuity(exchanges:PublicExchange[],people:Row
   const key=name.normalize('NFKC').trim(),prior=names.get(key);
   names.set(key,prior&&prior.ref!==person.ref?null:prior===null?null:person);
  }
- const selected=exchanges.flatMap(entry=>{
+ const grouped=new Map<number|string,{turn:number|string;player:string|null|undefined;lines:Set<string>}>();
+ for(const entry of exchanges){
   const speech=(entry.speech??[]).flatMap(line=>{
    const person=typeof line.speaker==='string'?names.get(line.speaker.normalize('NFKC').trim()):undefined;
    return person&&typeof line.text==='string'&&line.text.trim()?[`${person.display_name}: ${line.text}`]:[];
   }).slice(-6);
-  return speech.length?[{turn:entry.turn,player:entry.player,keeper:speech.join('\n')}]:[];
- });
+  if(!speech.length)continue;
+  const prior=grouped.get(entry.turn)??{turn:entry.turn,player:entry.player,lines:new Set<string>()};
+  if(entry.player)prior.player=entry.player;
+  speech.forEach(line=>prior.lines.add(line));grouped.set(entry.turn,prior);
+ }
+ const selected=[...grouped.values()].map(entry=>({turn:entry.turn,player:entry.player,keeper:[...entry.lines].slice(-6).join('\n')}));
  const fallback=people.flatMap(person=>{
   const entry=person.last_public_exchange;
   if(typeof person.display_name!=='string'||names.get(person.display_name.normalize('NFKC').trim())?.ref!==person.ref)return [];
