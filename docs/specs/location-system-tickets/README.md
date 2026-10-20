@@ -84,6 +84,17 @@ A location provider now owns movement planning; the clerk keeps destination
 material but executes no prefix while that provider is active. Controlled active/
 inactive regressions fail before repair and pass after (14/14); no new semantic
 classifier or decision call is introduced.
+Source e274e693d completed an assisted real window observation, recording the
+existing rear window, courtyard and the same canonical clerk. Unassisted native
+decisions still mixed legacy move and place fields. Owner approval on 2026-10-20
+permits integrating only the concurrent native-schema wiring and its regressions,
+excluding the NPC Mod prototype. Source 7d3114340 now supplies the current closed
+schema as the actual provider declaration and validates that same request-bound
+schema on submission. Focused schema/wait/map tests pass (31/31). A subsequent
+declaration clarification distinguishes target features from the observer window.
+The e274 full run retains two failures: macOS temporary-path alias comparison and
+the wait instruction's keep/keeping assertion; source 78cd5eae8 corrects both.
+Neither failed offline run nor assisted gameplay is a default-path acceptance.
 Evidence: `.coc/test-runs/python-free-scene-repair-20261019/`.
 
 Status: observation and history seams delivered as Mod 1.1.2, frozen release
