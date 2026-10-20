@@ -5901,10 +5901,10 @@ export default function (pi: ExtensionAPI, host: {capabilities?:RuntimeCapabilit
             details:{...(isKernelError(error)?error.details:{}),...(error instanceof TurnPacketParameterError?{parameter_fields:error.fields}:{}),reason:isKernelError(error)&&error.details?.reason?error.details.reason:'turn_packet_parameters',parameter_phase:'turn_packet_parameters',...(beforeCommit?{before_commit:true}:{before_execution:true})}};
         const failures=state.packetParameterFailures??=new Set<string>();
         const signature=JSON.stringify([refusal.details.reason,error instanceof TurnPacketParameterError?error.fields:refusal.message]);
-        const repeated=failures.has(signature),retry=!repeated&&failures.size<2;failures.add(signature);
-        if(!retry)endInput(state,'parameter_protocol_repeated',ctx,'settled_operation');
+        const limit=8,repeated=failures.has(signature),retry=!repeated&&failures.size<limit-1;failures.add(signature);
+        if(!retry)endInput(state,repeated?'parameter_protocol_repeated':'parameter_protocol_budget',ctx,'settled_operation');
         rememberTurnFailure(state,'output.parameters',refusal);
-        void record({lane:'arguments',event:'packet_parameters_refused',turn:state.turn,retry,repeated,distinct_failures:failures.size,phase:beforeCommit?'before_commit':'before_execution',jev_calls:0});
+        void record({lane:'arguments',event:'packet_parameters_refused',turn:state.turn,retry,repeated,distinct_failures:failures.size,limit,phase:beforeCommit?'before_commit':'before_execution',jev_calls:0});
         return {retry,refusal};
     }
 	async function submitTurnPacket(params:Record<string,unknown>,signal?:AbortSignal,ctx?:ExtensionContext){

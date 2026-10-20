@@ -49387,9 +49387,11 @@ Exact party names retain priority; unknown or out-of-range references are not
 guessed. This bridges the native actor namespace without weakening recovery or
 turning a parameter failure into an accepted action.
 
-Native parameter recovery permits at most two corrections for distinct refusal
-signatures within one player input. A repeated signature or a third refusal
-terminates recovery; reset the signature set only at the next input. Signatures
+Native parameter recovery permits at most seven corrections for distinct refusal
+signatures within one player input (eight refused attempts total, matching the
+existing global refusal ceiling). A repeated signature terminates immediately;
+an eighth distinct refusal terminates with parameter_protocol_budget. Reset the
+signature set only at the next input. Signatures
 use the refusal reason plus schema field findings, or its actual message when
 there are no field findings. This supersedes the single shared parameter retry
 allowance, not the separate missing-output allowance. Distinct local-position
@@ -49403,6 +49405,24 @@ specifies actionable tool errors for this purpose; neither promises successful
 recovery or justifies accepting invalid effects.
 References: https://platform.claude.com/docs/en/agents-and-tools/tool-use/handle-tool-calls
 and https://modelcontextprotocol.io/specification/2025-06-18/server/tools.
+
+Live follow-up (2026-10-20): the selected return-and-read action exposed three
+different precommit findings in sequence: feature redefinition, invalid command
+fields, then a missing via. All were uncommitted and the Keeper corrected the
+first two, but the old shared three-attempt ceiling terminated on the first
+occurrence of the third. Retain those failures. The expanded distinct-only
+allowance permits bounded progress, not retries of an unchanged mistake or a
+refused player action. No consent threshold, transaction retry, automatic batch
+split or world-effect repair is added. Every correction still runs the same full
+preflight and admission; the valid packet settles once. Telemetry records the
+distinct count and limit. Same-signature stops, eight-failure exhaustion and
+malformed-shape bypass attempts require regressions. Pydantic AI documents bounded
+validation feedback independently from execution retries; Ajv documents collecting
+all validation issues, but ordered stateful preflight cannot safely assume later
+effects already landed. Reuse the existing refusal owner instead of adding another
+validator or replay executor. Primary comparisons:
+https://pydantic.dev/docs/ai/core-concepts/retries/ and https://ajv.js.org/options.
+
 
 ## 243. Enhanced Locations: spatial relations and observation continuity
 

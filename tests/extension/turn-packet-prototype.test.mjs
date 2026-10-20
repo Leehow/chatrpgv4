@@ -306,7 +306,7 @@ for(const fault of ['unissued_npc_destination','silent_world_change'])test('nati
  assert.equal(batches.filter(batch=>batch.family==='continuous-action-admission').length,0,'NPC-only movement and malformed parameters need no player-action judgment');
 });
 
-test('schema and capability failures share two bounded corrections and cannot publish after a third refusal',async t=>{
+test('distinct schema and capability corrections reach one valid packet without executing rejected attempts',async t=>{
  let requests=0,ref='npc_1';const batches=[];
  const engine=createHybridEngine({env,decision:{decide:async batch=>{batches.push(batch);return answer(batch,.99);}}});
  const table=await openTable({legacyDeliveryFixtures:false,realKernel:true,prepareWorkspace:opened,env,runDriver:engine.runDriver,
@@ -318,9 +318,9 @@ test('schema and capability failures share two bounded corrections and cannot pu
   ]});t.after(()=>table.dispose());
  ref=(await table.runtimeBridges().at(-1).call('table.capsule',{campaign:'test-camp'})).present.find(person=>person.name==='Steven Knott').ref;
  await table.session.prompt('I remain by the desk.');
- assert.equal(requests,3);assert.equal(batches.length,0);
- assert.equal(table.telemetry().filter(row=>row.lane==='isolated-expression'&&row.event==='start').length,0);
- assert.equal(table.entries('coc-final-delivery').filter(row=>row.event==='delta').length,0);
+ assert.equal(requests,4);assert.equal(batches.length,0);
+ assert.equal(table.telemetry().filter(row=>row.lane==='isolated-expression'&&row.event==='start').length,1);
+ assert.equal(table.entries('coc-final-delivery').filter(row=>row.event==='end'&&row.status==='completed').length,1);
  const state=await table.runtimeBridges().at(-1).call('table.capsule',{campaign:'test-camp'});
  assert.ok(state.present.some(person=>person.ref===ref));
 });
@@ -771,15 +771,38 @@ test('distinct native parameter corrections reach one valid settlement without a
  assert.equal(table.entries('coc-final-delivery').filter(row=>row.event==='end'&&row.status==='completed').length,1);
 });
 
-test('a third distinct native parameter refusal terminates without a fourth attempt or any settlement',async t=>{
+test('a third new parameter finding can be corrected before one actual settlement',async t=>{
  let requests=0;const batches=[];
  const engine=createHybridEngine({env,decision:{decide:async batch=>{batches.push(batch);return answer(batch,.99);}}});
  const commands=[{kind:'time',band:'several minutes',reason:'Look around the office.'},{kind:'time',band:'quick_observation',reason:'Look around the office.',unused:true},{kind:'time',band:'quick_observation',minutes:1,reason:'Look around the office.'},{kind:'time',band:'quick_observation',reason:'Look around the office.'}];
  const table=await openTable({legacyDeliveryFixtures:false,realKernel:true,prepareWorkspace:opened,env,runDriver:engine.runDriver,
   extraExtensions:[{name:'engine',factory:engine.extension}],responses:commands.map(command=>()=>{requests++;return fauxAssistantMessage([rawToolCall('output',{...brief,commands:[command,{kind:'scene',service:'open',crowd:'quiet'}]})],{stopReason:'toolUse'});})});
  t.after(()=>table.dispose());await table.session.prompt('I look around the office without leaving.');
- assert.equal(requests,3);assert.equal(batches.length,0);
+ assert.equal(requests,4);assert.equal(batches.length,1);
+ const turn=JSON.parse(readFileSync(join(table.workspace,'.coc/campaigns/test-camp/turns/0001.json'),'utf8'));
+ assert.equal(turn.receipts.filter(row=>row.kind==='time').length,1);
+ assert.equal(table.entries('coc-final-delivery').filter(row=>row.event==='end'&&row.status==='completed').length,1);
+});
+
+test('eight distinct native parameter failures stay uncommitted, stop the run and reset on new player input',async t=>{
+ let requests=0;const batches=[];
+ const engine=createHybridEngine({env,decision:{decide:async batch=>{batches.push(batch);return answer(batch,.99);}}});
+ const time={kind:'time',band:'quick_observation',reason:'Look around the office.'};
+ const packets=[{commands:[{...time,band:'several minutes'}]},{commands:[{...time,unused:true}]},{commands:[{...time,minutes:1}]},
+  {commands:[{kind:'time',minutes:-1,reason:time.reason}]},{commands:[{kind:'time',band:time.band}]},{commands:[{...time,reason:17}]},
+  {commands:[{kind:'scene',service:'open',crowd:'many'}]},{reveal:'not an array'},
+  {commands:[time,{kind:'scene',service:'open',crowd:'quiet'}]}];
+ const table=await openTable({legacyDeliveryFixtures:false,realKernel:true,prepareWorkspace:opened,env,runDriver:engine.runDriver,
+  extraExtensions:[{name:'engine',factory:engine.extension}],responses:packets.map(packet=>()=>{requests++;return fauxAssistantMessage([rawToolCall('output',{...brief,...packet})],{stopReason:'toolUse'});})});
+ t.after(()=>table.dispose());await table.session.prompt('I look around the office without leaving.');
+ assert.equal(requests,8);assert.equal(batches.length,0);
  const turn=JSON.parse(readFileSync(join(table.workspace,'.coc/campaigns/test-camp/turns/0001.json'),'utf8'));
  assert.equal(turn.receipts.filter(row=>row.kind==='time').length,0);
  assert.equal(table.entries('coc-final-delivery').filter(row=>row.event==='end'&&row.status==='completed').length,0);
+ const refused=table.telemetry().filter(row=>row.event==='packet_parameters_refused');
+ assert.equal(refused.length,8);assert.equal(refused.at(-1).retry,false);assert.equal(refused.at(-1).limit,8);
+ assert(table.telemetry().some(row=>row.event==='input_ended'&&row.cause==='parameter_protocol_budget'));
+ await table.session.prompt('I still want to look around the office without leaving.');
+ assert.equal(requests,9);assert.equal(batches.length,1);
+ assert.equal(table.entries('coc-final-delivery').filter(row=>row.event==='end'&&row.status==='completed'&&row.turn===2).length,1);
 });
