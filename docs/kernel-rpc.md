@@ -49909,3 +49909,46 @@ Both separate perceptual access from place membership. This product uses
 Keeper-assessed registered routes instead of a physics simulation; an
 investigative check can assess what is visible without requiring its own result
 as a prerequisite. RPC tests remain separate from live acceptance.
+
+## 244. Native App location-turn convergence and latency
+
+Owner2026-10-20: repair the actual built-in-module App path until meaningful live
+turns deliver within120seconds. This is an acceptance observation, not a timer:
+never terminate, skip a selected action, reduce reasoning effort, weaken authority
+or impose a new deadline to meet it. Preserve every slow/failed episode and all
+already committed receipts. Actual UI play uses the same original App campaign;
+private copied RPC episodes are supplementary evidence only.
+
+### Kernel decisions
+
+- Native packet mode advertises place inspection only, with writes exclusively in
+  output.commands. Registration, provider entry/detail projection and Mod words
+  must agree. Remove native apply's duplicate location variants; its canonical
+  internal handler and legacy standalone place submit stay available unchanged.
+- Admission uncertainty remains fail-closed. Its Keeper-facing error includes the
+  bounded proposed operation lines and reviewer grounds already in its details,
+  so the Keeper can distinguish the refusal from successful receipts. It confers
+  no new authority and never automatically splits or retries a batch.
+- A pending answer consultation for one input owner, scope, bound revision and
+  exact focus is one in-flight source task. A changed question returns that
+  waiting task's original read identity plus a separately deferred requested
+  question; it is not an answer to the changed question. A later owner, different
+  focus/revision/scope or explicit preparation retains its existing behavior.
+  The original background task is neither cancelled nor truncated. Request
+  projection exposes pending identity; eventual answers keep their own question.
+- Prefer current registered material for current play; an ordinary arrival does
+  not require pre-reading every possible handout, roll or future discovery.
+  Genuine missing source facts remain unknown/pending rather than fabricated.
+  Writers: tool registration, source owner and admission error. Readers: current
+  provider tool/context and final packet preparation. Action: the same Keeper
+  uses actual results to finish selected actions and publish via the sole author.
+
+The native admission-uncertainty refusal budget is partitioned by the submitted
+closed effect-kind set, not by an interpretation of its prose. Rewording an object
+handover keeps the same scope; an unrelated cash or location family stays usable.
+The existing same-argument and global refusal budgets remain unchanged. Genuine
+parameter/service failures keep their existing whole-tool handling. A scoped
+uncertainty alone does not end a zero-settlement input with other actions pending.
+Pending focus reuse is owned by the active module/input-run, scene, turn and
+worldline/loop. It leaves the existing original task's revision binding intact;
+no generated answer is assigned to the deferred question.

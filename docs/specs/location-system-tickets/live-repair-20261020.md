@@ -169,3 +169,38 @@ historical progress notes; this section is the current acceptance status.
   minor NPC greeting repetition remain narrative limitations. No full-scenario,
   pursuit or universal cross-location observation acceptance is claimed.
 - Original saves, failed turns and raw provider errors preserved. Nothing pushed.
+
+## Reopened: actual App delivery below 120 seconds
+
+Owner explicitly rejected private-copy RPC episodes as satisfaction of the requested
+built-in-module playthrough. Actual visible canonical-App play exposed an11m55s
+turn,39steps/6failed operations, with cash/key settlement but no story delivery.
+The current acceptance goal is meaningful actual App turns each completed within
+120seconds. This is an observed latency target, never an abort deadline. Do not
+add/reduce a timeout, cut a slow turn, lower the required medium model effort,
+weaken admission, omit selected actions or conceal failures to meet the number.
+
+Continue the current GUI session and original canonical App campaign
+ game-aed1e3e3-1e72-4c7e-9d6f-74087beb6551. Its store is App userData/pi-coc/.coc,
+not the project seed. MiniMax3.1/medium remains required. No cloned campaign,
+scripted player or RPC driver substitutes for this clarified UI acceptance.
+
+Ready slices:
+1. Make native packet place reads and writes agree across tool registration,
+   provider projection, Mod instructions and errors. Legacy submit remains valid.
+2. Preserve actionable bounded per-line admission failure detail so an uncertain
+   extra proposal does not make the Keeper rediscover the whole scene. Retain all
+   successful receipts and use the existing final packet for independent actions.
+3. Coalesce same-run/same-focus pending source questions as waiting work, retaining
+   original question attribution; never answer a changed question with its peer's
+   answer or duplicate an in-flight read. No semantic regex or general read quota.
+4. Focused regressions, frozen package excluding foreign NPC WIP, canonical App
+   continuation. Diagnose every slow round from real timings; repeat correction
+   and live play until the selected location/service/purchase/revisit episodes all
+   deliver below120s. Record exact failures rather than averaging them away.
+
+Scope includes measured tool-context bloat and unnecessary original reading only
+where they actually cause these failures. No model change, new timeout or global
+resource framework. Latest integration branch0.9.8a, HEADd909c1d66, foreign NPC
+hunks remain untouched. No push authorized. Actual UI evidence:
+.coc/test-runs/location-ui-20261020/. Historical private evidence stays retained.

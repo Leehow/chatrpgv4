@@ -164,8 +164,18 @@ export function offeredTools(tools: readonly CocToolSpec[], env: Readonly<Record
         +(env.PI_COC_TURN_PACKET_PROTOTYPE==='1'?'':INTENT_APPLY_NOTE))
       :'Publish a required mechanical choice using its issued options and binding. '+(env.PI_COC_TURN_PACKET_PROTOTYPE==='1'?'Ordinary dialogue uses the native output packet and its isolated author.':env.PI_COC_ISOLATED_OUTPUT==='1'?'Ordinary dialogue is selected in the private {{compose}} JSON expression brief; the host invokes the isolated author. Use text only for an optional public preface.':'Ordinary dialogue belongs in the final {{public}} reply. Use text only for an optional public preface; no other author is called.')};
   }):tools;
-    const declared=env.PI_COC_TURN_PACKET_PROTOTYPE==='1'?current.map(spec=>spec.name==='output'
-      ?{...spec,parameters:TURN_PACKET_PARAMETERS,description:TURN_PACKET_GUIDANCE,promptSnippet:'Submit one private turn packet for settlement and final authoring'}:spec):current;
+    const declared=env.PI_COC_TURN_PACKET_PROTOTYPE==='1'?current.map(spec=>{
+      if(spec.name==='output')return {...spec,parameters:TURN_PACKET_PARAMETERS,description:TURN_PACKET_GUIDANCE,promptSnippet:'Submit one private turn packet for settlement and final authoring'};
+      if(spec.name==='place')return {...spec,parameters:cloneSchema((spec.parameters as any).anyOf.find((branch:any)=>branch.properties?.op?.const==='inspect')),
+        description:'Read current place state, prior observations or the location contract. This tool never moves, perceives or writes. Submit selected location actions through output.commands with kind place and the action fields.',
+        promptSnippet:'Inspect location context; output.commands owns location changes.'};
+      if(spec.name==='apply'){
+        const parameters=cloneSchema(spec.parameters) as Record<string,any>;
+        parameters.properties.effects.items.anyOf=parameters.properties.effects.items.anyOf.filter((branch:any)=>!['place','move'].includes(variantKind(branch)));
+        return {...spec,parameters,description:spec.description+' Location changes belong exclusively in output.commands, never in this tool.'};
+      }
+      return spec;
+    }):current;
 	return leanApplyEnabled(env) ? leanTools(declared) : declared;
 }
 

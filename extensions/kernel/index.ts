@@ -65,6 +65,7 @@ import { argumentLimitRefusal, documentWriteRefusal, effectShapeRefusal, COC_TOO
 import { unwrapArgumentMarkup } from "./tool-argument-markup.ts";
 import { finalDeliveryAction, leanApplyEnabled, offeredTools } from "./lean-apply.ts";
 import { stripDialectPrefixes, omitEmptyEmbeddedArguments } from "./dialect-prefix.ts";
+import {admissionRefusalScope} from './refusal-scope.ts';
 import { decodeSerializedStrings } from "./encoded-string-argument.ts";
 import type {TaskProviderBudget} from '../../runtime/jev/provider-budget.ts';
 import type {Prepared as ReviewPrepared, ReviewMode} from '../mods/index.ts';
@@ -6237,6 +6238,12 @@ export default function (pi: ExtensionAPI, host: {capabilities?:RuntimeCapabilit
       // §204.4: a model's committed mint is bound to the book in the background, independently of the next player turn.
       if (spec.name === 'apply' && !host && evidence.label === 'model' && Array.isArray(payload.effects)
         && payload.effects.some(effect => effect && typeof effect === 'object' && effect.kind === 'move' && effect.establish !== undefined)) {
+      if(turnPacketPrototype&&spec.name==='place'&&params.need==='contract'){
+        const command=structuredClone(result.command) as Record<string,any>|undefined;
+        for(const branch of command?.anyOf??[])if(branch.properties?.action?.const==='move')delete branch.properties.travel_minutes;
+        result={...result,parameters:offeredTools(COC_TOOLS,process.env).find(tool=>tool.name==='place')!.parameters,command,
+          write_route:{tool:'output',field:'commands',instruction:'Submit kind place with its action fields directly. No op or change wrapper. Select an issued travel_band for a journey; do not supply travel_minutes.'}};
+      }
         const sourceReader = reading;
         placeBindings.start({campaign: state.campaign, turn: state.turn, moduleId: readingModule,
           receipts: Array.isArray(result.receipts) ? result.receipts : [],
@@ -6372,7 +6379,14 @@ export default function (pi: ExtensionAPI, host: {capabilities?:RuntimeCapabilit
 					// resend, or `retry: true`, reads the book. No question is matched against another.
 					const landedFirst = answerOnly && params.retry !== true && fromStep?.run
 						? pendingAnswers.landedFor(state.campaign, {scene: askedAt, run: fromStep.run, scope: askedScope}) : [];
-					if (landedFirst.length) {
+					const sourceOwner=JSON.stringify([readingModule,fromStep?.run??`turn:${askedTurn}`]);
+					const waiting=answerOnly&&params.retry!==true?pendingAnswers.pendingFor(state.campaign,{scene:askedAt,turn:askedTurn,
+						focus:String(params.query),owner:sourceOwner,scope:askedScope}):undefined;
+					if(waiting){
+						sourceAnswer={...pendingAnswer({},waiting),...(waiting.question!==String(sourceQuestion)?{requested_question:{question:String(sourceQuestion),status:'deferred',
+							note:'This different question has not been read or answered. The existing source task continues; use current registered material for selected actions and do not reword this focus to start more work in this input.'}}:{})};
+						void record({lane:'reading',event:'pending_focus_reused',turn:askedTurn,focus:String(params.query),changed_question:waiting.question!==String(sourceQuestion)});
+					} else if (landedFirst.length) {
 						for (const entry of landedFirst)
 							pendingAnswers.hold(state.campaign, askedAt, [{focus: entry.focus, question: entry.question, answer: entry.answer}], entry.turn, fromStep!.run, askedScope);
 						sourceAnswer = landedFirstAnswer(landedFirst);
@@ -6421,7 +6435,7 @@ export default function (pi: ExtensionAPI, host: {capabilities?:RuntimeCapabilit
 						// §135.20.1 (SL-102): the scene the party is at when the Keeper asks; an answer handed here is held while it stays.
 						if (answerOnly && response.state === 'pending') {
 							const read = { focus: String(params.query), question: String(params.question) };
-							pendingAnswers.register(state.campaign, read, askedTurn, asString(response.job_id), response.settled, 'answer', askedAt, askedScope);
+							pendingAnswers.register(state.campaign, read, askedTurn, asString(response.job_id), response.settled, 'answer', askedAt, askedScope,sourceOwner);
 							sourceAnswer = pendingAnswer(response, read);
 						} else if (consult && Array.isArray(response.memo) && response.memo.length) {
 							sourceAnswer = memoAnswer(response.memo);
@@ -6531,7 +6545,7 @@ export default function (pi: ExtensionAPI, host: {capabilities?:RuntimeCapabilit
 			try {
                 if (supportAnswer) result = supportAnswer;
                 else if (memoryAnswer) result = memoryAnswer;
-                else if (sourceAnswer) result = { source_answer: sourceAnswer,...(sourceMaterial?{material_ready:true,entities:[{name:sourceMaterial.name??sourceMaterial.scene,kind:'scene',material:'ready',scope:'original-place-identity'}],instruction:'This original place is already registered and ready for an ordinary player-authorized move. Use its supplied name with apply move and describe the route in via when needed. Do not prepare a duplicate destination or adaptation just because background enrichment is unfinished. People, rules and assets keep their own use-specific requirements.'}:{}) };
+                else if (sourceAnswer) result = { source_answer: sourceAnswer,...(sourceMaterial?{material_ready:true,entities:[{name:sourceMaterial.name??sourceMaterial.scene,kind:'scene',material:'ready',scope:'original-place-identity'}],instruction:'This original place is already registered and ready for an ordinary player-authorized move. '+(turnPacketPrototype?'Use output.commands with kind place, action move and its supplied name in to. ':'Use its supplied name with apply move. ')+'Describe the route in via when needed. Do not prepare a duplicate destination or adaptation just because background enrichment is unfinished. People, rules and assets keep their own use-specific requirements.'}:{}) };
                 else if (spec.name === 'lookup' && params.kind === 'adaptation') {
                     if (!runtime) throw new KernelError({code: 'needs', message: 'The adaptation runtime is unavailable'});
                     // Contract §37.10.1: the fast model, read each time a creator or reviewer starts.
@@ -7133,16 +7147,17 @@ export default function (pi: ExtensionAPI, host: {capabilities?:RuntimeCapabilit
 			const inner = (details.coc_error as { details?: Record<string, unknown> }).details ?? {};
 			const needs = (inner.needs as { field?: unknown } | undefined)?.field;
 			const facet = [inner.turn_of, needs, inner.reason, inner.field].find((v) => typeof v === "string" && v) ?? String(details.coc_error.message ?? "");
-			const cls = `${tool}\u0000${String(details.coc_error.code ?? "error")}\u0000${String(facet)}`;
+			const refusalOwner=singleKeeper&&tool==='apply'&&inner.reason==='action_admission_uncertain'?admissionRefusalScope(tool,event.input):tool;
+			const cls = `${refusalOwner}\u0000${String(details.coc_error.code ?? "error")}\u0000${String(facet)}`;
 			// A strike is an attempt, not a call. Calls a Keeper issued in one message are answered
 			// after it wrote them, so the second and third of a batch are not it ignoring the first
 			// refusal -- it never saw one. Count the round trip that issued the call, and let a class
 			// take at most one strike per round; the refusal is still recorded and still read back.
 			const round = state.callRounds.get(event.toolCallId) ?? state.roundTrips;
 			const before = state.refusalsThisTurn;
-			const { count, tripped } = strikeRefusalClass(state, tool, cls, last, round);
+			const { count, tripped } = strikeRefusalClass(state, refusalOwner, cls, last, round);
 			if (tripped) await record({ lane: "refusals", turn: state.turn, tool, count, reason: "class_limit", last });
-			if (tripped && singleKeeper && ['apply','resolve'].includes(tool) && state.turn > 0
+			if (tripped && refusalOwner===tool && singleKeeper && ['apply','resolve'].includes(tool) && state.turn > 0
 				&& ['open','acting'].includes(state.state) && state.inputEnded?.turn !== state.turn) {
 				const turn=state.turn;
 				try {
@@ -8382,7 +8397,7 @@ export default function (pi: ExtensionAPI, host: {capabilities?:RuntimeCapabilit
 		// refusals the third is blocked here, with the last error read back to it.
 		state.callTools.set(event.toolCallId, name);
 		state.callRounds.set(event.toolCallId, hostRound ?? state.roundTrips);
-		const shut = state.exhausted.get(name);
+		const shut = state.exhausted.get(name)??state.exhausted.get(admissionRefusalScope(name,input));
 		if (shut) {
 			// §70: the same escalation §34.16 gives a closed turn, for a turn that never
 			// opened. The budget already told the Keeper to close with output; if it keeps

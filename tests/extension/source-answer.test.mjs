@@ -6,6 +6,20 @@ import {KernelError} from '../../extensions/kernel/client.ts';
 
 const answer={status:'answered',answer:'The source describes a harbor worker.',limitations:'',source_refs:[{source_id:'pdf:book',pdf_index:0}],authority:'source-consultation',prepared:false,supported:true};
 
+test('changed questions about one pending focus do not renew source work in the same input',async t=>{
+ const table=await openTable({env:{PI_COC_SOURCE_ANSWER_ALLOWANCE_MS:'20'},responses:[
+  fauxAssistantMessage([fauxToolCall('lookup',{kind:'source',source_mode:'answer',query:'Lena',question:'Her work?'})],{stopReason:'toolUse'}),
+  fauxAssistantMessage([fauxToolCall('lookup',{kind:'source',source_mode:'answer',query:'Lena',question:'Her address?'})],{stopReason:'toolUse'}),
+  fauxAssistantMessage([fauxToolCall('output',{text:'The conversation continues.'})],{stopReason:'toolUse'}),fauxAssistantMessage('The conversation continues.')
+ ]});t.after(()=>table.dispose());let references=0;const finishes=[];
+ table.emit('coc:reading-bridge',{reference:async()=>{references++;return new Promise(resolve=>finishes.push(resolve));},ensure:async()=>{throw Error('No fallback');}});
+ await table.session.prompt('Ask about Lena.');
+ assert.equal(references,1,'a rewritten question cannot start another in-flight consultation for the same focus');
+ const results=table.session.messages.filter(row=>row.role==='toolResult'&&row.toolName==='lookup');
+ const last=JSON.stringify(results.at(-1));assert.match(last,/Her work/);assert.match(last,/Her address/);assert.match(last,/deferred/);
+ for(const finish of finishes)finish({state:'ready',source_answer:{status:'excerpts',authority:'original-source-excerpts',excerpts:[{page:1,text:'Original text.'}]}});
+});
+
 test('the actual lookup returns pending while its original-excerpt stage is still running', async t => {
  const table=await openTable({env:{PI_COC_SOURCE_ANSWER_ALLOWANCE_MS:'20'},responses:[
   fauxAssistantMessage([fauxToolCall('lookup',{kind:'source',source_mode:'answer',query:'Lena',question:'Her work?'})],{stopReason:'toolUse'}),

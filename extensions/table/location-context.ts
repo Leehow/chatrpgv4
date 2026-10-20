@@ -36,7 +36,10 @@ function declarationObject(schema:Row):Row {
 /** Like the existing apply capability envelope: the registered full validator is never changed. */
 export function locationToolDeclarations<T extends {name:string;parameters:any;description?:string}>(tools:readonly T[],detail=false):T[] {
     return tools.map(tool=>{
-        if(tool.name==='place')return {...tool,parameters:detail?legibleClosedSchema(declarationObject(tool.parameters)):entry};
+        if(tool.name==='place'){
+            if(tool.parameters?.properties?.op?.const==='inspect')return {...tool,parameters:detail?legibleClosedSchema(tool.parameters):tool.parameters};
+            return {...tool,parameters:detail?legibleClosedSchema(declarationObject(tool.parameters)):entry};
+        }
         if(tool.name==='output')return {...tool,parameters:detail?locationCommandOwner(tool.parameters):locationCommandEntry(tool.parameters)};
         if(tool.name!=='apply'||!Array.isArray(tool.parameters?.properties?.effects?.items?.anyOf))return tool;
         const projected=structuredClone(tool),variants=projected.parameters.properties.effects.items.anyOf as Row[];

@@ -60,6 +60,11 @@ export class KernelError extends Error {
 	toToolText(): string {
 		const lines = [`${this.code}: ${this.message}`, `retryable: ${this.retryable}`, `next: ${this.next === 'narrate' ? 'output' : this.next}`];
 		if (this.fix) lines.push(`fix: ${this.fix}`);
+		if(this.details?.reason==='action_admission_uncertain'){
+			if(Array.isArray(this.details.proposed))lines.push('held_proposal: '+JSON.stringify(this.details.proposed.slice(0,12).map(value=>String(value).slice(0,600))));
+			if(typeof this.details.grounds==='string')lines.push('review: '+this.details.grounds.slice(0,1200));
+			lines.push('The proposal did not commit. Do not restate it as an accomplished fact or retry it unchanged. Retain successful receipts. Submit independent selected actions and the reply through output; omit optional uncommitted additions. A genuinely missing player choice remains pending.');
+		}
 		return lines.join("\n");
 	}
 }

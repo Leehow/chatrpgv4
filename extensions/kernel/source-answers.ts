@@ -83,6 +83,7 @@ export interface PendingAnswer {
 	/** §135.20.1 (SL-102): the scene the party was at when the Keeper asked (the table's active scene), when known. */
 	scene?: string;
 	scope?: SourceAnswerScope;
+	owner?: string;
 }
 /**
  * §135.20.1 (SL-102): an answer the Keeper was handed at a scene, kept while the party stays there. `run` is the run whose
@@ -189,6 +190,13 @@ export class PendingAnswers {
 	private readonly now: () => number;
 	constructor(record: (row: Row) => void, now: () => number = Date.now) { this.record = record; this.now = now; }
 
+	/** A changed question is deferred, never answered by another in-flight question. */
+	pendingFor(campaign:string,at:{scene?:string;turn:number;focus:string;owner:string;scope?:SourceAnswerScope}):{focus:string;question:string}|undefined {
+		const entry=(this.lists.get(campaign)??[]).find(row=>row.state==='pending'&&row.kind==='answer'&&row.turn===at.turn
+			&&row.scene===at.scene&&row.focus===at.focus&&row.owner===at.owner&&sameScope(row.scope,at.scope));
+		return entry?{focus:entry.focus,question:entry.question}:undefined;
+	}
+
 	/** Read-only evidence for delivery review; taking it never consumes a carried answer. */
 	audit(campaign:string,at:{scene?:string;turn:number;scope?:SourceAnswerScope}):{pending:Row[];unavailable:Row[];answers:Row[]}{
 		const entries=(this.lists.get(campaign)??[]).filter(entry=>(!entry.scene||!at.scene||entry.scene===at.scene)&&sameScope(entry.scope,at.scope));
@@ -210,13 +218,13 @@ export class PendingAnswers {
 	 * is where the party was when the Keeper asked.
 	 */
 	register(campaign: string, read: {focus: string; question: string}, turn: number, jobId: string | undefined, settled: Promise<Row> | undefined,
-		kind: 'answer' | 'prepare' = 'answer', scene?: string, scope?: SourceAnswerScope): PendingAnswer {
+		kind: 'answer' | 'prepare' = 'answer', scene?: string, scope?: SourceAnswerScope, owner?:string): PendingAnswer {
 		const key = JSON.stringify([kind, read.focus, read.question]), list = this.lists.get(campaign) ?? [];
 		this.lists.set(campaign, list);
-		const existing = list.find(entry => entry.key === key && entry.state === 'pending' && sameScope(entry.scope, scope));
+		const existing = list.find(entry => entry.key === key && entry.state === 'pending' && entry.owner===owner && sameScope(entry.scope, scope));
 		if (existing) return existing;
 		const entry: PendingAnswer = {key, focus: read.focus, question: read.question, ...(jobId ? {jobId} : {}), turn, since: this.now(), state: 'pending', kind,
-			...(scene ? {scene} : {}), ...(scope ? {scope: {...scope}} : {})};
+			...(scene ? {scene} : {}), ...(scope ? {scope: {...scope}} : {}),...(owner?{owner}:{})};
 		list.push(entry);
 		this.record({lane: 'reading', event: 'answer_pending', campaign, turn, focus: read.focus, purpose: kind, ...(jobId ? {job_id: jobId} : {})});
 		const settle = (state: 'landed' | 'unavailable', fields: Partial<PendingAnswer>) => {
