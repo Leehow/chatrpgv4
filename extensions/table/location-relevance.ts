@@ -52,7 +52,21 @@ function satisfactionAvailable(input:Row,axis:typeof axes[number]):boolean {
  if(axis==='move')return !!input.current_position&&typeof input.current_place==='string'&&input.current_position.place===input.current_place;
  return Array.isArray(input.features)&&input.features.some((feature:Row)=>typeof feature.state==='string'||typeof feature.passable==='boolean');
 }
-const movementSatisfaction="Do the canonical current_position and current-input ordered settled_receipts plus proposed_effects cover the entire movement selected by the player, including every intermediate place or local position and its order relative to waits and other actions? Judge the complete itinerary, not just its final endpoint. Leaving a window for a counter, waiting there, then returning to the same window still requires both movements in that order; an unchanged final position or one unrelated move cannot cover the trip. Existing current state can satisfy a request to remain at an already recorded position only when no unexecuted intervening movement is selected. Being in the same enclosing place does not establish a requested window, desk or corner. Actual ordered receipts and proposed operations are evidence; prior prose, observations, time alone and intended future arrival are not movement receipts. Judge coverage and ordering, not consent or invented truth.";
+const movementSatisfaction="Does location_steps represent the route selected in player_declaration, with each requested intermediate stop and return in order? Each destination is a movement endpoint; the initial starting point is not an extra visit. Committed steps have already happened. Proposed steps are explicit moves queued for this batch and count for this pre-execution route check. A wait is not a movement endpoint. Merely ending at the starting place does not represent an omitted intermediate visit. Judge this route representation, not whether proposed steps already happened or whether prior prose describes them. When no destination is recorded, current_position can satisfy only a stationary request without an omitted intervening visit. Being in the same enclosing place does not establish a requested window, desk or corner.";
+/** Only typed canonical chronology crosses the route review boundary. */
+export function locationRouteBatch(input:Row,binding:Row):DecisionBatch {
+ const project=(row:Row,stage:string):Row|undefined=>{
+  if(row.kind==='place'&&row.action==='move')return {stage,destination:row.position??Object.fromEntries([['place',row.to==='here'?input.current_place??row.to:row.to],['at',row.at],['relation',row.relation]].filter(([,value])=>value!==undefined))};
+  if(row.kind==='move'&&(stage==='committed'?row.from!==row.to:!['here',input.current_place,input.current_display_name].includes(row.to)))return {stage,destination:{place:row.to}};
+  if(row.kind==='time')return {stage,...(row.until?{wait_until:row.until}:row.minutes!==undefined?{wait_minutes:row.minutes}:{wait:true})};
+ };
+ const location_steps=[...(input.settled_receipts??[]).map((row:Row)=>project(row,'committed')),...(input.proposed_effects??[]).map((row:Row)=>project(row,'proposed'))].filter(Boolean);
+ const state={player_declaration:input.player_declaration,location_steps,...(!location_steps.some((step:Row)=>step.destination)?{current_position:input.current_position??null}:{})};
+ const revision=createHash('sha256').update(JSON.stringify(state)).digest('hex');
+ return {id:'location-route-coverage:v1:'+revision,model:JEV_MODEL,family:'location-route-coverage',familyVersion:'1',scope:{owner:'location-route-coverage',campaign:binding.campaign,audience:'keeper'},
+  readSet:[{kind:'draft',resource:'turn:'+binding.turn+':route',revision}],state:state as Json,
+  questions:[{key:'move_satisfied',type:'noul',target:'location_steps',instructions:movementSatisfaction}]};
+}
 export function locationCoverageBatch(input:Row,binding:Row):DecisionBatch {
  const revision=createHash('sha256').update(JSON.stringify(input)).digest('hex');
  const selected=initialSelection(input),accounting=locationAccounting(input);
@@ -70,12 +84,19 @@ export function locationCoverageBatch(input:Row,binding:Row):DecisionBatch {
   questions.push({key:axis+'_blocked',type:'noul',target:'obstacles to the selected '+axis,
   instructions:'Does supplied world evidence or a proposed typed NPC response establish a real obstacle or necessary unresolved choice that legitimately stops the selected '+axis+'? A known physical impediment, sensory obstruction or refusal of required access can stop it. A Keeper-proposed observable obstruction established in this same transaction can account for an attempt. A tool argument error, missing registration, elapsed time or an unrelated action alone is not an obstacle. Do not invent a barrier or additional player commitment.'});
  }
- return {id:'location-decision-coverage:v9:'+revision,model:JEV_MODEL,family:'location-decision-coverage',familyVersion:'9',
-  scope:{owner:'location-decision-coverage',campaign:binding.campaign,audience:'keeper'},readSet:[{kind:'draft',resource:'turn:'+binding.turn+':spatial-decision',revision},{kind:'family',resource:'location-decision-coverage',revision:'9'}],state:input as Json,questions};
+ return {id:'location-decision-coverage:v10:'+revision,model:JEV_MODEL,family:'location-decision-coverage',familyVersion:'10',
+  scope:{owner:'location-decision-coverage',campaign:binding.campaign,audience:'keeper'},readSet:[{kind:'draft',resource:'turn:'+binding.turn+':spatial-decision',revision},{kind:'family',resource:'location-decision-coverage',revision:'10'}],state:input as Json,questions};
 }
 export async function locationDecisionCoverage(input:Row,binding:Row,decision:DecisionPort|undefined,signal:AbortSignal,parent?:TaskProviderBudget):Promise<Row> {
  const batch=locationCoverageBatch(input,binding),initial=initialSelection(input),accounting=locationAccounting(input);
- const result:Row=batch.questions.length?await locationNoul(batch,decision,signal,parent):{status:'answered',probabilities:{},ms:0};
+ const route=batch.questions.some(question=>question.key==='move_satisfied')?locationRouteBatch(input,binding):undefined;
+ const other={...batch,questions:batch.questions.filter(question=>question.key!=='move_satisfied')};
+ const requests=[...(other.questions.length?[other]:[]),...(route?[route]:[])];
+ const began=Date.now(),answers=await Promise.all(requests.map(request=>locationNoul(request,decision,signal,parent)));
+ const failed=answers.find(result=>result.status!=='answered');
+ if(failed)return {...failed,covered:false,jev_calls:requests.length};
+ const result:Row={status:'answered',probabilities:Object.assign({},...answers.map(result=>result.probabilities)),ms:requests.length?Date.now()-began:0,
+  usage:answers.reduce((total,result)=>({inputTokens:total.inputTokens+(result.usage?.inputTokens??0),outputTokens:total.outputTokens+(result.usage?.outputTokens??0),costUsd:total.costUsd+(result.usage?.costUsd??0)}),{inputTokens:0,outputTokens:0,costUsd:0})};
  if(result.status!=='answered')return {...result,covered:false};
  const selection=Object.fromEntries(axes.map(axis=>[axis,initial&&initial[axis]!==undefined&&!uncertain(initial[axis])?initial[axis]:result.probabilities[axis+'_selected']]));
  const disposition=Object.fromEntries(axes.map(axis=>{
@@ -83,9 +104,9 @@ export async function locationDecisionCoverage(input:Row,binding:Row,decision:De
   const status=selected<=.4?'not_selected':accounting[axis]?(!['move','observation'].includes(axis)||satisfied>=.6?'accounted':satisfied<=.4?'missing':'uncertain'):satisfied>=.6?'already_satisfied':blocked>=.6?'blocked':selected>=.6?'missing':'uncertain';
   return [axis,status];
  }));
- return {...result,...(!batch.questions.length?{status:'accounted'}:{}),selection,accounting,jev_calls:batch.questions.length?1:0,
+ return {...result,...(!batch.questions.length?{status:'accounted'}:{}),selection,accounting,jev_calls:requests.length,
   covered:Object.values(disposition).every(status=>!['missing','uncertain'].includes(status)),axes:disposition,
-  ...(Object.values(disposition).some(status=>['missing','uncertain'].includes(status))?{decision_basis:decisionEvidence(batch,result.probabilities)}:{})};
+  ...(Object.values(disposition).some(status=>['missing','uncertain'].includes(status))?{decision_basis:{...decisionEvidence(requests[0],answers[0].probabilities),...(requests.length>1?{additional:requests.slice(1).map((request,index)=>decisionEvidence(request,answers[index+1].probabilities))}:{})}}:{})};
 }
 async function locationNoul(batch:DecisionBatch,decision:DecisionPort|undefined,signal:AbortSignal,parent?:TaskProviderBudget):Promise<Row> {
  if(!decision)return {status:'fallback',reason:'unconfigured'};

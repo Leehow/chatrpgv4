@@ -174,7 +174,8 @@ export function offeredTools(tools: readonly CocToolSpec[], env: Readonly<Record
         const parameters=cloneSchema(spec.parameters) as Record<string,any>;
         for(const branch of parameters.anyOf??[])if(branch.properties?.op?.const==='submit')
           for(const change of branch.properties.change.anyOf??[])if(change.properties?.action?.const==='move')delete change.properties.travel_minutes;
-        return {...spec,parameters,description:'Inspect current place state, prior observations or the location contract. Commit a selected location step without publishing through {op:"submit",change:{action,...}} when a later wait, service or rule action requires arrival first. Exact action fields are supplied by inspect need contract. Use output.commands for remaining final location changes and one public delivery; never repeat settled steps.',
+        for(const branch of parameters.anyOf??[])if(branch.properties?.action?.const==='move')delete branch.properties.travel_minutes;
+        return {...spec,parameters,description:'Choose one location action directly: inspect reads state or the contract; move, establish, feature, relate and observe commit the typed change without publishing. Example: {action:"move",to:"here",at:"window",relation:"beside"}. Exact fields are supplied by {action:"inspect",need:"contract"}. Use output.commands for remaining final location changes and one public delivery; never repeat settled steps.',
           promptSnippet:'Inspect or settle one location step; publish once through output.'};
       }
       if(spec.name==='apply'){

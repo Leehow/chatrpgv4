@@ -29,7 +29,12 @@ export const PlaceChange=Type.Union(PlaceEffect.anyOf.map(effect=>{
     const description=(effect as typeof effect & {description?:string}).description;
     return Type.Object(Object.fromEntries(Object.entries(effect.properties).filter(([key])=>key!=='kind')),{additionalProperties:false,...(description?{description}:{})});
 }));
+export const NativePlaceParameters=Type.Union([
+    Type.Object({using_skill,action:Type.Literal('inspect'),name:Type.Optional(name()),at:Type.Optional(targetFeature()),sense:Type.Optional(sense()),need:Type.Optional(Type.Union([Type.Literal('context'),Type.Literal('contract'),Type.Literal('observation')]))},{additionalProperties:false}),
+    ...PlaceChange.anyOf.map(branch=>Type.Object({...branch.properties,using_skill},{additionalProperties:false})),
+]);
 export const PlaceParameters=Type.Union([
+    ...NativePlaceParameters.anyOf,
     Type.Object({using_skill,op:Type.Literal('inspect'),name:Type.Optional(name()),at:Type.Optional(targetFeature()),sense:Type.Optional(sense()),need:Type.Optional(Type.Union([Type.Literal('context'),Type.Literal('contract'),Type.Literal('observation')]))},{additionalProperties:false}),
     Type.Object({using_skill,op:Type.Literal('submit'),change:PlaceChange},{additionalProperties:false}),
 ]);

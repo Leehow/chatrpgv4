@@ -5774,7 +5774,7 @@ export default function (pi: ExtensionAPI, host: {capabilities?:RuntimeCapabilit
             const before=await state.kernel.call<Record<string,any>>('table.capsule',{campaign:state.campaign,_context_read:true});
             if(state.locationReviewTurn===state.turn&&state.interactionScope!=='reference'){
                 const status=await state.kernel.call<{receipts:Record<string,unknown>[]}>('table.status',{campaign:state.campaign,projection:'receipts',expected_turn:state.turn});
-                const receipts=status.receipts.map(receipt=>Object.fromEntries(['kind','action','from','to','position','feature','before','after','observation'].filter(key=>receipt[key]!==undefined).map(key=>[key,receipt[key]])));
+                const receipts=status.receipts.map(receipt=>Object.fromEntries(['kind','action','from','to','place','position','feature','before','after','observation','minutes','clock_before','clock_after','until'].filter(key=>receipt[key]!==undefined).map(key=>[key,receipt[key]])));
                 const selection=state.locationSelection?.turn===state.turn?state.locationSelection:undefined;
                 const coverage=await locationDecisionCoverage({player_declaration:state.playerText,current_place:before.where?.scene,current_display_name:before.where?.display_name,current_clock:before.where?.clock,current_position:before.where?.location?.position,
                     recent_public:decisionRecentPublic(before.recent,state.delivered).slice(-1),
@@ -5784,7 +5784,7 @@ export default function (pi: ExtensionAPI, host: {capabilities?:RuntimeCapabilit
                     {campaign:state.campaign,turn:state.turn},turnDecisionPort,reply.signal??state.lanes.signal,foregroundProviderBudget?.());
                 await record({lane:'location-decision-coverage',turn:state.turn,...coverage});
                 if(!coverage.covered)throw new KernelError({code:'invalid_params',message:coverage.status==='answered'?'The selected spatial action is not accounted for by this decision':'The spatial decision completion could not be verified',
-                    fix:'Preserve the player declaration and successful receipts. Use the current_position below rather than an earlier narrated pose. Every independently selected environmental reading or view also needs a matching {kind:"place",action:"observe",to,sense,access,scope,facts}; arrival and greetings do not read its contents. Include the actual perceived contents, not merely a description of the writing surface. Archival research and carried-document reading use their existing research/document outcomes; they do not independently require a place observation. Do not repeat current-input settled observations. For a local approach before a wait or return, use the separate place tool {op:"submit",change:{action:"move",to:"here",at:"exact registered feature",relation:"beside"}}; add only a missing compatible feature if needed. An NPC move, time/glance or registration alone does not move the investigator. A real obstacle or necessary open choice can stop an attempt. Do not narrate an arrival without its committed move.',
+                    fix:'Preserve the player declaration and successful receipts. Use the current_position below rather than an earlier narrated pose. Every independently selected environmental reading or view also needs a matching {kind:"place",action:"observe",to,sense,access,scope,facts}; arrival and greetings do not read its contents. Include the actual perceived contents, not merely a description of the writing surface. Archival research and carried-document reading use their existing research/document outcomes; they do not independently require a place observation. Do not repeat current-input settled observations. For a local approach before a wait or return, use the separate place tool {action:"move",to:"here",at:"exact registered feature",relation:"beside"}; add only a missing compatible feature if needed. An NPC move, time/glance or registration alone does not move the investigator. A real obstacle or necessary open choice can stop an attempt. Do not narrate an arrival without its committed move.',
                     details:{reason:'place_decision_incomplete',cause:coverage.reason??'place_decision_incomplete',transaction_state:'uncommitted',before_execution:true,current_place:before.where?.scene,current_position:before.where?.location?.position??null,
                         known_features:(before.where?.location?.features??[]).map((feature:Record<string,unknown>)=>feature.name),...(coverage.axes?{axes:coverage.axes}:{})}});
             }
@@ -5977,7 +5977,7 @@ export default function (pi: ExtensionAPI, host: {capabilities?:RuntimeCapabilit
 		recoveredOutput?:{text:string;evidence:Record<string,any>},
         recordAuthority?:symbol,
 	): Promise<{ content: Array<{ type: "text"; text: string }>; details: Record<string, unknown>; terminate?: boolean }> {
-        if(spec.name==='place'&&params.op==='submit'){
+        if(spec.name==='place'){
             const operation=placeOperation(spec.name,params);
             spec=COC_TOOLS.find(tool=>tool.name===operation.name)!;params=operation.params;
         }
@@ -6252,8 +6252,8 @@ export default function (pi: ExtensionAPI, host: {capabilities?:RuntimeCapabilit
       if(turnPacketPrototype&&spec.name==='place'&&params.need==='contract'){
         const command=structuredClone(result.command) as Record<string,any>|undefined;
         for(const branch of command?.anyOf??[])if(branch.properties?.action?.const==='move')delete branch.properties.travel_minutes;
-        result={...result,parameters:offeredTools(COC_TOOLS,process.env).find(tool=>tool.name==='place')!.parameters,command,
-          write_route:{tool:'place',op:'submit',field:'change',instruction:'Commit one selected location step before a dependent wait, service or rule action. Select an issued travel_band for a journey; do not supply travel_minutes. Remaining final location commands may use output.commands with kind place and the action fields, without op/change; never repeat a settled step.'}};
+        result={...result,parameters:{anyOf:(offeredTools(COC_TOOLS,process.env).find(tool=>tool.name==='place')!.parameters as any).anyOf.filter((branch:any)=>branch.properties?.action)},command,
+          write_route:{tool:'place',action:'move',instruction:'Commit one selected location step before a dependent wait, service or rule action. Select an issued travel_band for a journey; do not supply travel_minutes. Remaining final location commands may use output.commands with kind place and the action fields, without op/change; never repeat a settled step.'}};
       }
       if(spec.name==='apply')await observeWritingCompletion(state,result,writingMatches);
 
@@ -7066,7 +7066,7 @@ export default function (pi: ExtensionAPI, host: {capabilities?:RuntimeCapabilit
 			// the literal's body without its quotes -- is decoded between the two, so the label rule and every reader after it
 			// see the text.
 			prepareArguments: (args: unknown) => {
-				if(spec.name==='place'&&placeModeConflict(args))throw new Error(new KernelError({code:'invalid_params',message:'place inspect is read-only and cannot accept change',fix:'If you intend this location change, explicitly retry with op submit and the same change. For a read, omit change and use name/at/sense/need. Nothing was executed; never repeat successful receipts.'}).toToolText());
+				if(spec.name==='place'&&placeModeConflict(args))throw new Error(new KernelError({code:'invalid_params',message:'place inspect is read-only and cannot accept change',fix:'If you intend this location change, explicitly retry with the intended action and its fields at the top level, for example {action:"move",to,at}. Do not send op or change. For a read, omit change and use name/at/sense/need. Nothing was executed; never repeat successful receipts.'}).toToolText());
 				const supplied=spec.name==='apply'?normalizeApplyArguments(args):args;
 				const normalized=turnPacketPrototype&&spec.name==='output'?normalizeTurnPacketArguments(supplied):normalizeToolArgumentSyntax(spec.parameters,supplied,{nativeValidation:true});
                 if(table&&(spec.name==='place'||normalized.args&&typeof normalized.args==='object'&&applyEffectKinds(spec.name,normalized.args as Record<string,unknown>).includes('place'))){
@@ -7128,7 +7128,7 @@ export default function (pi: ExtensionAPI, host: {capabilities?:RuntimeCapabilit
 	// Native isError is returned by the dispatcher; finalization still owns refusal accounting.
 	pi.on('tool_result', event => dispatcher.finalize(event));
 	async function finalizeOperation(event: ToolResultEvent) {
-        if(event.toolName==='place'&&(event.input as Record<string,unknown>)?.op==='submit'){const operation=placeOperation(event.toolName,event.input as Record<string,unknown>);event={...event,toolName:operation.name,input:operation.params};}
+        if(event.toolName==='place'){const operation=placeOperation(event.toolName,event.input as Record<string,unknown>);event={...event,toolName:operation.name,input:operation.params};}
 		if (!COC_TOOL_NAMES.includes(event.toolName as never)) return;
 		const details = event.details as { coc_error?: { code?: unknown; message?: unknown } } | undefined;
 		if(singleKeeper && table && event.isError && ['apply','resolve'].includes(event.toolName) && !details?.coc_error)
@@ -8156,7 +8156,7 @@ export default function (pi: ExtensionAPI, host: {capabilities?:RuntimeCapabilit
 	pi.on('tool_call', (event, ctx) => {
 		// §175.1: a Keeper call that is not a read is this turn's writing; the steps after it can run without thinking. The
 		// host's own operations (the clerk's move before the first call) raise the same event and are not the Keeper's.
-		if (table && !(event.toolName==='place'&&(event.input as Record<string,unknown>)?.op==='inspect')&&!STEP_READS.has(event.toolName) && !dispatcher.hostOrigin(event.toolCallId)) table.wroteThisTurn = true;
+		if (table && !(event.toolName==='place'&&((event.input as Record<string,unknown>)?.op==='inspect'||(event.input as Record<string,unknown>)?.action==='inspect'))&&!STEP_READS.has(event.toolName) && !dispatcher.hostOrigin(event.toolCallId)) table.wroteThisTurn = true;
 		return dispatcher.prepare(event, ctx);
 	});
 

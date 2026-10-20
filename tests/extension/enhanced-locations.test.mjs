@@ -36,7 +36,7 @@ test('input relevance selects context only, keeps uncertainty conservative and n
 test('spatial completion composes independent movement and feature answers without an invented confidence',async()=>{
     const binding={campaign:'test',turn:2},input={player_declaration:'I approach the window.',proposed_effects:[],settled_receipts:[]};
     const batch=locationCoverageBatch(input,binding);packDecisionBatch(batch);
-    assert.equal(batch.familyVersion,'9');assert.equal(batch.questions.length,6);assert(batch.questions.every(question=>question.type==='noul'));
+    assert.equal(batch.familyVersion,'10');assert.equal(batch.questions.length,6);assert(batch.questions.every(question=>question.type==='noul'));
     assert(!batch.questions.some(question=>question.key.endsWith('_accounted')),'typed operation presence is not a model judgment');
     const review=async(values,effects=[])=>locationDecisionCoverage({...input,proposed_effects:effects},binding,{decide:async current=>({batchId:current.id,status:'complete',answers:Object.fromEntries(current.questions.map(q=>[q.key,{status:'answered',type:'noul',noul:values[q.key]??.01}]))})},new AbortController().signal);
     const missing=await review({move_selected:.99});
@@ -196,14 +196,16 @@ test('resident location declarations defer detailed grammar while canonical vali
     assert(envelope);assert.equal(envelope.properties.additions,undefined);
     assert.equal(JSON.stringify(COC_TOOLS),before,'request projection never edits registered schemas');
     const full=locationToolDeclarations(COC_TOOLS,true).find(tool=>tool.name==='place');
-    assert.equal(full.parameters.type,'object');assert(full.parameters.properties.change.properties.additions,'provider object fields remain explicit');
-    for(const input of [{op:'inspect'},{op:'submit',change:{action:'move',to:'Inn'}},{op:'inspect',change:{}},{op:'submit'},{op:'submit',change:{action:'move',to:'Inn',patch:{cash:5}}}])
+    assert.equal(full.parameters.type,'object');assert(full.parameters.properties.additions,'provider object fields remain explicit');
+    for(const input of [{action:'inspect'},{action:'move',to:'Inn'},{action:'inspect',change:{}},{action:'move'},{action:'move',to:'Inn',patch:{cash:5}}])
         assert.equal(Errors(full.parameters,input).length===0,Errors(canonical.parameters,input).length===0,'provider shape retains the canonical branch constraints');
     const calls=emptyCalls();noteCall(calls,'place',{op:'submit',change:{action:'move',to:'Inn'}});
     assert(calls.apply.has('place'),'the independent entrance fires the existing Mod trigger');
     assert.deepEqual(applyEffectKinds('output',{commands:[command,{kind:'scene'}]}),['place']);
     assert.deepEqual(applyEffectKinds('apply',{effects:[command,{kind:'cash'}]}),['place','cash'],'mixed canonical calls disclose location detail through the same closed effect path');
     assert.deepEqual(applyEffectKinds('place',{op:'inspect'}),[],'a read is not a world mutation');
+    assert.deepEqual(applyEffectKinds('place',{action:'inspect'}),[]);
+    assert.deepEqual(applyEffectKinds('place',{action:'move',to:'Inn'}),['place'],'flat native writes use the same Mod trigger');
     const catalogue=capabilityCatalogue(COC_TOOLS);
     assert(catalogue.some(card=>card.name==='place'&&card.verb==='place'));
     assert(catalogue.some(card=>card.name==='place-change'&&card.effect==='place'));

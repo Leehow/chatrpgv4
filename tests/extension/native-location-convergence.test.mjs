@@ -21,8 +21,9 @@ test('actual non-strict Anthropic wire retains explicit place mode guidance afte
   await streamSimple(model,{messages:[{role:'system',content:'Fixture',toolsAdded:[place],timestamp:0},{role:'user',content:'Fixture',timestamp:0}]},{apiKey:'fixture',signal:controller.signal,onPayload:body=>{payload=body;controller.abort();}}).result();
   const schema=payload.tools[0].input_schema;
   assert.equal(schema.anyOf,undefined,'exercise the actual non-strict serializer limitation');
-  assert.match(schema.properties.op.description,/inspect only reads/);
-  assert.match(schema.properties.change.description,/only with op submit/);
+  assert.deepEqual(schema.properties.action.enum,['inspect','move','establish','feature','relate','observe']);
+  assert.match(schema.properties.action.description,/No op or change wrapper/);
+  assert.equal(schema.properties.op,undefined);assert.equal(schema.properties.change,undefined);
  }
  assert(placeModeConflict({op:'inspect',change:{action:'move',to:'Street'}}));
  assert(!placeModeConflict({op:'submit',change:{action:'move',to:'Street'}}));
@@ -31,17 +32,17 @@ test('actual non-strict Anthropic wire retains explicit place mode guidance afte
 
 test('native place can commit a step before later mechanics with compact provider context',()=>{
  const env={PI_COC_LOOP_ENGINE:'hybrid-v1',PI_COC_TURN_PACKET_PROTOTYPE:'1',PI_COC_LEAN_APPLY:'0',EXT_JEV_APIKEY:'fixture'};
- const tools=offeredTools(COC_TOOLS,env),read={op:'inspect',need:'observation',name:'Street'},write={op:'submit',change:{action:'move',to:'Street'}};
+ const tools=offeredTools(COC_TOOLS,env),read={action:'inspect',need:'observation',name:'Street'},write={action:'move',to:'Street'};
  for(const view of [tools,locationToolDeclarations(tools),locationToolDeclarations(tools,true)]){
   const place=view.find(row=>row.name==='place');
   assert(Check(place.parameters,read));assert(Check(place.parameters,write),'a nonpublishing location step must be available before a later wait or service');
-  assert(!Check(place.parameters,{...write,op:'inspect'}),'a read declaration never accepts a state-changing payload');
+  assert(!Check(place.parameters,{...write,action:'inspect'}),'a read declaration never accepts a state-changing payload');
  }
  assert(JSON.stringify(locationToolDeclarations(tools).find(row=>row.name==='place').parameters).length<JSON.stringify(tools.find(row=>row.name==='place').parameters).length/2,'full location fields remain demand-only provider context');
- assert(!Check(tools.find(row=>row.name==='place').parameters,{...write,change:{...write.change,travel_minutes:0}}),'the native validator still prohibits invented travel arithmetic');
+ assert(!Check(tools.find(row=>row.name==='place').parameters,{...write,travel_minutes:0}),'the native validator still prohibits invented travel arithmetic');
  const kinds=tools.find(row=>row.name==='apply').parameters.properties.effects.items.anyOf.map(row=>row.properties.kind.const??row.properties.kind.enum?.[0]);
  assert(!kinds.includes('place'));assert(kinds.includes('move'),'issued owed moves and existing mixed atomic transactions retain their mechanical route');
- assert(Check(COC_TOOLS.find(row=>row.name==='place').parameters,write),'legacy canonical route remains available');
+ assert(Check(COC_TOOLS.find(row=>row.name==='place').parameters,{op:'submit',change:{action:'move',to:'Street'}}),'legacy canonical route remains available');
 });
 
 test('uncertain admission tells the Keeper which operation was held without leaking unrelated details',()=>{

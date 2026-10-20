@@ -5,6 +5,12 @@ export function placeModeConflict(params:unknown):boolean {
     return !!params&&typeof params==='object'&&(params as Record<string,unknown>).op==='inspect'&&Object.hasOwn(params,'change');
 }
 export function placeOperation(name:string,params:Record<string,unknown>):{name:CocToolName;params:Record<string,unknown>} {
+    if(name==='place'&&params.action==='inspect'){
+        const {action,using_skill,...read}=params;return {name:'place',params:{...read,op:'inspect'}};
+    }
+    if(name==='place'&&typeof params.action==='string'){
+        const {using_skill,...change}=params;return {name:'apply',params:{effects:[{...change,kind:'place'}]}};
+    }
     if(name==='place'&&params.op==='submit')return {name:'apply',params:{effects:[{...(params.change as Record<string,unknown>),kind:'place'}]}};
     return {name:name as CocToolName,params};
 }

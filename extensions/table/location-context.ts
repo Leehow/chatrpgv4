@@ -13,21 +13,14 @@ export function locationIdentityContext(read:Row):Row|undefined {
 }
 const object=(value:unknown):value is Row=>!!value&&typeof value==='object'&&!Array.isArray(value);
 const action=Type.String({enum:['move','establish','feature','relate','observe']});
-const entry=legibleClosedSchema(Type.Union([
- Type.Object({using_skill:Type.Optional(Type.String()),op:Type.Literal('inspect'),
-    name:Type.Optional(Type.String()),at:Type.Optional(Type.String({description:'Optional existing feature of the named observation target; the observer position is already current.'})),sense:Type.Optional(Type.Union([Type.Literal('sight'),Type.Literal('hearing')])),need:Type.Optional(Type.Union([Type.Literal('context'),Type.Literal('contract'),Type.Literal('observation')])),
- },{additionalProperties:false}),
- Type.Object({using_skill:Type.Optional(Type.String()),op:Type.Literal('submit'),
-    change:Type.Object({action},{additionalProperties:true,description:'Typed location change; inspect need contract supplies its exact schema. Complete valid calls execute directly.'})},{additionalProperties:false})
-]));
-/** Non-strict provider serialization drops root union guards; field descriptions survive. */
+const read=Type.Object({using_skill:Type.Optional(Type.String()),action:Type.Literal('inspect'),name:Type.Optional(Type.String()),at:Type.Optional(Type.String()),sense:Type.Optional(Type.Union([Type.Literal('sight'),Type.Literal('hearing')])),need:Type.Optional(Type.Union([Type.Literal('context'),Type.Literal('contract'),Type.Literal('observation')]))},{additionalProperties:false});
+const entry={type:'object',properties:{...read.properties,action:Type.String({enum:['inspect',...action.enum]})},required:['action'],additionalProperties:true,
+ anyOf:[read,Type.Object({using_skill:Type.Optional(Type.String()),action},{additionalProperties:true})]};
+/** One explicit action survives serializers that omit root union guards. */
 function describeModes(schema:Row):Row {
-    const projected=structuredClone(schema);
-    if(projected.properties?.op?.enum?.includes('submit')){
-        projected.properties.op.description='Required mode: inspect only reads name/at/sense/need and never accepts change. To execute any move, feature, establish, relate or observe change, use op submit with change. Example: {"op":"submit","change":{"action":"move","to":"here","at":"window"}}.';
-        projected.properties.change.description='Write payload, permitted only with op submit. Never combine change with op inspect. Action-specific fields come from inspect need contract.';
-    }
-    return projected;
+ const projected=structuredClone(schema);
+ projected.properties.action.description='Choose one action. inspect only reads name/at/sense/need. move, establish, feature, relate or observe directly commits that typed change. Example: {"action":"move","to":"here","at":"window","relation":"beside"}. No op or change wrapper. Inspect need contract supplies exact action fields.';
+ return projected;
 }
 /** Explicit properties keep object unions legible to provider tool serializers. */
 function declarationObject(schema:Row):Row {
@@ -51,7 +44,8 @@ export function locationToolDeclarations<T extends {name:string;parameters:any;d
     return tools.map(tool=>{
         if(tool.name==='place'){
             if(tool.parameters?.properties?.op?.const==='inspect')return {...tool,parameters:detail?legibleClosedSchema(tool.parameters):tool.parameters};
-            return {...tool,parameters:describeModes(detail?legibleClosedSchema(declarationObject(tool.parameters)):entry)};
+            const native={anyOf:(tool.parameters.anyOf??[]).filter((branch:Row)=>branch.properties?.action)};
+            return {...tool,parameters:describeModes(detail?legibleClosedSchema(declarationObject(native)):entry)};
         }
         if(tool.name==='output')return {...tool,parameters:detail?locationCommandOwner(tool.parameters):locationCommandEntry(tool.parameters)};
         if(tool.name!=='apply'||!Array.isArray(tool.parameters?.properties?.effects?.items?.anyOf))return tool;
