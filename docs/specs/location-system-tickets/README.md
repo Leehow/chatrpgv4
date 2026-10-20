@@ -58,6 +58,13 @@ A follow-up red/green regression preserves the existing host-generated Node
 presentation checker under the new shell boundary, including script/wrapper
 mutation refusal (53/53 focused tests). Frozen build and renewed live
 scenery/story acceptance remain pending.
+Installed source add89cfd2 completed two real OOC inputs. Creation used no
+shell, but six submissions wrapped changes/sources in item objects under the
+old Type.Any tool schema. No proposal was accepted. A red/green schema regression
+now declares all eight operation shapes and shares the kernel field inventory
+(10/10 host/submission tests; kernel typecheck passes). The add89 full offline run
+was deliberately interrupted before completion to validate this newly confirmed
+repair; its raw exit/cancellations are retained, not reported as a passing suite.
 Evidence: `.coc/test-runs/python-free-scene-repair-20261019/`.
 
 Status: observation and history seams delivered as Mod 1.1.2, frozen release

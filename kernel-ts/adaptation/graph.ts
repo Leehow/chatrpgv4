@@ -5,12 +5,8 @@ import { ModuleGraph, recordOf } from '../read/module-graph.js';
 import { resolveReference } from '../read/references.js';
 import { array, clone, row, string, type Row } from '../read/values.js';
 
-export const ADAPTATION_FIELDS: Readonly<Record<string, readonly string[]>> = Object.freeze({
-    scene: ['scene', 'name', 'description'], clue_at: ['clue', 'scene'], route: ['from', 'to'],
-    add_scene: ['name', 'description', 'based_on'], add_npc: ['name', 'description', 'agenda'],
-    add_clue: ['name', 'description', 'scene'],
-    npc_knows: ['npc', 'clue'], handout: ['name', 'text', 'based_on']
-});
+import {ADAPTATION_FIELDS} from '../../shared/adaptation-fields.js';
+export {ADAPTATION_FIELDS};
 function text(value: unknown, field: string, maximum = 2000): string {
     if (typeof value !== 'string' || !value.trim() || value.length > maximum)
         throw new RpcError('invalid_params', `Adaptation ${field} needs nonempty text of at most ${maximum} characters`);

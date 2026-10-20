@@ -29,7 +29,13 @@ anchors, and do not authorize copying an existing locus into a second scene.
 The preparation freshness pin includes those actual location records, while
 unrelated Mod dossiers, job bookkeeping and observation-history caches remain
 outside it. A changed window or layout invalidates a proposal that relied on it;
-an unrelated background author does not. No public RPC arguments, source authority,
+an unrelated background author does not. The private adaptation submission tool exposes the eight closed operation
+shapes with actual arrays for changes and original sources; its reviewer exposes
+verdict, issues and per-change checks. These schemas share the kernel operation
+field inventory. Submission still validates before writing, and source/provenance
+validation and independent review retain authority. No generic item wrapper is
+accepted or silently unwrapped.
+No public RPC arguments, source authority,
 consent threshold or package lock is changed by this internal task projection.
 
 设计方向：把地点做成独立领域和精简的 `place` 入口，详细契约、布局资料与创作指导按需加载。地点、人物位置、前台等参照物、剧情场景分别保存；未登记触发查找或合理补全，不能直接判定无法进入。KP 负责理解和即兴，Jev 辅助有限选择，既有内核事务负责提交。重访读取同一个地点的当前状态，地点强化 Mod 拥有增强能力、版本与持久状态；关闭后仍可读取旧地点，兼容移动入口保留。
