@@ -29,6 +29,7 @@ export async function locationContextRelevance(capsule:Row,binding:Row,decision:
  return {...result,selection:{move:move_selected,feature:feature_selected},needed:[move_selected,feature_selected,reference_selected].some(value=>value>.4),review:move_selected>.4||feature_selected>.4};
 }
 const axes=['move','feature'] as const;
+const uncertain=(value:number)=>value>.4&&value<.6;
 function initialSelection(input:Row):Record<string,number>|undefined {
  const selected=input.initial_selection;
  return selected&&axes.every(axis=>typeof selected[axis]==='number'&&Number.isFinite(selected[axis])&&selected[axis]>=0&&selected[axis]<=1)?selected:undefined;
@@ -48,9 +49,10 @@ function satisfactionAvailable(input:Row,axis:typeof axes[number]):boolean {
 export function locationCoverageBatch(input:Row,binding:Row):DecisionBatch {
  const revision=createHash('sha256').update(JSON.stringify(input)).digest('hex');
  const selected=initialSelection(input),accounting=locationAccounting(input);
- const questions:DecisionBatch['questions']=selected?[]:[
+ const selectionQuestions:DecisionBatch['questions']=[
    {key:'move_selected',type:'noul',target:'the current player declaration',instructions:'Does the player select an actual change of place or local position now? Entering/leaving a place and approaching a feature or corner are movement. Merely observing, asking a question, considering a conditional plan or describing where one already stands does not select movement. Judge only the declaration in the supplied current spatial context, not whether the proposal carried it out.'},
-   {key:'feature_selected',type:'noul',target:'the current player declaration',instructions:'Does the player select a physical state change of a persistent spatial feature now, such as opening/closing a particular door or window? Merely approaching, looking at or asking about that feature does not select a state change. Judge the declaration, not an embellishment in a proposed response.'}];
+   {key:'feature_selected',type:'noul',target:'the current player declaration',instructions:'Does the player select an independent physical state change of a persistent spatial feature now, such as leaving a particular door or window open or closed? Routine passage into a destination belongs to movement; it does not by itself request a separately maintained door state. Merely approaching, looking at or asking about a feature does not select a state change. Use the supplied actual journey and canonical state to distinguish entry from an independent durable change. Judge the declaration, not an embellishment in a proposed response.'}];
+ const questions=selectionQuestions.filter(question=>!selected||uncertain(selected[question.key==='move_selected'?'move':'feature']));
  for(const axis of axes)if(!accounting[axis]&&(!selected||selected[axis]>.4)){
   if(satisfactionAvailable(input,axis))questions.push({key:axis+'_satisfied',type:'noul',target:axis==='move'?'the recorded current position':'the recorded current feature state',
    instructions:axis==='move'?'Does the canonical current_position already satisfy the destination and local pose requested by the player, so no new movement is needed? Being in the same enclosing place does not establish arrival at its requested window, desk or corner. Require the recorded place and local reference/relation to support the requested position. Proposed observations, prior prose and an intended future arrival are not evidence of current position. If current state is insufficient or contradicts the requested position, answer no.'
@@ -58,14 +60,14 @@ export function locationCoverageBatch(input:Row,binding:Row):DecisionBatch {
   questions.push({key:axis+'_blocked',type:'noul',target:axis==='move'?'obstacles to the selected movement':'obstacles to the selected feature change',
   instructions:'Does supplied world evidence or a proposed typed NPC response establish a real obstacle or necessary unresolved choice that legitimately stops the selected '+(axis==='move'?'movement':'feature-state change')+'? A known physical impediment or refusal of required access can stop it. A Keeper-proposed observable obstruction established in this same transaction can account for an attempt. A tool argument error, missing registration, elapsed time or observation alone is not an obstacle. Do not invent a barrier or additional player commitment.'});
  }
- return {id:'location-decision-coverage:v5:'+revision,model:JEV_MODEL,family:'location-decision-coverage',familyVersion:'5',
-  scope:{owner:'location-decision-coverage',campaign:binding.campaign,audience:'keeper'},readSet:[{kind:'draft',resource:'turn:'+binding.turn+':spatial-decision',revision},{kind:'family',resource:'location-decision-coverage',revision:'5'}],state:input as Json,questions};
+ return {id:'location-decision-coverage:v6:'+revision,model:JEV_MODEL,family:'location-decision-coverage',familyVersion:'6',
+  scope:{owner:'location-decision-coverage',campaign:binding.campaign,audience:'keeper'},readSet:[{kind:'draft',resource:'turn:'+binding.turn+':spatial-decision',revision},{kind:'family',resource:'location-decision-coverage',revision:'6'}],state:input as Json,questions};
 }
 export async function locationDecisionCoverage(input:Row,binding:Row,decision:DecisionPort|undefined,signal:AbortSignal,parent?:TaskProviderBudget):Promise<Row> {
  const batch=locationCoverageBatch(input,binding),initial=initialSelection(input),accounting=locationAccounting(input);
  const result:Row=batch.questions.length?await locationNoul(batch,decision,signal,parent):{status:'answered',probabilities:{},ms:0};
  if(result.status!=='answered')return {...result,covered:false};
- const selection=initial??Object.fromEntries(axes.map(axis=>[axis,result.probabilities[axis+'_selected']]));
+ const selection=Object.fromEntries(axes.map(axis=>[axis,initial&&!uncertain(initial[axis])?initial[axis]:result.probabilities[axis+'_selected']]));
  const disposition=Object.fromEntries(axes.map(axis=>{
   const selected=selection[axis],blocked=result.probabilities[axis+'_blocked'],satisfied=result.probabilities[axis+'_satisfied'];
   const status=selected<=.4?'not_selected':accounting[axis]?'accounted':satisfied>=.6?'already_satisfied':blocked>=.6?'blocked':selected>=.6?'missing':'uncertain';

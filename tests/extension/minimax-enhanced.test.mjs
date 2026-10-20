@@ -113,18 +113,56 @@ test('granted search has the documented declaration and exact interleaved replay
     assert.ok(!nativeSearchPayload({messages:[],tools:[]},model).tools.some(tool=>tool.name==='web_search'));
   }
 });
-test('incomplete MiniMax server pairs are unavailable rather than retained as replayable history',()=>{
+test('mixed client and deferred server tools retain exact continuation without inventing a result',async()=>{
+  fixture();setNativeSearchPolicy(policy);
+  const originals=[{type:'thinking',thinking:'Check the room and the public archive.'},
+    {type:'tool_use',id:'local_deferred',name:'look',input:{focus:'scene'}},
+    {type:'server_tool_use',id:'search_deferred',name:'web_search',input:{query:'historic public reading rooms'}}];
+  const wires=[];let index=0;
+  const opts={apiKey:key,maxTokens:1024,onPayload:body=>nativeSearchPayload(body,model),
+    onProviderStreamEvent:(data,physical)=>nativeSearchEvent({provider:physical.provider,model:physical.id,data}),
+    fetch:async(_url,init)=>{wires.push(JSON.parse(init.body));return new Response(index++
+      ?frames([{type:'web_search_tool_result',tool_use_id:'search_deferred',content:[{type:'web_search_result',title:'Archive',url:'https://archive.example/room',content:'Historical record'}]},{type:'text',text:'The archive is available.'}])
+      :frames(originals,'tool_use'),{headers:{'content-type':'text/event-stream'}});}};
+  const stream=miniMaxStream(),first=await stream(model,{messages:[note]},opts).result();
+  assert.notEqual(first.stopReason,'error',first.errorMessage);
+  assert.equal(nativeSearchState().records.length,1,'deferred server work is a valid continuation, not corrupt history');
+  assert.deepEqual(nativeSearchState().records[0].content,originals);
+  assert.equal(nativeSearchState().records[0].sources?.length??0,0,'a pending call is not a search result');
+  const next=await stream(model,{messages:[note,first,{role:'toolResult',toolCallId:'local_deferred',toolName:'look',content:[{type:'text',text:'A public room'}],isError:false,timestamp:1}]},opts).result();
+  assert.notEqual(next.stopReason,'error',next.errorMessage);
+  assert.deepEqual(wires[1].messages.find(row=>row.role==='assistant').content,originals);
+  assert(wires[1].tools.some(tool=>tool.name==='web_search'));
+  assert.equal(wires[1].messages.filter(row=>row.role==='user').flatMap(row=>row.content??[]).filter(block=>block.tool_use_id==='search_deferred').length,0,'the host never fabricates a server result');
+  assert.equal(nativeSearchState().records.length,2);
+});
+test('incomplete MiniMax server pairs without a continuation are unavailable',()=>{
   fixture();setNativeSearchPolicy(policy);
   const blocks=[{type:'thinking',thinking:'Before tool.'},{type:'tool_use',id:'local_1',name:'look',input:{}},{type:'server_tool_use',id:'search_1',name:'web_search',input:{query:'Boston telephone 1920'}}];
   const reports=[];nativeSearchState().report=row=>reports.push(row);
   nativeSearchPayload({model:model.id,messages:[note],tools:[]},model);
   for(const [index,content_block]of blocks.entries())nativeSearchEvent({provider:model.provider,model:model.id,data:{type:'content_block_start',index,content_block}});
-  nativeSearchEvent({provider:model.provider,model:model.id,data:{type:'message_delta',delta:{stop_reason:'tool_use'}}});
+  nativeSearchEvent({provider:model.provider,model:model.id,data:{type:'message_delta',delta:{stop_reason:'end_turn'}}});
   nativeSearchEvent({provider:model.provider,model:model.id,data:{type:'message_stop'}});
   assert.equal(nativeSearchState().records.length,0);
   assert.ok(reports.some(row=>row.reason==='incomplete_server_protocol'));
   const next=nativeSearchPayload({model:model.id,messages:[note],tools:[]},model);
   assert.ok(!next.tools.some(tool=>tool.name==='web_search'));
+});
+test('multiple suspended server-only responses replay their own segments and retain one complete external history',async()=>{
+  fixture();setNativeSearchPolicy(policy);const wires=[];let index=0;
+  const call=id=>({type:'server_tool_use',id,name:'web_search',input:{query:'A public historical detail'}});
+  const result=id=>({type:'web_search_tool_result',tool_use_id:id,content:[]});
+  const segments=[[call('pause_1')],[result('pause_1'),call('pause_2')],[result('pause_2'),{type:'tool_use',id:'after_pauses',name:'look',input:{focus:'scene'}}]];
+  const opts={apiKey:key,maxTokens:1024,onPayload:body=>nativeSearchPayload(body,model),
+    onProviderStreamEvent:(data,physical)=>nativeSearchEvent({provider:physical.provider,model:physical.id,data}),
+    fetch:async(_url,init)=>{wires.push(JSON.parse(init.body));const step=index++;return new Response(step<3?frames(segments[step],step<2?'pause_turn':'tool_use'):frames([{type:'text',text:'Finished.'}]),{headers:{'content-type':'text/event-stream'}});}};
+  const stream=miniMaxStream(),first=await stream(model,{messages:[note]},opts).result();
+  assert.notEqual(first.stopReason,'error',first.errorMessage);assert.equal(wires.length,3);
+  assert.deepEqual(wires[2].messages.filter(row=>row.role==='assistant').map(row=>row.content),segments.slice(0,2));
+  const final=await stream(model,{messages:[note,first,{role:'toolResult',toolCallId:'after_pauses',toolName:'look',content:[{type:'text',text:'Current room'}],isError:false,timestamp:1}]},opts).result();
+  assert.notEqual(final.stopReason,'error',final.errorMessage);
+  assert.deepEqual(wires[3].messages.find(row=>row.role==='assistant').content,segments.flat());
 });
 test('old incomplete MiniMax journal records cannot overwrite a matching local-tool message',()=>{
   fixture();setNativeSearchPolicy(policy);

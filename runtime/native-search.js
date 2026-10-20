@@ -113,23 +113,43 @@ function protocolBlocks(record, current) {
   });
   return [...clone(prefix),...rest];
 }
-function completeExactProtocol(record) {
-  if (!record.terminal || !record.content.some(block => block.type === 'tool_use' || block.type === 'text' && block.text?.trim())) return false;
-  const calls = new Set(), results = new Set();
+function exactProtocol(record) {
+  const modern=record.protocolVersion===2;
+  const prior=new Set(modern?record.continuedServers??[]:[]),calls=new Set(),results=new Set();
+  const invalid=reason=>({valid:false,reason,pending:[]});
+  if(!record.terminal)return invalid('missing_terminal');
+  const local=record.content.some(block=>block.type==='tool_use');
+  const visible=local||record.content.some(block=>block.type==='text'&&block.text?.trim());
   for (const block of record.content) {
     if (block.type === 'server_tool_use') {
-      if (!block.id || calls.has(block.id)) return false;
+      if (!block.id || calls.has(block.id)||prior.has(block.id)) return invalid('duplicate_server_call');
       calls.add(block.id);
     }
     if (block.type === 'web_search_tool_result') {
-      if (!calls.has(block.tool_use_id) || results.has(block.tool_use_id)) return false;
+      if ((!calls.has(block.tool_use_id)&&!prior.has(block.tool_use_id))||results.has(block.tool_use_id))return invalid('orphan_or_duplicate_server_result');
       results.add(block.tool_use_id);
     }
   }
-  return calls.size === results.size;
+  const pending=[...calls,...prior].filter(id=>!results.has(id));
+  const suspended=modern&&record.granted===true&&(record.terminal==='pause_turn'||record.terminal==='tool_use'&&local);
+  if(pending.length&&!suspended)return invalid('unfinished_server_call');
+  if(!visible&&!(suspended&&pending.length))return invalid('missing_assistant_continuation');
+  return {valid:true,pending};
+}
+function pendingServerCalls(pending) {
+  const open=new Set();
+  for(const record of nativeSearchState().records){
+    if(record.replayable===false||record.protocolVersion!==2||record.api!==pending.api||record.model!==pending.model
+      ||record.campaign!==pending.campaign||record.worldline!==pending.worldline||record.loop!==pending.loop||record.run!==pending.run)continue;
+    for(const block of record.content){if(block.type==='server_tool_use')open.add(block.id);if(block.type==='web_search_tool_result')open.delete(block.tool_use_id);}
+  }
+  return [...open];
 }
 function restore(payload, api, model, binding) {
-  const records = nativeSearchState().records.filter(r => !r.transport && r.api === api && r.model === `${model.provider}/${model.id}` && r.campaign === binding?.campaign && r.worldline === binding?.worldline && r.loop === binding?.loop && (!r.exactReplay || completeExactProtocol(r)));
+  const records = nativeSearchState().records.filter(r => !r.transport && r.replayable!==false && r.api === api && r.model === `${model.provider}/${model.id}` && r.campaign === binding?.campaign && r.worldline === binding?.worldline && r.loop === binding?.loop && (!r.exactReplay || (()=>{
+    const status=exactProtocol(r);
+    return status.valid&&(!status.pending.length||r.run===binding?.run&&binding.enabled&&binding.allowed&&payload.tool_choice!=='none'&&payload.tool_choice?.type!=='none');
+  })()));
   if (!records.length) return payload;
   if (api === 'anthropic-messages') return {...payload, messages: (payload.messages ?? []).map(message => {
     if (message.role !== 'assistant') return message;
@@ -188,24 +208,30 @@ function sourcesOf(blocks, api) {
 function retain(pending, content, terminal, responseId) {
   const state = nativeSearchState();
   const native = content.some(b => ['server_tool_use','web_search_tool_result','web_search_call','x_search_call'].includes(b.type));
+  const continued=pending.exactReplay?pendingServerCalls(pending):[];
   const combined = [...state.carry, ...content];
-  if (!native && !state.carry.length || !pending.campaign) return;
-  if (pending.exactReplay && !completeExactProtocol({content:combined,terminal})) {
-    state.report?.({event:'unavailable',reason:'incomplete_server_protocol',run:pending.run,step:pending.step});
-    state.closedRuns.add(JSON.stringify([pending.campaign,pending.worldline,pending.loop,pending.run,...pending.model.split('/')]));state.carry=[];return;
-  }
+  if (!native && !state.carry.length&&!continued.length || !pending.campaign) return;
   if (Buffer.byteLength(JSON.stringify(combined)) > 1_048_576) {
     state.report?.({event:'unavailable',reason:'protocol_retention_bound',run:pending.run,step:pending.step});
     state.closedRuns.add(JSON.stringify([pending.campaign,pending.worldline,pending.loop,pending.run,...pending.model.split("/")]));state.carry=[];return;
   }
   const record = {api: pending.api, model: pending.model, campaign: pending.campaign, worldline: pending.worldline, loop: pending.loop, run: pending.run,
     responseId, fingerprint: fingerprint(content, pending.api, pending.exactReplay), content: clone(combined), terminal,
-    ...(pending.exactReplay ? {exactReplay: true} : {})};
+    ...(pending.exactReplay ? {exactReplay: true,protocolVersion:2,granted:pending.enabled,
+      continuedServers:continued.filter(id=>!combined.some(block=>block.type==='server_tool_use'&&block.id===id))} : {})};
+  const protocol=pending.exactReplay?exactProtocol(record):undefined;
+  if(protocol&&!protocol.valid){
+    state.persist?.({...record,replayable:false});
+    state.report?.({event:'unavailable',reason:'incomplete_server_protocol',protocol_reason:protocol.reason,run:pending.run,step:pending.step,
+      response_id:responseId,terminal,block_types:content.map(block=>block.type),pending_server_ids:continued});
+    state.closedRuns.add(JSON.stringify([pending.campaign,pending.worldline,pending.loop,pending.run,...pending.model.split('/')]));state.carry=[];return;
+  }
   state.records.push(record); if (state.records.length > 64) state.records.shift();
   state.persist?.(record);
   state.report?.({event: 'response', api: pending.api, model: pending.model, run: pending.run, step: pending.step,
     terminal, response_id: responseId, protocol: record, sources: sourcesOf(content, pending.api), elapsed_ms: Date.now() - pending.startedAt,
-    calls: content.filter(b => b.type === 'server_tool_use' && b.name === 'web_search' || b.type === 'web_search_call').length});
+    calls: content.filter(b => b.type === 'server_tool_use' && b.name === 'web_search' || b.type === 'web_search_call').length,
+    ...(protocol?{protocol_state:protocol.pending.length?'pending':'complete',pending_server_ids:protocol.pending}:{})});
   state.carry = terminal === 'pause_turn' ? combined : [];
 }
 /** Original server blocks are observed before Pi's normalized-message conversion discards them. */
@@ -258,13 +284,18 @@ export function nativeSearchStream(fallback, route) {
     const stream = new AssistantMessageEventStream();
     void (async () => {
       let messages = context.messages, continuations = 0, started = false;
+      const exactSegments=[];
       const usage = {input:0,output:0,cacheRead:0,cacheWrite:0,totalTokens:0,cost:{input:0,output:0,cacheRead:0,cacheWrite:0,total:0}};
       const accumulate = current => {for(const key of Object.keys(usage)){if(key==='cost'){for(const field of Object.keys(usage.cost))usage.cost[field]+=current?.cost?.[field]??0;}else usage[key]+=current?.[key]??0;}};
       try {
         while (true) {
           const inner = provider.streamSimple(physical, {...context, messages}, {...options, onPayload: async (payload, physicalModel) => {
             const prepared = route.preparePayload ? route.preparePayload(payload, options) : payload;
-            return options?.onPayload ? await options.onPayload(prepared, physicalModel) : prepared;
+            const body=options?.onPayload ? await options.onPayload(prepared, physicalModel) : prepared;
+            // The SDK omits server-only normalized assistant messages. Preserve the
+            // observed raw segments directly inside this owned pause continuation.
+            return exactSegments.length&&Array.isArray(body.messages)?{...body,messages:[...body.messages,
+              ...exactSegments.map(content=>({role:'assistant',content:clone(content)}))]}:body;
           }});
           let terminal;
           for await (const event of inner) {
@@ -278,7 +309,12 @@ export function nativeSearchStream(fallback, route) {
           }
           if (!terminal) {stream.end(); return;}
           if (++continuations > 3 || options?.signal?.aborted) throw new Error('Native search continuation could not finish');
-          messages = [...messages, terminal];
+          if(capability?.exactReplay){
+            const raw=state.pending;
+            if(!raw?.finished||raw.run!==state.policy?.run||raw.terminal!=='pause_turn'||!raw.blocks.length)
+              throw new Error('Native search pause is missing its original protocol');
+            exactSegments.push(clone(raw.blocks.filter(Boolean)));
+          }else messages = [...messages, terminal];
         }
       } catch (error) {
         stream.push({type: 'error', reason: options?.signal?.aborted ? 'aborted' : 'error', error: {

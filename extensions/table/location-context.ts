@@ -3,6 +3,14 @@ import {Type} from 'typebox';
 import {locationCommandEntry,locationCommandOwner} from '../../shared/place-structures.ts';
 import {legibleClosedSchema} from '../../shared/native-schema.ts';
 type Row=Record<string,any>;
+/** Demand-only canonical names; semantic matching and creation still belong to the Keeper. */
+export function locationIdentityContext(read:Row):Row|undefined {
+    const candidates=read.catalogue??read.candidates;
+    if(!Array.isArray(candidates))return;
+    return {authority:'Partial identity references only, not access, player knowledge or an exhaustive world. Compare the requested place by meaning with these authored/registered identities before creating. Reuse the canonical name for the same place; translated display wording does not create another place. Distinct compatible unlisted places remain possible. Inspect a named target when identity or scale is uncertain.',
+        current:read.place?.name??read.current,
+        candidates:candidates.slice(0,24).map((candidate:Row)=>Object.fromEntries(['name','display_name','kind','origin','identity','place','feature','summary'].filter(key=>candidate[key]!==undefined).map(key=>[key,structuredClone(candidate[key])]))) };
+}
 const object=(value:unknown):value is Row=>!!value&&typeof value==='object'&&!Array.isArray(value);
 const action=Type.String({enum:['move','establish','feature','relate','observe']});
 const entry=Type.Object({using_skill:Type.Optional(Type.String()),op:Type.String({enum:['inspect','submit'],description:'inspect reads name/need without change; submit executes one change.'}),

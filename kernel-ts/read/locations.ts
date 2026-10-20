@@ -3,6 +3,7 @@ import {parentsOf,isPlace} from './places.js';
 import {RpcError} from '../errors.js';
 import type {ModuleGraph} from './module-graph.js';
 import {array,normalize,row,string,type Row} from './values.js';
+import {destinationIdentity} from './module-graph.js';
 export const LOCATIONS_CAPABILITY='locations.v1';
 export function locationProvider(active:readonly Row[]):Row|undefined {
     return active.filter(mod=>array(mod.requires).includes(LOCATIONS_CAPABILITY)).at(-1);
@@ -43,12 +44,21 @@ export function locationPlace(graph:ModuleGraph,world:Row,name:unknown):Row {
 /** A bounded catalogue is decision support, never the boundary of the fictional world. */
 export function locationCandidates(graph:ModuleGraph,world:Row,limit=24):Row[] {
     const current=graph.handle(graph.scene(world.active_scene)),stored=locationPlaces(world),features=locationFeatures(world);
-    const places=[graph.scene(current),...stored.slice().reverse().map(place=>graph.scene(place.name)),...graph.scenes()];
-    const rows:Row[]=[...features.filter(feature=>feature.place===current),...features.filter(feature=>feature.place!==current)].map(feature=>({
+    const featureRows:Row[]=[...features.filter(feature=>feature.place===current),...features.filter(feature=>feature.place!==current)].map(feature=>({
         name:`${feature.place} / ${feature.name}`,kind:'feature',place:feature.place,feature:feature.name,origin:'mod',summary:feature.description}));
-    rows.push(...places.map(place=>({name:graph.handle(place),kind:'place',origin:stored.some(record=>record.id===place.node_id)?'mod':graph.isTableEntity(place)?'table':'source',summary:graph.summary(place).slice(0,300)})));
-    const seen=new Set<string>();
-    return rows.filter(candidate=>{const key=JSON.stringify([candidate.kind,candidate.name]);if(seen.has(key))return false;seen.add(key);return true;}).slice(0,limit);
+    const placeRow=(place:Row):Row=>({name:graph.handle(place),display_name:graph.displayName(place),kind:'place',
+        origin:stored.some(record=>record.id===place.node_id)?'mod':graph.isTableEntity(place)?'table':'source',
+        ...(destinationIdentity(place)?{identity:destinationIdentity(place)}:{}),summary:graph.summary(place).slice(0,300)});
+    const groups=[[placeRow(graph.scene(current))],graph.scenes().filter(place=>!graph.isTableEntity(place)).map(placeRow),
+        stored.slice().reverse().map(place=>placeRow(graph.scene(place.name))),featureRows,
+        graph.scenes().filter(place=>graph.isTableEntity(place)&&!stored.some(record=>record.id===place.node_id)).map(placeRow)];
+    const seen=new Set<string>(),result:Row[]=[];
+    for(let i=0;i<Math.max(0,...groups.map(group=>group.length))&&result.length<limit;i++)for(const group of groups){
+        const candidate=group[i];if(!candidate)continue;
+        const key=JSON.stringify([candidate.kind,candidate.name]);if(seen.has(key))continue;
+        seen.add(key);result.push(candidate);if(result.length>=limit)break;
+    }
+    return result;
 }
 export function locationFeature(world:Row,place:string,name:unknown):Row {
     const matches=locationFeatures(world).filter(feature=>feature.place===place&&typeof name==='string'&&normalize(feature.name)===normalize(name));

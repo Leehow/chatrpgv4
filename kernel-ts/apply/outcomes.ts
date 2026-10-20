@@ -14,6 +14,13 @@ export function operationOutcomes(receipts:Row[],graph:ModuleGraph,world:Row):Ro
     return receipts.flatMap<Row>(receipt=>{
         const kind=string(receipt.kind);
         if(receipt.visibility==='keeper')return [];
+        if(kind==='cash')return [{kind,status:receipt.settlement==='quote'?'unchanged':'changed',
+            transaction:receipt.settlement==='quote'?'quoted':receipt.settlement==='cancelled'?'cancelled':'settled',
+            ...Object.fromEntries(['settlement','category','currency','before','after','purchase_amount','items','quote'].filter(key=>receipt[key]!==undefined).map(key=>[key,structuredClone(receipt[key])])),
+            ...(receipt.purpose??receipt.why?{purpose:receipt.purpose??receipt.why}:{}),
+            ...(receipt.price_name?{name:receipt.price_name}:{}),
+            subject:receipt.subject_label??receipt.subject??null,
+            ...(receipt.with_label??receipt.with?{with:receipt.with_label??receipt.with}:{})}];
         if(kind==='place')return [{kind,status:'changed',action:receipt.action,...(receipt.place?{place:receipt.place}:{}),
             ...(receipt.observation?{observation:publicObservation(graph,world,receipt.observation)}:{}),
             ...(receipt.position?{position:receipt.position}:{}),...(receipt.feature?{feature:receipt.feature,state:receipt.after}:{}),

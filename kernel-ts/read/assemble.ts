@@ -7,6 +7,7 @@ import { RuleObservations } from "./rule-facts.js";
 import { SessionView } from "./session-view.js";
 import { briefWindow } from "./brief-window.js";
 import { whereSection, clockSection, npcsPresent, cluesHere, presentSection, knownSection, knownNpcReferences, fitBudget, fittedModuleSection, sceneLabel, voicesSection, samePersonReference, jsonSize } from "./capsule.js";
+import {publicInventory} from './public-inventory.js';
 import { OWN_BUDGET, ownSection } from "./own.js";
 import { playerKnowsSection } from "./player-knows.js";
 import {currentOwnedDocuments} from '../mods/document-visibility.js';
@@ -653,6 +654,7 @@ export async function buildCapsule(campaign: CampaignSnapshot, module: LoadedMod
             history:[...semanticEvents].sort((a,b)=>number(row(a.scope).turn)-number(row(b.scope).turn)).slice(-4).map(event=>({ref:event.ref,name:event.name,summary:chars(event.summary??'',300),scope:event.scope,status:event.status})),
             coverage:{history_omitted:Math.max(0,semanticEvents.length-4),read:{what:'history',page:{section:'events'}}}}),
         public_scene,
+        public_inventory:publicInventory(party,world),
         historical_setting: await historicalSetting(campaign, module),
         // §168.5: before present, so the material for a first sight is read before the dossiers.
         ...(firstSight ? { first_sight: firstSight } : {}),

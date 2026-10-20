@@ -36,7 +36,7 @@ test('input relevance selects context only, keeps uncertainty conservative and n
 test('spatial completion composes independent movement and feature answers without an invented confidence',async()=>{
     const binding={campaign:'test',turn:2},input={player_declaration:'I approach the window.',proposed_effects:[],settled_receipts:[]};
     const batch=locationCoverageBatch(input,binding);packDecisionBatch(batch);
-    assert.equal(batch.familyVersion,'5');assert.equal(batch.questions.length,4);assert(batch.questions.every(question=>question.type==='noul'));
+    assert.equal(batch.familyVersion,'6');assert.equal(batch.questions.length,4);assert(batch.questions.every(question=>question.type==='noul'));
     assert(!batch.questions.some(question=>question.key.endsWith('_accounted')),'typed operation presence is not a model judgment');
     const review=async(values,effects=[])=>locationDecisionCoverage({...input,proposed_effects:effects},binding,{decide:async current=>({batchId:current.id,status:'complete',answers:Object.fromEntries(current.questions.map(q=>[q.key,{status:'answered',type:'noul',noul:values[q.key]??.01}]))})},new AbortController().signal);
     const missing=await review({move_selected:.99});
@@ -80,7 +80,7 @@ test('the dedicated typed tool normalizes before canonical write admission, with
 });
 
 test('an already established local position can satisfy completion without another move',async()=>{
-    const input={player_declaration:'I sit by the window and look outside.',current_place:'Tea room',current_position:{place:'Tea room',at:'window table',relation:'beside'},features:[{name:'window table'}],initial_selection:{move:.49,feature:.02},proposed_effects:[],settled_receipts:[]};
+    const input={player_declaration:'I sit by the window and look outside.',current_place:'Tea room',current_position:{place:'Tea room',at:'window table',relation:'beside'},features:[{name:'window table'}],initial_selection:{move:.99,feature:.02},proposed_effects:[],settled_receipts:[]};
     const review=async(probability)=>locationDecisionCoverage(input,{campaign:'test',turn:3},{decide:async batch=>({batchId:batch.id,status:'complete',answers:Object.fromEntries(batch.questions.map(question=>[question.key,{status:'answered',type:'noul',noul:question.key==='move_satisfied'?probability:.01}]))})},new AbortController().signal);
     const covered=await review(.99);assert.equal(covered.covered,true);assert.equal(covered.axes.move,'already_satisfied');assert.equal(covered.accounting.move,null);assert.equal(covered.to,undefined);
     assert.equal((await review(.49)).covered,false,'uncertain established satisfaction does not bypass completion');

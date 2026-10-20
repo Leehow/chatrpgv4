@@ -204,8 +204,8 @@ export function turnPacketResult(value:unknown):{player_actions_complete:true;np
   if(Array.isArray(value.not_landed)&&value.not_landed.length||object(value.admission)&&value.admission.not_landed)
     throw Error('Part of the operation did not land; preserve its actual results and do not author completion');
   return {player_actions_complete:true,npc_actions_complete:true,outcomes:value.outcomes.map(row=>{
-    if(!object(row)||!['move','place','npc','time','item'].includes(row.kind)||!['changed','unchanged'].includes(row.status))throw Error('Invalid canonical operation outcome');
-    return Object.fromEntries(['kind','status','action','actor','name','from','to','minutes','band','quantity','offer','place','position','feature','state','added','features','observation'].filter(key=>row[key]!==undefined).map(key=>[key,row[key]]));
+    if(!object(row)||!['move','place','npc','time','item','cash'].includes(row.kind)||!['changed','unchanged'].includes(row.status))throw Error('Invalid canonical operation outcome');
+    return Object.fromEntries(['kind','status','action','actor','name','from','to','minutes','band','quantity','offer','place','position','feature','state','added','features','observation','transaction','settlement','category','purpose','currency','before','after','purchase_amount','items','subject','with','quote'].filter(key=>row[key]!==undefined).map(key=>[key,row[key]]));
   })};
 }
 export const TURN_PACKET_GUIDANCE='Submit one output packet {version:4,commands?,interactions?,reveal?}. Omit unchanged categories. Commands settle before communication; this is not an interleaved program. '

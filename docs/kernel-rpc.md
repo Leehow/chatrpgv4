@@ -49047,6 +49047,90 @@ summaries are never promoted into public appearance. The author receives current
 position and persisted observable features so a first description and later
 return agree. Actual feature changes reach operation outcomes.
 
+### 242.3a. Live repair: preliminary uncertainty and hosted continuations (2026-10-20)
+
+Implementation ledger: `docs/specs/location-system-tickets/live-repair-20261020.md`.
+The preliminary context selection is a disclosure hint, not an additional player
+command. Completion version 6 clarifies only intermediate initial selection
+probabilities (.4 < p < .6) with the same atomic selection question, supplied
+committed receipts and current canonical spatial state. The clarified answer
+replaces that preliminary uncertain value; decisive values and deterministic
+operation accounting remain intact. An unavailable or still uncertain answer
+remains incomplete. No threshold, consent gate or receipt is weakened. Ordinary
+entry through a boundary is distinguished from an independently selected durable
+feature-state change; the closed reviewer judges that semantic distinction.
+Producer: initial relevance and canonical receipts; reader: completion batch;
+actor: the existing Keeper correction/delivery path. No destination is invented.
+
+Native Anthropic-compatible hosted search distinguishes a completed response from
+a valid suspended response. A message with both local tool calls and unpaired
+server calls may terminate with tool_use; pause_turn may suspend server work.
+Keep the exact ordered response for the same granted campaign/worldline/loop/run
+continuation, including original server IDs, interleaved blocks and the local
+tool calls. Return only actual local results; never synthesize a server result.
+Retain the server declaration while continuing that granted suspended work. A
+pending call supplies no source-backed fact and must not be counted as a completed
+search. Orphan/duplicate results, invalid terminal combinations, stale pending
+scope and changed exact fingerprints remain refused for replay. Record bounded
+protocol-state diagnostics on rejection rather than silently losing its cause.
+Producer: raw provider stream; reader: exact journal and payload continuation;
+actor: the ordinary provider loop, then the Keeper only after actual results.
+
+External checks: [TypeSafe Noul](https://docs.typesafe.ai/primitives/noul) treats
+an intermediate probability as uncertainty; it does not establish an action.
+[Anthropic server tools](https://platform.claude.com/docs/en/agents-and-tools/tool-use/server-tools)
+documents deferred mixed client/server calls and unchanged continuation blocks.
+[MiniMax server tools](https://platform.minimax.cn/docs/guides/server-tools) and
+[interleaved tool use](https://platform.minimax.cn/docs/guides/text-m3-function-call)
+require preserving original ordered content, including pause continuations.
+MiniMax's exact mixed-call behavior remains a live acceptance gate; compatibility
+is not inferred solely from another provider's documentation.
+
+Canonical public operation outcomes include cash receipts through both apply and
+frozen delivery preparation. Preserve settlement, purpose, item names/quantities,
+subject, counterparty and currency/value fields. A quotation is `transaction:
+quoted`, not payment or handover; cancellation is cancelled; actual cash or
+living-standard/spending coverage is settled even when the cash delta is zero.
+An expense is evidence of that financial/service commitment, not proof of an
+unrelated physical item handover. The item receipt remains authoritative for
+custody. The native result decoder preserves these canonical fields unchanged.
+Producer: stageCash receipts; readers: operationOutcomes and final delivery;
+actor: the sole author renders actual results without inventing missing goods.
+
+The bounded location reference catalogue fairly interleaves current, authored,
+registered and feature records; a growing feature registry must not remove every
+authored place. Place candidates carry the authored destination identity and
+display label separately from their immutable handle. Semantic equivalence is
+still a model question with unmatched/uncertain exits; catalogue order is not an
+identity assertion or access grant. Existing names are reused; stored scenes are
+never merged or migrated by a display-name heuristic. This separates the semantic
+alignment step from exact identity reuse, consistent with
+[TypeSafe entity alignment](https://docs.typesafe.ai/cookbooks/entity_alignment)
+and [Neo4j MERGE](https://neo4j.com/docs/cypher-manual/current/clauses/merge/):
+an exact storage key does not itself decide whether two descriptions mean one
+entity. No database or third-party dependency is added.
+
+When the existing relevance decision discloses location context, the host makes
+one memoized read of mods.locations.inspect for the current identity catalogue.
+Only that input's request gets location_identity with bounded names, provenance,
+authored aliases and partial-coverage notice. Quiet inputs retain the small entry;
+neither the catalogue nor the full location grammar becomes permanent context.
+Registered context inspection also returns this catalogue, so direct writes and
+manual inspection see the same vocabulary. The Keeper compares meaning before
+minting and uses the exact canonical handle for a match; translation is display,
+not a reason to allocate another place. Missing/unavailable advice leaves ordinary
+compatible creation open. Producer: source/Mod graph catalogue; reader: scoped
+host request; actor: Keeper chooses reuse/creation through the same place effect.
+
+Capsule public_inventory projects positive current investigator holdings from
+canonical object ownership and legacy current sheet equipment, with bounded
+counts and no negative completeness inference. Object-backed sheet rows do not
+override their canonical owner. The author receives this as current_inventory
+beside the scene so an old opening/commission cannot claim an already held key
+has not been handed over. This is public narration context, not NPC knowledge or
+a transfer. Producer: existing item/custody transactions and sheets; reader:
+capsule and decisionScene; actor: the sole author preserves current possession.
+
 ### 242.4. Context, lifecycle and evidence
 
 Only a short entry instruction and stable bounded tool declaration are resident.

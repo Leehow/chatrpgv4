@@ -111,7 +111,7 @@ export function createModRuntime(context: KernelContext, sources: ModSources = {
             const place=locationView(module.graph,campaign.world,params.name);
             const relations=locationRelations(campaign.world).filter(relation=>relation.from.place===place.name||relation.to.place===place.name).slice(0,8)
                 .map(({from,to,sense,description})=>({from,to,sense,description}));
-            return {...availability,place:{...place,...(relations.length?{relations}:{})}};
+            return {...availability,place:{...place,...(relations.length?{relations}:{})},catalogue:locationCandidates(module.graph,campaign.world)};
         }
         catch(error){
             if(!(error instanceof RpcError)||error.code!=='unknown_entity'||error.details?.reason==='ambiguous'||isAmbiguity(error))throw error;
