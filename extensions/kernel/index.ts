@@ -5748,7 +5748,6 @@ export default function (pi: ExtensionAPI, host: {capabilities?:RuntimeCapabilit
 		reply:NonNullable<typeof keeperReply>,ctx?:ExtensionContext){
 		let operationResult:ReturnType<typeof turnPacketResult>={player_actions_complete:true,npc_actions_complete:true,outcomes:[]};
 		let decision:import('../../runtime/isolated-expression.ts').DecisionAuthorContext|undefined;
-        let placeBoundAuthor=false;
         let observationIdentities:Record<string,any>[]=[];
         const heldBoundary=heldActs.get(state),held=heldBoundary?.basis;
 		if(held&&(!turnPacketPrototype||heldBoundary?.uncommittedFailures()===undefined)){
@@ -5759,7 +5758,6 @@ export default function (pi: ExtensionAPI, host: {capabilities?:RuntimeCapabilit
 			const packet=expression as TurnPacket,compiled=compileTurnPacket(packet);
             const newcomers=(packet.commands??[]).filter((row):row is Extract<NonNullable<TurnPacket['commands']>[number],{kind:'walk_on'}>=>row.kind==='walk_on');
             const before=await state.kernel.call<Record<string,any>>('table.capsule',{campaign:state.campaign,_context_read:true});
-            placeBoundAuthor=!!before.mods?.location_context&&(state.locationReviewTurn===state.turn||compiled.effects.some(effect=>effect.kind==='place'));
             if(state.locationReviewTurn===state.turn&&state.interactionScope!=='reference'){
                 const status=await state.kernel.call<{receipts:Record<string,unknown>[]}>('table.status',{campaign:state.campaign,projection:'receipts',expected_turn:state.turn});
                 const receipts=status.receipts.map(receipt=>Object.fromEntries(['kind','action','from','to','position','feature','before','after','observation'].filter(key=>receipt[key]!==undefined).map(key=>[key,receipt[key]])));
@@ -5770,7 +5768,7 @@ export default function (pi: ExtensionAPI, host: {capabilities?:RuntimeCapabilit
                     {campaign:state.campaign,turn:state.turn},turnDecisionPort,reply.signal??state.lanes.signal,foregroundProviderBudget?.());
                 await record({lane:'location-decision-coverage',turn:state.turn,...coverage});
                 if(!coverage.covered)throw new KernelError({code:'invalid_params',message:coverage.status==='answered'?'The selected spatial action is not accounted for by this decision':'The spatial decision completion could not be verified',
-                    fix:'Preserve the player declaration and successful receipts. Use the current_position below rather than an earlier narrated pose. Every independently selected focused reading or view also needs a matching {kind:"place",action:"observe",to,sense,access,scope,facts}; arrival and greetings do not read its contents. Include the actual perceived contents, not merely a description of the writing surface. Do not repeat current-input settled observations. For a local approach submit {kind:"place",action:"move",to:"here",at:"exact registered feature",relation:"beside"}; add only a missing compatible feature if needed. An NPC move, time/glance or registration alone does not move the investigator. A real obstacle or necessary open choice can stop an attempt. Do not narrate an arrival without its committed move.',
+                    fix:'Preserve the player declaration and successful receipts. Use the current_position below rather than an earlier narrated pose. Every independently selected environmental reading or view also needs a matching {kind:"place",action:"observe",to,sense,access,scope,facts}; arrival and greetings do not read its contents. Include the actual perceived contents, not merely a description of the writing surface. Archival research and carried-document reading use their existing research/document outcomes; they do not independently require a place observation. Do not repeat current-input settled observations. For a local approach submit {kind:"place",action:"move",to:"here",at:"exact registered feature",relation:"beside"}; add only a missing compatible feature if needed. An NPC move, time/glance or registration alone does not move the investigator. A real obstacle or necessary open choice can stop an attempt. Do not narrate an arrival without its committed move.',
                     details:{reason:'place_decision_incomplete',cause:coverage.reason??'place_decision_incomplete',transaction_state:'uncommitted',before_execution:true,current_place:before.where?.scene,current_position:before.where?.location?.position??null,
                         known_features:(before.where?.location?.features??[]).map((feature:Record<string,unknown>)=>feature.name),...(coverage.axes?{axes:coverage.axes}:{})}});
             }
@@ -5862,7 +5860,7 @@ export default function (pi: ExtensionAPI, host: {capabilities?:RuntimeCapabilit
             if(state.observationReferences?.turn===state.turn)decision.reference_observations=state.observationReferences.queries.map(({scope,...query})=>query);
         }
 		const authored=await writeIsolatedExpression({runtime,campaign:state.campaign,turn:state.turn,run:reply.run,
-			brief:legacy,decision,...(decision?{result:operationResult}:{}),language:state.playLanguage||'en',playerText:placeBoundAuthor?undefined:reply.stream.playerText,investigatorNames:reply.stream.investigatorNames,
+			brief:legacy,decision,...(decision?{result:operationResult}:{}),language:state.playLanguage||'en',playerText:reply.stream.playerText,investigatorNames:reply.stream.investigatorNames,
 			signal:reply.signal,stream:reply.stream,record});
 		return authored;
 	}

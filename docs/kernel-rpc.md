@@ -49952,3 +49952,14 @@ uncertainty alone does not end a zero-settlement input with other actions pendin
 Pending focus reuse is owned by the active module/input-run, scene, turn and
 worldline/loop. It leaves the existing original task's revision binding intact;
 no generated answer is assigned to the deferred question.
+
+Spatial observation ownership follows the selected target. Focused perception of
+a place, persistent feature or incident (including posted contents and window
+views) requires a current place observation. Researching archival records or
+reading a carried document belongs to the existing research/document path;
+reading alone does not create a second spatial observation obligation. The
+semantic selector owns this distinction and its family revision changes with
+the question. No keyword router or receipt-based blanket exemption is added.
+The final author always receives the current quoted player input, including
+location turns. Past public conversation cannot replace that input. Canonical
+activity time deltas and cumulative observation clocks retain distinct scopes.

@@ -25,6 +25,7 @@ test('focused perception selection crosses the demand event, rejects omission an
  assert.equal(turn.receipts.filter(r=>r.kind==='place'&&r.action==='observe').length,1,JSON.stringify({receipts:turn.receipts,errors:refused}));
  const authors=table.telemetry().filter(r=>r.lane==='isolated-expression'&&r.event==='written');assert.equal(authors.length,1,JSON.stringify({errors:refused,delivery:table.telemetry().filter(r=>r.lane==='keeper-delivery'||r.lane==='delivery')}));
  const task=readFileSync(join(authors[0].attempt,'task.json'),'utf8');assert.match(task,/Records ledger/);
+ assert.equal(JSON.parse(task).player_input,'I look closely at the ledger label on the desk and read it.','the location author must receive this input rather than reconstruct intent from history');
  assert.equal(table.entries('coc-final-delivery').filter(r=>r.event==='end'&&r.status==='completed').length,1);
 });
 
