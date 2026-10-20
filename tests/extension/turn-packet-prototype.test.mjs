@@ -138,6 +138,36 @@ test('a standalone place observation survives frozen final preparation into the 
  assert.equal(task.decision_context.observations[0].people[0].ref,ref);
 });
 
+test('a focused observation history read reaches the sole author only for this input',async t=>{
+ let office,ref;
+ const engine=createHybridEngine({env,decision:{decide:async batch=>answer(batch,.99)}});
+ const table=await openTable({legacyDeliveryFixtures:false,realKernel:true,prepareWorkspace:opened,env,runDriver:engine.runDriver,
+  extraExtensions:[{name:'engine',factory:engine.extension}],responses:[
+   ()=>fauxAssistantMessage([rawToolCall('output',{version:4,commands:[
+    {kind:'place',action:'move',to:'Waiting annex',at:'glass panel',via:'Through the side door',travel_band:'adjacent',additions:[{name:'Waiting annex',within:office,description:'A waiting room beside the office.',features:[{name:'glass panel',description:'A panel overlooking the office.'}]}]},
+    {kind:'place',action:'observe',to:office,sense:'sight',access:'clear',scope:'The office desk.',facts:['The same visitor waits beside the desk.'],people:[ref],view:'Through the clear panel from the waiting annex.'},
+    {kind:'scene',service:'open',crowd:'empty'}]})],{stopReason:'toolUse'}),
+   ()=>fauxAssistantMessage([rawToolCall('place',{op:'inspect',need:'observation',name:office,sense:'sight'})],{stopReason:'toolUse'}),
+   ()=>fauxAssistantMessage([rawToolCall('output',{version:4})],{stopReason:'toolUse'}),
+   ()=>fauxAssistantMessage([rawToolCall('output',{version:4})],{stopReason:'toolUse'})]});
+ t.after(()=>table.dispose());const bridge=table.runtimeBridges().at(-1);
+ const current=await bridge.call('table.capsule',{campaign:'test-camp'});office=current.where.scene;ref=current.present.find(person=>person.name==='Steven Knott').ref;
+ await table.session.prompt('I enter the waiting annex and look through its panel at the visitor by the desk.');
+ const world=()=>JSON.parse(readFileSync(join(table.workspace,'.coc/campaigns/test-camp/world.json'),'utf8'));
+ const before=world();
+ await table.session.prompt('Out of character, read the recorded observation of the office without looking again or advancing time.');
+ assert.deepEqual(table.extensionErrors,[]);
+ const written=()=>table.telemetry().filter(row=>row.lane==='isolated-expression'&&row.event==='written').at(-1);
+ const packet=()=>JSON.parse(readFileSync(join(written().attempt,'task.json'),'utf8'));
+ const task=packet();assert.equal(task.decision_context.reference_observations.length,1);
+ assert.equal(task.decision_context.reference_observations[0].records[0].people[0].ref,ref);
+ assert.deepEqual(task.decision_context.observations,[],'reading old records is not a new perception');
+ assert.equal(task.decision_context.people.some(person=>person.ref===ref),false,'history adds no remote private actor card');
+ assert.deepEqual(world().clock,before.clock);assert.deepEqual(world().mods.state['enhanced-locations'],before.mods.state['enhanced-locations']);
+ await table.session.prompt('Out of character, acknowledge this note without inspecting any place.');
+ assert.equal(packet().decision_context.reference_observations,undefined,'demand history expires on the next input');
+});
+
 test('an observation atomically creates a remote place and person without adding a local actor card',async t=>{
  let office;
  const engine=createHybridEngine({env,decision:{decide:async batch=>answer(batch,.99)}});

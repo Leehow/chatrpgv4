@@ -399,3 +399,14 @@ observation, conditional on that earlier operation's independent approval and
 validation. A split review carries only its own operation and its ordered prefix;
 reuse keys preserve the prefix order. Outside plans and future-only conditions
 remain binding. No confidence threshold or permission boundary changes.
+
+Focused inspection returns up to four actual delivered observation records for
+the exact target/sense, with viewpoints, original clocks and canonical people.
+The sole author receives only public delivered records actually read in this
+input, grouped by at most two target/sense scopes; the context expires with the
+input. This is reference knowledge, not another observation or NPC presence.
+The existing answered location-context decision can prepare the sole route from
+the current viewpoint for a reference need. Multiple routes retain explicit
+inspection, and quiet or unavailable decisions do not prefetch history. Packing
+uses the existing context budget. State/version migration and another semantic
+classifier are unnecessary.

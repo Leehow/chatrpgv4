@@ -32,6 +32,7 @@ test('the same incident survives viewpoint changes, real NPC departure, delivery
     const incident=locations(k).situations[0].id,atFirst=world(k).clock.minutes;
     assert.equal((await inspect(k)).observation.last_observation,undefined,'settlement alone is not player knowledge');
     assert.equal((await inspect(k)).observation.latest_settled.publication,'undelivered');
+    assert.deepEqual((await inspect(k)).observation.recent_observations,[],'unpublished settlement cannot enter observation history');
     await k.table('narrate',{call_id:'t1-c3',text:'The two men trade accusations beside the entrance.'});
     await k.table('player_input',{text:'I go upstairs and watch the entrance through the closed window.'});
     await room(k);
@@ -55,6 +56,7 @@ test('the same incident survives viewpoint changes, real NPC departure, delivery
     assert.equal(capsule.where.location.observation_routes[0].to.place,'Street');
     const pending=(await inspect(k)).observation;
     assert.equal(pending.last_observation.observed_clock.minutes,atFirst);assert.equal(pending.latest_settled.publication,'undelivered');
+    assert.equal(pending.recent_observations.length,1,'only the first delivered sighting is player history');
     assert(pending.last_observation.elapsed_minutes>=3);assert.equal(pending.situations[0].elapsed_minutes,0);
     assert.equal((await inspect(k,{at:'far corner'})).observation.last_observation,undefined,'one observed corner is not the entire street');
     await k.table('narrate',{call_id:'t2-c4',text:'Through the closed glass you see the same man in the cap. His companion is no longer in view.'});
@@ -64,6 +66,18 @@ test('the same incident survives viewpoint changes, real NPC departure, delivery
     const after=(await inspect(restarted)).observation;
     assert.equal(after.last_observation.observed_clock.minutes,saved.clock.minutes);assert.equal(after.latest_settled.publication,'delivered');
     assert.equal(after.people[0].ref,refs[0]);assert.equal(after.situations[0].participants.length,2);
+    assert.deepEqual(after.recent_observations.map((observation:Row)=>observation.observed_clock.minutes),[saved.clock.minutes,atFirst]);
+    assert(after.recent_observations.every((observation:Row)=>observation.people[0].ref===refs[0]),'one canonical identity survives both viewpoints');
+    for(let turn=3;turn<=5;turn++){
+        await restarted.table('player_input',{text:'I continue watching the same entrance.'});
+        await restarted.table('apply',{call_id:`t${turn}-c1`,effects:[{kind:'time',minutes:1,why:'The selected continued watch.'},observed]});
+        await restarted.table('narrate',{call_id:`t${turn}-c2`,text:'The same man remains beside the entrance.'});
+    }
+    const unchanged=world(restarted),history=(await inspect(restarted)).observation.recent_observations;
+    assert.equal(history.length,4,'focused history is bounded instead of loading every past turn');
+    assert.equal(history[0].observed_clock.minutes,unchanged.clock.minutes);
+    assert(history.every((observation:Row)=>observation.people[0].ref===refs[0]));
+    assert.deepEqual(world(restarted),unchanged,'reading identity history never observes or advances time');
 });
 
 test('senses and direction are separate, and blocked attempts do not overwrite last seen',async t=>{

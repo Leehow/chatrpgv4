@@ -404,6 +404,7 @@ interface TableState {
     locationContextTurn?:number;
     locationReviewTurn?:number;
     locationSelection?:{turn:number;move:number;feature:number};
+    observationReferences?:{turn:number;queries:Array<{scope:string;to:Record<string,unknown>;sense:string;records:Record<string,unknown>[]}>};
   /** §163: a scope Jev could not settle plays as `world`; only a settled out-of-fiction request is `reference`. */
   interactionScope?: 'world' | 'reference';
   /** §233.10: `world` came from a settled verdict (Jev authorized a world action, or a document edit), not a fallback. */
@@ -1526,9 +1527,10 @@ export default function (pi: ExtensionAPI, host: {capabilities?:RuntimeCapabilit
 	let singleKeeper=false;
 	let turnDecisionPort:DecisionPort|undefined;
 	pi.events.on('coc:turn-decision-port',(value:DecisionPort|undefined)=>{turnDecisionPort=value&&typeof value.decide==='function'?value:undefined;});
-    pi.events.on('coc:location-demand',(value:{campaign?:string;turn?:number;review?:boolean;selection?:{move:number;feature:number}})=>{
+    pi.events.on('coc:location-demand',(value:{campaign?:string;turn?:number;review?:boolean;selection?:{move:number;feature:number};references?:Record<string,any>})=>{
         if(!table||value.campaign!==table.campaign||value.turn!==table.turn)return;
         table.locationContextTurn=table.turn;if(value.review===true)table.locationReviewTurn=table.turn;
+        if(value.references)rememberObservationReferences(table,value.references);
         if(value.selection&&[value.selection.move,value.selection.feature].every(value=>typeof value==='number'&&Number.isFinite(value)&&value>=0&&value<=1))
             table.locationSelection={turn:table.turn,...value.selection};
     });
@@ -5727,6 +5729,13 @@ export default function (pi: ExtensionAPI, host: {capabilities?:RuntimeCapabilit
         if(rows?.kind!=='time')throw Error('The native time-band registry is unavailable');
         return state.packetTimeBands=rows.rows.map(row=>row.handle);
     }
+    function rememberObservationReferences(state:TableState,view:Record<string,any>|undefined){
+        if(!Array.isArray(view?.recent_observations))return;
+        const scope=JSON.stringify([view.to,view.sense]);
+        const previous=state.observationReferences?.turn===state.turn?state.observationReferences.queries:[];
+        state.observationReferences={turn:state.turn,queries:[{scope,to:structuredClone(view.to),sense:view.sense,
+            records:structuredClone(view.recent_observations.slice(0,4))},...previous.filter(query=>query.scope!==scope)].slice(0,2)};
+    }
 	async function composeKeeperExpression(state:TableState,expression:import('../../runtime/isolated-expression.ts').ExpressionBrief|TurnPacket,
 		reply:NonNullable<typeof keeperReply>,ctx?:ExtensionContext){
 		let operationResult:ReturnType<typeof turnPacketResult>={player_actions_complete:true,npc_actions_complete:true,outcomes:[]};
@@ -5838,6 +5847,7 @@ export default function (pi: ExtensionAPI, host: {capabilities?:RuntimeCapabilit
             decision.settled_results=reply.stream.settledResults;
             operationResult=turnPacketResult(reply.stream.settledResults);
             decision.observations=decisionObservationScope(operationResult.outcomes,observationIdentities);
+            if(state.observationReferences?.turn===state.turn)decision.reference_observations=state.observationReferences.queries.map(({scope,...query})=>query);
         }
 		const authored=await writeIsolatedExpression({runtime,campaign:state.campaign,turn:state.turn,run:reply.run,
 			brief:legacy,decision,...(decision?{result:operationResult}:{}),language:state.playLanguage||'en',playerText:placeBoundAuthor?undefined:reply.stream.playerText,investigatorNames:reply.stream.investigatorNames,
@@ -6770,7 +6780,10 @@ export default function (pi: ExtensionAPI, host: {capabilities?:RuntimeCapabilit
 				...(spec.name === "recall" ? {response_bytes: Buffer.byteLength(JSON.stringify(result), "utf8")} : {}),
 			});
 			keepRead(true);
-            if(spec.name==='place')state.locationContextTurn=state.turn;
+            if(spec.name==='place'){
+                state.locationContextTurn=state.turn;
+                if(params.op==='inspect'&&params.need==='observation')rememberObservationReferences(state,(result as Record<string,any>).observation);
+            }
 			if (spec.name === 'apply' || spec.name === 'resolve') finalOutput.invalidateAdvice();
 			// Contract §34.12's look budget addendum (SL-72): a successful look/lookup/recall counts once here.
 			// A `lookup kind=source` still `pending` (§22.4.3, SL-36) counts once too, keyed on its own focus and

@@ -97,6 +97,7 @@ export function installContextPolicy(pi: ExtensionAPI, writeTelemetry: (row: Row
     let call: KernelCall | undefined, campaign: string | undefined, capsule: Row | undefined, rawBinding: unknown;
     let locationDemand:{campaign:string;turn:number}|undefined;
     let locationRelevance:{key:string;promise:Promise<Row>}|undefined;
+    let observationReferenceRead:{key:string;promise:Promise<Row|undefined>}|undefined;
     const locationDetail=()=>!!locationDemand&&locationDemand.campaign===campaign&&locationDemand.turn===observedTurn;
     pi.events.on('coc:location-demand',(data:Row)=>{if(data.campaign===campaign&&Number.isSafeInteger(data.turn))locationDemand={campaign:data.campaign,turn:data.turn};});
     let materialSources:((turn:number)=>Row[])|undefined;
@@ -771,6 +772,7 @@ export function installContextPolicy(pi: ExtensionAPI, writeTelemetry: (row: Row
                 invalidate();degraded(String(error?.message??'discovery_snapshot_unavailable'));}
         }
         if(!snapshot&&ticket===generation){discoveryUnavailable=discoveryMode()!=='full';capabilityRuntime.invalidate();modDiscovery.reset();pendingDiscovery=[];}
+        let observationReference:Row|undefined;
         if(snapshot?.capsule.mods?.location_context&&ticket===generation&&!inputLifetime.signal.aborted&&snapshot.binding.campaign===campaign&&snapshot.binding.turn===observedTurn){
             const key=JSON.stringify([snapshot.binding.campaign,snapshot.binding.turn,sourceOf(snapshot.binding)]);
             const reused=locationRelevance?.key===key;
@@ -778,6 +780,23 @@ export function installContextPolicy(pi: ExtensionAPI, writeTelemetry: (row: Row
             const relevance=await locationRelevance.promise;
             if(ticket===generation&&!inputLifetime.signal.aborted&&snapshot.binding.campaign===campaign&&snapshot.binding.turn===observedTurn){
                 if(relevance.needed){(turnCalls.context??=new Set()).add('place');pi.events.emit('coc:location-demand',{campaign,turn:observedTurn,review:relevance.review,selection:relevance.selection});}
+                const routes=snapshot.capsule.where?.location?.observation_routes;
+                if(relevance.status==='answered'&&relevance.needed&&relevance.review===false&&Array.isArray(routes)&&routes.length===1&&call){
+                    const bridge=call,owner=campaign;
+                    if(observationReferenceRead?.key!==key)observationReferenceRead={key,promise:boundedDiscoveryRead(async()=>{
+                        const result=object(await bridge('mods.locations.inspect',{campaign:owner,...routes[0].read}));
+                        const view=object(result.observation);
+                        return Array.isArray(view.recent_observations)?{to:view.to,sense:view.sense,records:view.recent_observations.slice(0,4)}:undefined;
+                    })};
+                    try{
+                        const prepared=await observationReferenceRead.promise;
+                        if(prepared&&ticket===generation&&!inputLifetime.signal.aborted&&snapshot.binding.campaign===campaign&&snapshot.binding.turn===observedTurn){
+                            observationReference=prepared;
+                            pi.events.emit('coc:location-demand',{campaign,turn:observedTurn,references:{to:prepared.to,sense:prepared.sense,recent_observations:prepared.records}});
+                            record({lane:'observation-reference-preparation',turn:observedTurn,scope:prepared.to,sense:prepared.sense,records:prepared.records.length,changed_world:false});
+                        }
+                    }catch(error){record({lane:'observation-reference-preparation',turn:observedTurn,status:'unavailable',reason:String((error as Error)?.message??error).slice(0,160)});}
+                }
                 record({lane:'location-context',...relevance,reused});
             }
         }
@@ -790,6 +809,8 @@ export function installContextPolicy(pi: ExtensionAPI, writeTelemetry: (row: Row
         let seen = false;
         // §103.5: the capsule the Keeper is sent is this copy, not the persisted message; it carries the Keeper's untold view.
         const view = untoldView(structuredClone(snapshot.capsule)).capsule;
+        if(observationReference)view.observation_reference={...observationReference,
+            authority:'Delivered historical records only. Repeated person refs identify the same recorded person. Reading neither refreshes perception nor moves people or advances time.'};
         // Current-request visibility is a procedural instruction, never canonical state or writer material.
         const reply=referenceReplyStatus?.();
         if(reply?.queued&&reply.campaign===snapshot.binding.campaign&&reply.turn===snapshot.binding.turn)

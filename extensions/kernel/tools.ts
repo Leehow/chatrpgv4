@@ -1000,7 +1000,7 @@ export const COC_TOOLS: readonly CocToolSpec[] = [
 	},
 	{
         name:'place',label:'Place',method:'mods.locations.inspect',
-        description:'Inspect places or observation continuity without moving, or submit a location action. Reuse identities; compatible missing structure can be supplied inline. Inspect need observation prepares cross-place perception; need contract supplies detail.',
+        description:'Read place state or prior observations without movement, new perception or elapsed time, or submit a location action. For earlier sightings, people identity or incident continuity inspect need observation with the target name; recall prose is not the observation register. Inspect need contract supplies writing detail.',
         promptSnippet:'Manage places, local features and sensory observations through Enhanced Locations.',parameters:PlaceParameters,
     },
 	{

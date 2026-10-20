@@ -49409,6 +49409,42 @@ the identity-only decision_context.observations index does not replace them.
 Ambient room prose and a separate NPC response cannot stand in for this answer.
 This is author guidance, not another semantic completion gate.
 
+The resident place entry distinguishes reading old observations from making a
+new perception. Reference questions about a previously seen person or incident
+use inspect need observation and the target name; this read neither observes
+again nor advances time. General prose recall is not the canonical observation
+register. This clarification adds no resident observation history or new field.
+It follows the purpose-oriented descriptions in [Anthropic's tool guidance](https://platform.claude.com/docs/en/agents-and-tools/tool-use/define-tools)
+and the [MCP tool definition](https://modelcontextprotocol.io/specification/2025-06-18/server/tools),
+while retaining this project's demand-only detailed grammar.
+
+Focused observation inspection also returns recent_observations: at most four
+delivered observations of that exact target point and sense, newest first,
+including their original viewpoint, observed clock and canonical person refs.
+It derives them from committed current-line deliveries, excluding reference and
+uncertain turns; unpublished settlement supplies no player history. This permits
+identity and elapsed-time comparison without prose recall or another perception.
+The latest-state index and last successful observation retain their meanings.
+The history is demand-only and read-only; it is not added to the resident capsule.
+
+When the Keeper actually performs that focused read, the host carries only its
+delivered public recent_observations into the sole author's reference_observations
+for this input. It retains at most two target/sense scopes (eight records), replaces
+a repeated scope, and expires on the next input. Current target activity, private
+NPC cards and unpublished latest_settled material are excluded. This is historical
+reference context, never a new perception, present-person grant or settlement.
+
+The existing answered location-context decision already distinguishes reference needs
+from selected movement/feature actions. When it requests reference context
+without a movement/feature review and the viewpoint has exactly one observation route,
+the host prepares that route's delivered history once before the Keeper request.
+The same public records reach the request and final author. Multiple routes retain
+explicit focused inspection; the host does not guess an open semantic target.
+Quiet inputs perform no such read. This reuses the existing reference/demand
+decisions, adds no semantic question or action gate, and never refreshes perception.
+Preparation uses the existing bounded discovery read and request budget; it is
+projected in this request's capsule before packing, not appended after budgeting.
+
 The transaction analogy is limited: [PostgreSQL](https://www.postgresql.org/docs/current/transaction-iso.html)
 and [SQLite](https://www.sqlite.org/isolation.html) both let later operations see
 their own transaction's earlier writes. This supports ordered staging, but says

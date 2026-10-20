@@ -55,12 +55,15 @@ export function locationObservationView(graph:ModuleGraph,world:Row,params:Row={
     const same=(observation:Row)=>spatialPointKey(row(observation.to))===key&&observation.sense===sense;
     const deliveries=records.filter(record=>record.commit&&record.interaction_scope!=='reference'&&record.interaction_scope!=='uncertain')
         .sort((a,b)=>number(b.turn)-number(a.turn));
-    const prior=deliveries.flatMap(record=>array(record.receipts).slice().reverse().filter(receipt=>receipt.kind==='place'&&receipt.action==='observe'&&same(row(receipt.observation)))
-        .map(receipt=>({...receipt.observation,delivered_turn:record.turn}))).find(observation=>observation.access!=='blocked');
+    const delivered=deliveries.flatMap(record=>array(record.receipts).slice().reverse().filter(receipt=>receipt.kind==='place'&&receipt.action==='observe'&&same(row(receipt.observation)))
+        .map(receipt=>({...receipt.observation,delivered_turn:record.turn})));
+    const prior=delivered.find(observation=>observation.access!=='blocked');
     const latest=locationObservations(world).find(same);
     const elapsed=(then:Row)=>Math.max(0,number(clock.minutes)-number(then.minutes));
     const incidents=locationSituations(world).filter(situation=>spatialPointKey(row(situation.to))===key).slice(-8);
     return {from,to,sense,clock,local:from.place===to.place,relations:matchingObservationRelations(world,from,to,sense).map(relation=>({from:clone(relation.from),to:clone(relation.to),sense:relation.sense,description:relation.description})),
+        recent_observations:delivered.slice(0,4).map(observation=>({...publicObservation(graph,world,observation),
+            delivered_turn:observation.delivered_turn,elapsed_minutes:elapsed(row(observation.observed_clock))})),
         ...(to.at?{target_feature:Object.fromEntries(Object.entries(locationFeature(world,to.place,to.at)).filter(([key])=>['name','description','state','passable'].includes(key)))}:{}),
         ...(prior?{last_observation:{...publicObservation(graph,world,prior),delivered_turn:prior.delivered_turn,elapsed_minutes:elapsed(row(prior.observed_clock))}}:{}),
         ...(latest?{latest_settled:{...publicObservation(graph,world,latest),publication:deliveries.some(record=>array(record.receipts).some(receipt=>receipt.id===latest.receipt))?'delivered':'undelivered'}}:{}),
@@ -69,5 +72,5 @@ export function locationObservationView(graph:ModuleGraph,world:Row,params:Row={
         situations:incidents.map(situation=>({name:situation.name,summary:situation.summary,status:situation.status,assessed_clock:clone(row(situation.assessed_clock)),
             elapsed_minutes:elapsed(row(situation.assessed_clock)),review_required:situation.status!=='ended'&&elapsed(row(situation.assessed_clock))>0,
             participants:array(situation.participants).flatMap(person=>{const node=graph.nodes.get(graph.survivorId(person.id));return node?[{...observationIdentity(graph,world,node,journal,records),location:row(world.npc_presence)[graph.handle(node)]??null}]:[];})})),
-        note:'Keeper preparation only, not player perception. Reuse canonical people and current incident state. Assess only the elapsed game-time interval not already assessed; elapsed time does not force change. Commit selected observable facts with place observe. No movement, speech or observation is recorded by this read.'};
+        note:'Read-only Keeper preparation, not new player perception. recent_observations are delivered records, newest first; repeated person refs identify the same recorded person even when their proper name is unknown. Compare their recorded clocks and viewpoints for continuity; no new recognition roll is required to read an existing identity association. Current unseen activity is not a new observation. Assess only elapsed game time not already assessed; time does not force change. Commit actual selected perception with place observe. This read records no movement, speech, observation or elapsed time.'};
 }

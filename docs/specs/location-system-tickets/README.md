@@ -438,3 +438,37 @@ unrelated tea offer. This is not complete narrative acceptance. The existing
 location author note now positively asks for the selected observation findings,
 without adding a review gate or changing the other task's dialogue constraints.
 The author component suite passes; packaged real continuation is still required.
+
+### Read-only history reaches the actual author
+
+Final reference questions at minute 233 exposed a separate missing read seam.
+General recall did not retrieve old observation identities; explicit focused
+inspection exposed only the latest sighting, and its read result did not reach
+the sole author. The kernel now projects at most four delivered observations of
+the exact target/sense, preserving canonical refs and observed times. Unpublished
+settlement remains excluded. The host carries actual public reads into this
+input's author context, bounded to two scopes, without private target activity
+or a local actor card.
+
+The existing answered location-context decision prepares an unambiguous current
+observation route when reference context is needed. It uses the existing bounded
+read and packing budget, performs no new semantic decision, and changes no world
+state. Quiet/unavailable decisions and ambiguous route sets retain normal explicit
+inspection. The dedicated tool description now distinguishes reading old records
+from making another perception.
+
+Actual source global turn 40 now answers the same-person question using the four
+real observed clocks (217, 222, 227, 233); the following quiet input performs no
+location-history preparation. The canonical clock, position, features and latest
+observations remain unchanged. Evidence is reference3-audit.json and the original
+reference3 play run, including its actual MiniMax/medium author. Earlier wrong
+answers are retained. Controlled native author/privacy/expiry and real-RPC
+history/bound tests pass; quick 130/130, interface/language 10/10 and focused
+pressure 2/2 pass.
+
+leehow-pc became unreachable while full run.mWDp0tBc was being collected. Its
+compiled-byte parity with the earlier installed candidate is retained, but no
+overall result is assumed. The final frozen-source full regression moves to
+amax under its existing suite lock. Final rebuild, installed-reference and native
+cold-UI checks will use the new read-through source; prior App candidate evidence
+retains its own commit attribution.
