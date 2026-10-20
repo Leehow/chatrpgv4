@@ -49246,6 +49246,23 @@ Exact party names retain priority; unknown or out-of-range references are not
 guessed. This bridges the native actor namespace without weakening recovery or
 turning a parameter failure into an accepted action.
 
+Native parameter recovery permits at most two corrections for distinct refusal
+signatures within one player input. A repeated signature or a third refusal
+terminates recovery; reset the signature set only at the next input. Signatures
+use the refusal reason plus schema field findings, or its actual message when
+there are no field findings. This supersedes the single shared parameter retry
+allowance, not the separate missing-output allowance. Distinct local-position
+completion and schema-shape errors must not be mistaken for the same repeated
+mistake. Preserve every refusal and prior receipt, and run the unchanged current
+schema, action admission, transaction and publication checks on each correction.
+No argument is silently removed or repaired. Writer: the existing native refusal
+owner; reader and actor: the same bounded correction gate. Anthropic's tool-call
+documentation supports returning actual errors for model correction, and MCP
+specifies actionable tool errors for this purpose; neither promises successful
+recovery or justifies accepting invalid effects.
+References: https://platform.claude.com/docs/en/agents-and-tools/tool-use/handle-tool-calls
+and https://modelcontextprotocol.io/specification/2025-06-18/server/tools.
+
 ## 243. Enhanced Locations: spatial relations and observation continuity
 
 Owner approval (2026-10-19): complete the location association graph, observation

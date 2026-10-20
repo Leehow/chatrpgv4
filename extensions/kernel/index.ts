@@ -508,7 +508,7 @@ interface TableState {
 	firstSight: FirstSightTracker;
 	packetTimeBands?:string[];
 	packetSceneRequired?:boolean;
-	packetParameterRefused?:boolean;
+	packetParameterFailures?:Set<string>;
 	packetParameters?:{turn:number;run?:string;schema:ReturnType<typeof turnPacketParameterSchema>};
 	/** §168.5: `turn|item` pairs whose omission while their check ran is already on the telemetry line. */
 	firstSightOmitted: Set<string>;
@@ -5890,13 +5890,15 @@ export default function (pi: ExtensionAPI, host: {capabilities?:RuntimeCapabilit
 		state.renderedText=undefined;
 	}
     function refusePacketParameters(state:TableState,error:unknown,ctx?:ExtensionContext,beforeCommit=false){
-        const retry=state.packetParameterRefused!==true;state.packetParameterRefused=true;
-        if(!retry)endInput(state,'parameter_protocol_repeated',ctx,'settled_operation');
         const refusal={code:'invalid_params',message:error instanceof Error?error.message:String(error),
             ...(isKernelError(error)&&error.fix?{fix:error.fix}:{}),
             details:{...(isKernelError(error)?error.details:{}),...(error instanceof TurnPacketParameterError?{parameter_fields:error.fields}:{}),reason:isKernelError(error)&&error.details?.reason?error.details.reason:'turn_packet_parameters',parameter_phase:'turn_packet_parameters',...(beforeCommit?{before_commit:true}:{before_execution:true})}};
+        const failures=state.packetParameterFailures??=new Set<string>();
+        const signature=JSON.stringify([refusal.details.reason,error instanceof TurnPacketParameterError?error.fields:refusal.message]);
+        const repeated=failures.has(signature),retry=!repeated&&failures.size<2;failures.add(signature);
+        if(!retry)endInput(state,'parameter_protocol_repeated',ctx,'settled_operation');
         rememberTurnFailure(state,'output.parameters',refusal);
-        void record({lane:'arguments',event:'packet_parameters_refused',turn:state.turn,retry,phase:beforeCommit?'before_commit':'before_execution',jev_calls:0});
+        void record({lane:'arguments',event:'packet_parameters_refused',turn:state.turn,retry,repeated,distinct_failures:failures.size,phase:beforeCommit?'before_commit':'before_execution',jev_calls:0});
         return {retry,refusal};
     }
 	async function submitTurnPacket(params:Record<string,unknown>,signal?:AbortSignal,ctx?:ExtensionContext){
@@ -7962,7 +7964,7 @@ export default function (pi: ExtensionAPI, host: {capabilities?:RuntimeCapabilit
 			state.mapAttachments = [];
 			// A new player input is a new context (contract §32.4): no verdict outlives it.
 			state.playerText = text;
-			state.packetTimeBands=undefined;state.packetSceneRequired=undefined;state.packetParameters=undefined;state.packetParameterRefused=false;
+			state.packetTimeBands=undefined;state.packetSceneRequired=undefined;state.packetParameters=undefined;state.packetParameterFailures=undefined;
 			state.interactionScope = undefined;
 			state.interactionScopeSettled = undefined;
 			state.selectedWriting = false;

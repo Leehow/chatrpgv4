@@ -756,3 +756,29 @@ test('an unissued investigator reference remains refused without a roll or publi
  assert.equal(turn.receipts.filter(row=>row.kind==='roll').length,0);
  assert.equal(table.entries('coc-final-delivery').filter(row=>row.event==='end'&&row.status==='completed').length,0);
 });
+
+test('distinct native parameter corrections reach one valid settlement without accepting the malformed attempts',async t=>{
+ let requests=0;const batches=[];
+ const engine=createHybridEngine({env,decision:{decide:async batch=>{batches.push(batch);return answer(batch,.99);}}});
+ const commands=[{kind:'time',band:'several minutes',reason:'Look around the office.'},{kind:'time',band:'quick_observation',reason:'Look around the office.',unused:true},{kind:'time',band:'quick_observation',reason:'Look around the office.'}];
+ const table=await openTable({legacyDeliveryFixtures:false,realKernel:true,prepareWorkspace:opened,env,runDriver:engine.runDriver,
+  extraExtensions:[{name:'engine',factory:engine.extension}],responses:commands.map(command=>()=>{requests++;return fauxAssistantMessage([rawToolCall('output',{...brief,commands:[command,{kind:'scene',service:'open',crowd:'quiet'}]})],{stopReason:'toolUse'});})});
+ t.after(()=>table.dispose());await table.session.prompt('I look around the office without leaving.');
+ assert.equal(requests,3);assert.equal(batches.length,1,JSON.stringify(table.session.messages.filter(row=>row.role==='toolResult'&&row.isError).map(row=>row.details??row.content)));
+ const turn=JSON.parse(readFileSync(join(table.workspace,'.coc/campaigns/test-camp/turns/0001.json'),'utf8'));
+ assert.equal(turn.receipts.filter(row=>row.kind==='time').length,1);
+ assert.equal(table.entries('coc-final-delivery').filter(row=>row.event==='end'&&row.status==='completed').length,1);
+});
+
+test('a third distinct native parameter refusal terminates without a fourth attempt or any settlement',async t=>{
+ let requests=0;const batches=[];
+ const engine=createHybridEngine({env,decision:{decide:async batch=>{batches.push(batch);return answer(batch,.99);}}});
+ const commands=[{kind:'time',band:'several minutes',reason:'Look around the office.'},{kind:'time',band:'quick_observation',reason:'Look around the office.',unused:true},{kind:'time',band:'quick_observation',minutes:1,reason:'Look around the office.'},{kind:'time',band:'quick_observation',reason:'Look around the office.'}];
+ const table=await openTable({legacyDeliveryFixtures:false,realKernel:true,prepareWorkspace:opened,env,runDriver:engine.runDriver,
+  extraExtensions:[{name:'engine',factory:engine.extension}],responses:commands.map(command=>()=>{requests++;return fauxAssistantMessage([rawToolCall('output',{...brief,commands:[command,{kind:'scene',service:'open',crowd:'quiet'}]})],{stopReason:'toolUse'});})});
+ t.after(()=>table.dispose());await table.session.prompt('I look around the office without leaving.');
+ assert.equal(requests,3);assert.equal(batches.length,0);
+ const turn=JSON.parse(readFileSync(join(table.workspace,'.coc/campaigns/test-camp/turns/0001.json'),'utf8'));
+ assert.equal(turn.receipts.filter(row=>row.kind==='time').length,0);
+ assert.equal(table.entries('coc-final-delivery').filter(row=>row.event==='end'&&row.status==='completed').length,0);
+});
