@@ -2,6 +2,15 @@
 
 ## Current live-test profile (owner 2026-10-16)
 
+The RPC driver binds a requested turn to the exact user-message admission event.
+Prompt acknowledgement and an idle-state poll do not establish that admission:
+startup recovery may still run the previous unfinished input. Preserve all raw
+events, but exclude work, delivery and settle events before the requested user
+message from that input's result. A transport death still wakes the waiter.
+The `location-hydration-story-20261020` first summary was a previous-turn recovery
+settlement before its queued user message; it is invalid for acceptance of that
+new input. Its recovery, original failure and committed receipts remain evidence.
+
 The current default is `minimax-cn/MiniMax-M3.1-Flash-Preview` with `medium` reasoning for the Keeper, final author and supporting lanes. Select it explicitly and verify actual runtime attribution; older driver defaults do not select the current policy. Only after MiniMax reports exhausted quota, use `grok-build/grok-4.5` with `high` reasoning for all these roles, retaining the quota failure and actual switch evidence. Product model defaults remain unchanged. The older profiles and run-specific exceptions below are historical evidence, not current defaults; the current repository `Agents.md` governs subsequent tests.
 
 ## Blood Road run exception (owner 2026-10-16)

@@ -189,7 +189,7 @@ test('private play assistant text cannot become delivery at agent end or settled
 test('a dying private play process cannot publish assistant text in the durable turn summary',async()=>{
   const id='fixture-private-death-'+randomUUID();
   const daemon=new driver.Daemon(id,'fixture-private-death');
-  const pending=[{type:'agent_start'},
+  const pending=[{type:'message_end',message:{role:'user',content:[{type:'text',text:'Fixture input'}]}},{type:'agent_start'},
     {type:'message_update',assistantMessageEvent:{type:'text_delta',delta:'PRIVATE_PLAN'}},
     {type:'message_end',message:{role:'assistant',content:[{type:'text',text:'PRIVATE_RECORD'}]}}];
   daemon.pi={begin_turn:()=>({get:()=>pending.shift()}),end_turn(){},alive:()=>pending.length>0,

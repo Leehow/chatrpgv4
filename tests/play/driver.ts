@@ -292,6 +292,7 @@ export class Daemon {
                 return this._finalize_turn(n, text, stamp, started, [], '', 'empty', 'prompt rejected: ' + ack.error, { timings });
             const tools = new Map<any, Row>(), order: any[] = [], text_parts: string[] = [];
             const publicStreams=new Map<string,{attempt:string;sequence:number;text:string;turn:unknown;canonical?:string;completed?:boolean}>();
+            let input_observed=false,startup_events=0;
             let deliveredStreamId:string|null=null;
             let final_parts: string[] = [], delivered = '', delivery: Row | null = null, projected_mechanics: any[] = null as any, projected_choice: Row | null = null, public_clock: Row | null = null, rejected = false, confirmed = false, reason: string | null = null, settle_deadline: number | null = null, stale_deadline: number | null = null, saw_work = false, stale_settles = 0;
             const notices: Row[] = [], setup_openings: string[] = [], reference_replies: string[] = [], deadline = started + timeout;
@@ -348,6 +349,15 @@ export class Daemon {
                 if (typeof event._recv_mono === 'number' && event._recv_mono < ack_started)
                     continue;
                 const type = event.type;
+                if(type==='pi_process_closed'||!this.pi.alive()){reason='pi_died';break;}
+                if(!input_observed){
+                    const message=event.message,content=message?.content;
+                    const observed=typeof content==='string'?content:Array.isArray(content)?content.filter((part:Row)=>part?.type==='text').map((part:Row)=>part.text??'').join(''):null;
+                    if(['message_start','message_end'].includes(type)&&message?.role==='user'&&observed===text){
+                        input_observed=true;timings.input_observed_seconds=rounded(time.monotonic()-started);
+                    }else{startup_events++;if(type==='agent_settled')stale_settles++;continue;}
+                }
+                if(['message_start','message_end'].includes(type)&&event.message?.role==='user')continue;
                 if (['agent_start', 'turn_start', 'tool_execution_start', 'tool_execution_update', 'tool_execution_end', 'message_start', 'message_update', 'message_end'].includes(type)) {
                     saw_work = true;
                     stale_deadline = null;
@@ -509,7 +519,7 @@ export class Daemon {
                 : unfinished ? records.length ? 'undelivered_with_tools' : 'empty'
                 : final ? 'settled' : records.length ? 'undelivered_with_tools' : 'empty';
             timings.keeper_wait_seconds = rounded(time.monotonic() - ack_finished);
-            return this._finalize_turn(n, text, stamp, started, records, final, settled, reason, { stale_settles, delivery, timings, ...(public_clock ? { public_clock } : {}), ...(notices.length ? { notices } : {}), ...(reference_replies.length ? { reference_replies } : {}), ...(setup_openings.length ? { setup_opening: setup_openings.join('\n\n') } : {}) });
+            return this._finalize_turn(n, text, stamp, started, records, final, settled, reason, { input_observed,startup_events,stale_settles, delivery, timings, ...(public_clock ? { public_clock } : {}), ...(notices.length ? { notices } : {}), ...(reference_replies.length ? { reference_replies } : {}), ...(setup_openings.length ? { setup_opening: setup_openings.join('\n\n') } : {}) });
         }
         finally {
             this.pi.end_turn();
@@ -518,7 +528,7 @@ export class Daemon {
     async _finalize_turn(n: number, player_text: string, started_at: string, started_mono: number, records: Row[], final_text: string, settle_class: string, stop_reason: string | null, options: Row = {}): Promise<Row> { let player_view:Row|null = null; if (settle_class === 'settled' && options.public_clock)
         player_view = { status: 'ready', surface: 'clock', partial: true, source: 'committed_delivery', view: { clock: options.public_clock } };
     else if (settle_class === 'settled' && this.player_view_command)
-        player_view = await this._read_player_view(); const wall_seconds = rounded(time.monotonic() - started_mono), tools = records.map(t => ({ name: t.name ?? null, args: t.args ?? null, result_text: t.result_text || '', ms: t.ms ?? null, is_error: t.is_error || false })), summary: Row = { run_id: this.run_id, turn: n, player_text, final_text, tools, wall_seconds, settle_class, ...(options.timings ? { timings: { ...options.timings } } : {}), stop_reason, started_at, ended_at: now_iso() }; for (const key of ['stale_settles', 'delivery', 'notices', 'reference_replies', 'setup_opening'])
+        player_view = await this._read_player_view(); const wall_seconds = rounded(time.monotonic() - started_mono), tools = records.map(t => ({ name: t.name ?? null, args: t.args ?? null, result_text: t.result_text || '', ms: t.ms ?? null, is_error: t.is_error || false })), summary: Row = { run_id: this.run_id, turn: n, player_text, final_text, tools, wall_seconds, settle_class, ...(options.timings ? { timings: { ...options.timings } } : {}), stop_reason, started_at, ended_at: now_iso() }; if(typeof options.input_observed==='boolean')summary.input_observed=options.input_observed; for (const key of ['startup_events','stale_settles', 'delivery', 'notices', 'reference_replies', 'setup_opening'])
         if (options[key])
             summary[key] = options[key]; if (player_view != null)
         summary.player_view = player_view; write_json(join(this.dir, 'turn-' + n + '.json'), summary); this._write_heartbeat('running'); this.log.write(`turn ${n} settle_class=${settle_class} stop_reason=${stop_reason} wall=${wall_seconds}s tools=${JSON.stringify(tools.map(t => t.name))}`); return { ok: true, summary }; }

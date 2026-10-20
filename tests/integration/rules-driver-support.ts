@@ -1,7 +1,7 @@
 /** Native driver transport probes; all event fixtures remain unit evidence only. */
 import * as native from '../play/driver.ts';
 import { pyMethod as baseMethod } from './npc-support.ts';
-export async function replay_turn(events: any[], timeout = 10, setup_transport = false) { const old = native.time.monotonic, clock = { value: 0 }, pending = [...events]; native.time.monotonic = () => clock.value; try {
+export async function replay_turn(events: any[], timeout = 10, setup_transport = false) { const old = native.time.monotonic, clock = { value: 0 }, pending = [[0,{type:'message_end',message:{role:'user',content:[{type:'text',text:'Continue investigating.'}]}}],...events]; native.time.monotonic = () => clock.value; try {
     const daemon = Object.create(native.Daemon.prototype);
     daemon.turn_count = 0;
     daemon.setup_transport = setup_transport;
@@ -33,7 +33,7 @@ export async function continuous_readiness_probe(_monkeypatch: any, states: any[
     const daemon = Object.create(native.Daemon.prototype);
     daemon.turn_count = 0;
     daemon.pi = { begin_turn: () => ({ get(timeout: number) { if (accepted) {
-                clock.value += Math.min(.1, timeout);
+                if(work[0]?.message?.role!=='user')clock.value += Math.min(.1, timeout);
                 if (work.length)
                     return work.shift();
                 clock.value += Math.max(0, timeout - .1);
@@ -43,6 +43,7 @@ export async function continuous_readiness_probe(_monkeypatch: any, states: any[
             return supplied.length ? supplied.shift() : last;
         } if (req.type === 'prompt') {
             accepted = true;
+            work.unshift({type:'message_end',message:{role:'user',content:[{type:'text',text:req.message}]}});
             clock.value += .2;
         } return { success: true }; } };
     daemon._finalize_turn = (n: any, text: any, start: any, mono: any, tools: any, final: any, settled: any, reason: any, kw: any = {}) => ({ settle_class: settled, stop_reason: reason, wall_seconds: clock.value, final_text: final, ...kw });
