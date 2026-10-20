@@ -171,8 +171,8 @@ export function offeredTools(tools: readonly CocToolSpec[], env: Readonly<Record
         promptSnippet:'Inspect location context; output.commands owns location changes.'};
       if(spec.name==='apply'){
         const parameters=cloneSchema(spec.parameters) as Record<string,any>;
-        parameters.properties.effects.items.anyOf=parameters.properties.effects.items.anyOf.filter((branch:any)=>!['place','move'].includes(variantKind(branch)));
-        return {...spec,parameters,description:spec.description+' Location changes belong exclusively in output.commands, never in this tool.'};
+        parameters.properties.effects.items.anyOf=parameters.properties.effects.items.anyOf.filter((branch:any)=>variantKind(branch)!=='place');
+        return {...spec,parameters,description:spec.description+' Enhanced location actions belong in output.commands. The existing mechanical move effect remains available for issued owed recovery and mixed atomic transactions.'};
       }
       return spec;
     }):current;

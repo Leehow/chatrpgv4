@@ -17,7 +17,7 @@ test('native place is inspection-only at registration and both provider detail l
   assert(Check(place.parameters,read));assert(!Check(place.parameters,write),'native writes belong to output.commands');
  }
  const kinds=tools.find(row=>row.name==='apply').parameters.properties.effects.items.anyOf.map(row=>row.properties.kind.const??row.properties.kind.enum?.[0]);
- assert(!kinds.includes('place'));assert(!kinds.includes('move'));
+ assert(!kinds.includes('place'));assert(kinds.includes('move'),'issued owed moves and existing mixed atomic transactions retain their mechanical route');
  assert(Check(COC_TOOLS.find(row=>row.name==='place').parameters,write),'legacy canonical route remains available');
 });
 

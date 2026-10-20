@@ -49923,8 +49923,10 @@ private copied RPC episodes are supplementary evidence only.
 
 - Native packet mode advertises place inspection only, with writes exclusively in
   output.commands. Registration, provider entry/detail projection and Mod words
-  must agree. Remove native apply's duplicate location variants; its canonical
-  internal handler and legacy standalone place submit stay available unchanged.
+  must agree. Remove native apply's duplicate enhanced-place variants; its
+  existing mechanical move effect remains for owed recovery and mixed atomic
+  transactions. Native output cannot express those older mechanical batches or
+  owed bindings. The internal handler and legacy place submit remain unchanged.
 - Admission uncertainty remains fail-closed. Its Keeper-facing error includes the
   bounded proposed operation lines and reviewer grounds already in its details,
   so the Keeper can distinguish the refusal from successful receipts. It confers

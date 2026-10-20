@@ -121,13 +121,12 @@ test('a cross-place observation reaches the actual sole author without moving th
  assert.equal(table.entries('coc-final-delivery').filter(row=>row.event==='end'&&row.status==='completed').length,1);
 });
 
-test('a standalone place observation survives frozen final preparation into the author',async t=>{
+test('a native place observation survives frozen final preparation into the author',async t=>{
  let ref;
  const engine=createHybridEngine({env,decision:{decide:async batch=>answer(batch,.99)}});
  const table=await openTable({legacyDeliveryFixtures:false,realKernel:true,prepareWorkspace:opened,env,runDriver:engine.runDriver,
   extraExtensions:[{name:'engine',factory:engine.extension}],responses:[
-   ()=>fauxAssistantMessage([rawToolCall('place',{op:'submit',change:{action:'observe',to:'here',sense:'sight',access:'clear',scope:'The desk area.',facts:['The visitor waits beside the desk.'],people:[ref]}})],{stopReason:'toolUse'}),
-   ()=>fauxAssistantMessage([rawToolCall('output',{version:4,commands:[{kind:'scene',service:'open',crowd:'quiet'}]})],{stopReason:'toolUse'})]});
+   ()=>fauxAssistantMessage([rawToolCall('output',{version:4,commands:[{kind:'place',action:'observe',to:'here',sense:'sight',access:'clear',scope:'The desk area.',facts:['The visitor waits beside the desk.'],people:[ref]},{kind:'scene',service:'open',crowd:'quiet'}]})],{stopReason:'toolUse'})]});
  t.after(()=>table.dispose());ref=(await table.runtimeBridges().at(-1).call('table.capsule',{campaign:'test-camp'})).present.find(person=>person.name==='Steven Knott').ref;
  await table.session.prompt('I stay here and watch the visitor beside the desk.');
  assert.deepEqual(table.extensionErrors,[]);
