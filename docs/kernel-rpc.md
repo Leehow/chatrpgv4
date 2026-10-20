@@ -50028,3 +50028,13 @@ these public outcome fields and does not infer consumption from a negative
 quantity without its actual purpose. Payment and elapsed time alone never prove
 delivery or consumption. The location Mod guides an ordinary chosen service to
 these existing effects; no service simulator or new intention ledger is added.
+
+In native output mode, cash field guidance must name only offered interfaces:
+an ordinary exact quotation uses cash mode quote, not removed narrate.quotes or
+prose price-token transport. This changes descriptions, not accepted shapes or
+financial authority. For a selected journey followed by a mechanical service,
+the retained nonpublishing mechanical move and NPC entrance can establish the
+ordinary destination and supplier before a later service transaction. Read the
+successful result before relying on it. An inquiry alone still authorizes no
+purchase or consumption; enhanced location details remain in the final packet.
+
