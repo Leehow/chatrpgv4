@@ -81,6 +81,9 @@ test('native standalone location settlement precedes a selected wait and final o
  const move=turn.receipts.findIndex(row=>row.kind==='place'&&row.action==='move'),wait=turn.receipts.findIndex(row=>row.kind==='time'),observe=turn.receipts.findIndex(row=>row.kind==='place'&&row.action==='observe');
  assert(move>=0&&wait>move&&observe>wait,'canonical receipt order must be move, wait, observe: '+JSON.stringify(turn.receipts));
  assert.equal(positionAtWait?.at,'street window','the real subsequent time review reads the committed current local position');
+ const protocol=table.telemetry().filter(row=>row.lane==='place-protocol');
+ assert(protocol.some(row=>row.phase==='normalized'&&row.arguments.action==='inspect'));
+ assert(protocol.some(row=>row.phase==='prepare'&&row.arguments.action==='inspect'),'the registered native tool actually records the pre-validation boundary');
  assert.equal(turn.receipts.filter(row=>row.kind==='place'&&row.action==='move').length,1,'final publication never replays the already settled position');
  assert.equal(table.telemetry().filter(row=>row.lane==='isolated-expression'&&row.event==='written').length,1);
  assert.equal(table.entries('coc-final-delivery').filter(row=>row.event==='end'&&row.status==='completed').length,1);

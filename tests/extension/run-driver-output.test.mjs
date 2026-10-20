@@ -1408,7 +1408,13 @@ test('the final provider request retains current prepended Keeper instructions a
  assert.match(text,/Keeper-only current state and actor perspectives/);
  assert.equal(/bare JSON object in version, record, text order/.test(text),false,
    'the actual higher-priority request must not redirect unsettled actions into final delivery');
- assert.equal(/Example:.*version.*record.*effects/.test(text),false,
+ const paragraphs=[];
+ const collect=value=>{if(typeof value==='string')paragraphs.push(...value.split(/\n\s*\n/));else if(value&&typeof value==='object')for(const item of Object.values(value))collect(item);};
+ collect(request.messages);
+ const retired=value=>/Example:.*version.*record.*effects/s.test(value);
+ assert(retired('Example: {"version":1,"record":{"effects":[]},"text":"Reply"}'),'the guard still catches the retired inline settlement');
+ assert.equal(['Example: place action move','version record effects'].some(retired),false,'separate tool examples cannot form a synthetic retired instruction');
+ assert.equal(paragraphs.some(retired),false,
    'the actual request must not supply the retired inline-settlement example');
 });
 

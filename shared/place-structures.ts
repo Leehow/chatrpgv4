@@ -7,7 +7,7 @@ const feature=Type.Object({name:name(),description:fact(),state:Type.Optional(fa
 export const PlaceAddition=Type.Object({name:Type.String({minLength:1,maxLength:240,description:'The leaf name, or an already qualified name under within. The parent prefix is never repeated.'}),within:Type.Optional(Type.Union([name(),Type.Null(),Type.Literal('')],{description:'The exact containing place. Omit, use JSON null or an empty string for no registered parent; never the literal string null.'})),description:Type.Optional(fact()),
     features:Type.Optional(Type.Array(feature,{maxItems:16}))},{additionalProperties:false});
 const using_skill=Type.Optional(Type.String({description:'Optional exact currently offered skill card name; host-only annotation, never authority.'}));
-const additions=Type.Optional(Type.Array(PlaceAddition,{minItems:1,maxItems:12}));
+const additions=Type.Optional(Type.Array(PlaceAddition,{minItems:1,maxItems:12,description:'Register new places or add missing features to existing places. For an existing place use only name and features; omit description rather than restating or shortening its registered appearance.'}));
 export const SpatialPoint=Type.Object({place:name(),at:Type.Optional(name())},{additionalProperties:false});
 const sense=()=>Type.Union([Type.Literal('sight'),Type.Literal('hearing')]);
 const observedFact=()=>Type.String({minLength:1,maxLength:600});

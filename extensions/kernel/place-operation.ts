@@ -2,7 +2,9 @@
 import type {CocToolName} from './tools.ts';
 /** A conflicting read is refused, never upgraded into a world write. */
 export function placeModeConflict(params:unknown):boolean {
-    return !!params&&typeof params==='object'&&(params as Record<string,unknown>).op==='inspect'&&Object.hasOwn(params,'change');
+    if(!params||typeof params!=='object')return false;
+    const read=(params as Record<string,unknown>).op==='inspect'||(params as Record<string,unknown>).action==='inspect';
+    return read&&['change','to','relation'].some(field=>Object.hasOwn(params,field));
 }
 export function placeOperation(name:string,params:Record<string,unknown>):{name:CocToolName;params:Record<string,unknown>} {
     if(name==='place'&&params.action==='inspect'){

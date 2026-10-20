@@ -37,7 +37,8 @@ const keys=(value:Record<string,unknown>,allowed:string[])=>Object.keys(value).e
 /** Diagnose with the declared schema before Pi can coerce supplied values. */
 export class TurnPacketParameterError extends Error {
  fields:string[];
- constructor(message:string,fields:string[]){super(message);this.name='TurnPacketParameterError';this.fields=fields;}
+ reason?:'multiple_destinations';
+ constructor(message:string,fields:string[],reason?:'multiple_destinations'){super(message);this.name='TurnPacketParameterError';this.fields=fields;this.reason=reason;}
 }
 function parameterError(label:string,schema:TSchema,value:unknown):Error {
  const errors=Errors(schema,value).slice(0,4);
@@ -181,7 +182,7 @@ export function turnPacket(text:string,parameters?:TSchema):TurnPacket {
   for(const name of [...command.people??[],...(command.situations??[]).flatMap(situation=>situation.participants??[])])
    if(isNewNpcSlot(name)&&!slots.includes(name))throw Error('Unbound observation newcomer slot');
  const journeys=commands.filter(a=>a.kind==='move'||a.kind==='place'&&a.action==='move');
- if(journeys.length>1)throw Error('Only one destination per decision packet');
+ if(journeys.length>1)throw new TurnPacketParameterError('Only one destination per decision packet',['commands'],'multiple_destinations');
  return packet;
 }
 export function compileTurnPacket(packet:TurnPacket|BoundTurnPacket):{responses:ResponseDecision[];effects:Record<string,unknown>[];event?:{name:string;relationships:Array<{actor:string;toward:string;statement:string}>}} {

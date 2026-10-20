@@ -221,6 +221,7 @@ test('a missing route on direct place submit permits a corrected native arrival 
 test('an empty spatial decision is corrected before any author or world change',async t=>{
  let demand=()=>{};
  const engine=createHybridEngine({env,decision:{decide:async batch=>{
+  if(batch.family==='location-route-coverage')return answer(batch,batch.state.location_steps.some(step=>step.destination?.place==='Ordinary Inn')?.99:.01);
   if(batch.family!=='location-decision-coverage')return answer(batch,.99);
   const values={move_selected:.99,move_satisfied:batch.state.proposed_effects?.some(row=>row.kind==='place'&&row.action==='move'&&row.to==='Ordinary Inn')?.99:.01,move_blocked:.01,feature_selected:.01,feature_satisfied:.01,feature_blocked:.01};
   return {...answer(batch,.99),answers:Object.fromEntries(batch.questions.map(q=>[q.key,{status:'answered',type:'noul',noul:values[q.key]}]))};

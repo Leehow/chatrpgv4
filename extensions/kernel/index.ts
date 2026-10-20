@@ -2,6 +2,8 @@ import {adviseLocationReference} from './location-reference.ts';
 import {locationDescription} from './location-description.ts';
 import {settledAdmissionEvidence} from './settled-admission.ts';
 import {placeOperation,placeModeConflict} from './place-operation.ts';
+import {immediatelyPrecedingUnfinished} from './admission.ts';
+import {createPlaceCallEvidence} from '../../runtime/place-call-evidence.ts';
 import {DecisionContent,decisionPerson,bindCreatedDecisionPerson} from '../../runtime/decision-content.ts';
 import {Errors as argumentErrors} from 'typebox/value';
 import {SourceConsultations} from '../module/source-consultations.ts';
@@ -1930,6 +1932,9 @@ export default function (pi: ExtensionAPI, host: {capabilities?:RuntimeCapabilit
 	});
 
 	pi.events.on('coc:native-search-event', (entry: Record<string, unknown>) => {void record(entry);});
+    const placeProtocol=createPlaceCallEvidence(row=>{void record(row).catch(()=>{});});
+    pi.on('provider_stream_event',event=>{if(table)placeProtocol.provider(event,table.turn);});
+    pi.on('message_end',event=>{if(table)placeProtocol.message(event.message as any,table.turn);});
 
 	async function record(entry: Record<string, unknown>): Promise<void> {
 		const run = table?.skillRun;
@@ -2695,11 +2700,7 @@ export default function (pi: ExtensionAPI, host: {capabilities?:RuntimeCapabilit
 			state.party.push({ name, ...(occupation ? { occupation } : {}), ...(id ? { id } : {}) });
 		} else if (member && id && !member.id) member.id = id;
 		if (Array.isArray(view.recent)) {
-			state.interruptedPlayerText = [...view.recent].reverse().flatMap((row) => {
-				const entry = row as Record<string, unknown> | null;
-				const player = asString(entry?.player);
-				return entry?.closed === "stranded" && player ? [player] : [];
-			})[0];
+			state.interruptedPlayerText = immediatelyPrecedingUnfinished(view.recent);
 			state.recent = view.recent.flatMap((row) => {
 				const entry = row as Record<string, unknown> | null;
 				const keeper = asString(entry?.keeper);
@@ -5913,8 +5914,9 @@ export default function (pi: ExtensionAPI, host: {capabilities?:RuntimeCapabilit
 		state.renderedText=undefined;
 	}
     function refusePacketParameters(state:TableState,error:unknown,ctx?:ExtensionContext,beforeCommit=false){
+        const fix=[isKernelError(error)?error.fix:undefined,error instanceof TurnPacketParameterError&&error.reason==='multiple_destinations'?TURN_PACKET_LOCATION_STEPS:undefined].filter(Boolean).join(' ');
         const refusal={code:'invalid_params',message:error instanceof Error?error.message:String(error),
-            ...((isKernelError(error)&&error.fix)||state.locationReviewTurn===state.turn?{fix:[isKernelError(error)?error.fix:undefined,state.locationReviewTurn===state.turn?TURN_PACKET_LOCATION_STEPS:undefined].filter(Boolean).join(' ')}:{}),
+            ...(fix?{fix}:{}),
             details:{...(isKernelError(error)?error.details:{}),...(error instanceof TurnPacketParameterError?{parameter_fields:error.fields}:{}),reason:isKernelError(error)&&error.details?.reason?error.details.reason:'turn_packet_parameters',parameter_phase:'turn_packet_parameters',...(beforeCommit?{before_commit:true}:{before_execution:true})}};
         const failures=state.packetParameterFailures??=new Set<string>();
         const signature=JSON.stringify([refusal.details.reason,error instanceof TurnPacketParameterError?error.fields:refusal.message]);
@@ -7066,6 +7068,7 @@ export default function (pi: ExtensionAPI, host: {capabilities?:RuntimeCapabilit
 			// the literal's body without its quotes -- is decoded between the two, so the label rule and every reader after it
 			// see the text.
 			prepareArguments: (args: unknown) => {
+				if(spec.name==='place'&&table)placeProtocol.prepare(args,table.turn);
 				if(spec.name==='place'&&placeModeConflict(args))throw new Error(new KernelError({code:'invalid_params',message:'place inspect is read-only and cannot accept change',fix:'If you intend this location change, explicitly retry with the intended action and its fields at the top level, for example {action:"move",to,at}. Do not send op or change. For a read, omit change and use name/at/sense/need. Nothing was executed; never repeat successful receipts.'}).toToolText());
 				const supplied=spec.name==='apply'?normalizeApplyArguments(args):args;
 				const normalized=turnPacketPrototype&&spec.name==='output'?normalizeTurnPacketArguments(supplied):normalizeToolArgumentSyntax(spec.parameters,supplied,{nativeValidation:true});

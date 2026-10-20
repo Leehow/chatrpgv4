@@ -1,4 +1,10 @@
 import {decisionEvidence} from '../../runtime/jev/decision-evidence.ts';
+/** Only the immediately preceding declaration can be an unfinished continuation. */
+export function immediatelyPrecedingUnfinished(recent:unknown):string|undefined {
+    if(!Array.isArray(recent))return;
+    const last=recent.at(-1);
+    return last?.closed==='stranded'&&typeof last.player==='string'&&last.player.trim()?last.player:undefined;
+}
 /**
  * Action admission (contract §32): before the Keeper may settle a voluntary investigator action —
  * roll for it, walk somewhere, spend time or money, land a clue or a document, take or give an

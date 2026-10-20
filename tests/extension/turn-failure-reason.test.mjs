@@ -126,7 +126,8 @@ test('native output refusal reaches the player with its actual consent cause and
  assert.doesNotMatch(notice.content,/send anything|without a delivered result/);
  assert.equal(notice.details.failure.settled_receipts,0);
  assert.equal(notice.details.failure.failures.find(row=>row.reason==='action_admission_uncertain').operation,'apply');
- assert.equal(table.telemetry().filter(row=>row.lane==='admission').length,1);
+ assert.equal(table.telemetry().filter(row=>row.lane==='admission'&&row.event!=='uncertain_basis').length,1);
+ assert.equal(table.telemetry().filter(row=>row.lane==='admission'&&row.event==='uncertain_basis').length,1,'diagnostic evidence is not a second admission decision');
  assert.equal(table.entries('coc-final-delivery').filter(row=>row.event==='delta').length,0);
  await waitFor(()=>table.telemetry().some(row=>row.event==='released'&&row.ok),{label:'the failed input release'});
  await table.session.prompt('I wait here.');

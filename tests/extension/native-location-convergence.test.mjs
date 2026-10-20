@@ -26,8 +26,10 @@ test('actual non-strict Anthropic wire retains explicit place mode guidance afte
   assert.equal(schema.properties.op,undefined);assert.equal(schema.properties.change,undefined);
  }
  assert(placeModeConflict({op:'inspect',change:{action:'move',to:'Street'}}));
+ assert(placeModeConflict({action:'inspect',to:'Street',relation:'beside'}));
  assert(!placeModeConflict({op:'submit',change:{action:'move',to:'Street'}}));
  assert(!placeModeConflict({op:'inspect',name:'Street'}));
+ assert(!placeModeConflict({action:'inspect',name:'Street',at:'corner'}));
 });
 
 test('native place can commit a step before later mechanics with compact provider context',()=>{
