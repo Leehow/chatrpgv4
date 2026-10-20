@@ -1,3 +1,4 @@
+import {decisionEvidence} from '../../runtime/jev/decision-evidence.ts';
 /**
  * Action admission (contract §32): before the Keeper may settle a voluntary investigator action —
  * roll for it, walk somewhere, spend time or money, land a clue or a document, take or give an
@@ -1430,6 +1431,7 @@ export async function reviewAdmissionJevOnly(options:PrimaryAdmissionReviewOptio
             const offer=requirement.earlier_full_quotes.find((_:unknown,offerIndex:number)=>probability('cash_offer_'+index+'_'+offerIndex)!>=CONTINUOUS_ADMISSION_MIN_PROBABILITY);
             return offer?[{index:requirement.index,amount:requirement.cash_debit,basis:'offer' as const,evidence:offer.quote}]:[];
         });
+        if(uncertain)try{void Promise.resolve(options.record({lane:'admission',event:'uncertain_basis',turn:context.turn,basis:decisionEvidence(batch,result.answers)})).catch(()=>{});}catch{/* Diagnostics never change consent. */}
         return{ok:true,ms:clock.now()-began,meta,verdict:{verdict,grounds,
             ...(cashLimits.length?{cash_limits:cashLimits}:{}),
             ...(refused>=0?{missing:'This line adds an unchosen voluntary act or crosses a current player constraint.'}:uncertain?{missing:'The consent decision is uncertain; no authority was established.'}:{}),reviewer:'jev',path:'typed'}};

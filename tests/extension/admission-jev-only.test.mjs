@@ -32,8 +32,10 @@ test('typed action admission needs one Jev batch and no generative review',async
 });
 
 test('uncertain typed admission never grants authority',async()=>{
-    const result=await admission.reviewAdmissionJevOnly(options('authorized',.5).value);
+    const rows=[],selected=options('authorized',.5);selected.value.record=row=>rows.push(row);
+    const result=await admission.reviewAdmissionJevOnly(selected.value);
     assert.equal(result.ok,true);assert.equal(result.verdict.verdict,'uncertain');
+    const basis=rows.find(row=>row.event==='uncertain_basis').basis;assert.equal(basis.request.state.current_player_words,context.playerText);assert.equal(basis.answers.consent_0.noul,.5);assert(!JSON.stringify(basis).includes('SECRET_DOES_NOT_AUTHORIZE'));assert(basis.bytes<=32768);
 });
 
 test('local movement can resolve a spatial reference from delivered description without turning it into consent',async()=>{

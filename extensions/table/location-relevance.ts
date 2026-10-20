@@ -1,3 +1,4 @@
+import {decisionEvidence} from '../../runtime/jev/decision-evidence.ts';
 /** Closed context and completion decisions never grant a world action. */
 import {createHash} from 'node:crypto';
 import {TaskLease} from '../../runtime/jev/task-context.ts';
@@ -83,7 +84,8 @@ export async function locationDecisionCoverage(input:Row,binding:Row,decision:De
   return [axis,status];
  }));
  return {...result,...(!batch.questions.length?{status:'accounted'}:{}),selection,accounting,jev_calls:batch.questions.length?1:0,
-  covered:Object.values(disposition).every(status=>!['missing','uncertain'].includes(status)),axes:disposition};
+  covered:Object.values(disposition).every(status=>!['missing','uncertain'].includes(status)),axes:disposition,
+  ...(Object.values(disposition).some(status=>['missing','uncertain'].includes(status))?{decision_basis:decisionEvidence(batch,result.probabilities)}:{})};
 }
 async function locationNoul(batch:DecisionBatch,decision:DecisionPort|undefined,signal:AbortSignal,parent?:TaskProviderBudget):Promise<Row> {
  if(!decision)return {status:'fallback',reason:'unconfigured'};
