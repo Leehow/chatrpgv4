@@ -57,6 +57,21 @@ function parameterError(label:string,schema:TSchema,value:unknown):Error {
  const fields=[...new Set(errors.map(error=>`${label}${error.keyword==='additionalProperties'?'/<additional-property>':error.instancePath}: ${explanation(error)}`.slice(0,300)))];
  return new TurnPacketParameterError(`Invalid decision command: ${[...new Set(findings)].join('; ')||`${label} requires nonblank bounded strings`}`.slice(0,1600),fields);
 }
+function commandArrayDiagnostic(parameters:TSchema,value:unknown):Error|undefined {
+ if(!Array.isArray(value))return;
+ const declared=(parameters.properties as Record<string,any>)?.commands;
+ const alternatives=Array.isArray(declared?.anyOf)?declared.anyOf:[declared];
+ const branch=alternatives.find((candidate:Row)=>object(candidate)&&candidate.type==='array'&&object(candidate.items)
+  &&value.every(command=>!Errors(candidate.items,command).length));
+ if(!branch)return;
+ const active=[branch,...(branch.allOf??[]).flatMap((guard:Row)=>{
+  if(!object(guard.if))return [];
+  const selected=!Errors(guard.if,value).length?guard.then:guard.else;
+  return object(selected)?[selected]:[];
+ })];
+ const constraint=active.find(candidate=>object(candidate.contains)&&Errors(candidate,value).length);
+ return constraint?parameterError('commands',constraint,value):undefined;
+}
 export function responseDecision(value:unknown,slots:readonly string[]=[]):ResponseDecision {
  const schema=Interaction.anyOf.find(schema=>(schema.properties.act as any).const===(value as any)?.act||(schema.properties.act as any).enum?.includes((value as any)?.act))??Interaction;
  if(Errors(schema,value).length)throw parameterError('response',schema,value);
@@ -155,6 +170,7 @@ export function turnPacket(text:string,parameters?:TSchema):TurnPacket {
   }
  }
  if(Errors(TURN_PACKET_PARAMETERS,raw).length)throw parameterError('packet',TURN_PACKET_PARAMETERS,raw);
+ if(parameters){const diagnostic=commandArrayDiagnostic(parameters,raw.commands);if(diagnostic)throw diagnostic;}
  if(parameters&&Errors(parameters,raw).length)throw parameterError('packet',parameters,raw);
  const packet=raw as TurnPacket,commands=packet.commands??[],interactions=packet.interactions??[];
  const slots=commands.filter(a=>a.kind==='walk_on').map(a=>a.slot);

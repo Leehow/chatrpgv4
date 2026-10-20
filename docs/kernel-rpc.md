@@ -49300,6 +49300,19 @@ arrival before demanding another transition; neither determines TRPG meaning.
 References: https://kubernetes.io/docs/concepts/architecture/controller/
 and https://docs.unity.com/en-us/engine/7000.0/script-reference/unityengine/ai/navmeshagent.
 
+Native array-constraint diagnostics first select an alternative whose item
+schemas accept all supplied commands, then inspect its active if/then/else
+constraint. A journey missing the arrival scene assessment must name that
+assessment, not a reason required by an incompatible time-command alternative.
+This adds no accepted fields and removes no guards: the complete current schema
+still decides validity. Correct movement still rejects an undeclared reason.
+The current declaration writes the constraint, native preflight reads it and
+the same Keeper correction acts on the actual refusal. JSON Schema defines
+conditionals by the matching if branch; Ajv documents the distinction between
+validation and error reporting. References:
+https://json-schema.org/understanding-json-schema/reference/conditionals
+and https://ajv.js.org/options.
+
 Owner approval (2026-10-19): complete the location association graph, observation
 times and ongoing-event continuity, audit their complete wiring, then rebuild,
 package and test the canonical App. This extends section 242 rather than creating
