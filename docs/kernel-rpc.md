@@ -49165,3 +49165,153 @@ call through the normal path; never extract commands from surrounding prose,
 invent a missing version/name, or regard the packet as settled before receipts.
 This is a second closed transport spelling of the same decision, not a fallback
 author, generic argument-object inference or permission to execute player text.
+## 243. Enhanced Locations: spatial relations and observation continuity
+
+Owner approval (2026-10-19): complete the location association graph, observation
+times and ongoing-event continuity, audit their complete wiring, then rebuild,
+package and test the canonical App. This extends section 242 rather than creating
+a second world graph, NPC store, clock, transaction owner or prose author.
+
+### 243.1. Intent and ownership
+
+The player can observe the same street incident before entering an inn and later
+through its window. Place changes do not recreate its people or freeze its past.
+Success means real observation from different positions, consistent identities,
+elapsed fictional time, persisted consequences and delivered limited knowledge.
+Adding unused graph fields, synthesizing an incident in a test script, or passing
+only structural tests is not live acceptance.
+
+Enhanced Locations 1.1.0 requires `locations.observation.v1` as well as
+`locations.v1`. Its state version and location schema remain 1: optional arrays
+`relations`, `situations` and `observations` are additive. Old packages and old
+campaign state remain valid; normal Mod configuration adopts the new immutable
+package. Disabling the Mod preserves reads and refuses new enhanced writes.
+The authored graph remains read-only; campaign relations are its typed overlay.
+
+Spatial points are `{place,at?}` with an exact registered place and optional local
+feature. Existing containment and travelled routes retain their owners. A
+perceptual relation is `{from:point,to:point,sense:sight|hearing,description}`.
+It is directed, is not transitive, and grants no passage or NPC placement.
+Descriptions hold compatible layout and limiting conditions; the Keeper judges
+their current meaning alongside actual feature state, light and distance.
+`passable:false` does not imply opaque glass, nor does containment imply sight.
+
+### 243.2. One typed interface
+
+The same `PlaceEffect`, transaction and admission support two additional actions:
+
+- `relate`: `relations` records minimal perceptual relations, with optional
+  ordinary `additions`. Repeating an identical relation reuses it. Conflicting
+  structural redefinition is an argument correction, not a new physical barrier.
+  This is Keeper world authoring, like establishment, not player construction.
+- `observe`: `to`, optional target `at`, `sense`, `access:clear|limited|blocked`,
+  `scope`, `facts`, optional `reason`, `people`, `situations`, `relations` and
+  `additions`. The host obtains the source point from the actual party position.
+  Compatible missing places/features/relations can be added in this command;
+  no earlier inspect or graph-registration ritual is required. Cross-place
+  observation needs a matching directed relation from that actual viewpoint.
+  A local observation needs no cross-place relation. A missing relation requests
+  its logical definition, never asserts the destination is invisible in fiction.
+
+`scope` states the actual observed portion; a named target feature gives that
+portion durable identity. A sight of one street corner never updates the whole
+street's observation. `facts` is at most six observable fact lines, each at most
+600 characters, not a narrative, dialogue script, secret dossier or general event
+program. `people` names at most eight existing canonical people currently at the
+target place. It records visibility/audibility without moving them into the
+observer's room. A blocked attempt has a concrete reason, no target facts,
+people or situation updates, and does not replace the last successful sight.
+
+Situations are modest incident records scoped to the target point:
+`{name,summary,status:ongoing|ended|unknown,participants?}`. Names, summaries and
+participants describe the already established or currently observed incident;
+they are not a new template taxonomy. The host mints stable identity, keeps the
+same incident across updates and records the current game clock as its assessed
+time. Participants resolve existing people, including a former participant who
+has actually left; their membership does not assert current visibility. A
+situation update moves nobody, performs no check and alters no resource. Actual
+NPC changes and mechanical consequences use their existing effects/resolve,
+possibly earlier in the same atomic batch. An unseen departure is not proven
+solely by failing to see somebody. `unknown` preserves that distinction.
+
+`place inspect` gains `need:observation`, optional target `name`, `at` and `sense`.
+This is a read-only preparation view: actual viewpoint, matching relations,
+target feature state, canonical target people/activity, previous delivered
+observations and situations with elapsed/review metadata. It records no player
+observation, advances no time and settles no event. Existing `need:context` adds
+only bounded current-point relation/observation summaries; quiet turns do not
+receive every remote place or event. The small resident declaration advertises
+this read; complete detail and instructions retain section 242 demand disclosure.
+
+### 243.3. Time, evidence and repeatability
+
+All intervals use the canonical game clock, never wall time, App uptime or model
+latency. The host computes arithmetic. Keep these times distinct:
+
+1. The incident's last assessed/advanced game clock, which constrains its current
+   world state even if another action updated it while the player was elsewhere.
+2. Each actual observation's game clock, source point, target point, sense,
+   coverage, perceived facts and participants.
+
+Elapsed time requests a review; it neither guarantees a change nor defines a
+universal incident duration. The Keeper reuses current incident facts, intentions,
+known causes and commitments, then explicitly records only compatible present
+changes. Existing current state wins over an older observation. Repeated reads
+at the same time never advance anything. An observation that supplies no incident
+update reuses that state; retrying its canonical call replays the existing receipt.
+No always-running offstage simulation or extra text-generation lane is added.
+
+Each observation is a normal `place` receipt with a host-stamped game clock and
+complete bounded observation. The existing retained turn/call evidence is the
+append-only history. `locations.observations` is only a latest-settled index per
+party, target point and sense, not another full transcript or a whole-world copy.
+The prior delivered observation is derived from canonical committed deliveries
+on the current line/circuit; failed publication is not silently counted as
+player knowledge. A settled observation awaiting delivery remains explicit
+settled/undelivered context, and does not reset the incident's committed state.
+Reference/OOC replies and preparation reads do not advance observed time.
+
+### 243.4. All three ends
+
+- Writer: standalone place, mixed apply and native output share `stageLocation`.
+  They stage relation identity, situation updates, actual observation and the
+  latest index atomically, with ordinary call replay and rollback.
+- Reader: current-place projection advertises a bounded perceptual route; focused
+  inspect supplies current target state, both relevant clocks and prior evidence.
+  Remote people remain separate from `present` and retain public name knowledge.
+- Actor: the Keeper selects a real observation and necessary current incident/NPC
+  updates. Canonical outcomes carry only its committed public observation into
+  the sole author. The author receives the visible identities and scope without
+  the target's private scene/NPC dossier, and cannot turn observation into entry,
+  dialogue, a hidden identity disclosure or a second arrival.
+
+Native output exposes every stationary place action from the shared schema,
+not a hard-coded first-three-variants subset. Outcome preparation, final-result
+validation and the direct author's cast all consume the same committed
+observation. Location applicability includes cross-place perception; observation
+admission judges the selected sensory action and scope without treating its
+target as a journey. Relations/establishment remain Keeper structural authoring.
+Consent family 10 changes these meanings; thresholds and independent restrictions
+remain unchanged. No additional Jev generation or completion-veto axis is added.
+
+### 243.5. Acceptance and implementation decisions
+
+Required deterministic checks cover directed relations, separate senses, closed
+glass, scoped observations, no physical relocation, real NPC identity, clock
+arithmetic, read-only preparation, current-state precedence, blocked views,
+atomic rollback/replay, old-state compatibility, disable/restart retention,
+native schema parity, canonical outcome consumption and public-author privacy.
+Real play must exercise natural exploration and cross-place observation through
+the actual RPC Keeper, then package acceptance must launch the one stable-signed
+canonical App and exercise its real UI. Preserve failed evidence. Tests must not
+hand-stage an argument or use a scripted player to claim live acceptance.
+
+Precedent comparison: OpenRA's `FrozenUnderFog` and 0 A.D.'s `Fogging` keep last
+observed representations separate from actual entities. This confirms the
+knowledge/state separation. Their continuous real-time simulation differs from
+this TRPG: here the existing Keeper establishes compatible bounded progress when
+needed. Neither precedent supplies permission for secret disclosure or a
+deterministic time-to-event table.
+
+- https://docs.openra.net/en/playtest/traits/#frozenunderfog
+- https://github.com/0ad/0ad/blob/master/binaries/data/mods/public/simulation/components/Fogging.js

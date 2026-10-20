@@ -25,6 +25,11 @@
         "before_apply:place"
       ],
       "kind": "situational"
+    },
+    {
+      "heading": "Spatial observation and continuity",
+      "triggers": ["before_apply:place"],
+      "kind": "situational"
     }
   ]
 }

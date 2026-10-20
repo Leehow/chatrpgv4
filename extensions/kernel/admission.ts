@@ -556,7 +556,7 @@ export function admissionRequest(tool: string, payload: Record<string, unknown>,
 		const reviewed = (effect: Record<string, unknown>): boolean => {
 			const kind = text(effect?.kind);
 			if (!kind || !TRIGGER_KINDS.has(kind)) return false;
-            if(kind==='place'&&effect.action==='establish')return false;
+            if(kind==='place'&&['establish','relate'].includes(String(effect.action)))return false;
             if(scope.consentOnly&&['clue','handout'].includes(kind))return false;
 			if (kind === "cash" && effect.mode === "quote") return false;
 			if (kind === "move" && here.includes(norm(effect.to)) && !text(effect.label)) return false;
@@ -1292,7 +1292,7 @@ export async function reviewAdmissionJevOnly(options:PrimaryAdmissionReviewOptio
     {ok:true;verdict:AdmissionVerdict;ms:number;meta:Record<string,unknown>}
     |{ok:false;reason:string;ms:number;meta:Record<string,unknown>}> {
     const clock=options.clock??hostClock,began=clock.now(),context=options.context;
-    const family='continuous-action-admission',version=options.proposal.kinds?.includes('place')?'9':'7';
+    const family='continuous-action-admission',version=options.proposal.kinds?.includes('place')?'10':'7';
     let mechanicsChoice:{action:string;choice:{name:string;binds:string;options:string[];prompt?:string}}|undefined;
     let mechanicsInput=false,mechanicsBinding:string|undefined;
     try{

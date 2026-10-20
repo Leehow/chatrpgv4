@@ -19,7 +19,7 @@ const time=Type.Object({kind:Type.Literal('time'),band:atom(64),reason:atom(),be
 const postTravelTime=Type.Object({...time.properties,beyond_travel:Type.Literal(true)},{additionalProperties:false});
 const relationship=Type.Object({kind:Type.Literal('relationship'),actor,toward:Type.String({pattern:'^(npc_[1-9][0-9]*|investigator_[1-9][0-9]*)$',maxLength:32}),affinity:StringEnum(['hostile','guarded','neutral','friendly'])},{additionalProperties:false});
 const placeMove=Type.Object(Type.Omit(PlaceEffect.anyOf[0],['travel_minutes']).properties,{additionalProperties:false,description:(PlaceEffect.anyOf[0] as {description?:string}).description});
-const placeStationary=[PlaceEffect.anyOf[1],PlaceEffect.anyOf[2]];
+const placeStationary=PlaceEffect.anyOf.slice(1);
 const commandSchemas=[move,placeMove,...placeStationary,npc,walkOn,scene,time,relationship];
 // Travel owns its time; explicitly separate post-arrival activity uses the canonical extra-time flag.
 const commands=Type.Union([Type.Array(Type.Union([move,placeMove,postTravelTime,...placeStationary,npc,walkOn,scene,relationship]),{maxItems:12}),Type.Array(Type.Union([time,...placeStationary,npc,walkOn,scene,relationship]),{maxItems:12})]);
@@ -146,6 +146,9 @@ export function turnPacket(text:string):TurnPacket {
  const labels=commands.filter(a=>a.kind==='walk_on').map(a=>a.label.normalize('NFKC').trim().toLowerCase());
  if(new Set(labels).size!==labels.length||new Set(slots).size!==slots.length||commands.filter(a=>a.kind==='scene').length>1)throw Error('Duplicate newcomer labels, scene or slot');
  interactions.forEach(value=>responseDecision(value,slots));
+ for(const command of commands)if(command.kind==='place'&&command.action==='observe')
+  for(const name of [...command.people??[],...(command.situations??[]).flatMap(situation=>situation.participants??[])])
+   if(isNewNpcSlot(name)&&!slots.includes(name))throw Error('Unbound observation newcomer slot');
  const journeys=commands.filter(a=>a.kind==='move'||a.kind==='place'&&a.action==='move');
  if(journeys.length>1)throw Error('Only one destination per decision packet');
  return packet;
@@ -153,10 +156,13 @@ export function turnPacket(text:string):TurnPacket {
 export function compileTurnPacket(packet:TurnPacket|BoundTurnPacket):{responses:ResponseDecision[];effects:Record<string,unknown>[];event?:{name:string;relationships:Array<{actor:string;toward:string;statement:string}>}} {
  const commands=packet.commands??[];
  const directed=commands.filter(a=>a.kind==='relationship');
- const ordered=[...commands.filter(a=>!['walk_on','scene','relationship'].includes(a.kind)),...commands.filter(a=>a.kind==='walk_on'),...commands.filter(a=>a.kind==='scene')];
+ const observed=(a:typeof commands[number])=>a.kind==='place'&&a.action==='observe';
+ const ordered=[...commands.filter(a=>!['walk_on','scene','relationship'].includes(a.kind)&&!observed(a)),...commands.filter(a=>a.kind==='walk_on'),...commands.filter(a=>a.kind==='scene'),...commands.filter(observed)];
+ const newcomers=new Map(commands.filter(a=>a.kind==='walk_on').map(a=>[a.slot,a.label]));
+ const person=(name:string)=>newcomers.get(name)??name;
  return {responses:packet.interactions??[],...(directed.length?{event:{name:'Directed relationship update',relationships:directed.map(row=>({actor:row.actor,toward:row.toward,statement:JSON.stringify({kind:'directed_relationship',affinity:row.affinity})}))}}:{}),effects:ordered.map(a=>a.kind==='move'?{kind:'move',to:a.to,...(a.via?{via:a.via}:{}),
   ...('travel_minutes'in a&&a.travel_minutes!==undefined?{travel_minutes:a.travel_minutes}:{}),...(a.travel_band?{travel_band:a.travel_band}:{})}
-  :a.kind==='place'?{...a}:a.kind==='npc'?{kind:'npc',name:a.actor,to:a.to,why:a.reason}:a.kind==='walk_on'?{kind:'npc',name:a.label,to:'here',walk_on:true,_new_person:true,why:a.reason}
+  :a.kind==='place'?a.action==='observe'?{...a,...(a.people?{people:a.people.map(person)}:{}),...(a.situations?{situations:a.situations.map(situation=>({...situation,...(situation.participants?{participants:situation.participants.map(person)}:{})}))}:{})}:{...a}:a.kind==='npc'?{kind:'npc',name:a.actor,to:a.to,why:a.reason}:a.kind==='walk_on'?{kind:'npc',name:a.label,to:'here',walk_on:true,_new_person:true,why:a.reason}
   :a.kind==='scene'?{kind:'scene',name:'here',_population:true,activity:{service:a.service,crowd:a.crowd,basis:'established',summary:`Service is ${a.service}; crowd is ${a.crowd}.`,review_after_minutes:a.review_after_minutes??15},why:'Current place, clock and registered circumstances establish this population assessment.'}
   :a.kind==='time'?{kind:'time',band:a.band,why:a.reason,...(a.beyond_travel===true?{beyond_travel:true}:{})}:(()=>{throw Error('Non-effect decision command reached the effect compiler');})())};
 }
@@ -167,7 +173,7 @@ export function turnPacketResult(value:unknown):{player_actions_complete:true;np
     throw Error('Part of the operation did not land; preserve its actual results and do not author completion');
   return {player_actions_complete:true,npc_actions_complete:true,outcomes:value.outcomes.map(row=>{
     if(!object(row)||!['move','place','npc','time','item'].includes(row.kind)||!['changed','unchanged'].includes(row.status))throw Error('Invalid canonical operation outcome');
-    return Object.fromEntries(['kind','status','action','actor','name','from','to','minutes','band','quantity','offer','place','position','feature','state','added','features'].filter(key=>row[key]!==undefined).map(key=>[key,row[key]]));
+    return Object.fromEntries(['kind','status','action','actor','name','from','to','minutes','band','quantity','offer','place','position','feature','state','added','features','observation'].filter(key=>row[key]!==undefined).map(key=>[key,row[key]]));
   })};
 }
 export const TURN_PACKET_GUIDANCE='Submit one output packet {version:4,commands?,interactions?,reveal?}. Omit unchanged categories. Commands settle before communication; this is not an interleaved program. '

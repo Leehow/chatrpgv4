@@ -1,6 +1,6 @@
 # Enhanced Locations
 
-Use place for location work. Natural-language travel may reach compatible unregistered places: establish only the minimum observable structure and enter in one command. Reuse known identities. A feature or corner can be a local position. Read place {op:"inspect",need:"contract"} for detail when needed.
+Use place for location work, including cross-place sight/hearing and incident continuity. Compatible unregistered places need only minimal observable structure. Reuse identities. A feature or corner can be a local position. Inspect need:"contract" supplies detail; need:"observation" reads a target and previous observations without claiming perception.
 
 ## Identity and structure
 
@@ -21,3 +21,15 @@ One submit can create a compatible destination and enter it atomically. Mixed-do
 Establish alone registers surroundings and moves nobody. When the player goes to a new room, use action:"move" with the room in additions and its qualified name in to. Time or NPC presence updates do not substitute for that arrival receipt.
 
 For a feature-only addition to an existing authored place, omit its description and supply only its name plus missing features. Source appearance is not replaced. When a route crosses an existing boundary, bind through:{place,feature}; its current passable:false is a concrete obstacle. Describe and resolve the player's actual attempt before changing that feature's state. An alternate route is a separate fictional claim for the Keeper to judge, not a way to clear a lock flag.
+
+## Spatial observation and continuity
+
+Containment, passage and perception are different relations. A window may show a street without permitting passage; closed glass does not by itself block sight. Record directed potential sight/hearing with action:"relate",relations:[{from:{place,at?},to:{place,at?},sense:"sight"|"hearing",description}]. Description states the compatible layout and conditions, not an unconditional visibility guarantee. Use the actual feature state, distance, light and obstructions to judge present perception. Do not require every possible view to be registered in advance.
+
+For an actual observation, use action:"observe",to:"target place",at?:"target feature",sense:"sight"|"hearing",access:"clear"|"limited"|"blocked",scope:"the actual observed portion",facts:["short perceived fact"],people?:["existing person name or npc_N"],situations?:[{name,summary,status:"ongoing"|"ended"|"unknown",participants?:["existing person"]}]. Add minimal missing additions/relations in this same command. The source is the committed party position; this does not walk to a window. A named target feature keeps one street corner distinct from the rest of the street. A blocked attempt has reason and empty facts, no people or situation updates. Missing registration alone is never that reason.
+
+Before selecting a current incident phase when continuity matters, inspect {need:"observation",name:"target place",at?:"target feature",sense}. The view gives previous delivered observations, the latest settled observation, actual target people/activity and current situations with game-time intervals. This read is private preparation, not something the player did or saw. A short incidental look need not create an incident. Use an incident record only for something whose continuing identity matters.
+
+Reuse the same incident name and people across viewpoints. Consider only elapsed game time not already assessed, established causes, participants' intentions and canonical actions. The old observation is player knowledge, not current truth. Time passing asks for a judgment; no universal timer forces every argument to end, and repeated looks do not reroll the world. Current canonical state wins when another action already advanced it. Record a compatible present phase or retain the existing one. An absent person may have left the view without the incident being proven over; unknown is available. Do not use observe to move a person, settle a check, grant an item or enact consequences: settle those through their existing effects first.
+
+Facts are at most six concise observable lines, not finished prose or hidden motives. The sole author receives only the committed facts, public identities and sensory scope. Seeing someone across the street does not put them in the room or start dialogue. Distinguish seeing gestures, hearing voices and understanding words. Never reveal an undisclosed real name from an incident record. A failed publication remains undelivered knowledge even if its canonical effects settled; preserve those effects and the retained earlier observation.

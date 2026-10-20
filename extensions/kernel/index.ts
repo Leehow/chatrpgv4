@@ -15,7 +15,7 @@ import {ArtifactTextStream} from '../../runtime/final-output-stream.ts';
 import {moveEstablishmentRefusal} from '../../shared/move-protocol.ts';
 import {SAME_KEEPER_AFTER_RESULT_GUIDANCE} from '../../runtime/keeper-output-guidance.ts';
 import {scenePopulationRequired,sceneAssessmentExpiredDuringActivity} from '../../runtime/scene-population.ts';
-import {ExpressionPlanStream,writeIsolatedExpression,decisionScene,decisionClock,decisionRecentPublic,decisionResponseScope} from '../../runtime/isolated-expression.ts';
+import {ExpressionPlanStream,writeIsolatedExpression,decisionScene,decisionClock,decisionRecentPublic,decisionResponseScope,decisionObservationScope} from '../../runtime/isolated-expression.ts';
 import {turnPacket,bindTurnPacketMoves,turnPacketMovementChoices,requireTurnPacketNpcDestinations,isNewNpcSlot,normalizeTurnPacketArguments,compileTurnPacket,turnPacketResult,turnPacketProviderPayload,type TurnPacket} from '../../runtime/turn-packet-prototype.ts';
 import {normalizeToolArgumentSyntax} from '../../runtime/tool-argument-syntax.ts';
 import {locationDecisionCoverage} from '../table/location-relevance.ts';
@@ -5732,6 +5732,7 @@ export default function (pi: ExtensionAPI, host: {capabilities?:RuntimeCapabilit
 		let operationResult:ReturnType<typeof turnPacketResult>={player_actions_complete:true,npc_actions_complete:true,outcomes:[]};
 		let decision:import('../../runtime/isolated-expression.ts').DecisionAuthorContext|undefined;
         let placeBoundAuthor=false;
+        let observationIdentities:Record<string,any>[]=[];
         const heldBoundary=heldActs.get(state),held=heldBoundary?.basis;
 		if(held&&(!turnPacketPrototype||heldBoundary?.uncommittedFailures()===undefined)){
 			endInput(state,'held_act_unconfirmed',undefined,'settled_operation');
@@ -5760,6 +5761,7 @@ export default function (pi: ExtensionAPI, host: {capabilities?:RuntimeCapabilit
             if((scenePopulationRequired(before)||newlyMoving)&&!compiled.effects.some(row=>row.kind==='scene'))throw new KernelError({code:'needs',message:'Assess scene service and population from the current place and clock with one scene command; missing registered names never means empty.'});
             packetNpcReferences(state).require(packetNpcScope(state),[...compiled.responses.flatMap(row=>[row.actor,...row.to??[]]).filter(isNpcReference),
                 ...compiled.effects.filter(row=>row.kind==='npc'&&!row.walk_on).map(row=>String(row.name)),
+                ...compiled.effects.filter(row=>row.kind==='place'&&row.action==='observe').flatMap(row=>[...row.people??[],...(row.situations??[]).flatMap((situation:Record<string,any>)=>situation.participants??[])]).filter(isNpcReference),
                 ...(compiled.event?.relationships.flatMap(row=>[row.actor,row.toward]).filter(isNpcReference)??[])]);
             if(keeperRun?.runId===reply.run&&keeperRun.routineResult){
                 if(newlyMoving||compiled.effects.some(effect=>effect.kind==='time'))throw new KernelError({code:'invalid_params',message:'The host already settled this input journey and its time; omit repeated journeys and time commands'});
@@ -5793,6 +5795,7 @@ export default function (pi: ExtensionAPI, host: {capabilities?:RuntimeCapabilit
 				operationResult=turnPacketResult(settled.details);
 			}
 			const current=await state.kernel.call<Record<string,any>>('table.capsule',{campaign:state.campaign,_context_read:true});
+            observationIdentities=[...(current.npc_references?.people??[]),...(current.present??[])];
             if(scenePopulationRequired(current)&&!compiled.effects.some(row=>row.kind==='scene')){
                 if(!sceneAssessmentExpiredDuringActivity(before,current,compiled.effects))throw new KernelError({code:'needs',message:'Scene population remains unassessed or conflicts with current registered presence; preserve receipts and complete the scene assessment before rendering.'});
                 await record({lane:'scene-population',event:'assessment_retired',turn:state.turn,reason:'settled_stationary_activity',population:'unknown'});
@@ -5833,6 +5836,7 @@ export default function (pi: ExtensionAPI, host: {capabilities?:RuntimeCapabilit
         if(decision){
             decision.settled_results=reply.stream.settledResults;
             operationResult=turnPacketResult(reply.stream.settledResults);
+            decision.observations=decisionObservationScope(operationResult.outcomes,observationIdentities);
         }
 		const authored=await writeIsolatedExpression({runtime,campaign:state.campaign,turn:state.turn,run:reply.run,
 			brief:legacy,decision,...(decision?{result:operationResult}:{}),language:state.playLanguage||'en',playerText:placeBoundAuthor?undefined:reply.stream.playerText,investigatorNames:reply.stream.investigatorNames,

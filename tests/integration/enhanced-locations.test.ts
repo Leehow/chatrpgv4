@@ -95,10 +95,10 @@ test('a versioned Mod migration and disable keep saved places readable while enh
     const path=join(k.workspace,'location-upgrade');mkdirSync(path);
     for(const file of ['agent.md','sections.json'])writeFileSync(join(path,file),readFileSync(join(ROOT,'mods/enhanced-locations',file)));
     const manifest=JSON.parse(readFileSync(join(ROOT,'mods/enhanced-locations/mod.json'),'utf8'));
-    manifest.version='1.1.0';manifest.state_version=2;manifest.migrations=[{from:1,to:2,operations:[{op:'default',key:'migration_marker',value:true}]}];
+    manifest.version='1.2.0';manifest.state_version=2;manifest.migrations=[{from:1,to:2,operations:[{op:'default',key:'migration_marker',value:true}]}];
     writeFileSync(join(path,'mod.json'),JSON.stringify(manifest));
     await k.ok('mods.install',{campaign:CAMPAIGN,path});
-    await k.ok('mods.configure',{campaign:CAMPAIGN,id:'enhanced-locations',version:'1.1.0'});
+    await k.ok('mods.configure',{campaign:CAMPAIGN,id:'enhanced-locations',version:'1.2.0'});
     assert.equal(locations(k).places[0].id,identity);
     assert.equal(state(k).mods.state['enhanced-locations'].migration_marker,true);
     await k.ok('mods.configure',{campaign:CAMPAIGN,id:'enhanced-locations',enabled:false});

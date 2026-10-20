@@ -27,6 +27,8 @@ import {stageLocation} from './locations.js';
 import {isAmbiguity} from '../read/module-graph.js';
 import {locationView,locationProvider,locationCandidates} from '../read/locations.js';
 import {PlaceParameters,PlaceEffect} from '../../shared/place-structures.js';
+import {locationObservationView,locationRelations} from '../read/location-observations.js';
+import {committedOnLine} from '../read/exchange.js';
 export { validateDefinition, validateDocumentSeed, definitionExpression } from './definition.js';
 export { projectInventory, projectSheet, weaponRows } from './projection.js';
 export { magicEffects, effectTarget, applyObjectEffects, saveEffectTarget, useItem, repairItem, castNpc } from './effects.js';
@@ -97,15 +99,23 @@ export function createModRuntime(context: KernelContext, sources: ModSources = {
     return Object.freeze({
       ...createDocumentHandlers(writer, runtime, jobs),
       'mods.locations.inspect': async params => {
-        if(params.need!==undefined&&(typeof params.need!=='string'||!['context','contract'].includes(params.need)))throw new RpcError('invalid_params','Location inspect need is context or contract');
+        if(params.need!==undefined&&(typeof params.need!=='string'||!['context','contract','observation'].includes(params.need)))throw new RpcError('invalid_params','Location inspect need is context, contract or observation');
+        if(params.sense!==undefined&&(typeof params.sense!=='string'||!['sight','hearing'].includes(params.sense)))throw new RpcError('invalid_params','Observation sense is sight or hearing');
         const {campaign,module}=await readCampaign(context,params,false,false,writer.read);
         const provider=locationProvider(await runtime.active(campaign.world));
         const availability={enabled:!!provider,location_inspection:{turn:campaign.turn.turn,need:params.need??'context'},...(provider?{mod:provider.id,version:provider.version}:{})};
         if(params.need==='contract')return {...availability,parameters:JSON.parse(JSON.stringify(PlaceParameters)),command:JSON.parse(JSON.stringify(PlaceEffect)),sections:provider?packageSections(provider).map(section=>({heading:section.heading,text:section.text})):[]};
-        try{return {...availability,place:locationView(module.graph,campaign.world,params.name)};}
+        try{
+            if(params.need==='observation')return {...availability,observation:locationObservationView(module.graph,campaign.world,params,
+                committedOnLine(campaign,await campaign.turnRecords()).records,row(await campaign.optional('npc-journal.json')))};
+            const place=locationView(module.graph,campaign.world,params.name);
+            const relations=locationRelations(campaign.world).filter(relation=>relation.from.place===place.name||relation.to.place===place.name).slice(0,8)
+                .map(({from,to,sense,description})=>({from,to,sense,description}));
+            return {...availability,place:{...place,...(relations.length?{relations}:{})}};
+        }
         catch(error){
             if(!(error instanceof RpcError)||error.code!=='unknown_entity'||error.details?.reason==='ambiguous'||isAmbiguity(error))throw error;
-            return {...availability,status:'unregistered',query:params.name,coverage:'Partial known-place catalogue; absence is not source or world nonexistence.',
+            return {...availability,status:'unregistered',query:params.at?`${params.name??'here'} / ${params.at}`:params.name,coverage:'Partial known-place catalogue; absence is not source or world nonexistence.',
                 candidates:locationCandidates(module.graph,campaign.world),current:module.graph.handle(module.graph.scene(campaign.world.active_scene))};
         }
       },

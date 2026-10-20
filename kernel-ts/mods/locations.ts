@@ -10,6 +10,8 @@ import {isPlace} from '../read/places.js';
 import {RpcError} from '../errors.js';
 import {array,clone,normalize,row,type Row} from '../read/values.js';
 import {locationProvider,locationPlace,locationFeature,locationPlaces,locationFeatures,clearLocationPosition} from '../read/locations.js';
+import {LOCATION_OBSERVATION_CAPABILITY} from '../read/location-observations.js';
+import {stagePerceptualRelations,stageLocationObservation} from './location-observations.js';
 const blank=(value:unknown):boolean=>typeof value==='string'?!value.trim():Array.isArray(value)?value.some(blank):value!==null&&typeof value==='object'?Object.values(value).some(blank):false;
 function reference<T>(field:string,requested:string,resolve:()=>T):T {
     try{return resolve();}catch(error){
@@ -79,6 +81,12 @@ export function stageLocation(context:ApplyContext,effect:Row,active:readonly Ro
         }
     }
     const receipt:Row={id:context.mint(`place:${callId}`),kind:'place',call_id:callId,action:effect.action,added,features,at:nowIso(),mod:provider.id};
+    if(['relate','observe'].includes(effect.action)&&!array(provider.requires).includes(LOCATION_OBSERVATION_CAPABILITY))
+        throw new RpcError('needs','This location package does not provide observation continuity',{
+            fix:'Adopt the current Enhanced Locations package through ordinary Mod configuration; existing locations remain intact.',details:{reason:'location_observation_mod_required'}});
+    if('relations' in effect&&effect.relations)receipt.relations=stagePerceptualRelations(context,state,array(effect.relations));
+    if(effect.action==='relate')return {receipt:{...receipt,visibility:'keeper'},event:null};
+    if(effect.action==='observe')return {receipt:stageLocationObservation(context,state,effect,receipt),event:null};
     if(effect.action==='establish')return {receipt,event:null};
     const destination=reference('to',effect.to,()=>locationPlace(graph,world,effect.to)),to=graph.handle(destination);
     if(effect.action==='feature'){

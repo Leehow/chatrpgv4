@@ -1,7 +1,9 @@
 # Enhanced Locations Mod implementation ledger
 
-Status: original implementation and F1–F4 failure repairs locally validated on
-source `549a92bda`; full regression exit 0. Publication not requested.
+Status: association/observation extension active from clean source `8412a2258`.
+Original implementation and F1–F4 repairs passed full regression. The owner now
+authorizes the new observation work, seam audit, canonical App rebuild/package
+and actual App testing. Push/publication is not requested.
 Owner approval: 2026-10-19,
 including specification, tickets,
 implementation and real multi-place stress testing. The owner explicitly requires
@@ -23,8 +25,9 @@ with all old context and registration gates intact is hollow completion.
 
 - Source checkout: latest mainline `0.9.8a`, baseline `ad1f607f942d616f8a2f5929270a18d3ee5293bc` (ahead of origin by 30 commits).
   Existing design/research documents belong to this task. No new worktree is needed.
-- One writer integrates serially. Preserve unrelated concurrent edits. No push,
-  deployment, package installation, branch deletion or evidence deletion is authorized.
+- One writer integrates serially. Preserve unrelated concurrent edits. The latest
+  owner message authorizes rebuilding/installing and testing the canonical App.
+  No push, server deployment, branch deletion or evidence deletion is authorized.
 - Production is TypeScript only. Never restore/run the retired Python kernel.
 - New package: `mods/enhanced-locations/`, backed by a named kernel capability.
 - Shared transaction, arithmetic, admission, existing Mod lifecycle and raw evidence
@@ -43,6 +46,9 @@ with all old context and registration gates intact is hollow completion.
 | EL-03 | [#118](https://github.com/Leehow/chatrpgv4/issues/118) | implemented; host and live paths validated | Separate place tool, native decisions, admission and final author consumption |
 | EL-04 | [#119](https://github.com/Leehow/chatrpgv4/issues/119) | implemented; projection and live demand validated | Demand-loaded Mod contract/material, history projection and request evidence |
 | EL-05 | [#120](https://github.com/Leehow/chatrpgv4/issues/120) | locally validated, including F1–F4 repairs; full regression passed | Regression, real travel stress, restart/return continuity and final report |
+| EL-06 | local, contract §243 | implemented; focused regression active | Directed sensory relations, scoped observation receipts, independent incident and observation clocks |
+| EL-07 | local, contract §243.4 | implemented; actual native components passed | Read/disclosure, native packet, admission, canonical outcome and sole-author observation consumption |
+| EL-08 | local, owner continuation | pending EL-06/07 | Three-end seam audit, regression, real cross-place play, stable-signed canonical App package and UI acceptance |
 
 The contract and per-issue acceptance govern the slices. Record actual completion,
 commits and validation here at meaningful milestones; do not close on code alone
@@ -74,6 +80,22 @@ when a ticket requires live evidence.
 12. Author output, actual receipts, public scene details and later references agree.
 
 ## Validation and resource plan
+
+Current extension acceptance: the same existing people/incident can be observed
+from a street and later from an inn window, preserving actual locations and
+time-based continuity. Blocked/partial sight and hearing remain distinct, reads
+do not count as perception, and failed delivery does not become player knowledge.
+Use the retained private workspace for real continuation; no fabricated street
+incident or scripted player counts as acceptance. Reuse the existing 512 MiB
+changed/raw admission and preserve earlier evidence. App testing must use a
+private test workspace with the requested MiniMax M3.1/medium profile, never a
+formal campaign. The source App home and credentials remain protected.
+
+Ready order: implement shared shape and canonical staging/read; wire all host
+entrances/consumers; run meaningful focused regressions and actual play; repair
+confirmed seams; run complete LAN regression; build/package locally using the
+canonical stable signing identity; launch that exact bundle and test its real UI.
+Existing optional schema-1 state loads without a destructive migration.
 
 - LAN probe: amax unavailable; leehow-pc reachable and idle. Heavy builds/ext,
   integration and loop suites use the existing remote-test runner, one heavy suite
@@ -256,3 +278,28 @@ F1–F4 repair acceptance is complete at the source/runtime level. Upstream
 availability is not guaranteed. Cross-place observation of an ongoing street
 event was not established by these runs. No App packaging/installation, push,
 issue closure or retained-evidence deletion was performed.
+
+## Association and observation implementation checkpoint
+
+- Contract §243 and the observation extension in the location specification precede
+  implementation. Enhanced Locations 1.1.0 adds a named perception capability;
+  optional schema-1 arrays preserve existing identities without a state migration.
+- Directed sight/hearing relations, actual observation receipts and scoped current
+  incidents share the canonical location transaction. Preparation is read-only;
+  last delivered observation comes from committed current-line evidence, separate
+  from latest-settled/undelivered state and incident assessment time.
+- Native output now derives all stationary place variants from the shared shape.
+  Frozen canonical results retain actual observations; the sole author's cast
+  distinguishes observed people from local presence and drops private identity
+  fields. Standalone place and native output both reach this author seam.
+- Quick gate 130/130, location interfaces 17/17 and kernel TypeScript check passed.
+  LAN `run.ThTpL2yz` passed all 12 selected real RPC tests, including the new
+  continuity/transaction checks. A small edge-case extension is queued for rerun.
+- The initial two native-component failures used a stale local compiled kernel
+  that lacked the new capability, not the source snapshot tested on LAN. Retain
+  `native-seams-1.log` as mismatch diagnostics, invalid for current-source acceptance.
+  After fetching the current LAN build (`run.Bhx0S7hg`, 64 MiB LAN), both actual
+  native author-consumption components passed (`native-seams-2.log`).
+- Evidence root: `.coc/test-runs/enhanced-locations-observations-20261019/`.
+  Real player use, full regression, final seam audit and canonical App package/UI
+  testing remain required. The earlier accepted campaigns and raw failures remain.

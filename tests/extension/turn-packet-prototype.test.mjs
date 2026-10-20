@@ -89,6 +89,51 @@ const fauxToolCall=(name,args)=>rawToolCall(name,name==='output'?{...args,comman
 async function opened(workspace){const client=new RpcClient(workspace);try{await client.ok('table.open',{campaign:'test-camp'});await client.ok('table.narrate',{campaign:'test-camp',call_id:'t0-c1',text:'Knott waits at his desk.'});}finally{await client.close();}}
 function answer(batch,p){const answers=Object.fromEntries(batch.questions.map(q=>{if(q.type==='noul')return[q.key,{status:'answered',type:'noul',noul:q.key.startsWith('restriction_')?1-p:p}];const choice=Object.keys(q.criteria).find(x=>x!=='none')??'none';return[q.key,{status:'answered',type:'choice',choice,confidence:.99,probabilities:Object.fromEntries(Object.keys(q.criteria).map(x=>[x,x===choice?.99:.01/(Object.keys(q.criteria).length-1)]))}];}));return{batchId:batch.id,status:'complete',answers,coverage:{required:Object.keys(answers),answered:Object.keys(answers),unknown:[]},issues:[],usage:{inputTokens:100,outputTokens:0}};}
 
+test('a cross-place observation reaches the actual sole author without moving the observed person',async t=>{
+ let office,ref;
+ const engine=createHybridEngine({env,decision:{decide:async batch=>answer(batch,.99)}});
+ const table=await openTable({legacyDeliveryFixtures:false,realKernel:true,prepareWorkspace:opened,env,runDriver:engine.runDriver,
+  extraExtensions:[{name:'engine',factory:engine.extension}],responses:[()=>fauxAssistantMessage([rawToolCall('output',{version:4,commands:[
+   {kind:'place',action:'move',to:'Office annex',at:'glass partition',relation:'beside',via:'Through the side door into the annex',travel_band:'adjacent',
+    additions:[{name:'Office annex',within:office,description:'A small waiting annex beside the office.',features:[{name:'glass partition',description:'A clear glass panel.',state:'closed',passable:false}]}]},
+   {kind:'place',action:'observe',to:office,sense:'sight',access:'limited',scope:'Only the desk visible through the glass.',facts:['The same visitor remains beside the original desk.'],people:[ref],
+    relations:[{from:{place:office+' / Office annex',at:'glass partition'},to:{place:office},sense:'sight',description:'The annex glass panel shows the office desk.'}]},
+   {kind:'scene',service:'open',crowd:'empty'}]})],{stopReason:'toolUse'})]});
+ t.after(()=>table.dispose());
+ const before=await table.runtimeBridges().at(-1).call('table.capsule',{campaign:'test-camp'});office=before.where.scene;ref=before.present.find(person=>person.name==='Steven Knott').ref;
+ await table.session.prompt('I step into the waiting annex, stand by its glass panel and look back at the visitor beside the office desk.');
+ assert.deepEqual(table.extensionErrors,[]);
+ assert.deepEqual(table.session.messages.filter(message=>message.role==='toolResult'&&message.details?.coc_error).map(message=>message.details.coc_error),[]);
+ const after=await table.runtimeBridges().at(-1).call('table.capsule',{campaign:'test-camp'});
+ assert.equal(after.where.scene,office+' / Office annex');assert.equal(after.present.length,0);
+ const author=table.telemetry().find(row=>row.lane==='isolated-expression'&&row.event==='written');assert.ok(author,JSON.stringify(table.telemetry().slice(-8)));
+ const task=JSON.parse(readFileSync(join(author.attempt,'task.json'),'utf8'));
+ assert.equal(task.decision_context.observations[0].people[0].ref,ref);
+ assert.equal(task.decision_context.cast.find(person=>person.ref===ref).presence,'observed');
+ assert.equal(task.decision_context.scene.presence.people.length,0);
+ assert.deepEqual(task.result.outcomes.find(outcome=>outcome.action==='observe').observation.facts,['The same visitor remains beside the original desk.']);
+ const observedPerson=await table.runtimeBridges().at(-1).call('table.look',{campaign:'test-camp',focus:'npc',name:ref});
+ assert.equal(observedPerson.scene,office);
+ assert.equal(table.entries('coc-final-delivery').filter(row=>row.event==='end'&&row.status==='completed').length,1);
+});
+
+test('a standalone place observation survives frozen final preparation into the author',async t=>{
+ let ref;
+ const engine=createHybridEngine({env,decision:{decide:async batch=>answer(batch,.99)}});
+ const table=await openTable({legacyDeliveryFixtures:false,realKernel:true,prepareWorkspace:opened,env,runDriver:engine.runDriver,
+  extraExtensions:[{name:'engine',factory:engine.extension}],responses:[
+   ()=>fauxAssistantMessage([rawToolCall('place',{op:'submit',change:{action:'observe',to:'here',sense:'sight',access:'clear',scope:'The desk area.',facts:['The visitor waits beside the desk.'],people:[ref]}})],{stopReason:'toolUse'}),
+   ()=>fauxAssistantMessage([rawToolCall('output',{version:4,commands:[{kind:'scene',service:'open',crowd:'quiet'}]})],{stopReason:'toolUse'})]});
+ t.after(()=>table.dispose());ref=(await table.runtimeBridges().at(-1).call('table.capsule',{campaign:'test-camp'})).present.find(person=>person.name==='Steven Knott').ref;
+ await table.session.prompt('I stay here and watch the visitor beside the desk.');
+ assert.deepEqual(table.extensionErrors,[]);
+ assert.deepEqual(table.session.messages.filter(message=>message.role==='toolResult'&&message.details?.coc_error).map(message=>message.details.coc_error),[]);
+ const author=table.telemetry().find(row=>row.lane==='isolated-expression'&&row.event==='written');assert.ok(author,JSON.stringify(table.telemetry().slice(-8)));
+ const task=JSON.parse(readFileSync(join(author.attempt,'task.json'),'utf8'));
+ assert.equal(task.result.outcomes.filter(outcome=>outcome.action==='observe').length,1);
+ assert.equal(task.decision_context.observations[0].people[0].ref,ref);
+});
+
 test('a missing route on direct place submit permits a corrected native arrival and fires the Mod trigger',async t=>{
  const batches=[];
  const engine=createHybridEngine({env,decision:{decide:async batch=>{batches.push(batch);return answer(batch,.99);}}});

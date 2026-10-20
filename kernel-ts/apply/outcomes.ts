@@ -3,6 +3,7 @@ import type {ModuleGraph} from '../read/module-graph.js';
 import {sceneLabel} from '../read/capsule.js';
 import {npcReference} from '../npc/references.js';
 import {string,type Row} from '../read/values.js';
+import {publicObservation} from '../read/location-observations.js';
 
 export function operationOutcomes(receipts:Row[],graph:ModuleGraph,world:Row):Row[] {
     const place=(value:unknown)=>value==null?null:typeof value==='string'&&value!=='away'?sceneLabel(graph,world,graph.scene(value)):value;
@@ -14,6 +15,7 @@ export function operationOutcomes(receipts:Row[],graph:ModuleGraph,world:Row):Ro
         const kind=string(receipt.kind);
         if(receipt.visibility==='keeper')return [];
         if(kind==='place')return [{kind,status:'changed',action:receipt.action,...(receipt.place?{place:receipt.place}:{}),
+            ...(receipt.observation?{observation:publicObservation(graph,world,receipt.observation)}:{}),
             ...(receipt.position?{position:receipt.position}:{}),...(receipt.feature?{feature:receipt.feature,state:receipt.after}:{}),
             ...(receipt.added?.length?{added:receipt.added}:{}),...(receipt.features?.length?{features:receipt.features}:{})}];
         if(kind==='item'&&typeof receipt.instance==='string')return [{kind,status:receipt.offer==='made'||receipt.offer==='declined'?'unchanged':'changed',

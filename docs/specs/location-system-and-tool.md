@@ -328,3 +328,44 @@ The transferable design is persistent identity plus explicit relationships and s
 4. **"I return to the lobby, then come back later."** Read the same room identity, occupants, objects and damage from committed state. Elaborate unspecified details without replacing the established ones. Another hotel's room with the same display name remains distinct.
 
 If a corner later needs an independent persistent identity, promote the existing local reference and preserve its established relations and facts. Promotion is a representation change, not physical movement or permission to regenerate the corner.
+## Owner-approved observation extension
+
+The owner extended the work to a location association graph and repeated
+observations of the same incident from different places, then requested a wiring
+audit, canonical App rebuild/package and actual App testing. Contract section
+243 owns the exact shape; this is Enhanced Locations 1.1.0, not a parallel
+movement/event engine.
+
+Existing place identity/containment remains the graph foundation. Typed directed
+relations add potential sight/hearing between a place or feature and a target
+place/feature. Passage, visibility and audibility are independent. Compatible
+missing relations can be supplied inline during an actual observation, preserving
+the open-world rule instead of introducing another preregistration gate.
+
+Private preparation reads current target state and prior evidence without
+performing perception. A selected `place observe` writes the actual scope,
+perceived facts, existing people and any modest incident update through the
+canonical transaction. Remote people remain at their actual target place.
+Incident assessment time and player observation time are separate game-clock
+values. Elapsed time requests a Keeper judgment, not forced change or a new
+simulation lane. Existing current state wins over an old observation.
+
+Every observation remains in the existing receipt/turn history. The Mod stores
+only latest-settled observation indexes and current incident state. Previous
+player knowledge is derived from actual current-line committed deliveries;
+publication failure cannot silently advance that knowledge. Named target
+features and explicit coverage prevent one street corner from refreshing the
+whole street. Blocked views preserve the previous successful observation.
+
+The seam audit follows writer, reader and actor: the shared transaction; focused
+inspect and bounded current-viewpoint route projections; and actual Keeper use
+followed by canonical outcome/frozen-result/sole-author consumption. Native
+schemas enumerate all shared stationary place actions. The author receives
+only committed public observation facts and identities, not the remote dossier,
+and keeps observed people distinct from current-scene presence.
+
+Acceptance requires deterministic boundary/transaction checks, real natural
+play using the canonical driver and MiniMax M3.1/medium, then a stable-signed
+canonical App build and real UI acceptance. A controlled argument fixture proves
+the seam but cannot substitute for either live gate. Source and package results
+remain separate, and failed evidence is preserved.

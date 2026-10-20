@@ -1000,8 +1000,8 @@ export const COC_TOOLS: readonly CocToolSpec[] = [
 	},
 	{
         name:'place',label:'Place',method:'mods.locations.inspect',
-        description:'Inspect a place without moving, or submit a location change. Reuse known identities; compatible new places can be established and entered atomically. Detailed Mod instructions: inspect need contract.',
-        promptSnippet:'Manage places and local features through Enhanced Locations.',parameters:PlaceParameters,
+        description:'Inspect places or observation continuity without moving, or submit a location action. Reuse identities; compatible missing structure can be supplied inline. Inspect need observation prepares cross-place perception; need contract supplies detail.',
+        promptSnippet:'Manage places, local features and sensory observations through Enhanced Locations.',parameters:PlaceParameters,
     },
 	{
 		name: "ask",

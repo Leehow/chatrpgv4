@@ -2,9 +2,9 @@
 import {Type} from 'typebox';
 type Row=Record<string,any>;
 const object=(value:unknown):value is Row=>!!value&&typeof value==='object'&&!Array.isArray(value);
-const action=Type.Union([Type.Literal('move'),Type.Literal('establish'),Type.Literal('feature')]);
+const action=Type.Union([Type.Literal('move'),Type.Literal('establish'),Type.Literal('feature'),Type.Literal('relate'),Type.Literal('observe')]);
 const entry=Type.Object({using_skill:Type.Optional(Type.String()),op:Type.Union([Type.Literal('inspect'),Type.Literal('submit')]),
-    name:Type.Optional(Type.String()),need:Type.Optional(Type.Union([Type.Literal('context'),Type.Literal('contract')])),
+    name:Type.Optional(Type.String()),at:Type.Optional(Type.String()),sense:Type.Optional(Type.Union([Type.Literal('sight'),Type.Literal('hearing')])),need:Type.Optional(Type.Union([Type.Literal('context'),Type.Literal('contract'),Type.Literal('observation')])),
     change:Type.Optional(Type.Object({action},{additionalProperties:true,description:'Typed location change; inspect need contract supplies its exact schema. Complete valid calls execute directly.'}))},{additionalProperties:false});
 /** Explicit properties keep object unions legible to provider tool serializers. */
 function declarationObject(schema:Row):Row {
