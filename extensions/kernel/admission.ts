@@ -1301,7 +1301,7 @@ export async function reviewAdmissionJevOnly(options:PrimaryAdmissionReviewOptio
     {ok:true;verdict:AdmissionVerdict;ms:number;meta:Record<string,unknown>}
     |{ok:false;reason:string;ms:number;meta:Record<string,unknown>}> {
     const clock=options.clock??hostClock,began=clock.now(),context=options.context;
-    const family='continuous-action-admission',version=options.proposal.ordered||options.proposal.kinds?.includes('place')?'11':'7';
+    const family='continuous-action-admission',version=options.proposal.ordered||options.proposal.kinds?.includes('place')?'12':'7';
     let mechanicsChoice:{action:string;choice:{name:string;binds:string;options:string[];prompt?:string}}|undefined;
     let mechanicsInput=false,mechanicsBinding:string|undefined;
     try{
@@ -1330,8 +1330,8 @@ export async function reviewAdmissionJevOnly(options:PrimaryAdmissionReviewOptio
     });
     // A registered journey may refer to directions an NPC just delivered. Use the same
     // bounded public window as prescreen and the author, never private source notes.
-    const knownJourneys=options.proposal.kinds?.length&&options.proposal.kinds.every(kind=>kind==='move')
-        &&options.proposal.operations?.every(operation=>operation.kind==='move'&&operation.registered_destination);
+    const knownJourneys=options.proposal.operations?.length&&options.proposal.operations.every(operation=>
+        (operation.kind==='move'||operation.kind==='place'&&operation.action==='move')&&operation.registered_destination);
     const state={current_player_words:context.playerText,...(mechanicsChoice?{current_mechanics_choice:mechanicsChoice}:{}),
         ...(options.lineContexts?{line_contexts:options.lineContexts.map(scope=>({current_player_words:scope.playerText,
             previous_public:scope.delivered.slice(-2).map(row=>({turn:row.turn,player:row.player??null,...(publicDialogue(row.speech).length?{speech:publicDialogue(row.speech)}:{})}))}))}:{}),
@@ -1355,6 +1355,8 @@ export async function reviewAdmissionJevOnly(options:PrimaryAdmissionReviewOptio
         if(question.key.startsWith('restriction_'))question.instructions=String(question.instructions)
             +' Evaluate this line at its execution position in proposal.execution: after the listed preceding operations and earlier proposal.lines, conditional on their independent approval and validation. An explicitly selected wait or arrival in that prefix can satisfy its timing or position prerequisite; it need not have settled before this atomic batch is reviewed. Later lines and intentions outside the batch cannot satisfy an earlier prerequisite.';
     }
+    for(const question of batch.questions)if(question.key.startsWith('restriction_'))question.instructions=String(question.instructions)
+        +' Actual canonical outcomes in settled_this_turn can establish a completed prerequisite. Receipt identifiers alone do not establish its content. Payment or elapsed time alone does not establish movement, seating, receipt of goods or an unrecorded activity. Prior public narration resolves references only, never current consent.';
     if(options.lineContexts){
         if(options.lineContexts.length!==options.proposal.lines.length)throw Error('Consent line context count differs from its operations');
         for(const question of batch.questions){

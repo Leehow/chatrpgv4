@@ -49993,3 +49993,24 @@ the host's location-only section resolver and both final-author transports.
 Action: the sole author realizes the selected scene with compatible visual
 completion; normal publication records its prose. Acceptance checks the actual
 author request and original App story, not only the Mod file's presence.
+
+### Prerequisite and local-reference evidence
+
+An actual meal input exposed a further consent seam: successful cash/time calls
+were reduced to receipt identifiers, while local place movement received prior
+speech without the delivered spatial description needed to resolve an empty
+table. Each successful apply now appends a bounded canonical public-outcome
+projection to its existing current-input landed line. Whole outcomes beyond the
+byte bound are counted as omitted, never truncated into invented facts. Receipt
+identifiers remain available; absent outcome evidence stays unknown. This uses
+the same public outcome projection as the sole author, not private source facts.
+The existing turn/input lifecycle owns retirement of these lines.
+
+Registered enhanced place moves receive the same bounded delivered public window
+as registered mechanical moves. Its narration resolves spatial references only;
+it is not standing player consent. The two existing selection/restriction Noul
+questions and thresholds remain unchanged. Actual completed outcomes may prove
+an earlier prerequisite, but payment or elapsed time alone does not prove arrival,
+seating, delivery of food or any other unrecorded action. No uncertain verdict is
+automatically retried or promoted. This repairs supplied evidence, not a specific
+restaurant or probability.

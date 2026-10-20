@@ -1,5 +1,6 @@
 import {adviseLocationReference} from './location-reference.ts';
 import {locationDescription} from './location-description.ts';
+import {settledAdmissionEvidence} from './settled-admission.ts';
 import {placeOperation} from './place-operation.ts';
 import {DecisionContent,decisionPerson,bindCreatedDecisionPerson} from '../../runtime/decision-content.ts';
 import {Errors as argumentErrors} from 'typebox/value';
@@ -2741,7 +2742,8 @@ export default function (pi: ExtensionAPI, host: {capabilities?:RuntimeCapabilit
 		}
 		if (tool === "apply") {
 			const receipts = Array.isArray(result.receipts) ? result.receipts.map(String) : [];
-			state.landed.push(`apply landed: ${receipts.length ? receipts.join(", ") : "receipts"}`);
+			const evidence=settledAdmissionEvidence(result);
+			state.landed.push(`apply landed: ${receipts.length ? receipts.join(", ") : "receipts"}${evidence?'; canonical outcomes: '+evidence:''}`);
 			const world = result.world as { active_scene?: unknown } | undefined;
 			const scene = asString(world?.active_scene);
 			if (scene && scene !== state.scene?.handle) state.scene = { handle: scene };

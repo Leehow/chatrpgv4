@@ -36,13 +36,26 @@ test('uncertain typed admission never grants authority',async()=>{
     assert.equal(result.ok,true);assert.equal(result.verdict.verdict,'uncertain');
 });
 
+test('local movement can resolve a spatial reference from delivered description without turning it into consent',async()=>{
+ const selected=options(),decide=selected.value.decision.decide;let batch;
+ selected.value.decision={decide:(value,lease)=>{batch=value;return decide(value,lease);}};
+ const description='Two tables stand under the street windows. The customer occupies one; the other is empty.';
+ const proposal=admission.admissionRequest('apply',{effects:[{kind:'place',action:'move',to:'Lunchroom',at:'Window tables',relation:'seated at the empty table'}]},
+  {party:['Thomas Hayes'],consentOnly:true,destinations:[{requested:'Lunchroom',handle:'Lunchroom',label:'Lunchroom',summary:'A small lunchroom.'}]});
+ const result=await admission.reviewAdmissionJevOnly({...selected.value,proposal,context:{...context,playerText:'I sit at that empty window table.',
+  delivered:[{turn:0,player:'I look around.',keeper:description}],landed:['apply landed: cash:t1-c1; canonical outcomes: [{"kind":"cash","status":"changed","settlement":"living_standard","purchase_amount":0.25}]']}});
+ assert(JSON.stringify(batch.state.previous_public).includes(description),'actual delivered spatial description is needed to resolve that table');
+ assert.equal(batch.questions.length,2,'reference context adds no vote or authority');
+ assert.equal(result.verdict.verdict,'authorized');
+});
+
 test('enhanced location admission names its entry and Keeper-creation semantics without granting uncertain consent',async()=>{
     const selected=options('authorized',.42),decide=selected.value.decision.decide;let batch;
     selected.value.decision={decide:(value,lease)=>{batch=value;return decide(value,lease);}};
     const effect={kind:'place',action:'move',to:'Ordinary Inn',at:'counter',additions:[{name:'Ordinary Inn',description:'A public lobby.'}]};
     const proposal=admission.admissionRequest('apply',{effects:[effect]},{party:['Thomas Hayes'],consentOnly:true});
     const result=await admission.reviewAdmissionJevOnly({...selected.value,proposal});
-    assert.equal(batch.familyVersion,'11');assert.equal(batch.state.proposal.lines[0].to,effect.to);
+    assert.equal(batch.familyVersion,'12');assert.equal(batch.state.proposal.lines[0].to,effect.to);
     assert.match(batch.state.proposal.lines[0].arrival_scope.additions,/Keeper-authored/);
     assert.match(batch.questions[1].instructions,/entry or boundary crossing/);
     assert.equal(result.verdict.verdict,'uncertain');
@@ -74,7 +87,7 @@ test('observation consent reads ordered waits without treating them as already s
     selected.value.decision={decide:async(value,lease)=>{batch=value;const answer=await decide(value,lease);
         answer.answers.restriction_0.noul=.99;return answer;}};
     const result=await admission.reviewAdmissionJevOnly({...selected.value,proposal:joined});
-    assert.equal(batch.familyVersion,'11');
+    assert.equal(batch.familyVersion,'12');
     assert.deepEqual(batch.state.proposal.execution.preceding,[wait]);
     assert.match(batch.state.proposal.execution.authority,/not settled facts/);
     assert.equal(batch.state.proposal.lines.length,1);
