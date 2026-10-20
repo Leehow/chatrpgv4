@@ -96,12 +96,14 @@ test('a cross-place observation reaches the actual sole author without moving th
   extraExtensions:[{name:'engine',factory:engine.extension}],responses:[()=>fauxAssistantMessage([rawToolCall('output',{version:4,commands:[
    {kind:'place',action:'move',to:'Office annex',at:'glass partition',relation:'beside',via:'Through the side door into the annex',travel_band:'adjacent',
     additions:[{name:'Office annex',within:office,description:'A small waiting annex beside the office.',features:[{name:'glass partition',description:'A clear glass panel.',state:'closed',passable:false}]}]},
+   {kind:'time',minutes:5,reason:'The player explicitly waits five minutes beside the panel.',beyond_travel:true},
    {kind:'place',action:'observe',to:office,sense:'sight',access:'limited',scope:'Only the desk visible through the glass.',facts:['The same visitor remains beside the original desk.'],people:[ref],
     view:'The annex glass panel shows the office desk from the current position.'},
    {kind:'scene',service:'open',crowd:'empty'}]})],{stopReason:'toolUse'})]});
  t.after(()=>table.dispose());
  const before=await table.runtimeBridges().at(-1).call('table.capsule',{campaign:'test-camp'});office=before.where.scene;ref=before.present.find(person=>person.name==='Steven Knott').ref;
- await table.session.prompt('I step into the waiting annex, stand by its glass panel and look back at the visitor beside the office desk.');
+ const clockBefore=JSON.parse(readFileSync(join(table.workspace,'.coc/campaigns/test-camp/world.json'),'utf8')).clock.minutes;
+ await table.session.prompt('I step into the waiting annex, stand by its glass panel, wait five minutes and look back at the visitor beside the office desk.');
  assert.deepEqual(table.extensionErrors,[]);
  assert.deepEqual(table.session.messages.filter(message=>message.role==='toolResult'&&message.details?.coc_error).map(message=>message.details.coc_error),[]);
  const after=await table.runtimeBridges().at(-1).call('table.capsule',{campaign:'test-camp'});
@@ -112,6 +114,8 @@ test('a cross-place observation reaches the actual sole author without moving th
  assert.equal(task.decision_context.cast.find(person=>person.ref===ref).presence,'observed');
  assert.equal(task.decision_context.scene.presence.people.length,0);
  assert.deepEqual(task.result.outcomes.find(outcome=>outcome.action==='observe').observation.facts,['The same visitor remains beside the original desk.']);
+ assert.equal(task.result.outcomes.find(outcome=>outcome.kind==='time').minutes,5);
+ assert.equal(task.result.outcomes.find(outcome=>outcome.action==='observe').observation.observed_clock.minutes,clockBefore+5);
  const observedPerson=await table.runtimeBridges().at(-1).call('table.look',{campaign:'test-camp',focus:'npc',name:ref});
  assert.equal(observedPerson.scene,office);
  assert.equal(table.entries('coc-final-delivery').filter(row=>row.event==='end'&&row.status==='completed').length,1);

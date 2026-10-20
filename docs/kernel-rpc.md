@@ -49381,6 +49381,18 @@ without values or schema-parameter JSON. The existing projected failure caption
 shows those exact technical constraints in its error value. The complete error
 and raw parameters remain folded, and canonical settlement is unchanged.
 
+The installed-App observation test then exposed an existing native time-adapter
+gap: explicit five-minute waiting could only be represented by a band, and the
+Keeper selected momentary. Native time now accepts exactly one of an issued band
+or explicit nonnegative safe-integer minutes copied from the player's selected
+duration. This forwards to the existing TimeEffect.minutes path and its unchanged
+admission, arithmetic and recovery; it is no new clock or authority. Unspecified
+costs still use bands. Post-arrival activity retains the existing beyond-travel
+rule. Full validation, current provider schema and transport normalization agree.
+The detailed decision and required elapsed-observation evidence are in the
+explicit-wait section of the location specification. Earlier zero-minute receipts
+remain unchanged and do not count as completed waiting.
+
 - https://docs.openra.net/en/playtest/traits/#frozenunderfog
 - https://github.com/0ad/0ad/blob/master/binaries/data/mods/public/simulation/components/Fogging.js
 

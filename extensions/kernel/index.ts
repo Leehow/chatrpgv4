@@ -5894,9 +5894,9 @@ export default function (pi: ExtensionAPI, host: {capabilities?:RuntimeCapabilit
                 const parsed=turnPacket(JSON.stringify(params));
                 const choices=owner.prescreen?.choices?turnPacketMovementChoices(owner.prescreen.choices):undefined;
                 packet=choices?bindTurnPacketMoves(parsed,choices):requireTurnPacketNpcDestinations(parsed);
-                if((packet.commands??[]).some(row=>row.kind==='time')){
+                if((packet.commands??[]).some(row=>row.kind==='time'&&typeof row.band==='string')){
                     const bands=await packetTimeBandHandles(state);
-                    if((packet.commands??[]).some(row=>row.kind==='time'&&!bands.includes(row.band)))throw Error('time.band must select one issued rule handle: '+bands.join(', '));
+                    if((packet.commands??[]).some(row=>row.kind==='time'&&typeof row.band==='string'&&!bands.includes(row.band)))throw Error('time.band must select one issued rule handle: '+bands.join(', '));
                 }
             }catch(error){
                     const {retry,refusal}=refusePacketParameters(state,error,ctx);

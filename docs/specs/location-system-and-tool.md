@@ -369,3 +369,26 @@ play using the canonical driver and MiniMax M3.1/medium, then a stable-signed
 canonical App build and real UI acceptance. A controlled argument fixture proves
 the seam but cannot substitute for either live gate. Source and package results
 remain separate, and failed evidence is preserved.
+
+### Explicit waiting in observation acceptance (2026-10-19)
+
+The packaged real-play wait asked for five minutes but the native packet offered
+only a named time band. The Keeper selected momentary and the existing kernel
+correctly charged that band's zero minutes. Do not change the band or rewrite
+the settled observation. This is a native adapter gap against the existing
+canonical TimeEffect.minutes path, not a new clock or location-time subsystem.
+
+Native time commands accept exactly one of band or minutes. Minutes is a
+nonnegative safe integer copied only from an explicitly selected player duration;
+an unspecified cost still selects an issued band. The same restriction applies
+to post-arrival activity. The compiler forwards that value to the existing time
+effect, and the existing admission reviews its exact value before any clock
+advance. The kernel still owns arithmetic, recovery, receipts and observed-clock
+stamps. No language parser, keyword matching, new semantic lane, new gate or
+changed confidence threshold is introduced. The fixed provider schema and current
+schema tail both carry this grammar. Its mutual exclusion follows the official
+[JSON Schema oneOf semantics](https://json-schema.org/understanding-json-schema/reference/combining#oneof).
+
+Acceptance must prove a real explicit wait advances the canonical clock, then
+the same remote person/incident can be observed at the later game minute. Pure
+reference replies and repeated preparation reads still advance nothing.

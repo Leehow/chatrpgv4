@@ -378,3 +378,36 @@ cover empty-parent scope and cross-domain rollback/replay. LAN RPC is queued beh
 the unrelated `kp-blood-road-20261018` suite, without modifying its checkout or
 processes. Current full regression, real continuity and canonical App acceptance
 remain required; no source/component result substitutes for them.
+
+### Packaged acceptance and explicit-wait repair
+
+The source observation at the pharmacy entrance now succeeds after the normal
+same-turn correction supplies its missing local move. The first tea-room input
+was correctly held for an unconfirmed tea purchase; no money, movement or time
+settled. Normal player clarification (no order/spending) then succeeds through
+the installed App's own bin/pi-coc, driven by the canonical RPC driver. The party
+arrives at the tea-shop window and observes the same existing newspaper seller
+(npc_13), without recreating or moving him into the room.
+
+Package candidate `1940cbd74` installed Mod 1.1.2 at /Applications/PipiCOC.app,
+passed deep strict verification with PipiUI Dev's stable leaf requirement, and
+removed its own package-obyhaQ staging. The kernel/host/table bundle hashes equal
+the source build. The first packaged CLI start omitted its required explicit
+writable agent-home binding; it is harness startup evidence, with no player input
+delivered. The corrected isolated binding starts MiniMax M3.1/medium normally.
+
+A real explicit five-minute wait subsequently settled momentary/zero minutes.
+That observation remains delivered evidence but is invalid as completed waiting.
+The native adapter now supports the existing canonical explicit-minutes path,
+mutually exclusive with band, preserving normal admission and kernel arithmetic.
+The real native component proves five minutes reach the observation clock;
+provider/normalizer/compiler tests pass, quick gate 130/130 and focused grammar
+37/37 pass. The RPC transaction regression now includes exact waiting and rollback.
+
+The earlier fresh RPC run.R1OtCqrn passed 21/21 with the 1.1.2 source overlay.
+Full run.YMEnuGyf was stopped through its verified owning remote runner's TERM
+handler after this new production change became necessary; exit 143 and all
+partial evidence are retained. It is not a green full regression. Repeat the
+final RPC/full runs, rebuild the App with exact waiting, continue the real clock/
+observation test and finish native UI acceptance. Other dialogue work and its
+untracked acceptance report remain independently owned.

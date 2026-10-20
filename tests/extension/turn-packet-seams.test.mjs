@@ -2,7 +2,22 @@
 import {test} from 'node:test';
 import assert from 'node:assert/strict';
 import {Errors} from 'typebox/value';
-import {turnPacketParameterSchema,turnPacketProviderPayload,bindTurnPacketMoves,turnPacketMovementChoices,compileTurnPacket,turnPacket,TURN_PACKET_PARAMETERS} from '../../runtime/turn-packet-prototype.ts';
+import {turnPacketParameterSchema,turnPacketProviderPayload,bindTurnPacketMoves,turnPacketMovementChoices,compileTurnPacket,turnPacket,normalizeTurnPacketArguments,TURN_PACKET_PARAMETERS} from '../../runtime/turn-packet-prototype.ts';
+
+test('explicit selected minutes survive every native entrance without selecting an estimated band',()=>{
+ const command={kind:'time',minutes:5,reason:'Wait the five minutes explicitly selected by the player.'};
+ const packet={version:4,commands:[command]},schema=turnPacketParameterSchema(false,['momentary']);
+ assert.equal(Errors(schema,packet).length,0);assert.equal(Errors(TURN_PACKET_PARAMETERS,packet).length,0);
+ assert.deepEqual(compileTurnPacket(turnPacket(JSON.stringify(packet))).effects,[{kind:'time',minutes:5,why:command.reason}]);
+ const normalized=normalizeTurnPacketArguments({version:4,commands:[{...command,minutes:'5'}]});
+ assert.equal(normalized.args.commands[0].minutes,5);assert.doesNotThrow(()=>turnPacket(JSON.stringify(normalized.args)));
+ for(const change of [{band:'momentary'},{minutes:-1},{minutes:undefined}])assert.throws(()=>turnPacket(JSON.stringify({...packet,commands:[{...command,...change}]})));
+ const payload=turnPacketProviderPayload({model:'MiniMax-M3.1-Flash-Preview',tools:[{name:'output',input_schema:TURN_PACKET_PARAMETERS}],messages:[]},false,true,['momentary']);
+ assert.equal(Errors(JSON.parse(payload.messages.at(-1).content[0].text).output_parameter_schema,packet).length,0);
+ const travel={kind:'move',to:'Library'},after={...command,beyond_travel:true};
+ assert.doesNotThrow(()=>turnPacket(JSON.stringify({...packet,commands:[travel,after]})));
+ assert.throws(()=>turnPacket(JSON.stringify({...packet,commands:[travel,command]})),/Movement already owns travel time/);
+});
 
 test('issued output schema declares movement and stale-scene assessment before generation',()=>{
  const payload={tools:[{name:'output',input_schema:TURN_PACKET_PARAMETERS}]};

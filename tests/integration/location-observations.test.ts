@@ -157,8 +157,8 @@ test('an explicit empty parent is root only, without accepting blank facts or gu
 });
 
 test('native remote creation shares NPC and place rollback, then reuses the one created identity',async t=>{
-    const k=await kernel(t);await openTurn(k,'I stay here and watch the vendor outside.');
-    const before=world(k),packet={version:4,commands:[{kind:'walk_on',slot:'new_1',label:'Street vendor',to:'Outside',reason:'Selling papers outside.'},
+    const k=await kernel(t);await openTurn(k,'I stay here, wait five minutes and watch the vendor outside.');
+    const before=world(k),packet={version:4,commands:[{kind:'time',minutes:5,reason:'The player explicitly waits five minutes.'},{kind:'walk_on',slot:'new_1',label:'Street vendor',to:'Outside',reason:'Selling papers outside.'},
         {kind:'place',action:'observe',to:'Outside',sense:'sight',access:'clear',scope:'The entrance pavement.',view:'The open doorway shows the street from here.',facts:['The vendor counts his coins.'],
             additions:[{name:'Outside',within:'',description:'The street outside the current room.'}],people:['new_1']}]};
     const effects=compileTurnPacket(turnPacket(JSON.stringify(packet))).effects;
@@ -167,6 +167,8 @@ test('native remote creation shares NPC and place rollback, then reuses the one 
     assert.deepEqual(world(k),before,'the staged place, person, relation and observation all roll back');
     const result=await k.table('apply',{call_id:'t1-c1',effects});
     const ref=result.outcomes.find((outcome:Row)=>outcome.action==='observe').observation.people[0].ref;
+    assert.equal(world(k).clock.minutes,before.clock.minutes+5);
+    assert.equal(result.outcomes.find((outcome:Row)=>outcome.action==='observe').observation.observed_clock.minutes,before.clock.minutes+5);
     assert.equal((await k.table('look',{focus:'npc',name:ref})).scene,'Outside');assert.equal(world(k).active_scene,before.active_scene);
     assert.equal((await k.table('capsule')).present.some((person:Row)=>person.ref===ref),false);
     const saved=world(k);assert.equal((await k.table('apply',{call_id:'t1-c1',effects})).replayed,true);assert.deepEqual(world(k),saved);
