@@ -9,13 +9,15 @@ import {KernelError} from '../../extensions/kernel/client.ts';
 import {admissionRefusalScope} from '../../extensions/kernel/refusal-scope.ts';
 import {PendingAnswers} from '../../extensions/kernel/source-answers.ts';
 
-test('native place is inspection-only at registration and both provider detail levels',()=>{
+test('native place can commit a step before later mechanics with compact provider context',()=>{
  const env={PI_COC_LOOP_ENGINE:'hybrid-v1',PI_COC_TURN_PACKET_PROTOTYPE:'1',PI_COC_LEAN_APPLY:'0',EXT_JEV_APIKEY:'fixture'};
  const tools=offeredTools(COC_TOOLS,env),read={op:'inspect',need:'observation',name:'Street'},write={op:'submit',change:{action:'move',to:'Street'}};
  for(const view of [tools,locationToolDeclarations(tools),locationToolDeclarations(tools,true)]){
   const place=view.find(row=>row.name==='place');
-  assert(Check(place.parameters,read));assert(!Check(place.parameters,write),'native writes belong to output.commands');
+  assert(Check(place.parameters,read));assert(Check(place.parameters,write),'a nonpublishing location step must be available before a later wait or service');
  }
+ assert(JSON.stringify(locationToolDeclarations(tools).find(row=>row.name==='place').parameters).length<JSON.stringify(tools.find(row=>row.name==='place').parameters).length/2,'full location fields remain demand-only provider context');
+ assert(!Check(tools.find(row=>row.name==='place').parameters,{...write,change:{...write.change,travel_minutes:0}}),'the native validator still prohibits invented travel arithmetic');
  const kinds=tools.find(row=>row.name==='apply').parameters.properties.effects.items.anyOf.map(row=>row.properties.kind.const??row.properties.kind.enum?.[0]);
  assert(!kinds.includes('place'));assert(kinds.includes('move'),'issued owed moves and existing mixed atomic transactions retain their mechanical route');
  assert(Check(COC_TOOLS.find(row=>row.name==='place').parameters,write),'legacy canonical route remains available');

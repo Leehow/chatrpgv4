@@ -6240,7 +6240,7 @@ export default function (pi: ExtensionAPI, host: {capabilities?:RuntimeCapabilit
         const command=structuredClone(result.command) as Record<string,any>|undefined;
         for(const branch of command?.anyOf??[])if(branch.properties?.action?.const==='move')delete branch.properties.travel_minutes;
         result={...result,parameters:offeredTools(COC_TOOLS,process.env).find(tool=>tool.name==='place')!.parameters,command,
-          write_route:{tool:'output',field:'commands',instruction:'Submit kind place with its action fields directly. No op or change wrapper. Select an issued travel_band for a journey; do not supply travel_minutes.'}};
+          write_route:{tool:'place',op:'submit',field:'change',instruction:'Commit one selected location step before a dependent wait, service or rule action. Select an issued travel_band for a journey; do not supply travel_minutes. Remaining final location commands may use output.commands with kind place and the action fields, without op/change; never repeat a settled step.'}};
       }
       if(spec.name==='apply')await observeWritingCompletion(state,result,writingMatches);
 
