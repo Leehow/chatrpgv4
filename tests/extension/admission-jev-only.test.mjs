@@ -57,7 +57,7 @@ test('enhanced location admission names its entry and Keeper-creation semantics 
     const effect={kind:'place',action:'move',to:'Ordinary Inn',at:'counter',additions:[{name:'Ordinary Inn',description:'A public lobby.'}]};
     const proposal=admission.admissionRequest('apply',{effects:[effect]},{party:['Thomas Hayes'],consentOnly:true});
     const result=await admission.reviewAdmissionJevOnly({...selected.value,proposal});
-    assert.equal(batch.familyVersion,'12');assert.equal(batch.state.proposal.lines[0].to,effect.to);
+    assert.equal(batch.familyVersion,'16');assert.equal(batch.state.proposal.lines[0].to,effect.to);
     assert.match(batch.state.proposal.lines[0].arrival_scope.additions,/Keeper-authored/);
     assert.match(batch.questions[1].instructions,/entry or boundary crossing/);
     assert.equal(result.verdict.verdict,'uncertain');
@@ -263,4 +263,21 @@ test('a selected movement establishes the position prerequisite rather than requ
  const proposal=admission.admissionRequest('apply',{effects:[{kind:'place',action:'move',to:'Dining room',at:'counter',relation:'beside'}]},{party:['Thomas Hayes'],consentOnly:true});
  await admission.reviewAdmissionJevOnly({...selected.value,proposal,context:{...context,playerText:'I go to the counter, wait until six, then return to the window.',currentPosition:{place:'Dining room',at:'window',relation:'beside'}}});
  const instruction=batch.questions.find(q=>q.key==='restriction_0').instructions;assert.match(instruction,/move itself establishes arrival/);assert(!instruction.includes('before this time proposal'));assert.equal(batch.state.current_position.at,'window');assert.equal(batch.questions.length,2);
+});
+
+test('native move consent asks about the typed journey while retaining references and restriction closure',async()=>{
+ const selected=options(),decide=selected.value.decision.decide;let batch;
+ selected.value.decision={decide:async(value,lease)=>{batch=value;const result=await decide(value,lease);result.answers.restriction_0.noul=.5;return result;}};
+ const proposal=admission.admissionRequest('apply',{effects:[{kind:'place',action:'move',to:'Dining room',at:'Street window',relation:'beside'}]},
+  {party:['Thomas Hayes'],consentOnly:true,destinations:[{requested:'Dining room',handle:'Dining room',label:'Dining room',summary:'A dining room with street windows.'}]});
+ const result=await admission.reviewAdmissionJevOnly({...selected.value,proposal,context:{...context,playerText:'At eight I return to the window; for now I stay here.',
+  currentPosition:{place:'Dining room',at:'Long table',relation:'beside'},currentClock:{at:'1920-10-12T19:00'},
+  interruptedPlayerText:'I wait, then return to the window.',delivered:[{turn:0,player:'I look out.',keeper:'The street window faces the hotel entrance.'}]}});
+ assert.equal(batch.familyVersion,'16');assert.equal(batch.questions.length,2);
+ assert.match(batch.questions[0].instructions,/proposal.lines\[0\].to/);
+ assert.doesNotMatch(batch.questions[0].instructions,/Action feature|For action observe/);
+ assert.match(batch.questions[1].instructions,/unmet prerequisite/);
+ assert.match(JSON.stringify(batch.state.previous_public),/hotel entrance/);
+ assert.equal(batch.state.unfinished_player_words,'I wait, then return to the window.');
+ assert.equal(result.verdict.verdict,'uncertain','an uncertain current restriction still closes the move');
 });

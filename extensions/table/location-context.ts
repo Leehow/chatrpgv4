@@ -19,7 +19,7 @@ const entry={type:'object',properties:{...read.properties,action:Type.String({en
 /** One explicit action survives serializers that omit root union guards. */
 function describeModes(schema:Row):Row {
  const projected=structuredClone(schema);
- projected.properties.action.description='Choose one action. inspect only reads name/at/sense/need. move, establish, feature, relate or observe directly commits that typed change. Example: {"action":"move","to":"here","at":"window","relation":"beside"}. No op or change wrapper. Inspect need contract supplies exact action fields.';
+ projected.properties.action.description='Choose one action. inspect only reads name/at/sense/need. Write grammar: move requires to, optional at/relation/via/additions; establish requires additions:[{name,features:[{name,description}]}] for missing scenery; feature requires to and at, optional state/passable, and edits an EXISTING feature (no description field); relate requires relations:[{from:{place,at?},to:{place,at?},sense,description}]; observe requires to/sense/access/scope/facts, optional view/people/situations/additions. Existing-place additions use name/features only, omitting description. Example: {"action":"move","to":"here","at":"window","relation":"beside"}. No op or change wrapper. For exact nested fields inspect need contract before guessing.';
  return projected;
 }
 /** Explicit properties keep object unions legible to provider tool serializers. */

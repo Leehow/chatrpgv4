@@ -1311,7 +1311,8 @@ export async function reviewAdmissionJevOnly(options:PrimaryAdmissionReviewOptio
     {ok:true;verdict:AdmissionVerdict;ms:number;meta:Record<string,unknown>}
     |{ok:false;reason:string;ms:number;meta:Record<string,unknown>}> {
     const clock=options.clock??hostClock,began=clock.now(),context=options.context;
-    const family='continuous-action-admission',version=context.currentPosition?'15':context.currentClock?'13':options.proposal.ordered||options.proposal.kinds?.includes('place')?'12':'7';
+    const nativeMove=options.proposal.operations?.some(operation=>operation.kind==='place'&&operation.action==='move');
+    const family='continuous-action-admission',version=nativeMove?'16':context.currentPosition?'15':context.currentClock?'13':options.proposal.ordered||options.proposal.kinds?.includes('place')?'12':'7';
     let mechanicsChoice:{action:string;choice:{name:string;binds:string;options:string[];prompt?:string}}|undefined;
     let mechanicsInput=false,mechanicsBinding:string|undefined;
     try{
@@ -1362,7 +1363,7 @@ export async function reviewAdmissionJevOnly(options:PrimaryAdmissionReviewOptio
     const batch:DecisionBatch={id:family+':'+revision,model:ADMISSION_JEV_MODEL,family,familyVersion:version,
         scope:{owner:family,campaign:options.campaign,audience:'player'},
         readSet:[{kind:'draft',resource:'turn:'+context.turn+':consent',revision},{kind:'family',resource:family,revision:version}],
-        state:state as DecisionBatch['state'],questions:continuousConsentQuestions(options.proposal.lines.map((_,index)=>options.proposal.kinds?.[index]??''))};
+        state:state as DecisionBatch['state'],questions:continuousConsentQuestions(options.proposal.lines.map((_,index)=>options.proposal.kinds?.[index]??''),options.proposal.operations?.map(operation=>typeof operation.action==='string'?operation.action:undefined))};
     if(options.proposal.ordered)for(const question of batch.questions){
         if(question.key.startsWith('restriction_'))question.instructions=String(question.instructions)
             +' Evaluate this line at its execution position in proposal.execution: after the listed preceding operations and earlier proposal.lines, conditional on their independent approval and validation. An explicitly selected wait or arrival in that prefix can satisfy its timing or position prerequisite; it need not have settled before this atomic batch is reviewed. Later lines and intentions outside the batch cannot satisfy an earlier prerequisite.';

@@ -23,6 +23,9 @@ test('actual non-strict Anthropic wire retains explicit place mode guidance afte
   assert.equal(schema.anyOf,undefined,'exercise the actual non-strict serializer limitation');
   assert.deepEqual(schema.properties.action.enum,['inspect','move','establish','feature','relate','observe']);
   assert.match(schema.properties.action.description,/No op or change wrapper/);
+  assert.match(schema.properties.action.description,/feature requires to and at, optional state\/passable/);
+  assert.match(schema.properties.action.description,/establish requires additions/);
+  assert.match(schema.properties.action.description,/no description field/);
   assert.equal(schema.properties.op,undefined);assert.equal(schema.properties.change,undefined);
  }
  assert(placeModeConflict({op:'inspect',change:{action:'move',to:'Street'}}));

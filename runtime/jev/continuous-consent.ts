@@ -18,17 +18,19 @@ export function continuousConsentDisposition(selection:unknown,veto:unknown):'au
  if(selection<=1-CONTINUOUS_CONSENT_MIN||veto>=CONTINUOUS_CONSENT_MIN)return 'not_authorized';
  return selection>=CONTINUOUS_CONSENT_MIN&&veto<=1-CONTINUOUS_CONSENT_MIN?'authorized':'uncertain';
 }
-export function continuousConsentQuestions(kinds:readonly string[]):DecisionBatch['questions'] {
+export function continuousConsentQuestions(kinds:readonly string[],actions:readonly (string|undefined)[]=[]):DecisionBatch['questions'] {
  const questions:DecisionBatch['questions']=kinds.map((kind,index)=>{
-            const elapsed=kind==='time',location=kind==='place';
+            const elapsed=kind==='time',location=kind==='place',move=location&&actions[index]==='move';
             return {key:'consent_'+index,target:'proposal.lines['+index+']',type:'noul' as const,
                 instructions:elapsed
                     ?'Is the elapsed world time in this line part of the activity selected in current_player_words? This includes observing or waiting for an NPC task the player requests now while staying clear. The player need not personally perform the work or name its exact ordinary duration. Judge selection of the activity; explicit restrictions are evaluated separately.'
+                    :move?'Does current_player_words choose moving to proposal.lines['+index+'].to, including its optional local position at proposal.lines['+index+'].at? Judge the journey and local position only. Current position and previous_public describe references, not consent. Only arrival and local positioning are proposed; other activities are separate operations. Past or unfinished declarations cannot override the current words.'
                     :location?'Does current_player_words select this location action and target, explicitly or as an ordinary step of the stated goal? For action move, to is the actual destination and at is optional local positioning. For action observe, to is the sensory target seen/heard from the actual current position: it is not a journey or entry, and looking at somebody does not start a conversation. A player choosing an ordinary hotel need not supply its name: the Keeper can name a compatible instance. Additions, relations and compatible incident facts are Keeper-authored surroundings, not player construction or a requirement for earlier public mention. Judge the selected action and target scope, not factual correctness. Action feature changes an existing feature state and must correspond to a selected attempt. Use previous_public only to resolve references.'
                     :'Does current_player_words select the investigator action in proposal.lines['+index+'], explicitly or as an ordinary step of the stated goal? Use previous_public only to resolve references. Judge whether the action and its target were selected; do not judge outcomes or factual correctness. A move establishes arrival at the graph location, including its approach or doorway; it does not itself enter a building, open a door or start an interaction.',
                 criteria:elapsed
                     ?{true:'This is elapsed time of the selected activity, including requested NPC work the investigator observes.',
                         false:'The activity or waiting itself was not selected.'}
+                    :move?{true:'The player chooses this destination and local position now, directly or as an ordinary step of their goal.',false:'The player does not choose this destination or local position now.'}
                     :{true:'The action and its target are selected explicitly or as a routine step of the current goal.',
                         false:'The action or target is not selected; interest, a quotation or an earlier plan alone is not execution.'}};
         });
