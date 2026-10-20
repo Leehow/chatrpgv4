@@ -41,14 +41,21 @@ export class TurnPacketParameterError extends Error {
 }
 function parameterError(label:string,schema:TSchema,value:unknown):Error {
  const errors=Errors(schema,value).slice(0,4);
+ const explanation=(error:(typeof errors)[number])=>{
+  if(error.keyword==='contains'){
+   const node=error.schemaPath.split('/').slice(1).reduce<any>((row,key)=>row?.[key.replace(/~1/g,'/').replace(/~0/g,'~')],schema);
+   if(node?.contains?.properties?.kind?.const==='scene')return `must include a scene assessment command: {kind:"scene",service:${JSON.stringify(node.contains.properties.service.enum)},crowd:${JSON.stringify(node.contains.properties.crowd.enum)}}; select actual current service and population`;
+  }
+  return error.message;
+ };
  const findings=errors.map(error=>{
   if(error.keyword==='additionalProperties'||error.schemaPath.endsWith('/additionalProperties'))return `${label}/<additional-property>: must not have additional properties`;
   const received=error.instancePath.split('/').slice(1).reduce<unknown>((row,key)=>object(row)||Array.isArray(row)?(row as Record<string,unknown>)[key.replace(/~1/g,'/').replace(/~0/g,'~')]:undefined,value);
   const type=received===null?'null':Array.isArray(received)?'array':typeof received;
-  return `${label}${error.instancePath}: ${error.message} (${error.keyword} ${JSON.stringify(error.params)}); received ${type}`;
+  return `${label}${error.instancePath}: ${explanation(error)} (${error.keyword} ${JSON.stringify(error.params)}); received ${type}`;
  });
- const fields=errors.map(error=>`${label}${error.keyword==='additionalProperties'?'/<additional-property>':error.instancePath}: ${error.message}`.slice(0,300));
- return new TurnPacketParameterError(`Invalid decision command: ${findings.join('; ')||`${label} requires nonblank bounded strings`}`.slice(0,1600),fields);
+ const fields=[...new Set(errors.map(error=>`${label}${error.keyword==='additionalProperties'?'/<additional-property>':error.instancePath}: ${explanation(error)}`.slice(0,300)))];
+ return new TurnPacketParameterError(`Invalid decision command: ${[...new Set(findings)].join('; ')||`${label} requires nonblank bounded strings`}`.slice(0,1600),fields);
 }
 export function responseDecision(value:unknown,slots:readonly string[]=[]):ResponseDecision {
  const schema=Interaction.anyOf.find(schema=>(schema.properties.act as any).const===(value as any)?.act||(schema.properties.act as any).enum?.includes((value as any)?.act))??Interaction;

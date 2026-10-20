@@ -49213,6 +49213,10 @@ gets a fresh ID. A scene assessment following already committed NPC movement is
 a supplement, not a mutation of the earlier call. Final rendering still reads
 all canonical settled results; no previous effect is rolled back or invented.
 
+When the current schema requires a scene assessment, its contains diagnostic
+names the scene constructor and its service/crowd choices. An opaque array error
+must not hide the missing assessment from the Keeper's existing correction turn.
+
 ## 243. Enhanced Locations: spatial relations and observation continuity
 
 Owner approval (2026-10-19): complete the location association graph, observation
