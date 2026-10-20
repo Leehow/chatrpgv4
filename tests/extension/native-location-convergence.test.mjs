@@ -8,6 +8,26 @@ import {locationToolDeclarations} from '../../extensions/table/location-context.
 import {KernelError} from '../../extensions/kernel/client.ts';
 import {admissionRefusalScope} from '../../extensions/kernel/refusal-scope.ts';
 import {PendingAnswers} from '../../extensions/kernel/source-answers.ts';
+import {placeModeConflict} from '../../extensions/kernel/place-operation.ts';
+import {streamSimple} from '@earendil-works/pi-ai/api/anthropic-messages';
+import {readFileSync} from 'node:fs';
+
+test('actual non-strict Anthropic wire retains explicit place mode guidance after root guards are removed',async()=>{
+ const model={...JSON.parse(readFileSync(new URL('../../node_modules/@earendil-works/pi-ai/dist/providers/data/minimax-cn.json',import.meta.url)))['anthropic-messages']['chat:MiniMax-M2.7'],id:'MiniMax-M3.1-Flash-Preview',compat:{forceAdaptiveThinking:true}};
+ const tools=offeredTools(COC_TOOLS,{PI_COC_LOOP_ENGINE:'hybrid-v1',PI_COC_TURN_PACKET_PROTOTYPE:'1',EXT_JEV_APIKEY:'fixture'});
+ for(const detail of [false,true]){
+  const place=locationToolDeclarations(tools,detail).find(row=>row.name==='place');let payload;
+  const controller=new AbortController();
+  await streamSimple(model,{messages:[{role:'system',content:'Fixture',toolsAdded:[place],timestamp:0},{role:'user',content:'Fixture',timestamp:0}]},{apiKey:'fixture',signal:controller.signal,onPayload:body=>{payload=body;controller.abort();}}).result();
+  const schema=payload.tools[0].input_schema;
+  assert.equal(schema.anyOf,undefined,'exercise the actual non-strict serializer limitation');
+  assert.match(schema.properties.op.description,/inspect only reads/);
+  assert.match(schema.properties.change.description,/only with op submit/);
+ }
+ assert(placeModeConflict({op:'inspect',change:{action:'move',to:'Street'}}));
+ assert(!placeModeConflict({op:'submit',change:{action:'move',to:'Street'}}));
+ assert(!placeModeConflict({op:'inspect',name:'Street'}));
+});
 
 test('native place can commit a step before later mechanics with compact provider context',()=>{
  const env={PI_COC_LOOP_ENGINE:'hybrid-v1',PI_COC_TURN_PACKET_PROTOTYPE:'1',PI_COC_LEAN_APPLY:'0',EXT_JEV_APIKEY:'fixture'};

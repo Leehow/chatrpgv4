@@ -19,6 +19,8 @@ test('focused perception selection crosses the demand event, rejects omission an
  assert.equal(requests,2);
  const coverage=batches.filter(b=>b.family==='location-decision-coverage');assert.equal(coverage.length,2);
  assert(coverage.every(b=>b.state.initial_selection.observation===.99),'the event cannot drop the selected observation');
+ assert(coverage.every(b=>b.state.recent_public?.at(-1)?.keeper==='The office is open.'),'spatial references retain the actual preceding public exchange');
+ assert(coverage.every(b=>Array.isArray(b.state.people)&&b.state.people.some(person=>person.ref&&person.display_name)),'opaque NPC references require their canonical public names');
  assert(coverage.every(b=>!b.questions.some(q=>q.key==='observation_selected')),'an already decisive selection is reused');
  const refused=table.session.messages.filter(m=>m.role==='toolResult'&&m.isError);assert.match(JSON.stringify(refused),/place_decision_incomplete/);
  const turn=JSON.parse(readFileSync(join(table.workspace,'.coc/campaigns/test-camp/turns/0001.json')));
@@ -59,11 +61,17 @@ test('native standalone location settlement precedes a selected wait and final o
   },()=>{
    const refusal=table.session.messages.findLast(row=>row.role==='toolResult'&&row.toolName==='output');
    assert.equal(refusal.isError,true);assert.match(JSON.stringify(refusal.content),/first call place/,'parameter feedback exposes the independent location route');
+   return fauxAssistantMessage([fauxToolCall('place',{op:'inspect',change:{action:'move',to:scene,at:'street window'}})],{stopReason:'toolUse'});
+  },async()=>{
+   const refusal=table.session.messages.findLast(row=>row.role==='toolResult'&&row.toolName==='place');
+   assert.equal(refusal.isError,true);assert.match(JSON.stringify(refusal.content),/explicitly retry with op submit/);
+   const status=await table.runtimeBridges().at(-1).call('table.status',{campaign:'test-camp',projection:'receipts'});
+   assert(!status.receipts.some(row=>row.kind==='place'&&row.action==='move'),'a conflicting read must not commit movement');
    return fauxAssistantMessage([fauxToolCall('place',{op:'submit',change:{action:'move',to:scene,at:'street window',relation:'beside',additions:[{name:scene,features:[{name:'street window',description:'A tall window overlooking the pavement.'}]}]}})],{stopReason:'toolUse'});
   },()=>fauxAssistantMessage([fauxToolCall('apply',{effects:[{kind:'time',minutes:2,why:'Wait at the window as selected.'}]})],{stopReason:'toolUse'}),
   ()=>fauxAssistantMessage([fauxToolCall('output',{version:4,commands:[{kind:'scene',service:'open',crowd:'quiet'},{kind:'place',action:'observe',to:scene,at:'street window',sense:'sight',access:'clear',scope:'The pavement through the window.',facts:['A cart passes the window.']}],interactions:[]})],{stopReason:'toolUse'})]});
  t.after(()=>table.dispose());await table.session.prompt('I walk to the street window, wait two minutes, then look at the pavement.');
- const call=table.session.messages.find(row=>row.role==='toolResult'&&row.toolName==='place');assert.notEqual(call?.isError,true,JSON.stringify(call));
+ const call=table.session.messages.findLast(row=>row.role==='toolResult'&&row.toolName==='place');assert.notEqual(call?.isError,true,JSON.stringify(call));
  const turn=JSON.parse(readFileSync(join(table.workspace,'.coc/campaigns/test-camp/turns/0001.json')));
  const move=turn.receipts.findIndex(row=>row.kind==='place'&&row.action==='move'),wait=turn.receipts.findIndex(row=>row.kind==='time'),observe=turn.receipts.findIndex(row=>row.kind==='place'&&row.action==='observe');
  assert(move>=0&&wait>move&&observe>wait,'canonical receipt order must be move, wait, observe: '+JSON.stringify(turn.receipts));

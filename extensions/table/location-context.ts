@@ -20,6 +20,15 @@ const entry=legibleClosedSchema(Type.Union([
  Type.Object({using_skill:Type.Optional(Type.String()),op:Type.Literal('submit'),
     change:Type.Object({action},{additionalProperties:true,description:'Typed location change; inspect need contract supplies its exact schema. Complete valid calls execute directly.'})},{additionalProperties:false})
 ]));
+/** Non-strict provider serialization drops root union guards; field descriptions survive. */
+function describeModes(schema:Row):Row {
+    const projected=structuredClone(schema);
+    if(projected.properties?.op?.enum?.includes('submit')){
+        projected.properties.op.description='Required mode: inspect only reads name/at/sense/need and never accepts change. To execute any move, feature, establish, relate or observe change, use op submit with change. Example: {"op":"submit","change":{"action":"move","to":"here","at":"window"}}.';
+        projected.properties.change.description='Write payload, permitted only with op submit. Never combine change with op inspect. Action-specific fields come from inspect need contract.';
+    }
+    return projected;
+}
 /** Explicit properties keep object unions legible to provider tool serializers. */
 function declarationObject(schema:Row):Row {
     if(!Array.isArray(schema.anyOf)||!schema.anyOf.every((branch:Row)=>branch.type==='object'))return schema;
@@ -42,7 +51,7 @@ export function locationToolDeclarations<T extends {name:string;parameters:any;d
     return tools.map(tool=>{
         if(tool.name==='place'){
             if(tool.parameters?.properties?.op?.const==='inspect')return {...tool,parameters:detail?legibleClosedSchema(tool.parameters):tool.parameters};
-            return {...tool,parameters:detail?legibleClosedSchema(declarationObject(tool.parameters)):entry};
+            return {...tool,parameters:describeModes(detail?legibleClosedSchema(declarationObject(tool.parameters)):entry)};
         }
         if(tool.name==='output')return {...tool,parameters:detail?locationCommandOwner(tool.parameters):locationCommandEntry(tool.parameters)};
         if(tool.name!=='apply'||!Array.isArray(tool.parameters?.properties?.effects?.items?.anyOf))return tool;

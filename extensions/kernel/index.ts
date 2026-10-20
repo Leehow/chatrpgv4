@@ -1,7 +1,7 @@
 import {adviseLocationReference} from './location-reference.ts';
 import {locationDescription} from './location-description.ts';
 import {settledAdmissionEvidence} from './settled-admission.ts';
-import {placeOperation} from './place-operation.ts';
+import {placeOperation,placeModeConflict} from './place-operation.ts';
 import {DecisionContent,decisionPerson,bindCreatedDecisionPerson} from '../../runtime/decision-content.ts';
 import {Errors as argumentErrors} from 'typebox/value';
 import {SourceConsultations} from '../module/source-consultations.ts';
@@ -5777,6 +5777,8 @@ export default function (pi: ExtensionAPI, host: {capabilities?:RuntimeCapabilit
                 const receipts=status.receipts.map(receipt=>Object.fromEntries(['kind','action','from','to','position','feature','before','after','observation'].filter(key=>receipt[key]!==undefined).map(key=>[key,receipt[key]])));
                 const selection=state.locationSelection?.turn===state.turn?state.locationSelection:undefined;
                 const coverage=await locationDecisionCoverage({player_declaration:state.playerText,current_place:before.where?.scene,current_display_name:before.where?.display_name,current_clock:before.where?.clock,current_position:before.where?.location?.position,
+                    recent_public:decisionRecentPublic(before.recent,state.delivered).slice(-1),
+                    people:[...new Map([...(before.npc_references?.people??[]),...(before.present??[])].filter(person=>person.ref).map(person=>[person.ref,person])).values()].map((person:any)=>Object.fromEntries(['ref','display_name','name_known'].filter(key=>person[key]!==undefined).map(key=>[key,person[key]]))),
                     ...(selection?{initial_selection:{move:selection.move,feature:selection.feature,observation:selection.observation}}:{}),
                     features:before.where?.location?.features??[],proposed_effects:compiled.effects,proposed_responses:compiled.responses,settled_receipts:receipts,known_failures:heldBoundary?.uncommittedFailures()??[]},
                     {campaign:state.campaign,turn:state.turn},turnDecisionPort,reply.signal??state.lanes.signal,foregroundProviderBudget?.());
@@ -7064,6 +7066,7 @@ export default function (pi: ExtensionAPI, host: {capabilities?:RuntimeCapabilit
 			// the literal's body without its quotes -- is decoded between the two, so the label rule and every reader after it
 			// see the text.
 			prepareArguments: (args: unknown) => {
+				if(spec.name==='place'&&placeModeConflict(args))throw new Error(new KernelError({code:'invalid_params',message:'place inspect is read-only and cannot accept change',fix:'If you intend this location change, explicitly retry with op submit and the same change. For a read, omit change and use name/at/sense/need. Nothing was executed; never repeat successful receipts.'}).toToolText());
 				const supplied=spec.name==='apply'?normalizeApplyArguments(args):args;
 				const normalized=turnPacketPrototype&&spec.name==='output'?normalizeTurnPacketArguments(supplied):normalizeToolArgumentSyntax(spec.parameters,supplied,{nativeValidation:true});
                 if(table&&(spec.name==='place'||normalized.args&&typeof normalized.args==='object'&&applyEffectKinds(spec.name,normalized.args as Record<string,unknown>).includes('place'))){
