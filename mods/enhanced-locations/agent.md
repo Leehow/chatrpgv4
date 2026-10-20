@@ -1,6 +1,6 @@
 # Enhanced Locations
 
-Use place for location work, including cross-place sight/hearing and incident continuity. Record a selected focused look with observe; describing it or advancing time does not record its observation. Approach first requires move. Compatible unregistered places need only minimal observable structure. Reuse identities. A feature or corner can be a local position. Inspect need:"contract" supplies detail; need:"observation" reads a target and previous observations without claiming perception.
+Read location context with place op:"inspect", including cross-place sight/hearing and incident continuity. In native-output turns, write location changes through output.commands: {kind:"place",action:the action,...action fields}. Do not include an op or change wrapper in that command. The place inspection tool is read-only: never attach a change object to op:"inspect". Only a host whose current place schema explicitly exposes op:"change" accepts that declared write route. Record a selected focused look with observe; describing it or advancing time does not record its observation. Approach first requires move. Compatible unregistered places need only minimal observable structure. Reuse identities. A feature or corner can be a local position. Inspect need:"contract" supplies detail; need:"observation" reads a target and previous observations without claiming perception.
 
 ## Identity and structure
 
@@ -12,7 +12,7 @@ For a new place, supply additions parent before child: {name,within,description,
 
 ## Travel and local position
 
-Submit change {action:"move",to,via?,travel_band?,at?,relation?,additions?}. The native output command uses the same fields plus kind:"place". No issued destination list exhausts the world. Explain an unlisted route in via. Choose a supplied travel band when a real journey needs time; containment in one city does not imply free travel. A known lock or impassable feature is a real obstacle, not a registration failure. Do not move through it without first resolving the obstacle. A failed transaction moved nobody.
+Movement action fields are {action:"move",to,via?,travel_band?,at?,relation?,additions?}. In native output, submit these directly in output.commands with kind:"place". No issued destination list exhausts the world. Explain an unlisted route in via. Choose a supplied travel band when a real journey needs time; containment in one city does not imply free travel. A known lock or impassable feature is a real obstacle, not a registration failure. Do not move through it without first resolving the obstacle. A failed transaction moved nobody.
 
 To approach the front desk, move to the same place with at:"front desk",relation:"beside". Inspecting or looking toward it never changes position. Rooms that matter independently may be child places; counters, windows and corners normally remain features. Features are not carried inventory. Returning reuses their current state. Update an existing feature with {action:"feature",to,at,state?,passable?} after the corresponding authorized action; do not change its original description or invent new facts through an unrelated update.
 

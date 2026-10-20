@@ -49131,6 +49131,18 @@ has not been handed over. This is public narration context, not NPC knowledge or
 a transfer. Producer: existing item/custody transactions and sheets; reader:
 capsule and decisionScene; actor: the sole author preserves current possession.
 
+#### Active write-surface routing (live follow-up)
+
+Enhanced Locations instructions must distinguish read and write surfaces. In
+native-output turns place is inspection-only: never put a change inside its
+inspect arguments. Submit mutations as output.commands entries with kind:place
+and action fields directly, without op/change wrappers. Hosts that actually
+expose place op:change retain that declared route. No capability is inferred from
+an old instruction sample. Mod1.1.4 updates this guidance with state schema1
+unchanged; runtime validation and transaction ownership do not change. The real
+return journey exposed repeated inspect/change validation failures before the
+Keeper obtained the read contract; keep those failures as acceptance evidence.
+
 #### Decimal financial outcomes (live follow-up)
 
 Receipt amounts use the kernel's canonical numeric value type. Cash outcome
