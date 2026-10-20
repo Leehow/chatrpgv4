@@ -123,3 +123,38 @@ test('a refused atomic cash and move batch does not suppress a later committed m
  assert.ok(task.result.outcomes.some(row=>row.kind==='move'&&row.status==='changed'));assert.ok(!task.result.outcomes.some(row=>row.kind==='cash'));
  assert.ok(!batches.some(row=>row.family==='held-act-outcome'),'native state projection needs no prose judgment');assert.deepEqual(table.extensionErrors,[]);
 });
+
+// Controlled RPC component: a read-only preview refusal remains evidence, never settlement.
+test('a precommit cash preview refusal permits actual split service receipts to reach the sole author',async t=>{
+ const batches=[],engine=createHybridEngine({env,decision:{decide:async batch=>{batches.push(batch);return answer(batch);}}});
+ const cash={kind:'cash',mode:'settle',subject:'Thomas Hayes',with:'Steven Knott',category:'living',source:'quote',items:[{name:'Coffee',quantity:1,unit_price:.25}]};
+ const table=await openTable({legacyDeliveryFixtures:false,realKernel:true,env,runDriver:engine.runDriver,
+  prepareWorkspace:async workspace=>{const c=new RpcClient(workspace);try{await c.ok('table.open',{campaign:'test-camp'});await c.ok('table.narrate',{campaign:'test-camp',call_id:'t0-c1',text:'Knott has offered coffee.'});}finally{await c.close();}},
+  extraExtensions:[{name:'engine',factory:engine.extension}],responses:[
+   ()=>fauxAssistantMessage([fauxToolCall('apply',{effects:[{kind:'time',band:'brief_activity',why:'Drink the selected coffee.'},cash]})],{stopReason:'toolUse'}),
+   ()=>fauxAssistantMessage([fauxToolCall('apply',{effects:[{kind:'item',name:'Coffee',from:'Steven Knott',quantity:1,why:'Knott serves the selected coffee.'},{kind:'item',name:'Coffee',quantity:-1,why:'Hayes drinks the coffee.'},{kind:'time',minutes:2,why:'Drink the coffee.'}]})],{stopReason:'toolUse'}),
+   ()=>fauxAssistantMessage([fauxToolCall('apply',{effects:[cash]})],{stopReason:'toolUse'}),
+   ()=>fauxAssistantMessage([fauxToolCall('output',{...output,commands:[{kind:'scene',service:'open',crowd:'quiet'}]})],{stopReason:'toolUse'})]});
+ t.after(()=>table.dispose());await table.session.prompt('I accept the coffee, drink it, then pay no more than one dollar.');
+ const calls=table.session.messages.filter(row=>row.role==='toolResult'&&row.toolName==='apply');
+ assert.equal(calls[0].details?.coc_error?.details?.reason,'preview_clock_unknown');
+ assert(calls.slice(1).every(row=>!row.isError),JSON.stringify(calls.map(row=>row.details)));
+ const author=table.telemetry().filter(row=>row.lane==='isolated-expression'&&row.event==='written');assert.equal(author.length,1,'actual successful service receipts must reach the native author: '+JSON.stringify({output:table.session.messages.findLast(row=>row.role==='toolResult'&&row.toolName==='output'),last:table.telemetry().slice(-8),errors:table.extensionErrors}));
+ const task=JSON.parse(readFileSync(join(author[0].attempt,'task.json'),'utf8'));
+ assert(task.decision_context.failed_attempts.some(row=>row.reason==='preview_clock_unknown'),'the original failed preview is retained as uncommitted');
+ assert.equal(task.result.outcomes.filter(row=>row.kind==='item').length,2);
+ assert(task.result.outcomes.some(row=>row.kind==='cash'&&row.status==='changed'));
+ assert.equal(table.entries('coc-final-delivery').filter(row=>row.event==='end'&&row.status==='completed').length,1);
+ assert(!batches.some(row=>row.family==='held-act-outcome'),'known precommit failure needs no new semantic judge');
+});
+
+test('known cash preflight refusals never classify an unknown or partial failure as uncommitted',async()=>{
+ const {HeldActOutcome}=await import('../../runtime/jev/held-act-outcome.ts');
+ const scope={campaign:'c',turn:1,playerText:'I eat then pay.'};
+ for(const cause of ['preview_clock_unknown','chosen_covered_quote']){
+  const boundary=new HeldActOutcome();boundary.hold(scope,{tool:'apply',lines:['The cash preflight did not execute.'],cause},true);
+  assert.deepEqual(boundary.uncommittedFailures(),[{tool:'apply',status:'uncommitted',reason:cause}]);
+  boundary.hold(scope,{tool:'apply',lines:['Unknown execution state.'],cause:'unknown_partial_write'},true);
+  assert.equal(boundary.uncommittedFailures(),undefined);
+ }
+});
