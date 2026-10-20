@@ -2,6 +2,26 @@
 
 ## Active repair — Python-free scene preparation and real story continuation
 
+Latest gate, 2026-10-20: source `64ffa7dab` passes the 130-test fast suite,
+21 location/schema checks, both issued/unissued actor regressions and kernel
+typecheck in the isolated source checkout. The approved native schema wiring is
+integrated; the concurrent NPC prototype is excluded. Source-connected scenery
+creation/review/acceptance and ordinary tea-room creation have real-run evidence.
+Unassisted exploration is still under live validation: failed compound decisions
+and the later simple window approach are retained, not counted as successes.
+In the latter, the Keeper added three minutes of observation not selected by
+that input; consent correctly refused the proposal. No local arrival was committed.
+
+Amax source, dependencies, outputs, npm cache and temporary test files now use
+`/mnt/sdd/code/chatrpgv4-testbox` on `/dev/sdd` (1.4 TiB available when checked).
+The old root-partition tree remains preserved. The `bdac0cf13` full run had zero
+assertion failures but one 15-second memory recovery timeout; its serial retry
+also timed out. Integration and loop phases passed. A local phase diagnostic
+completed the unchanged recovery assertions in 6.96 seconds; that does not prove
+the amax cause or make its failed run pass. A fresh full run of `64ffa7dab` uses
+an independent `locations-native-64ffa` scratch name after the other owner was idle.
+Final packaging and canonical App acceptance must bind the final source revision.
+
 Owner direction, 2026-10-19: remove active Python execution, investigate the
 previously implemented scenery method, repair it, then continue actual play.
 The later failed story runs supersede a claim of robust ordinary exploration;
