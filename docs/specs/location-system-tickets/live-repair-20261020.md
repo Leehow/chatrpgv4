@@ -552,3 +552,15 @@ giving requested bread admits and explicit refusal rejects. No threshold changes
 Do not force an ambiguous inquiry into a purchase to make this trace green.
 Latest a830 full LAN run captured source19:36:45Z; source snapshot is complete
 before advancing the clean frozen local checkout. Full result remains pending.
+
+a741e83b9 clean targeted31/31, native consent34/34 and fast130/130pass.
+Canonical package19:45:03Z passed stable signing/deep strict and empty staging;
+original campaign actual Mod1.1.24 confirmed. Turn34 completed80.859s with real
+bread handover and8c living expense (actual purse29->29), no quote retry loop.
+Two lookup failures carried kinds:[""]; provider schema allowed that placeholder
+although the kernel refuses it. Align only the string's existing nonempty bound
+and add an omission/item example. New provider-schema test is red before this
+change and green afterward. Do not infer a kind, loosen catalog validation or
+alter the original failed records. Source remains unfrozen until this small
+correction is committed; stopped only the idle own latest-all queue (no child)
+before advancing its source, while the earlier a830 LAN run continues untouched.

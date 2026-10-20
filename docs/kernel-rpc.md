@@ -49291,6 +49291,11 @@ must state this at the new-place entry point. A door approach may use an
 established local feature and relation; bare location arrival does not itself
 grant entry through a closed barrier.
 
+The incidental goods lookup uses the existing catalog tool. Its optional kinds
+array advertises nonempty strings, matching kernel validation. Omit the filter
+to search all kinds; item is the ordinary equipment/price filter. Empty-string
+placeholders are invalid input, never silently rewritten into a chosen kind.
+
 An atomic canonical `apply` validation refusal with `unknown_entity` is an uncommitted
 attempt, including an invalid object-owner reference. Native publication can
 carry that bounded failed-attempt projection alongside actual current state and
