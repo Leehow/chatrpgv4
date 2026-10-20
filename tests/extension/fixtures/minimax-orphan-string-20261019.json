@@ -1,0 +1,62 @@
+{
+  "source_run": "kp-dialogue-account-9b6e-20261019",
+  "source_turn": 1,
+  "args": {
+    "version": 4,
+    "commands": [
+      {
+        "kind": "move",
+        "to": "Marathon Cafe"
+      },
+      {
+        "kind": "npc",
+        "actor": "npc_22",
+        "to": "here",
+        "reason": "女招待一直在柜台后做活，玩家重新进门"
+      },
+      {
+        "kind": "scene",
+        "service": "open",
+        "crowd": "quiet",
+        "review_after_minutes": 15
+      }
+    ],
+    "interactions": [
+      {
+        "actor": "npc_22",
+        "to": [
+          "investigator_1"
+        ],
+        "act": "greet",
+        "content": [
+          {
+            "new": {
+              "predicate": "service_at",
+              "provider": "Marathon Cafe",
+              "items": [
+                {
+                  "label": "",
+                  "$text": "label>汤"
+                },
+                {
+                  "label": "",
+                  "$text": "label>三明治"
+                },
+                {
+                  "label": "",
+                  "$text": "label>咖啡"
+                }
+              ],
+              "when": {
+                "day_offset": 0,
+                "hour": 16,
+                "minute": 15
+              },
+              "fulfillment": "dine_in"
+            }
+          }
+        ]
+      }
+    ]
+  }
+}

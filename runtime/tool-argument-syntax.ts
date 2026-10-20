@@ -1,10 +1,10 @@
-/** Exact transport envelopes at schema-declared arrays; never action inference. */
+/** Schema-declared transport syntax only; never action inference. */
 import {Type,type TSchema} from 'typebox';
 import {Value} from 'typebox/value';
 import {validateToolArguments} from '@earendil-works/pi-ai';
 import {isDeepStrictEqual} from 'node:util';
 
-type Result={args:unknown;repairs:number;integerRepairs:number;booleanRepairs?:number};
+type Result={args:unknown;repairs:number;integerRepairs:number;booleanRepairs?:number;textRepairs?:number};
 type Shape=TSchema&{type?:string;minimum?:number;maximum?:number;anyOf?:TSchema[];oneOf?:TSchema[];items?:TSchema|TSchema[];properties?:Record<string,TSchema>};
 const object=(value:unknown):value is Record<string,unknown>=>!!value&&typeof value==='object'&&!Array.isArray(value);
 const nativeSchemas=new WeakMap<object,TSchema>();
@@ -65,18 +65,27 @@ export function normalizeToolArgumentSyntax(schema:TSchema,input:unknown,options
    const repairs=children.reduce((sum,child)=>sum+child.repairs,0);
    const integerRepairs=children.reduce((sum,child)=>sum+child.integerRepairs,0);
    const booleanRepairs=children.reduce((sum,child)=>sum+(child.booleanRepairs??0),0);
-   const next=repairs||integerRepairs||booleanRepairs?children.map(child=>child.args):values;
+   const textRepairs=children.reduce((sum,child)=>sum+(child.textRepairs??0),0);
+   const next=repairs||integerRepairs||booleanRepairs||textRepairs?children.map(child=>child.args):values;
    if(layers&&!options.partialTransport&&!valid(schema,next,options.nativeValidation===true))return unchanged;
-   return layers||repairs||integerRepairs||booleanRepairs?{args:next,repairs:repairs+(layers?1:0),integerRepairs,...(booleanRepairs?{booleanRepairs}:{})}:unchanged;
+   return layers||repairs||integerRepairs||booleanRepairs||textRepairs?{args:next,repairs:repairs+(layers?1:0),integerRepairs,...(booleanRepairs?{booleanRepairs}:{}),...(textRepairs?{textRepairs}:{})}:unchanged;
   }
   if(shape.type==='object'&&object(value)){
-   let next=value,repairs=0,integerRepairs=0,booleanRepairs=0;
+   const fields=Object.entries(shape.properties??{});
+   if(options.partialTransport&&shape.additionalProperties===false&&fields.length===1&&typeof value.$text==='string'){
+    const [field,property]=fields[0],prefix=field+'>';
+    if(property.type==='string'&&value[field]===''&&Object.keys(value).length===2&&value.$text.startsWith(prefix)){
+     const decoded={[field]:value.$text.slice(prefix.length)};
+     if(Value.Check(schema,decoded))return {args:decoded,repairs:0,integerRepairs:0,textRepairs:1};
+    }
+   }
+   let next=value,repairs=0,integerRepairs=0,booleanRepairs=0,textRepairs=0;
    for(const [key,property] of Object.entries(shape.properties??{})){
     if(!Object.hasOwn(value,key))continue;
     const child=visit(property as TSchema,value[key],depth+1);
-    if(child.repairs||child.integerRepairs||child.booleanRepairs){next={...next,[key]:child.args};repairs+=child.repairs;integerRepairs+=child.integerRepairs;booleanRepairs+=child.booleanRepairs??0;}
+    if(child.repairs||child.integerRepairs||child.booleanRepairs||child.textRepairs){next={...next,[key]:child.args};repairs+=child.repairs;integerRepairs+=child.integerRepairs;booleanRepairs+=child.booleanRepairs??0;textRepairs+=child.textRepairs??0;}
    }
-   return {args:next,repairs,integerRepairs,...(booleanRepairs?{booleanRepairs}:{})};
+   return {args:next,repairs,integerRepairs,...(booleanRepairs?{booleanRepairs}:{}),...(textRepairs?{textRepairs}:{})};
   }
   return unchanged;
  };

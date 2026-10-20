@@ -71,8 +71,8 @@ export function requireTurnPacketNpcDestinations(packet:TurnPacket,choices:reado
  if((packet.commands??[]).some(command=>command.kind==='npc'&&!turnPacketNpcDestinations(choices).includes(command.to)))throw Error('NPC destination must select here, away or one exact issued place');
  return packet;
 }
-/** Decode exact, bounded item envelopes only at declared array positions. */
-export function normalizeTurnPacketArguments(input:unknown):{args:unknown;repairs:number;integerRepairs?:number;booleanRepairs?:number} {
+/** Decode declared scalar and array transport forms without semantic inference. */
+export function normalizeTurnPacketArguments(input:unknown):{args:unknown;repairs:number;integerRepairs?:number;booleanRepairs?:number;textRepairs?:number} {
   return normalizeToolArgumentSyntax(TURN_PACKET_PARAMETERS,input,{boundedIntegers:true,exactBooleans:true,partialTransport:true});
 }
 /** Current capabilities are data; the provider tool declaration stays invariant. */

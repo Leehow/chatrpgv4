@@ -49479,3 +49479,20 @@ This supports preserving the existing bounded recovery rather than claiming
 unsupported forced decoding. No new judge, prompt reminder, endpoint switch or
 execution from discarded prose is introduced. Live acceptance counts recovery
 as an additional KP call and reports any remaining protocol noncompliance.
+
+**2026-10-19 scalar transport closure.** The retained MiniMax greeting submitted
+three closed category leaves shaped `{label:"",$text:"label>..."}`. The existing
+schema-guided argument decoder may recover this exact orphan-tag envelope only
+in partial-transport mode, at a closed object with one declared string field,
+with exactly that empty field and `$text`, matching the exact field-name prefix.
+The original suffix is preserved byte-for-byte and the entire decoded leaf must
+validate. Unknown keys, conflicting/nonempty values, other field names, missing
+fields and bounds failures remain invalid. This is syntax recovery, never
+entity/intent inference or a new fact. Array/integer/boolean accounting is
+unchanged; `textRepairs` and `decision_string_transport_normalized` count this
+separate repair without logging contents. Native submission still performs all
+existing validation/admission before effects, and original failed evidence is
+retained. Precedent: Ajv documents explicit reversible schema-driven coercion
+(https://ajv.js.org/coercion.html); jsonrepair separates syntax repair from data
+semantics (https://github.com/josdejong/jsonrepair). Neither justifies broad
+coercion here; no dependency or new model request is introduced.

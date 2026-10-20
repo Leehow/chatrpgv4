@@ -7018,6 +7018,7 @@ export default function (pi: ExtensionAPI, host: {capabilities?:RuntimeCapabilit
                 }
 				if(normalized.repairs)void record({lane:'arguments',event:'decision_array_normalized',tool:spec.name,repairs:normalized.repairs});
 				if(normalized.integerRepairs)void record({lane:'arguments',event:'decision_integer_normalized',tool:spec.name,repairs:normalized.integerRepairs});
+				if(normalized.textRepairs)void record({lane:'arguments',event:'decision_string_transport_normalized',tool:spec.name,repairs:normalized.textRepairs});
 				if(normalized.booleanRepairs)void record({lane:'arguments',event:'decision_boolean_normalized',tool:spec.name,repairs:normalized.booleanRepairs});
 				const unwrapped = unwrapArgumentMarkup(spec.name, spec.parameters, normalized.args);
 				if (!unwrapped.ok) throw new Error(new KernelError(unwrapped.refusal).toToolText());
