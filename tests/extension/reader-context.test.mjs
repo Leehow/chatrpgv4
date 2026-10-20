@@ -88,6 +88,24 @@ const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "../..");
 
 const quote = value => "'" + value.replaceAll("'", "'\\''") + "'";
 
+test('private adaptation and Mod children reject unissued shell execution before any process runs',async t=>{
+ const home=await mkdtemp(join(tmpdir(),'private-task-execution-'));t.after(()=>rm(home,{recursive:true,force:true}));
+ for(const extra of [{},{PI_COC_ADAPTATION_SUBMIT_ROLE:'create'},{PI_COC_ADAPTATION_SUBMIT_ROLE:'review'}]){
+  const hooks=[];const env={PI_COC_HOME:home,...extra};
+  readerContext({on(name,fn){if(name==='tool_call')hooks.push(fn);},registerTool(){}},{cwd:home,env});
+  assert.ok(hooks.length>0,'the actual private session must install a tool-call boundary');
+  for(const command of ['python3 -c "import json"','/usr/bin/python3 -c "print(1)"','env python3 -c "print(1)"',
+   'node -e "require(\'node:child_process\').spawnSync(\'python3\')"','bash -c "python3 -V"','pwd; ls']){
+   const decisions=await Promise.all(hooks.map(hook=>hook({toolName:'bash',input:{command}})));
+   assert.ok(decisions.some(value=>value?.block===true),command);
+  }
+  for(const name of ['read','write','edit']){
+   const decisions=await Promise.all(hooks.map(hook=>hook({toolName:name,input:{path:'local.json'}})));
+   assert.ok(decisions.every(value=>value?.block!==true),'existing non-source file scope stays unchanged');
+  }
+ }
+});
+
 for(const shape of ['decision','legacy'])test('the same final author corrects a rejected write and finishes at successful submission: '+shape,async t=>{
  const fixture=await confinementFixture(t),env={...fixture.env,PI_COC_FINAL_OUTPUT:'1'};delete env.PI_COC_READER_SOURCE;
  const path=join(fixture.cwd,'draft.json'),prior=JSON.stringify({version:1,text:'Prior complete draft.',coverage:[]});await writeFile(path,prior);
@@ -347,10 +365,13 @@ test("the extension installs the guard and confines shell startup environment wi
 	assert.equal(handlers.get("tool_call")({ toolName: "bash", input: { command: fixture.checker } }), undefined);
 });
 
-test("non-PDF tool-enabled lanes keep their existing tools and environment", () => {
+test("non-PDF lanes keep file scope and environment while sharing the shell boundary", () => {
 	const handlers = new Map(), env = { HOME: "/Users/example", BASH_ENV: "/Users/example/.bashrc" };
 	readerContext({ on(name, handler) { handlers.set(name, handler); } }, {cwd:"/unused",env});
-	assert.equal(handlers.has("tool_call"), false);
+	assert.equal(handlers.has("tool_call"), true);
+	assert.equal(handlers.get('tool_call')({toolName:'read',input:{path:'/existing/input.json'}}),undefined);
+	assert.equal(handlers.get('tool_call')({toolName:'write',input:{path:'draft.json'}}),undefined);
+	assert.equal(handlers.get('tool_call')({toolName:'bash',input:{command:'python3 -V'}}).block,true);
 	assert.equal(env.HOME, "/Users/example");
 	assert.equal(env.BASH_ENV, "/Users/example/.bashrc");
 });

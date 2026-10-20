@@ -4,6 +4,30 @@ Status: approved for specification, tickets, implementation and tests by the own
 
 Companion evidence: [Pro discussion and source observations](../research/location-tool-pro-discussion-20261019.md).
 
+## Repair contract: private preparation and existing location truth
+
+Owner-approved repair, 2026-10-19. Ordinary compatible scenery remains owned by
+Enhanced Locations. Adaptation retains its independent creator, reviewer and
+explicit acceptance for source-connected graph changes.
+
+All private tool-enabled tasks enforce the existing host-issued checker boundary
+for shell calls. General file-task access grants no interpreter or arbitrary
+shell execution; existing non-source file-tool scope remains unchanged.
+Adaptation authors inspect the supplied focused JSON with read and finish through
+submit_adaptation. The worker failure preserves its actual timeout/provider/error
+cause even if the child process exits zero.
+
+The adaptation focus adds existing_locations: a bounded semantic catalogue of
+already registered Mod places and the current place's features. Complete semantic
+place, feature and sensory-relation records remain in task-local locations.json
+for a named missing fact. These are current campaign facts, never original source
+anchors, and do not authorize copying an existing locus into a second scene.
+The preparation freshness pin includes those actual location records, while
+unrelated Mod dossiers, job bookkeeping and observation-history caches remain
+outside it. A changed window or layout invalidates a proposal that relied on it;
+an unrelated background author does not. No public RPC arguments, source authority,
+consent threshold or package lock is changed by this internal task projection.
+
 设计方向：把地点做成独立领域和精简的 `place` 入口，详细契约、布局资料与创作指导按需加载。地点、人物位置、前台等参照物、剧情场景分别保存；未登记触发查找或合理补全，不能直接判定无法进入。KP 负责理解和即兴，Jev 辅助有限选择，既有内核事务负责提交。重访读取同一个地点的当前状态，地点强化 Mod 拥有增强能力、版本与持久状态；关闭后仍可读取旧地点，兼容移动入口保留。
 
 ## 1. Intent and scope

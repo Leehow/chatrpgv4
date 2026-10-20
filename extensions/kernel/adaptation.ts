@@ -3,7 +3,7 @@ import { join } from 'node:path';
 import { readFile, writeFile } from 'node:fs/promises';
 import type { HostRuntime } from '../../runtime/host.ts';
 import { KernelError, isKernelError } from './client.ts';
-import { readerInput } from '../module/reader.ts';
+import { readerFailureReason, readerInput } from '../module/reader.ts';
 import { fastLaneChoice } from '../lanes/subsession.ts';
 import type { ExtensionContext } from '@earendil-works/pi-coding-agent';
 
@@ -68,10 +68,10 @@ export function adaptationService(runtime: HostRuntime, call: Call, model: () =>
                         model: selected.name, thinking: selected.thinking, tools: 'read,write,edit,bash',
                         timeoutMs: TASK_TIMEOUT_MS, maxRequests: TASK_MAX_REQUESTS, adaptation: {role: task.role},
                         eventLog: join(task.cwd, `events-${pass}.jsonl`),
-                        brief: 'Use the focused input already below. Review also reads candidate.json. Do not enumerate files or inspect raw schemas. Read a named full file only when focus.json identifies a specific evidence gap. Use the supplied node for a necessary large JSON lookup, never Python. Do not read repository/build code, event/model logs, search the filesystem, or look for PDFs. The host owns deterministic validation; do not run coc-read-check. Submit the result object with submit_adaptation; do not write result.json directly or output the JSON as prose. Stop within six model calls.' +
+                        brief: 'Use the focused input already below. Review also reads candidate.json. File names are relative to this phase working directory. Read task-local JSON with read; shell inspection is unavailable. Read a named full file only for a specific missing fact. existing_locations and locations.json describe already registered campaign scenery, not original source anchors; reuse it instead of minting a duplicate locus. The host owns deterministic validation. Submit the result object with submit_adaptation. Stop within six model calls.' +
                             (pass > 1 ? ' Read feedback.json: correct only the reported deterministic schema/reference problem while preserving valid source-grounded choices. This is the only repair attempt.' : '') +
                             `\n${supplied}`}}, controller.signal);
-                    if (!outcome.ok) throw new Error(`Adaptation ${task.role} task failed (${outcome.code ?? 'interrupted'})`);
+                    if (!outcome.ok) throw new Error(`Adaptation ${task.role} task failed: ${readerFailureReason(outcome) ?? 'the child did not return a successful artifact'}`);
                     try {
                         const result = await call(task.role === 'create' ? 'adaptation.draft' : 'adaptation.review', {...payload, key: task.key, attempt: task.attempt});
                         task = result.task; break;

@@ -292,10 +292,13 @@ export default function readerContext(pi: any, options: { cwd?: string; env?: No
 	const leased = env.PI_COC_PROVIDER_BUDGET === "ipc-v1";
 	const configuredOutput = Number(env.PI_COC_PROVIDER_OUTPUT_LIMIT);
 	const outputRoom = Number.isSafeInteger(configuredOutput) && configuredOutput > 0 ? configuredOutput : READING_STAGE_BUDGET.callOutputTokens;
-	if (env.PI_COC_READER_SOURCE || env.PI_COC_FINAL_OUTPUT === '1') {
+	const confinedFiles = !!env.PI_COC_READER_SOURCE || env.PI_COC_FINAL_OUTPUT === '1';
+	// Every private authoring session shares the same execution boundary. A general
+	// file-tool task is not authority to start an interpreter or another shell.
+	const guard = createReaderToolGuard(cwd, env);
+	pi.on("tool_call", (event: ToolCall) => confinedFiles || event.toolName === 'bash' ? guard(event) : undefined);
+	if (confinedFiles) {
 		confineReaderEnvironment(cwd, env);
-		const guard = createReaderToolGuard(cwd, env);
-		pi.on("tool_call", (event: ToolCall) => guard(event));
 		if (env.PI_COC_READER_SOURCE) pi.registerTool({...createBashTool(cwd),
 			description: 'Run only the exact host-issued task.commands.check command. Other shell commands are unavailable. Use read for task JSON and retained files, and pdf for source navigation and page images.',
 			promptSnippet: 'Run the exact task.commands.check only; use read or pdf for inspection.',

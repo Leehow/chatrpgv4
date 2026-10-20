@@ -86,25 +86,13 @@ are written against, and nothing here is overwritten.
 
 The existing source-bound twin remains readable as published data. To prepare another book, choose its original PDF through `bin/pi-coc setup`; the visual reader uses page images and the source-reading contract in `docs/kernel-rpc.md` §22. The former text-bundle build recipe has been retired.
 
-> The sections below predate the 0.9.0a rewrite and still name `plugins/coc-keeper/…`
-> scripts, which live only in the old tree (`0.8.2a`). Treat them as history.
-
 ## Playing
 
-### One-line quick start (N7)
-
-```bash
-uv run --frozen python plugins/coc-keeper/scripts/coc_starter.py quick-start \
-  --scenario the-haunting --pregen thomas-hayes
-# or: --pregen eleanor-reed
-```
-
-This creates a setup campaign, installs the starter, copies the pregen
-investigator into `.coc/investigators/<id>/` and the campaign `investigators/`
-folder, and seeds `save/investigator-state/`. The canonical setup host then
-calls the returned `setup.complete` handoff before launching/resuming the play
-role; a setup-role session must not call play-only `module.context` or begin
-the table directly.
+Use the installed App's campaign setup, or `bin/pi-coc setup` in the current
+source checkout. The setup host selects the starter and investigator and completes
+the canonical handoff before play. Existing source-bound campaigns resume through
+the same current TypeScript runtime. The retired starter scripts are not an
+installation or play entry point.
 
 Pregens:
 
@@ -113,16 +101,9 @@ Pregens:
 | `thomas-hayes` | 托马斯·海斯 | 私家侦探 |
 | `eleanor-reed` | 埃莉诺·里德 | 记者 |
 
-### Install only (create your own investigator)
-
-```bash
-uv run --frozen python plugins/coc-keeper/scripts/coc_starter.py install \
-  --campaign <campaign-id> --scenario the-haunting
-```
-
-Then create or link an investigator for 1920s Boston before play. The normal
-install path still expects a player-made (or explicitly chosen) investigator;
-quick-start is the opt-in pregen path.
+Create an investigator for 1920s Boston through setup, or explicitly select one
+of these pregenerated investigators. Preparing source material does not itself
+create a character or begin play.
 
 ## Structure
 

@@ -69,6 +69,20 @@ async function table(input = 'I want to understand how these events connect.', {
     const sheet = async () => JSON.parse(await readFile(await sheetPath(), 'utf8'));
     return {home, context, runtime, call, world, sheet, sheetPath};
 }
+
+test('adaptation sees existing Mod scenery and its freshness tracks real location changes',async()=>{
+ const t=await table('Prepare a source-connected route without duplicating the existing guesthouse.');
+ await t.call('table.apply',{call_id:'t1-c1',effects:[{kind:'place',action:'establish',additions:[
+  {name:'Existing guesthouse',description:'A table-established guesthouse.',features:[{name:'Rear window',description:'A window over the yard.',state:'Closed.'}]}]}]});
+ const p=await t.call('adaptation.prepare',{name:'New harbor route',purpose:'new_destination',request:'Connect a genuinely new harbor stop to the existing investigation.',anchors:[graph.startScene().name]});
+ const focus=JSON.parse(await readFile(join(p.task.cwd,'focus.json'),'utf8'));
+ assert.ok(focus.existing_locations.places.some(place=>place.name==='Existing guesthouse'));
+ const retained=JSON.parse(await readFile(join(p.task.cwd,'locations.json'),'utf8'));
+ assert.ok(retained.features.some(feature=>feature.place==='Existing guesthouse'&&feature.name==='Rear window'));
+ assert.ok(!JSON.stringify(focus.existing_locations).includes('node_id'),'model-facing location references remain semantic');
+ await t.call('table.apply',{call_id:'t1-c2',effects:[{kind:'place',action:'feature',to:'Existing guesthouse',at:'Rear window',state:'Open.'}]});
+ assert.equal((await t.call('adaptation.status',{name:'New harbor route'})).status,'stale','actual location state is part of the reviewed world');
+});
 async function prepare(t, name = 'New witness route', changes, purpose = 'new_destination') {
     const starting = graph.startScene(), clue = graph.nodes.get(graph.sceneClueIds(starting)[0]);
     const planned = changes ?? [

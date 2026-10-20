@@ -11,6 +11,7 @@ import { resolveReference, referenceName } from '../read/references.js';
 import type { ModuleGraph } from '../read/module-graph.js';
 import { array, row, string, normalize, chars, type Row } from '../read/values.js';
 import { continuityView } from '../read/continuity.js';
+import {locationStates,locationPlaces,locationFeatures,locationView} from '../read/locations.js';
 import { nowIso } from '../write/store.js';
 import { ADAPTATION_FIELDS, adaptationChanges, adaptedGraph, normalizeChanges } from './graph.js';
 import { snapshotSource, pinnedSource } from './source.js';
@@ -173,6 +174,15 @@ const REVIEWED_WORLD = ['active_scene', 'visited_scenes', 'scene_trail', 'discov
 const PINNED_WORLD = [...REVIEWED_WORLD, 'adaptation'] as const;
 /** Fixed key order, and an absent field pins as absent rather than as a hole the next one fills. */
 const pinnedWorld = (world: Row): Row => Object.fromEntries(PINNED_WORLD.map(key => [key, world[key] ?? null]));
+/** Real location truth is separate from unrelated Mod dossiers and observation caches. */
+const pinnedLocations = (world:Row):Row[] => locationStates(world).map(state=>Object.fromEntries(
+    ['schema','places','features','relations','position'].map(key=>[key,state[key]??null])));
+function semanticLocations(world:Row):Row {
+    const select=(value:Row,keys:string[])=>Object.fromEntries(keys.filter(key=>value[key]!==undefined).map(key=>[key,value[key]]));
+    return {places:locationPlaces(world).map(place=>select(place,['name','label','within','description'])),
+        features:locationFeatures(world).map(feature=>select(feature,['place','name','description','state','passable'])),
+        relations:locationStates(world).flatMap(state=>array(state.relations)).map(relation=>select(relation,['from','to','sense','description']))};
+}
 /**
  * The party the review is shown, on the same reasoning and for the same reason as the world above.
  *
@@ -222,7 +232,7 @@ export class AdaptationJobs {
         // The reviewed world, the reviewed party, the worldline and the source generation still
         // invalidate every material change; final apply remains subject to the current player's
         // action-admission review.
-        const pin = jsonDigest({world: pinnedWorld(snapshot.world), party: reviewedParty(snapshot.party), line: snapshot.meta.active_worldline ?? 'main'});
+        const pin = jsonDigest({world: pinnedWorld(snapshot.world), locations:pinnedLocations(snapshot.world), party: reviewedParty(snapshot.party), line: snapshot.meta.active_worldline ?? 'main'});
         return {snapshot, current, pin};
     }
     private async job(campaign: string, name: string): Promise<Row> {
@@ -314,12 +324,16 @@ export class AdaptationJobs {
         const recentHistory = snapshot.records.slice(-6).map(record => ({turn: record.turn, player_text: chars(string(record.player_text), 1200),
             rendered_text: chars(string(record.rendered_text), 1600), receipts: array(record.receipts).map(compactReceipt)}));
         const focusWorld = {...snapshot.world, ...(contextScene ? {active_scene: base.graph.handle(contextScene)} : {})};
+        const locations=semanticLocations(snapshot.world);
         const focus = {schema: 1, purpose: requestedPurpose, request: params.request, current_input: snapshot.turn.player_text,
             allowed_operations: PURPOSE_CHANGES[requestedPurpose], required_operation: requestedPurpose === 'new_destination' ? 'add_scene' : requestedPurpose === 'persistent_npc' ? 'add_npc' : requestedPurpose === 'handout' ? 'handout' : null,
             change_example: {kind: requestedPurpose === 'persistent_npc' ? 'add_npc' : requestedPurpose === 'handout' ? 'handout' : 'add_scene',
                 note: 'Every change uses the exact kind field. New names are plain; copy kind-qualified existing references from anchors or source.name.'},
             anchors, source: focusedNodes(base.graph, baseRoots),
             effective_scene: effective.graph.entityView(currentScene),
+            existing_locations:{places:array(locations.places).slice(0,24).map(({name,label,within})=>({name,label,within})),
+                omitted_places:Math.max(0,array(locations.places).length-24),current:locationView(effective.graph,snapshot.world),
+                authority:'Current registered campaign scenery, not original source provenance. Reuse existing loci; ordinary place changes use the location Mod. Read locations.json for a specific missing layout fact.'},
             world: Object.fromEntries(REVIEWED_WORLD.filter(key => snapshot.world[key] != null).map(key => [key, snapshot.world[key]])),
             party: reviewedParty(snapshot.party),
             current_receipts: array(snapshot.turn.receipts).map(compactReceipt), recent_history: recentHistory,
@@ -329,11 +343,11 @@ export class AdaptationJobs {
             ordinary_alternatives: {physical_item: 'Use apply define/object/item; physical items are not graph adaptations.',
                 first_appearance_npc: 'A compatible first-appearance supporting person may remain narration. Promote only when recurring identity or sourced knowledge must persist.',
                 scenery: 'Compatible ordinary scenery may remain narration.'},
-            full_files: ['original.json', 'effective.json', 'world.json', 'party.json', 'current-receipts.json', 'history.json', 'handouts.json', 'memory.json'],
+            full_files: ['original.json', 'effective.json', 'world.json', 'party.json', 'current-receipts.json', 'history.json', 'handouts.json', 'memory.json','locations.json'],
             full_file_rule: 'Read a full file only for a named evidence gap absent from this focus. Do not enumerate schemas or files.'};
-        const files: Row = {focus: 'focus.json', original: 'original.json', effective: 'effective.json', world: 'world.json', party: 'party.json',
+        const files: Row = {focus: 'focus.json', original: 'original.json', effective: 'effective.json', world: 'world.json', party: 'party.json',locations:'locations.json',
             prior_changes: 'prior-changes.json', current_receipts: 'current-receipts.json', history: 'history.json', handouts: 'handouts.json', memory: 'memory.json'};
-        const inputs: Row = {focus, original: base.graph.raw, effective: effective.graph.raw, world: snapshot.world, party: snapshot.party,
+        const inputs: Row = {focus, original: base.graph.raw, effective: effective.graph.raw, world: snapshot.world, party: snapshot.party,locations,
             prior_changes: previous, current_receipts: snapshot.turn.receipts,
             history: snapshot.records.map(record => ({turn: record.turn, player_text: record.player_text ?? null, rendered_text: record.rendered_text ?? '', receipts: record.receipts ?? [], world: record.world ?? null})),
             handouts: Object.fromEntries(handouts), memory: candidates};
@@ -343,10 +357,10 @@ export class AdaptationJobs {
             creator_contract: {result_fields: ['explanation', 'changes'], required_change_fields: ['kind', 'reason', 'sources'],
                 operation_fields: ADAPTATION_FIELDS, optional_fields: {scene: ['name']},
                 references: 'Use existing semantic names or kind: name. Add operations precede references to their new names. sources and based_on refer only to the ORIGINAL graph. Kernel-normalized candidates for review additionally contain kernel-owned identities.'},
-            instructions: 'These files are the complete retained inputs for this task. Source and effective graph are distinct authorities. Use the supplied node executable to inspect large JSON fields. Do not inspect repository code, event logs, model requests, credentials, or search the filesystem for PDFs. If required evidence is absent, report that gap.'};
+            instructions: 'Read the supplied focus first; read a named task-local JSON file for a specific missing fact. File names resolve inside this phase working directory. Original source and current registered campaign locations are distinct authorities. Submit the completed artifact with submit_adaptation. If critical evidence is absent, report that gap.'};
         for (const role of ['create', 'review']) {
             await writeFile(join(work, role, 'request.json'), storedJson(request), {mode: 0o400});
-            for (const [key, value] of Object.entries(inputs)) await writeFile(join(work, role, files[key]), storedJson(value), {mode: 0o400});
+            for (const [key, value] of Object.entries(inputs)) await writeFile(join(work, role, files[key]), key==='locations'?JSON.stringify(value,null,2)+'\n':storedJson(value), {mode: 0o400});
             await writeFile(join(work, role, 'prompt.md'), instructions[role === 'create' ? 0 : 1]);
         }
         await this.save(job); await writeJsonAtomic(this.index(snapshot.id, name), {key});

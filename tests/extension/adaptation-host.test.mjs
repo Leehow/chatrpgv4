@@ -7,7 +7,7 @@ import {adaptationService, adaptationWaitMs} from '../../extensions/kernel/adapt
 import {KernelError} from '../../extensions/kernel/client.ts';
 import {admissionRequest} from '../../extensions/kernel/admission.ts';
 
-async function fixture({hold = false, fail = false, badDraft = false, rejectReview = false} = {}) {
+async function fixture({hold = false, fail = false, badDraft = false, rejectReview = false, outcome} = {}) {
     const root = await mkdtemp(join(tmpdir(), 'adaptation-host-contract-'));
     for (const role of ['create', 'review']) {
         await mkdir(join(root, role));
@@ -35,7 +35,7 @@ async function fixture({hold = false, fail = false, badDraft = false, rejectRevi
     const runtime = {signal: owner.signal, runTask: async (task, signal) => {
         runs.push(task);
         if (hold) await Promise.race([delayed, new Promise(resolve => signal.addEventListener('abort', resolve, {once: true}))]);
-        return {ok: !fail && !signal.aborted, code: fail ? 1 : 0};
+        return outcome ?? {ok: !fail && !signal.aborted, code: fail ? 1 : 0};
     }};
     const service = adaptationService(runtime, call, () => ({name: 'deepseek/deepseek-v4-flash', thinking: 'low'}));
     return {service, calls, runs, release, owner};
@@ -85,6 +85,19 @@ test('a failed author never starts semantic review or silently accepts an adapta
         assert.equal(f.runs.length, 1);
         assert.ok(!f.calls.some(c => c.method === 'adaptation.draft' || c.method === 'table.apply'));
     } finally {f.owner.abort();}
+});
+
+test('a failed creator retains its concrete cause even when its process exited zero',async()=>{
+ for(const outcome of [{ok:false,code:0,error:'Request aborted after the bounded request limit',stderr:'',timedOut:false},
+  {ok:false,code:null,error:'Request aborted',stderr:'',timedOut:true}]){
+  const f=await fixture({outcome});
+  try{
+   assert.equal((await f.service.lookup({campaign:'c1',action:'prepare',name:'New route'})).status,'failed');
+   const failure=f.calls.find(c=>c.method==='adaptation.fail');
+   assert.match(failure.args.error,outcome.timedOut?/timed out/:/bounded request limit/);
+   assert.ok(!f.calls.some(c=>c.method==='adaptation.draft'||c.method==='adaptation.review'));
+  }finally{f.owner.abort();}
+ }
 });
 
 test('one deterministic reference repair gets precise feedback; semantic rejection is not retried', async () => {
