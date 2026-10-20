@@ -46,6 +46,8 @@ test('the host runs a fresh creator and reviewer with tools and explicit model, 
     try {
         const result = await f.service.lookup({campaign: 'c1', action: 'prepare', name: 'New route'});
         assert.equal(result.status, 'ready'); assert.equal(f.runs.length, 2);
+        assert.match(result.reference_answer_instruction,/\{\{reference\}\}/);
+        assert.match(result.reference_answer_instruction,/ready.*accepted/i);
         for (const run of f.runs) {
             assert.equal(run.request.model, 'deepseek/deepseek-v4-flash');
             assert.equal(run.request.tools, 'read,write,edit,bash');

@@ -65,6 +65,15 @@ now declares all eight operation shapes and shares the kernel field inventory
 (10/10 host/submission tests; kernel typecheck passes). The add89 full offline run
 was deliberately interrupted before completion to validate this newly confirmed
 repair; its raw exit/cancellations are retained, not reported as a passing suite.
+Source 457f18c51 then completed real creation (one submit) and independent
+review (read plus submit), both MiniMax/medium and without shell. The ready
+status and three changes reached lookup, but the Keeper sent an OOC query to
+the story author, which lacks service records, and later denied the proposal.
+No acceptance happened. The repair stays with the existing front-Keeper direct
+reference channel and gives explicit result-owned reply guidance. An unshipped
+reference-author experiment and its fixture logs are invalid-for-intent and
+invalid-for-acceptance; their source edits were removed without touching the
+concurrent owner hunk. The interrupted 457 full run is also retained.
 Evidence: `.coc/test-runs/python-free-scene-repair-20261019/`.
 
 Status: observation and history seams delivered as Mod 1.1.2, frozen release

@@ -95,7 +95,7 @@ export function adaptationService(runtime: HostRuntime, call: Call, model: () =>
         if (action === 'cancel') {
             const result = await call('adaptation.cancel', payload);
             for (const task of tasks.values()) if (task.campaign === payload.campaign && task.name === result.name) task.controller.abort();
-            return result;
+            return pendingStatus(result);
         }
         if (action === 'status') return pendingStatus(await call('adaptation.status', payload));
         const prepared = await call('adaptation.prepare', payload);
@@ -115,6 +115,12 @@ export function adaptationService(runtime: HostRuntime, call: Call, model: () =>
 }
 
 function pendingStatus(result: Record<string, any>): Record<string, any> {
+    result.reference_answer_instruction='For an out-of-fiction preparation or status query, answer directly in the play language with {{reference}}. '
+        +'Use this actual result: its name, status, reason and reviewed changes. A ready proposal exists and has completed independent review; ready is not accepted. '
+        +'Explain a failed result using its concrete reason. Do not claim that a supplied proposal or query result is absent. '
+        +'Do not call output merely to explain this service result: output delegates fictional prose without this preparation record. '
+        +'An explicit acceptance still uses the ordinary adaptation transaction; this result grants no automatic acceptance, movement or elapsed time. '
+        +'For an actual fictional player action, preserve the selected action and use its normal tools and publication path instead.';
     if (['pending', 'reviewing'].includes(result.status)) {
         // "inspect the same proposal by name" named no call, and the Keeper of campaign game-ef7545c5
         // answered it with `lookup kind=module` instead. The verb is spelled out here for the same
@@ -127,8 +133,8 @@ function pendingStatus(result: Record<string, any>): Record<string, any> {
         // a status read 20 seconds earlier. Host state reaches the player from the host, out of
         // fiction, re-read at the moment it is sent.
         result.service_status = 'The retained preparation is still running in the background. No fictional event or player action has happened. Do not poll it again in this turn.'
-            + ' The host tells the player about this preparation itself, out of fiction and beside the delivery, so close the turn with output on what the player actually said'
-            + ' and keep the preparation, the wait and the destination out of the fiction.'
+            + ' For an out-of-fiction query, follow reference_answer_instruction and end the reference reply. For a fictional input, close the turn with output on what the player actually said'
+            + ' while keeping the preparation, the wait and the destination out of the fiction.'
             + ` After new player input, the only call that reports on it is lookup kind=adaptation action=status name=${JSON.stringify(result.name ?? '')}.`;
         result.retry_after_ms = 2000;
     }

@@ -35,6 +35,18 @@ verdict, issues and per-change checks. These schemas share the kernel operation
 field inventory. Submission still validates before writing, and source/provenance
 validation and independent review retain authority. No generic item wrapper is
 accepted or silently unwrapped.
+Adaptation results supply a reference_answer_instruction for the existing front
+Keeper. For an out-of-fiction preparation/status query it answers directly through
+{{reference}}, using the actual status, concrete failure cause and reviewed changes.
+Ready remains distinct from accepted. Pending guidance preserves this same route
+while ordinary fictional inputs still end through their usual publication path.
+No keyword classifier, new author lane, background poll or automatic acceptance
+is added. The front Keeper already receives the complete tool result; the repair
+keeps that answering continuation rather than handing the query to the story author.
+[OpenAI function calling](https://developers.openai.com/api/docs/guides/function-calling)
+and [Anthropic tool results](https://platform.claude.com/docs/en/agents-and-tools/tool-use/handle-tool-calls)
+confirm the result-to-answer continuation; our story author deliberately receives
+only selected fictional material.
 No public RPC arguments, source authority,
 consent threshold or package lock is changed by this internal task projection.
 
