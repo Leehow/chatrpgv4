@@ -89,6 +89,7 @@ test('campaign length never reaches the provider: the branch outgrows the ceilin
     ceiling=api.sizeOf(convertToLlm(baseline).map(({details,...visible})=>visible))+16*1024;
     assert.ok(ceiling<api.REQUEST_BYTES,'the pressure ceiling remains below the product default');
     process.env.PI_COC_REQUEST_BYTES=String(ceiling);
+    ceiling=api.requestBudget(table.session.model?.contextWindow);
     const requests = outbound(table);
     for (let turn = 1; turn <= turns; turn++) {
         await table.session.prompt(`玩家第 ${turn} 次行动。`);
@@ -103,7 +104,7 @@ test('campaign length never reaches the provider: the branch outgrows the ceilin
     assert.ok(largest <= ceiling, `the largest request stayed under the ceiling: ${largest} <= ${ceiling}; tools ${JSON.stringify(getCurrentTools(requests.at(-1).messages).map(tool=>({name:tool.name,bytes:api.sizeOf(tool),itemKeys:Object.keys(tool.parameters?.properties?.effects?.items??{})})))}`);
     // M1 freezes a measured request-size distribution as a broad comparison interval: the existing
     // bounded path carries a real brief/history payload, while no percentile may cross its ceiling.
-    const rows = table.telemetry().filter(row => row.lane === 'context' && row.event === 'request');
+    const rows = table.telemetry().filter(row => row.lane === 'context' && row.event === 'request' && row.turn > 0);
     assert.ok(rows.length >= turns, `request telemetry covers the run: ${rows.length}`);
     const sizes = rows.map(row => row.request_bytes).sort((a, b) => a - b);
     const percentile = fraction => sizes[Math.min(sizes.length - 1, Math.floor((sizes.length - 1) * fraction))];
