@@ -51118,6 +51118,9 @@ same way (`adjusted` on the receipt and its outcome):
   read's `name` (`place_array_transport_normalized`, `to:name`) when no write field (`state`, `facts`, `additions`, ...)
   stands beside it and no different `name` is given (`el-v2-20261021e` T25: `inspect {to, at, need}` was refused as a
   write, and the Keeper then registered the front door as a place). A state beside `to` is still a mode conflict.
+- A declared integer of a place action sent as its canonical decimal string within the declared bounds is that integer
+  (`place_array_transport_normalized`, `travel_minutes:integer`; `el-v2-20261021f` T21: `travel_minutes:"30"` refused a
+  plain journey), the repair the output packet already makes; any other string is left for validation.
 - A feature change says that it registers an unregistered fixture itself (`adjusted: at: implicit_feature`), here or at
   a place left behind, and that a fixture is never a place; the description no longer sends the Keeper to `additions`.
 

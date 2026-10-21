@@ -23,6 +23,15 @@ export function normalizePlaceArrayArguments(input:unknown):{args:unknown;fields
         const {to,...rest}=args;
         if(!placeModeConflict(rest)){args={...rest,name:to};fields.push('to:name');}
     }
+    // §250.4: a declared integer sent as its canonical decimal string within the declared bounds is that integer (live
+    // el-v2-20261021f T21: travel_minutes:"30" refused a plain journey), the same repair the output packet makes.
+    for(const [field,schema] of Object.entries(branch.properties)){
+        const bounds=schema as {type?:unknown;minimum?:number;maximum?:number},value=args[field];
+        if(bounds.type!=='integer'||typeof value!=='string'||!/^(0|[1-9][0-9]*)$/.test(value))continue;
+        const number=Number(value);
+        if(!Number.isSafeInteger(number)||bounds.minimum!==undefined&&number<bounds.minimum||bounds.maximum!==undefined&&number>bounds.maximum)continue;
+        args={...args,[field]:number};fields.push(`${field}:integer`);
+    }
     for(const [field,schema] of Object.entries(branch.properties)){
         if(schema.type!=='array'||typeof params[field]!=='string')continue;
         let decoded:unknown;

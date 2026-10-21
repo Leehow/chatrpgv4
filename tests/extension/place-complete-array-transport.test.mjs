@@ -60,3 +60,11 @@ test('a look at a place is carried to place inspect instead of failing look vali
  assert.equal(request.params.name,'Station');assert.equal(request.params.need,'context');
  assert.ok(table.telemetry().some(row=>row.lane==='arguments'&&row.event==='look_place_routed'));
 });
+
+test('a declared integer sent as its canonical decimal string is that integer; anything else is left for validation (§250.4, live el-v2-20261021f T21)',()=>{
+ const raw={action:'move',to:'corbitt-house-ground',travel_band:'local_travel',travel_minutes:'30',via:'Along the street'};
+ const normalized=normalizePlaceArrayArguments(raw);
+ assert.equal(normalized.args.travel_minutes,30);assert.deepEqual(normalized.fields,['travel_minutes:integer']);
+ assert.equal(placeParameterRefusal(normalized.args),undefined);
+ for(const value of ['030','3.5','-5',' 30','thirty',''])assert.notEqual(typeof normalizePlaceArrayArguments({...raw,travel_minutes:value}).args.travel_minutes,'number',value);
+});
