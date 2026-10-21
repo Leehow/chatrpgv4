@@ -36,3 +36,19 @@ for(const mixedReference of [false,true])test('native recovery preserves input s
  assert.equal(table.entries('coc-final-delivery').filter(row=>row.event==='end'&&row.status==='completed').length,1);
  assert(!table.entries('coc-final-delivery').filter(row=>row.event==='delta').map(row=>row.delta??'').join('').includes('CORRECTION_NOTE_MUST_STAY_PRIVATE'));
 });
+
+test('a genuine reference input still blocks physical effects and publishes its direct reference reply',async t=>{
+ const question='Explain the door rule without advancing the fiction.',answer='The rule is explained without fictional changes.';
+ const engine=createHybridEngine({env,decision:{decide}});let refusal;
+ const table=await openTable({legacyDeliveryFixtures:false,realKernel:true,prepareWorkspace:prepared,env,runDriver:engine.runDriver,
+  extraExtensions:[{name:'engine',factory:engine.extension},{name:'reference-scope-fixture',factory:pi=>{
+   pi.on('tool_call',()=>pi.events.emit('coc:interaction-scope',{campaign:'test-camp',turn:2,player_text:question,mode:'reference',reason:'out_of_fiction_request'}));
+  }}],responses:[
+   fauxAssistantMessage([{type:'text',text:'{{reference}}CORRECTION_NOTE_MUST_STAY_PRIVATE'},fauxToolCall('apply',{effects:[{kind:'place',action:'feature',to:'here',at:'Door',state:'open',passable:true}]})],{stopReason:'toolUse'}),
+   context=>{refusal=context.messages.findLast(row=>row.role==='toolResult'&&row.toolName==='apply'&&row.isError);assert(refusal);return fauxAssistantMessage('{{reference}}'+answer);}
+  ]});t.after(()=>table.dispose());await table.session.prompt(question);
+ assert(refusal);const world=JSON.parse(readFileSync(join(table.workspace,'.coc/campaigns/test-camp/world.json'),'utf8'));
+ assert.equal(world.mods.state['enhanced-locations'].locations.features.find(row=>row.name==='Door').state,'closed');
+ const deliveries=table.entries('coc-final-delivery');assert.equal(deliveries.filter(row=>row.event==='end'&&row.status==='completed').length,1);
+ const body=deliveries.filter(row=>row.event==='delta').map(row=>row.delta??'').join('');assert(body.includes(answer));assert(!body.includes('CORRECTION_NOTE_MUST_STAY_PRIVATE'));
+});

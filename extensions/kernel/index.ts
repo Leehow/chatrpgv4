@@ -1583,7 +1583,6 @@ export default function (pi: ExtensionAPI, host: {capabilities?:RuntimeCapabilit
 		const enqueue=(job:()=>Promise<void>)=>{reply.work=reply.work.then(async()=>{if(!reply.error)await job();}).catch(error=>{reply.error=error;});};
 		reply.decoder=isolatedOutput?new ExpressionPlanStream(turnPacketPrototype?()=>{throw Error('Native output submission is required');}:undefined):new ArtifactTextStream(privateRecord=>enqueue(async()=>{
 			if(signal?.aborted)throw Error('The Keeper response was cancelled');
-			if(privateRecord.scope==='reference')state.interactionScope='reference';
 			if(privateRecord.event!==undefined||Array.isArray(privateRecord.effects)&&privateRecord.effects.length){
 				const toolCallId=`keeper:${reply.run}:record`;
 				owner.recordCallId??=mintCallId(state);
@@ -1604,11 +1603,10 @@ export default function (pi: ExtensionAPI, host: {capabilities?:RuntimeCapabilit
 		try{
 			reply.raw+=delta.delta;
 			const text=reply.decoder.push(delta.delta);
-			if(table&&reply.decoder.record?.scope==='reference')table.interactionScope='reference';
 			if(text)reply.work=reply.work.then(async()=>{
 				if(reply.error||!table)return;
 				if(reply.signal?.aborted)throw Error('The Keeper response was cancelled');
-				if(heldActs.get(table)?.basis){reply.bufferedText=(reply.bufferedText??'')+text;return;}
+				if(turnPacketPrototype||heldActs.get(table)?.basis){reply.bufferedText=(reply.bufferedText??'')+text;return;}
 				reply.stream??=await finalOutput.openStream(table.campaign,table.turn,reply.run);
 				reply.stream.push(text);
 			}).catch(error=>{reply.error=error;});
@@ -8738,7 +8736,7 @@ export default function (pi: ExtensionAPI, host: {capabilities?:RuntimeCapabilit
 					if(reply.error)throw reply.error;
 					if(reply.signal?.aborted)throw Error('The Keeper response was cancelled');
 					if(delta){
-						if(heldActs.get(state)?.basis)reply.bufferedText=(reply.bufferedText??'')+delta;
+						if(turnPacketPrototype||heldActs.get(state)?.basis)reply.bufferedText=(reply.bufferedText??'')+delta;
 						else{reply.stream??=await finalOutput.openStream(state.campaign,state.turn,reply.run);reply.stream.push(delta);}
 					}
 				}

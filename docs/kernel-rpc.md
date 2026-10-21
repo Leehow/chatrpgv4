@@ -50717,3 +50717,16 @@ proposal through ordinary validation, admission and atomic staging. The location
 Mod describes definition versus state change consistently and removes its stale
 six-fact prose limit. No new reviewer, retry allowance, normalization, timeout,
 source mutation or transaction behavior is introduced.
+
+### Reply framing preserves the input scope (2026-10-21)
+
+A model-authored reference marker classifies that reply's delivery, never the
+player's declaration or the authorization of later tools in the same input.
+The existing bound input-scope event remains the scope writer; ordinary action
+admission still reviews all proposed effects. Streaming reference text alongside
+a native output call is buffered until the response shape is known, then dropped
+with the other private preamble when tool calls are present. It must neither
+publish an extra answer nor permanently demote subsequent corrections to OOC.
+A standalone reference reply still uses table.reference.answer and its explicit
+reference publication metadata; genuine reference-only inputs retain their tool
+guard. No scope threshold, retry ceiling, timeout or action permission changes.
