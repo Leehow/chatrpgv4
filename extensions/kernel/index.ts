@@ -1,7 +1,7 @@
 import {adviseLocationReference} from './location-reference.ts';
 import {locationDescription} from './location-description.ts';
 import {settledAdmissionEvidence} from './settled-admission.ts';
-import {placeOperation,placeModeConflict,normalizePlaceTarget} from './place-operation.ts';
+import {placeOperation,placeParameterRefusal,normalizePlaceTarget} from './place-operation.ts';
 import {immediatelyPrecedingUnfinished} from './admission.ts';
 import {createPlaceCallEvidence} from '../../runtime/place-call-evidence.ts';
 import {DecisionContent,decisionPerson,bindCreatedDecisionPerson} from '../../runtime/decision-content.ts';
@@ -7074,7 +7074,7 @@ export default function (pi: ExtensionAPI, host: {capabilities?:RuntimeCapabilit
 			// see the text.
 			prepareArguments: (args: unknown) => {
 				if(spec.name==='place'&&table)placeProtocol.prepare(args,table.turn);
-				if(spec.name==='place'&&placeModeConflict(args))throw new Error(new KernelError({code:'invalid_params',message:'place inspect is read-only and cannot accept change',fix:'If you intend this location change, explicitly retry with the intended action and its fields at the top level, for example {action:"move",to,at}. Do not send op or change. For a read, omit change and use name/at/sense/need. Nothing was executed; never repeat successful receipts.'}).toToolText());
+				if(spec.name==='place'){const refusal=placeParameterRefusal(args);if(refusal)throw Error(refusal.toToolText());}
                 let targetArgs=args;
                 if(spec.name==='place')try{targetArgs=normalizePlaceTarget(args);}catch(error){if(isKernelError(error))throw new Error(error.toToolText());throw error;}
                 if(targetArgs!==args)void record({lane:'arguments',event:'place_target_alias_normalized',tool:'place',from:'name',to:'to'});
@@ -7139,7 +7139,7 @@ export default function (pi: ExtensionAPI, host: {capabilities?:RuntimeCapabilit
 	// Native isError is returned by the dispatcher; finalization still owns refusal accounting.
 	pi.on('tool_result', event => dispatcher.finalize(event));
 	async function finalizeOperation(event: ToolResultEvent) {
-        if(event.toolName==='place'){const operation=placeOperation(event.toolName,event.input as Record<string,unknown>);event={...event,toolName:operation.name,input:operation.params};}
+		if(event.toolName==='place'&&!(event.details as Record<string,unknown>|undefined)?.place_preflight){const operation=placeOperation(event.toolName,event.input as Record<string,unknown>);event={...event,toolName:operation.name,input:operation.params};}
 		if (!COC_TOOL_NAMES.includes(event.toolName as never)) return;
 		const details = event.details as { coc_error?: { code?: unknown; message?: unknown } } | undefined;
 		if(singleKeeper && table && event.isError && ['apply','resolve'].includes(event.toolName) && !details?.coc_error)
@@ -8603,6 +8603,26 @@ export default function (pi: ExtensionAPI, host: {capabilities?:RuntimeCapabilit
 	}
 
 	pi.on("message_end", async (event, ctx):Promise<MessageEndEventResult|void> => {
+        // Pi returns preparation failures before its tool_result hook. Bind only our
+        // exact known refusal to the persisted call; unrelated SDK/provider errors stay untouched.
+        const message=event.message;
+        if(table&&message.role==='toolResult'&&message.toolName==='place'&&message.isError&&!message.details?.coc_error){
+            const branch=ctx.sessionManager.getBranch();
+            const call=branch.slice(branch.findLastIndex((entry:any)=>entry.type==='message'&&entry.message?.role==='user'))
+                .flatMap((entry:any)=>entry.type==='message'&&entry.message?.role==='assistant'?entry.message.content??[]:[])
+                .findLast((block:any)=>block.type==='toolCall'&&block.id===message.toolCallId&&block.name==='place');
+            const error=call?placeParameterRefusal(call.arguments):undefined;
+            if(error&&message.content.length===1&&message.content[0].type==='text'&&message.content[0].text===error.toToolText()){
+                const state=table,details={...message.details,place_preflight:true,coc_error:{code:error.code,message:error.message,retryable:error.retryable,next:error.next,fix:error.fix,details:error.details}};
+                state.callTools.set(message.toolCallId,'place');state.callRounds.set(message.toolCallId,state.roundTrips);
+                state.callKeys.set(message.toolCallId,`place\u0000${JSON.stringify(call.arguments)}`);
+                rememberTurnFailure(state,'place.parameters',details.coc_error);
+                await finalizeOperation({type:'tool_result',toolName:'place',toolCallId:message.toolCallId,input:call.arguments,content:message.content,details,isError:true});
+                await record({lane:'refusals',turn:state.turn,tool:'place',reason:'place_preflight_refused',refusal:error.details?.reason,transaction_state:'uncommitted'});
+                if(state.exhausted.has('place'))endInput(state,'parameter_protocol_repeated',ctx,'settled_operation');
+                return {message:{...message,details}};
+            }
+        }
 		const observationRequest = event.message?.role === 'assistant' ? flushProviderObservation('message_end', event.message) : undefined;
 		// How long the Keeper's own call actually took. The two rows above bracket the request and the
 		// arrival of its headers, and neither carries a duration, so a turn with a six-minute hole in it

@@ -26,6 +26,9 @@ test('actual non-strict Anthropic wire retains actions and required fields after
   if(detail){assert.equal(schema.properties.facts.type,'array');assert.equal(schema.properties.scope.type,'string');assert(schema.properties.access);}
   assert.equal(schema.properties.to.type,'string');assert.equal(schema.properties.relation.type,'string');
   assert.match(schema.properties.action.description,/No op or change wrapper/);
+  assert.match(schema.properties.action.description,/new\/unregistered route, via/);
+  assert.match(schema.properties.action.description,/never to\/via\/additions/);
+  assert.match(schema.properties.via.description,/new\/unregistered route/);
   assert.match(schema.properties.action.description,/feature requires to and at, optional state\/passable/);
   assert.match(schema.properties.action.description,/establish requires additions/);
   assert.match(schema.properties.action.description,/no description field/);

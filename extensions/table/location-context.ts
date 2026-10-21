@@ -15,12 +15,12 @@ const object=(value:unknown):value is Row=>!!value&&typeof value==='object'&&!Ar
 const action=Type.String({enum:['move','establish','feature','relate','observe']});
 const read=Type.Object({using_skill:Type.Optional(Type.String()),action:Type.Literal('inspect'),name:Type.Optional(Type.String()),at:Type.Optional(Type.String()),sense:Type.Optional(Type.Union([Type.Literal('sight'),Type.Literal('hearing')])),need:Type.Optional(Type.Union([Type.Literal('context'),Type.Literal('contract'),Type.Literal('observation')]))},{additionalProperties:false});
 const entry={type:'object',properties:{...read.properties,action:Type.String({enum:['inspect',...action.enum]}),
- to:Type.String({description:'Write destination; inspect uses name.'}),relation:Type.String(),via:Type.String(),state:Type.String(),passable:Type.Boolean()},required:['action'],additionalProperties:true,
+ to:Type.String({description:'Write destination; inspect uses name.'}),relation:Type.String(),via:Type.String({description:'Required for a new/unregistered route, including entry to a new room; describe the selected passage. May be omitted only for a registered/retraced route.'}),state:Type.String(),passable:Type.Boolean()},required:['action'],additionalProperties:true,
  anyOf:[read,Type.Object({using_skill:Type.Optional(Type.String()),action},{additionalProperties:true})]};
 /** One explicit action survives serializers that omit root union guards. */
 function describeModes(schema:Row):Row {
  const projected=structuredClone(schema);
- projected.properties.action.description='inspect reads name/at/sense/need. move: to; optional at/relation/via/additions. establish requires additions:[{name,features:[{name,description}]}]. feature requires to and at, optional state/passable (existing feature; no description field). relate: relations:[{from:{place,at?},to:{place,at?},sense,description}]. observe: to/sense/access/scope/facts; optional view/people/situations/additions. Existing-place additions omit description. No op or change wrapper. Inspect need contract gives nested fields.';
+ projected.properties.action.description='inspect reads only name/at/sense/need, never to/via/additions. move requires to and, for a new/unregistered route, via; optional at/relation/additions. Keep action:"move" when correcting a route. establish requires additions:[{name,features:[{name,description}]}]. feature requires to and at, optional state/passable (existing feature; no description field). relate: relations:[{from:{place,at?},to:{place,at?},sense,description}]. observe: to/sense/access/scope/facts; optional view/people/situations/additions. Existing-place additions omit description. No op or change wrapper. Inspect need contract gives nested fields.';
  return projected;
 }
 /** Explicit properties keep object unions legible to provider tool serializers. */

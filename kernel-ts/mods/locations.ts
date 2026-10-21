@@ -116,7 +116,7 @@ export function stageLocation(context:ApplyContext,effect:Row,active:readonly Ro
         moved={receipt:{...receipt,place:to},event:null};
     }else{
         if(!effect.via&&moveAccess(graph,world,graph.scene(from),destination,false,false).requiresVia)throw new RpcError('invalid_params','The enhanced move needs its selected route in via',{
-            fix:'Keep the selected destination and additions, supply via describing how the party reaches it, and resubmit. This is an uncommitted argument correction, not an impassable place or a new player choice.',
+            fix:'Resubmit action:"move" with the same destination and additions, adding via to describe how the party reaches it. Do not switch to inspect: inspect cannot move or register places. This is an uncommitted argument correction, not an impassable place or a new player choice.',
             details:{reason:'place_route_required',field:'via',from,to}});
         // Route/timing/trail/clock and all arrival consumers remain owned by canonical movement.
         moved=stageMove(context,{kind:'move',to,...(effect.via?{via:effect.via}:{}),

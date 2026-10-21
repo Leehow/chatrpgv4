@@ -48824,6 +48824,17 @@ places are read-only; their current feature state is a campaign overlay.
 
 ### 242.2. One location command and one transaction
 
+Native preflight follow-up (2026-10-20): the compact and detailed declarations
+both state that a new/unregistered route requires `via`; a registered/retraced
+route may omit it. `inspect` takes only its read fields and never supplies a
+default action for movement. A known host preparation refusal bypasses Pi's
+`tool_result` hook. At `message_end`, match that exact refusal text to its
+persisted place call, attach its structured cause, and pass it once through the
+existing refusal-class accounting. Never classify unrelated SDK errors from
+their wording. Repeated failures use the existing three-strike class limit and
+end as a failed input, preserving all settled receipts; this is no timed cutoff
+and no successful latency acceptance. No admission/completion gate changes.
+
 The model-facing `place` tool has two operations:
 
 - `inspect`: optional `name` (default current place), `need: context|contract`.

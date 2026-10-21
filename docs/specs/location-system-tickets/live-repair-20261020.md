@@ -599,3 +599,25 @@ a830full LAN exit1,1228s:6348extensionpass/1fixturefail,2246integrationpass,
 12loop pass. Only failure is clerk-write-readiness matching wording before Mod23
 condensation; assert the shipped gain-before-consume and payment-order rules
 without changing production behavior. Latest clean validation remains pending.
+
+48a1286f5 canonical App: original turn36 completed82.093s with zero tool
+failures; door positioning/knock did not replay the settled30minute journey.
+Original turn37 into an unlisted pharmacy failed, not an acceptance pass:
+move omitted via, five later read/write conflicts bypassed Pi tool_result, then
+the corrected move and observation committed. Output did not publish; MiniMax
+HTTP529 overload is separately present. Preserve move/observation and do not
+replay travel or claim the UI's3min23failure as successful latency evidence.
+Evidence: proof-round37-resumed.json and original raw session/turn0037.
+
+New native regression reproduced missing structured cause (undefined instead of
+place_mode_conflict). Match only exact owned preparation errors at message_end
+against the current input's persisted call; annotate the result and reuse
+existing refusal accounting. Three separate refusals retain the original cause
+and fail the input, with no world mutation. Alias conflicts and unrelated SDK
+validation have separate negative controls. Compact and detailed route grammar
+both require via for new routes; retry guidance explicitly keeps action move.
+This is failure bookkeeping, never a substitute for successful sub120s play.
+Anthropic's writing-tools-for-agents supports specific examples/actionable
+parameter errors; MiniMax's published tool-call guide treats supplied parameters
+as the execution request. Neither supports guessing a write from an inspect.
+No thresholds, timed cutoffs or read-to-write conversion added.
