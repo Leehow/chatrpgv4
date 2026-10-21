@@ -48824,6 +48824,16 @@ places are read-only; their current feature state is a campaign overlay.
 
 ### 242.2. One location command and one transaction
 
+Complete place-array transport (original input67): before place preflight, one
+complete JSON serialization of a declared array may be decoded only when the
+explicit native action is known and the decoded array passes that exact field
+schema without coercion. Never complete partial JSON, unwrap an object, infer an
+action, decode prose fields, or accept a decoded invalid shape. Preserve the raw
+provider arguments and record the repaired field names. The resulting typed
+arguments still pass all ordinary mode, parameter, consent and transaction
+checks. Malformed/invalid strings retain place_array_required and execute
+nothing. This is transport decoding, not permission or scene generation.
+
 Explicit-duration grammar follow-up (original input64): native output minutes
 copies a positive whole duration explicitly chosen by the player. Zero is not
 a placeholder for no additional time: omit the optional time command instead.

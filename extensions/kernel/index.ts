@@ -2,7 +2,7 @@ import {adviseLocationReference} from './location-reference.ts';
 import {locationDescription} from './location-description.ts';
 import {sourceLocationContext} from './source-location-context.ts';
 import {settledAdmissionEvidence} from './settled-admission.ts';
-import {placeOperation,placeParameterRefusal,normalizePlaceTarget} from './place-operation.ts';
+import {placeOperation,placeParameterRefusal,normalizePlaceTarget,normalizePlaceArrayArguments} from './place-operation.ts';
 import {immediatelyPrecedingUnfinished} from './admission.ts';
 import {createPlaceCallEvidence} from '../../runtime/place-call-evidence.ts';
 import {DecisionContent,decisionPerson,bindCreatedDecisionPerson} from '../../runtime/decision-content.ts';
@@ -7079,6 +7079,10 @@ export default function (pi: ExtensionAPI, host: {capabilities?:RuntimeCapabilit
 			// the literal's body without its quotes -- is decoded between the two, so the label rule and every reader after it
 			// see the text.
 			prepareArguments: (args: unknown) => {
+                if(spec.name==='place'){
+                    const transport=normalizePlaceArrayArguments(args);args=transport.args;
+                    if(transport.fields.length)void record({lane:'arguments',event:'place_array_transport_normalized',tool:'place',fields:transport.fields});
+                }
 				if(spec.name==='place'&&table)placeProtocol.prepare(args,table.turn);
 				if(spec.name==='place'){const refusal=placeParameterRefusal(args);if(refusal)throw Error(refusal.toToolText());}
                 let targetArgs=args;

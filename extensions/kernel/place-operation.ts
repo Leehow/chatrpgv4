@@ -2,6 +2,23 @@
 import type {CocToolName} from './tools.ts';
 import {KernelError} from './client.ts';
 import {LocationTravelBand,NativePlaceParameters} from '../../shared/place-structures.ts';
+import {Check} from 'typebox/value';
+/** Decode one complete declared array transport; no coercion or action inference. */
+export function normalizePlaceArrayArguments(input:unknown):{args:unknown;fields:string[]} {
+    if(!input||typeof input!=='object'||Array.isArray(input))return {args:input,fields:[]};
+    const params=input as Record<string,unknown>;
+    const branch=NativePlaceParameters.anyOf.find(schema=>schema.properties.action.const===params.action);
+    if(!branch)return {args:input,fields:[]};
+    let args=params;const fields:string[]=[];
+    for(const [field,schema] of Object.entries(branch.properties)){
+        if(schema.type!=='array'||typeof params[field]!=='string')continue;
+        let decoded:unknown;
+        try{decoded=JSON.parse(params[field]);}catch{continue;}
+        if(!Array.isArray(decoded)||!Check(schema,decoded))continue;
+        args={...args,[field]:decoded};fields.push(field);
+    }
+    return {args,fields};
+}
 /** A conflicting read is refused, never upgraded into a world write. */
 export function placeModeConflict(params:unknown):boolean {
     if(!params||typeof params!=='object')return false;
