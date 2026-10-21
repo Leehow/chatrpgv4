@@ -48824,6 +48824,19 @@ places are read-only; their current feature state is a campaign overlay.
 
 ### 242.2. One location command and one transaction
 
+Descriptive position follow-up (EL-06, original inputs67/68): Enhanced Locations
+1.2.0 requires locations.position.v2. place move and SpatialPoint accept optional
+spot, a local spatial description distinct from the existing at feature reference;
+the two fields are mutually exclusive. A spot creates no fixture or passage.
+Movement, barriers, routes, consent and time keep their existing owners. Persist
+place/spot/relation in position and receipts; preserve them through observation
+origins/public projection, consent's conditional positions and route completion.
+Known features are not the complete set of legal local positions. Reads and
+observations at a spot do not grant fixture state or physical reach. at-only
+records retain their meaning; schema1 gains optional fields without rewriting
+history. The detailed shape, ownership and acceptance are in
+docs/specs/location-system-tickets/06-descriptive-positions.md.
+
 Existing feature recovery (original input67): an establishment conflict returns
 the exact existing public feature and conflicting closed fields, with an explicit
 instruction to reuse that identity and omit its repeated definition from additions.

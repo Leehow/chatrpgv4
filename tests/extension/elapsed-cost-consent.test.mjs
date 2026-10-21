@@ -19,7 +19,7 @@ for(const selection of [.59,.67])test(`native time batch versions the question a
  let batch;
  const proposal=admissionRequest('apply',{effects:[{kind:'place',action:'move',to:'Inn',at:'Counter'},{kind:'time',band:'momentary',why:'Selected local steps',beyond_travel:true}]},{party:['Thomas'],consentOnly:true});
  const result=await reviewAdmissionJevOnly({campaign:'cost',proposal,context:{turn:1,playerText:'I return to the counter and look around.',investigators:[{name:'Thomas'}],present:[],delivered:[],landed:[],refused:[],currentPosition:{place:'Inn',at:'Window'},currentClock:{at:'1920-10-13T01:00'}},env:{},record:()=>{},ctx:{},decision:{decide:async value=>{batch=value;return{batchId:value.id,status:'complete',answers:Object.fromEntries(value.questions.map(q=>[q.key,{status:'answered',type:'noul',noul:q.key.startsWith('restriction_')?.2:q.key==='consent_1'?selection:.9}])),usage:{}};}}});
- assert.equal(batch.familyVersion,'22');assert.equal(batch.questions.length,4);
+ assert.equal(batch.familyVersion,'23');assert.equal(batch.questions.length,4);
  assert.equal(batch.state.current_player_words,'I return to the counter and look around.');
  assert.equal(result.verdict.verdict,selection<.6?'uncertain':'authorized');
 });

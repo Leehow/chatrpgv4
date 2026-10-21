@@ -11,6 +11,7 @@ export function conditionalExecutionPositions(operations:readonly Row[],precedin
   const place=operation.to==='here'?position?.place:operation.registered_destination?.handle??operation.to;
   if(typeof place!=='string'||!place)return null;
   return {place,...(operation.kind==='place'&&typeof operation.at==='string'?{at:operation.at}:{}),
+   ...(operation.kind==='place'&&typeof operation.spot==='string'?{spot:operation.spot}:{}),
    ...(operation.kind==='place'&&typeof operation.relation==='string'?{relation:operation.relation}:{})};
  };
  let position=current?structuredClone(current):null;

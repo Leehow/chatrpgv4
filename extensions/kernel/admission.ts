@@ -440,7 +440,7 @@ export function registeredLocationDestination(requested:string,view:Record<strin
     const fields=(value:Record<string,unknown>,keys:string[])=>Object.fromEntries(keys.filter(key=>value[key]!==undefined).map(key=>[key,value[key]]));
     return {...registeredDestination(requested,{name:view.name,display_name:view.display_name,summary:view.description,
         inside:typeof view.within==='string'?[view.within]:[]}),location:{
-        ...(view.position?{position:fields(view.position,['place','at','relation'])}:{}),
+        ...(view.position?{position:fields(view.position,['place','at','spot','relation'])}:{}),
         features:(Array.isArray(view.features)?view.features:[]).filter((feature:Record<string,unknown>)=>selected.some(name=>norm(name)===norm(feature.name)))
             .map((feature:Record<string,unknown>)=>fields(feature,['name','description','state','passable']))}};
 }
@@ -474,7 +474,7 @@ export function continuousAdmissionKey(playerText:string,worldRevision:unknown,s
  * written (`time`'s band, until, stated and beyond_travel among them), and a verdict on one time cost was reused for another.
  */
 const IDENTIFYING_FIELDS: readonly string[] = [
-    "action","at","relation","through","additions","state","passable","relations","sense","access","facts","people","situations","view","reason",
+    "action","at","spot","relation","through","additions","state","passable","relations","sense","access","facts","people","situations","view","reason",
 	"to", "establish", "label", "travel_minutes", "travel_band", "via", "clue", "minutes", "band", "band_reach", "until", "stated", "beyond_travel", "delta",
 	"name", "regions", "region_labels", "level_labels", "subject", "from", "with", "quantity", "dice", "scope", "object",
 	"description", "category", "adopt", "condition", "weapon", "definition", "source_object", "document", "part", "offer", "handover", "check",
@@ -1317,7 +1317,7 @@ export async function reviewAdmissionJevOnly(options:PrimaryAdmissionReviewOptio
     const clock=options.clock??hostClock,began=clock.now(),context=options.context;
     const nativeLocation=options.proposal.operations?.some(operation=>operation.kind==='place');
     const serviceContext=options.proposal.operations?.some(operation=>operation.registered_cash_context||operation.acting_party);
-    const family='continuous-action-admission',version=options.proposal.kinds?.includes('time')?'22':serviceContext?(nativeLocation?'20':'18'):nativeLocation?'19':context.currentPosition?'15':context.currentClock?'13':options.proposal.ordered||options.proposal.kinds?.includes('place')?'12':'7';
+    const family='continuous-action-admission',version=nativeLocation?'23':options.proposal.kinds?.includes('time')?'22':serviceContext?'18':context.currentPosition?'15':context.currentClock?'13':options.proposal.ordered||options.proposal.kinds?.includes('place')?'12':'7';
     let mechanicsChoice:{action:string;choice:{name:string;binds:string;options:string[];prompt?:string}}|undefined;
     let mechanicsInput=false,mechanicsBinding:string|undefined;
     try{

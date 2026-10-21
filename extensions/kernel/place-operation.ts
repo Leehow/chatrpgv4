@@ -23,12 +23,12 @@ export function normalizePlaceArrayArguments(input:unknown):{args:unknown;fields
 export function placeModeConflict(params:unknown):boolean {
     if(!params||typeof params!=='object')return false;
     const read=(params as Record<string,unknown>).op==='inspect'||(params as Record<string,unknown>).action==='inspect';
-    return read&&['change','to','relation','via','travel_band','additions','through','state','passable','access','scope','facts','view','people','situations','relations'].some(field=>Object.hasOwn(params,field));
+    return read&&['change','to','via','travel_band','additions','through','state','passable','access','scope','facts','view','people','situations','relations'].some(field=>Object.hasOwn(params,field));
 }
 /** Known preparation failures only; the message boundary must not classify arbitrary SDK errors. */
 export function placeParameterRefusal(args:unknown):KernelError|undefined {
     if(placeModeConflict(args))return new KernelError({code:'invalid_params',message:'place inspect is read-only and cannot accept change',
-        fix:'For a move, explicitly send {action:"move",to,via,additions?}; keep its destination and route. For a read, send {action:"inspect",name?,at?,sense?,need?} without write fields. No op or change wrapper. Nothing executed; retain successful earlier receipts.',
+        fix:'For a move, explicitly send {action:"move",to,via?,at?,spot?,relation?,additions?}; keep its destination and route. For a read, send {action:"inspect",name?,at?,spot?,relation?,sense?,need?} without write fields. Use at or spot, never both. No op or change wrapper. Nothing executed; retain successful earlier receipts.',
         details:{reason:'place_mode_conflict',field:'action',transaction_state:'uncommitted'}});
     const params=args as Record<string,unknown>|null;
     const branch=NativePlaceParameters.anyOf.find(schema=>schema.properties.action.const===params?.action);

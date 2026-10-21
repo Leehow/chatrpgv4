@@ -9,7 +9,7 @@ import {nowIso} from '../write/store.js';
 import {isPlace} from '../read/places.js';
 import {RpcError} from '../errors.js';
 import {array,clone,normalize,row,type Row} from '../read/values.js';
-import {locationProvider,locationPlace,locationFeature,locationPlaces,locationFeatures,clearLocationPosition} from '../read/locations.js';
+import {locationProvider,locationPlace,locationFeature,locationPlaces,locationFeatures,clearLocationPosition,LOCATION_POSITION_V2_CAPABILITY} from '../read/locations.js';
 import {LOCATION_OBSERVATION_CAPABILITY} from '../read/location-observations.js';
 import {stagePerceptualRelations,stageLocationObservation} from './location-observations.js';
 const blank=(value:unknown):boolean=>typeof value==='string'?!value.trim():Array.isArray(value)?value.some(blank):value!==null&&typeof value==='object'?Object.values(value).some(blank):false;
@@ -33,6 +33,9 @@ export function stageLocation(context:ApplyContext,effect:Row,active:readonly Ro
     const provider=locationProvider(active);
     if(!provider)throw new RpcError('needs','No active Mod provides locations.v1',{
         fix:'Enable Enhanced Locations through ordinary Mod configuration. Stored places remain readable.',details:{reason:'location_mod_inactive'}});
+    if((effect.spot!==undefined||effect.action==='observe'&&effect.relation!==undefined||array(effect.relations).some(edge=>edge.from?.spot!==undefined||edge.to?.spot!==undefined||edge.from?.relation!==undefined||edge.to?.relation!==undefined))&&!array(provider.requires).includes(LOCATION_POSITION_V2_CAPABILITY))
+        throw new RpcError('needs','Descriptive local positions require a compatible location provider',{
+            fix:'Adopt an Enhanced Locations package requiring locations.position.v2. Existing feature positions remain valid.',details:{reason:'location_position_mod_required'}});
     const {world,graph,turn,callId}=context;
     const modState=(world.mods.state[provider.id]??={});
     const state:Row=modState.locations??={schema:1,places:[],features:[]};
@@ -103,7 +106,7 @@ export function stageLocation(context:ApplyContext,effect:Row,active:readonly Ro
         Object.assign(receipt,{place:to,feature:feature.name,before:fields(before),after:fields(feature)});
         return {receipt,event:null};
     }
-    if(effect.relation!==undefined&&effect.at===undefined)throw new RpcError('invalid_params','A local relation requires its feature in at');
+    if(effect.relation!==undefined&&effect.at===undefined&&effect.spot===undefined)throw new RpcError('invalid_params','A local relation requires its feature in at or a descriptive spot');
     const anchor=effect.at!==undefined?reference('at',effect.at,()=>locationFeature(world,to,effect.at)):undefined;
     const through=effect.through;
     if(through){
@@ -128,7 +131,7 @@ export function stageLocation(context:ApplyContext,effect:Row,active:readonly Ro
         Object.assign(moved.receipt,{mod:provider.id,added,features});
     }
     clearLocationPosition(world);
-    state.position={place:to,...(anchor?{at:anchor.name}:{}),...(effect.relation?{relation:effect.relation}:{})};
+    state.position={place:to,...(anchor?{at:anchor.name}:{}),...(effect.spot?{spot:effect.spot}:{}),...(effect.relation?{relation:effect.relation}:{})};
     Object.assign(moved.receipt,{position:clone(state.position)});
     return moved;
 }

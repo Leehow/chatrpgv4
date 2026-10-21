@@ -5,6 +5,7 @@ import type {ModuleGraph} from './module-graph.js';
 import {array,normalize,row,string,type Row} from './values.js';
 import {destinationIdentity} from './module-graph.js';
 export const LOCATIONS_CAPABILITY='locations.v1';
+export const LOCATION_POSITION_V2_CAPABILITY='locations.position.v2';
 export function locationProvider(active:readonly Row[]):Row|undefined {
     return active.filter(mod=>array(mod.requires).includes(LOCATIONS_CAPABILITY)).at(-1);
 }
