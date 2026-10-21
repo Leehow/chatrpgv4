@@ -222,6 +222,8 @@ export const TURN_PACKET_GUIDANCE='Submit one output packet {version:4,commands?
 export function turnPacketSystemPrompt(source:string):string {
  const incompatible=['Before recording prospective speech,','Record new event semantics,','A new NPC promise to act later','An ordinary nonmechanical NPC act completed','When a previously planned action has now happened,'];
  let kept=source.split('\n\n').filter(paragraph=>!incompatible.some(prefix=>paragraph.startsWith(prefix))).join('\n\n');
+ kept=kept.replace('Use apply for physical changes, resources, clues, time, position and explicit semantic records.',
+  'Use apply for physical changes, resources, clues, time, position.');
  const start=kept.indexOf('Public response\n\n'),end=kept.indexOf('\n\nKeep hidden motives,',start);
  if(start>=0&&end>start)kept=kept.slice(0,start)+'Public response\n\n'+TURN_PACKET_GUIDANCE+kept.slice(end);
  else kept+='\n\n'+TURN_PACKET_GUIDANCE;

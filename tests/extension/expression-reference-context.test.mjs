@@ -1,7 +1,84 @@
 import assert from 'node:assert/strict';import {test,after} from 'node:test';
 import {mkdtemp,writeFile,rm,symlink}from'node:fs/promises';import{tmpdir}from'node:os';import{join,resolve}from'node:path';import{pathToFileURL}from'node:url';import{build}from'esbuild';
 const ROOT=resolve(import.meta.dirname,'../..'),temp=await mkdtemp(join(tmpdir(),'expression-context-'));after(()=>rm(temp,{recursive:true,force:true}));await symlink(join(ROOT,'node_modules'),join(temp,'node_modules'),'dir');
-await build({stdin:{contents:"export {installContextPolicy} from './extensions/table/context-runtime.ts';",resolveDir:ROOT},outfile:join(temp,'api.mjs'),bundle:true,packages:'external',format:'esm',platform:'node',logLevel:'silent'});const api=await import(pathToFileURL(join(temp,'api.mjs')).href);
+await build({stdin:{contents:"export {installContextPolicy} from './extensions/table/context-runtime.ts'; export {HEAD,HEAD_MODULE,HEAD_FIRST_SIGHT} from './kernel-ts/read/assemble.ts'; export {turnPacketSystemPrompt} from './runtime/turn-packet-prototype.ts';",resolveDir:ROOT},outfile:join(temp,'api.mjs'),bundle:true,packages:'external',format:'esm',platform:'node',logLevel:'silent'});const api=await import(pathToFileURL(join(temp,'api.mjs')).href);
+for(const split of [true,false])test('locked instruction audience reaches the actual context hook; split='+split,async()=>{
+ const hooks=new Map(),bus=new Map();api.installContextPolicy({on:(n,f)=>hooks.set(n,f),events:{on:(n,f)=>bus.set(n,f)},sendMessage(){}},()=>{});
+ const binding={version:1,campaign:'c',worldline:'main',loop:0,turn:0,source_revision:'a'.repeat(64),memory_coverage:{committed:0,completed:0,gaps:0,recent:[],older:{gaps:0}}};
+ const cap={head:api.HEAD+api.HEAD_MODULE+api.HEAD_FIRST_SIGHT,turn:{number:0,player_text:'Hello'},recent:[],present:[{ref:'npc_1',display_name:'Clerk',knowledge:['LEGACY_KNOWLEDGE_COPY'],
+  activity:{current:false,summary:'PRIOR_COUNTER_ACTIVITY',wakefulness:'awake',review_required:true},reunion:{status:'reunited',required:true}}],where:{scene:'Shop'},known:{},module:{title:'Book'},mods:{active:[],instructions:[
+  {mod:'rules',version:'1.0.0',form:'full',instruction:'KEEPER_RULE_INSTRUCTION'},
+  {mod:'writing',version:'1.0.0',form:'full',audience:'author',instruction:'AUTHOR_ONLY_INSTRUCTION'}]},
+  style:{language:'en',register:'purist',axes:['AUTHOR_STYLE_AXIS'],floor:['AUTHOR_STYLE_FLOOR'],directives:[{id:'uptake',line:'AUTHOR_STYLE_DIRECTIVE'}]}};
+ const original=JSON.stringify(cap);
+ bus.get('coc:loop-engine')({singleKeeper:true,prescreen:'run',turnPacketPrototype:split,isolatedOutput:split});
+ bus.get('coc:kernel-bridge')({campaign:'c',call:async()=>({...structuredClone(cap),_context:binding})});
+ bus.get('coc:capsule')({epoch:'audience',capsule:cap,context:binding});
+ try{
+  const projected=await hooks.get('context')({messages:[{role:'user',content:[{type:'text',text:'Hello'}]},{role:'custom',customType:'coc-capsule',content:JSON.stringify(cap),details:{epoch:'audience',context:binding}}]},
+   {model:{contextWindow:100000},getContextUsage:()=>({percent:1}),sessionManager:{getBranch:()=>[]}});
+  assert.ok(JSON.stringify(projected.messages).includes('KEEPER_RULE_INSTRUCTION'));
+  assert.ok(JSON.stringify(projected.messages).includes('purist'));
+  assert.ok(JSON.stringify(projected.messages).includes('PRIOR_COUNTER_ACTIVITY'));
+  const view=JSON.parse(projected.messages.find(m=>m.customType==='coc-capsule').content);
+  for(const instruction of ['write the final public response yourself','No separate prose author','say what landed, in your own prose','Write what the book describes','give them one in your own words'])
+   assert.equal(view.head.includes(instruction),!split,'only the actual prose owner receives '+instruction);
+  assert.ok(view.head.includes('Writes are silent'));
+  assert.ok(view.head.includes('Preserve source secrets'));
+  assert.ok(view.head.includes(api.HEAD_MODULE));
+  assert.ok(view.head.includes('a person the book keeps hidden stays hidden until found'));
+  if(split)assert.ok(view.head.includes('sole prose author'));
+  else assert.equal(view.head,cap.head);
+  assert.equal(JSON.stringify(projected.messages).includes('full craft context'),!split);
+  assert.equal(JSON.stringify(cap),original,'the request projection does not rewrite the source capsule');
+  const next=await hooks.get('context')({messages:projected.messages},
+   {model:{contextWindow:100000},getContextUsage:()=>({percent:1}),sessionManager:{getBranch:()=>[]}});
+  const nextView=JSON.parse(next.messages.find(m=>m.customType==='coc-capsule').content);
+  assert.equal(nextView.head,view.head,'continuations keep one stable delivery owner');
+ }finally{await hooks.get('session_shutdown')();}
+});
+test('the split system retires semantic-record duties while preserving canonical tools and the source prompt',async()=>{
+ const source=await import('node:fs/promises').then(fs=>fs.readFile(join(ROOT,'prompts/keeper.md'),'utf8'));
+ assert.ok(source.includes('position and explicit semantic records'));
+ const projected=api.turnPacketSystemPrompt(source);
+ assert.ok(!projected.includes('explicit semantic records'));
+ assert.ok(projected.includes('Use apply for physical changes, resources, clues, time, position.'));
+ assert.ok(projected.includes('A scene read through look or lookup does not move anyone'));
+ assert.ok(source.includes('position and explicit semantic records'));
+});
+for(const split of [true,false])for(const mode of ['answering','unavailable'])test(`retained capsule delivery ownership survives ${mode}; split=${split}`,async()=>{
+ const hooks=new Map(),bus=new Map(),rows=[];
+ api.installContextPolicy({on:(n,f)=>hooks.set(n,f),events:{on:(n,f)=>bus.set(n,f)},sendMessage(){}},row=>rows.push(row));
+ const binding=turn=>({version:1,campaign:'c',worldline:'main',loop:0,turn,source_revision:'a'.repeat(64)});
+ const capsule=turn=>({head:api.HEAD+api.HEAD_FIRST_SIGHT,turn:{number:turn,player_text:'Continue'},recent:[],present:[],
+  where:{scene:'Place '+turn},known:{},module:{title:'Book'},mods:{active:[],instructions:[]},style:{}});
+ const cap=capsule(2),messages=[1,2].flatMap(turn=>[
+  {role:'user',content:[{type:'text',text:'Continue '+turn}]},
+  {role:'custom',customType:'coc-capsule',content:JSON.stringify(capsule(turn)),details:{context:binding(turn)}},
+  {role:'assistant',content:[{type:'toolCall',id:'read-'+turn,name:'look',arguments:{}}]},
+  {role:'toolResult',toolCallId:'read-'+turn,toolName:'look',content:[{type:'text',text:'Result '+turn}]}]);
+ if(mode==='unavailable')messages.push({role:'custom',customType:'coc-capsule-update',content:JSON.stringify({kind:'capsule_update',head:'Current section replacement.',sections:{head:api.HEAD,where:{scene:'Updated place'}}}),details:{turn:2}});
+ const original=JSON.stringify(messages);
+ bus.get('coc:loop-engine')({singleKeeper:true,prescreen:'run',turnPacketPrototype:split,isolatedOutput:split});
+ bus.get('coc:kernel-bridge')({campaign:'c',call:async()=>{if(mode==='unavailable')throw Error('fixture_unavailable');return {...cap,_context:binding(2)};}});
+ bus.get('coc:capsule')({epoch:'current',capsule:mode==='unavailable'?{}:cap,context:mode==='unavailable'?{...binding(2),source_revision:null}:binding(2),answering:['dodge']});
+ try{
+  const result=await hooks.get('context')({messages},{model:{contextWindow:100000},sessionManager:{getBranch:()=>[]}});
+  const retained=result.messages.filter(m=>m.customType==='coc-capsule').map(m=>JSON.parse(m.content));
+  assert.equal(retained.length,2,'both the protected prior turn and current turn remain available');
+  for(const view of retained){
+   assert.equal(view.head.includes('write the final public response yourself'),!split);
+   assert.equal(view.where.scene,'Place '+view.turn.number,'head projection cannot replace historical state');
+  }
+  assert.equal(JSON.stringify(messages),original);
+  if(mode==='unavailable'){
+   assert.ok(result.messages.some(message=>message.customType==='coc-context-status'));
+   const update=JSON.parse(result.messages.find(message=>message.customType==='coc-capsule-update').content);
+   assert.equal(update.sections.head.includes('write the final public response yourself'),!split);
+   assert.deepEqual(update.sections.where,{scene:'Updated place'});
+  }
+ }finally{await hooks.get('session_shutdown')();}
+});
 for(const closePath of ['narrate','embedded'])test(`expression examples stay with output and stale guidance is withdrawn for ${closePath}`,async()=>{
  const originalFetch=globalThis.fetch,originalKey=process.env.EXT_JEV_APIKEY;process.env.EXT_JEV_APIKEY='fixture-key';
  globalThis.fetch=async(_url,options)=>{const body=JSON.parse(options.body);await new Promise(r=>setTimeout(r,25));return new Response(JSON.stringify({model:body.model,answers:Object.fromEntries(Object.entries(body.questions).map(([key,q])=>[key,{type:q.type,noul:key.startsWith('conflict_')?.01:.99}])),usage:{input_tokens:100,output_tokens:1}}),{status:200});};

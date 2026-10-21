@@ -50374,3 +50374,25 @@ At the dedicated place-tool boundary only, explicit move/feature/observe may spe
 ### Location instruction coexistence (2026-10-20)
 
 Enhanced Locations1.1.23 removes duplicated transport prose already present in its resident and Travel sections, and condenses only repeated continuation guidance. Preserve canonical-state precedence, pending-source uncertainty, ordinary communication and receipt authority. The16384-byte situational-section ceiling remains unchanged: location guidance must leave room for simultaneously selected NPC topic sections. Verify actual provider requests include the asker section alongside location guidance, rather than increasing the cap or weakening topic selection.
+
+### Split Keeper capsule delivery ownership (2026-10-20)
+
+The same request-only ownership projection applies to `capsule.head`, including
+capsules retained from the direct-Keeper protocol. Silent tool-side text stays
+private and actual results must be read first. In split mode, the Keeper selects
+settled consequences and communication through `output`; the sole author renders
+the public reply, first appearances and already-settled untold consequences.
+Do not simultaneously instruct the decision agent to draft those passages or
+deny that its separate author exists. The stable brief names decision guidance,
+not full prose craft. The split system prompt also retires the legacy instruction
+to write explicit semantic records; actual canonical changes retain their tools.
+
+Writer: the existing kernel capsule and mode-specific host protocol. Reader: the
+actual context hook's private request copy. Actor: the Keeper submits the current
+output contract after reading real results, and the existing author writes once.
+Direct-Keeper requests, original messages, historical records, source appearance,
+receipts, admission and location protocols remain unchanged. Regression checks
+use the production capsule head through both modes and repeated context hooks.
+Apply this same head-only projection before request sizing to retained prior-turn
+capsules protected by a pending choice and to bounded degraded requests. Their
+historical facts stay historical; neither path restores a retired author duty.

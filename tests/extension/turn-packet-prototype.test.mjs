@@ -25,15 +25,18 @@ for(const [index,body]of [...minimaxWire.attempts,JSON.stringify({version:4})].e
  assert.deepEqual(table.extensionErrors,[]);
 });
 test('the actual native Keeper request has one output contract rather than legacy prose instructions',async t=>{
- let prompt;
+ let prompt,request;
  const engine=createHybridEngine({env,decision:{decide:async batch=>answer(batch,.99)}});
  const table=await openTable({legacyDeliveryFixtures:false,realKernel:true,prepareWorkspace:opened,env,runDriver:engine.runDriver,
   systemPrompt:readFileSync(join(import.meta.dirname,'../../prompts/keeper.md'),'utf8'),
-  extraExtensions:[{name:'engine',factory:engine.extension}],responses:[context=>{prompt=getCurrentSystemPrompt(context.messages);return fauxAssistantMessage([rawToolCall('output',{version:4,commands:[{kind:'scene',service:'open',crowd:'quiet'}]})],{stopReason:'toolUse'});} ]});
+  extraExtensions:[{name:'engine',factory:engine.extension}],responses:[context=>{prompt=getCurrentSystemPrompt(context.messages);request=JSON.stringify(context.messages);return fauxAssistantMessage([rawToolCall('output',{version:4,commands:[{kind:'scene',service:'open',crowd:'quiet'}]})],{stopReason:'toolUse'});} ]});
  t.after(()=>table.dispose());await table.session.prompt('I look around without moving.');
  assert.equal(typeof prompt,'string');
  for(const inherited of ['For unchanged conversation, begin the final reply with {{public}}','return {{compose}} followed','then supply a private expression brief.','Begin your complete final public prose with {{public}}'])
   assert.ok(!prompt.includes(inherited),'native request contains a contradictory legacy instruction: '+inherited);
+ for(const inherited of ['write the final public response yourself','No separate prose author','say what landed, in your own prose','Write what the book describes','explicit semantic records'])
+  assert.ok(!request.includes(inherited),'native capsule and system agree on the delivery owner: '+inherited);
+ assert.ok(request.includes('do not draft that prose here'));
 });
 test('packet parameter refusals identify the exact field without coercing its JSON type',()=>{
  const packet={...brief,commands:[{kind:'move',to:'Central Library'},{kind:'scene',service:'open',crowd:'active',review_after_minutes:'45'}]};

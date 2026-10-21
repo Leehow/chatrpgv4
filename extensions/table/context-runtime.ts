@@ -1,4 +1,5 @@
 import {locationToolDeclarations,projectLocationInspections,locationIdentityContext} from './location-context.ts';
+import {keeperCapsuleHead,keeperCapsuleMessage} from '../../runtime/instruction-audience.ts';
 import {locationContextRelevance} from './location-relevance.ts';
 import {createDecisionAdapter} from '../../runtime/jev/decision-adapter.ts';
 import {readJevApiKey,readJevPreselectAllowanceMs} from '../jev/agent/config.js';
@@ -113,11 +114,11 @@ export function installContextPolicy(pi: ExtensionAPI, writeTelemetry: (row: Row
     let providerSequence=0,pendingProvider:{requestId:string;prepared?:Row;outgoingDigest:string}|undefined;
     // Contract §135.6: on the single-loop engine the run's own read step is the prescreen. It announces itself, and
     // hands over the packet it prepared for the current turn; this hook then injects that packet and runs none of its own.
-    let runOwnsPrescreen=false,singleKeeper=false,runPrescreen:{campaign:string;turn:number;message:Row}|undefined;
+    let runOwnsPrescreen=false,singleKeeper=false,decisionAuthor=false,runPrescreen:{campaign:string;turn:number;message:Row}|undefined;
     // Contract §135.23: the turn's first capsule and first run packet, as the first request of the input sent them.
     // §184.2: `sent` is that capsule as the Keeper is sent it (stable sections first); `capsule` keeps the kernel's own copy.
     let turnMaterial:{epoch:string;capsule:Row;sent:Row;packet?:Row}|undefined;
-    pi.events.on('coc:loop-engine',value=>{runOwnsPrescreen=object(value).prescreen==='run';singleKeeper=object(value).singleKeeper===true;});
+    pi.events.on('coc:loop-engine',value=>{runOwnsPrescreen=object(value).prescreen==='run';singleKeeper=object(value).singleKeeper===true;decisionAuthor=object(value).turnPacketPrototype===true&&object(value).isolatedOutput===true;});
     pi.events.on('coc:run-prescreen',value=>{const packet=object(value);
         runPrescreen=typeof packet.campaign==='string'&&Number.isSafeInteger(packet.turn)&&packet.message?{campaign:packet.campaign,turn:packet.turn,message:object(packet.message)}:undefined;});
     let sessionEnv={...process.env},sharedAdapter:DecisionPort|undefined,sharedBudget:ReturnType<typeof preparationBudget>|undefined;
@@ -481,7 +482,9 @@ export function installContextPolicy(pi: ExtensionAPI, writeTelemetry: (row: Row
                         full = view; rehydrated = true;
                         expression.observe(view,{...object(_context),campaign:owner,turn:observedTurn??0},inputLifetime.signal);
                     }
-                    brief = {kind: 'context_brief', head: 'Keeper-only current book, full craft context and active package instructions. Use with the current turn capsule; this is not player input.',
+                    brief = {kind: 'context_brief', head: decisionAuthor
+                        ? 'Keeper-only current book and decision instructions. Prose craft belongs to the sole author. Use with the current turn capsule; this is not player input.'
+                        : 'Keeper-only current book, full craft context and active package instructions. Use with the current turn capsule; this is not player input.',
                         // §183.5: the rows' text only. An indexed row's section list and its per-turn gates stay out, so this stays cached.
                         module: full.module ?? null, style: full.style ?? null, instructions: (Array.isArray(object(full.mods).instructions) ? object(full.mods).instructions : [])
                             .map((value: Row) => ({mod: value.mod, version: value.version, settings: value.settings, form: value.form, instruction: value.instruction})),
@@ -722,7 +725,8 @@ export function installContextPolicy(pi: ExtensionAPI, writeTelemetry: (row: Row
         const ceiling = requestBudget(ctx.model?.contextWindow), budget = Math.max(0, ceiling - systemBytes);
         // §176.8: renamed before the cut, so the ceiling measures the names and notes that go out.
         const evidence=discoveryMode()==='full'?requestMessages:discoveryEvidence(requestMessages);
-        const rest = rename(evidence.filter(message => !(message.role === 'custom' && [DIAGNOSTIC_TYPE, PRESCREEN_TYPE].includes(message.customType))));
+        const rest = rename(evidence.filter(message => !(message.role === 'custom' && [DIAGNOSTIC_TYPE, PRESCREEN_TYPE].includes(message.customType)))
+            .map(message=>keeperCapsuleMessage(message,decisionAuthor)));
         const notice = diagnostic(reason);
         const cut = boundedTail(rest, Math.max(0, budget - requestSize([notice])));
         const outgoing = rename([notice, ...cut.messages]);
@@ -761,7 +765,8 @@ export function installContextPolicy(pi: ExtensionAPI, writeTelemetry: (row: Row
         // Start before storage hydration so its elapsed time is not a free selection allowance.
         if(discoveryMode()!=='full')beginPreparationAllowance();
         // §143.6: NPC advice is retired; a copy a session recorded before that never reaches the model.
-        const requestMessages=event.messages.filter(message=>message.role!=='custom'||message.customType!==NPC_ADVICE_TYPE);
+        const requestMessages=event.messages.filter(message=>message.role!=='custom'||message.customType!==NPC_ADVICE_TYPE)
+            .map(message=>keeperCapsuleMessage(message as Row,decisionAuthor));
         let snapshot:Prepared|undefined;
         // A concurrent input may replace a generation while its optional work is awaiting I/O.
         // Try the current accepted binding once; an unaccepted input uses the normal fallback.
@@ -818,6 +823,7 @@ export function installContextPolicy(pi: ExtensionAPI, writeTelemetry: (row: Row
         let seen = false;
         // §103.5: the capsule the Keeper is sent is this copy, not the persisted message; it carries the Keeper's untold view.
         const view = untoldView(structuredClone(snapshot.capsule)).capsule;
+        if(decisionAuthor&&typeof view.head==='string')view.head=keeperCapsuleHead(view.head,true);
         if(locationIdentity)view.location_identity=locationIdentity;
         if(observationReference)view.observation_reference={...observationReference,
             authority:'Delivered historical records only. Repeated person refs identify the same recorded person. Reading neither refreshes perception nor moves people or advances time.'};
