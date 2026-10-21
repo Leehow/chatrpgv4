@@ -51203,11 +51203,12 @@ player, so a book place's own name is still never revealed by arriving.
 
 Live (`el-v2-20261021e` T33): a route from the hotel back to the Corbitt House carried a scene assessment for each stop,
 and the packet was refused ("Duplicate newcomer labels, scene or slot") because every scene command compiled to the end
-as `here`, so a packet could hold one. The Keeper resent it without the hotel's clerk and assessment. Each stop of a
-route now carries at most one assessment: a scene command settles at the end of the stop it is written in -- after the
-newcomers submitted before it and before the route leaves -- and the last stop's settles after everything, as one
-assessment always did. Two assessments within one stop are still a duplicate. A newcomer written for `here` before the
-route leaves is placed at that stop, unless a later look names it.
+as `here`, so a packet could hold one. The Keeper resent it without the hotel's clerk and assessment. A single scene
+command is still the final declaration for where the route ends, wherever it is written. With several, each stop of the
+route carries at most one: each settles at the end of the stop it is written in -- after the newcomers submitted before
+it and before the route leaves -- and the last stop's settles after everything. Two assessments within one stop are
+still a duplicate. With several, a newcomer written for `here` before the route leaves is placed at that stop, unless a
+later look names it.
 
 The same turn read a place with `look {focus:"place", name, need}`, which `look` does not offer, and the call failed
 validation. Such a look is carried to `place inspect` with the same `name`, `at`, `spot`, `relation`, `sense` and `need`

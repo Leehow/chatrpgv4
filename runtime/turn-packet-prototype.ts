@@ -285,14 +285,16 @@ export function compileTurnPacket(packet:TurnPacket|BoundTurnPacket):{responses:
  const ordered:typeof commands=[];
  const pending=commands.filter(a=>a.kind==='walk_on');
  const register=(slots?:readonly string[])=>{for(let i=0;i<pending.length;){const person=pending[i];if(slots&&!slots.includes(person.slot)){i++;continue;}ordered.push(person);pending.splice(i,1);}};
- // §250.12: a stop's assessment settles at the end of that stop, after the newcomers submitted before it, and before
- // the route leaves; the last stop's settles after everything, as one assessment always did.
+ // §250.12: one assessment is the final declaration for where the route ends, wherever it is written (as it always was);
+ // with several, each settles at the end of its own stop, after the newcomers submitted before it and before the route
+ // leaves, and the last stop's settles after everything.
+ const perStop=commands.filter(a=>a.kind==='scene').length>1;
  let stop:typeof commands=[];
  const settleStop=()=>{for(const scene of stop){register(commands.slice(0,commands.indexOf(scene)).filter(a=>a.kind==='walk_on').map(a=>a.slot));ordered.push(scene);}stop=[];};
  for(const command of commands){
   if(command.kind==='scene'){stop.push(command);continue;}
   if(['walk_on','relationship'].includes(command.kind))continue;
-  if(departs(command)){
+  if(perStop&&departs(command)){
    // A newcomer written for here before the route leaves belongs to the stop it was written at, unless a later look names it.
    const at=commands.indexOf(command),later=new Set(commands.slice(at).flatMap(a=>a.kind==='place'&&a.action==='observe'?[...a.people??[],...(a.situations??[]).flatMap(situation=>situation.participants??[])]:[]));
    register(commands.slice(0,at).filter(a=>a.kind==='walk_on'&&(a.to===undefined||a.to==='here')&&!later.has(a.slot)).map(a=>a.slot));

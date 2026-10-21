@@ -117489,7 +117489,7 @@
           "counterpart": {
             "file": "tests/integration/scene-material-views.test.ts",
             "name": "test_compact_previews_admit_truncation_and_full_scene_retains_spatial_conditions",
-            "sha256": "fd87a4204146c8542ef4285ed782e7686e4341800fbdef6bd6d1e783b277a68b"
+            "sha256": "c8aaed51d94a512beb8c83e1d5402489dad975ce76ff06532c8416ec2a2747a7"
           },
           "review": "statement-by-statement",
           "validation": {
@@ -117550,6 +117550,14 @@
               },
               "fullCurrentSourceByteExact": false,
               "remainingSnapshotFilesExact": 1409
+            },
+            "revalidated": {
+              "priorNativeSha256": "fd87a4204146c8542ef4285ed782e7686e4341800fbdef6bd6d1e783b277a68b",
+              "command": "node --test tests/integration/scene-material-views.test.ts",
+              "result": "passed",
+              "cases": 6,
+              "evidence": "LAN box focused run.Q7tgkyOJ (leehow-pc) at 06bce4124, then local single-file rerun",
+              "review": "Contract §250.10 (owner direction 2026-10-21, fewer tool errors): an establish beside the book's clue name keeps the book clue instead of refusing invalid_params, so the attempted replacement of the inner-room clue now meets its real refusal, not_here with the inner-scene fix. The unchanged-world assertion and every other native case in this file are unchanged."
             }
           }
         },
@@ -117579,7 +117587,7 @@
           "counterpart": {
             "file": "tests/integration/scene-material-views.test.ts",
             "name": "test_scene_finds_maps_of_its_authored_location_once_without_unrelated_maps",
-            "sha256": "fd87a4204146c8542ef4285ed782e7686e4341800fbdef6bd6d1e783b277a68b"
+            "sha256": "c8aaed51d94a512beb8c83e1d5402489dad975ce76ff06532c8416ec2a2747a7"
           },
           "review": "statement-by-statement",
           "validation": {
@@ -117640,6 +117648,14 @@
               },
               "fullCurrentSourceByteExact": false,
               "remainingSnapshotFilesExact": 1409
+            },
+            "revalidated": {
+              "priorNativeSha256": "fd87a4204146c8542ef4285ed782e7686e4341800fbdef6bd6d1e783b277a68b",
+              "command": "node --test tests/integration/scene-material-views.test.ts",
+              "result": "passed",
+              "cases": 6,
+              "evidence": "LAN box focused run.Q7tgkyOJ (leehow-pc) at 06bce4124, then local single-file rerun",
+              "review": "Contract §250.10 (owner direction 2026-10-21, fewer tool errors): an establish beside the book's clue name keeps the book clue instead of refusing invalid_params, so the attempted replacement of the inner-room clue now meets its real refusal, not_here with the inner-scene fix. The unchanged-world assertion and every other native case in this file are unchanged."
             }
           }
         },
@@ -117685,7 +117701,7 @@
           "counterpart": {
             "file": "tests/integration/scene-material-views.test.ts",
             "name": "test_table_scene_look_is_full_while_turn_capsule_stays_bounded",
-            "sha256": "fd87a4204146c8542ef4285ed782e7686e4341800fbdef6bd6d1e783b277a68b"
+            "sha256": "c8aaed51d94a512beb8c83e1d5402489dad975ce76ff06532c8416ec2a2747a7"
           },
           "review": "statement-by-statement",
           "validation": {
@@ -117746,6 +117762,14 @@
               },
               "fullCurrentSourceByteExact": false,
               "remainingSnapshotFilesExact": 1409
+            },
+            "revalidated": {
+              "priorNativeSha256": "fd87a4204146c8542ef4285ed782e7686e4341800fbdef6bd6d1e783b277a68b",
+              "command": "node --test tests/integration/scene-material-views.test.ts",
+              "result": "passed",
+              "cases": 6,
+              "evidence": "LAN box focused run.Q7tgkyOJ (leehow-pc) at 06bce4124, then local single-file rerun",
+              "review": "Contract §250.10 (owner direction 2026-10-21, fewer tool errors): an establish beside the book's clue name keeps the book clue instead of refusing invalid_params, so the attempted replacement of the inner-room clue now meets its real refusal, not_here with the inner-scene fix. The unchanged-world assertion and every other native case in this file are unchanged."
             }
           }
         }
