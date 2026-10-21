@@ -125,16 +125,20 @@ export function turnPacketParameterSchema(journeySettled=false,timeBands?:readon
     if(sceneRequired)schema.required=[...new Set([...(schema.required??[]),'commands'])];
     return locations?locationCommandOwner(schema as TSchema):schema as TSchema;
 }
-/** Restore the owned structural schema after Pi's non-strict Anthropic conversion. */
+/** Install the current execution contract after either supported provider conversion. */
 export function turnPacketProviderPayload(payload:unknown,schema:TSchema=turnPacketParameterSchema(),requireTool=true):unknown {
-  if(!object(payload)||!Array.isArray(payload.tools)||!Array.isArray(payload.messages))return payload;
+  if(!object(payload)||!Array.isArray(payload.tools))return payload;
+  const messages=Array.isArray(payload.messages),responses=Array.isArray(payload.input);
+  if(!messages&&!responses)return payload;
   let changed=false;
   const tools=payload.tools.map((tool:unknown)=>{
-    if(!object(tool)||tool.name!=='output'||!object(tool.input_schema))return tool;
-    changed=true;return {...tool,input_schema:schema};
+    if(!object(tool)||tool.name!=='output')return tool;
+    if(messages&&object(tool.input_schema)){changed=true;return {...tool,input_schema:schema};}
+    if(responses&&object(tool.parameters)){changed=true;return {...tool,parameters:schema};}
+    return tool;
   });
   if(!changed)return payload;
-  return {...payload,tools,...(requireTool&&payload.model==='MiniMax-M3.1-Flash-Preview'?{tool_choice:{type:'auto'}}:{})};
+  return {...payload,tools,...(messages&&requireTool&&payload.model==='MiniMax-M3.1-Flash-Preview'?{tool_choice:{type:'auto'}}:{})};
 }
 /** Keep bound routes immutable; fill only an explicitly issued open route slot. */
 export function bindTurnPacketMoves(packet:TurnPacket,choices:readonly Record<string,unknown>[]):BoundTurnPacket {

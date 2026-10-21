@@ -48988,6 +48988,22 @@ Existing definite facts, observation access and concealed uncertainty remain
 unchanged. This uses the existing observation writer/projection/author path,
 not scene templates, a history claim or a new world field.
 
+Bound native-output provider follow-up (original input55): before_provider_request
+installs the exact current turnPacketParameterSchema in both Anthropic messages
+(output.input_schema) and Responses input (output.parameters). Preserve all
+other tools and request metadata without mutation. Previously Responses kept
+the static declaration while submission used current issued references and
+command constraints, so apparent allowed arguments failed at execution. This
+changes no constructor, reference vocabulary, consent rule or settled receipt.
+Actual adapter-payload regressions must prove equality and reject unissued
+communication targets in the same schema the model receives. Existing MiniMax
+auto choice behavior stays scoped to its messages transport.
+
+Anthropic documents input_schema while xAI Responses documents parameters
+(https://platform.claude.com/docs/en/agents-and-tools/tool-use/define-tools;
+https://docs.x.ai/developers/tools/function-calling). These confirm the two wire
+locations for one canonical contract; no provider default/model change follows.
+
 The model-facing `place` tool has two operations:
 
 - `inspect`: optional `name` (default current place), `need: context|contract`.

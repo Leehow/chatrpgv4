@@ -938,3 +938,34 @@ This is a general location-author instruction, not a handwritten police scene.
 Existing enhanced-locations checks plus a real selected closer view/revisit
 will verify that ordinary descriptive uncertainty no longer leaks as options.
 No additional architecture/research is needed for this prompt clarification.
+
+
+Shared owner package completed at03:40:39Z, exact committed5eae8d1c5, Mod1.1.28.
+Stable signature, canonical path/backlink, empty staging and Spotlight unique
+verified. Own location28-installed-source-check.json binds installed compiled
+JS hashes to source-view JS, then its maps to5eae source (location-context,
+instruction-audience, turn-packet-prototype); installed Mod files also match.
+No extra package was made. Other owner's validation is package-validation.json.
+Original55 asked the same night clerk for nearby lodging directions; actual
+Grok4.5/medium and place declaration18254bytes confirm the typed branches reach
+the provider. No movement chosen/executed. First-impression check settled once;
+two native output attempts were rejected, no story delivered. UI ended1m3s,
+not a successful under120s round; grok-round55-progress4.json and66-location28-
+round55-failed.txt/png preserve cause output.parameters/new schema false.
+
+Confirmed transport seam: turnPacketProviderPayload only recognizes Anthropic
+messages/input_schema, so Grok Responses retains the static declaration while
+submission validates current bound parameters. New actual adapter tests go red
+2/3 (Responses replacement and native-tool preservation); Messages already
+passes. Support the Responses input/parameters path without changing references,
+constructors, model or gates; focused4/4 now green. Clean verification pending.
+The App was normally quit after55's natural terminal event, ready56. Never
+reroll the settled impression or expose its refused unspoken directions as
+player knowledge.
+
+5eae LAN all exited1/wall1237s (run.RG3imgrO): ext6388/6375pass/4fail/9skip,
+integration2246pass, loop12pass. Four failures are context capacity/retention
+checks (workspace-projection, long-campaign-context2, run-driver-output handle
+expansion). Retain remote ext.log; do not increase the ceiling or drop required
+evidence to pass. Full branch typing grew place declaration8788→18254bytes;
+compact typed references and actual budget accounting require diagnosis.
