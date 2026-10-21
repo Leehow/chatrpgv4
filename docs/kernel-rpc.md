@@ -51023,6 +51023,14 @@ nothing, so it is held as a parameter failure like `invalid_params`, and a playe
 without its `skill`; the corrected call of the same act reconciles it (`held-operation`, `parameter_failure_reconciled`).
 Test: `tests/extension/resolve-skill-correction.test.mjs`.
 
+### 249.7 A rule that states no check beside a named skill
+
+Live (`el-v2-20261021f` T18, `el-v2-20261021g` T11): the Keeper resolved Library Use with `rule:"library-research"`,
+which states a time cost and no check, and was refused (`rule_no_check`); it resent the same action without the rule
+and applied `time stated:library-research`. A rule that states no check, with no `step` asked and an explicitly named
+`skill`, now settles as the ordinary check of that skill; what the rule states is still the Keeper's to apply with
+`apply stated`. Without a named skill the refusal is unchanged. Test: `tests/integration/rule-no-check-skill.test.ts`.
+
 ### 249.5 Accepting a failed roll's offer rolls nothing
 
 Live (`el-v2-20261021e` T26–T27): the Keeper offered push, Luck or accept after a failed Law roll, and the player
