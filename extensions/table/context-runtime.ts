@@ -159,7 +159,9 @@ export function installContextPolicy(pi: ExtensionAPI, writeTelemetry: (row: Row
         })());
     });
     // Contract §183.5: the indexed packages' sections this turn needs; the calls so far this turn are what triggers read.
-    const modSections=createModSections({read:async(method,params)=>call?call(method,params):undefined,decision:()=>singleKeeper?undefined:decision(),record});
+    const modSections=createModSections({read:async(method,params)=>call?call(method,params):undefined,decision:()=>singleKeeper?undefined:decision(),record,
+        // §248.4: the single Keeper has no topic judgement; state and calls push sections and the Keeper reads the rest.
+        pull:()=>singleKeeper});
     const discoveryMode=()=>singleKeeper?'full':['selective','shadow'].includes(sessionEnv.COC_TURN_DISCOVERY??'')?sessionEnv.COC_TURN_DISCOVERY!:'full';
     // Both discovery stages reserve from the same preparation owner and its foreground parent.
     // A missing owner is a full-view fallback, never an independent provider allowance.
@@ -215,12 +217,15 @@ export function installContextPolicy(pi: ExtensionAPI, writeTelemetry: (row: Row
             disclosure.attached(rows.map(row=>sectionKey(row.key)));
             return{read_only:true,no_commit:true,package_sections:rows.map(({key:_key,...row})=>row)};
         }
+        // §248.4: a schema-1 indexed section by its index name; the tool result stays in the run, outside §228's disclosure.
+        const listed=name?await modSections.read(name,campaign,object(capsule?.turn).number):undefined;
+        if(listed)return listed;
         let result:Row;
         try{result=await capabilityRuntime.lookup(args);}
         catch(error){
             if(!name||!/Unknown capability name/.test(String((error as Error)?.message)))throw error;
             return{status:'not_found',read_only:true,no_commit:true,name,
-                names:[...capabilityNames(),...modDiscovery.names()]};
+                names:[...capabilityNames(),...modDiscovery.names(),...modSections.names()]};
         }
         const loaded=(Array.isArray(result.capabilities)?result.capabilities:[]).filter((c:Row)=>c.detail).map((c:Row)=>String(c.name));
         disclosure.attached(loaded.map(capabilityKey));
@@ -485,6 +490,9 @@ export function installContextPolicy(pi: ExtensionAPI, writeTelemetry: (row: Row
                         // §183.5: the rows' text only. An indexed row's section list and its per-turn gates stay out, so this stays cached.
                         module: full.module ?? null, style: full.style ?? null, instructions: (Array.isArray(object(full.mods).instructions) ? object(full.mods).instructions : [])
                             .map((value: Row) => ({mod: value.mod, version: value.version, settings: value.settings, form: value.form, instruction: value.instruction})),
+                        // §248.3: what the topic ids of the indexed rows' section index mean.
+                        ...(Array.isArray(object(full.mods).topics) && object(full.mods).topics.length
+                            ? {topics: object(full.mods).topics.map((topic: Row) => ({id: topic.id, what: topic.what}))} : {}),
                         truncated: Array.isArray(full.truncated) ? full.truncated.filter((section: string) => ['module', 'style'].includes(section)) : []};
                     briefKey = briefingKey(binding, full);
                 }

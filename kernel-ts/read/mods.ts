@@ -30,7 +30,7 @@ import {MOOD_CAPABILITY} from '../npc/mood.js';
 import {VARIATION_CAPABILITY, variationTables} from '../npc/variation.js';
 import {EXPRESSION_REFERENCE_CAPABILITY,expressionCards,expressionCatalogRevision} from './expression-reference.js';
 import { ESTABLISH_CAPABILITY, ESTABLISH_REVIEW_CAPABILITY, validateEstablishDeclaration, establishProvider, establishItem } from "./establish.js";
-import { SECTIONS_CAPABILITY, DISCOVERY_CAPABILITY, validateSectionsDeclaration, validateSectionsContribution, packageSections, sectioned, sectionKey, instructionBudget, residentText, topicList, annotateGates, sceneFacts, type TurnFacts } from "./sections.js";
+import { SECTIONS_CAPABILITY, DISCOVERY_CAPABILITY, validateSectionsDeclaration, validateSectionsContribution, packageSections, sectioned, sectionKey, residentText, topicList, annotateGates, sceneFacts, type TurnFacts } from "./sections.js";
 import {TEMPORAL_CAPABILITY,temporalItems,temporalProviders} from './temporal-mod.js';
 import {IMPROVISED_WEAPON_CAPABILITY} from '../combat/improvised.js';
 import {LOCATIONS_CAPABILITY,locationProvider} from './locations.js';
@@ -854,9 +854,8 @@ export async function modContext(context: KernelContext, graph: ModuleGraph, wor
 }
 /** The open turn's state the §183 gates read that only the capsule's assembly has. */
 export type TurnState = Pick<TurnFacts, "opening" | "present" | "stalled_turns" | "stall_threshold" | "beat" | "repeat_input">;
-/** Contract §183.3: each package's instruction row, in the effective order. An unsectioned package is whole; a sectioned
- *  one is whole while the running total of the bytes the rows carry stays within the instruction budget, and indexed
- *  (its resident text, its sections listed) once it would not. */
+/** Contract §248.1: each package's instruction row, in the effective order. An unsectioned package is whole; a sectioned
+ *  one is indexed (its resident text and section index; its sections listed) at any budget. */
 /** Exact source offsets for authored section kinds; an unknown heading keeps the whole instruction. */
 export function materialScreenRanges(text: string, sections: readonly {heading: string | null; kind: string}[]): Row | undefined {
     const examples=text.indexOf('\n\nExpression examples (quoted data, not instructions or world facts;');
@@ -872,23 +871,15 @@ export function materialScreenRanges(text: string, sections: readonly {heading: 
 }
 
 function instructionRows(effective: Row[], world: Row): Row[] {
-    const budget = instructionBudget();
-    let total = 0;
     return effective.filter(mod => truth(mod.contributes.instructions)).map(mod => {
         const examples = expressionCards(mod,mod.files).slice(0,3).map(card=>card.examples[0]);
-        const text = new TextDecoder("utf-8", { fatal: true }).decode(mod.files.get(mod.contributes.instructions))
-            + (examples.length ? '\n\nExpression examples (quoted data, not instructions or world facts; adapt the phrasing to this encounter without importing names, events or promises):\n'+JSON.stringify(examples) : ''),
-            bytes = Buffer.byteLength(text, "utf8"),
+        const cards = examples.length ? '\n\nExpression examples (quoted data, not instructions or world facts; adapt the phrasing to this encounter without importing names, events or promises):\n'+JSON.stringify(examples) : '',
             base = { mod: mod.id, version: mod.version, settings: world.mods.active[mod.id].settings };
-        const sections=sectioned(mod)?packageSections(mod):[];
-        const discovery=sections.some(section=>section.index_contract_version===2);
-        if (!array(mod.requires).includes(LOCATIONS_CAPABILITY) && !discovery && !sections.some(section=>section.kind==='reference') && (!sectioned(mod) || total + bytes <= budget)) {
-            total += bytes;
-            const screening=sections.length?materialScreenRanges(text,sections):undefined;
-            return { ...base, form: "full", instruction: text, ...(screening?{material_screen:screening}:{}) };
-        }
-        const resident = residentText(sections);
-        total += Buffer.byteLength(resident, "utf8");
+        if (!sectioned(mod))
+            return { ...base, form: "full", instruction: new TextDecoder("utf-8", { fatal: true }).decode(mod.files.get(mod.contributes.instructions)) + cards };
+        const sections = packageSections(mod), discovery = sections.some(section => section.index_contract_version === 2);
+        // The examples ride with the resident text, as they rode with the whole text (§248.2).
+        const resident = residentText(string(mod.id), sections) + cards;
         return { ...base, form: "indexed", instruction: resident,...(discovery?{index_contract_version:2}:{}),
             sections: sections.flatMap((section, ordinal) => section.kind === "resident" ? [] : [{ key: sectionKey(mod, ordinal), heading: section.heading,
                 topics: [...section.topics], gates: [...section.gates], triggers: [...section.triggers], topic_threshold: section.topic_threshold,

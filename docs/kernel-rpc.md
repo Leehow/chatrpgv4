@@ -36053,6 +36053,8 @@ A package declares its instruction's sections with `contributes.sections`, a pac
 
 ### 183.3 Whole or indexed
 
+**Amended by §248 (owner 2026-10-21):** a sectioned package is indexed at any budget; the greedy rule below is retired, and on the single Keeper §248.4 replaces the topic judgement with state/call pushes and the Keeper's own reads.
+
 `modContext` decides per package, in the effective order:
 - a package without `contributes.sections` is `full`, always;
 - a sectioned package is `full` while the running total of the bytes the rows carry stays within the **instruction budget** (65 536 bytes; a positive integer `COC_INSTRUCTION_BUDGET` in the kernel's environment overrides it, for tests and operators), and `indexed` once it would not. An indexed row adds its resident text to the total; a later sectioned package that still fits goes whole (greedy).
@@ -50370,3 +50372,75 @@ and the declared `output` tool's parameters while the capability is active, and 
 earlier `time` receipt of the same input counts as the stretch's charge (the first live run charged time in an
 `apply` with a clue, and a packet-only rule refused the summary). The author section is a `reference` section, so
 the package is indexed at any budget, like Enhanced Locations.
+
+## 248. Package instructions: indexed by default, sections pushed by state and pulled by the Keeper (owner 2026-10-21; amends §183.3, §183.5, §183.6, §183.8)
+
+**Evidence.** On the Quick Settlement branch (§247) the default table's package rows carried 65 2xx of the 65 536-byte
+instruction budget: every sectioned package went `full` because §183.3 indexes only past the budget, so about 36 KB of
+situational text (story-thread 12.7 KB, natural-npc 6.7 KB, enhanced-items 6.6 KB, keeper-pacing 4.2 KB, narration-craft
+3.1 KB, hostile-creatures 2.0 KB, historical-reference 0.9 KB) rode every request. The single Keeper (§237, the hybrid
+engine always reports `singleKeeper: true`) has no topic judgement: `mod-sections` gets no decision port, so even an
+indexed row fell back to every gated section. Each new package therefore either compressed its guidance (§247.6) or
+would push an earlier package past the budget, which then indexed by load order, not by relevance.
+
+The owner's ruling (2026-10-21) replaces §183's "whole while it fits" with: a sectioned package is always indexed;
+the budget bounds what rides every turn; sections reach the Keeper when the table's state or a call needs them, and
+the Keeper reads any other listed section itself. Rules are pulled when needed, not written into every request.
+Narration Craft's resident text (13.4 KB, every sentence about how every turn is written) stays resident by decision.
+
+### 248.1 Whole or indexed
+
+`modContext` (`instructionRows`, `kernel-ts/read/mods.ts`) decides per package:
+- a package without `contributes.sections` is `full`, as before;
+- a sectioned package (schema 1 or 2) is `indexed`, at any budget. The greedy cut of §183.3 is gone.
+
+The instruction budget (65 536 bytes, `COC_INSTRUCTION_BUDGET`) now bounds the bytes every request carries: the sum of
+`full` rows' text and `indexed` rows' `instruction`. The kernel does not cut or flip forms against it; the shipped
+packages are held to it by test (§248.5). Material screening (single Keeper) keeps working on `full` rows; a sectioned
+package no longer has situational ranges in the brief to screen.
+
+### 248.2 The indexed row's text
+
+An indexed row's `instruction` is, joined by blank lines: the lead, the resident sections' text, and the section index.
+- Lead: "Further sections of this package are listed below. The host sends one in coc-mod-sections when the table's
+  state or a call this turn needs it; read any other the turn needs with lookup kind capability and its exact name."
+- Index: a `Sections:` line, then one line per situational or reference section in `sections.json` order:
+  `- "<mod>: <heading>"` (`Package core` for the preamble) and, when it has them, ` topics: <ids>` and
+  ` sent on: <triggers and kernel gates>`.
+
+A package's expression examples (§165) follow its text as they followed the whole text. The text depends only on the package's frozen bytes, so the brief stays cached. Topic ids in the index are explained by
+the brief's `topics` (§248.3).
+
+### 248.3 The brief
+
+`coc-context-brief` adds `topics: [{id, what}]`: the definitions (`content/mods/topics.json`) of the topics the indexed
+rows name, from `capsule.mods.topics`. It changes only when the package set does.
+
+### 248.4 The host: push and pull
+
+`extensions/table/mod-sections.ts` selects per §183.5 when it has a decision port. Without one because the table runs
+the single Keeper (`decision` reports pull mode), it does not ask Jev and has no `fallback`; a section loads when:
+- `due` (a `state:` trigger holds); or
+- one of its `before_apply` / `before_resolve` triggers names a call this turn; or
+- it names topics and at least one kernel gate, and `gates_open` holds (host gates aside), recorded `gate`.
+
+A section with topics and no kernel gate is not pushed: the Keeper reads it. `lookup {kind: "capability", name}` with a
+name of the index (`"<mod>: <heading>"`, case-insensitive) returns `{read_only: true, no_commit: true,
+package_sections: [{package, section, version, text}]}` for a schema-1 indexed row of the current capsule, read through
+`mods.sections` and cached by key; it is not entered in §228's disclosure (the tool result stays in the run). Schema-2
+names keep §228's path. An unknown name answers `not_found` with both lists of names. Reference sections (§242,
+§247.4) are listed and may be read the same way; their own consumers keep reading them by key.
+
+Telemetry: `lane: "mod-sections"`, `event: "pull_mode"` once per input; `selected` rows carry `why` (`due`,
+`call:<trigger>`, `gate`); `lane: "mod-sections"`, `event: "read"` with the key for each Keeper read.
+
+### 248.5 Limits and tests
+
+- A topic-only section reaches the Keeper only if it reads it; nothing counts whether it should have. The measure is a
+  live replay, not this contract.
+- The first `apply`/`resolve` of a kind still precedes the section its trigger sends (§183.8).
+- Schema-2 rows on the single Keeper keep §209's forced-full discovery; they are not built in today.
+- `tests/extension/mod-section-index.test.mjs`: forms at the default budget and at `COC_INSTRUCTION_BUDGET=1` are the
+  same; the index text; pull-mode selection (due, call, gate, topic-only not pushed); the lookup read and `not_found`.
+  `tests/extension/single-keeper-rule-guidance.test.mjs`: on the default table every sectioned row is indexed, the rows
+  carry at most the budget, and each package's `instruction` is at most 6 144 bytes except Narration Craft's.

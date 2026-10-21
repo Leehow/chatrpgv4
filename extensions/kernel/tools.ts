@@ -846,7 +846,7 @@ export const COC_TOOLS: readonly CocToolSpec[] = [
 			kinds: Type.Optional(Type.Array(Type.String({minLength:1}), {maxItems: 8, description: 'catalog only: omit kinds to search all records; never send an empty-string placeholder. For goods/prices use kinds:["item"]. Other kinds: weapon, spell, creature, skill, vehicle, rule, artifact, tome, poison, occupation, phobia, mania, hazard.'})),
 			limit: Type.Optional(Type.Integer({minimum: 1, maximum: 12})),
 			action: Type.Optional(StringEnum(["prepare", "status", "cancel"] as const)),
-			name: Type.Optional(Type.String({description: "adaptation: a memorable proposal name, reused for status, cancel or acceptance"})),
+			name: Type.Optional(Type.String({description: "adaptation: a memorable proposal name, reused for status, cancel or acceptance. capability: the exact name of an apply capability or of a package section listed in the package instructions"})),
 			purpose: Type.Optional(StringEnum(['new_destination', 'persistent_npc', 'source_rebinding', 'handout', 'rebase'] as const, {description: 'required for adaptation prepare. Physical objects have no adaptation purpose, and neither does a supporting person you only need on stage -- apply npc with walk_on establishes them at the table with no proposal and no turn spent. persistent_npc is for someone who must persist as a source-connected figure'})),
 			request: Type.Optional(Type.String({description: "adaptation: the player's actual direction and the source-connected change to prepare; never an instruction to force a player choice"})),
 			rebase: Type.Optional(Type.Boolean({description: "prepare review of the latest source with the existing accepted adaptations, at a safe start of turn"})),

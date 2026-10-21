@@ -1,4 +1,4 @@
-/** Contract §183: package instructions whole within a budget, an index beyond it. The kernel's declaration checks, form
+/** Contract §183, §248: package instructions indexed when sectioned. The kernel's declaration checks, form
  *  and gates; the selection rule; and the Keeper's actual provider requests with the budget forced low. */
 import assert from "node:assert/strict";
 import {test} from "node:test";
@@ -14,7 +14,6 @@ import {openTable} from "./harness.mjs";
 const ROOT=resolve(import.meta.dirname,"../..");
 const SECTIONED=["enhanced-locations","narration-craft","natural-npc","enhanced-items","keeper-pacing","story-thread","historical-reference","hostile-creatures","quick-settlement"];
 /** A locations provider or a package with a reference section is indexed at any budget (§242, §247.4). */
-const ALWAYS_INDEXED=new Set(["enhanced-locations","quick-settlement"]);
 const temporary=await mkdtemp(join(tmpdir(),"mod-section-index-"));
 await symlink(join(ROOT,"node_modules"),join(temporary,"node_modules"),"dir");
 await build({stdin:{contents:[
@@ -127,40 +126,36 @@ async function played(t,game,id="indexed"){
 	return call;
 }
 
-test("within the budget every package is whole; over it, sectioned packages go indexed in the effective order (§183.3)",async t=>{
+test("every sectioned package is indexed at any budget; an unsectioned one is whole; the index names its sections (§248.1, §248.2)",async t=>{
 	const game=await kernel(t),call=await played(t,game);
 	await call("table.open");
-	const whole=byId((await call("table.player_input",{text:"I ask the clerk where the records are kept."})).capsule);
-	assert.ok([...whole.values()].every(row=>ALWAYS_INDEXED.has(row.mod)?row.form==="indexed":row.form==="full"));
-	const sizes=new Map([...whole.values()].map(row=>[row.mod,Buffer.byteLength(row.instruction,"utf8")]));
-	const order=[...whole.keys()];
+	const first=await call("table.player_input",{text:"I ask the clerk where the records are kept."}),rows=byId(first.capsule);
+	for(const row of rows.values())assert.equal(row.form,SECTIONED.includes(row.mod)?"indexed":"full",row.mod);
 	await call("table.narrate",{call_id:"t1-c1",text:"The clerk points down the hall."});
-
-	// A budget that fits the packages before keeper-pacing whole and not keeper-pacing itself.
-	const at=order.indexOf("keeper-pacing"),before=order.slice(0,at).reduce((sum,id)=>sum+sizes.get(id),0);
-	budget(t,before+sizes.get("keeper-pacing")-1);
-	const next=await call("table.player_input",{text:"I ask the clerk again."});
-	const rows=byId(next.capsule);
-	for(const id of order.slice(0,at))assert.equal(rows.get(id).form,ALWAYS_INDEXED.has(id)?"indexed":"full",`${id} fits before keeper-pacing`);
+	// The budget no longer decides the form: the smallest budget gives the same rows.
+	budget(t,1);
+	const low=byId((await call("table.player_input",{text:"I ask the clerk again."})).capsule);
+	assert.deepEqual([...low.values()].map(row=>[row.mod,row.form]),[...rows.values()].map(row=>[row.mod,row.form]));
 	const pacing=rows.get("keeper-pacing");
-	assert.equal(pacing.form,"indexed");
 	assert.ok(pacing.instruction.startsWith(api.INDEXED_LEAD));
 	for(const heading of ["Carrying the selected goal","No escalation ladder"])assert.ok(pacing.instruction.includes(`## ${heading}\n`),heading);
 	assert.ok(!pacing.instruction.includes("## Stalled turns"),"a situational section is not in the resident text");
 	assert.deepEqual(pacing.sections.map(section=>section.heading),["Close calls","Threat clocks","Stalled turns","A stuck or confused player","Empty and repeated turns"]);
 	assert.deepEqual(pacing.sections.map(section=>section.key),[1,2,3,4,5].map(ordinal=>`keeper-pacing@${pacing.version}#${ordinal}`));
 	for(const section of pacing.sections)assert.equal(typeof section.gates_open,"boolean",section.heading);
-	// Greedy: a later package that still fits goes whole; an unsectioned package is always whole.
-	for(const id of order.slice(at+1)){
-		const total=order.slice(0,at+1).reduce((sum,other)=>sum+(other==="keeper-pacing"?Buffer.byteLength(pacing.instruction,"utf8"):sizes.get(other)),0);
-		const sectioned=SECTIONED.includes(id);
-		if(!sectioned)assert.equal(rows.get(id).form,"full",`${id} is unsectioned`);
-		else if(total+sizes.get(id)>before+sizes.get("keeper-pacing")-1)assert.equal(rows.get(id).form,"indexed",id);
-	}
+	// The index lists every non-resident section by the name the Keeper reads it with, with its topics and what sends it.
+	const index=pacing.instruction.slice(pacing.instruction.lastIndexOf("Sections:\n")).split("\n").slice(1);
+	assert.deepEqual(index,[
+		'- "keeper-pacing: Close calls" topics: lethal_risk',
+		'- "keeper-pacing: Threat clocks" topics: time_passes sent on: gate:threat_clock',
+		'- "keeper-pacing: Stalled turns" topics: * sent on: gate:stall',
+		'- "keeper-pacing: A stuck or confused player" topics: out_of_character',
+		'- "keeper-pacing: Empty and repeated turns" topics: * sent on: gate:recover']);
+	assert.ok(rows.get("narration-craft").instruction.includes('- "narration-craft: Opening the table" sent on: state:opening'));
 	const named=new Set([...rows.values()].filter(row=>row.form==="indexed").flatMap(row=>row.sections.flatMap(section=>section.topics)));
 	// The definitions of the topics the indexed rows name; "*" names every one.
 	const list=JSON.parse(await readFile(join(ROOT,"content/mods/topics.json"),"utf8")).topics.map(topic=>topic.id);
-	assert.deepEqual(next.capsule.mods.topics.map(topic=>topic.id),named.has("*")?list:list.filter(id=>named.has(id)));
+	assert.deepEqual(first.capsule.mods.topics.map(topic=>topic.id),named.has("*")?list:list.filter(id=>named.has(id)));
 });
 
 test("an indexed row's gates read the turn's state: the opening, people present, equipment (§183.3)",async t=>{
@@ -240,6 +235,31 @@ test("selection: a topic over its bar with its gates, a due state, a call this t
 	// Jev unavailable or late: every section with a topic and open kernel gates, host gates aside.
 	for(const judgement of [undefined,{status:"unavailable",reason:"timeout"}])
 		assert.deepEqual(picked(judgement),{asker:["fallback"],stuck:["fallback"],opening:["due"],register:["fallback"]});
+});
+
+test("pull mode: due, calls and gated topic sections are sent; a topic-only section waits for the Keeper's read (§248.4)",()=>{
+	const calls=api.emptyCalls();
+	const pulled=(c=calls)=>Object.fromEntries(api.selectSections(capsuleOf(SECTIONS),undefined,c,true).map(row=>[row.heading,row.why]));
+	assert.deepEqual(pulled(),{stuck:["gate"],opening:["due"]},"asker and register name only topics; closed's gates do not hold");
+	api.noteCall(calls,"apply",{effects:[{kind:"cash"}]});
+	assert.deepEqual(pulled(calls),{stuck:["gate"],opening:["due"],prices:["call:before_apply:cash"]});
+});
+
+test("the Keeper reads a listed section by its index name; an unknown name is not a section (§248.4)",async()=>{
+	const reads=[],rows=[];
+	const lane=api.createModSections({read:async(method,params)=>{reads.push([method,params]);
+		return {sections:params.keys.map(key=>({key,text:`text of ${key}`}))};},decision:()=>undefined,record:row=>rows.push(row),pull:()=>true});
+	const capsule={turn:{player_text:"I ask the clerk."},mods:{instructions:[{mod:"m",version:"1.0.0",form:"indexed",sections:[
+		{key:"m@1.0.0#1",heading:"Asking",topics:["asks_question"],gates:[],triggers:[]},{key:"m@1.0.0#2",heading:null,topics:["*"],gates:[],triggers:[]}]}]}};
+	lane.observe(capsule,{campaign:"c",turn:3},new AbortController().signal);
+	assert.equal(await lane.message(capsule,{campaign:"c",turn:3},api.emptyCalls()),undefined,"nothing is pushed for topic-only sections");
+	assert.deepEqual(await lane.read("M: asking","c",3),{read_only:true,no_commit:true,
+		package_sections:[{package:"m",section:"Asking",version:"1.0.0",text:"text of m@1.0.0#1"}]});
+	assert.equal((await lane.read("m: Package core","c",3)).package_sections[0].text,"text of m@1.0.0#2");
+	assert.equal(await lane.read("m: Elsewhere","c",3),undefined);
+	assert.deepEqual(lane.names(),["m: Asking","m: Package core"]);
+	assert.deepEqual(reads,[["mods.sections",{campaign:"c",keys:["m@1.0.0#1"]}],["mods.sections",{campaign:"c",keys:["m@1.0.0#2"]}]]);
+	assert.deepEqual(rows.filter(row=>row.event!=="selected").map(row=>row.event),["pull_mode","read","read"]);
 });
 
 test("a resolve's family comes from its settled result, else from the decision it named",()=>{
