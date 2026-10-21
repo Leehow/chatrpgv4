@@ -51013,6 +51013,16 @@ Writer: the Keeper's proposal. Reader: the unchanged kernel validators and the s
 Actor: the Keeper, whose judgment is recorded in the admission lane. No threshold, new review, keyword rule or
 fallback is introduced; this removes reviews rather than relaxing them.
 
+### 249.4.1 A resolve corrected after a parameter refusal settles the same act
+
+Live (`el-v2-20261021f` T25, undelivered): the Keeper resolved the player's lockpicking with `skill:"Lockpicks"`, was
+refused (`needs`, `details.needs.field:"skill"`), resolved again with `Locksmith` and passed, and the turn's output was
+still refused ("A failed operation cannot release an unverified expression"): the refusal was held as an unconfirmed
+failure, and the corrected call had another key. A refusal that names one parameter to complete (`needs.field`) ran
+nothing, so it is held as a parameter failure like `invalid_params`, and a player resolve's completion key is the act
+without its `skill`; the corrected call of the same act reconciles it (`held-operation`, `parameter_failure_reconciled`).
+Test: `tests/extension/resolve-skill-correction.test.mjs`.
+
 ### 249.5 Accepting a failed roll's offer rolls nothing
 
 Live (`el-v2-20261021e` T26–T27): the Keeper offered push, Luck or accept after a failed Law roll, and the player

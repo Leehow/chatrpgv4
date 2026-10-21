@@ -3479,9 +3479,13 @@ export default function (pi: ExtensionAPI, host: {capabilities?:RuntimeCapabilit
     if(!state.playerText || state.inputEnded?.turn===state.turn || state.closedThisRun)return;
     let boundary=heldActs.get(state);
     if(!boundary){boundary=new HeldActOutcome();heldActs.set(state,boundary);}
-    const failure=error as {code?:string;details?:{reason?:string}};
+    const failure=error as {code?:string;details?:{reason?:string;needs?:{field?:unknown}}};
     const completion=operationKeys.get(state)?.get(toolCallId??'')?.playerAction;
-    if(failure.code==='invalid_params'&&completion&&!completion.key){
+    // §249.4: a refusal that asks for one named parameter (`needs.field`, e.g. a resolve's unknown skill) ran nothing; it is
+    // a parameter failure like invalid_params, which a corrected call of the same act settles (live el-v2-20261021f T25:
+    // Lockpicks, then Locksmith passed, and the turn still ended undelivered).
+    const parameterFailure=failure.code==='invalid_params'||failure.code==='needs'&&typeof failure.details?.needs?.field==='string';
+    if(parameterFailure&&completion&&!completion.key){
       void record({lane:'held-operation',event:'argument_outside_player_scope',turn:state.turn,tool});return;
     }
     // §249.4: a failed rule operation that is no player act (an NPC's first impression, a meeting check) holds nothing the
@@ -3492,9 +3496,9 @@ export default function (pi: ExtensionAPI, host: {capabilities?:RuntimeCapabilit
     const {campaign:_,call_id:__,...proposal}=args;
     boundary.hold({campaign:state.campaign,turn:state.turn,playerText:state.playerText,
       ...(state.documentWorldline?{worldline:state.documentWorldline}:{})},
-      {tool,lines:[JSON.stringify(failure.code==='invalid_params'&&completion?.args?completion.args:proposal)],cause:failure.code==='invalid_params'?'invalid_params':String(failure.details?.reason??failure.code??'operation_failed'),
+      {tool,lines:[JSON.stringify(parameterFailure&&completion?.args?completion.args:proposal)],cause:parameterFailure?'invalid_params':String(failure.details?.reason??failure.code??'operation_failed'),
         operationKey:operationKeys.get(state)?.get(toolCallId??'')?.operationKey??heldOperationKey(tool,args),
-        ...(failure.code==='invalid_params'&&completion?.key?{argumentCompletionKey:completion.key}:{})},true);
+        ...(parameterFailure&&completion?.key?{argumentCompletionKey:completion.key}:{})},true);
   }
   function holdUnavailable(state: TableState, proposal: {tool: string; lines: string[]}, cause: string): void {
     if (!state.playerText) return;
@@ -6277,7 +6281,9 @@ export default function (pi: ExtensionAPI, host: {capabilities?:RuntimeCapabilit
             const currentArgs=spec.name==='apply'?{...params,...(payload.effects!==undefined?{effects:payload.effects}:{}),...(payload.event!==undefined?{event:payload.event}:{})}:{...params,action:payload.action};
             if(!state.party.length||argumentErrors(spec.parameters,currentArgs).length)return;
             if(spec.name==='resolve'){
-                if(proposal){const args={tool:spec.name,action:payload.action};saved.playerAction={key:heldOperationKey('player-action-completion',args),args:structuredClone(args)};}
+                // The act is what the player set out to do; the skill is the parameter a correction may still change.
+                if(proposal){const args={tool:spec.name,action:payload.action},{skill:_skill,...act}=(payload.action??{}) as Record<string,unknown>;
+                    saved.playerAction={key:heldOperationKey('player-action-completion',{tool:spec.name,action:act}),args:structuredClone(args)};}
                 // §249.4: admission found no player act here (an NPC's roll, a meeting check, a rule-run family).
                 else saved.playerAction={};
                 return;
