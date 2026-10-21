@@ -50965,6 +50965,16 @@ roll 0.53 and refused it, and the pending row never matched because it named the
 the Keeper used the id; each row now also carries `actor_id`, and either name matches. Any other `resolve` stays
 reviewed.
 
+### 249.4 The single Keeper's rule operation
+
+Live evidence after §249.1 (`el-v2-20261021a`, `el-v2-20261021b`, 48 turns): every consent refusal of a `resolve` was a
+misjudgment -- two first impressions, and a Strength check to force the door the player said they were forcing (0.53,
+uncertain) -- and no refusal caught an unselected roll; the retained 鬼屋 campaign shows the same (2 of 2). In the
+single-Keeper path a `resolve` is now the Keeper's own call for the roll the fiction asks for
+(`{path:"keeper_judged", kinds:["resolve"]}`); it is still bound as the player's act, so a kernel refusal is held.
+Exempt families, answered choices and NPC actors are unchanged, and the lane reviewers outside the single Keeper still
+review. A registered meeting check also matches when the Keeper names the person by display name.
+
 A Keeper-judged batch is still the player's act. When no line of an `apply` goes to review, the judged lines are bound
 as the player's action (`capturePlayerAction`), so a kernel refusal of them is held (§166.2) and the turn's prose cannot
 publish the refused act as done; before this binding such a batch read as bookkeeping (`argument_outside_player_scope`)
@@ -51078,6 +51088,10 @@ same way (`adjusted` on the receipt and its outcome):
   still refuses with the kind list.
 - A packet claim's person fields (`new.actor`, `new.provider`) written as a present person's one exact public
   appellation bind to that person's ref, as the interaction's own `actor` already did (`bindActors`).
+- A packet command carrying a place action (`move`, `establish`, `feature`, `relate`, `observe`, `inspect`) but no
+  `kind` is a place command (`place_kind_inferred`).
+- A known effect kind missing exactly one required field, carrying an undeclared `name`, takes it as that field
+  (`{kind:"clue", name:"nailed-windows"}` → `clue`); a kind that declares `name` keeps it.
 
 Still refused, because each needs the Keeper's decision: an empty population assessment while a registered person is
 seated at the destination (move them away or keep them), and an effect kind with no single reading.
@@ -51102,10 +51116,12 @@ before (§218.3).
 §250.1 recorded an unassessed arrival as unknown, but the next stationary turn's packet then had to carry a scene
 command because the assessment was not current (`el-v2-20261021b` T13 and T15 refused for it). Now the packet schema,
 the pre-settlement check and the post-settlement check all ask for an assessment only when a current one is contradicted
-by registered presence (`scenePopulationConflict`: empty with people seated, populated with nobody). A missing or
+by registered presence (`scenePopulationConflict`: an empty assessment while a registered person is seated). A
+populated assessment with nobody registered is an unnamed crowd, never a contradiction, in the packet checks and in
+the kernel's own `_population` guard (`el-v2-20261021b` T19 refused a quiet street for it). A missing or
 expired assessment publishes as population `unknown` (`scene-population` lane, `assessment_retired`, reason
-`unassessed`). The Keeper's own explicit assessment that contradicts presence still refuses in the kernel, and the
-supplement after settled NPC travel (everyone left a populated scene) is still asked for.
+`unassessed`). The Keeper's own empty assessment beside a seated person still refuses in the kernel, and the
+supplement after a settled arrival into an empty-assessed scene is still asked for.
 
 ## 251. A progress note for a read spiral (owner direction 2026-10-21: fewer deliberations, faster turns)
 

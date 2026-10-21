@@ -1822,7 +1822,7 @@ export function capsuleContactProposal(proposal: AdmissionProposal, payload: Rec
     const action = record(payload.action);
     if (!action || !['actor', 'target', 'decision'].every(key => typeof action[key] === 'string')) return proposal;
     const present = Array.isArray(capsule.present) ? capsule.present.map(record).filter(Boolean) : [];
-    const people = present.filter(person => [person!.id, person!.name, person!.ref].includes(action.target));
+    const people = present.filter(person => [person!.id, person!.name, person!.ref, person!.display_name].includes(action.target));
     if (people.length !== 1) return proposal;
     const person = people[0]!;
     const contacts = record(capsule.mods)?.pending_contacts;

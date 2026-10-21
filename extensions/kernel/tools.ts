@@ -103,7 +103,8 @@ function effectBranches(parameters: TSchema): EffectBranch[] {
 /**
  * §250.4: an effect whose `kind` names no effect kind but names one of its own fields (`{kind:"document", document:{...}}`)
  * took the field for the kind. When exactly one effect kind declares that field and every field the effect carries,
- * that kind is the only reading and replaces it; otherwise the effect is left for `effectShapeRefusal`.
+ * that kind is the only reading and replaces it; otherwise the effect is left for `effectShapeRefusal`. A known kind
+ * missing its one required field while carrying an undeclared `name` names that field.
  */
 export function aliasEffectKinds(tool: string, parameters: TSchema, args: unknown): { args: unknown; repairs: Array<{ index: number; from: string; to: string }> } {
 	if (tool !== "apply" || !args || typeof args !== "object" || Array.isArray(args)) return { args, repairs: [] };
@@ -114,7 +115,17 @@ export function aliasEffectKinds(tool: string, parameters: TSchema, args: unknow
 	const next = effects.map((value, index) => {
 		if (!value || typeof value !== "object" || Array.isArray(value)) return value;
 		const effect = value as Record<string, unknown>, kind = effect.kind;
-		if (typeof kind !== "string" || kinds.has(kind) || !Object.hasOwn(effect, kind)) return value;
+		if (typeof kind === "string" && kinds.has(kind)) {
+			// A known kind missing one required identity field it carries under the undeclared `name` (`{kind:"clue",
+			// name:"nailed-windows"}`, live el-v2-20261021b T20) names that field.
+			const branch = branches.find(entry => entry.kind === kind);
+			const missing = branch ? branch.required.filter(key => !Object.hasOwn(effect, key)) : [];
+			if (!branch || missing.length !== 1 || branch.properties.includes("name") || typeof effect.name !== "string") return value;
+			const { name, ...rest } = effect;
+			repairs.push({ index, from: "name", to: missing[0] });
+			return { ...rest, [missing[0]]: name };
+		}
+		if (typeof kind !== "string" || !Object.hasOwn(effect, kind)) return value;
 		const fields = Object.keys(effect).filter(key => key !== "kind");
 		const readings = [...new Set(branches.filter(branch => fields.every(key => branch.properties.includes(key))).map(branch => branch.kind))];
 		if (readings.length !== 1) return value;

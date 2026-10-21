@@ -1,6 +1,6 @@
 /** Deterministic packet diagnostics; not live-play evidence. */
 import test from 'node:test';import assert from 'node:assert/strict';
-import {turnPacket,turnPacketParameterSchema} from '../../runtime/turn-packet-prototype.ts';
+import {turnPacket,turnPacketParameterSchema,normalizeTurnPacketArguments} from '../../runtime/turn-packet-prototype.ts';
 const bindings={entities:['npc_28','investigator_1','Inn'],people:['npc_28','investigator_1'],places:['Inn'],facts:['fact_1'],sources:[]};
 const schema=turnPacketParameterSchema(false,['speak_briefly'],[],false,bindings,true);
 const answer=content=>({version:4,interactions:[{actor:'npc_28',act:'answer',to:['investigator_1'],content}]});
@@ -17,4 +17,10 @@ test('a constructor with required alternatives stays one variant: directions are
   assert.doesNotThrow(()=>turnPacket(JSON.stringify(answer([{new:{predicate:'directions',to:'Inn',...route}}])),schema),JSON.stringify(route));
  assert.throws(()=>turnPacket(JSON.stringify(answer([{new:{predicate:'directions',to:'Inn'}}])),schema),
   error=>/content\/0\/new/.test(error.message)&&!/predicate: must be one of/.test(error.message));
+});
+test('a command with a place action and no kind is a place command (live el-v2-20261021b T19)',()=>{
+ const normalized=normalizeTurnPacketArguments({version:4,commands:[{action:'move',to:'here',spot:'by the window'},{kind:'time',minutes:2,reason:'Wait.'},{action:'sing'}]});
+ assert.equal(normalized.placeKindRepairs,1);
+ assert.deepEqual(normalized.args.commands.map(row=>row.kind),['place','time',undefined],'an unknown action is left for validation');
+ assert.equal(normalizeTurnPacketArguments({version:4,commands:[{kind:'scene',service:'open',crowd:'quiet'}]}).placeKindRepairs,undefined);
 });

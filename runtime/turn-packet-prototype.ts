@@ -131,8 +131,18 @@ export function requireTurnPacketNpcDestinations(packet:TurnPacket,choices:reado
  return packet;
 }
 /** Decode declared scalar and array transport forms without semantic inference. */
-export function normalizeTurnPacketArguments(input:unknown):{args:unknown;repairs:number;integerRepairs?:number;booleanRepairs?:number;textRepairs?:number} {
-  return normalizeToolArgumentSyntax(TURN_PACKET_ROUTINE_PARAMETERS,input,{boundedIntegers:true,exactBooleans:true,partialTransport:true});
+const PLACE_ACTIONS=new Set(['move','establish','feature','relate','observe','inspect']);
+export function normalizeTurnPacketArguments(input:unknown):{args:unknown;repairs:number;integerRepairs?:number;booleanRepairs?:number;textRepairs?:number;placeKindRepairs?:number} {
+  const normalized=normalizeToolArgumentSyntax(TURN_PACKET_ROUTINE_PARAMETERS,input,{boundedIntegers:true,exactBooleans:true,partialTransport:true});
+  // §250.4: a command carrying a place action but no kind can only be a place command (live el-v2-20261021b T19).
+  const value=normalized.args;
+  if(!object(value)||!Array.isArray(value.commands))return normalized;
+  let placeKindRepairs=0;
+  const commands=value.commands.map(command=>{
+   if(!object(command)||command.kind!==undefined||typeof command.action!=='string'||!PLACE_ACTIONS.has(command.action))return command;
+   placeKindRepairs++;return {kind:'place',...command};
+  });
+  return placeKindRepairs?{...normalized,args:{...value,commands},placeKindRepairs}:normalized;
 }
 /** One current parameter contract for the native declaration and submission. */
 export function turnPacketParameterSchema(journeySettled=false,timeBands?:readonly string[],moveChoices?:readonly Record<string,unknown>[],sceneRequired=false,bindings?:DecisionBindings,locations=false,timeBandRows?:readonly {handle:string;covers?:string}[],routine=false):TSchema {

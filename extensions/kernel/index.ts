@@ -3797,6 +3797,10 @@ export default function (pi: ExtensionAPI, host: {capabilities?:RuntimeCapabilit
             // §249: a registered meeting check is a rule of the meeting the Keeper decides to roll (owner 2026-10-13), not
             // an investigator action the player's words select; asking the consent reviewer refused it at its noise floor.
             if(proposal.meetingCheck){capture?.(null);await record({lane:'admission',verb:tool,turn:state.turn,path:'keeper_judged',kinds:['meeting_check'],jev_calls:0});return;}
+            // §249.4: the single Keeper's rule operation is its own call for a roll the fiction asks for; live tables refused
+            // only clearly selected checks (Strength to force the door the player said they force). It stays the player's
+            // act, so a kernel refusal is still held.
+            if(tool==='resolve'){capture?.(proposal);await record({lane:'admission',verb:tool,turn:state.turn,path:'keeper_judged',kinds:['resolve'],jev_calls:0});return;}
             capture?.(proposal);
             const completedTime=state.landed.length&&!recovery?.sources.some(Boolean)?settledTimeEvidence((await state.kernel.call<{receipts:unknown[]}>('table.status',{campaign:state.campaign,projection:'receipts',expected_turn:state.turn})).receipts):undefined;
             const context={...admissionContextFor(state),...(current.where?.clock?{currentClock:current.where.clock}:{}),
@@ -7148,6 +7152,7 @@ export default function (pi: ExtensionAPI, host: {capabilities?:RuntimeCapabilit
 				if(normalized.integerRepairs)void record({lane:'arguments',event:'decision_integer_normalized',tool:spec.name,repairs:normalized.integerRepairs});
 				if(normalized.textRepairs)void record({lane:'arguments',event:'decision_string_transport_normalized',tool:spec.name,repairs:normalized.textRepairs});
 				if(normalized.booleanRepairs)void record({lane:'arguments',event:'decision_boolean_normalized',tool:spec.name,repairs:normalized.booleanRepairs});
+                if('placeKindRepairs' in normalized&&normalized.placeKindRepairs)void record({lane:'arguments',event:'place_kind_inferred',tool:spec.name,repairs:normalized.placeKindRepairs});
 				const unwrapped = unwrapArgumentMarkup(spec.name, spec.parameters, normalized.args);
 				if (!unwrapped.ok) throw new Error(new KernelError(unwrapped.refusal).toToolText());
 				if (unwrapped.repairs.length) void record({ lane: "tool_arguments", event: "markup_unwrapped", tool: spec.name, repairs: unwrapped.repairs });

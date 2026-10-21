@@ -789,7 +789,34 @@ test('an unassessed scene publishes without a scene command and renders its popu
  assert.equal(table.entries('coc-final-delivery').filter(row=>row.event==='end'&&row.status==='completed').length,1);
 });
 
-test('a scene assessment supplement after settled NPC travel uses a fresh call and retains every prior outcome',async t=>{
+test('a scene assessment supplement after a settled arrival contradicts an empty scene uses a fresh call and retains every prior outcome (§250.6)',async t=>{
+ const engine=createHybridEngine({env,decision:{decide:async batch=>answer(batch,.99)}});
+ const prepare=async workspace=>{const k=new RpcClient(workspace);try{
+  await k.ok('table.open',{campaign:'test-camp'});
+  await k.ok('table.narrate',{campaign:'test-camp',call_id:'t0-c1',text:'Knott waits at his desk.'});
+  await k.ok('table.player_input',{campaign:'test-camp',text:'I ask Knott to step out.'});
+  await k.ok('table.apply',{campaign:'test-camp',call_id:'t1-c1',effects:[{kind:'npc',name:'Steven Knott',to:'away',why:'Knott steps out when asked.'},
+   ...compileTurnPacket({version:4,commands:[{kind:'scene',service:'open',crowd:'empty',review_after_minutes:30}]}).effects]});
+  await k.ok('table.narrate',{campaign:'test-camp',call_id:'t1-c2',text:'Knott steps out; the office is empty.'});
+ }finally{await k.close();}};
+ const table=await openTable({legacyDeliveryFixtures:false,realKernel:true,prepareWorkspace:prepare,env,runDriver:engine.runDriver,
+  extraExtensions:[{name:'engine',factory:engine.extension}],responses:[
+   ()=>fauxAssistantMessage([rawToolCall('output',{version:4,commands:[{kind:'walk_on',slot:'new_1',label:'a courier',reason:'A courier arrives with a parcel.'},{kind:'time',minutes:2,reason:'Wait the two minutes explicitly selected.'}]})],{stopReason:'toolUse'}),
+   ()=>fauxAssistantMessage([rawToolCall('output',{version:4,commands:[{kind:'scene',service:'open',crowd:'quiet',review_after_minutes:30}]})],{stopReason:'toolUse'})
+  ]});t.after(()=>table.dispose());
+ await table.session.prompt('I wait here for two minutes.');
+ assert.deepEqual(table.extensionErrors,[]);
+ const errors=table.session.messages.filter(row=>row.role==='toolResult'&&row.details?.coc_error).map(row=>row.details.coc_error);
+ assert.equal(errors.length,1,JSON.stringify(errors));assert.match(errors[0].message,/Scene population conflicts with current registered presence/);
+ const author=table.telemetry().find(row=>row.lane==='isolated-expression'&&row.event==='written');assert.ok(author,JSON.stringify(errors));
+ const task=JSON.parse(readFileSync(join(author.attempt,'task.json'),'utf8'));
+ assert.equal(task.result.outcomes.filter(row=>row.kind==='time').length,1);
+ const turn=JSON.parse(readFileSync(join(table.workspace,'.coc/campaigns/test-camp/turns/0002.json'),'utf8'));
+ assert.equal(turn.receipts.filter(row=>row.kind==='npc').length,1);assert.equal(turn.receipts.filter(row=>row.kind==='time').length,1);assert.equal(turn.receipts.filter(row=>row.kind==='scene').length,1);
+ assert.equal(table.entries('coc-final-delivery').filter(row=>row.event==='end'&&row.status==='completed').length,1);
+});
+
+test('everyone leaving a populated scene needs no supplement: an unnamed crowd is not a contradiction (§250.6)',async t=>{
  let ref;const engine=createHybridEngine({env,decision:{decide:async batch=>answer(batch,.99)}});
  const prepare=async workspace=>{const k=new RpcClient(workspace);try{
   await k.ok('table.open',{campaign:'test-camp'});
@@ -798,20 +825,12 @@ test('a scene assessment supplement after settled NPC travel uses a fresh call a
  }finally{await k.close();}};
  const table=await openTable({legacyDeliveryFixtures:false,realKernel:true,prepareWorkspace:prepare,env,runDriver:engine.runDriver,
   extraExtensions:[{name:'engine',factory:engine.extension}],responses:[
-   ()=>fauxAssistantMessage([rawToolCall('output',{version:4,commands:[{kind:'npc',actor:ref,to:'away',reason:'Knott leaves when asked.'},{kind:'time',minutes:2,reason:'Wait the two minutes explicitly selected.'}]})],{stopReason:'toolUse'}),
-   ()=>fauxAssistantMessage([rawToolCall('output',{version:4,commands:[{kind:'scene',service:'open',crowd:'empty',review_after_minutes:30}]})],{stopReason:'toolUse'})
+   ()=>fauxAssistantMessage([rawToolCall('output',{version:4,commands:[{kind:'npc',actor:ref,to:'away',reason:'Knott leaves when asked.'},{kind:'time',minutes:2,reason:'Wait the two minutes explicitly selected.'}]})],{stopReason:'toolUse'})
   ]});t.after(()=>table.dispose());
  ref=(await table.runtimeBridges().at(-1).call('table.capsule',{campaign:'test-camp'})).present.find(person=>person.name==='Steven Knott').ref;
  await table.session.prompt('I ask the visitor to leave and wait here for two minutes.');
  assert.deepEqual(table.extensionErrors,[]);
- const errors=table.session.messages.filter(row=>row.role==='toolResult'&&row.details?.coc_error).map(row=>row.details.coc_error);
- assert.equal(errors.length,1,JSON.stringify(errors));assert.match(errors[0].message,/Scene population conflicts with current registered presence/);
- const author=table.telemetry().find(row=>row.lane==='isolated-expression'&&row.event==='written');assert.ok(author,JSON.stringify(errors));
- const task=JSON.parse(readFileSync(join(author.attempt,'task.json'),'utf8'));
- assert.equal(task.result.outcomes.filter(row=>row.kind==='npc'&&row.status==='changed').length,1);
- assert.equal(task.result.outcomes.filter(row=>row.kind==='time').length,1);
- const turn=JSON.parse(readFileSync(join(table.workspace,'.coc/campaigns/test-camp/turns/0001.json'),'utf8'));
- assert.equal(turn.receipts.filter(row=>row.kind==='npc').length,1);assert.equal(turn.receipts.filter(row=>row.kind==='time').length,1);assert.equal(turn.receipts.filter(row=>row.kind==='scene').length,1);
+ assert.deepEqual(table.session.messages.filter(row=>row.role==='toolResult'&&row.details?.coc_error).map(row=>row.details.coc_error),[]);
  assert.equal(table.entries('coc-final-delivery').filter(row=>row.event==='end'&&row.status==='completed').length,1);
 });
 
@@ -827,6 +846,21 @@ test('a current investigator reference reaches ordinary resolve as its issued ac
  const turn=JSON.parse(readFileSync(join(table.workspace,'.coc/campaigns/test-camp/turns/0001.json'),'utf8'));
  assert.equal(turn.receipts.filter(row=>row.kind==='roll').length,1);
  assert.equal(table.entries('coc-final-delivery').filter(row=>row.event==='end'&&row.status==='completed').length,1);
+});
+
+test('the single Keeper\'s resolve is its own judgment: a reviewer that would refuse is never asked (§249.4)',async t=>{
+ const families=[];
+ const engine=createHybridEngine({env,decision:{decide:async batch=>{families.push(batch.family);return answer(batch,.01);}}});
+ const table=await openTable({legacyDeliveryFixtures:false,realKernel:true,prepareWorkspace:opened,env,runDriver:engine.runDriver,
+  extraExtensions:[{name:'engine',factory:engine.extension}],responses:[
+   ()=>fauxAssistantMessage([rawToolCall('resolve',{action:{actor:'investigator_1',intent:'investigate',skill:'Spot Hidden',goal:'Notice signs around the desk',method:'Look carefully at the desk'}})],{stopReason:'toolUse'}),
+   ()=>fauxAssistantMessage([fauxToolCall('output',brief)],{stopReason:'toolUse'})
+  ]});t.after(()=>table.dispose());await table.session.prompt('I examine the desk carefully for useful signs.');
+ assert.deepEqual(table.session.messages.filter(row=>row.role==='toolResult'&&row.details?.coc_error).map(row=>row.details.coc_error),[]);
+ assert.equal(families.filter(family=>family==='continuous-action-admission').length,0);
+ assert.ok(table.telemetry().some(row=>row.lane==='admission'&&row.verb==='resolve'&&row.path==='keeper_judged'&&row.kinds?.includes('resolve')&&row.jev_calls===0));
+ const turn=JSON.parse(readFileSync(join(table.workspace,'.coc/campaigns/test-camp/turns/0001.json'),'utf8'));
+ assert.equal(turn.receipts.filter(row=>row.kind==='roll').length,1);
 });
 
 test('an unissued investigator reference remains refused without a roll or publication',async t=>{

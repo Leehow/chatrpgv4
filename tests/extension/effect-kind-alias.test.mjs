@@ -21,3 +21,11 @@ test('an ambiguous or unrelated unknown kind is left for the refusal with its ki
  assert.deepEqual(alias({kind:'narrate',text:'Prose.'}).repairs,[],'no field carries the kind\'s name');
  assert.deepEqual(alias({kind:'document',document:{text:'x'},unrelated:true}).repairs,[],'a field no kind declares blocks the reading');
 });
+
+test('a known kind missing its one required field it carries as an undeclared name takes that field (live el-v2-20261021b T20)',()=>{
+ const repaired=alias({kind:'clue',name:'nailed-windows',label:'Nailed windows',how:'Seen from the porch.'});
+ assert.deepEqual(repaired.repairs,[{index:0,from:'name',to:'clue'}]);
+ assert.equal(repaired.args.effects[0].clue,'nailed-windows');assert.equal(repaired.args.effects[0].name,undefined);
+ assert.equal(effectShapeRefusal('apply',apply.parameters,repaired.args),undefined);
+ assert.deepEqual(alias({kind:'threat',name:'corbitt-haunting',clock:'c',segments:1,why:'w'}).repairs,[],'a kind that declares name keeps it');
+});

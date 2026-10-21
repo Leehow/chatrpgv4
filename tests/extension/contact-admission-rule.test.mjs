@@ -86,3 +86,11 @@ test('§249: a Keeper naming the investigator by id still matches the pending ro
   assert.equal(capsuleContactProposal(admissionRequest('resolve', stranger, {party: ['Jack', 'jack-doe', 'someone-else']}), stranger, current).meetingCheck, undefined,
     'an actor named by neither the row\'s name nor its id is not that pair');
 });
+
+test('§249: a Keeper naming the person by display name matches the pending row too (live el-v2-20261021b T15)', () => {
+  const current = {present: [{id: 'court-clerk', name: 'Kim Debrun', display_name: 'the court liaison', ref: 'npc_2'}],
+    mods: {pending_contacts: [{...row, actor_id: 'jack-doe', handle: 'court-clerk'}]}};
+  const args = {action: {...payload.action, actor: 'jack-doe', target: 'the court liaison'}};
+  const original = admissionRequest('resolve', args, {party: ['Jack', 'jack-doe']});
+  assert.equal(capsuleContactProposal(original, args, current).meetingCheck, true);
+});

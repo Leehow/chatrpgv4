@@ -25,10 +25,10 @@ test('only a current coherent assessment qualifies for the warm travel path',()=
  assert.equal(scenePopulationRequired(capsule(true,'empty')),false);
  assert.equal(scenePopulationRequired(capsule(true,'quiet',[attendant])),false);
 });
-test('only a current assessment the registered presence contradicts is a conflict (§250.6)',()=>{
+test('only a current empty assessment beside a seated registered person is a conflict; an unnamed crowd is not (§250.6)',()=>{
  const attendant={kind:'npc',ref:'npc_1',display_name:'the attendant'};
  const capsule=(current,crowd,present=[])=>({where:{temporal:{current,crowd}},present});
- for(const state of [capsule(true,'empty',[attendant]),capsule(true,'quiet'),capsule(true,'crowded')])assert.equal(scenePopulationConflict(state),true);
- for(const state of [capsule(false,'empty',[attendant]),capsule(true,'unknown'),capsule(false,'quiet'),capsule(true,'empty'),capsule(true,'quiet',[attendant]),{where:{},present:[]}])
+ assert.equal(scenePopulationConflict(capsule(true,'empty',[attendant])),true);
+ for(const state of [capsule(true,'quiet'),capsule(true,'crowded'),capsule(false,'empty',[attendant]),capsule(true,'unknown'),capsule(false,'quiet'),capsule(true,'empty'),capsule(true,'quiet',[attendant]),{where:{},present:[]}])
   assert.equal(scenePopulationConflict(state),false,JSON.stringify(state));
 });
