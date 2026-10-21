@@ -48945,6 +48945,20 @@ identity reference as completed preparation. Neither imports asset streaming or
 grants game authority. Real Pi/RPC pending and memo regressions are red before
 this addition; actual live latency remains a separate gate.
 
+Final-packet batching clarification (1.1.27): when a selected final move and
+focused view have fully known effects, use ordered kind:place move and observe
+commands in one output, with minimal additions when needed. A following view
+alone is not a reason to precommit a separate move. The shared guidance must
+not imply all unlisted destinations or local positions require a separate tool
+call. A real intermediate wait, service, unknown rule result or later visit
+still requires its actual committed position and dependent continuation. Keep
+one final destination per output, normal gates and receipts, and every known
+successful settlement. This clarifies an existing atomic path; it neither
+precomputes unknown outcomes nor forces a batching policy. The Mod is read
+through its existing place contract/apply hooks. Existing atomic execution
+checks and real provider-call/timing evidence validate it; no new architecture
+or external research is needed for this instruction-only clarification.
+
 The model-facing `place` tool has two operations:
 
 - `inspect`: optional `name` (default current place), `need: context|contract`.

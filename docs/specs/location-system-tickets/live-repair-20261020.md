@@ -846,3 +846,31 @@ tasks and evidence remain. Live latency on26 is still unproven.
 
 fe906afa8 LAN all now passed exit0/wall1225s, run.jvpSwA66. Next package/full
 suite must identify26's exact commit and exclude foreign dirty NPC/prose/UI work.
+
+3dacd027d clean focused40/40 and fast130/130; canonical package02:39:10Z,
+stable signing/backlink/staging cleanup verified. Its all was initially queued
+behind the foreign quick-settlement suite; admitted02:51:29Z and must not be
+interrupted. Source53 first police approach completed120.181s/0tool errors,
+without a source lookup loop, but still fails the strict120s gate. Preserve
+grok-round53-progress2.json/timing.json. Main/author actual Grok4.5/medium.
+Source calls were module lookups, so do not claim this live input exercised the
+new source-answer sidecar; the real Pi pending/memo boundary tests prove that
+seam separately. Police movement reuses police-records with no new place.
+
+Measured53: send-to-user-persist7.535s; first provider request14.232s from send.
+Three provider requests carry86495/95110/93330 input tokens, with output384/
+2069/684 and reasoning288/928/314. Four initial read results land together;
+the separate move then requires another full continuation before final output.
+Author9.511s. Do not change the timing start or round120.181 down to pass.
+
+1.1.27 clarifies existing single-final-packet support. HEAD's shared guidance
+still says all beyond-issued/local positioning uses separate place, despite
+supporting final output move+observe. Narrow that wording and state the known
+single-final-destination recipe; real intermediate wait/service/unknown-rule/
+later-visit dependencies remain separate. No new engine, forced batching,
+schema/gate change or shortened narrative. Existing atomic location execution
+tests are sufficient for this reversible instruction clarification; use real
+provider request count and wall time for performance proof. Main focused26/26
+passed; clean build and live verification remain pending. Preserve the foreign
+working-tree removal of global guidance; stage only the two owned HEAD text
+changes and do not absorb its unrelated prototype refactor.
