@@ -12,3 +12,9 @@ test('a content constructor reports its own constraint, not every union branch (
  assert.throws(()=>turnPacket(JSON.stringify(answer([{fact_ref:'fact_9'}])),schema),error=>/content\/0\/fact_ref/.test(error.message));
  assert.doesNotThrow(()=>turnPacket(JSON.stringify(answer([{new:{predicate:'input_requirements',topic:'Inn',fields:['subject_name']}}])),schema));
 });
+test('a constructor with required alternatives stays one variant: directions are accepted and judged on their own fields',()=>{
+ for(const route of [{via:['Inn']},{heading:'north'},{retrace:true}])
+  assert.doesNotThrow(()=>turnPacket(JSON.stringify(answer([{new:{predicate:'directions',to:'Inn',...route}}])),schema),JSON.stringify(route));
+ assert.throws(()=>turnPacket(JSON.stringify(answer([{new:{predicate:'directions',to:'Inn'}}])),schema),
+  error=>/content\/0\/new/.test(error.message)&&!/predicate: must be one of/.test(error.message));
+});
