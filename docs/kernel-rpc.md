@@ -48824,6 +48824,17 @@ places are read-only; their current feature state is a campaign overlay.
 
 ### 242.2. One location command and one transaction
 
+Existing feature recovery (original input67): an establishment conflict returns
+the exact existing public feature and conflicting closed fields, with an explicit
+instruction to reuse that identity and omit its repeated definition from additions.
+Only missing features are declarations. A state change still needs its separate
+selected feature action; neither new prose nor original source lookup overwrites
+the registered feature. Keep rollback and feature_redefinition unchanged. Location
+identity references and Mod guidance distinguish the actual requested spatial
+scale: an authored interior floor is not automatically the building exterior.
+The Keeper may reuse or minimally establish a compatible exterior viewpoint;
+that is no permission to enter the interior or duplicate its authored truth.
+
 Complete place-array transport (original input67): before place preflight, one
 complete JSON serialization of a declared array may be decoded only when the
 explicit native action is known and the decoded array passes that exact field

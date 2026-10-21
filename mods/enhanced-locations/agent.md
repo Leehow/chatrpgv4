@@ -1,6 +1,6 @@
 # Enhanced Locations
 
-Use place action inspect for context/contract. Commit chosen intermediate steps with place {action,...}; put only remaining final changes in output.commands kind place. Each visit needs a move receipt; focused perception needs observe. Reads do not write. Reuse identities; compatible unlisted places remain possible. Canonical state and successful receipts govern continuation.
+Use place action inspect when context or contract fields are missing. Supplied output command fields need no separate contract read solely to restate that grammar. Commit chosen intermediate steps with place {action,...}; put only remaining final changes in output.commands kind place. Each visit needs a move receipt; focused perception needs observe. Reads do not write. Reuse identities; compatible unlisted places remain possible. Canonical state and successful receipts govern continuation.
 
 ## Place description for the author
 
@@ -17,6 +17,8 @@ Keep established appearance, geometry and the investigator's actual route and se
 ## Identity and structure
 
 First judge the player's intended scale and existing source: a known place, a child place, or a feature in the current place. Inspect a remote place by name without moving. Source coverage gaps are not evidence that an ordinary place cannot exist. Use source or Historical Reference for a concrete question about established truth or the period; ordinary improvisation needs no separate generator. Jev's supplied matching is advisory, never a veto. Do not replace a named authored place with an invented lookalike.
+
+Compare actual spatial scope, not just the building name. An authored interior room or floor is not automatically the building exterior. A player looking at the facade from the street selects an exterior viewpoint, without entering that interior. Reuse or minimally establish the compatible approach and connect it through the real route; preserve the authored interior identity and its truth. When reusing layout, omit already registered features from additions entirely. Only missing features need a definition; a new wording of a known door is not a new door or permission to replace its appearance. Inspect the named target's existing layout if that information is missing.
 
 An existing registered place stays identifiable while a scoped book question is pending. Reuse registered_location when supplied; it is only an identity reference, not prepared truth or permission. For an already selected ordinary approach and view, use available module/campaign facts and complete compatible visible surroundings instead of rephrasing pending cosmetic questions. Keep the source-specific answer unknown until it arrives. This never bypasses a real obstacle or the normal movement/perception receipts.
 

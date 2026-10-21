@@ -74,7 +74,11 @@ export function stageLocation(context:ApplyContext,effect:Row,active:readonly Ro
             const existing=locationFeatures(world).find(feature=>feature.place===handle&&normalize(feature.name)===normalize(draftFeature.name));
             if(existing){
                 if(existing.description!==draftFeature.description||draftFeature.state!==undefined&&existing.state!==draftFeature.state||draftFeature.passable!==undefined&&existing.passable!==draftFeature.passable)
-                    throw new RpcError('invalid_params','An existing feature cannot be redefined; use action feature for a real state change', {details:{reason:'feature_redefinition',place:handle,feature:existing.name}});
+                    throw new RpcError('invalid_params','An existing feature cannot be redefined; use action feature for a real state change', {
+                        fix:'Reuse the existing feature identity and omit its repeated definition from additions. Declare only missing features. A real selected state or passability change uses action feature; source lookup or new wording never replaces established appearance.',
+                        details:{reason:'feature_redefinition',place:handle,feature:existing.name,
+                            existing_feature:Object.fromEntries(['name','description','state','passable'].filter(key=>existing[key]!==undefined).map(key=>[key,clone(existing[key])])),
+                            conflicting_fields:['description','state','passable'].filter(key=>draftFeature[key]!==undefined&&draftFeature[key]!==existing[key])}});
                 continue;
             }
             state.features.push({id:`feature-location-${randomUUID()}`,place:handle,...clone(draftFeature),turn:turn.turn});
