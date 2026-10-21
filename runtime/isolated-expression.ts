@@ -293,6 +293,8 @@ export async function writeIsolatedExpression(input:{runtime:HostRuntime;campaig
 }
 
 /** The dedicated decision author owns text bytes, never a file or a tool argument. */
+/** Provider statuses that say "try again", never what the author wrote (§252.2). */
+const TRANSIENT_PROVIDER_STATUS=new Set(['429','500','502','503','504','529']);
 async function writeDirectProse(input:{runtime:HostRuntime;packet:Row;profile:{model:string;thinking:string};attempt:string;campaign:string;turn:number;run:string;
  signal?:AbortSignal;stream:{push:(text:string)=>void};record:(row:Row)=>Promise<void>}) {
  const {runtime,packet,profile,attempt,campaign,turn,run,signal,stream,record}=input;
@@ -308,7 +310,12 @@ async function writeDirectProse(input:{runtime:HostRuntime;packet:Row;profile:{m
   if(delta){transport.first_at||=Date.now();transport.last_at=Date.now();transport.chunks++;stream.push(delta);}
  };
  try{
-  const outcome=await runtime.runTask({kind:'reader',request:{cwd:attempt,brief:JSON.stringify(locationAuthorPacket(routineAuthorPacket(packet))),
+  // §252.2: a transient provider refusal before any text reached the player is asked again, at most twice (live
+  // el-v2-20261021g T5, T6: HTTP 529 from the author's provider left two turns undelivered). Streamed text is never redone.
+  let outcome:any;
+  for(let tryNo=1;;tryNo++){
+  raw='';finished=false;failure=undefined;models.clear();
+  outcome=await runtime.runTask({kind:'reader',request:{cwd:attempt,brief:JSON.stringify(locationAuthorPacket(routineAuthorPacket(packet))),
    systemPrompt:DECISION_AUTHOR_INSTRUCTION.replace('using the final artifact transport','using the direct text transport')+LOCATION_AUTHOR_NOTE+locationAuthorPrompt(packet)+routineAuthorPrompt(packet)
     +' Direct text transport: the complete input is above. Return only ordinary story text. No JSON, public framing, file artifact, tool call or acknowledgment is needed.',
    ...profile,pinnedModel:true,tools:'',finalOutput:true,finalText:true,maxRequests:1,timeoutMs:120000,eventLog:join(attempt,'events.jsonl'),onEvent:event=>{
@@ -335,6 +342,13 @@ async function writeDirectProse(input:{runtime:HostRuntime;packet:Row;profile:{m
      }
     }catch(error){failure=error;throw error;}
    }}},signal);
+  const status=String((failure as {details?:{reason?:unknown}}|undefined)?.details?.reason??'').replace(/^provider_http_/,'');
+  if(failure&&!sent&&TRANSIENT_PROVIDER_STATUS.has(status)&&tryNo<3&&!signal?.aborted){
+   await record({lane:'isolated-expression',event:'provider_retry',campaign,turn,run,attempt,status,try:tryNo});
+   await new Promise(resolve=>setTimeout(resolve,tryNo*2000));continue;
+  }
+  break;
+  }
   if(failure)throw failure;
   if(!outcome.ok||!finished||!models.size||!sent.trim())throw Error(outcome.error??'Direct prose generation did not complete');
   await writeFile(join(attempt,'response.txt'),sent);

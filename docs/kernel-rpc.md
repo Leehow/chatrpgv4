@@ -51307,3 +51307,12 @@ Live (`el-v2-20261021f` T19, undelivered): beside a reviewed notebook write, the
 as `not_here`. A held failure whose cause is not a known atomic refusal makes the packet-mode author refuse the whole
 expression, and `not_here` was not on the apply list, so the turn ended with no prose. `not_here` writes nothing, like
 `unknown_entity`, so it is now projected to the author as an uncommitted failure and the turn publishes what did land.
+
+### 252.2 A transient author provider refusal before any text is asked again
+
+Live (`el-v2-20261021g` T5, T6, both undelivered): the isolated author's provider answered HTTP 529 (overloaded) on its
+single request, the public stream was interrupted and the turn ended with no prose, while the Keeper's own requests are
+retried by Pi. The direct prose author now asks again, at most twice with a short backoff, when its provider refuses
+with a transient status (429, 500, 502, 503, 504, 529) before any text reached the player
+(`{lane:"isolated-expression", event:"provider_retry", status, try}`). Streamed text is never redone, and a refusal that
+outlasts the retries reaches the player as before (HTTP 504 notice, committed state kept).

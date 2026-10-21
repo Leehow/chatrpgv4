@@ -42,6 +42,19 @@ test('a fatal active-run capsule error reaches the notice with its actual cause'
  assert.doesNotMatch(notice.content,/[{}]|missing_final_output/);
 });
 
+test('a transient author provider refusal before any text is asked again and the turn publishes (§252.2, live el-v2-20261021g T5, T6)',async t=>{
+ const env={PI_COC_LOOP_ENGINE:'hybrid-v1',PI_COC_TURN_PACKET_PROTOTYPE:'1',PI_COC_JEV_PRESELECT:'0',PI_COC_MATERIAL_SCREEN:'0',EXT_JEV_APIKEY:undefined,TYPESAFE_API_KEY:undefined,
+  PI_COC_READER_CMD:JSON.stringify([process.execPath,join(import.meta.dirname,'fixtures/overloaded-once-author.mjs')])};
+ const engine=createHybridEngine({env,decision:{decide:async batch=>answer(batch)}});
+ const table=await openTable({legacyDeliveryFixtures:false,realKernel:true,prepareWorkspace:opened,env,runDriver:engine.runDriver,
+  extraExtensions:[{name:'engine',factory:engine.extension}],responses:[fauxAssistantMessage([fauxToolCall('output',{version:4,commands:[{kind:'scene',service:'open',crowd:'quiet'}]})],{stopReason:'toolUse'})]});
+ t.after(()=>table.dispose());await table.session.prompt('I remain beside the desk.');
+ await waitFor(()=>table.entries('coc-final-delivery').some(row=>row.event==='end'),{label:'the retried author publishes'});
+ assert.deepEqual(table.telemetry().filter(row=>row.lane==='isolated-expression'&&row.event==='provider_retry').map(row=>[row.status,row.try]),[['529',1]]);
+ assert.equal(table.entries('coc-final-delivery').filter(row=>row.event==='end'&&row.status==='completed').length,1);
+ assert.equal(notices(table).length,0,'no failure notice reaches the player');
+});
+
 test('an actual native author failure reaches the player as HTTP 504 with committed state retained',async t=>{
  const env={PI_COC_LOOP_ENGINE:'hybrid-v1',PI_COC_TURN_PACKET_PROTOTYPE:'1',PI_COC_JEV_PRESELECT:'0',PI_COC_MATERIAL_SCREEN:'0',EXT_JEV_APIKEY:undefined,TYPESAFE_API_KEY:undefined,
   PI_COC_READER_CMD:JSON.stringify([process.execPath,join(import.meta.dirname,'fixtures/failed-direct-author.mjs')])};
