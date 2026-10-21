@@ -197,7 +197,15 @@ export function compileTurnPacket(packet:TurnPacket|BoundTurnPacket):{responses:
  const commands=packet.commands??[];
  const directed=commands.filter(a=>a.kind==='relationship');
  const definitions=commands.flatMap(a=>a.kind==='place'&&a.action==='observe'&&a.additions?[{kind:'place',action:'establish',additions:a.additions}]:[]);
- const ordered=commands.filter(a=>a.kind!=='relationship');
+ const ordered:typeof commands=[];
+ const pending=commands.filter(a=>a.kind==='walk_on');
+ const register=(slots?:readonly string[])=>{for(let i=0;i<pending.length;){const person=pending[i];if(slots&&!slots.includes(person.slot)){i++;continue;}ordered.push(person);pending.splice(i,1);}};
+ for(const command of commands){
+  if(['walk_on','scene','relationship'].includes(command.kind))continue;
+  if(command.kind==='place'&&command.action==='observe')register([...command.people??[],...(command.situations??[]).flatMap(situation=>situation.participants??[])]);
+  ordered.push(command);
+ }
+ register();ordered.push(...commands.filter(a=>a.kind==='scene'));
  const newcomers=new Map(commands.filter(a=>a.kind==='walk_on').map(a=>[a.slot,a.label]));
  const person=(name:string)=>newcomers.get(name)??name;
  return {responses:packet.interactions??[],...(directed.length?{event:{name:'Directed relationship update',relationships:directed.map(row=>({actor:row.actor,toward:row.toward,statement:JSON.stringify({kind:'directed_relationship',affinity:row.affinity})}))}}:{}),effects:[...definitions,...ordered.map(a=>a.kind==='move'?{kind:'move',to:a.to,...(a.via?{via:a.via}:{}),

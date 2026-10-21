@@ -54,3 +54,14 @@ test('native ordered observations receive the actual before and after clock from
  assert.deepEqual(observations.map(row=>row.observation.observed_clock.minutes),[before,before+5]);
  assert.equal(clock(),before+5);
 });
+
+test('final population declarations follow moves while forward newcomer dependencies precede their first observation',()=>{
+ const scene={kind:'scene',service:'open',crowd:'quiet'},person={kind:'walk_on',slot:'new_1',label:'Night clerk',reason:'The ordinary clerk is already here.'};
+ const move={kind:'place',action:'move',to:'Inn',at:'Counter'};
+ const command={...view('The existing room before leaving'),people:['new_1']};
+ const effects=compileTurnPacket(turnPacket(JSON.stringify({version:4,commands:[scene,command,move,person]}))).effects;
+ assert.deepEqual(effects.map(row=>row.action??row.kind),['npc','observe','move','scene']);
+ assert.equal(effects[1].people[0],'Night clerk');
+ const final=compileTurnPacket(turnPacket(JSON.stringify({version:4,commands:[scene,move,person]}))).effects;
+ assert.deepEqual(final.map(row=>row.action??row.kind),['move','npc','scene']);
+});

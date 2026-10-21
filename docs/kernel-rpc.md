@@ -48824,6 +48824,17 @@ places are read-only; their current feature state is a campaign overlay.
 
 ### 242.2. One location command and one transaction
 
+Observation ordering compatibility: walk_on and scene are declarative supporting
+records, not selected player itinerary steps. Preserve every move/time/observation
+relative order, register a forward-declared newcomer immediately before the first
+observation using its slot, then register remaining newcomers and assess the final
+scene population after presence changes. Place additions remain registration-first.
+Never put all observations after every move, or a final population assessment
+before an earlier move/newcomer. Original-order regressions found two incompatible
+scene-first payloads; retain their unchanged transaction and population assertions.
+
+
+
 Time-form separation (original input63): the elapsed-cost question applies only
 to band costs. For until, ask whether current words select the wait and the actual
 endpoint; for literal minutes, ask whether they select that stated duration.
