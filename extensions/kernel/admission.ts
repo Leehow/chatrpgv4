@@ -1317,7 +1317,7 @@ export async function reviewAdmissionJevOnly(options:PrimaryAdmissionReviewOptio
     const clock=options.clock??hostClock,began=clock.now(),context=options.context;
     const nativeLocation=options.proposal.operations?.some(operation=>operation.kind==='place');
     const serviceContext=options.proposal.operations?.some(operation=>operation.registered_cash_context||operation.acting_party);
-    const family='continuous-action-admission',version=serviceContext?(nativeLocation?'20':'18'):nativeLocation?'19':context.currentPosition?'15':context.currentClock?'13':options.proposal.ordered||options.proposal.kinds?.includes('place')?'12':'7';
+    const family='continuous-action-admission',version=options.proposal.kinds?.includes('time')?'21':serviceContext?(nativeLocation?'20':'18'):nativeLocation?'19':context.currentPosition?'15':context.currentClock?'13':options.proposal.ordered||options.proposal.kinds?.includes('place')?'12':'7';
     let mechanicsChoice:{action:string;choice:{name:string;binds:string;options:string[];prompt?:string}}|undefined;
     let mechanicsInput=false,mechanicsBinding:string|undefined;
     try{

@@ -48824,6 +48824,22 @@ places are read-only; their current feature state is a campaign overlay.
 
 ### 242.2. One location command and one transaction
 
+Elapsed-cost consent follow-up (original input61): selection asks whether the
+activity whose time is charged was chosen, not whether the player independently
+requested a mechanical category or a pause. A normal cost is distinct from an
+additional wait; the Keeper reason and adjacent proposed actions remain no proof
+of consent. Explicitly exclude unselected tasks, independent delay, duplicate
+settled costs and an extent outside the selected activity. Use the same .60/.40
+selection/veto gates and unchanged restriction questions. Time-containing primary
+batches use family version21. Replayed original61 rises .58 to .67 while extra
+one-hour waiting and hours of research remain .09/.04; this is diagnostic evidence,
+not a live success. Metadata alone was insufficient (.52). Keep raw failures and
+validate current ordinary costs plus negative controls in original-session play.
+TypeSafe guidance calls for complete proposition/edge criteria, not relaxed
+probability handling (https://www.typesafeai.org/guides/choice-score-noul).
+
+
+
 Ordered observation follow-up (original input60): compile native state commands
 in their submitted order. Do not move every observation behind later moves or
 clock effects. Registration-only additions still precede effects so new place
