@@ -48835,6 +48835,14 @@ their wording. Repeated failures use the existing three-strike class limit and
 end as a failed input, preserving all settled receipts; this is no timed cutoff
 and no successful latency acceptance. No admission/completion gate changes.
 
+Native provider declaration follow-up: native `apply` has one object with
+required `effects`, not a root `anyOf:[{required:[effects]}]` refinement. These
+constraints are equivalent locally, but Grok's tool grammar rejects the latter
+as a union with a non-object branch before sampling. Keep the closed properties
+and every effect validator unchanged. Verify the actual Responses payload for
+every offered tool root, plus refusal of missing effects and unowned prose.
+See https://docs.x.ai/developers/tools/function-calling (Parameter Schema).
+
 The model-facing `place` tool has two operations:
 
 - `inspect`: optional `name` (default current place), `need: context|contract`.

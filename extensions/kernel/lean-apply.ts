@@ -148,7 +148,7 @@ export function offeredTools(tools: readonly CocToolSpec[], env: Readonly<Record
     if(!['apply','ask'].includes(spec.name))return spec;
     const parameters=cloneSchema(spec.parameters) as Record<string,any>;
     for(const field of ['delivery','narrate','handoff','quotes',...(env.PI_COC_TURN_PACKET_PROTOTYPE==='1'?['event','text']:[])])delete parameters.properties[field];
-    if(spec.name==='apply'&&env.PI_COC_TURN_PACKET_PROTOTYPE==='1'){parameters.anyOf=[{required:['effects']}];parameters.additionalProperties=false;}
+    if(spec.name==='apply'&&env.PI_COC_TURN_PACKET_PROTOTYPE==='1'){delete parameters.anyOf;parameters.required=[...new Set([...(parameters.required??[]),'effects'])];parameters.additionalProperties=false;}
     if(spec.name==='apply')for(const variant of parameters.properties.effects.items.anyOf){
       const kind=variantKind(variant),fields=variant.properties;
       if(kind==='npc'){

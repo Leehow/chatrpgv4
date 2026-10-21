@@ -621,3 +621,21 @@ Anthropic's writing-tools-for-agents supports specific examples/actionable
 parameter errors; MiniMax's published tool-call guide treats supplied parameters
 as the execution request. Neither supports guessing a write from an inspect.
 No thresholds, timed cutoffs or read-to-write conversion added.
+
+0d3752523 clean native/preflight15/15 and fast130/130 passed. Canonical App
+installed00:19:58Z with stable signing and empty staging. Previous48a1286f5
+LAN all exited0:6357extensionpass/9skip,2246integrationpass,12loop pass.
+Latest0d full all captured00:21:24Z; another chat detected a two-second busy-guard
+race and stopped only its own focused suite. Keep concurrent timing evidence;
+do not start another same-box heavy suite before this all ends.
+
+Original turn38 encountered repeated MiniMax529 and only inspected the contract;
+no location write landed. User temporarily selected/authorized Grok4.5/medium
+for subsequent real play and its supporting generative lanes. Session model_change
+00:22:58Z confirms grok-build/grok-4.5; medium is unchanged. This mixed/failing
+turn is not acceptance. The first Grok request failed before sampling with400
+invalid_client_tool_schema: apply root anyOf branch had required but no object
+type. A new test over the actual Responses payload is red on that same branch.
+Replace the single required-only anyOf refinement with root required effects,
+keeping equivalent closed validation, all tools and effects. No global provider
+default or game semantics change. Need package and original-session acceptance.
