@@ -76,6 +76,29 @@ function commandArrayDiagnostic(parameters:TSchema,value:unknown):Error|undefine
  const constraint=active.find(candidate=>object(candidate.contains)&&Errors(candidate,value).length);
  return constraint?parameterError('commands',constraint,value):undefined;
 }
+/** Object variants of a possibly nested union. */
+const variantsOf=(schema:any):any[]=>Array.isArray(schema?.anyOf)?schema.anyOf.flatMap(variantsOf):schema&&typeof schema==='object'?[schema]:[];
+/** §250: each content item is checked against the one variant its own key names, so its real constraint is reported. */
+function contentDiagnostic(parameters:TSchema,raw:unknown):Error|undefined {
+ if(!object(raw)||!Array.isArray(raw.interactions))return;
+ const declared=variantsOf((parameters as any).properties?.interactions?.items);
+ for(const [index,row] of raw.interactions.entries()){
+  if(!object(row)||!Array.isArray(row.content))continue;
+  const schema=declared.find(variant=>variant.properties?.act&&(variant.properties.act.const===row.act||variant.properties.act.enum?.includes(row.act)));
+  const items=variantsOf(schema?.properties?.content?.items);
+  for(const [ordinal,item] of row.content.entries()){
+   if(!object(item)||Object.keys(item).length!==1)continue;
+   const key=Object.keys(item)[0],variant=items.find(candidate=>candidate.properties&&Object.hasOwn(candidate.properties,key));
+   if(!variant)continue;
+   const label=`interactions[${index}]/content/${ordinal}`;
+   if(key==='new'&&object(item.new)){
+    const constructors=variantsOf(variant.properties.new),constructor=constructors.find(candidate=>candidate.properties?.predicate?.const===item.new.predicate);
+    if(!constructor)return new TurnPacketParameterError(`Invalid decision command: ${label}/new/predicate: must be one of ${JSON.stringify(constructors.map(candidate=>candidate.properties?.predicate?.const).filter(Boolean))}`,[`${label}/new/predicate`]);
+    if(Errors(constructor,item.new).length)return parameterError(`${label}/new`,constructor,item.new);
+   }else if(Errors(variant,item).length)return parameterError(label,variant,item);
+  }
+ }
+}
 export function responseDecision(value:unknown,slots:readonly string[]=[]):ResponseDecision {
  const schema=Interaction.anyOf.find(schema=>(schema.properties.act as any).const===(value as any)?.act||(schema.properties.act as any).enum?.includes((value as any)?.act))??Interaction;
  if(Errors(schema,value).length)throw parameterError('response',schema,value);
@@ -174,8 +197,9 @@ export function turnPacket(text:string,parameters?:TSchema):TurnPacket {
   if(schema&&Errors(schema,command).length)throw parameterError(`commands[${index}]`,schema,command);
  }
  if(object(raw)&&Array.isArray(raw.interactions))for(const row of raw.interactions)responseDecision(row,(raw.commands??[]).filter((row:any)=>row?.kind==='walk_on').map((row:any)=>row.slot));
+ {const content=contentDiagnostic(TURN_PACKET_PARAMETERS,raw);if(content)throw content;}
  if(Errors(TURN_PACKET_PARAMETERS,raw).length)throw parameterError('packet',TURN_PACKET_PARAMETERS,raw);
- if(parameters){const diagnostic=commandArrayDiagnostic(parameters,raw.commands);if(diagnostic)throw diagnostic;}
+ if(parameters){const diagnostic=commandArrayDiagnostic(parameters,raw.commands)??contentDiagnostic(parameters,raw);if(diagnostic)throw diagnostic;}
  if(parameters&&Errors(parameters,raw).length)throw parameterError('packet',parameters,raw);
  const packet=raw as TurnPacket,commands=packet.commands??[],interactions=packet.interactions??[];
  const slots=commands.filter(a=>a.kind==='walk_on').map(a=>a.slot);
