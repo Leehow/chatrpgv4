@@ -154,7 +154,10 @@ export function createModSections(deps:{read:(method:string,params:Row)=>Promise
   try{await load(picked.map(entry=>entry.key),binding.campaign);}
   catch{deps.record({lane:'mod-sections',event:'fallback',turn:binding.turn,reason:'read_failed'});return undefined;}
   const sections:Row[]=[],omitted:Row[]=[];
-  for(const entry of picked){
+  // §248.6: when room runs short, what the table's state owes goes first, then what this turn's calls and kernel gates
+  // send, then what a topic judgement or a fallback adds; the message keeps that order, so a cut drops the last first.
+  const rank=(entry:Picked)=>Math.min(...entry.why.map(why=>why==='due'?0:why==='gate'||why.startsWith('call:')||why.startsWith('context:')?1:2));
+  for(const entry of [...picked].sort((a,b)=>rank(a)-rank(b))){
    const text=texts.get(entry.key);if(typeof text!=='string')continue;
    const row={package:entry.mod,section:entry.heading??'(opening text)',text};
    if(bytes(JSON.stringify({authority:AUTHORITY,sections:[...sections,row],omitted}))<=MOD_SECTIONS_BYTES)sections.push(row);

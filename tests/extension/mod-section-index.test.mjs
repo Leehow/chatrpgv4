@@ -282,8 +282,9 @@ test("the section message keeps to its ceiling and names what it left out (§183
 	const message=await lane.message(capsule,binding,api.emptyCalls());
 	const content=JSON.parse(message.content);
 	assert.ok(Buffer.byteLength(message.content,"utf8")<=api.MOD_SECTIONS_BYTES);
-	assert.deepEqual(content.sections.map(row=>row.section),["asker","stuck"]);
-	assert.deepEqual(content.omitted.map(row=>row.section),["opening","register"]);
+	// §248.6: a due section goes before what a fallback adds.
+	assert.deepEqual(content.sections.map(row=>row.section),["opening","asker"]);
+	assert.deepEqual(content.omitted.map(row=>row.section),["stuck","register"]);
 	assert.equal(rows.find(row=>row.event==="selected").omitted.length,2);
 });
 

@@ -50836,7 +50836,9 @@ Telemetry: `lane: "mod-sections"`, `event: "pull_mode"` once per input; `selecte
 The first live table on §248 (MiniMax 3.1/medium, the-haunting, zh-Hans) cut the opening turn's due sections at §183.5's
 16 KiB message ceiling (First impression, Establishing a place, Reading the thread omitted), and three opening requests near
 the 384 KiB request ceiling left the whole message out as `request_ceiling`. Before §248 that text rode in the brief. So:
-- `coc-mod-sections` carries at most 48 KiB (`MOD_SECTIONS_BYTES`); what does not fit is still named in `omitted`;
+- `coc-mod-sections` carries at most 48 KiB (`MOD_SECTIONS_BYTES`); what does not fit is still named in `omitted`. Its
+  sections are ordered by why they were sent: `due` first, then a call, context demand or kernel gate, then a topic or
+  fallback; a cut drops from the end, so what the table's state owes survives longest;
 - the message outranks history like §228's disclosure: when it does not fit, the request is assembled again with room
   reserved for it and the disclosure. When even that fails (an opening turn's own tool traffic near the ceiling, seen in a
   second live opening), the sections that fit are sent in package order and the rest are named in `omitted`; the request
