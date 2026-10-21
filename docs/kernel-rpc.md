@@ -48824,6 +48824,20 @@ places are read-only; their current feature state is a campaign overlay.
 
 ### 242.2. One location command and one transaction
 
+Explicit-duration grammar follow-up (original input64): native output minutes
+copies a positive whole duration explicitly chosen by the player. Zero is not
+a placeholder for no additional time: omit the optional time command instead.
+Reject zero at the native parameter boundary before consent or settlement; do
+not silently drop it, treat it as authorized, or convert it into a rolled band.
+Issued band costs and kernel-resolved zero outcomes remain valid and unchanged.
+Input64's move and observation passed (.87 each); an unsolicited literal zero
+was refused (.14), poisoning the final atomic batch. The fix constrains the
+decision language, not the .60/.40 consent gates or kernel time arithmetic.
+JSON Schema numeric minimum and xAI function parameter grammar support early
+declaration of closed numeric bounds, not this product-specific choice of scope:
+https://json-schema.org/understanding-json-schema/reference/numeric and
+https://docs.x.ai/developers/tools/function-calling.
+
 Location projection annotation preservation (2026-10-21): locationCommandOwner
 preserves the producer's root description, including applicable rules.bands
 handle/covers meanings, and adds its location ownership guidance once. Repeating
