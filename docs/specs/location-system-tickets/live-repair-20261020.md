@@ -1331,3 +1331,27 @@ timings overlap and must not be added together. EL-12 corrects a request-facing
 description inconsistency: full12645-byte place grammar was already present in
 every provider request, while the description still directed a contract read.
 Only the demand-expanded instruction changes; compact discovery stays intact.
+
+EL-12 clean25 focused/130 fast pass. Canonical a4c3a220a packaged10:09:31Z;
+table context/runtime source maps, installed kernel/table/RPC bytes, stable
+signature, strict/deep validity, backlink and empty staging verified. Exact
+LaunchServices/Spotlight/running executable resolve only the canonical App.
+Original85 completed104.671s/0errors on verified Grok4.5/medium. It directly moved
+with minimal additions to South Station lodging / Second-floor corridor, within
+the existing lodging, at a descriptive mid-corridor spot; then output settled
+the selected view. No contract read, payment or guest-room entry. New corridor
+features are stairwell, guest-room doors and end window. This is one naturally
+passing new-place/containment/observation turn, not stable120s acceptance or
+controlled causal attribution. Original86 now approaches that window and views
+the lodging entrance from upstairs. Remote focused still waits on the shared box.
+
+Original86 completed56.288s/0errors (same verified Grok4.5/medium): move to the
+corridor's existing end window, inspect actual target context, then output the
+view to the lodging's existing front door. Original87 completed68.558s/0errors:
+apply the chosen3min wait, then output the fresh view. Narrow proof
+observations86-87-three-minute-window.json asserts identical source and target,
+observed_clock1060→1063 and a matching3min receipt. It does not claim continuous
+monitoring of the unobserved interval. Latest85–87 are three naturally passing
+turns, not a blanket stability claim. Original88 is now returning to the authored
+Corbitt house frontage. Remote focused has uploaded and started500 extension
+files,1 native file and1 routing loop; its result is pending.
