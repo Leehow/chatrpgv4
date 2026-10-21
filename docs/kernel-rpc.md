@@ -51013,6 +51013,14 @@ Writer: the Keeper's proposal. Reader: the unchanged kernel validators and the s
 Actor: the Keeper, whose judgment is recorded in the admission lane. No threshold, new review, keyword rule or
 fallback is introduced; this removes reviews rather than relaxing them.
 
+### 249.5 Accepting a failed roll's offer rolls nothing
+
+Live (`el-v2-20261021e` T26–T27): the Keeper offered push, Luck or accept after a failed Law roll, and the player
+accepted. The answer `resolve {intent:"social", choice:{pending, option:"accept"}}` was refused for naming no skill, and
+the fix ("set action.skill") led the Keeper to roll Accounting to accept a refusal. A bound choice whose pending offer is
+a `push-luck:` decision and whose option is `accept` now settles with outcome `none` and the choice receipt alone,
+whatever intent the answer carries; the failure stands for the narration. `push` and `spend_luck` are unchanged.
+
 ## 250. Enhanced Locations v2: whole routes in one packet and forgiving place commands (owner 2026-10-21; amends §242, §243, §245 packet rules)
 
 Owner direction, 2026-10-21: redesign and refactor Enhanced Locations so a player reaches any place smoothly, with
