@@ -1259,3 +1259,29 @@ missing view/function, then pass25 combined and8 focused, including.59 selection
 and.41 restriction holds. Official TypeSafe state/jaggedness docs and independent
 Temporal event-history precedent were checked; their limits and applicability
 are in ticket09. Clean/package/original-session behavior is still pending.
+
+42e36f05a clean focused33 and fast130 pass; canonical09:23:23Z package verified
+exact kernel/table/RPC bytes, index/admission/settled-admission sources, stable
+signature, strict/deep validity, backlink and empty staging. Original81 (wait3min,
+then view) completed70.801s/0errors, real clock1022→1025, observation1025 with the
+same people. Selection/restriction were.94/.20 for the later view. This is one
+same-class success, not stability or a controlled causal attribution. Source42
+full has now uploaded and begun serially (all-location-completed-time.log).
+
+Original82 returned inside, sat opposite the same worker, ran the existing NPC
+first-impression rule, and finally delivered284.634s/1recovered refusal. Its added
+close observation had unestablished selection; the same Keeper omitted it and
+recovered. The worker's reply only stated his current location, failing to answer
+the shift question. Preserve this separate communication limitation. Profiling
+includes a93.280s inference and16.384s context preparation; do not label all wall
+time as a location tool failure. Raw final and timing-progress records retained.
+Original ready83,03:05, opposite the worker; no meal occurred.
+
+EL-10 follows a confirmed Pro-review instruction conflict, without claiming it
+caused all82 failures: the tool-free author was ordered to write observe facts.
+Enhanced Locations1.2.2 instead renders ordinary compatible appearance in prose;
+resident guidance avoids an extra focused observe just for ordinary arrival or
+conversation texture. Selected perception and meaningful continuity retain normal
+observation writes and gates. Existing actual author-channel3 tests pass on dirty
+main; clean/package/live proof pending. Evennia's maintained accessible appearance
+post-move hook was checked as a bounded analogue, with limits in ticket10.

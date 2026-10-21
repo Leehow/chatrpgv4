@@ -48868,6 +48868,13 @@ rule describes it, rather than assuming all activities are physical. Family24
 invalidates older band verdicts. No new lane, threshold, arithmetic or timeout;
 missing rule meaning is never fabricated from a band name.
 
+Ordinary visible description (EL-10, Enhanced Locations1.2.2): the final author
+completes compatible visible texture in delivered prose, without a world-write
+obligation. The Keeper does not add a focused observe solely to supply ordinary
+appearance for an already chosen arrival or conversation. Selected perception,
+continuing observation and actionable layout retain their existing write paths.
+See location-system-tickets/10-ordinary-visible-description.md.
+
 Completed time review context (EL-09, original input79): the current-input
 native review may read completed_time from the existing expected-turn receipt
 projection. The host deduplicates canonical time receipts and computes the actual
