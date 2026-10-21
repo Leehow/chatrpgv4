@@ -268,3 +268,14 @@ test('a journey band bounds the minutes the Keeper gives it, and a figure outsid
     const packet=turnPacket(JSON.stringify({version:4,commands:[{kind:'place',action:'move',to:'Corner Inn',travel_band:'local_travel',travel_minutes:15}]}));
     assert.equal(compileTurnPacket(packet).effects[0].travel_minutes,15,'a native packet carries the figure to the kernel');
 });
+
+test('the capsule names the places this table can refer to, so directions can point somewhere not yet visited (§250.7)',async t=>{
+    const k=await kernel(t);await openTurn(k,'I ask the way to the inn.');
+    const before=await k.table('capsule');
+    const known=before.where.known_places.map((row:Row)=>row.to);
+    assert(known.length>0,'the book\'s other scenes are nameable');
+    assert(!known.includes(before.where.scene),'the current place is not listed as somewhere else');
+    assert(before.where.known_places.every((row:Row)=>typeof row.display_name==='string'));
+    await k.table('apply',{call_id:'t1-c1',effects:[{kind:'place',action:'establish',additions:[{name:'Corner Inn',within:null,description:'A small corner inn.'}]}]});
+    assert((await k.table('capsule')).where.known_places.some((row:Row)=>row.display_name==='Corner Inn'),'a registered place joins the nameable places');
+});

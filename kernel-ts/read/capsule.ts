@@ -583,6 +583,10 @@ export function whereSection(graph: ModuleGraph, world: Row, scene: Row, materia
                 ...(minutes !== null ? { travel_minutes: minutes } : {})
             };
         }),
+        // §250.7: the places this table can name -- the book's scenes and the places it registered -- so an NPC can
+        // give directions or whereabouts to somewhere the party has not been yet. References only: not access or knowledge.
+        known_places: [...graph.nodes.values()].filter(node => node.node_kind === "scene" && node !== scene).slice(0, 40)
+            .map(node => ({ to: graph.handle(node), display_name: sceneLabel(graph, world, node) })),
         affordances,
         keeper_notes: notes,
         assets: graph.sceneAssets(scene, array(world.handouts_shown)),

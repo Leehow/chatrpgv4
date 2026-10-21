@@ -499,7 +499,8 @@ export function fitPresent(rows: Row[], budget: number): boolean {
  */
 function fitWhere(where: Row, budget: number): boolean {
     let cut = false;
-    for (const [key, keep] of [["back", 1], ["places", 0], ["rules", 1]] as const)
+    // §250.7: the nameable places give way first; they are references, not this place's ways out or rules.
+    for (const [key, keep] of [["known_places", 0], ["back", 1], ["places", 0], ["rules", 1]] as const)
         while (jsonSize(where) > budget && Array.isArray(where[key]) && where[key].length > keep) {
             where[key].pop();
             cut = true;

@@ -51125,6 +51125,15 @@ expired assessment publishes as population `unknown` (`scene-population` lane, `
 `unassessed`). The Keeper's own empty assessment beside a seated person still refuses in the kernel, and the
 supplement after a settled arrival into an empty-assessed scene is still asked for.
 
+### 250.7 Places an NPC can name
+
+Live (`el-v2-20261021c` T6–T7, one undelivered turn and five refusals; `el-v2-20261021b` T6): asked the way to the
+Central Library, the Keeper could not let the person answer, because a communication claim's `to`/`via` may only
+select issued place references and the only issued places were the current one, its exits and the trail back. The
+capsule now carries `where.known_places` (`{to, display_name}` for the book's scenes and the places this table
+registered, the current one excluded, at most 40, the first rows `fitWhere` gives up), and the decision content issues
+them as places. They are references for directions, whereabouts and planned visits, not access or player knowledge.
+
 ## 251. A progress note for a read spiral (owner direction 2026-10-21: fewer deliberations, faster turns)
 
 Live evidence: on `el-v2-20261021a` T16 the single Keeper answered one sentence about a door and a hired middleman with

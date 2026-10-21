@@ -24,3 +24,13 @@ test('a command with a place action and no kind is a place command (live el-v2-2
  assert.deepEqual(normalized.args.commands.map(row=>row.kind),['place','time',undefined],'an unknown action is left for validation');
  assert.equal(normalizeTurnPacketArguments({version:4,commands:[{kind:'scene',service:'open',crowd:'quiet'}]}).placeKindRepairs,undefined);
 });
+test('an NPC can give directions to a nameable place the party has not visited (§250.7, live el-v2-20261021c T6)',async()=>{
+ const {DecisionContent}=await import('../../runtime/decision-content.ts');
+ const content=new DecisionContent();
+ const capsule={where:{scene:'Inn',exits:[],back:[],places:[],known_places:[{to:'central-library',display_name:'Central Library'}]},present:[{ref:'npc_28',display_name:'the regular'}]};
+ content.prepare('c:1',capsule,[],[],['Investigator']);
+ const places=content.bindings().places;
+ assert.ok(places.includes('central-library'),'a book place is a nameable destination');
+ const scoped=turnPacketParameterSchema(false,['speak_briefly'],[],false,content.bindings(),true);
+ assert.doesNotThrow(()=>turnPacket(JSON.stringify({version:4,interactions:[{actor:'npc_28',act:'answer',to:['investigator_1'],content:[{new:{predicate:'directions',to:'central-library',heading:'north'}}]}]}),scoped));
+});
