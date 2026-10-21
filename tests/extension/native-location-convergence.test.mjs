@@ -8,9 +8,23 @@ import {locationToolDeclarations} from '../../extensions/table/location-context.
 import {KernelError} from '../../extensions/kernel/client.ts';
 import {admissionRefusalScope} from '../../extensions/kernel/refusal-scope.ts';
 import {PendingAnswers} from '../../extensions/kernel/source-answers.ts';
-import {placeModeConflict} from '../../extensions/kernel/place-operation.ts';
+import {placeModeConflict,placeParameterRefusal} from '../../extensions/kernel/place-operation.ts';
+import {NativePlaceParameters} from '../../shared/place-structures.ts';
 import {streamSimple} from '@earendil-works/pi-ai/api/anthropic-messages';
 import {readFileSync} from 'node:fs';
+
+test('array diagnostics follow each explicit action schema without coercing strings or other shapes',()=>{
+ for(const branch of NativePlaceParameters.anyOf)for(const [field,schema] of Object.entries(branch.properties))if(schema.type==='array'){
+  for(const value of ['[]','[{"unfinished":']){
+   const args={action:branch.properties.action.const,[field]:value},before=structuredClone(args);
+   assert.equal(placeParameterRefusal(args)?.details?.reason,'place_array_required');
+   assert.deepEqual(args,before);
+  }
+  assert.equal(placeParameterRefusal({action:branch.properties.action.const,[field]:[]}),undefined);
+ }
+ assert.equal(placeParameterRefusal({action:'invented',additions:'[]'}),undefined);
+ assert.equal(placeParameterRefusal({action:'move',additions:{name:'Station'}}),undefined);
+});
 
 test('actual non-strict Anthropic wire retains actions and required fields after session schema roundtrip',async()=>{
  const model={...JSON.parse(readFileSync(new URL('../../node_modules/@earendil-works/pi-ai/dist/providers/data/minimax-cn.json',import.meta.url)))['anthropic-messages']['chat:MiniMax-M2.7'],id:'MiniMax-M3.1-Flash-Preview',compat:{forceAdaptiveThinking:true}};
@@ -23,7 +37,10 @@ test('actual non-strict Anthropic wire retains actions and required fields after
   assert.equal(schema.anyOf,undefined,'exercise the actual non-strict serializer limitation');
   assert.deepEqual(schema.properties.action.enum,['inspect','move','establish','feature','relate','observe']);
   assert.deepEqual(schema.required,['action'],'restoring JSON must not erase the action discriminator');
-  if(detail){assert.equal(schema.properties.facts.type,'array');assert.equal(schema.properties.scope.type,'string');assert(schema.properties.access);}
+  if(detail){assert.equal(schema.properties.facts.type,'array');assert.equal(schema.properties.scope.type,'string');assert(schema.properties.access);
+   assert.equal(schema.properties.additions.type,'array');assert.equal(schema.properties.additions.anyOf,undefined,'annotation-only array variants do not obscure the actual array grammar');
+   assert.equal(schema.properties.additions.maxItems,12);assert(schema.properties.additions.items.properties.description);
+  }
   assert.equal(schema.properties.to.type,'string');assert.equal(schema.properties.relation.type,'string');
   assert.match(schema.properties.action.description,/No op or change wrapper/);
   assert.match(schema.properties.action.description,/new\/unregistered route, via/);

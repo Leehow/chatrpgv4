@@ -4,6 +4,17 @@ import {test} from 'node:test';
 import {fauxAssistantMessage,fauxToolCall} from '@earendil-works/pi-ai';
 import {openTable,waitForIdle} from './harness.mjs';
 const call=args=>fauxAssistantMessage([fauxToolCall('place',args)],{stopReason:'toolUse'});
+test('stringified arrays receive an actionable structured refusal without parsing or executing them',async t=>{
+ const table=await openTable({responses:[call({action:'move',to:'Station',via:'The main entrance',additions:'[{"name":"Station"'}),fauxAssistantMessage('Stopped fixture.')]});
+ t.after(()=>table.dispose());await table.session.prompt('I enter the station.');await waitForIdle(table.session);
+ const result=table.session.messages.find(message=>message.role==='toolResult'&&message.toolName==='place');
+ assert.equal(result.details?.coc_error?.details?.reason,'place_array_required');
+ assert.equal(result.details.coc_error.details.field,'additions');
+ assert.equal(result.details.coc_error.details.transaction_state,'uncommitted');
+ assert.match(result.details.coc_error.fix,/JSON array/);
+ assert(table.telemetry().some(row=>row.lane==='refusals'&&row.reason==='place_preflight_refused'));
+ assert.equal(table.kernelRequests().filter(row=>row.method==='table.apply').length,0);
+});
 test('an invented road row has a specific structured uncommitted refusal before SDK validation',async t=>{
  const table=await openTable({responses:[call({action:'move',to:'Shop',via:'The street',travel_band:'neighborhood_stroll'}),fauxAssistantMessage('Stopped fixture.')]});
  t.after(()=>table.dispose());await table.session.prompt('I walk to the shop.');await waitForIdle(table.session);

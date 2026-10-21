@@ -688,3 +688,26 @@ controls, not just a stale wording assertion.
 wording assertion in location-observation-completion; already corrected/tested
 in640. Keep the initial shared-box race timing and interruption evidence. The
 other chat's queued focused suite has the box now; wait for it before final all.
+
+ebfd62d8e canonical package01:00:20Z; clean focused33/33 and fast130/130.
+Its LAN all was admitted01:05:46Z after the earlier owner became idle.
+Original44 station visit failed naturally: App3min27s,8tool errors, no story.
+The interim helper's elapsed-to-now418s is not the ended duration; its completed
+delivery timestamp is absent on failures. Preserve both raw diagnostics and UI.
+The station was eventually registered through output and the ordinary apply move
+settled30min before publication failed. Preserve that occupied destination; never
+repeat the journey just to obtain prose. No successful120s acceptance claimed.
+
+The full native declaration was present; missing detailed context is falsified.
+Stringified additions were incomplete JSON and bypassed the owned preparation
+refusal path, producing SDK errors with no structured cause. No parsing or JSON
+completion is permitted. Derive string-array refusals from the explicit action
+schema and send the exact field/uncommitted correction through the existing
+preflight accounting. Remove array property variants differing only in root
+description annotation; preserve nested description data, bounds and validators.
+JSON Schema annotations/validation specs support this assertion equivalence;
+Ajv's modifying-data/coercion guidance supports refusing ambiguous string input.
+This simplification's effect on real model adherence remains a live-test question.
+Regression went red2/12 before repair; focused21/21 green includes real Pi
+preparation/message_end, canonical arrays and actual Anthropic/Responses payloads.
+These controlled-provider tests are not gameplay evidence.

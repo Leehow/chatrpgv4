@@ -48865,6 +48865,19 @@ people are existing canonical identities; uncommitted new_N slots cannot be
 referenced by a separate place call. Omit unregistered background people from
 that identity array or commit the ordinary walk-on before using its identity.
 
+Native array follow-up (original input44): collapse provider property variants
+only when array assertion shapes are identical after omitting their root schema
+description annotation. Preserve nested data fields named description and every
+bound/item assertion; canonical validation is unchanged. This removes redundant
+array unions, not the union guards selecting an action. A string supplied for an
+explicit native action's declared array field receives `place_array_required`
+with the exact field and uncommitted state through the existing preflight owner.
+Derive those fields from the canonical action schema. Never parse, complete or
+execute JSON embedded in that string. Unknown actions and other SDK failures
+remain outside this narrow refusal. Existing three-strike failure handling and
+all semantic gates remain unchanged. JSON Schema annotations are not assertions
+(https://json-schema.org/understanding-json-schema/reference/annotations).
+
 The model-facing `place` tool has two operations:
 
 - `inspect`: optional `name` (default current place), `need: context|contract`.

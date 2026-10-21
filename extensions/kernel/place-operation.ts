@@ -1,7 +1,7 @@
 /** Route the dedicated tool through the existing apply owner before any write gate. */
 import type {CocToolName} from './tools.ts';
 import {KernelError} from './client.ts';
-import {LocationTravelBand} from '../../shared/place-structures.ts';
+import {LocationTravelBand,NativePlaceParameters} from '../../shared/place-structures.ts';
 /** A conflicting read is refused, never upgraded into a world write. */
 export function placeModeConflict(params:unknown):boolean {
     if(!params||typeof params!=='object')return false;
@@ -14,6 +14,14 @@ export function placeParameterRefusal(args:unknown):KernelError|undefined {
         fix:'For a move, explicitly send {action:"move",to,via,additions?}; keep its destination and route. For a read, send {action:"inspect",name?,at?,sense?,need?} without write fields. No op or change wrapper. Nothing executed; retain successful earlier receipts.',
         details:{reason:'place_mode_conflict',field:'action',transaction_state:'uncommitted'}});
     const params=args as Record<string,unknown>|null;
+    const branch=NativePlaceParameters.anyOf.find(schema=>schema.properties.action.const===params?.action);
+    if(branch&&params)for(const [field,schema] of Object.entries(branch.properties)){
+        if(schema.type==='array'&&typeof params[field]==='string')return new KernelError({code:'invalid_params',
+            message:`place ${String(params.action)} requires ${field} to be an array, not a string`,
+            fix:`Keep the explicit action and send ${field} as a JSON array, not quoted JSON. Rebuild the array from the intended arguments; do not complete or parse a partial string. Nothing executed; retain successful earlier receipts.`,
+            details:{reason:'place_array_required',field,parameter_fields:[`${field}: expected a JSON array, received a string`],transaction_state:'uncommitted'}});
+    }
+
     if(params?.action==='move'&&typeof params.travel_band==='string'&&!LocationTravelBand.enum.includes(params.travel_band))
         return new KernelError({code:'invalid_params',message:'The selected travel_band is not a registered road row',
             fix:'Keep action:"move" and choose one of the supplied travel_band options. Do not invent a row or supply travel_minutes.',

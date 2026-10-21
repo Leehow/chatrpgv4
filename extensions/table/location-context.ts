@@ -32,7 +32,10 @@ function declarationObject(schema:Row):Row {
     const properties:Row={},variants=new Map<string,Map<string,unknown>>();
     for(const branch of schema.anyOf)for(const [key,value] of Object.entries(branch.properties??{})){
         if(!variants.has(key))variants.set(key,new Map());
-        variants.get(key)!.set(JSON.stringify(value),value);
+        // Only the array schema's own annotation differs; nested data fields stay intact.
+        const shape=object(value)&&value.type==='array'?Object.fromEntries(Object.entries(value).filter(([name])=>name!=='description')):value;
+        const choices=variants.get(key)!,fingerprint=JSON.stringify(shape);
+        if(!choices.has(fingerprint))choices.set(fingerprint,value);
     }
     for(const [key,values] of variants)properties[key]=values.size===1?[...values.values()][0]:Type.Union([...values.values()] as any);
     for(const key of Object.keys(properties))properties[key]=declarationObject(properties[key]);
