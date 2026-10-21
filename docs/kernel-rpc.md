@@ -51087,6 +51087,26 @@ register and the sole author (which reads committed outcomes and `adjusted`). Ac
 settled. Existing places, features, relations, situations and observations from 1.x remain readable; state version 1
 is unchanged.
 
+### 250.5 A journey's own minutes inside its band
+
+Live (`el-v2-20261021a`): every trip took the band's usual 30 minutes whatever the distance -- the next-door cafe and
+the far side of the district alike -- because a native packet move could name only `travel_band`. A move may now give
+`travel_minutes` with its `travel_band`: inside the rule row's range (`time-costs.json`, `local_travel` 10–120,
+`long_travel` 120–1440) it is the journey's time (`travel:{basis:"banded", band, given:true}`); outside it is brought to
+the nearer edge and reported (`{field:"travel_minutes", reason:"clamped_to_band", given, min, max}`). A band alone keeps
+its usual minutes; a row without a range (`adjacent`) still refuses a second figure. The road remembers the minutes as
+before (§218.3).
+
+### 250.6 A missing population assessment is unknown, a contradicted one is asked for
+
+§250.1 recorded an unassessed arrival as unknown, but the next stationary turn's packet then had to carry a scene
+command because the assessment was not current (`el-v2-20261021b` T13 and T15 refused for it). Now the packet schema,
+the pre-settlement check and the post-settlement check all ask for an assessment only when a current one is contradicted
+by registered presence (`scenePopulationConflict`: empty with people seated, populated with nobody). A missing or
+expired assessment publishes as population `unknown` (`scene-population` lane, `assessment_retired`, reason
+`unassessed`). The Keeper's own explicit assessment that contradicts presence still refuses in the kernel, and the
+supplement after settled NPC travel (everyone left a populated scene) is still asked for.
+
 ## 251. A progress note for a read spiral (owner direction 2026-10-21: fewer deliberations, faster turns)
 
 Live evidence: on `el-v2-20261021a` T16 the single Keeper answered one sentence about a door and a hired middleman with

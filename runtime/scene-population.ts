@@ -4,6 +4,15 @@ export function scenePopulationRequired(capsule:Record<string,any>):boolean {
  if(temporal?.current!==true||!['empty','quiet','active','crowded'].includes(temporal.crowd))return true;
  return temporal.crowd==='empty'?people.length>0:people.length===0;
 }
+/**
+ * §250.6: a current assessment the registered presence contradicts (empty with people seated, populated with nobody).
+ * Only this needs the Keeper's new assessment before prose; a missing or expired one is recorded as unknown.
+ */
+export function scenePopulationConflict(capsule:Record<string,any>):boolean {
+ const temporal=capsule.where?.temporal,people=(capsule.present??[]).filter((row:Record<string,any>)=>row.kind!=='creature');
+ if(temporal?.current!==true||!['empty','quiet','active','crowded'].includes(temporal.crowd))return false;
+ return temporal.crowd==='empty'?people.length>0:people.length===0;
+}
 /** An expired optional view is unknown, not a reason to replay a settled stationary activity. */
 export function sceneAssessmentExpiredDuringActivity(before:Record<string,any>,after:Record<string,any>,effects:Record<string,any>[]):boolean {
  const from=before.where??{},to=after.where??{},a=from.clock??{},b=to.clock??{};

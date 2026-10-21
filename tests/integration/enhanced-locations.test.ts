@@ -250,3 +250,21 @@ test('a known barrier still refuses atomically while other position shapes are r
     assert(receipts.find((row:Row)=>row.call_id==='t1-c4'&&row.kind==='place').adjusted.some((row:Row)=>row.reason==='unregistered_feature_as_spot'));
     assert(receipts.find((row:Row)=>row.call_id==='t1-c5'&&row.kind==='place').adjusted.some((row:Row)=>row.reason==='implicit_feature'));
 });
+
+test('a journey band bounds the minutes the Keeper gives it, and a figure outside the band is brought to its edge (§250.5)',async t=>{
+    const k=await kernel(t);await openTurn(k,'I walk to a nearby inn, then to a cafe across the district.');
+    const inn=await k.table('apply',{call_id:'t1-c1',effects:[{kind:'place',action:'move',to:'Corner Inn',via:'Down the street',travel_band:'local_travel',travel_minutes:12,
+        additions:[{name:'Corner Inn',within:null,description:'A small corner inn.'}]}]});
+    const first=inn.outcomes.find((row:Row)=>row.kind==='move');
+    assert.equal(first.minutes,12,'the Keeper\'s figure inside the band is the journey');assert.equal(first.adjusted,undefined);
+    const cafe=await k.table('apply',{call_id:'t1-c2',effects:[{kind:'place',action:'move',to:'Far Cafe',via:'Across the district',travel_band:'local_travel',travel_minutes:3,
+        additions:[{name:'Far Cafe',within:null,description:'A cafe across the district.'}]}]});
+    const second=cafe.outcomes.find((row:Row)=>row.kind==='move');
+    assert.equal(second.minutes,10,'below the band it is the band\'s shortest journey');
+    assert.deepEqual(second.adjusted,['travel_minutes: clamped_to_band']);
+    const usual=await k.table('apply',{call_id:'t1-c3',effects:[{kind:'place',action:'move',to:'Third Shop',via:'Along the avenue',travel_band:'local_travel',
+        additions:[{name:'Third Shop',within:null,description:'A shop on the avenue.'}]}]});
+    assert.equal(usual.outcomes.find((row:Row)=>row.kind==='move').minutes,30,'without minutes the band keeps its usual time');
+    const packet=turnPacket(JSON.stringify({version:4,commands:[{kind:'place',action:'move',to:'Corner Inn',travel_band:'local_travel',travel_minutes:15}]}));
+    assert.equal(compileTurnPacket(packet).effects[0].travel_minutes,15,'a native packet carries the figure to the kernel');
+});

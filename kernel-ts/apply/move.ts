@@ -6,6 +6,7 @@ import { array, integer, number, repr, row, sorted, string, type Row } from '../
 import { nowIso, required } from '../write/store.js';
 import type { ApplyContext } from './index.js';
 import { advanceClock } from './clock.js';
+import type { TravelRows } from '../owed/index.js';
 import { establishTableEntity, establishedWithin, validateEstablishment } from '../read/table-entities.js';
 import { isAmbiguity, recordOf, type ModuleGraph } from '../read/module-graph.js';
 import { aroundExit, bookRoadMinutes, personPlaces, placeRelation, returnRoute, roadKey, tableRoad } from '../read/places.js';
@@ -20,7 +21,7 @@ export function moveAccess(graph:ModuleGraph,world:Row,current:Row,destination:R
     const around=listed||road||related?null:aroundExit(graph,current,destination);
     return {listed,road,related,around,requiresVia:!listed&&!road&&!related&&!around};
 }
-export function stageMove(context: ApplyContext, effect: Row, travelRows?: ReadonlyMap<string, number> | null,options:{containmentIsRoute?:boolean}={}): {
+export function stageMove(context: ApplyContext, effect: Row, travelRows?: TravelRows | null,options:{containmentIsRoute?:boolean}={}): {
     receipt: Row;
     event: DomainEvent | null;
 } {
@@ -91,15 +92,27 @@ export function stageMove(context: ApplyContext, effect: Row, travelRows?: Reado
     let minutes = effect.travel_minutes, travel: Row | null = null;
     // §218.3: a road row named instead of minutes takes the row's usual minutes, as §138.9 fills a book road (never a roll).
     const band = effect.travel_band;
+    let travelAdjusted: Row | null = null;
     if (band != null) {
-        if (minutes != null)
-            throw new RpcError('invalid_params', 'travel_band names the road\'s length, and travel_minutes is another; give one', {
-                fix: 'leave travel_minutes out to use the road row, or travel_band out to give your own minutes', details: { field: 'travel_band', reason: 'travel_conflict' } });
         if (typeof band !== 'string' || !travelRows?.has(band))
             throw new RpcError('invalid_params', `${repr(band)} is not a road row`, {
                 fix: 'name one of details.options, or give travel_minutes', details: { field: 'travel_band', reason: 'travel_band_unknown', options: [...(travelRows?.keys() ?? [])] } });
-        minutes = travelRows.get(band)!;
-        travel = { basis: 'banded', band };
+        // §250.5: the row bounds the journey and the Keeper may say how long this one takes; a figure outside the row is
+        // brought to its edge and reported. A row without a range keeps its usual minutes, as before.
+        const range = travelRows.ranges?.get(band);
+        if (minutes != null && !range)
+            throw new RpcError('invalid_params', 'travel_band names the road\'s length, and travel_minutes is another; give one', {
+                fix: 'leave travel_minutes out to use the road row, or travel_band out to give your own minutes', details: { field: 'travel_band', reason: 'travel_conflict' } });
+        if (minutes != null && range) {
+            if (!integer(minutes) || number(minutes) < 0) throw new RpcError('invalid_params', 'travel_minutes must be a non-negative integer');
+            const bounded = Math.min(range.max, Math.max(range.min, number(minutes)));
+            if (bounded !== number(minutes)) travelAdjusted = { field: 'travel_minutes', reason: 'clamped_to_band', given: number(minutes), min: range.min, max: range.max };
+            minutes = bounded;
+            travel = { basis: 'banded', band, given: true };
+        } else {
+            minutes = travelRows.get(band)!;
+            travel = { basis: 'banded', band };
+        }
     }
     // §204.2: a move within a place the two share has the structure's 0, never an unknown journey.
     const insidePlace = !!related;
@@ -127,6 +140,7 @@ export function stageMove(context: ApplyContext, effect: Row, travelRows?: Reado
     if (inside) minutes = 0;
     const receipt: Row = { id: context.mint(`move:${target}-t${turn.turn}-c${ordinal}`), kind: 'move', call_id: callId, from, to: target, from_label: sceneLabel(graph, world, current), to_label: label || sceneLabel(graph, world, destination), minutes, at: nowIso() };
     if (travel) receipt.travel = travel;
+    if (travelAdjusted) receipt.adjusted = [...array(receipt.adjusted), travelAdjusted];
     if (inside) receipt.inside_until = { receipt: string(inside.id), minutes: number(journey) };
     if (established) receipt.established = 'table';
     if (person) receipt.person = graph.handle(person);

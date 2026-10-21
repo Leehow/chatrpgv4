@@ -73,12 +73,16 @@ export function resolveOwedEquipment(ledger: OwedLedger, party: readonly Row[]):
 }
 
 /** The closed rows a report may choose from (§158.2): travel bands for a move, time bands for time beyond it. */
-export async function owedBands(kernel: KernelContext): Promise<{ travel: string[]; time: string[]; travelMinutes: Map<string, number> }> {
+/** A road row's usual minutes, with the range the rule table allows a journey of that row (§250.5). */
+export type TravelRows = ReadonlyMap<string, number> & { readonly ranges?: ReadonlyMap<string, { min: number; max: number }> };
+export async function owedBands(kernel: KernelContext): Promise<{ travel: string[]; time: string[]; travelMinutes: TravelRows }> {
     const travel = await bandRows(kernel, ROUTE_TRAVEL_FIELD), time = await bandRows(kernel, 'time.band');
+    const travelMinutes = Object.assign(new Map<string, number>([[TRAVEL_ADJACENT, 0], ...travel.map(entry => [entry.handle, number(entry.default)] as [string, number])]),
+        { ranges: new Map(travel.filter(entry => entry.min !== undefined && entry.max !== undefined).map(entry => [entry.handle, { min: number(entry.min), max: number(entry.max) }] as const)) });
     return {
         travel: [TRAVEL_ADJACENT, ...travel.map(entry => entry.handle)],
         time: time.map(entry => entry.handle).filter(handle => !ROUTE_TRAVEL_ROWS.includes(handle)),
-        travelMinutes: new Map<string, number>([[TRAVEL_ADJACENT, 0], ...travel.map(entry => [entry.handle, number(entry.default)] as [string, number])])
+        travelMinutes
     };
 }
 

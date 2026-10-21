@@ -3,7 +3,7 @@ import {test} from 'node:test';
 import assert from 'node:assert/strict';
 import {turnPacket,compileTurnPacket} from '../../runtime/turn-packet-prototype.ts';
 import {decisionScene} from '../../runtime/isolated-expression.ts';
-import {scenePopulationRequired} from '../../runtime/scene-population.ts';
+import {scenePopulationRequired,scenePopulationConflict} from '../../runtime/scene-population.ts';
 
 test('an empty registered cast does not assert an empty scene',()=>{
  const scene=decisionScene({where:{scene:'Daytime shop',clock:{day_part:'afternoon'},temporal:{current:false,review_required:true}},present:[]});
@@ -24,4 +24,11 @@ test('only a current coherent assessment qualifies for the warm travel path',()=
  for(const state of [capsule(false,'empty'),capsule(true,'unknown'),capsule(true,'quiet'),capsule(true,'empty',[attendant])])assert.equal(scenePopulationRequired(state),true);
  assert.equal(scenePopulationRequired(capsule(true,'empty')),false);
  assert.equal(scenePopulationRequired(capsule(true,'quiet',[attendant])),false);
+});
+test('only a current assessment the registered presence contradicts is a conflict (§250.6)',()=>{
+ const attendant={kind:'npc',ref:'npc_1',display_name:'the attendant'};
+ const capsule=(current,crowd,present=[])=>({where:{temporal:{current,crowd}},present});
+ for(const state of [capsule(true,'empty',[attendant]),capsule(true,'quiet'),capsule(true,'crowded')])assert.equal(scenePopulationConflict(state),true);
+ for(const state of [capsule(false,'empty',[attendant]),capsule(true,'unknown'),capsule(false,'quiet'),capsule(true,'empty'),capsule(true,'quiet',[attendant]),{where:{},present:[]}])
+  assert.equal(scenePopulationConflict(state),false,JSON.stringify(state));
 });

@@ -23,7 +23,7 @@ const until=Type.Object({time:Type.String({pattern:'^[0-9]{2}:[0-9]{2}$',descrip
 const time=Type.Object({kind:Type.Literal('time'),band:Type.Optional(atom(64)),minutes:Type.Optional(Type.Integer({minimum:1,maximum:Number.MAX_SAFE_INTEGER,description:'Copy only an explicitly selected positive player duration in whole minutes; never estimate a cost here. No additional time means omit the time command, never minutes:0. Use an issued band for an unspecified activity cost; its computed outcome may be zero.'})),
  until:Type.Optional(until),reason:atom(),beyond_travel:Type.Optional(Type.Boolean({description:'Optional; a move already counts its own travel.'}))},timeOptions);
 const relationship=Type.Object({kind:Type.Literal('relationship'),actor,toward:Type.String({pattern:'^(npc_[1-9][0-9]*|investigator_[1-9][0-9]*)$',maxLength:32}),affinity:StringEnum(['hostile','guarded','neutral','friendly'])},{additionalProperties:false});
-const placeMove=Type.Object(Type.Omit(PlaceEffect.anyOf[0],['travel_minutes']).properties,{additionalProperties:false,description:(PlaceEffect.anyOf[0] as {description?:string}).description});
+const placeMove=Type.Object(PlaceEffect.anyOf[0].properties,{additionalProperties:false,description:(PlaceEffect.anyOf[0] as {description?:string}).description});
 const placeStationary=PlaceEffect.anyOf.slice(1);
 const commandSchemas=[move,placeMove,...placeStationary,npc,walkOn,scene,time,relationship];
 // §250: stops, waits and looks settle in their submitted order; a move counts its own travel, so time is always additional.

@@ -21,7 +21,7 @@ import { SINGLE_PASS_NARRATION } from '../../kernel-ts/runtime/narration-policy.
 import {ArtifactTextStream} from '../../runtime/final-output-stream.ts';
 import {moveEstablishmentRefusal} from '../../shared/move-protocol.ts';
 import {SAME_KEEPER_AFTER_RESULT_GUIDANCE} from '../../runtime/keeper-output-guidance.ts';
-import {scenePopulationRequired,sceneAssessmentExpiredDuringActivity} from '../../runtime/scene-population.ts';
+import {scenePopulationRequired,scenePopulationConflict,sceneAssessmentExpiredDuringActivity} from '../../runtime/scene-population.ts';
 import {ExpressionPlanStream,writeIsolatedExpression,decisionScene,decisionClock,decisionRecentPublic,decisionResponseScope,decisionObservationScope} from '../../runtime/isolated-expression.ts';
 import {turnPacket,bindTurnPacketMoves,turnPacketMovementChoices,requireTurnPacketNpcDestinations,isNewNpcSlot,normalizeTurnPacketArguments,compileTurnPacket,turnPacketResult,turnPacketParameterSchema,turnPacketProviderPayload,TurnPacketParameterError,type TurnPacket} from '../../runtime/turn-packet-prototype.ts';
 import {normalizeToolArgumentSyntax} from '../../runtime/tool-argument-syntax.ts';
@@ -1576,7 +1576,7 @@ export default function (pi: ExtensionAPI, host: {capabilities?:RuntimeCapabilit
 	});
 	pi.events.on('coc:capsule',(value:any)=>{
         if(table&&value?.campaign===table.campaign&&value.turn===table.turn){
-            table.packetSceneRequired=scenePopulationRequired(value.capsule??{});
+            table.packetSceneRequired=scenePopulationConflict(value.capsule??{});
             table.packetRoutineSummary=!!value.capsule?.mods?.routine_summary;
             if(routineSummaryTool!==table.packetRoutineSummary){routineSummaryTool=table.packetRoutineSummary;refreshOutputTool?.();}
         }
@@ -5822,7 +5822,8 @@ export default function (pi: ExtensionAPI, host: {capabilities?:RuntimeCapabilit
             // §250: an arrival the Keeper did not assess is recorded as unassessed (unknown), never refused.
             if(newlyMoving&&!compiled.effects.some(row=>row.kind==='scene'))compiled.effects.push({kind:'scene',name:'here',_population:true,
                 activity:{service:'unknown',crowd:'unknown',basis:'established',summary:'Service is unknown; crowd is unknown.',review_after_minutes:15},why:'The arrival was not assessed; service and population remain unknown.'});
-            if(scenePopulationRequired(before)&&!compiled.effects.some(row=>row.kind==='scene'))throw new KernelError({code:'needs',message:'Assess scene service and population from the current place and clock with one scene command; missing registered names never means empty.'});
+            // §250.6: a missing or expired assessment stays unknown; only one the registered presence contradicts needs a new one.
+            if(scenePopulationConflict(before)&&!compiled.effects.some(row=>row.kind==='scene'))throw new KernelError({code:'needs',message:'Assess scene service and population from the current place and clock with one scene command; missing registered names never means empty.'});
             packetNpcReferences(state).require(packetNpcScope(state),[...compiled.responses.flatMap(row=>[row.actor,...row.to??[]]).filter(isNpcReference),
                 ...compiled.effects.filter(row=>row.kind==='npc'&&!row.walk_on).map(row=>String(row.name)),
                 ...compiled.effects.filter(row=>row.kind==='place'&&row.action==='observe').flatMap(row=>[...row.people??[],...(row.situations??[]).flatMap((situation:Record<string,any>)=>situation.participants??[])]).filter(isNpcReference),
@@ -5869,8 +5870,11 @@ export default function (pi: ExtensionAPI, host: {capabilities?:RuntimeCapabilit
 			const current=await state.kernel.call<Record<string,any>>('table.capsule',{campaign:state.campaign,_context_read:true});
             observationIdentities=[...(current.npc_references?.people??[]),...(current.present??[])];
             if(scenePopulationRequired(current)&&!compiled.effects.some(row=>row.kind==='scene')){
-                if(!sceneAssessmentExpiredDuringActivity(before,current,compiled.effects))throw new KernelError({code:'needs',message:'Scene population remains unassessed or conflicts with current registered presence; preserve receipts and complete the scene assessment before rendering.'});
-                await record({lane:'scene-population',event:'assessment_retired',turn:state.turn,reason:'settled_stationary_activity',population:'unknown'});
+                // §250.6: only an assessment the registered presence contradicts needs the Keeper's new one before prose; a
+                // missing or expired assessment renders as unknown population.
+                if(scenePopulationConflict(current)&&!sceneAssessmentExpiredDuringActivity(before,current,compiled.effects))throw new KernelError({code:'needs',message:'Scene population conflicts with current registered presence; preserve receipts and complete the scene assessment before rendering.'});
+                await record({lane:'scene-population',event:'assessment_retired',turn:state.turn,
+                    reason:sceneAssessmentExpiredDuringActivity(before,current,compiled.effects)?'settled_stationary_activity':'unassessed',population:'unknown'});
             }
             for(const newcomer of newcomers){
                 const person=await state.kernel.call<Record<string,any>>('table.look',{campaign:state.campaign,focus:'npc',name:newcomer.label,_context_read:true});

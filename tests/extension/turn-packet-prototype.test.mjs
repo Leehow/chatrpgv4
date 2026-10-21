@@ -775,6 +775,20 @@ test('a stationary activity retires expired population material without blocking
  assert.equal(table.entries('coc-final-delivery').filter(row=>row.event==='end'&&row.status==='completed').length,1);
 });
 
+test('an unassessed scene publishes without a scene command and renders its population unknown (§250.6)',async t=>{
+ const engine=createHybridEngine({env,decision:{decide:async batch=>answer(batch,.99)}});
+ const table=await openTable({legacyDeliveryFixtures:false,realKernel:true,prepareWorkspace:opened,env,runDriver:engine.runDriver,
+  extraExtensions:[{name:'engine',factory:engine.extension}],responses:[()=>fauxAssistantMessage([rawToolCall('output',{version:4,commands:[{kind:'time',minutes:3,reason:'The selected short wait.'}]})],{stopReason:'toolUse'})]});
+ t.after(()=>table.dispose());
+ await table.session.prompt('I wait here for three minutes.');
+ assert.deepEqual(table.extensionErrors,[]);
+ assert.deepEqual(table.session.messages.filter(row=>row.role==='toolResult'&&row.details?.coc_error).map(row=>row.details.coc_error),[]);
+ assert.ok(table.telemetry().some(row=>row.lane==='scene-population'&&row.event==='assessment_retired'&&row.reason==='unassessed'));
+ const author=table.telemetry().find(row=>row.lane==='isolated-expression'&&row.event==='written');
+ assert.equal(JSON.parse(readFileSync(join(author.attempt,'task.json'),'utf8')).decision_context.scene.presence.population,'unknown');
+ assert.equal(table.entries('coc-final-delivery').filter(row=>row.event==='end'&&row.status==='completed').length,1);
+});
+
 test('a scene assessment supplement after settled NPC travel uses a fresh call and retains every prior outcome',async t=>{
  let ref;const engine=createHybridEngine({env,decision:{decide:async batch=>answer(batch,.99)}});
  const prepare=async workspace=>{const k=new RpcClient(workspace);try{
@@ -791,7 +805,7 @@ test('a scene assessment supplement after settled NPC travel uses a fresh call a
  await table.session.prompt('I ask the visitor to leave and wait here for two minutes.');
  assert.deepEqual(table.extensionErrors,[]);
  const errors=table.session.messages.filter(row=>row.role==='toolResult'&&row.details?.coc_error).map(row=>row.details.coc_error);
- assert.equal(errors.length,1,JSON.stringify(errors));assert.match(errors[0].message,/Scene population remains unassessed/);
+ assert.equal(errors.length,1,JSON.stringify(errors));assert.match(errors[0].message,/Scene population conflicts with current registered presence/);
  const author=table.telemetry().find(row=>row.lane==='isolated-expression'&&row.event==='written');assert.ok(author,JSON.stringify(errors));
  const task=JSON.parse(readFileSync(join(author.attempt,'task.json'),'utf8'));
  assert.equal(task.result.outcomes.filter(row=>row.kind==='npc'&&row.status==='changed').length,1);
