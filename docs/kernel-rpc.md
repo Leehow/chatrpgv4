@@ -48824,6 +48824,23 @@ places are read-only; their current feature state is a campaign overlay.
 
 ### 242.2. One location command and one transaction
 
+Ordered observation follow-up (original input60): compile native state commands
+in their submitted order. Do not move every observation behind later moves or
+clock effects. Registration-only additions still precede effects so new place
+and person references can bind; walk_on must precede observations using its slot,
+and scene population follows its actual presence changes. Intermediate selected
+views before a wait use place observe before apply time, rather than being saved
+for a final view. A packet still has at most one destination and never speculates
+about an unknown result. The current rules.bands rows annotate the output schema
+once with handle/covers meanings; they do not change enum acceptance, consent or
+time arithmetic. The host writes this annotation from its existing band read;
+the Keeper chooses an applicable cost only when a separate activity needs it.
+Temporal ordered command history and Game Programming Patterns command replay
+confirm order must be preserved; neither supplies our permission or timing rules
+(https://docs.temporal.io/workflows; https://gameprogrammingpatterns.com/command.html).
+
+
+
 Native preflight follow-up (2026-10-20): the compact and detailed declarations
 both state that a new/unregistered route requires `via`; a registered/retraced
 route may omit it. `inspect` takes only its read fields and never supplies a

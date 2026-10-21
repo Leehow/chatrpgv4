@@ -513,6 +513,7 @@ interface TableState {
 	/** §168.5: the first-sight items each turn's capsule handed the Keeper, and the checks of deliveries still running. */
 	firstSight: FirstSightTracker;
 	packetTimeBands?:string[];
+    packetTimeBandRows?:import("../../runtime/jev/band-shadow-domain.ts").TimeBandRow[];
 	packetSceneRequired?:boolean;
 	packetParameterFailures?:Set<string>;
 	packetParameters?:{turn:number;run?:string;schema:ReturnType<typeof turnPacketParameterSchema>};
@@ -5754,6 +5755,7 @@ export default function (pi: ExtensionAPI, host: {capabilities?:RuntimeCapabilit
         if(state.packetTimeBands)return state.packetTimeBands;
         const rows=await shadowBandRows(state.kernel,'time');
         if(rows?.kind!=='time')throw Error('The native time-band registry is unavailable');
+        state.packetTimeBandRows=rows.rows;
         return state.packetTimeBands=rows.rows.map(row=>row.handle);
     }
     function rememberObservationReferences(state:TableState,view:Record<string,any>|undefined){
@@ -8016,7 +8018,7 @@ export default function (pi: ExtensionAPI, host: {capabilities?:RuntimeCapabilit
 			state.mapAttachments = [];
 			// A new player input is a new context (contract §32.4): no verdict outlives it.
 			state.playerText = text;
-			state.packetTimeBands=undefined;state.packetSceneRequired=undefined;state.packetParameters=undefined;state.packetParameterFailures=undefined;
+			state.packetTimeBands=undefined;state.packetTimeBandRows=undefined;state.packetSceneRequired=undefined;state.packetParameters=undefined;state.packetParameterFailures=undefined;
 			state.interactionScope = undefined;
 			state.interactionScopeSettled = undefined;
 			state.selectedWriting = false;
@@ -8998,7 +9000,7 @@ export default function (pi: ExtensionAPI, host: {capabilities?:RuntimeCapabilit
                 await packetTimeBandHandles(table);
             }
             const choices=keeperRun?.prescreen?.choices?turnPacketMovementChoices(keeperRun.prescreen.choices):undefined;
-            const schema=turnPacketParameterSchema(journeySettled,table?.packetTimeBands,choices,table?.packetSceneRequired??true,table?packetContent(table).bindings():undefined,!!table&&table.locationContextTurn===table.turn);
+            const schema=turnPacketParameterSchema(journeySettled,table?.packetTimeBands,choices,table?.packetSceneRequired??true,table?packetContent(table).bindings():undefined,!!table&&table.locationContextTurn===table.turn,table?.packetTimeBandRows);
             if(table)table.packetParameters={turn:table.turn,run:keeperRun?.runId,schema};
             outgoing=turnPacketProviderPayload(outgoing,schema,table?.interactionScope!=='reference');
         }
