@@ -50270,3 +50270,103 @@ At the dedicated place-tool boundary only, explicit move/feature/observe may spe
 ### Location instruction coexistence (2026-10-20)
 
 Enhanced Locations1.1.23 removes duplicated transport prose already present in its resident and Travel sections, and condenses only repeated continuation guidance. Preserve canonical-state precedence, pending-source uncertainty, ordinary communication and receipt authority. The16384-byte situational-section ceiling remains unchanged: location guidance must leave room for simultaneously selected NPC topic sections. Verify actual provider requests include the asker section alongside location guidance, rather than increasing the cap or weakening topic selection.
+
+## 247. Quick Settlement: routine acts carried as one summarized stretch (owner 2026-10-21)
+
+Spec: `docs/specs/quick-settlement.md`. Owner request (2026-10-21): when one input chains many acts (order a
+coffee, drink it, read the paper, look out of the window), most need neither fine description nor settlement.
+Settle what matters; render the rest as one short description; the acts the player actually cares about are
+checked against the module and, when irrelevant, stay ambient description rather than new entities or clues.
+
+### 247.1 Ownership
+
+An optional built-in Mod, `quick-settlement` (default on). Triage is the Keeper's model judgement over the
+whole input, steered by the Mod's resident instructions; there is no host classifier, keyword list or
+second Keeper. Rules still judge what happened and the module stays reference, not scripture (§1). With the
+Mod off, the packet schema, Keeper instructions and author instruction are byte-identical to the previous
+build.
+
+Rules basis: routine expenses within an investigator's Spending Level are not tracked (Keeper Rulebook,
+Cash and Assets). The kernel already models this (`cash` category `living`, zero delta, §58; daily
+Spending Level ledger, `kernel-ts/apply/purchases.ts`). Quick Settlement lets the Keeper omit that receipt
+entirely for routine food, drink and incidentals; a purchase beyond Spending Level, a quotation the player
+asked for, or a thing kept past the scene still goes through `apply cash`/`item` and its consent path.
+
+### 247.2 Capability and context
+
+`turn.routine-summary.v1` is a Mod capability. While an active package requires it, `mods.context` (and the
+capsule's `mods`) carries `routine_summary: {mod, version}` naming the last such package in load order, the
+same provider rule as `location_context` (§242). No other context, state or receipt is added.
+
+### 247.3 The packet element
+
+While `capsule.mods.routine_summary` is present for the current turn, the native decision packet (§237,
+version 4) accepts one optional top-level element; otherwise the issued schema omits it and a submitted
+`routine` is refused before execution (`invalid_params`, `reason: routine_summary_inactive`):
+
+```
+routine: {
+  acts: string[1..8]            // short public phrases (<=120 chars) for the selected routine acts this
+                                // input carried without separate settlement
+  ambient?: [{                  // <=3 targets the player attended to that carry nothing module-relevant
+    target: string,             // <=80 chars, e.g. "the newspaper on the counter"
+    notes?: string[0..3]        // <=200 chars each: optional period detail, e.g. grounded by native search
+  }]
+}
+```
+
+It is a closed rendering selection, not an effect, event or claim: it writes nothing to world state,
+registers no person, place, object, clue or fact, and creates no receipt. A routine stretch takes time, so the input
+carrying `routine` must have exactly one time charge for the whole stretch: the packet's stationary `time`
+command (one band, or the minutes the player stated), or a `time` receipt an earlier `apply` of this input
+already landed, or the host-settled journey (§237 routine journey). None is refused before execution
+(`invalid_params`, `reason: routine_time_missing`); a second charge is refused as
+`routine_time_repeated`. §216/§218 are unchanged: time is charged once per input.
+
+### 247.4 The author
+
+When the packet carries `routine`, the host adds `decision_context.routine = {acts, ambient?}` to the sole
+author's input and appends the active provider's reference section `Routine summary for the author`
+(resolved by key through `mods.sections`, version-locked like §242's place description) to the author
+system prompt. The section text is Mod-owned; a byte change is a version bump. Its contract: `routine.acts`
+are listed player actions that occurred within the listed time outcome without per-act settlement, rendered
+as one short summary with no prices, item changes or findings; each `ambient` target is described as
+ordinary perceivable surface detail consistent with the clock, place and period (notes optional), and that
+description establishes no person who acts or speaks, no clue and nothing the investigator could pursue.
+`result.player_actions_complete` and "unlisted actions did not occur" keep their meaning for every act not
+in `result.outcomes` or `routine.acts`. When the place-bound author withholds `player_input` (§242), the acts
+still reach the author through `routine.acts`.
+
+### 247.5 Three ends (§31)
+
+- Writer: the Keeper's `output` packet `routine` element, only while the Mod's capability is active.
+- Reader: the host's packet compiler (validation before execution) and the isolated author's
+  `decision_context.routine` plus the Mod's reference section.
+- Actor: the sole author renders one summary; the Keeper charges one time command. Telemetry:
+  `lane: "routine-summary"` records acts/ambient counts per input. No offer ledger or obligation is added.
+
+### 247.6 Evidence and implementation decisions
+
+Sandbox (2026-10-21, MiniMax-M3.1-Flash-Preview/medium, default hybrid-v1 path, same retained seed and
+input, `docs/specs/quick-settlement.md` §4): instruction-only guidance already removed per-act settlement
+(Keeper rounds 3 -> 1, wall 123.2 s -> 63.5 s, receipts cash+npc activity -> time only), but the author
+rendered the newspaper and window as "nothing notable": it had no permission to describe ambient detail,
+and routine acts reached prose only through `player_input` against "unlisted actions did not occur". The
+`routine` element closes that seam. With it (runs `qs-with-c`, `qs-with-pair2`) the Keeper checked relevance with
+two `lookup` calls, charged one time command and listed 3-4 routine acts and two ambient targets; the author
+wrote one summary with period headlines and the street as texture, and no cash or item receipt landed. One run
+(`qs-with-b`) found module-relevant news and took the ordinary clue path. A no-Mod run of the same input
+(`qs-without-pair2`) took 8 tool calls and ended in an admission failure. MiniMax latency varied by more than
+2x between identical runs, so no latency claim is made.
+The shipped 1.0.0 keeps 0.9 KB of resident guidance (the default table had 1.2 KB of its instruction budget
+left) and carries the usage rule in the `routine` field descriptions, which exist only while the capability
+is active. A compressed-guidance run without those descriptions left `routine` empty (hollow result); with
+them both runs (`qs-with-final2`, `qs-with-final3`) listed five routine acts and two ambient targets.
+The declared `output` tool carries `routine` only while the capability is active (re-registered on the turn
+capsule), so non-Anthropic provider payloads, which are not schema-replaced, never see it with the Mod off.
+
+Decisions: the base `TURN_PACKET_PARAMETERS` is unchanged; `TURN_PACKET_ROUTINE_PARAMETERS` is the issued schema
+and the declared `output` tool's parameters while the capability is active, and only then. An
+earlier `time` receipt of the same input counts as the stretch's charge (the first live run charged time in an
+`apply` with a clue, and a packet-only rule refused the summary). The author section is a `reference` section, so
+the package is indexed at any budget, like Enhanced Locations.

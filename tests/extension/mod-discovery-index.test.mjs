@@ -70,8 +70,8 @@ test('the kernel projects a new locked index even under a budget that keeps lega
     const call=(method,args={})=>runtime.handlers[method](args);
     await call('mods.install',{path});
     await call('campaign.create',{id:'discovery',module:'the-haunting',pregen:'thomas-hayes',play_language:'en'});
-    // Keep this legacy-budget fixture separate from the always-indexed location package.
-    await call('mods.configure',{campaign:'discovery',id:'enhanced-locations',enabled:false});
+    // Keep this legacy-budget fixture separate from the always-indexed location and reference-section packages.
+    for(const id of ['enhanced-locations','quick-settlement'])await call('mods.configure',{campaign:'discovery',id,enabled:false});
     const capsule=await call('table.capsule',{campaign:'discovery',rehydrate:true});
     const pacing=capsule.mods.instructions.find(r=>r.mod==='keeper-pacing');
     assert.equal(pacing.version,m.version);assert.equal(pacing.form,'indexed');assert.equal(pacing.index_contract_version,2);

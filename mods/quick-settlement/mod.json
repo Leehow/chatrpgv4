@@ -1,0 +1,27 @@
+{
+  "id": "quick-settlement",
+  "version": "1.0.0",
+  "game_api": "pipicoc.game.v1",
+  "state_version": 1,
+  "author": "PipiCOC",
+  "name": "Quick Settlement",
+  "description": "When one player input chains many acts, the Keeper settles only the acts that matter and carries routine acts as one summarized stretch of time; things the player only looks at without module relevance stay ambient description.",
+  "default_enabled": true,
+  "requires": [
+    "mods.package-files.v1",
+    "instructions.sections.v1",
+    "instructions.sections.reference.v1",
+    "turn.routine-summary.v1"
+  ],
+  "package_files": [
+    "agent.md",
+    "sections.json"
+  ],
+  "dependencies": {},
+  "conflicts": [],
+  "settings": {},
+  "contributes": {
+    "instructions": "agent.md",
+    "sections": "sections.json"
+  }
+}

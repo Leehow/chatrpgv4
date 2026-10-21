@@ -176,6 +176,14 @@ Keeper Context was removed on 2026-10-07. Workspace preferences and guidance bel
 
 **Reads.** `present[]` creature rows (`kind`, `what`, `habits`), `weaknesses` and `false_leads` on actor rows, `look focus=npc` for the whole chain, `mods.thread` lines. **Writes.** `apply npc` (walk-on with `creature`, `disposition`, `action`, `conditions`), `apply dossier` (`habits`, `weaknesses`), ordinary `resolve` and damage.
 
+## 12. Quick Settlement (`quick-settlement` 1.0.0, default on; added 2026-10-21)
+
+**What it is.** Triage for one input that chains many acts (contract §247). Acts that matter -- module-relevant information, a roll for real uncertainty, a voluntary cost beyond Spending Level, state that outlasts the scene -- are settled as before. Routine acts (order a coffee, drink it, glance around) get no per-act item, cash or event receipt and share one time charge; things the player only looks at are checked for module relevance and otherwise stay ambient description.
+
+**Contributes.** `instructions` with one resident section (*Chained routine acts*, 0.9 KB of the shared 64 KiB instruction budget) and one reference section (*Routine summary for the author*), which never reaches the Keeper: the host loads it by key for the sole author when the packet carries `routine`. The reference section keeps the package indexed at any budget. Requires `turn.routine-summary.v1`, which issues the native packet's `routine` element.
+
+**Reads.** The capsule's scene, clues and secrets; `lookup` only when relevance is unclear. **Writes.** One `time` command; the packet's `routine` element (no world state).
+
 ## What the index sees
 
 Of the ten packages, seven contribute Keeper instructions; their full texts total 55 KB and their briefs 4.9–5.0 KB, the ceiling. By section:

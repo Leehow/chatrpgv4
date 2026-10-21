@@ -20,7 +20,7 @@ import type { CocToolSpec } from "./tools.ts";
 import { SENTENCE_MAX } from "./tools.ts";
 import { readJevApiKey } from "../jev/agent/config.js";
 import {SAME_KEEPER_AFTER_RESULT_GUIDANCE} from '../../runtime/keeper-output-guidance.ts';
-import {TURN_PACKET_PARAMETERS,TURN_PACKET_GUIDANCE} from '../../runtime/turn-packet-prototype.ts';
+import {TURN_PACKET_PARAMETERS,TURN_PACKET_ROUTINE_PARAMETERS,TURN_PACKET_GUIDANCE} from '../../runtime/turn-packet-prototype.ts';
 
 export const LEAN_APPLY_ENV = "PI_COC_LEAN_APPLY";
 
@@ -131,7 +131,7 @@ export function leanTools(tools: readonly CocToolSpec[]): readonly CocToolSpec[]
 
 /** The tools this process offers the Keeper. */
 export function offeredTools(tools: readonly CocToolSpec[], env: Readonly<Record<string, string | undefined>> = process.env,
-  capabilities:{memoryQueryAvailable?:boolean}={}): readonly CocToolSpec[] {
+  capabilities:{memoryQueryAvailable?:boolean;routineSummary?:boolean}={}): readonly CocToolSpec[] {
   if(!readJevApiKey(env))tools=tools.map(spec=>{
     if(spec.name!=='lookup')return spec;
     const parameters=cloneSchema(spec.parameters) as Record<string,any>;
@@ -169,7 +169,8 @@ export function offeredTools(tools: readonly CocToolSpec[], env: Readonly<Record
       :'Publish a required mechanical choice using its issued options and binding. '+(env.PI_COC_TURN_PACKET_PROTOTYPE==='1'?'Ordinary dialogue uses the native output packet and its isolated author.':env.PI_COC_ISOLATED_OUTPUT==='1'?'Ordinary dialogue is selected in the private {{compose}} JSON expression brief; the host invokes the isolated author. Use text only for an optional public preface.':'Ordinary dialogue belongs in the final {{public}} reply. Use text only for an optional public preface; no other author is called.')};
   }):tools;
     const declared=env.PI_COC_TURN_PACKET_PROTOTYPE==='1'?current.map(spec=>{
-      if(spec.name==='output')return {...spec,parameters:TURN_PACKET_PARAMETERS,description:TURN_PACKET_GUIDANCE+' Every packet containing a move, including a local place position in the same scene, also includes a scene assessment command. Reuse an unchanged assessment when still current.',promptSnippet:'Submit one private turn packet for settlement and final authoring'};
+      // §247.3: only an active routine-summary package declares the routine element.
+      if(spec.name==='output')return {...spec,parameters:capabilities.routineSummary===true?TURN_PACKET_ROUTINE_PARAMETERS:TURN_PACKET_PARAMETERS,description:TURN_PACKET_GUIDANCE+' Every packet containing a move, including a local place position in the same scene, also includes a scene assessment command. Reuse an unchanged assessment when still current.',promptSnippet:'Submit one private turn packet for settlement and final authoring'};
       if(spec.name==='place'){
         const parameters=cloneSchema(spec.parameters) as Record<string,any>;
         for(const branch of parameters.anyOf??[])if(branch.properties?.op?.const==='submit')

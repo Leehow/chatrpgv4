@@ -6,6 +6,7 @@ import {randomUUID} from 'node:crypto';
 import {STATUS_CODES} from 'node:http';
 import type {HostRuntime} from './host.ts';
 import {locationAuthorPrompt,locationAuthorPacket} from './location-author.ts';
+import {routineAuthorPrompt,routineAuthorPacket} from './routine-author.ts';
 import {readAuthorModelChoice} from './author-model.ts';
 import {ArtifactTextStream} from './final-output-stream.ts';
 import {AuthorPartsStream} from './author-parts-stream.ts';
@@ -27,6 +28,8 @@ export interface ExpressionBrief {
 }
 export interface DecisionAuthorContext {
   location_description?:Row;
+  /** §247.4: routine acts carried as one stretch and ambient targets, with the provider's author section. */
+  routine?:Row;
   scene:Record<string,unknown>;
   clock:Record<string,unknown>;
   responses:HydratedInteraction[];
@@ -200,8 +203,8 @@ export async function writeIsolatedExpression(input:{runtime:HostRuntime;campaig
     packet_bytes:Buffer.byteLength(JSON.stringify(packet)),context:player_input===undefined?'brief_only':'brief_and_player_input',...(keeper_only?{keeper_only}:{})});
   if(input.decision)return writeDirectProse({runtime,packet,profile,attempt,campaign,turn,run,signal,stream,record});
   try {
-    const outcome=await runtime.runTask({kind:'reader',request:{cwd:attempt,systemPrompt:(input.decision?DECISION_AUTHOR_INSTRUCTION+LOCATION_AUTHOR_NOTE:EXPRESSION_INSTRUCTION)+AUTHOR_TRANSPORT+locationAuthorPrompt(packet),
-      brief:JSON.stringify(locationAuthorPacket(packet)),...profile,pinnedModel:true,tools:'read,write,edit,bash',finalOutput:true,
+    const outcome=await runtime.runTask({kind:'reader',request:{cwd:attempt,systemPrompt:(input.decision?DECISION_AUTHOR_INSTRUCTION+LOCATION_AUTHOR_NOTE:EXPRESSION_INSTRUCTION)+AUTHOR_TRANSPORT+locationAuthorPrompt(packet)+routineAuthorPrompt(packet),
+      brief:JSON.stringify(locationAuthorPacket(routineAuthorPacket(packet))),...profile,pinnedModel:true,tools:'read,write,edit,bash',finalOutput:true,
       timeoutMs:120000,maxRequests:4,eventLog:join(attempt,'events.jsonl'),onEvent:event=>{
         if(failure)return;
         try {
@@ -305,8 +308,8 @@ async function writeDirectProse(input:{runtime:HostRuntime;packet:Row;profile:{m
   if(delta){transport.first_at||=Date.now();transport.last_at=Date.now();transport.chunks++;stream.push(delta);}
  };
  try{
-  const outcome=await runtime.runTask({kind:'reader',request:{cwd:attempt,brief:JSON.stringify(locationAuthorPacket(packet)),
-   systemPrompt:DECISION_AUTHOR_INSTRUCTION.replace('using the final artifact transport','using the direct text transport')+LOCATION_AUTHOR_NOTE+locationAuthorPrompt(packet)
+  const outcome=await runtime.runTask({kind:'reader',request:{cwd:attempt,brief:JSON.stringify(locationAuthorPacket(routineAuthorPacket(packet))),
+   systemPrompt:DECISION_AUTHOR_INSTRUCTION.replace('using the final artifact transport','using the direct text transport')+LOCATION_AUTHOR_NOTE+locationAuthorPrompt(packet)+routineAuthorPrompt(packet)
     +' Direct text transport: the complete input is above. Return only ordinary story text. No JSON, public framing, file artifact, tool call or acknowledgment is needed.',
    ...profile,pinnedModel:true,tools:'',finalOutput:true,finalText:true,maxRequests:1,timeoutMs:120000,eventLog:join(attempt,'events.jsonl'),onEvent:event=>{
     if(failure)return;

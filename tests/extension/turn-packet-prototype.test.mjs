@@ -517,7 +517,7 @@ for(const mode of ['accepted','refused','dialogue','sparse-dialogue','wrapped-di
   }else {packet.interactions[0].actor=capsule.present.find(row=>row.name==='Steven Knott').ref;const content=packet.interactions[0].content.item??packet.interactions[0].content;content[0].new.actor=packet.interactions[0].actor;content[0].new.to=capsule.where.scene;}
  }
  await table.session.prompt(mode==='activity'?'I spend a few minutes arranging my notes.':mode==='refused'?'I stay at the desk. I do not leave.':mode.endsWith('dialogue')?'I ask Knott when he can meet.':mode==='planned'?'I might go to the library later.':'I walk along the street to the Central Library.');
- assert.deepEqual(table.extensionErrors,[]);assert.equal(requests,1);assert.equal(submittedSchema.parameters.additionalProperties,false);assert.deepEqual(Object.keys(submittedSchema.parameters.properties),['version','commands','interactions','reveal']);
+ assert.deepEqual(table.extensionErrors,[]);assert.equal(requests,1);assert.equal(submittedSchema.parameters.additionalProperties,false);assert.deepEqual(Object.keys(submittedSchema.parameters.properties),['version','commands','interactions','reveal','routine'],'the default Mod set includes Quick Settlement (§247.3)');
  const rows=table.telemetry(),writes=rows.filter(r=>r.lane==='turn-packet-prototype');
  assert.equal(rows.filter(r=>r.lane==='run'&&r.type==='step_start'&&r.kind==='infer').length,mode==='unknown-dialogue'?2:1,'count actual inference steps: '+JSON.stringify(rows.filter(r=>r.lane==='keeper-delivery'||r.lane==='tool').slice(-4)));
  assert.equal(batches.filter(b=>b.family==='continuous-action-admission').length,['accepted','refused','activity'].includes(mode)?1:0);
