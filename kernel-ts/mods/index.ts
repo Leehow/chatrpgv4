@@ -25,9 +25,9 @@ import { packageSections, sectioned, sectionKey } from '../read/sections.js';
 import {EquipmentJobs} from './equipment.js';
 import {stageLocation} from './locations.js';
 import {isAmbiguity} from '../read/module-graph.js';
-import {locationView,locationProvider,locationCandidates} from '../read/locations.js';
+import {locationView,locationProvider,locationCandidates,locationFeature} from '../read/locations.js';
 import {PlaceParameters,PlaceEffect} from '../../shared/place-structures.js';
-import {locationObservationView,locationRelations} from '../read/location-observations.js';
+import {locationObservationView,locationRelations,locationInspectionPoint} from '../read/location-observations.js';
 import {committedOnLine} from '../read/exchange.js';
 export { validateDefinition, validateDocumentSeed, definitionExpression } from './definition.js';
 export { projectInventory, projectSheet, weaponRows } from './projection.js';
@@ -108,10 +108,13 @@ export function createModRuntime(context: KernelContext, sources: ModSources = {
         try{
             if(params.need==='observation')return {...availability,observation:locationObservationView(module.graph,campaign.world,params,
                 committedOnLine(campaign,await campaign.turnRecords()).records,row(await campaign.optional('npc-journal.json')))};
-            const place=locationView(module.graph,campaign.world,params.name);
+            const target=locationInspectionPoint(module.graph,campaign.world,params),place=locationView(module.graph,campaign.world,target.place);
             const relations=locationRelations(campaign.world).filter(relation=>relation.from.place===place.name||relation.to.place===place.name).slice(0,8)
                 .map(({from,to,sense,description})=>({from,to,sense,description}));
-            return {...availability,place:{...place,...(relations.length?{relations}:{})},catalogue:locationCandidates(module.graph,campaign.world)};
+            return {...availability,reference:{kind:target.at!==undefined?'feature':target.spot!==undefined?'spot':'place',...target},
+                place:{...place,...(relations.length?{relations}:{})},
+                ...(target.at!==undefined?{target_feature:Object.fromEntries(Object.entries(locationFeature(campaign.world,target.place,target.at)).filter(([key])=>['name','description','state','passable'].includes(key)))}:{}),
+                ...(target.spot!==undefined?{target_spot:target.spot}:{}),catalogue:locationCandidates(module.graph,campaign.world)};
         }
         catch(error){
             if(!(error instanceof RpcError)||error.code!=='unknown_entity'||error.details?.reason==='ambiguous'||isAmbiguity(error))throw error;

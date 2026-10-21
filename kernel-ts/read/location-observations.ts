@@ -1,8 +1,8 @@
 /** Directed perception and last-seen projections; reads never advance the world. */
-import type {ModuleGraph} from './module-graph.js';
+import {isAmbiguity,type ModuleGraph} from './module-graph.js';
 import {clockSection,npcsPresent,npcReferenceView,untoldBlock,publicSceneLabel} from './capsule.js';
 import {npcActivityView} from './temporal.js';
-import {locationStates,locationPlace,locationFeature,locationPosition} from './locations.js';
+import {locationStates,locationPlace,locationFeature,locationPosition,qualifiedLocationFeature} from './locations.js';
 import {array,clone,number,row,type Row} from './values.js';
 import {Check} from 'typebox/value';
 import {SpatialPoint} from '../../shared/place-structures.js';
@@ -21,6 +21,19 @@ export function observationPoint(graph:ModuleGraph,world:Row,value:Row):Row {
             details:{reason:'place_point_shape'}});
     const place=graph.handle(locationPlace(graph,world,value.place));
     return {place,...pointDetail(value),...(value.at!==undefined?{at:locationFeature(world,place,value.at).name}:{})};
+}
+/** Read-only resolution accepts the catalogue's exact feature reference without changing write grammar. */
+export function locationInspectionPoint(graph:ModuleGraph,world:Row,params:Row):Row {
+    let place=params.name??'here',at=params.at;
+    if(at===undefined&&params.spot===undefined)try{locationPlace(graph,world,place);}
+    catch(error){
+        if(!(error instanceof RpcError)||error.code!=='unknown_entity'||error.details?.reason==='ambiguous'||isAmbiguity(error))throw error;
+        const feature=qualifiedLocationFeature(world,place);
+        if(!feature)throw error;
+        place=feature.place;at=feature.at;
+    }
+    return observationPoint(graph,world,{place,...(at!==undefined?{at}:{}),
+        ...Object.fromEntries(['spot','relation'].filter(key=>params[key]!==undefined).map(key=>[key,params[key]]))});
 }
 export function currentObservationPoint(graph:ModuleGraph,world:Row):Row {
     const position=locationPosition(world);
@@ -68,7 +81,7 @@ export function observationRoutes(graph:ModuleGraph,world:Row):Row[] {
 }
 /** Caller supplies already committed current-line deliveries, not raw unpublished records. */
 export function locationObservationView(graph:ModuleGraph,world:Row,params:Row={},records:Row[]=[],journal:Row={}):Row {
-    const from=currentObservationPoint(graph,world),to=observationPoint(graph,world,{place:params.name??'here',...Object.fromEntries(['at','spot','relation'].filter(key=>params[key]!==undefined).map(key=>[key,params[key]]))}),sense=params.sense??'sight';
+    const from=currentObservationPoint(graph,world),to=locationInspectionPoint(graph,world,params),sense=params.sense??'sight';
     const key=spatialPointKey(to),clock=clockSection(graph,world);
     const same=(observation:Row)=>spatialPointKey(row(observation.to))===key&&observation.sense===sense;
     const deliveries=records.filter(record=>record.commit&&record.interaction_scope!=='reference'&&record.interaction_scope!=='uncertain')

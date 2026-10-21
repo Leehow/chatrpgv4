@@ -50908,3 +50908,25 @@ publish an extra answer nor permanently demote subsequent corrections to OOC.
 A standalone reference reply still uses table.reference.answer and its explicit
 reference publication metadata; genuine reference-only inputs retain their tool
 guard. No scope threshold, retry ceiling, timeout or action permission changes.
+
+### Readable typed location references (2026-10-21)
+
+A context or observation inspection reuses an exact registered place first. If
+that lookup fails without ambiguity, the exact qualified name of a stored feature
+can identify its canonical owning place and at field for this read. Never split
+an arbitrary name, infer a missing definition, or silently reinterpret a write.
+Explicit at/spot shape guards remain, and a real exact child place wins over a
+feature display path. Unknown and ambiguous references remain unresolved.
+
+Context reads expose reference with kind place/feature/spot and its canonical
+spatial point, plus target_feature or target_spot when selected. Catalogue rows
+carry that reference and an executable inspect read pointer; existing fields
+remain. The demand identity projection preserves both fields. Observation reads
+use the same resolver and retain the canonical target in observation.to. A write
+that mistakes a known qualified feature for a place still refuses atomically,
+with its exact canonical point in correction details. Registration, movement,
+perception, access and elapsed time retain their existing separate authorities.
+
+The registry writes identity; the current read and host projection expose it;
+the Keeper submits the selected ordinary command using the returned place/at.
+No new review, permission, timeout, fallback or content limit is introduced.

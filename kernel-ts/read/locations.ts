@@ -14,6 +14,14 @@ export function locationStates(world:Row):Row[] {
 }
 export function locationPlaces(world:Row):Row[] {return locationStates(world).flatMap(state=>array(state.places));}
 export function locationFeatures(world:Row):Row[] {return locationStates(world).flatMap(state=>array(state.features));}
+/** Match only an actual stored qualified feature name; never parse arbitrary path text. */
+export function qualifiedLocationFeature(world:Row,name:unknown):Row|undefined {
+    if(typeof name!=='string')return;
+    const matches=locationFeatures(world).filter(feature=>normalize(`${feature.place} / ${feature.name}`)===normalize(name));
+    if(matches.length>1)throw new RpcError('unknown_entity','The qualified feature reference is ambiguous',{
+        fix:'Inspect the intended owning place and name its exact feature explicitly.',details:{reason:'ambiguous',candidates:matches.map(feature=>({place:feature.place,at:feature.name}))}});
+    return matches.length===1?{place:matches[0].place,at:matches[0].name}:undefined;
+}
 export function locationPolicyApplies(graph:ModuleGraph,world:Row,...places:Row[]):boolean {
     return places.some(node=>locationPlaces(world).some(place=>place.id===node.node_id)||locationFeatures(world).some(feature=>feature.place===graph.handle(node)));
 }
@@ -46,10 +54,12 @@ export function locationPlace(graph:ModuleGraph,world:Row,name:unknown):Row {
 export function locationCandidates(graph:ModuleGraph,world:Row,limit=24):Row[] {
     const current=graph.handle(graph.scene(world.active_scene)),stored=locationPlaces(world),features=locationFeatures(world);
     const featureRows:Row[]=[...features.filter(feature=>feature.place===current),...features.filter(feature=>feature.place!==current)].map(feature=>({
-        name:`${feature.place} / ${feature.name}`,kind:'feature',place:feature.place,feature:feature.name,origin:'mod',summary:feature.description}));
+        name:`${feature.place} / ${feature.name}`,kind:'feature',place:feature.place,feature:feature.name,origin:'mod',summary:feature.description,
+        reference:{kind:'feature',place:feature.place,at:feature.name},read:{action:'inspect',need:'context',name:feature.place,at:feature.name}}));
     const placeRow=(place:Row):Row=>({name:graph.handle(place),display_name:graph.displayName(place),kind:'place',
         origin:stored.some(record=>record.id===place.node_id)?'mod':graph.isTableEntity(place)?'table':'source',
-        ...(destinationIdentity(place)?{identity:destinationIdentity(place)}:{}),summary:graph.summary(place).slice(0,300)});
+        ...(destinationIdentity(place)?{identity:destinationIdentity(place)}:{}),summary:graph.summary(place).slice(0,300),
+        reference:{kind:'place',place:graph.handle(place)},read:{action:'inspect',need:'context',name:graph.handle(place)}});
     const groups=[[placeRow(graph.scene(current))],graph.scenes().filter(place=>!graph.isTableEntity(place)).map(placeRow),
         stored.slice().reverse().map(place=>placeRow(graph.scene(place.name))),featureRows,
         graph.scenes().filter(place=>graph.isTableEntity(place)&&!stored.some(record=>record.id===place.node_id)).map(placeRow)];

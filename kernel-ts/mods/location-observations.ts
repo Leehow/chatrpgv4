@@ -5,14 +5,18 @@ import {RpcError} from '../errors.js';
 import {clockSection,npcNode,npcsPresent} from '../read/capsule.js';
 import {currentObservationPoint,observationPoint,spatialPointKey,matchingObservationRelations,locationSituations} from '../read/location-observations.js';
 import {array,clone,normalize,row,type Row} from '../read/values.js';
+import {qualifiedLocationFeature} from '../read/locations.js';
+import {isAmbiguity} from '../read/module-graph.js';
 
 function point(context:ApplyContext,value:Row,field:string):Row {
     try{return observationPoint(context.graph,context.world,value);}
     catch(error){
         if(!(error instanceof RpcError)||error.code!=='unknown_entity')throw error;
+        const reference=value.at===undefined&&value.spot===undefined&&error.details?.reason!=='ambiguous'&&!isAmbiguity(error)?qualifiedLocationFeature(context.world,value.place):undefined;
         throw new RpcError('invalid_params','The observation point needs its exact identity or minimal compatible definition',{
-            fix:'Use the intended exact place/feature. An at value must be a feature inside its place: add it with additions:[{name:place,features:[{name:at,description:...}]}], not as a child place. For ordinary observation, use view to describe the path from the actual current viewpoint; a door along that path is not the observer position. Missing registration is not a physical obstruction.',
-            details:{...error.details,reason:'place_observation_point_unresolved',field,requested:value,current_viewpoint:currentObservationPoint(context.graph,context.world)}});
+            fix:(reference?`This exact reference identifies a registered feature. Use the canonical spatial point ${JSON.stringify(reference)}; a direct observe command uses its place as to and its at as at. The feature needs no new definition. `:'')+
+                'Use the intended exact place/feature. An at value must be a feature inside its place: add it with additions:[{name:place,features:[{name:at,description:...}]}], not as a child place. For ordinary observation, use view to describe the path from the actual current viewpoint; a door along that path is not the observer position. Missing registration is not a physical obstruction.',
+            details:{...error.details,reason:'place_observation_point_unresolved',field,requested:value,...(reference?{reference:{kind:'feature',...reference}}:{}),current_viewpoint:currentObservationPoint(context.graph,context.world)}});
     }
 }
 
