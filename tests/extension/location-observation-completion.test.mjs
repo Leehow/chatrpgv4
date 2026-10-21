@@ -93,7 +93,7 @@ test('native standalone location settlement precedes a selected wait and final o
    return fauxAssistantMessage([fauxToolCall('place',{op:'inspect',change:{action:'move',to:scene,at:'street window'}})],{stopReason:'toolUse'});
   },async()=>{
    const refusal=table.session.messages.findLast(row=>row.role==='toolResult'&&row.toolName==='place');
-   assert.equal(refusal.isError,true);assert.match(JSON.stringify(refusal.content),/explicitly retry with the intended action/);
+   assert.equal(refusal.isError,true);assert.equal(refusal.details.coc_error.details.reason,'place_mode_conflict');assert.match(refusal.details.coc_error.fix,/action:"move"/);
    const status=await table.runtimeBridges().at(-1).call('table.status',{campaign:'test-camp',projection:'receipts'});
    assert(!status.receipts.some(row=>row.kind==='place'&&row.action==='move'),'a conflicting read must not commit movement');
    return fauxAssistantMessage([fauxToolCall('place',{action:'move',name:scene,at:'street window',relation:'beside',additions:[{name:scene,features:[{name:'street window',description:'A tall window overlooking the pavement.'}]}]})],{stopReason:'toolUse'});

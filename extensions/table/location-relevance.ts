@@ -52,7 +52,7 @@ function satisfactionAvailable(input:Row,axis:typeof axes[number]):boolean {
  if(axis==='move')return !!input.current_position&&typeof input.current_place==='string'&&input.current_position.place===input.current_place;
  return Array.isArray(input.features)&&input.features.some((feature:Row)=>typeof feature.state==='string'||typeof feature.passable==='boolean');
 }
-const movementSatisfaction="Does location_steps represent the route selected in player_declaration, with each requested intermediate stop and return in order? Each destination is a movement endpoint; the initial starting point is not an extra visit. Committed steps have already happened. Proposed steps are explicit moves queued for this batch and count for this pre-execution route check. A wait is not a movement endpoint. Merely ending at the starting place does not represent an omitted intermediate visit. Judge this route representation, not whether proposed steps already happened or whether prior prose describes them. When no destination is recorded, current_position can satisfy only a stationary request without an omitted intervening visit. Being in the same enclosing place does not establish a requested window, desk or corner.";
+const movementSatisfaction="Does location_steps represent the route selected in player_declaration, with each requested intermediate stop and return in order? Each destination is a movement endpoint; the initial starting point is not an extra visit. Committed steps have already happened. Proposed steps are explicit moves queued for this batch and count for this pre-execution route check. A wait is not a movement endpoint. Merely ending at the starting place does not represent an omitted intermediate visit. Judge this route representation, not whether proposed steps already happened or whether prior prose describes them.";
 /** Exact read facts, not a possibly cropped capsule or a catalogue of unrelated places. */
 export function locationCoverageContext(read:Row,operations:readonly Row[]):Row {
  const place=read.place;
@@ -77,11 +77,14 @@ export function locationRouteBatch(input:Row,binding:Row):DecisionBatch {
   if(row.kind==='time')return {stage,...(row.until?{wait_until:row.until}:row.minutes!==undefined?{wait_minutes:row.minutes}:{wait:true})};
  };
  const location_steps=[...(input.settled_receipts??[]).map((row:Row)=>project(row,'committed')),...(input.proposed_effects??[]).map((row:Row)=>project(row,'proposed'))].filter(Boolean);
- const state={player_declaration:input.player_declaration,location_steps,...(!location_steps.some((step:Row)=>step.destination)?{current_position:input.current_position??null}:{})};
+ const state={player_declaration:input.player_declaration,location_steps,...(!location_steps.some((step:Row)=>step.destination)?{current_position:input.current_position?namedPoint(input.current_position,input):null}:{})};
+ const occupied=Object.hasOwn(state,'current_position');
  const revision=createHash('sha256').update(JSON.stringify(state)).digest('hex');
- return {id:'location-route-coverage:v2:'+revision,model:JEV_MODEL,family:'location-route-coverage',familyVersion:'2',scope:{owner:'location-route-coverage',campaign:binding.campaign,audience:'keeper'},
+ return {id:'location-route-coverage:v3:'+revision,model:JEV_MODEL,family:'location-route-coverage',familyVersion:'3',scope:{owner:'location-route-coverage',campaign:binding.campaign,audience:'keeper'},
   readSet:[{kind:'draft',resource:'turn:'+binding.turn+':route',revision}],state:state as Json,
-  questions:[{key:'move_satisfied',type:'noul',target:'location_steps',instructions:movementSatisfaction}]};
+  questions:[{key:'move_satisfied',type:'noul',target:occupied?'current_position':'location_steps',instructions:occupied
+   ?'Does canonical current_position already occupy the destination and exact local feature selected in player_declaration, with no selected departure, intermediate visit or return still unrepresented? An already occupied endpoint needs no redundant move, even when the declaration says to walk there. A position at another feature or only in the same enclosing place is insufficient. An unrecorded intervening journey cannot be inferred from current position. Judge the recorded position against the complete selected movement, not whether a new movement receipt exists.'
+   :movementSatisfaction}]};
 }
 /** Perception coverage reads perception evidence; other proposed acts remain with their own owners. */
 export function locationObservationBatch(input:Row,binding:Row):DecisionBatch {

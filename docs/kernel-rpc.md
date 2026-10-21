@@ -48843,6 +48843,18 @@ and every effect validator unchanged. Verify the actual Responses payload for
 every offered tool root, plus refusal of missing effects and unowned prose.
 See https://docs.x.ai/developers/tools/function-calling (Parameter Schema).
 
+Completion of an already occupied endpoint (2026-10-20): a failed publication
+can leave a local move settled in the previous input. The route reviewer must
+compare the requested endpoint with canonical current position, including its
+exact feature, before demanding a redundant move. Current position may satisfy
+a single already occupied endpoint, but never an omitted intermediate trip or
+another feature in the same enclosing place. Preserve ordered route checks and
+the same semantic .60/.40 gates; add no string-based intent classifier or fake
+receipt. Existing-position proof carries display identity like a move endpoint.
+This follows current/desired-state comparison (Kubernetes Controllers) and
+semantic retry equivalence (AWS Builders' Library), without importing either
+system's architecture or retry authority.
+
 The model-facing `place` tool has two operations:
 
 - `inspect`: optional `name` (default current place), `need: context|contract`.

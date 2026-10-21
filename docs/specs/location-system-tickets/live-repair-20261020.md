@@ -629,8 +629,9 @@ Latest0d full all captured00:21:24Z; another chat detected a two-second busy-gua
 race and stopped only its own focused suite. Keep concurrent timing evidence;
 do not start another same-box heavy suite before this all ends.
 
-Original turn38 encountered repeated MiniMax529 and only inspected the contract;
-no location write landed. User temporarily selected/authorized Grok4.5/medium
+Original turn38 encountered repeated MiniMax529; Keeper tools only inspected the
+contract, but the host committed a local move to the pharmacy window before the
+provider failure. Preserve that receipt. User selected/authorized Grok4.5/medium
 for subsequent real play and its supporting generative lanes. Session model_change
 00:22:58Z confirms grok-build/grok-4.5; medium is unchanged. This mixed/failing
 turn is not acceptance. The first Grok request failed before sampling with400
@@ -639,3 +640,19 @@ type. A new test over the actual Responses payload is red on that same branch.
 Replace the single required-only anyOf refinement with root required effects,
 keeping equivalent closed validation, all tools and effects. No global provider
 default or game semantics change. Need package and original-session acceptance.
+
+39190c9f1 clean focused10/10 and fast130/130; packaged00:26:48Z. Original
+Grok39 ended naturally at UI1min35 with3errors and no story. The current pose
+already held the prior input's committed window move. Observations/time2min
+landed; output falsely required another move, whose redundant retry was held.
+This is not acceptance. Evidence grok-round39-coverage.json, turn0038 receipt
+and49-grok-round39-position-failure.txt. Diagnostics do not mutate the campaign.
+Old route question scored occupied endpoint .20; a wording-only correction .30
+still held and is insufficient. Focus the no-endpoint question on current_position
+instead of location_steps, retaining exact feature/display identity. Current
+position proof scores .76; wrong feature .57 remains held, omitted intermediate
+round trip .17 remains rejected. Same .60/.40 thresholds. Full ordered route
+proof still owns any recorded endpoints. Preserve all failed diagnostic attempts.
+Precedent: Kubernetes Controllers/current-vs-desired state and AWS Builders'
+Library semantic retry equivalence confirm comparing desired/current results;
+neither authorizes inferring an omitted trip. No duplicate move receipt added.
