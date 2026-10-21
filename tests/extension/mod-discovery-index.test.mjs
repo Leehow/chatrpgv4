@@ -52,7 +52,7 @@ test('invalid dependency, applicability and hidden resident metadata are rejecte
     assert.throws(()=>api.parseSections(manifest,{...index,sections:index.sections.slice(0,1)},markdown),/every ## heading/);
 });
 
-test('the kernel projects a new locked index even under a budget that keeps legacy packages full',async t=>{
+test('the kernel projects a new locked index beside schema-1 packages',async t=>{
     const home=await mkdtemp(join(temp,'home-')),path=join(temp,'package');
     await cp(join(root,'mods/keeper-pacing'),path,{recursive:true});
     const m=JSON.parse(await readFile(join(path,'mod.json'),'utf8'));
@@ -70,11 +70,13 @@ test('the kernel projects a new locked index even under a budget that keeps lega
     const call=(method,args={})=>runtime.handlers[method](args);
     await call('mods.install',{path});
     await call('campaign.create',{id:'discovery',module:'the-haunting',pregen:'thomas-hayes',play_language:'en'});
-    // Keep this legacy-budget fixture separate from the always-indexed location and reference-section packages.
     for(const id of ['enhanced-locations','quick-settlement'])await call('mods.configure',{campaign:'discovery',id,enabled:false});
     const capsule=await call('table.capsule',{campaign:'discovery',rehydrate:true});
     const pacing=capsule.mods.instructions.find(r=>r.mod==='keeper-pacing');
     assert.equal(pacing.version,m.version);assert.equal(pacing.form,'indexed');assert.equal(pacing.index_contract_version,2);
     assert.ok(pacing.sections.every(s=>s.applicability&&s.category));
-    assert.ok(capsule.mods.instructions.filter(r=>r.mod!=='keeper-pacing').every(r=>r.form==='full'));
+    // §248.1: schema-1 sectioned packages are indexed too, without the version-2 contract; unsectioned ones are whole.
+    for(const row of capsule.mods.instructions.filter(r=>r.mod!=='keeper-pacing'))
+        assert.equal(row.form,Array.isArray(row.sections)?'indexed':'full',row.mod);
+    assert.ok(capsule.mods.instructions.filter(r=>r.mod!=='keeper-pacing').every(r=>r.index_contract_version===undefined));
 });

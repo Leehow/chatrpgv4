@@ -50404,7 +50404,9 @@ package no longer has situational ranges in the brief to screen.
 An indexed row's `instruction` is, joined by blank lines: the lead, the resident sections' text, and the section index.
 - Lead: "Further sections of this package are listed below. The host sends one in coc-mod-sections when the table's
   state or a call this turn needs it; read any other the turn needs with the mod tool and its exact name."
-- Index: a `Sections:` line, then one line per situational or reference section in `sections.json` order:
+- Index: a `Sections:` line, then one line per situational section in `sections.json` order (a reference section is
+  its own consumer's, §242 and §247.4, and is neither listed nor read by `mod`; its row in `sections[]` carries
+  `kind: "reference"`):
   `- "<mod>: <heading>"` (`Package core` for the preamble) and, when it has them, ` topics: <ids>` and
   ` sent on: <triggers and kernel gates>`.
 
@@ -50431,8 +50433,7 @@ section, version, text}]}` for a schema-1 indexed row of the current capsule, re
 key; it is not entered in §228's disclosure (the tool result stays in the run). An unknown name answers
 `{status: "not_found", name, names}` with the listed names. `mod` writes nothing, spends no time and changes no turn
 state; it is the tenth name of `COC_TOOL_NAMES`, offered on every table. Schema-2 names keep §228's
-`lookup kind capability` path. Reference sections (§242,
-§247.4) are listed and may be read the same way; their own consumers keep reading them by key.
+`lookup kind capability` path.
 
 Telemetry: `lane: "mod-sections"`, `event: "pull_mode"` once per input; `selected` rows carry `why` (`due`,
 `call:<trigger>`, `gate`); `lane: "mod-sections"`, `event: "read"` with the key for each Keeper read.

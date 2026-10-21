@@ -881,7 +881,7 @@ function instructionRows(effective: Row[], world: Row): Row[] {
         // The examples ride with the resident text, as they rode with the whole text (§248.2).
         const resident = residentText(string(mod.id), sections) + cards;
         return { ...base, form: "indexed", instruction: resident,...(discovery?{index_contract_version:2}:{}),
-            sections: sections.flatMap((section, ordinal) => section.kind === "resident" ? [] : [{ key: sectionKey(mod, ordinal), heading: section.heading,
+            sections: sections.flatMap((section, ordinal) => section.kind === "resident" ? [] : [{ key: sectionKey(mod, ordinal), heading: section.heading, ...(section.kind === "reference" ? { kind: "reference" } : {}),
                 topics: [...section.topics], gates: [...section.gates], triggers: [...section.triggers], topic_threshold: section.topic_threshold,
                 ...(section.index_contract_version===2?{applicability:section.applicability,category:section.category,dependencies:section.dependencies}:{}),
                 bytes: Buffer.byteLength(section.text, "utf8") }]) };

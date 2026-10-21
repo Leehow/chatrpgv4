@@ -10,10 +10,12 @@ import {createHybridEngine} from './hybrid-engine-fixture.mjs';
 
 const root = resolve(import.meta.dirname, '../..');
 const manifest = JSON.parse(await readFile(join(root, 'mods/narration-craft/mod.json'), 'utf8'));
-const full = await readFile(join(root, 'mods/narration-craft/agent.md'), 'utf8');
 const style = JSON.parse(await readFile(join(root, 'mods/narration-craft/style.json'), 'utf8'));
 const messageText = message => typeof message.content === 'string' ? message.content
   : (message.content ?? []).filter(part => part.type === 'text').map(part => part.text).join('\n');
+/** §248.2: the shipped package rides indexed: its resident sections and the index of the rest, never a situational body. */
+const residentOf = row => row.form === 'indexed' && row.instruction.includes('## This turn\n') && !row.instruction.includes('## Opening the table\n')
+  && row.instruction.includes('"narration-craft: Opening the table"');
 const craftOf = context => {
   const text = context.messages.map(messageText).find(text => text.includes('"kind":"context_brief"'));
   assert.ok(text, 'the real provider receives the host briefing');
@@ -78,7 +80,7 @@ for (const engine of ['legacy', 'hybrid-v1']) test(`craft guidance follows activ
   await table.session.prompt('I ask whether the office is quiet.');
   assert.ok(requests.length, JSON.stringify({errors: table.extensionErrors, messages: table.session.messages.slice(-3).map(message => ({role: message.role, type: message.customType, error: message.errorMessage, text: messageText(message).slice(0, 500)})), notices: table.ui}));
   assert.equal(craftOf(requests[0]).version, manifest.version);
-  assert.equal(craftOf(requests[0]).instruction, full);
+  assert.ok(residentOf(craftOf(requests[0])), 'the shipped package rides indexed (§248.1)');
   const firstRequest = requests[0].messages.map(messageText).join('\n');
   for (const axis of style.axes) assert.ok(firstRequest.includes(axis), 'the actual Keeper request receives the active style axes');
   for (const directive of Object.values(style.directives))
@@ -87,15 +89,14 @@ for (const engine of ['legacy', 'hybrid-v1']) test(`craft guidance follows activ
   const pending = changes[0].mods.find(row => row.id === manifest.id);
   assert.equal(pending.active.settings.density_guide, 'off');
   assert.equal(pending.pending.settings.density_guide, 'on', 'busy-table changes remain pending');
-  assert.equal(capsules[0].mods.instructions.find(row => row.mod === manifest.id).form, 'full');
+  assert.equal(capsules[0].mods.instructions.find(row => row.mod === manifest.id).form, 'indexed');
 
   await table.session.prompt('I ask the same simple question.');
   assert.equal(craftOf(requests[1]).settings.density_guide, 'on', 'pending settings refresh the briefing without a source change');
-  // §183: the brief is retired. A later turn's actual request carries the whole instruction, as the first one did.
+  // §183, §248: the brief is retired; a later turn's actual request carries the resident instruction, as the first one did.
   const later = capsules.at(-1).mods.instructions.find(row => row.mod === manifest.id);
-  assert.equal(later.form, 'full');
-  assert.equal(craftOf(requests[1]).form, 'full');
-  assert.equal(craftOf(requests[1]).instruction, full, 'the later request carries the whole instruction');
+  assert.equal(later.form, 'indexed');
+  assert.ok(residentOf(craftOf(requests[1])), 'the later request carries the resident instruction');
   const laterRequest = requests[1].messages.map(messageText).join('\n');
   for (const axis of style.axes) assert.ok(laterRequest.includes(axis), 'the every-turn axes remain in the actual request');
   for (const directive of capsules.at(-1).style.directives)
@@ -123,7 +124,7 @@ for (const engine of ['legacy', 'hybrid-v1']) test(`craft guidance follows activ
   await configure({version: manifest.version});
   await table.session.prompt('I ask for a clear answer.');
   assert.equal(craftOf(requests[4]).version, manifest.version);
-  assert.equal(craftOf(requests[4]).instruction, full);
+  assert.ok(residentOf(craftOf(requests[4])));
   assert.equal(craftOf(requests[4]).settings.density_guide, 'on');
   assert.equal(await readFile(join(oldPath, 'agent.md'), 'utf8'), legacyBytes, 'upgrades never edit the old package source');
   assert.equal(requests.length, 5, 'guidance adds no Keeper model round trip');

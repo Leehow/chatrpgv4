@@ -263,9 +263,10 @@ export const INDEXED_LEAD = "Further sections of this package are listed below. 
     + "or a call this turn needs it; read any other the turn needs with the mod tool and its exact name.";
 /** The name a section is listed and read by (§248.2): `<mod>: <heading>`, the preamble as `Package core`. */
 export const sectionName = (mod: string, heading: string | null): string => `${mod}: ${heading ?? "Package core"}`;
-/** The text an indexed row carries every turn (§248.2): the lead, the resident sections, then the other sections' index. */
+/** The text an indexed row carries every turn (§248.2): the lead, the resident sections, then the situational sections'
+ *  index. A reference section is its own consumer's (§242, §247.4) and is not listed. */
 export function residentText(mod: string, sections: readonly Section[]): string {
-    const listed = sections.filter(section => section.kind !== "resident").map(section => {
+    const listed = sections.filter(section => section.kind === "situational").map(section => {
         const sent = [...section.triggers, ...section.gates.filter(gate => KERNEL_GATES.includes(gate)).map(gate => `gate:${gate}`)];
         return `- ${JSON.stringify(sectionName(mod, section.heading))}`
             + (section.topics.length ? ` topics: ${section.topics.join(", ")}` : "") + (sent.length ? ` sent on: ${sent.join(", ")}` : "");

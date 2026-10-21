@@ -1013,6 +1013,7 @@ export const COC_TOOLS: readonly CocToolSpec[] = [
 			+ "or an earlier result of this turn. The text is package instruction for this turn's decisions; reading it changes nothing and spends no game time.",
 		promptSnippet: "Read a listed package section by its name",
 		parameters: Type.Object({
+			using_skill: UsingSkill,
 			name: Type.String({ minLength: 1, maxLength: 200, description: "The section's exact listed name, \"<package>: <heading>\", without the quotes" }),
 		}),
 	},

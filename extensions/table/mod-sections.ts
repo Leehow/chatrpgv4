@@ -84,7 +84,8 @@ export function createModSections(deps:{read:(method:string,params:Row)=>Promise
  const pulling=()=>deps.pull?.()===true;
  const know=(capsule:Row)=>{
   known.clear();
-  for(const instruction of indexedRows(capsule))for(const section of array(instruction.sections))
+  // A reference section is its own consumer's (§242, §247.4); the Keeper reads situational sections only.
+  for(const instruction of indexedRows(capsule))for(const section of array(instruction.sections))if(section.kind!=='reference')
    known.set(sectionName(String(instruction.mod),section.heading??null).toLowerCase(),{key:String(section.key),mod:String(instruction.mod),
     version:String(instruction.version),heading:section.heading??null});
  };

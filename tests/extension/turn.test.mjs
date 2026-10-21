@@ -12,7 +12,7 @@ import { extensionWords } from "../../extensions/ui/words.ts";
 import { KernelError } from "../../extensions/kernel/client.ts";
 import { assistantTexts, customMessages, openTable, waitFor, waitForIdle } from "./harness.mjs";
 
-const SEVEN = ["apply", "ask", "look", "lookup", "narrate", "output", "place", "recall", "resolve"];
+const SEVEN = ["apply", "ask", "look", "lookup", "mod", "narrate", "output", "place", "recall", "resolve"];
 
 const deliveryTexts = (table) => [
 	...assistantTexts(table.session).filter(Boolean),

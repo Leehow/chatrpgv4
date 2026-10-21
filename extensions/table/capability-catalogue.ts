@@ -69,6 +69,7 @@ const VERBS: Readonly<Record<string, string>> = {
     look: 'Inspect current named scenes, people, clues, equipment or rules already available at the table.',
     lookup: 'Consult source material, catalogues or rules, or discover missing capability detail.',
     recall: 'Read actual past dialogue, events or attributed memories.',
+    mod: 'Read a package section listed in the package instructions by its exact name.',
     resolve: 'Request a permitted canonical rules adjudication; the hybrid engine owns its normal route.',
     ask: 'Return a genuine decision boundary to the player.',
     narrate: 'Privately check and prepare story materials; may repeat without publication.',
