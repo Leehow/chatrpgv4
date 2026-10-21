@@ -51190,6 +51190,15 @@ with the book's content and reports `adjusted: establish: authored_clue_kept` on
 established only under a new name. A clue missing its name while carrying `establish` is refused with the establish form
 `{kind: "clue", clue: <new name>, establish: {summary}, how}` beside the book-clue form.
 
+### 250.11 A book place's name for the player
+
+Live (`el-v2-20261021e` T18, T21, T24, T25, T33): every travel card to a book place read `Scene -> Scene`. A
+`keeper-only` book scene shows the player only a name this table gave it (`world.scene_labels`, §204.5), and the v1
+`move` effect's `label` that wrote it was not carried into `place move`. `place move` now takes an optional `label` -- the
+place's name in play_language as the investigators know it -- and hands it to canonical movement, which records it as
+before; the cards, the capsule's `display_name` and later context use it. Without a label nothing is named for the
+player, so a book place's own name is still never revealed by arriving.
+
 ## 251. A progress note for a read spiral (owner direction 2026-10-21: fewer deliberations, faster turns)
 
 Live evidence: on `el-v2-20261021a` T16 the single Keeper answered one sentence about a door and a hired middleman with

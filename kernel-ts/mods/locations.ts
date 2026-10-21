@@ -203,7 +203,8 @@ export function stageLocation(context:ApplyContext,given:Row,active:readonly Row
         if(openRoute)adjusted.push({field:'via',reason:'open_route'});
         // Route/timing/trail/clock and all arrival consumers remain owned by canonical movement.
         moved=stageMove(context,{kind:'move',to,...(effect.via?{via:effect.via}:{}),...(openRoute?{_open_route:true}:{}),
-            ...(effect.travel_band?{travel_band:effect.travel_band}:{}),...(effect.travel_minutes!==undefined?{travel_minutes:effect.travel_minutes}:{})},travelRows,{containmentIsRoute:false});
+            ...(effect.travel_band?{travel_band:effect.travel_band}:{}),...(effect.travel_minutes!==undefined?{travel_minutes:effect.travel_minutes}:{}),
+            ...(typeof effect.label==='string'&&effect.label.trim()?{label:effect.label}:{})},travelRows,{containmentIsRoute:false});
         Object.assign(moved.receipt,{mod:provider.id,added,features});
     }
     clearLocationPosition(world);

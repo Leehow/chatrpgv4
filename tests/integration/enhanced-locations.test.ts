@@ -298,3 +298,14 @@ test('a room with no assessment of its own inside a place assessed empty is empt
     const room203=(await k.table('capsule')).where.temporal;
     assert.deepEqual([room203.current,room203.review_reasons,room203.inherited_from],[false,['unassessed'],undefined],'a quiet inn says nothing about who is in one of its rooms');
 });
+
+test('a place move can name a book place in the player\'s language, and the cards and context use that name (live el-v2-20261021e cards read "Scene")',async t=>{
+    const k=await kernel(t);await openTurn(k,'我去档案馆查旧地契。');
+    await k.table('apply',{call_id:'t1-c1',effects:[{kind:'place',action:'move',to:'hall-of-records',label:'市档案馆'}]});
+    const moved=(await k.table('status')).receipts.find((receipt:Row)=>receipt.kind==='move');
+    assert.equal(moved.to_label,'市档案馆');assert.equal(state(k).scene_labels['hall-of-records'],'市档案馆');
+    assert.equal((await k.table('capsule')).where.display_name,'市档案馆');
+    const plain=await kernel(t);await openTurn(plain,'我去档案馆查旧地契。');
+    await plain.table('apply',{call_id:'t1-c1',effects:[{kind:'place',action:'move',to:'hall-of-records'}]});
+    assert.equal(state(plain).scene_labels['hall-of-records'],undefined,'without a label nothing is named for the player');
+});
