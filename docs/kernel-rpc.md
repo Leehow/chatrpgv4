@@ -49004,6 +49004,23 @@ Anthropic documents input_schema while xAI Responses documents parameters
 https://docs.x.ai/developers/tools/function-calling). These confirm the two wire
 locations for one canonical contract; no provider default/model change follows.
 
+Compact typed branch references: only at the detailed place tool's document root,
+an action branch may reference the root properties definition when all variants
+of that field share one assertion shape. Its action discriminator, required
+fields, additionalProperties and differing variants stay explicit. Local JSON
+pointers make array/items/bounds available to generation without copying the
+same nested definitions into every branch. No cyclic refs, definitions outside
+the tool document, dropped assertions or registered validator changes. Nested
+unions do not accidentally reuse document-root pointers. Actual Responses
+payload tests resolve pointers, check valid/quoted/nested malformed additions,
+and non-strict Anthropic still receives the complete merged property view.
+
+JSON Schema documents local JSON pointers and reusable schemas
+(https://json-schema.org/understanding-json-schema/structuring); xAI explicitly
+supports non-circular $ref/$defs. These confirm reuse, not weakened validation.
+The four current context capacity/retention regressions are the acceptance
+gate; never raise their ceilings or discard latest required tool results.
+
 The model-facing `place` tool has two operations:
 
 - `inspect`: optional `name` (default current place), `need: context|contract`.

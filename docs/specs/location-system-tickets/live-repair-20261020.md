@@ -969,3 +969,15 @@ checks (workspace-projection, long-campaign-context2, run-driver-output handle
 expansion). Retain remote ext.log; do not increase the ceiling or drop required
 evidence to pass. Full branch typing grew place declaration8788→18254bytes;
 compact typed references and actual budget accounting require diagnosis.
+
+
+2219100d2 commits the Responses bound-output bridge. Compact branch revision
+uses only root-local field references for assertion-identical fields, preserving
+explicit discriminators/required lists and all differing schemas. Nested union
+normalization cannot create document-root refs. Actual adapter and canonical
+validation checks12/12 pass: additions remain arrays with complete item/bounds,
+quoted/nested malformed payloads still fail, both provider contracts bind and
+other tools/metadata remain unchanged. Detailed parameter JSON17774→9646bytes
+(whole previous live tool18254bytes; new live size not measured yet).
+Four full capacity failures remain unclaimed until clean targeted rerun. No
+ceiling, threshold, required evidence or registered validator changed.

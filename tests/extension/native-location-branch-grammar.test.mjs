@@ -7,8 +7,9 @@ import {COC_TOOLS} from '../../extensions/kernel/tools.ts';
 import {offeredTools} from '../../extensions/kernel/lean-apply.ts';
 import {locationToolDeclarations} from '../../extensions/table/location-context.ts';
 import {NativePlaceParameters} from '../../shared/place-structures.ts';
+import {legibleClosedSchema} from '../../shared/native-schema.ts';
 
-test('Responses action branches retain array grammar without depending on sibling properties',async()=>{
+test('Responses action branches resolve their complete local array grammar without copying it',async()=>{
  const tools=locationToolDeclarations(offeredTools(COC_TOOLS,{PI_COC_LOOP_ENGINE:'hybrid-v1',PI_COC_TURN_PACKET_PROTOTYPE:'1',EXT_JEV_APIKEY:'fixture'}),true);
  const model={id:'grok-4.5',name:'Fixture',api:'openai-responses',provider:'grok-build',baseUrl:'https://invalid.example/v1',reasoning:true,input:['text'],contextWindow:128000,maxTokens:16384,cost:{input:0,output:0,cacheRead:0,cacheWrite:0}};
  const controller=new AbortController();let payload;
@@ -21,12 +22,15 @@ test('Responses action branches retain array grammar without depending on siblin
   for(const [field,shape] of Object.entries(canonical.properties))if(shape.type==='array'){
    // Existing observation projection uses view instead of exposing an inline relations write.
    if(action==='observe'&&field==='relations'){assert.equal(branch.properties[field],undefined);continue;}
-   assert.equal(branch.properties[field]?.type,'array',action+'.'+field);
-   assert.equal(branch.properties[field].maxItems,shape.maxItems,action+'.'+field);
-   assert.deepEqual(branch.properties[field].items,JSON.parse(JSON.stringify(shape.items)),action+'.'+field);
+   const reference=branch.properties[field]?.$ref;
+   if(reference)assert.equal(reference,'#/properties/'+field,'only document-local shared assertions');
+   const resolved=reference?schema.properties[field]:branch.properties[field];
+   assert.equal(resolved?.type,'array',action+'.'+field);
+   assert.equal(resolved.maxItems,shape.maxItems,action+'.'+field);
+   assert.deepEqual(legibleClosedSchema(resolved.items),legibleClosedSchema(shape.items),action+'.'+field);
   }
  }
- const move=schema.anyOf.find(branch=>branch.properties.action.const==='move');
+ const move={...schema,anyOf:[schema.anyOf.find(branch=>branch.properties.action.const==='move')]};
  const request={action:'move',to:'Station',additions:[{name:'Station',features:[{name:'Counter',description:'A worn oak counter.'}]}]};
  assert(Check(move,request));
  assert(!Check(move,{...request,additions:JSON.stringify(request.additions)}));

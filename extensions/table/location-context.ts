@@ -24,7 +24,7 @@ function describeModes(schema:Row):Row {
  return projected;
 }
 /** Explicit properties keep object unions legible to provider tool serializers. */
-function declarationObject(schema:Row):Row {
+function declarationObject(schema:Row,documentRoot=true):Row {
     if(!Array.isArray(schema.anyOf)||!schema.anyOf.every((branch:Row)=>branch.type==='object'))return schema;
     schema={...schema,anyOf:schema.anyOf.map((branch:Row)=>branch.properties?.action?.const==='observe'?{
         ...branch,properties:Object.fromEntries(Object.entries(branch.properties).filter(([key])=>key!=='relations')),
@@ -38,10 +38,11 @@ function declarationObject(schema:Row):Row {
         if(!choices.has(fingerprint))choices.set(fingerprint,value);
     }
     for(const [key,values] of variants)properties[key]=values.size===1?[...values.values()][0]:Type.Union([...values.values()] as any);
-    for(const key of Object.keys(properties))properties[key]=declarationObject(properties[key]);
+    for(const key of Object.keys(properties))properties[key]=declarationObject(properties[key],false);
     const required=(schema.anyOf[0].required??[]).filter((key:string)=>schema.anyOf.every((branch:Row)=>(branch.required??[]).includes(key)));
-    // A provider may compile an action branch before combining the root property view.
-    const branches=schema.anyOf.map((branch:Row)=>({type:'object',properties:branch.properties??{},
+    // Shared assertions remain explicit to generation without duplicating nested grammar.
+    const branches=schema.anyOf.map((branch:Row)=>({type:'object',properties:Object.fromEntries(Object.entries(branch.properties??{}).map(([key,value]:[string,any])=>
+        [key,documentRoot&&value.const===undefined&&variants.get(key)?.size===1?{$ref:'#/properties/'+key}:value])),
         required:branch.required??[],additionalProperties:branch.additionalProperties??true}));
     return {...schema,type:'object',properties,required,anyOf:branches,additionalProperties:false};
 }
