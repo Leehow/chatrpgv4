@@ -48878,6 +48878,20 @@ remain outside this narrow refusal. Existing three-strike failure handling and
 all semantic gates remain unchanged. JSON Schema annotations are not assertions
 (https://json-schema.org/understanding-json-schema/reference/annotations).
 
+Local-position consent follow-up (original input45): selection of a native place
+move compares its existing execution_position.before with the proposed arrival
+and optional feature. When the enclosing destination is already occupied, judge
+the selected local position without demanding a new journey. Stopping/remain-at
+words can select that point; they never authorize a different destination or
+feature. This is a semantic question over canonical references, not a string
+classifier or bypass. Preserve both selection/restriction questions and .60/.40
+gates. Invalidate native admission families17/18 as19/20 respectively; ordinary
+admission families and prescreen questions are unchanged. Captured-request
+diagnosis scores original .55, focused .88; wrong place .03, wrong feature .11,
+future-only .23. These are diagnostic controls, not live-play acceptance.
+Precedent: https://docs.typesafe.ai/model-jaggedness/jev-1.13 literal-reading and
+https://docs.typesafe.ai/concepts/state explicit relevant-state guidance.
+
 The model-facing `place` tool has two operations:
 
 - `inspect`: optional `name` (default current place), `need: context|contract`.

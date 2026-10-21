@@ -711,3 +711,24 @@ This simplification's effect on real model adherence remains a live-test questio
 Regression went red2/12 before repair; focused21/21 green includes real Pi
 preparation/message_end, canonical arrays and actual Anthropic/Responses payloads.
 These controlled-provider tests are not gameplay evidence.
+
+c13540db0 clean focused21/21 and fast130/130; canonical package01:22:53Z,
+stable certificate/backlink/staging cleanup verified. Earlier ebfd62d8e LAN all
+passed exit0/wall1227s (run.D6BGuj3z); c13540db0 all admitted01:26:40Z.
+Original45 observation settled at22:00 without journey replay, but final local
+entrance positioning held at selection.56, restriction.15 and no prose. App
+1min7s is a failed round, not successful latency acceptance. Captured full
+request is grok-round45-uncertain-basis.json; no missing current_position data.
+The question asks for moving to the already occupied hall; stopping at its
+entrance selects a local pose rather than another journey. Exact-request
+read-only comparison reproduces .55; focusing the question on current versus
+proposed local position gives .88. Wrong place.03, wrong feature.11 and
+future-only.23 remain rejected at the same.60/.40 gates. See
+grok-round45-consent-comparison.json (diagnostic, not gameplay). TypeSafe's
+literal-reading/state guidance confirms precise scope and relevant references;
+no history removal, threshold relaxation or semantic keyword classifier.
+Update the shared native-place move question, invalidate native admission
+families17/18 as19/20, and leave ordinary prescreen behavior unchanged. Existing
+foreign ordinary-move predicate correction remains outside this integration.
+Question-boundary regression red1/21; focused30/30 green retains uncertain
+selection/restriction and ordered-position controls. Real App follow-up pending.
