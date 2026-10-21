@@ -1249,3 +1249,13 @@ helperPID33942 at01:32; it lacks this test-only98 update and may retain that kno
 failure. Its result must be read, never called fully green in advance. No second
 heavy workflow runs concurrently. Current App code remainsd06, original ready81;
 Quick Settlement integration permission remains pending. Goal stays active.
+
+EL-09 candidate follows original79 evidence, not an asserted root cause: use the
+existing expected-turn receipt projection for a named completed_time view,
+deduplicate and sum in code, retain actual before/after clocks. No proposed
+purpose or receipt ID is projected, no new storage or method. Older declaration
+recovery does not inherit current-input timing. Component tests first fail on the
+missing view/function, then pass25 combined and8 focused, including.59 selection
+and.41 restriction holds. Official TypeSafe state/jaggedness docs and independent
+Temporal event-history precedent were checked; their limits and applicability
+are in ticket09. Clean/package/original-session behavior is still pending.

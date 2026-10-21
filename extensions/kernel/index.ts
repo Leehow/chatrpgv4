@@ -1,7 +1,7 @@
 import {adviseLocationReference} from './location-reference.ts';
 import {locationDescription} from './location-description.ts';
 import {sourceLocationContext} from './source-location-context.ts';
-import {settledAdmissionEvidence} from './settled-admission.ts';
+import {settledAdmissionEvidence,settledTimeEvidence} from './settled-admission.ts';
 import {placeOperation,placeParameterRefusal,normalizePlaceTarget,normalizePlaceArrayArguments} from './place-operation.ts';
 import {immediatelyPrecedingUnfinished} from './admission.ts';
 import {createPlaceCallEvidence} from '../../runtime/place-call-evidence.ts';
@@ -3774,7 +3774,9 @@ export default function (pi: ExtensionAPI, host: {capabilities?:RuntimeCapabilit
 			if(!proposal){capture?.(null);if(recovery?.told.length)await record({lane:'admission',verb:tool,turn:state.turn,path:'told',verdict:'authorized',jev_calls:0,owed:recovery.told});return;}
             proposal=capsuleContactProposal(proposal,payload,current);
             capture?.(proposal);
+            const completedTime=state.landed.length&&!recovery?.sources.some(Boolean)?settledTimeEvidence((await state.kernel.call<{receipts:unknown[]}>('table.status',{campaign:state.campaign,projection:'receipts',expected_turn:state.turn})).receipts):undefined;
             const context={...admissionContextFor(state),...(current.where?.clock?{currentClock:current.where.clock}:{}),
+                ...(completedTime?{completedTime}:{}),
                 ...(current.where?.scene?{scene:current.where.scene}:{}),...(current.where?.location?.position?{currentPosition:current.where.location.position}:{})};
             const lineContexts=recovery?.sources.some(Boolean)?(proposal.effects??[]).map(index=>{const source=recovery.sources[index];return source?{...context,
                 playerText:source.player_text,interruptedPlayerText:undefined,refused:[],corrections:[],

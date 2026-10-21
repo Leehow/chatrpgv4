@@ -640,6 +640,8 @@ export interface AdmissionContext {
 	delivered: Array<{ turn: number | string; player?: string | null; keeper: string; speech?:PublicDialogueLine[] }>;
 	/** What this turn has already settled through the kernel, in order. */
 	landed: string[];
+    /** Current-input time receipts projected numerically by the host, never proposed duration. */
+    completedTime?:import("./settled-admission.ts").CompletedTimeEvidence;
 	/** Proposals already refused this turn, so a rewording is read as the same action. */
 	refused: string[];
 	/** Earlier argument mismatches, not withdrawn player declarations or missing choices. */
@@ -1324,7 +1326,7 @@ export async function reviewAdmissionJevOnly(options:PrimaryAdmissionReviewOptio
     const nativeLocation=options.proposal.operations?.some(operation=>operation.kind==='place');
     const serviceContext=options.proposal.operations?.some(operation=>operation.registered_cash_context||operation.acting_party);
     const hasTimeBand=options.proposal.operations?.some(operation=>operation.kind==='time'&&typeof operation.band==='string');
-    const family='continuous-action-admission',version=hasTimeBand?'24':nativeLocation?'23':options.proposal.kinds?.includes('time')?'22':serviceContext?'18':context.currentPosition?'15':context.currentClock?'13':options.proposal.ordered||options.proposal.kinds?.includes('place')?'12':'7';
+    const family='continuous-action-admission',version=context.completedTime?'25':hasTimeBand?'24':nativeLocation?'23':options.proposal.kinds?.includes('time')?'22':serviceContext?'18':context.currentPosition?'15':context.currentClock?'13':options.proposal.ordered||options.proposal.kinds?.includes('place')?'12':'7';
     let mechanicsChoice:{action:string;choice:{name:string;binds:string;options:string[];prompt?:string}}|undefined;
     let mechanicsInput=false,mechanicsBinding:string|undefined;
     try{
@@ -1366,6 +1368,7 @@ export async function reviewAdmissionJevOnly(options:PrimaryAdmissionReviewOptio
         previous_public:knownJourneys?decisionRecentPublic(context.delivered):context.delivered.slice(-2).map(row=>({turn:row.turn,player:row.player??null,
             ...(publicDialogue(row.speech).length?{speech:publicDialogue(row.speech)}:{})})),
         settled_this_turn:context.landed,
+        ...(context.completedTime?{completed_time:context.completedTime}:{}),
         ...(context.refused.length?{refused_this_turn:context.refused}:{}),
         ...(context.corrections?.length?{argument_corrections:context.corrections}:{}),
         proposal:{tool:options.proposal.tool,lines:nativeLocation&&typedLines?conditionalExecutionPositions(typedLines,options.proposal.preceding?.operations??[],context.currentPosition):typedLines??options.proposal.lines.map(continuousConsentLine),...(options.proposal.kinds?{kinds:options.proposal.kinds}:{}),
@@ -1380,6 +1383,7 @@ export async function reviewAdmissionJevOnly(options:PrimaryAdmissionReviewOptio
         state:state as DecisionBatch['state'],questions:continuousConsentQuestions(options.proposal.lines.map((_,index)=>options.proposal.kinds?.[index]??''),options.proposal.operations?.map(operation=>typeof operation.action==='string'?operation.action:undefined),options.proposal.operations?.map(operation=>operation.kind!=='time'?undefined:typeof operation.band==='string'?'band':operation.until!==undefined?'until':typeof operation.minutes==='number'?'minutes':undefined))};
     for(const question of batch.questions){
         const index=Number(question.key.slice(question.key.lastIndexOf('_')+1)),operation=options.proposal.operations?.[index];
+        if(context.completedTime&&question.key.startsWith('restriction_'))question.instructions+=' completed_time gives actual current-input time receipts and elapsed_minutes already summed by the host. These are completed clock changes, not a proposed wait. Elapsed time alone proves no movement, observation, goods, payment or consent.';
         if(operation?.registered_cash_context)question.instructions+=` Use this line's registered_cash_context kernel preview and actual delta. ${CASH_CONSENT_POLICY}`;
         if(operation?.acting_party)question.instructions+=' acting_party names the non-investigator actor from this effect\'s closed fields. NPC initiative is not an investigator choice: giving or offering an object does not need a player request. Still require consent for the investigator\'s voluntary payment, promise, accepted bargain or keeping something explicitly refused. The actor label alone grants no such commitment.';
     }

@@ -48868,6 +48868,14 @@ rule describes it, rather than assuming all activities are physical. Family24
 invalidates older band verdicts. No new lane, threshold, arithmetic or timeout;
 missing rule meaning is never fabricated from a band name.
 
+Completed time review context (EL-09, original input79): the current-input
+native review may read completed_time from the existing expected-turn receipt
+projection. The host deduplicates canonical time receipts and computes the actual
+elapsed_minutes with validated before/after deltas. No rationale, receipt ID,
+proposed wait, old declaration time or missing evidence becomes a completed
+action. Family25 names this view; gates and transactional authority stay unchanged.
+See location-system-tickets/09-completed-time-review-context.md.
+
 Consent error evidence (EL-08, original input77): grounds must retain every
 blocking reviewed line number and whether selection or restriction clearance
 was not established. Compute this from the existing checked probabilities and
