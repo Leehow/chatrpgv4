@@ -67,7 +67,8 @@ export async function stageClue(context:ApplyContext,effect:Row,told=false):Prom
         if(!how?.trim())throw new RpcError('invalid_params','An improvised clue requires how it was obtained');
         node=establishTableEntity(graph,world,context.turn,'clue',name,summary,graph.handle(active));established=true;
     }
-    if(summary!==undefined&&!established&&!graph.isTableEntity(node))throw new RpcError('invalid_params','establish cannot replace an authored clue; obtain it without establish');
+    // §250.10: an establish beside the book's own clue name obtains that clue; the book's content stands and the receipt says so.
+    const keptAuthored=summary!==undefined&&!established&&!graph.isTableEntity(node);
     const here=graph.sceneClueIds(active),handle=graph.handle(node);
     // §135.30.7 (SL-42): a clue of a scene the party left during this turn is accepted there. The turn's departures are the
     // `from` of its move receipts (earlier calls, then earlier in this batch; a rename is not a departure), latest first.
@@ -113,7 +114,7 @@ export async function stageClue(context:ApplyContext,effect:Row,told=false):Prom
     }
     // Without a keeper label the receipt files the graph's display name: a handle is a machine word and never reaches the player.
     const receipt={id:`clue:${handle}-t${turn}`,kind:'clue',call_id:context.callId,clue:handle,label:label||graph.displayName(node),summary:node.summary||node.name,scene:graph.handle(scene),how,from:source,
-        ...(left?{left_this_turn:true}:{}),...(established?{established:'table'}:{}),
+        ...(left?{left_this_turn:true}:{}),...(established?{established:'table'}:{}),...(keptAuthored?{adjusted:[{field:'establish',reason:'authored_clue_kept'}]}:{}),
         // §222.1: the book's check and the way the table came through it; a no-roll route keeps §201's `check_skipped` count.
         ...(check&&foundBy?{check:{...check},found_by:{...foundBy},...(foundBy.route==='no_roll'?{check_skipped:true}:{})}:{}),at:nowIso()};
     if(label)(world.clue_labels??={})[handle]=label;

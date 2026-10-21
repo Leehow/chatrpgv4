@@ -51157,6 +51157,25 @@ missing or a second charge beside a routine summary is now recorded (`routine-su
 `uncharged` or `several`), never refused. Only an inactive routine capability still refuses. Quick Settlement's own
 guidance to charge the stretch once is unchanged.
 
+### 250.9 A room inside a place assessed empty is empty
+
+Live (`el-v2-20261021e` T21, T23): each room the investigator entered inside the shut Corbitt House came back
+`unassessed`, and the Keeper deliberated and wrote `closed`/`empty` again for a house already assessed empty. A place with
+no assessment of its own whose nearest container (§204.1) carries a current `empty` assessment now reads as that
+assessment with `inherited_from` naming the container -- containment entails it. Any other container population says
+nothing about a room within it, and the room stays unassessed. A registered person seated in the room still contradicts
+the inherited empty (§250.6). The packet guidance now says what §250.6 settled: an assessment left out is recorded as
+unknown, never refused, and only an empty one beside a registered person here must be corrected.
+
+### 250.10 Clue effects the Keeper half-wrote
+
+Live (`el-v2-20261021e`): T20 sent the book's own clue name with an `establish` summary and was refused ("establish
+cannot replace an authored clue"); T23 established a clue without naming it and the fix showed only the book-clue form, so
+the next 80 seconds of deliberation guessed the schema. An `establish` beside the book's clue name now obtains that clue
+with the book's content and reports `adjusted: establish: authored_clue_kept` on the receipt; a table clue is still
+established only under a new name. A clue missing its name while carrying `establish` is refused with the establish form
+`{kind: "clue", clue: <new name>, establish: {summary}, how}` beside the book-clue form.
+
 ## 251. A progress note for a read spiral (owner direction 2026-10-21: fewer deliberations, faster turns)
 
 Live evidence: on `el-v2-20261021a` T16 the single Keeper answered one sentence about a door and a hired middleman with

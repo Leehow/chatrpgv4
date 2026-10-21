@@ -29,3 +29,11 @@ test('a known kind missing its one required field it carries as an undeclared na
  assert.equal(effectShapeRefusal('apply',apply.parameters,repaired.args),undefined);
  assert.deepEqual(alias({kind:'threat',name:'corbitt-haunting',clock:'c',segments:1,why:'w'}).repairs,[],'a kind that declares name keeps it');
 });
+
+test('a clue established without a name is refused with the establish form, not only the book-clue form (live el-v2-20261021e T23)',()=>{
+ const refusal=effectShapeRefusal('apply',apply.parameters,{effects:[{kind:'clue',establish:{summary:'Three issues each have a notice cut out.'},how:'Read page by page.'}]});
+ assert.equal(refusal.details.reason,'effect_field_missing');assert.deepEqual(refusal.details.missing,['clue']);
+ assert.match(refusal.fix,/establish takes a new short name of its own: \{kind: "clue", clue: <new name>, establish: \{summary\}, how\}/);
+ const book=effectShapeRefusal('apply',apply.parameters,{effects:[{kind:'clue',how:'Seen.'}]});
+ assert.doesNotMatch(book.fix,/new short name/,'a clue without establish keeps the book-clue fix alone');
+});

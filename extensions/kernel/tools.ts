@@ -183,7 +183,7 @@ export function effectShapeRefusal(tool: string, parameters: TSchema, args: unkn
 		}
 		const missing = branch.required.filter(key => effect[key] === undefined);
 		if (missing.length) {
-			const clue = branch.kind === "clue" ? ` For a clue: ${CLUE_EFFECT_WORDS}.` : "";
+			const clue = branch.kind === "clue" ? ` For a clue: ${CLUE_EFFECT_WORDS}${effect.establish !== undefined ? '; one you establish takes a new short name of its own: {kind: "clue", clue: <new name>, establish: {summary}, how}' : ""}.` : "";
 			return { code: "invalid_params", code_detail: "effect_field_missing", retryable: false, next: "change_input",
 				message: `apply: ${field} (${branch.kind}) is missing ${missing.join(", ")}`,
 				fix: `Give ${field} its ${missing.join(", ")}: a ${branch.kind} effect requires ${branch.required.join(", ")}.${clue} ${unchanged}`,

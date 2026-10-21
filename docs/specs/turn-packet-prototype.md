@@ -30,7 +30,8 @@ creation is limited to a new table person seated at the active scene by this
 same narrow walk-on shape; ordinary opening restrictions remain in force.
 
 An unassessed or expired scene goes through the existing Keeper once, including
-after an otherwise pure journey. An applicable assessment reuses the existing
+after an otherwise pure journey (a room inside a place currently assessed empty
+inherits that assessment and needs no call, kernel-rpc §250.9). An applicable assessment reuses the existing
 zero-Keeper travel path. No new judgment model/request is inserted. The author
 receives assessed population and registered public people separately; it cannot
 derive emptiness from an empty list. This knowingly spends one existing Keeper

@@ -6,6 +6,7 @@ import {join} from 'node:path';
 import {kernel,openTurn,campaignDir,RpcClient,CAMPAIGN,ROOT,importSource,type Row} from './support.ts';
 import {turnPacket,compileTurnPacket} from '../../runtime/turn-packet-prototype.ts';
 import {PLACE_CONTRACT_GUIDE} from '../../shared/place-structures.ts';
+import {scenePopulationRequired} from '../../runtime/scene-population.ts';
 const state=(k:RpcClient)=>JSON.parse(readFileSync(join(campaignDir(k.workspace),'world.json'),'utf8'));
 const locations=(k:RpcClient)=>state(k).mods.state['enhanced-locations'].locations;
 const inspect=(k:RpcClient,name?:string)=>k.ok('mods.locations.inspect',{campaign:CAMPAIGN,...(name?{name}:{})});
@@ -279,4 +280,21 @@ test('the capsule names the places this table can refer to, so directions can po
     assert(before.known_places.every((row:Row)=>typeof row.display_name==='string'));
     await k.table('apply',{call_id:'t1-c1',effects:[{kind:'place',action:'establish',additions:[{name:'Corner Inn',within:null,description:'A small corner inn.'}]}]});
     assert((await k.table('capsule')).known_places.some((row:Row)=>row.display_name==='Corner Inn'),'a registered place joins the nameable places');
+});
+
+test('a room with no assessment of its own inside a place assessed empty is empty; a populated container entails nothing (§250.9)',async t=>{
+    const k=await kernel(t);await openTurn(k,'I let myself into the shut house, then try the busy inn.');
+    const assess=(call_id:string,commands:Row[])=>k.table('apply',{call_id,effects:compileTurnPacket(turnPacket(JSON.stringify({version:4,commands}))).effects});
+    await k.table('apply',{call_id:'t1-c1',effects:[{kind:'place',action:'move',to:'Shut House',via:'Along the street',travel_band:'adjacent',additions:[hotel('Shut House')]}]});
+    await assess('t1-c2',[{kind:'scene',service:'closed',crowd:'empty'}]);
+    await k.table('apply',{call_id:'t1-c3',effects:[{kind:'place',action:'move',to:'Shut House / Back Room',via:'Up the stairs',travel_band:'adjacent',additions:[{...room('Shut House'),name:'Shut House / Back Room'}]}]});
+    const inside=await k.table('capsule');
+    assert.equal(inside.where.scene,'Shut House / Back Room');
+    assert.deepEqual([inside.where.temporal.current,inside.where.temporal.crowd,inside.where.temporal.inherited_from],[true,'empty','Shut House']);
+    assert.equal(scenePopulationRequired(inside),false,'an empty house needs no second assessment for a room in it');
+    await k.table('apply',{call_id:'t1-c4',effects:[{kind:'place',action:'move',to:'Busy Inn',via:'Back along the street',travel_band:'adjacent',additions:[hotel('Busy Inn')]}]});
+    await assess('t1-c5',[{kind:'walk_on',slot:'new_1',label:'the desk clerk',reason:'The open inn is staffed.'},{kind:'scene',service:'open',crowd:'quiet'}]);
+    await k.table('apply',{call_id:'t1-c6',effects:[{kind:'place',action:'move',to:'Busy Inn / Room 203',via:'Up the stairs',travel_band:'adjacent',additions:[{...room('Busy Inn'),name:'Busy Inn / Room 203'}]}]});
+    const room203=(await k.table('capsule')).where.temporal;
+    assert.deepEqual([room203.current,room203.review_reasons,room203.inherited_from],[false,['unassessed'],undefined],'a quiet inn says nothing about who is in one of its rooms');
 });
