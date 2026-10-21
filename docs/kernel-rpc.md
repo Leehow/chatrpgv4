@@ -48979,6 +48979,15 @@ generation; vendor branch compilation is a hypothesis until live verification.
 Preserve the raw124.988s input54 and its correctly refused unchosen social roll.
 Do not relax consent or automatically run that roll after a scenery inspection.
 
+Visible realization guidance (1.1.28): the location Mod distinguishes a source's
+unspecified ordinary appearance from an actually concealed condition. From a
+clear current view, choose a compatible concrete realization of an unspecified
+floor/door/furnishing and record it in observe facts. The author describes that
+realization instead of exposing alternative finishes from reference notes.
+Existing definite facts, observation access and concealed uncertainty remain
+unchanged. This uses the existing observation writer/projection/author path,
+not scene templates, a history claim or a new world field.
+
 The model-facing `place` tool has two operations:
 
 - `inspect`: optional `name` (default current place), `need: context|contract`.
