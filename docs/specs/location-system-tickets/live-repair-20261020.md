@@ -1202,3 +1202,36 @@ over current location/time/refusal fixes, with original-campaign adoption and li
 verification. Inspection does not authorize merging this separate branch.
 EL-08 local commit is complete; latest canonical App remains3f2a3d6dc, original
 ready78 at02:57 in the diner. No newer player input. LAN3f2a3d6dc all still runs.
+
+EL-08 clean proof:26 focused (including unchanged.60/.40 gates),130 fast,
+2 actual Pi/native continuation cases pass. A first native test command ran in
+the dirty main checkout; its log was renamed consent-line-native-main-component,
+not counted as clean. The separate frozen command produced
+consent-line-native-clean-final.log. Canonical package09:03:26Z/d06c0879e has
+exact kernel/table/RPC bundles, admission/index source-map identity, stable cert,
+strict/deep verification, canonical backlink and empty staging. No Quick Settlement
+package was included. Its integration confirmation was asked asynchronously;
+there is no answer yet and no authorization inferred from elapsed time.
+
+Original78 delivered62.311s/0errors, same restaurant identity, descriptive external
+sidewalk position, real observe receipt and original NPC identities. Original79
+naturally failed at UI67s/2output refusals; its five-minute wait and NPC activity
+committed, clock03:02. The new exact line/axis grounds reached the same Keeper
+and its one allowed continuation; repeated non-authorization remained terminal.
+The review actually had current_clock03:02 and canonical time outcome minutes5;
+therefore this is not evidence that the clock wire is absent. Its settled evidence
+is currently a string projection, with no explicit action binding/start clock.
+Whether representation or semantic capacity caused the held restriction remains
+unproven. Do not add a guessed cause or relax the gate. The player-facing failure
+also showed an English generic action-review sentence; specific cause/language
+projection remains an acceptance gap.
+
+Original80 (only the now-current approach/view, no repeated wait) delivered66.384s/
+0errors. Receipts78/80 have the same target and exact same people IDs, observed
+minutes1017/1022, descriptive from.spot and relation retained. Assertion-backed
+comparison observations78-80-same-people-five-minutes.json preserves those facts
+and explicitly excludes continuous120s acceptance because79 failed. Screenshots
+92–94 and complete raw JSONL remain. Author/main Grok4.5/medium verified for78;
+80 attribution is retained with its actual rows. Original ready81,03:02, outside
+the restaurant glass; the meal was never delivered/consumed and no new input sent.
+LAN3f2a3d6dc full still confirmed live at20:05; latestd06c0879e full queued serially.
