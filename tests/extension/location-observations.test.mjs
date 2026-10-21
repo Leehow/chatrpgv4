@@ -19,7 +19,7 @@ test('all entrances preserve the same typed observation and demand-only grammar'
     assert(Check(turnPacketParameterSchema(false,undefined,undefined,false,undefined,true),packet));
     const small=locationToolDeclarations(COC_TOOLS,false).find(tool=>tool.name==='place').parameters;
     assert(Check(small,{action:'inspect',need:'observation',name:'Street'}));assert.equal(JSON.stringify(small).includes('assessed_clock'),false);
-    assert(!Check(PlaceEffect,{...observe,teleport:true}));assert(!Check(PlaceEffect,{...observe,facts:['x'.repeat(601)]}));
+    assert(!Check(PlaceEffect,{...observe,teleport:true}));assert(Check(PlaceEffect,{...observe,facts:['x'.repeat(601)]}),'complete observation facts have no per-item ceiling');
 });
 test('disclosed location grammar is deduplicated and native location detail uses the same applicable request schema',()=>{
     const canonical=COC_TOOLS.find(tool=>tool.name==='place').parameters;
