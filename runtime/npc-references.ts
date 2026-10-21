@@ -24,17 +24,32 @@ export class NpcReferences {
  bindActors(scope:string,input:unknown):{args:unknown;repairs:number}{
   if(this.scope!==scope||!input||typeof input!=='object'||Array.isArray(input))return{args:input,repairs:0};
   let repairs=0;
+  const person=(name:unknown):string|undefined=>{
+   if(typeof name!=='string'||isNpcReference(name))return undefined;
+   const refs=this.publicNames.get(name.normalize('NFKC').trim().toLowerCase());
+   if(refs?.size!==1)return undefined;
+   const ref=[...refs][0];return this.issued.has(ref)?ref:undefined;
+  };
   const bind=(value:unknown)=>{
    if(!value||typeof value!=='object'||Array.isArray(value))return value;
-   const row=value as Row;
-   if(typeof row.actor!=='string'||isNpcReference(row.actor))return row;
-   const refs=this.publicNames.get(String(row.actor).normalize('NFKC').trim().toLowerCase());
-   if(refs?.size!==1)return row;
-   const ref=[...refs][0];if(!this.issued.has(ref))return row;
+   const row=value as Row,ref=person(row.actor);
+   if(!ref)return row;
    repairs++;return {...row,actor:ref};
   };
+  // A claim's person fields (who it is about, who provides it) name the same public people as the speaker does.
+  const claims=(value:unknown)=>{
+   const row=bind(value) as Row;
+   if(!row||typeof row!=='object'||!Array.isArray(row.content))return row;
+   return {...row,content:row.content.map((item:unknown)=>{
+    const claim=item&&typeof item==='object'?(item as Row).new:undefined;
+    if(!claim||typeof claim!=='object'||Array.isArray(claim))return item;
+    let next=claim as Row;
+    for(const key of ['actor','provider']){const ref=person(next[key]);if(ref){next={...next,[key]:ref};repairs++;}}
+    return next===claim?item:{...(item as Row),new:next};
+   })};
+  };
   const value=input as Row;
-  return{args:{...value,...(Array.isArray(value.interactions)?{interactions:value.interactions.map(bind)}:{}),
+  return{args:{...value,...(Array.isArray(value.interactions)?{interactions:value.interactions.map(claims)}:{}),
    ...(Array.isArray(value.commands)?{commands:value.commands.map(command=>command?.kind==='npc'?bind(command):command)}:{})},repairs};
  }
  require(scope:string,references:readonly string[]):void {

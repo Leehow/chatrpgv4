@@ -50965,6 +50965,11 @@ roll 0.53 and refused it, and the pending row never matched because it named the
 the Keeper used the id; each row now also carries `actor_id`, and either name matches. Any other `resolve` stays
 reviewed.
 
+A Keeper-judged batch is still the player's act. When no line of an `apply` goes to review, the judged lines are bound
+as the player's action (`capturePlayerAction`), so a kernel refusal of them is held (§166.2) and the turn's prose cannot
+publish the refused act as done; before this binding such a batch read as bookkeeping (`argument_outside_player_scope`)
+and a false completion claim was delivered (`tests/extension/keeper-judged-held-act.test.mjs`).
+
 ### 249.2 Quotation versus settlement
 
 The single Keeper decides whether an order is a quotation or a settlement. The covered-quote choice check
@@ -51067,11 +51072,32 @@ same way (`adjusted` on the receipt and its outcome):
   settled or cancelled offer, or a missing one without priced lines, still refuses, so nothing is paid twice.
 - A blank entry in `lookup` `kinds` is the forbidden "search all" placeholder; it is omitted before validation, which
   is that search (`arguments` lane `blank_lookup_kinds_omitted`).
+- An `apply` effect whose `kind` names no effect kind but names one of its own fields (`{kind:"document",
+  document:{...}}`) takes the one kind that declares that field and every field the effect carries (`object`;
+  `arguments` lane `effect_kind_aliased`). With two readings (`activity` is both an `npc` and a `scene` field) it
+  still refuses with the kind list.
+- A packet claim's person fields (`new.actor`, `new.provider`) written as a present person's one exact public
+  appellation bind to that person's ref, as the interaction's own `actor` already did (`bindActors`).
 
 Still refused, because each needs the Keeper's decision: an empty population assessment while a registered person is
-seated at the destination (move them away or keep them), and an effect kind that does not exist.
+seated at the destination (move them away or keep them), and an effect kind with no single reading.
 
 Writer: the Keeper's packet and the kernel's deterministic repairs. Reader: the kernel transaction, the observation
 register and the sole author (which reads committed outcomes and `adjusted`). Actor: the Keeper, continuing from what
 settled. Existing places, features, relations, situations and observations from 1.x remain readable; state version 1
 is unchanged.
+
+## 251. A progress note for a read spiral (owner direction 2026-10-21: fewer deliberations, faster turns)
+
+Live evidence: on `el-v2-20261021a` T16 the single Keeper answered one sentence about a door and a hired middleman with
+38 consecutive reads (looks, catalogue and source lookups, every knowledge page) over 703 s and ended without an output;
+in the retained 鬼屋 campaign 3 of 109 turns reached 8 or more consecutive reads. Reading is never refused or cut (a call
+cap once killed the thinking step). Instead, every eighth consecutive successful read in one input carries one host note
+on that read's own result: the reads so far, and that what the capsule and the reads leave open is the Keeper's to
+settle in the fiction because the module is reference, not a script. Any write (`apply`, `resolve`, `ask`, `output`, a
+place write) or `narrate` resets the count; a refused read neither counts nor resets. The lane records
+`{lane:"keeper-progress", event:"read_streak_noted", reads}`.
+
+Writer: `keeperProgressNote` in `extensions/kernel/index.ts` (single Keeper only). Reader: the Keeper, on the next
+request. Actor: the Keeper, who decides whether to keep reading. Test: `tests/extension/keeper-read-streak.test.mjs`.
+

@@ -67,7 +67,7 @@ import { type KernelClient, KernelError, type KernelProgressFrame, isKernelError
 import { progressPartial } from "./progress.ts";
 import { MAP_DOCUMENT_NONE, renderMapView, type MapAttachment } from './map-view.ts';
 import { AUTHORED_MAP_WORDS, KEEPER_MAP_WORDS, mapCardTexts, type MapWordsOptions, prepareMapWords, projectMapCard, readMapWords } from '../module/map-presentation.ts';
-import { argumentLimitRefusal, documentWriteRefusal, effectShapeRefusal, COC_TOOLS, COC_TOOL_NAMES, type CocToolSpec, WRITE_TOOLS } from "./tools.ts";
+import { aliasEffectKinds, argumentLimitRefusal, documentWriteRefusal, effectShapeRefusal, COC_TOOLS, COC_TOOL_NAMES, type CocToolSpec, WRITE_TOOLS } from "./tools.ts";
 import { unwrapArgumentMarkup } from "./tool-argument-markup.ts";
 import { finalDeliveryAction, leanApplyEnabled, offeredTools } from "./lean-apply.ts";
 import {admissionRefusalScope} from './refusal-scope.ts';
@@ -411,6 +411,8 @@ interface TableState {
     locationContextTurn?:number;
     /** `read`: the Keeper inspected this history in this input; `preload`: the context offered it without a request. */
     observationReferences?:{turn:number;queries:Array<{scope:string;source:'read'|'preload';to:Record<string,unknown>;sense:string;records:Record<string,unknown>[]}>};
+    /** Consecutive successful reads in this input since the last write; a progress note, never a limit. */
+    readStreak?:{turn:number;count:number};
   /** §163: a scope Jev could not settle plays as `world`; only a settled out-of-fiction request is `reference`. */
   interactionScope?: 'world' | 'reference';
   /** §233.10: `world` came from a settled verdict (Jev authorized a world action, or a document edit), not a fallback. */
@@ -905,6 +907,7 @@ function strikeRefusalClass(
 }
 /** Refusals of any class a turn tolerates before every write but narrate and ask is shut. */
 const REFUSAL_BUDGET = 8;
+const READ_STREAK_NOTE = 8;
 /** Contract §34.12's look budget addendum (SL-72): the tools it counts. */
 const LOOK_BUDGET_TOOLS: ReadonlySet<string> = new Set(["look", "lookup", "recall"]);
 /** Used only if `content/rulesets/coc7/host-budgets.json` cannot be read; the shipped file carries the real default. */
@@ -3784,7 +3787,12 @@ export default function (pi: ExtensionAPI, host: {capabilities?:RuntimeCapabilit
             // §249: lines the Keeper judges itself are recorded, never reviewed.
             const keeperJudged=tool==='apply'?keeperJudgedKinds(reviewedEffects):[];
             if(keeperJudged.length)await record({lane:'admission',verb:tool,turn:state.turn,path:'keeper_judged',kinds:keeperJudged,jev_calls:0});
-			if(!proposal){capture?.(null);if(recovery?.told.length)await record({lane:'admission',verb:tool,turn:state.turn,path:'told',verdict:'authorized',jev_calls:0,owed:recovery.told});return;}
+			if(!proposal){
+                // §249: the Keeper's judgment that the player selected these lines still binds them as the player's act, so a
+                // kernel refusal is held and the turn's prose cannot publish it as done (held-act outcome, §166.2).
+                const judged=tool==='apply'?effects.flatMap((effect,index)=>keeperJudgedKinds([effect]).length?[index]:[]):[];
+                capture?.(judged.length?{tool:'apply',key:`keeper_judged:${JSON.stringify(judged)}`,lines:judged.map(index=>JSON.stringify(effects[index])),effects:judged}:null);
+                if(recovery?.told.length)await record({lane:'admission',verb:tool,turn:state.turn,path:'told',verdict:'authorized',jev_calls:0,owed:recovery.told});return;}
             proposal=capsuleContactProposal(proposal,payload,current);
             // §249: a registered meeting check is a rule of the meeting the Keeper decides to roll (owner 2026-10-13), not
             // an investigator action the player's words select; asking the consent reviewer refused it at its noise floor.
@@ -7124,7 +7132,9 @@ export default function (pi: ExtensionAPI, host: {capabilities?:RuntimeCapabilit
                 let targetArgs=args;
                 if(spec.name==='place')try{targetArgs=normalizePlaceTarget(args);}catch(error){if(isKernelError(error))throw new Error(error.toToolText());throw error;}
                 if(targetArgs!==args)void record({lane:'arguments',event:'place_target_alias_normalized',tool:'place',from:'name',to:'to'});
-                const supplied=spec.name==='apply'?normalizeApplyArguments(args):targetArgs;
+                let supplied=spec.name==='apply'?normalizeApplyArguments(args):targetArgs;
+                if(spec.name==='apply'){const aliased=aliasEffectKinds(spec.name,spec.parameters,supplied);supplied=aliased.args as typeof supplied;
+                    if(aliased.repairs.length)void record({lane:'arguments',event:'effect_kind_aliased',tool:spec.name,repairs:aliased.repairs});}
 				const normalized=turnPacketPrototype&&spec.name==='output'?normalizeTurnPacketArguments(supplied):normalizeToolArgumentSyntax(spec.parameters,supplied,{nativeValidation:true});
                 if(table&&(spec.name==='place'||normalized.args&&typeof normalized.args==='object'&&applyEffectKinds(spec.name,normalized.args as Record<string,unknown>).includes('place'))){
                     table.locationContextTurn=table.turn;
@@ -7192,13 +7202,31 @@ export default function (pi: ExtensionAPI, host: {capabilities?:RuntimeCapabilit
 
 	// Native isError is returned by the dispatcher; finalization still owns refusal accounting.
 	pi.on('tool_result', event => dispatcher.finalize(event));
+	/**
+	 * A read spiral is the costliest turn a single Keeper has (el-v2-20261021a T16: 38 reads, 703 s, no output). Every
+	 * READ_STREAK_NOTE consecutive successful reads in one input, the read's own result carries a short note handing the
+	 * open question back to the Keeper's judgment. No read is refused or cut; any write or delivery resets the count.
+	 */
+	function keeperProgressNote(state:TableState,event:ToolResultEvent):{content:ToolResultEvent['content']}|undefined{
+		const input=event.input as Record<string,unknown>|undefined;
+		const read=['look','lookup','recall','mod'].includes(event.toolName)||event.toolName==='place'&&input?.op==='inspect';
+		if(!read){if(WRITE_TOOLS.has(event.toolName)||event.toolName==='narrate')state.readStreak=undefined;return undefined;}
+		if(event.isError)return undefined;
+		const count=(state.readStreak?.turn===state.turn?state.readStreak.count:0)+1;
+		state.readStreak={turn:state.turn,count};
+		if(count%READ_STREAK_NOTE)return undefined;
+		void record({lane:'keeper-progress',event:'read_streak_noted',turn:state.turn,reads:count});
+		return {content:[...(event.content??[]),{type:'text',text:`Host note: ${count} reads in this input without a decision. `
+			+'What the capsule and these reads leave open is yours to settle in the fiction; the module is reference, not a script. Decide, then submit the output.'}]};
+	}
 	async function finalizeOperation(event: ToolResultEvent) {
 		if(event.toolName==='place'&&!(event.details as Record<string,unknown>|undefined)?.place_preflight){const operation=placeOperation(event.toolName,event.input as Record<string,unknown>);event={...event,toolName:operation.name,input:operation.params};}
 		if (!COC_TOOL_NAMES.includes(event.toolName as never)) return;
+		const progress = singleKeeper && table ? keeperProgressNote(table, event) : undefined;
 		const details = event.details as { coc_error?: { code?: unknown; message?: unknown } } | undefined;
 		if(singleKeeper && table && event.isError && ['apply','resolve'].includes(event.toolName) && !details?.coc_error)
 			holdFailedOperation(table,event.toolName,event.input,{code:'tool_validation_failed'},event.toolCallId);
-		if (!details?.coc_error) return;
+		if (!details?.coc_error) return progress;
 		const state = table;
 		if(singleKeeper && state && ['apply','resolve'].includes(event.toolName))
 			holdFailedOperation(state,event.toolName,event.input,details.coc_error,event.toolCallId);

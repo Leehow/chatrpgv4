@@ -83,7 +83,7 @@ export function argumentLimitRefusal(tool: string, args: unknown): { code: strin
 }
 
 /** One branch of `apply`'s `effects[]` union: its kind and the properties it requires (read off the schema itself). */
-interface EffectBranch { kind: string; required: string[]; arrays: string[] }
+interface EffectBranch { kind: string; required: string[]; arrays: string[]; properties: string[] }
 const branchCache = new WeakMap<object, EffectBranch[]>();
 function effectBranches(parameters: TSchema): EffectBranch[] {
 	const cached = branchCache.get(parameters);
@@ -94,11 +94,36 @@ function effectBranches(parameters: TSchema): EffectBranch[] {
 		const kind = shape.properties?.kind, names = [...(kind?.enum ?? []), ...(kind?.const !== undefined ? [kind.const] : [])];
 		const required = (shape.required ?? []).filter((key): key is string => typeof key === "string" && key !== "kind");
 		const arrays = Object.entries(shape.properties ?? {}).filter(([, field]) => field.type === "array").map(([name]) => name);
-		return names.filter((name): name is string => typeof name === "string").map(name => ({ kind: name, required, arrays }));
+		const properties = Object.keys(shape.properties ?? {});
+		return names.filter((name): name is string => typeof name === "string").map(name => ({ kind: name, required, arrays, properties }));
 	});
 	branchCache.set(parameters, branches);
 	return branches;
 }
+/**
+ * §250.4: an effect whose `kind` names no effect kind but names one of its own fields (`{kind:"document", document:{...}}`)
+ * took the field for the kind. When exactly one effect kind declares that field and every field the effect carries,
+ * that kind is the only reading and replaces it; otherwise the effect is left for `effectShapeRefusal`.
+ */
+export function aliasEffectKinds(tool: string, parameters: TSchema, args: unknown): { args: unknown; repairs: Array<{ index: number; from: string; to: string }> } {
+	if (tool !== "apply" || !args || typeof args !== "object" || Array.isArray(args)) return { args, repairs: [] };
+	const effects = (args as Record<string, unknown>).effects;
+	if (!Array.isArray(effects)) return { args, repairs: [] };
+	const branches = effectBranches(parameters), kinds = new Set(branches.map(branch => branch.kind));
+	const repairs: Array<{ index: number; from: string; to: string }> = [];
+	const next = effects.map((value, index) => {
+		if (!value || typeof value !== "object" || Array.isArray(value)) return value;
+		const effect = value as Record<string, unknown>, kind = effect.kind;
+		if (typeof kind !== "string" || kinds.has(kind) || !Object.hasOwn(effect, kind)) return value;
+		const fields = Object.keys(effect).filter(key => key !== "kind");
+		const readings = [...new Set(branches.filter(branch => fields.every(key => branch.properties.includes(key))).map(branch => branch.kind))];
+		if (readings.length !== 1) return value;
+		repairs.push({ index, from: kind, to: readings[0] });
+		return { ...effect, kind: readings[0] };
+	});
+	return repairs.length ? { args: { ...(args as Record<string, unknown>), effects: next }, repairs } : { args, repairs };
+}
+
 /** How a clue the prose gives is written, for a fix that must say it (§201.3). */
 const CLUE_EFFECT_WORDS = 'a clue the book has is {kind: "clue", clue: <its name, as where.affordances or known.clues_here list it>}';
 

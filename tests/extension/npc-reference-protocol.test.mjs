@@ -22,6 +22,19 @@ test('the native wire binds both speech and presence by reference rather than a 
  for(const actor of ['The clerk','npc_0','npc_017'])assert.throws(()=>turnPacket(packet(actor)));
 });
 
+test('a claim about a present person named by public appellation binds to that person (live el-v2-20261021a T19)',()=>{
+ const refs=new NpcReferences();const scope='c:8';
+ refs.observe(scope,{present:[{ref:'npc_13',display_name:'看房的中间人',name_known:false}]});
+ const claim={predicate:'whereabouts',actor:'看房的中间人',to:'corbitt-house-ground',when:'now'};
+ const original={version:4,commands:[],interactions:[{actor:'npc_13',to:['investigator_1'],act:'ask',content:[{new:claim}]}]};
+ const bound=refs.bindActors(scope,original);
+ assert.equal(bound.repairs,1);assert.deepEqual(bound.args.interactions[0].content[0].new,{...claim,actor:'npc_13'});
+ assert.equal(original.interactions[0].content[0].new.actor,'看房的中间人','the submitted packet is not mutated');
+ assert.equal(bound.args.interactions[0].content[0].new.to,'corbitt-house-ground','a place field is not a person field');
+ refs.observe(scope,{ref:'npc_14',display_name:'看房的中间人',name_known:false});
+ assert.equal(refs.bindActors(scope,original).repairs,0,'two same-name identities remain ambiguous');
+});
+
 test('only one exact issued public appellation normalizes to its original actor reference',()=>{
  const refs=new NpcReferences();const scope='c:8';
  refs.observe(scope,{present:[{ref:'npc_1',display_name:'The clerk',name:'Hidden name',name_known:false}]});
