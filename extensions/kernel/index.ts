@@ -1,7 +1,7 @@
 import {adviseLocationReference} from './location-reference.ts';
 import {locationDescription} from './location-description.ts';
 import {sourceLocationContext} from './source-location-context.ts';
-import {routineDescription,routineRefusal} from './routine-summary.ts';
+import {routineDescription,routineRefusal,routineCharge} from './routine-summary.ts';
 import {settledAdmissionEvidence,settledTimeEvidence} from './settled-admission.ts';
 import {placeOperation,placeParameterRefusal,normalizePlaceTarget,normalizePlaceArrayArguments} from './place-operation.ts';
 import {immediatelyPrecedingUnfinished} from './admission.ts';
@@ -5849,6 +5849,9 @@ export default function (pi: ExtensionAPI, host: {capabilities?:RuntimeCapabilit
                 .receipts.filter(receipt=>receipt.kind==='time').length:0;
             const routineRefused=routineRefusal(before,packet.routine,compiled.effects,keeperRun?.runId===reply.run&&!!keeperRun.routineResult,earlierTime);
             if(routineRefused)throw new KernelError({code:'invalid_params',message:routineRefused.message,details:{reason:routineRefused.reason,transaction_state:'uncommitted',before_execution:true}});
+            // §250.8: a missing or second time charge beside a routine summary is the Keeper's own time judgment, recorded only.
+            const routineCharged=routineCharge(packet.routine,compiled.effects,keeperRun?.runId===reply.run&&!!keeperRun.routineResult,earlierTime);
+            if(routineCharged==='uncharged'||routineCharged==='several')await record({lane:'routine-summary',event:'time_charge',turn:state.turn,charge:routineCharged});
 			// Resolve speakers before any writes; optional style is not an identity fallback.
 			const participantRefs=[...new Set(compiled.responses.flatMap(response=>[response.actor,...response.to??[]]).filter(isNpcReference))];
             const people=await Promise.all(participantRefs.map(async actor=>{

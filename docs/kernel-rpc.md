@@ -51139,6 +51139,15 @@ capsule now carries `where.known_places` (`{to, display_name}` for the book's sc
 registered, the current one excluded, at most 40, the first rows `fitWhere` gives up), and the decision content issues
 them as places. They are references for directions, whereabouts and planned visits, not access or player knowledge.
 
+### 250.8 A routine summary's time is the Keeper's judgment (amends §247.3)
+
+§247.3 refused a routine summary without exactly one time charge. Live (`el-v2-20261021d` T2, T4) it refused both ways:
+a summary whose acts the Keeper left uncharged, and a packet that charged the coffee and also carried the ten-minute wait
+the player had selected -- two waits in one packet are §250.1's ordinary route. Time is Keeper-judged (§249.1), so a
+missing or a second charge beside a routine summary is now recorded (`routine-summary` lane, `time_charge`,
+`uncharged` or `several`), never refused. Only an inactive routine capability still refuses. Quick Settlement's own
+guidance to charge the stretch once is unchanged.
+
 ## 251. A progress note for a read spiral (owner direction 2026-10-21: fewer deliberations, faster turns)
 
 Live evidence: on `el-v2-20261021a` T16 the single Keeper answered one sentence about a door and a hired middleman with
