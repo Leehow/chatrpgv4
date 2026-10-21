@@ -64,7 +64,7 @@ test("the approved establishing contribution bumps the craft package while prese
 	assert.match(voice,/A direct answer may close a subject/);assert.match(voice,/without demanding\s+that every line ends in a question/);
 });
 
-test("the actual kernel assembles the aligned whole instructions on every turn (§183)",async t=>{
+test("the actual kernel assembles the aligned resident instructions on every turn (§183, §248)",async t=>{
 	const game=await kernel(t),call=(method,params={})=>game.call(method,{campaign:"aligned",...params});
 	await call("campaign.create",{id:"aligned",module:"the-haunting",pregen:"thomas-hayes",play_language:"en"});
     // This historical alignment profile measures whole legacy instructions.
@@ -75,13 +75,13 @@ test("the actual kernel assembles the aligned whole instructions on every turn (
 	const next=await call("table.player_input",{text:"I stay with the conversation."});
 	for(const capsule of [first.capsule,next.capsule])for(const[id,expected]of Object.entries(PACKAGES)){
 		const row=byId(capsule).get(id),source=await readFile(join(ROOT,"mods",id,"agent.md"),"utf8");
-		assert.ok(row,`${id} is active by default`);assert.equal(row.version,expected.version);assert.equal(row.form,"full");assert.equal(row.instruction,source);
+		assert.ok(row,`${id} is active by default`);assert.equal(row.version,expected.version);assert.equal(row.form,"indexed");
+		// §248.2: the alignment lives in the resident text; every resident sentence of the source rides every turn.
+		assert.ok(row.instruction.split("\n\n").filter(part=>part.startsWith("## ")).every(part=>source.includes(part)),id);
 		aligned(id,row.instruction);
 	}
-	assert.match(byId(next.capsule).get("keeper-pacing").instruction,/advisory possibilities, not a required ladder or a debt/i);
 	assert.match(byId(next.capsule).get("narration-craft").instruction,/add no event to justify it/i);
-	assert.ok(next.capsule.mods.instructions.every(row=>row.form==="full"),"no package is indexed within the budget");
-	assert.equal(next.capsule.mods.topics,undefined,"no topic list without an indexed row");
+	assert.ok(next.capsule.mods.instructions.every(row=>row.form===(Array.isArray(row.sections)?"indexed":"full")),"sectioned packages are indexed (§248.1)");
 });
 
 test("a language-scoped package rides whole beside the others; its brief is never read (§183.3)",async t=>{

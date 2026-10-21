@@ -68,10 +68,14 @@ test('the real Keeper context supplies practical NPC knowledge and separates fir
     assert.ok(delivered.includes('Keep hidden motives, undisclosed source facts, private thoughts, tool arguments and hosting explanations out of public prose'));
     const capsule=await table.runtimeBridges().at(-1).call('table.capsule',{campaign:'test-camp'});
     const instructions=capsule.mods.instructions;
-    assert.ok(instructions.every(row=>row.form===(row.mod==='enhanced-locations'?'indexed':'full')),'guidance remains whole inside the existing budget');
+    // §248.1: every sectioned package is indexed; only what rides every request counts against the budget.
+    assert.ok(instructions.every(row=>row.form===(Array.isArray(row.sections)?'indexed':'full')),'sectioned packages are indexed');
     const bytes=instructions.reduce((total,row)=>total+Buffer.byteLength(row.instruction,'utf8'),0);
     t.diagnostic(`Default package instructions: ${bytes} of 65536 bytes`);
     assert.ok(bytes<=65536);
+    // §248.5: each package's every-turn text stays small; Narration Craft's prose contract is resident by decision.
+    for(const row of instructions)if(row.mod!=='narration-craft')
+        assert.ok(Buffer.byteLength(row.instruction,'utf8')<=6144,`${row.mod} carries ${Buffer.byteLength(row.instruction,'utf8')} bytes every turn`);
 });
 
 test('the single Keeper can read necessary evidence beyond the legacy per-tool quota',async t=>{

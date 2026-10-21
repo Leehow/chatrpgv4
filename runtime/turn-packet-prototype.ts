@@ -25,11 +25,20 @@ const placeStationary=PlaceEffect.anyOf.slice(1);
 const commandSchemas=[move,placeMove,...placeStationary,npc,walkOn,scene,time,relationship];
 // Travel owns its time; explicitly separate post-arrival activity uses the canonical extra-time flag.
 const commands=Type.Union([Type.Array(Type.Union([move,placeMove,postTravelTime,...placeStationary,npc,walkOn,scene,relationship]),{maxItems:12}),Type.Array(Type.Union([time,...placeStationary,npc,walkOn,scene,relationship]),{maxItems:12})]);
+/** Contract §247.3: a closed rendering selection for routine acts carried without per-act settlement; it writes nothing. */
+export const ROUTINE_SUMMARY=Type.Object({
+ acts:Type.Array(atom(120),{minItems:1,maxItems:8,description:'Every routine act of this input you did not settle individually (ordering, eating, drinking, sitting, glancing), as short public phrases; the author renders them as one summary.'}),
+ ambient:Type.Optional(Type.Array(Type.Object({target:atom(80),notes:Type.Optional(Type.Array(atom(200),{maxItems:3,description:'Optional period detail for description only, never a new fact of the world.'}))},{additionalProperties:false}),
+  {maxItems:3,description:'Each thing the player looks at or reads (a newspaper, a window) that carries nothing module-relevant; the author describes its ordinary period detail as texture. Relevant findings use the normal clue, observation or reveal path instead.'}))
+},{additionalProperties:false,description:'Use whenever this input chains routine acts: they share one time charge (this packet\'s time command or an earlier one of this input) and get no per-act receipt. Establishes no entity, clue, fact or receipt.'});
 /** A model decides communication; the sole author owns all complete wording. */
 export const TURN_PACKET_PARAMETERS=Type.Object({version:Type.Literal(4),commands:Type.Optional(commands),interactions:Type.Optional(Type.Array(Interaction,{maxItems:12})),reveal:Type.Optional(Type.Array(ExistingCommunicationFact,{maxItems:8}))},{additionalProperties:false});
+/** §247.3: the same packet with the routine element, issued only while a package declares the capability. */
+export const TURN_PACKET_ROUTINE_PARAMETERS=Type.Object({...TURN_PACKET_PARAMETERS.properties,routine:Type.Optional(ROUTINE_SUMMARY)},{additionalProperties:false});
 export const TURN_PACKET_ENTRY_PARAMETERS=locationCommandEntry(TURN_PACKET_PARAMETERS);
 export type ResponseDecision=InteractionDecision;
-export type TurnPacket=Static<typeof TURN_PACKET_PARAMETERS>;
+export type RoutineSummary=Static<typeof ROUTINE_SUMMARY>;
+export type TurnPacket=Static<typeof TURN_PACKET_PARAMETERS>&{routine?:RoutineSummary};
 export type BoundTurnPacket=Omit<TurnPacket,'commands'>&{commands:Array<NonNullable<TurnPacket['commands']>[number]&{travel_minutes?:number}>};
 export const isNewNpcSlot=(value:unknown):value is string=>typeof value==='string'&&/^new_[1-4]$/.test(value);
 const object=(value:unknown):value is Record<string,any>=>!!value&&typeof value==='object'&&!Array.isArray(value);
@@ -97,11 +106,12 @@ export function requireTurnPacketNpcDestinations(packet:TurnPacket,choices:reado
 }
 /** Decode declared scalar and array transport forms without semantic inference. */
 export function normalizeTurnPacketArguments(input:unknown):{args:unknown;repairs:number;integerRepairs?:number;booleanRepairs?:number;textRepairs?:number} {
-  return normalizeToolArgumentSyntax(TURN_PACKET_PARAMETERS,input,{boundedIntegers:true,exactBooleans:true,partialTransport:true});
+  return normalizeToolArgumentSyntax(TURN_PACKET_ROUTINE_PARAMETERS,input,{boundedIntegers:true,exactBooleans:true,partialTransport:true});
 }
 /** One current parameter contract for the native declaration and submission. */
-export function turnPacketParameterSchema(journeySettled=false,timeBands?:readonly string[],moveChoices?:readonly Record<string,unknown>[],sceneRequired=false,bindings?:DecisionBindings,locations=false,timeBandRows?:readonly {handle:string;covers?:string}[]):TSchema {
-    const schema:Record<string,any>=structuredClone(TURN_PACKET_PARAMETERS);
+export function turnPacketParameterSchema(journeySettled=false,timeBands?:readonly string[],moveChoices?:readonly Record<string,unknown>[],sceneRequired=false,bindings?:DecisionBindings,locations=false,timeBandRows?:readonly {handle:string;covers?:string}[],routine=false):TSchema {
+    // §247.3: the routine element exists only while an active package declares the routine-summary capability.
+    const schema:Record<string,any>=structuredClone(routine?TURN_PACKET_ROUTINE_PARAMETERS:TURN_PACKET_PARAMETERS);
     const meanings=timeBandRows?.filter(row=>timeBands?.includes(row.handle)&&row.covers).map(row=>`${row.handle}: ${row.covers}`);
     if(meanings?.length)schema.description=`Optional independent activity costs use the applicable current rule meaning; a category name alone is not its definition. No separate bookkeeping time is required for every command.\n${meanings.join("\n")}`;
     if(bindings){schema.properties.interactions.items=bindCommunicationParameters(schema.properties.interactions.items,bindings);schema.properties.reveal.items=bindCommunicationParameters(schema.properties.reveal.items,bindings,true);}
@@ -178,7 +188,13 @@ export function turnPacket(text:string,parameters?:TSchema):TurnPacket {
    if(command.beyond_travel===true&&journey>=0&&index<journey)throw Error('beyond_travel time must follow the journey when both occur in this packet.');
   }
  }
- if(Errors(TURN_PACKET_PARAMETERS,raw).length)throw parameterError('packet',TURN_PACKET_PARAMETERS,raw);
+ if(object(raw)&&raw.routine!==undefined){
+  // Issuance is the per-turn schema's; without one the host checks the active capability before execution (§247.3).
+  if(parameters&&!object((parameters as Record<string,any>).properties?.routine))throw new TurnPacketParameterError('Invalid decision command: routine is not issued for this turn; settle or omit the routine acts',['packet/routine: not issued']);
+  if(Errors(ROUTINE_SUMMARY,raw.routine).length)throw parameterError('routine',ROUTINE_SUMMARY,raw.routine);
+ }
+ const base=object(raw)&&raw.routine!==undefined?Object.fromEntries(Object.entries(raw).filter(([key])=>key!=='routine')):raw;
+ if(Errors(TURN_PACKET_PARAMETERS,base).length)throw parameterError('packet',TURN_PACKET_PARAMETERS,base);
  if(parameters){const diagnostic=commandArrayDiagnostic(parameters,raw.commands);if(diagnostic)throw diagnostic;}
  if(parameters&&Errors(parameters,raw).length)throw parameterError('packet',parameters,raw);
  const packet=raw as TurnPacket,commands=packet.commands??[],interactions=packet.interactions??[];

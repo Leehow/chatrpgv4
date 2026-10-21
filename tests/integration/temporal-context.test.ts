@@ -198,17 +198,16 @@ assert.ok(pyBool(pyEqual(pyAt(pyAt((await pyNext((await (async()=>{const __rows:
 }
 if(process.argv[1]===import.meta.filename)for(const [index,row] of ([{}]).entries())test("test_daily_life_table_is_mod_owned_and_disabled_strategy_keeps_world_facts"+(([{}]).length>1?' ['+index+']':''),async(t)=>{const temporary=temporaryPath(t);await test_daily_life_table_is_mod_owned_and_disabled_strategy_keeps_world_facts(await kernel(t,{}));});
 export async function test_daily_life_guidance_does_not_displace_existing_package_instructions(kernel:any){
-// Keep the original full-instruction fixture; section 242 tests the new demand-loaded package.
-await kernel.ok("mods.defaults",{id:"enhanced-locations",enabled:false});
+// §248.1: the daily-life table adds no instruction row; every other row keeps its form (indexed when sectioned).
 let instructions:any,daily:any,host:any;
 (await open_turn(kernel,"I look around."));
 instructions=pyAt(pyAt((await pyMethod(kernel,"table",["capsule"],{})),"mods"),"instructions");
 assert.ok(pyBool(!pyBool((await pyAny((await (async()=>{const __rows:any[]=[];for(const item of pyIterable(instructions)){__rows.push(pyEqual(pyAt(item,"mod"),"daily-life"));}return __rows;})()))))),"tests/kernel/test_temporal_context.py:196 assert not any(item[\"mod\"] == \"daily-life\" for item in instructions)");
-assert.ok(pyBool((await pyAll((await (async()=>{const __rows:any[]=[];for(const item of pyIterable(instructions)){__rows.push(pyEqual(pyAt(item,"form"),"full"));}return __rows;})())))),"tests/kernel/test_temporal_context.py:197 assert all(item[\"form\"] == \"full\" for item in instructions)");
+assert.ok(pyBool((await pyAll((await (async()=>{const __rows:any[]=[];for(const item of pyIterable(instructions)){__rows.push(pyEqual(pyAt(item,"form"),Array.isArray(pyAt(item,"sections"))?"indexed":"full"));}return __rows;})())))),"tests/kernel/test_temporal_context.py:197 assert all(item[\"form\"] == \"full\" for item in instructions)");
 daily=(await pyNext((await (async()=>{const __rows:any[]=[];for(const table of pyIterable(pyAt((await pyMethod(kernel,"ok",["mods.temporal_context",({["campaign"]:"c1"})],{})),"tables"))){if(pyBool(pyEqual(pyAt(table,"mod"),"daily-life"))){__rows.push(table);}}return __rows;})())));
 assert.ok(pyBool(pyContains(pyAt(daily,"guidance"),"where.temporal")),"tests/kernel/test_temporal_context.py:199 assert \"where.temporal\" in daily[\"guidance\"]");
 host=(await pyMethod(kernel,"ok",["mods.context",({["campaign"]:"c1"})],{}));
-assert.ok(pyBool((await pyAll((await (async()=>{const __rows:any[]=[];for(const item of pyIterable(pyAt(host,"instructions"))){__rows.push(pyEqual(pyAt(item,"form"),"full"));}return __rows;})())))),"tests/kernel/test_temporal_context.py:201 assert all(item[\"form\"] == \"full\" for item in host[\"instructions\"])");
+assert.ok(pyBool((await pyAll((await (async()=>{const __rows:any[]=[];for(const item of pyIterable(pyAt(host,"instructions"))){__rows.push(pyEqual(pyAt(item,"form"),Array.isArray(pyAt(item,"sections"))?"indexed":"full"));}return __rows;})())))),"tests/kernel/test_temporal_context.py:201 assert all(item[\"form\"] == \"full\" for item in host[\"instructions\"])");
 }
 if(process.argv[1]===import.meta.filename)for(const [index,row] of ([{}]).entries())test("test_daily_life_guidance_does_not_displace_existing_package_instructions"+(([{}]).length>1?' ['+index+']':''),async(t)=>{const temporary=temporaryPath(t);await test_daily_life_guidance_does_not_displace_existing_package_instructions(await kernel(t,{}));});
 export async function test_temporal_threshold_uses_the_configured_numeric_setting(kernel:any){

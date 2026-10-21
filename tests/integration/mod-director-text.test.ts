@@ -78,14 +78,16 @@ test('test_narration_audit_joins_the_shared_audit_job',async t=>{
 
 test('test_instructions_are_whole_on_every_turn_within_the_budget',async t=>{
   const k=await kernel(t);
-  // Preserve the historical full-instruction profile; demand-loaded Locations has separate acceptance.
-  await k.ok('mods.defaults',{id:'enhanced-locations',enabled:false});await openTurn(k);
-  const instructions=async()=>Object.fromEntries((await k.table('capsule')).mods.instructions.map((row:Row)=>[row.mod,row]));
-  const first=await instructions();assert.ok(Object.values(first).every((row:Row)=>row.form==='full'));
-  assert.ok(first['story-thread'].instruction.startsWith('# Story Thread\n'));await stop(k);await k.table('player_input',{text:'I continue asking.'});
+  // §248.1: a sectioned package rides indexed on every turn, an unsectioned one whole; the text every turn carries fits the budget.
+  await openTurn(k);
+  const form=(row:Row)=>Array.isArray(row.sections)?'indexed':'full';
+  const instructions=async()=>Object.fromEntries((await k.table('capsule')).mods.instructions.map((row:Row)=>[row.mod,{...row,sections:row.sections?.map(({gates_open:_g,due:_d,...section}:Row)=>section)}]));
+  const first=await instructions();assert.ok(Object.values(first).every((row:Row)=>row.form===form(row)));
+  assert.equal(first['story-thread'].form,'indexed');assert.ok(first['story-thread'].instruction.includes('"story-thread: Reading the thread"'));
+  await stop(k);await k.table('player_input',{text:'I continue asking.'});
   const later=await instructions();assert.deepEqual(later,first);
   assert.ok(Object.values(later).reduce((sum:number,row:Row)=>sum+Buffer.byteLength(row.instruction),0)<=65536);
-  assert.ok((await context(k)).instructions.every((row:Row)=>row.form==='full'));
+  assert.ok((await context(k)).instructions.every((row:Row)=>row.form===form(row)));
 });
 
 test('test_a_scenario_scoped_clock_is_on_the_panel_before_its_danger_is_in_the_room',async t=>{

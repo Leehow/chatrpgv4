@@ -54,7 +54,7 @@ test('a ready routine journey publishes actual movement without Keeper inference
  assert.ok(writer,JSON.stringify(table.session.messages.filter(row=>row.role==='toolResult').map(row=>({tool:row.toolName,details:row.details})))+' '+JSON.stringify(table.telemetry().filter(row=>row.lane==='keeper-delivery').slice(-3)));
  const task=JSON.parse(readFileSync(join(writer.attempt,'task.json'),'utf8'));
  assert.equal(task.result.outcomes.filter(x=>x.kind==='move'&&x.status==='changed').length,1);
- assert.deepEqual(table.session.getActiveToolNames().sort(),['look','lookup','recall','resolve','apply','place','ask','output'].sort(),'routine travel skips inference while the complete chapter retains production rules');
+ assert.deepEqual(table.session.getActiveToolNames().sort(),['look','lookup','recall','resolve','apply','place','mod','ask','output'].sort(),'routine travel skips inference while the complete chapter retains production rules');
  assert.deepEqual(table.extensionErrors,[]);
 });
 

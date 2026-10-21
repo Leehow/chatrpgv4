@@ -26,8 +26,10 @@ test('test_first_impression_uses_higher_value_and_reuses_pair',async t=>{
 });
 test('the current first-impression instructions let the Keeper choose a meaningful contact and reuse its public result',async t=>{
   const k=await seeded(t);await openTurn(k,'I ask Knott for access to the house.');
-  const instructions=(await k.ok('mods.context',{campaign:CAMPAIGN})).instructions.find((row:Row)=>row.mod==='natural-npc').instruction;
-  const impression=instructions.split('## First impression')[1].split('## The impression in play')[0];
+  // §248.1: natural-npc rides indexed; its First impression section is read by key.
+  const row=(await k.ok('mods.context',{campaign:CAMPAIGN})).instructions.find((row:Row)=>row.mod==='natural-npc');
+  const key=row.sections.find((section:Row)=>section.heading==='First impression').key;
+  const impression=(await k.ok('mods.sections',{campaign:CAMPAIGN,keys:[key]})).sections[0].text;
   assert.doesNotMatch(impression,/Never resolve\s+natural-npc:first-impression yourself/);
   assert.match(impression,/Decide whether the initial impression matters to this approach/);
   assert.match(impression,/call `resolve` with\s+`action\.decision: "natural-npc:first-impression"`/);
