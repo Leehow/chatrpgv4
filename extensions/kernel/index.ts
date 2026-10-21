@@ -516,6 +516,7 @@ interface TableState {
     packetTimeBandRows?:import("../../runtime/jev/band-shadow-domain.ts").TimeBandRow[];
 	packetSceneRequired?:boolean;
 	packetParameterFailures?:Set<string>;
+    packetRefusalRecovery?:{turn:number;run:string};
 	packetParameters?:{turn:number;run?:string;schema:ReturnType<typeof turnPacketParameterSchema>};
 	/** §168.5: `turn|item` pairs whose omission while their check ran is already on the telemetry line. */
 	firstSightOmitted: Set<string>;
@@ -5938,6 +5939,7 @@ export default function (pi: ExtensionAPI, host: {capabilities?:RuntimeCapabilit
 	async function submitTurnPacket(params:Record<string,unknown>,signal?:AbortSignal,ctx?:ExtensionContext){
 		const state=table,owner=keeperRun;
 		if(!state||!owner)throw new KernelError({code:'needs',message:'The active Keeper input is unavailable'});
+        const submittedTurn=state.turn;
 		const reply={decoder:new ExpressionPlanStream(),work:Promise.resolve(),run:owner.runId,signal,raw:''} as NonNullable<typeof keeperReply>;
 		try{
             let packet:TurnPacket;
@@ -5961,6 +5963,16 @@ export default function (pi: ExtensionAPI, host: {capabilities?:RuntimeCapabilit
 			if(!reply.evidence&&!reply.stream&&isKernelError(error)&&error.code==='invalid_params'&&error.details?.transaction_state==='uncommitted'){
                 const {retry,refusal}=refusePacketParameters(state,error,ctx,true);
                 return {content:[{type:'text' as const,text:JSON.stringify(refusal)}],details:{coc_error:refusal},terminate:!retry};
+            }
+            const knownFailures=heldActs.get(state)?.uncommittedFailures();
+            if(!reply.evidence&&!reply.stream&&!signal?.aborted&&table===state&&state.turn===submittedTurn&&keeperRun?.runId===owner.runId
+                &&state.inputEnded?.turn!==submittedTurn&&isKernelError(error)&&error.code==='needs'
+                &&['action_not_authorized','action_admission_uncertain'].includes(String(error.details?.reason))&&knownFailures?.length
+                &&!(state.packetRefusalRecovery?.turn===submittedTurn&&state.packetRefusalRecovery.run===owner.runId)){
+                state.packetRefusalRecovery={turn:submittedTurn,run:owner.runId};
+                await record({lane:'output-refusal-recovery',event:'returned',turn:submittedTurn,run:owner.runId,reason:error.details?.reason,failures:knownFailures.length,jev_extra_calls:0});
+                return{content:[{type:'text' as const,text:errorText(error)}],terminate:false,details:{coc_error:{code:error.code,message:error.message,
+                    details:error.details,retryable:error.retryable,next:error.next,fix:error.fix}}};
             }
 			if(reply.evidence)finalOutput.finishStream(reply.evidence,'publication_pending');
 			else if(reply.stream){reply.stream.interrupt();endInput(state,'public_stream_interrupted',ctx);}
@@ -8023,7 +8035,7 @@ export default function (pi: ExtensionAPI, host: {capabilities?:RuntimeCapabilit
 			state.mapAttachments = [];
 			// A new player input is a new context (contract §32.4): no verdict outlives it.
 			state.playerText = text;
-			state.packetTimeBands=undefined;state.packetTimeBandRows=undefined;state.packetSceneRequired=undefined;state.packetParameters=undefined;state.packetParameterFailures=undefined;
+			state.packetTimeBands=undefined;state.packetTimeBandRows=undefined;state.packetSceneRequired=undefined;state.packetParameters=undefined;state.packetParameterFailures=undefined;state.packetRefusalRecovery=undefined;
 			state.interactionScope = undefined;
 			state.interactionScopeSettled = undefined;
 			state.selectedWriting = false;

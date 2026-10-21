@@ -73,7 +73,7 @@ test('campaign length never reaches the provider: the branch outgrows the ceilin
     // The current trace explicitly reports request_ceiling_exceeded at 220,073 B after dropping history.
     // Keep this pressure fixture above that floor; its stored branch still has to outgrow the ceiling.
     // §235: the event schema and prompt raise the protected floor to 231,753 B; 224 KiB cannot fit it.
-    const ceiling = 240 * 1024, turns = 6;
+    let ceiling = api.REQUEST_BYTES; const turns = 6;
     const table = await openTable({realKernel: true, campaign: 'long-campaign-ceiling', retainAt: directory,
         env: {PI_COC_COMPACT_AT: '100', PI_COC_REQUEST_BYTES: String(ceiling)}, settings: {compaction: {enabled: false}},
         responses: [...keeperTurn(long(0)), ...Array.from({length: turns}, (_, turn) => keeperTurn(long(turn + 1))).flat()]});
@@ -83,6 +83,12 @@ test('campaign length never reaches the provider: the branch outgrows the ceilin
     // already processing a prompt".
     await waitFor(() => narrated(table.session, long(0)), {label: 'the opening delivery', timeoutMs: 60000});
     await waitForIdle(table.session, {timeoutMs: 60000});
+    // Measure the actual projected source/tool floor before applying pressure. A raw
+    // checkpoint omits the native declaration view and undercounts its immutable bytes.
+    const baseline=await table.session._extensionRunner.emitContext(branchMessages(table));
+    ceiling=api.sizeOf(convertToLlm(baseline).map(({details,...visible})=>visible))+16*1024;
+    assert.ok(ceiling<api.REQUEST_BYTES,'the pressure ceiling remains below the product default');
+    process.env.PI_COC_REQUEST_BYTES=String(ceiling);
     const requests = outbound(table);
     for (let turn = 1; turn <= turns; turn++) {
         await table.session.prompt(`玩家第 ${turn} 次行动。`);
@@ -136,7 +142,8 @@ test('a turn the policy cannot prepare is bounded, not answered with the whole s
         responses: [...keeperTurn(long(0)), ...Array.from({length: 4}, (_, turn) => keeperTurn(long(turn + 1))).flat()]});
     t.after(() => table.dispose());
     await waitForIdle(table.session, {timeoutMs: 60000});
-    const ceiling=api.sizeOf([getCurrentSystemMessage(branchMessages(table))])+4096;
+    const baseline=await table.session._extensionRunner.emitContext(branchMessages(table));
+    let ceiling=api.sizeOf([getCurrentSystemMessage(baseline)])+4096;
     assert.ok(ceiling<api.REQUEST_BYTES,'the test still constrains the request below the product default');
     process.env.PI_COC_REQUEST_BYTES=String(ceiling);
     for (let turn = 1; turn <= 4; turn++) {
@@ -148,6 +155,13 @@ test('a turn the policy cannot prepare is bounded, not answered with the whole s
     // The live failure: the kernel bridge is gone, so no capsule and no history can be prepared.
     // This is the exact shape that sent 415,127 tokens on 2026-09-16T00:14:35Z.
     table.emit('coc:kernel-bridge', {campaign: 'long-campaign-degraded'});
+    // Missing preparation can restore a different canonical tool checkpoint.
+    // Measure that fallback's own immutable floor, not the valid request's view.
+    process.env.PI_COC_REQUEST_BYTES=String(api.REQUEST_BYTES);
+    const fallback=await table.session._extensionRunner.emitContext(messages);
+    ceiling=api.sizeOf([getCurrentSystemMessage(fallback)])+4096;
+    assert.ok(ceiling<api.REQUEST_BYTES&&stored>ceiling,'fallback pressure remains feasible and smaller than the branch');
+    process.env.PI_COC_REQUEST_BYTES=String(ceiling);
     const projected = await table.session._extensionRunner.emitContext(messages);
     assert.ok(api.sizeOf(projected) <= ceiling, `a degraded request is still under the ceiling: ${api.sizeOf(projected)} <= ${ceiling}`);
     assert.ok(api.sizeOf(projected) < stored, 'the degraded request is smaller than the branch it came from');
@@ -156,9 +170,9 @@ test('a turn the policy cannot prepare is bounded, not answered with the whole s
     assert.equal(projected.find(message => message.role !== 'system').customType, api.DIAGNOSTIC_TYPE, 'the Keeper is told the context was reduced');
     assert.ok(api.pairedTools(projected), 'the bounded fallback keeps its tool pairs');
     // `record` appends its JSONL line without awaiting, so wait for the row rather than race it.
-    await waitFor(() => table.telemetry().some(entry => entry.lane === 'context' && entry.reason === 'kernel_bridge_unavailable'),
+    await waitFor(() => table.telemetry().some(entry => entry.lane === 'context' && entry.reason === 'kernel_bridge_unavailable' && entry.ceiling_bytes === ceiling),
         {label: 'the degraded request row'});
-    const row = table.telemetry().findLast(entry => entry.lane === 'context' && entry.event === 'request');
+    const row = table.telemetry().findLast(entry => entry.lane === 'context' && entry.event === 'request' && entry.ceiling_bytes === ceiling);
     assert.equal(row.reason, 'kernel_bridge_unavailable');
     assert.equal(row.ceiling_bytes, ceiling);
     assert.ok(row.dropped_tail > 0, 'the telemetry names how much the ceiling dropped');

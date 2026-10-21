@@ -40,7 +40,7 @@ test('the same incident survives viewpoint changes, real NPC departure, delivery
     const missing=await k.tableErr('apply',{call_id:'t2-c2',effects:[initial]});
     assert.equal(missing.code,'invalid_params');assert.equal(missing.details.reason,'place_observation_relation_required');assert.deepEqual(world(k),before);
     const view=(await inspect(k)).observation;
-    assert.deepEqual(view.from,{place:'Inn room',at:'window'});assert.equal(view.last_observation.observed_clock.minutes,atFirst);
+    assert.deepEqual(view.from,{place:'Inn room',at:'window',relation:'beside'});assert.equal(view.last_observation.observed_clock.minutes,atFirst);
     assert.equal(view.people.length,2);assert.equal(view.relations.length,0);
     assert.deepEqual(world(k),before,'preparation reads cannot observe, advance or alter the world');
     const observed={...initial,relations:[relation],people:['Man in cap'],facts:['Only the man in the cap remains beside the steps.'],
@@ -143,14 +143,14 @@ test('an ordinary view derives the actual counter position without registering i
     const before=world(k),wrong={...relation,from:{place:'Inn room',at:'doorway'}};
     const rejected=await k.tableErr('apply',{call_id:'t2-c2',effects:[{...initial,relations:[wrong]}]});
     assert.equal(rejected.details.reason,'place_observation_point_unresolved');assert.equal(rejected.details.field,'relations[0].from');
-    assert.deepEqual(rejected.details.current_viewpoint,{place:'Inn room',at:'counter'});
+    assert.deepEqual(rejected.details.current_viewpoint,{place:'Inn room',at:'counter',relation:'beside'});
     assert.match(rejected.fix,/features/);assert.match(rejected.fix,/not as a child place/);assert.match(rejected.fix,/use view/);
     assert.deepEqual(world(k),before);
     const child=await k.tableErr('apply',{call_id:'t2-c2',effects:[{...initial,relations:[wrong],additions:[{name:'doorway',within:'Inn room',description:'The open doorway.'}]}]});
     assert.equal(child.details.reason,'place_observation_point_unresolved');assert.deepEqual(world(k),before);
     const description='From the counter, the open doorway shows the pavement at the entrance.';
     const result=await k.table('apply',{call_id:'t2-c2',effects:[{...initial,view:description}]});
-    assert.deepEqual(result.outcomes[0].observation.from,{place:'Inn room',at:'counter'});
+    assert.deepEqual(result.outcomes[0].observation.from,{place:'Inn room',at:'counter',relation:'beside'});
     assert.deepEqual(locations(k).position,before.mods.state['enhanced-locations'].locations.position);
     assert.equal(locations(k).relations.length,1);assert.equal(locations(k).relations[0].description,description);
     assert.equal(locations(k).features.some((feature:Row)=>feature.name==='doorway'),false);

@@ -1131,3 +1131,27 @@ than physical activity only; family24, .60/.40 unchanged. New context tests red4
 then green4, combined focused16 pass. Actual App verification is still pending.
 Sources: https://docs.typesafe.ai/concepts/state and
 https://docs.typesafe.ai/primitives/noul (current official index was checked).
+
+0accb387e canonical install08:16:19Z was verified against clean source and maps,
+including the separate table extension map. Original74 delivered in73.862s with
+no error, but omitted prices; it does not prove the time-cost admission fix.
+Original75 failed naturally at UI81s/action_not_authorized, no public delivery.
+Its actual proposal includes rule_time_cost, proving the metadata wire while
+leaving semantic refusal and native error continuation unresolved. No stop,
+threshold reduction or invented elapsed success. Screenshots88/89 and raw records
+are retained. EL-07 fixes only the confirmed native continuation boundary: two
+actual Pi/native deterministic tests red before, green after; rejected time
+never commits, independent reply publishes once, repeated refusal stops. This
+is component evidence, with clean/package/original-session validation pending.
+
+cb441ace7 full LAN run.k630vhhK failed: two extension files and two integration
+cases, loop12 pass, exit1/wall1220s. Observation expectations omitted the newly
+retained relation. Pressure fixtures measured below the enlarged immutable
+schema floor: first240KiB vs265556+ required, degraded raw floor undercounted the
+projected fallback, and six-result synthetic filler exceeded feasibility by1521B.
+Tests now derive a feasible pressure ceiling below the unchanged384KiB product
+limit, retain all tool/player/evidence assertions and the separate below-floor
+case; synthetic filler alone shrinks8KiB. Asynchronous telemetry must match the
+new invocation's ceiling. No production request limit was raised. Main targeted
+six-result2 and observation2 pass; clean full validation remains required. The
+0accb387e full suite started separately before these changes and is still running.

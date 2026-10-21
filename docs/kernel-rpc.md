@@ -48868,6 +48868,15 @@ rule describes it, rather than assuming all activities are physical. Family24
 invalidates older band verdicts. No new lane, threshold, arithmetic or timeout;
 missing rule meaning is never fabricated from a band name.
 
+Native refusal continuation (EL-07, original inputs73/75): submitTurnPacket may
+return one prepublication consent refusal to the same Keeper only when its
+current HeldActOutcome proves a complete known uncommitted failure. Preserve the
+original error and receipts; no automatic split or dropped effect. The Keeper
+must select an independent remainder through normal validation/admission. Refusal
+recovery is bound to turn/run and exhausted after one continuation. Started
+streams, publication evidence, stale owners, unknown settlement and other causes
+retain terminal behavior. Details: location-system-tickets/07-native-output-refusal-recovery.md.
+
 Existing feature recovery (original input67): an establishment conflict returns
 the exact existing public feature and conflicting closed fields, with an explicit
 instruction to reuse that identity and omit its repeated definition from additions.
