@@ -472,4 +472,16 @@ v2 与它们重叠，实施前必须先确定谁先落地、在哪个分支上�
 - 2026-10-21 `39c1e90f0`/`12d5535a8`：交互内容项按自身键定位分支报错（T107 的 input_requirements topic 不再报成 fact_ref）。
 - 2026-10-21 `c2834cd54`：并入 origin/0.9.8a（§247 Quick Settlement、§248 mod 索引；现装 App 已含这两项，不并会倒退）。
   共享检出 `chatrpgv4-wt-pi-coc-v2` 有另一路未提交工作，本地 0.9.8a 引用未移动；打包从本分支出。
-- 待办：盒子 all 全绿 → 退出 App 打包到 /Applications → sonnet 子代理经 ego-browser 真 App 实测（简报在会话 scratchpad 的 player-brief.md）→ 分诊修复复测。
+- 2026-10-21 打包 App 不带 `browser-ui`（`Electron/packages/ui/dist/browser` 不是打包产物），本地 Debug 打不开；
+  配对链接带密钥，不交给子代理；computer-use 被用户拒绝。改用 Agents.md 规定的唯一验收方法：`tests/play/driver.ts`
+  RPC 起 `bin/pi-coc`，MiniMax-M3.1-Flash-Preview medium，sonnet 子代理当唯一玩家（一回合一句）。
+- 2026-10-21 第一桌 `el-v2-20261021a`（旧构建 1bf73764e）25 回合：地点系统拒绝只有 1 次（我引入的指路退化，已修
+  `4b70ecf92`）；全部错误 12 次、未交付 2 次（T12 MiniMax 搜索回放 400、T16 读取死循环）、中位 97 s。
+- 修复（全部已提交）：`4b70ecf92` 指路构造器；`79da4e873` 服务先后规则移到 quick-settlement 1.1.0；
+  `926cd1961` 观察历史只在本回合读过或再看同一视角时给作者；`246b36fd7` 会面检定由 KP 判、actor_id、handover 去掉、
+  未开报价当新开销、lookup 空 kinds（§250.4）；`369f31483` 搜索结果与调用配对；`769310024` KP 自判动作被拒仍挂起、
+  第 8 次连续读取附进度提示（§251）、kind 别名、claim 人物绑定；`db88e61d5`/`bdeb991eb`/`3c67ad4fe` 测试对齐。
+- 第二桌 `el-v2-20261021b` 在新构建（bdeb991eb，worktree build/）上进行中。
+- 未做、需用户拍板：回访地点时作者没有上次描写（`decision-author-bindings` 有意禁止作者看旧正文，以防复读旧动作）；
+  路程分钟只有档位默认值（local_travel 固定 30，区间 10–120 未用）。
+- App 落点被其他会话的打包覆盖（现装 2c41438e0，claude/mod-sections-room）；最终合并打包需要先理清各分支合并顺序。
