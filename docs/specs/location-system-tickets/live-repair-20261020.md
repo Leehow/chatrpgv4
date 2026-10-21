@@ -903,3 +903,23 @@ Capacity before27 package:91GiB free. No seed/campaign copy, Internet download,
 Python invocation, evidence deletion or push. The separate plugin session.resume
 returned unsupported_save_schema at epoch56; no save mutation/recovery fallback.
 Canonical App/Pi original-session continuation is the maintained TS path.
+
+
+3dacd027d LAN all completed exit1/wall1232s (run.q5jzOAWY): ext6380/
+6370pass/1fail/9skip, integration2246pass, loop12pass. The one failure is the
+legacy mod-section-index actual-request fixture: enlarged location sections
+consume the16384-byte cap before natural-npc What the asker is after. Source27
+clean single-file repro also fails; the emitted section names and measured
+package section sizes confirm capacity, not a changed selection threshold.
+The fixture now explicitly disables the unrelated enhanced-locations package
+through mods.configure only for its NPC/history topic assertion. Its first
+request still proves NPC section text, indexed resident brief and cash-triggered
+second-request price section; independent cap/omission and all-package fallback
+checks remain. Main focused first-request repro passes1/1. No product budget,
+actual Mod availability or admission changes. Source27 all is already admitted
+at03:12:16Z, so preserve it to completion even though the fixture is known red.
+
+0245a58d8 commits only own typed branches/test/contract/ledger, after the other
+owner committed29406cb98 and cleared the shared index. Foreign working changes
+remain untouched. Clean latest checks and canonical package/live are pending
+the other owner's package window; freeze only committed source.

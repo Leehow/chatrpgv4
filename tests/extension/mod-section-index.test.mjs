@@ -285,12 +285,12 @@ function fakeJev(t,scores){
 	t.after(()=>{globalThis.fetch=original;});
 	return batches;
 }
-async function forcedTable(t,{env={},responses}){
+async function forcedTable(t,{env={},disabled=[],responses}){
 	const requests=[];
 	const table=await openTable({realKernel:true,keeperProviderCallbacks:true,
 		env:{COC_INSTRUCTION_BUDGET:"1",PI_COC_LOOP_ENGINE:"legacy",PI_COC_JEV_PRESELECT:"0",EXT_JEV_PRESELECTENABLED:"false",...env},
 		prepareWorkspace:async workspace=>{
-			const steps=[["table.open",{}],["table.player_input",{text:"Fixture opening."}],["table.narrate",{call_id:"t1-c1",text:"The office is quiet."}]];
+			const steps=[["table.open",{}],...disabled.map(id=>["mods.configure",{id,enabled:false}]),["table.player_input",{text:"Fixture opening."}],["table.narrate",{call_id:"t1-c1",text:"The office is quiet."}]];
 			const input=steps.map(([method,params],id)=>JSON.stringify({id:String(id),method,params:{campaign:"test-camp",...params}})).join("\n")+"\n";
 			const run=spawnSync(process.execPath,[join(ROOT,"build/kernel/rpc.mjs"),"--workspace",workspace,"--content",join(ROOT,"content")],{cwd:ROOT,env:process.env,encoding:"utf8",input});
 			assert.equal(run.status,0,run.stderr);
@@ -303,7 +303,8 @@ async function forcedTable(t,{env={},responses}){
 
 test("over the budget the Keeper's actual requests carry resident text in the brief and the turn's sections at the end (§183.5)",async t=>{
 	const batches=fakeJev(t,{asks_question:.92,speaks_to_person:.88});
-	const{table,requests}=await forcedTable(t,{env:{EXT_JEV_APIKEY:"fixture-key"},responses:[
+	// Isolate the NPC/history topics from an unrelated package's evolving instruction length.
+	const{table,requests}=await forcedTable(t,{env:{EXT_JEV_APIKEY:"fixture-key"},disabled:["enhanced-locations"],responses:[
 		()=>fauxAssistantMessage([fauxToolCall("apply",{effects:[{kind:"cash",mode:"quote",quote:"a room for the night",items:[{name:"room",quantity:1,unit_price:2}],source:"price"}]})],{stopReason:"toolUse"}),
 		()=>fauxAssistantMessage([fauxToolCall("output",{text:"老板说楼上还有一间。"})],{stopReason:"toolUse"}),
 	]});
