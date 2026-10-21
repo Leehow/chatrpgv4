@@ -1,7 +1,7 @@
 /** Native protocol regression, not live gameplay or automatic semantic splitting. */
 import {test} from 'node:test';
 import assert from 'node:assert/strict';
-import {readFileSync} from 'node:fs';
+import {readFileSync,writeFileSync} from 'node:fs';
 import {join} from 'node:path';
 import {fauxAssistantMessage,fauxToolCall,getCurrentTools} from '@earendil-works/pi-ai';
 import {openTable} from './harness.mjs';
@@ -10,6 +10,11 @@ import {createHybridEngine} from '../../runtime/jev/hybrid-engine.ts';
 import {bindDecisionAnswers} from '../../runtime/jev/contracts.ts';
 import {SAME_KEEPER_AFTER_RESULT_GUIDANCE} from '../../runtime/keeper-output-guidance.ts';
 
+// §249: the single Keeper judges its own move itself; the batch's document write is the line the typed consent review reads,
+// and its uncertain verdict refuses the whole atomic batch.
+const NOTEBOOK='Notebook';
+const notebookText=workspace=>Object.values(JSON.parse(readFileSync(join(workspace,'.coc/campaigns/test-camp/world.json'),'utf8')).objects.instances)
+ .find(row=>row.name===NOTEBOOK)?.document?.text;
 for(const recover of [true,false])test(`a refused native mixed batch ${recover?'can settle an independently authored event before prose':'does not automatically apply its event'}`,async t=>{
  let requests=0,decisions=0,firstPublicState;
  const event={name:'signed-local-statement',summary:'Thomas Hayes signs his own statement beside Knott. A proposed later journey remains unperformed.'};
@@ -19,14 +24,20 @@ for(const recover of [true,false])test(`a refused native mixed batch ${recover?'
    assert.equal(batch.state.settledReceipts.length,recover?1:0);
    return bindDecisionAnswers(batch,{held_result:{status:'answered',type:'noul',noul:.01}});
   }
-  assert.equal(batch.family,'continuous-action-admission');decisions++;
+  assert.equal(batch.family,'continuous-action-admission');decisions++;assert.deepEqual(batch.state.proposal.kinds,['object']);
   return bindDecisionAnswers(batch,Object.fromEntries(batch.questions.map(question=>[question.key,
    {status:'answered',type:'noul',noul:.45}])));
  }}});
  const table=await openTable({legacyDeliveryFixtures:false,realKernel:true,runDriver:engine.runDriver,
   env:{PI_COC_LOOP_ENGINE:'hybrid-v1',PI_COC_JEV_PRESELECT:'0',PI_COC_ISOLATED_OUTPUT:'0',EXT_JEV_APIKEY:undefined,TYPESAFE_API_KEY:undefined},
   async prepareWorkspace(workspace){const client=new RpcClient(workspace);try{
+   const draft={name:NOTEBOOK,category:'item',description:'An ordinary writable carrier.',basis:'Ordinary fixture paper.',
+    parameters:{charges:null,effects:[]},document:{text:'A',presentation:'notebook'},player_view:{description:'A notebook.',fields:[]}};
+   const job=await client.ok('mods.job',{campaign:'test-camp',role:'create',input:{name:draft.name,category:draft.category,description:draft.description}});
+   writeFileSync(join(job.cwd,'result.json'),JSON.stringify(draft));const accepted=await client.ok('mods.accept',{campaign:'test-camp',job:job.job});
    await client.ok('table.open',{campaign:'test-camp'});
+   await client.ok('table.apply',{campaign:'test-camp',call_id:'t0-c0',effects:[{kind:'define',name:draft.name,category:draft.category,description:draft.description,
+    _definition:accepted.definition,_provenance:accepted.provenance},{kind:'object',name:NOTEBOOK,to:'Thomas Hayes'}]});
    await client.ok('table.narrate',{campaign:'test-camp',call_id:'t0-c1',text:'Knott waits beside his desk.'});
   }finally{await client.close();}},
   extraExtensions:[{name:'independent-event-driver',factory:engine.extension},{name:'receipt-before-prose',factory(pi){
@@ -34,7 +45,8 @@ for(const recover of [true,false])test(`a refused native mixed batch ${recover?'
     firstPublicState=table.runtimeBridges().at(-1).call('table.status',{campaign:'test-camp',projection:'receipts',expected_turn:1});});
   }}],responses:[()=>{requests++;return fauxAssistantMessage([fauxToolCall('apply',{effects:[
    {kind:'move',to:'Central Library',travel_minutes:15},
-   {kind:'npc',name:'Steven Knott',to:'Central Library'}],event})],{stopReason:'toolUse'});},context=>{
+   {kind:'npc',name:'Steven Knott',to:'Central Library'},
+   {kind:'object',name:NOTEBOOK,from:'Thomas Hayes',to:'Thomas Hayes',document:{action:'append',text:'Library trip planned.'},why:'Record the proposed journey.'}],event})],{stopReason:'toolUse'});},context=>{
    requests++;
    const previous=JSON.stringify(context.messages),tools=getCurrentTools(context.messages);
    assert.ok(previous.includes('action_admission_uncertain'));
@@ -55,6 +67,7 @@ for(const recover of [true,false])test(`a refused native mixed batch ${recover?'
  const turn=JSON.parse(readFileSync(join(table.workspace,'.coc/campaigns/test-camp/turns/0001.json')));
  assert.equal(turn.receipts.filter(receipt=>receipt.kind==='event').length,recover?1:0);
  assert.equal(turn.receipts.filter(receipt=>['move','npc','time'].includes(receipt.kind)).length,0);
+ assert.equal(notebookText(table.workspace),'A');
  assert.equal(turn.world.clock.minutes,0);
  assert.equal(table.telemetry().filter(row=>row.lane==='final-output'&&row.event==='start').length,0,'no separate author');
 });
