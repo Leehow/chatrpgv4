@@ -33,6 +33,9 @@ test('preexisting reference scopes and provider data stay untouched',()=>{
   const schema={type:'object',properties:{a:{type:'string',[key]:'scope'},b:{type:'string'}},additionalProperties:false};
   assert.equal(sharedOutputSchema(schema),schema,key);
  }
+ const legacy={type:'object',properties:{value:{type:'string',description:'x'.repeat(300)}},dependencies:{gate:{$ref:'#/properties/target'}}};
+ const nested={type:'object',properties:{a:legacy,b:legacy,target:{type:'string'}}};
+ assert.equal(sharedOutputSchema(nested),nested,'legacy dependency reference scope is also preserved');
  const schema=turnPacketParameterSchema(false,undefined,[],false,bindings,true),before=json(schema);
  const output={name:'output',parameters:{type:'object'}},search={type:'web_search'};
  const grok={model:'grok-4.5',input:[],tools:[search,output]},other={...grok,model:'unverified'};

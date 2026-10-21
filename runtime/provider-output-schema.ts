@@ -48,13 +48,15 @@ export function sharedOutputSchema(schema:TSchema):TSchema {
   for(const key of singles)if(object(node[key]))result[key]=visit(node[key]);
   return result;
  };
- const counts=new Map<string,number>();let scoped=false;
+ const scopeKeys=new Set(['$ref','$dynamicRef','$recursiveRef','$id','id','$anchor','$dynamicAnchor','$recursiveAnchor','$defs','definitions']);
+ const scoped=(value:unknown):boolean=>Array.isArray(value)?value.some(scoped):object(value)&&(Object.keys(value).some(key=>scopeKeys.has(key))||Object.values(value).some(scoped));
+ if(scoped(schema))return schema;
+ const counts=new Map<string,number>();
  const count=(node:Row):Row=>{
-  if(Object.keys(node).some(key=>['$ref','$dynamicRef','$recursiveRef','$id','id','$anchor','$dynamicAnchor','$recursiveAnchor','$defs','definitions'].includes(key)))scoped=true;
   const key=JSON.stringify(node);if(key.length>=256)counts.set(key,(counts.get(key)??0)+1);
   children(node,count);return node;
  };
- count(schema);if(scoped)return schema;
+ count(schema);
  const definitions:Row={},names=new Map<string,string>();
  const emit=(node:Row,root=false):Row=>{
   const key=JSON.stringify(node);
