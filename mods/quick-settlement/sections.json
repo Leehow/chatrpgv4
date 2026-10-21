@@ -1,4 +1,5 @@
 {"schema_version": 1, "sections": [
   {"heading": "Chained routine acts", "kind": "resident"},
-  {"heading": "Routine summary for the author", "kind": "reference"}
+  {"heading": "Routine summary for the author", "kind": "reference"},
+  {"heading": "Services beyond routine", "kind": "situational", "triggers": ["before_apply:cash", "before_apply:item"]}
 ]}
