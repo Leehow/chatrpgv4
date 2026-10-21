@@ -409,7 +409,8 @@ interface ForcedPlayerChoiceCue {
 interface TableState {
     /** Location detail is read on demand, for this input only. */
     locationContextTurn?:number;
-    observationReferences?:{turn:number;queries:Array<{scope:string;to:Record<string,unknown>;sense:string;records:Record<string,unknown>[]}>};
+    /** `read`: the Keeper inspected this history in this input; `preload`: the context offered it without a request. */
+    observationReferences?:{turn:number;queries:Array<{scope:string;source:'read'|'preload';to:Record<string,unknown>;sense:string;records:Record<string,unknown>[]}>};
   /** §163: a scope Jev could not settle plays as `world`; only a settled out-of-fiction request is `reference`. */
   interactionScope?: 'world' | 'reference';
   /** §233.10: `world` came from a settled verdict (Jev authorized a world action, or a document edit), not a fallback. */
@@ -1540,7 +1541,7 @@ export default function (pi: ExtensionAPI, host: {capabilities?:RuntimeCapabilit
     pi.events.on('coc:location-demand',(value:{campaign?:string;turn?:number;references?:Record<string,any>})=>{
         if(!table||value.campaign!==table.campaign||value.turn!==table.turn)return;
         table.locationContextTurn=table.turn;
-        if(value.references)rememberObservationReferences(table,value.references);
+        if(value.references)rememberObservationReferences(table,value.references,'preload');
     });
 	let isolatedOutput=false;
 	let turnPacketPrototype=false;
@@ -5774,12 +5775,22 @@ export default function (pi: ExtensionAPI, host: {capabilities?:RuntimeCapabilit
         state.packetTimeBandRows=rows.rows;
         return state.packetTimeBands=rows.rows.map(row=>row.handle);
     }
-    function rememberObservationReferences(state:TableState,view:Record<string,any>|undefined){
+    function rememberObservationReferences(state:TableState,view:Record<string,any>|undefined,source:'read'|'preload'){
         if(!Array.isArray(view?.recent_observations))return;
         const scope=JSON.stringify([view.to,view.sense]);
         const previous=state.observationReferences?.turn===state.turn?state.observationReferences.queries:[];
-        state.observationReferences={turn:state.turn,queries:[{scope,to:structuredClone(view.to),sense:view.sense,
+        const kept=previous.find(query=>query.scope===scope);
+        state.observationReferences={turn:state.turn,queries:[{scope,source:kept?.source==='read'?'read':source,to:structuredClone(view.to),sense:view.sense,
             records:structuredClone(view.recent_observations.slice(0,4))},...previous.filter(query=>query.scope!==scope)].slice(0,2)};
+    }
+    /** §249: the author receives recorded history the Keeper read, or preloaded history of a view this turn observes again. */
+    function authorObservationReferences(state:TableState,outcomes:Record<string,any>[]){
+        if(state.observationReferences?.turn!==state.turn)return undefined;
+        // A place outcome names the observed place by its identity; its public observation carries display labels.
+        const looks=outcomes.filter(outcome=>outcome.kind==='place'&&outcome.action==='observe');
+        const queries=state.observationReferences.queries.filter(query=>query.source==='read'||looks.some(outcome=>
+            outcome.place===query.to?.place&&outcome.observation?.sense===query.sense));
+        return queries.length?queries.map(({scope,source,...query})=>query):undefined;
     }
 	async function composeKeeperExpression(state:TableState,expression:import('../../runtime/isolated-expression.ts').ExpressionBrief|TurnPacket,
 		reply:NonNullable<typeof keeperReply>,ctx?:ExtensionContext){
@@ -5895,7 +5906,8 @@ export default function (pi: ExtensionAPI, host: {capabilities?:RuntimeCapabilit
             decision.settled_results=reply.stream.settledResults;
             operationResult=turnPacketResult(reply.stream.settledResults);
             decision.observations=decisionObservationScope(operationResult.outcomes,observationIdentities);
-            if(state.observationReferences?.turn===state.turn)decision.reference_observations=state.observationReferences.queries.map(({scope,...query})=>query);
+            const references=authorObservationReferences(state,operationResult.outcomes);
+            if(references)decision.reference_observations=references;
         }
 		const authored=await writeIsolatedExpression({runtime,campaign:state.campaign,turn:state.turn,run:reply.run,
 			brief:legacy,decision,...(decision?{result:operationResult}:{}),language:state.playLanguage||'en',playerText:reply.stream.playerText,investigatorNames:reply.stream.investigatorNames,
@@ -6859,7 +6871,7 @@ export default function (pi: ExtensionAPI, host: {capabilities?:RuntimeCapabilit
 			keepRead(true);
             if(spec.name==='place'){
                 state.locationContextTurn=state.turn;
-                if(params.op==='inspect'&&params.need==='observation')rememberObservationReferences(state,(result as Record<string,any>).observation);
+                if(params.op==='inspect'&&params.need==='observation')rememberObservationReferences(state,(result as Record<string,any>).observation,'read');
             }
 			if (spec.name === 'apply' || spec.name === 'resolve') finalOutput.invalidateAdvice();
 			// Contract §34.12's look budget addendum (SL-72): a successful look/lookup/recall counts once here.

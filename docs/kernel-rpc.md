@@ -50976,6 +50976,11 @@ Known boundary, kept under its own test (`tests/extension/turn-packet-prototype.
 omits the player's selected journey publishes as judged and moves nobody. The sole author still renders only committed
 positions (`LOCATION_AUTHOR_NOTE`). Omitted looks are not refused; ordinary visible texture remains the author's.
 
+Preloaded observation history reaches the Keeper's context every turn, but the sole author receives
+`reference_observations` only for history the Keeper read with `place inspect need:"observation"` in this input, or
+for preloaded history of a view this turn observes again (an observe outcome on the same place and sense). Reading old
+records is not a new perception, and a turn that does not look again carries no history to the author.
+
 Writer: the Keeper's proposal. Reader: the unchanged kernel validators and the sole author's committed outcomes.
 Actor: the Keeper, whose judgment is recorded in the admission lane. No threshold, new review, keyword rule or
 fallback is introduced; this removes reviews rather than relaxing them.
@@ -51035,7 +51040,10 @@ Every place field is declared in the place tool and in output commands; write br
 `mods.locations.inspect need:"contract"` returns only `guide` (no schemas or sections). Tool descriptions state field
 meanings, not procedures. The Enhanced Locations package is 2.0.0: one resident instruction of about 2.3 KB plus the
 author-only "Place description for the author" reference section; the four `before_apply` situational sections and
-the service, meal and payment ordering rules are removed (those belong to the cash and item owners).
+the service, meal and payment ordering rules are removed. Quick Settlement 1.1.0 carries the ordering rule for a
+non-routine service as its `Services beyond routine` section, triggered before a cash or item apply (supplier and
+terms first, item gain before consumption, time after delivery, a payment chosen after completion settles last);
+routine food and drink stay under Spending Level, so the two packages no longer give conflicting meal instructions.
 
 Writer: the Keeper's packet and the kernel's deterministic repairs. Reader: the kernel transaction, the observation
 register and the sole author (which reads committed outcomes and `adjusted`). Actor: the Keeper, continuing from what
