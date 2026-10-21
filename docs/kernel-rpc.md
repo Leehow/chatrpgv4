@@ -48920,6 +48920,31 @@ input49 completed127.018s with one correctly refused activity_basis batch and
 its retry; this fails120s acceptance despite correct final clock/order/prose.
 Revalidate the full selected wait and revisit naturally with Grok4.5/medium.
 
+Registered source-location context (1.1.26): when this input has demanded
+location context, an answer-mode source lookup independently reads the named
+registered place through mods.locations.inspect. A successful exact place read
+adds registered_location with its canonical name/display name and
+authority:identity-reference-only to the same model-visible result, including
+memo and pending answers. It never changes source_answer, material_ready,
+access, activity, preparation, consent or the pending task. Unknown/ambiguous
+names add no reference; an optional read failure is recorded without discarding
+the original answer. Map preparation and non-location inputs do not request it.
+Writer: this bounded host read; reader: the source lookup result; actor: the
+Keeper can reuse the identity for already selected ordinary approach/perception
+while the book question remains background work. This does not authorize a
+source-specific answer, hidden facts, indoor maps or bypassing actual movement
+validation. The Mod explains that ordinary compatible visible completion need
+not poll a pending cosmetic question; source presence alone is not observation.
+
+Precedent comparison: Unreal's asset registry exposes metadata for unloaded
+assets (https://dev.epicgames.com/documentation/unreal-engine/asynchronous-asset-loading-in-unreal-engine).
+Unity Addressables separately checks completed load status before using an asset
+(https://docs.unity3d.com/Packages/com.unity.addressables@1.21/manual/load-assets.html).
+These confirm separating identity from enrichment, and contradict treating an
+identity reference as completed preparation. Neither imports asset streaming or
+grants game authority. Real Pi/RPC pending and memo regressions are red before
+this addition; actual live latency remains a separate gate.
+
 The model-facing `place` tool has two operations:
 
 - `inspect`: optional `name` (default current place), `need: context|contract`.

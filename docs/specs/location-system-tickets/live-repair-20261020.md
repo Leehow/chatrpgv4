@@ -782,3 +782,67 @@ read this contract); author and kernel responsibilities are unchanged. A true
 supported transition still uses the normal activity effect and why. Prompt
 guidance is not proof of latency repair; repeat an actual wait/revisit after
 installation, preserve any further failure, and report the measured result.
+
+fe906afa8 canonical package01:58:29Z, stable signing/staging cleanup verified;
+clean Mod focused24/24 and fast130/130. Before input50 UI showed installed25 /
+last-used24 with follow-latest25 selected. No setting was changed: starting50
+correctly refreshed current use to1.1.25 (60/61 AX snapshots). Original50 full
+move-to-counter, wait-to22:30, return-to-platform-door and two observations
+completed105.113s/0errors; chronological receipts show exactly15min once and
+both observations at22:30. Original51 new nearby bookshop completed91.354s /
+0errors, native additions is an actual array. New registration, entrance,
+layout/furniture/window/counter description all delivered. Actual author50/51
+Grok4.5/medium verified. The global default model was not changed.
+
+Original52 first approach to authored house completed183.823s/2errors, so still
+fails120s acceptance. Twenty calls include repeated source memo/pending reads;
+one unqualified continuity lookup collided between beat/scene, and a separate
+apply map trying to reveal indoor rooms was correctly refused as unselected.
+Arrival and exterior observation still settled; current original campaign is
+at23:30 outside the house (turn53), never replay the30min journey. Preserve
+63-location25-round52-house-over120.txt/png, grok-round52-progress3.json,
+author-profile and journey. Do not use private lookup/map details to choose the
+player's next action. Minor exterior narration includes an inadequately scoped
+inside-bolt detail; do not turn it into new player knowledge or claim perfect
+visual-scope acceptance.
+
+Source diagnosis is incomplete: the answer was not stripped. Initial memo is
+an earlier unresolved address/commission question; retry starts a background
+exterior question. Later alias focus queries repeat memo/pending work. HEAD
+already has pending-focus reuse for the exact query; retry:true bypasses it.
+Do not claim that adding that same reuse guard fixes this. sourceMaterial is
+currently set only from a reading response.material, not from an independently
+registered place. A potential bounded read-side registered-location reference
+could distinguish identity/ordinary approach availability from a still-pending
+book question, without asserting material_ready, opening access or source truth.
+This candidate is NOT implemented or settled: build a red real-tool boundary
+test before changes, and keep scope/foreign ownership intact. No additional
+source helper, lookup limit, timeout or threshold relaxation has been added.
+
+0e13beaf0 LAN all passed exit0/wall1227s, run.W6UITO1d; latest fe906afa8 all
+admitted02:11:47Z and remains running (session84082, all-location25-wait.log).
+Source/packaged HEAD remains fe906afa8. These continuation notes are a local
+uncommitted plan update only; foreign dirty work remains untouched. Active goal
+must remain active: latest authored first-visit latency still fails acceptance.
+
+Next goal turn is progress: real Pi/RPC pending/memo boundary tests reproduce
+missing independent registered identity (red2/2 after correcting the memo
+fixture's short allowance). Source answers are preserved, not stripped. The
+implemented1.1.26 read-side registered_location reference is demand-only, exact
+and identity-only: no material_ready, permission, source truth or world writes.
+Actual kernel status in both cases has zero current-input receipts. Unknown/
+ambiguous names yield no identity; optional failures remain diagnostic. Eleven
+source-boundary checks pass, including the non-location no-extra-read control
+and unchanged map preparation. Main broader checks39/40 retain the known stale
+main build/kernel artifact's missing-via failure; do not claim that run passes.
+Recheck the real route seam after building the clean snapshot.
+
+Unreal registry metadata for unloaded assets and Unity completed-load checks
+support separating identity from enrichment, not treating metadata as completed
+preparation or permission. Links and three ownership ends are in242.2. Mod26
+explains pending cosmetic questions and observation scope; it adds no reader
+limit, forced timeout, new authority or threshold change. All old source-reader
+tasks and evidence remain. Live latency on26 is still unproven.
+
+fe906afa8 LAN all now passed exit0/wall1225s, run.jvpSwA66. Next package/full
+suite must identify26's exact commit and exclude foreign dirty NPC/prose/UI work.

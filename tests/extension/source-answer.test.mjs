@@ -47,6 +47,7 @@ test('source answer mode returns checked evidence directly instead of a graph lo
  await table.session.prompt('Check her work in the source.');
  assert.equal(requests.length,1);assert.equal(requests[0].purpose,'answer');assert.equal(requests[0].foreground,true);
  assert.equal(table.kernelRequests().filter(r=>r.method==='table.lookup').length,0);
+ assert.equal(table.kernelRequests().filter(r=>r.method==='mods.locations.inspect').length,0,'a non-location source question must not load place context');
  const result=table.session.messages.find(m=>m.role==='toolResult'&&m.toolName==='lookup');
  assert.ok(result&&!result.isError);assert.match(JSON.stringify(result),/source-consultation/);assert.match(JSON.stringify(result),/harbor worker/);
 });

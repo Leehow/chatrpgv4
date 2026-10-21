@@ -1,5 +1,6 @@
 import {adviseLocationReference} from './location-reference.ts';
 import {locationDescription} from './location-description.ts';
+import {sourceLocationContext} from './source-location-context.ts';
 import {settledAdmissionEvidence} from './settled-admission.ts';
 import {placeOperation,placeParameterRefusal,normalizePlaceTarget} from './place-operation.ts';
 import {immediatelyPrecedingUnfinished} from './admission.ts';
@@ -6568,7 +6569,10 @@ export default function (pi: ExtensionAPI, host: {capabilities?:RuntimeCapabilit
 			try {
                 if (supportAnswer) result = supportAnswer;
                 else if (memoryAnswer) result = memoryAnswer;
-                else if (sourceAnswer) result = { source_answer: sourceAnswer,...(sourceMaterial?{material_ready:true,entities:[{name:sourceMaterial.name??sourceMaterial.scene,kind:'scene',material:'ready',scope:'original-place-identity'}],instruction:'This original place is already registered and ready for an ordinary player-authorized move. '+(turnPacketPrototype?'Use output.commands with kind place, action move and its supplied name in to. ':'Use its supplied name with apply move. ')+'Describe the route in via when needed. Do not prepare a duplicate destination or adaptation just because background enrichment is unfinished. People, rules and assets keep their own use-specific requirements.'}:{}) };
+                else if (sourceAnswer) result = { source_answer: sourceAnswer,...(sourceMaterial?{material_ready:true,entities:[{name:sourceMaterial.name??sourceMaterial.scene,kind:'scene',material:'ready',scope:'original-place-identity'}],instruction:'This original place is already registered and ready for an ordinary player-authorized move. '+(turnPacketPrototype?'Use output.commands with kind place, action move and its supplied name in to. ':'Use its supplied name with apply move. ')+'Describe the route in via when needed. Do not prepare a duplicate destination or adaptation just because background enrichment is unfinished. People, rules and assets keep their own use-specific requirements.'}:{}),
+                    ...(state.locationContextTurn===state.turn&&params.source_mode==='answer'?await sourceLocationContext(
+                        (method,args)=>state.kernel.call(method,{campaign:state.campaign,...args}),String(params.query),
+                        error=>{void record({lane:'location-source-reference',event:'unavailable',turn:state.turn,code:error instanceof KernelError?error.code:'read_failed'});}):{}) };
                 else if (spec.name === 'lookup' && params.kind === 'adaptation') {
                     if (!runtime) throw new KernelError({code: 'needs', message: 'The adaptation runtime is unavailable'});
                     // Contract §37.10.1: the fast model, read each time a creator or reviewer starts.
