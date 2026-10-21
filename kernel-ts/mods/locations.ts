@@ -140,15 +140,12 @@ export function stageLocation(context:ApplyContext,given:Row,active:readonly Row
             destination=locationPlace(graph,world,qualified.place);effect={...effect,to:qualified.place,at:qualified.at};
             adjusted.push({field:'to',reason:'qualified_feature_resolved',place:qualified.place,at:qualified.at});
         }else{
-            // §250: an unregistered destination the Keeper moves to is a new compatible place, registered under its own name.
-            const parts=String(effect.to).trim().split(' / ');
-            let within:string|null=null,leaf=parts.join(' / ');
-            for(let cut=parts.length-1;cut>0&&within===null;cut--){
-                try{const parent=locationPlace(graph,world,parts.slice(0,cut).join(' / '));within=graph.handle(parent);leaf=parts.slice(cut).join(' / ');}
-                catch(failure){if(!unknownName(failure))throw failure;}
-            }
-            destination=createPlace(within?`${within} / ${leaf}`:leaf,leaf,within,leaf);
-            adjusted.push({field:'to',reason:'implicit_new_place',place:graph.handle(destination)});
+            // §250: a name that is neither registered nor defined in additions could be another wording of a known place;
+            // registering it would silently split that place, so the Keeper gets the known names in one short refusal.
+            const known=[...new Set([...locationPlaces(world).map(place=>String(place.name)),...graph.scenes().map(node=>graph.handle(node))])].slice(0,24);
+            throw new RpcError('invalid_params','The destination is not a known place',{
+                fix:'Use one of details.known_places, or define the new place in additions on this move.',
+                details:{reason:'place_destination_unknown',field:'to',requested:effect.to,known_places:known}});
         }
     }
     const to=graph.handle(destination);

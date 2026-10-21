@@ -196,12 +196,13 @@ test('a qualified child addition canonicalizes once and remains locally addressa
     assert.deepEqual(locations(k).places.map((record:Row)=>record.id),records.map((record:Row)=>record.id));
 });
 
-test('an unregistered destination becomes a minimal place and an unregistered feature a descriptive spot (§250)',async t=>{
+test('an undefined destination refuses with the known places, and an unregistered feature becomes a descriptive spot (§250)',async t=>{
     const k=await kernel(t);await openTurn(k,'I visit the inn and approach its window.');
-    await k.table('apply',{call_id:'t1-c1',effects:[{kind:'place',action:'move',to:'Inn',via:'Along the street',travel_band:'adjacent'}]});
-    assert.equal(state(k).active_scene,'Inn');assert.deepEqual(locations(k).places.map((record:Row)=>record.name),['Inn']);
-    const arrival=(await k.table('status',{projection:'receipts'})).receipts.find((row:Row)=>row.call_id==='t1-c1'&&row.kind==='move');
-    assert(arrival.adjusted.some((row:Row)=>row.reason==='implicit_new_place'));
+    const before=state(k),missing=await k.tableErr('apply',{call_id:'t1-c1',effects:[{kind:'place',action:'move',to:'Inn',via:'Along the street'}]});
+    assert.equal(missing.code,'invalid_params');assert.equal(missing.details.reason,'place_destination_unknown');
+    assert(Array.isArray(missing.details.known_places)&&missing.details.known_places.includes(before.active_scene),'the known places travel with the refusal');
+    assert.deepEqual(state(k),before,'another wording of a known place is never registered as a second place');
+    await k.table('apply',{call_id:'t1-c1',effects:[{kind:'place',action:'move',to:'Inn',via:'Along the street',travel_band:'adjacent',additions:[hotel('Inn')]}]});
     await k.table('apply',{call_id:'t1-c2',effects:[{kind:'place',action:'move',to:'here',at:'window',relation:'beside'}]});
     assert.equal(locations(k).position.spot,'window');assert.equal(locations(k).position.at,undefined);assert.equal(locations(k).features.length,0);
     await k.table('apply',{call_id:'t1-c3',effects:[{kind:'place',action:'move',to:'here',at:'window',relation:'beside',additions:[{name:'Inn',features:[{name:'window',description:'A wooden window.',state:'closed',passable:false}]}]}]});

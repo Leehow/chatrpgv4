@@ -51012,8 +51012,10 @@ real obstacles still refuse.
 
 - An `at` that names no registered feature is kept as a descriptive `spot` (move and observe). With both a
   registered `at` and a `spot`, the feature wins. A relation alone is a valid local point.
-- A move to an unregistered destination registers a minimal new place under that name (a qualified `A / B` name
-  nests under a registered `A`). A destination name shared by several places still refuses as ambiguous.
+- A destination that is neither registered nor defined in the move's additions refuses once with
+  `place_destination_unknown` and `known_places` (registering it could silently split a known place under another
+  wording). A registered feature named as the destination (`Place / feature`) resolves to that place and feature.
+  A destination name shared by several places still refuses as ambiguous.
 - A new route without `via` is an open, improvised arrival (`improvised: true`), never `not_reachable`.
 - Repeating a registered place description or feature keeps the record as it was (`existing_description_kept`,
   `existing_feature_kept`); a state change remains the `feature` action. A new place or feature without a description
