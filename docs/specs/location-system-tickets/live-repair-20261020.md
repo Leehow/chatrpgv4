@@ -1285,3 +1285,23 @@ conversation texture. Selected perception and meaningful continuity retain norma
 observation writes and gates. Existing actual author-channel3 tests pass on dirty
 main; clean/package/live proof pending. Evennia's maintained accessible appearance
 post-move hook was checked as a bounded analogue, with limits in ticket10.
+
+EL-10 clean checkout passes18 author/disclosure/section tests and130 fast tests.
+Canonical package92d919883 installed09:44:44Z, Enhanced Locations1.2.2; exact
+kernel/table/RPC bytes, stable PipiUI Dev signature, deep/strict verification,
+canonical backlink and empty staging verified. Original Mod panel shows following
+latest/current1.2.2. Quick Settlement remains absent, with integration approval
+pending; its sandbox results are not original-session acceptance. Original83 is
+now live: leave the diner, find an illuminated cheap lodging and ask for a room.
+The older d06 full result was exit1: only turn-failure-reason failed; integration
+2248 and loop12 passed. Its terminal expectation was corrected separately in98.
+
+Original83 completed124.631s/1recovered refusal on Grok4.5/medium, author profile
+verified. It selected the already registered South Station lodging (created57,
+last reviewed66), so this is a revisit, not evidence of new-place registration.
+The move charged30min,03:05→03:35. An extra unselected room survey was refused;
+the Keeper omitted it and delivered arrival appearance and an available single
+room offer. No forced stop, lowered gate or invented observation receipt. Thus
+EL-10 does not yet remove gratuitous observation writes, and120s remains unmet.
+Raw final/profile/UI98 preserve the failure; body provides concrete frontage,
+threshold and counter detail but is not evidence of a fresh historical search.
