@@ -1355,3 +1355,76 @@ monitoring of the unobserved interval. Latest85–87 are three naturally passing
 turns, not a blanket stability claim. Original88 is now returning to the authored
 Corbitt house frontage. Remote focused has uploaded and started500 extension
 files,1 native file and1 routing loop; its result is pending.
+
+Original88 completed111.239s/0errors, output atomically moved from the lodging
+corridor to existing authored corbitt-house-ground at its front door and observed
+the frontage. Original89 completed91.426s/0errors, moved to a descriptive streetlit
+spot and delivered more facade geometry/material detail. Five85–89 turns passed
+naturally, but the exterior claim about seeing inside door bolts remains a
+visibility limitation; no source or history was rewritten to erase it.
+
+Original90 then failed the latency criterion:166.890s/1recovered parameter error.
+Move additions redefined the existing front door with description/state/passable,
+although a separate feature command already carried the actual state change.
+feature_redefinition correctly prevented overwriting established data; the Keeper
+removed the duplicate definition and completed entrance/limited observation. Do
+not hide that failure or change the guard without a reviewed contract.
+
+Original91:245.425s/4errors, retained as invalid-for-acceptance for uniform-model
+testing. Main was MiniMax3.1/medium, final author remained the separately configured
+Grok4.5/medium. Initial interpretation as a hot-switch bug was corrected after
+reading the independent author/fast-model settings: changing only the main UI
+model was insufficient test setup. Product agent-default snapshots are unchanged.
+MiniMax service did respond; no new529 occurred. Two reads confused keeper-map
+assets with region maps; place then rejected8 short facts through a vague union
+error, and output explicitly rejected facts above6 before correction. Natural
+delivery and all committed feature/move/observe results remain evidence, not a
+passing latency or uniform-model claim. Final/profile/UI evidence retained.
+
+Focused a4c3a220a completed exit0,1058s, run.eW0vAIsj; full same-source regression
+has now started serially in location-final-all.log. A factual architecture
+follow-up (residual-followup-20261021.txt) is being sent to the existing GPT-6 Pro
+review conversation, without prescribing a candidate fix. No new normalization,
+fact-limit change, map publication change or new model policy has been implemented.
+
+Owner correction20261021: do not impose observation-fact hard length limits;
+these can introduce failures and conceal defects. EL-13 now removes the prior
+six-item/600-character limits and discards the proposed64/600/14400 rejection.
+No truncation, merging, content loss, extra observation time or forced timeout.
+Commit0be9b1c8e changes the shared canonical/native/compatibility grammar only;
+ordinary structure, access, admission and atomicity remain unchanged.
+Four schema regressions passed; three targeted real-RPC cases passed, and the
+complete location-observations file passed10/10 under Node24 with its private
+matching native addon. Two initial local runner attempts failed before campaign
+creation due to Node/addon ABI mismatch; no product regression is inferred.
+Fast tests passed130/130. These are component evidence, not live acceptance.
+Canonical packaging is underway. LAN focused is queued behind another suite.
+
+The preceding a4c3a220a full regression completed exit0,1231s:6427 extension
+passes/9 skips across748 files,2248 integration passes,12 routing-loop passes,
+run.H3nXwh4A. That baseline does not cover EL-13. GPT-6 Pro residual review was
+completed and retained in residual-pro-answer.txt; its content-budget suggestion
+is superseded by the owner's correction. Other residual source/map and outer
+validation diagnostics remain open; current original campaign is ready92.
+
+EL-13 package completed exit0 to the real /Applications/PipiCOC.app, receipt
+0be9b1c8e,2026-10-21T11:11:06.164Z. Stable PipiUI Dev designated requirement
+108232c5a713c15a869fc4c267e18d2e35cd276c verified; three installed kernel,
+extension and table bundles match the clean source bytes, and installed RPC
+contains the revised facts schema. Backlink, empty staging, LaunchServices and
+Spotlight resolve the canonical bundle. Original App restarted with temporary
+MiniMax3.1/medium test environment; product defaults were not changed.
+
+Original92 failed rather than delivering a story (UI76s, not a latency pass).
+Player naturally approached the living-room doorway, pushed the door and looked
+at the room. Keeper applied a clue first, then two output proposals contained13
+facts but omitted the selected feature state change. Both refused before execution
+with place_decision_incomplete, axes move/observation accounted and feature missing.
+The second proposal registered a doorway as a child place, also a suspect identity
+shape; canonical staging was not reached, so no claim that this live13-fact payload
+was fully accepted. Error reached the UI with preserved prior settlement.
+No forced stop or timeout was used. Retained minimax-round92-final.json marks this
+failed with no completed public delivery. Main provider is confirmed MiniMax; no
+final author ran. Still pending: actionable axis-specific recovery guidance and
+proposal identity/state separation, private map capability routing, and complete
+uniform-profile original-session live acceptance. Goal remains active.
