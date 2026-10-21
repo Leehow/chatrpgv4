@@ -111,7 +111,8 @@ test('native location arrays decode exact transport booleans without changing th
         assert.throws(()=>turnPacket(JSON.stringify(input)));
     }
     const literal={version:4,commands:[{kind:'time',band:'brief_activity',reason:'Look around',beyond_travel:'false'}]};
-    assert.throws(()=>turnPacket(JSON.stringify(normalizeTurnPacketArguments(literal).args)),'false cannot satisfy a true-only flag');
+    // §250: beyond_travel is an optional annotation; an exact transported false decodes and is accepted.
+    assert.equal(compileTurnPacket(turnPacket(JSON.stringify(normalizeTurnPacketArguments(literal).args))).effects[0].beyond_travel,undefined);
 });
 
 test('an unrelated invalid parent does not hide behind native array envelopes',()=>{

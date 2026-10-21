@@ -11,11 +11,12 @@ const {currentObservationPoint,spatialPointKey,matchingObservationRelations,publ
 const move={kind:'place',action:'move',to:'here',spot:'public sidewalk',relation:'standing'};
 test('a descriptive spot uses normal native movement without declaring an interactive feature',()=>{
  assert(Check(PlaceEffect,move));assert(Check(SpatialPoint,{place:'House',spot:move.spot,relation:move.relation}));
- assert(!Check(PlaceEffect,{...move,at:'Door'}));assert(!Check(SpatialPoint,{place:'House',at:'Door',spot:move.spot}));
+ // §250: both anchors are accepted; the kernel keeps a registered feature and reports the dropped spot.
+ assert(Check(PlaceEffect,{...move,at:'Door'}));assert(Check(SpatialPoint,{place:'House',at:'Door',spot:move.spot}));
  assert(!Check(PlaceEffect,{kind:'place',action:'feature',to:'House',spot:move.spot,state:'open'}));
  const packet={version:4,commands:[move,{kind:'scene',service:'unknown',crowd:'unknown'}]};
  assert(Check(NativePlaceParameters,{action:'inspect',name:'House',spot:move.spot,relation:'standing',need:'observation'}));
- assert(!Check(NativePlaceParameters,{action:'inspect',name:'House',spot:move.spot,at:'Door',need:'observation'}));
+ assert(Check(NativePlaceParameters,{action:'inspect',name:'House',spot:move.spot,at:'Door',need:'observation'}));
  assert(!Check(turnPacketParameterSchema(true,undefined,undefined,true,undefined,true),{version:4,commands:[{kind:'place',action:'move',to:'here'},{kind:'scene',service:'unknown',crowd:'unknown'}]}),'after arrival a local move needs a feature or descriptive position');
  for(const arrived of [false,true]){
   const schema=turnPacketParameterSchema(arrived,undefined,undefined,true,undefined,true);
