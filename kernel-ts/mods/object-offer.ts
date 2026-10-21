@@ -64,7 +64,7 @@ const said = (names: Names | null, side: 'from' | 'to', owner: Row): string => n
  * is not in it and cannot become citable by anything this call does, which is what makes the
  * ordering mechanical rather than advisory.
  */
-export function validateHandover(effect: Row, source: Row | null, owner: Row, turnReceipts: Row[], disposition: string | null = null, names: Names | null = null): Row | null {
+export function validateHandover(effect: Row, source: Row | null, owner: Row, turnReceipts: Row[], disposition: string | null = null, names: Names | null = null, repairs: Row[] | null = null): Row | null {
     const ground = effect.handover, cited = effect.check;
     if (disposition === 'made' || disposition === 'declined') {
         if (ground !== undefined || cited !== undefined)
@@ -74,6 +74,11 @@ export function validateHandover(effect: Row, source: Row | null, owner: Row, tu
         return null;
     }
     if (!betweenPeople(source, owner)) {
+        // §250.4: with no second person a ground has nothing to describe; the staging caller drops it and reports the repair.
+        if ((ground !== undefined || cited !== undefined) && repairs) {
+            repairs.push({field: 'handover', reason: 'no_second_person'});
+            return null;
+        }
         if (ground !== undefined || cited !== undefined)
             throw new RpcError('invalid_params', 'handover states how one person parted with a thing and another took it; this move has no second person in it',
                 {fix: 'drop handover and check: a place, a container, and an award with no named giver need no ground',

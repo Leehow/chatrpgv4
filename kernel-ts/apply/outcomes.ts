@@ -5,7 +5,7 @@ import {npcReference} from '../npc/references.js';
 import {string,clone,type Row} from '../read/values.js';
 import {publicObservation} from '../read/location-observations.js';
 
-/** §250: the kernel's deterministic repairs of a location command, as compact field: reason lines for the Keeper. */
+/** §250: the kernel's deterministic repairs of a location or object command, as compact field: reason lines for the Keeper. */
 const adjusted=(receipt:Row):Row=>Array.isArray(receipt.adjusted)&&receipt.adjusted.length
     ?{adjusted:receipt.adjusted.map((row:Row)=>`${String(row.field)}: ${String(row.reason)}`)}:{};
 export function operationOutcomes(receipts:Row[],graph:ModuleGraph,world:Row):Row[] {
@@ -23,7 +23,7 @@ export function operationOutcomes(receipts:Row[],graph:ModuleGraph,world:Row):Ro
             ...(receipt.purpose??receipt.why?{purpose:receipt.purpose??receipt.why}:{}),
             ...(receipt.price_name?{name:receipt.price_name}:{}),
             subject:receipt.subject_label??receipt.subject??null,
-            ...(receipt.with_label??receipt.with?{with:receipt.with_label??receipt.with}:{})}];
+            ...(receipt.with_label??receipt.with?{with:receipt.with_label??receipt.with}:{}),...adjusted(receipt)}];
         if(kind==='place')return [{kind,status:'changed',action:receipt.action,...(receipt.place?{place:receipt.place}:{}),
             ...(receipt.observation?{observation:publicObservation(graph,world,receipt.observation)}:{}),
             ...(receipt.position?{position:receipt.position}:{}),...(receipt.feature?{feature:receipt.feature,state:receipt.after}:{}),
@@ -33,7 +33,7 @@ export function operationOutcomes(receipts:Row[],graph:ModuleGraph,world:Row):Ro
             quantity:receipt.quantity,before:receipt.before,after:receipt.after,...(receipt.why?{purpose:receipt.why}:{})}];
         if(kind==='item'&&typeof receipt.instance==='string')return [{kind,status:receipt.offer==='made'||receipt.offer==='declined'?'unchanged':'changed',
             name:receipt.label??receipt.name,from:owner(receipt.from_id,receipt.from_label??receipt.from),to:owner(receipt.subject,receipt.subject_label),
-            quantity:receipt.quantity,...(receipt.offer?{offer:receipt.offer}:{})}];
+            quantity:receipt.quantity,...(receipt.offer?{offer:receipt.offer}:{}),...adjusted(receipt)}];
         if(!['move','npc','time'].includes(kind)||kind==='npc'&&typeof receipt.to!=='string')return [];
         const person=kind==='npc'?graph.actor(receipt.handle):undefined;
         return [{kind,status:receipt.unchanged===true||receipt.renamed===true||kind==='move'&&receipt.from===receipt.to?'unchanged':'changed',

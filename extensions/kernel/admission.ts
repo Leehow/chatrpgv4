@@ -314,6 +314,8 @@ export interface AdmissionProposal {
 	preceding?: { operations: Record<string,unknown>[]; signatures: string[] };
 	/** An `apply` batch's effect kinds, in order: closed contract enums the typed route reads (§32.10). */
 	kinds?: string[];
+	/** §249: the resolve settles a Mod's registered meeting check (a first impression or contact reaction). */
+	meetingCheck?: true;
 	/**
 	 * §32.12.3: `lines[i]` is the batch's effect `effects[i]`. An `apply` proposal's lines are only the effects §32.1 puts to
 	 * review; the others (a `person`, a `threat`, a scene rename, ...) are not shown to either reviewer and land with the batch.
@@ -1810,7 +1812,7 @@ export function registeredContactProposal(proposal: AdmissionProposal, payload: 
 		settles: rule.trigger === "presence"
 			? "The NPC's first impression of the investigator. This is a reusable rule of the meeting, not the investigator persuading, deceiving or bargaining. Invocation intent does not prescribe an influence method. It is rolled when that impression matters this turn: the investigator seeks something from this NPC, approaches them socially, must get past them, or the NPC is hostile or suspicious; mere presence does not establish it."
 			: "The NPC's initial reaction to meaningful contact. This is a reusable contact rule, not the investigator persuading, deceiving or bargaining. Invocation intent does not prescribe an influence method. Meaningful contact must follow from the current declaration or an earlier chosen contact with this NPC; mere presence does not establish it." };
-	return { ...proposal, key: canonical({ proposal: proposal.key, registered_contact_check: registered }),
+	return { ...proposal, key: canonical({ proposal: proposal.key, registered_contact_check: registered }), meetingCheck: true,
 		lines: proposal.lines.map(line => `${line}; registered_contact_check=${JSON.stringify(registered)}`) };
 }
 
@@ -1825,11 +1827,12 @@ export function capsuleContactProposal(proposal: AdmissionProposal, payload: Rec
     const person = people[0]!;
     const contacts = record(capsule.mods)?.pending_contacts;
     if (!Array.isArray(contacts)) return proposal;
-    const matches = contacts.map(record).filter(contact => contact && contact.actor === action.actor && contact.decision === action.decision
-        && typeof person.id === 'string' && contact.handle === person.id);
+    // The Keeper names the investigator by display name or id; the row carries both.
+    const matches = contacts.map(record).filter(contact => contact && (contact.actor === action.actor || contact.actor_id === action.actor)
+        && contact.decision === action.decision && typeof person.id === 'string' && contact.handle === person.id);
     if (matches.length !== 1) return proposal;
     return registeredContactProposal(proposal, payload, {origin: 'policy', clerk: 'mod_contact',
-        basis: {read: 'table.capsule', path: 'mods.pending_contacts', row: {...matches[0], target: action.target}}});
+        basis: {read: 'table.capsule', path: 'mods.pending_contacts', row: {...matches[0], actor: action.actor, target: action.target}}});
 }
 
 /**

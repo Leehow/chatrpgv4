@@ -105,21 +105,23 @@ test('§88: a handover that cites a roll which passed carries the move, and the 
 	assert.equal(card.check, passed.call_id, 'and the roll that ground named, so the turn can be read back');
 });
 
-test('§88: a person-to-person move states its ground, and a move with no second person in it states none', async t => {
+test('§88: a person-to-person move states its ground; with no second person a ground is dropped and reported (§250.4)', async t => {
 	const game = await room(t);
 	const missing = await refusal(game.apply([{kind: 'object', name: 'Study chair',
 		from: game.sheet.name, to: 'Steven Knott'}]));
 	assert.ok(missing, 'moving a thing from one person to another needs its ground');
 	assert.deepEqual(missing.details.supported, ['given', 'taken', 'check']);
 
-	// The 52 of 78 receipts that are not person to person keep their existing shape untouched: a
-	// place is nobody, and a field that would be meaningless there is refused rather than ignored.
+	// The 52 of 78 receipts that are not person to person keep their existing shape untouched: a place is nobody.
+	// §250.4 (live el-v2-20261021a T8): a ground there has nothing to describe, so the move lands without it and the
+	// receipt reports the repair instead of refusing the whole batch.
 	await game.apply([{kind: 'object', name: 'Study chair', from: game.sheet.name, to: 'here'}]);
 	assert.equal((await instance(game, 'Study chair')).owner.kind, 'scene', 'putting it down needs no ground');
-	const spurious = await refusal(game.apply([{kind: 'object', name: 'Study chair',
-		from: 'here', to: game.sheet.name, handover: 'given'}]));
-	assert.ok(spurious, 'a ground where there is no second person is refused, not ignored');
-	assert.equal(spurious.details.field, 'object.handover');
+	const picked = await game.apply([{kind: 'object', name: 'Study chair', from: 'here', to: game.sheet.name, handover: 'given'}]);
+	assert.equal((await instance(game, 'Study chair')).owner.kind, 'investigator', 'picking it up from a place lands');
+	const outcome = picked.outcomes.find(row => row.kind === 'item');
+	assert.deepEqual(outcome.adjusted, ['handover: no_second_person'], 'the dropped ground is reported, not silently ignored');
+	assert.equal(outcome.handover, undefined);
 });
 
 test('§88: an offer moves nothing, stands in the capsule, and a plain move cannot walk past it', async t => {

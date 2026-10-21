@@ -3786,6 +3786,9 @@ export default function (pi: ExtensionAPI, host: {capabilities?:RuntimeCapabilit
             if(keeperJudged.length)await record({lane:'admission',verb:tool,turn:state.turn,path:'keeper_judged',kinds:keeperJudged,jev_calls:0});
 			if(!proposal){capture?.(null);if(recovery?.told.length)await record({lane:'admission',verb:tool,turn:state.turn,path:'told',verdict:'authorized',jev_calls:0,owed:recovery.told});return;}
             proposal=capsuleContactProposal(proposal,payload,current);
+            // §249: a registered meeting check is a rule of the meeting the Keeper decides to roll (owner 2026-10-13), not
+            // an investigator action the player's words select; asking the consent reviewer refused it at its noise floor.
+            if(proposal.meetingCheck){capture?.(null);await record({lane:'admission',verb:tool,turn:state.turn,path:'keeper_judged',kinds:['meeting_check'],jev_calls:0});return;}
             capture?.(proposal);
             const completedTime=state.landed.length&&!recovery?.sources.some(Boolean)?settledTimeEvidence((await state.kernel.call<{receipts:unknown[]}>('table.status',{campaign:state.campaign,projection:'receipts',expected_turn:state.turn})).receipts):undefined;
             const context={...admissionContextFor(state),...(current.where?.clock?{currentClock:current.where.clock}:{}),
@@ -7140,6 +7143,13 @@ export default function (pi: ExtensionAPI, host: {capabilities?:RuntimeCapabilit
 				for (const { field, prefix } of stripped.strips) void record({ lane: "arguments", event: "dialect_prefix_stripped", tool: spec.name, field, prefix });
 				const embedded=omitEmptyEmbeddedArguments(spec.name,stripped.args);
 				if(embedded.fields.length)void record({lane:'arguments',event:'empty_embedded_omitted',tool:spec.name,fields:embedded.fields});
+                // A blank catalog kind is the "search all" placeholder the description forbids; omitting it is that search.
+                const lookupKinds=spec.name==='lookup'&&embedded.args&&typeof embedded.args==='object'?(embedded.args as Record<string,unknown>).kinds:undefined;
+                if(Array.isArray(lookupKinds)&&lookupKinds.some(kind=>typeof kind==='string'&&!kind.trim())){
+                    const {kinds:_blank,...rest}=embedded.args as Record<string,unknown>,kept=lookupKinds.filter(kind=>!(typeof kind==='string'&&!kind.trim()));
+                    embedded.args=(kept.length?{...rest,kinds:kept}:rest) as typeof embedded.args;
+                    void record({lane:'arguments',event:'blank_lookup_kinds_omitted',tool:'lookup',kept:kept.length});
+                }
                 if(turnPacketPrototype&&spec.name==='resolve'&&table&&embedded.args&&typeof embedded.args==='object'){
                     const operation=embedded.args as Record<string,any>,actor=operation.action?.actor;
                     const reference=typeof actor==='string'&&!table.party.some(person=>person.name===actor)?/^investigator_([1-9][0-9]*)$/.exec(actor):null;

@@ -117,7 +117,12 @@ export async function stageModEffect(context: ApplyContext, original: Row, sheet
         // minted by the call in flight is not among them, so the write cannot precede its own decision.
         const names = {from: source ? ownerLabel(world, source) : '', to: ownerLabel(world, owner)};
         const disposition = validateDisposition(effect, prior, source, owner, names);
-        const ground = validateHandover(effect, source, owner, receiptsOf(context.turn), disposition, names);
+        const repairs: Row[] = [];
+        const ground = validateHandover(effect, source, owner, receiptsOf(context.turn), disposition, names, repairs);
+        const repaired = <T extends {receipt: Row}>(staged: T): T => {
+            if (repairs.length) staged.receipt.adjusted = [...array(staged.receipt.adjusted), ...repairs];
+            return staged;
+        };
         // Contract §97. How much of it. Recognised by arithmetic -- an existing stack and a quantity
         // short of what it holds -- so that turn 109's call is answered instead of refused for a
         // change of input there was none of.
@@ -253,11 +258,11 @@ export async function stageModEffect(context: ApplyContext, original: Row, sheet
             const receipt = {id: mint(`delta:item-condition-${callId}`), kind: 'delta', resource: 'condition', subject: owner.id, subject_label: ownerLabel(world, owner),
                 subject_is_investigator: owner.kind === 'investigator', item: item.name, instance: item.id, before: beforeCondition, after: item.state.condition,
                 why: effect.why ?? null, call_id: callId};
-            return {receipt, event: {type: 'resource-changed', data: {resource: receipt.resource, subject: receipt.subject, item: receipt.item, before: receipt.before, after: receipt.after}}};
+            return repaired({receipt, event: {type: 'resource-changed', data: {resource: receipt.resource, subject: receipt.subject, item: receipt.item, before: receipt.before, after: receipt.after}}});
         }
-        return objectTransferReceipt({world, id: mint(`item:${callId}`), callId, name: item.name, owner, source, quantity, item, definition, why: effect.why ?? null,
+        return repaired(objectTransferReceipt({world, id: mint(`item:${callId}`), callId, name: item.name, owner, source, quantity, item, definition, why: effect.why ?? null,
             ...(ground ? {ground} : {}), ...(disposition ? {offer: disposition} : {}),
-            ...(division ? {divided: {from: string(prior!.name), fromInstance:string(prior!.id), remaining: prior!.quantity}} : {})});
+            ...(division ? {divided: {from: string(prior!.name), fromInstance:string(prior!.id), remaining: prior!.quantity}} : {})}));
     }
     if (kind === 'ability') {
         const owner = await objectOwner(campaign, graph, world, effect.to);

@@ -72,3 +72,17 @@ test('native contact context requires a unique current person and a matching ker
   ]) assert.equal(capsuleContactProposal(proposal, payload, capsule), proposal);
   assert.equal(capsuleContactProposal(proposal, {...payload, registered_contact_check: row}, {present: current.present}), proposal);
 });
+
+test('§249: a Keeper naming the investigator by id still matches the pending row, and the proposal is a meeting check', () => {
+  const current = {present: [{id: 'bartender', name: 'Bartender', ref: 'npc_1'}],
+    mods: {pending_contacts: [{...row, actor_id: 'jack-doe', handle: 'bartender'}]}};
+  const args = {action: {...payload.action, actor: 'jack-doe', target: 'npc_1'}};
+  const original = admissionRequest('resolve', args, {party: ['Jack', 'jack-doe']});
+  const enriched = capsuleContactProposal(original, args, current);
+  assert.equal(enriched.meetingCheck, true, 'the registered meeting check is the Keeper\'s to roll');
+  assert.equal(original.meetingCheck, undefined);
+  assert.match(buildAdmissionInput(enriched, context), /registered_contact_check=/);
+  const stranger = {action: {...payload.action, actor: 'someone-else', target: 'npc_1'}};
+  assert.equal(capsuleContactProposal(admissionRequest('resolve', stranger, {party: ['Jack', 'jack-doe', 'someone-else']}), stranger, current).meetingCheck, undefined,
+    'an actor named by neither the row\'s name nor its id is not that pair');
+});

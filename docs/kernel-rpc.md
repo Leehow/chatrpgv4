@@ -50957,6 +50957,14 @@ Admission remains host behaviour; for the kinds still reviewed, an unavailable r
 The admission lane records `path:"keeper_judged"` with the judged kinds and `jev_calls:0` for every batch that
 carries them, so live play can audit what the Keeper settled without review.
 
+A `resolve` of a Mod's registered meeting check (a `presence` first impression or a `contact` reaction, matched to its
+row in the fresh capsule's `mods.pending_contacts`) is also the Keeper's: since the owner's 2026-10-13 ruling the
+Keeper decides when an impression matters, so the consent reviewer is not asked whether the player's words selected a
+rule of the meeting. It records `kinds:["meeting_check"]`. Found live (`el-v2-20261021a` T8): the reviewer scored such a
+roll 0.53 and refused it, and the pending row never matched because it named the investigator by display name while
+the Keeper used the id; each row now also carries `actor_id`, and either name matches. Any other `resolve` stays
+reviewed.
+
 ### 249.2 Quotation versus settlement
 
 The single Keeper decides whether an order is a quotation or a settlement. The covered-quote choice check
@@ -51044,6 +51052,24 @@ the service, meal and payment ordering rules are removed. Quick Settlement 1.1.0
 non-routine service as its `Services beyond routine` section, triggered before a cash or item apply (supplier and
 terms first, item gain before consumption, time after delivery, a payment chosen after completion settles last);
 routine food and drink stay under Spending Level, so the two packages no longer give conflicting meal instructions.
+
+### 250.4 The same repairs where live play met them beside a route
+
+The first v2 table (`el-v2-20261021a`, MiniMax-M3.1-Flash-Preview medium) moved without a location refusal; its
+remaining tool errors sat in neighbouring owners. Those that have one mechanical reading are repaired and reported the
+same way (`adjusted` on the receipt and its outcome):
+
+- An object moved from a place, a container or an award with no named giver, carrying `handover` or `check`, lands
+  without them: `{field:"handover", reason:"no_second_person"}`. This amends §88, which refused the meaningless
+  ground; a person-to-person move still needs its ground.
+- A cash settlement whose `quote` names no offer this investigator ever had, and which prices its own `items`, settles
+  as that fresh priced expense with the name as its `bill`: `{field:"quote", reason:"no_open_quote_fresh_expense"}`. A
+  settled or cancelled offer, or a missing one without priced lines, still refuses, so nothing is paid twice.
+- A blank entry in `lookup` `kinds` is the forbidden "search all" placeholder; it is omitted before validation, which
+  is that search (`arguments` lane `blank_lookup_kinds_omitted`).
+
+Still refused, because each needs the Keeper's decision: an empty population assessment while a registered person is
+seated at the destination (move them away or keep them), and an effect kind that does not exist.
 
 Writer: the Keeper's packet and the kernel's deterministic repairs. Reader: the kernel transaction, the observation
 register and the sole author (which reads committed outcomes and `adjusted`). Actor: the Keeper, continuing from what
