@@ -5,7 +5,7 @@ import {admissionRequest,reviewAdmissionJevOnly} from '../../extensions/kernel/a
 test('elapsed-cost consent separates ordinary activity cost from independent delay',()=>{
  const questions=continuousConsentQuestions(['place','time'],['move',undefined],[undefined,'band']);
  const cost=questions.find(q=>q.key==='consent_1');
- assert.match(cost.instructions,/Ordinary elapsed cost of a chosen physical activity is not a separate request to pause/);
+ assert.match(cost.instructions,/Ordinary elapsed cost of a chosen activity is not a separate request to pause/);
  assert.match(cost.criteria.false,/unselected activity.*independent delay.*duplicate cost.*extent outside/);
  assert.match(cost.instructions,/Keeper reason or a neighboring proposal is not consent/);
  assert.equal(questions.length,4);assert.equal(cost.target,'proposal.lines[1]');
@@ -19,7 +19,7 @@ for(const selection of [.59,.67])test(`native time batch versions the question a
  let batch;
  const proposal=admissionRequest('apply',{effects:[{kind:'place',action:'move',to:'Inn',at:'Counter'},{kind:'time',band:'momentary',why:'Selected local steps',beyond_travel:true}]},{party:['Thomas'],consentOnly:true});
  const result=await reviewAdmissionJevOnly({campaign:'cost',proposal,context:{turn:1,playerText:'I return to the counter and look around.',investigators:[{name:'Thomas'}],present:[],delivered:[],landed:[],refused:[],currentPosition:{place:'Inn',at:'Window'},currentClock:{at:'1920-10-13T01:00'}},env:{},record:()=>{},ctx:{},decision:{decide:async value=>{batch=value;return{batchId:value.id,status:'complete',answers:Object.fromEntries(value.questions.map(q=>[q.key,{status:'answered',type:'noul',noul:q.key.startsWith('restriction_')?.2:q.key==='consent_1'?selection:.9}])),usage:{}};}}});
- assert.equal(batch.familyVersion,'23');assert.equal(batch.questions.length,4);
+ assert.equal(batch.familyVersion,'24');assert.equal(batch.questions.length,4);
  assert.equal(batch.state.current_player_words,'I return to the counter and look around.');
  assert.equal(result.verdict.verdict,selection<.6?'uncertain':'authorized');
 });

@@ -1102,3 +1102,32 @@ LAN all passed6401ext/2246integration/12loop, exit0/wall1223s/run.OLhzhIOv.
 959 full is queued behind another owner's suite; its helper returns7 without
 source/evidence mutation while busy. Request-only Grok schema sharing and Mod1.2.1
 post-wait guidance are the next bounded delta; actual package/live gates pending.
+
+416aa9479/cb441ace7 wire sharing adds exact nonrecursive local references only
+for Grok4.5 Responses; other models and Messages remain inline. Full independent
+expansion equals the inline JSON across six binding/arrival combinations and
+mutation checks. Nested legacy references also disable relocation (red/green).
+Canonical package07:55:24Z is cb441ace7/Mod1.2.1, exact installed bundles/sources,
+stable signature, strict/deep verification and empty staging checked. Final
+clean focused15/15 and fast130 pass. Prior queue attempts were stopped only while
+sleeping on busy exit7, before source upload; the latest full queue still waits
+for the other owner's LAN suite. No heavy suite was killed or called complete.
+Original72 reaches the new late-night diner and delivers detailed exterior,
+layout, wood furniture, kitchen and actual corner position170.573s/1recovered
+error. No120s claim. Its additions string lacked its final closing bracket and
+was correctly refused; the compact native declaration has no additions type,
+although the canonical contract does. Two default/SDK declaration regressions
+are red before deriving the typed field view from PlaceChange, green afterward.
+The earlier premature72 derived read actually contained71 before input72 had
+persisted; it is renamed invalid-for-acceptance, never counted. The read helper
+now requires the exact pending player text and verified timestamp before writing.
+Original73 menu question naturally fails at UI130s with no public delivery; quote
+and prior state are retained. Its extra speak_briefly cost selection.58 holds
+while scope.87/veto.13. Inspection confirms no rule_time_cost writer despite the
+question referring to that optional definition. Existing issued current rule rows
+now reach both textual and typed review, are included in the key, and cannot
+come from model arguments. The band wording covers the selected activity rather
+than physical activity only; family24, .60/.40 unchanged. New context tests red4
+then green4, combined focused16 pass. Actual App verification is still pending.
+Sources: https://docs.typesafe.ai/concepts/state and
+https://docs.typesafe.ai/primitives/noul (current official index was checked).

@@ -48850,6 +48850,24 @@ results are required before claiming a latency gain. Continuous listening across
 a selected wait records its resulting observation after time settles and before
 any onward move; a baseline or clue receipt alone does not update that register.
 
+Compact location declaration follow-up (original input72): keep the typed field
+view of every native place change, derived from PlaceChange, even before a
+separate contract inspection. In particular additions/features, relations and
+observation arrays must not become unknown open fields described only in prose.
+The request view may omit repeated action branches, not these field types. The
+complete canonical validator and read/write separation remain the execution
+owner; malformed or partial JSON is still refused, never completed by inference.
+
+Time-cost review follow-up (original input73): when an issued current time-band
+row is available, admissionScopeBuilder passes only rows used by the reviewed
+effects. Admission projects handle/min/max/default/covers as host-owned
+rule_time_cost into the typed operation and its textual counterpart. Keeper
+arguments cannot supply that metadata; changed definitions change the review
+key. The band question judges the selected activity, including speech when the
+rule describes it, rather than assuming all activities are physical. Family24
+invalidates older band verdicts. No new lane, threshold, arithmetic or timeout;
+missing rule meaning is never fabricated from a band name.
+
 Existing feature recovery (original input67): an establishment conflict returns
 the exact existing public feature and conflicting closed fields, with an explicit
 instruction to reuse that identity and omit its repeated definition from additions.

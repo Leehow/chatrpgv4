@@ -361,6 +361,8 @@ export interface AdmissionDestination {
 }
 
 export interface AdmissionScope {
+    /** Current issued rule rows, supplied by the host rather than the Keeper. */
+    timeCosts?: readonly import("../../runtime/jev/band-shadow-domain.ts").TimeBandRow[];
     /** Same-Keeper consent checks concern voluntary effects, not NPC disclosures or event truth. */
     consentOnly?: boolean;
     /** Host-owned current recording eligibility; never model arguments or writing authority itself. */
@@ -560,7 +562,9 @@ export function admissionRequest(tool: string, payload: Record<string, unknown>,
 	}
 	if (tool === "apply") {
 		const effects = Array.isArray(payload.effects) ? (payload.effects as Array<Record<string, unknown>>) : [];
-		const here = [scope.scene?.handle, scope.scene?.label].filter(Boolean).map(norm);
+		const timeCosts=(scope.timeCosts??[]).filter(row=>effects.some(effect=>effect.kind==='time'&&effect.band===row.handle)).map(row=>({handle:row.handle,min:row.min,max:row.max,...(row.default!==undefined?{default:row.default}:{}),...(row.covers!==undefined?{covers:row.covers}:{})}));
+        const timeCost=(effect:Record<string,unknown>)=>effect.kind==='time'?timeCosts.find(row=>row.handle===effect.band):undefined;
+        const here = [scope.scene?.handle, scope.scene?.label].filter(Boolean).map(norm);
 		const destination = (effect: Record<string, unknown>) => scope.destinations?.find(value => norm(value.requested) === norm(effect.to));
 		// §32.1: whether one effect is put to review on its own. Since §32.12.3's amendment (the owner's ruling after SL-30's
 		// measurement) this also decides which lines the reviewers read: the others land with the batch unreviewed.
@@ -583,9 +587,10 @@ export function admissionRequest(tool: string, payload: Record<string, unknown>,
 		const describe = (effect: Record<string, unknown>): string => {
 			const kind = text(effect.kind) ?? "?";
 			const fields = Object.entries(effect)
-				.filter(([k, v]) => k !== "kind" && !k.startsWith("_") && v !== undefined && v !== null && v !== "")
+				.filter(([k, v]) => k !== "kind" && k !== "rule_time_cost" && !k.startsWith("_") && v !== undefined && v !== null && v !== "")
 				.map(([k, v]) => `${k}=${typeof v === "string" ? JSON.stringify(v) : JSON.stringify(v)}`);
 			const registered = kind === 'move'||kind==='place' ? destination(effect) : undefined;
+            const cost=timeCost(effect);if(cost)fields.push('rule_time_cost='+JSON.stringify(cost));
 			// §197.3: who the effect itself says performs it, when that is not an investigator.
 			const acting = effectActingParty(effect, scope.party);
 			if (acting) fields.push(`acting_party=${JSON.stringify(acting)} (not an investigator)`);
@@ -597,20 +602,21 @@ export function admissionRequest(tool: string, payload: Record<string, unknown>,
 		};
 		const signatures = effects.map(effectSignature);
 		if(payload.event!==undefined&&!scope.consentOnly)return {tool:'apply',atomicEvent:true,
-            key:canonical({tool,event:payload.event,effects:signatures,destinations:scope.destinations??[],cash:scope.cash??null}),
+            key:canonical({tool,event:payload.event,effects:signatures,destinations:scope.destinations??[],cash:scope.cash??null,...(timeCosts.length?{timeCosts}:{})}),
             lines:[`apply event (one indivisible record; judge every claimed occurrence, actor cognition and dependency): ${canonical(payload.event)}; effects: ${effects.map(describe).join(' | ')}`],
             kinds:['event'],eventEffectSignatures:signatures,...(scope.cash?{cash:scope.cash}:{})};
 		// Each line's own signature, taken before the sort below reorders `signatures` in place.
 		const lineSignatures = shown.map((index) => signatures[index]!);
 		const observation = effects.some(effect => effect.kind === 'place' && effect.action === 'observe');
 		const ordered = effects.length > 1 || observation || effects.some(effect => effect.kind === 'object' || effect.kind === 'usage');
-		const key = canonical({ tool, effects: ordered ? signatures : signatures.sort(), destinations: scope.destinations ?? [], ...(scope.selectedDocumentRecording?{selectedDocumentRecording:true}:{}), ...(scope.cash ? {cash:scope.cash} : {}) });
+		const key = canonical({ tool, effects: ordered ? signatures : signatures.sort(), destinations: scope.destinations ?? [], ...(scope.selectedDocumentRecording?{selectedDocumentRecording:true}:{}), ...(scope.cash ? {cash:scope.cash} : {}),...(timeCosts.length?{timeCosts}:{}) });
 		// The key stays the whole batch's (§32.4); the lines are only the reviewed effects (§32.12.3).
 		return { tool: "apply", key, ...(ordered ? { ordered: true as const } : {}), lines: shown.map((index) => describe(effects[index]!)), kinds: shown.map((index) => text(effects[index]!.kind) ?? "?"), effects: shown,
 			operations:shown.map((index,lineIndex)=>{const effect=effects[index]!,registered=effect.kind==='move'||effect.kind==='place'?destination(effect):undefined;
 				const acting=effectActingParty(effect,scope.party);
-				return {...Object.fromEntries(Object.entries(effect).filter(([key,value])=>!key.startsWith('_')&&value!==undefined)),
+				return {...Object.fromEntries(Object.entries(effect).filter(([key,value])=>!key.startsWith('_')&&key!=='rule_time_cost'&&value!==undefined)),
 					...(acting?{acting_party:acting}:{}),
+                    ...(timeCost(effect)?{rule_time_cost:timeCost(effect)}:{}),
 					...(effect.kind==='cash'&&scope.cash?{registered_cash_context:{previews:(scope.cash.previews??[]).filter((row:any)=>row.index===index).map((row:any)=>({...row,index:lineIndex})),quotes:scope.cash.quotes??[],consent_policy:CASH_CONSENT_POLICY}}:{}),
 					...(registered?{registered_destination:registered}:{})};}),
 			signatures: lineSignatures, ...(scope.cash?{cash:{...scope.cash,previews:(Array.isArray(scope.cash.previews)?scope.cash.previews:[]).flatMap((row:any)=>shown.includes(row.index)?[{...row,index:shown.indexOf(row.index)}]:[])}}:{}) };
@@ -1317,7 +1323,8 @@ export async function reviewAdmissionJevOnly(options:PrimaryAdmissionReviewOptio
     const clock=options.clock??hostClock,began=clock.now(),context=options.context;
     const nativeLocation=options.proposal.operations?.some(operation=>operation.kind==='place');
     const serviceContext=options.proposal.operations?.some(operation=>operation.registered_cash_context||operation.acting_party);
-    const family='continuous-action-admission',version=nativeLocation?'23':options.proposal.kinds?.includes('time')?'22':serviceContext?'18':context.currentPosition?'15':context.currentClock?'13':options.proposal.ordered||options.proposal.kinds?.includes('place')?'12':'7';
+    const hasTimeBand=options.proposal.operations?.some(operation=>operation.kind==='time'&&typeof operation.band==='string');
+    const family='continuous-action-admission',version=hasTimeBand?'24':nativeLocation?'23':options.proposal.kinds?.includes('time')?'22':serviceContext?'18':context.currentPosition?'15':context.currentClock?'13':options.proposal.ordered||options.proposal.kinds?.includes('place')?'12':'7';
     let mechanicsChoice:{action:string;choice:{name:string;binds:string;options:string[];prompt?:string}}|undefined;
     let mechanicsInput=false,mechanicsBinding:string|undefined;
     try{

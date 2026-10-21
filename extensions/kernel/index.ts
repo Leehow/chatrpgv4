@@ -3121,7 +3121,7 @@ export default function (pi: ExtensionAPI, host: {capabilities?:RuntimeCapabilit
 	 * already-landed resend (§32.4) both do.
 	 */
 	async function admissionScopeBuilder(state: TableState, tool: "resolve" | "apply", payload: Record<string, unknown>, suppliedCapsule?:Record<string,any>):
-		Promise<(effects: Array<Record<string, unknown>>) => { party: string[]; scene?: TableState["scene"]; destinations?: AdmissionDestination[]; answered?: string[]; cash?: Record<string, unknown> }> {
+		Promise<(effects: Array<Record<string, unknown>>) => { party: string[]; scene?: TableState["scene"]; destinations?: AdmissionDestination[]; answered?: string[]; cash?: Record<string, unknown>; timeCosts?: TableState["packetTimeBandRows"] }> {
 		const destinations: AdmissionDestination[] = [];
 		let cashContext: Record<string, unknown> | undefined;
 		if (tool === 'apply' && Array.isArray(payload.effects) && payload.effects.some((effect: any) =>
@@ -3179,6 +3179,7 @@ export default function (pi: ExtensionAPI, host: {capabilities?:RuntimeCapabilit
 			})}:undefined;
 			return { party: state.party.flatMap((member) => [member.name, ...(member.id ? [member.id] : [])]), scene: state.scene,
                 ...(recordingSelected(state)?{selectedDocumentRecording:true}:{}),
+                ...(state.packetTimeBandRows?{timeCosts:state.packetTimeBandRows.filter(row=>effects.some(effect=>effect.kind==='time'&&effect.band===row.handle))}:{}),
 				...(own.length ? { destinations: own } : {}), ...(state.answering ? { answered: state.answering } : {}),
 				...(ownCash && effects.some(effect => effect.kind === 'cash') ? {cash:ownCash} : {}) };
 		};
