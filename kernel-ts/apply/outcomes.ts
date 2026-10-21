@@ -5,6 +5,9 @@ import {npcReference} from '../npc/references.js';
 import {string,clone,type Row} from '../read/values.js';
 import {publicObservation} from '../read/location-observations.js';
 
+/** §250: the kernel's deterministic repairs of a location command, as compact field: reason lines for the Keeper. */
+const adjusted=(receipt:Row):Row=>Array.isArray(receipt.adjusted)&&receipt.adjusted.length
+    ?{adjusted:receipt.adjusted.map((row:Row)=>`${String(row.field)}: ${String(row.reason)}`)}:{};
 export function operationOutcomes(receipts:Row[],graph:ModuleGraph,world:Row):Row[] {
     const place=(value:unknown)=>value==null?null:typeof value==='string'&&value!=='away'?sceneLabel(graph,world,graph.scene(value)):value;
     const owner=(id:unknown,label:unknown)=>{
@@ -24,7 +27,7 @@ export function operationOutcomes(receipts:Row[],graph:ModuleGraph,world:Row):Ro
         if(kind==='place')return [{kind,status:'changed',action:receipt.action,...(receipt.place?{place:receipt.place}:{}),
             ...(receipt.observation?{observation:publicObservation(graph,world,receipt.observation)}:{}),
             ...(receipt.position?{position:receipt.position}:{}),...(receipt.feature?{feature:receipt.feature,state:receipt.after}:{}),
-            ...(receipt.added?.length?{added:receipt.added}:{}),...(receipt.features?.length?{features:receipt.features}:{})}];
+            ...(receipt.added?.length?{added:receipt.added}:{}),...(receipt.features?.length?{features:receipt.features}:{}),...adjusted(receipt)}];
         if(kind==='item'&&typeof receipt.instance!=='string'&&receipt.quantity!==undefined)return [{kind,status:'changed',
             name:receipt.label??receipt.name,from:owner(receipt.from_id,receipt.from_label??receipt.from),to:receipt.subject_label??receipt.subject,
             quantity:receipt.quantity,before:receipt.before,after:receipt.after,...(receipt.why?{purpose:receipt.why}:{})}];
@@ -34,7 +37,7 @@ export function operationOutcomes(receipts:Row[],graph:ModuleGraph,world:Row):Ro
         if(!['move','npc','time'].includes(kind)||kind==='npc'&&typeof receipt.to!=='string')return [];
         const person=kind==='npc'?graph.actor(receipt.handle):undefined;
         return [{kind,status:receipt.unchanged===true||receipt.renamed===true||kind==='move'&&receipt.from===receipt.to?'unchanged':'changed',
-            ...(kind==='move'?{from:receipt.from_label??place(receipt.from),to:receipt.to_label??place(receipt.to),minutes:receipt.minutes,...(receipt.position?{position:receipt.position}:{})}:{}),
+            ...(kind==='move'?{from:receipt.from_label??place(receipt.from),to:receipt.to_label??place(receipt.to),minutes:receipt.minutes,...(receipt.position?{position:receipt.position}:{}),...adjusted(receipt)}:{}),
             ...(kind==='npc'?{actor:(person&&npcReference(graph,world,person))||receipt.label||receipt.name,from:place(receipt.from),to:place(receipt.to)}:{}),
             ...(kind==='time'?{minutes:receipt.minutes,...(receipt.band!==undefined?{band:receipt.band}:{})}:{}),}];
     });
