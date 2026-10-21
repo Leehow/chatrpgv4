@@ -51225,6 +51225,21 @@ current quiet, active or crowded assessment is `populated` for the author and ne
 registered with `walk_on` only when they act, speak or are singled out. An empty assessment beside a registered person
 is still the one contradiction (§250.6).
 
+### 250.14 A handover the Keeper wrote as an accepted offer, and the packet's person references in apply
+
+Live (`el-v2-20261021f` T2, a movement turn with four refusals): Knott pushed the house keys across the desk. The Keeper
+wrote `object {from, to:"investigator_1", handover:"given", offer:"accepted", condition}`: refused as an unknown
+investigator, twice as "an offer carries no condition", then "no open offer to accept", before the plain transfer landed.
+
+- In the packet mode an `apply` effect's person fields (`to`, `from`, `subject`, `with`, `who`, `actor`, `target`,
+  `toward`) that hold the packet's own issued reference -- `investigator_N` for the party's Nth investigator, or a
+  unique issued `npc_N` -- are named as that person before validation (`{lane:"arguments",
+  event:"person_reference_named", fields}`). A value that is already a party member's name is untouched.
+- An object effect with `offer:"accepted"` while no offer stands, carrying a handover between two people, is the direct
+  transfer it describes: the offer is dropped and the receipt reports `adjusted: offer: no_open_offer_direct_transfer`.
+  An offer that stands is closed by `accepted` exactly as before, and a `declined` offer that was never made is still
+  refused.
+
 ## 251. A progress note for a read spiral (owner direction 2026-10-21: fewer deliberations, faster turns)
 
 Live evidence: on `el-v2-20261021a` T16 the single Keeper answered one sentence about a door and a hired middleman with

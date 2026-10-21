@@ -116,8 +116,15 @@ export async function stageModEffect(context: ApplyContext, original: Row, sheet
         // on, and a ground of "check" resolves against the rolls this turn has already committed -- a roll
         // minted by the call in flight is not among them, so the write cannot precede its own decision.
         const names = {from: source ? ownerLabel(world, source) : '', to: ownerLabel(world, owner)};
-        const disposition = validateDisposition(effect, prior, source, owner, names);
         const repairs: Row[] = [];
+        // §250.14: "accepted" with no offer standing, carrying its handover between two people, is the direct transfer it
+        // describes (live el-v2-20261021f T2: three refusals to hand over the house keys). An offer that stands is untouched.
+        if (effect.offer === 'accepted' && !openOffer(prior) && source && typeof effect.handover === 'string' && effect.handover.trim()) {
+            const {offer: _accepted, ...transfer} = effect;
+            effect = transfer;
+            repairs.push({field: 'offer', reason: 'no_open_offer_direct_transfer'});
+        }
+        const disposition = validateDisposition(effect, prior, source, owner, names);
         const ground = validateHandover(effect, source, owner, receiptsOf(context.turn), disposition, names, repairs);
         const repaired = <T extends {receipt: Row}>(staged: T): T => {
             if (repairs.length) staged.receipt.adjusted = [...array(staged.receipt.adjusted), ...repairs];

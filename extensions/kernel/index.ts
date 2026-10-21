@@ -7230,6 +7230,25 @@ export default function (pi: ExtensionAPI, host: {capabilities?:RuntimeCapabilit
                     if(Object.keys(named).length){embedded.args={...current,action:{...current.action,...named}} as typeof embedded.args;
                         void record({lane:'arguments',event:'npc_reference_named',tool:spec.name,fields:Object.keys(named)});}
                 }
+                // §250.14: the packet's issued person references name the same people in apply (live el-v2-20261021f T2: an
+                // object handed to investigator_1 was refused as an unknown investigator).
+                if(turnPacketPrototype&&spec.name==='apply'&&table&&embedded.args&&typeof embedded.args==='object'&&Array.isArray((embedded.args as Record<string,any>).effects)){
+                    const refs=packetNpcReferences(table),scope=packetNpcScope(table),fields:string[]=[];
+                    const person=(value:unknown):string|undefined=>{
+                        if(typeof value!=='string'||table.party.some(member=>member.name===value))return undefined;
+                        const investigator=/^investigator_([1-9][0-9]*)$/.exec(value);
+                        return investigator?table.party[Number(investigator[1])-1]?.name:refs.publicName(scope,value);
+                    };
+                    const effects=((embedded.args as Record<string,any>).effects as unknown[]).map((effect,index)=>{
+                        if(!effect||typeof effect!=='object'||Array.isArray(effect))return effect;
+                        const named=Object.fromEntries(['to','from','subject','with','who','actor','target','toward'].flatMap(key=>{const name=person((effect as Record<string,unknown>)[key]);return name?[[key,name]]:[];}));
+                        if(!Object.keys(named).length)return effect;
+                        fields.push(...Object.keys(named).map(key=>`effects[${index}].${key}`));
+                        return {...effect,...named};
+                    });
+                    if(fields.length){embedded.args={...(embedded.args as Record<string,any>),effects} as typeof embedded.args;
+                        void record({lane:'arguments',event:'person_reference_named',tool:'apply',fields});}
+                }
                 if(turnPacketPrototype&&spec.name==='output'&&table){
                     const bound=packetNpcReferences(table).bindActors(packetNpcScope(table),embedded.args);
                     embedded.args=bound.args as typeof embedded.args;
