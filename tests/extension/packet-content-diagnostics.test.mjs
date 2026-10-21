@@ -46,3 +46,7 @@ test('a command is diagnosed against its own kind, not every union branch (live 
  assert.throws(()=>turnPacket(JSON.stringify({version:4,commands:[{kind:'npc',actor:'npc_28',to:'Somewhere else',reason:'Walks off.'}]}),scoped),
   error=>/commands\[0\]\/to/.test(error.message)&&!/required properties action/.test(error.message));
 });
+test('a packet place command drops its blank optional fields (live el-v2-20261021e T8)',()=>{
+ const normalized=normalizeTurnPacketArguments({version:4,commands:[{kind:'place',action:'move',to:'Central Library',via:'',relation:' '}]});
+ assert.deepEqual(normalized.args.commands[0],{kind:'place',action:'move',to:'Central Library'});
+});

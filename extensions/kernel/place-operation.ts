@@ -10,6 +10,13 @@ export function normalizePlaceArrayArguments(input:unknown):{args:unknown;fields
     const branch=NativePlaceParameters.anyOf.find(schema=>schema.properties.action.const===params.action);
     if(!branch)return {args:input,fields:[]};
     let args=params;const fields:string[]=[];
+    // §250.4: an optional field sent as a blank string says nothing; it is omitted before validation (live el-v2-20261021e
+    // T8: via:"", travel_band:"" and relation:"" each refused a plain move).
+    const required=new Set<string>(Array.isArray((branch as {required?:unknown}).required)?(branch as {required:string[]}).required:[]);
+    for(const field of Object.keys(branch.properties))
+        if(!required.has(field)&&typeof params[field]==='string'&&!(params[field] as string).trim()){
+            const {[field]:_blank,...rest}=args;args=rest;fields.push(`${field}:blank`);
+        }
     for(const [field,schema] of Object.entries(branch.properties)){
         if(schema.type!=='array'||typeof params[field]!=='string')continue;
         let decoded:unknown;
@@ -41,7 +48,7 @@ export function placeParameterRefusal(args:unknown):KernelError|undefined {
 
     if(params?.action==='move'&&typeof params.travel_band==='string'&&!LocationTravelBand.enum.includes(params.travel_band))
         return new KernelError({code:'invalid_params',message:'The selected travel_band is not a registered road row',
-            fix:'Keep action:"move" and choose one of the supplied travel_band options. Do not invent a row or supply travel_minutes.',
+            fix:'Keep action:"move" and choose one of the supplied travel_band options (travel_minutes may give this journey\'s own time within it). Do not invent a row.',
             details:{reason:'travel_band_unknown',field:'travel_band',options:[...LocationTravelBand.enum],transaction_state:'uncommitted'}});
     try{normalizePlaceTarget(args);}catch(error){if(error instanceof KernelError)return error;throw error;}
 }

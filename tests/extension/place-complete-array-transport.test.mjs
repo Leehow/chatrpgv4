@@ -29,3 +29,12 @@ test('a complete schema-valid encoded place array reaches normal execution as an
  assert.equal(raw.additions,JSON.stringify(additions),'raw provider evidence stays intact');
  assert.ok(table.telemetry().some(row=>row.lane==='arguments'&&row.event==='place_array_transport_normalized'));
 });
+
+test('blank optional place fields say nothing and are omitted before validation (§250.4, live el-v2-20261021e T8)',()=>{
+ const raw={action:'move',to:'Central Library',via:'',travel_band:' ',relation:''};
+ const normalized=normalizePlaceArrayArguments(raw);
+ assert.deepEqual(normalized.args,{action:'move',to:'Central Library'});
+ assert.deepEqual(normalized.fields.sort(),['relation:blank','travel_band:blank','via:blank']);
+ assert.equal(placeParameterRefusal(normalized.args),undefined,'the plain move is no longer refused');
+ assert.equal(normalizePlaceArrayArguments({action:'move',to:''}).args.to,'','a required field is left for its own refusal');
+});

@@ -154,8 +154,13 @@ export function normalizeTurnPacketArguments(input:unknown):{args:unknown;repair
   if(!object(value)||!Array.isArray(value.commands))return normalized;
   let placeKindRepairs=0;
   const commands=value.commands.map(command=>{
-   if(!object(command)||command.kind!==undefined||typeof command.action!=='string'||!PLACE_ACTIONS.has(command.action))return command;
-   placeKindRepairs++;return {kind:'place',...command};
+   if(!object(command))return command;
+   let row=command;
+   if(row.kind===undefined&&typeof row.action==='string'&&PLACE_ACTIONS.has(row.action)){placeKindRepairs++;row={kind:'place',...row};}
+   // A place command's optional field sent as a blank string says nothing (live el-v2-20261021e T8).
+   if(row.kind==='place'){const blank=Object.keys(row).filter(key=>!['kind','action','to'].includes(key)&&typeof row[key]==='string'&&!(row[key] as string).trim());
+    if(blank.length){placeKindRepairs+=blank.length;row=Object.fromEntries(Object.entries(row).filter(([key])=>!blank.includes(key)));}}
+   return row;
   });
   // §250.4: after this packet's own move reaches a place, an NPC sent to that place is sent here (live el-v2-20261021d
   // T21). Before the move, here is still the departure, so an earlier command is left alone.

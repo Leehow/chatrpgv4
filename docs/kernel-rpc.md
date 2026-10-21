@@ -51100,6 +51100,8 @@ same way (`adjusted` on the receipt and its outcome):
 - Each packet command is diagnosed against the variants its own kind and action name, so a refusal names that
   command's real constraint instead of every union branch (`el-v2-20261021d` T21 reported an npc `to` as a missing place
   action, and the Keeper resent the same packet and gave up).
+- An optional place field sent as a blank string (`via:""`, `travel_band:""`, `relation:""`) is omitted before
+  validation, in the place tool and in packet place commands (`el-v2-20261021e` T8 refused a plain move twice for it).
 - After the packet's own move reaches a place, an npc command sending someone to that place sends them `here`
   (`npc_destination_here`); before the move `here` is still the departure, so an earlier command is left alone.
 - A routine summary may carry `ambient` looks alone (`acts` is optional; one of the two is required). Looks alone are no
