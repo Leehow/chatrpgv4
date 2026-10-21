@@ -1186,3 +1186,19 @@ after; all22 admission cases pass. This remains pending clean/package/live proof
 MCP and Anthropic actionable tool-error primary precedents are in ticket08.
 Latest clean c3ce84385 targeted declaration/consent44 pass. Installed code remains
 3f2a3d6dc (c3 only changes tests/docs); no global model settings were changed.
+
+Owner steering: inspect Claude's Quick Settlement Mod before further per-act
+repairs. Read-only check found commit279c9d869 on clean branch
+claude/quick-settlement-mod-20261021; it is not ancestral to current0.9.8a, the
+package is absent from this main checkout and canonical App. It adds routine
+triage plus a capability-gated routine packet/author seam, one time charge and
+ambient rendering, rather than per-act item/cash receipts. Existing scene/roll/
+lasting state and expenses beyond Spending Level retain normal settlement.
+Sandbox claims are its author's recorded evidence, not this original campaign.
+Main dirty structured-turn prototype contains some routine capability references,
+but lacks the package/provider and is not a complete integration. Do not absorb
+that prototype. Integration needs the committed Mod's own narrow wiring rebased
+over current location/time/refusal fixes, with original-campaign adoption and live
+verification. Inspection does not authorize merging this separate branch.
+EL-08 local commit is complete; latest canonical App remains3f2a3d6dc, original
+ready78 at02:57 in the diner. No newer player input. LAN3f2a3d6dc all still runs.
