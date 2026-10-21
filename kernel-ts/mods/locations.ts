@@ -10,7 +10,7 @@ import {isPlace} from '../read/places.js';
 import {RpcError} from '../errors.js';
 import {isAmbiguity} from '../read/module-graph.js';
 import {array,clone,normalize,row,type Row} from '../read/values.js';
-import {locationProvider,locationPlace,locationFeature,locationPlaces,locationFeatures,clearLocationPosition,LOCATION_POSITION_V2_CAPABILITY} from '../read/locations.js';
+import {locationProvider,locationPlace,locationFeature,locationPlaces,locationFeatures,clearLocationPosition,qualifiedLocationFeature,LOCATION_POSITION_V2_CAPABILITY} from '../read/locations.js';
 import {LOCATION_OBSERVATION_CAPABILITY} from '../read/location-observations.js';
 import {stagePerceptualRelations,stageLocationObservation} from './location-observations.js';
 const nonblank=(value:unknown):value is string=>typeof value==='string'&&!!value.trim();
@@ -44,9 +44,12 @@ function forgiving(input:Row,adjusted:Row[]):Row {
     });
     if(effect.action==='observe'){
         effect.to??='here';effect.sense??='sight';effect.access??='clear';
-        const facts=array(effect.facts),kept=facts.filter(nonblank);
-        if(kept.length!==facts.length)adjusted.push({field:'facts',reason:'blank_dropped'});
-        effect.facts=kept;
+        effect.facts??=[];
+        // Only blank text is dropped; a malformed fact keeps its schema refusal.
+        if(Array.isArray(effect.facts)){
+            const kept=effect.facts.filter((fact:unknown)=>!(typeof fact==='string'&&!fact.trim()));
+            if(kept.length!==effect.facts.length){adjusted.push({field:'facts',reason:'blank_dropped'});effect.facts=kept;}
+        }
     }
     return effect;
 }
@@ -131,15 +134,22 @@ export function stageLocation(context:ApplyContext,given:Row,active:readonly Row
     try{destination=locationPlace(graph,world,effect.to);}
     catch(error){
         if(effect.action!=='move'||!unknownName(error))return reference('to',effect.to,()=>{throw error;});
-        // §250: an unregistered destination the Keeper moves to is a new compatible place, registered under its own name.
-        const parts=String(effect.to).trim().split(' / ');
-        let within:string|null=null,leaf=parts.join(' / ');
-        for(let cut=parts.length-1;cut>0&&within===null;cut--){
-            try{const parent=locationPlace(graph,world,parts.slice(0,cut).join(' / '));within=graph.handle(parent);leaf=parts.slice(cut).join(' / ');}
-            catch(failure){if(!unknownName(failure))throw failure;}
+        const qualified=effect.at===undefined&&effect.spot===undefined?qualifiedLocationFeature(world,effect.to):undefined;
+        if(qualified){
+            // §250: a registered feature named as the destination is that place, standing at that feature.
+            destination=locationPlace(graph,world,qualified.place);effect={...effect,to:qualified.place,at:qualified.at};
+            adjusted.push({field:'to',reason:'qualified_feature_resolved',place:qualified.place,at:qualified.at});
+        }else{
+            // §250: an unregistered destination the Keeper moves to is a new compatible place, registered under its own name.
+            const parts=String(effect.to).trim().split(' / ');
+            let within:string|null=null,leaf=parts.join(' / ');
+            for(let cut=parts.length-1;cut>0&&within===null;cut--){
+                try{const parent=locationPlace(graph,world,parts.slice(0,cut).join(' / '));within=graph.handle(parent);leaf=parts.slice(cut).join(' / ');}
+                catch(failure){if(!unknownName(failure))throw failure;}
+            }
+            destination=createPlace(within?`${within} / ${leaf}`:leaf,leaf,within,leaf);
+            adjusted.push({field:'to',reason:'implicit_new_place',place:graph.handle(destination)});
         }
-        destination=createPlace(within?`${within} / ${leaf}`:leaf,leaf,within,leaf);
-        adjusted.push({field:'to',reason:'implicit_new_place',place:graph.handle(destination)});
     }
     const to=graph.handle(destination);
     if(effect.action==='feature'){

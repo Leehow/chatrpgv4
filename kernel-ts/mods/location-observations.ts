@@ -18,6 +18,11 @@ function point(context:ApplyContext,value:Row,field:string,adjusted:Row[]=[]):Ro
             try{const kept=observationPoint(context.graph,context.world,{...rest,spot:rest.spot??at});adjusted.push({field,reason:'unregistered_feature_as_spot',spot:kept.spot});return kept;}
             catch(failure){if(!unknownName(failure))throw failure;}
         }
+        const qualified=unknownName(error)&&value.at===undefined&&value.spot===undefined?qualifiedLocationFeature(context.world,value.place):undefined;
+        if(qualified){
+            const kept=observationPoint(context.graph,context.world,{...qualified,...(value.relation!==undefined?{relation:value.relation}:{})});
+            adjusted.push({field,reason:'qualified_feature_resolved',place:kept.place,at:kept.at});return kept;
+        }
         if(unknownName(error)&&value.place!==undefined&&value.place!=='here'&&!qualifiedLocationFeature(context.world,value.place)){
             const kept=observationPoint(context.graph,context.world,{place:'here',spot:value.spot??value.at??value.place,...(value.relation!==undefined?{relation:value.relation}:{})});
             adjusted.push({field,reason:'unregistered_target_as_spot',spot:kept.spot});return kept;

@@ -27,7 +27,7 @@ const placeMove=Type.Object(Type.Omit(PlaceEffect.anyOf[0],['travel_minutes']).p
 const placeStationary=PlaceEffect.anyOf.slice(1);
 const commandSchemas=[move,placeMove,...placeStationary,npc,walkOn,scene,time,relationship];
 // §250: stops, waits and looks settle in their submitted order; a move counts its own travel, so time is always additional.
-const commands=Type.Array(Type.Union([move,placeMove,time,...placeStationary,npc,walkOn,scene,relationship]),{maxItems:16});
+const commands=Type.Union([Type.Array(Type.Union([move,placeMove,time,...placeStationary,npc,walkOn,scene,relationship]),{maxItems:16})]);
 /** A model decides communication; the sole author owns all complete wording. */
 export const TURN_PACKET_PARAMETERS=Type.Object({version:Type.Literal(4),commands:Type.Optional(commands),interactions:Type.Optional(Type.Array(Interaction,{maxItems:12})),reveal:Type.Optional(Type.Array(ExistingCommunicationFact,{maxItems:8}))},{additionalProperties:false});
 export const TURN_PACKET_ENTRY_PARAMETERS=locationCommandEntry(TURN_PACKET_PARAMETERS);
@@ -127,7 +127,7 @@ export function turnPacketParameterSchema(journeySettled=false,timeBands?:readon
     const arrivedLocal=[Type.Object({...arrivedFields,at:atom(240)},{additionalProperties:false}),
         Type.Object({...arrivedFields,spot:Type.String({...PlaceEffect.anyOf[0].properties.spot})},{additionalProperties:false})];
     if(journeySettled)schema.properties.commands=Type.Array(Type.Union([...(locations?arrivedLocal:[]),...local,issuedNpc,walkOn,scene,relationship]),{maxItems:12,...stationary});
-    else schema.properties.commands=Type.Array(Type.Union([...issuedMoves,...journey,boundedTime,...local,issuedNpc,walkOn,scene,relationship]),{maxItems:16,...stationary});
+    else schema.properties.commands=Type.Union([Type.Array(Type.Union([...issuedMoves,...journey,boundedTime,...local,issuedNpc,walkOn,scene,relationship]),{maxItems:16,...stationary})]);
     if(sceneRequired)schema.required=[...new Set([...(schema.required??[]),'commands'])];
     return locations?locationCommandOwner(schema as TSchema):schema as TSchema;
 }

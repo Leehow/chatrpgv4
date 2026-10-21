@@ -61,7 +61,7 @@ test('a current-input observation receipt is published once without a duplicate 
  assert.equal(table.entries('coc-final-delivery').filter(r=>r.event==='end'&&r.status==='completed').length,1);
 });
 
-test('native standalone location settlement precedes a selected wait and final observation',async t=>{
+test('a selected local route, wait and look settle in order from one packet after one committed step (§250)',async t=>{
  let table,scene;const engine=createHybridEngine({env,decision:{decide:async batch=>answer(batch)}});
  table=await openTable({legacyDeliveryFixtures:false,realKernel:true,prepareWorkspace:opened,env,runDriver:engine.runDriver,
   extraExtensions:[{name:'engine',factory:engine.extension}],responses:[async()=>{
@@ -70,32 +70,30 @@ test('native standalone location settlement precedes a selected wait and final o
    return fauxAssistantMessage([fauxToolCall('place',{action:'inspect',need:'contract'})],{stopReason:'toolUse'});
   },()=>{
    const read=table.session.messages.findLast(row=>row.role==='toolResult'&&row.toolName==='place');
-   assert.notEqual(read.isError,true,JSON.stringify(read));assert.equal(read.details.write_route.action,'move');
-   assert(read.details.parameters.anyOf.every(branch=>branch.properties.action),'demand disclosure uses the same flat entrance');
-   return fauxAssistantMessage([fauxToolCall('output',{version:4,commands:[{kind:'scene',service:'open',crowd:'quiet'},
-    {kind:'place',action:'move',to:scene,at:'desk',relation:'beside'},{kind:'place',action:'move',to:scene,at:'street window',relation:'beside'}],interactions:[]})],{stopReason:'toolUse'});
-  },()=>{
-   const refusal=table.session.messages.findLast(row=>row.role==='toolResult'&&row.toolName==='output');
-   assert.equal(refusal.isError,true);assert.match(JSON.stringify(refusal.content),/first call place/,'parameter feedback exposes the independent location route');
+   assert.notEqual(read.isError,true,JSON.stringify(read));assert.match(read.details.guide,/Every place field is declared/);
+   assert.equal(read.details.parameters,undefined,'the contract read carries no second grammar');assert.equal(read.details.write_route,undefined);
    return fauxAssistantMessage([fauxToolCall('place',{op:'inspect',change:{action:'move',to:scene,at:'street window'}})],{stopReason:'toolUse'});
   },async()=>{
    const refusal=table.session.messages.findLast(row=>row.role==='toolResult'&&row.toolName==='place');
    assert.equal(refusal.isError,true);assert.equal(refusal.details.coc_error.details.reason,'place_mode_conflict');assert.match(refusal.details.coc_error.fix,/action:"move"/);
    const status=await table.runtimeBridges().at(-1).call('table.status',{campaign:'test-camp',projection:'receipts'});
    assert(!status.receipts.some(row=>row.kind==='place'&&row.action==='move'),'a conflicting read must not commit movement');
-   return fauxAssistantMessage([fauxToolCall('place',{action:'move',name:scene,at:'street window',relation:'beside',additions:[{name:scene,features:[{name:'street window',description:'A tall window overlooking the pavement.'}]}]})],{stopReason:'toolUse'});
-  },()=>fauxAssistantMessage([fauxToolCall('apply',{effects:[{kind:'time',minutes:2,why:'Wait at the window as selected.'}]})],{stopReason:'toolUse'}),
-  ()=>fauxAssistantMessage([fauxToolCall('output',{version:4,commands:[{kind:'scene',service:'open',crowd:'quiet'},{kind:'place',action:'observe',to:scene,at:'street window',sense:'sight',access:'clear',scope:'The pavement through the window.',facts:['A cart passes the window.']}],interactions:[]})],{stopReason:'toolUse'})]});
- t.after(()=>table.dispose());await table.session.prompt('I walk to the street window, wait two minutes, then look at the pavement.');
- const call=table.session.messages.findLast(row=>row.role==='toolResult'&&row.toolName==='place');assert.notEqual(call?.isError,true,JSON.stringify(call));
+   return fauxAssistantMessage([fauxToolCall('place',{action:'move',name:scene,at:'desk',relation:'beside'})],{stopReason:'toolUse'});
+  },()=>fauxAssistantMessage([fauxToolCall('output',{version:4,commands:[
+    {kind:'place',action:'move',to:'here',at:'street window',relation:'beside',additions:[{name:scene,features:[{name:'street window',description:'A tall window overlooking the pavement.'}]}]},
+    {kind:'time',minutes:2,reason:'Wait at the window as selected.'},
+    {kind:'place',action:'observe',to:scene,at:'street window',facts:['A cart passes the window.']}],interactions:[]})],{stopReason:'toolUse'})]});
+ t.after(()=>table.dispose());await table.session.prompt('I walk to the desk, then to the street window, wait two minutes, then look at the pavement.');
+ const output=table.session.messages.findLast(row=>row.role==='toolResult'&&row.toolName==='output');assert.notEqual(output?.isError,true,JSON.stringify(output));
  assert(table.telemetry().some(row=>row.event==='place_target_alias_normalized'),'the native prepare boundary normalizes the explicit alias before the actual write');
  const turn=JSON.parse(readFileSync(join(table.workspace,'.coc/campaigns/test-camp/turns/0001.json')));
- const move=turn.receipts.findIndex(row=>row.kind==='place'&&row.action==='move'),wait=turn.receipts.findIndex(row=>row.kind==='time'),observe=turn.receipts.findIndex(row=>row.kind==='place'&&row.action==='observe');
- assert(move>=0&&wait>move&&observe>wait,'canonical receipt order must be move, wait, observe: '+JSON.stringify(turn.receipts));
+ const kinds=turn.receipts.map(row=>row.kind==='place'?'place.'+row.action:row.kind);
+ const desk=turn.receipts.findIndex(row=>row.kind==='place'&&row.action==='move'&&row.position?.spot==='desk'),window=turn.receipts.findIndex(row=>row.kind==='place'&&row.action==='move'&&row.position?.at==='street window');
+ const wait=turn.receipts.findIndex(row=>row.kind==='time'),observe=turn.receipts.findIndex(row=>row.kind==='place'&&row.action==='observe');
+ assert(desk>=0&&window>desk&&wait>window&&observe>wait,'canonical receipt order must be desk, window, wait, observe: '+JSON.stringify(kinds));
+ assert(turn.receipts[desk].adjusted.some(row=>row.reason==='unregistered_feature_as_spot'));
  const protocol=table.telemetry().filter(row=>row.lane==='place-protocol');
- assert(protocol.some(row=>row.phase==='normalized'&&row.arguments.action==='inspect'));
  assert(protocol.some(row=>row.phase==='prepare'&&row.arguments.action==='inspect'),'the registered native tool actually records the pre-validation boundary');
- assert.equal(turn.receipts.filter(row=>row.kind==='place'&&row.action==='move').length,1,'final publication never replays the already settled position');
  assert.equal(table.telemetry().filter(row=>row.lane==='isolated-expression'&&row.event==='written').length,1);
  assert.equal(table.entries('coc-final-delivery').filter(row=>row.event==='end'&&row.status==='completed').length,1);
 });

@@ -36,7 +36,7 @@ test('the dedicated typed tool normalizes before canonical write admission, with
     assert(!Check(PlaceEffect,{...command,patch:{cash:100}}));
 });
 
-test('native typed location commands use open destinations, the same effect and one journey limit',()=>{
+test('native typed location commands use open destinations, the same effect and a whole ordered route (§250)',()=>{
     const packet={version:4,commands:[command,{kind:'scene',service:'open',crowd:'quiet'}]};
     const decoded=turnPacket(JSON.stringify(packet));
     const bound=bindTurnPacketMoves(decoded,[]);
@@ -47,8 +47,9 @@ test('native typed location commands use open destinations, the same effect and 
     const localArrival={version:4,commands:[{kind:'place',action:'move',to:'here',at:'counter',relation:'beside'}]};
     assert.equal(Errors(turnPacketParameterSchema(true,[],[],false,undefined,true),localArrival).length,0,'after arrival the Keeper can still refine the current local position');
     assert(Errors(turnPacketParameterSchema(true,[],[],false,undefined,true),{...localArrival,commands:[{...localArrival.commands[0],travel_band:'adjacent'}]}).length,'local refinement cannot repeat travel time');
-    assert.throws(()=>turnPacket(JSON.stringify({version:4,commands:[command,{kind:'move',to:'Office'}]})),/Only one destination/);
-    assert.throws(()=>turnPacket(JSON.stringify({version:4,commands:[command,{kind:'time',band:'work',reason:'test'}]})));
+    const route=compileTurnPacket(turnPacket(JSON.stringify({version:4,commands:[command,{kind:'time',until:{time:'18:00'},reason:'Wait until six.'},{kind:'move',to:'Office'}]}))).effects;
+    assert.deepEqual(route.map(effect=>effect.kind),['place','time','move'],'several stops and a wait keep their submitted order');
+    assert.deepEqual(route[1].until,{time:'18:00'});
     const feature={kind:'place',action:'feature',to:'Inn',at:'window',state:'open',passable:true};
     assert.deepEqual(compileTurnPacket(turnPacket(JSON.stringify({version:4,commands:[feature]}))).effects,[feature]);
     assert.throws(()=>turnPacket(JSON.stringify({version:4,commands:[{...command,travel_minutes:5}]})),/Invalid decision command/);
@@ -77,8 +78,9 @@ test('an independently selected activity after arrival uses canonical extra time
     assert.equal(Errors(schema,packet).length,0);
     const compiled=compileTurnPacket(turnPacket(JSON.stringify(packet)));
     assert.deepEqual(compiled.effects[1],{kind:'time',band:'speak_briefly',why:extra.reason,beyond_travel:true});
-    assert.throws(()=>turnPacket(JSON.stringify({...packet,commands:[command,{kind:'time',band:extra.band,reason:extra.reason}]})),/Movement already owns travel time.*beyond_travel/);
-    assert.throws(()=>turnPacket(JSON.stringify({...packet,commands:[extra,command]})),/must follow the journey/);
+    assert.deepEqual(compileTurnPacket(turnPacket(JSON.stringify({...packet,commands:[command,{kind:'time',band:extra.band,reason:extra.reason}]}))).effects[1],
+        {kind:'time',band:'speak_briefly',why:extra.reason},'§250: time beside a move is always additional; no marker is required');
+    assert.deepEqual(compileTurnPacket(turnPacket(JSON.stringify({...packet,commands:[extra,command]}))).effects.map(effect=>effect.kind),['time','place'],'a wait before the journey keeps its place');
     assert.deepEqual(compileTurnPacket(turnPacket(JSON.stringify({...packet,commands:[extra]}))).effects,[compiled.effects[1]],'a harmless compatibility marker agrees with the ordinary stationary schema');
     assert(Errors(schema,{...packet,commands:[command,{...extra,band:'invented'}]}).length,'issued time bands still bound the extra activity');
 });

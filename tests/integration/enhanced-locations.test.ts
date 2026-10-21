@@ -112,10 +112,11 @@ test('a shared parent supplies neither a free route nor zero travel and source f
     const offered=(await k.table('apply.options')).candidates.find((candidate:Row)=>candidate.effect.kind==='move'&&candidate.effect.to==='City / West');
     assert.equal(offered.description.locations,true);assert.equal(offered.description.requires_via,true);
     const legacy=await k.tableErr('apply',{call_id:'t1-c3',effects:[{kind:'move',to:'City / West'}]});assert.equal(legacy.code,'not_reachable');
-    const error=await k.tableErr('apply',{call_id:'t1-c3',effects:[{kind:'place',action:'move',to:'City / West',travel_band:'local_travel'}]});
-    assert.equal(error.code,'invalid_params');assert.equal(error.details.reason,'place_route_required');assert.equal(error.details.field,'via');
-    const moved=await k.table('apply',{call_id:'t1-c4',effects:[{kind:'place',action:'move',to:'City / West',via:'Across the city',travel_band:'local_travel'}]});
+    // §250: a new route the Keeper did not describe is an open, improvised arrival with its band's travel time.
+    const moved=await k.table('apply',{call_id:'t1-c3',effects:[{kind:'place',action:'move',to:'City / West',travel_band:'local_travel'}]});
     assert(moved.outcomes[0].minutes>0);
+    const arrival=(await k.table('status',{projection:'receipts'})).receipts.find((receipt:Row)=>receipt.call_id==='t1-c3'&&receipt.kind==='move');
+    assert.equal(arrival.improvised,true);assert(arrival.adjusted.some((row:Row)=>row.reason==='open_route'));
     assert.equal((await inspect(k,authored)).place.features[0].name,'side corner');
 });
 
@@ -167,20 +168,21 @@ test('a typed place journey and its subsequent purchase preview the same day wit
     assert.equal(paid.delta,preview.cash_previews[0].delta);assert(state(k).clock.minutes>=1440);assert.equal(state(k).active_scene,'Roadside cafe');
 });
 
-test('a missing parent returns its exact correction and a native arrival plus activity shares one clock',async t=>{
+test('an unresolvable parent registers a standalone place, and a native arrival plus activity shares one clock (§250)',async t=>{
     const k=await kernel(t);await openTurn(k,'I visit an ordinary hotel and ask about a room.');
-    const before=state(k),journey={kind:'place',action:'move',to:'Ordinary Hotel',via:'Along the street',travel_band:'local_travel',additions:[{...hotel('Ordinary Hotel'),within:'null'}]};
-    const error=await k.tableErr('apply',{call_id:'t1-c1',effects:[journey]});
-    assert.equal(error.details.reason,'place_parent_unregistered');assert.equal(error.details.field,'additions[0].within');
-    assert.match(error.fix,/JSON null/);assert.deepEqual(state(k),before);
-    const packet=turnPacket(JSON.stringify({version:4,commands:[{...journey,additions:[hotel('Ordinary Hotel')]},
-        {kind:'time',band:'speak_briefly',reason:'Ask the clerk about a room.',beyond_travel:true}]}));
-    await k.table('apply',{call_id:'t1-c1',effects:compileTurnPacket(packet).effects});
-    const receipts=(await k.table('status',{projection:'receipts'})).receipts.filter((receipt:Row)=>receipt.call_id==='t1-c1');
+    const before=state(k),journey={kind:'place',action:'move',to:'Ordinary Hotel',via:'Along the street',travel_band:'local_travel',additions:[hotel('Ordinary Hotel')]};
+    await k.table('apply',{call_id:'t1-c1',effects:[{kind:'place',action:'establish',additions:[{...hotel('Other Hotel'),within:'null'}]}]});
+    const other=locations(k).places.find((record:Row)=>record.name==='Other Hotel');assert(other);assert.equal(other.within,null);
+    const registered=(await k.table('status',{projection:'receipts'})).receipts.find((row:Row)=>row.call_id==='t1-c1'&&row.kind==='place');
+    assert(registered.adjusted.some((row:Row)=>row.reason==='unregistered_parent_ignored'&&row.requested==='null'));
+    assert.equal(state(k).active_scene,before.active_scene,'registration moves nobody');
+    const packet=turnPacket(JSON.stringify({version:4,commands:[journey,{kind:'time',band:'speak_briefly',reason:'Ask the clerk about a room.'}]}));
+    await k.table('apply',{call_id:'t1-c2',effects:compileTurnPacket(packet).effects});
+    const receipts=(await k.table('status',{projection:'receipts'})).receipts.filter((receipt:Row)=>receipt.call_id==='t1-c2');
     assert.deepEqual(receipts.map((receipt:Row)=>receipt.kind),['move','time']);
-    assert.equal(receipts[1].beyond_travel,true);assert(receipts[0].minutes>=10);assert(receipts[1].minutes<=3);
+    assert(receipts[0].minutes>=10);assert(receipts[1].minutes<=3);
     assert.equal(state(k).clock.minutes-before.clock.minutes,receipts.reduce((sum:number,receipt:Row)=>sum+receipt.minutes,0));
-    assert.equal(state(k).active_scene,'Ordinary Hotel');assert.equal(locations(k).places.length,1);
+    assert.equal(state(k).active_scene,'Ordinary Hotel');assert.equal(locations(k).places.length,2);
 });
 
 test('a qualified child addition canonicalizes once and remains locally addressable',async t=>{
@@ -194,14 +196,15 @@ test('a qualified child addition canonicalizes once and remains locally addressa
     assert.deepEqual(locations(k).places.map((record:Row)=>record.id),records.map((record:Row)=>record.id));
 });
 
-test('an unregistered destination or local feature is a recoverable definition gap, not a physical barrier',async t=>{
+test('an unregistered destination becomes a minimal place and an unregistered feature a descriptive spot (§250)',async t=>{
     const k=await kernel(t);await openTurn(k,'I visit the inn and approach its window.');
-    const missing=await k.tableErr('apply',{call_id:'t1-c1',effects:[{kind:'place',action:'move',to:'Inn',via:'Along the street'}]});
-    assert.equal(missing.code,'invalid_params');assert.equal(missing.details.field,'to');assert.equal(missing.details.reason,'place_reference_unresolved');
-    await k.table('apply',{call_id:'t1-c1',effects:[{kind:'place',action:'move',to:'Inn',via:'Along the street',travel_band:'adjacent',additions:[hotel('Inn')]}]});
-    const before=state(k),error=await k.tableErr('apply',{call_id:'t1-c2',effects:[{kind:'place',action:'move',to:'here',at:'window',relation:'beside'}]});
-    assert.equal(error.code,'invalid_params');assert.equal(error.details.field,'at');assert.deepEqual(state(k),before);
-    await k.table('apply',{call_id:'t1-c2',effects:[{kind:'place',action:'move',to:'here',at:'window',relation:'beside',additions:[{name:'Inn',features:[{name:'window',description:'A wooden window.',state:'closed',passable:false}]}]}]});
+    await k.table('apply',{call_id:'t1-c1',effects:[{kind:'place',action:'move',to:'Inn',via:'Along the street',travel_band:'adjacent'}]});
+    assert.equal(state(k).active_scene,'Inn');assert.deepEqual(locations(k).places.map((record:Row)=>record.name),['Inn']);
+    const arrival=(await k.table('status',{projection:'receipts'})).receipts.find((row:Row)=>row.call_id==='t1-c1'&&row.kind==='move');
+    assert(arrival.adjusted.some((row:Row)=>row.reason==='implicit_new_place'));
+    await k.table('apply',{call_id:'t1-c2',effects:[{kind:'place',action:'move',to:'here',at:'window',relation:'beside'}]});
+    assert.equal(locations(k).position.spot,'window');assert.equal(locations(k).position.at,undefined);assert.equal(locations(k).features.length,0);
+    await k.table('apply',{call_id:'t1-c3',effects:[{kind:'place',action:'move',to:'here',at:'window',relation:'beside',additions:[{name:'Inn',features:[{name:'window',description:'A wooden window.',state:'closed',passable:false}]}]}]});
     assert.equal(locations(k).position.at,'window');assert.equal(locations(k).places.length,1);
 });
 
@@ -226,17 +229,21 @@ test('descriptive positions persist through real observation and restart without
     assert.equal((await inspect(restarted)).place.features.length,0);
 });
 
-test('descriptive positions retain exact feature, shape and barrier refusals with atomic rollback',async t=>{
+test('a known barrier still refuses atomically while other position shapes are repaired and reported (§250)',async t=>{
     const k=await kernel(t);await openTurn(k,'I approach a corner but do not cross the closed door.');
     await k.table('apply',{call_id:'t1-c1',effects:[{kind:'place',action:'establish',additions:[hotel('Inn'),hotel('Garden'),{name:'Inn',features:[{name:'Door',description:'A closed oak door.',state:'locked',passable:false}]}]}]});
     await k.table('apply',{call_id:'t1-c2',effects:[{kind:'place',action:'move',to:'Inn',via:'Across the road',travel_band:'adjacent',spot:'front corner'}]});
     const before=state(k);
-    const missing=await k.tableErr('apply',{call_id:'t1-c3',effects:[{kind:'place',action:'move',to:'here',at:'unregistered fixture'}]});
-    assert.equal(missing.details.reason,'place_reference_unresolved');assert.deepEqual(state(k),before);
-    const conflict=await k.tableErr('apply',{call_id:'t1-c3',effects:[{kind:'place',action:'move',to:'here',at:'Door',spot:'front corner'}]});
-    assert.equal(conflict.details.reason,'place_shape');assert.deepEqual(state(k),before);
     const blocked=await k.tableErr('apply',{call_id:'t1-c3',effects:[{kind:'place',action:'move',to:'Garden',via:'Through the closed door',travel_band:'adjacent',spot:'garden corner',through:{place:'Inn',feature:'Door'}}]});
     assert.equal(blocked.details.reason,'place_barrier');assert.deepEqual(state(k),before);
-    const fixture=await k.tableErr('apply',{call_id:'t1-c3',effects:[{kind:'place',action:'feature',to:'here',at:'front corner',state:'open'}]});
-    assert.equal(fixture.details.reason,'place_reference_unresolved');assert.deepEqual(state(k),before);
+    await k.table('apply',{call_id:'t1-c3',effects:[{kind:'place',action:'move',to:'here',at:'Door',spot:'front corner'}]});
+    assert.equal(locations(k).position.at,'Door');assert.equal(locations(k).position.spot,undefined,'a registered feature wins over a spot');
+    await k.table('apply',{call_id:'t1-c4',effects:[{kind:'place',action:'move',to:'here',at:'unregistered fixture'}]});
+    assert.equal(locations(k).position.spot,'unregistered fixture');
+    await k.table('apply',{call_id:'t1-c5',effects:[{kind:'place',action:'feature',to:'here',at:'Shutter',state:'open'}]});
+    const shutter=locations(k).features.find((feature:Row)=>feature.name==='Shutter');assert.equal(shutter.state,'open');
+    const receipts=(await k.table('status',{projection:'receipts'})).receipts;
+    assert(receipts.find((row:Row)=>row.call_id==='t1-c3'&&row.kind==='place').adjusted.some((row:Row)=>row.reason==='spot_dropped_for_feature'));
+    assert(receipts.find((row:Row)=>row.call_id==='t1-c4'&&row.kind==='place').adjusted.some((row:Row)=>row.reason==='unregistered_feature_as_spot'));
+    assert(receipts.find((row:Row)=>row.call_id==='t1-c5'&&row.kind==='place').adjusted.some((row:Row)=>row.reason==='implicit_feature'));
 });

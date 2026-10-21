@@ -192,7 +192,7 @@ test('an observation atomically creates a remote place and person without adding
  assert.equal((await table.runtimeBridges().at(-1).call('table.look',{campaign:'test-camp',focus:'npc',name:observed.ref})).scene,'Street outside');
 });
 
-test('a missing route on direct place submit permits a corrected native arrival and fires the Mod trigger',async t=>{
+test('a direct place submit without a route arrives as an open route, and later local refinement needs no review (§250)',async t=>{
  const batches=[];
  const engine=createHybridEngine({env,decision:{decide:async batch=>{batches.push(batch);return answer(batch,.99);}}});
  const command={kind:'place',action:'move',to:'Ordinary Inn / Single room',via:'Along the street and up the inn stairs',travel_band:'adjacent',
@@ -201,24 +201,23 @@ test('a missing route on direct place submit permits a corrected native arrival 
  const table=await openTable({legacyDeliveryFixtures:false,realKernel:true,prepareWorkspace:opened,env,runDriver:engine.runDriver,
   extraExtensions:[{name:'engine',factory:engine.extension}],responses:[
    ()=>fauxAssistantMessage([fauxToolCall('place',{op:'submit',change:missingRoute})],{stopReason:'toolUse'}),
-   ()=>fauxAssistantMessage([rawToolCall('output',{version:4,commands:[command,{kind:'scene',service:'open',crowd:'empty'}]})],{stopReason:'toolUse'}),
+   ()=>fauxAssistantMessage([rawToolCall('output',{version:4,commands:[{kind:'scene',service:'open',crowd:'empty'}]})],{stopReason:'toolUse'}),
    ()=>fauxAssistantMessage([rawToolCall('output',{version:4,commands:[{kind:'scene',service:'open',crowd:'empty'}]})],{stopReason:'toolUse'}),
    ()=>fauxAssistantMessage([rawToolCall('output',{version:4,commands:[{kind:'place',action:'move',to:'here',at:'window',relation:'beside'}]})],{stopReason:'toolUse'})
   ]});
  t.after(()=>table.dispose());
  await table.session.prompt('I visit a nearby ordinary inn and enter a single room to look around.');
  assert.deepEqual(table.extensionErrors,[]);
- const capsule=await table.runtimeBridges().at(-1).call('table.capsule',{campaign:'test-camp'});
- assert.equal(capsule.where.scene,command.to,JSON.stringify(table.session.messages.filter(message=>message.role==='toolResult'||message.role==='assistant').map(message=>({role:message.role,tool:message.toolName,error:message.errorMessage,content:message.content}))).slice(-6000));
- assert(table.telemetry().some(row=>row.lane==='mod-sections'&&row.event==='selected'&&row.keys.some(section=>section.key.startsWith('enhanced-locations@')&&section.why.some(why=>['call:before_apply:place','context:before_apply:place'].includes(why)))),'the independent submit receives the locked location guidance');
+ const bridge=table.runtimeBridges().at(-1);
+ assert.equal((await bridge.call('table.capsule',{campaign:'test-camp'})).where.scene,command.to);
+ const arrival=(await bridge.call('table.status',{campaign:'test-camp',projection:'receipts'})).receipts.find(row=>row.kind==='move');
+ assert.equal(arrival.improvised,true);assert(arrival.adjusted.some(row=>row.reason==='open_route'));
  await table.session.prompt('I stay here and look around.');
  assert.deepEqual(table.extensionErrors,[]);
  await table.session.prompt('I move beside the window.');
  assert.deepEqual(table.extensionErrors,[]);
- const reviewed=batches.filter(batch=>batch.family==='continuous-action-admission').flatMap(batch=>batch.state.proposal.lines).find(line=>line.at==='window');
- assert.equal(reviewed.registered_destination.handle,command.to);
- assert.deepEqual(reviewed.registered_destination.location.features,[{name:'window',description:'A wooden window.'}],'real canonical feature projection reaches the consent consumer');
- assert.equal((await table.runtimeBridges().at(-1).call('table.capsule',{campaign:'test-camp'})).where.location.position.at,'window');
+ assert.equal((await bridge.call('table.capsule',{campaign:'test-camp'})).where.location.position.at,'window');
+ assert(!batches.some(batch=>batch.family==='continuous-action-admission'&&JSON.stringify(batch.state?.proposal?.kinds??[]).includes('place')),'the Keeper judges location lines (§249)');
 });
 
 test('a Keeper decision that omits the selected journey publishes as judged, without a completion review or an arrival (§249)',async t=>{
@@ -262,8 +261,9 @@ test('compact commands and response meanings have closed fields and bounded stri
  const reply={actor:'npc_1',to:['investigator_1'],act:'answer',content:[{fact_ref:'fact_1'}]};
  const packet={version:4,commands:[movement],interactions:[reply]};
  assert.deepEqual(compileTurnPacket(turnPacket(JSON.stringify(packet))),{responses:[reply],effects:[movement]});
- for(const bad of [{...brief,scene:'prose'},{...brief,actions:[]},{...brief,commands:[{...movement,passage:'prose'}]},{...brief,interactions:[{...reply,points:['a'.repeat(161)]}]},{...brief,commands:[movement,movement]}])assert.throws(()=>turnPacket(JSON.stringify(bad)),/Invalid|Only one/);
- assert.throws(()=>turnPacket(JSON.stringify({...brief,commands:[movement,{kind:'time',band:'invented',reason:'travel'}]})),/Movement already owns travel time/);
+ for(const bad of [{...brief,scene:'prose'},{...brief,actions:[]},{...brief,commands:[{...movement,passage:'prose'}]},{...brief,interactions:[{...reply,points:['a'.repeat(161)]}]}])assert.throws(()=>turnPacket(JSON.stringify(bad)),/Invalid/);
+ // §250: several stops and an additional wait share one ordered packet.
+ assert.deepEqual(compileTurnPacket(turnPacket(JSON.stringify({...brief,commands:[movement,{kind:'time',minutes:5,reason:'wait'},movement]}))).effects.map(effect=>effect.kind),[movement.kind,'time',movement.kind]);
  assert.throws(()=>{const stream=new ExpressionPlanStream();stream.push('{{compose}}'+JSON.stringify(packet));stream.finish();},/Invalid private expression/);
 });
 

@@ -23,8 +23,8 @@ test('an active location provider has one party-movement constructor while base 
  const choices=[{kind:'move',to:'Lobby',via:'Stairs'}];
  const active=turnPacketParameterSchema(false,undefined,choices,false,undefined,true);
  const base=turnPacketParameterSchema(false,undefined,choices,false,undefined,false);
- assert.equal(active.properties.commands.anyOf[0].allOf[0].if.contains.properties.kind.const,'place');
- assert.equal(base.properties.commands.anyOf[0].allOf[0].if.contains.properties.kind.const,'move');
+ // §250: no command-array guard demands a scene beside a move; an unassessed arrival is recorded as unknown.
+ assert.equal(active.properties.commands.anyOf[0].allOf,undefined);assert.equal(base.properties.commands.anyOf[0].allOf,undefined);
  const legacy={version:4,commands:[{kind:'move',to:'Lobby'},{kind:'scene',service:'open',crowd:'quiet'}]};
  assert.equal(Errors(base,legacy).length,0);assert.ok(Errors(active,legacy).length);
  const local={version:4,commands:[{kind:'place',action:'move',to:'Lobby'},{kind:'scene',service:'open',crowd:'quiet'}]};
