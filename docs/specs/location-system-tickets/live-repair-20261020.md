@@ -1080,3 +1080,25 @@ Feature recovery now returns existing_feature and conflicting_fields for a refus
 58839d9a2/Mod1.1.31 canonical package07:05:48Z, exact index/kernel bundles and relevant sources, stable signature and empty staging verified. Browser space9 now reaches the same App backend through127.0.0.1:52989; Mod UI explicitly shows follow-latest/current1.1.31. Original68 naturally ended UI168s/3errors, no public final; no partial-array/feature-redefinition error recurred. Its observations settled, but local movement remained uncertain and recovery substituted the entrance path for the requested sidewalk, correctly refused. Current remains house-ground02:15 without a specific registered feature; ready69. Keep screenshot/status80 and raw68. No agent timeout/stop. 88279f033 full all exit0/wall1221s, run.Bqd7VtVd; later588 full is now running serially. The installed source is588, never claim old full tests cover later deltas.
 
 The owner-requested goal was re-established active on this thread after the earlier pause/review; no token budget set. Residual baseline selects EL-06: descriptive local spot separated from at fixture, with existing consent, barriers, transactions and observation view identity. Contract/spec precede implementation. No implementation of spot yet. Schema factoring remains a read-only probe (75,303→26,319bytes/39defs, sampled parity); defer wiring until spatial correctness is restored and actual provider support is checked. Sources: JSON Schema structuring; xAI structured outputs permits noncircular refs; Anthropic managed-tool documentation asks for inlining on that different surface. No removed tools, altered admission gates or timeout workaround.
+
+EL-06 implemented as95926415b/Mod1.2.0. Spot is distinct from registered at and
+survives state, receipts, observation origins, consent and route/perception review.
+The latter now reuses the existing ordered execution-position projection for a
+proposed view after a proposed move. Actual SDK tests also caught/repaired the
+lost at/spot exclusion while reconstructing the native move grammar. Clean
+focused18/18, fast130/130 and real RPC2/2 pass. Canonical package07:36:04Z is
+stable-signed, strict/deep verified, staging empty; installed kernel/extension and
+relevant source map/Mod files match959 exactly. LaunchServices and Spotlight
+both resolve only/Applications/PipiCOC.app. Browser space9 shares its backend at
+127.0.0.1:58326; current/follow-latest1.2.0 is explicit in screenshot81 text.
+Original69 sidewalk succeeds70.866s/0errors, recorded spot宅前人行道; original70
+side-passage to rear succeeds68.735s/0errors, spot宅后荒园. Main and author actual
+Grok4.5/medium verified. Original71 arbor/view→five-minute listen→return/view
+naturally delivers147.039s/1recovered error: the model settled time and clue/threat
+but omitted post-wait hearing, correctly refused before the final batch. Recovery
+records hearing before moving, then delivers. This is not a120s pass; raw final,
+profiles and screenshots82–84 retained. No stop or reduced gates. 58839d9a2 full
+LAN all passed6401ext/2246integration/12loop, exit0/wall1223s/run.OLhzhIOv.
+959 full is queued behind another owner's suite; its helper returns7 without
+source/evidence mutation while busy. Request-only Grok schema sharing and Mod1.2.1
+post-wait guidance are the next bounded delta; actual package/live gates pending.

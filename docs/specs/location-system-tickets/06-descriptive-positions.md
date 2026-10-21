@@ -83,3 +83,16 @@ review directions. A read-only output-schema factoring probe found 75,303 to
 noncircular defs/ref support, while an Anthropic managed-tool surface asks for
 inlining. Do not assume universal provider support or claim latency improvement
 before actual wire and original-session verification. That probe is not installed.
+
+Request-only follow-up: original69/70 successfully deliver70.866s/68.735s with
+zero tool errors and canonical descriptive viewpoints. Original71 delivers147.039s
+after a justified missing-post-wait-observation refusal; it fails the120s gate.
+Keep that record and full checks. The Grok4.5 Responses declaration now shares
+identical repeated schemas through local nonrecursive refs. Independent expansion
+reproduces all inline JSON structure across arrived/unarrived and current/empty
+bindings; mutation checks preserve acceptance. Existing reference scopes skip
+sharing, Messages and unverified models stay inline. No provider or latency
+claim follows from static equivalence alone. Enhanced Locations1.2.1 clarifies
+the resulting observation after listening across a wait, before moving onward.
+Sources: [JSON Schema](https://json-schema.org/understanding-json-schema/structuring)
+and [xAI schema support](https://docs.x.ai/developers/model-capabilities/text/structured-outputs).

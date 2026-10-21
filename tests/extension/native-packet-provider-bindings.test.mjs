@@ -20,7 +20,7 @@ for(const transport of ['responses','messages'])test('the '+transport+' adapter 
   {apiKey:'fixture',signal:controller.signal,onPayload:body=>{payload=body;controller.abort();}}).result();
  const original=structuredClone(payload),sent=turnPacketProviderPayload(payload,schema);
  const output=sent.tools.find(tool=>tool.name==='output'),wire=output.input_schema??output.parameters;
- assert.deepEqual(wire,schema);
+ if(transport==='messages')assert.deepEqual(wire,schema);else assert.ok(wire.$defs,'the verified Grok declaration shares repeated schemas');
  assert(Check(wire,valid));
  assert(!Check(wire,{...valid,interactions:[{...valid.interactions[0],content:[{new:{predicate:'directions',to:'Unissued hotel',heading:'west'}}]}]}));
  assert.deepEqual(payload,original,'do not mutate the adapter payload');
@@ -34,7 +34,7 @@ test('unknown payload shapes and provider-native tools are left alone',()=>{
  const output={type:'function',name:'output',parameters:{type:'object'}},search={type:'web_search'};
  const unknown={tools:[output,search]};assert.equal(turnPacketProviderPayload(unknown,schema),unknown);
  const body={model:'grok-4.5',input:[],tools:[search,output]};
- const sent=turnPacketProviderPayload(body,schema);assert.equal(sent.tools[0],search);assert.equal(sent.tools[1].parameters,schema);
+ const sent=turnPacketProviderPayload(body,schema);assert.equal(sent.tools[0],search);assert.ok(Check(sent.tools[1].parameters,valid));
 });
 
 test('unavailable material branches are omitted without admitting unavailable references',()=>{

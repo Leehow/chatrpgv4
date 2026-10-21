@@ -6,7 +6,7 @@ import {StringEnum} from '@earendil-works/pi-ai';
 import {NPC_REFERENCE_PATTERN,isNpcReference} from './npc-references.ts';
 import {Interaction,ExistingCommunicationFact,bindCommunicationParameters,type DecisionBindings,type InteractionDecision} from './decision-content.ts';
 import {PlaceEffect,locationCommandEntry,locationCommandOwner} from '../shared/place-structures.ts';
-import {availableOutputSchema} from './provider-output-schema.ts';
+import {availableOutputSchema,sharedOutputSchema} from './provider-output-schema.ts';
 const atom=(maxLength=160)=>Type.String({minLength:1,maxLength});
 
 const move=Type.Object({kind:Type.Literal('move'),to:atom(),via:Type.Optional(atom()),travel_band:Type.Optional(atom(64))},{additionalProperties:false});
@@ -140,7 +140,7 @@ export function turnPacketProviderPayload(payload:unknown,schema:TSchema=turnPac
   const tools=payload.tools.map((tool:unknown)=>{
     if(!object(tool)||tool.name!=='output')return tool;
     if(messages&&object(tool.input_schema)){changed=true;return {...tool,input_schema:schema};}
-    if(responses&&object(tool.parameters)){changed=true;return {...tool,parameters:available??=availableOutputSchema(schema)};}
+    if(responses&&object(tool.parameters)){changed=true;return {...tool,parameters:available??=(payload.model==='grok-4.5'?sharedOutputSchema(availableOutputSchema(schema)):availableOutputSchema(schema))};}
     return tool;
   });
   if(!changed)return payload;

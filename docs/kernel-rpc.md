@@ -48837,6 +48837,19 @@ records retain their meaning; schema1 gains optional fields without rewriting
 history. The detailed shape, ownership and acceptance are in
 docs/specs/location-system-tickets/06-descriptive-positions.md.
 
+Request-only schema reuse (EL-06 continuation, original input71): for the tested
+Grok4.5 Responses output declaration, identical repeated subschemas may be lifted
+into local nonrecursive $defs/$ref. Expanding every generated reference must
+reproduce the available inline schema exactly, including annotations, closed
+constructors, numeric constraints, current bindings and at/spot exclusion. Keep
+the root object and canonical execution schema unchanged. Existing references,
+identifiers or anchors disable this transformation rather than risk relocation.
+Messages and unverified model contracts stay inline. This removes repeated wire
+bytes, never tools, validation or consent; actual provider and original-session
+results are required before claiming a latency gain. Continuous listening across
+a selected wait records its resulting observation after time settles and before
+any onward move; a baseline or clue receipt alone does not update that register.
+
 Existing feature recovery (original input67): an establishment conflict returns
 the exact existing public feature and conflicting closed fields, with an explicit
 instruction to reuse that identity and omit its repeated definition from additions.
