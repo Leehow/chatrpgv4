@@ -9,6 +9,8 @@ export function routineRefusal(capsule:Row,routine:RoutineSummary|undefined,effe
  if(!capsule.mods?.routine_summary)return {reason:'routine_summary_inactive',message:'No active package issues a routine summary this turn; settle the acts or omit routine.'};
  const charges=effects.filter(effect=>effect.kind==='time').length+earlierCharges;
  if(journeySettled)return;
+ // §250.4: a look at ambient things alone is no routine stretch to charge (live el-v2-20261021b T13).
+ if(!routine.acts?.length)return;
  if(charges===0)return {reason:'routine_time_missing',message:'A routine summary needs one stationary time command charging the whole routine stretch (one band, or the minutes the player stated).'};
  if(charges>1)return {reason:'routine_time_repeated',message:'This input already charged its time; keep the routine summary and omit the repeated time command.'};
 }
@@ -20,6 +22,6 @@ export async function routineDescription(capsule:Row,routine:RoutineSummary,read
  const result=await read([section.key]);
  const selected=result.sections?.find((row:Row)=>row.key===section.key&&row.mod===provider.mod&&row.version===provider.version&&row.heading===ROUTINE_AUTHOR_HEADING);
  if(typeof selected?.text!=='string'||!selected.text.trim())throw Error('The locked routine summary section is unavailable');
- return {acts:[...routine.acts],...(routine.ambient?.length?{ambient:routine.ambient.map(row=>({target:row.target,...(row.notes?.length?{notes:[...row.notes]}:{})}))}:{}),
+ return {acts:[...(routine.acts??[])],...(routine.ambient?.length?{ambient:routine.ambient.map(row=>({target:row.target,...(row.notes?.length?{notes:[...row.notes]}:{})}))}:{}),
   mod:provider.mod,version:provider.version,key:section.key,instruction:selected.text};
 }

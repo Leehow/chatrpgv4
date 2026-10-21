@@ -71,7 +71,10 @@ test('the routine element is issued only with the capability and is bounded and 
     assert.throws(()=>turnPacket(JSON.stringify(packet),off),/routine is not issued/);
     assert.deepEqual(turnPacket(JSON.stringify(packet),on).routine,routine);
     assert.deepEqual(turnPacket(JSON.stringify({version:4,commands:[time,scene]}),off).routine,undefined);
-    for(const bad of [{acts:[]},{acts:['x'.repeat(121)]},{acts:['a'],ambient:[{target:'t',notes:['1','2','3','4']}]},{acts:['a'],extra:true},
+    assert.deepEqual(turnPacket(JSON.stringify({...packet,routine:{ambient:[{target:'the window'}]}}),on).routine,{ambient:[{target:'the window'}]},
+        'ambient looks alone are a routine summary (live el-v2-20261021b T13)');
+    assert.equal(routineRefusal({mods:{routine_summary:{mod:'quick-settlement'}}},{ambient:[{target:'the window'}]},[],false),undefined,'a look alone charges no time');
+    for(const bad of [{},{ambient:[]},{acts:[]},{acts:['x'.repeat(121)]},{acts:['a'],ambient:[{target:'t',notes:['1','2','3','4']}]},{acts:['a'],extra:true},
         {acts:['a'],ambient:[{target:'t',fact:'a new clue'}]}])
         assert.throws(()=>turnPacket(JSON.stringify({...packet,routine:bad}),on),/routine/,JSON.stringify(bad));
     assert.deepEqual(compileTurnPacket(turnPacket(JSON.stringify(packet),on)).effects.map(effect=>effect.kind),['time','scene'],'routine compiles to no effect');

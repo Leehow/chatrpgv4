@@ -51092,6 +51092,8 @@ same way (`adjusted` on the receipt and its outcome):
   `kind` is a place command (`place_kind_inferred`).
 - A known effect kind missing exactly one required field, carrying an undeclared `name`, takes it as that field
   (`{kind:"clue", name:"nailed-windows"}` → `clue`); a kind that declares `name` keeps it.
+- A routine summary may carry `ambient` looks alone (`acts` is optional; one of the two is required). Looks alone are no
+  routine stretch, so they need no time charge; routine `acts` still need exactly one (§247.3).
 
 Still refused, because each needs the Keeper's decision: an empty population assessment while a registered person is
 seated at the destination (move them away or keep them), and an effect kind with no single reading.

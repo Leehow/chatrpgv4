@@ -5905,7 +5905,7 @@ export default function (pi: ExtensionAPI, host: {capabilities?:RuntimeCapabilit
                 decision.location_description=await locationDescription(current,keys=>state.kernel.call('mods.sections',{campaign:state.campaign,keys}));
             if(packet.routine){
                 decision.routine=await routineDescription(current,packet.routine,keys=>state.kernel.call('mods.sections',{campaign:state.campaign,keys}));
-                await record({lane:'routine-summary',turn:state.turn,run:reply.run,acts:packet.routine.acts.length,ambient:packet.routine.ambient?.length??0,
+                await record({lane:'routine-summary',turn:state.turn,run:reply.run,acts:packet.routine.acts?.length??0,ambient:packet.routine.ambient?.length??0,
                     time_charges:compiled.effects.filter(effect=>effect.kind==='time').length,earlier_time:earlierTime});
             }
 		}
