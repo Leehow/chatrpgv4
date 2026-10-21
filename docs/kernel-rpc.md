@@ -48824,6 +48824,21 @@ places are read-only; their current feature state is a campaign overlay.
 
 ### 242.2. One location command and one transaction
 
+Location projection annotation preservation (2026-10-21): locationCommandOwner
+preserves the producer's root description, including applicable rules.bands
+handle/covers meanings, and adds its location ownership guidance once. Repeating
+the projection is idempotent and never mutates the producer schema. The existing
+rules read remains the sole writer of time meanings; location projection and
+both provider payload bindings carry them to the Keeper choosing a cost. They
+add no new band, validation rule, time charge, consent exception or threshold.
+Check non-location, projected, directly generated location and actual Responses/
+Messages request declarations; acceptance equivalence alone cannot detect lost
+annotations. JSON Schema distinguishes annotations from assertions, while tool
+definitions rely on descriptive context for model use; neither implies a
+latency guarantee or proves the cause of every earlier time failure.
+References: https://json-schema.org/understanding-json-schema/reference/annotations
+and https://platform.claude.com/docs/en/agents-and-tools/tool-use/define-tools.
+
 Observation ordering compatibility: walk_on and scene are declarative supporting
 records, not selected player itinerary steps. Preserve every move/time/observation
 relative order, register a forward-declared newcomer immediately before the first
