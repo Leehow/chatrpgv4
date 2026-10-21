@@ -1175,3 +1175,14 @@ valid annotated string alternatives. Update only these expectations; retain the
 number-type rejection and actual provider serializer test. Dirty main has a
 separate foreign author projection failure; clean-source validation is required.
 Latest3f2a3d6dc LAN full began serially, never overlaps another heavy run.
+
+Original77 completed naturally236.730s/four failed tools. No meal was served,
+consumed or paid. Its eight-line batch held item selections at.51/.59/.59; a
+cash/time replacement held cash restriction.43. Returned errors omitted which
+lines/axes were held, despite exact telemetry. EL-08 restores those known grounds
+through existing errors, changes no questions/gates/calls/transaction. A mixed
+selection/restriction regression goes red on the missing line evidence and green
+after; all22 admission cases pass. This remains pending clean/package/live proof.
+MCP and Anthropic actionable tool-error primary precedents are in ticket08.
+Latest clean c3ce84385 targeted declaration/consent44 pass. Installed code remains
+3f2a3d6dc (c3 only changes tests/docs); no global model settings were changed.

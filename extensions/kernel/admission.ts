@@ -1453,7 +1453,13 @@ export async function reviewAdmissionJevOnly(options:PrimaryAdmissionReviewOptio
         const refused=probabilities.findIndex((p,index)=>p!<=1-CONTINUOUS_ADMISSION_MIN_PROBABILITY||scopeProbabilities[index]!<=1-CONTINUOUS_ADMISSION_MIN_PROBABILITY);
         const uncertain=refused<0&&probabilities.some((p,index)=>p!<CONTINUOUS_ADMISSION_MIN_PROBABILITY||scopeProbabilities[index]!<CONTINUOUS_ADMISSION_MIN_PROBABILITY);
         const verdict=refused>=0?'not_authorized':uncertain?'uncertain':'authorized';
+        const blocking=probabilities.flatMap((selection,index)=>{
+            const axes=[...(selection!<CONTINUOUS_ADMISSION_MIN_PROBABILITY?['selection not established']:[]),
+                ...(scopeProbabilities[index]!<CONTINUOUS_ADMISSION_MIN_PROBABILITY?['restriction clearance not established']:[])];
+            return axes.length?['line '+(index+1)+': '+axes.join(', ')]:[];
+        });
         const grounds='Typed consent review '+(refused>=0?'refused line '+(refused+1):uncertain?'could not establish the proposed scope':'accepted the proposed scope')
+            +(blocking.length?'; blocking review evidence: '+blocking.join('; '):'')
             +'; declaration words: '+JSON.stringify((options.lineContexts?.[Math.max(0,refused)]??context).playerText.slice(0,200));
         const cashLimits:NonNullable<AdmissionVerdict['cash_limits']>=refused>=0?[]:cashRequirements.flatMap((requirement:any,index:number)=>{
             if(!mechanicsInput&&probability('cash_input_'+index)!>=CONTINUOUS_ADMISSION_MIN_PROBABILITY)

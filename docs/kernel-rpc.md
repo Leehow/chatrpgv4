@@ -48868,6 +48868,13 @@ rule describes it, rather than assuming all activities are physical. Family24
 invalidates older band verdicts. No new lane, threshold, arithmetic or timeout;
 missing rule meaning is never fabricated from a band name.
 
+Consent error evidence (EL-08, original input77): grounds must retain every
+blocking reviewed line number and whether selection or restriction clearance
+was not established. Compute this from the existing checked probabilities and
+unchanged thresholds, without another judge, inferred intent or automatic split.
+The error retains these grounds through both apply and native output recovery.
+This is review evidence, not permission to execute the remaining lines.
+
 Native refusal continuation (EL-07, original inputs73/75): submitTurnPacket may
 return one prepublication consent refusal to the same Keeper only when its
 current HeldActOutcome proves a complete known uncommitted failure. Preserve the

@@ -283,3 +283,22 @@ test('native move consent asks about the typed journey while retaining reference
  assert.equal(batch.state.unfinished_player_words,'I wait, then return to the window.');
  assert.equal(result.verdict.verdict,'uncertain','an uncertain current restriction still closes the move');
 });
+
+test('consent errors retain every blocking line and axis without admitting a subset',async()=>{
+ for(const refused of [false,true]){
+  const selected=options(),decide=selected.value.decision.decide;
+  selected.value.decision={decide:async(batch,lease)=>{const result=await decide(batch,lease);
+   result.answers.consent_1.noul=refused?.05:.51;
+   result.answers.restriction_2.noul=.43;return result;
+  }};
+  const proposed={tool:'apply',key:'mixed-hold',lines:['Selected payment.','Receive selected goods.','Selected activity cost.'],kinds:['cash','item','time']};
+  const result=await admission.reviewAdmissionJevOnly({...selected.value,proposal:proposed});
+  assert.equal(result.ok,true);assert.equal(result.verdict.verdict,refused?'not_authorized':'uncertain');
+  assert.match(result.verdict.grounds,/line 2: selection not established/);
+  assert.match(result.verdict.grounds,/line 3: restriction clearance not established/);
+  assert.doesNotMatch(result.verdict.grounds,/line 1:/);
+  const error=admission.admissionRefusal(proposed,result.verdict,false,'same_keeper');
+  assert.equal(error.details.grounds,result.verdict.grounds);assert.equal(selected.calls(),1);
+  assert.equal(admission.CONTINUOUS_ADMISSION_MIN_PROBABILITY,.6);
+ }
+});
