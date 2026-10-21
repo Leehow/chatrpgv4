@@ -56,6 +56,17 @@ test('native place can commit a step before later mechanics with compact provide
  assert(Check(COC_TOOLS.find(row=>row.name==='place').parameters,{op:'submit',change:{action:'move',to:'Street'}}),'legacy canonical route remains available');
 });
 
+test('native location constructors expose the same closed travel rows the kernel accepts',()=>{
+ const tools=offeredTools(COC_TOOLS,{PI_COC_LOOP_ENGINE:'hybrid-v1',PI_COC_TURN_PACKET_PROTOTYPE:'1',EXT_JEV_APIKEY:'fixture'});
+ for(const view of [tools,locationToolDeclarations(tools),locationToolDeclarations(tools,true)]){
+  const schema=view.find(tool=>tool.name==='place').parameters;
+  assert(!Check(schema,{action:'move',to:'Shop',via:'The street',travel_band:'neighborhood_stroll'}));
+  for(const travel_band of ['adjacent','local_travel','long_travel'])assert(Check(schema,{action:'move',to:'Shop',via:'The street',travel_band}));
+ }
+ const output=tools.find(tool=>tool.name==='output').parameters;
+ assert(!Check(output,{version:4,commands:[{kind:'place',action:'move',to:'Shop',via:'The street',travel_band:'neighborhood_stroll'},{kind:'scene',service:'open',crowd:'quiet'}]}));
+});
+
 test('uncertain admission tells the Keeper which operation was held without leaking unrelated details',()=>{
  const error=new KernelError({code:'needs',message:'The typed consent decision is uncertain',details:{reason:'action_admission_uncertain',
   proposed:['Give an additional letter to the investigator.'],grounds:'The selected scope is uncertain.',private_state:{secret:'Never expose'}}});

@@ -1,6 +1,7 @@
 /** Route the dedicated tool through the existing apply owner before any write gate. */
 import type {CocToolName} from './tools.ts';
 import {KernelError} from './client.ts';
+import {LocationTravelBand} from '../../shared/place-structures.ts';
 /** A conflicting read is refused, never upgraded into a world write. */
 export function placeModeConflict(params:unknown):boolean {
     if(!params||typeof params!=='object')return false;
@@ -12,6 +13,11 @@ export function placeParameterRefusal(args:unknown):KernelError|undefined {
     if(placeModeConflict(args))return new KernelError({code:'invalid_params',message:'place inspect is read-only and cannot accept change',
         fix:'For a move, explicitly send {action:"move",to,via,additions?}; keep its destination and route. For a read, send {action:"inspect",name?,at?,sense?,need?} without write fields. No op or change wrapper. Nothing executed; retain successful earlier receipts.',
         details:{reason:'place_mode_conflict',field:'action',transaction_state:'uncommitted'}});
+    const params=args as Record<string,unknown>|null;
+    if(params?.action==='move'&&typeof params.travel_band==='string'&&!LocationTravelBand.enum.includes(params.travel_band))
+        return new KernelError({code:'invalid_params',message:'The selected travel_band is not a registered road row',
+            fix:'Keep action:"move" and choose one of the supplied travel_band options. Do not invent a row or supply travel_minutes.',
+            details:{reason:'travel_band_unknown',field:'travel_band',options:[...LocationTravelBand.enum],transaction_state:'uncommitted'}});
     try{normalizePlaceTarget(args);}catch(error){if(error instanceof KernelError)return error;throw error;}
 }
 /** A fixed target-field alias for an already explicit write action, never intent inference. */

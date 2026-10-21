@@ -4,6 +4,15 @@ import {test} from 'node:test';
 import {fauxAssistantMessage,fauxToolCall} from '@earendil-works/pi-ai';
 import {openTable,waitForIdle} from './harness.mjs';
 const call=args=>fauxAssistantMessage([fauxToolCall('place',args)],{stopReason:'toolUse'});
+test('an invented road row has a specific structured uncommitted refusal before SDK validation',async t=>{
+ const table=await openTable({responses:[call({action:'move',to:'Shop',via:'The street',travel_band:'neighborhood_stroll'}),fauxAssistantMessage('Stopped fixture.')]});
+ t.after(()=>table.dispose());await table.session.prompt('I walk to the shop.');await waitForIdle(table.session);
+ const result=table.session.messages.find(message=>message.role==='toolResult'&&message.toolName==='place');
+ assert.equal(result.details.coc_error.details.reason,'travel_band_unknown');
+ assert.deepEqual(result.details.coc_error.details.options,['adjacent','local_travel','long_travel']);
+ assert.equal(result.details.coc_error.details.transaction_state,'uncommitted');
+ assert.equal(table.kernelRequests().filter(row=>row.method==='table.apply').length,0);
+});
 test('unrelated SDK validation errors are not relabeled as owned preflight failures',async t=>{
  const table=await openTable({responses:[call({action:'invented',to:'Shop'}),fauxAssistantMessage('Stopped fixture.')]});
  t.after(()=>table.dispose());await table.session.prompt('I go into the shop.');await waitForIdle(table.session);

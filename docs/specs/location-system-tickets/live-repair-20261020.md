@@ -656,3 +656,35 @@ proof still owns any recorded endpoints. Preserve all failed diagnostic attempts
 Precedent: Kubernetes Controllers/current-vs-desired state and AWS Builders'
 Library semantic retry equivalence confirm comparing desired/current results;
 neither authorizes inferring an omitted trip. No duplicate move receipt added.
+
+640ba52c1 clean focused17/17 and fast130/130; canonical package00:41:59Z.
+Original40 completed90.386s/0errors with no duplicate move, but its independently
+configured author still used MiniMax. Mark invalid-for-model-profile for full
+Grok acceptance; retain all data and the explicit companion verdict. Author and
+fast-lane settings now both Grok4.5/medium; main session remains Grok4.5/medium.
+Original41 new cafe completed100.644s/3recoverable errors; original42 counter,
+wait-to21:00, return and observe56.551s/0errors; original43 return to authored
+Knott office and inspect lights63.298s/0errors. Author start/written and actual
+model records confirm Grok4.5/medium for41-43. No forced cutoff or gate changes.
+UI/raw sources: grok-round41-progress2.json, grok-round42-progress1.json,
+grok-round43-progress1.json and51/52 UI captures (43 UI capture pending).
+
+41 recoverable issues expose preventable grammar gaps: invented travel row
+neighborhood_stroll, missing selected observation after arrival, and new_1 used
+before its walk-on existed. Shared location travel_band now reuses the kernel's
+existing closed registry; compact provider entrance exposes the same enum.
+No new travel rule, number or semantic route inference. Known native invalid
+rows keep a structured specific preflight refusal; observation people and move
+descriptions state the existing ordering/identity boundary. No NPC prototype.
+New enum regression is red before the change; separate place/output constructors
+and actual preflight lifecycle are covered. A wider deterministic test exposed
+the old all-in-one coverage constructor still asking a route question for an
+existing pose; share the focused position question with that constructor and
+advance its semantic family version to11. Preserve all route-order/negative
+controls, not just a stale wording assertion.
+
+0d3752523 LAN all exit1,1321s:6360extensionpass/1failure/9skip,
+2246integrationpass and12loop pass. Sole failure is the old preparation-fix
+wording assertion in location-observation-completion; already corrected/tested
+in640. Keep the initial shared-box race timing and interruption evidence. The
+other chat's queued focused suite has the box now; wait for it before final all.

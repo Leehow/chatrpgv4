@@ -53,6 +53,7 @@ function satisfactionAvailable(input:Row,axis:typeof axes[number]):boolean {
  return Array.isArray(input.features)&&input.features.some((feature:Row)=>typeof feature.state==='string'||typeof feature.passable==='boolean');
 }
 const movementSatisfaction="Does location_steps represent the route selected in player_declaration, with each requested intermediate stop and return in order? Each destination is a movement endpoint; the initial starting point is not an extra visit. Committed steps have already happened. Proposed steps are explicit moves queued for this batch and count for this pre-execution route check. A wait is not a movement endpoint. Merely ending at the starting place does not represent an omitted intermediate visit. Judge this route representation, not whether proposed steps already happened or whether prior prose describes them.";
+const positionSatisfaction='Does canonical current_position already occupy the destination and exact local feature selected in player_declaration, with no selected departure, intermediate visit or return still unrepresented? An already occupied endpoint needs no redundant move, even when the declaration says to walk there. A position at another feature or only in the same enclosing place is insufficient. An unrecorded intervening journey cannot be inferred from current position. Judge the recorded position against the complete selected movement, not whether a new movement receipt exists.';
 /** Exact read facts, not a possibly cropped capsule or a catalogue of unrelated places. */
 export function locationCoverageContext(read:Row,operations:readonly Row[]):Row {
  const place=read.place;
@@ -83,7 +84,7 @@ export function locationRouteBatch(input:Row,binding:Row):DecisionBatch {
  return {id:'location-route-coverage:v3:'+revision,model:JEV_MODEL,family:'location-route-coverage',familyVersion:'3',scope:{owner:'location-route-coverage',campaign:binding.campaign,audience:'keeper'},
   readSet:[{kind:'draft',resource:'turn:'+binding.turn+':route',revision}],state:state as Json,
   questions:[{key:'move_satisfied',type:'noul',target:occupied?'current_position':'location_steps',instructions:occupied
-   ?'Does canonical current_position already occupy the destination and exact local feature selected in player_declaration, with no selected departure, intermediate visit or return still unrepresented? An already occupied endpoint needs no redundant move, even when the declaration says to walk there. A position at another feature or only in the same enclosing place is insufficient. An unrecorded intervening journey cannot be inferred from current position. Judge the recorded position against the complete selected movement, not whether a new movement receipt exists.'
+   ?positionSatisfaction
    :movementSatisfaction}]};
 }
 /** Perception coverage reads perception evidence; other proposed acts remain with their own owners. */
@@ -114,13 +115,13 @@ export function locationCoverageBatch(input:Row,binding:Row):DecisionBatch {
  if(accounting.move&&(!selected||selected.move===undefined||selected.move>.4))questions.push({key:'move_satisfied',type:'noul',target:'the complete selected movement sequence',instructions:movementSatisfaction});
  for(const axis of axes)if(!accounting[axis]&&(!selected||selected[axis]===undefined||selected[axis]>.4)){
   if(satisfactionAvailable(input,axis))questions.push({key:axis+'_satisfied',type:'noul',target:axis==='move'?'the recorded current position':'the recorded current feature state',
-   instructions:axis==='move'?movementSatisfaction
+   instructions:axis==='move'?positionSatisfaction
     :'Does the canonical recorded state of the requested feature already satisfy the player-selected physical result, so no new state change is needed? Require the actual matching feature and its recorded state. A description, proposed response or observation does not establish a change. Missing state or a different feature cannot satisfy it.'});
   questions.push({key:axis+'_blocked',type:'noul',target:'obstacles to the selected '+axis,
   instructions:'Does supplied world evidence or a proposed typed NPC response establish a real obstacle or necessary unresolved choice that legitimately stops the selected '+axis+'? A known physical impediment, sensory obstruction or refusal of required access can stop it. A Keeper-proposed observable obstruction established in this same transaction can account for an attempt. A tool argument error, missing registration, elapsed time or an unrelated action alone is not an obstacle. Do not invent a barrier or additional player commitment.'});
  }
- return {id:'location-decision-coverage:v10:'+revision,model:JEV_MODEL,family:'location-decision-coverage',familyVersion:'10',
-  scope:{owner:'location-decision-coverage',campaign:binding.campaign,audience:'keeper'},readSet:[{kind:'draft',resource:'turn:'+binding.turn+':spatial-decision',revision},{kind:'family',resource:'location-decision-coverage',revision:'10'}],state:input as Json,questions};
+ return {id:'location-decision-coverage:v11:'+revision,model:JEV_MODEL,family:'location-decision-coverage',familyVersion:'11',
+  scope:{owner:'location-decision-coverage',campaign:binding.campaign,audience:'keeper'},readSet:[{kind:'draft',resource:'turn:'+binding.turn+':spatial-decision',revision},{kind:'family',resource:'location-decision-coverage',revision:'11'}],state:input as Json,questions};
 }
 export async function locationDecisionCoverage(input:Row,binding:Row,decision:DecisionPort|undefined,signal:AbortSignal,parent?:TaskProviderBudget):Promise<Row> {
  const batch=locationCoverageBatch(input,binding),initial=initialSelection(input),accounting=locationAccounting(input);

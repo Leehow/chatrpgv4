@@ -48855,6 +48855,16 @@ This follows current/desired-state comparison (Kubernetes Controllers) and
 semantic retry equivalence (AWS Builders' Library), without importing either
 system's architecture or retry authority.
 
+Native argument follow-up: expose the existing `TRAVEL_ADJACENT` and
+`ROUTE_TRAVEL_ROWS` registry as the travel_band enum at every shared location
+constructor, including the compact provider entrance. This is a closed rules
+vocabulary, not a new semantic route classifier. Keep the kernel's existing
+travel arithmetic and route authority. Known native invalid rows carry their
+specific uncommitted refusal through the preparation-error owner. Observation
+people are existing canonical identities; uncommitted new_N slots cannot be
+referenced by a separate place call. Omit unregistered background people from
+that identity array or commit the ordinary walk-on before using its identity.
+
 The model-facing `place` tool has two operations:
 
 - `inspect`: optional `name` (default current place), `need: context|contract`.
