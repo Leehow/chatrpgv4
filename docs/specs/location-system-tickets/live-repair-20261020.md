@@ -1235,3 +1235,17 @@ and explicitly excludes continuous120s acceptance because79 failed. Screenshots
 80 attribution is retained with its actual rows. Original ready81,03:02, outside
 the restaurant glass; the meal was never delivered/consumed and no new input sent.
 LAN3f2a3d6dc full still confirmed live at20:05; latestd06c0879e full queued serially.
+
+LAN3f2a3d6dc full run.oDdh5KJI ended exit1/wall1230s. Integration2248/2248
+and loop12/12 pass. Four extension files fail: three declaration/version assertions
+already fixed inc3ce84385, plus turn-failure-reason's old immediate-terminal
+expectation. In that fixture a shape correction precedes consent refusal, then
+the allowed continuation supplies only thinking: run_aborted is the actual stop,
+while the concrete consent cause, .46 evidence and zero settlement stay intact.
+98b79c221 updates that expectation and asserts exactly one refusal continuation;
+all11 clean failure-reason cases pass. No product stop behavior was relaxed.
+The next full snapshotd06c0879e was already uploaded and confirmed live via
+helperPID33942 at01:32; it lacks this test-only98 update and may retain that known
+failure. Its result must be read, never called fully green in advance. No second
+heavy workflow runs concurrently. Current App code remainsd06, original ready81;
+Quick Settlement integration permission remains pending. Goal stays active.
