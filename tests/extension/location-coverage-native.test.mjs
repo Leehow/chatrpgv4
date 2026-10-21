@@ -13,7 +13,7 @@ const step=[{kind:'place',action:'move',to:'here',at:'Door',relation:'beside'},
  {kind:'place',action:'observe',to:'here',sense:'sight',access:'limited',scope:'The near furniture.',facts:['A wooden chair stands by the wall.']}];
 const packet=commands=>({version:4,commands:[...commands,{kind:'scene',service:'open',crowd:'quiet'}]});
 const decide=async batch=>({batchId:batch.id,status:'complete',answers:Object.fromEntries(batch.questions.map(q=>[q.key,q.type==='noul'?{status:'answered',type:'noul',noul:q.key==='feature_blocked'||q.key==='feature_satisfied'||q.key.startsWith('restriction_')?.01:.99}:{status:'answered',type:'choice',choice:Object.keys(q.criteria??{}).find(key=>key!=='none')??'none',confidence:.99}])),usage:{}});
-test('feature omission reaches the same native Keeper as actionable feedback and correction writes only once',async t=>{
+for(const mixedReference of [false,true])test('native recovery preserves input scope and settles once; mixed reference='+mixedReference,async t=>{
  const engine=createHybridEngine({env,decision:{decide}});let calls=0;const failures=[];
  const table=await openTable({legacyDeliveryFixtures:false,realKernel:true,prepareWorkspace:prepared,env,runDriver:engine.runDriver,
   extraExtensions:[{name:'engine',factory:engine.extension},{name:'review-fixture',factory:pi=>{
@@ -26,7 +26,7 @@ test('feature omission reaches the same native Keeper as actionable feedback and
     assert.equal(payload.details.reason,'place_decision_incomplete');assert.deepEqual(payload.details.corrections.map(row=>row.axis),['feature']);
     assert(payload.fix.includes('action:"feature"'));
     assert.equal(table.telemetry().filter(row=>row.lane==='isolated-expression'&&row.event==='start').length,0);
-    return fauxAssistantMessage([fauxToolCall('output',packet([{kind:'place',action:'feature',to:'here',at:'Door',state:'open',passable:true},...step]))],{stopReason:'toolUse'});
+    return fauxAssistantMessage([...(mixedReference?[{type:'text',text:'{{reference}}CORRECTION_NOTE_MUST_STAY_PRIVATE'}]:[]),fauxToolCall('output',packet([{kind:'place',action:'feature',to:'here',at:'Door',state:'open',passable:true},...step]))],{stopReason:'toolUse'});
    }
   ]});t.after(()=>table.dispose());
  await table.session.prompt('I walk to the door, open it and look at the near furniture.');
@@ -34,4 +34,5 @@ test('feature omission reaches the same native Keeper as actionable feedback and
  const turn=JSON.parse(readFileSync(join(table.workspace,'.coc/campaigns/test-camp/turns/0002.json'),'utf8'));
  assert.deepEqual(turn.receipts.filter(row=>row.kind==='place').map(row=>row.action),['feature','move','observe'],JSON.stringify(failures));
  assert.equal(table.entries('coc-final-delivery').filter(row=>row.event==='end'&&row.status==='completed').length,1);
+ assert(!table.entries('coc-final-delivery').filter(row=>row.event==='delta').map(row=>row.delta??'').join('').includes('CORRECTION_NOTE_MUST_STAY_PRIVATE'));
 });
