@@ -102,7 +102,7 @@ test('a native shape failure exposes the exact field constraint without values o
  assert.match(JSON.stringify(notice.details.failure),/parameter|parameters/);assert.deepEqual(table.extensionErrors,[]);
 });
 
-test('native output refusal reaches the player with its actual consent cause and no invented settlement',async t=>{
+test('native output refusal retains its actual consent cause when the allowed continuation produces no output',async t=>{
  const env={PI_COC_LOOP_ENGINE:'hybrid-v1',PI_COC_TURN_PACKET_PROTOTYPE:'1',PI_COC_JEV_PRESELECT:'0',PI_COC_MATERIAL_SCREEN:'0',EXT_JEV_APIKEY:undefined,TYPESAFE_API_KEY:undefined};
  const engine=createHybridEngine({env,decision:{decide:async batch=>answer(batch)}});
  const move={kind:'move',to:'Central Library'};
@@ -121,7 +121,8 @@ test('native output refusal reaches the player with its actual consent cause and
  assert.ok(notice.content.includes(uiSeed.turn_failure_no_settlement));
  assert.doesNotMatch(notice.content,/```|action_admission_uncertain|0\.46/);
  assert.match(JSON.stringify(notice.details.failure),/action_admission_uncertain/);
- assert.equal(notice.details.failure.stopped_by,'held_act_unconfirmed');
+ assert.equal(notice.details.failure.stopped_by,'run_aborted');
+ assert.equal(table.telemetry().filter(row=>row.lane==='output-refusal-recovery'&&row.event==='returned').length,1);
  assert.match(JSON.stringify(notice.details.failure),/0\.46/);
  assert.doesNotMatch(notice.content,/send anything|without a delivered result/);
  assert.equal(notice.details.failure.settled_receipts,0);
