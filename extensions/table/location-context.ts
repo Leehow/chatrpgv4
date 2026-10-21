@@ -40,8 +40,9 @@ function declarationObject(schema:Row):Row {
     for(const [key,values] of variants)properties[key]=values.size===1?[...values.values()][0]:Type.Union([...values.values()] as any);
     for(const key of Object.keys(properties))properties[key]=declarationObject(properties[key]);
     const required=(schema.anyOf[0].required??[]).filter((key:string)=>schema.anyOf.every((branch:Row)=>(branch.required??[]).includes(key)));
-    const branches=schema.anyOf.map((branch:Row)=>({type:'object',properties:Object.fromEntries(Object.entries(branch.properties??{}).map(([key,value]:[string,any])=>
-        [key,value.const!==undefined||Array.isArray(value.enum)?value:{}])),required:branch.required??[],additionalProperties:branch.additionalProperties??true}));
+    // A provider may compile an action branch before combining the root property view.
+    const branches=schema.anyOf.map((branch:Row)=>({type:'object',properties:branch.properties??{},
+        required:branch.required??[],additionalProperties:branch.additionalProperties??true}));
     return {...schema,type:'object',properties,required,anyOf:branches,additionalProperties:false};
 }
 

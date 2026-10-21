@@ -48959,6 +48959,26 @@ through its existing place contract/apply hooks. Existing atomic execution
 checks and real provider-call/timing evidence validate it; no new architecture
 or external research is needed for this instruction-only clarification.
 
+Self-contained provider branches (original input54): the detailed native place
+declaration keeps its object root, merged property view and action guards, but
+each anyOf action branch also retains the canonical field schemas rather than
+empty placeholders. Root typing was present on the actual Responses adapter
+path, yet the model emitted additions as quoted JSON. A provider grammar using
+the branch alone must still see array/items and nested feature constraints.
+This is redundant request evidence, not a changed registered validator or a
+conversion of malformed strings. Tests capture the actual Responses payload
+and validate each action branch independently against malformed/valid arrays,
+including nested features. Keep demand-only delivery.
+
+JSON Schema composition permits factoring common assertions, whereas xAI's
+structured-output contract promises typed tool arguments for its supported
+subset (https://json-schema.org/understanding-json-schema/reference/combining;
+https://docs.x.ai/developers/model-capabilities/text/structured-outputs). The
+branch-local form is equivalent under full validation and more explicit for
+generation; vendor branch compilation is a hypothesis until live verification.
+Preserve the raw124.988s input54 and its correctly refused unchosen social roll.
+Do not relax consent or automatically run that roll after a scenery inspection.
+
 The model-facing `place` tool has two operations:
 
 - `inspect`: optional `name` (default current place), `need: context|contract`.

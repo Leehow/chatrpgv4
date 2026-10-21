@@ -874,3 +874,32 @@ provider request count and wall time for performance proof. Main focused26/26
 passed; clean build and live verification remain pending. Preserve the foreign
 working-tree removal of global guidance; stage only the two owned HEAD text
 changes and do not absorb its unrelated prototype refactor.
+
+
+f91df0a11 clean focused26/26, fast130/130; canonical package03:02:13Z,
+stable PipiUI Dev signature, backlink and empty staging verified. Original54
+entered the police reception and looked from its desk:124.988s,2tool errors.
+The quoted-additions preflight refused with place_array_required; retry landed
+the move once. An unchosen natural-npc:first-impression roll was correctly
+refused; subsequent supported activity and final observation/story completed.
+Clock remains00:00, ready55. Actual main/author Grok4.5/medium and Mod1.1.27.
+Preserve grok-round54-final.json and65-location27-round54-over120.txt/png.
+This fails120s and is not a claimed fix.
+
+Branch grammar probe: actual Responses adapter retains root additions array,
+but move branch uses additions:{} (other arrays likewise). Self-contained
+branch regression goes red at move.additions; retaining canonical branch
+schemas passes9/9 focused checks. Existing observation projection omits inline
+relations in favor of view; do not change that unrelated boundary. The raw
+quoted input remains rejected, never parsed/coerced. Vendor branch handling
+is still a hypothesis until another actual App input. No gate/timeout change.
+Current source pending commit/clean checks/package/live verification.
+
+The concurrent Thinking-context task requested the shared App for its approved
+package validation. After54 completed, saved its AX/screenshot and quit the
+idle App normally. Do not package or launch over that owner's active window;
+monitor authoritative task/process/package state and resume this goal once free.
+Capacity before27 package:91GiB free. No seed/campaign copy, Internet download,
+Python invocation, evidence deletion or push. The separate plugin session.resume
+returned unsupported_save_schema at epoch56; no save mutation/recovery fallback.
+Canonical App/Pi original-session continuation is the maintained TS path.
