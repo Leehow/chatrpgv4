@@ -49021,6 +49021,18 @@ supports non-circular $ref/$defs. These confirm reuse, not weakened validation.
 The four current context capacity/retention regressions are the acceptance
 gate; never raise their ceilings or discard latest required tool results.
 
+Unavailable output choices on Responses: empty enum and Never branches are
+impossible in the current canonical contract and rejected by xAI's tool grammar.
+A request-only projection omits those alternatives, propagating impossibility
+through required fields and nonempty arrays. An optional impossible field may
+be omitted only in a closed object; a zero-minimum unavailable array accepts
+only the empty array. Preserve all other assertions and original request objects.
+The execution contract remains canonical; no new reference or constructor is
+admitted. When no branch is unavailable the identical schema object survives.
+Messages transport keeps its established canonical schema path. SDK payload
+checks cover empty fact/source/place vocabularies and parity against canonical
+validation. This is structural availability, never semantic classification.
+
 The model-facing `place` tool has two operations:
 
 - `inspect`: optional `name` (default current place), `need: context|contract`.

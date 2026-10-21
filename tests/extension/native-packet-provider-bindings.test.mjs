@@ -36,3 +36,32 @@ test('unknown payload shapes and provider-native tools are left alone',()=>{
  const body={model:'grok-4.5',input:[],tools:[search,output]};
  const sent=turnPacketProviderPayload(body,schema);assert.equal(sent.tools[0],search);assert.equal(sent.tools[1].parameters,schema);
 });
+
+test('unavailable material branches are omitted without admitting unavailable references',()=>{
+ const empty={...bindings,facts:[],sources:[],places:[]};
+ const canonical=turnPacketParameterSchema(false,undefined,[],false,empty,true);
+ const request={model:'grok-4.5',input:[],tools:[{type:'function',name:'output',parameters:{type:'object'}}]};
+ const wire=turnPacketProviderPayload(request,canonical).tools[0].parameters;
+ const visit=(value,path='')=>{
+  if(!value||typeof value!=='object')return;
+  if(Array.isArray(value.enum))assert(value.enum.length>0,'unsupported empty enum at '+path);
+  for(const[key,child]of Object.entries(value))visit(child,path+'/'+key);
+ };
+ visit(wire);
+ const answer=content=>({version:4,interactions:[{actor:'npc_1',to:['investigator_1'],act:'answer',content}]});
+ for(const candidate of [{version:4},{version:4,reveal:[]},answer([{fact_ref:'fact_1'}]),answer([{source_ref:'source_1'}]),answer([{result_ref:'scene'}]),
+   answer([{new:{predicate:'directions',to:'place_2',heading:'west'}}]),answer([{new:{predicate:'knowledge_status',topic:'npc_1',status:'uncertain'}}])])
+  assert.equal(Check(wire,candidate),Check(canonical,candidate),JSON.stringify(candidate));
+});
+
+test('closed optional unavailable fields and arrays preserve canonical acceptance',async()=>{
+ const {Type}=await import('typebox');
+ const {availableOutputSchema}=await import('../../runtime/provider-output-schema.ts');
+ const unavailable=Type.String({enum:[]});
+ const canonical=Type.Object({optional:Type.Optional(unavailable),empty:Type.Optional(Type.Array(unavailable))},{additionalProperties:false});
+ const wire=availableOutputSchema(canonical);
+ for(const candidate of [{},{empty:[]},{empty:['x']},{optional:'x'},{unknown:'x'}])assert.equal(Check(wire,candidate),Check(canonical,candidate));
+ assert.throws(()=>availableOutputSchema(Type.Object({required:unavailable},{additionalProperties:false})),/no valid input/);
+ const body={model:'grok-4.5',input:[],tools:[{type:'web_search'}]};
+ assert.equal(turnPacketProviderPayload(body,Type.Never()),body,'no output declaration means no availability work');
+});

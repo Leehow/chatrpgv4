@@ -981,3 +981,24 @@ other tools/metadata remain unchanged. Detailed parameter JSON17774→9646bytes
 (whole previous live tool18254bytes; new live size not measured yet).
 Four full capacity failures remain unclaimed until clean targeted rerun. No
 ceiling, threshold, required evidence or registered validator changed.
+
+
+a3bc8aa41 clean native schema12/12 and fast130/130; verified LAN build fetched
+exit0/run.tSncjxYD. A first invocation used the plain checkout basename and
+refused foreign untracked files in another remote checkout (exit6); preserved
+them and reran through this task's location-shared-be7c6 alias. Targeted four
+capacity regressions on the verifieda3bc LAN source now pass4/4 in16.7s, with
+the same byte ceilings and latest-result/optional-workspace assertions.
+
+Before shipping the bound Responses contract, an empty-material-vocabulary
+probe found10 empty enums in the canonical schema. xAI documents these as a400
+request, so the request-only availableOutputSchema omits impossible enum/Never
+choices; required fields/nonempty arrays propagate impossibility, optional
+fields stay absent only on closed objects, optional empty-only arrays preserve
+maxItems0. Canonical execution remains unchanged and parity controls reject
+unissued facts/sources/places. No output tool means no availability work; no
+unavailable choice means the exact original schema object. Messages unchanged.
+New tests go red on empty enum, then native-focused7/7 pass including closed
+optional fields/array parity and no-output preservation. Clean/publish/live
+verification and latest full remain pending. The original App remains idle/quit
+since55; no timeout or aborted live turn.
