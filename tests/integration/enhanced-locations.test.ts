@@ -272,10 +272,11 @@ test('a journey band bounds the minutes the Keeper gives it, and a figure outsid
 test('the capsule names the places this table can refer to, so directions can point somewhere not yet visited (§250.7)',async t=>{
     const k=await kernel(t);await openTurn(k,'I ask the way to the inn.');
     const before=await k.table('capsule');
-    const known=before.where.known_places.map((row:Row)=>row.to);
+    const known=before.known_places.map((row:Row)=>row.to);
     assert(known.length>0,'the book\'s other scenes are nameable');
     assert(!known.includes(before.where.scene),'the current place is not listed as somewhere else');
-    assert(before.where.known_places.every((row:Row)=>typeof row.display_name==='string'));
+    assert.equal(before.where.known_places,undefined,'the nameable places stay out of the budgeted where section');
+    assert(before.known_places.every((row:Row)=>typeof row.display_name==='string'));
     await k.table('apply',{call_id:'t1-c1',effects:[{kind:'place',action:'establish',additions:[{name:'Corner Inn',within:null,description:'A small corner inn.'}]}]});
-    assert((await k.table('capsule')).where.known_places.some((row:Row)=>row.display_name==='Corner Inn'),'a registered place joins the nameable places');
+    assert((await k.table('capsule')).known_places.some((row:Row)=>row.display_name==='Corner Inn'),'a registered place joins the nameable places');
 });

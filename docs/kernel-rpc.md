@@ -51142,10 +51142,10 @@ supplement after a settled arrival into an empty-assessed scene is still asked f
 Live (`el-v2-20261021c` T6–T7, one undelivered turn and five refusals; `el-v2-20261021b` T6): asked the way to the
 Central Library, the Keeper could not let the person answer, because a communication claim's `to`/`via` may only
 select issued place references and the only issued places were the current one, its exits and the trail back. The
-capsule now carries `where.known_places` (`{to, display_name}` for the book's scenes and the places this table
-registered -- graph scenes and the location provider's records -- the current one excluded), attached after the where
-section is fitted under its own 1536-byte cap (`known_places_omitted` counts any rows left out), so it displaces none of
-this place's exits, notes or rules and never marks `where` truncated. The decision content issues these as places. They
+capsule now carries a top-level `known_places` (`{to, display_name}` for the book's scenes and the places this table
+registered -- graph scenes and the location provider's records -- the current one excluded) under its own 1536-byte cap
+(`known_places_omitted` counts any rows left out). It is no section: it displaces none of the budgeted sections and never
+marks `where` truncated. The decision content issues these as places. They
 are references for directions, whereabouts and planned visits, not access or player knowledge.
 
 ### 250.8 A routine summary's time is the Keeper's judgment (amends §247.3)

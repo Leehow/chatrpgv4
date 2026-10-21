@@ -27,7 +27,7 @@ test('a command with a place action and no kind is a place command (live el-v2-2
 test('an NPC can give directions to a nameable place the party has not visited (§250.7, live el-v2-20261021c T6)',async()=>{
  const {DecisionContent}=await import('../../runtime/decision-content.ts');
  const content=new DecisionContent();
- const capsule={where:{scene:'Inn',exits:[],back:[],places:[],known_places:[{to:'central-library',display_name:'Central Library'}]},present:[{ref:'npc_28',display_name:'the regular'}]};
+ const capsule={where:{scene:'Inn',exits:[],back:[],places:[]},known_places:[{to:'central-library',display_name:'Central Library'}],present:[{ref:'npc_28',display_name:'the regular'}]};
  content.prepare('c:1',capsule,[],[],['Investigator']);
  const places=content.bindings().places;
  assert.ok(places.includes('central-library'),'a book place is a nameable destination');

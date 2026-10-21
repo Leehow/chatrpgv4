@@ -744,11 +744,11 @@ export async function buildCapsule(campaign: CampaignSnapshot, module: LoadedMod
                 sections[name].truncated = true;
         }
     }
-    // §250.7: the nameable places ride beside the fitted where section under their own cap; they displace nothing.
-    if (sections.where && typeof sections.where === "object") {
+    // §250.7: the nameable places ride beside the sections under their own cap; they are no section and displace nothing.
+    {
         const named = knownPlaces(graph, world, graph.scene(world.active_scene));
-        sections.where.known_places = named.rows;
-        if (named.omitted) sections.where.known_places_omitted = named.omitted;
+        sections.known_places = named.rows;
+        if (named.omitted) sections.known_places_omitted = named.omitted;
     }
     for (const [name, budget] of Object.entries(SLICE2_BUDGETS))
         if (fitBudget(sections[name], budget, "last"))
