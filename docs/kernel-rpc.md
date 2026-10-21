@@ -51213,6 +51213,17 @@ The same turn read a place with `look {focus:"place", name, need}`, which `look`
 validation. Such a look is carried to `place inspect` with the same `name`, `at`, `spot`, `relation`, `sense` and `need`
 (`{lane:"arguments", event:"look_place_routed"}`); `look` advertises no new focus.
 
+### 250.13 An assessed crowd is populated without named people
+
+§250.6 settled that a populated assessment with nobody registered is an unnamed crowd, but three readers still said
+otherwise: the packet guidance and the `crowd` field ("quiet, active or crowded require actual NPC placement"), the
+author's `presence.population` (`populated` only beside a registered person, else `unknown`) and
+`scenePopulationRequired` (a populated scene with nobody registered needed a new assessment). Live (`el-v2-20261021e`
+T28, T29, T33) the Keeper deliberated over it and placed two or three invented walk-ons per arrival "to be safe". Now a
+current quiet, active or crowded assessment is `populated` for the author and needs no new assessment; a person is
+registered with `walk_on` only when they act, speak or are singled out. An empty assessment beside a registered person
+is still the one contradiction (§250.6).
+
 ## 251. A progress note for a read spiral (owner direction 2026-10-21: fewer deliberations, faster turns)
 
 Live evidence: on `el-v2-20261021a` T16 the single Keeper answered one sentence about a door and a hired middleman with

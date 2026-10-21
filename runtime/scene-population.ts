@@ -1,8 +1,12 @@
-/** Cast registration is not a population census; the kernel owns clock applicability. */
+/**
+ * Cast registration is not a population census; the kernel owns clock applicability. A missing, expired or unknown
+ * assessment needs one; a current one stands unless registered presence contradicts it (§250.6): a populated crowd with
+ * nobody registered is an unnamed crowd (§250.13).
+ */
 export function scenePopulationRequired(capsule:Record<string,any>):boolean {
- const temporal=capsule.where?.temporal,people=(capsule.present??[]).filter((row:Record<string,any>)=>row.kind!=='creature');
+ const temporal=capsule.where?.temporal;
  if(temporal?.current!==true||!['empty','quiet','active','crowded'].includes(temporal.crowd))return true;
- return temporal.crowd==='empty'?people.length>0:people.length===0;
+ return scenePopulationConflict(capsule);
 }
 /**
  * §250.6: a current empty assessment while a registered person is seated here. Only this contradicts the cast and needs

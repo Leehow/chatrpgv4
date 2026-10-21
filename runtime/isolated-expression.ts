@@ -65,7 +65,7 @@ export function decisionScene(capsule:Row):Row {
   ...(typeof description==='string'&&description.trim()?{description}:{}),...(Object.keys(first).length?{first_sight:first}:{}),
   ...(capsule.public_inventory?{current_inventory:structuredClone(capsule.public_inventory)}:{}),
   presence:{authority:'Registered public people only, never a complete population census. Missing names do not establish emptiness. Current assessed temporal crowd controls population.',people,registered_complete:people.length===present.length,
-   population:where.temporal?.current===true&&where.temporal?.crowd==='empty'?'empty':where.temporal?.current===true&&['quiet','active','crowded'].includes(where.temporal?.crowd)&&people.length?'populated':'unknown'}};
+   population:where.temporal?.current===true&&where.temporal?.crowd==='empty'?'empty':where.temporal?.current===true&&['quiet','active','crowded'].includes(where.temporal?.crowd)?'populated':'unknown'}};
 }
 /** Bind roles and presence from issued identities; never infer them from narrative names. */
 export function decisionCast(investigators:string[],people:Row[],scene:Row,observations:Row[]=[]):Row[] {
