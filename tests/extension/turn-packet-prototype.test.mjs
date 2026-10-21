@@ -863,6 +863,22 @@ test('the single Keeper\'s resolve is its own judgment: a reviewer that would re
  assert.equal(turn.receipts.filter(row=>row.kind==='roll').length,1);
 });
 
+test('a failed meeting check is no player act: the turn still publishes (§249.4, live el-v2-20261021c T6, T14)',async t=>{
+ const engine=createHybridEngine({env,decision:{decide:async batch=>answer(batch,.99)}});
+ const table=await openTable({legacyDeliveryFixtures:false,realKernel:true,prepareWorkspace:opened,env,runDriver:engine.runDriver,
+  extraExtensions:[{name:'engine',factory:engine.extension}],responses:[
+   ()=>fauxAssistantMessage([rawToolCall('resolve',{action:{actor:'investigator_1',intent:'social',decision:'natural-npc:first-impression',target:'Nobody who is here',goal:'A first impression',method:'Meeting them'}})],{stopReason:'toolUse'}),
+   ()=>fauxAssistantMessage([fauxToolCall('output',brief)],{stopReason:'toolUse'})
+  ]});t.after(()=>table.dispose());
+ const capsule=await table.runtimeBridges().at(-1).call('table.capsule',{campaign:'test-camp'});
+ assert.ok((capsule.mods?.pending_contacts??[]).some(row=>row.decision==='natural-npc:first-impression'),'the fixture offers the meeting check');
+ await table.session.prompt('I greet Knott.');
+ const errors=table.session.messages.filter(row=>row.role==='toolResult'&&row.details?.coc_error).map(row=>row.details.coc_error);
+ assert.equal(errors.length,1,JSON.stringify(errors));assert.equal(errors[0].code,'unknown_entity');
+ assert.ok(table.telemetry().some(row=>row.lane==='held-operation'&&row.event==='non_player_operation_failed'));
+ assert.equal(table.entries('coc-final-delivery').filter(row=>row.event==='end'&&row.status==='completed').length,1,'the prose is not held for the failed check');
+});
+
 test('an unissued investigator reference remains refused without a roll or publication',async t=>{
  const engine=createHybridEngine({env,decision:{decide:async batch=>answer(batch,.99)}});
  const table=await openTable({legacyDeliveryFixtures:false,realKernel:true,prepareWorkspace:opened,env,runDriver:engine.runDriver,

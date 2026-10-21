@@ -50973,7 +50973,12 @@ uncertain) -- and no refusal caught an unselected roll; the retained 鬼屋 camp
 single-Keeper path a `resolve` is now the Keeper's own call for the roll the fiction asks for
 (`{path:"keeper_judged", kinds:["resolve"]}`); it is still bound as the player's act, so a kernel refusal is held.
 Exempt families, answered choices and NPC actors are unchanged, and the lane reviewers outside the single Keeper still
-review. A registered meeting check also matches when the Keeper names the person by display name.
+review. A registered meeting check also matches when the Keeper names the person by display name, and a `resolve`
+whose decision the kernel's contact rows name (pending contacts or settled relationships) is a meeting check even when
+its target does not resolve. A failed `resolve` that admission found to be no player act (an NPC's roll, a meeting
+check, a rule-run family) holds nothing (`held-operation` `non_player_operation_failed`), so it cannot block the turn's
+prose (`el-v2-20261021c` T6 and T14 were undelivered for it). An issued `npc_N` in a resolve's `actor` or `target` names
+that person by their one public appellation before the kernel resolves it (`npc_reference_named`).
 
 A Keeper-judged batch is still the player's act. When no line of an `apply` goes to review, the judged lines are bound
 as the player's action (`capturePlayerAction`), so a kernel refusal of them is held (§166.2) and the turn's prose cannot

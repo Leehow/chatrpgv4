@@ -3481,6 +3481,11 @@ export default function (pi: ExtensionAPI, host: {capabilities?:RuntimeCapabilit
     if(failure.code==='invalid_params'&&completion&&!completion.key){
       void record({lane:'held-operation',event:'argument_outside_player_scope',turn:state.turn,tool});return;
     }
+    // §249.4: a failed rule operation that is no player act (an NPC's first impression, a meeting check) holds nothing the
+    // player declared, so it cannot block the turn's prose (live el-v2-20261021c T6, T14: undelivered for it).
+    if(tool==='resolve'&&completion&&!completion.key){
+      void record({lane:'held-operation',event:'non_player_operation_failed',turn:state.turn,tool,code:String(failure.code??'error')});return;
+    }
     const {campaign:_,call_id:__,...proposal}=args;
     boundary.hold({campaign:state.campaign,turn:state.turn,playerText:state.playerText,
       ...(state.documentWorldline?{worldline:state.documentWorldline}:{})},
@@ -3796,7 +3801,12 @@ export default function (pi: ExtensionAPI, host: {capabilities?:RuntimeCapabilit
             proposal=capsuleContactProposal(proposal,payload,current);
             // §249: a registered meeting check is a rule of the meeting the Keeper decides to roll (owner 2026-10-13), not
             // an investigator action the player's words select; asking the consent reviewer refused it at its noise floor.
-            if(proposal.meetingCheck){capture?.(null);await record({lane:'admission',verb:tool,turn:state.turn,path:'keeper_judged',kinds:['meeting_check'],jev_calls:0});return;}
+            // A decision the kernel's contact rows name (pending contacts or settled relationships) is a meeting check even
+            // when this call's target does not resolve; it is never the player's act.
+            const meetingFamilies=new Set([...(Array.isArray(current.mods?.pending_contacts)?current.mods.pending_contacts:[]),
+                ...(Array.isArray(current.mods?.relationships)?current.mods.relationships:[])].map((row:Record<string,unknown>)=>row?.decision).filter((value):value is string=>typeof value==='string'));
+            const decision=(payload.action as Record<string,unknown>|undefined)?.decision;
+            if(proposal.meetingCheck||tool==='resolve'&&typeof decision==='string'&&meetingFamilies.has(decision)){capture?.(null);await record({lane:'admission',verb:tool,turn:state.turn,path:'keeper_judged',kinds:['meeting_check'],jev_calls:0});return;}
             // §249.4: the single Keeper's rule operation is its own call for a roll the fiction asks for; live tables refused
             // only clearly selected checks (Strength to force the door the player said they force). It stays the player's
             // act, so a kernel refusal is still held.
@@ -6241,6 +6251,8 @@ export default function (pi: ExtensionAPI, host: {capabilities?:RuntimeCapabilit
             if(!state.party.length||argumentErrors(spec.parameters,currentArgs).length)return;
             if(spec.name==='resolve'){
                 if(proposal){const args={tool:spec.name,action:payload.action};saved.playerAction={key:heldOperationKey('player-action-completion',args),args:structuredClone(args)};}
+                // §249.4: admission found no player act here (an NPC's roll, a meeting check, a rule-run family).
+                else saved.playerAction={};
                 return;
             }
             if(spec.name!=='apply'||!Array.isArray(payload.effects)||effectShapeRefusal(spec.name,spec.parameters,currentArgs))return;
@@ -7175,6 +7187,12 @@ export default function (pi: ExtensionAPI, host: {capabilities?:RuntimeCapabilit
                     const person=reference?table.party[Number(reference[1])-1]:undefined;
                     if(person){embedded.args={...operation,action:{...operation.action,actor:person.name}} as typeof embedded.args;
                         void record({lane:'arguments',event:'public_actor_reference_normalized',tool:spec.name,repairs:1});}
+                    // §250.4: an issued NPC reference in the operation names that person by their one public appellation, the
+                    // word the kernel's roster resolves (live el-v2-20261021c T14: target npc_2 refused as unknown).
+                    const current=embedded.args as Record<string,any>,refs=packetNpcReferences(table),scope=packetNpcScope(table);
+                    const named=Object.fromEntries(['actor','target'].flatMap(key=>{const name=refs.publicName(scope,current.action?.[key]);return name?[[key,name]]:[];}));
+                    if(Object.keys(named).length){embedded.args={...current,action:{...current.action,...named}} as typeof embedded.args;
+                        void record({lane:'arguments',event:'npc_reference_named',tool:spec.name,fields:Object.keys(named)});}
                 }
                 if(turnPacketPrototype&&spec.name==='output'&&table){
                     const bound=packetNpcReferences(table).bindActors(packetNpcScope(table),embedded.args);

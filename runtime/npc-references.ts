@@ -6,8 +6,9 @@ export class NpcReferences {
  private scope='';
  private readonly issued=new Set<string>();
  private readonly publicNames=new Map<string,Set<string>>();
+ private readonly displays=new Map<string,string>();
  observe(scope:string,value:unknown):void {
-  if(this.scope!==scope){this.scope=scope;this.issued.clear();this.publicNames.clear();}
+  if(this.scope!==scope){this.scope=scope;this.issued.clear();this.publicNames.clear();this.displays.clear();}
   if(!value||typeof value!=='object')return;
   const packet=value as Row;
   for(const person of [packet,...(Array.isArray(packet.present)?packet.present:[]),
@@ -15,10 +16,17 @@ export class NpcReferences {
    if(person?.kind!=='creature'&&isNpcReference(person?.ref)){
     this.issued.add(person.ref);
     if(typeof person.display_name==='string'&&person.display_name.trim()){
+     this.displays.set(person.ref,person.display_name.trim());
      const name=person.display_name.normalize('NFKC').trim().toLowerCase(),refs=this.publicNames.get(name)??new Set<string>();
      refs.add(person.ref);this.publicNames.set(name,refs);
     }
    }
+ }
+ /** The one public appellation an issued reference carries, when no other issued person shares it. */
+ publicName(scope:string,ref:unknown):string|undefined{
+  if(this.scope!==scope||!isNpcReference(ref)||!this.issued.has(ref))return undefined;
+  const name=this.displays.get(ref);
+  return name&&this.publicNames.get(name.normalize('NFKC').trim().toLowerCase())?.size===1?name:undefined;
  }
  /** Normalize only a unique, already-issued public identity. Canonical parsers stay strict. */
  bindActors(scope:string,input:unknown):{args:unknown;repairs:number}{

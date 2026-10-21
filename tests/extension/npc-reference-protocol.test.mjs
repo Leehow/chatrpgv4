@@ -47,3 +47,13 @@ test('only one exact issued public appellation normalizes to its original actor 
  assert.equal(refs.bindActors(scope,original).repairs,0,'two same-name identities remain ambiguous');
  refs.observe('c:9',{present:[]});assert.equal(refs.bindActors(scope,original).repairs,0);
 });
+
+test('an issued reference names its person by their one public appellation, and a shared one names nobody (live el-v2-20261021c T14)',()=>{
+ const refs=new NpcReferences();const scope='c:8';
+ refs.observe(scope,{present:[{ref:'npc_2',display_name:'Arty Wilmot',name_known:true}]});
+ assert.equal(refs.publicName(scope,'npc_2'),'Arty Wilmot');
+ assert.equal(refs.publicName(scope,'npc_9'),undefined,'an unissued reference names nobody');
+ assert.equal(refs.publicName('c:9','npc_2'),undefined,'another input scope names nobody');
+ refs.observe(scope,{ref:'npc_3',display_name:'arty wilmot',name_known:true});
+ assert.equal(refs.publicName(scope,'npc_2'),undefined,'two people sharing the appellation stay ambiguous');
+});
