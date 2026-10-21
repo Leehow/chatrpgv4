@@ -7241,9 +7241,11 @@ export default function (pi: ExtensionAPI, host: {capabilities?:RuntimeCapabilit
                     };
                     const effects=((embedded.args as Record<string,any>).effects as unknown[]).map((effect,index)=>{
                         if(!effect||typeof effect!=='object'||Array.isArray(effect))return effect;
-                        const named=Object.fromEntries(['to','from','subject','with','who','actor','target','toward'].flatMap(key=>{const name=person((effect as Record<string,unknown>)[key]);return name?[[key,name]]:[];}));
+                        const named:Record<string,unknown>=Object.fromEntries(['to','from','subject','with','who','actor','target','toward'].flatMap(key=>{const name=person((effect as Record<string,unknown>)[key]);return name?[[key,name]]:[];}));
+                        const document=(effect as Record<string,any>).document,reader=document&&typeof document==='object'?person(document.reader):undefined;
+                        if(reader)named.document={...document,reader};
                         if(!Object.keys(named).length)return effect;
-                        fields.push(...Object.keys(named).map(key=>`effects[${index}].${key}`));
+                        fields.push(...Object.keys(named).map(key=>`effects[${index}].${key==='document'?'document.reader':key}`));
                         return {...effect,...named};
                     });
                     if(fields.length){embedded.args={...(embedded.args as Record<string,any>),effects} as typeof embedded.args;

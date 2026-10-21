@@ -51240,6 +51240,15 @@ investigator, twice as "an offer carries no condition", then "no open offer to a
   An offer that stands is closed by `accepted` exactly as before, and a `declined` offer that was never made is still
   refused.
 
+### 250.15 The investigator reads a document too
+
+Live (`el-v2-20261021f` T8, five refusals): Knott laid the lease on the desk for the investigator, and the Keeper wrote
+`document {action:"observe", reader}` with the investigator as `investigator_1`, `thomas-hayes` and the name; each was
+refused as an unknown NPC, because `show` and `observe` resolved the reader through the graph's people only, while the
+schema asked for a "person". A reader may now be an investigator by sheet id or name (and `investigator_N` is named by
+§250.14): they are always present, `held` access means their own custody, and the observation is recorded under their
+sheet id with their name on the receipt. An NPC reader is unchanged and still needs the writing shown or open.
+
 ## 251. A progress note for a read spiral (owner direction 2026-10-21: fewer deliberations, faster turns)
 
 Live evidence: on `el-v2-20261021a` T16 the single Keeper answered one sentence about a door and a hired middleman with

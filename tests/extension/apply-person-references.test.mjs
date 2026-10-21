@@ -14,7 +14,8 @@ async function opened(workspace){const client=new RpcClient(workspace);try{await
 
 test('an apply effect naming a person by the packet\'s issued investigator reference reaches the kernel by name (live el-v2-20261021f T2)',async t=>{
  const engine=createHybridEngine({env,decision:{decide:async()=>{throw Error('no review is expected');}}});
- const effects=[{kind:'cash',delta:-1,category:'expense',subject:'investigator_1',why:'Coffee at the counter.'}];
+ const effects=[{kind:'cash',delta:-1,category:'expense',subject:'investigator_1',why:'Coffee at the counter.'},
+  {kind:'object',name:'Lease',from:'Steven Knott',to:'Steven Knott',document:{action:'observe',reader:'investigator_1',access:'shown'},why:'Hayes reads the lease Knott holds up.'}];
  const table=await openTable({legacyDeliveryFixtures:false,realKernel:true,prepareWorkspace:opened,env,runDriver:engine.runDriver,
   extraExtensions:[{name:'engine',factory:engine.extension}],responses:[
    ()=>fauxAssistantMessage([fauxToolCall('apply',{effects})],{stopReason:'toolUse'}),
@@ -22,7 +23,7 @@ test('an apply effect naming a person by the packet\'s issued investigator refer
  t.after(()=>table.dispose());
  await table.session.prompt('I pay for a coffee.');
  const named=table.telemetry().filter(row=>row.lane==='arguments'&&row.event==='person_reference_named');
- assert.deepEqual(named.map(row=>row.fields),[['effects[0].subject']]);
+ assert.deepEqual(named.map(row=>row.fields),[['effects[0].subject','effects[1].document.reader']]);
  const results=table.session.messages.filter(message=>message.role==='toolResult'&&message.toolName==='apply').map(message=>JSON.stringify(message.content));
  assert.ok(results.length&&results.every(text=>!text.includes("no investigator 'investigator_1'")),results.join('\n'));
 });

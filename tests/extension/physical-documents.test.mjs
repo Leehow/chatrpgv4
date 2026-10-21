@@ -256,3 +256,15 @@ test('opening or closing a carrier its to already holds needs no from; another h
   await game.apply([{...bare,document:{action:'close'},why:'He closes it again.'}]);
   await assert.rejects(game.apply([{...bare,to:'Steven Knott',document:{action:'open'}}]),/same actual from\/to owner/);
 });
+
+test('the investigator is a reader too, by name or sheet id, and an NPC still has to be shown the writing (§250.15, live el-v2-20261021f T8)',async t=>{
+  const game=await paper(t);
+  await game.apply([game.doc({action:'append',text:'Rent paid through May.'},'The investigator writes the selected note.')]);
+  await game.apply([game.doc({action:'observe',reader:game.sheet.name,access:'held'},'Hayes reads his own note back.')]);
+  await game.apply([game.doc({action:'observe',reader:game.sheet.id,access:'held'},'Hayes reads it again by his sheet id.')]);
+  const receipts=(await game.call('table.status')).receipts.filter(receipt=>receipt.document_operation==='observe');
+  assert.deepEqual(receipts.map(receipt=>receipt.reader),[game.sheet.name,game.sheet.name]);
+  assert.match(receipts[0].observed_writing,/Rent paid through May/);
+  await game.apply([game.doc({action:'close'})]);
+  await assert.rejects(game.apply([game.doc({action:'observe',reader:'Steven Knott',access:'shown'})]),/not open/,'an NPC still needs the writing shown');
+});
