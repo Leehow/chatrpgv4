@@ -34,3 +34,15 @@ test('an NPC can give directions to a nameable place the party has not visited (
  const scoped=turnPacketParameterSchema(false,['speak_briefly'],[],false,content.bindings(),true);
  assert.doesNotThrow(()=>turnPacket(JSON.stringify({version:4,interactions:[{actor:'npc_28',act:'answer',to:['investigator_1'],content:[{new:{predicate:'directions',to:'central-library',heading:'north'}}]}]}),scoped));
 });
+test('an NPC sent to the place this packet just reached is sent here; before the move it is left alone (live el-v2-20261021d T21)',()=>{
+ const npc={kind:'npc',actor:'npc_28',to:'Inn',reason:'The waiter is on shift.'};
+ const after=normalizeTurnPacketArguments({version:4,commands:[{kind:'place',action:'move',to:'Inn'},npc]});
+ assert.equal(after.npcHereRepairs,1);assert.equal(after.args.commands[1].to,'here');
+ const before=normalizeTurnPacketArguments({version:4,commands:[npc,{kind:'place',action:'move',to:'Inn'}]});
+ assert.equal(before.npcHereRepairs,undefined);assert.equal(before.args.commands[0].to,'Inn');
+});
+test('a command is diagnosed against its own kind, not every union branch (live el-v2-20261021d T21)',()=>{
+ const scoped=turnPacketParameterSchema(false,['speak_briefly'],[],false,bindings,true);
+ assert.throws(()=>turnPacket(JSON.stringify({version:4,commands:[{kind:'npc',actor:'npc_28',to:'Somewhere else',reason:'Walks off.'}]}),scoped),
+  error=>/commands\[0\]\/to/.test(error.message)&&!/required properties action/.test(error.message));
+});

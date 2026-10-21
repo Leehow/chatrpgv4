@@ -51097,6 +51097,11 @@ same way (`adjusted` on the receipt and its outcome):
   `kind` is a place command (`place_kind_inferred`).
 - A known effect kind missing exactly one required field, carrying an undeclared `name`, takes it as that field
   (`{kind:"clue", name:"nailed-windows"}` → `clue`); a kind that declares `name` keeps it.
+- Each packet command is diagnosed against the variants its own kind and action name, so a refusal names that
+  command's real constraint instead of every union branch (`el-v2-20261021d` T21 reported an npc `to` as a missing place
+  action, and the Keeper resent the same packet and gave up).
+- After the packet's own move reaches a place, an npc command sending someone to that place sends them `here`
+  (`npc_destination_here`); before the move `here` is still the departure, so an earlier command is left alone.
 - A routine summary may carry `ambient` looks alone (`acts` is optional; one of the two is required). Looks alone are no
   routine stretch, so they need no time charge; routine `acts` still need exactly one (§247.3).
 
@@ -51136,8 +51141,10 @@ Live (`el-v2-20261021c` T6–T7, one undelivered turn and five refusals; `el-v2-
 Central Library, the Keeper could not let the person answer, because a communication claim's `to`/`via` may only
 select issued place references and the only issued places were the current one, its exits and the trail back. The
 capsule now carries `where.known_places` (`{to, display_name}` for the book's scenes and the places this table
-registered, the current one excluded, at most 40, the first rows `fitWhere` gives up), and the decision content issues
-them as places. They are references for directions, whereabouts and planned visits, not access or player knowledge.
+registered -- graph scenes and the location provider's records -- the current one excluded), attached after the where
+section is fitted under its own 1536-byte cap (`known_places_omitted` counts any rows left out), so it displaces none of
+this place's exits, notes or rules and never marks `where` truncated. The decision content issues these as places. They
+are references for directions, whereabouts and planned visits, not access or player knowledge.
 
 ### 250.8 A routine summary's time is the Keeper's judgment (amends §247.3)
 

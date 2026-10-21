@@ -70,6 +70,21 @@ function parameterError(label:string,schema:TSchema,value:unknown):Error {
  const fields=[...new Set(errors.map(error=>`${label}${error.keyword==='additionalProperties'?'/<additional-property>':error.instancePath}: ${explanation(error)}`.slice(0,300)))];
  return new TurnPacketParameterError(`Invalid decision command: ${[...new Set(findings)].join('; ')||`${label} requires nonblank bounded strings`}`.slice(0,1600),fields);
 }
+/** §250.4: each command is checked against the variants its own kind (and action) names, so its real constraint is
+ *  reported instead of every union branch (live el-v2-20261021d T21: an npc `to` was reported as a missing place action). */
+function commandItemDiagnostic(parameters:TSchema,value:unknown):Error|undefined {
+ if(!Array.isArray(value))return;
+ const declared=(parameters.properties as Record<string,any>)?.commands;
+ const items=variantsOf((Array.isArray(declared?.anyOf)?declared.anyOf:[declared]).find((candidate:Row)=>object(candidate)&&object(candidate.items))?.items);
+ const names=(variant:Row,key:string):unknown[]=>{const field=variant.properties?.[key];return field?.const!==undefined?[field.const]:Array.isArray(field?.enum)?field.enum:[];};
+ for(const [index,command] of value.entries()){
+  if(!object(command)||typeof command.kind!=='string')continue;
+  const own=items.filter(variant=>names(variant,'kind').includes(command.kind)
+   &&(!variant.properties?.action||command.action===undefined||names(variant,'action').includes(command.action)));
+  if(!own.length||own.some(variant=>!Errors(variant,command).length))continue;
+  return parameterError(`commands[${index}]`,own[0],command);
+ }
+}
 function commandArrayDiagnostic(parameters:TSchema,value:unknown):Error|undefined {
  if(!Array.isArray(value))return;
  const declared=(parameters.properties as Record<string,any>)?.commands;
@@ -132,7 +147,7 @@ export function requireTurnPacketNpcDestinations(packet:TurnPacket,choices:reado
 }
 /** Decode declared scalar and array transport forms without semantic inference. */
 const PLACE_ACTIONS=new Set(['move','establish','feature','relate','observe','inspect']);
-export function normalizeTurnPacketArguments(input:unknown):{args:unknown;repairs:number;integerRepairs?:number;booleanRepairs?:number;textRepairs?:number;placeKindRepairs?:number} {
+export function normalizeTurnPacketArguments(input:unknown):{args:unknown;repairs:number;integerRepairs?:number;booleanRepairs?:number;textRepairs?:number;placeKindRepairs?:number;npcHereRepairs?:number} {
   const normalized=normalizeToolArgumentSyntax(TURN_PACKET_ROUTINE_PARAMETERS,input,{boundedIntegers:true,exactBooleans:true,partialTransport:true});
   // §250.4: a command carrying a place action but no kind can only be a place command (live el-v2-20261021b T19).
   const value=normalized.args;
@@ -142,7 +157,16 @@ export function normalizeTurnPacketArguments(input:unknown):{args:unknown;repair
    if(!object(command)||command.kind!==undefined||typeof command.action!=='string'||!PLACE_ACTIONS.has(command.action))return command;
    placeKindRepairs++;return {kind:'place',...command};
   });
-  return placeKindRepairs?{...normalized,args:{...value,commands},placeKindRepairs}:normalized;
+  // §250.4: after this packet's own move reaches a place, an NPC sent to that place is sent here (live el-v2-20261021d
+  // T21). Before the move, here is still the departure, so an earlier command is left alone.
+  let reached:string|undefined,npcHereRepairs=0;
+  const bound=commands.map((command:unknown)=>{
+   if(!object(command))return command;
+   if((command.kind==='move'||command.kind==='place'&&command.action==='move')&&typeof command.to==='string'&&command.to!=='here'){reached=command.to;return command;}
+   if(command.kind!=='npc'||typeof command.to!=='string'||reached===undefined||command.to!==reached)return command;
+   npcHereRepairs++;return {...command,to:'here'};
+  });
+  return placeKindRepairs||npcHereRepairs?{...normalized,args:{...value,commands:bound},...(placeKindRepairs?{placeKindRepairs}:{}),...(npcHereRepairs?{npcHereRepairs}:{})}:normalized;
 }
 /** One current parameter contract for the native declaration and submission. */
 export function turnPacketParameterSchema(journeySettled=false,timeBands?:readonly string[],moveChoices?:readonly Record<string,unknown>[],sceneRequired=false,bindings?:DecisionBindings,locations=false,timeBandRows?:readonly {handle:string;covers?:string}[],routine=false):TSchema {
@@ -226,7 +250,7 @@ export function turnPacket(text:string,parameters?:TSchema):TurnPacket {
  }
  const base=object(raw)&&raw.routine!==undefined?Object.fromEntries(Object.entries(raw).filter(([key])=>key!=='routine')):raw;
  if(Errors(TURN_PACKET_PARAMETERS,base).length)throw parameterError('packet',TURN_PACKET_PARAMETERS,base);
- if(parameters){const diagnostic=commandArrayDiagnostic(parameters,raw.commands)??contentDiagnostic(parameters,raw);if(diagnostic)throw diagnostic;}
+ if(parameters){const diagnostic=commandItemDiagnostic(parameters,raw.commands)??commandArrayDiagnostic(parameters,raw.commands)??contentDiagnostic(parameters,raw);if(diagnostic)throw diagnostic;}
  if(parameters&&Errors(parameters,raw).length)throw parameterError('packet',parameters,raw);
  const packet=raw as TurnPacket,commands=packet.commands??[],interactions=packet.interactions??[];
  const slots=commands.filter(a=>a.kind==='walk_on').map(a=>a.slot);

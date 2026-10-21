@@ -6,7 +6,7 @@ import { DirectorGraph, TextGraph, Ontology } from "./content.js";
 import { RuleObservations } from "./rule-facts.js";
 import { SessionView } from "./session-view.js";
 import { briefWindow } from "./brief-window.js";
-import { whereSection, clockSection, npcsPresent, cluesHere, presentSection, knownSection, knownNpcReferences, fitBudget, fittedModuleSection, sceneLabel, voicesSection, samePersonReference, jsonSize } from "./capsule.js";
+import { whereSection, knownPlaces, clockSection, npcsPresent, cluesHere, presentSection, knownSection, knownNpcReferences, fitBudget, fittedModuleSection, sceneLabel, voicesSection, samePersonReference, jsonSize } from "./capsule.js";
 import {publicInventory} from './public-inventory.js';
 import { OWN_BUDGET, ownSection } from "./own.js";
 import { playerKnowsSection } from "./player-knows.js";
@@ -499,8 +499,7 @@ export function fitPresent(rows: Row[], budget: number): boolean {
  */
 function fitWhere(where: Row, budget: number): boolean {
     let cut = false;
-    // §250.7: the nameable places give way first; they are references, not this place's ways out or rules.
-    for (const [key, keep] of [["known_places", 0], ["back", 1], ["places", 0], ["rules", 1]] as const)
+    for (const [key, keep] of [["back", 1], ["places", 0], ["rules", 1]] as const)
         while (jsonSize(where) > budget && Array.isArray(where[key]) && where[key].length > keep) {
             where[key].pop();
             cut = true;
@@ -744,6 +743,12 @@ export async function buildCapsule(campaign: CampaignSnapshot, module: LoadedMod
             if (!Array.isArray(sections[name]) && sections[name] && typeof sections[name] === "object")
                 sections[name].truncated = true;
         }
+    }
+    // §250.7: the nameable places ride beside the fitted where section under their own cap; they displace nothing.
+    if (sections.where && typeof sections.where === "object") {
+        const named = knownPlaces(graph, world, graph.scene(world.active_scene));
+        sections.where.known_places = named.rows;
+        if (named.omitted) sections.where.known_places_omitted = named.omitted;
     }
     for (const [name, budget] of Object.entries(SLICE2_BUDGETS))
         if (fitBudget(sections[name], budget, "last"))

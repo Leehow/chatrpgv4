@@ -1,5 +1,5 @@
 /** Keeper and player read projections preserve the existing authored/state boundary. */
-import {locationPosition,locationFeatures} from './locations.js';
+import {locationPosition,locationFeatures,locationPlaces} from './locations.js';
 import {observationRoutes} from './location-observations.js';
 import { pythonJsonDumps, compareUnicode, isJsonObject } from "../json.js";
 import { RpcError } from "../errors.js";
@@ -511,6 +511,23 @@ export function bookSection(graph: ModuleGraph, scene: Row): Row | undefined {
     return { pages, ...(typeof book.excerpt === "string" && book.excerpt ? { text: chars(book.excerpt, BOOK_TEXT_CHARS) } : {}),
         source_refs: pages.map(page => ({ source_id: `pdf:${graph.moduleId}`, pdf_index: page - 1 })) };
 }
+/**
+ * §250.7: the places this table can name -- the book's scenes and the places it registered -- so an NPC can give
+ * directions or whereabouts to somewhere the party has not been yet. References only, not access or player knowledge;
+ * carried beside `where` under its own byte cap, so it never displaces this place's exits, notes or rules.
+ */
+export function knownPlaces(graph: ModuleGraph, world: Row, scene: Row, budget = 1536): { rows: Row[]; omitted: number } {
+    const here = graph.handle(scene), seen = new Set<string>([here]), rows: Row[] = [];
+    for (const node of graph.nodes.values())
+        if (node.node_kind === "scene" && !seen.has(graph.handle(node))) { seen.add(graph.handle(node)); rows.push({ to: graph.handle(node), display_name: sceneLabel(graph, world, node) }); }
+    for (const place of locationPlaces(world)) {
+        const name = string(place.name);
+        if (name && !seen.has(name)) { seen.add(name); rows.push({ to: name, display_name: string(place.label) || name }); }
+    }
+    const total = rows.length;
+    while (rows.length && jsonSize(rows) > budget) rows.pop();
+    return { rows, omitted: total - rows.length };
+}
 export function whereSection(graph: ModuleGraph, world: Row, scene: Row, material: (name: string) => string = () => "ready", compact = false): Row {
     const record = recordOf(scene),
         exits = exitRows(graph, world, scene, material);
@@ -583,10 +600,6 @@ export function whereSection(graph: ModuleGraph, world: Row, scene: Row, materia
                 ...(minutes !== null ? { travel_minutes: minutes } : {})
             };
         }),
-        // §250.7: the places this table can name -- the book's scenes and the places it registered -- so an NPC can
-        // give directions or whereabouts to somewhere the party has not been yet. References only: not access or knowledge.
-        known_places: [...graph.nodes.values()].filter(node => node.node_kind === "scene" && node !== scene).slice(0, 40)
-            .map(node => ({ to: graph.handle(node), display_name: sceneLabel(graph, world, node) })),
         affordances,
         keeper_notes: notes,
         assets: graph.sceneAssets(scene, array(world.handouts_shown)),
