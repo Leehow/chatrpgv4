@@ -157,10 +157,11 @@ export function createModSections(deps:{read:(method:string,params:Row)=>Promise
   // §248.6: when room runs short, what the table's state owes goes first, then what this turn's calls and kernel gates
   // send, then what a topic judgement or a fallback adds; the message keeps that order, so a cut drops the last first.
   const rank=(entry:Picked)=>Math.min(...entry.why.map(why=>why==='due'?0:why==='gate'||why.startsWith('call:')||why.startsWith('context:')?1:2));
+  let owed=0;
   for(const entry of [...picked].sort((a,b)=>rank(a)-rank(b))){
    const text=texts.get(entry.key);if(typeof text!=='string')continue;
    const row={package:entry.mod,section:entry.heading??'(opening text)',text};
-   if(bytes(JSON.stringify({authority:AUTHORITY,sections:[...sections,row],omitted}))<=MOD_SECTIONS_BYTES)sections.push(row);
+   if(bytes(JSON.stringify({authority:AUTHORITY,sections:[...sections,row],omitted}))<=MOD_SECTIONS_BYTES){sections.push(row);if(rank(entry)===0)owed++;}
    else omitted.push({package:entry.mod,section:row.section});
   }
   const content=JSON.stringify({authority:AUTHORITY,sections,...(omitted.length?{omitted}:{})});
@@ -170,7 +171,9 @@ export function createModSections(deps:{read:(method:string,params:Row)=>Promise
     ...(omitted.length?{omitted:omitted.map(entry=>`${entry.package}: ${entry.section}`)}:{})});}
   if(!sections.length)return undefined;
   return{role:'custom',customType:MOD_SECTIONS_MESSAGE,display:false,content,timestamp:0,
-   details:{coc_host:true,mod_sections:{turn:binding.turn,keys:picked.filter(entry=>texts.has(entry.key)).map(entry=>entry.key)}}};
+   details:{coc_host:true,mod_sections:{turn:binding.turn,keys:picked.filter(entry=>texts.has(entry.key)).map(entry=>entry.key),
+    // §248.6: how many leading sections the table's state owes (`due`); the request makes room for them.
+    owed}}};
  }
  function delivered(sent:Row,payload:unknown,contains:(value:unknown,content:string)=>boolean):void {
   let carried=false;try{carried=contains(payload,String(sent.content));}catch{/* unserializable payload is unconfirmed */}

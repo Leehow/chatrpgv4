@@ -1105,9 +1105,21 @@ export function installContextPolicy(pi: ExtensionAPI, writeTelemetry: (row: Row
         }
         if(packets.length)outgoing=disclosure.place(outgoing,outgoing.length-projectedTail(result).length);
         pendingDiscovery=fresh;
-        // §248.6: when the whole message does not fit, the sections that do still go, in the message's own order (what the
-        // table's state owes first), and the rest are named in `omitted`. Nothing already in the request yields for them:
-        // the latest tool results, the workspace and history keep their places, and the request stays within its ceiling.
+        // §248.6: when the whole message does not fit, the sections the table's state owes (its leading `owed` rows) may
+        // take room from history and this turn's older tool traffic, as the brief that carried them before §248 did, but
+        // never from the latest tool results. Then the sections that fit go in the message's order and the rest are named
+        // in `omitted`; the request stays within its ceiling.
+        const owedCount=Number(object(object(sectionsMessage?.details).mod_sections).owed)||0;
+        if(sectionsMessage&&owedCount&&!fits([...outgoing,sectionsMessage])){
+            const body=object(JSON.parse(String(sectionsMessage.content)));
+            const owedMessage={...sectionsMessage,content:JSON.stringify({...body,sections:(Array.isArray(body.sections)?body.sections:[]).slice(0,owedCount)})};
+            if(!fits([...outgoing,owedMessage])){
+                const kept=retainsLatestToolBatch(selected,outgoing,snapshot.binding);
+                const widened=assemble(requestSize(packets)+requestSize([owedMessage]),omission?.reason);
+                const placed=packets.length?disclosure.place(widened.messages,widened.messages.length-projectedTail(widened.fitted).length):widened.messages;
+                if(fits([...placed,owedMessage])&&(!kept||retainsLatestToolBatch(selected,placed,snapshot.binding))){result=widened.fitted;outgoing=placed;}
+            }
+        }
         let sectionsSent=sectionsMessage;
         if(sectionsSent&&!fits([...outgoing,sectionsSent])){
             const body=object(JSON.parse(String(sectionsSent.content))),kept=[...(Array.isArray(body.sections)?body.sections:[])],
