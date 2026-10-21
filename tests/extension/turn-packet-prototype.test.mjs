@@ -221,30 +221,21 @@ test('a missing route on direct place submit permits a corrected native arrival 
  assert.equal((await table.runtimeBridges().at(-1).call('table.capsule',{campaign:'test-camp'})).where.location.position.at,'window');
 });
 
-test('an empty spatial decision is corrected before any author or world change',async t=>{
- let demand=()=>{};
- const engine=createHybridEngine({env,decision:{decide:async batch=>{
-  if(batch.family==='location-route-coverage')return answer(batch,batch.state.location_steps.some(step=>step.destination?.place==='Ordinary Inn')?.99:.01);
-  if(batch.family!=='location-decision-coverage')return answer(batch,.99);
-  const values={move_selected:.99,move_satisfied:batch.state.proposed_effects?.some(row=>row.kind==='place'&&row.action==='move'&&row.to==='Ordinary Inn')?.99:.01,move_blocked:.01,feature_selected:.01,feature_satisfied:.01,feature_blocked:.01};
-  return {...answer(batch,.99),answers:Object.fromEntries(batch.questions.map(q=>[q.key,{status:'answered',type:'noul',noul:values[q.key]}]))};
- }}});
- const command={kind:'place',action:'move',to:'Ordinary Inn',via:'Along the street',travel_band:'adjacent',additions:[{name:'Ordinary Inn',description:'A modest public inn.'}]};
+test('a Keeper decision that omits the selected journey publishes as judged, without a completion review or an arrival (§249)',async t=>{
+ const families=[];
+ const engine=createHybridEngine({env,decision:{decide:async batch=>{families.push(batch.family);return answer(batch,.99);}}});
  const table=await openTable({legacyDeliveryFixtures:false,realKernel:true,prepareWorkspace:opened,env,runDriver:engine.runDriver,
-  extraExtensions:[{name:'engine',factory:engine.extension},{name:'location-relevance-fixture',factory:pi=>{demand=()=>pi.events.emit('coc:location-demand',{campaign:'test-camp',turn:1,review:true,selection:{move:.99,feature:.01,observation:.01}});}}],responses:[
-   ()=>{demand();return fauxAssistantMessage([rawToolCall('output',{version:4})],{stopReason:'toolUse'});},
-   ()=>fauxAssistantMessage([rawToolCall('output',{version:4,commands:[command,{kind:'scene',service:'open',crowd:'empty'}]})],{stopReason:'toolUse'})]});
- t.after(()=>table.dispose());await table.session.prompt('I enter an ordinary inn.');
+  extraExtensions:[{name:'engine',factory:engine.extension},{name:'location-demand-fixture',factory:pi=>{pi.on('tool_call',()=>pi.events.emit('coc:location-demand',{campaign:'test-camp',turn:1}));}}],responses:[
+   ()=>fauxAssistantMessage([rawToolCall('output',{version:4})],{stopReason:'toolUse'})]});
+ t.after(()=>table.dispose());
+ const before=(await table.runtimeBridges().at(-1)?.call('table.capsule',{campaign:'test-camp'}))?.where?.scene;
+ await table.session.prompt('I enter an ordinary inn.');
  assert.deepEqual(table.extensionErrors,[]);
- assert(table.telemetry().some(row=>row.lane==='location-decision-coverage'&&row.axes?.move==='missing'&&row.accounting?.move===null&&row.covered===false));
- assert(table.telemetry().some(row=>row.lane==='location-decision-coverage'&&row.covered===true&&row.jev_calls===1&&row.axes.move==='accounted'),'the corrected selected journey is covered by the existing completion batch');
+ assert(!families.some(family=>family.startsWith('location-')),'no location review is asked: '+families.join(','));
+ assert(!table.telemetry().some(row=>row.lane==='location-decision-coverage'));
  assert.equal(table.entries('coc-final-delivery').filter(row=>row.event==='end'&&row.status==='completed').length,1);
- assert.equal((await table.runtimeBridges().at(-1).call('table.capsule',{campaign:'test-camp'})).where.scene,'Ordinary Inn');
- assert.equal(table.telemetry().filter(row=>row.lane==='turn-packet-prototype'&&row.ok===true).length,1,'the empty packet never publishes a false arrival');
- const written=table.telemetry().find(row=>row.lane==='isolated-expression'&&row.event==='written');
- const task=JSON.parse(readFileSync(join(written.attempt,'task.json'),'utf8'));
- assert.equal(task.player_input,'I enter an ordinary inn.','the author preserves current quoted intent alongside authoritative committed outcomes');
- assert.equal(task.decision_context.scene.location.position.place,'Ordinary Inn');
+ const scene=(await table.runtimeBridges().at(-1).call('table.capsule',{campaign:'test-camp'})).where.scene;
+ assert.notEqual(scene,'Ordinary Inn','an omitted journey moves nobody');if(before)assert.equal(scene,before);
 });
 
 test('the non-strict Anthropic request retains the complete owned schema without claiming strict decoding',()=>{

@@ -390,6 +390,24 @@ export interface AdmissionScope {
  */
 export const TRIGGER_KINDS: ReadonlySet<string> = new Set(["move", "place", "clue", "time", "cash", "item", "handout", "map", "object", "usage"]);
 
+/**
+ * §249 (owner 2026-10-21): in the single-Keeper typed path the Keeper itself judges whether the player selected these
+ * lines. Real play kept refusing them on the reviewer's uncertainty (movement and local positions, explicit waits and
+ * activity time, ordered services with their goods and payment), so they are not put to the consent review. Document
+ * writes on an object, maps, usages and resolve stay reviewed; kernel validation of every line is unchanged.
+ */
+export const KEEPER_JUDGED_KINDS: ReadonlySet<string> = new Set(["move", "place", "time", "cash", "item", "object"]);
+const documentWrite = (effect: Record<string, unknown>): boolean =>
+	['write', 'append', 'requested_edit'].includes(String((effect.document as Record<string, unknown> | undefined)?.action));
+/** The Keeper-judged kinds a batch carries, for the admission record. */
+export function keeperJudgedKinds(effects: readonly unknown[]): string[] {
+	return [...new Set(effects.flatMap(effect => {
+		const row = effect && typeof effect === 'object' ? effect as Record<string, unknown> : {};
+		const kind = text(row.kind);
+		return kind && KEEPER_JUDGED_KINDS.has(kind) && !(kind === 'object' && documentWrite(row)) ? [kind] : [];
+	}))];
+}
+
 /** `resolve` decision families that are never a voluntary player action: the rules or the table run them. */
 const EXEMPT_DECISION_PREFIXES: readonly string[] = ["sanity:", "development:"];
 
@@ -573,10 +591,11 @@ export function admissionRequest(tool: string, payload: Record<string, unknown>,
 			if (!kind || !TRIGGER_KINDS.has(kind)) return false;
             if(kind==='place'&&['establish','relate'].includes(String(effect.action)))return false;
             if(scope.consentOnly&&['clue','handout'].includes(kind))return false;
+            if(scope.consentOnly&&KEEPER_JUDGED_KINDS.has(kind)&&!(kind==='object'&&documentWrite(effect)))return false;
 			if (kind === "cash" && effect.mode === "quote") return false;
 			if (kind === "move" && here.includes(norm(effect.to)) && !text(effect.label)) return false;
 			if (kind === "object") {
-                if (['write','append','requested_edit'].includes(String((effect.document as Record<string,unknown> | undefined)?.action))) return true;
+                if (documentWrite(effect)) return true;
 				// Adoption enriches an owned row; same-owner edits record state rather than transfer it.
 				if (!text(effect.to) || text(effect.adopt) || text(effect.from) && norm(effect.from) === norm(effect.to)) return false;
 			}

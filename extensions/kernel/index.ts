@@ -1,4 +1,3 @@
-import {locationCoverageError} from './location-coverage-error.ts';
 import {adviseLocationReference} from './location-reference.ts';
 import {locationDescription} from './location-description.ts';
 import {sourceLocationContext} from './source-location-context.ts';
@@ -11,6 +10,7 @@ import {Errors as argumentErrors} from 'typebox/value';
 import {SourceConsultations} from '../module/source-consultations.ts';
 import {CASH_CONSENT_POLICY} from "./admission.ts";
 import {boundCashAuthority} from './admission.ts';
+import {keeperJudgedKinds} from './admission.ts';
 import {PurchaseRecovery} from './purchase-recovery.ts';
 import {createQuotationQueue} from "./quotes.ts";
 import {decimalSpelling} from '../../shared/cash-decimal.js';
@@ -24,7 +24,6 @@ import {scenePopulationRequired,sceneAssessmentExpiredDuringActivity} from '../.
 import {ExpressionPlanStream,writeIsolatedExpression,decisionScene,decisionClock,decisionRecentPublic,decisionResponseScope,decisionObservationScope} from '../../runtime/isolated-expression.ts';
 import {TURN_PACKET_LOCATION_STEPS,turnPacket,bindTurnPacketMoves,turnPacketMovementChoices,requireTurnPacketNpcDestinations,isNewNpcSlot,normalizeTurnPacketArguments,compileTurnPacket,turnPacketResult,turnPacketParameterSchema,turnPacketProviderPayload,TurnPacketParameterError,type TurnPacket} from '../../runtime/turn-packet-prototype.ts';
 import {normalizeToolArgumentSyntax} from '../../runtime/tool-argument-syntax.ts';
-import {locationDecisionCoverage,locationCoverageContext} from '../table/location-relevance.ts';
 import {applyEffectKinds} from '../table/mod-sections.ts';
 import {normalizeApplyArguments} from '../../shared/apply-protocol.ts';
 import {owedConsentPlan} from './owed-consent.ts';
@@ -409,8 +408,6 @@ interface ForcedPlayerChoiceCue {
 interface TableState {
     /** Location detail is read on demand, for this input only. */
     locationContextTurn?:number;
-    locationReviewTurn?:number;
-    locationSelection?:{turn:number;move:number;feature:number;observation?:number};
     observationReferences?:{turn:number;queries:Array<{scope:string;to:Record<string,unknown>;sense:string;records:Record<string,unknown>[]}>};
   /** §163: a scope Jev could not settle plays as `world`; only a settled out-of-fiction request is `reference`. */
   interactionScope?: 'world' | 'reference';
@@ -1537,12 +1534,10 @@ export default function (pi: ExtensionAPI, host: {capabilities?:RuntimeCapabilit
 	let singleKeeper=false;
 	let turnDecisionPort:DecisionPort|undefined;
 	pi.events.on('coc:turn-decision-port',(value:DecisionPort|undefined)=>{turnDecisionPort=value&&typeof value.decide==='function'?value:undefined;});
-    pi.events.on('coc:location-demand',(value:{campaign?:string;turn?:number;review?:boolean;selection?:{move:number;feature:number;observation?:number};references?:Record<string,any>})=>{
+    pi.events.on('coc:location-demand',(value:{campaign?:string;turn?:number;references?:Record<string,any>})=>{
         if(!table||value.campaign!==table.campaign||value.turn!==table.turn)return;
-        table.locationContextTurn=table.turn;if(value.review===true)table.locationReviewTurn=table.turn;
+        table.locationContextTurn=table.turn;
         if(value.references)rememberObservationReferences(table,value.references);
-        if(value.selection&&[value.selection.move,value.selection.feature,...(value.selection.observation===undefined?[]:[value.selection.observation])].every(value=>typeof value==='number'&&Number.isFinite(value)&&value>=0&&value<=1))
-            table.locationSelection={turn:table.turn,...value.selection};
     });
 	let isolatedOutput=false;
 	let turnPacketPrototype=false;
@@ -2551,7 +2546,8 @@ export default function (pi: ExtensionAPI, host: {capabilities?:RuntimeCapabilit
         }
     }
     async function correctCoveredQuote(state:TableState,payload:Record<string,any>,signal?:AbortSignal,providerBudget?:TaskProviderBudget):Promise<void> {
-        if(!state.playerText||!sessionCtx)return;
+        // §249: the single Keeper judges whether an order is a quotation or a settlement; no review second-guesses it.
+        if(singleKeeper||!state.playerText||!sessionCtx)return;
         // A quotation grants no execution authority; never force a refused service back into settlement.
         if(state.admissionRefused.length)return;
         for(const effect of Array.isArray(payload.effects)?payload.effects:[]){
@@ -3770,6 +3766,9 @@ export default function (pi: ExtensionAPI, host: {capabilities?:RuntimeCapabilit
 			const reviewedEffects=recovery?.effects??effects;
 			const scopeFor=await admissionScopeBuilder(state,tool,payload,current);
 			let proposal=admissionRequest(tool,tool==='apply'?{...payload,effects:reviewedEffects}:payload,{...scopeFor(reviewedEffects),consentOnly:true});
+            // §249: lines the Keeper judges itself are recorded, never reviewed.
+            const keeperJudged=tool==='apply'?keeperJudgedKinds(reviewedEffects):[];
+            if(keeperJudged.length)await record({lane:'admission',verb:tool,turn:state.turn,path:'keeper_judged',kinds:keeperJudged,jev_calls:0});
 			if(!proposal){capture?.(null);if(recovery?.told.length)await record({lane:'admission',verb:tool,turn:state.turn,path:'told',verdict:'authorized',jev_calls:0,owed:recovery.told});return;}
             proposal=capsuleContactProposal(proposal,payload,current);
             capture?.(proposal);
@@ -5782,21 +5781,7 @@ export default function (pi: ExtensionAPI, host: {capabilities?:RuntimeCapabilit
 			const packet=expression as TurnPacket,compiled=compileTurnPacket(packet);
             const newcomers=(packet.commands??[]).filter((row):row is Extract<NonNullable<TurnPacket['commands']>[number],{kind:'walk_on'}>=>row.kind==='walk_on');
             const before=await state.kernel.call<Record<string,any>>('table.capsule',{campaign:state.campaign,_context_read:true});
-            if(state.locationReviewTurn===state.turn&&state.interactionScope!=='reference'){
-                const status=await state.kernel.call<{receipts:Record<string,unknown>[]}>('table.status',{campaign:state.campaign,projection:'receipts',expected_turn:state.turn});
-                const receipts=status.receipts.map(receipt=>Object.fromEntries(['kind','action','from','to','via','place','position','feature','before','after','observation','minutes','clock_before','clock_after','until'].filter(key=>receipt[key]!==undefined).map(key=>[key,receipt[key]])));
-                const selection=state.locationSelection?.turn===state.turn?state.locationSelection:undefined;
-                const locationRead=await state.kernel.call<Record<string,any>>('mods.locations.inspect',{campaign:state.campaign,need:'context'});
-                const spatial=locationCoverageContext(locationRead,[...receipts,...compiled.effects]);
-                const coverage=await locationDecisionCoverage({player_declaration:state.playerText,...spatial,current_clock:before.where?.clock,
-                    recent_public:decisionRecentPublic(before.recent,state.delivered).slice(-1),
-                    people:[...new Map([...(before.npc_references?.people??[]),...(before.present??[])].filter(person=>person.ref).map(person=>[person.ref,person])).values()].map((person:any)=>Object.fromEntries(['ref','display_name','name_known'].filter(key=>person[key]!==undefined).map(key=>[key,person[key]]))),
-                    ...(selection?{initial_selection:{move:selection.move,feature:selection.feature,observation:selection.observation}}:{}),
-                    proposed_effects:compiled.effects,proposed_responses:compiled.responses,settled_receipts:receipts,known_failures:heldBoundary?.uncommittedFailures()??[]},
-                    {campaign:state.campaign,turn:state.turn},turnDecisionPort,reply.signal??state.lanes.signal,foregroundProviderBudget?.());
-                await record({lane:'location-decision-coverage',turn:state.turn,...coverage});
-                if(!coverage.covered)throw locationCoverageError(coverage,spatial);
-            }
+            // §249: the Keeper judges whether its packet covers the player's spatial choices; no completion review refuses it.
             const newlyMoving=compiled.effects.some(effect=>effect.kind==='move'||effect.kind==='place'&&effect.action==='move'&&effect.to!=='here'&&effect.to!==before.where?.scene);
             if((scenePopulationRequired(before)||newlyMoving)&&!compiled.effects.some(row=>row.kind==='scene'))throw new KernelError({code:'needs',message:'Assess scene service and population from the current place and clock with one scene command; missing registered names never means empty.'});
             packetNpcReferences(state).require(packetNpcScope(state),[...compiled.responses.flatMap(row=>[row.actor,...row.to??[]]).filter(isNpcReference),
@@ -5865,7 +5850,7 @@ export default function (pi: ExtensionAPI, host: {capabilities?:RuntimeCapabilit
 			const where=current.where??{};
 			decision={scene:decisionScene(sightView),clock:decisionClock(where.clock??{}),...decisionResponseScope(before,current,hydrated.responses),people,selected_materials:hydrated.materials,style:current.style,
 				recent_public:decisionRecentPublic(current.recent,state.delivered)};
-            if(sight.place||state.locationReviewTurn===state.turn||compiled.effects.some(effect=>effect.kind==='place'||effect.kind==='move'))
+            if(sight.place||compiled.effects.some(effect=>effect.kind==='place'||effect.kind==='move'))
                 decision.location_description=await locationDescription(current,keys=>state.kernel.call('mods.sections',{campaign:state.campaign,keys}));
 		}
         const failedAttempts=heldActs.get(state)?.uncommittedFailures();

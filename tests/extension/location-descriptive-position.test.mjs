@@ -4,7 +4,6 @@ import {test} from 'node:test';
 import {Check} from 'typebox/value';
 import {PlaceEffect,SpatialPoint,NativePlaceParameters} from '../../shared/place-structures.ts';
 import {turnPacket,turnPacketParameterSchema,compileTurnPacket} from '../../runtime/turn-packet-prototype.ts';
-import {locationRouteBatch,locationObservationBatch} from '../../extensions/table/location-relevance.ts';
 import {admissionRequest} from '../../extensions/kernel/admission.ts';
 import {importSource} from '../integration/support.ts';
 const {currentObservationPoint,spatialPointKey,matchingObservationRelations,publicObservation}=await importSource('kernel-ts/read/location-observations.ts');
@@ -23,16 +22,10 @@ test('a descriptive spot uses normal native movement without declaring an intera
   assert(Check(schema,packet));assert.deepEqual(compileTurnPacket(turnPacket(JSON.stringify(packet),schema)).effects[0],move);
  }
 });
-test('consent and route/perception coverage preserve the descriptive endpoint',()=>{
- const proposal=admissionRequest('apply',{effects:[move]},{party:['Thomas'],consentOnly:true});
+test('the single Keeper judges a descriptive position; the lane review still preserves its endpoint (§249)',()=>{
+ assert.equal(admissionRequest('apply',{effects:[move]},{party:['Thomas'],consentOnly:true}),null,'the typed consent review receives no place line');
+ const proposal=admissionRequest('apply',{effects:[move]},{party:['Thomas']});
  assert.equal(proposal.operations[0].spot,move.spot);
- const input={player_declaration:'I stand on the sidewalk.',current_place:'House',current_position:{place:'House'},settled_receipts:[],proposed_effects:[move]};
- const route=locationRouteBatch(input,{campaign:'fixture',turn:1});
- assert.equal(route.state.location_steps[0].destination.spot,move.spot);
- const view=locationObservationBatch({...input,proposed_effects:[{kind:'place',action:'observe',to:'House',spot:'far corner',sense:'sight',access:'clear',scope:'The corner',facts:['A lamp.']}]},{campaign:'fixture',turn:1});
- assert.equal(view.state.observations[0].to.spot,'far corner');
- const ordered=locationObservationBatch({...input,proposed_effects:[move,{kind:'place',action:'observe',to:'House',sense:'sight',access:'clear',scope:'Facade from the sidewalk',facts:['A brick wall.']}]},{campaign:'fixture',turn:1});
- assert.equal(ordered.state.observations[0].from.spot,move.spot,'proposed perception uses its conditional preceding position');
 });
 test('observation origin and public projection keep spot and relation without minting fixtures',()=>{
  const position={place:'House',spot:'public sidewalk',relation:'standing'};

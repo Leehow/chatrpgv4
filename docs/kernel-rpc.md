@@ -50752,3 +50752,52 @@ perception, access and elapsed time retain their existing separate authorities.
 The registry writes identity; the current read and host projection expose it;
 the Keeper submits the selected ordinary command using the returned place/at.
 No new review, permission, timeout, fallback or content limit is introduced.
+
+## 249. Keeper-judged selection where the typed reviewer kept misjudging (owner 2026-10-21; amends §32.1, §32.12.3, §242.3a, §243)
+
+Owner ruling, 2026-10-21: where Jev keeps misjudging, stop asking it and let the Keeper judge; otherwise the review
+slows play instead of speeding it up. The evidence is the retained 鬼屋 campaign `game-aed1e3e3-…` (T0–T107, one App
+session, MiniMax and grok Keepers): 37 of 108 turns delivered nothing and 216 tool calls were refused. The location
+completion review refused 37 outputs on probabilities in its own noise band (T107: the same journey scored move 0.61,
+then 0.59, and the verdict flipped); the typed consent review refused movement, explicit waits and ordered meals whose
+words the player had plainly chosen, sometimes passing the same payload a turn later or after a relation was reworded
+("beside" refused, "站在点菜台旁" admitted). Player-ordered payments were refused six times in T100–T102 while
+Keeper-initiated NPC, threat and quote writes passed. Design review: `docs/specs/enhanced-locations-v2.md`.
+
+### 249.1 What the Keeper now judges
+
+In the single-Keeper typed path (`consentOnly`), `admissionRequest` does not put these apply lines to the consent review:
+`move`, `place` (every action), `time` (minutes, until and band), `item`, `cash` (quote and settle) and `object`
+transfers. `KEEPER_JUDGED_KINDS` in `extensions/kernel/admission.ts` names them. The Keeper's own proposal is its
+judgment that the player selected the line; every kernel validation (destinations, barriers, prices, purse, quotes,
+travel and wait arithmetic, ownership) is unchanged, and refused kernel writes still refuse atomically.
+
+Still reviewed: object document writes (`write`, `append`, `requested_edit`), `map`, `usage`, `resolve`, and the
+lane reviewers outside the single Keeper. Clue and handout lines were already outside the consent review (§32.12.3).
+Admission remains host behaviour; for the kinds still reviewed, an unavailable review still grants nothing.
+
+The admission lane records `path:"keeper_judged"` with the judged kinds and `jev_calls:0` for every batch that
+carries them, so live play can audit what the Keeper settled without review.
+
+### 249.2 Quotation versus settlement
+
+The single Keeper decides whether an order is a quotation or a settlement. The covered-quote choice check
+(`correctCoveredQuote`, which asked a reviewer whether a quote-only proposal was "already chosen" and refused it) no
+longer runs in that path; it produced the contradiction "not chosen" / "already chosen" on the same order (T12–T14, T77).
+
+### 249.3 Location context and completion
+
+`location-context` asks Jev nothing. When a location provider is active the host always loads the compact identity
+context (and, with a single observation route, the delivered observation records); the capsule no longer carries a
+`location_intent` assessment. The location completion review (`location-decision-coverage` with its route and
+observation batches, `place_decision_incomplete`) is removed: an output is not refused because a reviewer judged a
+selected move, feature change or look unaccounted. `extensions/table/location-relevance.ts` and
+`extensions/kernel/location-coverage-error.ts` are deleted.
+
+Known boundary, kept under its own test (`tests/extension/turn-packet-prototype.test.mjs`): a Keeper packet that
+omits the player's selected journey publishes as judged and moves nobody. The sole author still renders only committed
+positions (`LOCATION_AUTHOR_NOTE`). Omitted looks are not refused; ordinary visible texture remains the author's.
+
+Writer: the Keeper's proposal. Reader: the unchanged kernel validators and the sole author's committed outcomes.
+Actor: the Keeper, whose judgment is recorded in the admission lane. No threshold, new review, keyword rule or
+fallback is introduced; this removes reviews rather than relaxing them.

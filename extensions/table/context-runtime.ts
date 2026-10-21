@@ -1,6 +1,5 @@
 import {locationToolDeclarations,projectLocationInspections,locationIdentityContext} from './location-context.ts';
 import {keeperCapsuleHead,keeperCapsuleMessage} from '../../runtime/instruction-audience.ts';
-import {locationContextRelevance,locationDeclarationContext} from './location-relevance.ts';
 import {createDecisionAdapter} from '../../runtime/jev/decision-adapter.ts';
 import {readJevApiKey,readJevPreselectAllowanceMs} from '../jev/agent/config.js';
 import {preparationBudget,preparationProviderBudget} from '../../runtime/jev/preparation-budget.ts';
@@ -97,7 +96,6 @@ export function installContextPolicy(pi: ExtensionAPI, writeTelemetry: (row: Row
     let failedGeneration: number | undefined, inputPending = false;
     let call: KernelCall | undefined, campaign: string | undefined, capsule: Row | undefined, rawBinding: unknown;
     let locationDemand:{campaign:string;turn:number}|undefined;
-    let locationRelevance:{key:string;promise:Promise<Row>}|undefined;
     let observationReferenceRead:{key:string;promise:Promise<Row|undefined>}|undefined;
     let locationIdentityRead:{key:string;promise:Promise<Row|undefined>}|undefined;
     const locationDetail=()=>!!locationDemand&&locationDemand.campaign===campaign&&locationDemand.turn===observedTurn;
@@ -778,16 +776,13 @@ export function installContextPolicy(pi: ExtensionAPI, writeTelemetry: (row: Row
                 invalidate();degraded(String(error?.message??'discovery_snapshot_unavailable'));}
         }
         if(!snapshot&&ticket===generation){discoveryUnavailable=discoveryMode()!=='full';capabilityRuntime.invalidate();modDiscovery.reset();pendingDiscovery=[];}
-        let observationReference:Row|undefined,locationIdentity:Row|undefined,locationIntent:Row|undefined;
+        let observationReference:Row|undefined,locationIdentity:Row|undefined;
         if(snapshot?.capsule.mods?.location_context&&ticket===generation&&!inputLifetime.signal.aborted&&snapshot.binding.campaign===campaign&&snapshot.binding.turn===observedTurn){
             const key=JSON.stringify([snapshot.binding.campaign,snapshot.binding.turn,sourceOf(snapshot.binding)]);
-            const reused=locationRelevance?.key===key;
-            if(!reused)locationRelevance={key,promise:locationContextRelevance(snapshot.capsule,snapshot.binding,decision(),inputLifetime.signal,foregroundBudget?.())};
-            const relevance=await locationRelevance.promise;
-            if(ticket===generation&&!inputLifetime.signal.aborted&&snapshot.binding.campaign===campaign&&snapshot.binding.turn===observedTurn){
-                locationIntent=locationDeclarationContext(relevance);
-                if(relevance.needed){(turnCalls.context??=new Set()).add('place');pi.events.emit('coc:location-demand',{campaign,turn:observedTurn,review:relevance.review,selection:relevance.selection});}
-                if(relevance.needed&&call){
+            // §249: an active location provider always loads its compact context; the Keeper judges what the player selected.
+            {
+                (turnCalls.context??=new Set()).add('place');pi.events.emit('coc:location-demand',{campaign,turn:observedTurn});
+                if(call){
                     const bridge=call,owner=campaign;
                     if(locationIdentityRead?.key!==key)locationIdentityRead={key,promise:boundedDiscoveryRead(async()=>locationIdentityContext(object(await bridge('mods.locations.inspect',{campaign:owner,need:'context'}))))};
                     try{
@@ -796,7 +791,7 @@ export function installContextPolicy(pi: ExtensionAPI, writeTelemetry: (row: Row
                     }catch(error){record({lane:'location-identity-preparation',turn:observedTurn,status:'unavailable',reason:String((error as Error)?.message??error).slice(0,160)});}
                 }
                 const routes=snapshot.capsule.where?.location?.observation_routes;
-                if(relevance.status==='answered'&&relevance.needed&&relevance.review===false&&Array.isArray(routes)&&routes.length===1&&call){
+                if(Array.isArray(routes)&&routes.length===1&&call){
                     const bridge=call,owner=campaign;
                     if(observationReferenceRead?.key!==key)observationReferenceRead={key,promise:boundedDiscoveryRead(async()=>{
                         const result=object(await bridge('mods.locations.inspect',{campaign:owner,...routes[0].read}));
@@ -812,7 +807,7 @@ export function installContextPolicy(pi: ExtensionAPI, writeTelemetry: (row: Row
                         }
                     }catch(error){record({lane:'observation-reference-preparation',turn:observedTurn,status:'unavailable',reason:String((error as Error)?.message??error).slice(0,160)});}
                 }
-                record({lane:'location-context',...relevance,reused});
+                record({lane:'location-context',turn:observedTurn,status:'keeper',needed:true,jev_calls:0});
             }
         }
         // Pi 0.87 restores the canonical system/tool checkpoint after this hook. Reserve its
@@ -826,7 +821,6 @@ export function installContextPolicy(pi: ExtensionAPI, writeTelemetry: (row: Row
         const view = untoldView(structuredClone(snapshot.capsule)).capsule;
         if(decisionAuthor&&typeof view.head==='string')view.head=keeperCapsuleHead(view.head,true);
         if(locationIdentity)view.location_identity=locationIdentity;
-        if(locationIntent)view.location_intent=locationIntent;
         if(observationReference)view.observation_reference={...observationReference,
             authority:'Delivered historical records only. Repeated person refs identify the same recorded person. Reading neither refreshes perception nor moves people or advances time.'};
         // Current-request visibility is a procedural instruction, never canonical state or writer material.

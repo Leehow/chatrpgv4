@@ -9,15 +9,13 @@ await build({stdin:{contents:"export {installContextPolicy} from './extensions/t
 const {installContextPolicy,COC_TOOLS}=await import(pathToFileURL(join(temp,'api.mjs')).href);
 test.after(()=>rm(temp,{recursive:true,force:true}));
 
-for(const mode of ['arrival','focused','unavailable','inactive'])test(`request capsule carries only available ${mode} selection context`,async t=>{
+for(const mode of ['arrival','focused','inactive'])test(`location context loads without a Jev selection review: ${mode} (§249)`,async t=>{
  const previousFetch=globalThis.fetch,priorKey=process.env.EXT_JEV_APIKEY;
  process.env.EXT_JEV_APIKEY='fixture-only';
  t.after(()=>{globalThis.fetch=previousFetch;if(priorKey===undefined)delete process.env.EXT_JEV_APIKEY;else process.env.EXT_JEV_APIKEY=priorKey;});
  let decisions=0;
  globalThis.fetch=async(_url,init)=>{
-  decisions++;if(mode==='unavailable')throw Error('fixture_unavailable');
-  const request=JSON.parse(init.body),values={move_selected:.96,feature_selected:.57,observation_selected:mode==='focused'?.99:.07,reference_selected:.67};
-  assert.deepEqual(Object.keys(request.questions),Object.keys(values));
+  decisions++;const request=JSON.parse(init.body),values=Object.fromEntries(Object.keys(request.questions).map(key=>[key,.5]));
   return new Response(JSON.stringify({model:request.model,answers:Object.fromEntries(Object.keys(request.questions).map(key=>[key,{type:'noul',noul:values[key]}])),usage:{input_tokens:10,output_tokens:0}}),{status:200,headers:{'content-type':'application/json'}});
  };
  const hooks=new Map(),bus=new Map(),rows=[];
@@ -47,12 +45,8 @@ for(const mode of ['arrival','focused','unavailable','inactive'])test(`request c
  hooks.get('before_provider_request')({payload});
  const sent=JSON.parse(payload.input.find(m=>m.customType==='coc-capsule').content);
  assert.deepEqual(payload.tools.map(x=>x.name),tools.map(x=>x.name),'the advisory assessment removes no tool');
- if(['arrival','focused'].includes(mode)){
-  assert.equal(sent.location_intent.selection.observation.assessment,mode==='focused'?'selected':'not_selected');
-  assert.equal(sent.location_intent.selection.feature.assessment,'uncertain');
-  assert.equal(sent.location_intent.selection.move.probability,.96);
-  assert.equal(decisions,1,'the existing context decision is the only model call');
- }else assert.equal(sent.location_intent,undefined);
- if(mode==='inactive')assert.equal(decisions,0);
+ assert.equal(sent.location_intent,undefined,'the Keeper judges selection; no reviewer assessment is attached');
+ assert.equal(decisions,0,'loading location context asks no Jev question');
+ if(mode!=='inactive')assert(rows.some(row=>row.lane==='location-context'&&row.status==='keeper'&&row.jev_calls===0));
  assert.deepEqual(capsule,canonical,'request context must not mutate canonical state');
 });

@@ -8,7 +8,6 @@ import {PlaceParameters,PlaceEffect} from '../../shared/place-structures.ts';
 import {admissionRequest,effectSignature,refusedMovesOf,registeredLocationDestination} from '../../extensions/kernel/admission.ts';
 import {KernelError} from '../../extensions/kernel/client.ts';
 import {emptyCalls,noteCall,applyEffectKinds} from '../../extensions/table/mod-sections.ts';
-import {locationContextBatch,locationContextRelevance,locationCoverageBatch,locationDecisionCoverage} from '../../extensions/table/location-relevance.ts';
 import {locationToolDeclarations,projectLocationInspections} from '../../extensions/table/location-context.ts';
 import {capabilityCatalogue} from '../../extensions/table/capability-catalogue.ts';
 import {turnPacket,normalizeTurnPacketArguments,compileTurnPacket,bindTurnPacketMoves,turnPacketParameterSchema,turnPacketResult} from '../../runtime/turn-packet-prototype.ts';
@@ -20,48 +19,6 @@ import {continuousConsentLine,continuousConsentQuestions,continuousConsentDispos
 
 const command={kind:'place',action:'move',to:'Ordinary Inn / Lobby',via:'Through the ordinary entrance',travel_band:'adjacent',
     additions:[{name:'Ordinary Inn',within:null,description:'An ordinary inn.'},{name:'Lobby',within:'Ordinary Inn',description:'A small lobby.',features:[{name:'counter',description:'A scarred wooden counter.'}]}]};
-test('input relevance selects context only, keeps uncertainty conservative and names no destination',async()=>{
-    const capsule={mods:{location_context:{mod:'enhanced-locations',version:'1.0.1'}},turn:{player_text:'I enter an ordinary inn.'},where:{scene:'Office'}},binding={campaign:'test',turn:1};
-    const batch=locationContextBatch(capsule,binding);packDecisionBatch(batch);
-    assert.equal(batch.questions.length,4);assert(batch.questions.every(question=>question.type==='noul'));
-    for(const [probability,needed]of [[.96,true],[.02,false]]){
-        const result=await locationContextRelevance(capsule,binding,{decide:async current=>({batchId:current.id,status:'complete',answers:Object.fromEntries(current.questions.map(q=>[q.key,{status:'answered',type:'noul',noul:probability}]))})},new AbortController().signal);
-        assert.equal(result.needed,needed);assert.equal(result.review,needed);assert.equal(result.probabilities.move_selected,probability);assert.equal(result.to,undefined);
-    }
-    const fallback=await locationContextRelevance(capsule,binding,undefined,new AbortController().signal);
-    assert.equal(fallback.needed,true);assert.equal(fallback.review,false,'an unavailable applicability check discloses context without inventing a selected action');
-    const reference=await locationContextRelevance(capsule,binding,{decide:async current=>({batchId:current.id,status:'complete',answers:Object.fromEntries(current.questions.map(q=>[q.key,{status:'answered',type:'noul',noul:q.key==='reference_selected'?.99:.01}]))})},new AbortController().signal);
-    assert.equal(reference.needed,true);assert.equal(reference.review,false,'a location question alone does not require execution');
-});
-test('spatial completion composes independent movement and feature answers without an invented confidence',async()=>{
-    const binding={campaign:'test',turn:2},input={player_declaration:'I approach the window.',proposed_effects:[],settled_receipts:[]};
-    const batch=locationCoverageBatch(input,binding);packDecisionBatch(batch);
-    assert.equal(batch.familyVersion,'11');assert.equal(batch.questions.length,6);assert(batch.questions.every(question=>question.type==='noul'));
-    assert(!batch.questions.some(question=>question.key.endsWith('_accounted')),'typed operation presence is not a model judgment');
-    const review=async(values,effects=[])=>locationDecisionCoverage({...input,proposed_effects:effects},binding,{decide:async current=>({batchId:current.id,status:'complete',answers:Object.fromEntries(current.questions.map(q=>[q.key,{status:'answered',type:'noul',noul:values[q.key]??.01}]))})},new AbortController().signal);
-    const missing=await review({move_selected:.99});
-    assert.equal(missing.covered,false);assert.equal(missing.axes.move,'missing');assert.equal(missing.axes.feature,'not_selected');
-    assert.equal(missing.probabilities.move_selected,.99);assert.equal(missing.probability,undefined,'independent answers have no aggregate probability');
-    assert.equal(missing.to,undefined,'a completion finding never executes a destination');
-    const move={kind:'move',to:'Ordinary Inn'};
-    const arrival=await review({move_selected:.99,move_satisfied:.99},[move]);assert.equal(arrival.covered,true);assert.equal(arrival.accounting.move,'proposed');
-    const omittedFeature=await review({move_selected:.99,move_satisfied:.99,feature_selected:.99},[move]);
-    assert.equal(omittedFeature.covered,false);assert.equal(omittedFeature.axes.feature,'missing','a movement does not replace opening the window');
-    const blocked=await review({move_selected:.99,move_blocked:.99});assert.equal(blocked.covered,true);assert.equal(blocked.axes.move,'blocked');
-    const unsure=await review({move_selected:.5});assert.equal(unsure.covered,false);assert.equal(unsure.axes.move,'uncertain');
-    assert.equal((await review({move_selected:.4})).covered,true,'a negative selection does not force an action');
-    const unavailable=await locationDecisionCoverage(input,binding,undefined,new AbortController().signal);assert.equal(unavailable.covered,false);
-    const partial=await locationDecisionCoverage(input,binding,{decide:async current=>({batchId:current.id,status:'complete',answers:{move_selected:{status:'answered',type:'noul',noul:.99}}})},new AbortController().signal);
-    assert.equal(partial.status,'fallback');assert.equal(partial.covered,false,'all independent answers must be valid');
-    const selected={...input,initial_selection:{move:.95,feature:.02,observation:.01}};
-    const completeMovement={decide:async batch=>({batchId:batch.id,status:'complete',answers:Object.fromEntries(batch.questions.map(q=>[q.key,{status:'answered',type:'noul',noul:q.key==='move_satisfied'?.99:.01}]))})};
-    for(const [extra,source]of [[{proposed_effects:[move]},'proposed'],[{settled_receipts:[{kind:'move',from:'Room',to:'Ordinary Inn'}]},'committed']]){
-        const accounted=await locationDecisionCoverage({...selected,...extra},binding,completeMovement,new AbortController().signal);
-        assert.equal(accounted.covered,true);assert.equal(accounted.jev_calls,1);assert.equal(accounted.accounting.move,source);assert.equal(accounted.axes.move,'accounted');
-    }
-    const missingBatch=locationCoverageBatch(selected,binding);
-    assert.deepEqual(missingBatch.questions.map(question=>question.key),['move_blocked'],'only the missing selected dimension asks about a real blocker');
-});
 test('the dedicated typed tool normalizes before canonical write admission, without another transaction',()=>{
     assert(COC_TOOL_NAMES.includes('place'));
     const {kind,...change}=command,input={op:'submit',change};
@@ -77,26 +34,6 @@ test('the dedicated typed tool normalizes before canonical write admission, with
     assert.notEqual(effectSignature({...command,at:'window'}),effectSignature({...command,at:'counter'}),'local target belongs to admission identity');
     assert(moveNeedsTravelBand({kind:'move',to:'West'},{within:'City',locations:true}),'containment cannot suppress an enhanced journey duration');
     assert(!Check(PlaceEffect,{...command,patch:{cash:100}}));
-});
-
-test('an already established local position can satisfy completion without another move',async()=>{
-    const input={player_declaration:'I sit by the window.',current_place:'Tea room',current_position:{place:'Tea room',at:'window table',relation:'beside'},features:[{name:'window table'}],initial_selection:{move:.99,feature:.02},proposed_effects:[],settled_receipts:[]};
-    const review=async(probability)=>locationDecisionCoverage(input,{campaign:'test',turn:3},{decide:async batch=>({batchId:batch.id,status:'complete',answers:Object.fromEntries(batch.questions.map(question=>[question.key,{status:'answered',type:'noul',noul:question.key==='move_satisfied'?probability:.01}]))})},new AbortController().signal);
-    const covered=await review(.99);assert.equal(covered.covered,true);assert.equal(covered.axes.move,'already_satisfied');assert.equal(covered.accounting.move,null);assert.equal(covered.to,undefined);
-    assert.equal((await review(.49)).covered,false,'uncertain established satisfaction does not bypass completion');
-    assert.match(locationCoverageBatch(input,{campaign:'test',turn:3}).questions.find(question=>question.key==='move_satisfied').instructions,/same enclosing place/);
-    const noPosition={...input,current_position:undefined};
-    assert.equal(locationCoverageBatch(noPosition,{campaign:'test',turn:3}).questions.some(question=>question.key==='move_satisfied'),false,'a narrated pose alone is not established state');
-});
-
-test('already satisfied feature state still requires complete evidence-bound answers',async()=>{
-    const input={player_declaration:'I open the window.',current_place:'Room',features:[{name:'window',state:'open',passable:true}],initial_selection:{move:.01,feature:.99},proposed_effects:[],settled_receipts:[]},binding={campaign:'test',turn:4};
-    const result=await locationDecisionCoverage(input,binding,{decide:async batch=>({batchId:batch.id,status:'complete',answers:Object.fromEntries(batch.questions.map(question=>[question.key,{status:'answered',type:'noul',noul:question.key==='feature_satisfied'?.99:.01}]))})},new AbortController().signal);
-    assert.equal(result.covered,true);assert.equal(result.axes.feature,'already_satisfied');assert.equal(result.accounting.feature,null);
-    const unavailable=await locationDecisionCoverage(input,binding,undefined,new AbortController().signal);assert.equal(unavailable.covered,false);
-    const partial=await locationDecisionCoverage(input,binding,{decide:async batch=>({batchId:batch.id,status:'complete',answers:{feature_satisfied:{status:'answered',type:'noul',noul:.99}}})},new AbortController().signal);
-    assert.equal(partial.covered,false);assert.equal(partial.status,'fallback');
-    assert.equal(locationCoverageBatch({...input,features:[{name:'window'}]},binding).questions.some(question=>question.key==='feature_satisfied'),false);
 });
 
 test('native typed location commands use open destinations, the same effect and one journey limit',()=>{
@@ -254,11 +191,4 @@ test('Jev reference advice keeps source, registered features, no-match and uncer
     const before=structuredClone(read),rows=[];
     const failed=await adviseLocationReference(read,{env:{},campaign:'c1',turn:2,record:row=>rows.push(row),decision:{decide:async()=>{throw Error('Unavailable');}}});
     assert.equal(failed.status,'unavailable');assert.deepEqual(read,before);assert.equal(rows[0].status,'unavailable');
-});
-
-test('returning to the current endpoint does not account for an omitted intermediate visit',async()=>{
- const input={player_declaration:'I leave the window for the counter, wait until six, then return to this window.',current_place:'Dining room',current_position:{place:'Dining room',at:'window',relation:'beside'},initial_selection:{move:.99,feature:.01,observation:.01},proposed_effects:[{kind:'place',action:'move',to:'Dining room',at:'window',relation:'beside'}],settled_receipts:[{kind:'time',before:30,after:45}]};
- const batches=[];const result=await locationDecisionCoverage(input,{campaign:'test',turn:4},{decide:async batch=>{batches.push(batch);return{batchId:batch.id,status:'complete',answers:Object.fromEntries(batch.questions.map(q=>[q.key,{status:'answered',type:'noul',noul:.01}]))};}},new AbortController().signal);
- assert.equal(result.covered,false,'one final move cannot stand in for the omitted counter visit');assert.equal(result.axes.move,'missing');
- const question=batches[0]?.questions.find(q=>q.key==='move_satisfied');assert(question,'the existing completion batch judges the entire movement selection');assert.match(question.instructions,/intermediate/);assert.match(question.instructions,/order/);
 });
