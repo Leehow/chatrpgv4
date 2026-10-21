@@ -126,7 +126,7 @@ test('only exact canonical settlement discharges a scoped operation failure',asy
 
 test('native failure projection preserves refusals and excludes ambiguous execution or clipped coverage',()=>{
  const scope={campaign:'campaign',turn:4,playerText:'I leave.'};
- for(const cause of ['invalid_params','unknown_entity','action_not_authorized','action_admission_uncertain','admission_unavailable','place_barrier']){
+ for(const cause of ['invalid_params','unknown_entity','not_here','action_not_authorized','action_admission_uncertain','admission_unavailable','place_barrier']){
   const boundary=new HeldActOutcome();boundary.hold(scope,{tool:'apply',lines:['PRIVATE_REJECTED_PROPOSAL'],cause,operationKey:'failed'},true);
   assert.deepEqual(boundary.uncommittedFailures(),[{tool:'apply',status:'uncommitted',reason:cause}]);assert.equal(boundary.basis.held.length,1);
   assert.ok(!JSON.stringify(boundary.uncommittedFailures()).includes('PRIVATE_'));

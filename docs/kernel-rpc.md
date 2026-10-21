@@ -51300,3 +51300,10 @@ A staged choice belongs to its turn only.
 Writer: the packet-mode `ask` dispatch in `extensions/kernel/index.ts`. Reader: `submitTurnPacket`, which hands the
 staged choice to `publishKeeperResult`. Actor: the Keeper, who decides whether a mechanical choice is due. Test:
 `tests/extension/packet-choice.test.mjs`.
+
+### 252.1 A clue refused as not discoverable here does not strand the turn
+
+Live (`el-v2-20261021f` T19, undelivered): beside a reviewed notebook write, the Keeper landed a clue the kernel refused
+as `not_here`. A held failure whose cause is not a known atomic refusal makes the packet-mode author refuse the whole
+expression, and `not_here` was not on the apply list, so the turn ended with no prose. `not_here` writes nothing, like
+`unknown_entity`, so it is now projected to the author as an uncommitted failure and the turn publishes what did land.
