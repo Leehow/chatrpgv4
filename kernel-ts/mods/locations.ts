@@ -56,8 +56,9 @@ function forgiving(input:Row,adjusted:Row[]):Row {
 
 export function stageLocation(context:ApplyContext,given:Row,active:readonly Row[],travelRows?:ReadonlyMap<string,number>|null):{receipt:Row;event:DomainEvent|null} {
     const adjusted:Row[]=[];
-    let effect=forgiving(given,adjusted);
-    if(!Check(PlaceEffect,effect)){
+    let effect:Row=forgiving(given,adjusted);
+    const shape:unknown=effect;
+    if(!Check(PlaceEffect,shape)){
         const schema=PlaceEffect.anyOf.find(schema=>schema.properties.action.const===effect.action)??PlaceEffect;
         const fields=Errors(schema,effect).slice(0,4).map(error=>({field:error.instancePath,problem:error.message}));
         throw new RpcError('invalid_params','Invalid typed place command',{
@@ -189,7 +190,7 @@ export function stageLocation(context:ApplyContext,given:Row,active:readonly Row
         catch(error){if(!unknownName(error))throw error;adjusted.push({field:'through',reason:'unregistered_crossing_ignored'});}
         if(boundary&&boundaryPlace!==world.active_scene&&boundaryPlace!==to){adjusted.push({field:'through',reason:'unrelated_crossing_ignored'});boundary=undefined;}
         if(boundary?.passable===false)throw new RpcError('not_reachable','The declared passage is impassable',{
-            fix:'Resolve the actual obstacle or use a different established route; no part of this batch committed.',details:{reason:'place_barrier',place:boundaryPlace,feature:boundary.name,state:boundary.state??null}});
+            fix:'Resolve the actual obstacle or use a different established route; no part of this batch committed.',details:{reason:'place_barrier',place:boundaryPlace??null,feature:boundary.name,state:boundary.state??null}});
     }
     const from=world.active_scene;
     let moved:{receipt:Row;event:DomainEvent|null};
