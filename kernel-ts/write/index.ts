@@ -1,5 +1,6 @@
 import {readSourceMetadata} from '../modules/source-state.js';
 import {decisionRecentPublic} from '../../runtime/public-exchanges.ts';
+import { MECHANICS_CHOICE_OPTIONS } from './mechanics-options.js';
 import {committedOnLine} from '../read/exchange.js';
 import { SINGLE_PASS_NARRATION } from '../runtime/narration-policy.ts';
 import {validateDeliveryArtifact} from '../../runtime/final-output-artifact.js';
@@ -1471,9 +1472,7 @@ export function createWriteRuntime(context: KernelContext, contributions: WriteC
         const options = params.options;
         if (!Array.isArray(options) || !options.length || options.some(option => typeof option !== 'string' || !option.trim()))
             throw new RpcError('invalid_params', 'params.options must be a non-empty list of strings');
-        // `none` is the player's own "no defence" (contract §11.5, §11.11 "none is legal everywhere"; §11.5.2): the
-        // kernel offers it in `pending_defense.options`, so the choice that hands it to the player takes it too.
-        if (kind === 'mechanics' && options.some(option => !['push', 'spend_luck', 'accept', 'dodge', 'fight_back', 'none', 'flee'].includes(option)))
+        if (kind === 'mechanics' && options.some(option => !MECHANICS_CHOICE_OPTIONS.includes(option)))
             throw new RpcError('invalid_params', 'unknown mechanics choice option');
         const requestedBinds = required(params, 'binds', true), text = required(params, 'text', true), ending = row(snapshot.world.ending), n = number(turn.turn);
         const quoteDrafts=quotationDrafts(params.quotes,n,snapshot.meta,snapshot.party);

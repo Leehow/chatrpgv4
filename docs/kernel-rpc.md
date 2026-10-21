@@ -51204,3 +51204,20 @@ place write) or `narrate` resets the count; a refused read neither counts nor re
 Writer: `keeperProgressNote` in `extensions/kernel/index.ts` (single Keeper only). Reader: the Keeper, on the next
 request. Actor: the Keeper, who decides whether to keep reading. Test: `tests/extension/keeper-read-streak.test.mjs`.
 
+
+## 252. A packet-mode mechanical choice publishes with the turn's prose (owner direction 2026-10-21: no undelivered turns)
+
+Live (`el-v2-20261021e` T26): after a failed Law roll the Keeper planned "ask first, then output". In the packet mode
+`ask` lost its `text` and `handoff` fields, and `table.ask` closed the turn at once, so the output never ran: the player
+got the roll and three buttons (`spend_luck`, `push`, `accept`) and no word of what happened.
+
+In the packet mode `ask` now stages its choice on the table (`{lane:"packet-choice", event:"staged"}`) and returns
+`{staged:true, choice, next}`; nothing closes. The turn's output packet is authored as usual, and its prose publishes
+through `table.ask` with that choice (`event:"published"`), the same path a non-packet `{{record}}` choice takes. The
+closed option set lives in one place, `kernel-ts/write/mechanics-options.ts`, and `table.ask` and the staging both check
+it; an unknown option is refused before anything is staged. The kernel still validates the binding when it publishes.
+A staged choice belongs to its turn only.
+
+Writer: the packet-mode `ask` dispatch in `extensions/kernel/index.ts`. Reader: `submitTurnPacket`, which hands the
+staged choice to `publishKeeperResult`. Actor: the Keeper, who decides whether a mechanical choice is due. Test:
+`tests/extension/packet-choice.test.mjs`.

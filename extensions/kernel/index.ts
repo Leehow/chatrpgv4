@@ -18,6 +18,7 @@ import {decimalSpelling} from '../../shared/cash-decimal.js';
 import {preparePriceArguments} from './price-arguments.ts';
 import {patchCard} from "../table/card-patch.ts";
 import { SINGLE_PASS_NARRATION } from '../../kernel-ts/runtime/narration-policy.ts';
+import { MECHANICS_CHOICE_OPTIONS } from '../../kernel-ts/write/mechanics-options.ts';
 import {ArtifactTextStream} from '../../runtime/final-output-stream.ts';
 import {moveEstablishmentRefusal} from '../../shared/move-protocol.ts';
 import {SAME_KEEPER_AFTER_RESULT_GUIDANCE} from '../../runtime/keeper-output-guidance.ts';
@@ -521,6 +522,8 @@ interface TableState {
 	packetRoutineSummary?:boolean;
 	packetParameterFailures?:Set<string>;
     packetRefusalRecovery?:{turn:number;run:string};
+    /** §252: a mechanical choice the packet-mode Keeper staged with ask; it publishes with this turn's output prose. */
+    packetChoice?:{turn:number;choice:Record<string,unknown>};
 	packetParameters?:{turn:number;run?:string;schema:ReturnType<typeof turnPacketParameterSchema>};
 	/** §168.5: `turn|item` pairs whose omission while their check ran is already on the telemetry line. */
 	firstSightOmitted: Set<string>;
@@ -6009,7 +6012,9 @@ export default function (pi: ExtensionAPI, host: {capabilities?:RuntimeCapabilit
                     return {content:[{type:'text' as const,text:JSON.stringify(refusal)}],details:{coc_error:refusal},terminate:!retry};
             }
 			const authored=await composeKeeperExpression(state,packet,reply,ctx);
-			await publishKeeperResult(state,reply,authored,authored.model,authored.thinking,ctx,compiledDecisionAuthority);
+            const staged=state.packetChoice?.turn===submittedTurn?state.packetChoice.choice:undefined;
+			await publishKeeperResult(state,reply,staged?{...authored,record:{choice:staged}}:authored,authored.model,authored.thinking,ctx,compiledDecisionAuthority);
+            if(staged){state.packetChoice=undefined;await record({lane:'packet-choice',event:'published',turn:submittedTurn,binds:staged.binds??null});}
 			return{content:[{type:'text' as const,text:'The turn was published.'}],details:{published:true},terminate:true};
 		}catch(error){
 			rememberTurnFailure(state,'output',error);
@@ -6068,6 +6073,22 @@ export default function (pi: ExtensionAPI, host: {capabilities?:RuntimeCapabilit
         if(singleKeeper&&turnPacketPrototype&&finalSelection&&!recoveredOutput){
             modelSteps.delete(toolCallId);
             return submitTurnPacket(params,signal,ctx);
+        }
+        // §252: in the packet mode a mechanical choice publishes with the packet's prose, never alone (live el-v2-20261021e
+        // T26: ask closed the turn before the output the Keeper planned, and the player got a roll and three buttons and
+        // no word of what happened).
+        if(singleKeeper&&turnPacketPrototype&&spec.name==='ask'&&!recoveredOutput&&table){
+            // The kernel validates the binding when it publishes; the closed option set is checked now, before any prose.
+            const options=Array.isArray(params.options)?params.options:[];
+            if(!options.length||options.some(option=>typeof option!=='string'||!MECHANICS_CHOICE_OPTIONS.includes(option)))
+                throw new KernelError({code:'invalid_params',message:'unknown mechanics choice option',fix:`Stage the choice with options from ${MECHANICS_CHOICE_OPTIONS.join(', ')}. Nothing was staged.`,
+                    details:{reason:'mechanics_option_unknown',options:[...MECHANICS_CHOICE_OPTIONS]}});
+            const choice={kind:'mechanics',options:[...options],...(typeof params.binds==='string'&&params.binds.trim()?{binds:params.binds}:{})};
+            table.packetChoice={turn:table.turn,choice};
+            modelSteps.delete(toolCallId);
+            await record({lane:'packet-choice',event:'staged',turn:table.turn,binds:choice.binds??null,options:choice.options});
+            const staged={staged:true,choice,next:'Submit output now: this choice publishes with its prose and closes the turn.'};
+            return{content:[{type:'text',text:JSON.stringify(staged)}],details:staged};
         }
         if(singleKeeper&&finalSelection&&!recoveredOutput)
             throw new KernelError({code:'invalid_params',message:isolatedOutput?'Return the private {{compose}} expression brief; the host invokes the isolated author.':'The Keeper authors the public response directly; an independent output author is unavailable.'});
