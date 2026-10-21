@@ -1,3 +1,4 @@
+import {locationCoverageError} from './location-coverage-error.ts';
 import {adviseLocationReference} from './location-reference.ts';
 import {locationDescription} from './location-description.ts';
 import {sourceLocationContext} from './source-location-context.ts';
@@ -5796,10 +5797,7 @@ export default function (pi: ExtensionAPI, host: {capabilities?:RuntimeCapabilit
                     proposed_effects:compiled.effects,proposed_responses:compiled.responses,settled_receipts:receipts,known_failures:heldBoundary?.uncommittedFailures()??[]},
                     {campaign:state.campaign,turn:state.turn},turnDecisionPort,reply.signal??state.lanes.signal,foregroundProviderBudget?.());
                 await record({lane:'location-decision-coverage',turn:state.turn,...coverage});
-                if(!coverage.covered)throw new KernelError({code:'invalid_params',message:coverage.status==='answered'?'The selected spatial action is not accounted for by this decision':'The spatial decision completion could not be verified',
-                    fix:'Preserve the player declaration and successful receipts. Use the current_position below rather than an earlier narrated pose. Every independently selected environmental reading or view also needs a matching {kind:"place",action:"observe",to,sense,access,scope,facts}; arrival and greetings do not read its contents. Include the actual perceived contents, not merely a description of the writing surface. Archival research and carried-document reading use their existing research/document outcomes; they do not independently require a place observation. Do not repeat current-input settled observations. For selected local positioning use the separate place tool with action move and to here, plus either at for an exact registered feature or spot for a descriptive local position, with its actual relation. A descriptive spot needs no fixture registration; known_features are reference material, not an exhaustive choice list. Declare a feature only when a real usable fixture needs a definition. An NPC move, time/glance or registration alone does not move the investigator. A real obstacle or necessary open choice can stop an attempt. Do not narrate an arrival without its committed move.',
-                    details:{reason:'place_decision_incomplete',cause:coverage.reason??'place_decision_incomplete',transaction_state:'uncommitted',before_execution:true,current_place:spatial.current_place,current_position:spatial.current_position,
-                        known_features:spatial.features.map((feature:Record<string,unknown>)=>feature.name),...(coverage.axes?{axes:coverage.axes}:{})}});
+                if(!coverage.covered)throw locationCoverageError(coverage,spatial);
             }
             const newlyMoving=compiled.effects.some(effect=>effect.kind==='move'||effect.kind==='place'&&effect.action==='move'&&effect.to!=='here'&&effect.to!==before.where?.scene);
             if((scenePopulationRequired(before)||newlyMoving)&&!compiled.effects.some(row=>row.kind==='scene'))throw new KernelError({code:'needs',message:'Assess scene service and population from the current place and clock with one scene command; missing registered names never means empty.'});

@@ -50698,3 +50698,22 @@ structural validation, blocked-view constraints, identity, sensory access, actio
 admission, coverage and transaction authority remain in force. No new timeout or
 runtime resource policy is introduced. This supersedes the proposed observation
 budget, following the owner's explicit instruction against hard content limits.
+
+### Recovery names the unresolved spatial operation (2026-10-21)
+
+Completion review retains its existing thresholds and closed move/feature/
+observation axes. A refused output projects correction guidance only for axes
+reported missing or uncertain by that review; the projection neither infers
+intent nor accounts for an action. Feature recovery names the feature command,
+its owning place and registered fixture, and the preceding establishment needed
+only for a missing fixture. A door is a local feature, not a child place merely
+because it needs a name. Registration does not open it. Accounted proposal steps
+stay in the corrected uncommitted batch, while successful prior receipts are not
+replayed. Unavailable review remains unavailable and grants no write authority.
+
+The error writer consumes existing review axes and canonical inspected position;
+the native error result is the reader boundary; the same Keeper corrects the
+proposal through ordinary validation, admission and atomic staging. The location
+Mod describes definition versus state change consistently and removes its stale
+six-fact prose limit. No new reviewer, retry allowance, normalization, timeout,
+source mutation or transaction behavior is introduced.
