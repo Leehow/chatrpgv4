@@ -50685,3 +50685,16 @@ compact entry retains discovery guidance. Inspect still reads missing state or
 genuinely missing grammar. Existing demand writes this distinction, the provider
 declaration exposes it, and the Keeper chooses whether a read is needed. Original
 tools, canonical validation, gates, writes and output grammar remain unchanged.
+
+### Observation fact preservation (2026-10-21)
+
+Observation facts are nonblank strings in an array, with no observation-specific
+per-fact length, fragment-count or combined-byte ceiling. Preserve every supplied
+fact and its order through validation, staging, receipts, storage, inspection and
+delivery; do not truncate, merge, summarize or split the selected player action to
+fit a content limit. Existing raw tool and receipt evidence remains available for
+size and failure diagnosis. Payload size is not observation validity. Ordinary
+structural validation, blocked-view constraints, identity, sensory access, action
+admission, coverage and transaction authority remain in force. No new timeout or
+runtime resource policy is introduced. This supersedes the proposed observation
+budget, following the owner's explicit instruction against hard content limits.

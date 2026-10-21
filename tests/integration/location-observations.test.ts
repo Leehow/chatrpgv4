@@ -24,6 +24,40 @@ async function room(k:RpcClient,call='t2-c1'){
     await k.table('apply',{call_id:call,effects:[{kind:'place',action:'move',to:'Inn room',at:'window',relation:'beside',via:'Through the inn and upstairs',travel_band:'adjacent'}]});
 }
 
+for(const [label,facts] of [
+    ['eight short facts',['A narrow table stands by the wall.','A tray rests on it.','Letters lie beside the tray.','Hooks line the wall.',
+        'Two coats hang on the hooks.','An umbrella stand is beside them.','A mirror hangs above the table.','A doorway leads onward.']],
+    ['a complete larger view',Array.from({length:65},(_,i)=>String(i)+' '+String.fromCodePoint(0x1f642).repeat(i===0?16000:700))],
+] as const)test(label+' survive canonical write, receipt, delivery, inspection and restart',async t=>{
+    const k=await kernel(t);await street(k);const before=world(k).clock.minutes;
+    const observed={kind:'place',action:'observe',to:'Street',at:'front steps',sense:'sight',access:'clear',scope:'The visible near wall.',facts:[...facts]};
+    const result=await k.table('apply',{call_id:'t1-c2',effects:[{kind:'time',minutes:2,why:'The selected brief inspection.'},observed]});
+    assert.deepEqual(result.outcomes[1].observation.facts,facts);
+    assert.deepEqual(locations(k).observations[0].facts,facts);
+    assert.equal(world(k).clock.minutes,before+2);
+    const staged=await inspect(k);
+    assert.deepEqual(staged.observation.latest_settled.facts,facts);
+    assert.equal(staged.observation.last_observation,undefined,'unpublished facts remain outside player knowledge');
+    await k.table('narrate',{call_id:'t1-c3',text:'The near wall and its furnishings are visible.'});
+    assert.deepEqual((await inspect(k)).observation.last_observation.facts,facts);
+    await k.close();const restarted=new RpcClient(k.workspace);t.after(()=>restarted.close());await restarted.table('open');
+    assert.deepEqual((await inspect(restarted)).observation.last_observation.facts,facts);
+    assert.equal(world(restarted).clock.minutes,before+2,'publication and restart do not charge extra observation time');
+});
+
+test('malformed and blocked observation facts still refuse atomically',async t=>{
+    const k=await kernel(t);await street(k);const before=world(k);
+    for(const facts of [[42],[''],['   ']]){
+        const error=await k.tableErr('apply',{call_id:'t1-c2',effects:[{kind:'time',minutes:2,why:'The selected brief inspection.'},
+            {kind:'place',action:'observe',to:'Street',at:'front steps',sense:'sight',access:'clear',scope:'The near wall.',facts}]});
+        assert.equal(error.code,'invalid_params');assert.deepEqual(world(k),before);
+    }
+    const blocked=await k.tableErr('apply',{call_id:'t1-c2',effects:[
+        {kind:'place',action:'observe',to:'Street',at:'front steps',sense:'sight',access:'blocked',reason:'A solid shutter blocks the view.',scope:'The near wall.',facts:['A table is behind the shutter.']}]});
+    assert.equal(blocked.code,'invalid_params');assert.equal(blocked.details.reason,'place_observation_blocked_shape');
+    assert.deepEqual(world(k),before);
+});
+
 test('the same incident survives viewpoint changes, real NPC departure, delivery and restart',async t=>{
     const k=await kernel(t);await street(k);
     const first=await k.table('apply',{call_id:'t1-c2',effects:[initial]});
