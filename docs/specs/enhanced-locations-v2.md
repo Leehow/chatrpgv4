@@ -469,4 +469,7 @@ v2 与它们重叠，实施前必须先确定谁先落地、在哪个分支上�
 - 2026-10-21 `a117272ec` §250：一包整条路线、宽容的地点命令、契约读取改短、mod 2.0.0。
 - 2026-10-21 `ef7970257` 测试对齐 §250。
 - 2026-10-21 下一提交：`adjusted` 进入 place/move 的 outcomes 投影，KP 能看到内核纠正了什么。
-- 待办：盒子 focused → all 全绿；干净 worktree 合并打包；sonnet 子代理经 ego-browser 真 App 实测并分诊修复。
+- 2026-10-21 `39c1e90f0`/`12d5535a8`：交互内容项按自身键定位分支报错（T107 的 input_requirements topic 不再报成 fact_ref）。
+- 2026-10-21 `c2834cd54`：并入 origin/0.9.8a（§247 Quick Settlement、§248 mod 索引；现装 App 已含这两项，不并会倒退）。
+  共享检出 `chatrpgv4-wt-pi-coc-v2` 有另一路未提交工作，本地 0.9.8a 引用未移动；打包从本分支出。
+- 待办：盒子 all 全绿 → 退出 App 打包到 /Applications → sonnet 子代理经 ego-browser 真 App 实测（简报在会话 scratchpad 的 player-brief.md）→ 分诊修复复测。
