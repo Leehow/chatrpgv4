@@ -762,3 +762,23 @@ extension workers still writing pf paths; retain those cleanup warnings, never
 claim a passing result. Another owner's suite then occupied the box. The1de
 queue had not admitted a suite and was stopped before advancing source; requeue
 only the latest repair after that owner releases the shared machine.
+
+0e13beaf0 clean focused34/34 and fast130/130; canonical package01:45:13Z.
+After rebuild the real Pi route seam passes1/1; kernel persistence test1/1 also
+passes. All admitted01:51:06Z onLAN after the earlier owner finished. No further
+interruption of that running suite. Original48 completed71.899s/0errors: local
+route via survives in place:t48-c1, movement.87 and observation.93 accounted,
+actual author Grok4.5/medium. Original49 wait-to22:15, return and two views
+completed127.018s/1error: initial atomic wait+inferred NPC activities correctly
+failed activity_basis against still-applicable observed work, then waiting alone
+and later movement/observations completed. No repeated15min settlement. This
+round fails120s acceptance and must not be counted as passing.
+
+Do not weaken that existing activity guard or integrate the foreign NPC Mod.
+Enhanced Locations1.1.25 adds a narrow continuity instruction: a wait/revisit
+does not require inferred activity rewrites of still-applicable observed facts.
+Keeper reads it in the existing need-contract/before-place section (49 actually
+read this contract); author and kernel responsibilities are unchanged. A true
+supported transition still uses the normal activity effect and why. Prompt
+guidance is not proof of latency repair; repeat an actual wait/revisit after
+installation, preserve any further failure, and report the measured result.

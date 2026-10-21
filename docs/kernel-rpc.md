@@ -48909,6 +48909,17 @@ for related decision facts; Temporal Event History illustrates retaining command
 arguments and outcomes for recovery/audit, without adopting its architecture:
 https://docs.temporal.io/workflow-execution/event .
 
+Observation-wait guidance (1.1.25): the location Mod's existing spatial
+continuity section tells the Keeper not to add inferred npc.activity effects
+merely to restate an observed/established activity that remains applicable after
+a selected wait. Preserve that basis and the existing kernel activity guard;
+actual supported changes still use their ordinary effects with why. The section
+is delivered by place inspect need contract and before_apply:place. No new NPC
+mechanism, forced event progression or relaxed activity/admission rule. Original
+input49 completed127.018s with one correctly refused activity_basis batch and
+its retry; this fails120s acceptance despite correct final clock/order/prose.
+Revalidate the full selected wait and revisit naturally with Grok4.5/medium.
+
 The model-facing `place` tool has two operations:
 
 - `inspect`: optional `name` (default current place), `need: context|contract`.
