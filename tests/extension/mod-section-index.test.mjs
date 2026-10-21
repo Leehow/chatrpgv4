@@ -269,8 +269,8 @@ test("a resolve's family comes from its settled result, else from the decision i
 	assert.equal(api.resolveFamily({action:{}}),undefined);
 });
 
-test("the section message keeps to its ceiling and names what it left out (§183.5)",async()=>{
-	const rows=[],texts=Object.fromEntries(SECTIONS.map((section,i)=>[`m@1.0.0#${i}`,`## ${section.id}\n\n${"x".repeat(7000)}`]));
+test("the section message keeps to its ceiling and names what it left out (§183.5, §248.6)",async()=>{
+	const rows=[],texts=Object.fromEntries(SECTIONS.map((section,i)=>[`m@1.0.0#${i}`,`## ${section.id}\n\n${"x".repeat(22000)}`]));
 	const lane=api.createModSections({read:async(method,params)=>({sections:params.keys.map(key=>({key,text:texts[key]}))}),decision:()=>undefined,record:row=>rows.push(row)});
 	const capsule={...capsuleOf(SECTIONS),turn:{number:4,player_text:"Where can I eat?"},mods:{...capsuleOf(SECTIONS).mods,topics:[{id:"asks_question",what:"w",not_for:"n",examples:["e"]}]}};
 	const binding={campaign:"c",worldline:"main",loop:0,turn:4};

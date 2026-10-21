@@ -8,8 +8,9 @@ import {judgeTopics,topicBindings,type Topic,type TopicInput,type TopicJudgement
 import {placeOperation} from '../kernel/place-operation.ts';
 type Row=Record<string,any>;
 export const MOD_SECTIONS_MESSAGE='coc-mod-sections';
-/** The message's content ceiling (UTF-8 bytes); what does not fit is named in `omitted`. */
-export const MOD_SECTIONS_BYTES=16384;
+/** The message's content ceiling (UTF-8 bytes); what does not fit is named in `omitted`. §248.6: 48 KiB, since the
+ *  sections it carries left the brief (an opening turn sends about 30 KB of due sections). */
+export const MOD_SECTIONS_BYTES=49152;
 /** How long the first request of an input waits for the topics, and how long Jev may take at all. */
 export const MOD_TOPICS_FIRST_WAIT_MS=2500,MOD_TOPICS_ALLOWANCE_MS=6000;
 /** The bar a topic clears to count as fired for `no_topic`; a section may set its own for itself. */

@@ -50831,6 +50831,15 @@ state; it is the tenth name of `COC_TOOL_NAMES`, offered on every table. Schema-
 Telemetry: `lane: "mod-sections"`, `event: "pull_mode"` once per input; `selected` rows carry `why` (`due`,
 `call:<trigger>`, `gate`); `lane: "mod-sections"`, `event: "read"` with the key for each Keeper read.
 
+### 248.6 Room for pushed sections (live finding 2026-10-21)
+
+The first live table on §248 (MiniMax 3.1/medium, the-haunting, zh-Hans) cut the opening turn's due sections at §183.5's
+16 KiB message ceiling (First impression, Establishing a place, Reading the thread omitted), and three opening requests near
+the 384 KiB request ceiling left the whole message out as `request_ceiling`. Before §248 that text rode in the brief. So:
+- `coc-mod-sections` carries at most 48 KiB (`MOD_SECTIONS_BYTES`); what does not fit is still named in `omitted`;
+- the message outranks history like §228's disclosure: when it does not fit, the request is assembled again with room
+  reserved for it and the disclosure; only when even that fails is it left out and recorded `omitted`, `request_ceiling`.
+
 ### 248.5 Limits and tests
 
 - A topic-only section reaches the Keeper only if it reads it; nothing counts whether it should have. The measure is a

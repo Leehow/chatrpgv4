@@ -1104,7 +1104,13 @@ export function installContextPolicy(pi: ExtensionAPI, writeTelemetry: (row: Row
         }
         if(packets.length)outgoing=disclosure.place(outgoing,outgoing.length-projectedTail(result).length);
         pendingDiscovery=fresh;
-        // §183.5's sections are optional beside the disclosure: they join only when they still fit.
+        // §248.6: the sections the table's state and this turn's calls send outrank history, as the disclosure does: when
+        // they do not fit, history yields room for them. Only when even that cannot fit are they left out.
+        if(sectionsMessage&&!fits([...outgoing,sectionsMessage])){
+            const widened=assemble(requestSize(packets)+requestSize([sectionsMessage]),omission?.reason);
+            const placed=packets.length?disclosure.place(widened.messages,widened.messages.length-projectedTail(widened.fitted).length):widened.messages;
+            if(fits([...placed,sectionsMessage])){result=widened.fitted;outgoing=placed;}
+        }
         if(sectionsMessage&&fits([...outgoing,sectionsMessage])){
             outgoing.push(sectionsMessage);pendingSections=sectionsMessage;
         }else if(sectionsMessage)record({lane:'mod-sections',event:'omitted',turn:snapshot.binding.turn,reason:'request_ceiling',bytes:requestSize([sectionsMessage])});
