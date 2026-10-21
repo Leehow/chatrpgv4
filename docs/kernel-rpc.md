@@ -51240,6 +51240,13 @@ investigator, twice as "an offer carries no condition", then "no open offer to a
   An offer that stands is closed by `accepted` exactly as before, and a `declined` offer that was never made is still
   refused.
 
+### 250.16 A field two effect kinds share is read by what it holds
+
+Live (`el-v2-20261021f` T11): `{kind:"activity", name, activity:{summary, basis, wakefulness}}` was refused as an unknown
+kind, because both `npc` and `scene` declare `activity`, so §250.4's field-named reading found two. The value's own
+fields now decide when only one kind declares them all: `wakefulness` is an NPC's activity, `service` and `crowd` a
+scene's. An activity carrying only the fields both share is still ambiguous and refused.
+
 ### 250.15 The investigator reads a document too
 
 Live (`el-v2-20261021f` T8, five refusals): Knott laid the lease on the desk for the investigator, and the Keeper wrote

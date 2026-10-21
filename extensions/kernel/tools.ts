@@ -83,7 +83,7 @@ export function argumentLimitRefusal(tool: string, args: unknown): { code: strin
 }
 
 /** One branch of `apply`'s `effects[]` union: its kind and the properties it requires (read off the schema itself). */
-interface EffectBranch { kind: string; required: string[]; arrays: string[]; properties: string[] }
+interface EffectBranch { kind: string; required: string[]; arrays: string[]; properties: string[]; nested: Record<string, string[]> }
 const branchCache = new WeakMap<object, EffectBranch[]>();
 function effectBranches(parameters: TSchema): EffectBranch[] {
 	const cached = branchCache.get(parameters);
@@ -95,7 +95,12 @@ function effectBranches(parameters: TSchema): EffectBranch[] {
 		const required = (shape.required ?? []).filter((key): key is string => typeof key === "string" && key !== "kind");
 		const arrays = Object.entries(shape.properties ?? {}).filter(([, field]) => field.type === "array").map(([name]) => name);
 		const properties = Object.keys(shape.properties ?? {});
-		return names.filter((name): name is string => typeof name === "string").map(name => ({ kind: name, required, arrays, properties }));
+		// The declared fields of each object-valued property, so a field two kinds share can still be read by what it holds.
+		const nested = Object.fromEntries(Object.entries(shape.properties ?? {}).flatMap(([name, field]) => {
+			const inner = (field as { properties?: Record<string, unknown> }).properties;
+			return inner && typeof inner === "object" ? [[name, Object.keys(inner)]] : [];
+		}));
+		return names.filter((name): name is string => typeof name === "string").map(name => ({ kind: name, required, arrays, properties, nested }));
 	});
 	branchCache.set(parameters, branches);
 	return branches;
@@ -127,7 +132,14 @@ export function aliasEffectKinds(tool: string, parameters: TSchema, args: unknow
 		}
 		if (typeof kind !== "string" || !Object.hasOwn(effect, kind)) return value;
 		const fields = Object.keys(effect).filter(key => key !== "kind");
-		const readings = [...new Set(branches.filter(branch => fields.every(key => branch.properties.includes(key))).map(branch => branch.kind))];
+		let readings = [...new Set(branches.filter(branch => fields.every(key => branch.properties.includes(key))).map(branch => branch.kind))];
+		// Two kinds declaring the field (npc and scene both carry `activity`) are told apart by what it holds: `wakefulness`
+		// is an NPC's, `service` and `crowd` a scene's (live el-v2-20261021f T11). Shared fields alone stay ambiguous.
+		const held = effect[kind];
+		if (readings.length > 1 && held && typeof held === "object" && !Array.isArray(held)) {
+			const keys = Object.keys(held as Record<string, unknown>);
+			readings = readings.filter(reading => branches.some(branch => branch.kind === reading && keys.every(key => (branch.nested[kind] ?? []).includes(key))));
+		}
 		if (readings.length !== 1) return value;
 		repairs.push({ index, from: kind, to: readings[0] });
 		return { ...effect, kind: readings[0] };

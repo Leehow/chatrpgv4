@@ -15,8 +15,8 @@ test('a kind that names the effect\'s own field takes the only kind declaring al
 });
 
 test('an ambiguous or unrelated unknown kind is left for the refusal with its kind list',()=>{
- const activity={kind:'activity',name:'The broker',activity:{summary:'Waits at the door.',basis:'observed',wakefulness:'awake'},why:'He stays.'};
- assert.deepEqual(alias(activity).repairs,[],'npc and scene both declare activity: no single reading');
+ const activity={kind:'activity',name:'The broker',activity:{summary:'Waits at the door.',basis:'observed'},why:'He stays.'};
+ assert.deepEqual(alias(activity).repairs,[],'npc and scene both declare activity and these fields: no single reading');
  assert.equal(effectShapeRefusal('apply',apply.parameters,alias(activity).args).details.reason,'effect_kind_unknown');
  assert.deepEqual(alias({kind:'narrate',text:'Prose.'}).repairs,[],'no field carries the kind\'s name');
  assert.deepEqual(alias({kind:'document',document:{text:'x'},unrelated:true}).repairs,[],'a field no kind declares blocks the reading');
@@ -36,4 +36,13 @@ test('a clue established without a name is refused with the establish form, not 
  assert.match(refusal.fix,/establish takes a new short name of its own: \{kind: "clue", clue: <new name>, establish: \{summary\}, how\}/);
  const book=effectShapeRefusal('apply',apply.parameters,{effects:[{kind:'clue',how:'Seen.'}]});
  assert.doesNotMatch(book.fix,/new short name/,'a clue without establish keeps the book-clue fix alone');
+});
+
+test('an activity effect is read by what its activity holds: wakefulness is an NPC\'s, service and crowd a scene\'s (live el-v2-20261021f T11)',()=>{
+ const npc=alias({kind:'activity',name:'the doorman',activity:{summary:'He sits behind the desk.',basis:'observed',wakefulness:'awake'},why:'He is on duty.'});
+ assert.deepEqual(npc.repairs,[{index:0,from:'activity',to:'npc'}]);
+ assert.equal(effectShapeRefusal('apply',apply.parameters,npc.args),undefined);
+ const scene=alias({kind:'activity',name:'here',activity:{summary:'The lobby is busy.',basis:'observed',crowd:'active'},why:'Evening rush.'});
+ assert.deepEqual(scene.repairs,[{index:0,from:'activity',to:'scene'}]);
+ assert.deepEqual(alias({kind:'activity',name:'here',activity:{summary:'Quiet.',basis:'observed'},why:'w'}).repairs,[],'shared fields alone stay ambiguous');
 });
