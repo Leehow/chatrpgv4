@@ -1155,3 +1155,23 @@ case; synthetic filler alone shrinks8KiB. Asynchronous telemetry must match the
 new invocation's ceiling. No production request limit was raised. Main targeted
 six-result2 and observation2 pass; clean full validation remains required. The
 0accb387e full suite started separately before these changes and is still running.
+
+EL-07 local commits a9054fca4/3f2a3d6dc: clean native recovery2, existing refusal/
+publication boundaries12, observations7, fast130 pass. Long-context5 initially
+had one test-only mismatch: the configured budget is capped by the model window;
+its opening probe also preceded pressure. Effective requestBudget and pressure
+turns are now measured; the first case passes, the other four passed unchanged.
+Canonical install08:48:03Z/3f2a3d6dc has exact bundles/source-map identity, stable
+PipiUI Dev certificate, backlink, strict/deep verification and empty staging.
+Original76 delivered76.096s/0errors, author and main Grok4.5/medium. It did not
+exercise the new refusal continuation and still omitted a concrete price in
+prose; it is not complete price-experience or recovery acceptance. Original77
+normal bounded meal order is in flight, no forced stop. Raw records retained.
+
+0accb387e LAN full run.fgFcUqBT failed exit1/wall1225s: five extension files,
+integration2246/2248, loop12/12. Additional stale assertions were family19 vs23,
+band22 vs24, old restriction wording and expecting relation.type despite two
+valid annotated string alternatives. Update only these expectations; retain the
+number-type rejection and actual provider serializer test. Dirty main has a
+separate foreign author projection failure; clean-source validation is required.
+Latest3f2a3d6dc LAN full began serially, never overlaps another heavy run.
