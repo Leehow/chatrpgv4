@@ -52,7 +52,8 @@ test('native typed location commands use open destinations, the same effect and 
     assert.deepEqual(route[1].until,{time:'18:00'});
     const feature={kind:'place',action:'feature',to:'Inn',at:'window',state:'open',passable:true};
     assert.deepEqual(compileTurnPacket(turnPacket(JSON.stringify({version:4,commands:[feature]}))).effects,[feature]);
-    assert.throws(()=>turnPacket(JSON.stringify({version:4,commands:[{...command,travel_minutes:5}]})),/Invalid decision command/);
+    assert.equal(compileTurnPacket(turnPacket(JSON.stringify({version:4,commands:[{...command,travel_minutes:25}]}))).effects[0].travel_minutes,25,
+        '§250.5: a journey may give its own minutes; the kernel bounds them by the band');
     assert.deepEqual(turnPacketResult({outcomes:[{kind:'place',status:'changed',position:{place:'Inn',at:'counter'}}]}).outcomes[0].position,{place:'Inn',at:'counter'});
 });
 

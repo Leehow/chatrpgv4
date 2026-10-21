@@ -82373,13 +82373,13 @@
           "counterpart": {
             "file": "tests/integration/mod-combat.test.ts",
             "name": "test_first_impression_refusal_names_who_is_here_and_how_to_stage_the_target",
-            "sha256": "60e70a13249b08e5e9caab6f306d9f63f4a6ff0605e7dd56e7e97dd492406ecd",
+            "sha256": "ac53afc6cb74fd9e2e1443d83b056192f137ef8a677a8125df7353a4fdf26f55",
             "revalidated": {
-              "priorNativeSha256": "c47d88d5be2480a42ed31a2004c1a3011d1242b51549202f0fa60f97c985c886",
-              "command": "node --test tests/integration/mod-director-text.test.ts tests/integration/temporal-context.test.ts tests/integration/npc-language-barrier.test.ts tests/integration/mod-combat.test.ts",
+              "priorNativeSha256": "60e70a13249b08e5e9caab6f306d9f63f4a6ff0605e7dd56e7e97dd492406ecd",
+              "command": "remote-test.sh run <worktree> all (integration lane, leehow-pc, run.2WMEsTm9) and remote-test.sh run <worktree> integration tests/integration/mod-combat.test.ts (run.vNclJx5C)",
               "result": "passed",
-              "cases": 42,
-              "review": "Contract 248 changed another case of this file (sectioned packages ride indexed); this case and its assertions are unchanged."
+              "cases": 12,
+              "review": "§249 changed another case of this file (pending contact rows carry actor_id); this case and its assertions are unchanged."
             }
           },
           "review": "statement-by-statement",
@@ -82492,13 +82492,13 @@
           "counterpart": {
             "file": "tests/integration/mod-combat.test.ts",
             "name": "test_first_impression_uses_higher_value_and_reuses_pair",
-            "sha256": "60e70a13249b08e5e9caab6f306d9f63f4a6ff0605e7dd56e7e97dd492406ecd",
+            "sha256": "ac53afc6cb74fd9e2e1443d83b056192f137ef8a677a8125df7353a4fdf26f55",
             "revalidated": {
-              "priorNativeSha256": "c47d88d5be2480a42ed31a2004c1a3011d1242b51549202f0fa60f97c985c886",
-              "command": "node --test tests/integration/mod-director-text.test.ts tests/integration/temporal-context.test.ts tests/integration/npc-language-barrier.test.ts tests/integration/mod-combat.test.ts",
+              "priorNativeSha256": "60e70a13249b08e5e9caab6f306d9f63f4a6ff0605e7dd56e7e97dd492406ecd",
+              "command": "remote-test.sh run <worktree> all (integration lane, leehow-pc, run.2WMEsTm9) and remote-test.sh run <worktree> integration tests/integration/mod-combat.test.ts (run.vNclJx5C)",
               "result": "passed",
-              "cases": 42,
-              "review": "Contract 248 changed another case of this file (sectioned packages ride indexed); this case and its assertions are unchanged."
+              "cases": 12,
+              "review": "§249 changed another case of this file (pending contact rows carry actor_id); this case and its assertions are unchanged."
             }
           },
           "review": "statement-by-statement",
@@ -82603,13 +82603,13 @@
           "counterpart": {
             "file": "tests/integration/mod-combat.test.ts",
             "name": "test_pending_contact_carries_the_handle_the_first_impression_receipt_carries",
-            "sha256": "60e70a13249b08e5e9caab6f306d9f63f4a6ff0605e7dd56e7e97dd492406ecd",
+            "sha256": "ac53afc6cb74fd9e2e1443d83b056192f137ef8a677a8125df7353a4fdf26f55",
             "revalidated": {
-              "priorNativeSha256": "c47d88d5be2480a42ed31a2004c1a3011d1242b51549202f0fa60f97c985c886",
-              "command": "node --test tests/integration/mod-director-text.test.ts tests/integration/temporal-context.test.ts tests/integration/npc-language-barrier.test.ts tests/integration/mod-combat.test.ts",
+              "priorNativeSha256": "60e70a13249b08e5e9caab6f306d9f63f4a6ff0605e7dd56e7e97dd492406ecd",
+              "command": "remote-test.sh run <worktree> all (integration lane, leehow-pc, run.2WMEsTm9) and remote-test.sh run <worktree> integration tests/integration/mod-combat.test.ts (run.vNclJx5C)",
               "result": "passed",
-              "cases": 42,
-              "review": "Contract 248 changed another case of this file (sectioned packages ride indexed); this case and its assertions are unchanged."
+              "cases": 12,
+              "review": "§249: this case gained one assertion (every pending contact row carries actor_id, so a Keeper naming the investigator by id matches it); its original assertions are unchanged."
             }
           },
           "review": "statement-by-statement",
@@ -83164,13 +83164,13 @@
           "counterpart": {
             "file": "tests/integration/mod-combat.test.ts",
             "name": "test_npc_fires_generated_weapon_then_player_takes_remaining_ammo",
-            "sha256": "60e70a13249b08e5e9caab6f306d9f63f4a6ff0605e7dd56e7e97dd492406ecd",
+            "sha256": "ac53afc6cb74fd9e2e1443d83b056192f137ef8a677a8125df7353a4fdf26f55",
             "revalidated": {
-              "priorNativeSha256": "c47d88d5be2480a42ed31a2004c1a3011d1242b51549202f0fa60f97c985c886",
-              "command": "node --test tests/integration/mod-director-text.test.ts tests/integration/temporal-context.test.ts tests/integration/npc-language-barrier.test.ts tests/integration/mod-combat.test.ts",
+              "priorNativeSha256": "60e70a13249b08e5e9caab6f306d9f63f4a6ff0605e7dd56e7e97dd492406ecd",
+              "command": "remote-test.sh run <worktree> all (integration lane, leehow-pc, run.2WMEsTm9) and remote-test.sh run <worktree> integration tests/integration/mod-combat.test.ts (run.vNclJx5C)",
               "result": "passed",
-              "cases": 42,
-              "review": "Contract 248 changed another case of this file (sectioned packages ride indexed); this case and its assertions are unchanged."
+              "cases": 12,
+              "review": "§249 changed another case of this file (pending contact rows carry actor_id); this case and its assertions are unchanged."
             }
           },
           "review": "statement-by-statement",
@@ -83365,13 +83365,13 @@
           "counterpart": {
             "file": "tests/integration/mod-combat.test.ts",
             "name": "test_generated_spell_is_priced_and_npc_can_cast_it",
-            "sha256": "60e70a13249b08e5e9caab6f306d9f63f4a6ff0605e7dd56e7e97dd492406ecd",
+            "sha256": "ac53afc6cb74fd9e2e1443d83b056192f137ef8a677a8125df7353a4fdf26f55",
             "revalidated": {
-              "priorNativeSha256": "c47d88d5be2480a42ed31a2004c1a3011d1242b51549202f0fa60f97c985c886",
-              "command": "node --test tests/integration/mod-director-text.test.ts tests/integration/temporal-context.test.ts tests/integration/npc-language-barrier.test.ts tests/integration/mod-combat.test.ts",
+              "priorNativeSha256": "60e70a13249b08e5e9caab6f306d9f63f4a6ff0605e7dd56e7e97dd492406ecd",
+              "command": "remote-test.sh run <worktree> all (integration lane, leehow-pc, run.2WMEsTm9) and remote-test.sh run <worktree> integration tests/integration/mod-combat.test.ts (run.vNclJx5C)",
               "result": "passed",
-              "cases": 42,
-              "review": "Contract 248 changed another case of this file (sectioned packages ride indexed); this case and its assertions are unchanged."
+              "cases": 12,
+              "review": "§249 changed another case of this file (pending contact rows carry actor_id); this case and its assertions are unchanged."
             }
           },
           "review": "statement-by-statement",
@@ -83562,13 +83562,13 @@
           "counterpart": {
             "file": "tests/integration/mod-combat.test.ts",
             "name": "test_legacy_hidden_first_impression_is_reused_without_disclosing_or_rerolling",
-            "sha256": "60e70a13249b08e5e9caab6f306d9f63f4a6ff0605e7dd56e7e97dd492406ecd",
+            "sha256": "ac53afc6cb74fd9e2e1443d83b056192f137ef8a677a8125df7353a4fdf26f55",
             "revalidated": {
-              "priorNativeSha256": "c47d88d5be2480a42ed31a2004c1a3011d1242b51549202f0fa60f97c985c886",
-              "command": "node --test tests/integration/mod-director-text.test.ts tests/integration/temporal-context.test.ts tests/integration/npc-language-barrier.test.ts tests/integration/mod-combat.test.ts",
+              "priorNativeSha256": "60e70a13249b08e5e9caab6f306d9f63f4a6ff0605e7dd56e7e97dd492406ecd",
+              "command": "remote-test.sh run <worktree> all (integration lane, leehow-pc, run.2WMEsTm9) and remote-test.sh run <worktree> integration tests/integration/mod-combat.test.ts (run.vNclJx5C)",
               "result": "passed",
-              "cases": 42,
-              "review": "Contract 248 changed another case of this file (sectioned packages ride indexed); this case and its assertions are unchanged."
+              "cases": 12,
+              "review": "§249 changed another case of this file (pending contact rows carry actor_id); this case and its assertions are unchanged."
             }
           },
           "review": "statement-by-statement",
@@ -83669,13 +83669,13 @@
           "counterpart": {
             "file": "tests/integration/mod-combat.test.ts",
             "name": "test_player_learns_generated_spell_and_its_effect_reaches_the_sheet",
-            "sha256": "60e70a13249b08e5e9caab6f306d9f63f4a6ff0605e7dd56e7e97dd492406ecd",
+            "sha256": "ac53afc6cb74fd9e2e1443d83b056192f137ef8a677a8125df7353a4fdf26f55",
             "revalidated": {
-              "priorNativeSha256": "c47d88d5be2480a42ed31a2004c1a3011d1242b51549202f0fa60f97c985c886",
-              "command": "node --test tests/integration/mod-director-text.test.ts tests/integration/temporal-context.test.ts tests/integration/npc-language-barrier.test.ts tests/integration/mod-combat.test.ts",
+              "priorNativeSha256": "60e70a13249b08e5e9caab6f306d9f63f4a6ff0605e7dd56e7e97dd492406ecd",
+              "command": "remote-test.sh run <worktree> all (integration lane, leehow-pc, run.2WMEsTm9) and remote-test.sh run <worktree> integration tests/integration/mod-combat.test.ts (run.vNclJx5C)",
               "result": "passed",
-              "cases": 42,
-              "review": "Contract 248 changed another case of this file (sectioned packages ride indexed); this case and its assertions are unchanged."
+              "cases": 12,
+              "review": "§249 changed another case of this file (pending contact rows carry actor_id); this case and its assertions are unchanged."
             }
           },
           "review": "statement-by-statement",
@@ -83772,13 +83772,13 @@
           "counterpart": {
             "file": "tests/integration/mod-combat.test.ts",
             "name": "test_worldline_merge_requires_an_explicit_choice_for_different_object_owners",
-            "sha256": "60e70a13249b08e5e9caab6f306d9f63f4a6ff0605e7dd56e7e97dd492406ecd",
+            "sha256": "ac53afc6cb74fd9e2e1443d83b056192f137ef8a677a8125df7353a4fdf26f55",
             "revalidated": {
-              "priorNativeSha256": "c47d88d5be2480a42ed31a2004c1a3011d1242b51549202f0fa60f97c985c886",
-              "command": "node --test tests/integration/mod-director-text.test.ts tests/integration/temporal-context.test.ts tests/integration/npc-language-barrier.test.ts tests/integration/mod-combat.test.ts",
+              "priorNativeSha256": "60e70a13249b08e5e9caab6f306d9f63f4a6ff0605e7dd56e7e97dd492406ecd",
+              "command": "remote-test.sh run <worktree> all (integration lane, leehow-pc, run.2WMEsTm9) and remote-test.sh run <worktree> integration tests/integration/mod-combat.test.ts (run.vNclJx5C)",
               "result": "passed",
-              "cases": 42,
-              "review": "Contract 248 changed another case of this file (sectioned packages ride indexed); this case and its assertions are unchanged."
+              "cases": 12,
+              "review": "§249 changed another case of this file (pending contact rows carry actor_id); this case and its assertions are unchanged."
             }
           },
           "review": "statement-by-statement",
@@ -83887,13 +83887,13 @@
           "counterpart": {
             "file": "tests/integration/mod-combat.test.ts",
             "name": "test_container_transfer_and_condition_are_preserved",
-            "sha256": "60e70a13249b08e5e9caab6f306d9f63f4a6ff0605e7dd56e7e97dd492406ecd",
+            "sha256": "ac53afc6cb74fd9e2e1443d83b056192f137ef8a677a8125df7353a4fdf26f55",
             "revalidated": {
-              "priorNativeSha256": "c47d88d5be2480a42ed31a2004c1a3011d1242b51549202f0fa60f97c985c886",
-              "command": "node --test tests/integration/mod-director-text.test.ts tests/integration/temporal-context.test.ts tests/integration/npc-language-barrier.test.ts tests/integration/mod-combat.test.ts",
+              "priorNativeSha256": "60e70a13249b08e5e9caab6f306d9f63f4a6ff0605e7dd56e7e97dd492406ecd",
+              "command": "remote-test.sh run <worktree> all (integration lane, leehow-pc, run.2WMEsTm9) and remote-test.sh run <worktree> integration tests/integration/mod-combat.test.ts (run.vNclJx5C)",
               "result": "passed",
-              "cases": 42,
-              "review": "Contract 248 changed another case of this file (sectioned packages ride indexed); this case and its assertions are unchanged."
+              "cases": 12,
+              "review": "§249 changed another case of this file (pending contact rows carry actor_id); this case and its assertions are unchanged."
             }
           },
           "review": "statement-by-statement",
@@ -83990,13 +83990,13 @@
           "counterpart": {
             "file": "tests/integration/mod-combat.test.ts",
             "name": "test_mod_resolution_obeys_pending_defense_and_preserves_session_projection",
-            "sha256": "60e70a13249b08e5e9caab6f306d9f63f4a6ff0605e7dd56e7e97dd492406ecd",
+            "sha256": "ac53afc6cb74fd9e2e1443d83b056192f137ef8a677a8125df7353a4fdf26f55",
             "revalidated": {
-              "priorNativeSha256": "c47d88d5be2480a42ed31a2004c1a3011d1242b51549202f0fa60f97c985c886",
-              "command": "node --test tests/integration/mod-director-text.test.ts tests/integration/temporal-context.test.ts tests/integration/npc-language-barrier.test.ts tests/integration/mod-combat.test.ts",
+              "priorNativeSha256": "60e70a13249b08e5e9caab6f306d9f63f4a6ff0605e7dd56e7e97dd492406ecd",
+              "command": "remote-test.sh run <worktree> all (integration lane, leehow-pc, run.2WMEsTm9) and remote-test.sh run <worktree> integration tests/integration/mod-combat.test.ts (run.vNclJx5C)",
               "result": "passed",
-              "cases": 42,
-              "review": "Contract 248 changed another case of this file (sectioned packages ride indexed); this case and its assertions are unchanged."
+              "cases": 12,
+              "review": "§249 changed another case of this file (pending contact rows carry actor_id); this case and its assertions are unchanged."
             }
           },
           "review": "statement-by-statement",
@@ -84097,13 +84097,13 @@
           "counterpart": {
             "file": "tests/integration/mod-combat.test.ts",
             "name": "test_same_owner_damage_updates_instance_and_cannot_be_hidden_in_legacy_rows",
-            "sha256": "60e70a13249b08e5e9caab6f306d9f63f4a6ff0605e7dd56e7e97dd492406ecd",
+            "sha256": "ac53afc6cb74fd9e2e1443d83b056192f137ef8a677a8125df7353a4fdf26f55",
             "revalidated": {
-              "priorNativeSha256": "c47d88d5be2480a42ed31a2004c1a3011d1242b51549202f0fa60f97c985c886",
-              "command": "node --test tests/integration/mod-director-text.test.ts tests/integration/temporal-context.test.ts tests/integration/npc-language-barrier.test.ts tests/integration/mod-combat.test.ts",
+              "priorNativeSha256": "60e70a13249b08e5e9caab6f306d9f63f4a6ff0605e7dd56e7e97dd492406ecd",
+              "command": "remote-test.sh run <worktree> all (integration lane, leehow-pc, run.2WMEsTm9) and remote-test.sh run <worktree> integration tests/integration/mod-combat.test.ts (run.vNclJx5C)",
               "result": "passed",
-              "cases": 42,
-              "review": "Contract 248 changed another case of this file (sectioned packages ride indexed); this case and its assertions are unchanged."
+              "cases": 12,
+              "review": "§249 changed another case of this file (pending contact rows carry actor_id); this case and its assertions are unchanged."
             }
           },
           "review": "statement-by-statement",
