@@ -151,13 +151,13 @@ function restore(payload, api, model, binding) {
     return status.valid&&(!status.pending.length||r.run===binding?.run&&binding.enabled&&binding.allowed&&payload.tool_choice!=='none'&&payload.tool_choice?.type!=='none');
   })()));
   if (!records.length) return payload;
-  if (api === 'anthropic-messages') return {...payload, messages: (payload.messages ?? []).map(message => {
-    if (message.role !== 'assistant') return message;
+  if (api === 'anthropic-messages') return {...payload, messages: pairedServerBlocks((payload.messages ?? []).map(message => {
+    if (message.role !== 'assistant') return {message};
     const content = typeof message.content === 'string' ? [{type: 'text', text: message.content}] : message.content;
     const record = records.findLast(r => r.fingerprint === fingerprint(content, api, r.exactReplay));
     if (record) nativeSearchState().report?.({event:'restored',api,model:record.model,run:binding?.run,response_id:record.responseId,server_blocks:record.content.filter(b=>b.type==='server_tool_use'||b.type==='web_search_tool_result').length});
-    return record ? {...message, content: protocolBlocks(record, content)} : message;
-  })};
+    return record ? {message: {...message, content: protocolBlocks(record, content)}, original: message, record} : {message};
+  }), binding)};
   if (!Array.isArray(payload.input)) return payload;
   const input = []; let index = 0;
   while (index < payload.input.length) {
@@ -173,6 +173,59 @@ function restore(payload, api, model, binding) {
     input.push(...(record ? protocolBlocks(record, chunk) : chunk));
   }
   return {...payload, input};
+}
+/** The journalled call a later response's result continues, from the same run's records. */
+function continuedCall(record, id) {
+  if (!record?.continuedServers?.includes(id)) return;
+  for (const source of [...nativeSearchState().records].reverse()) {
+    if (source.transport || source.replayable === false || source.api !== record.api || source.model !== record.model || source.campaign !== record.campaign
+      || source.worldline !== record.worldline || source.loop !== record.loop || source.run !== record.run) continue;
+    const call = source.content.find(block => block.type === 'server_tool_use' && block.id === id);
+    if (call) return {call: clone(call), source};
+  }
+}
+/**
+ * Messages are restored one by one, but a deferred server call and its result live in two responses, and the host's
+ * request ceiling may cut the first while keeping the second (MiniMax 2013 "tool result's tool id not found").
+ * Every outgoing server result follows its call: a result whose call is absent gets the journalled call immediately
+ * before it; a call stays open only while each later assistant message continues it. A half that cannot be
+ * re-paired leaves with its partner and is reported; the rest of the response still replays.
+ */
+function pairedServerBlocks(rows, binding) {
+  const open = new Map(), paired = new Set(), drop = new Set(), anchors = new Map(), events = [];
+  rows.forEach((row, index) => {
+    if (row.message.role !== 'assistant') return;
+    const continued = new Set(row.record?.continuedServers ?? []);
+    for (const [id, at] of open) if (!continued.has(id)) {
+      open.delete(id); drop.add(at.block);
+      events.push({event: 'server_pair_omitted', reason: 'server_result_absent', record: rows[at.index].record, server_id: id});
+    }
+    for (const block of Array.isArray(row.message.content) ? row.message.content : []) {
+      if (block.type === 'server_tool_use') open.set(block.id, {index, block});
+      if (block.type !== 'web_search_tool_result') continue;
+      if (open.delete(block.tool_use_id)) {paired.add(block.tool_use_id); continue;}
+      const found = !paired.has(block.tool_use_id) && continuedCall(row.record, block.tool_use_id);
+      if (found) {anchors.set(block, found.call); paired.add(block.tool_use_id);
+        events.push({event: 'server_call_reanchored', record: row.record, call_response_id: found.source.responseId, server_id: block.tool_use_id});}
+      else {drop.add(block);
+        events.push({event: 'server_pair_omitted', reason: paired.has(block.tool_use_id) ? 'duplicate_server_result' : 'server_call_absent', record: row.record, server_id: block.tool_use_id});}
+    }
+  });
+  for (const {record, ...event} of events) nativeSearchState().report?.({...event, api: record?.api, model: record?.model, run: binding?.run, response_id: record?.responseId});
+  if (!events.length) return rows.map(row => row.message);
+  return rows.map(row => {
+    const blocks = Array.isArray(row.message.content) ? row.message.content : [];
+    if (!blocks.some(block => drop.has(block) || anchors.has(block))) return row.message;
+    // Citations into an omitted result's sources would point at nothing.
+    const gone = new Set(blocks.filter(block => drop.has(block) && block.type === 'web_search_tool_result')
+      .flatMap(block => Array.isArray(block.content) ? block.content : []).map(source => source.url));
+    const content = blocks.flatMap(block => drop.has(block) ? [] : anchors.has(block) ? [anchors.get(block), block] : [block]).map(block => {
+      if (block.type !== 'text' || !Array.isArray(block.citations) || !gone.size) return block;
+      const {citations, ...rest} = block, kept = citations.filter(citation => !gone.has(citation?.url));
+      return kept.length ? {...rest, citations: kept} : rest;
+    });
+    return content.length ? {...row.message, content} : row.original;
+  });
 }
 /** Mixed deferred calls require a pure tool-result message, even when the host supplied fresh context. */
 function serverContinuationMessages(messages) {
