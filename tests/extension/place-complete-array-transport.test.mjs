@@ -50,3 +50,13 @@ test('a read that names its place by to is a read of that place; a write field b
  assert.equal(placeParameterRefusal(normalizePlaceArrayArguments(write).args).details.reason,'place_mode_conflict');
  assert.deepEqual(normalizePlaceArrayArguments({action:'inspect',to:'A',name:'B'}).fields,[],'two different targets stay for their own refusal');
 });
+
+test('a look at a place is carried to place inspect instead of failing look validation (§250.4, live el-v2-20261021e T33)',async t=>{
+ const table=await openTable({responses:[fauxAssistantMessage([fauxToolCall('look',{focus:'place',name:'Station',need:'context'})],{stopReason:'toolUse'}),fauxAssistantMessage('Stopped fixture.')]});
+ t.after(()=>table.dispose());await table.session.prompt('I think back over the station.');await waitForIdle(table.session);
+ const request=table.kernelRequests().find(row=>row.method==='mods.locations.inspect'||row.method==='table.look');
+ assert.ok(request,'the read reaches the kernel');
+ assert.equal(request.method,'mods.locations.inspect','it is the place read, not a scene look');
+ assert.equal(request.params.name,'Station');assert.equal(request.params.need,'context');
+ assert.ok(table.telemetry().some(row=>row.lane==='arguments'&&row.event==='look_place_routed'));
+});

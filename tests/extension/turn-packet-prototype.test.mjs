@@ -944,3 +944,20 @@ test('eight distinct native parameter failures stay uncommitted, stop the run an
  assert.deepEqual(table.telemetry().filter(row=>row.lane==='admission'&&row.path==='keeper_judged').map(row=>({turn:row.turn,kinds:row.kinds,jev_calls:row.jev_calls})),[{turn:2,kinds:['time'],jev_calls:0}],'the reset input admits its valid packet');
  assert.equal(table.entries('coc-final-delivery').filter(row=>row.event==='end'&&row.status==='completed'&&row.turn===2).length,1);
 });
+
+test('each stop of a route carries its own population assessment, settled before the route leaves it (§250.12, live el-v2-20261021e T33)',()=>{
+ const route={version:4,commands:[
+  {kind:'place',action:'move',to:'Station Hotel',travel_band:'adjacent'},
+  {kind:'walk_on',slot:'new_1',label:'the day clerk',reason:'The desk is staffed by day.'},
+  {kind:'scene',service:'open',crowd:'quiet'},
+  {kind:'place',action:'move',to:'corbitt-house-ground',via:'along the tram line',travel_band:'local_travel'},
+  {kind:'walk_on',slot:'new_2',label:'a street sweeper',to:'corbitt-house-ground',reason:'Early sweeping.'},
+  {kind:'scene',service:'closed',crowd:'quiet'},
+  {kind:'place',action:'observe',to:'corbitt-house-ground',facts:['The gate stands open.']}]};
+ const effects=compileTurnPacket(turnPacket(JSON.stringify(route))).effects.map(e=>e.kind==='scene'?`scene:${e.activity.crowd}`:e.kind==='npc'?`npc:${e.name}@${e.to}`:`${e.kind}:${e.action??''}:${e.to??''}`);
+ assert.deepEqual(effects,['place:move:Station Hotel','npc:the day clerk@here','scene:quiet','place:move:corbitt-house-ground','place:observe:corbitt-house-ground','npc:a street sweeper@corbitt-house-ground','scene:quiet']);
+ const twice={version:4,commands:[{kind:'place',action:'move',to:'Station Hotel',travel_band:'adjacent'},{kind:'scene',service:'open',crowd:'quiet'},{kind:'scene',service:'open',crowd:'empty'}]};
+ assert.throws(()=>turnPacket(JSON.stringify(twice)),/Duplicate newcomer labels, scene or slot/,'two assessments of one stop are still a duplicate');
+ const one={version:4,commands:[{kind:'walk_on',slot:'new_1',label:'the clerk',reason:'Staffed.'},{kind:'scene',service:'open',crowd:'quiet'},{kind:'place',action:'observe',facts:['A counter.'],people:['new_1']}]};
+ assert.deepEqual(compileTurnPacket(turnPacket(JSON.stringify(one))).effects.map(e=>e.kind),['npc','place','scene'],'a single stop still settles its assessment last');
+});

@@ -51199,6 +51199,20 @@ place's name in play_language as the investigators know it -- and hands it to ca
 before; the cards, the capsule's `display_name` and later context use it. Without a label nothing is named for the
 player, so a book place's own name is still never revealed by arriving.
 
+### 250.12 One population assessment per stop, and a look at a place
+
+Live (`el-v2-20261021e` T33): a route from the hotel back to the Corbitt House carried a scene assessment for each stop,
+and the packet was refused ("Duplicate newcomer labels, scene or slot") because every scene command compiled to the end
+as `here`, so a packet could hold one. The Keeper resent it without the hotel's clerk and assessment. Each stop of a
+route now carries at most one assessment: a scene command settles at the end of the stop it is written in -- after the
+newcomers submitted before it and before the route leaves -- and the last stop's settles after everything, as one
+assessment always did. Two assessments within one stop are still a duplicate. A newcomer written for `here` before the
+route leaves is placed at that stop, unless a later look names it.
+
+The same turn read a place with `look {focus:"place", name, need}`, which `look` does not offer, and the call failed
+validation. Such a look is carried to `place inspect` with the same `name`, `at`, `spot`, `relation`, `sense` and `need`
+(`{lane:"arguments", event:"look_place_routed"}`); `look` advertises no new focus.
+
 ## 251. A progress note for a read spiral (owner direction 2026-10-21: fewer deliberations, faster turns)
 
 Live evidence: on `el-v2-20261021a` T16 the single Keeper answered one sentence about a door and a hired middleman with

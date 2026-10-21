@@ -6058,6 +6058,9 @@ export default function (pi: ExtensionAPI, host: {capabilities?:RuntimeCapabilit
 		recoveredOutput?:{text:string;evidence:Record<string,any>},
         recordAuthority?:symbol,
 	): Promise<{ content: Array<{ type: "text"; text: string }>; details: Record<string, unknown>; terminate?: boolean }> {
+        if(spec.name==='look'&&params._place_inspect&&typeof params._place_inspect==='object'){
+            spec=COC_TOOLS.find(tool=>tool.name==='place')!;params=params._place_inspect as Record<string,unknown>;
+        }
         if(spec.name==='place'){
             const operation=placeOperation(spec.name,params);
             spec=COC_TOOLS.find(tool=>tool.name===operation.name)!;params=operation.params;
@@ -7167,6 +7170,14 @@ export default function (pi: ExtensionAPI, host: {capabilities?:RuntimeCapabilit
 			// the literal's body without its quotes -- is decoded between the two, so the label rule and every reader after it
 			// see the text.
 			prepareArguments: (args: unknown) => {
+                // §250.4: a look at a place is the place tool's read (live el-v2-20261021e T33: look {focus:"place", name,
+                // need} failed validation and cost a round trip); it is carried, schema-valid, to place inspect.
+                if(spec.name==='look'&&args&&typeof args==='object'&&!Array.isArray(args)&&(args as Record<string,unknown>).focus==='place'){
+                    const source=args as Record<string,unknown>;
+                    const read=Object.fromEntries(['name','at','spot','relation','sense','need'].filter(key=>source[key]!==undefined).map(key=>[key,source[key]]));
+                    args={focus:'scene',_place_inspect:{action:'inspect',...read}};
+                    void record({lane:'arguments',event:'look_place_routed',tool:'look',fields:Object.keys(read)});
+                }
                 if(spec.name==='place'){
                     const transport=normalizePlaceArrayArguments(args);args=transport.args;
                     if(transport.fields.length)void record({lane:'arguments',event:'place_array_transport_normalized',tool:'place',fields:transport.fields});

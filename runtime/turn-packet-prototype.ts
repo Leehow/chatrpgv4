@@ -260,12 +260,23 @@ export function turnPacket(text:string,parameters?:TSchema):TurnPacket {
  const packet=raw as TurnPacket,commands=packet.commands??[],interactions=packet.interactions??[];
  const slots=commands.filter(a=>a.kind==='walk_on').map(a=>a.slot);
  const labels=commands.filter(a=>a.kind==='walk_on').map(a=>a.label.normalize('NFKC').trim().toLowerCase());
- if(new Set(labels).size!==labels.length||new Set(slots).size!==slots.length||commands.filter(a=>a.kind==='scene').length>1)throw Error('Duplicate newcomer labels, scene or slot');
+ if(new Set(labels).size!==labels.length||new Set(slots).size!==slots.length||sceneStops(commands).some(stop=>stop>1))throw Error('Duplicate newcomer labels, scene or slot');
  interactions.forEach(value=>responseDecision(value,slots));
  for(const command of commands)if(command.kind==='place'&&command.action==='observe')
   for(const name of [...command.people??[],...(command.situations??[]).flatMap(situation=>situation.participants??[])])
    if(isNewNpcSlot(name)&&!slots.includes(name))throw Error('Unbound observation newcomer slot');
  return packet;
+}
+/** A command that leaves the current place for another; a move to here stays. */
+const departs=(command:NonNullable<TurnPacket['commands']>[number])=>command.kind==='move'||command.kind==='place'&&command.action==='move'&&command.to!=='here';
+/**
+ * §250.12: scene assessments per stop of the route. A scene command assesses the place the route stands at when it is
+ * given, so one per stop; two in the same stop are a duplicate.
+ */
+function sceneStops(commands:NonNullable<TurnPacket['commands']>):number[] {
+ const stops=[0];
+ for(const command of commands){if(departs(command))stops.push(0);else if(command.kind==='scene')stops[stops.length-1]++;}
+ return stops;
 }
 export function compileTurnPacket(packet:TurnPacket|BoundTurnPacket):{responses:ResponseDecision[];effects:Record<string,unknown>[];event?:{name:string;relationships:Array<{actor:string;toward:string;statement:string}>}} {
  const commands=packet.commands??[];
@@ -274,12 +285,23 @@ export function compileTurnPacket(packet:TurnPacket|BoundTurnPacket):{responses:
  const ordered:typeof commands=[];
  const pending=commands.filter(a=>a.kind==='walk_on');
  const register=(slots?:readonly string[])=>{for(let i=0;i<pending.length;){const person=pending[i];if(slots&&!slots.includes(person.slot)){i++;continue;}ordered.push(person);pending.splice(i,1);}};
+ // §250.12: a stop's assessment settles at the end of that stop, after the newcomers submitted before it, and before
+ // the route leaves; the last stop's settles after everything, as one assessment always did.
+ let stop:typeof commands=[];
+ const settleStop=()=>{for(const scene of stop){register(commands.slice(0,commands.indexOf(scene)).filter(a=>a.kind==='walk_on').map(a=>a.slot));ordered.push(scene);}stop=[];};
  for(const command of commands){
-  if(['walk_on','scene','relationship'].includes(command.kind))continue;
+  if(command.kind==='scene'){stop.push(command);continue;}
+  if(['walk_on','relationship'].includes(command.kind))continue;
+  if(departs(command)){
+   // A newcomer written for here before the route leaves belongs to the stop it was written at, unless a later look names it.
+   const at=commands.indexOf(command),later=new Set(commands.slice(at).flatMap(a=>a.kind==='place'&&a.action==='observe'?[...a.people??[],...(a.situations??[]).flatMap(situation=>situation.participants??[])]:[]));
+   register(commands.slice(0,at).filter(a=>a.kind==='walk_on'&&(a.to===undefined||a.to==='here')&&!later.has(a.slot)).map(a=>a.slot));
+   settleStop();
+  }
   if(command.kind==='place'&&command.action==='observe')register([...command.people??[],...(command.situations??[]).flatMap(situation=>situation.participants??[])]);
   ordered.push(command);
  }
- register();ordered.push(...commands.filter(a=>a.kind==='scene'));
+ register();ordered.push(...stop);
  const newcomers=new Map(commands.filter(a=>a.kind==='walk_on').map(a=>[a.slot,a.label]));
  const person=(name:string)=>newcomers.get(name)??name;
  return {responses:packet.interactions??[],...(directed.length?{event:{name:'Directed relationship update',relationships:directed.map(row=>({actor:row.actor,toward:row.toward,statement:JSON.stringify({kind:'directed_relationship',affinity:row.affinity})}))}}:{}),effects:[...definitions,...ordered.map(a=>a.kind==='move'?{kind:'move',to:a.to,...(a.via?{via:a.via}:{}),
@@ -302,7 +324,7 @@ export const TURN_PACKET_LOCATION_STEPS='Put the whole selected route in command
 export const TURN_PACKET_GUIDANCE='Submit one output packet {version:4,commands?,interactions?,reveal?}. Call earlier place/apply/resolve operations first and read their results; put no state-changing tool after output in the same assistant message. A remote place inspection never performs the selected journey: include its still-unsettled move before observing from that destination. Omit unchanged categories. Commands settle in their submitted order before communication; do not defer an earlier view until after a later move or wait. Put walk_on before observations using its slot and scene after relevant presence changes. Unknown outcomes still require separate tools. '
  +TURN_PACKET_LOCATION_STEPS+'Places beyond issued routes use the same place fields. Reuse known names; a different name for the same place is not a new place. Establish registers surroundings only and moves nobody. A place receipt lists any adjusted fields it repaired; continue from what it settled. '
  +'Use issued movement destinations and routes, optional issued travel bands, npc presence, walk_on, scene and stationary time commands. A move counts its own travel; never add that travel as time. For an explicitly selected player duration use {kind:"time",minutes:the stated whole minutes,reason}; for a wait to a clock time use until; only when an independent selected activity needs an unspecified cost, select an issued band by its current rule meaning instead. A glance or local return does not require a bookkeeping pause. Give one of minutes, until or band. A changed directed attitude uses {kind:"relationship",actor:"issued npc_N",toward:"issued person reference",affinity:"hostile|guarded|neutral|friendly"}. Use the existing mechanical apply effects, resolve and ask for other real rules and state changes, never for prose or prospective event records. '
- +'Assess an unassessed or expired scene with {kind:"scene",service:"open|closed|limited|unknown",crowd:"empty|quiet|active|crowded|unknown",review_after_minutes?:1..60}; left out, it is recorded as unknown and nothing is refused, and a room inside a place assessed empty is already empty. Only an empty assessment beside a registered person here must be corrected. Determine population from the place, clock and circumstances; missing names never mean empty. Quiet, active or crowded require actual NPC placement; choose empty when alone is established. If needed establish a temporary person with {kind:"walk_on",slot:"new_1",label:"public role appellation",reason:"why present"}; reuse existing people. '
+ +'Assess an unassessed or expired scene with {kind:"scene",service:"open|closed|limited|unknown",crowd:"empty|quiet|active|crowded|unknown",review_after_minutes?:1..60}, at most one per stop, after that stop\'s move; left out, it is recorded as unknown and nothing is refused, and a room inside a place assessed empty is already empty. Only an empty assessment beside a registered person here must be corrected. Determine population from the place, clock and circumstances; missing names never mean empty. Quiet, active or crowded require actual NPC placement; choose empty when alone is established. If needed establish a temporary person with {kind:"walk_on",slot:"new_1",label:"public role appellation",reason:"why present"}; reuse existing people. '
  +'Interactions select {actor:"issued npc_N or declared new_N",to:["issued investigator_N or npc_N"],act:"answer|greet|ask|refuse|offer|acknowledge|clarify|report|warn",content?:[{fact_ref:"issued fact_N"}|{source_ref:"issued source_N"}|{new:registered constructor}]}. Silent is {actor,act:"silent",to?}, without content. '
  +'Answer, ask, offer, clarify, report and warn require nonempty content; greet, refuse and acknowledge may omit it. Select exact prepared facts and source fragments from decision_materials. Actor-scoped facts belong to that actor; a report, belief or plan is not truth. reveal selects only eligible non-actor facts or sources for narration. New claims use registered typed constructors, including directions with a destination and heading, known waypoints or retrace:true; no free-text statement, dialogue, event, intent, stance or materials. Directions are advice, never movement. An offer or planned_visit executes nothing. '
  +'The host supplies current public labels, character state, personality, directed relationships, actual outcomes and selected fragments to the sole prose author. Do not repeat them. Only changed state uses existing canonical effects. No event, knowledge or relationship statement is needed just to speak. '
