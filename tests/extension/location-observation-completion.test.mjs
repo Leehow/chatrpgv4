@@ -82,7 +82,8 @@ test('a selected local route, wait and look settle in order from one packet afte
   },()=>fauxAssistantMessage([fauxToolCall('output',{version:4,commands:[
     {kind:'place',action:'move',to:'here',at:'street window',relation:'beside',additions:[{name:scene,features:[{name:'street window',description:'A tall window overlooking the pavement.'}]}]},
     {kind:'time',minutes:2,reason:'Wait at the window as selected.'},
-    {kind:'place',action:'observe',to:scene,at:'street window',facts:['A cart passes the window.']}],interactions:[]})],{stopReason:'toolUse'})]});
+    {kind:'place',action:'observe',to:scene,at:'street window',facts:['A cart passes the window.']},
+    {kind:'scene',service:'open',crowd:'quiet'}],interactions:[]})],{stopReason:'toolUse'})]});
  t.after(()=>table.dispose());await table.session.prompt('I walk to the desk, then to the street window, wait two minutes, then look at the pavement.');
  const output=table.session.messages.findLast(row=>row.role==='toolResult'&&row.toolName==='output');assert.notEqual(output?.isError,true,JSON.stringify(output));
  assert(table.telemetry().some(row=>row.event==='place_target_alias_normalized'),'the native prepare boundary normalizes the explicit alias before the actual write');

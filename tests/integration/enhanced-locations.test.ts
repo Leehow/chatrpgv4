@@ -5,6 +5,7 @@ import {readFileSync,mkdirSync,writeFileSync} from 'node:fs';
 import {join} from 'node:path';
 import {kernel,openTurn,campaignDir,RpcClient,CAMPAIGN,ROOT,importSource,type Row} from './support.ts';
 import {turnPacket,compileTurnPacket} from '../../runtime/turn-packet-prototype.ts';
+import {PLACE_CONTRACT_GUIDE} from '../../shared/place-structures.ts';
 const state=(k:RpcClient)=>JSON.parse(readFileSync(join(campaignDir(k.workspace),'world.json'),'utf8'));
 const locations=(k:RpcClient)=>state(k).mods.state['enhanced-locations'].locations;
 const inspect=(k:RpcClient,name?:string)=>k.ok('mods.locations.inspect',{campaign:CAMPAIGN,...(name?{name}:{})});
@@ -64,8 +65,9 @@ test('places have scoped durable identities, public detail, local position and r
     const instruction=capsule.mods.instructions.find((entry:Row)=>entry.mod==='enhanced-locations');
     assert.equal(instruction.form,'indexed');assert(!instruction.instruction.includes('## Identity and structure'));
     const contract=await k.ok('mods.locations.inspect',{campaign:CAMPAIGN,need:'contract'});
-    assert(contract.parameters&&contract.command);assert.equal(contract.location_inspection.turn,1);
-    assert(contract.sections.some((section:Row)=>section.heading==='Travel and local position'));
+    // §250: the contract read is a pointer to the declared tool and output schemas, never a second grammar.
+    assert.equal(contract.guide,PLACE_CONTRACT_GUIDE);assert.equal(contract.location_inspection.turn,1);
+    assert.equal(contract.parameters,undefined);assert.equal(contract.command,undefined);assert.equal(contract.sections,undefined);
     const view=await inspect(k);assert.equal(view.place.position.at,'front desk');
     await k.table('apply',{call_id:'t1-c3',effects:[{kind:'place',action:'move',to:'Room 203',via:'Up the stairs',travel_band:'adjacent'}]});
     assert.equal(state(k).active_scene,'Hotel A / Room 203','a scoped leaf reuses this hotel room');

@@ -51,11 +51,15 @@ test('already projected properties expose closed enums without changing their ac
  assert.equal(original.properties.action.enum,undefined);
 });
 
-test('a valid movement missing its conditional assessment reports that assessment without an incompatible reason field',()=>{
- const schema=turnPacketParameterSchema(false,['quick_observation'],[],false,undefined,true);
+test('a valid movement missing a required scene assessment reports that assessment without an incompatible reason field',()=>{
  const packet={version:4,commands:[{kind:'place',action:'move',to:'Tea room'},
   {kind:'time',band:'quick_observation',reason:'Look back from the doorway.',beyond_travel:true},
   {kind:'place',action:'observe',to:'Street',sense:'sight',access:'clear',scope:'The corner.',facts:[]}]};
+ // §250.1: an arrival without a scene command is recorded as service and crowd unknown instead of refused.
+ const open=turnPacketParameterSchema(false,['quick_observation'],[],false,undefined,true);
+ assert.equal(Errors(open,packet).length,0);assert.doesNotThrow(()=>turnPacket(JSON.stringify(packet),open));
+ // A scene whose assessment is missing or expired still requires the Keeper's assessment.
+ const schema=turnPacketParameterSchema(false,['quick_observation'],[],true,undefined,true);
  assert.ok(Errors(schema,packet).length);
  assert.throws(()=>turnPacket(JSON.stringify(packet),schema),error=>{
   assert.match(error.message,/scene assessment command/);assert.doesNotMatch(error.message,/required properties reason|additional-property/);return true;
@@ -63,5 +67,5 @@ test('a valid movement missing its conditional assessment reports that assessmen
  const corrected={...packet,commands:[...packet.commands,{kind:'scene',service:'open',crowd:'unknown'}]};
  assert.equal(Errors(schema,corrected).length,0);assert.doesNotThrow(()=>turnPacket(JSON.stringify(corrected),schema));
  assert.throws(()=>turnPacket(JSON.stringify({...corrected,commands:corrected.commands.map((command,index)=>index?command:{...command,reason:'Walk back.'})}),schema),/additional-property/);
- const stationary={version:4,commands:[packet.commands[1],packet.commands[2]]};assert.doesNotThrow(()=>turnPacket(JSON.stringify(stationary),schema));
+ const stationary={version:4,commands:[packet.commands[1],packet.commands[2]]};assert.doesNotThrow(()=>turnPacket(JSON.stringify(stationary),open));
 });

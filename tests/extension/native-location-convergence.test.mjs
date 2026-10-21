@@ -35,22 +35,29 @@ test('actual non-strict Anthropic wire retains actions and required fields after
   await streamSimple(model,{messages:[{role:'system',content:'Fixture',toolsAdded:[place],timestamp:0},{role:'user',content:'Fixture',timestamp:0}]},{apiKey:'fixture',signal:controller.signal,onPayload:body=>{payload=body;controller.abort();}}).result();
   const schema=payload.tools[0].input_schema;
   assert.equal(schema.anyOf,undefined,'exercise the actual non-strict serializer limitation');
-  assert.deepEqual(schema.properties.action.enum,['inspect','move','establish','feature','relate','observe']);
+  assert.deepEqual(schema.properties.action.enum,['move','establish','feature','relate','observe','inspect'],'§250.3: write branches precede the read branch');
   assert.deepEqual(schema.required,['action'],'restoring JSON must not erase the action discriminator');
   if(detail){assert.equal(schema.properties.facts.type,'array');assert.equal(schema.properties.scope.type,'string');assert(schema.properties.access);
    assert.equal(schema.properties.additions.type,'array');assert.equal(schema.properties.additions.anyOf,undefined,'annotation-only array variants do not obscure the actual array grammar');
    assert.equal(schema.properties.additions.maxItems,12);assert(schema.properties.additions.items.properties.description);
   }
-  assert.equal(schema.properties.to.type,'string');
+  // §250 gives the move and observe to fields their own descriptions, so the detailed view carries annotated string alternatives.
+  assert.equal(Check(schema.properties.to,'Street'),true);assert.equal(Check(schema.properties.to,3),false);
   assert.equal(Check(schema.properties.relation,'beside'),true,'annotated string alternatives retain their shared type');
   assert.equal(Check(schema.properties.relation,3),false,'the native relation field still excludes non-strings');
-  assert.match(schema.properties.action.description,/No op or change wrapper/);
-  assert.match(schema.properties.action.description,/new\/unregistered route, via/);
-  assert.match(schema.properties.action.description,/never to\/via\/additions/);
-  assert.match(schema.properties.via.description,/new\/unregistered route/);
-  assert.match(schema.properties.action.description,/feature requires to and at, optional state\/passable/);
-  assert.match(schema.properties.action.description,/establish requires additions/);
-  assert.match(schema.properties.action.description,/no description field/);
+  // Without anyOf the action description is the only per-action grammar left on this wire: each action has its own
+  // clause naming its required fields and only fields its own native branch declares (inspect never names to/via/additions).
+  const clauses=Object.fromEntries(schema.properties.action.description.split(/\.\s*/).filter(Boolean).map(clause=>{
+   const [,name,fields]=clause.match(/^(\w+)(?: \([^)]*\))?: (.+)$/)??[];
+   return [name,fields?.split(/,\s*|\s+or\s+/).map(field=>field.replace(/^optional\s+/,'').trim())];
+  }));
+  assert.deepEqual(Object.keys(clauses).sort(),[...schema.properties.action.enum].sort());
+  for(const branch of NativePlaceParameters.anyOf){
+   const name=branch.properties.action.const,fields=clauses[name];
+   for(const field of branch.required)if(field!=='action')assert(fields.includes(field),`${name} names its required ${field}`);
+   for(const field of fields)assert(Object.hasOwn(branch.properties,field),`${name} names only its declared ${field}`);
+  }
+  assert(!NativePlaceParameters.anyOf.find(branch=>branch.properties.action.const==='move').required.includes('via'),'§250.2: a new route without via is an improvised arrival');
   assert.equal(schema.properties.op,undefined);assert.equal(schema.properties.change,undefined);
  }
  assert(placeModeConflict({op:'inspect',change:{action:'move',to:'Street'}}));
