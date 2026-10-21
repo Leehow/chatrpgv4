@@ -33,7 +33,7 @@ export function stageLocation(context:ApplyContext,effect:Row,active:readonly Ro
     const provider=locationProvider(active);
     if(!provider)throw new RpcError('needs','No active Mod provides locations.v1',{
         fix:'Enable Enhanced Locations through ordinary Mod configuration. Stored places remain readable.',details:{reason:'location_mod_inactive'}});
-    if((effect.spot!==undefined||effect.action==='observe'&&effect.relation!==undefined||array(effect.relations).some(edge=>edge.from?.spot!==undefined||edge.to?.spot!==undefined||edge.from?.relation!==undefined||edge.to?.relation!==undefined))&&!array(provider.requires).includes(LOCATION_POSITION_V2_CAPABILITY))
+    if((('spot' in effect&&effect.spot!==undefined)||effect.action==='observe'&&effect.relation!==undefined||array('relations' in effect?effect.relations:undefined).some(edge=>edge.from?.spot!==undefined||edge.to?.spot!==undefined||edge.from?.relation!==undefined||edge.to?.relation!==undefined))&&!array(provider.requires).includes(LOCATION_POSITION_V2_CAPABILITY))
         throw new RpcError('needs','Descriptive local positions require a compatible location provider',{
             fix:'Adopt an Enhanced Locations package requiring locations.position.v2. Existing feature positions remain valid.',details:{reason:'location_position_mod_required'}});
     const {world,graph,turn,callId}=context;

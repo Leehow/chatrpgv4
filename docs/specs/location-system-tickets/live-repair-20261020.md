@@ -1428,3 +1428,82 @@ failed with no completed public delivery. Main provider is confirmed MiniMax; no
 final author ran. Still pending: actionable axis-specific recovery guidance and
 proposal identity/state separation, private map capability routing, and complete
 uniform-profile original-session live acceptance. Goal remains active.
+
+EL-14 committed1dd3052c9 (fixture setup repairs f3046ac45/9555f45f7). Shared
+feature grammar now describes actual state changes; the error projects only
+missing/uncertain reviewed axes. Mod1.2.3 removes the stale six-fact prompt and
+explains missing fixture registration before its state change. Native seam passed
+with exactly one feature, move and observe receipt. Targeted local17/17 and fast
+130/130 passed; installed package9555f45f7 matched five runtime/Mod source files.
+An earlier package attempt was stopped after a test-only dirty checkout blocked
+fast-forward; its staging was cleaned, receipt0be9b1c8e preserved, and the clean
+run completed before App launch. No dirty source was accepted as installed proof.
+
+Original93 used verified follow-latest Mod1.2.3 and temporary MiniMax3.1/medium
+profile. Initial context assessment selected move.78/observation.83 but feature.16,
+so the EL-14 feature omission branch was not triggered. A threat effect settled.
+The first output confused a parent room-feature definition with an undefined
+child movement/observation destination. Coverage passed; action admission held
+the move at.46 without lowering its gate. Recovery emitted a103-byte text block
+alongside output, after which fourteen output/place failures were blocked by the
+reference-scope guard. The App was stopped through its normal UI after this proven
+loop, not by a time deadline. No final story; minimax-round93-final.json explicitly
+records forcedStop=true, failure and its reason. No turn time or model attribution
+was rewritten and successful earlier writes remain.
+
+EL-15 traced two model-reply assignments into global input scope and premature
+reference streaming beside native calls. A controlled native regression adds a
+reference preamble to the same valid correction: baseline passes without it and
+fails with it, retained location-scope-native-before.log. Commitad94b3780 removes
+the model-origin input-scope assignments and buffers native text until response
+shape is known. Mixed preambles are discarded; standalone reference publication
+keeps its existing explicit reference record and RPC. After-fix native3/3 proves
+both recovery cases settle once, no preamble leaks, and genuine OOC input still
+blocks a physical change and publishes its direct answer. Reference/stream
+regressions77/77 and quick130/130 pass. This does not remove action admission or
+prove that the invalid child/feature proposal is now executable.
+
+Prior0be9b1c8e LAN focused ended exit1 after1038s, run.6Jeldj2f. Its one failing
+file still asserted that a601-character fact must refuse; this contradicts the
+owner's uncapped-facts correction. e5a36a995 changes that assertion to acceptance
+while preserving other shape/privacy checks; local same file passes5/5. Original
+LAN failure remains retained. Fullad94b3780 is now running on leehow-pc via
+location-scope-all.log; package for the same clean source is underway.
+
+Bounded map follow-up established that the built-in requested plan is a keeper-only
+JPEG asset with PDF source index452, not a region map. No pixels or hidden plot
+were read and no publication protection changed. The raw-map read capability and
+the misleading region-map replacement hint remain separate unresolved work.
+
+EL-15 packagead94b3780 was verified against five installed runtime/Mod files and
+launched through the sole canonical App with the temporary MiniMax test profile.
+Original94 naturally delivered276.356s/2 recovered output errors: missing selected
+feature effect, then missing observe access. Main requests used MiniMax3.1; the
+actual final author also used MiniMax3.1/medium. The prior OOC tool-blocking loop
+did not recur, but this is not latency acceptance. Original95 naturally delivered
+129.295s/1 recovered error. Both raw final records and model evidence remain.
+The move into the existing living-room child and observation settled only in the
+corrected final batch; no partial failed proposal is credited as movement.
+
+Fullad94b3780 ended exit0,1227s, run.jqFkBmj6:6439 extension passes/9 skips
+across751 files,2251 integration passes and12 routing passes. This does not cover
+the subsequent EL-16 changes.
+
+Original95 exposed a deterministic identity seam: the catalogue offered a feature
+as an owning-place / feature name, but the same name inspected as unregistered.
+Keeper then used it as an observation place; canonical staging correctly refused
+place_observation_point_unresolved. EL-16 contract/red regression committed
+19306e91f; the real RPC test failed specifically on that unregistered result.
+6f5d6db33 supplies typed reference/read pointers, exact read-only qualified-feature
+resolution, explicit target inspection and actionable write correction without
+silently converting writes or relaxing access, admission or atomicity. Mod1.2.4
+explains the returned place/at pair. Four real-RPC cases pass, nearby14/14 and
+quick130/130 pass; an added ambiguity case is in222cc017e.
+
+Kernel typecheck found TS2339 at the existing locations.position.v2 guard: the
+PlaceEffect union lacks spot/relations on some branches. Both that source file
+and shared schema have identical blobs in ad94b3780 and6f5d6db33; retained
+location-reference-typecheck-baseline.json records this boundary. Narrow those
+closed fields with in before access; runtime capability checks stay unchanged.
+No typecheck failure is suppressed. Latest complete regression, package and
+original-session live acceptance remain pending.

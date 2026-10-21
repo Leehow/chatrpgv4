@@ -65,6 +65,16 @@ test('a qualified feature observation read matches its explicit target and does 
     assert.deepEqual(world(k),before);
 });
 
+test('an ambiguous place remains ambiguous and a fabricated feature suffix creates nothing',async t=>{
+    const k=await room(t,[{name:'East wing',description:'The eastern wing.'},{name:'West wing',description:'The western wing.'},
+        {name:'Reading room',within:'East wing',description:'An east reading room.'},{name:'Reading room',within:'West wing',description:'A west reading room.'}]);
+    const before=world(k),ambiguous=await k.err('mods.locations.inspect',{campaign:CAMPAIGN,name:'Reading room'});
+    assert.equal(ambiguous.code,'unknown_entity');assert.equal(ambiguous.details.reason,'ambiguous');
+    assert.deepEqual(ambiguous.details.candidates,['East wing / Reading room','West wing / Reading room']);
+    assert.equal((await inspect(k,{name:'Inn room / window / invented corner'})).status,'unregistered');
+    assert.deepEqual(world(k),before);
+});
+
 test('a mistaken feature-as-place write refuses atomically with its exact correction and then settles once',async t=>{
     const k=await room(t),before=world(k);
     const command={kind:'place',action:'observe',to:'Inn room / window',sense:'sight',access:'clear',scope:'The casement.',view:'The casement is visible from the current place.',facts:['The glass is dusty.']};
