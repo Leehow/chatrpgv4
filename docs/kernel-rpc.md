@@ -50842,6 +50842,16 @@ the 384 KiB request ceiling left the whole message out as `request_ceiling`. Bef
   second live opening), the sections that fit are sent in package order and the rest are named in `omitted`; the request
   stays within its ceiling. The record is `omitted`, `request_ceiling`, with `sent` and `left_out`.
 
+### 248.7 The single Keeper's topics are judged too (owner 2026-10-21, option A)
+
+Four live turns on §248.4 (the-haunting, MiniMax 3.1/medium) never called `mod`: a turn haggling over the daily rate read
+no price section. The owner chose to have Jev judge the single Keeper's topics as §183.5 does for other tables:
+`mod-sections` receives the table's decision port on the single Keeper too, asks the topic question once per input and
+selects scored sections by §183.5's rule (bar, own threshold, host gates). `mod` remains for any other listed section.
+Without a decision port, or when the judgement fails or is late, the single Keeper is in pull mode (§248.4: due, calls
+and gated topic sections, no fallback), recorded `event: "pull_mode"`. The first request of an input waits for the
+topics up to §183.5's 2.5 s.
+
 ### 248.5 Limits and tests
 
 - A topic-only section reaches the Keeper only if it reads it; nothing counts whether it should have. The measure is a

@@ -45,8 +45,8 @@ export function noteCall(calls:TurnCalls,tool:string,input:Row,details?:Row):voi
 export type Picked={key:string;mod:string;version:string;heading:string|null;why:string[]};
 /** The selection rule of §183.5, over the capsule's indexed rows. `judgement` undefined or unavailable is the fallback:
  *  every section with a topic whose kernel gates hold loads, its host gates aside. In pull mode (§248.4, the single
- *  Keeper) there is no judgement and no fallback: a topic section loads only when it has a kernel gate and its gates hold;
- *  the Keeper reads the others itself. */
+ *  Keeper) a scored judgement selects as above (§248.7); without one there is no fallback: a topic section loads only
+ *  when it has a kernel gate and its gates hold, and the Keeper reads the others itself. */
 export function selectSections(capsule:Row,judgement:TopicJudgement|undefined,calls:TurnCalls,pull=false):Picked[] {
  const scores=judgement?.status==='scored'?judgement.scores:undefined;
  const host={no_topic:!!scores&&!Object.values(scores).some(score=>score>=DEFAULT_TOPIC_THRESHOLD)};
@@ -55,7 +55,7 @@ export function selectSections(capsule:Row,judgement:TopicJudgement|undefined,ca
   const why:string[]=[],topics=array(section.topics).map(String),gates=array(section.gates).map(String);
   if(section.due===true)why.push('due');
   if(topics.length&&section.gates_open===true){
-   if(pull){if(gates.some(gate=>!(gate in host)))why.push('gate');}
+   if(!scores&&pull){if(gates.some(gate=>!(gate in host)))why.push('gate');}
    else if(!scores)why.push('fallback');
    else if(gates.every(gate=>!(gate in host)||host[gate as keyof typeof host])){
     const bar=typeof section.topic_threshold==='number'?section.topic_threshold:DEFAULT_TOPIC_THRESHOLD;
@@ -110,11 +110,6 @@ export function createModSections(deps:{read:(method:string,params:Row)=>Promise
  function observe(capsule:Row,binding:Row,signal:AbortSignal):void {
   know(capsule);
   if(signal.aborted||!indexedRows(capsule).length){reset();return;}
-  if(pulling()){
-   const next=fingerprint(['pull',binding.campaign,binding.worldline,binding.loop,binding.turn,object(capsule.turn).player_text??'']);
-   if(next!==key){reset();key=next;deps.record({lane:'mod-sections',event:'pull_mode',turn:binding.turn});}
-   return;
-  }
   const input=inputOf(capsule,binding);
   if(!input){reset();return;}
   // Once per input: the declaration, its turn and the topic list; a capsule re-read mid-turn keeps the judgement.
@@ -122,7 +117,8 @@ export function createModSections(deps:{read:(method:string,params:Row)=>Promise
   if(next===key)return;
   reset();key=next;
   const port=deps.decision();
-  if(!port){judgement={status:'unavailable',reason:'unconfigured'};deps.record({lane:'mod-sections',event:'fallback',turn:input.turn,reason:'unconfigured'});return;}
+  // §248.7: without Jev the single Keeper is in pull mode, not the load-everything fallback.
+  if(!port){judgement={status:'unavailable',reason:'unconfigured'};deps.record({lane:'mod-sections',event:pulling()?'pull_mode':'fallback',turn:input.turn,reason:'unconfigured'});return;}
   const control=new AbortController();lifetime=control;startedAt=Date.now();
   const deadline=startedAt+(deps.allowanceMs??MOD_TOPICS_ALLOWANCE_MS),binds=topicBindings(input);
   const lease=new TaskLease({owner:binds.scope.owner,goal:'Judge which turn topics the player declaration involves',...binds,capabilities:['decision'],
@@ -150,6 +146,7 @@ export function createModSections(deps:{read:(method:string,params:Row)=>Promise
  async function message(capsule:Row,binding:Row,calls:TurnCalls):Promise<Row|undefined> {
   if(!indexedRows(capsule).length)return undefined;
   const late=!judgement&&!pulling();
+  // §248.7: in pull mode an unscored judgement (late or failed) pushes no topic section; the Keeper reads them itself.
   const picked=selectSections(capsule,judgement,calls,pulling());
   if(late&&picked.some(entry=>entry.why.includes('fallback')))
    deps.record({lane:'mod-sections',event:'fallback',turn:binding.turn,reason:'late',ms:startedAt?Date.now()-startedAt:0});
