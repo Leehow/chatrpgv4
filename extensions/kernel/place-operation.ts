@@ -27,8 +27,8 @@ export function placeModeConflict(params:unknown):boolean {
 }
 /** Known preparation failures only; the message boundary must not classify arbitrary SDK errors. */
 export function placeParameterRefusal(args:unknown):KernelError|undefined {
-    if(placeModeConflict(args))return new KernelError({code:'invalid_params',message:'place inspect is read-only and cannot accept change',
-        fix:'For a move, explicitly send {action:"move",to,via?,at?,spot?,relation?,additions?}; keep its destination and route. For a read, send {action:"inspect",name?,at?,spot?,relation?,sense?,need?} without write fields. Use at or spot, never both. No op or change wrapper. Nothing executed; retain successful earlier receipts.',
+    if(placeModeConflict(args))return new KernelError({code:'invalid_params',message:'inspect is read-only; a move, feature or observe needs that action',
+        fix:'Resend with action:"move" (or "observe"/"feature") and the same fields. Nothing executed.',
         details:{reason:'place_mode_conflict',field:'action',transaction_state:'uncommitted'}});
     const params=args as Record<string,unknown>|null;
     const branch=NativePlaceParameters.anyOf.find(schema=>schema.properties.action.const===params?.action);

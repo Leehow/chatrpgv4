@@ -22,7 +22,7 @@ import {moveEstablishmentRefusal} from '../../shared/move-protocol.ts';
 import {SAME_KEEPER_AFTER_RESULT_GUIDANCE} from '../../runtime/keeper-output-guidance.ts';
 import {scenePopulationRequired,sceneAssessmentExpiredDuringActivity} from '../../runtime/scene-population.ts';
 import {ExpressionPlanStream,writeIsolatedExpression,decisionScene,decisionClock,decisionRecentPublic,decisionResponseScope,decisionObservationScope} from '../../runtime/isolated-expression.ts';
-import {TURN_PACKET_LOCATION_STEPS,turnPacket,bindTurnPacketMoves,turnPacketMovementChoices,requireTurnPacketNpcDestinations,isNewNpcSlot,normalizeTurnPacketArguments,compileTurnPacket,turnPacketResult,turnPacketParameterSchema,turnPacketProviderPayload,TurnPacketParameterError,type TurnPacket} from '../../runtime/turn-packet-prototype.ts';
+import {turnPacket,bindTurnPacketMoves,turnPacketMovementChoices,requireTurnPacketNpcDestinations,isNewNpcSlot,normalizeTurnPacketArguments,compileTurnPacket,turnPacketResult,turnPacketParameterSchema,turnPacketProviderPayload,TurnPacketParameterError,type TurnPacket} from '../../runtime/turn-packet-prototype.ts';
 import {normalizeToolArgumentSyntax} from '../../runtime/tool-argument-syntax.ts';
 import {applyEffectKinds} from '../table/mod-sections.ts';
 import {normalizeApplyArguments} from '../../shared/apply-protocol.ts';
@@ -5783,7 +5783,10 @@ export default function (pi: ExtensionAPI, host: {capabilities?:RuntimeCapabilit
             const before=await state.kernel.call<Record<string,any>>('table.capsule',{campaign:state.campaign,_context_read:true});
             // §249: the Keeper judges whether its packet covers the player's spatial choices; no completion review refuses it.
             const newlyMoving=compiled.effects.some(effect=>effect.kind==='move'||effect.kind==='place'&&effect.action==='move'&&effect.to!=='here'&&effect.to!==before.where?.scene);
-            if((scenePopulationRequired(before)||newlyMoving)&&!compiled.effects.some(row=>row.kind==='scene'))throw new KernelError({code:'needs',message:'Assess scene service and population from the current place and clock with one scene command; missing registered names never means empty.'});
+            // §250: an arrival the Keeper did not assess is recorded as unassessed (unknown), never refused.
+            if(newlyMoving&&!compiled.effects.some(row=>row.kind==='scene'))compiled.effects.push({kind:'scene',name:'here',_population:true,
+                activity:{service:'unknown',crowd:'unknown',basis:'established',summary:'Service is unknown; crowd is unknown.',review_after_minutes:15},why:'The arrival was not assessed; service and population remain unknown.'});
+            if(scenePopulationRequired(before)&&!compiled.effects.some(row=>row.kind==='scene'))throw new KernelError({code:'needs',message:'Assess scene service and population from the current place and clock with one scene command; missing registered names never means empty.'});
             packetNpcReferences(state).require(packetNpcScope(state),[...compiled.responses.flatMap(row=>[row.actor,...row.to??[]]).filter(isNpcReference),
                 ...compiled.effects.filter(row=>row.kind==='npc'&&!row.walk_on).map(row=>String(row.name)),
                 ...compiled.effects.filter(row=>row.kind==='place'&&row.action==='observe').flatMap(row=>[...row.people??[],...(row.situations??[]).flatMap((situation:Record<string,any>)=>situation.participants??[])]).filter(isNpcReference),
@@ -5907,7 +5910,7 @@ export default function (pi: ExtensionAPI, host: {capabilities?:RuntimeCapabilit
 		state.renderedText=undefined;
 	}
     function refusePacketParameters(state:TableState,error:unknown,ctx?:ExtensionContext,beforeCommit=false){
-        const fix=[isKernelError(error)?error.fix:undefined,error instanceof TurnPacketParameterError&&error.reason==='multiple_destinations'?TURN_PACKET_LOCATION_STEPS:undefined].filter(Boolean).join(' ');
+        const fix=isKernelError(error)?error.fix:undefined;
         const refusal={code:'invalid_params',message:error instanceof Error?error.message:String(error),
             ...(fix?{fix}:{}),
             details:{...(isKernelError(error)?error.details:{}),...(error instanceof TurnPacketParameterError?{parameter_fields:error.fields}:{}),reason:isKernelError(error)&&error.details?.reason?error.details.reason:'turn_packet_parameters',parameter_phase:'turn_packet_parameters',...(beforeCommit?{before_commit:true}:{before_execution:true})}};
@@ -6255,12 +6258,6 @@ export default function (pi: ExtensionAPI, host: {capabilities?:RuntimeCapabilit
         result = await state.kernel.call<Record<string, unknown>>(spec.method, resent, onProgress);
       }
       if(spec.name==='place'&&result.status==='unregistered')result={...result,advice:await adviseLocationReference(result,{env:process.env,campaign:state.campaign,turn:state.turn,signal,record:row=>record(row)})};
-      if(turnPacketPrototype&&spec.name==='place'&&params.need==='contract'){
-        const command=structuredClone(result.command) as Record<string,any>|undefined;
-        for(const branch of command?.anyOf??[])if(branch.properties?.action?.const==='move')delete branch.properties.travel_minutes;
-        result={...result,parameters:{anyOf:(offeredTools(COC_TOOLS,process.env).find(tool=>tool.name==='place')!.parameters as any).anyOf.filter((branch:any)=>branch.properties?.action)},command,
-          write_route:{tool:'place',action:'move',instruction:'Commit one selected location step before a dependent wait, service or rule action. Select an issued travel_band for a journey; do not supply travel_minutes. Remaining final location commands may use output.commands with kind place and the action fields, without op/change; never repeat a settled step.'}};
-      }
       if(spec.name==='apply')await observeWritingCompletion(state,result,writingMatches);
 
       // §204.4: a model's committed mint is bound to the book in the background, independently of the next player turn.

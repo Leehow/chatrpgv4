@@ -1000,7 +1000,7 @@ export const COC_TOOLS: readonly CocToolSpec[] = [
 	},
 	{
         name:'place',label:'Place',method:'mods.locations.inspect',
-        description:'Read place state or prior observations without movement, new perception or elapsed time, or submit a location action. For earlier sightings, people identity or incident continuity inspect need observation with the target name; recall prose is not the observation register. Inspect need contract supplies writing detail.',
+        description:'Move the party, change a fixture, record what is perceived, or read a place (inspect; need observation reads earlier looks at a target). In a turn, put the whole route in output commands; call place first only when a roll must follow an arrival at another place.',
         promptSnippet:'Manage places, local features and sensory observations through Enhanced Locations.',parameters:PlaceParameters,
     },
 	{

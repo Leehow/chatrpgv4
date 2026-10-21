@@ -16,9 +16,10 @@ export const locationObservations=(world:Row):Row[]=>locationStates(world).flatM
 const pointDetail=(point:Row):Row=>Object.fromEntries(['at','spot','relation'].filter(key=>typeof point?.[key]==='string').map(key=>[key,point[key]]));
 export const spatialPointKey=(point:Row):string=>JSON.stringify([point.place,point.at??null,point.spot??null,point.relation??null]);
 export function observationPoint(graph:ModuleGraph,world:Row,value:Row):Row {
-    if(!Check(SpatialPoint,value)||value.relation!==undefined&&value.at===undefined&&value.spot===undefined)
-        throw new RpcError('invalid_params','A spatial point needs one valid at feature or descriptive spot when locally qualified',{
-            details:{reason:'place_point_shape'}});
+    // §250: a pose alone is a valid point; with both anchors the registered feature wins.
+    if(value.at!==undefined&&value.spot!==undefined){value={...value};delete value.spot;}
+    if(!Check(SpatialPoint,value))
+        throw new RpcError('invalid_params','A spatial point needs a place name',{details:{reason:'place_point_shape'}});
     const place=graph.handle(locationPlace(graph,world,value.place));
     return {place,...pointDetail(value),...(value.at!==undefined?{at:locationFeature(world,place,value.at).name}:{})};
 }

@@ -50801,3 +50801,63 @@ positions (`LOCATION_AUTHOR_NOTE`). Omitted looks are not refused; ordinary visi
 Writer: the Keeper's proposal. Reader: the unchanged kernel validators and the sole author's committed outcomes.
 Actor: the Keeper, whose judgment is recorded in the admission lane. No threshold, new review, keyword rule or
 fallback is introduced; this removes reviews rather than relaxing them.
+
+## 250. Enhanced Locations v2: whole routes in one packet and forgiving place commands (owner 2026-10-21; amends §242, §243, §245 packet rules)
+
+Owner direction, 2026-10-21: redesign and refactor Enhanced Locations so a player reaches any place smoothly, with
+as few tool errors, as little Keeper deliberation and as short a turn as possible, and without conflicting or
+mutually exclusive system rules. Design review and evidence: `docs/specs/enhanced-locations-v2.md`; §249 removed the
+Jev reviews that refused location lines.
+
+### 250.1 One route, one packet
+
+The native decision packet carries the whole selected route in order. `commands` is one array (at most 16) of moves,
+place actions, time, NPC, walk_on, scene and relationship commands. Several stops, local positions, waits and
+observations share one packet; the kernel stages them in submitted order in one transaction, as `apply` already does.
+Removed: the one-destination limit, the split between a moving and a stationary command array, the requirement that
+time beside a move carry `beyond_travel` and follow the journey, and the "Movement already owns travel time" refusal.
+A move counts its own travel; a time command is always additional activity or waiting. `beyond_travel` remains an
+optional receipt annotation. A time command takes exactly one of `minutes`, `band` or `until {time:"HH:MM", days?}`;
+`until` compiles to the kernel's §145.1 clock endpoint. The place tool's writes remain for one case: an arrival a
+following roll depends on (resolve targets must be present in the active scene).
+
+An arrival at another place without a scene command is recorded as service and crowd `unknown` instead of refused.
+A scene whose current assessment has expired still requires the Keeper's assessment. A move inside the current place
+(`to:"here"` or the current place) needs no scene command and takes no travel time; a supplied travel band there is
+ignored and reported.
+
+### 250.2 Forgiving place commands
+
+`kernel-ts/mods/locations.ts` and `location-observations.ts` repair the Keeper's own command shape deterministically
+and report each repair on the receipt as `adjusted: [{field, reason, ...}]`. No semantic guess is made; ambiguity and
+real obstacles still refuse.
+
+- An `at` that names no registered feature is kept as a descriptive `spot` (move and observe). With both a
+  registered `at` and a `spot`, the feature wins. A relation alone is a valid local point.
+- A move to an unregistered destination registers a minimal new place under that name (a qualified `A / B` name
+  nests under a registered `A`). A destination name shared by several places still refuses as ambiguous.
+- A new route without `via` is an open, improvised arrival (`improvised: true`), never `not_reachable`.
+- Repeating a registered place description or feature keeps the record as it was (`existing_description_kept`,
+  `existing_feature_kept`); a state change remains the `feature` action. A new place or feature without a description
+  uses its name. An unresolvable `within` registers a standalone place.
+- A `feature` change on an unregistered fixture registers it first; a change with neither state nor passable is a
+  reported no-op. A crossing through an unregistered or unrelated feature is ignored; a known `passable:false`
+  crossing is still impassable.
+- Observe: `to` defaults to here, `sense` to sight, `access` to clear, `scope` to the target. An unregistered target
+  place is a descriptive target in the current place. A cross-place look without a recorded sightline records one
+  from `view` (or the scope). Unknown, absent or repeated people are dropped from the observation, repeated situation
+  names merge, and a blocked look that lists facts is recorded as limited. A known relation keeps its first
+  description.
+
+### 250.3 Declarations, contract read and package
+
+Every place field is declared in the place tool and in output commands; write branches precede the read branch.
+`mods.locations.inspect need:"contract"` returns only `guide` (no schemas or sections). Tool descriptions state field
+meanings, not procedures. The Enhanced Locations package is 2.0.0: one resident instruction of about 2.3 KB plus the
+author-only "Place description for the author" reference section; the four `before_apply` situational sections and
+the service, meal and payment ordering rules are removed (those belong to the cash and item owners).
+
+Writer: the Keeper's packet and the kernel's deterministic repairs. Reader: the kernel transaction, the observation
+register and the sole author (which reads committed outcomes and `adjusted`). Actor: the Keeper, continuing from what
+settled. Existing places, features, relations, situations and observations from 1.x remain readable; state version 1
+is unchanged.

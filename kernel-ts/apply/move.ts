@@ -81,7 +81,9 @@ export function stageMove(context: ApplyContext, effect: Row, travelRows?: Reado
     // §204.2: a road runs both ways, and a move within a place the two share needs no route of its own.
     const {road,related,around,requiresVia}=moveAccess(graph,world,current,destination,established,options.containmentIsRoute);
     // §212.1: a road out of a place the party stands inside is a road from here.
-    if (requiresVia && !via)
+    // §250: the location provider marks a new route its Keeper did not describe as open; it lands as an improvised arrival.
+    const openRoute = requiresVia && !via && effect._open_route === true;
+    if (requiresVia && !via && !openRoute)
         throw new RpcError('not_reachable', `${repr(target)} is not reachable from ${repr(from)}`, {
             fix: `move to one of ${repr(sorted(exits.keys()))}, retrace to one of ${repr(back)}, or say how they got there in via`,
             details: { from, to: target, exits: sorted(exits.keys()), back }
@@ -135,6 +137,7 @@ export function stageMove(context: ApplyContext, effect: Row, travelRows?: Reado
         receipt.via = via;
         receipt.improvised = true;
     }
+    if (openRoute) receipt.improvised = true;
     if (label)
         (world.scene_labels ??= {})[target] = label;
     world.scene_trail = trail.includes(target) ? trail.slice(0, trail.indexOf(target)) : [...trail, from];

@@ -169,14 +169,14 @@ export function offeredTools(tools: readonly CocToolSpec[], env: Readonly<Record
       :'Publish a required mechanical choice using its issued options and binding. '+(env.PI_COC_TURN_PACKET_PROTOTYPE==='1'?'Ordinary dialogue uses the native output packet and its isolated author.':env.PI_COC_ISOLATED_OUTPUT==='1'?'Ordinary dialogue is selected in the private {{compose}} JSON expression brief; the host invokes the isolated author. Use text only for an optional public preface.':'Ordinary dialogue belongs in the final {{public}} reply. Use text only for an optional public preface; no other author is called.')};
   }):tools;
     const declared=env.PI_COC_TURN_PACKET_PROTOTYPE==='1'?current.map(spec=>{
-      if(spec.name==='output')return {...spec,parameters:TURN_PACKET_PARAMETERS,description:TURN_PACKET_GUIDANCE+' Every packet containing a move, including a local place position in the same scene, also includes a scene assessment command. Reuse an unchanged assessment when still current.',promptSnippet:'Submit one private turn packet for settlement and final authoring'};
+      if(spec.name==='output')return {...spec,parameters:TURN_PACKET_PARAMETERS,description:TURN_PACKET_GUIDANCE+' Arriving at another place also assesses its scene; an omitted assessment is recorded as unknown. Moves inside the current place need none.',promptSnippet:'Submit one private turn packet for settlement and final authoring'};
       if(spec.name==='place'){
         const parameters=cloneSchema(spec.parameters) as Record<string,any>;
         for(const branch of parameters.anyOf??[])if(branch.properties?.op?.const==='submit')
           for(const change of branch.properties.change.anyOf??[])if(change.properties?.action?.const==='move')delete change.properties.travel_minutes;
         for(const branch of parameters.anyOf??[])if(branch.properties?.action?.const==='move')delete branch.properties.travel_minutes;
-        return {...spec,parameters,description:'Choose one location action directly: inspect reads state or the contract; move, establish, feature, relate and observe commit the typed change without publishing. Example: {action:"move",to:"here",at:"window",relation:"beside"}. Exact fields are supplied by {action:"inspect",need:"contract"}. Use output.commands for remaining final location changes and one public delivery; never repeat settled steps.',
-          promptSnippet:'Inspect or settle one location step; publish once through output.'};
+        return {...spec,parameters,description:'Read a place (inspect), or commit one location step before a roll that needs the arrival. Every other move, wait and look goes into output commands in order. Example: {action:"move",to:"here",spot:"by the window",relation:"standing"}.',
+          promptSnippet:'Read a place, or commit an arrival a roll depends on.'};
       }
       if(spec.name==='apply'){
         const parameters=cloneSchema(spec.parameters) as Record<string,any>;

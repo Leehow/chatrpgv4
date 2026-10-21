@@ -16,15 +16,18 @@ const slot=Type.String({pattern:'^new_[1-4]$'});
 const walkOn=Type.Object({kind:Type.Literal('walk_on'),slot,label:atom(80),to:Type.Optional(Type.String({minLength:1,maxLength:240,description:'Exact established place for this new person; defaults to here. An observed remote person stays at that target.'})),reason:atom()},{additionalProperties:false});
 const services=['open','closed','limited','unknown'] as const,crowds=['empty','quiet','active','crowded','unknown'] as const;
 const scene=Type.Object({kind:Type.Literal('scene'),service:StringEnum([...services]),crowd:{...StringEnum([...crowds]),description:'Occupancy: empty means no other people, decided from circumstances; quiet/active/crowded require actual NPC placement in this scene. Use unknown when occupancy is unassessed. Missing registered names alone do not establish empty.'},review_after_minutes:Type.Optional(Type.Integer({minimum:1,maximum:60}))},{additionalProperties:false});
-const timeOptions={additionalProperties:false,oneOf:[{required:['band']},{required:['minutes']}]};
-const time=Type.Object({kind:Type.Literal('time'),band:Type.Optional(atom(64)),minutes:Type.Optional(Type.Integer({minimum:1,maximum:Number.MAX_SAFE_INTEGER,description:'Copy only an explicitly selected positive player duration in whole minutes; never estimate a cost here. No additional time means omit the time command, never minutes:0. Use an issued band for an unspecified activity cost; its computed outcome may be zero.'})),reason:atom(),beyond_travel:Type.Optional(Type.Literal(true))},timeOptions);
-const postTravelTime=Type.Object({...time.properties,beyond_travel:Type.Literal(true)},timeOptions);
+const timeOptions={additionalProperties:false,oneOf:[{required:['band']},{required:['minutes']},{required:['until']}]};
+// §250: a selected wait to a clock time is the kernel's arithmetic, in the same packet as the stops around it.
+const until=Type.Object({time:Type.String({pattern:'^[0-9]{2}:[0-9]{2}$',description:'The local 24-hour time the wait reaches, HH:MM.'}),
+ days:Type.Optional(Type.Integer({minimum:0,description:'0 is the day this turn began; omit for the next time the clock reaches it.'}))},{additionalProperties:false});
+const time=Type.Object({kind:Type.Literal('time'),band:Type.Optional(atom(64)),minutes:Type.Optional(Type.Integer({minimum:1,maximum:Number.MAX_SAFE_INTEGER,description:'Copy only an explicitly selected positive player duration in whole minutes; never estimate a cost here. No additional time means omit the time command, never minutes:0. Use an issued band for an unspecified activity cost; its computed outcome may be zero.'})),
+ until:Type.Optional(until),reason:atom(),beyond_travel:Type.Optional(Type.Boolean({description:'Optional; a move already counts its own travel.'}))},timeOptions);
 const relationship=Type.Object({kind:Type.Literal('relationship'),actor,toward:Type.String({pattern:'^(npc_[1-9][0-9]*|investigator_[1-9][0-9]*)$',maxLength:32}),affinity:StringEnum(['hostile','guarded','neutral','friendly'])},{additionalProperties:false});
 const placeMove=Type.Object(Type.Omit(PlaceEffect.anyOf[0],['travel_minutes']).properties,{additionalProperties:false,not:PlaceEffect.anyOf[0].not,description:(PlaceEffect.anyOf[0] as {description?:string}).description});
 const placeStationary=PlaceEffect.anyOf.slice(1);
 const commandSchemas=[move,placeMove,...placeStationary,npc,walkOn,scene,time,relationship];
-// Travel owns its time; explicitly separate post-arrival activity uses the canonical extra-time flag.
-const commands=Type.Union([Type.Array(Type.Union([move,placeMove,postTravelTime,...placeStationary,npc,walkOn,scene,relationship]),{maxItems:12}),Type.Array(Type.Union([time,...placeStationary,npc,walkOn,scene,relationship]),{maxItems:12})]);
+// §250: stops, waits and looks settle in their submitted order; a move counts its own travel, so time is always additional.
+const commands=Type.Array(Type.Union([move,placeMove,time,...placeStationary,npc,walkOn,scene,relationship]),{maxItems:16});
 /** A model decides communication; the sole author owns all complete wording. */
 export const TURN_PACKET_PARAMETERS=Type.Object({version:Type.Literal(4),commands:Type.Optional(commands),interactions:Type.Optional(Type.Array(Interaction,{maxItems:12})),reveal:Type.Optional(Type.Array(ExistingCommunicationFact,{maxItems:8}))},{additionalProperties:false});
 export const TURN_PACKET_ENTRY_PARAMETERS=locationCommandEntry(TURN_PACKET_PARAMETERS);
@@ -38,8 +41,7 @@ const keys=(value:Record<string,unknown>,allowed:string[])=>Object.keys(value).e
 /** Diagnose with the declared schema before Pi can coerce supplied values. */
 export class TurnPacketParameterError extends Error {
  fields:string[];
- reason?:'multiple_destinations';
- constructor(message:string,fields:string[],reason?:'multiple_destinations'){super(message);this.name='TurnPacketParameterError';this.fields=fields;this.reason=reason;}
+ constructor(message:string,fields:string[]){super(message);this.name='TurnPacketParameterError';this.fields=fields;}
 }
 function parameterError(label:string,schema:TSchema,value:unknown):Error {
  const errors=Errors(schema,value).slice(0,4);
@@ -120,13 +122,12 @@ export function turnPacketParameterSchema(journeySettled=false,timeBands?:readon
     const assessment={contains:scene,minContains:1};
     const stationary=sceneRequired?assessment:{};
     const local=locations?placeStationary.map(command=>command.properties.action.const==='observe'?Type.Omit(command,['relations'],{additionalProperties:false,not:command.not}):command):[],journey=locations?[placeMove]:[];
-    const moving=sceneRequired?assessment:{allOf:[{if:{contains:locations?Type.Object({kind:Type.Literal('place'),action:Type.Literal('move')}):Type.Object({kind:Type.Literal('move')})},then:assessment}]};
     const arrivedFields={kind:Type.Literal('place'),action:Type.Literal('move'),to:Type.Literal('here'),
         relation:PlaceEffect.anyOf[0].properties.relation,additions:PlaceEffect.anyOf[0].properties.additions};
     const arrivedLocal=[Type.Object({...arrivedFields,at:atom(240)},{additionalProperties:false}),
         Type.Object({...arrivedFields,spot:Type.String({...PlaceEffect.anyOf[0].properties.spot})},{additionalProperties:false})];
     if(journeySettled)schema.properties.commands=Type.Array(Type.Union([...(locations?arrivedLocal:[]),...local,issuedNpc,walkOn,scene,relationship]),{maxItems:12,...stationary});
-    else schema.properties.commands=Type.Union([Type.Array(Type.Union([...issuedMoves,...journey,Type.Object({...boundedTime.properties,beyond_travel:Type.Literal(true)},timeOptions),...local,issuedNpc,walkOn,scene,relationship]),{maxItems:12,...moving}),Type.Array(Type.Union([boundedTime,...local,issuedNpc,walkOn,scene,relationship]),{maxItems:12,...stationary})]);
+    else schema.properties.commands=Type.Array(Type.Union([...issuedMoves,...journey,boundedTime,...local,issuedNpc,walkOn,scene,relationship]),{maxItems:16,...stationary});
     if(sceneRequired)schema.required=[...new Set([...(schema.required??[]),'commands'])];
     return locations?locationCommandOwner(schema as TSchema):schema as TSchema;
 }
@@ -173,13 +174,6 @@ export function turnPacket(text:string,parameters?:TSchema):TurnPacket {
   if(schema&&Errors(schema,command).length)throw parameterError(`commands[${index}]`,schema,command);
  }
  if(object(raw)&&Array.isArray(raw.interactions))for(const row of raw.interactions)responseDecision(row,(raw.commands??[]).filter((row:any)=>row?.kind==='walk_on').map((row:any)=>row.slot));
- if(object(raw)&&Array.isArray(raw.commands)){
-  const journey=raw.commands.findIndex((command:Row)=>command?.kind==='move'||command?.kind==='place'&&command.action==='move');
-  for(const [index,command]of raw.commands.entries())if(command?.kind==='time'){
-   if(journey>=0&&command.beyond_travel!==true)throw Error('Movement already owns travel time. Omit duplicate travel time; mark independent post-arrival activity with beyond_travel:true.');
-   if(command.beyond_travel===true&&journey>=0&&index<journey)throw Error('beyond_travel time must follow the journey when both occur in this packet.');
-  }
- }
  if(Errors(TURN_PACKET_PARAMETERS,raw).length)throw parameterError('packet',TURN_PACKET_PARAMETERS,raw);
  if(parameters){const diagnostic=commandArrayDiagnostic(parameters,raw.commands);if(diagnostic)throw diagnostic;}
  if(parameters&&Errors(parameters,raw).length)throw parameterError('packet',parameters,raw);
@@ -191,8 +185,6 @@ export function turnPacket(text:string,parameters?:TSchema):TurnPacket {
  for(const command of commands)if(command.kind==='place'&&command.action==='observe')
   for(const name of [...command.people??[],...(command.situations??[]).flatMap(situation=>situation.participants??[])])
    if(isNewNpcSlot(name)&&!slots.includes(name))throw Error('Unbound observation newcomer slot');
- const journeys=commands.filter(a=>a.kind==='move'||a.kind==='place'&&a.action==='move');
- if(journeys.length>1)throw new TurnPacketParameterError('Only one destination per decision packet',['commands'],'multiple_destinations');
  return packet;
 }
 export function compileTurnPacket(packet:TurnPacket|BoundTurnPacket):{responses:ResponseDecision[];effects:Record<string,unknown>[];event?:{name:string;relationships:Array<{actor:string;toward:string;statement:string}>}} {
@@ -214,7 +206,7 @@ export function compileTurnPacket(packet:TurnPacket|BoundTurnPacket):{responses:
   ...('travel_minutes'in a&&a.travel_minutes!==undefined?{travel_minutes:a.travel_minutes}:{}),...(a.travel_band?{travel_band:a.travel_band}:{})}
   :a.kind==='place'?a.action==='observe'?{...Object.fromEntries(Object.entries(a).filter(([key])=>key!=='additions')),...(a.people?{people:a.people.map(person)}:{}),...(a.situations?{situations:a.situations.map(situation=>({...situation,...(situation.participants?{participants:situation.participants.map(person)}:{})}))}:{})}:{...a}:a.kind==='npc'?{kind:'npc',name:a.actor,to:a.to,why:a.reason}:a.kind==='walk_on'?{kind:'npc',name:a.label,to:a.to??'here',walk_on:true,_new_person:true,why:a.reason}
   :a.kind==='scene'?{kind:'scene',name:'here',_population:true,activity:{service:a.service,crowd:a.crowd,basis:'established',summary:`Service is ${a.service}; crowd is ${a.crowd}.`,review_after_minutes:a.review_after_minutes??15},why:'Current place, clock and registered circumstances establish this population assessment.'}
-  :a.kind==='time'?{kind:'time',...(a.minutes!==undefined?{minutes:a.minutes}:{band:a.band}),why:a.reason,...(a.beyond_travel===true?{beyond_travel:true}:{})}:(()=>{throw Error('Non-effect decision command reached the effect compiler');})())]};
+  :a.kind==='time'?{kind:'time',...(a.minutes!==undefined?{minutes:a.minutes}:a.until!==undefined?{until:{...a.until}}:{band:a.band}),why:a.reason,...(a.beyond_travel===true?{beyond_travel:true}:{})}:(()=>{throw Error('Non-effect decision command reached the effect compiler');})())]};
 }
 /** Public result fields come from kernel outcomes, never from submitted commands. */
 export function turnPacketResult(value:unknown):{player_actions_complete:true;npc_actions_complete:true;outcomes:Record<string,unknown>[]} {
@@ -226,10 +218,10 @@ export function turnPacketResult(value:unknown):{player_actions_complete:true;np
     return Object.fromEntries(['kind','status','action','actor','name','from','to','minutes','band','quantity','offer','place','position','feature','state','added','features','observation','transaction','settlement','category','purpose','currency','before','after','purchase_amount','items','subject','with','quote'].filter(key=>row[key]!==undefined).map(key=>[key,row[key]]));
   })};
 }
-export const TURN_PACKET_LOCATION_STEPS='For one final destination and focused view with fully known effects, put ordered kind:"place" move then observe commands in one output, with minimal additions if needed. A final view alone does not require a separate place move call. When a selected move precedes a wait, service, unknown rule result or another move, first call place {action:"move",to,at?|spot?,relation?,via?,travel_band?,additions?}. at identifies an exact registered interactive feature; spot describes a compatible local position without creating a fixture or granting passage. Never supply both. This commits one location step without publishing. Record any selected intermediate view with place action observe before that wait or onward move. Then use apply for the selected wait or service; absolute clock waits use time.until. Repeat that sequence only for still-unsettled selected steps, then submit one output for the remaining final move/observation and communication. One output packet permits only one final destination; it cannot replace an interleaved move/wait/return sequence or guess an unknown result. Never repeat successful receipts. ';
+export const TURN_PACKET_LOCATION_STEPS='Put the whole selected route in commands, in the order the player chose: kind:"place" action:"move" for each stop (a new place carries its minimal additions; inside the current place use to:"here" with at or a free-text spot, which takes no travel time), kind:"time" with minutes, until {time:"HH:MM"} or an issued band for each selected wait, and kind:"place" action:"observe" with short facts for what the investigator perceives. Several stops, waits and looks may share one packet; the kernel settles them in order and counts travel itself. Call the place tool first only when a roll must follow an arrival at another place. ';
 export const TURN_PACKET_GUIDANCE='Submit one output packet {version:4,commands?,interactions?,reveal?}. Call earlier place/apply/resolve operations first and read their results; put no state-changing tool after output in the same assistant message. A remote place inspection never performs the selected journey: include its still-unsettled move before observing from that destination. Omit unchanged categories. Commands settle in their submitted order before communication; do not defer an earlier view until after a later move or wait. Put walk_on before observations using its slot and scene after relevant presence changes. Unknown outcomes still require separate tools. '
- +TURN_PACKET_LOCATION_STEPS+'Places beyond issued routes and local positioning use the same typed place fields in final output commands or the separate place tool when an intermediate settlement is required. Inspect need contract supplies those fields. Reuse known identities; complete valid location calls need no earlier manual read. Establish registers surroundings only and moves nobody; an actual visit uses action:move with minimal additions. '
- +'Use issued movement destinations and routes, optional issued travel bands, npc presence, walk_on, scene and stationary time commands. Movement owns travel time. For an explicitly selected player duration use {kind:"time",minutes:the stated whole minutes,reason}; only when an independent selected activity needs an unspecified cost, select an issued band by its current rule meaning instead. A glance or local return does not require a bookkeeping pause. Never combine minutes and band. Independent post-arrival activity uses beyond_travel:true; omit any time that repeats travel. A changed directed attitude uses {kind:"relationship",actor:"issued npc_N",toward:"issued person reference",affinity:"hostile|guarded|neutral|friendly"}. Use the existing mechanical apply effects, resolve and ask for other real rules and state changes, never for prose or prospective event records. '
+ +TURN_PACKET_LOCATION_STEPS+'Places beyond issued routes use the same place fields. Reuse known names; a different name for the same place is not a new place. Establish registers surroundings only and moves nobody. A place receipt lists any adjusted fields it repaired; continue from what it settled. '
+ +'Use issued movement destinations and routes, optional issued travel bands, npc presence, walk_on, scene and stationary time commands. A move counts its own travel; never add that travel as time. For an explicitly selected player duration use {kind:"time",minutes:the stated whole minutes,reason}; for a wait to a clock time use until; only when an independent selected activity needs an unspecified cost, select an issued band by its current rule meaning instead. A glance or local return does not require a bookkeeping pause. Give one of minutes, until or band. A changed directed attitude uses {kind:"relationship",actor:"issued npc_N",toward:"issued person reference",affinity:"hostile|guarded|neutral|friendly"}. Use the existing mechanical apply effects, resolve and ask for other real rules and state changes, never for prose or prospective event records. '
  +'An unassessed or expired scene needs {kind:"scene",service:"open|closed|limited|unknown",crowd:"empty|quiet|active|crowded|unknown",review_after_minutes?:1..60}. Determine population from the place, clock and circumstances; missing names never mean empty. Quiet, active or crowded require actual NPC placement; choose empty when alone is established, or unknown for unassessed occupancy. If needed establish a temporary person with {kind:"walk_on",slot:"new_1",label:"public role appellation",reason:"why present"}; reuse existing people. '
  +'Interactions select {actor:"issued npc_N or declared new_N",to:["issued investigator_N or npc_N"],act:"answer|greet|ask|refuse|offer|acknowledge|clarify|report|warn",content?:[{fact_ref:"issued fact_N"}|{source_ref:"issued source_N"}|{new:registered constructor}]}. Silent is {actor,act:"silent",to?}, without content. '
  +'Answer, ask, offer, clarify, report and warn require nonempty content; greet, refuse and acknowledge may omit it. Select exact prepared facts and source fragments from decision_materials. Actor-scoped facts belong to that actor; a report, belief or plan is not truth. reveal selects only eligible non-actor facts or sources for narration. New claims use registered typed constructors, including directions with a destination and heading, known waypoints or retrace:true; no free-text statement, dialogue, event, intent, stance or materials. Directions are advice, never movement. An offer or planned_visit executes nothing. '

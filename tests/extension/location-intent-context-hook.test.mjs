@@ -40,7 +40,7 @@ for(const mode of ['arrival','focused','inactive'])test(`location context loads 
  const native=[{role:'system',content:'Keeper core.',toolsAdded:tools,timestamp:0},...output.messages];
  const projected=hooks.get('context_with_system')({messages:native},ctx)?.messages??native;
  const place=projected[0].toolsAdded?.find(tool=>tool.name==='place');
- if(mode!=='inactive')assert.match(place.description,/Complete location parameters are already declared/);
+ if(mode!=='inactive'){assert(place.parameters.anyOf.length>=6,'an active provider declares every place action in full');assert.doesNotMatch(place.description,/need contract/);}
  const payload={input:projected,tools};
  hooks.get('before_provider_request')({payload});
  const sent=JSON.parse(payload.input.find(m=>m.customType==='coc-capsule').content);
