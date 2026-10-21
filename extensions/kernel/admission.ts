@@ -1317,7 +1317,7 @@ export async function reviewAdmissionJevOnly(options:PrimaryAdmissionReviewOptio
     const clock=options.clock??hostClock,began=clock.now(),context=options.context;
     const nativeLocation=options.proposal.operations?.some(operation=>operation.kind==='place');
     const serviceContext=options.proposal.operations?.some(operation=>operation.registered_cash_context||operation.acting_party);
-    const family='continuous-action-admission',version=options.proposal.kinds?.includes('time')?'21':serviceContext?(nativeLocation?'20':'18'):nativeLocation?'19':context.currentPosition?'15':context.currentClock?'13':options.proposal.ordered||options.proposal.kinds?.includes('place')?'12':'7';
+    const family='continuous-action-admission',version=options.proposal.kinds?.includes('time')?'22':serviceContext?(nativeLocation?'20':'18'):nativeLocation?'19':context.currentPosition?'15':context.currentClock?'13':options.proposal.ordered||options.proposal.kinds?.includes('place')?'12':'7';
     let mechanicsChoice:{action:string;choice:{name:string;binds:string;options:string[];prompt?:string}}|undefined;
     let mechanicsInput=false,mechanicsBinding:string|undefined;
     try{
@@ -1370,7 +1370,7 @@ export async function reviewAdmissionJevOnly(options:PrimaryAdmissionReviewOptio
     const batch:DecisionBatch={id:family+':'+revision,model:ADMISSION_JEV_MODEL,family,familyVersion:version,
         scope:{owner:family,campaign:options.campaign,audience:'player'},
         readSet:[{kind:'draft',resource:'turn:'+context.turn+':consent',revision},{kind:'family',resource:family,revision:version}],
-        state:state as DecisionBatch['state'],questions:continuousConsentQuestions(options.proposal.lines.map((_,index)=>options.proposal.kinds?.[index]??''),options.proposal.operations?.map(operation=>typeof operation.action==='string'?operation.action:undefined))};
+        state:state as DecisionBatch['state'],questions:continuousConsentQuestions(options.proposal.lines.map((_,index)=>options.proposal.kinds?.[index]??''),options.proposal.operations?.map(operation=>typeof operation.action==='string'?operation.action:undefined),options.proposal.operations?.map(operation=>operation.kind!=='time'?undefined:typeof operation.band==='string'?'band':operation.until!==undefined?'until':typeof operation.minutes==='number'?'minutes':undefined))};
     for(const question of batch.questions){
         const index=Number(question.key.slice(question.key.lastIndexOf('_')+1)),operation=options.proposal.operations?.[index];
         if(operation?.registered_cash_context)question.instructions+=` Use this line's registered_cash_context kernel preview and actual delta. ${CASH_CONSENT_POLICY}`;

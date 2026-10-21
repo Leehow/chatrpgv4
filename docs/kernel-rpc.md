@@ -48824,6 +48824,19 @@ places are read-only; their current feature state is a campaign overlay.
 
 ### 242.2. One location command and one transaction
 
+Time-form separation (original input63): the elapsed-cost question applies only
+to band costs. For until, ask whether current words select the wait and the actual
+endpoint; for literal minutes, ask whether they select that stated duration.
+The producer derives this form only from closed typed fields, never from natural
+language. All forms retain independent restriction/prerequisite review and the
+same .60/.40 gates. Time batches use version22. Explicit waits must not be read
+as an additional unselected cost; a selected wait never authorizes another
+endpoint. Captured63: broad cost question .53, old activity-only question .89 but
+wrong endpoint .87 (insufficient scope); exact-wait question .84, wrong endpoint
+.57 (held) and unselected wait .13. These are diagnostic-only replay results.
+
+
+
 Elapsed-cost consent follow-up (original input61): selection asks whether the
 activity whose time is charged was chosen, not whether the player independently
 requested a mechanical category or a pause. A normal cost is distinct from an
