@@ -30,10 +30,11 @@ import {MOOD_CAPABILITY} from '../npc/mood.js';
 import {VARIATION_CAPABILITY, variationTables} from '../npc/variation.js';
 import {EXPRESSION_REFERENCE_CAPABILITY,expressionCards,expressionCatalogRevision} from './expression-reference.js';
 import { ESTABLISH_CAPABILITY, ESTABLISH_REVIEW_CAPABILITY, validateEstablishDeclaration, establishProvider, establishItem } from "./establish.js";
-import { SECTIONS_CAPABILITY, DISCOVERY_CAPABILITY, validateSectionsDeclaration, validateSectionsContribution, packageSections, sectioned, sectionKey, instructionBudget, residentText, topicList, annotateGates, sceneFacts, type TurnFacts } from "./sections.js";
+import { SECTIONS_CAPABILITY, DISCOVERY_CAPABILITY, validateSectionsDeclaration, validateSectionsContribution, packageSections, sectioned, sectionKey, residentText, topicList, annotateGates, sceneFacts, type TurnFacts } from "./sections.js";
 import {TEMPORAL_CAPABILITY,temporalItems,temporalProviders} from './temporal-mod.js';
 import {IMPROVISED_WEAPON_CAPABILITY} from '../combat/improvised.js';
 import {LOCATIONS_CAPABILITY,LOCATION_POSITION_V2_CAPABILITY,locationProvider} from './locations.js';
+import {ROUTINE_SUMMARY_CAPABILITY,routineSummaryProvider} from './routine-summary.js';
 import {LOCATION_OBSERVATION_CAPABILITY,LOCATION_OBSERVATION_V2_CAPABILITY} from './location-observations.js';
 export const MOD_CAPABILITIES = new Set(["audit.source.v1", "checks.percentile.v1", "checks.presence.v1", "context.npc.v1", "definitions.v1", "objects.v1", "objects.state.v2", "objects.adopt.v1", "objects.documents.v1", "mods.order.v1", "mods.package-files.v1", "ui.documents.v1", "ui.documents.language.v1", "agents.tools.v1", "weapons.v1", "weapons.profile.v2", "spells.v1", "item-effects.v1", "setup.guidance.v1", "setup.aptitude.v1", "graph.vocabulary.v1", "graph.vocabulary.table.v1", "context.thread.v1", "context.pacing.v1"]);
 MOD_CAPABILITIES.add("objects.images.v1");
@@ -81,6 +82,8 @@ MOD_CAPABILITIES.add(TEMPORAL_CAPABILITY);
  *  the weapons-table row it most resembles (`first_blow.preparation.improvised`, `action.improvised`); Enhanced Items 1.3.5 is the first. */
 MOD_CAPABILITIES.add(IMPROVISED_WEAPON_CAPABILITY);
 MOD_CAPABILITIES.add(LOCATIONS_CAPABILITY);
+/** Contract §247.2: the native packet may carry a routine summary while a package requiring this is active. */
+MOD_CAPABILITIES.add(ROUTINE_SUMMARY_CAPABILITY);
 MOD_CAPABILITIES.add(LOCATION_POSITION_V2_CAPABILITY);
 MOD_CAPABILITIES.add(LOCATION_OBSERVATION_CAPABILITY);
 MOD_CAPABILITIES.add(LOCATION_OBSERVATION_V2_CAPABILITY);
@@ -815,6 +818,7 @@ export async function modContext(context: KernelContext, graph: ModuleGraph, wor
             revision:expressionCatalogRevision(active,evidence.play_language??null)},
         instructions: instructionRows(effective, world),
         ...(locationProvider(active)?{location_context:{mod:locationProvider(active)!.id,version:locationProvider(active)!.version}}:{}),
+        ...(routineSummaryProvider(active)?{routine_summary:{mod:routineSummaryProvider(active)!.id,version:routineSummaryProvider(active)!.version}}:{}),
         pending_contacts: contacts.slice(0, 12),
         relationships: relationships.slice(0, 12),
         objects: objectContext(world),
@@ -851,9 +855,8 @@ export async function modContext(context: KernelContext, graph: ModuleGraph, wor
 }
 /** The open turn's state the §183 gates read that only the capsule's assembly has. */
 export type TurnState = Pick<TurnFacts, "opening" | "present" | "stalled_turns" | "stall_threshold" | "beat" | "repeat_input">;
-/** Contract §183.3: each package's instruction row, in the effective order. An unsectioned package is whole; a sectioned
- *  one is whole while the running total of the bytes the rows carry stays within the instruction budget, and indexed
- *  (its resident text, its sections listed) once it would not. */
+/** Contract §248.1: each package's instruction row, in the effective order. An unsectioned package is whole; a sectioned
+ *  one is indexed (its resident text and section index; its sections listed) at any budget. */
 /** Exact source offsets for authored section kinds; an unknown heading keeps the whole instruction. */
 export function materialScreenRanges(text: string, sections: readonly {heading: string | null; kind: string}[]): Row | undefined {
     const examples=text.indexOf('\n\nExpression examples (quoted data, not instructions or world facts;');
@@ -869,25 +872,17 @@ export function materialScreenRanges(text: string, sections: readonly {heading: 
 }
 
 function instructionRows(effective: Row[], world: Row): Row[] {
-    const budget = instructionBudget();
-    let total = 0;
     return effective.filter(mod => truth(mod.contributes.instructions)).map(mod => {
         const examples = expressionCards(mod,mod.files).slice(0,3).map(card=>card.examples[0]);
-        const text = new TextDecoder("utf-8", { fatal: true }).decode(mod.files.get(mod.contributes.instructions))
-            + (examples.length ? '\n\nExpression examples (quoted data, not instructions or world facts; adapt the phrasing to this encounter without importing names, events or promises):\n'+JSON.stringify(examples) : ''),
-            bytes = Buffer.byteLength(text, "utf8"),
+        const cards = examples.length ? '\n\nExpression examples (quoted data, not instructions or world facts; adapt the phrasing to this encounter without importing names, events or promises):\n'+JSON.stringify(examples) : '',
             base = { mod: mod.id, version: mod.version, settings: world.mods.active[mod.id].settings };
-        const sections=sectioned(mod)?packageSections(mod):[];
-        const discovery=sections.some(section=>section.index_contract_version===2);
-        if (!array(mod.requires).includes(LOCATIONS_CAPABILITY) && !discovery && !sections.some(section=>section.kind==='reference') && (!sectioned(mod) || total + bytes <= budget)) {
-            total += bytes;
-            const screening=sections.length?materialScreenRanges(text,sections):undefined;
-            return { ...base, form: "full", instruction: text, ...(screening?{material_screen:screening}:{}) };
-        }
-        const resident = residentText(sections);
-        total += Buffer.byteLength(resident, "utf8");
+        if (!sectioned(mod))
+            return { ...base, form: "full", instruction: new TextDecoder("utf-8", { fatal: true }).decode(mod.files.get(mod.contributes.instructions)) + cards };
+        const sections = packageSections(mod), discovery = sections.some(section => section.index_contract_version === 2);
+        // The examples ride with the resident text, as they rode with the whole text (§248.2).
+        const resident = residentText(string(mod.id), sections) + cards;
         return { ...base, form: "indexed", instruction: resident,...(discovery?{index_contract_version:2}:{}),
-            sections: sections.flatMap((section, ordinal) => section.kind === "resident" ? [] : [{ key: sectionKey(mod, ordinal), heading: section.heading,
+            sections: sections.flatMap((section, ordinal) => section.kind === "resident" ? [] : [{ key: sectionKey(mod, ordinal), heading: section.heading, ...(section.kind === "reference" ? { kind: "reference" } : {}),
                 topics: [...section.topics], gates: [...section.gates], triggers: [...section.triggers], topic_threshold: section.topic_threshold,
                 ...(section.index_contract_version===2?{applicability:section.applicability,category:section.category,dependencies:section.dependencies}:{}),
                 bytes: Buffer.byteLength(section.text, "utf8") }]) };

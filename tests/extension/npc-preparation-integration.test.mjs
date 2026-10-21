@@ -101,7 +101,9 @@ for(const phase of ['hydration','preselect'])test(`a replaced player input canno
  let held=false;
  const delayed={...table,call:async(method,params)=>{const result=await originalCall(method,params);if(!held&&(phase==='hydration'?method==='table.untold':method==='table.workspace.read'&&params?.preselect)){held=true;entered.resolve();await release.promise;}return result;}};
  const session=host(t,delayed,true),oldFlag=process.env.PI_COC_JEV_PRESELECT,oldFetch=globalThis.fetch;let dispatches=0;
- process.env.PI_COC_JEV_PRESELECT='1';globalThis.fetch=async(_url,init)=>{dispatches++;return Response.json(supportWire(JSON.parse(init.body),()=>'skip'));};
+ process.env.PI_COC_JEV_PRESELECT='1';globalThis.fetch=async(_url,init)=>{
+  // §248: the first input's package topic judgement starts when its capsule is published, before any hold; it is not discovery.
+  if(!String(init.body).includes('"purpose":"the topics this turn involves"'))dispatches++;return Response.json(supportWire(JSON.parse(init.body),()=>'skip'));};
  t.after(()=>{release.resolve();globalThis.fetch=oldFetch;if(oldFlag===undefined)delete process.env.PI_COC_JEV_PRESELECT;else process.env.PI_COC_JEV_PRESELECT=oldFlag;});
  await session.start();
  const publish=async epoch=>{const {_context,...capsule}=await originalCall('table.capsule',{rehydrate:true});session.events.emit('coc:capsule',{campaign:table.campaign,epoch,capsule,context:_context});};

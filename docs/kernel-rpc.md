@@ -36053,6 +36053,8 @@ A package declares its instruction's sections with `contributes.sections`, a pac
 
 ### 183.3 Whole or indexed
 
+**Amended by §248 (owner 2026-10-21):** a sectioned package is indexed at any budget; the greedy rule below is retired, and on the single Keeper §248.4 replaces the topic judgement with state/call pushes and the Keeper's own reads.
+
 `modContext` decides per package, in the effective order:
 - a package without `contributes.sections` is `full`, always;
 - a sectioned package is `full` while the running total of the bytes the rows carry stays within the **instruction budget** (65 536 bytes; a positive integer `COC_INSTRUCTION_BUDGET` in the kernel's environment overrides it, for tests and operators), and `indexed` once it would not. An indexed row adds its resident text to the total; a later sectioned package that still fits goes whole (greedy).
@@ -50663,6 +50665,182 @@ use the production capsule head through both modes and repeated context hooks.
 Apply this same head-only projection before request sizing to retained prior-turn
 capsules protected by a pending choice and to bounded degraded requests. Their
 historical facts stay historical; neither path restores a retired author duty.
+
+## 247. Quick Settlement: routine acts carried as one summarized stretch (owner 2026-10-21)
+
+Spec: `docs/specs/quick-settlement.md`. Owner request (2026-10-21): when one input chains many acts (order a
+coffee, drink it, read the paper, look out of the window), most need neither fine description nor settlement.
+Settle what matters; render the rest as one short description; the acts the player actually cares about are
+checked against the module and, when irrelevant, stay ambient description rather than new entities or clues.
+
+### 247.1 Ownership
+
+An optional built-in Mod, `quick-settlement` (default on). Triage is the Keeper's model judgement over the
+whole input, steered by the Mod's resident instructions; there is no host classifier, keyword list or
+second Keeper. Rules still judge what happened and the module stays reference, not scripture (§1). With the
+Mod off, the packet schema, Keeper instructions and author instruction are byte-identical to the previous
+build.
+
+Rules basis: routine expenses within an investigator's Spending Level are not tracked (Keeper Rulebook,
+Cash and Assets). The kernel already models this (`cash` category `living`, zero delta, §58; daily
+Spending Level ledger, `kernel-ts/apply/purchases.ts`). Quick Settlement lets the Keeper omit that receipt
+entirely for routine food, drink and incidentals; a purchase beyond Spending Level, a quotation the player
+asked for, or a thing kept past the scene still goes through `apply cash`/`item` and its consent path.
+
+### 247.2 Capability and context
+
+`turn.routine-summary.v1` is a Mod capability. While an active package requires it, `mods.context` (and the
+capsule's `mods`) carries `routine_summary: {mod, version}` naming the last such package in load order, the
+same provider rule as `location_context` (§242). No other context, state or receipt is added.
+
+### 247.3 The packet element
+
+While `capsule.mods.routine_summary` is present for the current turn, the native decision packet (§237,
+version 4) accepts one optional top-level element; otherwise the issued schema omits it and a submitted
+`routine` is refused before execution (`invalid_params`, `reason: routine_summary_inactive`):
+
+```
+routine: {
+  acts: string[1..8]            // short public phrases (<=120 chars) for the selected routine acts this
+                                // input carried without separate settlement
+  ambient?: [{                  // <=3 targets the player attended to that carry nothing module-relevant
+    target: string,             // <=80 chars, e.g. "the newspaper on the counter"
+    notes?: string[0..3]        // <=200 chars each: optional period detail, e.g. grounded by native search
+  }]
+}
+```
+
+It is a closed rendering selection, not an effect, event or claim: it writes nothing to world state,
+registers no person, place, object, clue or fact, and creates no receipt. A routine stretch takes time, so the input
+carrying `routine` must have exactly one time charge for the whole stretch: the packet's stationary `time`
+command (one band, or the minutes the player stated), or a `time` receipt an earlier `apply` of this input
+already landed, or the host-settled journey (§237 routine journey). None is refused before execution
+(`invalid_params`, `reason: routine_time_missing`); a second charge is refused as
+`routine_time_repeated`. §216/§218 are unchanged: time is charged once per input.
+
+### 247.4 The author
+
+When the packet carries `routine`, the host adds `decision_context.routine = {acts, ambient?}` to the sole
+author's input and appends the active provider's reference section `Routine summary for the author`
+(resolved by key through `mods.sections`, version-locked like §242's place description) to the author
+system prompt. The section text is Mod-owned; a byte change is a version bump. Its contract: `routine.acts`
+are listed player actions that occurred within the listed time outcome without per-act settlement, rendered
+as one short summary with no prices, item changes or findings; each `ambient` target is described as
+ordinary perceivable surface detail consistent with the clock, place and period (notes optional), and that
+description establishes no person who acts or speaks, no clue and nothing the investigator could pursue.
+`result.player_actions_complete` and "unlisted actions did not occur" keep their meaning for every act not
+in `result.outcomes` or `routine.acts`. When the place-bound author withholds `player_input` (§242), the acts
+still reach the author through `routine.acts`.
+
+### 247.5 Three ends (§31)
+
+- Writer: the Keeper's `output` packet `routine` element, only while the Mod's capability is active.
+- Reader: the host's packet compiler (validation before execution) and the isolated author's
+  `decision_context.routine` plus the Mod's reference section.
+- Actor: the sole author renders one summary; the Keeper charges one time command. Telemetry:
+  `lane: "routine-summary"` records acts/ambient counts per input. No offer ledger or obligation is added.
+
+### 247.6 Evidence and implementation decisions
+
+Sandbox (2026-10-21, MiniMax-M3.1-Flash-Preview/medium, default hybrid-v1 path, same retained seed and
+input, `docs/specs/quick-settlement.md` §4): instruction-only guidance already removed per-act settlement
+(Keeper rounds 3 -> 1, wall 123.2 s -> 63.5 s, receipts cash+npc activity -> time only), but the author
+rendered the newspaper and window as "nothing notable": it had no permission to describe ambient detail,
+and routine acts reached prose only through `player_input` against "unlisted actions did not occur". The
+`routine` element closes that seam. With it (runs `qs-with-c`, `qs-with-pair2`) the Keeper checked relevance with
+two `lookup` calls, charged one time command and listed 3-4 routine acts and two ambient targets; the author
+wrote one summary with period headlines and the street as texture, and no cash or item receipt landed. One run
+(`qs-with-b`) found module-relevant news and took the ordinary clue path. A no-Mod run of the same input
+(`qs-without-pair2`) took 8 tool calls and ended in an admission failure. MiniMax latency varied by more than
+2x between identical runs, so no latency claim is made.
+The shipped 1.0.0 keeps 0.9 KB of resident guidance (the default table had 1.2 KB of its instruction budget
+left) and carries the usage rule in the `routine` field descriptions, which exist only while the capability
+is active. A compressed-guidance run without those descriptions left `routine` empty (hollow result); with
+them both runs (`qs-with-final2`, `qs-with-final3`) listed five routine acts and two ambient targets.
+The declared `output` tool carries `routine` only while the capability is active (re-registered on the turn
+capsule), so non-Anthropic provider payloads, which are not schema-replaced, never see it with the Mod off.
+
+Decisions: the base `TURN_PACKET_PARAMETERS` is unchanged; `TURN_PACKET_ROUTINE_PARAMETERS` is the issued schema
+and the declared `output` tool's parameters while the capability is active, and only then. An
+earlier `time` receipt of the same input counts as the stretch's charge (the first live run charged time in an
+`apply` with a clue, and a packet-only rule refused the summary). The author section is a `reference` section, so
+the package is indexed at any budget, like Enhanced Locations.
+
+## 248. Package instructions: indexed by default, sections pushed by state and pulled by the Keeper (owner 2026-10-21; amends §183.3, §183.5, §183.6, §183.8)
+
+**Evidence.** On the Quick Settlement branch (§247) the default table's package rows carried 65 2xx of the 65 536-byte
+instruction budget: every sectioned package went `full` because §183.3 indexes only past the budget, so about 36 KB of
+situational text (story-thread 12.7 KB, natural-npc 6.7 KB, enhanced-items 6.6 KB, keeper-pacing 4.2 KB, narration-craft
+3.1 KB, hostile-creatures 2.0 KB, historical-reference 0.9 KB) rode every request. The single Keeper (§237, the hybrid
+engine always reports `singleKeeper: true`) has no topic judgement: `mod-sections` gets no decision port, so even an
+indexed row fell back to every gated section. Each new package therefore either compressed its guidance (§247.6) or
+would push an earlier package past the budget, which then indexed by load order, not by relevance.
+
+The owner's ruling (2026-10-21) replaces §183's "whole while it fits" with: a sectioned package is always indexed;
+the budget bounds what rides every turn; sections reach the Keeper when the table's state or a call needs them, and
+the Keeper reads any other listed section itself. Rules are pulled when needed, not written into every request.
+Narration Craft's resident text (13.4 KB, every sentence about how every turn is written) stays resident by decision.
+
+### 248.1 Whole or indexed
+
+`modContext` (`instructionRows`, `kernel-ts/read/mods.ts`) decides per package:
+- a package without `contributes.sections` is `full`, as before;
+- a sectioned package (schema 1 or 2) is `indexed`, at any budget. The greedy cut of §183.3 is gone.
+
+The instruction budget (65 536 bytes, `COC_INSTRUCTION_BUDGET`) now bounds the bytes every request carries: the sum of
+`full` rows' text and `indexed` rows' `instruction`. The kernel does not cut or flip forms against it; the shipped
+packages are held to it by test (§248.5). Material screening (single Keeper) keeps working on `full` rows; a sectioned
+package no longer has situational ranges in the brief to screen.
+
+### 248.2 The indexed row's text
+
+An indexed row's `instruction` is, joined by blank lines: the lead, the resident sections' text, and the section index.
+- Lead: "Further sections of this package are listed below. The host sends one in coc-mod-sections when the table's
+  state or a call this turn needs it; read any other the turn needs with the mod tool and its exact name."
+- Index: a `Sections:` line, then one line per situational section in `sections.json` order (a reference section is
+  its own consumer's, §242 and §247.4, and is neither listed nor read by `mod`; its row in `sections[]` carries
+  `kind: "reference"`):
+  `- "<mod>: <heading>"` (`Package core` for the preamble) and, when it has them, ` topics: <ids>` and
+  ` sent on: <triggers and kernel gates>`.
+
+A package's expression examples (§165) follow its text as they followed the whole text. The text depends only on the package's frozen bytes, so the brief stays cached. Topic ids in the index are explained by
+the brief's `topics` (§248.3).
+
+### 248.3 The brief
+
+`coc-context-brief` adds `topics: [{id, what}]`: the definitions (`content/mods/topics.json`) of the topics the indexed
+rows name, from `capsule.mods.topics`. It changes only when the package set does.
+
+### 248.4 The host: push and pull
+
+`extensions/table/mod-sections.ts` selects per §183.5 when it has a decision port. Without one because the table runs
+the single Keeper (`decision` reports pull mode), it does not ask Jev and has no `fallback`; a section loads when:
+- `due` (a `state:` trigger holds); or
+- one of its `before_apply` / `before_resolve` triggers names a call this turn; or
+- it names topics and at least one kernel gate, and `gates_open` holds (host gates aside), recorded `gate`.
+
+A section with topics and no kernel gate is not pushed: the Keeper reads it with the **`mod` verb** (owner suggestion
+2026-10-21: a mod is called the way a skill is). `mod {name}` with a name of the index (`"<mod>: <heading>"`,
+case-insensitive, surrounding quotes allowed) returns `{read_only: true, no_commit: true, package_sections: [{package,
+section, version, text}]}` for a schema-1 indexed row of the current capsule, read through `mods.sections` and cached by
+key; it is not entered in §228's disclosure (the tool result stays in the run). An unknown name answers
+`{status: "not_found", name, names}` with the listed names. `mod` writes nothing, spends no time and changes no turn
+state; it is the tenth name of `COC_TOOL_NAMES`, offered on every table. Schema-2 names keep §228's
+`lookup kind capability` path.
+
+Telemetry: `lane: "mod-sections"`, `event: "pull_mode"` once per input; `selected` rows carry `why` (`due`,
+`call:<trigger>`, `gate`); `lane: "mod-sections"`, `event: "read"` with the key for each Keeper read.
+
+### 248.5 Limits and tests
+
+- A topic-only section reaches the Keeper only if it reads it; nothing counts whether it should have. The measure is a
+  live replay, not this contract.
+- The first `apply`/`resolve` of a kind still precedes the section its trigger sends (§183.8).
+- Schema-2 rows on the single Keeper keep §209's forced-full discovery; they are not built in today.
+- `tests/extension/mod-section-index.test.mjs`: forms at the default budget and at `COC_INSTRUCTION_BUDGET=1` are the
+  same; the index text; pull-mode selection (due, call, gate, topic-only not pushed); the lookup read and `not_found`.
+  `tests/extension/single-keeper-rule-guidance.test.mjs`: on the default table every sectioned row is indexed, the rows
+  carry at most the budget, and each package's `instruction` is at most 6 144 bytes except Narration Craft's.
 
 ### Existing spatial selection reaches the Keeper (2026-10-21)
 

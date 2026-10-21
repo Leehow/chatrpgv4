@@ -29,9 +29,13 @@ if(pyBool(!pyEqual(mod,"natural-npc"))){(await pyMethod(client,"ok",["mods.confi
 assert.ok(pyBool((pyAt(pyAt((await words(client,campaign)),"language"),"bound")===true)),"tests/kernel/test_language_barrier.py:30 assert words(client, campaign)[\"language\"][\"bound\"] is True");
 assert.ok(pyBool(!pyContains(pyAt((await table_npcs(client,campaign)),"Tenant"),"speaks")),"tests/kernel/test_language_barrier.py:31 assert \"speaks\" not in table_npcs(client, campaign)[\"Tenant\"]");
 full=(await pyNext((await (async()=>{const __rows:any[]=[];for(const row of pyIterable(pyAt(pyAt((await pyMethod(client,"ok",["table.capsule",({["campaign"]:campaign})],{})),"mods"),"instructions"))){if(pyBool(pyEqual(pyAt(row,"mod"),"natural-npc"))){__rows.push(row);}}return __rows;})())));
-assert.ok(pyBool(pyEqual(pyAt(full,"form"),"full")),"tests/kernel/test_language_barrier.py:34 assert full[\"form\"] == \"full\"");
-assert.ok(pyBool(pyContains(pyAt(full,"instruction"),"Missing `speaks` means unknown")),"tests/kernel/test_language_barrier.py:35 assert \"Missing `speaks` means unknown\" in full[\"instruction\"]");
-assert.ok(pyBool(pyContains(pyAt(full,"instruction"),"What the player writes is what the investigator means")),"tests/kernel/test_language_barrier.py:36 assert \"What the player writes is what the investigator means\" in full[\"instruction\"]");
+// §248.1: natural-npc is sectioned, so it rides indexed; its language section is read by key, as the host or the Keeper's mod verb reads it.
+assert.ok(pyBool(pyEqual(pyAt(full,"form"),"indexed")),"tests/kernel/test_language_barrier.py:34 assert full[\"form\"] == \"full\" (indexed since §248)");
+const languageKey=pyAt(full,"sections").find((section:any)=>section.heading==="The language of the exchange").key;
+assert.ok(pyBool(pyContains(pyAt(full,"instruction"),'"natural-npc: The language of the exchange"')),"the index lists the language section");
+const language=pyAt(pyAt(pyAt((await pyMethod(client,"ok",["mods.sections",({["campaign"]:campaign,["keys"]:[languageKey]})],{})),"sections"),0),"text");
+assert.ok(pyBool(pyContains(language,"Missing `speaks` means unknown")),"tests/kernel/test_language_barrier.py:35 assert \"Missing `speaks` means unknown\" in full[\"instruction\"]");
+assert.ok(pyBool(pyContains(language,"What the player writes is what the investigator means")),"tests/kernel/test_language_barrier.py:36 assert \"What the player writes is what the investigator means\" in full[\"instruction\"]");
 view=(await pyMethod(client,"ok",["table.look",({["campaign"]:campaign,["focus"]:"investigator"})],{}));
 assert.ok(pyBool(pyEqual(pyAt(pyAt(view,"skills"),"Language (Other: English)"),1)),"tests/kernel/test_language_barrier.py:38 assert view[\"skills\"][\"Language (Other: English)\"] == 1");
 job=(await pyMethod(client,"ok",["mods.job",({["campaign"]:campaign,["role"]:"audit",["input"]:({["text"]:"The tenant answers the whole question fluently."})})],{}));
@@ -49,7 +53,7 @@ assert.ok(pyBool((await (async()=>{const __left=!pyContains(packet,"source_revie
 (await pyMethod(client,"ok",["table.narrate",({["campaign"]:campaign,["call_id"]:"t1-c1",["text"]:"The tenant points to the pump."})],{}));
 (await open_turn(client,campaign));
 later=(await pyNext((await (async()=>{const __rows:any[]=[];for(const row of pyIterable(pyAt(pyAt((await pyMethod(client,"ok",["table.capsule",({["campaign"]:campaign})],{})),"mods"),"instructions"))){if(pyBool(pyEqual(pyAt(row,"mod"),"natural-npc"))){__rows.push(row);}}return __rows;})())));
-assert.ok(pyBool(pyEqual(pyAt(later,"form"),"full")),"tests/kernel/test_language_barrier.py:60 assert later[\"form\"] == \"full\"");
+assert.ok(pyBool(pyEqual(pyAt(later,"form"),"indexed")),"tests/kernel/test_language_barrier.py:60 assert later[\"form\"] == \"full\" (indexed since §248)");
 assert.ok(pyBool(pyEqual(pyAt(later,"instruction"),pyAt(full,"instruction"))),"tests/kernel/test_language_barrier.py:61 assert later[\"instruction\"] == full[\"instruction\"]");}finally{(await pyMethod(client,"close",[],{}));}
 }
 if(process.argv[1]===import.meta.filename)for(const [index,row] of ([{}]).entries())test("test_unknown_language_policy_reaches_every_turn_and_ordinary_audit"+(([{}]).length>1?' ['+index+']':''),async(t)=>{const temporary=temporaryPath(t);await test_unknown_language_policy_reaches_every_turn_and_ordinary_audit(temporary);});

@@ -1,5 +1,5 @@
 /**
- * Contract §183: a package's instruction, whole while the table's instructions fit a budget and indexed beyond it.
+ * Contract §183, §248: a package's instruction, whole without sections and indexed with them.
  *
  * A package that requires `instructions.sections.v1` names a JSON file in `contributes.sections` declaring every `## `
  * section of its `agent.md`: resident (rides every turn) or situational (named topics of the product's closed list,
@@ -18,7 +18,8 @@ import { array, row, string, number, integer, numeric, type Row } from "./values
 export const SECTIONS_CAPABILITY = "instructions.sections.v1";
 export const REFERENCE_SECTIONS_CAPABILITY = "instructions.sections.reference.v1";
 export const DISCOVERY_CAPABILITY = "instructions.discovery.v1";
-/** The UTF-8 bytes of package instructions a request carries whole before sectioned packages go indexed (§183.3). */
+/** The UTF-8 bytes of package instructions every request may carry: full rows and indexed rows' text (§248.1). The
+ *  kernel does not cut against it; the shipped packages are held to it by test. */
 export const INSTRUCTION_BUDGET = 65536;
 /** Gates the kernel evaluates on the turn's state (§183.3); `no_topic` is the host's (§183.5). */
 export const KERNEL_GATES: readonly string[] = ["opening", "people_present", "present_without_history", "unregistered_equipment",
@@ -258,10 +259,20 @@ export function instructionBudget(): number {
     return Number.isSafeInteger(value) && value > 0 ? value : INSTRUCTION_BUDGET;
 }
 
-export const INDEXED_LEAD = "Further sections of this package arrive in coc-mod-sections when a turn needs them.";
-/** The text an indexed row carries every turn: one line on where the rest arrives, then the resident sections. */
-export function residentText(sections: readonly Section[]): string {
-    return [INDEXED_LEAD, ...sections.filter(section => section.kind === "resident").map(section => section.text)].join("\n\n");
+export const INDEXED_LEAD = "Further sections of this package are listed below. The host sends one in coc-mod-sections when the table's state "
+    + "or a call this turn needs it; read any other the turn needs with the mod tool and its exact name.";
+/** The name a section is listed and read by (§248.2): `<mod>: <heading>`, the preamble as `Package core`. */
+export const sectionName = (mod: string, heading: string | null): string => `${mod}: ${heading ?? "Package core"}`;
+/** The text an indexed row carries every turn (§248.2): the lead, the resident sections, then the situational sections'
+ *  index. A reference section is its own consumer's (§242, §247.4) and is not listed. */
+export function residentText(mod: string, sections: readonly Section[]): string {
+    const listed = sections.filter(section => section.kind === "situational").map(section => {
+        const sent = [...section.triggers, ...section.gates.filter(gate => KERNEL_GATES.includes(gate)).map(gate => `gate:${gate}`)];
+        return `- ${JSON.stringify(sectionName(mod, section.heading))}`
+            + (section.topics.length ? ` topics: ${section.topics.join(", ")}` : "") + (sent.length ? ` sent on: ${sent.join(", ")}` : "");
+    });
+    return [INDEXED_LEAD, ...sections.filter(section => section.kind === "resident").map(section => section.text),
+        ...(listed.length ? [["Sections:", ...listed].join("\n")] : [])].join("\n\n");
 }
 
 /** The turn's state the kernel gates read, gathered while the capsule assembles and before any budget cuts it. */

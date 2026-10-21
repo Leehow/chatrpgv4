@@ -64013,7 +64013,14 @@
           "counterpart": {
             "file": "tests/integration/npc-language-barrier.test.ts",
             "name": "test_unknown_language_policy_reaches_every_turn_and_ordinary_audit",
-            "sha256": "6d812146c9fc6261af3ff6d4fe52069f79346b235b74b9bb0415e02172078767"
+            "sha256": "180f5a83465d641e5b925c499c282fca0183131b60d0135c61103d6ff30c3772",
+            "revalidated": {
+              "priorNativeSha256": "6d812146c9fc6261af3ff6d4fe52069f79346b235b74b9bb0415e02172078767",
+              "command": "node --test tests/integration/mod-director-text.test.ts tests/integration/temporal-context.test.ts tests/integration/npc-language-barrier.test.ts tests/integration/mod-combat.test.ts",
+              "result": "passed",
+              "cases": 42,
+              "review": "Contract 248 indexes natural-npc. The two language sentences are asserted on its language section read by key through mods.sections (the text the host and the mod verb deliver), and the form assertions expect indexed; every other assertion is unchanged."
+            }
           },
           "review": "statement-by-statement",
           "validation": {
@@ -64108,7 +64115,14 @@
           "counterpart": {
             "file": "tests/integration/npc-language-barrier.test.ts",
             "name": "test_established_language_reaches_keeper_and_auditor_without_rewriting_source",
-            "sha256": "6d812146c9fc6261af3ff6d4fe52069f79346b235b74b9bb0415e02172078767"
+            "sha256": "180f5a83465d641e5b925c499c282fca0183131b60d0135c61103d6ff30c3772",
+            "revalidated": {
+              "priorNativeSha256": "6d812146c9fc6261af3ff6d4fe52069f79346b235b74b9bb0415e02172078767",
+              "command": "node --test tests/integration/mod-director-text.test.ts tests/integration/temporal-context.test.ts tests/integration/npc-language-barrier.test.ts tests/integration/mod-combat.test.ts",
+              "result": "passed",
+              "cases": 42,
+              "review": "Contract 248 changed another case of this file (sectioned packages ride indexed); this case and its assertions are unchanged."
+            }
           },
           "review": "statement-by-statement",
           "validation": {
@@ -75641,7 +75655,22 @@
           "counterpart": {
             "file": "tests/integration/mod-director-text.test.ts",
             "name": "test_thread_is_organised_by_what_the_story_still_needs",
-            "sha256": "0f7278285bafe0923bd8417a5ac2d5d6acb2613d5e8d390f5c59b9b5850f7ee1"
+            "sha256": "ee572c20ddea6a421c9b8cddfcfa5a3ae729ba179e63dcb7e476c58817022a1b",
+            "revalidated": {
+              "priorNativeSha256": "722349af095cc47a67ec48a7e15e420718b58576043a740076883d8032faf876",
+              "command": "node --test tests/integration/mod-director-text.test.ts tests/integration/temporal-context.test.ts tests/integration/npc-language-barrier.test.ts tests/integration/mod-combat.test.ts",
+              "result": "passed",
+              "cases": 42,
+              "review": "Contract 248 changed another case of this file (sectioned packages ride indexed); this case and its assertions are unchanged.",
+              "previous": {
+                "priorNativeSha256": "0f7278285bafe0923bd8417a5ac2d5d6acb2613d5e8d390f5c59b9b5850f7ee1",
+                "command": "node --test tests/integration/mod-director-text.test.ts tests/integration/temporal-context.test.ts",
+                "result": "passed",
+                "cases": 28,
+                "evidence": ".coc/experiments/quick-settlement-20261021/integration-revalidation.log",
+                "review": "Quick Settlement (contract 247) is always indexed like Enhanced Locations; the full-instruction fixtures disable both through mods.defaults. Every original assertion and other case is unchanged."
+              }
+            }
           },
           "review": "statement-by-statement",
           "validation": {
@@ -75727,7 +75756,22 @@
           "counterpart": {
             "file": "tests/integration/mod-director-text.test.ts",
             "name": "test_a_clue_without_a_declared_check_keeps_its_gate_unspecified",
-            "sha256": "0f7278285bafe0923bd8417a5ac2d5d6acb2613d5e8d390f5c59b9b5850f7ee1"
+            "sha256": "ee572c20ddea6a421c9b8cddfcfa5a3ae729ba179e63dcb7e476c58817022a1b",
+            "revalidated": {
+              "priorNativeSha256": "722349af095cc47a67ec48a7e15e420718b58576043a740076883d8032faf876",
+              "command": "node --test tests/integration/mod-director-text.test.ts tests/integration/temporal-context.test.ts tests/integration/npc-language-barrier.test.ts tests/integration/mod-combat.test.ts",
+              "result": "passed",
+              "cases": 42,
+              "review": "Contract 248 changed another case of this file (sectioned packages ride indexed); this case and its assertions are unchanged.",
+              "previous": {
+                "priorNativeSha256": "0f7278285bafe0923bd8417a5ac2d5d6acb2613d5e8d390f5c59b9b5850f7ee1",
+                "command": "node --test tests/integration/mod-director-text.test.ts tests/integration/temporal-context.test.ts",
+                "result": "passed",
+                "cases": 28,
+                "evidence": ".coc/experiments/quick-settlement-20261021/integration-revalidation.log",
+                "review": "Quick Settlement (contract 247) is always indexed like Enhanced Locations; the full-instruction fixtures disable both through mods.defaults. Every original assertion and other case is unchanged."
+              }
+            }
           },
           "review": "statement-by-statement",
           "validation": {
@@ -75829,7 +75873,22 @@
           "counterpart": {
             "file": "tests/integration/mod-director-text.test.ts",
             "name": "test_a_discovered_clue_leaves_the_thread_and_the_capsule_carries_it",
-            "sha256": "0f7278285bafe0923bd8417a5ac2d5d6acb2613d5e8d390f5c59b9b5850f7ee1"
+            "sha256": "ee572c20ddea6a421c9b8cddfcfa5a3ae729ba179e63dcb7e476c58817022a1b",
+            "revalidated": {
+              "priorNativeSha256": "722349af095cc47a67ec48a7e15e420718b58576043a740076883d8032faf876",
+              "command": "node --test tests/integration/mod-director-text.test.ts tests/integration/temporal-context.test.ts tests/integration/npc-language-barrier.test.ts tests/integration/mod-combat.test.ts",
+              "result": "passed",
+              "cases": 42,
+              "review": "Contract 248 changed another case of this file (sectioned packages ride indexed); this case and its assertions are unchanged.",
+              "previous": {
+                "priorNativeSha256": "0f7278285bafe0923bd8417a5ac2d5d6acb2613d5e8d390f5c59b9b5850f7ee1",
+                "command": "node --test tests/integration/mod-director-text.test.ts tests/integration/temporal-context.test.ts",
+                "result": "passed",
+                "cases": 28,
+                "evidence": ".coc/experiments/quick-settlement-20261021/integration-revalidation.log",
+                "review": "Quick Settlement (contract 247) is always indexed like Enhanced Locations; the full-instruction fixtures disable both through mods.defaults. Every original assertion and other case is unchanged."
+              }
+            }
           },
           "review": "statement-by-statement",
           "validation": {
@@ -75915,7 +75974,22 @@
           "counterpart": {
             "file": "tests/integration/mod-director-text.test.ts",
             "name": "test_close_calls_count_major_wound_blows_once_per_turn",
-            "sha256": "0f7278285bafe0923bd8417a5ac2d5d6acb2613d5e8d390f5c59b9b5850f7ee1"
+            "sha256": "ee572c20ddea6a421c9b8cddfcfa5a3ae729ba179e63dcb7e476c58817022a1b",
+            "revalidated": {
+              "priorNativeSha256": "722349af095cc47a67ec48a7e15e420718b58576043a740076883d8032faf876",
+              "command": "node --test tests/integration/mod-director-text.test.ts tests/integration/temporal-context.test.ts tests/integration/npc-language-barrier.test.ts tests/integration/mod-combat.test.ts",
+              "result": "passed",
+              "cases": 42,
+              "review": "Contract 248 changed another case of this file (sectioned packages ride indexed); this case and its assertions are unchanged.",
+              "previous": {
+                "priorNativeSha256": "0f7278285bafe0923bd8417a5ac2d5d6acb2613d5e8d390f5c59b9b5850f7ee1",
+                "command": "node --test tests/integration/mod-director-text.test.ts tests/integration/temporal-context.test.ts",
+                "result": "passed",
+                "cases": 28,
+                "evidence": ".coc/experiments/quick-settlement-20261021/integration-revalidation.log",
+                "review": "Quick Settlement (contract 247) is always indexed like Enhanced Locations; the full-instruction fixtures disable both through mods.defaults. Every original assertion and other case is unchanged."
+              }
+            }
           },
           "review": "statement-by-statement",
           "validation": {
@@ -76001,7 +76075,22 @@
           "counterpart": {
             "file": "tests/integration/mod-director-text.test.ts",
             "name": "test_sections_exist_only_while_a_reader_is_on",
-            "sha256": "0f7278285bafe0923bd8417a5ac2d5d6acb2613d5e8d390f5c59b9b5850f7ee1"
+            "sha256": "ee572c20ddea6a421c9b8cddfcfa5a3ae729ba179e63dcb7e476c58817022a1b",
+            "revalidated": {
+              "priorNativeSha256": "722349af095cc47a67ec48a7e15e420718b58576043a740076883d8032faf876",
+              "command": "node --test tests/integration/mod-director-text.test.ts tests/integration/temporal-context.test.ts tests/integration/npc-language-barrier.test.ts tests/integration/mod-combat.test.ts",
+              "result": "passed",
+              "cases": 42,
+              "review": "Contract 248 changed another case of this file (sectioned packages ride indexed); this case and its assertions are unchanged.",
+              "previous": {
+                "priorNativeSha256": "0f7278285bafe0923bd8417a5ac2d5d6acb2613d5e8d390f5c59b9b5850f7ee1",
+                "command": "node --test tests/integration/mod-director-text.test.ts tests/integration/temporal-context.test.ts",
+                "result": "passed",
+                "cases": 28,
+                "evidence": ".coc/experiments/quick-settlement-20261021/integration-revalidation.log",
+                "review": "Quick Settlement (contract 247) is always indexed like Enhanced Locations; the full-instruction fixtures disable both through mods.defaults. Every original assertion and other case is unchanged."
+              }
+            }
           },
           "review": "statement-by-statement",
           "validation": {
@@ -76095,7 +76184,22 @@
           "counterpart": {
             "file": "tests/integration/mod-director-text.test.ts",
             "name": "test_narration_audit_joins_the_shared_audit_job",
-            "sha256": "0f7278285bafe0923bd8417a5ac2d5d6acb2613d5e8d390f5c59b9b5850f7ee1"
+            "sha256": "ee572c20ddea6a421c9b8cddfcfa5a3ae729ba179e63dcb7e476c58817022a1b",
+            "revalidated": {
+              "priorNativeSha256": "722349af095cc47a67ec48a7e15e420718b58576043a740076883d8032faf876",
+              "command": "node --test tests/integration/mod-director-text.test.ts tests/integration/temporal-context.test.ts tests/integration/npc-language-barrier.test.ts tests/integration/mod-combat.test.ts",
+              "result": "passed",
+              "cases": 42,
+              "review": "Contract 248 changed another case of this file (sectioned packages ride indexed); this case and its assertions are unchanged.",
+              "previous": {
+                "priorNativeSha256": "0f7278285bafe0923bd8417a5ac2d5d6acb2613d5e8d390f5c59b9b5850f7ee1",
+                "command": "node --test tests/integration/mod-director-text.test.ts tests/integration/temporal-context.test.ts",
+                "result": "passed",
+                "cases": 28,
+                "evidence": ".coc/experiments/quick-settlement-20261021/integration-revalidation.log",
+                "review": "Quick Settlement (contract 247) is always indexed like Enhanced Locations; the full-instruction fixtures disable both through mods.defaults. Every original assertion and other case is unchanged."
+              }
+            }
           },
           "review": "statement-by-statement",
           "validation": {
@@ -76193,7 +76297,22 @@
           "counterpart": {
             "file": "tests/integration/mod-director-text.test.ts",
             "name": "test_instructions_are_whole_on_every_turn_within_the_budget",
-            "sha256": "0f7278285bafe0923bd8417a5ac2d5d6acb2613d5e8d390f5c59b9b5850f7ee1"
+            "sha256": "ee572c20ddea6a421c9b8cddfcfa5a3ae729ba179e63dcb7e476c58817022a1b",
+            "revalidated": {
+              "priorNativeSha256": "722349af095cc47a67ec48a7e15e420718b58576043a740076883d8032faf876",
+              "command": "node --test tests/integration/mod-director-text.test.ts tests/integration/temporal-context.test.ts tests/integration/npc-language-barrier.test.ts tests/integration/mod-combat.test.ts",
+              "result": "passed",
+              "cases": 42,
+              "review": "Contract 248 indexes every sectioned package at any budget. The case now asserts that each row is indexed when sectioned and whole otherwise, that the rows are identical across turns, that the every-turn text fits 65536 bytes, and that mods.context agrees; the Locations and Quick Settlement disabling fixture is no longer needed.",
+              "previous": {
+                "priorNativeSha256": "0f7278285bafe0923bd8417a5ac2d5d6acb2613d5e8d390f5c59b9b5850f7ee1",
+                "command": "node --test tests/integration/mod-director-text.test.ts tests/integration/temporal-context.test.ts",
+                "result": "passed",
+                "cases": 28,
+                "evidence": ".coc/experiments/quick-settlement-20261021/integration-revalidation.log",
+                "review": "Quick Settlement (contract 247) is always indexed like Enhanced Locations; the full-instruction fixtures disable both through mods.defaults. Every original assertion and other case is unchanged."
+              }
+            }
           },
           "review": "statement-by-statement",
           "validation": {
@@ -76279,7 +76398,22 @@
           "counterpart": {
             "file": "tests/integration/mod-director-text.test.ts",
             "name": "test_a_scenario_scoped_clock_is_on_the_panel_before_its_danger_is_in_the_room",
-            "sha256": "0f7278285bafe0923bd8417a5ac2d5d6acb2613d5e8d390f5c59b9b5850f7ee1"
+            "sha256": "ee572c20ddea6a421c9b8cddfcfa5a3ae729ba179e63dcb7e476c58817022a1b",
+            "revalidated": {
+              "priorNativeSha256": "722349af095cc47a67ec48a7e15e420718b58576043a740076883d8032faf876",
+              "command": "node --test tests/integration/mod-director-text.test.ts tests/integration/temporal-context.test.ts tests/integration/npc-language-barrier.test.ts tests/integration/mod-combat.test.ts",
+              "result": "passed",
+              "cases": 42,
+              "review": "Contract 248 changed another case of this file (sectioned packages ride indexed); this case and its assertions are unchanged.",
+              "previous": {
+                "priorNativeSha256": "0f7278285bafe0923bd8417a5ac2d5d6acb2613d5e8d390f5c59b9b5850f7ee1",
+                "command": "node --test tests/integration/mod-director-text.test.ts tests/integration/temporal-context.test.ts",
+                "result": "passed",
+                "cases": 28,
+                "evidence": ".coc/experiments/quick-settlement-20261021/integration-revalidation.log",
+                "review": "Quick Settlement (contract 247) is always indexed like Enhanced Locations; the full-instruction fixtures disable both through mods.defaults. Every original assertion and other case is unchanged."
+              }
+            }
           },
           "review": "statement-by-statement",
           "validation": {
@@ -76397,7 +76531,22 @@
           "counterpart": {
             "file": "tests/integration/mod-director-text.test.ts",
             "name": "test_a_threat_clock_moves_only_through_apply_and_shows_what_the_book_makes_visible",
-            "sha256": "0f7278285bafe0923bd8417a5ac2d5d6acb2613d5e8d390f5c59b9b5850f7ee1"
+            "sha256": "ee572c20ddea6a421c9b8cddfcfa5a3ae729ba179e63dcb7e476c58817022a1b",
+            "revalidated": {
+              "priorNativeSha256": "722349af095cc47a67ec48a7e15e420718b58576043a740076883d8032faf876",
+              "command": "node --test tests/integration/mod-director-text.test.ts tests/integration/temporal-context.test.ts tests/integration/npc-language-barrier.test.ts tests/integration/mod-combat.test.ts",
+              "result": "passed",
+              "cases": 42,
+              "review": "Contract 248 changed another case of this file (sectioned packages ride indexed); this case and its assertions are unchanged.",
+              "previous": {
+                "priorNativeSha256": "0f7278285bafe0923bd8417a5ac2d5d6acb2613d5e8d390f5c59b9b5850f7ee1",
+                "command": "node --test tests/integration/mod-director-text.test.ts tests/integration/temporal-context.test.ts",
+                "result": "passed",
+                "cases": 28,
+                "evidence": ".coc/experiments/quick-settlement-20261021/integration-revalidation.log",
+                "review": "Quick Settlement (contract 247) is always indexed like Enhanced Locations; the full-instruction fixtures disable both through mods.defaults. Every original assertion and other case is unchanged."
+              }
+            }
           },
           "review": "statement-by-statement",
           "validation": {
@@ -76491,7 +76640,22 @@
           "counterpart": {
             "file": "tests/integration/mod-director-text.test.ts",
             "name": "test_a_threat_effect_names_what_it_could_not_find",
-            "sha256": "0f7278285bafe0923bd8417a5ac2d5d6acb2613d5e8d390f5c59b9b5850f7ee1"
+            "sha256": "ee572c20ddea6a421c9b8cddfcfa5a3ae729ba179e63dcb7e476c58817022a1b",
+            "revalidated": {
+              "priorNativeSha256": "722349af095cc47a67ec48a7e15e420718b58576043a740076883d8032faf876",
+              "command": "node --test tests/integration/mod-director-text.test.ts tests/integration/temporal-context.test.ts tests/integration/npc-language-barrier.test.ts tests/integration/mod-combat.test.ts",
+              "result": "passed",
+              "cases": 42,
+              "review": "Contract 248 changed another case of this file (sectioned packages ride indexed); this case and its assertions are unchanged.",
+              "previous": {
+                "priorNativeSha256": "0f7278285bafe0923bd8417a5ac2d5d6acb2613d5e8d390f5c59b9b5850f7ee1",
+                "command": "node --test tests/integration/mod-director-text.test.ts tests/integration/temporal-context.test.ts",
+                "result": "passed",
+                "cases": 28,
+                "evidence": ".coc/experiments/quick-settlement-20261021/integration-revalidation.log",
+                "review": "Quick Settlement (contract 247) is always indexed like Enhanced Locations; the full-instruction fixtures disable both through mods.defaults. Every original assertion and other case is unchanged."
+              }
+            }
           },
           "review": "statement-by-statement",
           "validation": {
@@ -76597,7 +76761,22 @@
           "counterpart": {
             "file": "tests/integration/mod-director-text.test.ts",
             "name": "test_the_offer_ledger_counts_what_was_within_reach_against_what_the_turn_took",
-            "sha256": "0f7278285bafe0923bd8417a5ac2d5d6acb2613d5e8d390f5c59b9b5850f7ee1"
+            "sha256": "ee572c20ddea6a421c9b8cddfcfa5a3ae729ba179e63dcb7e476c58817022a1b",
+            "revalidated": {
+              "priorNativeSha256": "722349af095cc47a67ec48a7e15e420718b58576043a740076883d8032faf876",
+              "command": "node --test tests/integration/mod-director-text.test.ts tests/integration/temporal-context.test.ts tests/integration/npc-language-barrier.test.ts tests/integration/mod-combat.test.ts",
+              "result": "passed",
+              "cases": 42,
+              "review": "Contract 248 changed another case of this file (sectioned packages ride indexed); this case and its assertions are unchanged.",
+              "previous": {
+                "priorNativeSha256": "0f7278285bafe0923bd8417a5ac2d5d6acb2613d5e8d390f5c59b9b5850f7ee1",
+                "command": "node --test tests/integration/mod-director-text.test.ts tests/integration/temporal-context.test.ts",
+                "result": "passed",
+                "cases": 28,
+                "evidence": ".coc/experiments/quick-settlement-20261021/integration-revalidation.log",
+                "review": "Quick Settlement (contract 247) is always indexed like Enhanced Locations; the full-instruction fixtures disable both through mods.defaults. Every original assertion and other case is unchanged."
+              }
+            }
           },
           "review": "statement-by-statement",
           "validation": {
@@ -76687,7 +76866,22 @@
           "counterpart": {
             "file": "tests/integration/mod-director-text.test.ts",
             "name": "test_an_offer_row_carries_both_what_it_costs_and_what_it_yields",
-            "sha256": "0f7278285bafe0923bd8417a5ac2d5d6acb2613d5e8d390f5c59b9b5850f7ee1"
+            "sha256": "ee572c20ddea6a421c9b8cddfcfa5a3ae729ba179e63dcb7e476c58817022a1b",
+            "revalidated": {
+              "priorNativeSha256": "722349af095cc47a67ec48a7e15e420718b58576043a740076883d8032faf876",
+              "command": "node --test tests/integration/mod-director-text.test.ts tests/integration/temporal-context.test.ts tests/integration/npc-language-barrier.test.ts tests/integration/mod-combat.test.ts",
+              "result": "passed",
+              "cases": 42,
+              "review": "Contract 248 changed another case of this file (sectioned packages ride indexed); this case and its assertions are unchanged.",
+              "previous": {
+                "priorNativeSha256": "0f7278285bafe0923bd8417a5ac2d5d6acb2613d5e8d390f5c59b9b5850f7ee1",
+                "command": "node --test tests/integration/mod-director-text.test.ts tests/integration/temporal-context.test.ts",
+                "result": "passed",
+                "cases": 28,
+                "evidence": ".coc/experiments/quick-settlement-20261021/integration-revalidation.log",
+                "review": "Quick Settlement (contract 247) is always indexed like Enhanced Locations; the full-instruction fixtures disable both through mods.defaults. Every original assertion and other case is unchanged."
+              }
+            }
           },
           "review": "statement-by-statement",
           "validation": {
@@ -76781,7 +76975,22 @@
           "counterpart": {
             "file": "tests/integration/mod-director-text.test.ts",
             "name": "test_an_affordance_is_an_offer_once_it_names_what_it_yields",
-            "sha256": "0f7278285bafe0923bd8417a5ac2d5d6acb2613d5e8d390f5c59b9b5850f7ee1"
+            "sha256": "ee572c20ddea6a421c9b8cddfcfa5a3ae729ba179e63dcb7e476c58817022a1b",
+            "revalidated": {
+              "priorNativeSha256": "722349af095cc47a67ec48a7e15e420718b58576043a740076883d8032faf876",
+              "command": "node --test tests/integration/mod-director-text.test.ts tests/integration/temporal-context.test.ts tests/integration/npc-language-barrier.test.ts tests/integration/mod-combat.test.ts",
+              "result": "passed",
+              "cases": 42,
+              "review": "Contract 248 changed another case of this file (sectioned packages ride indexed); this case and its assertions are unchanged.",
+              "previous": {
+                "priorNativeSha256": "0f7278285bafe0923bd8417a5ac2d5d6acb2613d5e8d390f5c59b9b5850f7ee1",
+                "command": "node --test tests/integration/mod-director-text.test.ts tests/integration/temporal-context.test.ts",
+                "result": "passed",
+                "cases": 28,
+                "evidence": ".coc/experiments/quick-settlement-20261021/integration-revalidation.log",
+                "review": "Quick Settlement (contract 247) is always indexed like Enhanced Locations; the full-instruction fixtures disable both through mods.defaults. Every original assertion and other case is unchanged."
+              }
+            }
           },
           "review": "statement-by-statement",
           "validation": {
@@ -82164,7 +82373,14 @@
           "counterpart": {
             "file": "tests/integration/mod-combat.test.ts",
             "name": "test_first_impression_refusal_names_who_is_here_and_how_to_stage_the_target",
-            "sha256": "c47d88d5be2480a42ed31a2004c1a3011d1242b51549202f0fa60f97c985c886"
+            "sha256": "60e70a13249b08e5e9caab6f306d9f63f4a6ff0605e7dd56e7e97dd492406ecd",
+            "revalidated": {
+              "priorNativeSha256": "c47d88d5be2480a42ed31a2004c1a3011d1242b51549202f0fa60f97c985c886",
+              "command": "node --test tests/integration/mod-director-text.test.ts tests/integration/temporal-context.test.ts tests/integration/npc-language-barrier.test.ts tests/integration/mod-combat.test.ts",
+              "result": "passed",
+              "cases": 42,
+              "review": "Contract 248 changed another case of this file (sectioned packages ride indexed); this case and its assertions are unchanged."
+            }
           },
           "review": "statement-by-statement",
           "validation": {
@@ -82276,7 +82492,14 @@
           "counterpart": {
             "file": "tests/integration/mod-combat.test.ts",
             "name": "test_first_impression_uses_higher_value_and_reuses_pair",
-            "sha256": "c47d88d5be2480a42ed31a2004c1a3011d1242b51549202f0fa60f97c985c886"
+            "sha256": "60e70a13249b08e5e9caab6f306d9f63f4a6ff0605e7dd56e7e97dd492406ecd",
+            "revalidated": {
+              "priorNativeSha256": "c47d88d5be2480a42ed31a2004c1a3011d1242b51549202f0fa60f97c985c886",
+              "command": "node --test tests/integration/mod-director-text.test.ts tests/integration/temporal-context.test.ts tests/integration/npc-language-barrier.test.ts tests/integration/mod-combat.test.ts",
+              "result": "passed",
+              "cases": 42,
+              "review": "Contract 248 changed another case of this file (sectioned packages ride indexed); this case and its assertions are unchanged."
+            }
           },
           "review": "statement-by-statement",
           "validation": {
@@ -82380,7 +82603,14 @@
           "counterpart": {
             "file": "tests/integration/mod-combat.test.ts",
             "name": "test_pending_contact_carries_the_handle_the_first_impression_receipt_carries",
-            "sha256": "c47d88d5be2480a42ed31a2004c1a3011d1242b51549202f0fa60f97c985c886"
+            "sha256": "60e70a13249b08e5e9caab6f306d9f63f4a6ff0605e7dd56e7e97dd492406ecd",
+            "revalidated": {
+              "priorNativeSha256": "c47d88d5be2480a42ed31a2004c1a3011d1242b51549202f0fa60f97c985c886",
+              "command": "node --test tests/integration/mod-director-text.test.ts tests/integration/temporal-context.test.ts tests/integration/npc-language-barrier.test.ts tests/integration/mod-combat.test.ts",
+              "result": "passed",
+              "cases": 42,
+              "review": "Contract 248 changed another case of this file (sectioned packages ride indexed); this case and its assertions are unchanged."
+            }
           },
           "review": "statement-by-statement",
           "validation": {
@@ -82934,7 +83164,14 @@
           "counterpart": {
             "file": "tests/integration/mod-combat.test.ts",
             "name": "test_npc_fires_generated_weapon_then_player_takes_remaining_ammo",
-            "sha256": "c47d88d5be2480a42ed31a2004c1a3011d1242b51549202f0fa60f97c985c886"
+            "sha256": "60e70a13249b08e5e9caab6f306d9f63f4a6ff0605e7dd56e7e97dd492406ecd",
+            "revalidated": {
+              "priorNativeSha256": "c47d88d5be2480a42ed31a2004c1a3011d1242b51549202f0fa60f97c985c886",
+              "command": "node --test tests/integration/mod-director-text.test.ts tests/integration/temporal-context.test.ts tests/integration/npc-language-barrier.test.ts tests/integration/mod-combat.test.ts",
+              "result": "passed",
+              "cases": 42,
+              "review": "Contract 248 changed another case of this file (sectioned packages ride indexed); this case and its assertions are unchanged."
+            }
           },
           "review": "statement-by-statement",
           "validation": {
@@ -83128,7 +83365,14 @@
           "counterpart": {
             "file": "tests/integration/mod-combat.test.ts",
             "name": "test_generated_spell_is_priced_and_npc_can_cast_it",
-            "sha256": "c47d88d5be2480a42ed31a2004c1a3011d1242b51549202f0fa60f97c985c886"
+            "sha256": "60e70a13249b08e5e9caab6f306d9f63f4a6ff0605e7dd56e7e97dd492406ecd",
+            "revalidated": {
+              "priorNativeSha256": "c47d88d5be2480a42ed31a2004c1a3011d1242b51549202f0fa60f97c985c886",
+              "command": "node --test tests/integration/mod-director-text.test.ts tests/integration/temporal-context.test.ts tests/integration/npc-language-barrier.test.ts tests/integration/mod-combat.test.ts",
+              "result": "passed",
+              "cases": 42,
+              "review": "Contract 248 changed another case of this file (sectioned packages ride indexed); this case and its assertions are unchanged."
+            }
           },
           "review": "statement-by-statement",
           "validation": {
@@ -83318,7 +83562,14 @@
           "counterpart": {
             "file": "tests/integration/mod-combat.test.ts",
             "name": "test_legacy_hidden_first_impression_is_reused_without_disclosing_or_rerolling",
-            "sha256": "c47d88d5be2480a42ed31a2004c1a3011d1242b51549202f0fa60f97c985c886"
+            "sha256": "60e70a13249b08e5e9caab6f306d9f63f4a6ff0605e7dd56e7e97dd492406ecd",
+            "revalidated": {
+              "priorNativeSha256": "c47d88d5be2480a42ed31a2004c1a3011d1242b51549202f0fa60f97c985c886",
+              "command": "node --test tests/integration/mod-director-text.test.ts tests/integration/temporal-context.test.ts tests/integration/npc-language-barrier.test.ts tests/integration/mod-combat.test.ts",
+              "result": "passed",
+              "cases": 42,
+              "review": "Contract 248 changed another case of this file (sectioned packages ride indexed); this case and its assertions are unchanged."
+            }
           },
           "review": "statement-by-statement",
           "validation": {
@@ -83418,7 +83669,14 @@
           "counterpart": {
             "file": "tests/integration/mod-combat.test.ts",
             "name": "test_player_learns_generated_spell_and_its_effect_reaches_the_sheet",
-            "sha256": "c47d88d5be2480a42ed31a2004c1a3011d1242b51549202f0fa60f97c985c886"
+            "sha256": "60e70a13249b08e5e9caab6f306d9f63f4a6ff0605e7dd56e7e97dd492406ecd",
+            "revalidated": {
+              "priorNativeSha256": "c47d88d5be2480a42ed31a2004c1a3011d1242b51549202f0fa60f97c985c886",
+              "command": "node --test tests/integration/mod-director-text.test.ts tests/integration/temporal-context.test.ts tests/integration/npc-language-barrier.test.ts tests/integration/mod-combat.test.ts",
+              "result": "passed",
+              "cases": 42,
+              "review": "Contract 248 changed another case of this file (sectioned packages ride indexed); this case and its assertions are unchanged."
+            }
           },
           "review": "statement-by-statement",
           "validation": {
@@ -83514,7 +83772,14 @@
           "counterpart": {
             "file": "tests/integration/mod-combat.test.ts",
             "name": "test_worldline_merge_requires_an_explicit_choice_for_different_object_owners",
-            "sha256": "c47d88d5be2480a42ed31a2004c1a3011d1242b51549202f0fa60f97c985c886"
+            "sha256": "60e70a13249b08e5e9caab6f306d9f63f4a6ff0605e7dd56e7e97dd492406ecd",
+            "revalidated": {
+              "priorNativeSha256": "c47d88d5be2480a42ed31a2004c1a3011d1242b51549202f0fa60f97c985c886",
+              "command": "node --test tests/integration/mod-director-text.test.ts tests/integration/temporal-context.test.ts tests/integration/npc-language-barrier.test.ts tests/integration/mod-combat.test.ts",
+              "result": "passed",
+              "cases": 42,
+              "review": "Contract 248 changed another case of this file (sectioned packages ride indexed); this case and its assertions are unchanged."
+            }
           },
           "review": "statement-by-statement",
           "validation": {
@@ -83622,7 +83887,14 @@
           "counterpart": {
             "file": "tests/integration/mod-combat.test.ts",
             "name": "test_container_transfer_and_condition_are_preserved",
-            "sha256": "c47d88d5be2480a42ed31a2004c1a3011d1242b51549202f0fa60f97c985c886"
+            "sha256": "60e70a13249b08e5e9caab6f306d9f63f4a6ff0605e7dd56e7e97dd492406ecd",
+            "revalidated": {
+              "priorNativeSha256": "c47d88d5be2480a42ed31a2004c1a3011d1242b51549202f0fa60f97c985c886",
+              "command": "node --test tests/integration/mod-director-text.test.ts tests/integration/temporal-context.test.ts tests/integration/npc-language-barrier.test.ts tests/integration/mod-combat.test.ts",
+              "result": "passed",
+              "cases": 42,
+              "review": "Contract 248 changed another case of this file (sectioned packages ride indexed); this case and its assertions are unchanged."
+            }
           },
           "review": "statement-by-statement",
           "validation": {
@@ -83718,7 +83990,14 @@
           "counterpart": {
             "file": "tests/integration/mod-combat.test.ts",
             "name": "test_mod_resolution_obeys_pending_defense_and_preserves_session_projection",
-            "sha256": "c47d88d5be2480a42ed31a2004c1a3011d1242b51549202f0fa60f97c985c886"
+            "sha256": "60e70a13249b08e5e9caab6f306d9f63f4a6ff0605e7dd56e7e97dd492406ecd",
+            "revalidated": {
+              "priorNativeSha256": "c47d88d5be2480a42ed31a2004c1a3011d1242b51549202f0fa60f97c985c886",
+              "command": "node --test tests/integration/mod-director-text.test.ts tests/integration/temporal-context.test.ts tests/integration/npc-language-barrier.test.ts tests/integration/mod-combat.test.ts",
+              "result": "passed",
+              "cases": 42,
+              "review": "Contract 248 changed another case of this file (sectioned packages ride indexed); this case and its assertions are unchanged."
+            }
           },
           "review": "statement-by-statement",
           "validation": {
@@ -83818,7 +84097,14 @@
           "counterpart": {
             "file": "tests/integration/mod-combat.test.ts",
             "name": "test_same_owner_damage_updates_instance_and_cannot_be_hidden_in_legacy_rows",
-            "sha256": "c47d88d5be2480a42ed31a2004c1a3011d1242b51549202f0fa60f97c985c886"
+            "sha256": "60e70a13249b08e5e9caab6f306d9f63f4a6ff0605e7dd56e7e97dd492406ecd",
+            "revalidated": {
+              "priorNativeSha256": "c47d88d5be2480a42ed31a2004c1a3011d1242b51549202f0fa60f97c985c886",
+              "command": "node --test tests/integration/mod-director-text.test.ts tests/integration/temporal-context.test.ts tests/integration/npc-language-barrier.test.ts tests/integration/mod-combat.test.ts",
+              "result": "passed",
+              "cases": 42,
+              "review": "Contract 248 changed another case of this file (sectioned packages ride indexed); this case and its assertions are unchanged."
+            }
           },
           "review": "statement-by-statement",
           "validation": {
@@ -142228,7 +142514,22 @@
           "counterpart": {
             "file": "tests/integration/temporal-context.test.ts",
             "name": "test_old_save_projects_need_without_inventing_records",
-            "sha256": "6507950387d64a206f73643b57149bd18a284a10842f954f629cc4a40d04bb79"
+            "sha256": "31711537830fd095b80f7456e7f6030fe324ad8a5a019ff79dc92725296f8730",
+            "revalidated": {
+              "priorNativeSha256": "c9cdc8bc6ced14c06053da116de7241ee3c4b9760efa6ee799eb380e38c57439",
+              "command": "node --test tests/integration/mod-director-text.test.ts tests/integration/temporal-context.test.ts tests/integration/npc-language-barrier.test.ts tests/integration/mod-combat.test.ts",
+              "result": "passed",
+              "cases": 42,
+              "review": "Contract 248 changed another case of this file (sectioned packages ride indexed); this case and its assertions are unchanged.",
+              "previous": {
+                "priorNativeSha256": "6507950387d64a206f73643b57149bd18a284a10842f954f629cc4a40d04bb79",
+                "command": "node --test tests/integration/mod-director-text.test.ts tests/integration/temporal-context.test.ts",
+                "result": "passed",
+                "cases": 28,
+                "evidence": ".coc/experiments/quick-settlement-20261021/integration-revalidation.log",
+                "review": "Quick Settlement (contract 247) is always indexed like Enhanced Locations; the full-instruction fixtures disable both through mods.defaults. Every original assertion and other case is unchanged."
+              }
+            }
           },
           "review": "statement-by-statement",
           "validation": {
@@ -142334,7 +142635,22 @@
           "counterpart": {
             "file": "tests/integration/temporal-context.test.ts",
             "name": "test_precise_review_boundary_inside_same_day_part_does_not_auto_close",
-            "sha256": "6507950387d64a206f73643b57149bd18a284a10842f954f629cc4a40d04bb79"
+            "sha256": "31711537830fd095b80f7456e7f6030fe324ad8a5a019ff79dc92725296f8730",
+            "revalidated": {
+              "priorNativeSha256": "c9cdc8bc6ced14c06053da116de7241ee3c4b9760efa6ee799eb380e38c57439",
+              "command": "node --test tests/integration/mod-director-text.test.ts tests/integration/temporal-context.test.ts tests/integration/npc-language-barrier.test.ts tests/integration/mod-combat.test.ts",
+              "result": "passed",
+              "cases": 42,
+              "review": "Contract 248 changed another case of this file (sectioned packages ride indexed); this case and its assertions are unchanged.",
+              "previous": {
+                "priorNativeSha256": "6507950387d64a206f73643b57149bd18a284a10842f954f629cc4a40d04bb79",
+                "command": "node --test tests/integration/mod-director-text.test.ts tests/integration/temporal-context.test.ts",
+                "result": "passed",
+                "cases": 28,
+                "evidence": ".coc/experiments/quick-settlement-20261021/integration-revalidation.log",
+                "review": "Quick Settlement (contract 247) is always indexed like Enhanced Locations; the full-instruction fixtures disable both through mods.defaults. Every original assertion and other case is unchanged."
+              }
+            }
           },
           "review": "statement-by-statement",
           "validation": {
@@ -142428,7 +142744,22 @@
           "counterpart": {
             "file": "tests/integration/temporal-context.test.ts",
             "name": "test_night_changes_applicability_not_the_recorded_world",
-            "sha256": "6507950387d64a206f73643b57149bd18a284a10842f954f629cc4a40d04bb79"
+            "sha256": "31711537830fd095b80f7456e7f6030fe324ad8a5a019ff79dc92725296f8730",
+            "revalidated": {
+              "priorNativeSha256": "c9cdc8bc6ced14c06053da116de7241ee3c4b9760efa6ee799eb380e38c57439",
+              "command": "node --test tests/integration/mod-director-text.test.ts tests/integration/temporal-context.test.ts tests/integration/npc-language-barrier.test.ts tests/integration/mod-combat.test.ts",
+              "result": "passed",
+              "cases": 42,
+              "review": "Contract 248 changed another case of this file (sectioned packages ride indexed); this case and its assertions are unchanged.",
+              "previous": {
+                "priorNativeSha256": "6507950387d64a206f73643b57149bd18a284a10842f954f629cc4a40d04bb79",
+                "command": "node --test tests/integration/mod-director-text.test.ts tests/integration/temporal-context.test.ts",
+                "result": "passed",
+                "cases": 28,
+                "evidence": ".coc/experiments/quick-settlement-20261021/integration-revalidation.log",
+                "review": "Quick Settlement (contract 247) is always indexed like Enhanced Locations; the full-instruction fixtures disable both through mods.defaults. Every original assertion and other case is unchanged."
+              }
+            }
           },
           "review": "statement-by-statement",
           "validation": {
@@ -142526,7 +142857,22 @@
           "counterpart": {
             "file": "tests/integration/temporal-context.test.ts",
             "name": "test_awakened_person_survives_routine_guess_and_five_minutes",
-            "sha256": "6507950387d64a206f73643b57149bd18a284a10842f954f629cc4a40d04bb79"
+            "sha256": "31711537830fd095b80f7456e7f6030fe324ad8a5a019ff79dc92725296f8730",
+            "revalidated": {
+              "priorNativeSha256": "c9cdc8bc6ced14c06053da116de7241ee3c4b9760efa6ee799eb380e38c57439",
+              "command": "node --test tests/integration/mod-director-text.test.ts tests/integration/temporal-context.test.ts tests/integration/npc-language-barrier.test.ts tests/integration/mod-combat.test.ts",
+              "result": "passed",
+              "cases": 42,
+              "review": "Contract 248 changed another case of this file (sectioned packages ride indexed); this case and its assertions are unchanged.",
+              "previous": {
+                "priorNativeSha256": "6507950387d64a206f73643b57149bd18a284a10842f954f629cc4a40d04bb79",
+                "command": "node --test tests/integration/mod-director-text.test.ts tests/integration/temporal-context.test.ts",
+                "result": "passed",
+                "cases": 28,
+                "evidence": ".coc/experiments/quick-settlement-20261021/integration-revalidation.log",
+                "review": "Quick Settlement (contract 247) is always indexed like Enhanced Locations; the full-instruction fixtures disable both through mods.defaults. Every original assertion and other case is unchanged."
+              }
+            }
           },
           "review": "statement-by-statement",
           "validation": {
@@ -142620,7 +142966,22 @@
           "counterpart": {
             "file": "tests/integration/temporal-context.test.ts",
             "name": "test_inferred_account_lands_once_the_observed_record_no_longer_applies",
-            "sha256": "6507950387d64a206f73643b57149bd18a284a10842f954f629cc4a40d04bb79"
+            "sha256": "31711537830fd095b80f7456e7f6030fe324ad8a5a019ff79dc92725296f8730",
+            "revalidated": {
+              "priorNativeSha256": "c9cdc8bc6ced14c06053da116de7241ee3c4b9760efa6ee799eb380e38c57439",
+              "command": "node --test tests/integration/mod-director-text.test.ts tests/integration/temporal-context.test.ts tests/integration/npc-language-barrier.test.ts tests/integration/mod-combat.test.ts",
+              "result": "passed",
+              "cases": 42,
+              "review": "Contract 248 changed another case of this file (sectioned packages ride indexed); this case and its assertions are unchanged.",
+              "previous": {
+                "priorNativeSha256": "6507950387d64a206f73643b57149bd18a284a10842f954f629cc4a40d04bb79",
+                "command": "node --test tests/integration/mod-director-text.test.ts tests/integration/temporal-context.test.ts",
+                "result": "passed",
+                "cases": 28,
+                "evidence": ".coc/experiments/quick-settlement-20261021/integration-revalidation.log",
+                "review": "Quick Settlement (contract 247) is always indexed like Enhanced Locations; the full-instruction fixtures disable both through mods.defaults. Every original assertion and other case is unchanged."
+              }
+            }
           },
           "review": "statement-by-statement",
           "validation": {
@@ -142706,7 +143067,22 @@
           "counterpart": {
             "file": "tests/integration/temporal-context.test.ts",
             "name": "test_time_earlier_in_the_batch_decides_whether_the_record_still_applies",
-            "sha256": "6507950387d64a206f73643b57149bd18a284a10842f954f629cc4a40d04bb79"
+            "sha256": "31711537830fd095b80f7456e7f6030fe324ad8a5a019ff79dc92725296f8730",
+            "revalidated": {
+              "priorNativeSha256": "c9cdc8bc6ced14c06053da116de7241ee3c4b9760efa6ee799eb380e38c57439",
+              "command": "node --test tests/integration/mod-director-text.test.ts tests/integration/temporal-context.test.ts tests/integration/npc-language-barrier.test.ts tests/integration/mod-combat.test.ts",
+              "result": "passed",
+              "cases": 42,
+              "review": "Contract 248 changed another case of this file (sectioned packages ride indexed); this case and its assertions are unchanged.",
+              "previous": {
+                "priorNativeSha256": "6507950387d64a206f73643b57149bd18a284a10842f954f629cc4a40d04bb79",
+                "command": "node --test tests/integration/mod-director-text.test.ts tests/integration/temporal-context.test.ts",
+                "result": "passed",
+                "cases": 28,
+                "evidence": ".coc/experiments/quick-settlement-20261021/integration-revalidation.log",
+                "review": "Quick Settlement (contract 247) is always indexed like Enhanced Locations; the full-instruction fixtures disable both through mods.defaults. Every original assertion and other case is unchanged."
+              }
+            }
           },
           "review": "statement-by-statement",
           "validation": {
@@ -142792,7 +143168,22 @@
           "counterpart": {
             "file": "tests/integration/temporal-context.test.ts",
             "name": "test_invalid_activity_rolls_back_time_and_scene_atomically",
-            "sha256": "6507950387d64a206f73643b57149bd18a284a10842f954f629cc4a40d04bb79"
+            "sha256": "31711537830fd095b80f7456e7f6030fe324ad8a5a019ff79dc92725296f8730",
+            "revalidated": {
+              "priorNativeSha256": "c9cdc8bc6ced14c06053da116de7241ee3c4b9760efa6ee799eb380e38c57439",
+              "command": "node --test tests/integration/mod-director-text.test.ts tests/integration/temporal-context.test.ts tests/integration/npc-language-barrier.test.ts tests/integration/mod-combat.test.ts",
+              "result": "passed",
+              "cases": 42,
+              "review": "Contract 248 changed another case of this file (sectioned packages ride indexed); this case and its assertions are unchanged.",
+              "previous": {
+                "priorNativeSha256": "6507950387d64a206f73643b57149bd18a284a10842f954f629cc4a40d04bb79",
+                "command": "node --test tests/integration/mod-director-text.test.ts tests/integration/temporal-context.test.ts",
+                "result": "passed",
+                "cases": 28,
+                "evidence": ".coc/experiments/quick-settlement-20261021/integration-revalidation.log",
+                "review": "Quick Settlement (contract 247) is always indexed like Enhanced Locations; the full-instruction fixtures disable both through mods.defaults. Every original assertion and other case is unchanged."
+              }
+            }
           },
           "review": "statement-by-statement",
           "validation": {
@@ -142898,7 +143289,22 @@
           "counterpart": {
             "file": "tests/integration/temporal-context.test.ts",
             "name": "test_context_effects_replay_without_moving_or_transferring_objects",
-            "sha256": "6507950387d64a206f73643b57149bd18a284a10842f954f629cc4a40d04bb79"
+            "sha256": "31711537830fd095b80f7456e7f6030fe324ad8a5a019ff79dc92725296f8730",
+            "revalidated": {
+              "priorNativeSha256": "c9cdc8bc6ced14c06053da116de7241ee3c4b9760efa6ee799eb380e38c57439",
+              "command": "node --test tests/integration/mod-director-text.test.ts tests/integration/temporal-context.test.ts tests/integration/npc-language-barrier.test.ts tests/integration/mod-combat.test.ts",
+              "result": "passed",
+              "cases": 42,
+              "review": "Contract 248 changed another case of this file (sectioned packages ride indexed); this case and its assertions are unchanged.",
+              "previous": {
+                "priorNativeSha256": "6507950387d64a206f73643b57149bd18a284a10842f954f629cc4a40d04bb79",
+                "command": "node --test tests/integration/mod-director-text.test.ts tests/integration/temporal-context.test.ts",
+                "result": "passed",
+                "cases": 28,
+                "evidence": ".coc/experiments/quick-settlement-20261021/integration-revalidation.log",
+                "review": "Quick Settlement (contract 247) is always indexed like Enhanced Locations; the full-instruction fixtures disable both through mods.defaults. Every original assertion and other case is unchanged."
+              }
+            }
           },
           "review": "statement-by-statement",
           "validation": {
@@ -142984,7 +143390,22 @@
           "counterpart": {
             "file": "tests/integration/temporal-context.test.ts",
             "name": "test_effect_order_binds_resulting_clock",
-            "sha256": "6507950387d64a206f73643b57149bd18a284a10842f954f629cc4a40d04bb79"
+            "sha256": "31711537830fd095b80f7456e7f6030fe324ad8a5a019ff79dc92725296f8730",
+            "revalidated": {
+              "priorNativeSha256": "c9cdc8bc6ced14c06053da116de7241ee3c4b9760efa6ee799eb380e38c57439",
+              "command": "node --test tests/integration/mod-director-text.test.ts tests/integration/temporal-context.test.ts tests/integration/npc-language-barrier.test.ts tests/integration/mod-combat.test.ts",
+              "result": "passed",
+              "cases": 42,
+              "review": "Contract 248 changed another case of this file (sectioned packages ride indexed); this case and its assertions are unchanged.",
+              "previous": {
+                "priorNativeSha256": "6507950387d64a206f73643b57149bd18a284a10842f954f629cc4a40d04bb79",
+                "command": "node --test tests/integration/mod-director-text.test.ts tests/integration/temporal-context.test.ts",
+                "result": "passed",
+                "cases": 28,
+                "evidence": ".coc/experiments/quick-settlement-20261021/integration-revalidation.log",
+                "review": "Quick Settlement (contract 247) is always indexed like Enhanced Locations; the full-instruction fixtures disable both through mods.defaults. Every original assertion and other case is unchanged."
+              }
+            }
           },
           "review": "statement-by-statement",
           "validation": {
@@ -143074,7 +143495,22 @@
           "counterpart": {
             "file": "tests/integration/temporal-context.test.ts",
             "name": "test_leaving_person_marks_record_for_review_without_erasing_observation",
-            "sha256": "6507950387d64a206f73643b57149bd18a284a10842f954f629cc4a40d04bb79"
+            "sha256": "31711537830fd095b80f7456e7f6030fe324ad8a5a019ff79dc92725296f8730",
+            "revalidated": {
+              "priorNativeSha256": "c9cdc8bc6ced14c06053da116de7241ee3c4b9760efa6ee799eb380e38c57439",
+              "command": "node --test tests/integration/mod-director-text.test.ts tests/integration/temporal-context.test.ts tests/integration/npc-language-barrier.test.ts tests/integration/mod-combat.test.ts",
+              "result": "passed",
+              "cases": 42,
+              "review": "Contract 248 changed another case of this file (sectioned packages ride indexed); this case and its assertions are unchanged.",
+              "previous": {
+                "priorNativeSha256": "6507950387d64a206f73643b57149bd18a284a10842f954f629cc4a40d04bb79",
+                "command": "node --test tests/integration/mod-director-text.test.ts tests/integration/temporal-context.test.ts",
+                "result": "passed",
+                "cases": 28,
+                "evidence": ".coc/experiments/quick-settlement-20261021/integration-revalidation.log",
+                "review": "Quick Settlement (contract 247) is always indexed like Enhanced Locations; the full-instruction fixtures disable both through mods.defaults. Every original assertion and other case is unchanged."
+              }
+            }
           },
           "review": "statement-by-statement",
           "validation": {
@@ -143160,7 +143596,22 @@
           "counterpart": {
             "file": "tests/integration/temporal-context.test.ts",
             "name": "test_opening_context_initializes_only_active_scene",
-            "sha256": "6507950387d64a206f73643b57149bd18a284a10842f954f629cc4a40d04bb79"
+            "sha256": "31711537830fd095b80f7456e7f6030fe324ad8a5a019ff79dc92725296f8730",
+            "revalidated": {
+              "priorNativeSha256": "c9cdc8bc6ced14c06053da116de7241ee3c4b9760efa6ee799eb380e38c57439",
+              "command": "node --test tests/integration/mod-director-text.test.ts tests/integration/temporal-context.test.ts tests/integration/npc-language-barrier.test.ts tests/integration/mod-combat.test.ts",
+              "result": "passed",
+              "cases": 42,
+              "review": "Contract 248 changed another case of this file (sectioned packages ride indexed); this case and its assertions are unchanged.",
+              "previous": {
+                "priorNativeSha256": "6507950387d64a206f73643b57149bd18a284a10842f954f629cc4a40d04bb79",
+                "command": "node --test tests/integration/mod-director-text.test.ts tests/integration/temporal-context.test.ts",
+                "result": "passed",
+                "cases": 28,
+                "evidence": ".coc/experiments/quick-settlement-20261021/integration-revalidation.log",
+                "review": "Quick Settlement (contract 247) is always indexed like Enhanced Locations; the full-instruction fixtures disable both through mods.defaults. Every original assertion and other case is unchanged."
+              }
+            }
           },
           "review": "statement-by-statement",
           "validation": {
@@ -143258,7 +143709,22 @@
           "counterpart": {
             "file": "tests/integration/temporal-context.test.ts",
             "name": "test_daily_life_table_is_mod_owned_and_disabled_strategy_keeps_world_facts",
-            "sha256": "6507950387d64a206f73643b57149bd18a284a10842f954f629cc4a40d04bb79"
+            "sha256": "31711537830fd095b80f7456e7f6030fe324ad8a5a019ff79dc92725296f8730",
+            "revalidated": {
+              "priorNativeSha256": "c9cdc8bc6ced14c06053da116de7241ee3c4b9760efa6ee799eb380e38c57439",
+              "command": "node --test tests/integration/mod-director-text.test.ts tests/integration/temporal-context.test.ts tests/integration/npc-language-barrier.test.ts tests/integration/mod-combat.test.ts",
+              "result": "passed",
+              "cases": 42,
+              "review": "Contract 248 changed another case of this file (sectioned packages ride indexed); this case and its assertions are unchanged.",
+              "previous": {
+                "priorNativeSha256": "6507950387d64a206f73643b57149bd18a284a10842f954f629cc4a40d04bb79",
+                "command": "node --test tests/integration/mod-director-text.test.ts tests/integration/temporal-context.test.ts",
+                "result": "passed",
+                "cases": 28,
+                "evidence": ".coc/experiments/quick-settlement-20261021/integration-revalidation.log",
+                "review": "Quick Settlement (contract 247) is always indexed like Enhanced Locations; the full-instruction fixtures disable both through mods.defaults. Every original assertion and other case is unchanged."
+              }
+            }
           },
           "review": "statement-by-statement",
           "validation": {
@@ -143352,7 +143818,22 @@
           "counterpart": {
             "file": "tests/integration/temporal-context.test.ts",
             "name": "test_daily_life_guidance_does_not_displace_existing_package_instructions",
-            "sha256": "6507950387d64a206f73643b57149bd18a284a10842f954f629cc4a40d04bb79"
+            "sha256": "31711537830fd095b80f7456e7f6030fe324ad8a5a019ff79dc92725296f8730",
+            "revalidated": {
+              "priorNativeSha256": "c9cdc8bc6ced14c06053da116de7241ee3c4b9760efa6ee799eb380e38c57439",
+              "command": "node --test tests/integration/mod-director-text.test.ts tests/integration/temporal-context.test.ts tests/integration/npc-language-barrier.test.ts tests/integration/mod-combat.test.ts",
+              "result": "passed",
+              "cases": 42,
+              "review": "Contract 248 indexes every sectioned package. Both form assertions now require each row to keep its own form (indexed when sectioned, whole otherwise); the daily-life assertions are unchanged.",
+              "previous": {
+                "priorNativeSha256": "6507950387d64a206f73643b57149bd18a284a10842f954f629cc4a40d04bb79",
+                "command": "node --test tests/integration/mod-director-text.test.ts tests/integration/temporal-context.test.ts",
+                "result": "passed",
+                "cases": 28,
+                "evidence": ".coc/experiments/quick-settlement-20261021/integration-revalidation.log",
+                "review": "Quick Settlement (contract 247) is always indexed like Enhanced Locations; the full-instruction fixtures disable both through mods.defaults. Every original assertion and other case is unchanged."
+              }
+            }
           },
           "review": "statement-by-statement",
           "validation": {
@@ -143434,7 +143915,22 @@
           "counterpart": {
             "file": "tests/integration/temporal-context.test.ts",
             "name": "test_temporal_threshold_uses_the_configured_numeric_setting",
-            "sha256": "6507950387d64a206f73643b57149bd18a284a10842f954f629cc4a40d04bb79"
+            "sha256": "31711537830fd095b80f7456e7f6030fe324ad8a5a019ff79dc92725296f8730",
+            "revalidated": {
+              "priorNativeSha256": "c9cdc8bc6ced14c06053da116de7241ee3c4b9760efa6ee799eb380e38c57439",
+              "command": "node --test tests/integration/mod-director-text.test.ts tests/integration/temporal-context.test.ts tests/integration/npc-language-barrier.test.ts tests/integration/mod-combat.test.ts",
+              "result": "passed",
+              "cases": 42,
+              "review": "Contract 248 changed another case of this file (sectioned packages ride indexed); this case and its assertions are unchanged.",
+              "previous": {
+                "priorNativeSha256": "6507950387d64a206f73643b57149bd18a284a10842f954f629cc4a40d04bb79",
+                "command": "node --test tests/integration/mod-director-text.test.ts tests/integration/temporal-context.test.ts",
+                "result": "passed",
+                "cases": 28,
+                "evidence": ".coc/experiments/quick-settlement-20261021/integration-revalidation.log",
+                "review": "Quick Settlement (contract 247) is always indexed like Enhanced Locations; the full-instruction fixtures disable both through mods.defaults. Every original assertion and other case is unchanged."
+              }
+            }
           },
           "review": "statement-by-statement",
           "validation": {
@@ -143520,7 +144016,22 @@
           "counterpart": {
             "file": "tests/integration/temporal-context.test.ts",
             "name": "test_temporal_table_validation_rejects_duplicate_items_before_install",
-            "sha256": "6507950387d64a206f73643b57149bd18a284a10842f954f629cc4a40d04bb79"
+            "sha256": "31711537830fd095b80f7456e7f6030fe324ad8a5a019ff79dc92725296f8730",
+            "revalidated": {
+              "priorNativeSha256": "c9cdc8bc6ced14c06053da116de7241ee3c4b9760efa6ee799eb380e38c57439",
+              "command": "node --test tests/integration/mod-director-text.test.ts tests/integration/temporal-context.test.ts tests/integration/npc-language-barrier.test.ts tests/integration/mod-combat.test.ts",
+              "result": "passed",
+              "cases": 42,
+              "review": "Contract 248 changed another case of this file (sectioned packages ride indexed); this case and its assertions are unchanged.",
+              "previous": {
+                "priorNativeSha256": "6507950387d64a206f73643b57149bd18a284a10842f954f629cc4a40d04bb79",
+                "command": "node --test tests/integration/mod-director-text.test.ts tests/integration/temporal-context.test.ts",
+                "result": "passed",
+                "cases": 28,
+                "evidence": ".coc/experiments/quick-settlement-20261021/integration-revalidation.log",
+                "review": "Quick Settlement (contract 247) is always indexed like Enhanced Locations; the full-instruction fixtures disable both through mods.defaults. Every original assertion and other case is unchanged."
+              }
+            }
           },
           "review": "statement-by-statement",
           "validation": {

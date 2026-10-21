@@ -16,7 +16,7 @@ A package contributes text and declarations through closed slots in `mod.json`; 
 
 | slot | who reads it | when |
 | --- | --- | --- |
-| `instructions` (`agent.md`) | the Keeper, in the `coc-context-brief` message built from `capsule.mods.instructions[]` | whole on every turn while the table's instructions fit 64 KiB; beyond that a sectioned package sends its resident sections there and the rest by topic (§183) |
+| `instructions` (`agent.md`) | the Keeper, in the `coc-context-brief` message built from `capsule.mods.instructions[]` | an unsectioned package whole on every turn; a sectioned one sends its resident sections and an index of the rest, which arrive by state or call or are read by the Keeper (§183, §248) |
 | `sections` (`sections.json`) | the kernel and the host's section lane | which `## ` sections ride every turn and which a turn loads by topic, state or call (§183.1) |
 | `brief` (`brief.md`) | nobody | retired (§183): the probe of 2026-10-04 found it only ever reached the capsule; frozen versions still carry it |
 | `style` (`style.json`) | the Keeper, as `capsule.style` | every turn: axes, the beat's directives, the floor (§137) |
@@ -175,6 +175,14 @@ Keeper Context was removed on 2026-10-07. Workspace preferences and guidance bel
 - *Weaknesses* (1.4 KB) — a weakness without `learned_by` is found in play, never announced; a learnable one's `found`/`of` and the thread line say what is missing; `needs` with `held_by` / `known_by` / `taught_by`; a false lead is believed until tested; exploiting a weakness settles through ordinary receipts; table entries are appended. Due on `state:weakness_here` and `before_resolve:combat`.
 
 **Reads.** `present[]` creature rows (`kind`, `what`, `habits`), `weaknesses` and `false_leads` on actor rows, `look focus=npc` for the whole chain, `mods.thread` lines. **Writes.** `apply npc` (walk-on with `creature`, `disposition`, `action`, `conditions`), `apply dossier` (`habits`, `weaknesses`), ordinary `resolve` and damage.
+
+## 12. Quick Settlement (`quick-settlement` 1.0.0, default on; added 2026-10-21)
+
+**What it is.** Triage for one input that chains many acts (contract §247). Acts that matter -- module-relevant information, a roll for real uncertainty, a voluntary cost beyond Spending Level, state that outlasts the scene -- are settled as before. Routine acts (order a coffee, drink it, glance around) get no per-act item, cash or event receipt and share one time charge; things the player only looks at are checked for module relevance and otherwise stay ambient description.
+
+**Contributes.** `instructions` with one resident section (*Chained routine acts*, 0.9 KB of the shared 64 KiB instruction budget) and one reference section (*Routine summary for the author*), which never reaches the Keeper: the host loads it by key for the sole author when the packet carries `routine`. The reference section keeps the package indexed at any budget. Requires `turn.routine-summary.v1`, which issues the native packet's `routine` element.
+
+**Reads.** The capsule's scene, clues and secrets; `lookup` only when relevance is unclear. **Writes.** One `time` command; the packet's `routine` element (no world state).
 
 ## What the index sees
 

@@ -238,6 +238,6 @@ test('the shipped packages: whole within the instruction budget, their sizes mea
   const rows = (await game.call('table.capsule')).mods.instructions;
   const total = rows.reduce((sum, row) => sum + Buffer.byteLength(row.instruction, 'utf8'), 0);
   t.diagnostic(`instructions ${rows.map(row => `${row.mod}@${row.version}:${row.form}:${Buffer.byteLength(row.instruction, 'utf8')}`).join(' ')} total ${total}`);
-  assert.ok(rows.every(row => row.form === 'full'), 'every default-on package rides whole');
+  assert.ok(rows.every(row => row.form === (Array.isArray(row.sections) ? 'indexed' : 'full')), 'sectioned packages are indexed (§248.1)');
   assert.ok(total <= 65536);
 });

@@ -1,6 +1,7 @@
 import {adviseLocationReference} from './location-reference.ts';
 import {locationDescription} from './location-description.ts';
 import {sourceLocationContext} from './source-location-context.ts';
+import {routineDescription,routineRefusal} from './routine-summary.ts';
 import {settledAdmissionEvidence,settledTimeEvidence} from './settled-admission.ts';
 import {placeOperation,placeParameterRefusal,normalizePlaceTarget,normalizePlaceArrayArguments} from './place-operation.ts';
 import {immediatelyPrecedingUnfinished} from './admission.ts';
@@ -513,6 +514,8 @@ interface TableState {
 	packetTimeBands?:string[];
     packetTimeBandRows?:import("../../runtime/jev/band-shadow-domain.ts").TimeBandRow[];
 	packetSceneRequired?:boolean;
+	/** §247.3: an active package issues the packet's routine element this turn. */
+	packetRoutineSummary?:boolean;
 	packetParameterFailures?:Set<string>;
     packetRefusalRecovery?:{turn:number;run:string};
 	packetParameters?:{turn:number;run?:string;schema:ReturnType<typeof turnPacketParameterSchema>};
@@ -1568,8 +1571,11 @@ export default function (pi: ExtensionAPI, host: {capabilities?:RuntimeCapabilit
 			?{recordCallId:keeperRun.recordCallId,packetRecordIds:keeperRun.packetRecordIds,routineResult:keeperRun.routineResult,prescreen:value.prescreen??keeperRun.prescreen}:{})};
 	});
 	pi.events.on('coc:capsule',(value:any)=>{
-        if(table&&value?.campaign===table.campaign&&value.turn===table.turn)
+        if(table&&value?.campaign===table.campaign&&value.turn===table.turn){
             table.packetSceneRequired=scenePopulationRequired(value.capsule??{});
+            table.packetRoutineSummary=!!value.capsule?.mods?.routine_summary;
+            if(routineSummaryTool!==table.packetRoutineSummary){routineSummaryTool=table.packetRoutineSummary;refreshOutputTool?.();}
+        }
     });
 	pi.on('message_start',event=>{
 		if(!singleKeeper||event.message.role!=='assistant'||!table||!keeperRun)return;
@@ -1686,6 +1692,8 @@ export default function (pi: ExtensionAPI, host: {capabilities?:RuntimeCapabilit
 	pi.events.on('coc:native-source-consult', value => { nativeSource = typeof value === 'function' ? value as typeof nativeSource : undefined; });
 	let memorySearch: ((request: {campaign: string; toolCallId: string; query: string; filters: Record<string, unknown>}, signal?: AbortSignal) => Promise<Record<string, any>>) | undefined;
 	let refreshRecallTool: (()=>void)|undefined;
+	/** §247.3: the declared output tool carries the routine element only while its package is active. */
+	let routineSummaryTool=false,refreshOutputTool:(()=>void)|undefined;
 	pi.events.on('coc:typed-memory-search', value => { memorySearch = typeof value === 'function' ? value as typeof memorySearch : undefined; refreshRecallTool?.(); });
 	/** Contract §28.9: the build-skew notice is the operator's, once per session, not once per reopen. */
 	let modSkewNotified = false;
@@ -1845,6 +1853,12 @@ export default function (pi: ExtensionAPI, host: {capabilities?:RuntimeCapabilit
 	// Contract §154 (prototype): lean `apply` arguments. Read once, like the tool schema itself; off is today's tools and payloads.
 	const leanApply = leanApplyEnabled(process.env);
     let capabilityLookup:((args:Record<string,unknown>)=>Promise<Record<string,unknown>>)|undefined;
+    // §248.4: the table's package-section lane answers the `mod` verb.
+    let modSectionRead:((name:string)=>Promise<Record<string,unknown>>)|undefined;
+    pi.events.on('coc:mod-sections',value=>{
+        const lane=value as {read?:unknown};
+        modSectionRead=typeof lane?.read==='function'?lane.read as typeof modSectionRead:undefined;
+    });
     pi.events.on('coc:capability-discovery',value=>{
         const bridge=value as {lookup?:unknown};
         capabilityLookup=typeof bridge?.lookup==='function'?bridge.lookup as typeof capabilityLookup:undefined;
@@ -5794,6 +5808,10 @@ export default function (pi: ExtensionAPI, host: {capabilities?:RuntimeCapabilit
             if(keeperRun?.runId===reply.run&&keeperRun.routineResult){
                 if(newlyMoving||compiled.effects.some(effect=>effect.kind==='time'))throw new KernelError({code:'invalid_params',message:'The host already settled this input journey and its time; omit repeated journeys and time commands'});
             }
+            const earlierTime=packet.routine?(await state.kernel.call<{receipts:Record<string,unknown>[]}>('table.status',{campaign:state.campaign,projection:'receipts',expected_turn:state.turn}))
+                .receipts.filter(receipt=>receipt.kind==='time').length:0;
+            const routineRefused=routineRefusal(before,packet.routine,compiled.effects,keeperRun?.runId===reply.run&&!!keeperRun.routineResult,earlierTime);
+            if(routineRefused)throw new KernelError({code:'invalid_params',message:routineRefused.message,details:{reason:routineRefused.reason,transaction_state:'uncommitted',before_execution:true}});
 			// Resolve speakers before any writes; optional style is not an identity fallback.
 			const participantRefs=[...new Set(compiled.responses.flatMap(response=>[response.actor,...response.to??[]]).filter(isNpcReference))];
             const people=await Promise.all(participantRefs.map(async actor=>{
@@ -5855,6 +5873,11 @@ export default function (pi: ExtensionAPI, host: {capabilities?:RuntimeCapabilit
 				recent_public:decisionRecentPublic(current.recent,state.delivered)};
             if(sight.place||compiled.effects.some(effect=>effect.kind==='place'||effect.kind==='move'))
                 decision.location_description=await locationDescription(current,keys=>state.kernel.call('mods.sections',{campaign:state.campaign,keys}));
+            if(packet.routine){
+                decision.routine=await routineDescription(current,packet.routine,keys=>state.kernel.call('mods.sections',{campaign:state.campaign,keys}));
+                await record({lane:'routine-summary',turn:state.turn,run:reply.run,acts:packet.routine.acts.length,ambient:packet.routine.ambient?.length??0,
+                    time_charges:compiled.effects.filter(effect=>effect.kind==='time').length,earlier_time:earlierTime});
+            }
 		}
         const failedAttempts=heldActs.get(state)?.uncommittedFailures();
         if(heldActs.get(state)?.basis&&(!decision||failedAttempts===undefined)){
@@ -6018,6 +6041,11 @@ export default function (pi: ExtensionAPI, host: {capabilities?:RuntimeCapabilit
             params={...params,...choice,...(params.text!==undefined?{delivery:legacyDeliveryPlan(params.text)}:{})};
             delete params.choice;delete params.text;
             spec={...spec,name:choice?'ask':'narrate',method:choice?'table.ask':'table.narrate'};
+        }
+        if(spec.name==='mod'){
+            if(!modSectionRead)throw new KernelError({code:'needs',message:'Package sections are unavailable on this table'});
+            const result=await modSectionRead(String(params.name??''));
+            return{content:[{type:'text',text:JSON.stringify(result)}],details:result};
         }
         if(spec.name==='lookup'&&params.kind==='capability'){
             if(!capabilityLookup)throw new KernelError({code:'needs',message:'Current capability discovery is unavailable'});
@@ -7136,6 +7164,7 @@ export default function (pi: ExtensionAPI, host: {capabilities?:RuntimeCapabilit
 				params as Record<string, unknown>, signal, onUpdate, ctx),
 		});
 		register(spec);
+		if(spec.name==='output')refreshOutputTool=()=>register(offeredTools(COC_TOOLS,process.env,{memoryQueryAvailable:!!memorySearch,routineSummary:routineSummaryTool}).find(tool=>tool.name==='output')!);
 		if(spec.name==='recall')refreshRecallTool=()=>register(offeredTools(COC_TOOLS,process.env,{memoryQueryAvailable:!!memorySearch}).find(tool=>tool.name==='recall')!);
 	}
 
@@ -8015,7 +8044,7 @@ export default function (pi: ExtensionAPI, host: {capabilities?:RuntimeCapabilit
 			state.mapAttachments = [];
 			// A new player input is a new context (contract §32.4): no verdict outlives it.
 			state.playerText = text;
-			state.packetTimeBands=undefined;state.packetTimeBandRows=undefined;state.packetSceneRequired=undefined;state.packetParameters=undefined;state.packetParameterFailures=undefined;state.packetRefusalRecovery=undefined;
+			state.packetTimeBands=undefined;state.packetTimeBandRows=undefined;state.packetSceneRequired=undefined;state.packetRoutineSummary=undefined;state.packetParameters=undefined;state.packetParameterFailures=undefined;state.packetRefusalRecovery=undefined;
 			state.interactionScope = undefined;
 			state.interactionScopeSettled = undefined;
 			state.selectedWriting = false;
@@ -8997,7 +9026,7 @@ export default function (pi: ExtensionAPI, host: {capabilities?:RuntimeCapabilit
                 await packetTimeBandHandles(table);
             }
             const choices=keeperRun?.prescreen?.choices?turnPacketMovementChoices(keeperRun.prescreen.choices):undefined;
-            const schema=turnPacketParameterSchema(journeySettled,table?.packetTimeBands,choices,table?.packetSceneRequired??true,table?packetContent(table).bindings():undefined,!!table&&table.locationContextTurn===table.turn,table?.packetTimeBandRows);
+            const schema=turnPacketParameterSchema(journeySettled,table?.packetTimeBands,choices,table?.packetSceneRequired??true,table?packetContent(table).bindings():undefined,!!table&&table.locationContextTurn===table.turn,table?.packetTimeBandRows,table?.packetRoutineSummary===true);
             if(table)table.packetParameters={turn:table.turn,run:keeperRun?.runId,schema};
             outgoing=turnPacketProviderPayload(outgoing,schema,table?.interactionScope!=='reference');
         }

@@ -43,8 +43,10 @@ export function noteCall(calls:TurnCalls,tool:string,input:Row,details?:Row):voi
 
 export type Picked={key:string;mod:string;version:string;heading:string|null;why:string[]};
 /** The selection rule of §183.5, over the capsule's indexed rows. `judgement` undefined or unavailable is the fallback:
- *  every section with a topic whose kernel gates hold loads, its host gates aside. */
-export function selectSections(capsule:Row,judgement:TopicJudgement|undefined,calls:TurnCalls):Picked[] {
+ *  every section with a topic whose kernel gates hold loads, its host gates aside. In pull mode (§248.4, the single
+ *  Keeper) there is no judgement and no fallback: a topic section loads only when it has a kernel gate and its gates hold;
+ *  the Keeper reads the others itself. */
+export function selectSections(capsule:Row,judgement:TopicJudgement|undefined,calls:TurnCalls,pull=false):Picked[] {
  const scores=judgement?.status==='scored'?judgement.scores:undefined;
  const host={no_topic:!!scores&&!Object.values(scores).some(score=>score>=DEFAULT_TOPIC_THRESHOLD)};
  const picked:Picked[]=[];
@@ -52,7 +54,8 @@ export function selectSections(capsule:Row,judgement:TopicJudgement|undefined,ca
   const why:string[]=[],topics=array(section.topics).map(String),gates=array(section.gates).map(String);
   if(section.due===true)why.push('due');
   if(topics.length&&section.gates_open===true){
-   if(!scores)why.push('fallback');
+   if(pull){if(gates.some(gate=>!(gate in host)))why.push('gate');}
+   else if(!scores)why.push('fallback');
    else if(gates.every(gate=>!(gate in host)||host[gate as keyof typeof host])){
     const bar=typeof section.topic_threshold==='number'?section.topic_threshold:DEFAULT_TOPIC_THRESHOLD;
     why.push(...(topics.includes('*')?['*']:topics.filter(topic=>(scores[topic]??0)>=bar)).map(topic=>`topic:${topic}`));
@@ -68,10 +71,30 @@ export function selectSections(capsule:Row,judgement:TopicJudgement|undefined,ca
  return picked;
 }
 
+/** A section's listed name (§248.2), as `kernel-ts/read/sections.ts` writes it in the index. */
+export const sectionName=(mod:string,heading:string|null)=>`${mod}: ${heading??'Package core'}`;
 export function createModSections(deps:{read:(method:string,params:Row)=>Promise<unknown>;decision:()=>DecisionPort|undefined;record:(row:Row)=>void;
- firstWaitMs?:number;allowanceMs?:number}) {
+ firstWaitMs?:number;allowanceMs?:number;
+ /** §248.4: the table asks no topic judgement; the Keeper reads topic sections itself. */
+ pull?:()=>boolean}) {
  let key='',judgement:TopicJudgement|undefined,work:Promise<void>|undefined,startedAt=0,lifetime:AbortController|undefined,waited=false,lastSelection='';
  const texts=new Map<string,string>();
+ /** §248.4: the schema-1 sections the last observed capsule indexes, by name, so the Keeper can read one. */
+ const known=new Map<string,Row>();
+ const pulling=()=>deps.pull?.()===true;
+ const know=(capsule:Row)=>{
+  known.clear();
+  // A reference section is its own consumer's (§242, §247.4); the Keeper reads situational sections only.
+  for(const instruction of indexedRows(capsule))for(const section of array(instruction.sections))if(section.kind!=='reference')
+   known.set(sectionName(String(instruction.mod),section.heading??null).toLowerCase(),{key:String(section.key),mod:String(instruction.mod),
+    version:String(instruction.version),heading:section.heading??null});
+ };
+ async function load(keys:readonly string[],campaign:unknown):Promise<void> {
+  const missing=keys.filter(key=>!texts.has(key));
+  if(!missing.length)return;
+  const read=object(await deps.read('mods.sections',{campaign,keys:missing}));
+  for(const section of array(read.sections))if(typeof object(section).key==='string'&&typeof object(section).text==='string')texts.set(section.key,section.text);
+ }
  const reset=()=>{lifetime?.abort();lifetime=undefined;key='';judgement=undefined;work=undefined;startedAt=0;waited=false;lastSelection='';};
  const inputOf=(capsule:Row,binding:Row):TopicInput|undefined=>{
   const topics=array(object(capsule.mods).topics).map(object).filter(topic=>typeof topic.id==='string')
@@ -84,7 +107,13 @@ export function createModSections(deps:{read:(method:string,params:Row)=>Promise
    present:array(capsule.present).map(person=>typeof person==='string'?person:object(person).name).filter((name):name is string=>typeof name==='string'&&!!name),topics};
  };
  function observe(capsule:Row,binding:Row,signal:AbortSignal):void {
+  know(capsule);
   if(signal.aborted||!indexedRows(capsule).length){reset();return;}
+  if(pulling()){
+   const next=fingerprint(['pull',binding.campaign,binding.worldline,binding.loop,binding.turn,object(capsule.turn).player_text??'']);
+   if(next!==key){reset();key=next;deps.record({lane:'mod-sections',event:'pull_mode',turn:binding.turn});}
+   return;
+  }
   const input=inputOf(capsule,binding);
   if(!input){reset();return;}
   // Once per input: the declaration, its turn and the topic list; a capsule re-read mid-turn keeps the judgement.
@@ -119,18 +148,13 @@ export function createModSections(deps:{read:(method:string,params:Row)=>Promise
  /** The turn's `coc-mod-sections` message, or undefined when nothing is selected or the text cannot be read. */
  async function message(capsule:Row,binding:Row,calls:TurnCalls):Promise<Row|undefined> {
   if(!indexedRows(capsule).length)return undefined;
-  const late=!judgement;
-  const picked=selectSections(capsule,judgement,calls);
+  const late=!judgement&&!pulling();
+  const picked=selectSections(capsule,judgement,calls,pulling());
   if(late&&picked.some(entry=>entry.why.includes('fallback')))
    deps.record({lane:'mod-sections',event:'fallback',turn:binding.turn,reason:'late',ms:startedAt?Date.now()-startedAt:0});
   if(!picked.length)return undefined;
-  const missing=picked.map(entry=>entry.key).filter(key=>!texts.has(key));
-  if(missing.length){
-   try{
-    const read=object(await deps.read('mods.sections',{campaign:binding.campaign,keys:missing}));
-    for(const section of array(read.sections))if(typeof object(section).key==='string'&&typeof object(section).text==='string')texts.set(section.key,section.text);
-   }catch{deps.record({lane:'mod-sections',event:'fallback',turn:binding.turn,reason:'read_failed'});return undefined;}
-  }
+  try{await load(picked.map(entry=>entry.key),binding.campaign);}
+  catch{deps.record({lane:'mod-sections',event:'fallback',turn:binding.turn,reason:'read_failed'});return undefined;}
   const sections:Row[]=[],omitted:Row[]=[];
   for(const entry of picked){
    const text=texts.get(entry.key);if(typeof text!=='string')continue;
@@ -151,5 +175,16 @@ export function createModSections(deps:{read:(method:string,params:Row)=>Promise
   let carried=false;try{carried=contains(payload,String(sent.content));}catch{/* unserializable payload is unconfirmed */}
   deps.record({lane:'mod-sections',event:'delivered',delivered:carried,bytes:bytes(String(sent.content)),...object(object(sent.details).mod_sections)});
  }
- return{observe,waitForFirst,message,delivered,reset,clear:()=>{reset();texts.clear();}};
+ /** §248.4: the Keeper's read of one listed schema-1 section by its index name; undefined when the index has no such name. */
+ async function read(name:string,campaign:unknown,turn?:unknown):Promise<Row|undefined> {
+  const entry=known.get(name.trim().replace(/^"(.*)"$/,'$1').toLowerCase());
+  if(!entry)return undefined;
+  await load([entry.key],campaign);
+  const text=texts.get(entry.key);
+  if(typeof text!=='string')throw Error('mod_section_unavailable');
+  deps.record({lane:'mod-sections',event:'read',turn,key:entry.key});
+  return{read_only:true,no_commit:true,package_sections:[{package:entry.mod,section:entry.heading??'(opening text)',version:entry.version,text}]};
+ }
+ const names=()=>[...known.values()].map(entry=>sectionName(entry.mod,entry.heading));
+ return{observe,waitForFirst,message,delivered,read,names,reset,clear:()=>{reset();texts.clear();known.clear();}};
 }
