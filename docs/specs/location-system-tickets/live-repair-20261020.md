@@ -1305,3 +1305,29 @@ room offer. No forced stop, lowered gate or invented observation receipt. Thus
 EL-10 does not yet remove gratuitous observation writes, and120s remains unmet.
 Raw final/profile/UI98 preserve the failure; body provides concrete frontage,
 threshold and counter detail but is not evidence of a fresh historical search.
+
+Full42 completed exit0,1232s: extension6418 pass/9skip, integration2248 pass,
+loop12 pass, retained run.Y5lIXSs6. This does not include EL-10 or EL-11.
+EL-11 exposes the already computed spatial context assessment to the Keeper's
+request capsule. Original83 had observation=.07, move=.96, feature=.57, while
+the old reader sent only identity context to the Keeper. The new advisory view
+retains normal gates and all tools. Clean18 focused and130 fast pass, including
+actual context/provider hooks, unavailable/inactive omission, focused look and
+canonical-state preservation. Main repeated component output was initially named
+clean in error, then renamed location-intent-main-second.log; separate clean
+validation is location-intent-clean-focused.log. No acceptance claim from either.
+62862d3da packaged09:59:48Z; table source map and installed kernel/table/RPC bytes,
+stable signature, strict/deep verification, backlink and empty staging verified.
+Remote focused is queued behind the verified shared-box run. Original84 is live,
+moving to the lodging's waiting chair and asking the room price.
+
+Original84 completed131.842s/0errors on verified Grok4.5/medium. It moved to the
+same lodging's waiting chair, established an actual0.50USD nightly quote, and
+delivered without an observe command. No room was bought. Context assessment was
+move=.71/feature=.05/observation=.06. This is one behavioral success for ordinary
+appearance, not controlled attribution or120s acceptance. Provider calls took
+26.608/45.979/10.594s; the separate author took15.956s. Those provider and run
+timings overlap and must not be added together. EL-12 corrects a request-facing
+description inconsistency: full12645-byte place grammar was already present in
+every provider request, while the description still directed a contract read.
+Only the demand-expanded instruction changes; compact discovery stays intact.

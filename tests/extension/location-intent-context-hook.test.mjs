@@ -41,6 +41,8 @@ for(const mode of ['arrival','focused','unavailable','inactive'])test(`request c
  const tools=COC_TOOLS.map(({name,description,parameters})=>({name,description,parameters}));
  const native=[{role:'system',content:'Keeper core.',toolsAdded:tools,timestamp:0},...output.messages];
  const projected=hooks.get('context_with_system')({messages:native},ctx)?.messages??native;
+ const place=projected[0].toolsAdded?.find(tool=>tool.name==='place');
+ if(mode!=='inactive')assert.match(place.description,/Complete location parameters are already declared/);
  const payload={input:projected,tools};
  hooks.get('before_provider_request')({payload});
  const sent=JSON.parse(payload.input.find(m=>m.customType==='coc-capsule').content);

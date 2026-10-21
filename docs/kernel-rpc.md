@@ -50676,3 +50676,12 @@ remain intact; admission and completion retain their normal owners and gates.
 The existing context decision writes it, the outgoing capsule/update reads it,
 and the Keeper chooses actual operations while the author renders ordinary
 visible texture. There is no extra decision, persistent state or timeout.
+
+### Demand-expanded place grammar is already available (2026-10-21)
+
+The request-only full place declaration identifies its nested grammar as already
+declared and replaces the entry's obsolete contract-fetch instruction. The
+compact entry retains discovery guidance. Inspect still reads missing state or
+genuinely missing grammar. Existing demand writes this distinction, the provider
+declaration exposes it, and the Keeper chooses whether a read is needed. Original
+tools, canonical validation, gates, writes and output grammar remain unchanged.
