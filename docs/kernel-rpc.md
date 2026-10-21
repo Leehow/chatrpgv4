@@ -49033,6 +49033,17 @@ Messages transport keeps its established canonical schema path. SDK payload
 checks cover empty fact/source/place vocabularies and parity against canonical
 validation. This is structural availability, never semantic classification.
 
+Local time-cost guidance (1.1.29): returning to a feature or resuming a glance
+is not itself a new pause. Do not attach a time effect solely as positioning
+bookkeeping. A genuine independent activity may use an issued cost band whose
+current rule meaning fits it; do not substitute a generic short-pause band for
+observation or pad an already settled absolute wait. This is location Mod
+guidance only, not automatic cost removal, a new free-action rule or changed
+admission. Captured58 has move.79/observation.87 but momentary cost.53; replay
+with its rule meaning.49, appropriate quick_observation.68 without extra state,
+and omitted time.82/.86. A research-cost control remains refused. These controls
+are diagnostic, never live acceptance or a threshold calibration change.
+
 The model-facing `place` tool has two operations:
 
 - `inspect`: optional `name` (default current place), `need: context|contract`.

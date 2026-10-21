@@ -1002,3 +1002,39 @@ New tests go red on empty enum, then native-focused7/7 pass including closed
 optional fields/array parity and no-output preservation. Clean/publish/live
 verification and latest full remain pending. The original App remains idle/quit
 since55; no timeout or aborted live turn.
+
+
+af3b1936b full LAN all passes exit0/wall1602s, run.fPfrxYba: ext6393/6384pass/
+9skip, integration2246pass, loop12pass. Canonical fresh Mac package04:20:41Z
+after the overlapped failed fetch rebuilt from source; installed JS/map sources
+matchaf3, browser UI exists, backplate PNG2286454bytes1289x1220/hash72a9c1...,
+strict stable signature and empty staging verified. Clean native7/7, fast130/130.
+
+Original56 delivered67.894s/0errors; look2/output1, no repeat impression roll.
+Actual main/author Grok4.5/medium. Original57 delivered107.927s/0errors: native
+additions is an actual array, new South Station small lodging registration/
+arrival to counter, travel30min once (00:01→00:31), detailed concrete lobby.
+Profiles grok-round56/57-profile.json, AX/screenshots67/68.
+
+Original58 fails naturally (UI3m53s), ready59 at street window00:45. Three
+settled receipts: window move, limited street view at00:31, wait14min. Return
+move/extra momentary time/room observation were one uncommitted final batch.
+Raw stream timeouts occurred BEFORE window move (04:34:54 and04:35:57), then
+provider recovered and issued valid calls. Final consent rejection04:37:07
+selects move.79/time.53/observe.87; restrictions.23/.21/.24. No forced stop by
+test agent. Correct the earlier commentary's reversed timeout/refusal order.
+The final player notice correctly uses the still-unresolved consent cause after
+provider recovery, preserves three settlements; earlier stream errors remain
+in raw messages/UI toasts. AX/screenshots69 and original query retained.
+
+Five-arm exact-request replay: captured time.52, resolved momentary.49, fitting
+quick_observation.70, unrelated research.10 with restriction.84, no time:
+move.82/observe.86. Label-only quick_observation.68. This contradicts a missing
+band-description hypothesis: the selected category is inappropriate/optional,
+not a low gate. No admission changes. Mod1.1.29 tells the Keeper not to add
+local-position/return bookkeeping time or substitute a pause for a selected
+look; genuine selected activity costs remain. No hand-authored venue fix.
+The diagnostic copies no campaign and grants no real movement/permission.
+Next resume from the actual window; never repeat the14min wait or narrate the
+refused return as already done. Full selected sequence must be played again
+from a new real position after this guidance, with current model evidence.
