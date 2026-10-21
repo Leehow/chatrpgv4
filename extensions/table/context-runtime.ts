@@ -1105,15 +1105,24 @@ export function installContextPolicy(pi: ExtensionAPI, writeTelemetry: (row: Row
         if(packets.length)outgoing=disclosure.place(outgoing,outgoing.length-projectedTail(result).length);
         pendingDiscovery=fresh;
         // §248.6: the sections the table's state and this turn's calls send outrank history, as the disclosure does: when
-        // they do not fit, history yields room for them. Only when even that cannot fit are they left out.
+        // they do not fit, history yields room for them. When even that cannot fit, the sections that fit still go, in
+        // package order, and the rest are named in `omitted`; the request stays within its ceiling.
         if(sectionsMessage&&!fits([...outgoing,sectionsMessage])){
             const widened=assemble(requestSize(packets)+requestSize([sectionsMessage]),omission?.reason);
             const placed=packets.length?disclosure.place(widened.messages,widened.messages.length-projectedTail(widened.fitted).length):widened.messages;
             if(fits([...placed,sectionsMessage])){result=widened.fitted;outgoing=placed;}
         }
-        if(sectionsMessage&&fits([...outgoing,sectionsMessage])){
-            outgoing.push(sectionsMessage);pendingSections=sectionsMessage;
-        }else if(sectionsMessage)record({lane:'mod-sections',event:'omitted',turn:snapshot.binding.turn,reason:'request_ceiling',bytes:requestSize([sectionsMessage])});
+        let sectionsSent=sectionsMessage;
+        if(sectionsSent&&!fits([...outgoing,sectionsSent])){
+            const body=object(JSON.parse(String(sectionsSent.content))),kept=[...(Array.isArray(body.sections)?body.sections:[])],
+                omitted=[...(Array.isArray(body.omitted)?body.omitted:[])];
+            const shaped=()=>({...sectionsSent!,content:JSON.stringify({...body,sections:kept,...(omitted.length?{omitted}:{})})});
+            while(kept.length&&!fits([...outgoing,shaped()])){const row=kept.pop();omitted.unshift({package:row.package,section:row.section});}
+            sectionsSent=kept.length?shaped():undefined;
+            record({lane:'mod-sections',event:'omitted',turn:snapshot.binding.turn,reason:'request_ceiling',bytes:requestSize([sectionsMessage!]),
+                sent:kept.length,left_out:omitted.map((row:Row)=>row.package+': '+row.section)});
+        }
+        if(sectionsSent){outgoing.push(sectionsSent);pendingSections=sectionsSent;}
         const temporalMessage=await temporalWork;
         if(ticket!==generation||preparationSignal.aborted)return superseded();
         if(temporalMessage&&fits([...outgoing,temporalMessage])){

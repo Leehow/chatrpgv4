@@ -50838,7 +50838,9 @@ The first live table on §248 (MiniMax 3.1/medium, the-haunting, zh-Hans) cut th
 the 384 KiB request ceiling left the whole message out as `request_ceiling`. Before §248 that text rode in the brief. So:
 - `coc-mod-sections` carries at most 48 KiB (`MOD_SECTIONS_BYTES`); what does not fit is still named in `omitted`;
 - the message outranks history like §228's disclosure: when it does not fit, the request is assembled again with room
-  reserved for it and the disclosure; only when even that fails is it left out and recorded `omitted`, `request_ceiling`.
+  reserved for it and the disclosure. When even that fails (an opening turn's own tool traffic near the ceiling, seen in a
+  second live opening), the sections that fit are sent in package order and the rest are named in `omitted`; the request
+  stays within its ceiling. The record is `omitted`, `request_ceiling`, with `sent` and `left_out`.
 
 ### 248.5 Limits and tests
 
