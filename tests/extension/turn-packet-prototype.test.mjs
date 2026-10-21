@@ -412,7 +412,7 @@ test('a refused earlier write cannot publish false success through native output
    ()=>{requests++;return fauxAssistantMessage([fauxToolCall('output',{...brief,commands:[movement]})],{stopReason:'toolUse'});}
   ]});
  t.after(()=>table.dispose());await table.session.prompt('I stay beside the desk and do not leave.');
- assert.deepEqual(table.extensionErrors,[]);assert.equal(requests,1);
+ assert.deepEqual(table.extensionErrors,[]);assert.equal(requests,2);
  assert.equal(batches.filter(b=>b.family==='continuous-action-admission').length,1);
  assert.equal(batches.filter(b=>b.family==='held-act-outcome').length,0);
  assert.equal(table.telemetry().filter(r=>r.lane==='isolated-expression'&&r.event==='start').length,0);
@@ -522,7 +522,7 @@ for(const mode of ['accepted','refused','dialogue','sparse-dialogue','wrapped-di
  await table.session.prompt(mode==='activity'?'I spend a few minutes arranging my notes.':mode==='refused'?'I stay at the desk. I do not leave.':mode.endsWith('dialogue')?'I ask Knott when he can meet.':mode==='planned'?'I might go to the library later.':'I walk along the street to the Central Library.');
  assert.deepEqual(table.extensionErrors,[]);assert.equal(requests,1);assert.equal(submittedSchema.parameters.additionalProperties,false);assert.deepEqual(Object.keys(submittedSchema.parameters.properties),['version','commands','interactions','reveal','routine'],'the default Mod set includes Quick Settlement (§247.3)');
  const rows=table.telemetry(),writes=rows.filter(r=>r.lane==='turn-packet-prototype');
- assert.equal(rows.filter(r=>r.lane==='run'&&r.type==='step_start'&&r.kind==='infer').length,mode==='unknown-dialogue'?2:1,'count actual inference steps: '+JSON.stringify(rows.filter(r=>r.lane==='keeper-delivery'||r.lane==='tool').slice(-4)));
+ assert.equal(rows.filter(r=>r.lane==='run'&&r.type==='step_start'&&r.kind==='infer').length,['unknown-dialogue','refused'].includes(mode)?2:1,'count actual inference steps: '+JSON.stringify(rows.filter(r=>r.lane==='keeper-delivery'||r.lane==='tool').slice(-4)));
  assert.equal(batches.filter(b=>b.family==='continuous-action-admission').length,['accepted','refused','activity'].includes(mode)?1:0);
  assert.equal(batches.filter(b=>b.family==='held-act-outcome').length,0,'no extra publication judge is introduced');
  assert.equal(batches.filter(b=>b.family==='continuous-turn').length,0,'candidate preparation does not add a speculative semantic decision');

@@ -4,20 +4,27 @@ import {clockSection,npcsPresent,npcReferenceView,untoldBlock,publicSceneLabel} 
 import {npcActivityView} from './temporal.js';
 import {locationStates,locationPlace,locationFeature,locationPosition} from './locations.js';
 import {array,clone,number,row,type Row} from './values.js';
+import {Check} from 'typebox/value';
+import {SpatialPoint} from '../../shared/place-structures.js';
+import {RpcError} from '../errors.js';
 
 export const LOCATION_OBSERVATION_CAPABILITY='locations.observation.v1';
 export const LOCATION_OBSERVATION_V2_CAPABILITY='locations.observation.v2';
 export const locationRelations=(world:Row):Row[]=>locationStates(world).flatMap(state=>array(state.relations));
 export const locationSituations=(world:Row):Row[]=>locationStates(world).flatMap(state=>array(state.situations));
 export const locationObservations=(world:Row):Row[]=>locationStates(world).flatMap(state=>array(state.observations));
-export const spatialPointKey=(point:Row):string=>JSON.stringify([point.place,point.at??null]);
+const pointDetail=(point:Row):Row=>Object.fromEntries(['at','spot','relation'].filter(key=>typeof point?.[key]==='string').map(key=>[key,point[key]]));
+export const spatialPointKey=(point:Row):string=>JSON.stringify([point.place,point.at??null,point.spot??null,point.relation??null]);
 export function observationPoint(graph:ModuleGraph,world:Row,value:Row):Row {
+    if(!Check(SpatialPoint,value)||value.relation!==undefined&&value.at===undefined&&value.spot===undefined)
+        throw new RpcError('invalid_params','A spatial point needs one valid at feature or descriptive spot when locally qualified',{
+            details:{reason:'place_point_shape'}});
     const place=graph.handle(locationPlace(graph,world,value.place));
-    return {place,...(value.at!==undefined?{at:locationFeature(world,place,value.at).name}:{})};
+    return {place,...pointDetail(value),...(value.at!==undefined?{at:locationFeature(world,place,value.at).name}:{})};
 }
 export function currentObservationPoint(graph:ModuleGraph,world:Row):Row {
     const position=locationPosition(world);
-    return {place:graph.handle(graph.scene(world.active_scene)),...(position?.at?{at:position.at}:{})};
+    return {place:graph.handle(graph.scene(world.active_scene)),...pointDetail(position??{})};
 }
 /** Perceptual access permits an investigative attempt, never a new percept or physical reach. */
 export function observationTargetAccessible(graph:ModuleGraph,world:Row,node:Row):boolean {
@@ -30,7 +37,7 @@ export function observationTargetAccessible(graph:ModuleGraph,world:Row,node:Row
         return latest?.access!=='blocked';
     });
 }
-const covers=(edge:Row,point:Row)=>edge.place===point.place&&(edge.at===undefined||edge.at===point.at);
+const covers=(edge:Row,point:Row)=>edge.place===point.place&&['at','spot','relation'].every(key=>edge[key]===undefined||edge[key]===point[key]);
 export function matchingObservationRelations(world:Row,from:Row,to:Row,sense:string):Row[] {
     return locationRelations(world).filter(relation=>relation.sense===sense&&covers(row(relation.from),from)&&covers(row(relation.to),to));
 }
@@ -39,7 +46,7 @@ export function observationIdentity(graph:ModuleGraph,world:Row,node:Row,journal
 }
 /** Public immutable receipt material only; private target activity is not an author input. */
 export function publicObservation(graph:ModuleGraph,world:Row,value:Row):Row {
-    const point=(value:Row)=>({place:publicSceneLabel(graph,world,graph.scene(value.place)),...(value.at?{at:value.at}:{})});
+    const point=(value:Row)=>({place:publicSceneLabel(graph,world,graph.scene(value.place)),...pointDetail(value)});
     const identity=(id:string):Row|undefined=>{
         const node=graph.nodes.get(graph.survivorId(id));
         return node&&graph.isPerson(node)?observationIdentity(graph,world,node):undefined;
@@ -57,11 +64,11 @@ export function observationRoutes(graph:ModuleGraph,world:Row):Row[] {
     const from=currentObservationPoint(graph,world);
     return relations.filter(relation=>covers(row(relation.from),from)).slice(0,8).map(relation=>({
         to:clone(row(relation.to)),sense:relation.sense,description:relation.description,
-        read:{op:'inspect',need:'observation',name:relation.to.place,...(relation.to.at?{at:relation.to.at}:{}),sense:relation.sense}}));
+        read:{op:'inspect',need:'observation',name:relation.to.place,...pointDetail(row(relation.to)),sense:relation.sense}}));
 }
 /** Caller supplies already committed current-line deliveries, not raw unpublished records. */
 export function locationObservationView(graph:ModuleGraph,world:Row,params:Row={},records:Row[]=[],journal:Row={}):Row {
-    const from=currentObservationPoint(graph,world),to=observationPoint(graph,world,{place:params.name??'here',...(params.at?{at:params.at}:{})}),sense=params.sense??'sight';
+    const from=currentObservationPoint(graph,world),to=observationPoint(graph,world,{place:params.name??'here',...Object.fromEntries(['at','spot','relation'].filter(key=>params[key]!==undefined).map(key=>[key,params[key]]))}),sense=params.sense??'sight';
     const key=spatialPointKey(to),clock=clockSection(graph,world);
     const same=(observation:Row)=>spatialPointKey(row(observation.to))===key&&observation.sense===sense;
     const deliveries=records.filter(record=>record.commit&&record.interaction_scope!=='reference'&&record.interaction_scope!=='uncertain')
@@ -76,6 +83,7 @@ export function locationObservationView(graph:ModuleGraph,world:Row,params:Row={
         recent_observations:delivered.slice(0,4).map(observation=>({...publicObservation(graph,world,observation),
             delivered_turn:observation.delivered_turn,elapsed_minutes:elapsed(row(observation.observed_clock))})),
         ...(to.at?{target_feature:Object.fromEntries(Object.entries(locationFeature(world,to.place,to.at)).filter(([key])=>['name','description','state','passable'].includes(key)))}:{}),
+        ...(to.spot?{target_spot:to.spot}:{}),
         ...(prior?{last_observation:{...publicObservation(graph,world,prior),delivered_turn:prior.delivered_turn,elapsed_minutes:elapsed(row(prior.observed_clock))}}:{}),
         ...(latest?{latest_settled:{...publicObservation(graph,world,latest),publication:deliveries.some(record=>array(record.receipts).some(receipt=>receipt.id===latest.receipt))?'delivered':'undelivered'}}:{}),
         people:npcsPresent(graph,world,graph.scene(to.place)).filter(node=>graph.isPerson(node)).slice(0,16).map(node=>({...observationIdentity(graph,world,node,journal,records),

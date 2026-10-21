@@ -35,3 +35,38 @@ export function availableOutputSchema(schema:TSchema):TSchema {
  if(!result)throw Error('The current output contract has no valid input');
  return changed?result as TSchema:schema;
 }
+
+/** Exact request-only sharing for providers verified to support local references. */
+export function sharedOutputSchema(schema:TSchema):TSchema {
+ const maps=['properties','patternProperties','dependentSchemas'];
+ const lists=['allOf','anyOf','oneOf','prefixItems'];
+ const singles=['items','additionalItems','additionalProperties','unevaluatedProperties','unevaluatedItems','contains','not','if','then','else','propertyNames','contentSchema'];
+ const children=(node:Row,visit:(child:Row)=>Row):Row=>{
+  const result={...node};
+  for(const key of maps)if(object(node[key]))result[key]=Object.fromEntries(Object.entries(node[key]).map(([name,child])=>[name,object(child)?visit(child):child]));
+  for(const key of lists)if(Array.isArray(node[key]))result[key]=node[key].map(child=>object(child)?visit(child):child);
+  for(const key of singles)if(object(node[key]))result[key]=visit(node[key]);
+  return result;
+ };
+ const scopeKeys=new Set(['$ref','$dynamicRef','$recursiveRef','$id','id','$anchor','$dynamicAnchor','$recursiveAnchor','$defs','definitions']);
+ const scoped=(value:unknown):boolean=>Array.isArray(value)?value.some(scoped):object(value)&&(Object.keys(value).some(key=>scopeKeys.has(key))||Object.values(value).some(scoped));
+ if(scoped(schema))return schema;
+ const counts=new Map<string,number>();
+ const count=(node:Row):Row=>{
+  const key=JSON.stringify(node);if(key.length>=256)counts.set(key,(counts.get(key)??0)+1);
+  children(node,count);return node;
+ };
+ count(schema);
+ const definitions:Row={},names=new Map<string,string>();
+ const emit=(node:Row,root=false):Row=>{
+  const key=JSON.stringify(node);
+  if(!root&&(counts.get(key)??0)>1){
+   let name=names.get(key);
+   if(!name){name='shared_'+(names.size+1);names.set(key,name);definitions[name]=children(node,child=>emit(child));}
+   return {$ref:'#/$defs/'+name};
+  }
+  return children(node,child=>emit(child));
+ };
+ const result={...emit(schema,true),...(names.size?{$defs:definitions}:{})};
+ return JSON.stringify(result).length<JSON.stringify(schema).length?result as TSchema:schema;
+}

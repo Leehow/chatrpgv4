@@ -24,6 +24,40 @@ async function room(k:RpcClient,call='t2-c1'){
     await k.table('apply',{call_id:call,effects:[{kind:'place',action:'move',to:'Inn room',at:'window',relation:'beside',via:'Through the inn and upstairs',travel_band:'adjacent'}]});
 }
 
+for(const [label,facts] of [
+    ['eight short facts',['A narrow table stands by the wall.','A tray rests on it.','Letters lie beside the tray.','Hooks line the wall.',
+        'Two coats hang on the hooks.','An umbrella stand is beside them.','A mirror hangs above the table.','A doorway leads onward.']],
+    ['a complete larger view',Array.from({length:65},(_,i)=>String(i)+' '+String.fromCodePoint(0x1f642).repeat(i===0?16000:700))],
+] as const)test(label+' survive canonical write, receipt, delivery, inspection and restart',async t=>{
+    const k=await kernel(t);await street(k);const before=world(k).clock.minutes;
+    const observed={kind:'place',action:'observe',to:'Street',at:'front steps',sense:'sight',access:'clear',scope:'The visible near wall.',facts:[...facts]};
+    const result=await k.table('apply',{call_id:'t1-c2',effects:[{kind:'time',minutes:2,why:'The selected brief inspection.'},observed]});
+    assert.deepEqual(result.outcomes[1].observation.facts,facts);
+    assert.deepEqual(locations(k).observations[0].facts,facts);
+    assert.equal(world(k).clock.minutes,before+2);
+    const staged=await inspect(k);
+    assert.deepEqual(staged.observation.latest_settled.facts,facts);
+    assert.equal(staged.observation.last_observation,undefined,'unpublished facts remain outside player knowledge');
+    await k.table('narrate',{call_id:'t1-c3',text:'The near wall and its furnishings are visible.'});
+    assert.deepEqual((await inspect(k)).observation.last_observation.facts,facts);
+    await k.close();const restarted=new RpcClient(k.workspace);t.after(()=>restarted.close());await restarted.table('open');
+    assert.deepEqual((await inspect(restarted)).observation.last_observation.facts,facts);
+    assert.equal(world(restarted).clock.minutes,before+2,'publication and restart do not charge extra observation time');
+});
+
+test('malformed and blocked observation facts still refuse atomically',async t=>{
+    const k=await kernel(t);await street(k);const before=world(k);
+    for(const facts of [[42],[''],['   ']]){
+        const error=await k.tableErr('apply',{call_id:'t1-c2',effects:[{kind:'time',minutes:2,why:'The selected brief inspection.'},
+            {kind:'place',action:'observe',to:'Street',at:'front steps',sense:'sight',access:'clear',scope:'The near wall.',facts}]});
+        assert.equal(error.code,'invalid_params');assert.deepEqual(world(k),before);
+    }
+    const blocked=await k.tableErr('apply',{call_id:'t1-c2',effects:[
+        {kind:'place',action:'observe',to:'Street',at:'front steps',sense:'sight',access:'blocked',reason:'A solid shutter blocks the view.',scope:'The near wall.',facts:['A table is behind the shutter.']}]});
+    assert.equal(blocked.code,'invalid_params');assert.equal(blocked.details.reason,'place_observation_blocked_shape');
+    assert.deepEqual(world(k),before);
+});
+
 test('the same incident survives viewpoint changes, real NPC departure, delivery and restart',async t=>{
     const k=await kernel(t);await street(k);
     const first=await k.table('apply',{call_id:'t1-c2',effects:[initial]});
@@ -40,7 +74,7 @@ test('the same incident survives viewpoint changes, real NPC departure, delivery
     const missing=await k.tableErr('apply',{call_id:'t2-c2',effects:[initial]});
     assert.equal(missing.code,'invalid_params');assert.equal(missing.details.reason,'place_observation_relation_required');assert.deepEqual(world(k),before);
     const view=(await inspect(k)).observation;
-    assert.deepEqual(view.from,{place:'Inn room',at:'window'});assert.equal(view.last_observation.observed_clock.minutes,atFirst);
+    assert.deepEqual(view.from,{place:'Inn room',at:'window',relation:'beside'});assert.equal(view.last_observation.observed_clock.minutes,atFirst);
     assert.equal(view.people.length,2);assert.equal(view.relations.length,0);
     assert.deepEqual(world(k),before,'preparation reads cannot observe, advance or alter the world');
     const observed={...initial,relations:[relation],people:['Man in cap'],facts:['Only the man in the cap remains beside the steps.'],
@@ -143,14 +177,14 @@ test('an ordinary view derives the actual counter position without registering i
     const before=world(k),wrong={...relation,from:{place:'Inn room',at:'doorway'}};
     const rejected=await k.tableErr('apply',{call_id:'t2-c2',effects:[{...initial,relations:[wrong]}]});
     assert.equal(rejected.details.reason,'place_observation_point_unresolved');assert.equal(rejected.details.field,'relations[0].from');
-    assert.deepEqual(rejected.details.current_viewpoint,{place:'Inn room',at:'counter'});
+    assert.deepEqual(rejected.details.current_viewpoint,{place:'Inn room',at:'counter',relation:'beside'});
     assert.match(rejected.fix,/features/);assert.match(rejected.fix,/not as a child place/);assert.match(rejected.fix,/use view/);
     assert.deepEqual(world(k),before);
     const child=await k.tableErr('apply',{call_id:'t2-c2',effects:[{...initial,relations:[wrong],additions:[{name:'doorway',within:'Inn room',description:'The open doorway.'}]}]});
     assert.equal(child.details.reason,'place_observation_point_unresolved');assert.deepEqual(world(k),before);
     const description='From the counter, the open doorway shows the pavement at the entrance.';
     const result=await k.table('apply',{call_id:'t2-c2',effects:[{...initial,view:description}]});
-    assert.deepEqual(result.outcomes[0].observation.from,{place:'Inn room',at:'counter'});
+    assert.deepEqual(result.outcomes[0].observation.from,{place:'Inn room',at:'counter',relation:'beside'});
     assert.deepEqual(locations(k).position,before.mods.state['enhanced-locations'].locations.position);
     assert.equal(locations(k).relations.length,1);assert.equal(locations(k).relations[0].description,description);
     assert.equal(locations(k).features.some((feature:Row)=>feature.name==='doorway'),false);

@@ -204,3 +204,39 @@ test('an unregistered destination or local feature is a recoverable definition g
     await k.table('apply',{call_id:'t1-c2',effects:[{kind:'place',action:'move',to:'here',at:'window',relation:'beside',additions:[{name:'Inn',features:[{name:'window',description:'A wooden window.',state:'closed',passable:false}]}]}]});
     assert.equal(locations(k).position.at,'window');assert.equal(locations(k).places.length,1);
 });
+
+test('descriptive positions persist through real observation and restart without creating features',async t=>{
+    const k=await kernel(t);await openTurn(k,'I stand in an ordinary unregistered corner and look across the room.');
+    const here=state(k).active_scene;
+    const move=await k.table('apply',{call_id:'t1-c1',effects:[{kind:'place',action:'move',to:'here',spot:'left corner beside the rug',relation:'standing'}]});
+    assert.deepEqual(move.outcomes[0].position,{place:here,spot:'left corner beside the rug',relation:'standing'});
+    assert.equal(locations(k).features.length,0);assert.equal(locations(k).places.length,0);
+    const seen=await k.table('apply',{call_id:'t1-c2',effects:[{kind:'place',action:'observe',to:'here',sense:'sight',access:'clear',scope:'Across the room from the corner',facts:['The desk remains across the room.']}]});
+    assert.deepEqual(locations(k).observations[0].from,locations(k).position);
+    assert.equal(seen.outcomes[0].observation.from.spot,locations(k).position.spot);
+    assert.equal(seen.outcomes[0].observation.from.relation,locations(k).position.relation);
+    assert.notEqual(seen.outcomes[0].observation.from.place,here,'public observation does not leak a private source handle');
+    assert.equal(seen.outcomes[0].observation.observed_clock.minutes,state(k).clock.minutes);
+    await k.table('narrate',{call_id:'t1-c3',text:'From the left corner beside the rug, you see the desk across the room.'});
+    const saved=locations(k),restarted=new RpcClient(k.workspace);t.after(()=>restarted.close());await restarted.table('open');
+    assert.deepEqual(locations(restarted),saved);
+    const history=await restarted.ok('mods.locations.inspect',{campaign:CAMPAIGN,need:'observation',name:'here'});
+    assert.equal(history.observation.last_observation.from.spot,'left corner beside the rug');
+    assert.equal(history.observation.last_observation.from.relation,'standing');
+    assert.equal((await inspect(restarted)).place.features.length,0);
+});
+
+test('descriptive positions retain exact feature, shape and barrier refusals with atomic rollback',async t=>{
+    const k=await kernel(t);await openTurn(k,'I approach a corner but do not cross the closed door.');
+    await k.table('apply',{call_id:'t1-c1',effects:[{kind:'place',action:'establish',additions:[hotel('Inn'),hotel('Garden'),{name:'Inn',features:[{name:'Door',description:'A closed oak door.',state:'locked',passable:false}]}]}]});
+    await k.table('apply',{call_id:'t1-c2',effects:[{kind:'place',action:'move',to:'Inn',via:'Across the road',travel_band:'adjacent',spot:'front corner'}]});
+    const before=state(k);
+    const missing=await k.tableErr('apply',{call_id:'t1-c3',effects:[{kind:'place',action:'move',to:'here',at:'unregistered fixture'}]});
+    assert.equal(missing.details.reason,'place_reference_unresolved');assert.deepEqual(state(k),before);
+    const conflict=await k.tableErr('apply',{call_id:'t1-c3',effects:[{kind:'place',action:'move',to:'here',at:'Door',spot:'front corner'}]});
+    assert.equal(conflict.details.reason,'place_shape');assert.deepEqual(state(k),before);
+    const blocked=await k.tableErr('apply',{call_id:'t1-c3',effects:[{kind:'place',action:'move',to:'Garden',via:'Through the closed door',travel_band:'adjacent',spot:'garden corner',through:{place:'Inn',feature:'Door'}}]});
+    assert.equal(blocked.details.reason,'place_barrier');assert.deepEqual(state(k),before);
+    const fixture=await k.tableErr('apply',{call_id:'t1-c3',effects:[{kind:'place',action:'feature',to:'here',at:'front corner',state:'open'}]});
+    assert.equal(fixture.details.reason,'place_reference_unresolved');assert.deepEqual(state(k),before);
+});

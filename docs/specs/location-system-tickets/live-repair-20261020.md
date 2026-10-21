@@ -1066,3 +1066,365 @@ Phase0: locationCommandOwner overwrote the producer root description. New locati
 47c941df9 clean adapter8/8 and fast130/130 passed. Canonical package06:27:33Z has stable PipiUI Dev requirement108232c5..., strict/deep verify passes, staging empty; installed index.mjs byte-equals the clean build and all four relevant map sources match Git (annotations-installed-source-check.json). Original64 naturally failed after UI68s, no final delivery: window movement, view and absolute wait to01:30 settled, final return did not. Until selection .90 passed; return move and view .87/.87 passed; an invented literal minutes:0 .14 caused atomic output refusal. This is not a120s pass. Original remains at window01:30, ready65. AX/screenshot75 and raw final/profile retained. App quit normally after terminal failure.
 
 Residual explicit-duration grammar: native output only copies a positive explicitly chosen whole duration; no additional time is represented by omitting time, never literal0. Tighten that one decision constructor to minimum1 and explain omission. Do not silently drop a submitted command or bypass consent; raw0 is an argument correction before semantic admission. Rule-band zero outcomes and all kernel arithmetic stay unchanged. Regression goes red3/4 before change, green4/4 after, including SDK wire rejection and valid omitted/positive/band controls. Existing foreign runtime/turn-packet-prototype.ts diagnostics are preserved and excluded from the commit. The earlier47c full continues against its immutable remote snapshot; it cannot validate this later delta.
+
+88279f033 canonical package06:37:47Z passes stable signature, strict/deep verification, empty staging and exact committed four-source/bundle parity. Owner then explicitly selected ego-browser for UI play. Space9 uses the canonical App's existing local Debug browser UI at127.0.0.1:49485, sharing the same backend, original session JSONL and campaign; no dev backend or campaign copy. Unsent native draft was not sent. Grok4.5/medium verified in browser and actual telemetry. Original65 returned from window to counter and observed,78.640s/0errors; momentary rule cost rolled1min to01:31. Original66 complete window/view→wait until01:45→view→return/view delivered129.203s/0errors, correct order/clock but fails120s. Four main provider calls15.338/5.628/16.061/34.873s plus repeated context preparation and author; this is not a universal latency claim. Timelines/screenshots76/77 and profiles retained. 47c941df9 full LAN all exit0/wall1221s, run.PY4HYT3X: ext6397pass/9skip/0fail, integration2246pass, loop12pass. Later882 full runs serially afterward and is still pending.
+
+Original67 to the authored house failed naturally, UI243s/7errors, no final public delivery; no agent stop. Existing feature redefinition triggered first; repeated complete stringified additions then failed preflight, and subsequent consent/coverage refusals remain distinct causes. Canonical generic arrival and a clue did settle at house-ground02:15; do not repeat travel or expose the private clue as already delivered. Original JSONL, failed-summary and screenshot78 retained. Further reuse/coverage investigation remains open; do not attribute every failure to array transport.
+
+The complete-array real Pi preparation component is red before the repair: a complete valid encoded additions array never reaches table.apply. Normalize only one complete JSON array which passes the exact declared field schema, then ordinary preflight/admission/transactions still run. Invalid/partial/wrong-type strings remain refused, raw input is not mutated and repaired fields are recorded. This follows JSON.parse's complete-grammar requirement and the parse-then-validate Json[T] pattern, without adding a dependency or allowing partial parsing (https://tc39.es/ecma262/#sec-json.parse ; https://pydantic.dev/docs/validation/2.2/usage/types/json/). This is a bounded syntax repair, not feature redefinition permission or an authorization bypass.
+
+29ff79de8 clean real-Pi preparation, unchanged malformed-array refusals/class accounting and native grammar tests pass15/15. The late67 refusals are specific scope mismatches: after generic arrival, the model substituted the registered entrance path for the player's sidewalk; those local moves were .27/.29 and correctly held. Do not lower the gates. Source/registered interior scale and exterior viewpoint need clear model guidance, not a blanket permission to enter the floor scene.
+
+Feature recovery now returns existing_feature and conflicting_fields for a refused redeclaration, while retaining immutable description checks, error code and rollback. Direct production stageLocation regression red on missing existing data, green afterward; world unchanged. Native additions description and Enhanced Locations1.1.31 explicitly omit registered features; Mod guidance distinguishes an authored interior floor from an exterior viewpoint and avoids a redundant grammar-only read when output already supplies it. No fixed scene content, semantic keyword route or new world-creation lane. Combined new annotation/duration/feature tests5/5 pass. Canonical packaging and live68 continuation remain pending.
+
+58839d9a2/Mod1.1.31 canonical package07:05:48Z, exact index/kernel bundles and relevant sources, stable signature and empty staging verified. Browser space9 now reaches the same App backend through127.0.0.1:52989; Mod UI explicitly shows follow-latest/current1.1.31. Original68 naturally ended UI168s/3errors, no public final; no partial-array/feature-redefinition error recurred. Its observations settled, but local movement remained uncertain and recovery substituted the entrance path for the requested sidewalk, correctly refused. Current remains house-ground02:15 without a specific registered feature; ready69. Keep screenshot/status80 and raw68. No agent timeout/stop. 88279f033 full all exit0/wall1221s, run.Bqd7VtVd; later588 full is now running serially. The installed source is588, never claim old full tests cover later deltas.
+
+The owner-requested goal was re-established active on this thread after the earlier pause/review; no token budget set. Residual baseline selects EL-06: descriptive local spot separated from at fixture, with existing consent, barriers, transactions and observation view identity. Contract/spec precede implementation. No implementation of spot yet. Schema factoring remains a read-only probe (75,303→26,319bytes/39defs, sampled parity); defer wiring until spatial correctness is restored and actual provider support is checked. Sources: JSON Schema structuring; xAI structured outputs permits noncircular refs; Anthropic managed-tool documentation asks for inlining on that different surface. No removed tools, altered admission gates or timeout workaround.
+
+EL-06 implemented as95926415b/Mod1.2.0. Spot is distinct from registered at and
+survives state, receipts, observation origins, consent and route/perception review.
+The latter now reuses the existing ordered execution-position projection for a
+proposed view after a proposed move. Actual SDK tests also caught/repaired the
+lost at/spot exclusion while reconstructing the native move grammar. Clean
+focused18/18, fast130/130 and real RPC2/2 pass. Canonical package07:36:04Z is
+stable-signed, strict/deep verified, staging empty; installed kernel/extension and
+relevant source map/Mod files match959 exactly. LaunchServices and Spotlight
+both resolve only/Applications/PipiCOC.app. Browser space9 shares its backend at
+127.0.0.1:58326; current/follow-latest1.2.0 is explicit in screenshot81 text.
+Original69 sidewalk succeeds70.866s/0errors, recorded spot宅前人行道; original70
+side-passage to rear succeeds68.735s/0errors, spot宅后荒园. Main and author actual
+Grok4.5/medium verified. Original71 arbor/view→five-minute listen→return/view
+naturally delivers147.039s/1recovered error: the model settled time and clue/threat
+but omitted post-wait hearing, correctly refused before the final batch. Recovery
+records hearing before moving, then delivers. This is not a120s pass; raw final,
+profiles and screenshots82–84 retained. No stop or reduced gates. 58839d9a2 full
+LAN all passed6401ext/2246integration/12loop, exit0/wall1223s/run.OLhzhIOv.
+959 full is queued behind another owner's suite; its helper returns7 without
+source/evidence mutation while busy. Request-only Grok schema sharing and Mod1.2.1
+post-wait guidance are the next bounded delta; actual package/live gates pending.
+
+416aa9479/cb441ace7 wire sharing adds exact nonrecursive local references only
+for Grok4.5 Responses; other models and Messages remain inline. Full independent
+expansion equals the inline JSON across six binding/arrival combinations and
+mutation checks. Nested legacy references also disable relocation (red/green).
+Canonical package07:55:24Z is cb441ace7/Mod1.2.1, exact installed bundles/sources,
+stable signature, strict/deep verification and empty staging checked. Final
+clean focused15/15 and fast130 pass. Prior queue attempts were stopped only while
+sleeping on busy exit7, before source upload; the latest full queue still waits
+for the other owner's LAN suite. No heavy suite was killed or called complete.
+Original72 reaches the new late-night diner and delivers detailed exterior,
+layout, wood furniture, kitchen and actual corner position170.573s/1recovered
+error. No120s claim. Its additions string lacked its final closing bracket and
+was correctly refused; the compact native declaration has no additions type,
+although the canonical contract does. Two default/SDK declaration regressions
+are red before deriving the typed field view from PlaceChange, green afterward.
+The earlier premature72 derived read actually contained71 before input72 had
+persisted; it is renamed invalid-for-acceptance, never counted. The read helper
+now requires the exact pending player text and verified timestamp before writing.
+Original73 menu question naturally fails at UI130s with no public delivery; quote
+and prior state are retained. Its extra speak_briefly cost selection.58 holds
+while scope.87/veto.13. Inspection confirms no rule_time_cost writer despite the
+question referring to that optional definition. Existing issued current rule rows
+now reach both textual and typed review, are included in the key, and cannot
+come from model arguments. The band wording covers the selected activity rather
+than physical activity only; family24, .60/.40 unchanged. New context tests red4
+then green4, combined focused16 pass. Actual App verification is still pending.
+Sources: https://docs.typesafe.ai/concepts/state and
+https://docs.typesafe.ai/primitives/noul (current official index was checked).
+
+0accb387e canonical install08:16:19Z was verified against clean source and maps,
+including the separate table extension map. Original74 delivered in73.862s with
+no error, but omitted prices; it does not prove the time-cost admission fix.
+Original75 failed naturally at UI81s/action_not_authorized, no public delivery.
+Its actual proposal includes rule_time_cost, proving the metadata wire while
+leaving semantic refusal and native error continuation unresolved. No stop,
+threshold reduction or invented elapsed success. Screenshots88/89 and raw records
+are retained. EL-07 fixes only the confirmed native continuation boundary: two
+actual Pi/native deterministic tests red before, green after; rejected time
+never commits, independent reply publishes once, repeated refusal stops. This
+is component evidence, with clean/package/original-session validation pending.
+
+cb441ace7 full LAN run.k630vhhK failed: two extension files and two integration
+cases, loop12 pass, exit1/wall1220s. Observation expectations omitted the newly
+retained relation. Pressure fixtures measured below the enlarged immutable
+schema floor: first240KiB vs265556+ required, degraded raw floor undercounted the
+projected fallback, and six-result synthetic filler exceeded feasibility by1521B.
+Tests now derive a feasible pressure ceiling below the unchanged384KiB product
+limit, retain all tool/player/evidence assertions and the separate below-floor
+case; synthetic filler alone shrinks8KiB. Asynchronous telemetry must match the
+new invocation's ceiling. No production request limit was raised. Main targeted
+six-result2 and observation2 pass; clean full validation remains required. The
+0accb387e full suite started separately before these changes and is still running.
+
+EL-07 local commits a9054fca4/3f2a3d6dc: clean native recovery2, existing refusal/
+publication boundaries12, observations7, fast130 pass. Long-context5 initially
+had one test-only mismatch: the configured budget is capped by the model window;
+its opening probe also preceded pressure. Effective requestBudget and pressure
+turns are now measured; the first case passes, the other four passed unchanged.
+Canonical install08:48:03Z/3f2a3d6dc has exact bundles/source-map identity, stable
+PipiUI Dev certificate, backlink, strict/deep verification and empty staging.
+Original76 delivered76.096s/0errors, author and main Grok4.5/medium. It did not
+exercise the new refusal continuation and still omitted a concrete price in
+prose; it is not complete price-experience or recovery acceptance. Original77
+normal bounded meal order is in flight, no forced stop. Raw records retained.
+
+0accb387e LAN full run.fgFcUqBT failed exit1/wall1225s: five extension files,
+integration2246/2248, loop12/12. Additional stale assertions were family19 vs23,
+band22 vs24, old restriction wording and expecting relation.type despite two
+valid annotated string alternatives. Update only these expectations; retain the
+number-type rejection and actual provider serializer test. Dirty main has a
+separate foreign author projection failure; clean-source validation is required.
+Latest3f2a3d6dc LAN full began serially, never overlaps another heavy run.
+
+Original77 completed naturally236.730s/four failed tools. No meal was served,
+consumed or paid. Its eight-line batch held item selections at.51/.59/.59; a
+cash/time replacement held cash restriction.43. Returned errors omitted which
+lines/axes were held, despite exact telemetry. EL-08 restores those known grounds
+through existing errors, changes no questions/gates/calls/transaction. A mixed
+selection/restriction regression goes red on the missing line evidence and green
+after; all22 admission cases pass. This remains pending clean/package/live proof.
+MCP and Anthropic actionable tool-error primary precedents are in ticket08.
+Latest clean c3ce84385 targeted declaration/consent44 pass. Installed code remains
+3f2a3d6dc (c3 only changes tests/docs); no global model settings were changed.
+
+Owner steering: inspect Claude's Quick Settlement Mod before further per-act
+repairs. Read-only check found commit279c9d869 on clean branch
+claude/quick-settlement-mod-20261021; it is not ancestral to current0.9.8a, the
+package is absent from this main checkout and canonical App. It adds routine
+triage plus a capability-gated routine packet/author seam, one time charge and
+ambient rendering, rather than per-act item/cash receipts. Existing scene/roll/
+lasting state and expenses beyond Spending Level retain normal settlement.
+Sandbox claims are its author's recorded evidence, not this original campaign.
+Main dirty structured-turn prototype contains some routine capability references,
+but lacks the package/provider and is not a complete integration. Do not absorb
+that prototype. Integration needs the committed Mod's own narrow wiring rebased
+over current location/time/refusal fixes, with original-campaign adoption and live
+verification. Inspection does not authorize merging this separate branch.
+EL-08 local commit is complete; latest canonical App remains3f2a3d6dc, original
+ready78 at02:57 in the diner. No newer player input. LAN3f2a3d6dc all still runs.
+
+EL-08 clean proof:26 focused (including unchanged.60/.40 gates),130 fast,
+2 actual Pi/native continuation cases pass. A first native test command ran in
+the dirty main checkout; its log was renamed consent-line-native-main-component,
+not counted as clean. The separate frozen command produced
+consent-line-native-clean-final.log. Canonical package09:03:26Z/d06c0879e has
+exact kernel/table/RPC bundles, admission/index source-map identity, stable cert,
+strict/deep verification, canonical backlink and empty staging. No Quick Settlement
+package was included. Its integration confirmation was asked asynchronously;
+there is no answer yet and no authorization inferred from elapsed time.
+
+Original78 delivered62.311s/0errors, same restaurant identity, descriptive external
+sidewalk position, real observe receipt and original NPC identities. Original79
+naturally failed at UI67s/2output refusals; its five-minute wait and NPC activity
+committed, clock03:02. The new exact line/axis grounds reached the same Keeper
+and its one allowed continuation; repeated non-authorization remained terminal.
+The review actually had current_clock03:02 and canonical time outcome minutes5;
+therefore this is not evidence that the clock wire is absent. Its settled evidence
+is currently a string projection, with no explicit action binding/start clock.
+Whether representation or semantic capacity caused the held restriction remains
+unproven. Do not add a guessed cause or relax the gate. The player-facing failure
+also showed an English generic action-review sentence; specific cause/language
+projection remains an acceptance gap.
+
+Original80 (only the now-current approach/view, no repeated wait) delivered66.384s/
+0errors. Receipts78/80 have the same target and exact same people IDs, observed
+minutes1017/1022, descriptive from.spot and relation retained. Assertion-backed
+comparison observations78-80-same-people-five-minutes.json preserves those facts
+and explicitly excludes continuous120s acceptance because79 failed. Screenshots
+92–94 and complete raw JSONL remain. Author/main Grok4.5/medium verified for78;
+80 attribution is retained with its actual rows. Original ready81,03:02, outside
+the restaurant glass; the meal was never delivered/consumed and no new input sent.
+LAN3f2a3d6dc full still confirmed live at20:05; latestd06c0879e full queued serially.
+
+LAN3f2a3d6dc full run.oDdh5KJI ended exit1/wall1230s. Integration2248/2248
+and loop12/12 pass. Four extension files fail: three declaration/version assertions
+already fixed inc3ce84385, plus turn-failure-reason's old immediate-terminal
+expectation. In that fixture a shape correction precedes consent refusal, then
+the allowed continuation supplies only thinking: run_aborted is the actual stop,
+while the concrete consent cause, .46 evidence and zero settlement stay intact.
+98b79c221 updates that expectation and asserts exactly one refusal continuation;
+all11 clean failure-reason cases pass. No product stop behavior was relaxed.
+The next full snapshotd06c0879e was already uploaded and confirmed live via
+helperPID33942 at01:32; it lacks this test-only98 update and may retain that known
+failure. Its result must be read, never called fully green in advance. No second
+heavy workflow runs concurrently. Current App code remainsd06, original ready81;
+Quick Settlement integration permission remains pending. Goal stays active.
+
+EL-09 candidate follows original79 evidence, not an asserted root cause: use the
+existing expected-turn receipt projection for a named completed_time view,
+deduplicate and sum in code, retain actual before/after clocks. No proposed
+purpose or receipt ID is projected, no new storage or method. Older declaration
+recovery does not inherit current-input timing. Component tests first fail on the
+missing view/function, then pass25 combined and8 focused, including.59 selection
+and.41 restriction holds. Official TypeSafe state/jaggedness docs and independent
+Temporal event-history precedent were checked; their limits and applicability
+are in ticket09. Clean/package/original-session behavior is still pending.
+
+42e36f05a clean focused33 and fast130 pass; canonical09:23:23Z package verified
+exact kernel/table/RPC bytes, index/admission/settled-admission sources, stable
+signature, strict/deep validity, backlink and empty staging. Original81 (wait3min,
+then view) completed70.801s/0errors, real clock1022→1025, observation1025 with the
+same people. Selection/restriction were.94/.20 for the later view. This is one
+same-class success, not stability or a controlled causal attribution. Source42
+full has now uploaded and begun serially (all-location-completed-time.log).
+
+Original82 returned inside, sat opposite the same worker, ran the existing NPC
+first-impression rule, and finally delivered284.634s/1recovered refusal. Its added
+close observation had unestablished selection; the same Keeper omitted it and
+recovered. The worker's reply only stated his current location, failing to answer
+the shift question. Preserve this separate communication limitation. Profiling
+includes a93.280s inference and16.384s context preparation; do not label all wall
+time as a location tool failure. Raw final and timing-progress records retained.
+Original ready83,03:05, opposite the worker; no meal occurred.
+
+EL-10 follows a confirmed Pro-review instruction conflict, without claiming it
+caused all82 failures: the tool-free author was ordered to write observe facts.
+Enhanced Locations1.2.2 instead renders ordinary compatible appearance in prose;
+resident guidance avoids an extra focused observe just for ordinary arrival or
+conversation texture. Selected perception and meaningful continuity retain normal
+observation writes and gates. Existing actual author-channel3 tests pass on dirty
+main; clean/package/live proof pending. Evennia's maintained accessible appearance
+post-move hook was checked as a bounded analogue, with limits in ticket10.
+
+EL-10 clean checkout passes18 author/disclosure/section tests and130 fast tests.
+Canonical package92d919883 installed09:44:44Z, Enhanced Locations1.2.2; exact
+kernel/table/RPC bytes, stable PipiUI Dev signature, deep/strict verification,
+canonical backlink and empty staging verified. Original Mod panel shows following
+latest/current1.2.2. Quick Settlement remains absent, with integration approval
+pending; its sandbox results are not original-session acceptance. Original83 is
+now live: leave the diner, find an illuminated cheap lodging and ask for a room.
+The older d06 full result was exit1: only turn-failure-reason failed; integration
+2248 and loop12 passed. Its terminal expectation was corrected separately in98.
+
+Original83 completed124.631s/1recovered refusal on Grok4.5/medium, author profile
+verified. It selected the already registered South Station lodging (created57,
+last reviewed66), so this is a revisit, not evidence of new-place registration.
+The move charged30min,03:05→03:35. An extra unselected room survey was refused;
+the Keeper omitted it and delivered arrival appearance and an available single
+room offer. No forced stop, lowered gate or invented observation receipt. Thus
+EL-10 does not yet remove gratuitous observation writes, and120s remains unmet.
+Raw final/profile/UI98 preserve the failure; body provides concrete frontage,
+threshold and counter detail but is not evidence of a fresh historical search.
+
+Full42 completed exit0,1232s: extension6418 pass/9skip, integration2248 pass,
+loop12 pass, retained run.Y5lIXSs6. This does not include EL-10 or EL-11.
+EL-11 exposes the already computed spatial context assessment to the Keeper's
+request capsule. Original83 had observation=.07, move=.96, feature=.57, while
+the old reader sent only identity context to the Keeper. The new advisory view
+retains normal gates and all tools. Clean18 focused and130 fast pass, including
+actual context/provider hooks, unavailable/inactive omission, focused look and
+canonical-state preservation. Main repeated component output was initially named
+clean in error, then renamed location-intent-main-second.log; separate clean
+validation is location-intent-clean-focused.log. No acceptance claim from either.
+62862d3da packaged09:59:48Z; table source map and installed kernel/table/RPC bytes,
+stable signature, strict/deep verification, backlink and empty staging verified.
+Remote focused is queued behind the verified shared-box run. Original84 is live,
+moving to the lodging's waiting chair and asking the room price.
+
+Original84 completed131.842s/0errors on verified Grok4.5/medium. It moved to the
+same lodging's waiting chair, established an actual0.50USD nightly quote, and
+delivered without an observe command. No room was bought. Context assessment was
+move=.71/feature=.05/observation=.06. This is one behavioral success for ordinary
+appearance, not controlled attribution or120s acceptance. Provider calls took
+26.608/45.979/10.594s; the separate author took15.956s. Those provider and run
+timings overlap and must not be added together. EL-12 corrects a request-facing
+description inconsistency: full12645-byte place grammar was already present in
+every provider request, while the description still directed a contract read.
+Only the demand-expanded instruction changes; compact discovery stays intact.
+
+EL-12 clean25 focused/130 fast pass. Canonical a4c3a220a packaged10:09:31Z;
+table context/runtime source maps, installed kernel/table/RPC bytes, stable
+signature, strict/deep validity, backlink and empty staging verified. Exact
+LaunchServices/Spotlight/running executable resolve only the canonical App.
+Original85 completed104.671s/0errors on verified Grok4.5/medium. It directly moved
+with minimal additions to South Station lodging / Second-floor corridor, within
+the existing lodging, at a descriptive mid-corridor spot; then output settled
+the selected view. No contract read, payment or guest-room entry. New corridor
+features are stairwell, guest-room doors and end window. This is one naturally
+passing new-place/containment/observation turn, not stable120s acceptance or
+controlled causal attribution. Original86 now approaches that window and views
+the lodging entrance from upstairs. Remote focused still waits on the shared box.
+
+Original86 completed56.288s/0errors (same verified Grok4.5/medium): move to the
+corridor's existing end window, inspect actual target context, then output the
+view to the lodging's existing front door. Original87 completed68.558s/0errors:
+apply the chosen3min wait, then output the fresh view. Narrow proof
+observations86-87-three-minute-window.json asserts identical source and target,
+observed_clock1060→1063 and a matching3min receipt. It does not claim continuous
+monitoring of the unobserved interval. Latest85–87 are three naturally passing
+turns, not a blanket stability claim. Original88 is now returning to the authored
+Corbitt house frontage. Remote focused has uploaded and started500 extension
+files,1 native file and1 routing loop; its result is pending.
+
+Original88 completed111.239s/0errors, output atomically moved from the lodging
+corridor to existing authored corbitt-house-ground at its front door and observed
+the frontage. Original89 completed91.426s/0errors, moved to a descriptive streetlit
+spot and delivered more facade geometry/material detail. Five85–89 turns passed
+naturally, but the exterior claim about seeing inside door bolts remains a
+visibility limitation; no source or history was rewritten to erase it.
+
+Original90 then failed the latency criterion:166.890s/1recovered parameter error.
+Move additions redefined the existing front door with description/state/passable,
+although a separate feature command already carried the actual state change.
+feature_redefinition correctly prevented overwriting established data; the Keeper
+removed the duplicate definition and completed entrance/limited observation. Do
+not hide that failure or change the guard without a reviewed contract.
+
+Original91:245.425s/4errors, retained as invalid-for-acceptance for uniform-model
+testing. Main was MiniMax3.1/medium, final author remained the separately configured
+Grok4.5/medium. Initial interpretation as a hot-switch bug was corrected after
+reading the independent author/fast-model settings: changing only the main UI
+model was insufficient test setup. Product agent-default snapshots are unchanged.
+MiniMax service did respond; no new529 occurred. Two reads confused keeper-map
+assets with region maps; place then rejected8 short facts through a vague union
+error, and output explicitly rejected facts above6 before correction. Natural
+delivery and all committed feature/move/observe results remain evidence, not a
+passing latency or uniform-model claim. Final/profile/UI evidence retained.
+
+Focused a4c3a220a completed exit0,1058s, run.eW0vAIsj; full same-source regression
+has now started serially in location-final-all.log. A factual architecture
+follow-up (residual-followup-20261021.txt) is being sent to the existing GPT-6 Pro
+review conversation, without prescribing a candidate fix. No new normalization,
+fact-limit change, map publication change or new model policy has been implemented.
+
+Owner correction20261021: do not impose observation-fact hard length limits;
+these can introduce failures and conceal defects. EL-13 now removes the prior
+six-item/600-character limits and discards the proposed64/600/14400 rejection.
+No truncation, merging, content loss, extra observation time or forced timeout.
+Commit0be9b1c8e changes the shared canonical/native/compatibility grammar only;
+ordinary structure, access, admission and atomicity remain unchanged.
+Four schema regressions passed; three targeted real-RPC cases passed, and the
+complete location-observations file passed10/10 under Node24 with its private
+matching native addon. Two initial local runner attempts failed before campaign
+creation due to Node/addon ABI mismatch; no product regression is inferred.
+Fast tests passed130/130. These are component evidence, not live acceptance.
+Canonical packaging is underway. LAN focused is queued behind another suite.
+
+The preceding a4c3a220a full regression completed exit0,1231s:6427 extension
+passes/9 skips across748 files,2248 integration passes,12 routing-loop passes,
+run.H3nXwh4A. That baseline does not cover EL-13. GPT-6 Pro residual review was
+completed and retained in residual-pro-answer.txt; its content-budget suggestion
+is superseded by the owner's correction. Other residual source/map and outer
+validation diagnostics remain open; current original campaign is ready92.
+
+EL-13 package completed exit0 to the real /Applications/PipiCOC.app, receipt
+0be9b1c8e,2026-10-21T11:11:06.164Z. Stable PipiUI Dev designated requirement
+108232c5a713c15a869fc4c267e18d2e35cd276c verified; three installed kernel,
+extension and table bundles match the clean source bytes, and installed RPC
+contains the revised facts schema. Backlink, empty staging, LaunchServices and
+Spotlight resolve the canonical bundle. Original App restarted with temporary
+MiniMax3.1/medium test environment; product defaults were not changed.
+
+Original92 failed rather than delivering a story (UI76s, not a latency pass).
+Player naturally approached the living-room doorway, pushed the door and looked
+at the room. Keeper applied a clue first, then two output proposals contained13
+facts but omitted the selected feature state change. Both refused before execution
+with place_decision_incomplete, axes move/observation accounted and feature missing.
+The second proposal registered a doorway as a child place, also a suspect identity
+shape; canonical staging was not reached, so no claim that this live13-fact payload
+was fully accepted. Error reached the UI with preserved prior settlement.
+No forced stop or timeout was used. Retained minimax-round92-final.json marks this
+failed with no completed public delivery. Main provider is confirmed MiniMax; no
+final author ran. Still pending: actionable axis-specific recovery guidance and
+proposal identity/state separation, private map capability routing, and complete
+uniform-profile original-session live acceptance. Goal remains active.

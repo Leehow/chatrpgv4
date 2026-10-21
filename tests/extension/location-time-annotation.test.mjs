@@ -49,6 +49,9 @@ for(const transport of ['responses','messages'])test(transport+' request retains
  assert.ok(payload,'the actual SDK request callback ran before transport');
  const output=payload.tools.find(tool=>tool.name==='output'),wire=output.input_schema??output.parameters;
  meanings(wire);assert.deepEqual(canonical,original);
+ const position={version:4,commands:[{kind:'place',action:'move',to:'Inn',spot:'quiet corner',relation:'standing'},{kind:'scene',service:'open',crowd:'unknown'}]};
+ assert.ok(Check(wire,position),'descriptive positions survive the actual SDK request');
+ assert.ok(!Check(wire,{...position,commands:[{...position.commands[0],at:'Counter'},position.commands[1]]}),'wire preserves the mutually exclusive anchors');
  assert.ok(Check(wire,{version:4,commands:[{kind:'time',band:'momentary',reason:'Selected gesture'}]}));
  assert.ok(!Check(wire,{version:4,commands:[{kind:'time',band:'invented',reason:'Selected gesture'}]}));
  assert.ok(!Check(wire,{version:4,commands:[{kind:'time',minutes:0,reason:'No extra pause'}]}),'the actual request must forbid a placeholder zero cost');

@@ -1,9 +1,10 @@
+import {locationCoverageError} from './location-coverage-error.ts';
 import {adviseLocationReference} from './location-reference.ts';
 import {locationDescription} from './location-description.ts';
 import {sourceLocationContext} from './source-location-context.ts';
 import {routineDescription,routineRefusal} from './routine-summary.ts';
-import {settledAdmissionEvidence} from './settled-admission.ts';
-import {placeOperation,placeParameterRefusal,normalizePlaceTarget} from './place-operation.ts';
+import {settledAdmissionEvidence,settledTimeEvidence} from './settled-admission.ts';
+import {placeOperation,placeParameterRefusal,normalizePlaceTarget,normalizePlaceArrayArguments} from './place-operation.ts';
 import {immediatelyPrecedingUnfinished} from './admission.ts';
 import {createPlaceCallEvidence} from '../../runtime/place-call-evidence.ts';
 import {DecisionContent,decisionPerson,bindCreatedDecisionPerson} from '../../runtime/decision-content.ts';
@@ -519,6 +520,7 @@ interface TableState {
 	/** §247.3: an active package issues the packet's routine element this turn. */
 	packetRoutineSummary?:boolean;
 	packetParameterFailures?:Set<string>;
+    packetRefusalRecovery?:{turn:number;run:string};
 	packetParameters?:{turn:number;run?:string;schema:ReturnType<typeof turnPacketParameterSchema>};
 	/** §168.5: `turn|item` pairs whose omission while their check ran is already on the telemetry line. */
 	firstSightOmitted: Set<string>;
@@ -1587,7 +1589,6 @@ export default function (pi: ExtensionAPI, host: {capabilities?:RuntimeCapabilit
 		const enqueue=(job:()=>Promise<void>)=>{reply.work=reply.work.then(async()=>{if(!reply.error)await job();}).catch(error=>{reply.error=error;});};
 		reply.decoder=isolatedOutput?new ExpressionPlanStream(turnPacketPrototype?()=>{throw Error('Native output submission is required');}:undefined):new ArtifactTextStream(privateRecord=>enqueue(async()=>{
 			if(signal?.aborted)throw Error('The Keeper response was cancelled');
-			if(privateRecord.scope==='reference')state.interactionScope='reference';
 			if(privateRecord.event!==undefined||Array.isArray(privateRecord.effects)&&privateRecord.effects.length){
 				const toolCallId=`keeper:${reply.run}:record`;
 				owner.recordCallId??=mintCallId(state);
@@ -1608,11 +1609,10 @@ export default function (pi: ExtensionAPI, host: {capabilities?:RuntimeCapabilit
 		try{
 			reply.raw+=delta.delta;
 			const text=reply.decoder.push(delta.delta);
-			if(table&&reply.decoder.record?.scope==='reference')table.interactionScope='reference';
 			if(text)reply.work=reply.work.then(async()=>{
 				if(reply.error||!table)return;
 				if(reply.signal?.aborted)throw Error('The Keeper response was cancelled');
-				if(heldActs.get(table)?.basis){reply.bufferedText=(reply.bufferedText??'')+text;return;}
+				if(turnPacketPrototype||heldActs.get(table)?.basis){reply.bufferedText=(reply.bufferedText??'')+text;return;}
 				reply.stream??=await finalOutput.openStream(table.campaign,table.turn,reply.run);
 				reply.stream.push(text);
 			}).catch(error=>{reply.error=error;});
@@ -3135,7 +3135,7 @@ export default function (pi: ExtensionAPI, host: {capabilities?:RuntimeCapabilit
 	 * already-landed resend (§32.4) both do.
 	 */
 	async function admissionScopeBuilder(state: TableState, tool: "resolve" | "apply", payload: Record<string, unknown>, suppliedCapsule?:Record<string,any>):
-		Promise<(effects: Array<Record<string, unknown>>) => { party: string[]; scene?: TableState["scene"]; destinations?: AdmissionDestination[]; answered?: string[]; cash?: Record<string, unknown> }> {
+		Promise<(effects: Array<Record<string, unknown>>) => { party: string[]; scene?: TableState["scene"]; destinations?: AdmissionDestination[]; answered?: string[]; cash?: Record<string, unknown>; timeCosts?: TableState["packetTimeBandRows"] }> {
 		const destinations: AdmissionDestination[] = [];
 		let cashContext: Record<string, unknown> | undefined;
 		if (tool === 'apply' && Array.isArray(payload.effects) && payload.effects.some((effect: any) =>
@@ -3193,6 +3193,7 @@ export default function (pi: ExtensionAPI, host: {capabilities?:RuntimeCapabilit
 			})}:undefined;
 			return { party: state.party.flatMap((member) => [member.name, ...(member.id ? [member.id] : [])]), scene: state.scene,
                 ...(recordingSelected(state)?{selectedDocumentRecording:true}:{}),
+                ...(state.packetTimeBandRows?{timeCosts:state.packetTimeBandRows.filter(row=>effects.some(effect=>effect.kind==='time'&&effect.band===row.handle))}:{}),
 				...(own.length ? { destinations: own } : {}), ...(state.answering ? { answered: state.answering } : {}),
 				...(ownCash && effects.some(effect => effect.kind === 'cash') ? {cash:ownCash} : {}) };
 		};
@@ -3786,7 +3787,9 @@ export default function (pi: ExtensionAPI, host: {capabilities?:RuntimeCapabilit
 			if(!proposal){capture?.(null);if(recovery?.told.length)await record({lane:'admission',verb:tool,turn:state.turn,path:'told',verdict:'authorized',jev_calls:0,owed:recovery.told});return;}
             proposal=capsuleContactProposal(proposal,payload,current);
             capture?.(proposal);
+            const completedTime=state.landed.length&&!recovery?.sources.some(Boolean)?settledTimeEvidence((await state.kernel.call<{receipts:unknown[]}>('table.status',{campaign:state.campaign,projection:'receipts',expected_turn:state.turn})).receipts):undefined;
             const context={...admissionContextFor(state),...(current.where?.clock?{currentClock:current.where.clock}:{}),
+                ...(completedTime?{completedTime}:{}),
                 ...(current.where?.scene?{scene:current.where.scene}:{}),...(current.where?.location?.position?{currentPosition:current.where.location.position}:{})};
             const lineContexts=recovery?.sources.some(Boolean)?(proposal.effects??[]).map(index=>{const source=recovery.sources[index];return source?{...context,
                 playerText:source.player_text,interruptedPlayerText:undefined,refused:[],corrections:[],
@@ -5806,10 +5809,7 @@ export default function (pi: ExtensionAPI, host: {capabilities?:RuntimeCapabilit
                     proposed_effects:compiled.effects,proposed_responses:compiled.responses,settled_receipts:receipts,known_failures:heldBoundary?.uncommittedFailures()??[]},
                     {campaign:state.campaign,turn:state.turn},turnDecisionPort,reply.signal??state.lanes.signal,foregroundProviderBudget?.());
                 await record({lane:'location-decision-coverage',turn:state.turn,...coverage});
-                if(!coverage.covered)throw new KernelError({code:'invalid_params',message:coverage.status==='answered'?'The selected spatial action is not accounted for by this decision':'The spatial decision completion could not be verified',
-                    fix:'Preserve the player declaration and successful receipts. Use the current_position below rather than an earlier narrated pose. Every independently selected environmental reading or view also needs a matching {kind:"place",action:"observe",to,sense,access,scope,facts}; arrival and greetings do not read its contents. Include the actual perceived contents, not merely a description of the writing surface. Archival research and carried-document reading use their existing research/document outcomes; they do not independently require a place observation. Do not repeat current-input settled observations. For a local approach before a wait or return, use the separate place tool {action:"move",to:"here",at:"exact registered feature",relation:"beside"}; add only a missing compatible feature if needed. An NPC move, time/glance or registration alone does not move the investigator. A real obstacle or necessary open choice can stop an attempt. Do not narrate an arrival without its committed move.',
-                    details:{reason:'place_decision_incomplete',cause:coverage.reason??'place_decision_incomplete',transaction_state:'uncommitted',before_execution:true,current_place:spatial.current_place,current_position:spatial.current_position,
-                        known_features:spatial.features.map((feature:Record<string,unknown>)=>feature.name),...(coverage.axes?{axes:coverage.axes}:{})}});
+                if(!coverage.covered)throw locationCoverageError(coverage,spatial);
             }
             const newlyMoving=compiled.effects.some(effect=>effect.kind==='move'||effect.kind==='place'&&effect.action==='move'&&effect.to!=='here'&&effect.to!==before.where?.scene);
             if((scenePopulationRequired(before)||newlyMoving)&&!compiled.effects.some(row=>row.kind==='scene'))throw new KernelError({code:'needs',message:'Assess scene service and population from the current place and clock with one scene command; missing registered names never means empty.'});
@@ -5960,6 +5960,7 @@ export default function (pi: ExtensionAPI, host: {capabilities?:RuntimeCapabilit
 	async function submitTurnPacket(params:Record<string,unknown>,signal?:AbortSignal,ctx?:ExtensionContext){
 		const state=table,owner=keeperRun;
 		if(!state||!owner)throw new KernelError({code:'needs',message:'The active Keeper input is unavailable'});
+        const submittedTurn=state.turn;
 		const reply={decoder:new ExpressionPlanStream(),work:Promise.resolve(),run:owner.runId,signal,raw:''} as NonNullable<typeof keeperReply>;
 		try{
             let packet:TurnPacket;
@@ -5983,6 +5984,16 @@ export default function (pi: ExtensionAPI, host: {capabilities?:RuntimeCapabilit
 			if(!reply.evidence&&!reply.stream&&isKernelError(error)&&error.code==='invalid_params'&&error.details?.transaction_state==='uncommitted'){
                 const {retry,refusal}=refusePacketParameters(state,error,ctx,true);
                 return {content:[{type:'text' as const,text:JSON.stringify(refusal)}],details:{coc_error:refusal},terminate:!retry};
+            }
+            const knownFailures=heldActs.get(state)?.uncommittedFailures();
+            if(!reply.evidence&&!reply.stream&&!signal?.aborted&&table===state&&state.turn===submittedTurn&&keeperRun?.runId===owner.runId
+                &&state.inputEnded?.turn!==submittedTurn&&isKernelError(error)&&error.code==='needs'
+                &&['action_not_authorized','action_admission_uncertain'].includes(String(error.details?.reason))&&knownFailures?.length
+                &&!(state.packetRefusalRecovery?.turn===submittedTurn&&state.packetRefusalRecovery.run===owner.runId)){
+                state.packetRefusalRecovery={turn:submittedTurn,run:owner.runId};
+                await record({lane:'output-refusal-recovery',event:'returned',turn:submittedTurn,run:owner.runId,reason:error.details?.reason,failures:knownFailures.length,jev_extra_calls:0});
+                return{content:[{type:'text' as const,text:errorText(error)}],terminate:false,details:{coc_error:{code:error.code,message:error.message,
+                    details:error.details,retryable:error.retryable,next:error.next,fix:error.fix}}};
             }
 			if(reply.evidence)finalOutput.finishStream(reply.evidence,'publication_pending');
 			else if(reply.stream){reply.stream.interrupt();endInput(state,'public_stream_interrupted',ctx);}
@@ -7107,6 +7118,10 @@ export default function (pi: ExtensionAPI, host: {capabilities?:RuntimeCapabilit
 			// the literal's body without its quotes -- is decoded between the two, so the label rule and every reader after it
 			// see the text.
 			prepareArguments: (args: unknown) => {
+                if(spec.name==='place'){
+                    const transport=normalizePlaceArrayArguments(args);args=transport.args;
+                    if(transport.fields.length)void record({lane:'arguments',event:'place_array_transport_normalized',tool:'place',fields:transport.fields});
+                }
 				if(spec.name==='place'&&table)placeProtocol.prepare(args,table.turn);
 				if(spec.name==='place'){const refusal=placeParameterRefusal(args);if(refusal)throw Error(refusal.toToolText());}
                 let targetArgs=args;
@@ -8047,7 +8062,7 @@ export default function (pi: ExtensionAPI, host: {capabilities?:RuntimeCapabilit
 			state.mapAttachments = [];
 			// A new player input is a new context (contract §32.4): no verdict outlives it.
 			state.playerText = text;
-			state.packetTimeBands=undefined;state.packetTimeBandRows=undefined;state.packetSceneRequired=undefined;state.packetRoutineSummary=undefined;state.packetParameters=undefined;state.packetParameterFailures=undefined;
+			state.packetTimeBands=undefined;state.packetTimeBandRows=undefined;state.packetSceneRequired=undefined;state.packetRoutineSummary=undefined;state.packetParameters=undefined;state.packetParameterFailures=undefined;state.packetRefusalRecovery=undefined;
 			state.interactionScope = undefined;
 			state.interactionScopeSettled = undefined;
 			state.selectedWriting = false;
@@ -8750,7 +8765,7 @@ export default function (pi: ExtensionAPI, host: {capabilities?:RuntimeCapabilit
 					if(reply.error)throw reply.error;
 					if(reply.signal?.aborted)throw Error('The Keeper response was cancelled');
 					if(delta){
-						if(heldActs.get(state)?.basis)reply.bufferedText=(reply.bufferedText??'')+delta;
+						if(turnPacketPrototype||heldActs.get(state)?.basis)reply.bufferedText=(reply.bufferedText??'')+delta;
 						else{reply.stream??=await finalOutput.openStream(state.campaign,state.turn,reply.run);reply.stream.push(delta);}
 					}
 				}

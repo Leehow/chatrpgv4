@@ -361,6 +361,8 @@ export interface AdmissionDestination {
 }
 
 export interface AdmissionScope {
+    /** Current issued rule rows, supplied by the host rather than the Keeper. */
+    timeCosts?: readonly import("../../runtime/jev/band-shadow-domain.ts").TimeBandRow[];
     /** Same-Keeper consent checks concern voluntary effects, not NPC disclosures or event truth. */
     consentOnly?: boolean;
     /** Host-owned current recording eligibility; never model arguments or writing authority itself. */
@@ -440,7 +442,7 @@ export function registeredLocationDestination(requested:string,view:Record<strin
     const fields=(value:Record<string,unknown>,keys:string[])=>Object.fromEntries(keys.filter(key=>value[key]!==undefined).map(key=>[key,value[key]]));
     return {...registeredDestination(requested,{name:view.name,display_name:view.display_name,summary:view.description,
         inside:typeof view.within==='string'?[view.within]:[]}),location:{
-        ...(view.position?{position:fields(view.position,['place','at','relation'])}:{}),
+        ...(view.position?{position:fields(view.position,['place','at','spot','relation'])}:{}),
         features:(Array.isArray(view.features)?view.features:[]).filter((feature:Record<string,unknown>)=>selected.some(name=>norm(name)===norm(feature.name)))
             .map((feature:Record<string,unknown>)=>fields(feature,['name','description','state','passable']))}};
 }
@@ -474,7 +476,7 @@ export function continuousAdmissionKey(playerText:string,worldRevision:unknown,s
  * written (`time`'s band, until, stated and beyond_travel among them), and a verdict on one time cost was reused for another.
  */
 const IDENTIFYING_FIELDS: readonly string[] = [
-    "action","at","relation","through","additions","state","passable","relations","sense","access","facts","people","situations","view","reason",
+    "action","at","spot","relation","through","additions","state","passable","relations","sense","access","facts","people","situations","view","reason",
 	"to", "establish", "label", "travel_minutes", "travel_band", "via", "clue", "minutes", "band", "band_reach", "until", "stated", "beyond_travel", "delta",
 	"name", "regions", "region_labels", "level_labels", "subject", "from", "with", "quantity", "dice", "scope", "object",
 	"description", "category", "adopt", "condition", "weapon", "definition", "source_object", "document", "part", "offer", "handover", "check",
@@ -560,7 +562,9 @@ export function admissionRequest(tool: string, payload: Record<string, unknown>,
 	}
 	if (tool === "apply") {
 		const effects = Array.isArray(payload.effects) ? (payload.effects as Array<Record<string, unknown>>) : [];
-		const here = [scope.scene?.handle, scope.scene?.label].filter(Boolean).map(norm);
+		const timeCosts=(scope.timeCosts??[]).filter(row=>effects.some(effect=>effect.kind==='time'&&effect.band===row.handle)).map(row=>({handle:row.handle,min:row.min,max:row.max,...(row.default!==undefined?{default:row.default}:{}),...(row.covers!==undefined?{covers:row.covers}:{})}));
+        const timeCost=(effect:Record<string,unknown>)=>effect.kind==='time'?timeCosts.find(row=>row.handle===effect.band):undefined;
+        const here = [scope.scene?.handle, scope.scene?.label].filter(Boolean).map(norm);
 		const destination = (effect: Record<string, unknown>) => scope.destinations?.find(value => norm(value.requested) === norm(effect.to));
 		// §32.1: whether one effect is put to review on its own. Since §32.12.3's amendment (the owner's ruling after SL-30's
 		// measurement) this also decides which lines the reviewers read: the others land with the batch unreviewed.
@@ -583,9 +587,10 @@ export function admissionRequest(tool: string, payload: Record<string, unknown>,
 		const describe = (effect: Record<string, unknown>): string => {
 			const kind = text(effect.kind) ?? "?";
 			const fields = Object.entries(effect)
-				.filter(([k, v]) => k !== "kind" && !k.startsWith("_") && v !== undefined && v !== null && v !== "")
+				.filter(([k, v]) => k !== "kind" && k !== "rule_time_cost" && !k.startsWith("_") && v !== undefined && v !== null && v !== "")
 				.map(([k, v]) => `${k}=${typeof v === "string" ? JSON.stringify(v) : JSON.stringify(v)}`);
 			const registered = kind === 'move'||kind==='place' ? destination(effect) : undefined;
+            const cost=timeCost(effect);if(cost)fields.push('rule_time_cost='+JSON.stringify(cost));
 			// §197.3: who the effect itself says performs it, when that is not an investigator.
 			const acting = effectActingParty(effect, scope.party);
 			if (acting) fields.push(`acting_party=${JSON.stringify(acting)} (not an investigator)`);
@@ -597,20 +602,21 @@ export function admissionRequest(tool: string, payload: Record<string, unknown>,
 		};
 		const signatures = effects.map(effectSignature);
 		if(payload.event!==undefined&&!scope.consentOnly)return {tool:'apply',atomicEvent:true,
-            key:canonical({tool,event:payload.event,effects:signatures,destinations:scope.destinations??[],cash:scope.cash??null}),
+            key:canonical({tool,event:payload.event,effects:signatures,destinations:scope.destinations??[],cash:scope.cash??null,...(timeCosts.length?{timeCosts}:{})}),
             lines:[`apply event (one indivisible record; judge every claimed occurrence, actor cognition and dependency): ${canonical(payload.event)}; effects: ${effects.map(describe).join(' | ')}`],
             kinds:['event'],eventEffectSignatures:signatures,...(scope.cash?{cash:scope.cash}:{})};
 		// Each line's own signature, taken before the sort below reorders `signatures` in place.
 		const lineSignatures = shown.map((index) => signatures[index]!);
 		const observation = effects.some(effect => effect.kind === 'place' && effect.action === 'observe');
 		const ordered = effects.length > 1 || observation || effects.some(effect => effect.kind === 'object' || effect.kind === 'usage');
-		const key = canonical({ tool, effects: ordered ? signatures : signatures.sort(), destinations: scope.destinations ?? [], ...(scope.selectedDocumentRecording?{selectedDocumentRecording:true}:{}), ...(scope.cash ? {cash:scope.cash} : {}) });
+		const key = canonical({ tool, effects: ordered ? signatures : signatures.sort(), destinations: scope.destinations ?? [], ...(scope.selectedDocumentRecording?{selectedDocumentRecording:true}:{}), ...(scope.cash ? {cash:scope.cash} : {}),...(timeCosts.length?{timeCosts}:{}) });
 		// The key stays the whole batch's (§32.4); the lines are only the reviewed effects (§32.12.3).
 		return { tool: "apply", key, ...(ordered ? { ordered: true as const } : {}), lines: shown.map((index) => describe(effects[index]!)), kinds: shown.map((index) => text(effects[index]!.kind) ?? "?"), effects: shown,
 			operations:shown.map((index,lineIndex)=>{const effect=effects[index]!,registered=effect.kind==='move'||effect.kind==='place'?destination(effect):undefined;
 				const acting=effectActingParty(effect,scope.party);
-				return {...Object.fromEntries(Object.entries(effect).filter(([key,value])=>!key.startsWith('_')&&value!==undefined)),
+				return {...Object.fromEntries(Object.entries(effect).filter(([key,value])=>!key.startsWith('_')&&key!=='rule_time_cost'&&value!==undefined)),
 					...(acting?{acting_party:acting}:{}),
+                    ...(timeCost(effect)?{rule_time_cost:timeCost(effect)}:{}),
 					...(effect.kind==='cash'&&scope.cash?{registered_cash_context:{previews:(scope.cash.previews??[]).filter((row:any)=>row.index===index).map((row:any)=>({...row,index:lineIndex})),quotes:scope.cash.quotes??[],consent_policy:CASH_CONSENT_POLICY}}:{}),
 					...(registered?{registered_destination:registered}:{})};}),
 			signatures: lineSignatures, ...(scope.cash?{cash:{...scope.cash,previews:(Array.isArray(scope.cash.previews)?scope.cash.previews:[]).flatMap((row:any)=>shown.includes(row.index)?[{...row,index:shown.indexOf(row.index)}]:[])}}:{}) };
@@ -634,6 +640,8 @@ export interface AdmissionContext {
 	delivered: Array<{ turn: number | string; player?: string | null; keeper: string; speech?:PublicDialogueLine[] }>;
 	/** What this turn has already settled through the kernel, in order. */
 	landed: string[];
+    /** Current-input time receipts projected numerically by the host, never proposed duration. */
+    completedTime?:import("./settled-admission.ts").CompletedTimeEvidence;
 	/** Proposals already refused this turn, so a rewording is read as the same action. */
 	refused: string[];
 	/** Earlier argument mismatches, not withdrawn player declarations or missing choices. */
@@ -1317,7 +1325,8 @@ export async function reviewAdmissionJevOnly(options:PrimaryAdmissionReviewOptio
     const clock=options.clock??hostClock,began=clock.now(),context=options.context;
     const nativeLocation=options.proposal.operations?.some(operation=>operation.kind==='place');
     const serviceContext=options.proposal.operations?.some(operation=>operation.registered_cash_context||operation.acting_party);
-    const family='continuous-action-admission',version=options.proposal.kinds?.includes('time')?'22':serviceContext?(nativeLocation?'20':'18'):nativeLocation?'19':context.currentPosition?'15':context.currentClock?'13':options.proposal.ordered||options.proposal.kinds?.includes('place')?'12':'7';
+    const hasTimeBand=options.proposal.operations?.some(operation=>operation.kind==='time'&&typeof operation.band==='string');
+    const family='continuous-action-admission',version=context.completedTime?'25':hasTimeBand?'24':nativeLocation?'23':options.proposal.kinds?.includes('time')?'22':serviceContext?'18':context.currentPosition?'15':context.currentClock?'13':options.proposal.ordered||options.proposal.kinds?.includes('place')?'12':'7';
     let mechanicsChoice:{action:string;choice:{name:string;binds:string;options:string[];prompt?:string}}|undefined;
     let mechanicsInput=false,mechanicsBinding:string|undefined;
     try{
@@ -1359,6 +1368,7 @@ export async function reviewAdmissionJevOnly(options:PrimaryAdmissionReviewOptio
         previous_public:knownJourneys?decisionRecentPublic(context.delivered):context.delivered.slice(-2).map(row=>({turn:row.turn,player:row.player??null,
             ...(publicDialogue(row.speech).length?{speech:publicDialogue(row.speech)}:{})})),
         settled_this_turn:context.landed,
+        ...(context.completedTime?{completed_time:context.completedTime}:{}),
         ...(context.refused.length?{refused_this_turn:context.refused}:{}),
         ...(context.corrections?.length?{argument_corrections:context.corrections}:{}),
         proposal:{tool:options.proposal.tool,lines:nativeLocation&&typedLines?conditionalExecutionPositions(typedLines,options.proposal.preceding?.operations??[],context.currentPosition):typedLines??options.proposal.lines.map(continuousConsentLine),...(options.proposal.kinds?{kinds:options.proposal.kinds}:{}),
@@ -1373,6 +1383,7 @@ export async function reviewAdmissionJevOnly(options:PrimaryAdmissionReviewOptio
         state:state as DecisionBatch['state'],questions:continuousConsentQuestions(options.proposal.lines.map((_,index)=>options.proposal.kinds?.[index]??''),options.proposal.operations?.map(operation=>typeof operation.action==='string'?operation.action:undefined),options.proposal.operations?.map(operation=>operation.kind!=='time'?undefined:typeof operation.band==='string'?'band':operation.until!==undefined?'until':typeof operation.minutes==='number'?'minutes':undefined))};
     for(const question of batch.questions){
         const index=Number(question.key.slice(question.key.lastIndexOf('_')+1)),operation=options.proposal.operations?.[index];
+        if(context.completedTime&&question.key.startsWith('restriction_'))question.instructions+=' completed_time gives actual current-input time receipts and elapsed_minutes already summed by the host. These are completed clock changes, not a proposed wait. Elapsed time alone proves no movement, observation, goods, payment or consent.';
         if(operation?.registered_cash_context)question.instructions+=` Use this line's registered_cash_context kernel preview and actual delta. ${CASH_CONSENT_POLICY}`;
         if(operation?.acting_party)question.instructions+=' acting_party names the non-investigator actor from this effect\'s closed fields. NPC initiative is not an investigator choice: giving or offering an object does not need a player request. Still require consent for the investigator\'s voluntary payment, promise, accepted bargain or keeping something explicitly refused. The actor label alone grants no such commitment.';
     }
@@ -1446,7 +1457,13 @@ export async function reviewAdmissionJevOnly(options:PrimaryAdmissionReviewOptio
         const refused=probabilities.findIndex((p,index)=>p!<=1-CONTINUOUS_ADMISSION_MIN_PROBABILITY||scopeProbabilities[index]!<=1-CONTINUOUS_ADMISSION_MIN_PROBABILITY);
         const uncertain=refused<0&&probabilities.some((p,index)=>p!<CONTINUOUS_ADMISSION_MIN_PROBABILITY||scopeProbabilities[index]!<CONTINUOUS_ADMISSION_MIN_PROBABILITY);
         const verdict=refused>=0?'not_authorized':uncertain?'uncertain':'authorized';
+        const blocking=probabilities.flatMap((selection,index)=>{
+            const axes=[...(selection!<CONTINUOUS_ADMISSION_MIN_PROBABILITY?['selection not established']:[]),
+                ...(scopeProbabilities[index]!<CONTINUOUS_ADMISSION_MIN_PROBABILITY?['restriction clearance not established']:[])];
+            return axes.length?['line '+(index+1)+': '+axes.join(', ')]:[];
+        });
         const grounds='Typed consent review '+(refused>=0?'refused line '+(refused+1):uncertain?'could not establish the proposed scope':'accepted the proposed scope')
+            +(blocking.length?'; blocking review evidence: '+blocking.join('; '):'')
             +'; declaration words: '+JSON.stringify((options.lineContexts?.[Math.max(0,refused)]??context).playerText.slice(0,200));
         const cashLimits:NonNullable<AdmissionVerdict['cash_limits']>=refused>=0?[]:cashRequirements.flatMap((requirement:any,index:number)=>{
             if(!mechanicsInput&&probability('cash_input_'+index)!>=CONTINUOUS_ADMISSION_MIN_PROBABILITY)

@@ -152,7 +152,7 @@ test('location consent distinguishes Keeper scene creation from the actual selec
     assert.match(line.arrival_scope.additions,/not an investigator construction/);
     const questions=continuousConsentQuestions(['place']);
     assert.match(questions[0].instructions,/need not supply its name/);
-    assert.match(questions[1].instructions,/entry or boundary crossing/);
+    assert.match(questions[1].instructions,/entry or crossing/);
     assert.equal(continuousConsentDisposition(.42,.12),'uncertain','new semantics never predetermine approval');
     assert.equal(continuousConsentDisposition(.95,.9),'not_authorized','a current restriction still vetoes a selected journey');
     assert.deepEqual(refusedMovesOf('apply',[command,{kind:'place',action:'feature',to:'Inn',at:'window',state:'closed'}],new KernelError({code:'needs',message:'Uncertain',details:{reason:'action_admission_uncertain'}})),

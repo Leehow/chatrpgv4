@@ -1,6 +1,6 @@
 /** Request-only location detail: canonical validators and raw messages stay complete. */
 import {Type} from 'typebox';
-import {locationCommandEntry,locationCommandOwner,LocationTravelBand} from '../../shared/place-structures.ts';
+import {locationCommandEntry,locationCommandOwner,LocationTravelBand,PlaceChange} from '../../shared/place-structures.ts';
 import {legibleClosedSchema} from '../../shared/native-schema.ts';
 type Row=Record<string,any>;
 /** Demand-only canonical names; semantic matching and creation still belong to the Keeper. */
@@ -13,14 +13,15 @@ export function locationIdentityContext(read:Row):Row|undefined {
 }
 const object=(value:unknown):value is Row=>!!value&&typeof value==='object'&&!Array.isArray(value);
 const action=Type.String({enum:['move','establish','feature','relate','observe']});
-const read=Type.Object({using_skill:Type.Optional(Type.String()),action:Type.Literal('inspect'),name:Type.Optional(Type.String()),at:Type.Optional(Type.String()),sense:Type.Optional(Type.Union([Type.Literal('sight'),Type.Literal('hearing')])),need:Type.Optional(Type.Union([Type.Literal('context'),Type.Literal('contract'),Type.Literal('observation')]))},{additionalProperties:false});
-const entry={type:'object',properties:{...read.properties,action:Type.String({enum:['inspect',...action.enum]}),
- to:Type.String({description:'Write destination; inspect uses name.'}),relation:Type.String(),via:Type.String({description:'Required for a new/unregistered route, including entry to a new room; describe the selected passage. May be omitted only for a registered/retraced route.'}),travel_band:LocationTravelBand,state:Type.String(),passable:Type.Boolean()},required:['action'],additionalProperties:true,
+const read=Type.Object({using_skill:Type.Optional(Type.String()),action:Type.Literal('inspect'),name:Type.Optional(Type.String()),at:Type.Optional(Type.String()),spot:Type.Optional(Type.String()),relation:Type.Optional(Type.String()),sense:Type.Optional(Type.Union([Type.Literal('sight'),Type.Literal('hearing')])),need:Type.Optional(Type.Union([Type.Literal('context'),Type.Literal('contract'),Type.Literal('observation')]))},{additionalProperties:false,not:{required:['at','spot']}});
+const entry={type:'object',properties:{...legibleClosedSchema(PlaceChange).properties,...read.properties,action:Type.String({enum:['inspect',...action.enum]}),
+ to:Type.String({description:'Write destination; inspect uses name.'}),spot:Type.String({description:'Descriptive local position without fixture registration; use spot or exact registered at, never both. It grants no passage, fixture state or new place.'}),relation:Type.String(),via:Type.String({description:'Required for a new/unregistered route, including entry to a new room; describe the selected passage. May be omitted only for a registered/retraced route.'}),travel_band:LocationTravelBand,state:Type.String(),passable:Type.Boolean()},required:['action'],additionalProperties:true,
  anyOf:[read,Type.Object({using_skill:Type.Optional(Type.String()),action},{additionalProperties:true})]};
 /** One explicit action survives serializers that omit root union guards. */
-function describeModes(schema:Row):Row {
+function describeModes(schema:Row,complete=false):Row {
  const projected=structuredClone(schema);
- projected.properties.action.description='inspect reads only name/at/sense/need, never to/via/additions. move requires to and, for a new/unregistered route, via; optional at/relation/additions. Keep action:"move" when correcting a route. A separately selected view still needs observe with scope/facts. establish requires additions:[{name,features:[{name,description}]}]. feature requires to and at, optional state/passable (existing feature; no description field). relate: relations:[{from:{place,at?},to:{place,at?},sense,description}]. observe: to/sense/access/scope/facts; optional view/people/situations/additions. people requires existing canonical identities, never uncommitted new_N slots. Existing-place additions omit description. No op or change wrapper. Inspect need contract gives nested fields.';
+ projected.properties.action.description='inspect reads name/at/spot/relation/sense/need, never to/via/additions. move requires to and, for a new/unregistered route, via; optional at or spot, relation and additions. at references a registered feature; spot describes a compatible local position without creating a fixture. Keep action:"move" when correcting a route. A separately selected view still needs observe with scope/facts. establish requires additions:[{name,features:[{name,description}]}]. feature requires to and at, optional state/passable (existing feature; no description field). relate uses directed SpatialPoint pairs with place and optional at or spot, relation. observe: to/sense/access/scope/facts; optional target at or spot/relation, view/people/situations/additions. people requires existing canonical identities, never uncommitted new_N slots. Existing-place additions omit description and every registered feature. No op or change wrapper. Inspect need contract gives nested fields.';
+ if(complete)projected.properties.action.description=projected.properties.action.description.replace('Inspect need contract gives nested fields.','All nested location fields are declared in this request. Inspect only genuinely missing state or grammar.');
  return projected;
 }
 /** Explicit properties keep object unions legible to provider tool serializers. */
@@ -53,7 +54,8 @@ export function locationToolDeclarations<T extends {name:string;parameters:any;d
         if(tool.name==='place'){
             if(tool.parameters?.properties?.op?.const==='inspect')return {...tool,parameters:detail?legibleClosedSchema(tool.parameters):tool.parameters};
             const native={anyOf:(tool.parameters.anyOf??[]).filter((branch:Row)=>branch.properties?.action)};
-            return {...tool,parameters:describeModes(detail?legibleClosedSchema(declarationObject(native)):entry)};
+            const description=detail?'Complete location parameters are already declared for this request. Execute complete calls directly; inspect only missing state or genuinely missing grammar. '+(tool.description??'').replace('Exact fields are supplied by {action:"inspect",need:"contract"}. ',''):tool.description;
+            return {...tool,...(detail?{description}:{}),parameters:describeModes(detail?legibleClosedSchema(declarationObject(native)):entry,detail)};
         }
         if(tool.name==='output')return {...tool,parameters:detail?locationCommandOwner(tool.parameters):locationCommandEntry(tool.parameters)};
         if(tool.name!=='apply'||!Array.isArray(tool.parameters?.properties?.effects?.items?.anyOf))return tool;

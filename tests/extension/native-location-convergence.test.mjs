@@ -41,7 +41,9 @@ test('actual non-strict Anthropic wire retains actions and required fields after
    assert.equal(schema.properties.additions.type,'array');assert.equal(schema.properties.additions.anyOf,undefined,'annotation-only array variants do not obscure the actual array grammar');
    assert.equal(schema.properties.additions.maxItems,12);assert(schema.properties.additions.items.properties.description);
   }
-  assert.equal(schema.properties.to.type,'string');assert.equal(schema.properties.relation.type,'string');
+  assert.equal(schema.properties.to.type,'string');
+  assert.equal(Check(schema.properties.relation,'beside'),true,'annotated string alternatives retain their shared type');
+  assert.equal(Check(schema.properties.relation,3),false,'the native relation field still excludes non-strings');
   assert.match(schema.properties.action.description,/No op or change wrapper/);
   assert.match(schema.properties.action.description,/new\/unregistered route, via/);
   assert.match(schema.properties.action.description,/never to\/via\/additions/);

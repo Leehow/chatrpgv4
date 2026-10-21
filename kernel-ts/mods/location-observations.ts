@@ -31,7 +31,7 @@ export function stagePerceptualRelations(context:ApplyContext,state:Row,relation
     });
 }
 export function stageLocationObservation(context:ApplyContext,state:Row,effect:Row,receipt:Row):Row {
-    const {graph,world,turn}=context,from=currentObservationPoint(graph,world),to=point(context,{place:effect.to,...(effect.at?{at:effect.at}:{})},'to');
+    const {graph,world,turn}=context,from=currentObservationPoint(graph,world),to=point(context,{place:effect.to,...Object.fromEntries(['at','spot','relation'].filter(key=>effect[key]!==undefined).map(key=>[key,effect[key]]))},'to');
     if(effect.access==='blocked'){
         if(!effect.reason||array(effect.facts).length||array(effect.people).length||array(effect.situations).length)
             throw new RpcError('invalid_params','A blocked observation needs a concrete reason and no target facts, people or incident updates',{

@@ -57,9 +57,9 @@ test('enhanced location admission names its entry and Keeper-creation semantics 
     const effect={kind:'place',action:'move',to:'Ordinary Inn',at:'counter',additions:[{name:'Ordinary Inn',description:'A public lobby.'}]};
     const proposal=admission.admissionRequest('apply',{effects:[effect]},{party:['Thomas Hayes'],consentOnly:true});
     const result=await admission.reviewAdmissionJevOnly({...selected.value,proposal});
-    assert.equal(batch.familyVersion,'19');assert.equal(batch.state.proposal.lines[0].to,effect.to);
+    assert.equal(batch.familyVersion,'23');assert.equal(batch.state.proposal.lines[0].to,effect.to);
     assert.match(batch.state.proposal.lines[0].arrival_scope.additions,/Keeper-authored/);
-    assert.match(batch.questions[1].instructions,/entry or boundary crossing/);
+    assert.match(batch.questions[1].instructions,/entry or crossing/);
     assert.equal(result.verdict.verdict,'uncertain');
 });
 
@@ -89,7 +89,7 @@ test('observation consent reads ordered waits without treating them as already s
     selected.value.decision={decide:async(value,lease)=>{batch=value;const answer=await decide(value,lease);
         answer.answers.restriction_0.noul=.99;return answer;}};
     const result=await admission.reviewAdmissionJevOnly({...selected.value,proposal:joined});
-    assert.equal(batch.familyVersion,'19');
+    assert.equal(batch.familyVersion,'23');
     assert.deepEqual(batch.state.proposal.execution.preceding,[wait]);
     assert.match(batch.state.proposal.execution.authority,/not settled facts/);
     assert.equal(batch.state.proposal.lines.length,1);
@@ -113,7 +113,7 @@ test('ordinary service consent retains the time prefix without requiring an obse
   context:{...context,playerText:'I wait until five, then eat the soup, bread and coffee; pay no more than one dollar.',currentClock:{minutes:406,at:'1920-10-12T16:46',day_part:'afternoon'}}});
  assert.deepEqual(batch.state.proposal.execution.preceding,[wait]);
  assert.equal(batch.state.current_clock.at,'1920-10-12T16:46');
- assert.equal(batch.familyVersion,'22');
+ assert.equal(batch.familyVersion,'24');
  assert.equal(batch.questions.length,2);
  assert.equal(result.verdict.verdict,'not_authorized','the prefix never waives independent restrictions');
 });
@@ -273,7 +273,7 @@ test('native move consent asks about the typed journey while retaining reference
  const result=await admission.reviewAdmissionJevOnly({...selected.value,proposal,context:{...context,playerText:'At eight I return to the window; for now I stay here.',
   currentPosition:{place:'Dining room',at:'Long table',relation:'beside'},currentClock:{at:'1920-10-12T19:00'},
   interruptedPlayerText:'I wait, then return to the window.',delivered:[{turn:0,player:'I look out.',keeper:'The street window faces the hotel entrance.'}]}});
- assert.equal(batch.familyVersion,'19');assert.equal(batch.questions.length,2);
+ assert.equal(batch.familyVersion,'23');assert.equal(batch.questions.length,2);
  assert.match(batch.questions[0].instructions,/proposed arrival or local position/);
  assert.match(batch.questions[0].instructions,/execution_position.before/);
  assert.match(batch.questions[0].instructions,/do not require a new journey/);
@@ -282,4 +282,23 @@ test('native move consent asks about the typed journey while retaining reference
  assert.match(JSON.stringify(batch.state.previous_public),/hotel entrance/);
  assert.equal(batch.state.unfinished_player_words,'I wait, then return to the window.');
  assert.equal(result.verdict.verdict,'uncertain','an uncertain current restriction still closes the move');
+});
+
+test('consent errors retain every blocking line and axis without admitting a subset',async()=>{
+ for(const refused of [false,true]){
+  const selected=options(),decide=selected.value.decision.decide;
+  selected.value.decision={decide:async(batch,lease)=>{const result=await decide(batch,lease);
+   result.answers.consent_1.noul=refused?.05:.51;
+   result.answers.restriction_2.noul=.43;return result;
+  }};
+  const proposed={tool:'apply',key:'mixed-hold',lines:['Selected payment.','Receive selected goods.','Selected activity cost.'],kinds:['cash','item','time']};
+  const result=await admission.reviewAdmissionJevOnly({...selected.value,proposal:proposed});
+  assert.equal(result.ok,true);assert.equal(result.verdict.verdict,refused?'not_authorized':'uncertain');
+  assert.match(result.verdict.grounds,/line 2: selection not established/);
+  assert.match(result.verdict.grounds,/line 3: restriction clearance not established/);
+  assert.doesNotMatch(result.verdict.grounds,/line 1:/);
+  const error=admission.admissionRefusal(proposed,result.verdict,false,'same_keeper');
+  assert.equal(error.details.grounds,result.verdict.grounds);assert.equal(selected.calls(),1);
+  assert.equal(admission.CONTINUOUS_ADMISSION_MIN_PROBABILITY,.6);
+ }
 });

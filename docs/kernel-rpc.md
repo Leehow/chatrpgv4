@@ -48826,6 +48826,102 @@ places are read-only; their current feature state is a campaign overlay.
 
 ### 242.2. One location command and one transaction
 
+Descriptive position follow-up (EL-06, original inputs67/68): Enhanced Locations
+1.2.0 requires locations.position.v2. place move and SpatialPoint accept optional
+spot, a local spatial description distinct from the existing at feature reference;
+the two fields are mutually exclusive. A spot creates no fixture or passage.
+Movement, barriers, routes, consent and time keep their existing owners. Persist
+place/spot/relation in position and receipts; preserve them through observation
+origins/public projection, consent's conditional positions and route completion.
+Known features are not the complete set of legal local positions. Reads and
+observations at a spot do not grant fixture state or physical reach. at-only
+records retain their meaning; schema1 gains optional fields without rewriting
+history. The detailed shape, ownership and acceptance are in
+docs/specs/location-system-tickets/06-descriptive-positions.md.
+
+Request-only schema reuse (EL-06 continuation, original input71): for the tested
+Grok4.5 Responses output declaration, identical repeated subschemas may be lifted
+into local nonrecursive $defs/$ref. Expanding every generated reference must
+reproduce the available inline schema exactly, including annotations, closed
+constructors, numeric constraints, current bindings and at/spot exclusion. Keep
+the root object and canonical execution schema unchanged. Existing references,
+identifiers or anchors disable this transformation rather than risk relocation.
+Messages and unverified model contracts stay inline. This removes repeated wire
+bytes, never tools, validation or consent; actual provider and original-session
+results are required before claiming a latency gain. Continuous listening across
+a selected wait records its resulting observation after time settles and before
+any onward move; a baseline or clue receipt alone does not update that register.
+
+Compact location declaration follow-up (original input72): keep the typed field
+view of every native place change, derived from PlaceChange, even before a
+separate contract inspection. In particular additions/features, relations and
+observation arrays must not become unknown open fields described only in prose.
+The request view may omit repeated action branches, not these field types. The
+complete canonical validator and read/write separation remain the execution
+owner; malformed or partial JSON is still refused, never completed by inference.
+
+Time-cost review follow-up (original input73): when an issued current time-band
+row is available, admissionScopeBuilder passes only rows used by the reviewed
+effects. Admission projects handle/min/max/default/covers as host-owned
+rule_time_cost into the typed operation and its textual counterpart. Keeper
+arguments cannot supply that metadata; changed definitions change the review
+key. The band question judges the selected activity, including speech when the
+rule describes it, rather than assuming all activities are physical. Family24
+invalidates older band verdicts. No new lane, threshold, arithmetic or timeout;
+missing rule meaning is never fabricated from a band name.
+
+Ordinary visible description (EL-10, Enhanced Locations1.2.2): the final author
+completes compatible visible texture in delivered prose, without a world-write
+obligation. The Keeper does not add a focused observe solely to supply ordinary
+appearance for an already chosen arrival or conversation. Selected perception,
+continuing observation and actionable layout retain their existing write paths.
+See location-system-tickets/10-ordinary-visible-description.md.
+
+Completed time review context (EL-09, original input79): the current-input
+native review may read completed_time from the existing expected-turn receipt
+projection. The host deduplicates canonical time receipts and computes the actual
+elapsed_minutes with validated before/after deltas. No rationale, receipt ID,
+proposed wait, old declaration time or missing evidence becomes a completed
+action. Family25 names this view; gates and transactional authority stay unchanged.
+See location-system-tickets/09-completed-time-review-context.md.
+
+Consent error evidence (EL-08, original input77): grounds must retain every
+blocking reviewed line number and whether selection or restriction clearance
+was not established. Compute this from the existing checked probabilities and
+unchanged thresholds, without another judge, inferred intent or automatic split.
+The error retains these grounds through both apply and native output recovery.
+This is review evidence, not permission to execute the remaining lines.
+
+Native refusal continuation (EL-07, original inputs73/75): submitTurnPacket may
+return one prepublication consent refusal to the same Keeper only when its
+current HeldActOutcome proves a complete known uncommitted failure. Preserve the
+original error and receipts; no automatic split or dropped effect. The Keeper
+must select an independent remainder through normal validation/admission. Refusal
+recovery is bound to turn/run and exhausted after one continuation. Started
+streams, publication evidence, stale owners, unknown settlement and other causes
+retain terminal behavior. Details: location-system-tickets/07-native-output-refusal-recovery.md.
+
+Existing feature recovery (original input67): an establishment conflict returns
+the exact existing public feature and conflicting closed fields, with an explicit
+instruction to reuse that identity and omit its repeated definition from additions.
+Only missing features are declarations. A state change still needs its separate
+selected feature action; neither new prose nor original source lookup overwrites
+the registered feature. Keep rollback and feature_redefinition unchanged. Location
+identity references and Mod guidance distinguish the actual requested spatial
+scale: an authored interior floor is not automatically the building exterior.
+The Keeper may reuse or minimally establish a compatible exterior viewpoint;
+that is no permission to enter the interior or duplicate its authored truth.
+
+Complete place-array transport (original input67): before place preflight, one
+complete JSON serialization of a declared array may be decoded only when the
+explicit native action is known and the decoded array passes that exact field
+schema without coercion. Never complete partial JSON, unwrap an object, infer an
+action, decode prose fields, or accept a decoded invalid shape. Preserve the raw
+provider arguments and record the repaired field names. The resulting typed
+arguments still pass all ordinary mode, parameter, consent and transaction
+checks. Malformed/invalid strings retain place_array_required and execute
+nothing. This is transport decoding, not permission or scene generation.
+
 Explicit-duration grammar follow-up (original input64): native output minutes
 copies a positive whole duration explicitly chosen by the player. Zero is not
 a placeholder for no additional time: omit the optional time command instead.
@@ -50745,3 +50841,70 @@ Telemetry: `lane: "mod-sections"`, `event: "pull_mode"` once per input; `selecte
   same; the index text; pull-mode selection (due, call, gate, topic-only not pushed); the lookup read and `not_found`.
   `tests/extension/single-keeper-rule-guidance.test.mjs`: on the default table every sectioned row is indexed, the rows
   carry at most the budget, and each package's `instruction` is at most 6 144 bytes except Narration Craft's.
+
+### Existing spatial selection reaches the Keeper (2026-10-21)
+
+The answered current-input location-context assessment also reaches the Keeper
+as request-only `location_intent` when location context is needed. Each existing
+move/feature/observation axis carries its unchanged probability and the existing
+not_selected/uncertain/selected interpretation. Missing, failed or incomplete
+data yields no hint. This advisory view neither establishes intent nor grants
+permission, coverage or world truth. The canonical capsule and complete tools
+remain intact; admission and completion retain their normal owners and gates.
+The existing context decision writes it, the outgoing capsule/update reads it,
+and the Keeper chooses actual operations while the author renders ordinary
+visible texture. There is no extra decision, persistent state or timeout.
+
+### Demand-expanded place grammar is already available (2026-10-21)
+
+The request-only full place declaration identifies its nested grammar as already
+declared and replaces the entry's obsolete contract-fetch instruction. The
+compact entry retains discovery guidance. Inspect still reads missing state or
+genuinely missing grammar. Existing demand writes this distinction, the provider
+declaration exposes it, and the Keeper chooses whether a read is needed. Original
+tools, canonical validation, gates, writes and output grammar remain unchanged.
+
+### Observation fact preservation (2026-10-21)
+
+Observation facts are nonblank strings in an array, with no observation-specific
+per-fact length, fragment-count or combined-byte ceiling. Preserve every supplied
+fact and its order through validation, staging, receipts, storage, inspection and
+delivery; do not truncate, merge, summarize or split the selected player action to
+fit a content limit. Existing raw tool and receipt evidence remains available for
+size and failure diagnosis. Payload size is not observation validity. Ordinary
+structural validation, blocked-view constraints, identity, sensory access, action
+admission, coverage and transaction authority remain in force. No new timeout or
+runtime resource policy is introduced. This supersedes the proposed observation
+budget, following the owner's explicit instruction against hard content limits.
+
+### Recovery names the unresolved spatial operation (2026-10-21)
+
+Completion review retains its existing thresholds and closed move/feature/
+observation axes. A refused output projects correction guidance only for axes
+reported missing or uncertain by that review; the projection neither infers
+intent nor accounts for an action. Feature recovery names the feature command,
+its owning place and registered fixture, and the preceding establishment needed
+only for a missing fixture. A door is a local feature, not a child place merely
+because it needs a name. Registration does not open it. Accounted proposal steps
+stay in the corrected uncommitted batch, while successful prior receipts are not
+replayed. Unavailable review remains unavailable and grants no write authority.
+
+The error writer consumes existing review axes and canonical inspected position;
+the native error result is the reader boundary; the same Keeper corrects the
+proposal through ordinary validation, admission and atomic staging. The location
+Mod describes definition versus state change consistently and removes its stale
+six-fact prose limit. No new reviewer, retry allowance, normalization, timeout,
+source mutation or transaction behavior is introduced.
+
+### Reply framing preserves the input scope (2026-10-21)
+
+A model-authored reference marker classifies that reply's delivery, never the
+player's declaration or the authorization of later tools in the same input.
+The existing bound input-scope event remains the scope writer; ordinary action
+admission still reviews all proposed effects. Streaming reference text alongside
+a native output call is buffered until the response shape is known, then dropped
+with the other private preamble when tool calls are present. It must neither
+publish an extra answer nor permanently demote subsequent corrections to OOC.
+A standalone reference reply still uses table.reference.answer and its explicit
+reference publication metadata; genuine reference-only inputs retain their tool
+guard. No scope threshold, retry ceiling, timeout or action permission changes.

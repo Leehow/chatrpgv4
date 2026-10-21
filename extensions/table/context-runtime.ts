@@ -1,6 +1,6 @@
 import {locationToolDeclarations,projectLocationInspections,locationIdentityContext} from './location-context.ts';
 import {keeperCapsuleHead,keeperCapsuleMessage} from '../../runtime/instruction-audience.ts';
-import {locationContextRelevance} from './location-relevance.ts';
+import {locationContextRelevance,locationDeclarationContext} from './location-relevance.ts';
 import {createDecisionAdapter} from '../../runtime/jev/decision-adapter.ts';
 import {readJevApiKey,readJevPreselectAllowanceMs} from '../jev/agent/config.js';
 import {preparationBudget,preparationProviderBudget} from '../../runtime/jev/preparation-budget.ts';
@@ -788,13 +788,14 @@ export function installContextPolicy(pi: ExtensionAPI, writeTelemetry: (row: Row
                 invalidate();degraded(String(error?.message??'discovery_snapshot_unavailable'));}
         }
         if(!snapshot&&ticket===generation){discoveryUnavailable=discoveryMode()!=='full';capabilityRuntime.invalidate();modDiscovery.reset();pendingDiscovery=[];}
-        let observationReference:Row|undefined,locationIdentity:Row|undefined;
+        let observationReference:Row|undefined,locationIdentity:Row|undefined,locationIntent:Row|undefined;
         if(snapshot?.capsule.mods?.location_context&&ticket===generation&&!inputLifetime.signal.aborted&&snapshot.binding.campaign===campaign&&snapshot.binding.turn===observedTurn){
             const key=JSON.stringify([snapshot.binding.campaign,snapshot.binding.turn,sourceOf(snapshot.binding)]);
             const reused=locationRelevance?.key===key;
             if(!reused)locationRelevance={key,promise:locationContextRelevance(snapshot.capsule,snapshot.binding,decision(),inputLifetime.signal,foregroundBudget?.())};
             const relevance=await locationRelevance.promise;
             if(ticket===generation&&!inputLifetime.signal.aborted&&snapshot.binding.campaign===campaign&&snapshot.binding.turn===observedTurn){
+                locationIntent=locationDeclarationContext(relevance);
                 if(relevance.needed){(turnCalls.context??=new Set()).add('place');pi.events.emit('coc:location-demand',{campaign,turn:observedTurn,review:relevance.review,selection:relevance.selection});}
                 if(relevance.needed&&call){
                     const bridge=call,owner=campaign;
@@ -835,6 +836,7 @@ export function installContextPolicy(pi: ExtensionAPI, writeTelemetry: (row: Row
         const view = untoldView(structuredClone(snapshot.capsule)).capsule;
         if(decisionAuthor&&typeof view.head==='string')view.head=keeperCapsuleHead(view.head,true);
         if(locationIdentity)view.location_identity=locationIdentity;
+        if(locationIntent)view.location_intent=locationIntent;
         if(observationReference)view.observation_reference={...observationReference,
             authority:'Delivered historical records only. Repeated person refs identify the same recorded person. Reading neither refreshes perception nor moves people or advances time.'};
         // Current-request visibility is a procedural instruction, never canonical state or writer material.
