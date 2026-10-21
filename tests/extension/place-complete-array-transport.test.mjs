@@ -38,3 +38,15 @@ test('blank optional place fields say nothing and are omitted before validation 
  assert.equal(placeParameterRefusal(normalized.args),undefined,'the plain move is no longer refused');
  assert.equal(normalizePlaceArrayArguments({action:'move',to:''}).args.to,'','a required field is left for its own refusal');
 });
+
+test('a read that names its place by to is a read of that place; a write field beside it is still a conflict (§250.4, live el-v2-20261021e T25)',()=>{
+ const raw={action:'inspect',to:'corbitt-house-ground',at:'前门',need:'context'};
+ const normalized=normalizePlaceArrayArguments(raw);
+ assert.deepEqual(normalized.args,{action:'inspect',name:'corbitt-house-ground',at:'前门',need:'context'});
+ assert.deepEqual(normalized.fields,['to:name']);
+ assert.equal(placeParameterRefusal(normalized.args),undefined,'the read is no longer refused');
+ const write={action:'inspect',to:'corbitt-house-ground',at:'前门',state:'locked'};
+ assert.deepEqual(normalizePlaceArrayArguments(write).fields,[],'a state beside to is not guessed into a read or a write');
+ assert.equal(placeParameterRefusal(normalizePlaceArrayArguments(write).args).details.reason,'place_mode_conflict');
+ assert.deepEqual(normalizePlaceArrayArguments({action:'inspect',to:'A',name:'B'}).fields,[],'two different targets stay for their own refusal');
+});

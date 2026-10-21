@@ -17,6 +17,12 @@ export function normalizePlaceArrayArguments(input:unknown):{args:unknown;fields
         if(!required.has(field)&&typeof params[field]==='string'&&!(params[field] as string).trim()){
             const {[field]:_blank,...rest}=args;args=rest;fields.push(`${field}:blank`);
         }
+    // §250.4: a read names its place by `to` the way every write does (live el-v2-20261021e T25: inspect with to, at and
+    // need refused as a write); with no write field beside it, `to` is the read's `name`.
+    if(params.action==='inspect'&&typeof args.to==='string'&&(args.name===undefined||args.name===args.to)){
+        const {to,...rest}=args;
+        if(!placeModeConflict(rest)){args={...rest,name:to};fields.push('to:name');}
+    }
     for(const [field,schema] of Object.entries(branch.properties)){
         if(schema.type!=='array'||typeof params[field]!=='string')continue;
         let decoded:unknown;

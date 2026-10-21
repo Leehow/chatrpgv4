@@ -51106,6 +51106,12 @@ same way (`adjusted` on the receipt and its outcome):
   (`npc_destination_here`); before the move `here` is still the departure, so an earlier command is left alone.
 - A routine summary may carry `ambient` looks alone (`acts` is optional; one of the two is required). Looks alone are no
   routine stretch, so they need no time charge; routine `acts` still need exactly one (§247.3).
+- A place `inspect` that names its place by `to`, the way every write action does, reads that place: `to` becomes the
+  read's `name` (`place_array_transport_normalized`, `to:name`) when no write field (`state`, `facts`, `additions`, ...)
+  stands beside it and no different `name` is given (`el-v2-20261021e` T25: `inspect {to, at, need}` was refused as a
+  write, and the Keeper then registered the front door as a place). A state beside `to` is still a mode conflict.
+- A feature change says that it registers an unregistered fixture itself (`adjusted: at: implicit_feature`), here or at
+  a place left behind, and that a fixture is never a place; the description no longer sends the Keeper to `additions`.
 
 Still refused, because each needs the Keeper's decision: an empty population assessment while a registered person is
 seated at the destination (move them away or keep them), and an effect kind with no single reading.
