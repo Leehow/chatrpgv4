@@ -1856,6 +1856,12 @@ export default function (pi: ExtensionAPI, host: {capabilities?:RuntimeCapabilit
 	// Contract §154 (prototype): lean `apply` arguments. Read once, like the tool schema itself; off is today's tools and payloads.
 	const leanApply = leanApplyEnabled(process.env);
     let capabilityLookup:((args:Record<string,unknown>)=>Promise<Record<string,unknown>>)|undefined;
+    // §248.4: the table's package-section lane answers the `mod` verb.
+    let modSectionRead:((name:string)=>Promise<Record<string,unknown>>)|undefined;
+    pi.events.on('coc:mod-sections',value=>{
+        const lane=value as {read?:unknown};
+        modSectionRead=typeof lane?.read==='function'?lane.read as typeof modSectionRead:undefined;
+    });
     pi.events.on('coc:capability-discovery',value=>{
         const bridge=value as {lookup?:unknown};
         capabilityLookup=typeof bridge?.lookup==='function'?bridge.lookup as typeof capabilityLookup:undefined;
@@ -6033,6 +6039,11 @@ export default function (pi: ExtensionAPI, host: {capabilities?:RuntimeCapabilit
             params={...params,...choice,...(params.text!==undefined?{delivery:legacyDeliveryPlan(params.text)}:{})};
             delete params.choice;delete params.text;
             spec={...spec,name:choice?'ask':'narrate',method:choice?'table.ask':'table.narrate'};
+        }
+        if(spec.name==='mod'){
+            if(!modSectionRead)throw new KernelError({code:'needs',message:'Package sections are unavailable on this table'});
+            const result=await modSectionRead(String(params.name??''));
+            return{content:[{type:'text',text:JSON.stringify(result)}],details:result};
         }
         if(spec.name==='lookup'&&params.kind==='capability'){
             if(!capabilityLookup)throw new KernelError({code:'needs',message:'Current capability discovery is unavailable'});

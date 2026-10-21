@@ -260,7 +260,7 @@ export function instructionBudget(): number {
 }
 
 export const INDEXED_LEAD = "Further sections of this package are listed below. The host sends one in coc-mod-sections when the table's state "
-    + "or a call this turn needs it; read any other the turn needs with lookup kind capability and its exact name.";
+    + "or a call this turn needs it; read any other the turn needs with the mod tool and its exact name.";
 /** The name a section is listed and read by (§248.2): `<mod>: <heading>`, the preamble as `Package core`. */
 export const sectionName = (mod: string, heading: string | null): string => `${mod}: ${heading ?? "Package core"}`;
 /** The text an indexed row carries every turn (§248.2): the lead, the resident sections, then the other sections' index. */

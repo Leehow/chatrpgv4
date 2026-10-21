@@ -50403,7 +50403,7 @@ package no longer has situational ranges in the brief to screen.
 
 An indexed row's `instruction` is, joined by blank lines: the lead, the resident sections' text, and the section index.
 - Lead: "Further sections of this package are listed below. The host sends one in coc-mod-sections when the table's
-  state or a call this turn needs it; read any other the turn needs with lookup kind capability and its exact name."
+  state or a call this turn needs it; read any other the turn needs with the mod tool and its exact name."
 - Index: a `Sections:` line, then one line per situational or reference section in `sections.json` order:
   `- "<mod>: <heading>"` (`Package core` for the preamble) and, when it has them, ` topics: <ids>` and
   ` sent on: <triggers and kernel gates>`.
@@ -50424,11 +50424,14 @@ the single Keeper (`decision` reports pull mode), it does not ask Jev and has no
 - one of its `before_apply` / `before_resolve` triggers names a call this turn; or
 - it names topics and at least one kernel gate, and `gates_open` holds (host gates aside), recorded `gate`.
 
-A section with topics and no kernel gate is not pushed: the Keeper reads it. `lookup {kind: "capability", name}` with a
-name of the index (`"<mod>: <heading>"`, case-insensitive) returns `{read_only: true, no_commit: true,
-package_sections: [{package, section, version, text}]}` for a schema-1 indexed row of the current capsule, read through
-`mods.sections` and cached by key; it is not entered in §228's disclosure (the tool result stays in the run). Schema-2
-names keep §228's path. An unknown name answers `not_found` with both lists of names. Reference sections (§242,
+A section with topics and no kernel gate is not pushed: the Keeper reads it with the **`mod` verb** (owner suggestion
+2026-10-21: a mod is called the way a skill is). `mod {name}` with a name of the index (`"<mod>: <heading>"`,
+case-insensitive, surrounding quotes allowed) returns `{read_only: true, no_commit: true, package_sections: [{package,
+section, version, text}]}` for a schema-1 indexed row of the current capsule, read through `mods.sections` and cached by
+key; it is not entered in §228's disclosure (the tool result stays in the run). An unknown name answers
+`{status: "not_found", name, names}` with the listed names. `mod` writes nothing, spends no time and changes no turn
+state; it is the tenth name of `COC_TOOL_NAMES`, offered on every table. Schema-2 names keep §228's
+`lookup kind capability` path. Reference sections (§242,
 §247.4) are listed and may be read the same way; their own consumers keep reading them by key.
 
 Telemetry: `lane: "mod-sections"`, `event: "pull_mode"` once per input; `selected` rows carry `why` (`due`,

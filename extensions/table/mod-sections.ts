@@ -176,7 +176,7 @@ export function createModSections(deps:{read:(method:string,params:Row)=>Promise
  }
  /** §248.4: the Keeper's read of one listed schema-1 section by its index name; undefined when the index has no such name. */
  async function read(name:string,campaign:unknown,turn?:unknown):Promise<Row|undefined> {
-  const entry=known.get(name.trim().toLowerCase());
+  const entry=known.get(name.trim().replace(/^"(.*)"$/,'$1').toLowerCase());
   if(!entry)return undefined;
   await load([entry.key],campaign);
   const text=texts.get(entry.key);

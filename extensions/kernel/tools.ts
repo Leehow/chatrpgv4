@@ -10,7 +10,7 @@ import {TurnEvent} from "../../shared/turn-event.ts";
 import {ClueEstablishment,PlaceEstablishment,NpcReunion,DocumentDivision} from '../../shared/apply-structures.ts';
 import {PlaceEffect,PlaceParameters} from '../../shared/place-structures.ts';
 
-export const COC_TOOL_NAMES = ["look", "lookup", "recall", "resolve", "apply", "place", "ask", "narrate", "output"] as const;
+export const COC_TOOL_NAMES = ["look", "lookup", "recall", "resolve", "apply", "place", "mod", "ask", "narrate", "output"] as const;
 export type CocToolName = (typeof COC_TOOL_NAMES)[number];
 
 /** State-changing calls: they mint a `call_id`, and they are refused once the turn is closed. */
@@ -846,7 +846,7 @@ export const COC_TOOLS: readonly CocToolSpec[] = [
 			kinds: Type.Optional(Type.Array(Type.String({minLength:1}), {maxItems: 8, description: 'catalog only: omit kinds to search all records; never send an empty-string placeholder. For goods/prices use kinds:["item"]. Other kinds: weapon, spell, creature, skill, vehicle, rule, artifact, tome, poison, occupation, phobia, mania, hazard.'})),
 			limit: Type.Optional(Type.Integer({minimum: 1, maximum: 12})),
 			action: Type.Optional(StringEnum(["prepare", "status", "cancel"] as const)),
-			name: Type.Optional(Type.String({description: "adaptation: a memorable proposal name, reused for status, cancel or acceptance. capability: the exact name of an apply capability or of a package section listed in the package instructions"})),
+			name: Type.Optional(Type.String({description: "adaptation: a memorable proposal name, reused for status, cancel or acceptance."})),
 			purpose: Type.Optional(StringEnum(['new_destination', 'persistent_npc', 'source_rebinding', 'handout', 'rebase'] as const, {description: 'required for adaptation prepare. Physical objects have no adaptation purpose, and neither does a supporting person you only need on stage -- apply npc with walk_on establishes them at the table with no proposal and no turn spent. persistent_npc is for someone who must persist as a source-connected figure'})),
 			request: Type.Optional(Type.String({description: "adaptation: the player's actual direction and the source-connected change to prepare; never an instruction to force a player choice"})),
 			rebase: Type.Optional(Type.Boolean({description: "prepare review of the latest source with the existing accepted adaptations, at a safe start of turn"})),
@@ -1003,6 +1003,19 @@ export const COC_TOOLS: readonly CocToolSpec[] = [
         description:'Read place state or prior observations without movement, new perception or elapsed time, or submit a location action. For earlier sightings, people identity or incident continuity inspect need observation with the target name; recall prose is not the observation register. Inspect need contract supplies writing detail.',
         promptSnippet:'Manage places, local features and sensory observations through Enhanced Locations.',parameters:PlaceParameters,
     },
+	{
+		// §248.4: the Keeper's own read of a package section, the way a skill is called by name.
+		name: "mod",
+		label: "Mod",
+		method: "mods.sections",
+		description: "Read one section of an active package by the exact name its package instructions list under Sections:. "
+			+ "Call it when this turn involves what a listed section's topics describe and the section has not already arrived in coc-mod-sections "
+			+ "or an earlier result of this turn. The text is package instruction for this turn's decisions; reading it changes nothing and spends no game time.",
+		promptSnippet: "Read a listed package section by its name",
+		parameters: Type.Object({
+			name: Type.String({ minLength: 1, maxLength: 200, description: "The section's exact listed name, \"<package>: <heading>\", without the quotes" }),
+		}),
+	},
 	{
 		name: "ask",
 		label: "Ask",

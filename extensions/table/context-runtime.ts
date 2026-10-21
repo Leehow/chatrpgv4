@@ -217,20 +217,22 @@ export function installContextPolicy(pi: ExtensionAPI, writeTelemetry: (row: Row
             disclosure.attached(rows.map(row=>sectionKey(row.key)));
             return{read_only:true,no_commit:true,package_sections:rows.map(({key:_key,...row})=>row)};
         }
-        // §248.4: a schema-1 indexed section by its index name; the tool result stays in the run, outside §228's disclosure.
-        const listed=name?await modSections.read(name,campaign,object(capsule?.turn).number):undefined;
-        if(listed)return listed;
         let result:Row;
         try{result=await capabilityRuntime.lookup(args);}
         catch(error){
             if(!name||!/Unknown capability name/.test(String((error as Error)?.message)))throw error;
             return{status:'not_found',read_only:true,no_commit:true,name,
-                names:[...capabilityNames(),...modDiscovery.names(),...modSections.names()]};
+                names:[...capabilityNames(),...modDiscovery.names()]};
         }
         const loaded=(Array.isArray(result.capabilities)?result.capabilities:[]).filter((c:Row)=>c.detail).map((c:Row)=>String(c.name));
         disclosure.attached(loaded.map(capabilityKey));
         return result;
     };
+    // §248.4: the `mod` verb. A schema-1 indexed section by its listed name; the tool result stays in the run, outside
+    // §228's disclosure. An unknown name answers with the names the table lists.
+    const readModSection=async(name:string):Promise<Row>=>
+        await modSections.read(name,campaign,object(capsule?.turn).number)
+            ??{status:'not_found',read_only:true,no_commit:true,name,names:modSections.names()};
     const capabilityNames=()=>capabilityCatalogue(offeredTools(COC_TOOLS,sessionEnv)).filter(card=>card.verb==='apply').map(card=>card.name);
     let discoveryHandoff:Row|undefined;
     let discoveryUnavailable=false;
@@ -425,10 +427,10 @@ export function installContextPolicy(pi: ExtensionAPI, writeTelemetry: (row: Row
         if (!sourceChanged && !captured && !(stateChanged && (observedWorkspaceMode !== 'off' || prescreenEnabled() || expressionRefresh||discoveryMode()!=='full'))) return;
         capsule = undefined; rawBinding = undefined; brief = undefined; briefKey = undefined; invalidate();
     };
-    pi.on('session_start', async () => {capabilityRuntime.clear();modDiscovery.clear();pendingDiscovery=[];disclosure.clear();attachments.clear();pi.events.emit?.('coc:capability-discovery',{lookup:discoveryLookup});temporalAdvice.clear();pendingTemporal=undefined;expression.clear();modSections.clear();pendingSections=undefined;turnCalls=emptyCalls();resetPreparation();untoldRoster=NO_UNTOLD;turnMaterial=undefined;sessionEnv={...process.env};sharedAdapter=undefined;invalidate(); observedWorkspaceMode = 'off'; inputPending = false; brief = undefined; briefKey = undefined; lastFold = undefined;
+    pi.on('session_start', async () => {capabilityRuntime.clear();modDiscovery.clear();pendingDiscovery=[];disclosure.clear();attachments.clear();pi.events.emit?.('coc:capability-discovery',{lookup:discoveryLookup});pi.events.emit?.('coc:mod-sections',{read:readModSection});temporalAdvice.clear();pendingTemporal=undefined;expression.clear();modSections.clear();pendingSections=undefined;turnCalls=emptyCalls();resetPreparation();untoldRoster=NO_UNTOLD;turnMaterial=undefined;sessionEnv={...process.env};sharedAdapter=undefined;invalidate(); observedWorkspaceMode = 'off'; inputPending = false; brief = undefined; briefKey = undefined; lastFold = undefined;
         lastAttempt = undefined; sourceCalls.clear(); stateCalls.clear();prescreenDeadlineAt=0;prescreenMemo=undefined;reusablePrescreen=undefined;
         prescreenProviderBudget=preparationProviderBudget();});
-    pi.on('session_shutdown', async () => {capabilityRuntime.clear();modDiscovery.clear();pendingDiscovery=[];disclosure.clear();attachments.clear();pi.events.emit?.('coc:capability-discovery',{});temporalAdvice.clear();pendingTemporal=undefined;expression.clear();modSections.clear();pendingSections=undefined;turnCalls=emptyCalls();resetPreparation();untoldRoster=NO_UNTOLD;sharedAdapter=undefined;call=undefined;capsule=undefined;rawBinding=undefined;sourceRuntime=undefined;moduleId=undefined;observedWorkspaceMode='off';
+    pi.on('session_shutdown', async () => {capabilityRuntime.clear();modDiscovery.clear();pendingDiscovery=[];disclosure.clear();attachments.clear();pi.events.emit?.('coc:capability-discovery',{});pi.events.emit?.('coc:mod-sections',{});temporalAdvice.clear();pendingTemporal=undefined;expression.clear();modSections.clear();pendingSections=undefined;turnCalls=emptyCalls();resetPreparation();untoldRoster=NO_UNTOLD;sharedAdapter=undefined;call=undefined;capsule=undefined;rawBinding=undefined;sourceRuntime=undefined;moduleId=undefined;observedWorkspaceMode='off';
         prescreenMemo=undefined;reusablePrescreen=undefined;pendingProvider=undefined;prescreenDeadlineAt=0;
         prescreenProviderBudget={actions:0,inputTokens:0,outputTokens:0,costUsd:0};invalidate();});
 
