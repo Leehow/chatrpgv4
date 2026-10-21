@@ -50839,10 +50839,10 @@ the 384 KiB request ceiling left the whole message out as `request_ceiling`. Bef
 - `coc-mod-sections` carries at most 48 KiB (`MOD_SECTIONS_BYTES`); what does not fit is still named in `omitted`. Its
   sections are ordered by why they were sent: `due` first, then a call, context demand or kernel gate, then a topic or
   fallback; a cut drops from the end, so what the table's state owes survives longest;
-- the message outranks history like §228's disclosure: when it does not fit, the request is assembled again with room
-  reserved for it and the disclosure. When even that fails (an opening turn's own tool traffic near the ceiling, seen in a
-  second live opening), the sections that fit are sent in package order and the rest are named in `omitted`; the request
-  stays within its ceiling. The record is `omitted`, `request_ceiling`, with `sent` and `left_out`.
+- when the whole message does not fit the request (an opening turn's own tool traffic near the ceiling, seen in a second
+  live opening), the sections that fit are sent in the message's order and the rest are named in `omitted`; nothing already
+  in the request yields (the latest tool results, the workspace and history keep their places; making history yield was
+  tried and displaced the latest tool batch). The record is `omitted`, `request_ceiling`, with `sent` and `left_out`.
 
 ### 248.7 The single Keeper's topics are judged too (owner 2026-10-21, option A)
 

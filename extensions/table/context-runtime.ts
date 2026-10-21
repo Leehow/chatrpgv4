@@ -1105,14 +1105,9 @@ export function installContextPolicy(pi: ExtensionAPI, writeTelemetry: (row: Row
         }
         if(packets.length)outgoing=disclosure.place(outgoing,outgoing.length-projectedTail(result).length);
         pendingDiscovery=fresh;
-        // §248.6: the sections the table's state and this turn's calls send outrank history, as the disclosure does: when
-        // they do not fit, history yields room for them. When even that cannot fit, the sections that fit still go, in
-        // package order, and the rest are named in `omitted`; the request stays within its ceiling.
-        if(sectionsMessage&&!fits([...outgoing,sectionsMessage])){
-            const widened=assemble(requestSize(packets)+requestSize([sectionsMessage]),omission?.reason);
-            const placed=packets.length?disclosure.place(widened.messages,widened.messages.length-projectedTail(widened.fitted).length):widened.messages;
-            if(fits([...placed,sectionsMessage])){result=widened.fitted;outgoing=placed;}
-        }
+        // §248.6: when the whole message does not fit, the sections that do still go, in the message's own order (what the
+        // table's state owes first), and the rest are named in `omitted`. Nothing already in the request yields for them:
+        // the latest tool results, the workspace and history keep their places, and the request stays within its ceiling.
         let sectionsSent=sectionsMessage;
         if(sectionsSent&&!fits([...outgoing,sectionsSent])){
             const body=object(JSON.parse(String(sectionsSent.content))),kept=[...(Array.isArray(body.sections)?body.sections:[])],
