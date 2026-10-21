@@ -732,3 +732,33 @@ families17/18 as19/20, and leave ordinary prescreen behavior unchanged. Existing
 foreign ordinary-move predicate correction remains outside this integration.
 Question-boundary regression red1/21; focused30/30 green retains uncertain
 selection/restriction and ordered-position controls. Real App follow-up pending.
+
+1de71fcee clean focused38/38 and fast130/130; canonical package01:31:47Z.
+Original46 completed73.842s/0errors, rich hall/bench/ticket-window/exit prose;
+actual author start/written both Grok4.5/medium. Original47 then moved beside
+the platform entrance and observed the platform, but final route coverage held
+.41/.38. App1min11s failed with no prose; no forced cutoff. Preserve its settled
+position and observation. The route question received only the terse endpoint,
+dropping the native call's via. Canonical local receipt did not persist via and
+the native completion whitelist dropped it even for receipts that had it.
+Exact-request diagnosis .47; feature description alone.55 is insufficient and
+not implemented. Carry the actual via gives.66 (.69 with feature; unnecessary).
+Wrong feature.40 and missing intermediate stop.12 remain refused. Keep both
+diagnostic comparisons, including the insufficient first candidate.
+
+Repair only the via chain: local receipt writer, final receipt reader and route
+projection consumer, with route family3->4. No new from-position scheme, copied
+scenery, threshold/prompt change or inferred historical route. Temporal's command
+event history and TypeSafe State support preserving relevant executed arguments,
+not importing another architecture. Three regressions red before repair: local
+RPC receipt persistence, route projection, and real Pi final completion. Current
+TS RPC test green; pure/component checks16/17 green while real Pi still launches
+the old build/kernel artifact. Rebuild through the canonical package before
+claiming that final seam green or real acceptance. No edits to build outputs.
+
+c13540db0 LAN all interrupted as superseded (exit130), run.Nu4KokVC, retained
+superseded-by.json and partial evidence. The normal cancellation raced with
+extension workers still writing pf paths; retain those cleanup warnings, never
+claim a passing result. Another owner's suite then occupied the box. The1de
+queue had not admitted a suite and was stopped before advancing source; requeue
+only the latest repair after that owner releases the shared machine.

@@ -5778,7 +5778,7 @@ export default function (pi: ExtensionAPI, host: {capabilities?:RuntimeCapabilit
             const before=await state.kernel.call<Record<string,any>>('table.capsule',{campaign:state.campaign,_context_read:true});
             if(state.locationReviewTurn===state.turn&&state.interactionScope!=='reference'){
                 const status=await state.kernel.call<{receipts:Record<string,unknown>[]}>('table.status',{campaign:state.campaign,projection:'receipts',expected_turn:state.turn});
-                const receipts=status.receipts.map(receipt=>Object.fromEntries(['kind','action','from','to','place','position','feature','before','after','observation','minutes','clock_before','clock_after','until'].filter(key=>receipt[key]!==undefined).map(key=>[key,receipt[key]])));
+                const receipts=status.receipts.map(receipt=>Object.fromEntries(['kind','action','from','to','via','place','position','feature','before','after','observation','minutes','clock_before','clock_after','until'].filter(key=>receipt[key]!==undefined).map(key=>[key,receipt[key]])));
                 const selection=state.locationSelection?.turn===state.turn?state.locationSelection:undefined;
                 const locationRead=await state.kernel.call<Record<string,any>>('mods.locations.inspect',{campaign:state.campaign,need:'context'});
                 const spatial=locationCoverageContext(locationRead,[...receipts,...compiled.effects]);

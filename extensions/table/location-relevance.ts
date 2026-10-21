@@ -77,11 +77,12 @@ export function locationRouteBatch(input:Row,binding:Row):DecisionBatch {
   if(row.kind==='move'&&(stage==='committed'?row.from!==row.to:!['here',input.current_place,input.current_display_name].includes(row.to)))return {stage,destination:namedPoint(row.position??{place:row.to},input)};
   if(row.kind==='time')return {stage,...(row.until?{wait_until:row.until}:row.minutes!==undefined?{wait_minutes:row.minutes}:{wait:true})};
  };
- const location_steps=[...(input.settled_receipts??[]).map((row:Row)=>project(row,'committed')),...(input.proposed_effects??[]).map((row:Row)=>project(row,'proposed'))].filter(Boolean);
+ const step=(row:Row,stage:string):Row|undefined=>{const value=project(row,stage);return value?.destination&&typeof row.via==='string'?{...value,via:row.via}:value;};
+ const location_steps=[...(input.settled_receipts??[]).map((row:Row)=>step(row,'committed')),...(input.proposed_effects??[]).map((row:Row)=>step(row,'proposed'))].filter(Boolean);
  const state={player_declaration:input.player_declaration,location_steps,...(!location_steps.some((step:Row)=>step.destination)?{current_position:input.current_position?namedPoint(input.current_position,input):null}:{})};
  const occupied=Object.hasOwn(state,'current_position');
  const revision=createHash('sha256').update(JSON.stringify(state)).digest('hex');
- return {id:'location-route-coverage:v3:'+revision,model:JEV_MODEL,family:'location-route-coverage',familyVersion:'3',scope:{owner:'location-route-coverage',campaign:binding.campaign,audience:'keeper'},
+ return {id:'location-route-coverage:v4:'+revision,model:JEV_MODEL,family:'location-route-coverage',familyVersion:'4',scope:{owner:'location-route-coverage',campaign:binding.campaign,audience:'keeper'},
   readSet:[{kind:'draft',resource:'turn:'+binding.turn+':route',revision}],state:state as Json,
   questions:[{key:'move_satisfied',type:'noul',target:occupied?'current_position':'location_steps',instructions:occupied
    ?positionSatisfaction

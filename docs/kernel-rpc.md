@@ -48892,6 +48892,23 @@ future-only .23. These are diagnostic controls, not live-play acceptance.
 Precedent: https://docs.typesafe.ai/model-jaggedness/jev-1.13 literal-reading and
 https://docs.typesafe.ai/concepts/state explicit relevant-state guidance.
 
+Route evidence follow-up (original input47): a local place move persists its
+already validated `via` string in the same canonical receipt, like an ordinary
+journey. Final completion includes that field from table.status and projects it
+beside each committed/proposed movement endpoint. Writer: stageLocation; reader:
+native output's receipt projection; consumer: locationRouteBatch. This records
+the executed command's route rather than inferring it from a terse endpoint or
+later prose. It adds no travel cost, obstacle bypass, new authority or semantic
+threshold change. Old receipts lacking via stay unchanged; never backfill them
+from a later description. Route family3 becomes4 to invalidate old projections.
+Captured-request diagnosis .47 without route, .66 with its actual call route;
+adding feature scenery alone .55 is insufficient and is not the repair. Wrong
+feature .40 and missing intermediate visit .12 remain rejected. Preserve these
+diagnostic controls separately from real App acceptance. TypeSafe State calls
+for related decision facts; Temporal Event History illustrates retaining command
+arguments and outcomes for recovery/audit, without adopting its architecture:
+https://docs.temporal.io/workflow-execution/event .
+
 The model-facing `place` tool has two operations:
 
 - `inspect`: optional `name` (default current place), `need: context|contract`.

@@ -5,6 +5,21 @@ import{openTable}from'./harness.mjs';import{RpcClient}from'../integration/suppor
 const env={PI_COC_LOOP_ENGINE:'hybrid-v1',PI_COC_TURN_PACKET_PROTOTYPE:'1',PI_COC_JEV_PRESELECT:'0',PI_COC_MATERIAL_SCREEN:'0',EXT_JEV_APIKEY:undefined,TYPESAFE_API_KEY:undefined,PI_COC_READER_CMD:JSON.stringify([process.execPath,join(import.meta.dirname,'fixtures/isolated-expression-writer.mjs')])};
 async function opened(workspace){const k=new RpcClient(workspace);try{await k.ok('table.open',{campaign:'test-camp'});await k.ok('table.narrate',{campaign:'test-camp',call_id:'t0-c1',text:'The office is open.'});}finally{await k.close();}}
 function answer(batch){const answers=Object.fromEntries(batch.questions.map(q=>{if(q.type==='noul')return[q.key,{status:'answered',type:'noul',noul:q.key.endsWith('_blocked')||q.key.startsWith('restriction_')?.01:.99}];const choice=Object.keys(q.criteria).find(k=>k!=='none')??'none';return[q.key,{status:'answered',type:'choice',choice,confidence:.99,probabilities:Object.fromEntries(Object.keys(q.criteria).map(k=>[k,k===choice?.99:.01/(Object.keys(q.criteria).length-1)]))}];}));return{batchId:batch.id,status:'complete',answers,coverage:{required:Object.keys(answers),answered:Object.keys(answers),unknown:[]},issues:[],usage:{inputTokens:100,outputTokens:0}};}
+test('a settled local route crosses the real RPC status and native output completion boundary',async t=>{
+ let table,route;const via='Along the interior passage to its gate';
+ const engine=createHybridEngine({env,decision:{decide:async batch=>{if(batch.family==='location-route-coverage')route=batch;return answer(batch);}}});
+ table=await openTable({legacyDeliveryFixtures:false,realKernel:true,prepareWorkspace:opened,env,runDriver:engine.runDriver,
+  extraExtensions:[{name:'engine',factory:engine.extension}],responses:[async()=>{
+   const c=await table.runtimeBridges().at(-1).call('table.capsule',{campaign:'test-camp'}),scene=c.where.scene;
+   table.emit('coc:location-demand',{campaign:'test-camp',turn:1,review:true,selection:{move:.99,feature:.01,observation:.01}});
+   return fauxAssistantMessage([fauxToolCall('place',{action:'move',to:scene,at:'Passage gate',via,additions:[{name:scene,features:[{name:'Passage gate',description:'A gate at the end of an interior passage.'}]}]})],{stopReason:'toolUse'});
+  },fauxAssistantMessage([fauxToolCall('output',{version:4,commands:[{kind:'scene',service:'open',crowd:'quiet'}]})],{stopReason:'toolUse'})]});
+ t.after(()=>table.dispose());await table.session.prompt('I follow the interior passage and stop beside its gate.');
+ assert(route,'the native final decision reviews the settled movement');
+ assert.equal(route.state.location_steps[0].via,via);
+ assert.equal(route.state.location_steps[0].stage,'committed');
+ assert.equal(table.entries('coc-final-delivery').filter(r=>r.event==='end'&&r.status==='completed').length,1);
+});
 test('focused perception selection crosses the demand event, rejects omission and reaches the sole author once',async t=>{
  const batches=[];let table,scene,requests=0;
  const engine=createHybridEngine({env,decision:{decide:async batch=>{batches.push(batch);return answer(batch);}}});

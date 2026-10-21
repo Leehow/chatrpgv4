@@ -7,12 +7,12 @@ const binding={campaign:'test',turn:3};
 const input={player_declaration:'I leave the window, wait at the counter until 18:45, then return to the window and look outside.',
  current_place:'Dining room',current_position:{place:'Dining room',at:'counter'},initial_selection:{move:.99,feature:.01,observation:.99},
  recent_public:[{keeper:'An unrelated conversation.'}],people:[{ref:'npc_1',display_name:'Clerk'}],features:[{name:'counter'}],known_failures:[{reason:'invalid_params'}],
- settled_receipts:[{kind:'place',action:'move',position:{place:'Dining room',at:'counter',relation:'at'}},{kind:'time',minutes:15,until:{days:0,time:'18:45'},clock_before:510,clock_after:525}],
+ settled_receipts:[{kind:'place',action:'move',position:{place:'Dining room',at:'counter',relation:'at'},via:'Along the dining room aisle'},{kind:'time',minutes:15,until:{days:0,time:'18:45'},clock_before:510,clock_after:525}],
  proposed_effects:[{kind:'place',action:'move',to:'Dining room',at:'window',relation:'at'},{kind:'place',action:'observe',to:'Street',sense:'sight',access:'clear',scope:'The street.',facts:['A cart passes.']}]};
 test('route review receives one canonical ordered chronology without other evidence domains',()=>{
  const batch=locationRouteBatch(input,binding);packDecisionBatch(batch);
  assert.deepEqual(Object.keys(batch.state),['player_declaration','location_steps']);
- assert.deepEqual(batch.state.location_steps,[{stage:'committed',destination:input.settled_receipts[0].position},{stage:'committed',wait_until:{days:0,time:'18:45'}},{stage:'proposed',destination:{place:'Dining room',at:'window',relation:'at'}}]);
+ assert.deepEqual(batch.state.location_steps,[{stage:'committed',destination:input.settled_receipts[0].position,via:'Along the dining room aisle'},{stage:'committed',wait_until:{days:0,time:'18:45'}},{stage:'proposed',destination:{place:'Dining room',at:'window',relation:'at'}}]);
  assert.equal(batch.questions.length,1);assert.match(batch.questions[0].instructions,/Proposed steps are explicit moves/);
  assert.equal(JSON.stringify(batch.state).includes('unrelated'),false);
 });

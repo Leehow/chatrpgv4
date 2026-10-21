@@ -113,7 +113,7 @@ export function stageLocation(context:ApplyContext,effect:Row,active:readonly Ro
     let moved:{receipt:Row;event:DomainEvent|null};
     if(from===to){
         if(effect.travel_band!==undefined||effect.travel_minutes!==undefined)throw new RpcError('invalid_params','Local positioning does not supply travel time');
-        moved={receipt:{...receipt,place:to},event:null};
+        moved={receipt:{...receipt,place:to,...(effect.via?{via:effect.via}:{})},event:null};
     }else{
         if(!effect.via&&moveAccess(graph,world,graph.scene(from),destination,false,false).requiresVia)throw new RpcError('invalid_params','The enhanced move needs its selected route in via',{
             fix:'Resubmit action:"move" with the same destination and additions, adding via to describe how the party reaches it. Do not switch to inspect: inspect cannot move or register places. This is an uncommitted argument correction, not an impassable place or a new player choice.',

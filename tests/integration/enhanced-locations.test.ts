@@ -53,7 +53,9 @@ test('places have scoped durable identities, public detail, local position and r
     assert.equal(records.find((record:Row)=>record.name==='Hotel A').within,null,'omission/null is not the departure office');
     assert.equal((await inspect(k,'Hotel B / Room 203')).place.description,'A small room in Hotel B.');
     assert.equal(state(k).active_scene,'Hotel A / Lobby','remote inspection cannot move');
-    await k.table('apply',{call_id:'t1-c2',effects:[{kind:'place',action:'move',to:'here',at:'front desk',relation:'beside'}]});
+    await k.table('apply',{call_id:'t1-c2',effects:[{kind:'place',action:'move',to:'here',at:'front desk',relation:'beside',via:'Along the tiled lobby aisle'}]});
+    const local=(await k.table('status',{projection:'receipts'})).receipts.find((receipt:Row)=>receipt.call_id==='t1-c2');
+    assert.equal(local.via,'Along the tiled lobby aisle','the committed local route remains available after the apply response');
     assert.deepEqual(locations(k).position,{place:'Hotel A / Lobby',at:'front desk',relation:'beside'});
     const capsule=await k.table('capsule');
     assert.equal(capsule.where.location.position.at,'front desk');
