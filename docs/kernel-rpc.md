@@ -50663,3 +50663,16 @@ use the production capsule head through both modes and repeated context hooks.
 Apply this same head-only projection before request sizing to retained prior-turn
 capsules protected by a pending choice and to bounded degraded requests. Their
 historical facts stay historical; neither path restores a retired author duty.
+
+### Existing spatial selection reaches the Keeper (2026-10-21)
+
+The answered current-input location-context assessment also reaches the Keeper
+as request-only `location_intent` when location context is needed. Each existing
+move/feature/observation axis carries its unchanged probability and the existing
+not_selected/uncertain/selected interpretation. Missing, failed or incomplete
+data yields no hint. This advisory view neither establishes intent nor grants
+permission, coverage or world truth. The canonical capsule and complete tools
+remain intact; admission and completion retain their normal owners and gates.
+The existing context decision writes it, the outgoing capsule/update reads it,
+and the Keeper chooses actual operations while the author renders ordinary
+visible texture. There is no extra decision, persistent state or timeout.

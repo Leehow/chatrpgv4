@@ -33,6 +33,14 @@ export async function locationContextRelevance(capsule:Row,binding:Row,decision:
  return {...result,selection:{move:move_selected,feature:feature_selected,observation:observation_selected},needed:[move_selected,feature_selected,observation_selected,reference_selected].some(value=>value>.4),review:[move_selected,feature_selected,observation_selected].some(value=>value>.4)};
 }
 const axes=['move','feature','observation'] as const;
+/** Request context only: this assessment never authorizes or accounts for an operation. */
+export function locationDeclarationContext(result:Row):Row|undefined {
+ if(result.status!=='answered'||result.needed!==true)return;
+ const selected=result.selection;
+ if(!selected||!axes.every(axis=>typeof selected[axis]==='number'&&Number.isFinite(selected[axis])&&selected[axis]>=0&&selected[axis]<=1))return;
+ return {authority:'Existing current-input context assessment, not canonical intent, action coverage, world truth or permission. Judge the player words and retain normal admission and completion. A not_selected observation requests no room survey; ordinary visible texture belongs to the author. A selected observation still needs actual coverage. Uncertainty grants nothing.',
+  selection:Object.fromEntries(axes.map(axis=>[axis,{probability:selected[axis],assessment:selected[axis]<=.4?'not_selected':selected[axis]>=.6?'selected':'uncertain'}]))};
+}
 const uncertain=(value:number)=>value>.4&&value<.6;
 function initialSelection(input:Row):Record<string,number>|undefined {
  const selected=input.initial_selection;
