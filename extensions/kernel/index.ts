@@ -7207,6 +7207,7 @@ export default function (pi: ExtensionAPI, host: {capabilities?:RuntimeCapabilit
 				if(normalized.booleanRepairs)void record({lane:'arguments',event:'decision_boolean_normalized',tool:spec.name,repairs:normalized.booleanRepairs});
                 if('placeKindRepairs' in normalized&&normalized.placeKindRepairs)void record({lane:'arguments',event:'place_kind_inferred',tool:spec.name,repairs:normalized.placeKindRepairs});
                 if('npcHereRepairs' in normalized&&normalized.npcHereRepairs)void record({lane:'arguments',event:'npc_destination_here',tool:spec.name,repairs:normalized.npcHereRepairs});
+                if('strayCommandRepairs' in normalized&&normalized.strayCommandRepairs)void record({lane:'arguments',event:'stray_command_moved',tool:spec.name,repairs:normalized.strayCommandRepairs});
 				const unwrapped = unwrapArgumentMarkup(spec.name, spec.parameters, normalized.args);
 				if (!unwrapped.ok) throw new Error(new KernelError(unwrapped.refusal).toToolText());
 				if (unwrapped.repairs.length) void record({ lane: "tool_arguments", event: "markup_unwrapped", tool: spec.name, repairs: unwrapped.repairs });
