@@ -8,8 +8,9 @@ import {judgeTopics,topicBindings,type Topic,type TopicInput,type TopicJudgement
 import {placeOperation} from '../kernel/place-operation.ts';
 type Row=Record<string,any>;
 export const MOD_SECTIONS_MESSAGE='coc-mod-sections';
-/** The message's content ceiling (UTF-8 bytes); what does not fit is named in `omitted`. */
-export const MOD_SECTIONS_BYTES=16384;
+/** The message's content ceiling (UTF-8 bytes); what does not fit is named in `omitted`. §248.6: 48 KiB, since the
+ *  sections it carries left the brief (an opening turn sends about 30 KB of due sections). */
+export const MOD_SECTIONS_BYTES=49152;
 /** How long the first request of an input waits for the topics, and how long Jev may take at all. */
 export const MOD_TOPICS_FIRST_WAIT_MS=2500,MOD_TOPICS_ALLOWANCE_MS=6000;
 /** The bar a topic clears to count as fired for `no_topic`; a section may set its own for itself. */
@@ -44,8 +45,8 @@ export function noteCall(calls:TurnCalls,tool:string,input:Row,details?:Row):voi
 export type Picked={key:string;mod:string;version:string;heading:string|null;why:string[]};
 /** The selection rule of §183.5, over the capsule's indexed rows. `judgement` undefined or unavailable is the fallback:
  *  every section with a topic whose kernel gates hold loads, its host gates aside. In pull mode (§248.4, the single
- *  Keeper) there is no judgement and no fallback: a topic section loads only when it has a kernel gate and its gates hold;
- *  the Keeper reads the others itself. */
+ *  Keeper) a scored judgement selects as above (§248.7); without one there is no fallback: a topic section loads only
+ *  when it has a kernel gate and its gates hold, and the Keeper reads the others itself. */
 export function selectSections(capsule:Row,judgement:TopicJudgement|undefined,calls:TurnCalls,pull=false):Picked[] {
  const scores=judgement?.status==='scored'?judgement.scores:undefined;
  const host={no_topic:!!scores&&!Object.values(scores).some(score=>score>=DEFAULT_TOPIC_THRESHOLD)};
@@ -54,7 +55,7 @@ export function selectSections(capsule:Row,judgement:TopicJudgement|undefined,ca
   const why:string[]=[],topics=array(section.topics).map(String),gates=array(section.gates).map(String);
   if(section.due===true)why.push('due');
   if(topics.length&&section.gates_open===true){
-   if(pull){if(gates.some(gate=>!(gate in host)))why.push('gate');}
+   if(!scores&&pull){if(gates.some(gate=>!(gate in host)))why.push('gate');}
    else if(!scores)why.push('fallback');
    else if(gates.every(gate=>!(gate in host)||host[gate as keyof typeof host])){
     const bar=typeof section.topic_threshold==='number'?section.topic_threshold:DEFAULT_TOPIC_THRESHOLD;
@@ -109,11 +110,6 @@ export function createModSections(deps:{read:(method:string,params:Row)=>Promise
  function observe(capsule:Row,binding:Row,signal:AbortSignal):void {
   know(capsule);
   if(signal.aborted||!indexedRows(capsule).length){reset();return;}
-  if(pulling()){
-   const next=fingerprint(['pull',binding.campaign,binding.worldline,binding.loop,binding.turn,object(capsule.turn).player_text??'']);
-   if(next!==key){reset();key=next;deps.record({lane:'mod-sections',event:'pull_mode',turn:binding.turn});}
-   return;
-  }
   const input=inputOf(capsule,binding);
   if(!input){reset();return;}
   // Once per input: the declaration, its turn and the topic list; a capsule re-read mid-turn keeps the judgement.
@@ -121,7 +117,8 @@ export function createModSections(deps:{read:(method:string,params:Row)=>Promise
   if(next===key)return;
   reset();key=next;
   const port=deps.decision();
-  if(!port){judgement={status:'unavailable',reason:'unconfigured'};deps.record({lane:'mod-sections',event:'fallback',turn:input.turn,reason:'unconfigured'});return;}
+  // §248.7: without Jev the single Keeper is in pull mode, not the load-everything fallback.
+  if(!port){judgement={status:'unavailable',reason:'unconfigured'};deps.record({lane:'mod-sections',event:pulling()?'pull_mode':'fallback',turn:input.turn,reason:'unconfigured'});return;}
   const control=new AbortController();lifetime=control;startedAt=Date.now();
   const deadline=startedAt+(deps.allowanceMs??MOD_TOPICS_ALLOWANCE_MS),binds=topicBindings(input);
   const lease=new TaskLease({owner:binds.scope.owner,goal:'Judge which turn topics the player declaration involves',...binds,capabilities:['decision'],
@@ -149,6 +146,7 @@ export function createModSections(deps:{read:(method:string,params:Row)=>Promise
  async function message(capsule:Row,binding:Row,calls:TurnCalls):Promise<Row|undefined> {
   if(!indexedRows(capsule).length)return undefined;
   const late=!judgement&&!pulling();
+  // §248.7: in pull mode an unscored judgement (late or failed) pushes no topic section; the Keeper reads them itself.
   const picked=selectSections(capsule,judgement,calls,pulling());
   if(late&&picked.some(entry=>entry.why.includes('fallback')))
    deps.record({lane:'mod-sections',event:'fallback',turn:binding.turn,reason:'late',ms:startedAt?Date.now()-startedAt:0});
@@ -156,10 +154,14 @@ export function createModSections(deps:{read:(method:string,params:Row)=>Promise
   try{await load(picked.map(entry=>entry.key),binding.campaign);}
   catch{deps.record({lane:'mod-sections',event:'fallback',turn:binding.turn,reason:'read_failed'});return undefined;}
   const sections:Row[]=[],omitted:Row[]=[];
-  for(const entry of picked){
+  // §248.6: when room runs short, what the table's state owes goes first, then what this turn's calls and kernel gates
+  // send, then what a topic judgement or a fallback adds; the message keeps that order, so a cut drops the last first.
+  const rank=(entry:Picked)=>Math.min(...entry.why.map(why=>why==='due'?0:why==='gate'||why.startsWith('call:')||why.startsWith('context:')?1:2));
+  let owed=0;
+  for(const entry of [...picked].sort((a,b)=>rank(a)-rank(b))){
    const text=texts.get(entry.key);if(typeof text!=='string')continue;
    const row={package:entry.mod,section:entry.heading??'(opening text)',text};
-   if(bytes(JSON.stringify({authority:AUTHORITY,sections:[...sections,row],omitted}))<=MOD_SECTIONS_BYTES)sections.push(row);
+   if(bytes(JSON.stringify({authority:AUTHORITY,sections:[...sections,row],omitted}))<=MOD_SECTIONS_BYTES){sections.push(row);if(rank(entry)===0)owed++;}
    else omitted.push({package:entry.mod,section:row.section});
   }
   const content=JSON.stringify({authority:AUTHORITY,sections,...(omitted.length?{omitted}:{})});
@@ -169,7 +171,9 @@ export function createModSections(deps:{read:(method:string,params:Row)=>Promise
     ...(omitted.length?{omitted:omitted.map(entry=>`${entry.package}: ${entry.section}`)}:{})});}
   if(!sections.length)return undefined;
   return{role:'custom',customType:MOD_SECTIONS_MESSAGE,display:false,content,timestamp:0,
-   details:{coc_host:true,mod_sections:{turn:binding.turn,keys:picked.filter(entry=>texts.has(entry.key)).map(entry=>entry.key)}}};
+   details:{coc_host:true,mod_sections:{turn:binding.turn,keys:picked.filter(entry=>texts.has(entry.key)).map(entry=>entry.key),
+    // §248.6: how many leading sections the table's state owes (`due`); the request makes room for them.
+    owed}}};
  }
  function delivered(sent:Row,payload:unknown,contains:(value:unknown,content:string)=>boolean):void {
   let carried=false;try{carried=contains(payload,String(sent.content));}catch{/* unserializable payload is unconfirmed */}

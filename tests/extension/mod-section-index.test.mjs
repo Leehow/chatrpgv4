@@ -237,7 +237,10 @@ test("selection: a topic over its bar with its gates, a due state, a call this t
 		assert.deepEqual(picked(judgement),{asker:["fallback"],stuck:["fallback"],opening:["due"],register:["fallback"]});
 });
 
-test("pull mode: due, calls and gated topic sections are sent; a topic-only section waits for the Keeper's read (§248.4)",()=>{
+test("pull mode: a scored judgement selects as usual; without one, due, calls and gated topic sections are sent (§248.4, §248.7)",()=>{
+	const scored={status:"scored",scores:{asks_question:.9,carried_item:.6,money:.9}};
+	assert.deepEqual(Object.fromEntries(api.selectSections(capsuleOf(SECTIONS),scored,api.emptyCalls(),true).map(row=>[row.heading,row.why])),
+		{asker:["topic:asks_question"],opening:["due"]});
 	const calls=api.emptyCalls();
 	const pulled=(c=calls)=>Object.fromEntries(api.selectSections(capsuleOf(SECTIONS),undefined,c,true).map(row=>[row.heading,row.why]));
 	assert.deepEqual(pulled(),{stuck:["gate"],opening:["due"]},"asker and register name only topics; closed's gates do not hold");
@@ -249,7 +252,7 @@ test("the Keeper reads a listed section by its index name; an unknown name is no
 	const reads=[],rows=[];
 	const lane=api.createModSections({read:async(method,params)=>{reads.push([method,params]);
 		return {sections:params.keys.map(key=>({key,text:`text of ${key}`}))};},decision:()=>undefined,record:row=>rows.push(row),pull:()=>true});
-	const capsule={turn:{player_text:"I ask the clerk."},mods:{instructions:[{mod:"m",version:"1.0.0",form:"indexed",sections:[
+	const capsule={turn:{player_text:"I ask the clerk."},mods:{topics:[{id:"asks_question",what:"w",not_for:"n",examples:[]}],instructions:[{mod:"m",version:"1.0.0",form:"indexed",sections:[
 		{key:"m@1.0.0#1",heading:"Asking",topics:["asks_question"],gates:[],triggers:[]},{key:"m@1.0.0#2",heading:null,topics:["*"],gates:[],triggers:[]}]}]}};
 	lane.observe(capsule,{campaign:"c",turn:3},new AbortController().signal);
 	assert.equal(await lane.message(capsule,{campaign:"c",turn:3},api.emptyCalls()),undefined,"nothing is pushed for topic-only sections");
@@ -269,8 +272,8 @@ test("a resolve's family comes from its settled result, else from the decision i
 	assert.equal(api.resolveFamily({action:{}}),undefined);
 });
 
-test("the section message keeps to its ceiling and names what it left out (§183.5)",async()=>{
-	const rows=[],texts=Object.fromEntries(SECTIONS.map((section,i)=>[`m@1.0.0#${i}`,`## ${section.id}\n\n${"x".repeat(7000)}`]));
+test("the section message keeps to its ceiling and names what it left out (§183.5, §248.6)",async()=>{
+	const rows=[],texts=Object.fromEntries(SECTIONS.map((section,i)=>[`m@1.0.0#${i}`,`## ${section.id}\n\n${"x".repeat(22000)}`]));
 	const lane=api.createModSections({read:async(method,params)=>({sections:params.keys.map(key=>({key,text:texts[key]}))}),decision:()=>undefined,record:row=>rows.push(row)});
 	const capsule={...capsuleOf(SECTIONS),turn:{number:4,player_text:"Where can I eat?"},mods:{...capsuleOf(SECTIONS).mods,topics:[{id:"asks_question",what:"w",not_for:"n",examples:["e"]}]}};
 	const binding={campaign:"c",worldline:"main",loop:0,turn:4};
@@ -279,8 +282,9 @@ test("the section message keeps to its ceiling and names what it left out (§183
 	const message=await lane.message(capsule,binding,api.emptyCalls());
 	const content=JSON.parse(message.content);
 	assert.ok(Buffer.byteLength(message.content,"utf8")<=api.MOD_SECTIONS_BYTES);
-	assert.deepEqual(content.sections.map(row=>row.section),["asker","stuck"]);
-	assert.deepEqual(content.omitted.map(row=>row.section),["opening","register"]);
+	// §248.6: a due section goes before what a fallback adds.
+	assert.deepEqual(content.sections.map(row=>row.section),["opening","asker"]);
+	assert.deepEqual(content.omitted.map(row=>row.section),["stuck","register"]);
 	assert.equal(rows.find(row=>row.event==="selected").omitted.length,2);
 });
 

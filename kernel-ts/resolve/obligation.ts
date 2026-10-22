@@ -51,6 +51,20 @@ export interface ObligationClaim {
 const obligationOf = (node: Row): Row => row(row(node.properties).obligation);
 
 /**
+ * §253.3: a roll cannot decide what has already been granted. When this input already landed results the obligation
+ * guards (receipts stamped `obligation_open` by apply, §134.12), its check -- claimed or folded -- is refused: the landing
+ * was the Keeper's judgment that access was given, and a roll after it could only contradict that (live
+ * `el-v2-20261021f` T12: clippings landed, then Persuade failed, then three minutes reconciling). Landing guarded results
+ * without a roll stays allowed (owner ruling Q5); only the order grant-then-roll is refused.
+ */
+function refuseIfGuardedLanded(transaction: TurnTransaction, handle: string): void {
+    const landed = array(transaction.turn.receipts).map(row).filter(receipt => receipt.obligation_open === handle);
+    if (landed.length)
+        refuse('invalid_params', 'obligation_outcome_landed', `${handle}'s guarded results already landed this input, so a roll can no longer decide them`, {
+            fix: 'do not roll this check: narrate the access as given, since landing those results was your judgment. Next time roll the check before landing what it guards',
+            details: { obligation: handle, landed: landed.map(receipt => string(receipt.clue ?? receipt.to ?? receipt.who ?? receipt.handle ?? receipt.kind)) } });
+}
+/**
  * Validate `action.obligation` and bind the action it will settle through. A push or a Luck spend only
  * names the obligation; which check it continues is checked by `continuedClaim` once the actor is known.
  */
@@ -78,6 +92,7 @@ export async function bindObligation(input: {
             details: { obligation: handle, state } });
     if (truth(action.push) || action.luck != null)
         return { claim: { handle, node: node!, step: null }, action };
+    refuseIfGuardedLanded(transaction, handle);
     const step = nextStep(graph, world, node!);
     if (!step || step.kind !== 'check') {
         const person = step?.kind === 'meet' ? graph.nodes.get(string(step.npc)) : undefined;
@@ -291,6 +306,7 @@ export async function foldCandidate(input: {
     if (!matches.length)
         return null;
     const [{ node, step, index }] = matches, handle = graph.handle(node);
+    refuseIfGuardedLanded(transaction, handle);
     // The stated difficulty replaces the Keeper's (a claim would refuse the mismatch; the fold refuses nothing).
     const modifiers: Row = { ...row(action.modifiers) };
     if (step.difficulty_unstated !== true)

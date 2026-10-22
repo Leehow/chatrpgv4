@@ -225,5 +225,19 @@ function timeCostOf(graph: ModuleGraph, node: Row): Row | null {
 export const mechRow = (graph: ModuleGraph) => (node: Row): Row => {
     const mech = mechLine(graph, node);
     const timeCost = timeCostOf(graph, node);
-    return { ...(mech === null ? {} : { mech }), ...(timeCost ? { time_cost: timeCost, handle: graph.handle(node) } : {}) };
+    return { ...(mech === null ? {} : { mech }), ...(timeCost ? { time_cost: timeCost, handle: graph.handle(node),
+        ...(costMinutes(timeCost) >= LONG_COST_MINUTES ? { ask_first: LONG_COST_ASK } : {}) } : {}) };
 };
+/**
+ * §253.4: a stated cost of an hour or more is the player's to accept. The row that invites the act carries the ask beside
+ * the cost (§31), so the Keeper names the cost in the fiction before charging it: live `el-v2-20261021f` T18 charged two
+ * half-days of Library Use for "please fetch these two records" and the player met "the night is deep" with no warning.
+ * The amount is read from the typed shape only.
+ */
+const LONG_COST_MINUTES = 60;
+const LONG_COST_ASK = "This cost is the player's to accept: unless they already chose to spend this time, have someone in the fiction say plainly how long each attempt takes, then stop for their choice before rolling or charging it. A vague hint that it takes time is not telling them.";
+const UNIT_MINUTES: Record<string, number> = { minute: 1, minutes: 1, hour: 60, hours: 60, day: 1440, days: 1440, week: 10080, weeks: 10080 };
+function costMinutes(shape: Row): number {
+    const amount = Number(shape.amount), unit = UNIT_MINUTES[String(shape.unit ?? "").toLowerCase()];
+    return Number.isFinite(amount) && unit ? amount * unit : 0;
+}

@@ -158,8 +158,9 @@ export function installContextPolicy(pi: ExtensionAPI, writeTelemetry: (row: Row
         })());
     });
     // Contract §183.5: the indexed packages' sections this turn needs; the calls so far this turn are what triggers read.
-    const modSections=createModSections({read:async(method,params)=>call?call(method,params):undefined,decision:()=>singleKeeper?undefined:decision(),record,
-        // §248.4: the single Keeper has no topic judgement; state and calls push sections and the Keeper reads the rest.
+    const modSections=createModSections({read:async(method,params)=>call?call(method,params):undefined,decision,record,
+        // §248.7 (owner 2026-10-21, option A): the single Keeper's topics are judged by Jev too; without a judgement it is in
+        // pull mode (§248.4): state and calls push sections and the Keeper reads the rest.
         pull:()=>singleKeeper});
     const discoveryMode=()=>singleKeeper?'full':['selective','shadow'].includes(sessionEnv.COC_TURN_DISCOVERY??'')?sessionEnv.COC_TURN_DISCOVERY!:'full';
     // Both discovery stages reserve from the same preparation owner and its foreground parent.
@@ -1098,10 +1099,32 @@ export function installContextPolicy(pi: ExtensionAPI, writeTelemetry: (row: Row
         }
         if(packets.length)outgoing=disclosure.place(outgoing,outgoing.length-projectedTail(result).length);
         pendingDiscovery=fresh;
-        // §183.5's sections are optional beside the disclosure: they join only when they still fit.
-        if(sectionsMessage&&fits([...outgoing,sectionsMessage])){
-            outgoing.push(sectionsMessage);pendingSections=sectionsMessage;
-        }else if(sectionsMessage)record({lane:'mod-sections',event:'omitted',turn:snapshot.binding.turn,reason:'request_ceiling',bytes:requestSize([sectionsMessage])});
+        // §248.6: when the whole message does not fit, the sections the table's state owes (its leading `owed` rows) may
+        // take room from history and this turn's older tool traffic, as the brief that carried them before §248 did, but
+        // never from the latest tool results. Then the sections that fit go in the message's order and the rest are named
+        // in `omitted`; the request stays within its ceiling.
+        const owedCount=Number(object(object(sectionsMessage?.details).mod_sections).owed)||0;
+        if(sectionsMessage&&owedCount&&!fits([...outgoing,sectionsMessage])){
+            const body=object(JSON.parse(String(sectionsMessage.content)));
+            const owedMessage={...sectionsMessage,content:JSON.stringify({...body,sections:(Array.isArray(body.sections)?body.sections:[]).slice(0,owedCount)})};
+            if(!fits([...outgoing,owedMessage])){
+                const kept=retainsLatestToolBatch(selected,outgoing,snapshot.binding);
+                const widened=assemble(requestSize(packets)+requestSize([owedMessage]),omission?.reason);
+                const placed=packets.length?disclosure.place(widened.messages,widened.messages.length-projectedTail(widened.fitted).length):widened.messages;
+                if(fits([...placed,owedMessage])&&(!kept||retainsLatestToolBatch(selected,placed,snapshot.binding))){result=widened.fitted;outgoing=placed;}
+            }
+        }
+        let sectionsSent=sectionsMessage;
+        if(sectionsSent&&!fits([...outgoing,sectionsSent])){
+            const body=object(JSON.parse(String(sectionsSent.content))),kept=[...(Array.isArray(body.sections)?body.sections:[])],
+                omitted=[...(Array.isArray(body.omitted)?body.omitted:[])];
+            const shaped=()=>({...sectionsSent!,content:JSON.stringify({...body,sections:kept,...(omitted.length?{omitted}:{})})});
+            while(kept.length&&!fits([...outgoing,shaped()])){const row=kept.pop();omitted.unshift({package:row.package,section:row.section});}
+            sectionsSent=kept.length?shaped():undefined;
+            record({lane:'mod-sections',event:'omitted',turn:snapshot.binding.turn,reason:'request_ceiling',bytes:requestSize([sectionsMessage!]),
+                sent:kept.length,left_out:omitted.map((row:Row)=>row.package+': '+row.section)});
+        }
+        if(sectionsSent){outgoing.push(sectionsSent);pendingSections=sectionsSent;}
         const temporalMessage=await temporalWork;
         if(ticket!==generation||preparationSignal.aborted)return superseded();
         if(temporalMessage&&fits([...outgoing,temporalMessage])){

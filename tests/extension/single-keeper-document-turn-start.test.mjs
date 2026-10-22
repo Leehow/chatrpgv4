@@ -84,8 +84,9 @@ test('ready historical notebook registration is promoted before the Keeper recei
 test('one Keeper writes the chosen suffix without append binding and the kernel still refuses a false writer',async t=>{
   const originalFetch=globalThis.fetch;
   let decisionRequests=0;
-  globalThis.fetch=async url=>{
-    if(String(url).startsWith('https://api.typesafe.ai/'))decisionRequests++;
+  globalThis.fetch=async (url,init)=>{
+    // §248.7: the input's package topic judgement is not a writing decision.
+    if(String(url).startsWith('https://api.typesafe.ai/')&&!String(init?.body).includes('"purpose":"the topics this turn involves"'))decisionRequests++;
     throw new Error('This deterministic writing seam must make no decision request');
   };
   t.after(()=>{globalThis.fetch=originalFetch;});
