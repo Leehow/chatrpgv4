@@ -13,13 +13,16 @@ import { locateExcerpt } from '../read/excerpt.js';
 import { createWriteRuntime } from '../write/index.js';
 import { CampaignWriter, nowIso } from '../write/store.js';
 import { noteMemory, readNpcLedger } from '../write/contributions.js';
-import { buildJob, correctionJob, committedRecords, defaultJobTurn, fail, logs, openJob, parseJobId, readJob, submit } from './jobs.js';
+import { buildJob, correctionJob, committedRecords, defaultJobTurn, fail, logs, openJob, parseJobId, proseOf, readJob, submit } from './jobs.js';
 import { history, recallMemory, transcript } from './recall.js';
 import {validateRecallRequest} from './pages.js';
 import {referencedJob, referencedSource, submitReferenced} from './referenced.js';
 import {createMemoryEvidenceOwner} from './evidence.js';
 import {closeSatisfied, mergeOwed, owedNames, projectOwed, resolveOwedEquipment, readOwed, writeOwed} from '../owed/index.js';
-import {applyFirstSight, checkFirstSightItems, FIRST_SIGHT_BUDGET, firstSightSection, fitFirstSight, readFirstSight, turnFirstSight, writeFirstSight} from '../first-sight/index.js';
+import {applyFirstSight, checkFirstSightItems, FIRST_SIGHT_BUDGET, firstSightSection, fitFirstSight, readFirstSight, seenPerson, turnFirstSight, writeFirstSight} from '../first-sight/index.js';
+import {applyLooks, checkLookItems, lookTargets, turnLooks} from '../first-sight/looks.js';
+import {tableWord} from '../read/person-words.js';
+import {sceneLabel} from '../read/capsule.js';
 import {HEAD_FIRST_SIGHT} from '../read/assemble.js';
 import {briefWindow} from '../read/brief-window.js';
 import {oweTold, toldOptions} from '../owed/told.js';
@@ -203,6 +206,46 @@ async function firstSight(context: KernelContext, loaded: { campaign: CampaignWr
         ...(dropped.length ? { dropped } : {}) });
     return { turn: number(turn), shown, open, dropped };
 }
+/**
+ * Contract §255: a delivered turn's look check, its two ends. The job names what the scene the turn ended in still wants
+ * (the place's look, each seen person's look and pronoun) beside that turn's delivered text and the one before it; the
+ * submission keeps only excerpts of those texts, writes each field once, and counts a try for each field still wanting.
+ */
+async function deliveredLooks(loaded: { campaign: CampaignWriter; snapshot: CampaignSnapshot; module: { graph: ModuleGraph } }, turn: Row[string]) {
+    const { campaign, snapshot, module } = loaded, graph = module.graph;
+    if (!integer(turn) || number(turn) < 0)
+        throw new RpcError('invalid_params', 'params.turn must be a committed turn number');
+    const record = await campaign.readTurnRecord(number(turn));
+    if (!record || !['narrate', 'ask'].includes(string(record.closed_by)) || !proseOf(record.rendered_text))
+        throw new RpcError('invalid_params', `turn ${turn} has no delivered text for a look check`, { details: { turn: number(turn) } });
+    const before = number(turn) > 0 ? await campaign.readTurnRecord(number(turn) - 1) : null;
+    const prose = proseOf(record.rendered_text), earlier = before && ['narrate', 'ask'].includes(string(before.closed_by)) ? proseOf(before.rendered_text) : '';
+    let scene: Row | null = null;
+    for (const name of [string(row(row(record.world).scene).name), string(snapshot.world.active_scene)])
+        try { scene = graph.scene(name); break; } catch { /* the next name */ }
+    const ledger = await readFirstSight(campaign.context, campaign.id);
+    const targets = scene ? lookTargets(graph, snapshot.world, scene, ledger.looks, seenPerson,
+        node => node.node_kind === 'npc' ? tableWord(snapshot.world, graph.handle(node)) || graph.displayName(node) : sceneLabel(graph, snapshot.world, node)) : [];
+    return { record, prose, earlier, targets, ledger };
+}
+async function looksJob(loaded: Parameters<typeof deliveredLooks>[0], params: Row): Promise<Row> {
+    const { prose, earlier, targets } = await deliveredLooks(loaded, params.turn);
+    return targets.length ? { turn: number(params.turn), prose, ...(earlier ? { earlier } : {}), targets } : { turn: number(params.turn), targets: [] };
+}
+async function looksSubmit(context: KernelContext, loaded: Parameters<typeof deliveredLooks>[0], params: Row): Promise<Row> {
+    const { campaign, module } = loaded, turn = number(params.turn);
+    const { record, prose, earlier, targets, ledger } = await deliveredLooks(loaded, params.turn);
+    const { results, dropped } = checkLookItems(module.graph, params.items, [prose, ...(earlier ? [earlier] : [])]), at = nowIso();
+    const { looks, kept } = applyLooks(ledger.looks, turn, targets, results, at);
+    await writeFirstSight(context, campaign.id, { ...ledger, looks });
+    if (results.length) {
+        record.looks = turnLooks(record.looks, results, at);
+        await campaign.writeTurnRecord(record);
+    }
+    await campaign.telemetry({ lane: 'first-sight', event: 'looks_recorded', turn, asked: targets.length, kept: kept.length,
+        ...(dropped.length ? { dropped } : {}) });
+    return { turn, kept, dropped };
+}
 export function createMemoryHandlers(context: KernelContext, writer: ReturnType<typeof createWriteRuntime>): HandlerGroup {
     const evidence = createMemoryEvidenceOwner(context, params => writer.campaign(params));
     async function load(params: Row) {
@@ -244,6 +287,9 @@ export function createMemoryHandlers(context: KernelContext, writer: ReturnType<
         },
         'table.warn': async (params) => warn(context, await load(params), params),
         'table.first_sight': async (params) => firstSight(context, await load(params), params),
+        // Contract §255: the look check of a delivered turn.
+        'table.looks.job': async (params) => looksJob(await load(params), params),
+        'table.looks': async (params) => looksSubmit(context, await load(params), params),
         // Contract §190.2: the places a delivered text may leave the party at, and the owed move the host's read names.
         'table.owe.options': async (params) => {
             const loaded = await load(params);
