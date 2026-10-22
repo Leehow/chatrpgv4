@@ -84,7 +84,7 @@ export function decisionCharacter(person:Row):Row {
  return result;
 }
 /** An exhibit selection the host refuses whole; the message is the repair the Keeper reads. */
-export class ExhibitRefusal extends Error {reason:'unissued'|'carrier_absent';ref:string;constructor(message:string,reason:'unissued'|'carrier_absent',ref:string){super(message);this.reason=reason;this.ref=ref;}}
+export class ExhibitRefusal extends Error {reason:'unissued'|'carrier_absent'|'not_owner'|'testimony_revealed';ref:string;constructor(message:string,reason:'unissued'|'carrier_absent'|'not_owner'|'testimony_revealed',ref:string){super(message);this.reason=reason;this.ref=ref;}}
 interface Fact {ref:string;actor?:string;kind:string;availability:'current'|'supplemental';value:unknown;revision:string}
 /** Aliases survive unchanged material; current issuance and scoped contents do not. */
 export class DecisionContent {
@@ -93,10 +93,10 @@ export class DecisionContent {
  private people=new Set<string>();private listenerAliases=new Map<string,string|null>();
  private places=new Set<string>();
  private entityLabels=new Map<string,string>();
- private exhibitRows=new Map<string,Row>();private activeExhibits=new Set<string>();private exhibitOrdinal=0;private exhibitsOmitted=0;private exhibitsGiven=false;
+ private exhibitRows=new Map<string,Row>();private handleRefs=new Map<string,string>();private activeExhibits=new Set<string>();private exhibitOrdinal=0;private exhibitsOmitted=0;private exhibitsGiven=false;
  private reads=new Map<string,Row>();private sourceRevision:unknown;private bytes=0;private omitted=0;private previous=new Set<string>();
  assertCurrent(capsule:Row):void {if(this.sourceRevision!==undefined&&this.sourceRevision!==(capsule._context?.task_source_revision??capsule._context?.source_revision))throw Error('Prepared communication source revision changed');}
- forScope(scope:string):void {if(scope!==this.scope){this.scope=scope;this.active.clear();this.entities.clear();this.people.clear();this.places.clear();this.listenerAliases.clear();this.entityLabels.clear();this.reads.clear();this.facts.clear();this.exhibitRows.clear();this.activeExhibits.clear();}}
+ forScope(scope:string):void {if(scope!==this.scope){this.scope=scope;this.active.clear();this.entities.clear();this.people.clear();this.places.clear();this.listenerAliases.clear();this.entityLabels.clear();this.reads.clear();this.facts.clear();this.exhibitRows.clear();this.activeExhibits.clear();this.handleRefs.clear();}}
  observePerson(value:Row):void {if(isNpcReference(value.ref))this.reads.set(value.ref,structuredClone(value));}
  prepare(scope:string,capsule:Row,people:Row[],sources:Row[]=[],investigators:string[]=[],issuedPeople:string[]=[],prepared:Row[]=[],exhibits:Row[]=[]):Row {
   this.forScope(scope);this.active.clear();this.activeExhibits.clear();this.exhibitsOmitted=0;this.exhibitsGiven=exhibits.length>0;this.entities.clear();this.people.clear();this.places.clear();this.listenerAliases.clear();this.entityLabels.clear();this.bytes=0;this.omitted=0;this.sourceRevision=capsule._context?.task_source_revision??capsule._context?.source_revision;
@@ -121,7 +121,7 @@ export class DecisionContent {
    return field==='recent_speech'||refs?.size===1&&refs.has(person.ref);
   };
   for(const person of cast)if(isNpcReference(person.ref)){
-   this.entities.add(person.ref);this.people.add(person.ref);
+   this.entities.add(person.ref);this.people.add(person.ref);if(typeof person.id==='string')this.handleRefs.set(person.id,person.ref);
    if(typeof person.display_name==='string'){this.listenerAlias(person.display_name,person.ref);this.entityLabels.set(person.ref,person.display_name);}
   }
   for(const key of ['scene'])if(typeof capsule.where?.[key]==='string'){this.entities.add(capsule.where[key]);this.places.add(capsule.where[key]);}
@@ -183,15 +183,18 @@ export class DecisionContent {
   if(typeof item.exhibit_id!=='string'||typeof item.kind!=='string')return;
   const identity=digest({kind:'exhibit',id:item.exhibit_id});let ref=this.aliases.get(identity);
   if(ref&&this.activeExhibits.has(ref))return;
+  // §257.T1: a testimony exhibit is issued with the npc references of its owners; one nobody here can speak is not issued.
+  const owners=item.kind==='testimony'?[...new Set((Array.isArray(item.owners)?item.owners:[]).flatMap((handle:unknown)=>typeof handle==='string'&&this.handleRefs.has(handle)?[this.handleRefs.get(handle)!]:[]))]:undefined;
+  if(owners&&!owners.length)return;
   const state=item.clue?.state,check=item.clue?.check,needs=typeof check?.skill==='string'?`${check.skill}${check.difficulty?` (${check.difficulty})`:''}`:undefined;
   const catalog:Row={ref:'',kind:item.kind,channel:item.channel,carrier:item.carrier?.display_name,label:item.label,
-   ...(typeof item.stance==='string'?{stance:item.stance}:{}),
+   ...(owners?{owners}:{}),...(typeof item.stance==='string'?{stance:item.stance}:{}),
    ...(typeof state==='string'?{clue:state==='needs'&&needs?`needs ${needs}`:state}:{})};
   const cost=Buffer.byteLength(JSON.stringify(catalog))+160;
   if(this.activeExhibits.size>=48||this.bytes+cost>32768){this.exhibitsOmitted++;return;}
   if(!ref){if(this.aliases.size>=2048)this.aliases.delete(this.aliases.keys().next().value!);ref=`exhibit_${++this.exhibitOrdinal}`;this.aliases.set(identity,ref);}
   catalog.ref=ref;this.bytes+=cost;
-  this.exhibitRows.set(ref,{exhibit_id:item.exhibit_id,kind:item.kind,label:item.label,carrier:item.carrier?.display_name,catalog});this.activeExhibits.add(ref);
+  this.exhibitRows.set(ref,{exhibit_id:item.exhibit_id,kind:item.kind,label:item.label,carrier:item.carrier?.display_name,...(owners?{owners}:{}),catalog});this.activeExhibits.add(ref);
  }
  /** The exhibit references this turn's catalog issued, for the decision-content telemetry. */
  exhibitIssue():{issued:string[];omitted:number} {return {issued:[...this.activeExhibits],omitted:this.exhibitsOmitted};}
@@ -200,29 +203,53 @@ export class DecisionContent {
   * here is refused whole with a repair naming it. Each undiscovered clue an exhibit teaches becomes the clue's ordinary
   * discovery effect (its own validation applies); a discovered clue gets none. The author receives the surface only.
   */
- settleExhibits(reveal:unknown[],current:Row[]):{effects:Row[];selected:string[];authors:Map<string,Row>;taughtBy:Map<string,string>} {
+ settleExhibits(reveal:unknown[],current:Row[],interactions:{actor:string;content?:unknown[]}[]=[]):{effects:Row[];selected:string[];authors:Map<string,Row>;taughtBy:Map<string,string>} {
   const effects:Row[]=[],selected:string[]=[],authors=new Map<string,Row>(),taughtBy=new Map<string,string>();
-  for(const content of reveal){
+  // §257.T1: what a person says is settled with what the investigators read; the speaker must be an owner of the testimony.
+  const asked=[...reveal.map(content=>({content,actor:undefined as string|undefined})),...interactions.flatMap(response=>(response.content??[]).map(content=>({content,actor:response.actor as string|undefined})))];
+  for(const {content,actor} of asked){
    const ref=(content as Row)?.exhibit_ref;if(typeof ref!=='string')continue;
    const issued=this.exhibitRows.get(ref);
    if(!issued||!this.activeExhibits.has(ref))throw new ExhibitRefusal(`Exhibit ${ref} is not issued for this turn; select one from decision_materials.exhibits`,'unissued',ref);
+   this.assertSpeaker(ref,issued,actor);
    const now=current.find(row=>row.exhibit_id===issued.exhibit_id);
-   if(!now)throw new ExhibitRefusal(`Exhibit ${ref} (${issued.label}) cannot be revealed: its carrier, ${issued.carrier}, is not here now. Leave {exhibit_ref:"${ref}"} out of reveal, or reveal it once its carrier is in the scene.`,'carrier_absent',ref);
+   if(!now)throw new ExhibitRefusal(issued.kind==='testimony'
+     ?`Exhibit ${ref} (${issued.label}) cannot be spoken: ${this.ownerNames(issued)} ${issued.owners.length>1?'are':'is'} not here now. Leave {exhibit_ref:"${ref}"} out of interactions, or speak it once an owner is in the scene.`
+     :`Exhibit ${ref} (${issued.label}) cannot be revealed: its carrier, ${issued.carrier}, is not here now. Leave {exhibit_ref:"${ref}"} out of reveal, or reveal it once its carrier is in the scene.`,'carrier_absent',ref);
    if(!selected.includes(ref))selected.push(ref);
    for(const state of rows(now.clue_states))if(state.state!=='discovered'&&typeof state.clue==='string'&&!taughtBy.has(state.clue)){taughtBy.set(state.clue,ref);effects.push({kind:'clue',clue:state.clue});}
    const surface=now.surface??{};
+   if(now.kind==='testimony'){
+    // The speaker's claim: what is said, how it is held, never what it teaches or where the book keeps it.
+    const stance=typeof now.stance==='string'?now.stance:'fact',unreliable=['lie','deflection'].includes(stance);
+    authors.set(ref,{kind:'exhibit',exhibit:{kind:'testimony',channel:now.channel,surface:surface.text,stance},
+     authority:unreliable?'What this speaker says, in their terms; not world truth. Render as their speech; do not correct or expose it in narration.':'What this speaker says, in their terms.'});
+    continue;
+   }
    authors.set(ref,{kind:'exhibit',exhibit:{kind:now.kind,channel:now.channel,carrier:now.carrier?.display_name,surface:surface.text,...(typeof now.stance==='string'?{stance:now.stance}:{})},
     authority:['lie','deflection'].includes(now.stance)?'What this speaker says, in their terms; not world truth. Render as their speech; do not correct or expose it in narration.'
      :surface.verbatim===true?'Render faithfully in the play language; do not summarize.':'Perceivable book material; render it in the play language without adding what it does not show.'});
   }
   return {effects,selected,authors,taughtBy};
  }
+ private ownerNames(issued:Row):string {return (issued.owners as string[]).map(owner=>this.entityLabels.has(owner)?`${owner} (${this.entityLabels.get(owner)})`:owner).join(', ');}
+ /** Reveal takes no testimony; speech takes testimony only from its owners, and the refusal names them. */
+ private assertSpeaker(ref:string,issued:Row,actor:string|undefined):void {
+  if(issued.kind==='testimony'){
+   if(actor===undefined)throw new ExhibitRefusal(`Exhibit ${ref} (${issued.label}) is testimony: a person says it, so it belongs in an interaction's content, not in reveal. Its owners: ${this.ownerNames(issued)}.`,'testimony_revealed',ref);
+   if(!(issued.owners as string[]).includes(actor))throw new ExhibitRefusal(`Exhibit ${ref} (${issued.label}) can be said only by its owners: ${this.ownerNames(issued)}. ${actor} is not one of them; give the interaction to an owner or leave {exhibit_ref:"${ref}"} out.`,'not_owner',ref);
+  }else if(actor!==undefined)throw new ExhibitRefusal(`Exhibit ${ref} (${issued.label}) is a ${issued.kind} the investigators read or perceive; a person does not speak it. Select it in reveal.`,'not_owner',ref);
+ }
+ /** Replace each speaker-claim placeholder with the author's claim for that exhibit. */
+ authorClaims(responses:HydratedInteraction[],authors:Map<string,Row>):HydratedInteraction[] {
+  return responses.map(response=>response.claims?{...response,claims:response.claims.map(claim=>claim.kind==='exhibit'&&typeof claim.ref==='string'?authors.get(claim.ref)??(()=>{throw Error('An exhibit selection reached the author unsettled');})():claim)}:response);
+ }
  /** Replace the selection placeholders with what the author may see, in the Keeper's order. */
  authorMaterials(materials:Row[],authors:Map<string,Row>):Row[] {
   return materials.map(material=>material.kind==='exhibit'?authors.get(material.ref)??(()=>{throw Error('An exhibit selection reached the author unsettled');})():material);
  }
  addEntities(values:readonly string[]):void {for(const value of values)this.entities.add(value);}
- bindings():DecisionBindings {return {entities:[...this.entities],people:[...this.people],places:[...this.places],facts:[...this.active].filter(ref=>ref.startsWith('fact_')&&!['current_document','public_scene_history'].includes(this.facts.get(ref)?.kind??'')),narrationFacts:[...this.active].filter(ref=>ref.startsWith('fact_')&&!this.facts.get(ref)?.actor),sources:[...this.active].filter(ref=>ref.startsWith('source_')),exhibits:[...this.activeExhibits],revealExhibits:[...this.activeExhibits].filter(ref=>['document','perception'].includes(this.exhibitRows.get(ref)?.kind)),speechExhibits:[],factActors:Object.fromEntries([...this.active].flatMap(ref=>this.facts.get(ref)?.actor?[[ref,this.facts.get(ref)!.actor!]]:[]))};}
+ bindings():DecisionBindings {return {entities:[...this.entities],people:[...this.people],places:[...this.places],facts:[...this.active].filter(ref=>ref.startsWith('fact_')&&!['current_document','public_scene_history'].includes(this.facts.get(ref)?.kind??'')),narrationFacts:[...this.active].filter(ref=>ref.startsWith('fact_')&&!this.facts.get(ref)?.actor),sources:[...this.active].filter(ref=>ref.startsWith('source_')),exhibits:[...this.activeExhibits],revealExhibits:[...this.activeExhibits].filter(ref=>['document','perception'].includes(this.exhibitRows.get(ref)?.kind)),speechExhibits:[...this.activeExhibits].filter(ref=>this.exhibitRows.get(ref)?.kind==='testimony'),factActors:Object.fromEntries([...this.active].flatMap(ref=>this.facts.get(ref)?.actor?[[ref,this.facts.get(ref)!.actor!]]:[]))};}
  private listenerAlias(value:string,ref:string):void {
   const key=value.normalize('NFKC').trim().toLowerCase(),prior=this.listenerAliases.get(key);
   this.listenerAliases.set(key,prior!==undefined&&prior!==ref?null:ref);
@@ -244,7 +271,7 @@ export class DecisionContent {
   if(selected.exhibit_ref!==undefined){
    const issued=this.exhibitRows.get(selected.exhibit_ref);
    if(!issued||!this.activeExhibits.has(selected.exhibit_ref))throw Error('Unissued, retired or wrong-kind communication reference');
-   if(actor!==undefined)throw Error('A document or perception exhibit is revealed to the investigators; a person does not speak it');
+   this.assertSpeaker(selected.exhibit_ref,issued,actor);
    return {kind:'exhibit',ref:selected.exhibit_ref};
   }
   const key=selected.fact_ref??selected.source_ref,fact=this.facts.get(key);

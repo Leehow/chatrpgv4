@@ -104,8 +104,8 @@ test('the Keeper catalog lists in-scope document and perception exhibits without
   const run=await play(t,[reveals(['exhibit-desk-tap'])]);
   const catalog=run.catalog;
   assert.ok(catalog,'the Keeper was sent a catalog');
-  assert.deepEqual(catalog.exhibits.map(entry=>entry.label.replace('LABEL ','')),['exhibit-drawer','exhibit-desk-tap','exhibit-knott-badge','exhibit-commission'],
-    'scene first, then the person present, then handouts; description, appearance, voice, testimony and out-of-scope carriers are not issued');
+  assert.deepEqual(catalog.exhibits.map(entry=>entry.label.replace('LABEL ','')),['exhibit-drawer','exhibit-desk-tap','exhibit-knott-says','exhibit-knott-badge','exhibit-commission'],
+    'scene first, then the person present (his testimony, §257.T1, then his badge), then handouts; description, appearance, voice and out-of-scope carriers are not issued');
   const text=JSON.stringify(catalog.exhibits);
   for(const hidden of ['SURFACE','A key ring','taps the desk','Twenty dollars','KEEPER_NOTE','keeper_note','surface'])assert.ok(!text.includes(hidden),hidden);
   const drawer=catalog.exhibits.find(entry=>entry.label==='LABEL exhibit-drawer');
@@ -114,7 +114,10 @@ test('the Keeper catalog lists in-scope document and perception exhibits without
   assert.equal(drawer.carrier,'Knott\'s Office');
   assert.equal(catalog.exhibits.find(entry=>entry.label==='LABEL exhibit-commission').clue,'open');
   assert.equal(catalog.exhibits.find(entry=>entry.label==='LABEL exhibit-desk-tap').clue,undefined);
-  assert.equal(catalog.coverage.exhibits.issued,4);
+  assert.equal(catalog.coverage.exhibits.issued,5);
+  const says=catalog.exhibits.find(entry=>entry.label==='LABEL exhibit-knott-says');
+  assert.deepEqual(Object.keys(says).sort(),['carrier','channel','clue','kind','label','owners','ref','stance'],'a testimony entry names its owners as npc_N and its stance');
+  assert.deepEqual([says.owners,says.stance,says.clue,says.kind],[['npc_1'],'lie','open','testimony']);
   assert.equal(catalog.exhibits.find(entry=>entry.label==='LABEL exhibit-knott-badge').carrier,'the man behind the desk','a person carrier shows the public display, the epithet before an introduction');
 });
 
@@ -138,7 +141,7 @@ test('revealing a document that teaches a clue discovers the clue once; the auth
   for(const hidden of ['KEEPER_NOTE','LABEL exhibit','teaches','exhibit_id','{{who'])assert.ok(!text.includes(hidden),hidden);
   const rows=table.telemetry().filter(row=>row.lane==='decision-content'&&row.event==='exhibits');
   assert.equal(rows.length,2);
-  assert.deepEqual([rows[0].issued.length,rows[0].selected,rows[0].refused],[4,[refOfIssued(run.seen[0],'exhibit-commission')],[]]);
+  assert.deepEqual([rows[0].issued.length,rows[0].selected,rows[0].refused],[5,[refOfIssued(run.seen[0],'exhibit-commission')],[]]);
   assert.equal(rows[0].author_bytes,Buffer.byteLength(JSON.stringify([material]),'utf8'));
   // The same exhibit again: still readable by the table, and the clue is not discovered a second time.
   assert.equal(run.seen[1].exhibits.find(entry=>entry.label==='LABEL exhibit-commission').clue,'discovered');
@@ -193,7 +196,7 @@ test('{{who:}} resolves to the name once the table knows it; a perception with n
 const row=(id,extra={})=>({exhibit_id:id,kind:'document',channel:'text',scope:'handout',carrier:{id:'handout-a',node_kind:'handout',display_name:'Handout A'},label:`Label ${id}`,
   surface:{text:`Surface ${id}`,language:'en',verbatim:false},...extra});
 const taught=(...clues)=>({teaches:clues,clue:{state:'open'},clue_states:clues.map(clue=>({clue,state:'open'}))});
-const capsule={_context:{task_source_revision:'s1'},where:{scene:'Office'},present:[{ref:'npc_1',display_name:'The clerk'}]};
+const capsule={_context:{task_source_revision:'s1'},where:{scene:'Office'},present:[{ref:'npc_1',id:'the-clerk',display_name:'The clerk'},{ref:'npc_2',id:'the-porter',display_name:'The porter'}]};
 
 test('the catalog keeps a stable alias per exhibit, never carries a surface, and omits past its cap with a recorded count',()=>{
   const owner=new DecisionContent();
@@ -209,13 +212,14 @@ test('the catalog keeps a stable alias per exhibit, never carries a surface, and
 
 test('reveal accepts exactly the issued document and perception references; a person cannot speak one',()=>{
   const owner=new DecisionContent();
-  owner.prepare('c:1',capsule,[],[],['Investigator'],[],[],[row('a'),row('t',{kind:'testimony',channel:'speech',stance:'lie',owners:['npc-x']})]);
+  owner.prepare('c:1',capsule,[],[],['Investigator'],[],[],[row('a'),row('t',{kind:'testimony',channel:'speech',stance:'lie',owners:['the-clerk']})]);
   const bindings=owner.bindings(),schema=turnPacketParameterSchema(false,undefined,undefined,false,bindings);
-  assert.deepEqual(bindings.revealExhibits,['exhibit_1']);
+  assert.deepEqual(bindings.revealExhibits,['exhibit_1']);assert.deepEqual(bindings.speechExhibits,['exhibit_2']);
   assert.equal(Errors(schema,{version:4,reveal:[{exhibit_ref:'exhibit_1'}]}).length,0);
   assert.ok(Errors(schema,{version:4,reveal:[{exhibit_ref:'exhibit_2'}]}).length,'a testimony exhibit is not a reveal');
   assert.ok(Errors(schema,{version:4,reveal:[{exhibit_ref:'exhibit_9'}]}).length,'an unissued reference is refused by the schema');
-  assert.ok(Errors(schema,{version:4,interactions:[{actor:'npc_1',to:['investigator_1'],act:'answer',content:[{exhibit_ref:'exhibit_1'}]}]}).length,'speech selects no exhibit before testimony exists');
+  assert.ok(Errors(schema,{version:4,interactions:[{actor:'npc_1',to:['investigator_1'],act:'answer',content:[{exhibit_ref:'exhibit_1'}]}]}).length,'a document is not said');
+  assert.equal(Errors(schema,{version:4,interactions:[{actor:'npc_1',to:['investigator_1'],act:'answer',content:[{exhibit_ref:'exhibit_2'}]}]}).length,0,'testimony is selectable in speech');
   assert.throws(()=>owner.resolve({exhibit_ref:'exhibit_1'},'npc_1'),/does not speak/);
   assert.deepEqual(owner.hydrate([],[{exhibit_ref:'exhibit_1'}]).materials,[{kind:'exhibit',ref:'exhibit_1'}],'a selection is a placeholder until settlement gives the author its surface');
 });
@@ -238,4 +242,108 @@ test('settlement compiles each undiscovered taught clue once and refuses an exhi
 test('packet guidance prefers revealing the exhibit to applying the clue it teaches',()=>{
   assert.match(TURN_PACKET_GUIDANCE,/exhibit_ref/);
   assert.match(TURN_PACKET_GUIDANCE,/do not apply the clue it teaches/);
+});
+
+// ---- §257.T1: testimony, lies and deflections ----
+const says=(ids,extra={})=>catalog=>[fauxToolCall('output',{version:4,commands:[],...extra,
+  interactions:[{actor:'npc_1',to:['investigator_1'],act:'answer',content:ids.map(id=>({exhibit_ref:refOf(catalog,id)}))}]})];
+
+test('an owner says a lie: the clue it teaches is discovered once and the author gets the speaker\'s claim with the authority line',async t=>{
+  const {table,seen}=await play(t,[says(['exhibit-knott-says']),says(['exhibit-knott-says'])],{prompts:['I ask Knott about the commission.','I ask Knott again.']});
+  assert.deepEqual(table.extensionErrors,[]);assert.deepEqual(errorsOf(table),[]);
+  assert.equal(clueReceipts(table).length,1,'testimony that teaches a clue discovers it under the clue\'s own rules');
+  assert.equal(discovered(table).filter(name=>/knott-commission/.test(name)).length,1);
+  const response=authorTask(table).decision_context.responses.find(entry=>entry.actor==='npc_1');
+  assert.ok(response,'the owner\'s response reached the author');
+  assert.equal(response.claims.length,1);
+  assert.deepEqual(response.claims[0],{kind:'exhibit',exhibit:{kind:'testimony',channel:'speech',surface:'SURFACE exhibit-knott-says',stance:'lie'},
+    authority:'What this speaker says, in their terms; not world truth. Render as their speech; do not correct or expose it in narration.'});
+  const text=JSON.stringify(authorTask(table));
+  for(const hidden of ['KEEPER_NOTE','LABEL exhibit','teaches','exhibit_id','knott-commission'])assert.ok(!text.includes(hidden),hidden);
+  assert.equal(seen[1].exhibits.find(entry=>entry.label==='LABEL exhibit-knott-says').clue,'discovered');
+  assert.equal(clueReceipts(table,2).length,0,'saying it again discovers nothing twice');
+  const row=table.telemetry().find(entry=>entry.lane==='decision-content'&&entry.event==='exhibits');
+  assert.deepEqual(row.selected,[refOfIssued(seen[0],'exhibit-knott-says')]);
+});
+
+test('a fact testimony carries the plain speaker line; a deflection the lie line',async t=>{
+  const exhibits=EXHIBITS().map(item=>item.exhibit_id==='exhibit-knott-says'?{...item,stance:'fact',teaches:undefined}:item);
+  const {table}=await play(t,[says(['exhibit-knott-says'])],{options:{exhibits}});
+  assert.deepEqual(errorsOf(table),[]);
+  const claim=authorTask(table).decision_context.responses.find(entry=>entry.actor==='npc_1').claims[0];
+  assert.deepEqual([claim.exhibit.stance,claim.authority],['fact','What this speaker says, in their terms.']);
+  assert.equal(clueReceipts(table).length,0,'a testimony teaching nothing discovers nothing');
+});
+
+test('testimony whose owner left refuses the packet naming the owner, and settles nothing',async t=>{
+  const {table,seen}=await play(t,[(catalog,table)=>[rawToolCall('apply',{effects:[{kind:'npc',name:'npc_1',to:'away',why:'Knott steps out of the office.'}]}),...says(['exhibit-knott-says'])(catalog)],reveals([])],{prompts:['I ask Knott about the commission.']});
+  assert.deepEqual(table.extensionErrors,[]);
+  const refused=errorsOf(table);
+  assert.equal(refused.length,1,JSON.stringify(refused));
+  assert.equal(refused[0].details.reason,'exhibit_carrier_absent');
+  assert.match(refused[0].message,/npc_1/);assert.ok(refused[0].message.includes(refOfIssued(seen[0],'exhibit-knott-says')));
+  assert.equal(clueReceipts(table).length,0);
+});
+
+test('a non-owner is refused with the owners named; testimony in reveal is refused; speaking a document is refused',()=>{
+  const owner=new DecisionContent();
+  const clerk=row('t',{kind:'testimony',channel:'speech',scope:'person',stance:'deflection',owners:['the-clerk'],...taught('clue-t')});
+  owner.prepare('c:1',capsule,[],[],['Investigator'],[],[],[clerk,row('d')]);
+  assert.deepEqual(owner.bindings().speechExhibits,['exhibit_1']);
+  const catalog=owner.prepare('c:1',capsule,[],[],['Investigator'],[],[],[clerk,row('d')]).exhibits;
+  assert.deepEqual(catalog[0].owners,['npc_1']);
+  const speak=actor=>[{actor,content:[{exhibit_ref:'exhibit_1'}]}];
+  assert.throws(()=>owner.settleExhibits([],[clerk],speak('npc_2')),error=>error instanceof ExhibitRefusal&&error.reason==='not_owner'&&/npc_1 \(The clerk\)/.test(error.message)&&/npc_2/.test(error.message)&&/exhibit_1/.test(error.message));
+  assert.throws(()=>owner.settleExhibits([{exhibit_ref:'exhibit_1'}],[clerk]),error=>error instanceof ExhibitRefusal&&error.reason==='testimony_revealed'&&/npc_1/.test(error.message));
+  assert.throws(()=>owner.settleExhibits([],[row('d')],[{actor:'npc_1',content:[{exhibit_ref:'exhibit_2'}]}]),error=>error instanceof ExhibitRefusal&&/does not speak|a person does not speak/.test(error.message));
+  assert.throws(()=>owner.resolve({exhibit_ref:'exhibit_1'},'npc_2'),/npc_1 \(The clerk\)/);
+  const settled=owner.settleExhibits([],[clerk],speak('npc_1'));
+  assert.deepEqual(settled.effects,[{kind:'clue',clue:'clue-t'}]);
+  const claims=owner.authorClaims(owner.hydrate([{actor:'npc_1',to:['investigator_1'],act:'answer',content:[{exhibit_ref:'exhibit_1'}]}]).responses,settled.authors)[0].claims;
+  assert.deepEqual(claims,[{kind:'exhibit',exhibit:{kind:'testimony',channel:'speech',surface:'Surface t',stance:'deflection'},
+    authority:'What this speaker says, in their terms; not world truth. Render as their speech; do not correct or expose it in narration.'}]);
+});
+
+// ---- §257.T1: {{who:}} in first sight and in speech_style ----
+const TOKENED=()=>[
+  exhibit('exhibit-office-sight','description',OFFICE,'sight',{surface:surface('{{who:npc-steven-knott}} sits behind a cluttered desk.')}),
+  exhibit('exhibit-knott-look','appearance',KNOTT,'sight',{surface:surface('{{who:npc-steven-knott}} is gaunt, in a rumpled suit.')}),
+  exhibit('exhibit-knott-voice','voice',KNOTT,'speech',{owners:[KNOTT],surface:surface('Clipped; {{who:npc-steven-knott}} never finishes a sentence he can trail off.')}),
+];
+const greet=catalog=>[fauxToolCall('output',{version:4,commands:[],interactions:[{actor:'npc_1',to:['investigator_1'],act:'greet'}]})];
+
+test('first-sight words and speech_style reach the author with {{who:}} resolved: the epithet before the name is told',async t=>{
+  const {table}=await play(t,[greet],{options:{exhibits:TOKENED()},prompts:['I step into the office.']});
+  assert.deepEqual(table.extensionErrors,[]);assert.deepEqual(errorsOf(table),[]);
+  const task=authorTask(table),text=JSON.stringify(task);
+  assert.ok(!text.includes('{{who'),'no token reaches the author');
+  const context=task.decision_context;
+  assert.equal(context.scene.first_sight.place.described,'the man behind the desk sits behind a cluttered desk.');
+  assert.equal(context.scene.first_sight.people[0].described,'the man behind the desk is gaunt, in a rumpled suit.');
+  assert.equal(context.people.find(person=>person.ref==='npc_1').speech_style,'Clipped; the man behind the desk never finishes a sentence he can trail off.');
+});
+
+test('once the table has been told the name, first sight and speech_style carry it',async t=>{
+  const {table}=await play(t,[greet],{options:{exhibits:TOKENED(),named:true},prompts:['I step into the office.']});
+  assert.deepEqual(errorsOf(table),[]);
+  const context=authorTask(table).decision_context;
+  assert.equal(context.scene.first_sight.place.described,'Steven Knott sits behind a cluttered desk.');
+  assert.equal(context.people.find(person=>person.ref==='npc_1').speech_style,'Clipped; Steven Knott never finishes a sentence he can trail off.');
+});
+
+test('the first-sight check still locates an excerpt of the resolved words, whichever wording the capsule carried',async t=>{
+  const root=contentWith(t,TOKENED()),workspace=mkdtempSync(join(tmpdir(),'exhibit-who-'));
+  t.after(()=>rmSync(workspace,{recursive:true,force:true}));
+  await opened(workspace,root,{});
+  const client=new RpcClient(workspace,{content:root});
+  try{
+    const check=missing=>client.ok('table.first_sight',{campaign:'test-camp',turn:0,items:[{id:'commission-briefing',kind:'place',missing:[missing]}]});
+    const epithet=await check('the man behind the desk sits behind');
+    assert.deepEqual(epithet.dropped,[],JSON.stringify(epithet));
+    assert.deepEqual(epithet.open[0].missing,['the man behind the desk sits behind']);
+    const named=await check('Steven Knott sits behind');
+    assert.deepEqual(named.open?.[0]?.missing??named.dropped,['Steven Knott sits behind'],'the book\'s own name locates too: a name told since the capsule must not hide the excerpt');
+    const none=await check('{{who:npc-steven-knott}} sits');
+    assert.equal(none.dropped[0]?.reason,'missing_not_in_book','the token itself is never the book\'s wording');
+  }finally{await client.close();}
 });

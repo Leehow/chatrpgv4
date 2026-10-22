@@ -51925,3 +51925,32 @@ when there are none. Only `surface.text` is carried: `label`, `keeper_note`, `te
 person has no voice exhibit, `speech_style` is the derived profile `expression` as before, and absent when neither
 exists. narration-craft 2.6.1 and zh-optimize 1.4.1 speak of `speech_style` instead of voice cards and masks. Tests:
 `tests/extension/module-exhibits-contract.test.mjs` (the `§257.V1` cases) and `tests/extension/decision-only-v4.test.mjs`.
+
+### 257.T1 Testimony, lies and deflections (ticket 04; placeholder number)
+
+Testimony joins the exhibit read (`REVEALABLE_EXHIBIT_KINDS` gains `testimony`). A testimony exhibit is in scope when an owner is present
+(`npcsPresent`); its carrier may be elsewhere, because a person can tell of a place. The row adds `owners: [<handle>]` (the owners present) and
+`stance` (`fact` when the graph gives none); scope is `person`.
+
+- **Catalog.** `DecisionContent` maps each owner handle to the `npc_N` the capsule issues (`present[].id` to `ref`) and lists
+  `{ref, kind: "testimony", channel, carrier, label, owners: ["npc_N"], stance, clue?}`. A testimony none of whose owners has an issued
+  reference is not issued. `DecisionBindings.speechExhibits` is the issued testimony; `revealExhibits` stays document and perception.
+- **Binding.** `interactions[].content: [{exhibit_ref}]` selects testimony. The per-turn schema admits only the issued testimony references;
+  the owner rule is the host's, not the schema's, so the repair can name the owners. Settlement (`settleExhibits(reveal, current, interactions)`)
+  refuses before anything is written: a non-owner actor (`exhibit_not_owner`, naming each owner as `npc_N (display)`), testimony in `reveal`
+  (`exhibit_testimony_revealed`), a document or perception in a person's content (`exhibit_not_owner`, "select it in reveal"), and a testimony
+  whose owners have left (`exhibit_carrier_absent`, "none of its speakers is here").
+- **Clues.** A testimony that teaches a clue compiles the clue's ordinary `{kind:"clue"}` effect under §257.C3: one discovery, ahead of the
+  packet's other effects, the clue's own check applies, and a refusal names the exhibit.
+- **Author input.** The speaker's claim replaces the placeholder inside that interaction's `claims`:
+  `{kind: "exhibit", exhibit: {kind: "testimony", channel, surface, stance}, authority}`. `authority` is, for `lie` and `deflection`, "What this
+  speaker says, in their terms; not world truth. Render as their speech; do not correct or expose it in narration."; for `fact`, `belief` and
+  `rumor`, "What this speaker says, in their terms." The claim has no carrier, `teaches`, `keeper_note`, `label` or exhibit id. The same rows feed
+  `decision-content` telemetry (`selected`, `author_bytes` counts only `selected_materials`).
+- **`{{who:<node_id>}}` everywhere the author reads book words.** `kernel-ts/read/who.ts` is the one resolver (the name once told, else the
+  table's word; `someone` for a non-person). It now also runs over first-sight `described` (place and people, in the capsule and
+  `table.first_sight.view`), the scene's `public_scene.description`, and a voice's surfaces (so `speech_style`). The check lane's book
+  words (`table.first_sight`) are located in every wording the text may have been shown in (as now, with each token the name, with each token
+  the table's word), so a name told between the capsule and the check cannot hide an excerpt.
+
+Tests: `tests/extension/exhibit-reveal.test.mjs` (the `§257.T1` cases).

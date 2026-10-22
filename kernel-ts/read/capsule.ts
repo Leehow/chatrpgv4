@@ -24,6 +24,7 @@ import {reunionView} from '../npc/reunion.js';
 import {cardAction,cardTactic} from '../combat/standing.js';
 import {mechRow} from './mech-line.js';
 import { MASK_KEY } from '../voice/fields.js';
+import { whoResolver } from './who.js';
 import { weaknessChain, type ChainReads } from "./weaknesses.js";
 import { containers, placesWithin, personNamedLocations, roadMinutes } from "./places.js";
 import {personAppearance} from '../first-sight/index.js';
@@ -1098,7 +1099,8 @@ export function npcView(graph: ModuleGraph, world: Row, node: Row, ledger: Row =
     // table reads the rest in the fight itself. `combat` is the saved fight, so a Keeper's hold shows only in its round.
     // With the disposition table, a person without a disposition also carries what one is inferred from.
     Object.assign(view, cardAction(graph, world, node, combat, dispositions));
-    const voice=voiceSurfaces(graph,node);
+    // §257.T1: a voice's `{{who:}}` tokens are resolved here, before the author's speech_style is joined from them.
+    const resolveWho=whoResolver(graph,world,journal,records),voice=voiceSurfaces(graph,node).map(resolveWho);
     if(voice.length)view.voice=voice;
     const appearance=personAppearance(graph,node);
     if(appearance)view.public_appearance=appearance;

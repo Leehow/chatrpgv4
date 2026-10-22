@@ -19,6 +19,7 @@ import {validateRecallRequest} from './pages.js';
 import {referencedJob, referencedSource, submitReferenced} from './referenced.js';
 import {createMemoryEvidenceOwner} from './evidence.js';
 import {closeSatisfied, mergeOwed, owedNames, projectOwed, resolveOwedEquipment, readOwed, writeOwed} from '../owed/index.js';
+import {whoResolver,whoVariants} from '../read/who.js';
 import {applyFirstSight, checkFirstSightItems, FIRST_SIGHT_BUDGET, firstSightSection, fitFirstSight, readFirstSight, seenPerson, turnFirstSight, writeFirstSight} from '../first-sight/index.js';
 import {applyLooks, checkLookItems, lookTargets, turnLooks} from '../first-sight/looks.js';
 import {tableWord} from '../read/person-words.js';
@@ -187,14 +188,17 @@ async function warn(context: KernelContext, loaded: { campaign: CampaignWriter; 
  * `table.warn` it lands after the turn it read has closed and takes no call id: an item with nothing missing is shown,
  * any other is an open row the next capsule carries as `missing`. The record keeps the turn's results for a fork.
  */
-async function firstSight(context: KernelContext, loaded: { campaign: CampaignWriter; module: { graph: ModuleGraph } }, params: Row): Promise<Row> {
+async function whoVariantsOf(snapshot: CampaignSnapshot, graph: ModuleGraph) {
+    return whoVariants(graph, snapshot.world, row(await snapshot.optional('npc-journal.json')), await snapshot.turnRecords());
+}
+async function firstSight(context: KernelContext, loaded: { campaign: CampaignWriter; snapshot: CampaignSnapshot; module: { graph: ModuleGraph } }, params: Row): Promise<Row> {
     const { campaign, module } = loaded, turn = params.turn;
     if (!integer(turn) || number(turn) < 0)
         throw new RpcError('invalid_params', 'params.turn must be a committed turn number');
     const record = await campaign.readTurnRecord(number(turn));
     if (!record || !['narrate', 'ask'].includes(string(record.closed_by)))
         throw new RpcError('invalid_params', `turn ${turn} has no delivery record for a first-sight check`, { details: { turn } });
-    const { results, dropped } = checkFirstSightItems(module.graph, params.items), at = nowIso();
+    const { results, dropped } = checkFirstSightItems(module.graph, params.items, await whoVariantsOf(loaded.snapshot, module.graph)), at = nowIso();
     if (results.length) {
         await writeFirstSight(context, campaign.id, applyFirstSight(await readFirstSight(context, campaign.id), number(turn), results, at));
         record.first_sight = turnFirstSight(record.first_sight, results, at);
@@ -307,7 +311,7 @@ export function createMemoryHandlers(context: KernelContext, writer: ReturnType<
             let scene: Row;
             try { scene = module.graph.scene(string(snapshot.world.active_scene)); }
             catch { return { first_sight: null }; }
-            const section = firstSightSection(module.graph, snapshot.world, scene, await readFirstSight(context, campaign.id));
+            const section = firstSightSection(module.graph, snapshot.world, scene, await readFirstSight(context, campaign.id), whoResolver(module.graph, snapshot.world, row(await snapshot.optional('npc-journal.json')), await snapshot.turnRecords()));
             if (!section) return { first_sight: null };
             fitFirstSight(section, FIRST_SIGHT_BUDGET);
             return { first_sight: section, head: HEAD_FIRST_SIGHT.trim() };
