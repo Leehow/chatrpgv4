@@ -40,6 +40,8 @@
  *   FAKE_KERNEL_FIRST_SIGHT JSON object: the capsule's `first_sight` section (contract §168.5), before `present`;
  *                          `table.first_sight` lands on it as the kernel does: an empty `missing` takes the item out,
  *                          any other replaces its `described`. With nothing left the section is gone.
+ *   FAKE_KERNEL_LOOKS      JSON array: `table.looks.job`'s targets (contract §255); the job answers them beside the
+ *                          turn's delivered text until `table.looks` is called, then answers no targets.
  *   FAKE_KERNEL_ESTABLISH  JSON object: what `table.establish.view` answers while the place is owed (contract §203.4:
  *                          `{establish, review, present, era}`); the first world narrate establishes it, after which the view
  *                          answers `establish: null` unless asked with `look: true`. Not given: nothing is ever owed.
@@ -88,6 +90,9 @@ function untilMinutes(until, match) {
 /** The turn whose one §145.3 refusal was spent. */
 let timeGateTurn = -1;
 const ERRORS = process.env.FAKE_KERNEL_ERRORS ? JSON.parse(process.env.FAKE_KERNEL_ERRORS) : {};
+/** Contract §255: each closed turn's delivered text, what `table.looks.job` answers beside its targets. */
+const deliveredText = new Map();
+let lookTargets = process.env.FAKE_KERNEL_LOOKS ? JSON.parse(process.env.FAKE_KERNEL_LOOKS) : [];
 let firstSight = process.env.FAKE_KERNEL_FIRST_SIGHT ? JSON.parse(process.env.FAKE_KERNEL_FIRST_SIGHT) : null;
 const ESTABLISH = process.env.FAKE_KERNEL_ESTABLISH ? JSON.parse(process.env.FAKE_KERNEL_ESTABLISH) : null;
 /** §203.2: whether a world delivery has established the fixture's one place. */
@@ -1269,6 +1274,7 @@ function handle(method, params) {
 			// FAKE_KERNEL_NARRATE_MECHANICS: rows the real kernel would project for receipts this fake does not mint (§39.4's map updates).
 			const mechanics = [...turnMechanics, ...(process.env.FAKE_KERNEL_NARRATE_MECHANICS ? JSON.parse(process.env.FAKE_KERNEL_NARRATE_MECHANICS) : [])];
 			turnMechanics = [];
+			deliveredText.set(closed, params.text);
 			return {
 				ok: true,
 				result: {
@@ -1311,6 +1317,12 @@ function handle(method, params) {
 			return { ok: true, result: { turn: params.turn, shown: items.filter((item) => !item.missing.length).map(({ kind, id }) => ({ kind, id })),
 				open: items.filter((item) => item.missing.length), dropped: [] } };
 		}
+		case "table.looks.job":
+			return { ok: true, result: lookTargets.length && deliveredText.has(params.turn)
+				? { turn: params.turn, prose: deliveredText.get(params.turn), targets: structuredClone(lookTargets) } : { turn: params.turn, targets: [] } };
+		case "table.looks":
+			lookTargets = [];
+			return { ok: true, result: { turn: params.turn, kept: (params.items ?? []).map(({ kind, id }) => ({ kind, id })), dropped: [] } };
 		case "memory.job": {
 			// 缺省派发（不给 turn）：取还没抽过、也不在 backlog 里的那个回合（契约 §12.3）。
 			// 取走就出队，队空了回 job_id: null——补抽据此收手（#20）。

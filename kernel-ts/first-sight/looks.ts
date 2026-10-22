@@ -102,9 +102,10 @@ function target(graph: ModuleGraph, kind: string, id: string, index: number): st
  * with nothing is not recorded.
  */
 export function checkLookItems(graph: ModuleGraph, items: unknown, delivered: readonly string[]): { results: LookResult[]; dropped: Row[] } {
-    if (!Array.isArray(items) || !items.length || items.length > LOOK_TARGETS_MAX)
-        throw new RpcError('invalid_params', `params.items must be a list of 1 to ${LOOK_TARGETS_MAX} checked targets`,
-            { fix: 'send {kind, id, excerpts?, pronoun?} for each target the check answered' });
+    // An empty list is a check that found nothing: it still counts a try for each field the job wanted.
+    if (!Array.isArray(items) || items.length > LOOK_TARGETS_MAX)
+        throw new RpcError('invalid_params', `params.items must be a list of at most ${LOOK_TARGETS_MAX} checked targets`,
+            { fix: 'send {kind, id, excerpts?, pronoun?} for each target the check answered, or [] when it found nothing' });
     const results: LookResult[] = [], dropped: Row[] = [], seen = new Set<string>();
     for (const [index, entry] of items.entries()) {
         if (!isJsonObject(entry))

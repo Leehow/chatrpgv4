@@ -118,7 +118,7 @@ test('a field is written once, and a field asked for long enough without an answ
   assert.equal(find((await game.call('table.looks.job', {turn: 0})).targets, 'liu-guizhi'), undefined, 'nothing left to want');
 
   for (let i = 0; i < api.LOOK_TRIES_MAX; i++)
-    await game.call('table.looks', {turn: 0, items: [{kind: 'place', id: 'sanyi-teahouse', excerpts: [ROOM_ADDED]}]});
+    await game.call('table.looks', {turn: 0, items: i ? [] : [{kind: 'place', id: 'sanyi-teahouse', excerpts: [ROOM_ADDED]}]});
   const job = await game.call('table.looks.job', {turn: 0});
   assert.equal(find(job.targets, 'wang-tiezhu'), undefined, 'four checks without a look or pronoun for him: he is no longer asked');
 });

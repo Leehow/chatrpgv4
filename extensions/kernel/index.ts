@@ -208,6 +208,7 @@ import { firstSightPeople, untoldView, type UntoldNames } from "./untold-view.ts
 import { restoreTextualToolCalls } from "./textual-tool-calls.ts";
 import { createFirstSightTracker, type FirstSightTracker } from "./first-sight.ts";
 import { createFirstSightLane } from "../../runtime/jev/first-sight.ts";
+import type { LookTarget } from "../../runtime/jev/kept-looks.ts";
 import { createEstablishReviewLane } from "../../runtime/jev/establish-review.ts";
 import { checkEstablish, judgeAfterSteer, type EstablishItem, type EstablishPath, type EstablishReviewNote } from "./establish.ts";
 
@@ -4688,6 +4689,7 @@ export default function (pi: ExtensionAPI, host: {capabilities?:RuntimeCapabilit
 	function afterDeliveryFirstSight(state: TableState, turn: number, prose: string | undefined): void {
 		const earlier = state.lastDeliveredProse;
 		if (prose) state.lastDeliveredProse = prose;
+		if (prose) afterDeliveryLooks(state, turn);
 		const items = state.firstSight.take(turn);
 		if (!items.length || !prose) return;
 		const kernel = state.kernel, campaign = state.campaign, signal = state.lanes.signal;
@@ -4703,6 +4705,33 @@ export default function (pi: ExtensionAPI, host: {capabilities?:RuntimeCapabilit
 					code: isKernelError(error) ? error.code : "internal", detail: (error instanceof Error ? error.message : String(error)).slice(0, 200) });
 			}
 		});
+	}
+
+	/**
+	 * Contract §255: after every delivery, ask the kernel what the scene the turn ended in still wants recorded of how its
+	 * place and people look; when anything, the first-sight lane answers from the delivered text and `table.looks` keeps
+	 * it. Nothing waits for it: a failure records nothing, and the next delivery asks again.
+	 */
+	function afterDeliveryLooks(state: TableState, turn: number): void {
+		const kernel = state.kernel, campaign = state.campaign, signal = state.lanes.signal;
+		const timer = setTimeout(() => void (async () => {
+			if (signal.aborted) return;
+			let job: Record<string, unknown>;
+			try { job = await kernel.call("table.looks.job", { campaign, turn }) as Record<string, unknown>; }
+			catch { return; }
+			const targets = Array.isArray(job?.targets) ? job.targets as LookTarget[] : [];
+			if (!targets.length || typeof job.prose !== "string" || signal.aborted) return;
+			const result = await firstSightLane.looks({ turn, prose: job.prose, ...(typeof job.earlier === "string" ? { earlier: job.earlier } : {}), targets }, signal);
+			if (!result.ok || signal.aborted) return;
+			try {
+				// Every checked delivery is sent, kept or not: the kernel counts a try for each field still wanting.
+				await kernel.call("table.looks", { campaign, turn, items: result.items });
+			} catch (error) {
+				await record({ lane: "first-sight", event: "looks_recorded", ok: false, turn, reason: "kernel_refused",
+					code: isKernelError(error) ? error.code : "internal", detail: (error instanceof Error ? error.message : String(error)).slice(0, 200) });
+			}
+		})().catch(() => undefined), 0);
+		timer.unref?.();
 	}
 
 	/**
