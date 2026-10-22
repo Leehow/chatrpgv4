@@ -5935,11 +5935,12 @@ export default function (pi: ExtensionAPI, host: {capabilities?:RuntimeCapabilit
 					ok:!settled.details.coc_error,jev_extra_calls:0});
 				if(settled.details.coc_error){
 					const refusal=settled.details.coc_error as ConstructorParameters<typeof KernelError>[0],taughtBy=exhibits?.taughtBy.get(String((refusal.details as Record<string,unknown>|undefined)?.clue??''));
-					await record({lane:'decision-content',event:'exhibit_refused',turn:state.turn,run:reply.run,...materialOwner.exhibitIssue(),selected:exhibits?.selected??[],
+					// Only a refusal of a packet that selected exhibits is an exhibit refusal; any other refused apply is not logged as one.
+					if(exhibits?.selected.length||taughtBy)await record({lane:'decision-content',event:'exhibit_refused',turn:state.turn,run:reply.run,...materialOwner.exhibitIssue(),selected:exhibits?.selected??[],
 						refused:taughtBy?[{ref:taughtBy,reason:String((refusal.details as Record<string,unknown>|undefined)?.reason??refusal.code)}]:[]});
 					// The clue's own refusal names its check; an exhibit that taught it is named too, so one repair removes the selection.
 					throw new KernelError(taughtBy?{...refusal,message:`Exhibit ${taughtBy} teaches this clue and cannot be revealed yet: ${refusal.message}`,
-						fix:`Leave {exhibit_ref:"${taughtBy}"} out of reveal until the clue's check is met; ${refusal.fix??''}`.trim()}:refusal);
+						fix:`Leave {exhibit_ref:"${taughtBy}"} out of ${materialOwner.exhibitIsTestimony(taughtBy)?'interactions content':'reveal'} until the clue's check is met; ${refusal.fix??''}`.trim()}:refusal);
 				}
 				operationResult=turnPacketResult(settled.details);
 			}

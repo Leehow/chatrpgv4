@@ -228,6 +228,43 @@ test('a detail read with material exhibits is a valid job and writes only exhibi
     assert.notEqual((await f.call('module.read.request', {purpose: 'detail', material: 'exhibits', focus: 'Hall'})).state, 'ready');
 });
 
+test('the pages of an exhibits read are those the focus and the claims touching it cite, not those of unrelated claims', async () => {
+    const f = await kernelFixture();
+    await publishOpening(f);
+    // Edna cites page 1 and is present in the Hall (page 1); the Hall's route to the Cellar (page 2) does not touch her.
+    await f.call('module.read.request', {purpose: 'detail', material: 'exhibits', focus: 'Edna Marsh'});
+    assert.deepEqual((await f.claimJob()).pages, [1]);
+});
+
+test('an exhibits read is told which exhibits exist for its focus, and a new exhibit repeating one is not added', async () => {
+    const f = await kernelFixture();
+    await publishOpening(f);
+    await f.call('module.read.request', {purpose: 'detail', material: 'exhibits', focus: 'Edna Marsh'});
+    const first = await f.claimJob();
+    assert.deepEqual(first.existing_exhibits, []);
+    await f.publish(first, exhibitsOnly([exhibit('exhibit-edna-look', 'appearance', 'npc-edna-marsh', 'sight')]));
+    await f.call('module.read.request', {purpose: 'detail', material: 'exhibits', focus: 'Hall'});
+    const second = await f.claimJob();
+    assert.deepEqual(second.existing_exhibits, [{exhibit_id: 'exhibit-edna-look', carrier: 'npc-edna-marsh', kind: 'appearance'}], 'the people placed in the Hall count');
+    await f.publish(second, exhibitsOnly([exhibit('exhibit-edna-again', 'appearance', 'npc-edna-marsh', 'sight'),
+        exhibit('exhibit-hall', 'description', 'scene-hall', 'sight')]));
+    assert.deepEqual(ids(await f.graph()), ['exhibit-edna-look', 'exhibit-hall'], 'the same carrier, kind and text under a new id is the exhibit it already was');
+});
+
+test('a running background exhibits read never holds another read of its focus', async () => {
+    const f = await kernelFixture();
+    await publishOpening(f);
+    await f.call('module.read.request', {purpose: 'detail', material: 'exhibits', focus: 'Cellar', foreground: false});
+    const exhibits = await f.claimJob();
+    assert.equal(exhibits.material, 'exhibits');
+    const asked = await f.call('module.read.request', {purpose: 'detail', focus: 'Cellar', foreground: true});
+    assert.notEqual(asked.attached, true, 'the request is its own job, not attached to the exhibits read');
+    const claimed = await f.claimJob();
+    assert.equal(claimed.focus, 'Cellar');
+    assert.equal(claimed.material, undefined);
+    assert.notEqual(claimed.job_id, exhibits.job_id);
+});
+
 test('an exhibits read that finds nothing printed answers with an empty draft', async () => {
     const f = await kernelFixture();
     await publishOpening(f);

@@ -28,6 +28,8 @@ await build({stdin: {contents: [
     `export {ModuleStore} from './kernel-ts/modules/store.ts';`,
     `export {npcView} from './kernel-ts/read/capsule.ts';`,
     `export {decisionPerson} from './runtime/decision-content.ts';`,
+    `export {ModuleGraph} from './kernel-ts/read/module-graph.ts';`,
+    `export {exhibitsView} from './kernel-ts/read/exhibits.ts';`,
 ].join('\n'), resolveDir: root, sourcefile: 'module-exhibits-api.ts', loader: 'ts'},
     outfile: join(scratch, 'api.mjs'), bundle: true, packages: 'external', platform: 'node', format: 'esm', target: 'node22', logLevel: 'silent'});
 const api = await import(pathToFileURL(join(scratch, 'api.mjs')).href);
@@ -169,6 +171,9 @@ test('each checker refusal is a named reason, the exhibit is dropped and the res
         ['exhibit-full-name', bad('exhibit-full-name', 'appearance', 'npc-edna-marsh', 'sight', {surface: surface('Edna Marsh wipes the counter.')}), 'exhibit_name_in_surface'],
         ['exhibit-alias', bad('exhibit-alias', 'appearance', 'npc-edna-marsh', 'sight', {surface: surface('Everyone calls her Mrs Marsh.')}), 'exhibit_name_in_surface'],
         ['exhibit-other-person', bad('exhibit-other-person', 'description', 'scene-hall', 'sight', {surface: surface('Bob Hale sits by the stove.')}), 'exhibit_name_in_surface'],
+        ['exhibit-who-space', bad('exhibit-who-space', 'description', 'scene-hall', 'sight', {surface: surface('Beside {{ who:npc-bob-hale }} the stove.')}), 'exhibit_who_malformed'],
+        ['exhibit-who-unclosed', bad('exhibit-who-unclosed', 'description', 'scene-hall', 'sight', {surface: surface('Beside {{who:npc-bob-hale} the stove.')}), 'exhibit_who_malformed'],
+        ['exhibit-who-stray-close', bad('exhibit-who-stray-close', 'description', 'scene-hall', 'sight', {surface: surface('Beside the stove }} quietly.')}), 'exhibit_who_malformed'],
     ];
     const kept = [exhibit('exhibit-kept', 'description', 'scene-hall', 'sight', {surface: surface('A reference {{who:npc-bob-hale}} is not a literal name.')}),
         exhibit('exhibit-edna-ok', 'testimony', 'npc-edna-marsh', 'speech', {owners: ['npc-edna-marsh'], teaches: ['clue-ledger']})];
@@ -199,4 +204,41 @@ test('§257.16: voice exhibits win over a derived profile expression and several
     const base = {ref: 'npc_1', display_name: 'X', name_known: false, personality: {profile: {expression: 'Derived'}}};
     assert.equal(api.decisionPerson({...base, voice: ['One.', 'Two.']}, []).speech_style, 'One.\nTwo.');
     assert.equal(api.decisionPerson(base, []).speech_style, 'Derived');
+});
+
+// ---- review fixes: the exhibits read's scope and the carrier the author may be told ----
+const viewGraph = () => {
+    const at = (node_id, node_kind, name, extra = {}) => ({node_id, node_kind, name, aliases: [], summary: '', properties: {}, source_refs: [], ...extra});
+    const nodes = [at('scene-hall', 'scene', 'Hall'), at('npc-ann', 'npc', 'Ann Bell'), at('object-diary', 'object', 'Corbitt Diaries'), at('object-lamp', 'object', 'Brass Lamp'),
+        at('creature-rats', 'creature', 'Rat pack'), at('handout-letter', 'handout', 'Corbitt Letter'), at('handout-map', 'handout', 'Cellar Plan')];
+    const one = (exhibit_id, carrier, extra = {}) => ({exhibit_id, kind: 'perception', channel: 'sight', carrier, label: `label ${exhibit_id}`, surface: {text: `text ${exhibit_id}`, language: 'en', verbatim: false}, ...extra});
+    const exhibits = ['object-diary', 'object-lamp', 'creature-rats', 'handout-letter', 'handout-map', 'npc-ann'].map(id => one(`exhibit-${id}`, id));
+    const relations = [['handout-letter', 'handout-map', 'object-diary', 'object-lamp', 'creature-rats'].map((from, i) => ({relation_id: `r${i}`, relation_kind: 'depicts', from_node_id: from, to_node_id: 'scene-hall'}))].flat();
+    return new api.ModuleGraph('book-1', {nodes, relations, claims: [], exhibits}, '', {});
+};
+const viewOf = (graph, world) => Object.fromEntries(api.exhibitsView(graph, {active_scene: 'hall', npc_presence: {ann: 'hall'}, ...world}, graph.scene('hall')).exhibits.map(item => [item.exhibit_id.replace('exhibit-', ''), item]));
+
+test('an investigator-held object is in scope by its exact source_object identity, never by its name', () => {
+    const graph = viewGraph();
+    const held = (name, source_object) => ({objects: {instances: {a: {id: 'a', name, quantity: 1, owner: {kind: 'investigator', id: 'inv'}, ...(source_object ? {source_object} : {})}}}});
+    // The diary is not placed in the scene (no relation), so only the instance can put it in scope.
+    const lone = new api.ModuleGraph('book-1', {...graph.raw, relations: []}, '', {});
+    assert.equal(viewOf(lone, held('Corbitt Diaries'))['object-diary'], undefined, 'a name alone, even the book\'s own, holds nothing');
+    assert.equal(viewOf(lone, held('Corbitt Diaries', {module_id: 'another-book', node_id: 'object-diary'}))['object-diary'], undefined, 'another source\'s identity is not this book\'s');
+    const mine = viewOf(lone, held('my notes', {module_id: 'book-1', node_id: 'object-diary'}))['object-diary'];
+    assert.equal(mine.scope, 'object');
+    assert.equal(mine.carrier.public_label, 'my notes', 'the author hears the instance\'s own name');
+});
+
+test('the author\'s carrier is the table\'s public label only: no book name of a creature, handout or object', () => {
+    const graph = viewGraph(), view = viewOf(graph, {});
+    assert.equal(view['creature-rats'].carrier.display_name, 'Rat pack', 'the Keeper catalog keeps its label');
+    for (const id of ['creature-rats', 'handout-letter', 'handout-map', 'object-diary', 'object-lamp'])
+        assert.equal(Object.hasOwn(view[id].carrier, 'public_label'), false, `${id} has no public name yet`);
+    const shown = viewOf(graph, {handouts_shown: ['letter']});
+    assert.equal(shown['handout-letter'].carrier.public_label, 'Corbitt Letter', 'a shown handout has the name the table has for it');
+    assert.equal(Object.hasOwn(shown['handout-map'].carrier, 'public_label'), false);
+    const named = viewOf(graph, {person_epithets: {ann: {word: 'the clerk', by: 'graph'}}});
+    assert.equal(named['npc-ann'].carrier.public_label, 'the clerk', 'a person is the epithet until the name is told');
+    assert.equal(viewOf(graph, {person_labels: {rats: {name: 'the swarm'}}})['creature-rats'].carrier.public_label, 'the swarm', 'a creature by the name the table gave it');
 });

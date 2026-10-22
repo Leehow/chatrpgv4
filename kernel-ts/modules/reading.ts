@@ -660,10 +660,26 @@ export class Reading {
      */
     async queueSceneExhibits(graph: ModuleGraph, scene: Row): Promise<Row> {
         const mid = graph.moduleId;
-        if (graph.materialOverride || graph.exhibitsOf(string(scene.node_id)).length || !await this.store.exists(mid)) return { state: 'none' };
+        // The carriers an exhibits reading of the scene covers: the scene, the people and the handouts and objects the book places in it.
+        // A graph with exhibits on any of them was read for exhibits already; only one with none is legacy.
+        if (graph.materialOverride || Reading.exhibitCarriers(graph, scene).some(id => graph.exhibitsOf(id).length) || !await this.store.exists(mid)) return { state: 'none' };
         const focus = readingFocus(graph, scene);
         const reply = await this.request({ module_id: mid, purpose: 'detail', material: EXHIBITS_MATERIAL, focus, foreground: false });
         return { state: string(reply.state), focus, ...(truth(reply.job_id) ? { job_id: reply.job_id } : {}) };
+    }
+    /** §257.15: the node ids of the carriers an exhibits reading of `scene` covers (the scene, its people, its objects and handouts). */
+    static exhibitCarriers(graph: ModuleGraph, scene: Row): string[] {
+        return [...new Set([string(scene.node_id), ...graph.scenePeople(scene).map(person => person.id), ...graph.sceneAssetNodes(scene).map(node => string(node.node_id))])];
+    }
+    /**
+     * §257.R: what an exhibits reading of `focus` is told already exists: `{exhibit_id, carrier, kind}` of every exhibit carried by
+     * the focus node, or by the people and the objects and handouts the book places in it. The reader does not write these again.
+     */
+    static existingExhibits(graph: ModuleGraph, focus: string): Row[] {
+        const target = graph.find(focus);
+        if (!target) return [];
+        const carriers = target.node_kind === 'scene' ? Reading.exhibitCarriers(graph, target) : [string(target.node_id)];
+        return carriers.flatMap(id => graph.exhibitsOf(id).map(item => ({ exhibit_id: string(item.exhibit_id), carrier: string(item.carrier), kind: string(item.kind) })));
     }
     /**
      * §257.R: the pages an exhibits reading of `focus` opens: those the focus node cites and those of the nodes a claim links to it
@@ -675,7 +691,9 @@ export class Reading {
         const graph = await this.store.graph(mid), target = graph.find(focus);
         if (!target) return [];
         const raw = graph.raw, id = string(target.node_id), own = needMaterial(raw, id, mid).pages;
-        const linked = array(raw.claims).flatMap(claim => [row(claim).subject_id, row(row(claim).object).node_id]).filter((other): other is string => typeof other === 'string' && other !== id);
+        // Only the claims that touch the focus node itself: the others link unrelated nodes and would fill the cap with other places' pages.
+        const linked = array(raw.claims).filter(claim => row(claim).subject_id === id || row(row(claim).object).node_id === id)
+            .flatMap(claim => [row(claim).subject_id, row(row(claim).object).node_id]).filter((other): other is string => typeof other === 'string' && other !== id);
         const near = [...new Set(linked)].flatMap(other => citedBoundPages(array(row(array(raw.nodes).find(node => row(node).node_id === other)).source_refs), mid));
         return [...new Set([...own, ...near])].filter(page => page >= 1 && page <= pageCount).slice(0, EXHIBIT_READ_PAGES);
     }
@@ -1705,7 +1723,7 @@ export class Reading {
                 const identity = await this.focusIdentity(mid), wanted = identity(focus);
                 // §22.4.3 (SL-36): one live consultation per focus; a second question on a running focus attaches to it.
                 // A consultation of another context generation can never publish (§22.4.1): it is no reading to attach to.
-                settling = queue.find(job => job.state === 'running' && attachesReadingFocus(job) && sameReadingFocusDomain({purpose}, job) && Reading.meet(identity(job.focus), wanted)
+                settling = queue.find(job => job.state === 'running' && attachesReadingFocus(job) && sameReadingFocusDomain({purpose}, job) && (job.material !== EXHIBITS_MATERIAL || material === EXHIBITS_MATERIAL) && Reading.meet(identity(job.focus), wanted)
                     && (job.purpose !== 'answer' || equal(job.context_generation, meta.generation ?? 0)));
             }
             if (settling) {
@@ -1906,7 +1924,8 @@ export class Reading {
                 // generation (`resumeUnder`, below).
                 const blocking = truth(job.foreground);
                 // §22.2.1: the request's consultation and publication domains also govern claims.
-                const conflict = active.find(other => sameReadingFocusDomain(job, other)
+                // §257.15: a running background exhibits read writes exhibits only; it never holds another read of its focus.
+                const conflict = active.find(other => sameReadingFocusDomain(job, other) && !(other.material === EXHIBITS_MATERIAL && job.material !== EXHIBITS_MATERIAL)
                     && Reading.meet(identity(other.focus), identity(job.focus)));
                 if (conflict) { defer({job_id: job.job_id, reason: 'focus_busy', by_job: conflict.job_id}); continue; }
                 // §22.4.6: a blocking read takes any free slot; a background read never takes the last one.
@@ -2022,7 +2041,7 @@ export class Reading {
                     // §192.2: a job with pages meets the published nodes on its own pages first, ahead of the cast and the index.
                     const roster = scopePages.length ? packetRoster(known, scopePages, survivors) : null;
                     const packet: Row = { ...(roster ? { roster } : {}), ...visibleJob, ...identityTask, ...(needTask ? { source_need: needTask } : {}), ...(carried.length ? { carried_needs: carried } : {}),
-                        ...(castNames.length ? { cast_names: castNames } : {}),...(meta.source_reference?{reference_stream:true}:{}),...(meta.source==='pdf'&&['guidance','opening','detail','answer'].includes(job.purpose)?{review_policy:MODULE_LOGIC_REVIEW}:{}), module_id: mid, source, concurrency: READING_SLOTS, index: job.purpose === 'index' ? [] : await this.store.sections(mid), known_nodes: scoped.nodes, known_claims: scoped.claims, vocabulary: scopedVocabulary(wholeVocabulary, job), coverage_domains: [...array(contract.graph.coverage_domains)],
+                        ...(castNames.length ? { cast_names: castNames } : {}),...(job.material===EXHIBITS_MATERIAL?{existing_exhibits:Reading.existingExhibits(new ModuleGraph(mid,graph,'',{}),string(job.focus))}:{}),...(meta.source_reference?{reference_stream:true}:{}),...(meta.source==='pdf'&&['guidance','opening','detail','answer'].includes(job.purpose)?{review_policy:MODULE_LOGIC_REVIEW}:{}), module_id: mid, source, concurrency: READING_SLOTS, index: job.purpose === 'index' ? [] : await this.store.sections(mid), known_nodes: scoped.nodes, known_claims: scoped.claims, vocabulary: scopedVocabulary(wholeVocabulary, job), coverage_domains: [...array(contract.graph.coverage_domains)],
                         scope: { pages: scopePages, window: scopeView, known_nodes: scoped.nodes.length, known_claims: scoped.claims.length, packet_bytes: 0 } };
                     // The packet's compact JSON size with this field still zero: what an author is handed, before the host adds its own.
                     packet.scope.packet_bytes = Buffer.byteLength(pythonJsonDumps(packet));

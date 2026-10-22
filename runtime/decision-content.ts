@@ -196,6 +196,8 @@ export class DecisionContent {
   catalog.ref=ref;this.bytes+=cost;
   this.exhibitRows.set(ref,{exhibit_id:item.exhibit_id,kind:item.kind,label:item.label,carrier:item.carrier?.display_name,...(owners?{owners}:{}),catalog});this.activeExhibits.add(ref);
  }
+ /** Whether the issued exhibit is testimony, which is said in an interaction's content and never revealed. */
+ exhibitIsTestimony(ref:string):boolean {return this.exhibitRows.get(ref)?.kind==='testimony';}
  /** The exhibit references this turn's catalog issued, for the decision-content telemetry. */
  exhibitIssue():{issued:string[];omitted:number} {return {issued:[...this.activeExhibits],omitted:this.exhibitsOmitted};}
  /**
@@ -217,7 +219,7 @@ export class DecisionContent {
      ?`Exhibit ${ref} (${issued.label}) cannot be spoken: ${this.ownerNames(issued)} ${issued.owners.length>1?'are':'is'} not here now. Leave {exhibit_ref:"${ref}"} out of interactions, or speak it once an owner is in the scene.`
      :`Exhibit ${ref} (${issued.label}) cannot be revealed: its carrier, ${issued.carrier}, is not here now. Leave {exhibit_ref:"${ref}"} out of reveal, or reveal it once its carrier is in the scene.`,'carrier_absent',ref);
    if(!selected.includes(ref))selected.push(ref);
-   for(const state of rows(now.clue_states))if(state.state!=='discovered'&&typeof state.clue==='string'&&!taughtBy.has(state.clue)){taughtBy.set(state.clue,ref);effects.push({kind:'clue',clue:state.clue});}
+   for(const state of rows(now.clue_states))if(state.state!=='discovered'&&typeof state.clue==='string'&&!taughtBy.has(state.clue)){taughtBy.set(state.clue,ref);effects.push({kind:'clue',clue:state.clue,via_exhibit:String(issued.exhibit_id)});}
    const surface=now.surface??{};
    if(now.kind==='testimony'){
     // The speaker's claim: what is said, how it is held, never what it teaches or where the book keeps it.
@@ -226,7 +228,7 @@ export class DecisionContent {
      authority:unreliable?'What this speaker says, in their terms; not world truth. Render as their speech; do not correct or expose it in narration.':'What this speaker says, in their terms.'});
     continue;
    }
-   authors.set(ref,{kind:'exhibit',exhibit:{kind:now.kind,channel:now.channel,carrier:now.carrier?.display_name,surface:surface.text,...(typeof now.stance==='string'?{stance:now.stance}:{})},
+   authors.set(ref,{kind:'exhibit',exhibit:{kind:now.kind,channel:now.channel,...(typeof now.carrier?.public_label==='string'?{carrier:now.carrier.public_label}:{}),surface:surface.text,...(typeof now.stance==='string'?{stance:now.stance}:{})},
     authority:['lie','deflection'].includes(now.stance)?'What this speaker says, in their terms; not world truth. Render as their speech; do not correct or expose it in narration.'
      :surface.verbatim===true?'Render faithfully in the play language; do not summarize.':'Perceivable book material; render it in the play language without adding what it does not show.'});
   }

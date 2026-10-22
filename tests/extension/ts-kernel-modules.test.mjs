@@ -429,6 +429,10 @@ test('§257.15: the first arrival at a scene without exhibits queues one backgro
     // A scene that has an exhibit queues none.
     assert.deepEqual(await reading.queueSceneExhibits({__proto__:graph,exhibitsOf:id=>id==='scene-dock'?[{carrier:id}]:[]},graph.scene('Dock')),{state:'none'});
     assert.equal((await jobs()).length,1);
+    // A scene whose person, or whose handout, has an exhibit was read for exhibits already, though the scene itself carries none.
+    for(const carried of [{scenePeople:()=>[{id:'npc-someone',via:null}]},{sceneAssetNodes:()=>[{node_id:'npc-someone'}]}])
+      assert.deepEqual(await reading.queueSceneExhibits({__proto__:graph,...carried,exhibitsOf:id=>id==='npc-someone'?[{carrier:id}]:[]},graph.scene('Dock')),{state:'none'});
+    assert.equal((await jobs()).length,1);
     await reading.close();
   } finally {await book.close();}
 });
