@@ -10,6 +10,10 @@ import {createHybridEngine} from '../../runtime/jev/hybrid-engine.ts';
 import {bindDecisionAnswers} from '../../runtime/jev/contracts.ts';
 import {SAME_KEEPER_AFTER_RESULT_GUIDANCE} from '../../runtime/keeper-output-guidance.ts';
 
+// §249/§249.6: the single Keeper judges its own move and document lines itself; the batch's map reveal is the line the typed
+// consent review reads, and its uncertain verdict refuses the whole atomic batch.
+const MAP='player-corbitt-house-map';
+const mapTitle=workspace=>JSON.parse(readFileSync(join(workspace,'.coc/campaigns/test-camp/world.json'),'utf8')).map_labels?.[MAP]?.title;
 for(const recover of [true,false])test(`a refused native mixed batch ${recover?'can settle an independently authored event before prose':'does not automatically apply its event'}`,async t=>{
  let requests=0,decisions=0,firstPublicState;
  const event={name:'signed-local-statement',summary:'Thomas Hayes signs his own statement beside Knott. A proposed later journey remains unperformed.'};
@@ -19,7 +23,7 @@ for(const recover of [true,false])test(`a refused native mixed batch ${recover?'
    assert.equal(batch.state.settledReceipts.length,recover?1:0);
    return bindDecisionAnswers(batch,{held_result:{status:'answered',type:'noul',noul:.01}});
   }
-  assert.equal(batch.family,'continuous-action-admission');decisions++;
+  assert.equal(batch.family,'continuous-action-admission');decisions++;assert.deepEqual(batch.state.proposal.kinds,['map']);
   return bindDecisionAnswers(batch,Object.fromEntries(batch.questions.map(question=>[question.key,
    {status:'answered',type:'noul',noul:.45}])));
  }}});
@@ -34,7 +38,9 @@ for(const recover of [true,false])test(`a refused native mixed batch ${recover?'
     firstPublicState=table.runtimeBridges().at(-1).call('table.status',{campaign:'test-camp',projection:'receipts',expected_turn:1});});
   }}],responses:[()=>{requests++;return fauxAssistantMessage([fauxToolCall('apply',{effects:[
    {kind:'move',to:'Central Library',travel_minutes:15},
-   {kind:'npc',name:'Steven Knott',to:'Central Library'}],event})],{stopReason:'toolUse'});},context=>{
+   {kind:'npc',name:'Steven Knott',to:'Central Library'},
+   {kind:'map',name:MAP,regions:['ground-entry-hall'],region_labels:{'ground-entry-hall':'Entry hall'},level_labels:{'Ground Floor':'Ground floor'},
+    label:'Library trip planned.',why:'Knott spreads the house plan before the proposed journey.'}],event})],{stopReason:'toolUse'});},context=>{
    requests++;
    const previous=JSON.stringify(context.messages),tools=getCurrentTools(context.messages);
    assert.ok(previous.includes('action_admission_uncertain'));
@@ -55,6 +61,7 @@ for(const recover of [true,false])test(`a refused native mixed batch ${recover?'
  const turn=JSON.parse(readFileSync(join(table.workspace,'.coc/campaigns/test-camp/turns/0001.json')));
  assert.equal(turn.receipts.filter(receipt=>receipt.kind==='event').length,recover?1:0);
  assert.equal(turn.receipts.filter(receipt=>['move','npc','time'].includes(receipt.kind)).length,0);
+ assert.equal(mapTitle(table.workspace),undefined);
  assert.equal(turn.world.clock.minutes,0);
  assert.equal(table.telemetry().filter(row=>row.lane==='final-output'&&row.event==='start').length,0,'no separate author');
 });

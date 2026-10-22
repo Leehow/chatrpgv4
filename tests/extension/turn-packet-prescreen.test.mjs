@@ -14,6 +14,8 @@ const env={PI_COC_LOOP_ENGINE:'hybrid-v1',PI_COC_TURN_PACKET_PROTOTYPE:'1',PI_CO
  PI_COC_READER_CMD:JSON.stringify([process.execPath,join(import.meta.dirname,'fixtures/isolated-expression-writer.mjs')])};
 // Controlled semantic answers explicitly assess the fixture scene; they are not gameplay.
 const fauxToolCall=(name,args)=>rawToolCall(name,name==='output'?{...args,commands:[...args.commands,{kind:'scene',service:'open',crowd:'empty'}]}:args);
+// §249: the single Keeper's own move, place and time lines are its judgment of the player's selection: recorded, not reviewed.
+const keeperJudged=table=>table.telemetry().filter(row=>row.lane==='admission'&&row.path==='keeper_judged').map(row=>({kinds:row.kinds,jev_calls:row.jev_calls}));
 async function opened(workspace,assessed=true,locations=false){const client=new RpcClient(workspace);try{
  await client.ok('table.open',{campaign:'test-camp'});
  // This fixture owns the base automatic journey; the location provider has its own planner.
@@ -58,7 +60,7 @@ test('a ready routine journey publishes actual movement without Keeper inference
  assert.deepEqual(table.extensionErrors,[]);
 });
 
-test('an untimed native route settles its issued band with one Keeper and one consent request',async t=>{
+test('an untimed native route settles its issued band with one Keeper and no consent request (§249)',async t=>{
  let requests=0,expectedMinutes,returnTo,returnVia,startLabel;const batches=[];
  const engine=createHybridEngine({env,decision:{decide:async batch=>{batches.push(batch);const result=answer(batch);
   for(const [key,value] of Object.entries(result.answers))if(key.startsWith('consent_'))value.noul=.99;return result;}}});
@@ -80,7 +82,9 @@ test('an untimed native route settles its issued band with one Keeper and one co
  t.after(()=>table.dispose());await table.session.prompt('I walk back to '+startLabel+'.');
  assert.deepEqual(table.extensionErrors,[]);assert.equal(requests,1);
  assert.equal(batches.filter(batch=>batch.family==='continuous-turn').length,0,'an incomplete journey is not prescreened or executed');
- assert.equal(batches.filter(batch=>batch.family==='continuous-action-admission').length,1,JSON.stringify(table.telemetry().filter(row=>row.event==='packet_parameters_refused'||row.lane==='continuous-turn'||row.lane==='arguments')));
+ // §249: the Keeper's own route is its judgment of the player's selection; it is recorded, not reviewed.
+ assert.equal(batches.filter(batch=>batch.family==='continuous-action-admission').length,0,JSON.stringify(table.telemetry().filter(row=>row.event==='packet_parameters_refused'||row.lane==='continuous-turn'||row.lane==='arguments')));
+ assert.deepEqual(keeperJudged(table),[{kinds:['move'],jev_calls:0}]);
  const turn=JSON.parse(readFileSync(join(table.workspace,'.coc/campaigns/test-camp/turns/0004.json'),'utf8'));
  const moves=turn.receipts.filter(row=>row.kind==='move');assert.equal(moves.length,1);
  assert.equal(moves[0].minutes,expectedMinutes);assert.deepEqual(moves[0].travel,{basis:'banded',band:'local_travel'});
@@ -100,16 +104,17 @@ test('an unassessed arrival uses one existing Keeper decision without another co
  assert.equal(table.entries('coc-final-delivery').filter(row=>row.event==='end'&&row.status==='completed').length,1);
 });
 
-test('an indirect destination keeps issued choices and receives one narrow admission after the structured proposal',async t=>{
+test('an indirect destination keeps issued choices and lands the structured proposal as the Keeper\'s judgment (§249)',async t=>{
  let requests=0;const batches=[];
  const engine=createHybridEngine({env,decision:{decide:async batch=>{batches.push(batch);return answer(batch);}}});
  const table=await openTable({legacyDeliveryFixtures:false,realKernel:true,prepareWorkspace:opened,env,runDriver:engine.runDriver,
   extraExtensions:[{name:'engine',factory:engine.extension}],responses:[()=>{requests++;return fauxAssistantMessage([
    fauxToolCall('output',{version:4,commands:[{kind:'move',to:'central-library'}],interactions:[]})],{stopReason:'toolUse'});} ]});
  t.after(()=>table.dispose());await table.session.prompt('I walk to that red doorway two blocks west.');
- assert.equal(requests,1);assert.equal(batches.length,1);assert.notEqual(batches[0].family,'continuous-turn');
- assert.equal(batches[0].state.proposal.lines.length,1);assert.equal(batches[0].questions.length,2);
+ // The host defers the unnamed destination to the Keeper, whose issued move then lands without a consent batch.
+ assert.equal(requests,1);assert.equal(batches.length,0);
  assert.equal(table.telemetry().filter(row=>row.event==='selection_deferred').length,1);
+ assert.deepEqual(keeperJudged(table),[{kinds:['move'],jev_calls:0}]);
  const turn=JSON.parse(readFileSync(join(table.workspace,'.coc/campaigns/test-camp/turns/0002.json'),'utf8'));
  assert.equal(turn.receipts.filter(row=>row.kind==='move').length,1);
  assert.equal(table.entries('coc-final-delivery').filter(row=>row.event==='end'&&row.status==='completed').length,1);
@@ -132,8 +137,10 @@ test('a restarted journey retains full delivered directions past 200 characters 
    }finally{await client.close();}
   },extraExtensions:[{name:'engine',factory:engine.extension}],responses:[()=>{requests++;return fauxAssistantMessage([
    fauxToolCall('output',{version:4,commands:[{kind:'move',to:'central-library'}],interactions:[]})],{stopReason:'toolUse'});} ]});
- t.after(()=>table.dispose());await table.session.prompt('I go to that red doorway two blocks west.');
- assert.equal(batches.length,1);assert.equal(requests,1);
+ // §249 leaves the Keeper's own move unreviewed, so the journey judgment that reads these directions is the host prescreen:
+ // the destination is named, and the routine journey settles without the Keeper.
+ t.after(()=>table.dispose());await table.session.prompt('I go to that red doorway two blocks west, the Central Library.');
+ assert.equal(batches.length,1);assert.equal(batches[0].family,'continuous-turn');assert.equal(requests,0);
  const previous=batches[0].state.previous_public;
  assert.ok(previous.some(row=>row.turn===2&&row.player==='Which doorway is it?'&&row.keeper.endsWith(marker)),JSON.stringify({families:batches.map(batch=>batch.family),previous}));
  assert.equal(previous.some(row=>row.turn===3||row.turn===4),false,'unpublished retries never replace the delivered reference');
@@ -219,7 +226,8 @@ test('a unique normalized complete name scopes consent to that destination witho
  assert.equal(turn.prescreen.choices[0].selection,undefined);assert.equal(turn.prescreen.choices[1].selection,.99);
 });
 
-for(const mode of ['plan','condition','discussion','uncertain'])test('a '+mode+' is not executed and a wrong exact proposal reuses the same decision',async t=>{
+// §249: the host never executes these inputs as a journey; the Keeper's own exact move is its judgment and is not reviewed.
+for(const mode of ['plan','condition','discussion','uncertain'])test('a '+mode+' is not executed by the host and the Keeper\'s exact move lands as its own judgment',async t=>{
  const batches=[];let requests=0;
  const selection=mode==='uncertain'?.5:mode==='condition'?.99:.01,veto=mode==='condition'?.99:.01;
  const engine=createHybridEngine({env,decision:{decide:async batch=>{batches.push(batch);return answer(batch,'other',selection,veto);}}});
@@ -230,11 +238,12 @@ for(const mode of ['plan','condition','discussion','uncertain'])test('a '+mode+'
  const inputs={plan:'I will go to the library tomorrow.',condition:'I go to the library only if Knott first agrees; he has not answered.',
   discussion:'I ask whether we should go to the library; I am not leaving.',uncertain:'I go back there.'};
  await table.session.prompt(inputs[mode]);
- assert.equal(requests,1);assert.equal(batches.length,1,'an unchanged prescreen decision must not be judged again');
- assert.equal(table.telemetry().filter(x=>x.lane==='isolated-expression'&&x.event==='start').length,0);
- assert.equal(table.entries('coc-final-delivery').filter(x=>x.event==='delta').length,0);
+ assert.equal(requests,1);assert.equal(batches.length,0,'no consent batch judges the Keeper-judged move');
+ assert.equal(table.telemetry().filter(x=>x.lane==='continuous-turn'&&x.event==='selection_deferred'&&x.reason==='no_unique_named_destination').length,1,'the host executes no journey');
+ assert.deepEqual(keeperJudged(table),[{kinds:['move'],jev_calls:0}]);
+ assert.equal(table.entries('coc-final-delivery').filter(x=>x.event==='end'&&x.status==='completed').length,1);
  const turn=JSON.parse(readFileSync(join(table.workspace,'.coc/campaigns/test-camp/turns/0002.json'),'utf8'));
- assert.equal(turn.receipts.filter(x=>x.kind==='move').length,0);assert.equal(turn.world.clock.minutes,0);
+ assert.equal(turn.receipts.filter(x=>x.kind==='move').length,1);
 });
 
 test('a Keeper packet cannot replay a journey the host already settled',async t=>{

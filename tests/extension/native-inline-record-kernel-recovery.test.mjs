@@ -10,6 +10,12 @@ import {createHybridEngine} from '../../runtime/jev/hybrid-engine.ts';
 import {bindDecisionAnswers} from '../../runtime/jev/contracts.ts';
 import {SAME_KEEPER_AFTER_RESULT_GUIDANCE} from '../../runtime/keeper-output-guidance.ts';
 
+// §249/§249.6: the single Keeper judges its own time and document lines itself; the record's map reveal is the line the typed
+// consent review reads.
+const MAP='player-corbitt-house-map';
+const reveal=label=>({kind:'map',name:MAP,regions:['ground-entry-hall'],region_labels:{'ground-entry-hall':'Entry hall'},
+ level_labels:{'Ground Floor':'Ground floor'},label,why:'Knott spreads the house plan on the desk.'});
+const mapTitle=workspace=>JSON.parse(readFileSync(join(workspace,'.coc/campaigns/test-camp/world.json'),'utf8')).map_labels?.[MAP]?.title;
 for(const [correct,prior] of [[true,false],[false,false],[false,true]])test(`a real inline book_name refusal ${correct?'allows an explicitly corrected record before prose':prior?'preserves an earlier successful receipt without replay':'allows staying put without automatic replay'}`,async t=>{
  let requests=0,decisions=0,firstPublic;
  const engine=createHybridEngine({env:{},decision:{decide:async batch=>{
@@ -18,7 +24,7 @@ for(const [correct,prior] of [[true,false],[false,false],[false,true]])test(`a r
   return bindDecisionAnswers(batch,Object.fromEntries(batch.questions.map(question=>[question.key,{status:'answered',type:'noul',noul:question.key.startsWith('restriction_')?.01:.99}])));
  }}});
  const event={name:'selected-short-wait',summary:'The selected short wait finishes beside the same desk.'};
- const time={kind:'time',minutes:15,why:'The player selected this fifteen-minute wait.'};
+ const time={kind:'time',minutes:15,why:'The player selected this fifteen-minute wait.'},written=reveal('B');
  const table=await openTable({legacyDeliveryFixtures:false,realKernel:true,runDriver:engine.runDriver,
   env:{PI_COC_LOOP_ENGINE:'hybrid-v1',PI_COC_JEV_PRESELECT:'0',PI_COC_ISOLATED_OUTPUT:'0',EXT_JEV_APIKEY:undefined,TYPESAFE_API_KEY:undefined},
   async prepareWorkspace(workspace){const client=new RpcClient(workspace);try{
@@ -28,7 +34,7 @@ for(const [correct,prior] of [[true,false],[false,false],[false,true]])test(`a r
   extraExtensions:[{name:'inline-kernel-recovery',factory:engine.extension},{name:'inline-order-observer',factory(pi){
    pi.events.on('coc:final-delivery',frame=>{if(frame.event==='delta'&&frame.delta&&!firstPublic)
     firstPublic=table.runtimeBridges().at(-1).call('table.status',{campaign:'test-camp',projection:'receipts',expected_turn:1});});
-  }}],responses:[...(prior?[()=>{requests++;return fauxAssistantMessage([fauxToolCall('apply',{effects:[{kind:'time',minutes:1,why:'The first selected minute.'}]})],{stopReason:'toolUse'});}]:[]),()=>{requests++;return fauxAssistantMessage(JSON.stringify({version:1,record:{effects:[time,
+  }}],responses:[...(prior?[()=>{requests++;return fauxAssistantMessage([fauxToolCall('apply',{effects:[{kind:'time',minutes:1,why:'The first selected minute.'},reveal('1')]})],{stopReason:'toolUse'});}]:[]),()=>{requests++;return fauxAssistantMessage(JSON.stringify({version:1,record:{effects:[time,written,
     {kind:'npc',name:'Steven Knott assistant',to:'here',walk_on:true}],event},text:'REJECTED_INLINE_BODY'}));},context=>{
    requests++;const previous=JSON.stringify(context.messages);
    assert.ok(previous.includes('book_name')&&previous.includes('npc.name'));
@@ -38,18 +44,19 @@ for(const [correct,prior] of [[true,false],[false,false],[false,true]])test(`a r
    assert.ok(previous.includes('already confirmed by receipts remain settled, including after a publication failure'));
    assert.ok(!previous.includes('place another outstanding record in the final response'));
    assert.ok(!previous.includes('Then begin the public response with'));
-   return fauxAssistantMessage(correct?JSON.stringify({version:1,record:{effects:[time,{kind:'npc',name:'Steven Knott',to:'here'}],event},text:'The fifteen minutes pass beside the desk.'})
+   return fauxAssistantMessage(correct?JSON.stringify({version:1,record:{effects:[time,written,{kind:'npc',name:'Steven Knott',to:'here'}],event},text:'The fifteen minutes pass beside the desk.'})
     :prior?'{{public}}The first minute passed beside the desk. The fifteen-minute interval has not elapsed.'
     :'{{public}}You remain beside the desk. That fifteen-minute interval has not elapsed.');
   }]});
- t.after(()=>table.dispose());await table.session.prompt('I stay here and wait fifteen minutes while Knott arranges the papers.');
+ t.after(()=>table.dispose());await table.session.prompt(`I stay here and wait fifteen minutes while Knott arranges the papers${prior?', marking 1 and then B':', marking B'} on the house plan.`);
  assert.deepEqual(table.extensionErrors,[]);assert.equal(requests,prior?3:2,JSON.stringify(table.telemetry().filter(row=>['keeper-delivery','admission'].includes(row.lane)).map(row=>({lane:row.lane,ok:row.ok,reason:row.reason,verdict:row.verdict}))));
- assert.equal(decisions,prior?2:1,'bookkeeping correction reuses the selected wait; a different duration retains fresh consent review');
+ assert.equal(decisions,prior?2:1,'bookkeeping correction reuses the selected reveal; a different reveal retains fresh consent review');
  const delivered=table.entries('coc-final-delivery').filter(row=>row.event==='delta').map(row=>row.delta).join('');
  assert.ok(!delivered.includes('REJECTED_INLINE_BODY'));
  const first=await firstPublic;assert.equal(first.receipts.filter(row=>row.kind==='time').length,correct||prior?1:0);
  const turn=JSON.parse(readFileSync(join(table.workspace,'.coc/campaigns/test-camp/turns/0001.json')));
  assert.equal(turn.world.clock.minutes,correct?15:prior?1:0);
+ assert.equal(mapTitle(table.workspace),correct?'B':prior?'1':undefined);
  // Knott already occupies this desk: the corrected assignment is unchanged, not a new NPC event.
  for(const kind of ['time','npc','event'])assert.equal(turn.receipts.filter(row=>row.kind===kind).length,kind==='npc'?0:correct||kind==='time'&&prior?1:0);
  const failed=table.telemetry().find(row=>row.lane==='keeper-delivery'&&row.ok===false);

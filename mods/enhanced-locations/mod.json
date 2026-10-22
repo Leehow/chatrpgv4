@@ -1,11 +1,11 @@
 {
   "id": "enhanced-locations",
-  "version": "1.2.4",
+  "version": "2.0.0",
   "game_api": "pipicoc.game.v1",
   "state_version": 1,
   "author": "PipiCOC",
   "name": "Enhanced Locations",
-  "description": "Persistent places, sensory relations and observation continuity for open exploration.",
+  "description": "Persistent places, whole routes in one turn, and observation continuity for open exploration.",
   "default_enabled": true,
   "requires": [
     "locations.v1",

@@ -8,34 +8,6 @@
     {
       "heading": "Place description for the author",
       "kind": "reference"
-    },
-    {
-      "heading": "Identity and structure",
-      "triggers": [
-        "before_apply:place"
-      ],
-      "kind": "situational"
-    },
-    {
-      "heading": "Travel and local position",
-      "triggers": [
-        "before_apply:place"
-      ],
-      "kind": "situational"
-    },
-    {
-      "heading": "Continuity and authority",
-      "triggers": [
-        "before_apply:place",
-        "before_apply:cash",
-        "before_apply:item"
-      ],
-      "kind": "situational"
-    },
-    {
-      "heading": "Spatial observation and continuity",
-      "triggers": ["before_apply:place"],
-      "kind": "situational"
     }
   ]
 }

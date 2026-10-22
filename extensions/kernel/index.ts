@@ -1,8 +1,7 @@
-import {locationCoverageError} from './location-coverage-error.ts';
 import {adviseLocationReference} from './location-reference.ts';
 import {locationDescription} from './location-description.ts';
 import {sourceLocationContext} from './source-location-context.ts';
-import {routineDescription,routineRefusal} from './routine-summary.ts';
+import {routineDescription,routineRefusal,routineCharge} from './routine-summary.ts';
 import {settledAdmissionEvidence,settledTimeEvidence} from './settled-admission.ts';
 import {placeOperation,placeParameterRefusal,normalizePlaceTarget,normalizePlaceArrayArguments} from './place-operation.ts';
 import {immediatelyPrecedingUnfinished} from './admission.ts';
@@ -12,20 +11,21 @@ import {Errors as argumentErrors} from 'typebox/value';
 import {SourceConsultations} from '../module/source-consultations.ts';
 import {CASH_CONSENT_POLICY} from "./admission.ts";
 import {boundCashAuthority} from './admission.ts';
+import {keeperJudgedKinds} from './admission.ts';
 import {PurchaseRecovery} from './purchase-recovery.ts';
 import {createQuotationQueue} from "./quotes.ts";
 import {decimalSpelling} from '../../shared/cash-decimal.js';
 import {preparePriceArguments} from './price-arguments.ts';
 import {patchCard} from "../table/card-patch.ts";
 import { SINGLE_PASS_NARRATION } from '../../kernel-ts/runtime/narration-policy.ts';
+import { MECHANICS_CHOICE_OPTIONS } from '../../kernel-ts/write/mechanics-options.ts';
 import {ArtifactTextStream} from '../../runtime/final-output-stream.ts';
 import {moveEstablishmentRefusal} from '../../shared/move-protocol.ts';
 import {SAME_KEEPER_AFTER_RESULT_GUIDANCE} from '../../runtime/keeper-output-guidance.ts';
-import {scenePopulationRequired,sceneAssessmentExpiredDuringActivity} from '../../runtime/scene-population.ts';
+import {scenePopulationRequired,scenePopulationConflict,sceneAssessmentExpiredDuringActivity} from '../../runtime/scene-population.ts';
 import {ExpressionPlanStream,writeIsolatedExpression,decisionScene,decisionClock,decisionRecentPublic,decisionResponseScope,decisionObservationScope} from '../../runtime/isolated-expression.ts';
-import {TURN_PACKET_LOCATION_STEPS,turnPacket,bindTurnPacketMoves,turnPacketMovementChoices,requireTurnPacketNpcDestinations,isNewNpcSlot,normalizeTurnPacketArguments,compileTurnPacket,turnPacketResult,turnPacketParameterSchema,turnPacketProviderPayload,TurnPacketParameterError,type TurnPacket} from '../../runtime/turn-packet-prototype.ts';
+import {turnPacket,bindTurnPacketMoves,turnPacketMovementChoices,requireTurnPacketNpcDestinations,isNewNpcSlot,normalizeTurnPacketArguments,compileTurnPacket,turnPacketResult,turnPacketParameterSchema,turnPacketProviderPayload,TurnPacketParameterError,type TurnPacket} from '../../runtime/turn-packet-prototype.ts';
 import {normalizeToolArgumentSyntax} from '../../runtime/tool-argument-syntax.ts';
-import {locationDecisionCoverage,locationCoverageContext} from '../table/location-relevance.ts';
 import {applyEffectKinds} from '../table/mod-sections.ts';
 import {normalizeApplyArguments} from '../../shared/apply-protocol.ts';
 import {owedConsentPlan} from './owed-consent.ts';
@@ -68,7 +68,7 @@ import { type KernelClient, KernelError, type KernelProgressFrame, isKernelError
 import { progressPartial } from "./progress.ts";
 import { MAP_DOCUMENT_NONE, renderMapView, type MapAttachment } from './map-view.ts';
 import { AUTHORED_MAP_WORDS, KEEPER_MAP_WORDS, mapCardTexts, type MapWordsOptions, prepareMapWords, projectMapCard, readMapWords } from '../module/map-presentation.ts';
-import { argumentLimitRefusal, documentWriteRefusal, effectShapeRefusal, COC_TOOLS, COC_TOOL_NAMES, type CocToolSpec, WRITE_TOOLS } from "./tools.ts";
+import { aliasEffectKinds, argumentLimitRefusal, documentWriteRefusal, effectShapeRefusal, COC_TOOLS, COC_TOOL_NAMES, type CocToolSpec, WRITE_TOOLS } from "./tools.ts";
 import { unwrapArgumentMarkup } from "./tool-argument-markup.ts";
 import { finalDeliveryAction, leanApplyEnabled, offeredTools } from "./lean-apply.ts";
 import {admissionRefusalScope} from './refusal-scope.ts';
@@ -410,9 +410,10 @@ interface ForcedPlayerChoiceCue {
 interface TableState {
     /** Location detail is read on demand, for this input only. */
     locationContextTurn?:number;
-    locationReviewTurn?:number;
-    locationSelection?:{turn:number;move:number;feature:number;observation?:number};
-    observationReferences?:{turn:number;queries:Array<{scope:string;to:Record<string,unknown>;sense:string;records:Record<string,unknown>[]}>};
+    /** `read`: the Keeper inspected this history in this input; `preload`: the context offered it without a request. */
+    observationReferences?:{turn:number;queries:Array<{scope:string;source:'read'|'preload';to:Record<string,unknown>;sense:string;records:Record<string,unknown>[]}>};
+    /** Consecutive successful reads in this input since the last write; a progress note, never a limit. */
+    readStreak?:{turn:number;count:number};
   /** §163: a scope Jev could not settle plays as `world`; only a settled out-of-fiction request is `reference`. */
   interactionScope?: 'world' | 'reference';
   /** §233.10: `world` came from a settled verdict (Jev authorized a world action, or a document edit), not a fallback. */
@@ -521,6 +522,8 @@ interface TableState {
 	packetRoutineSummary?:boolean;
 	packetParameterFailures?:Set<string>;
     packetRefusalRecovery?:{turn:number;run:string};
+    /** §252: a mechanical choice the packet-mode Keeper staged with ask; it publishes with this turn's output prose. */
+    packetChoice?:{turn:number;choice:Record<string,unknown>};
 	packetParameters?:{turn:number;run?:string;schema:ReturnType<typeof turnPacketParameterSchema>};
 	/** §168.5: `turn|item` pairs whose omission while their check ran is already on the telemetry line. */
 	firstSightOmitted: Set<string>;
@@ -907,6 +910,7 @@ function strikeRefusalClass(
 }
 /** Refusals of any class a turn tolerates before every write but narrate and ask is shut. */
 const REFUSAL_BUDGET = 8;
+const READ_STREAK_NOTE = 8;
 /** Contract §34.12's look budget addendum (SL-72): the tools it counts. */
 const LOOK_BUDGET_TOOLS: ReadonlySet<string> = new Set(["look", "lookup", "recall"]);
 /** Used only if `content/rulesets/coc7/host-budgets.json` cannot be read; the shipped file carries the real default. */
@@ -1540,12 +1544,10 @@ export default function (pi: ExtensionAPI, host: {capabilities?:RuntimeCapabilit
 	let singleKeeper=false;
 	let turnDecisionPort:DecisionPort|undefined;
 	pi.events.on('coc:turn-decision-port',(value:DecisionPort|undefined)=>{turnDecisionPort=value&&typeof value.decide==='function'?value:undefined;});
-    pi.events.on('coc:location-demand',(value:{campaign?:string;turn?:number;review?:boolean;selection?:{move:number;feature:number;observation?:number};references?:Record<string,any>})=>{
+    pi.events.on('coc:location-demand',(value:{campaign?:string;turn?:number;references?:Record<string,any>})=>{
         if(!table||value.campaign!==table.campaign||value.turn!==table.turn)return;
-        table.locationContextTurn=table.turn;if(value.review===true)table.locationReviewTurn=table.turn;
-        if(value.references)rememberObservationReferences(table,value.references);
-        if(value.selection&&[value.selection.move,value.selection.feature,...(value.selection.observation===undefined?[]:[value.selection.observation])].every(value=>typeof value==='number'&&Number.isFinite(value)&&value>=0&&value<=1))
-            table.locationSelection={turn:table.turn,...value.selection};
+        table.locationContextTurn=table.turn;
+        if(value.references)rememberObservationReferences(table,value.references,'preload');
     });
 	let isolatedOutput=false;
 	let turnPacketPrototype=false;
@@ -1577,7 +1579,7 @@ export default function (pi: ExtensionAPI, host: {capabilities?:RuntimeCapabilit
 	});
 	pi.events.on('coc:capsule',(value:any)=>{
         if(table&&value?.campaign===table.campaign&&value.turn===table.turn){
-            table.packetSceneRequired=scenePopulationRequired(value.capsule??{});
+            table.packetSceneRequired=scenePopulationConflict(value.capsule??{});
             table.packetRoutineSummary=!!value.capsule?.mods?.routine_summary;
             if(routineSummaryTool!==table.packetRoutineSummary){routineSummaryTool=table.packetRoutineSummary;refreshOutputTool?.();}
         }
@@ -2565,7 +2567,8 @@ export default function (pi: ExtensionAPI, host: {capabilities?:RuntimeCapabilit
         }
     }
     async function correctCoveredQuote(state:TableState,payload:Record<string,any>,signal?:AbortSignal,providerBudget?:TaskProviderBudget):Promise<void> {
-        if(!state.playerText||!sessionCtx)return;
+        // §249: the single Keeper judges whether an order is a quotation or a settlement; no review second-guesses it.
+        if(singleKeeper||!state.playerText||!sessionCtx)return;
         // A quotation grants no execution authority; never force a refused service back into settlement.
         if(state.admissionRefused.length)return;
         for(const effect of Array.isArray(payload.effects)?payload.effects:[]){
@@ -3476,17 +3479,26 @@ export default function (pi: ExtensionAPI, host: {capabilities?:RuntimeCapabilit
     if(!state.playerText || state.inputEnded?.turn===state.turn || state.closedThisRun)return;
     let boundary=heldActs.get(state);
     if(!boundary){boundary=new HeldActOutcome();heldActs.set(state,boundary);}
-    const failure=error as {code?:string;details?:{reason?:string}};
+    const failure=error as {code?:string;details?:{reason?:string;needs?:{field?:unknown}}};
     const completion=operationKeys.get(state)?.get(toolCallId??'')?.playerAction;
-    if(failure.code==='invalid_params'&&completion&&!completion.key){
+    // §249.4: a refusal that asks for one named parameter (`needs.field`, e.g. a resolve's unknown skill) ran nothing; it is
+    // a parameter failure like invalid_params, which a corrected call of the same act settles (live el-v2-20261021f T25:
+    // Lockpicks, then Locksmith passed, and the turn still ended undelivered).
+    const parameterFailure=failure.code==='invalid_params'||failure.code==='needs'&&typeof failure.details?.needs?.field==='string';
+    if(parameterFailure&&completion&&!completion.key){
       void record({lane:'held-operation',event:'argument_outside_player_scope',turn:state.turn,tool});return;
+    }
+    // §249.4: a failed rule operation that is no player act (an NPC's first impression, a meeting check) holds nothing the
+    // player declared, so it cannot block the turn's prose (live el-v2-20261021c T6, T14: undelivered for it).
+    if(tool==='resolve'&&completion&&!completion.key){
+      void record({lane:'held-operation',event:'non_player_operation_failed',turn:state.turn,tool,code:String(failure.code??'error')});return;
     }
     const {campaign:_,call_id:__,...proposal}=args;
     boundary.hold({campaign:state.campaign,turn:state.turn,playerText:state.playerText,
       ...(state.documentWorldline?{worldline:state.documentWorldline}:{})},
-      {tool,lines:[JSON.stringify(failure.code==='invalid_params'&&completion?.args?completion.args:proposal)],cause:failure.code==='invalid_params'?'invalid_params':String(failure.details?.reason??failure.code??'operation_failed'),
+      {tool,lines:[JSON.stringify(parameterFailure&&completion?.args?completion.args:proposal)],cause:parameterFailure?'invalid_params':String(failure.details?.reason??failure.code??'operation_failed'),
         operationKey:operationKeys.get(state)?.get(toolCallId??'')?.operationKey??heldOperationKey(tool,args),
-        ...(failure.code==='invalid_params'&&completion?.key?{argumentCompletionKey:completion.key}:{})},true);
+        ...(parameterFailure&&completion?.key?{argumentCompletionKey:completion.key}:{})},true);
   }
   function holdUnavailable(state: TableState, proposal: {tool: string; lines: string[]}, cause: string): void {
     if (!state.playerText) return;
@@ -3784,8 +3796,28 @@ export default function (pi: ExtensionAPI, host: {capabilities?:RuntimeCapabilit
 			const reviewedEffects=recovery?.effects??effects;
 			const scopeFor=await admissionScopeBuilder(state,tool,payload,current);
 			let proposal=admissionRequest(tool,tool==='apply'?{...payload,effects:reviewedEffects}:payload,{...scopeFor(reviewedEffects),consentOnly:true});
-			if(!proposal){capture?.(null);if(recovery?.told.length)await record({lane:'admission',verb:tool,turn:state.turn,path:'told',verdict:'authorized',jev_calls:0,owed:recovery.told});return;}
+            // §249: lines the Keeper judges itself are recorded, never reviewed.
+            const keeperJudged=tool==='apply'?keeperJudgedKinds(reviewedEffects):[];
+            if(keeperJudged.length)await record({lane:'admission',verb:tool,turn:state.turn,path:'keeper_judged',kinds:keeperJudged,jev_calls:0});
+			if(!proposal){
+                // §249: the Keeper's judgment that the player selected these lines still binds them as the player's act, so a
+                // kernel refusal is held and the turn's prose cannot publish it as done (held-act outcome, §166.2).
+                const judged=tool==='apply'?effects.flatMap((effect,index)=>keeperJudgedKinds([effect]).length?[index]:[]):[];
+                capture?.(judged.length?{tool:'apply',key:`keeper_judged:${JSON.stringify(judged)}`,lines:judged.map(index=>JSON.stringify(effects[index])),effects:judged}:null);
+                if(recovery?.told.length)await record({lane:'admission',verb:tool,turn:state.turn,path:'told',verdict:'authorized',jev_calls:0,owed:recovery.told});return;}
             proposal=capsuleContactProposal(proposal,payload,current);
+            // §249: a registered meeting check is a rule of the meeting the Keeper decides to roll (owner 2026-10-13), not
+            // an investigator action the player's words select; asking the consent reviewer refused it at its noise floor.
+            // A decision the kernel's contact rows name (pending contacts or settled relationships) is a meeting check even
+            // when this call's target does not resolve; it is never the player's act.
+            const meetingFamilies=new Set([...(Array.isArray(current.mods?.pending_contacts)?current.mods.pending_contacts:[]),
+                ...(Array.isArray(current.mods?.relationships)?current.mods.relationships:[])].map((row:Record<string,unknown>)=>row?.decision).filter((value):value is string=>typeof value==='string'));
+            const decision=(payload.action as Record<string,unknown>|undefined)?.decision;
+            if(proposal.meetingCheck||tool==='resolve'&&typeof decision==='string'&&meetingFamilies.has(decision)){capture?.(null);await record({lane:'admission',verb:tool,turn:state.turn,path:'keeper_judged',kinds:['meeting_check'],jev_calls:0});return;}
+            // §249.4: the single Keeper's rule operation is its own call for a roll the fiction asks for; live tables refused
+            // only clearly selected checks (Strength to force the door the player said they force). It stays the player's
+            // act, so a kernel refusal is still held.
+            if(tool==='resolve'){capture?.(proposal);await record({lane:'admission',verb:tool,turn:state.turn,path:'keeper_judged',kinds:['resolve'],jev_calls:0});return;}
             capture?.(proposal);
             const completedTime=state.landed.length&&!recovery?.sources.some(Boolean)?settledTimeEvidence((await state.kernel.call<{receipts:unknown[]}>('table.status',{campaign:state.campaign,projection:'receipts',expected_turn:state.turn})).receipts):undefined;
             const context={...admissionContextFor(state),...(current.where?.clock?{currentClock:current.where.clock}:{}),
@@ -5775,12 +5807,22 @@ export default function (pi: ExtensionAPI, host: {capabilities?:RuntimeCapabilit
         state.packetTimeBandRows=rows.rows;
         return state.packetTimeBands=rows.rows.map(row=>row.handle);
     }
-    function rememberObservationReferences(state:TableState,view:Record<string,any>|undefined){
+    function rememberObservationReferences(state:TableState,view:Record<string,any>|undefined,source:'read'|'preload'){
         if(!Array.isArray(view?.recent_observations))return;
         const scope=JSON.stringify([view.to,view.sense]);
         const previous=state.observationReferences?.turn===state.turn?state.observationReferences.queries:[];
-        state.observationReferences={turn:state.turn,queries:[{scope,to:structuredClone(view.to),sense:view.sense,
+        const kept=previous.find(query=>query.scope===scope);
+        state.observationReferences={turn:state.turn,queries:[{scope,source:kept?.source==='read'?'read':source,to:structuredClone(view.to),sense:view.sense,
             records:structuredClone(view.recent_observations.slice(0,4))},...previous.filter(query=>query.scope!==scope)].slice(0,2)};
+    }
+    /** §249: the author receives recorded history the Keeper read, or preloaded history of a view this turn observes again. */
+    function authorObservationReferences(state:TableState,outcomes:Record<string,any>[]){
+        if(state.observationReferences?.turn!==state.turn)return undefined;
+        // A place outcome names the observed place by its identity; its public observation carries display labels.
+        const looks=outcomes.filter(outcome=>outcome.kind==='place'&&outcome.action==='observe');
+        const queries=state.observationReferences.queries.filter(query=>query.source==='read'||looks.some(outcome=>
+            outcome.place===query.to?.place&&outcome.observation?.sense===query.sense));
+        return queries.length?queries.map(({scope,source,...query})=>query):undefined;
     }
 	async function composeKeeperExpression(state:TableState,expression:import('../../runtime/isolated-expression.ts').ExpressionBrief|TurnPacket,
 		reply:NonNullable<typeof keeperReply>,ctx?:ExtensionContext){
@@ -5796,23 +5838,13 @@ export default function (pi: ExtensionAPI, host: {capabilities?:RuntimeCapabilit
 			const packet=expression as TurnPacket,compiled=compileTurnPacket(packet);
             const newcomers=(packet.commands??[]).filter((row):row is Extract<NonNullable<TurnPacket['commands']>[number],{kind:'walk_on'}>=>row.kind==='walk_on');
             const before=await state.kernel.call<Record<string,any>>('table.capsule',{campaign:state.campaign,_context_read:true});
-            if(state.locationReviewTurn===state.turn&&state.interactionScope!=='reference'){
-                const status=await state.kernel.call<{receipts:Record<string,unknown>[]}>('table.status',{campaign:state.campaign,projection:'receipts',expected_turn:state.turn});
-                const receipts=status.receipts.map(receipt=>Object.fromEntries(['kind','action','from','to','via','place','position','feature','before','after','observation','minutes','clock_before','clock_after','until'].filter(key=>receipt[key]!==undefined).map(key=>[key,receipt[key]])));
-                const selection=state.locationSelection?.turn===state.turn?state.locationSelection:undefined;
-                const locationRead=await state.kernel.call<Record<string,any>>('mods.locations.inspect',{campaign:state.campaign,need:'context'});
-                const spatial=locationCoverageContext(locationRead,[...receipts,...compiled.effects]);
-                const coverage=await locationDecisionCoverage({player_declaration:state.playerText,...spatial,current_clock:before.where?.clock,
-                    recent_public:decisionRecentPublic(before.recent,state.delivered).slice(-1),
-                    people:[...new Map([...(before.npc_references?.people??[]),...(before.present??[])].filter(person=>person.ref).map(person=>[person.ref,person])).values()].map((person:any)=>Object.fromEntries(['ref','display_name','name_known'].filter(key=>person[key]!==undefined).map(key=>[key,person[key]]))),
-                    ...(selection?{initial_selection:{move:selection.move,feature:selection.feature,observation:selection.observation}}:{}),
-                    proposed_effects:compiled.effects,proposed_responses:compiled.responses,settled_receipts:receipts,known_failures:heldBoundary?.uncommittedFailures()??[]},
-                    {campaign:state.campaign,turn:state.turn},turnDecisionPort,reply.signal??state.lanes.signal,foregroundProviderBudget?.());
-                await record({lane:'location-decision-coverage',turn:state.turn,...coverage});
-                if(!coverage.covered)throw locationCoverageError(coverage,spatial);
-            }
+            // §249: the Keeper judges whether its packet covers the player's spatial choices; no completion review refuses it.
             const newlyMoving=compiled.effects.some(effect=>effect.kind==='move'||effect.kind==='place'&&effect.action==='move'&&effect.to!=='here'&&effect.to!==before.where?.scene);
-            if((scenePopulationRequired(before)||newlyMoving)&&!compiled.effects.some(row=>row.kind==='scene'))throw new KernelError({code:'needs',message:'Assess scene service and population from the current place and clock with one scene command; missing registered names never means empty.'});
+            // §250: an arrival the Keeper did not assess is recorded as unassessed (unknown), never refused.
+            if(newlyMoving&&!compiled.effects.some(row=>row.kind==='scene'))compiled.effects.push({kind:'scene',name:'here',_population:true,
+                activity:{service:'unknown',crowd:'unknown',basis:'established',summary:'Service is unknown; crowd is unknown.',review_after_minutes:15},why:'The arrival was not assessed; service and population remain unknown.'});
+            // §250.6: a missing or expired assessment stays unknown; only one the registered presence contradicts needs a new one.
+            if(scenePopulationConflict(before)&&!compiled.effects.some(row=>row.kind==='scene'))throw new KernelError({code:'needs',message:'Assess scene service and population from the current place and clock with one scene command; missing registered names never means empty.'});
             packetNpcReferences(state).require(packetNpcScope(state),[...compiled.responses.flatMap(row=>[row.actor,...row.to??[]]).filter(isNpcReference),
                 ...compiled.effects.filter(row=>row.kind==='npc'&&!row.walk_on).map(row=>String(row.name)),
                 ...compiled.effects.filter(row=>row.kind==='place'&&row.action==='observe').flatMap(row=>[...row.people??[],...(row.situations??[]).flatMap((situation:Record<string,any>)=>situation.participants??[])]).filter(isNpcReference),
@@ -5824,6 +5856,9 @@ export default function (pi: ExtensionAPI, host: {capabilities?:RuntimeCapabilit
                 .receipts.filter(receipt=>receipt.kind==='time').length:0;
             const routineRefused=routineRefusal(before,packet.routine,compiled.effects,keeperRun?.runId===reply.run&&!!keeperRun.routineResult,earlierTime);
             if(routineRefused)throw new KernelError({code:'invalid_params',message:routineRefused.message,details:{reason:routineRefused.reason,transaction_state:'uncommitted',before_execution:true}});
+            // §250.8: a missing or second time charge beside a routine summary is the Keeper's own time judgment, recorded only.
+            const routineCharged=routineCharge(packet.routine,compiled.effects,keeperRun?.runId===reply.run&&!!keeperRun.routineResult,earlierTime);
+            if(routineCharged==='uncharged'||routineCharged==='several')await record({lane:'routine-summary',event:'time_charge',turn:state.turn,charge:routineCharged});
 			// Resolve speakers before any writes; optional style is not an identity fallback.
 			const participantRefs=[...new Set(compiled.responses.flatMap(response=>[response.actor,...response.to??[]]).filter(isNpcReference))];
             const people=await Promise.all(participantRefs.map(async actor=>{
@@ -5859,8 +5894,11 @@ export default function (pi: ExtensionAPI, host: {capabilities?:RuntimeCapabilit
 			const current=await state.kernel.call<Record<string,any>>('table.capsule',{campaign:state.campaign,_context_read:true});
             observationIdentities=[...(current.npc_references?.people??[]),...(current.present??[])];
             if(scenePopulationRequired(current)&&!compiled.effects.some(row=>row.kind==='scene')){
-                if(!sceneAssessmentExpiredDuringActivity(before,current,compiled.effects))throw new KernelError({code:'needs',message:'Scene population remains unassessed or conflicts with current registered presence; preserve receipts and complete the scene assessment before rendering.'});
-                await record({lane:'scene-population',event:'assessment_retired',turn:state.turn,reason:'settled_stationary_activity',population:'unknown'});
+                // §250.6: only an assessment the registered presence contradicts needs the Keeper's new one before prose; a
+                // missing or expired assessment renders as unknown population.
+                if(scenePopulationConflict(current)&&!sceneAssessmentExpiredDuringActivity(before,current,compiled.effects))throw new KernelError({code:'needs',message:'Scene population conflicts with current registered presence; preserve receipts and complete the scene assessment before rendering.'});
+                await record({lane:'scene-population',event:'assessment_retired',turn:state.turn,
+                    reason:sceneAssessmentExpiredDuringActivity(before,current,compiled.effects)?'settled_stationary_activity':'unassessed',population:'unknown'});
             }
             for(const newcomer of newcomers){
                 const person=await state.kernel.call<Record<string,any>>('table.look',{campaign:state.campaign,focus:'npc',name:newcomer.label,_context_read:true});
@@ -5883,11 +5921,11 @@ export default function (pi: ExtensionAPI, host: {capabilities?:RuntimeCapabilit
 			const where=current.where??{};
 			decision={scene:decisionScene(sightView),clock:decisionClock(where.clock??{}),...decisionResponseScope(before,current,hydrated.responses),people,selected_materials:hydrated.materials,style:current.style,
 				recent_public:decisionRecentPublic(current.recent,state.delivered)};
-            if(sight.place||state.locationReviewTurn===state.turn||compiled.effects.some(effect=>effect.kind==='place'||effect.kind==='move'))
+            if(sight.place||compiled.effects.some(effect=>effect.kind==='place'||effect.kind==='move'))
                 decision.location_description=await locationDescription(current,keys=>state.kernel.call('mods.sections',{campaign:state.campaign,keys}));
             if(packet.routine){
                 decision.routine=await routineDescription(current,packet.routine,keys=>state.kernel.call('mods.sections',{campaign:state.campaign,keys}));
-                await record({lane:'routine-summary',turn:state.turn,run:reply.run,acts:packet.routine.acts.length,ambient:packet.routine.ambient?.length??0,
+                await record({lane:'routine-summary',turn:state.turn,run:reply.run,acts:packet.routine.acts?.length??0,ambient:packet.routine.ambient?.length??0,
                     time_charges:compiled.effects.filter(effect=>effect.kind==='time').length,earlier_time:earlierTime});
             }
 		}
@@ -5907,7 +5945,8 @@ export default function (pi: ExtensionAPI, host: {capabilities?:RuntimeCapabilit
             decision.settled_results=reply.stream.settledResults;
             operationResult=turnPacketResult(reply.stream.settledResults);
             decision.observations=decisionObservationScope(operationResult.outcomes,observationIdentities);
-            if(state.observationReferences?.turn===state.turn)decision.reference_observations=state.observationReferences.queries.map(({scope,...query})=>query);
+            const references=authorObservationReferences(state,operationResult.outcomes);
+            if(references)decision.reference_observations=references;
         }
 		const authored=await writeIsolatedExpression({runtime,campaign:state.campaign,turn:state.turn,run:reply.run,
 			brief:legacy,decision,...(decision?{result:operationResult}:{}),language:state.playLanguage||'en',playerText:reply.stream.playerText,investigatorNames:reply.stream.investigatorNames,
@@ -5945,7 +5984,7 @@ export default function (pi: ExtensionAPI, host: {capabilities?:RuntimeCapabilit
 		state.renderedText=undefined;
 	}
     function refusePacketParameters(state:TableState,error:unknown,ctx?:ExtensionContext,beforeCommit=false){
-        const fix=[isKernelError(error)?error.fix:undefined,error instanceof TurnPacketParameterError&&error.reason==='multiple_destinations'?TURN_PACKET_LOCATION_STEPS:undefined].filter(Boolean).join(' ');
+        const fix=isKernelError(error)?error.fix:undefined;
         const refusal={code:'invalid_params',message:error instanceof Error?error.message:String(error),
             ...(fix?{fix}:{}),
             details:{...(isKernelError(error)?error.details:{}),...(error instanceof TurnPacketParameterError?{parameter_fields:error.fields}:{}),reason:isKernelError(error)&&error.details?.reason?error.details.reason:'turn_packet_parameters',parameter_phase:'turn_packet_parameters',...(beforeCommit?{before_commit:true}:{before_execution:true})}};
@@ -5977,7 +6016,9 @@ export default function (pi: ExtensionAPI, host: {capabilities?:RuntimeCapabilit
                     return {content:[{type:'text' as const,text:JSON.stringify(refusal)}],details:{coc_error:refusal},terminate:!retry};
             }
 			const authored=await composeKeeperExpression(state,packet,reply,ctx);
-			await publishKeeperResult(state,reply,authored,authored.model,authored.thinking,ctx,compiledDecisionAuthority);
+            const staged=state.packetChoice?.turn===submittedTurn?state.packetChoice.choice:undefined;
+			await publishKeeperResult(state,reply,staged?{...authored,record:{choice:staged}}:authored,authored.model,authored.thinking,ctx,compiledDecisionAuthority);
+            if(staged){state.packetChoice=undefined;await record({lane:'packet-choice',event:'published',turn:submittedTurn,binds:staged.binds??null});}
 			return{content:[{type:'text' as const,text:'The turn was published.'}],details:{published:true},terminate:true};
 		}catch(error){
 			rememberTurnFailure(state,'output',error);
@@ -6021,6 +6062,9 @@ export default function (pi: ExtensionAPI, host: {capabilities?:RuntimeCapabilit
 		recoveredOutput?:{text:string;evidence:Record<string,any>},
         recordAuthority?:symbol,
 	): Promise<{ content: Array<{ type: "text"; text: string }>; details: Record<string, unknown>; terminate?: boolean }> {
+        if(spec.name==='look'&&params._place_inspect&&typeof params._place_inspect==='object'){
+            spec=COC_TOOLS.find(tool=>tool.name==='place')!;params=params._place_inspect as Record<string,unknown>;
+        }
         if(spec.name==='place'){
             const operation=placeOperation(spec.name,params);
             spec=COC_TOOLS.find(tool=>tool.name===operation.name)!;params=operation.params;
@@ -6036,6 +6080,22 @@ export default function (pi: ExtensionAPI, host: {capabilities?:RuntimeCapabilit
         if(singleKeeper&&turnPacketPrototype&&finalSelection&&!recoveredOutput){
             modelSteps.delete(toolCallId);
             return submitTurnPacket(params,signal,ctx);
+        }
+        // §252: in the packet mode a mechanical choice publishes with the packet's prose, never alone (live el-v2-20261021e
+        // T26: ask closed the turn before the output the Keeper planned, and the player got a roll and three buttons and
+        // no word of what happened).
+        if(singleKeeper&&turnPacketPrototype&&spec.name==='ask'&&!recoveredOutput&&table){
+            // The kernel validates the binding when it publishes; the closed option set is checked now, before any prose.
+            const options=Array.isArray(params.options)?params.options:[];
+            if(!options.length||options.some(option=>typeof option!=='string'||!MECHANICS_CHOICE_OPTIONS.includes(option)))
+                throw new KernelError({code:'invalid_params',message:'unknown mechanics choice option',fix:`Stage the choice with options from ${MECHANICS_CHOICE_OPTIONS.join(', ')}. Nothing was staged.`,
+                    details:{reason:'mechanics_option_unknown',options:[...MECHANICS_CHOICE_OPTIONS]}});
+            const choice={kind:'mechanics',options:[...options],...(typeof params.binds==='string'&&params.binds.trim()?{binds:params.binds}:{})};
+            table.packetChoice={turn:table.turn,choice};
+            modelSteps.delete(toolCallId);
+            await record({lane:'packet-choice',event:'staged',turn:table.turn,binds:choice.binds??null,options:choice.options});
+            const staged={staged:true,choice,next:'Submit output now: this choice publishes with its prose and closes the turn.'};
+            return{content:[{type:'text',text:JSON.stringify(staged)}],details:staged};
         }
         if(singleKeeper&&finalSelection&&!recoveredOutput)
             throw new KernelError({code:'invalid_params',message:isolatedOutput?'Return the private {{compose}} expression brief; the host invokes the isolated author.':'The Keeper authors the public response directly; an independent output author is unavailable.'});
@@ -6221,7 +6281,11 @@ export default function (pi: ExtensionAPI, host: {capabilities?:RuntimeCapabilit
             const currentArgs=spec.name==='apply'?{...params,...(payload.effects!==undefined?{effects:payload.effects}:{}),...(payload.event!==undefined?{event:payload.event}:{})}:{...params,action:payload.action};
             if(!state.party.length||argumentErrors(spec.parameters,currentArgs).length)return;
             if(spec.name==='resolve'){
-                if(proposal){const args={tool:spec.name,action:payload.action};saved.playerAction={key:heldOperationKey('player-action-completion',args),args:structuredClone(args)};}
+                // The act is what the player set out to do; the skill is the parameter a correction may still change.
+                if(proposal){const args={tool:spec.name,action:payload.action},{skill:_skill,...act}=(payload.action??{}) as Record<string,unknown>;
+                    saved.playerAction={key:heldOperationKey('player-action-completion',{tool:spec.name,action:act}),args:structuredClone(args)};}
+                // §249.4: admission found no player act here (an NPC's roll, a meeting check, a rule-run family).
+                else saved.playerAction={};
                 return;
             }
             if(spec.name!=='apply'||!Array.isArray(payload.effects)||effectShapeRefusal(spec.name,spec.parameters,currentArgs))return;
@@ -6298,12 +6362,6 @@ export default function (pi: ExtensionAPI, host: {capabilities?:RuntimeCapabilit
         result = await state.kernel.call<Record<string, unknown>>(spec.method, resent, onProgress);
       }
       if(spec.name==='place'&&result.status==='unregistered')result={...result,advice:await adviseLocationReference(result,{env:process.env,campaign:state.campaign,turn:state.turn,signal,record:row=>record(row)})};
-      if(turnPacketPrototype&&spec.name==='place'&&params.need==='contract'){
-        const command=structuredClone(result.command) as Record<string,any>|undefined;
-        for(const branch of command?.anyOf??[])if(branch.properties?.action?.const==='move')delete branch.properties.travel_minutes;
-        result={...result,parameters:{anyOf:(offeredTools(COC_TOOLS,process.env).find(tool=>tool.name==='place')!.parameters as any).anyOf.filter((branch:any)=>branch.properties?.action)},command,
-          write_route:{tool:'place',action:'move',instruction:'Commit one selected location step before a dependent wait, service or rule action. Select an issued travel_band for a journey; do not supply travel_minutes. Remaining final location commands may use output.commands with kind place and the action fields, without op/change; never repeat a settled step.'}};
-      }
       if(spec.name==='apply')await observeWritingCompletion(state,result,writingMatches);
 
       // §204.4: a model's committed mint is bound to the book in the background, independently of the next player turn.
@@ -6877,7 +6935,7 @@ export default function (pi: ExtensionAPI, host: {capabilities?:RuntimeCapabilit
 			keepRead(true);
             if(spec.name==='place'){
                 state.locationContextTurn=state.turn;
-                if(params.op==='inspect'&&params.need==='observation')rememberObservationReferences(state,(result as Record<string,any>).observation);
+                if(params.op==='inspect'&&params.need==='observation')rememberObservationReferences(state,(result as Record<string,any>).observation,'read');
             }
 			if (spec.name === 'apply' || spec.name === 'resolve') finalOutput.invalidateAdvice();
 			// Contract §34.12's look budget addendum (SL-72): a successful look/lookup/recall counts once here.
@@ -7118,6 +7176,14 @@ export default function (pi: ExtensionAPI, host: {capabilities?:RuntimeCapabilit
 			// the literal's body without its quotes -- is decoded between the two, so the label rule and every reader after it
 			// see the text.
 			prepareArguments: (args: unknown) => {
+                // §250.4: a look at a place is the place tool's read (live el-v2-20261021e T33: look {focus:"place", name,
+                // need} failed validation and cost a round trip); it is carried, schema-valid, to place inspect.
+                if(spec.name==='look'&&args&&typeof args==='object'&&!Array.isArray(args)&&(args as Record<string,unknown>).focus==='place'){
+                    const source=args as Record<string,unknown>;
+                    const read=Object.fromEntries(['name','at','spot','relation','sense','need'].filter(key=>source[key]!==undefined).map(key=>[key,source[key]]));
+                    args={focus:'scene',_place_inspect:{action:'inspect',...read}};
+                    void record({lane:'arguments',event:'look_place_routed',tool:'look',fields:Object.keys(read)});
+                }
                 if(spec.name==='place'){
                     const transport=normalizePlaceArrayArguments(args);args=transport.args;
                     if(transport.fields.length)void record({lane:'arguments',event:'place_array_transport_normalized',tool:'place',fields:transport.fields});
@@ -7127,7 +7193,9 @@ export default function (pi: ExtensionAPI, host: {capabilities?:RuntimeCapabilit
                 let targetArgs=args;
                 if(spec.name==='place')try{targetArgs=normalizePlaceTarget(args);}catch(error){if(isKernelError(error))throw new Error(error.toToolText());throw error;}
                 if(targetArgs!==args)void record({lane:'arguments',event:'place_target_alias_normalized',tool:'place',from:'name',to:'to'});
-                const supplied=spec.name==='apply'?normalizeApplyArguments(args):targetArgs;
+                let supplied=spec.name==='apply'?normalizeApplyArguments(args):targetArgs;
+                if(spec.name==='apply'){const aliased=aliasEffectKinds(spec.name,spec.parameters,supplied);supplied=aliased.args as typeof supplied;
+                    if(aliased.repairs.length)void record({lane:'arguments',event:'effect_kind_aliased',tool:spec.name,repairs:aliased.repairs});}
 				const normalized=turnPacketPrototype&&spec.name==='output'?normalizeTurnPacketArguments(supplied):normalizeToolArgumentSyntax(spec.parameters,supplied,{nativeValidation:true});
                 if(table&&(spec.name==='place'||normalized.args&&typeof normalized.args==='object'&&applyEffectKinds(spec.name,normalized.args as Record<string,unknown>).includes('place'))){
                     table.locationContextTurn=table.turn;
@@ -7137,6 +7205,8 @@ export default function (pi: ExtensionAPI, host: {capabilities?:RuntimeCapabilit
 				if(normalized.integerRepairs)void record({lane:'arguments',event:'decision_integer_normalized',tool:spec.name,repairs:normalized.integerRepairs});
 				if(normalized.textRepairs)void record({lane:'arguments',event:'decision_string_transport_normalized',tool:spec.name,repairs:normalized.textRepairs});
 				if(normalized.booleanRepairs)void record({lane:'arguments',event:'decision_boolean_normalized',tool:spec.name,repairs:normalized.booleanRepairs});
+                if('placeKindRepairs' in normalized&&normalized.placeKindRepairs)void record({lane:'arguments',event:'place_kind_inferred',tool:spec.name,repairs:normalized.placeKindRepairs});
+                if('npcHereRepairs' in normalized&&normalized.npcHereRepairs)void record({lane:'arguments',event:'npc_destination_here',tool:spec.name,repairs:normalized.npcHereRepairs});
 				const unwrapped = unwrapArgumentMarkup(spec.name, spec.parameters, normalized.args);
 				if (!unwrapped.ok) throw new Error(new KernelError(unwrapped.refusal).toToolText());
 				if (unwrapped.repairs.length) void record({ lane: "tool_arguments", event: "markup_unwrapped", tool: spec.name, repairs: unwrapped.repairs });
@@ -7146,12 +7216,46 @@ export default function (pi: ExtensionAPI, host: {capabilities?:RuntimeCapabilit
 				for (const { field, prefix } of stripped.strips) void record({ lane: "arguments", event: "dialect_prefix_stripped", tool: spec.name, field, prefix });
 				const embedded=omitEmptyEmbeddedArguments(spec.name,stripped.args);
 				if(embedded.fields.length)void record({lane:'arguments',event:'empty_embedded_omitted',tool:spec.name,fields:embedded.fields});
+                // A blank catalog kind is the "search all" placeholder the description forbids; omitting it is that search.
+                const lookupKinds=spec.name==='lookup'&&embedded.args&&typeof embedded.args==='object'?(embedded.args as Record<string,unknown>).kinds:undefined;
+                if(Array.isArray(lookupKinds)&&lookupKinds.some(kind=>typeof kind==='string'&&!kind.trim())){
+                    const {kinds:_blank,...rest}=embedded.args as Record<string,unknown>,kept=lookupKinds.filter(kind=>!(typeof kind==='string'&&!kind.trim()));
+                    embedded.args=(kept.length?{...rest,kinds:kept}:rest) as typeof embedded.args;
+                    void record({lane:'arguments',event:'blank_lookup_kinds_omitted',tool:'lookup',kept:kept.length});
+                }
                 if(turnPacketPrototype&&spec.name==='resolve'&&table&&embedded.args&&typeof embedded.args==='object'){
                     const operation=embedded.args as Record<string,any>,actor=operation.action?.actor;
                     const reference=typeof actor==='string'&&!table.party.some(person=>person.name===actor)?/^investigator_([1-9][0-9]*)$/.exec(actor):null;
                     const person=reference?table.party[Number(reference[1])-1]:undefined;
                     if(person){embedded.args={...operation,action:{...operation.action,actor:person.name}} as typeof embedded.args;
                         void record({lane:'arguments',event:'public_actor_reference_normalized',tool:spec.name,repairs:1});}
+                    // §250.4: an issued NPC reference in the operation names that person by their one public appellation, the
+                    // word the kernel's roster resolves (live el-v2-20261021c T14: target npc_2 refused as unknown).
+                    const current=embedded.args as Record<string,any>,refs=packetNpcReferences(table),scope=packetNpcScope(table);
+                    const named=Object.fromEntries(['actor','target'].flatMap(key=>{const name=refs.publicName(scope,current.action?.[key]);return name?[[key,name]]:[];}));
+                    if(Object.keys(named).length){embedded.args={...current,action:{...current.action,...named}} as typeof embedded.args;
+                        void record({lane:'arguments',event:'npc_reference_named',tool:spec.name,fields:Object.keys(named)});}
+                }
+                // §250.14: the packet's issued person references name the same people in apply (live el-v2-20261021f T2: an
+                // object handed to investigator_1 was refused as an unknown investigator).
+                if(turnPacketPrototype&&spec.name==='apply'&&table&&embedded.args&&typeof embedded.args==='object'&&Array.isArray((embedded.args as Record<string,any>).effects)){
+                    const refs=packetNpcReferences(table),scope=packetNpcScope(table),fields:string[]=[];
+                    const person=(value:unknown):string|undefined=>{
+                        if(typeof value!=='string'||table.party.some(member=>member.name===value))return undefined;
+                        const investigator=/^investigator_([1-9][0-9]*)$/.exec(value);
+                        return investigator?table.party[Number(investigator[1])-1]?.name:refs.publicName(scope,value);
+                    };
+                    const effects=((embedded.args as Record<string,any>).effects as unknown[]).map((effect,index)=>{
+                        if(!effect||typeof effect!=='object'||Array.isArray(effect))return effect;
+                        const named:Record<string,unknown>=Object.fromEntries(['to','from','subject','with','who','actor','target','toward'].flatMap(key=>{const name=person((effect as Record<string,unknown>)[key]);return name?[[key,name]]:[];}));
+                        const document=(effect as Record<string,any>).document,reader=document&&typeof document==='object'?person(document.reader):undefined;
+                        if(reader)named.document={...document,reader};
+                        if(!Object.keys(named).length)return effect;
+                        fields.push(...Object.keys(named).map(key=>`effects[${index}].${key==='document'?'document.reader':key}`));
+                        return {...effect,...named};
+                    });
+                    if(fields.length){embedded.args={...(embedded.args as Record<string,any>),effects} as typeof embedded.args;
+                        void record({lane:'arguments',event:'person_reference_named',tool:'apply',fields});}
                 }
                 if(turnPacketPrototype&&spec.name==='output'&&table){
                     const bound=packetNpcReferences(table).bindActors(packetNpcScope(table),embedded.args);
@@ -7188,13 +7292,31 @@ export default function (pi: ExtensionAPI, host: {capabilities?:RuntimeCapabilit
 
 	// Native isError is returned by the dispatcher; finalization still owns refusal accounting.
 	pi.on('tool_result', event => dispatcher.finalize(event));
+	/**
+	 * A read spiral is the costliest turn a single Keeper has (el-v2-20261021a T16: 38 reads, 703 s, no output). Every
+	 * READ_STREAK_NOTE consecutive successful reads in one input, the read's own result carries a short note handing the
+	 * open question back to the Keeper's judgment. No read is refused or cut; any write or delivery resets the count.
+	 */
+	function keeperProgressNote(state:TableState,event:ToolResultEvent):{content:ToolResultEvent['content']}|undefined{
+		const input=event.input as Record<string,unknown>|undefined;
+		const read=['look','lookup','recall','mod'].includes(event.toolName)||event.toolName==='place'&&input?.op==='inspect';
+		if(!read){if(WRITE_TOOLS.has(event.toolName)||event.toolName==='narrate')state.readStreak=undefined;return undefined;}
+		if(event.isError)return undefined;
+		const count=(state.readStreak?.turn===state.turn?state.readStreak.count:0)+1;
+		state.readStreak={turn:state.turn,count};
+		if(count%READ_STREAK_NOTE)return undefined;
+		void record({lane:'keeper-progress',event:'read_streak_noted',turn:state.turn,reads:count});
+		return {content:[...(event.content??[]),{type:'text',text:`Host note: ${count} reads in this input without a decision. `
+			+'What the capsule and these reads leave open is yours to settle in the fiction; the module is reference, not a script. Decide, then submit the output.'}]};
+	}
 	async function finalizeOperation(event: ToolResultEvent) {
 		if(event.toolName==='place'&&!(event.details as Record<string,unknown>|undefined)?.place_preflight){const operation=placeOperation(event.toolName,event.input as Record<string,unknown>);event={...event,toolName:operation.name,input:operation.params};}
 		if (!COC_TOOL_NAMES.includes(event.toolName as never)) return;
+		const progress = singleKeeper && table ? keeperProgressNote(table, event) : undefined;
 		const details = event.details as { coc_error?: { code?: unknown; message?: unknown } } | undefined;
 		if(singleKeeper && table && event.isError && ['apply','resolve'].includes(event.toolName) && !details?.coc_error)
 			holdFailedOperation(table,event.toolName,event.input,{code:'tool_validation_failed'},event.toolCallId);
-		if (!details?.coc_error) return;
+		if (!details?.coc_error) return progress;
 		const state = table;
 		if(singleKeeper && state && ['apply','resolve'].includes(event.toolName))
 			holdFailedOperation(state,event.toolName,event.input,details.coc_error,event.toolCallId);

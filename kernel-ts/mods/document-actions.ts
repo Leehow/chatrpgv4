@@ -24,12 +24,19 @@ export async function physicalDocumentAction(context:ApplyContext,item:Row,effec
     if(!item.document)throw new RpcError('needs','Initialize the physical document before using its reading surface');
     if(!string(effect.why).trim())throw new RpcError('invalid_params','A physical document operation needs its actual causal why');
     const own=surface(world,item),root=rootObjectOwner(world,item),here=npcsPresent(graph,world,graph.scene(world.active_scene));
-    let observed:Row|undefined,reader:Row|undefined,writingResult:Row|undefined;
+    let observed:Row|undefined,reader:Row|undefined,writingResult:Row|undefined,readerId='',readerName='',investigator=false;
     if(['show','observe'].includes(action)){
-        reader=npcNode(graph,world,string(operation.reader));
-        if(!graph.isPerson(reader))throw new RpcError('invalid_params','A writing observer must be a person');
+        // §250.15: the investigator is a reader too, by sheet id or name (live el-v2-20261021f T8: Knott showed the lease
+        // and three spellings of the investigator were refused as unknown NPCs). They are always here.
+        const sheet=(await campaign.party() as Row[]).find(value=>[normalize(string(value.id)),normalize(string(value.name))].includes(normalize(string(operation.reader))));
+        if(sheet){investigator=true;readerId=string(sheet.id);readerName=string(sheet.name);}
+        else{
+            reader=npcNode(graph,world,string(operation.reader));
+            if(!graph.isPerson(reader))throw new RpcError('invalid_params','A writing observer must be a person');
+            readerId=string(reader.node_id);readerName=graph.displayName(reader);
+        }
         if(action==='show'||operation.access!=='held'){
-            const reachable=here.some(node=>graph.handle(node)===graph.handle(reader!))
+            const reachable=(investigator||here.some(node=>graph.handle(node)===graph.handle(reader!)))
                 &&(root.kind==='investigator'||root.kind==='scene'&&root.id===world.active_scene
                     ||root.kind==='npc'&&here.some(node=>graph.handle(node)===root.id));
             if(!reachable||row(item.owner).kind==='object')throw new RpcError('needs','This document is not physically available to this reader here');
@@ -37,12 +44,14 @@ export async function physicalDocumentAction(context:ApplyContext,item:Row,effec
     }
     if(action==='open')own.open=true;
     else if(action==='close'){own.open=false;own.shown_to=[];}
-    else if(action==='show'){own.open=true;own.shown_to=[...new Set([...array(own.shown_to),string(reader!.node_id)])];}
+    else if(action==='show'){own.open=true;own.shown_to=[...new Set([...array(own.shown_to),readerId])];}
     else if(action==='observe'){
-        const access=operation.access,id=string(reader!.node_id);
+        const access=operation.access,id=readerId;
         if(!['held','shown','glimpse'].includes(access))throw new RpcError('invalid_params','Document observation access is held, shown or glimpse');
         if(access==='held'){
-            if(root.kind!=='npc'||root.id!==graph.handle(reader!)||row(item.owner).kind!=='npc')throw new RpcError('not_owned','This reader does not directly hold this document');
+            const holds=investigator?root.kind==='investigator'&&root.id===readerId&&row(item.owner).kind==='investigator'
+                :root.kind==='npc'&&root.id===graph.handle(reader!)&&row(item.owner).kind==='npc';
+            if(!holds)throw new RpcError('not_owned','This reader does not directly hold this document');
             own.open=true;
         }else if(!own.open||access==='shown'&&!array(own.shown_to).includes(id))throw new RpcError('needs','The current writing is not open to this reader');
         if(access==='glimpse'&&(typeof operation.quote!=='string'||!operation.quote.length))
@@ -77,10 +86,10 @@ export async function physicalDocumentAction(context:ApplyContext,item:Row,effec
     }else throw new RpcError('invalid_params','Unknown physical document operation');
     const name=item.name,id=context.mint(`definition:document-${context.callId}`);
     return {receipt:{id,kind:'definition',name,document_operation:action,document_changed:action==='requested_edit',
-        ...(reader?{reader:graph.displayName(reader)}:{}),...(observed?{observed_writing:observed.writing,observed_revision:observed.revision,observation_scope:observed.scope}:{}),
+        ...(readerName?{reader:readerName}:{}),...(observed?{observed_writing:observed.writing,observed_revision:observed.revision,observation_scope:observed.scope}:{}),
         ...(writingResult?{writing_result:writingResult}:{}),visibility:'keeper',call_id:context.callId},
         event:{type:'resource-changed',data:{resource:action==='observe'?'document_observation':'document',item:name,operation:action,
-            ...(reader?{reader:graph.displayName(reader)}:{}),...(observed?{writing:observed.writing,revision:observed.revision,scope:observed.scope}:{})}}};
+            ...(readerName?{reader:readerName}:{}),...(observed?{writing:observed.writing,revision:observed.revision,scope:observed.scope}:{})}}};
 }
 
 export function writingSurface(world:Row,item:Row,before:string,why:string):void{

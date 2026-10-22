@@ -35,7 +35,10 @@ test('location ownership composes time annotations without mutation or repetitio
   const input={version:4,commands:[{kind:'time',band,reason}]};
   assert.equal(Check(direct,input),Check(bare,input));
  }
- assert.ok(direct.description.includes('The location provider owns party movement'));
+ // The ownership line is whatever the owner projection adds to a schema without its own description.
+ const ownership=locationCommandOwner({type:'object',properties:{commands:{type:'array',items:{anyOf:[]}}}}).description;
+ assert.ok(ownership?.length&&!plain.description.includes(ownership));
+ assert.ok(direct.description.endsWith(ownership)&&direct.description.split(ownership).length===2,'the location schema carries the ownership line once');
 });
 for(const transport of ['responses','messages'])test(transport+' request retains current time meanings with the location provider',async()=>{
  const model=transport==='responses'?{id:'grok-4.5',name:'Fixture',api:'openai-responses',provider:'grok-build',baseUrl:'https://invalid.example/v1',reasoning:true,input:['text'],contextWindow:128000,maxTokens:16384,cost:{input:0,output:0,cacheRead:0,cacheWrite:0}}:
@@ -51,7 +54,8 @@ for(const transport of ['responses','messages'])test(transport+' request retains
  meanings(wire);assert.deepEqual(canonical,original);
  const position={version:4,commands:[{kind:'place',action:'move',to:'Inn',spot:'quiet corner',relation:'standing'},{kind:'scene',service:'open',crowd:'unknown'}]};
  assert.ok(Check(wire,position),'descriptive positions survive the actual SDK request');
- assert.ok(!Check(wire,{...position,commands:[{...position.commands[0],at:'Counter'},position.commands[1]]}),'wire preserves the mutually exclusive anchors');
+ const anchored={...position,commands:[{...position.commands[0],at:'Counter'},position.commands[1]]};
+ assert.ok(Check(wire,anchored)&&Check(canonical,anchored),'§250.2: at and spot are independent on the wire; with both, the kernel keeps the registered feature');
  assert.ok(Check(wire,{version:4,commands:[{kind:'time',band:'momentary',reason:'Selected gesture'}]}));
  assert.ok(!Check(wire,{version:4,commands:[{kind:'time',band:'invented',reason:'Selected gesture'}]}));
  assert.ok(!Check(wire,{version:4,commands:[{kind:'time',minutes:0,reason:'No extra pause'}]}),'the actual request must forbid a placeholder zero cost');

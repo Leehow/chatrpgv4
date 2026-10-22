@@ -2,6 +2,7 @@
 import {clockSection,clockStart} from './capsule.js';
 import {clone,number,row,string,type Row} from './values.js';
 import type {ModuleGraph} from './module-graph.js';
+import {containers} from './places.js';
 
 export function temporalAnchor(graph:ModuleGraph,world:Row):Row {
     const start=clockStart(graph,row(world.clock));
@@ -23,9 +24,17 @@ export function npcActivityView(graph:ModuleGraph,world:Row,handle:string):Row {
     const saved=row(world.npc_activity)[handle];
     return activityView(graph,world,saved,typeof row(world.npc_presence)[handle]==='string'?row(world.npc_presence)[handle]:null);
 }
+/**
+ * §250.9: a place with no assessment of its own inside a place currently assessed empty is empty too -- containment entails
+ * it, so the room carries the container's view with `inherited_from`. Any other container population says nothing about a
+ * room within it, and the room stays unassessed.
+ */
 export function sceneTemporalView(graph:ModuleGraph,world:Row,scene:Row):Row {
-    const handle=graph.handle(scene);
-    return activityView(graph,world,row(world.scene_activity)[handle],handle);
+    const handle=graph.handle(scene),own=activityView(graph,world,row(world.scene_activity)[handle],handle);
+    const container=own.review_reasons?.[0]==='unassessed'?containers(graph,scene)[0]:undefined;
+    if(!container)return own;
+    const name=graph.handle(container),outer=activityView(graph,world,row(world.scene_activity)[name],name);
+    return outer.current===true&&outer.crowd==='empty'?{...outer,inherited_from:name}:own;
 }
 export function actuallyAsleep(activity:Row|undefined):boolean {
     return activity?.current===true&&activity.wakefulness==='asleep'&&['observed','established'].includes(string(activity.basis));

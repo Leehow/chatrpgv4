@@ -118,7 +118,8 @@ test('chosen inner navigation keeps crowded-container priority and reuses distin
   const deeper=await client.tableErr('apply',{call_id:'t1-c1',effects:[{kind:'clue',clue:'inner-basement-mark'}]});
   assert.equal(deeper.code,'not_here');assert.equal(deeper.fix.includes('inner-basement'),false,'the local correction does not treat a descendant area as the current direct child');
   const replacement=await client.tableErr('apply',{call_id:'t1-c1',effects:[{kind:'clue',clue:'inner-room-mark',establish:{summary:'A renamed version of the same authored clue.'},how:'An attempted repair.'}]});
-  assert.equal(replacement.code,'invalid_params');assert.match(replacement.message,/cannot replace an authored clue/);
+  // §250.10: the establish beside the book's clue name is dropped, and the book's clue is still not obtainable from the enclosing place.
+  assert.equal(replacement.code,'not_here');assert.ok(replacement.fix.includes('inner-front-room'));
   assert.deepEqual(readJson(join(campaignDir(client.workspace),'world.json')),before);
   const rolls:Row[]=[];
   for(const [index,goal]of ['Inspect the front room visible marks','Watch the owner response on entering'].entries())

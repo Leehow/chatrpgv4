@@ -50,10 +50,16 @@ function sameCounterparty(context:Pick<ApplyContext,'world'|'graph'>,given:unkno
     if(now&&then)return now.node_id===then.node_id;
     return normalize(string(given))===normalize(string(quote.with));
 }
-export function bindCashQuote(context:Pick<ApplyContext,'world'|'graph'>,given:Row,subject:string):{effect:Row;quote:Row|null} {
+export function bindCashQuote(context:Pick<ApplyContext,'world'|'graph'>,given:Row,subject:string):{effect:Row;quote:Row|null;repaired?:Row} {
     if(given.mode==='quote'||given.quote===undefined)return {effect:given,quote:null};
     if(typeof given.quote!=='string'||!given.quote.trim())throw new RpcError('invalid_params','quote must name a registered offer');
     const quote=array(context.world.cash_quotes).find(value=>value.subject===subject&&normalize(string(value.name))===normalize(given.quote));
+    // §250.4: a quote name no offer ever had, on a settlement that prices its own lines, is that fresh priced expense under
+    // the name the Keeper gave it. A settled or cancelled offer still refuses, so nothing is paid twice.
+    if(!quote&&given.items!==undefined&&given.quote.trim().length<=200){
+        const {quote:named,...rest}=given;
+        return {effect:rest.bill===undefined?{...rest,bill:named.trim()}:rest,quote:null,repaired:{field:'quote',reason:'no_open_quote_fresh_expense'}};
+    }
     if(!quote||quote.settled||quote.cancelled)throw new RpcError('needs','This quote is missing or already closed',{
         fix:quote?.settled?'This offer was already settled. Do not pay it again or drop its binding to repeat the expense; a genuinely new expense needs its own chosen scope and terms.':given.items!==undefined?'For a fresh complete priced expense, omit quote and use bill for its local name; settle the chosen service directly under ordinary admission. quote reuses a saved offer, it does not name a new bill. Do not register a preliminary offer just to complete a chosen covered service.':'Register a new offer with mode quote, items and a human-readable quote name before another payment.',
         details:{field:'quote',quote:given.quote}});

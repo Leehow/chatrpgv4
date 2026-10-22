@@ -84,7 +84,8 @@ export class HeldActOutcome {
     if(!this.basis)return [];
     const causes=['invalid_params','action_not_authorized','action_admission_uncertain','admission_unavailable','place_barrier'];
     if(this.basis.complete!==true||this.basis.held.some(row=>!causes.includes(row.cause)
-      &&!(row.tool==='apply'&&['unknown_entity','preview_clock_unknown','chosen_covered_quote'].includes(row.cause))))return;
+      // §252.1: an apply clue refused as not discoverable here writes nothing either (live el-v2-20261021f T19, undelivered).
+      &&!(row.tool==='apply'&&['unknown_entity','not_here','preview_clock_unknown','chosen_covered_quote'].includes(row.cause))))return;
     return this.basis.held.map(row=>({tool:row.tool,status:'uncommitted',reason:row.cause}));
   }
   issuedCorrection(): void { this.correctionIssued = true; }

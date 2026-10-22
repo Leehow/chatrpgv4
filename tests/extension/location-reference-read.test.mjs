@@ -49,8 +49,8 @@ test('context and observation inspections preserve explicit features, spots and 
     assert.equal(spot.target_spot,'clear floor');
     assert.equal((await inspect(k,{name:'Inn room',at:'unknown window'})).status,'unregistered');
     assert.equal((await inspect(k,{name:'Inn room / invented window'})).status,'unregistered');
-    const invalid=await k.err('mods.locations.inspect',{campaign:CAMPAIGN,name:'Inn room',at:'window',spot:'clear floor'});
-    assert.equal(invalid.code,'invalid_params');assert.equal(invalid.details.reason,'place_point_shape');
+    const both=await inspect(k,{name:'Inn room',at:'window',spot:'clear floor'});
+    assert.deepEqual(both.reference,{kind:'feature',place:'Inn room',at:'window'},'§250: with both anchors the registered feature wins');
     assert.deepEqual(world(k),before,'all reads leave every canonical field unchanged');
 });
 
@@ -75,17 +75,14 @@ test('an ambiguous place remains ambiguous and a fabricated feature suffix creat
     assert.deepEqual(world(k),before);
 });
 
-test('a mistaken feature-as-place write refuses atomically with its exact correction and then settles once',async t=>{
+test('a feature named as a place is resolved to its canonical point and settles once (§250)',async t=>{
     const k=await room(t),before=world(k);
     const command={kind:'place',action:'observe',to:'Inn room / window',sense:'sight',access:'clear',scope:'The casement.',view:'The casement is visible from the current place.',facts:['The glass is dusty.']};
-    const error=await k.tableErr('apply',{call_id:'t1-c2',effects:[{kind:'time',minutes:2,why:'The selected inspection.'},command]});
-    assert.equal(error.code,'invalid_params');assert.equal(error.details.reason,'place_observation_point_unresolved');
-    assert.deepEqual(error.details.reference,{kind:'feature',place:'Inn room',at:'window'});
-    assert.deepEqual(world(k),before,'no time or partial observation survives a refused proposal');
-    const corrected={...command,to:error.details.reference.place,at:error.details.reference.at};
-    const result=await k.table('apply',{call_id:'t1-c2',effects:[{kind:'time',minutes:2,why:'The selected inspection.'},corrected]});
+    const result=await k.table('apply',{call_id:'t1-c2',effects:[{kind:'time',minutes:2,why:'The selected inspection.'},command]});
     assert.equal(world(k).clock.minutes,before.clock.minutes+2);
     assert.deepEqual(result.outcomes[1].observation.to,{place:'Inn room',at:'window'});
-    const saved=world(k);assert.equal((await k.table('apply',{call_id:'t1-c2',effects:[{kind:'time',minutes:2,why:'The selected inspection.'},corrected]})).replayed,true);
+    const receipt=(await k.table('status',{projection:'receipts'})).receipts.find((row)=>row.call_id==='t1-c2'&&row.kind==='place');
+    assert(receipt.adjusted.some((row)=>row.reason==='qualified_feature_resolved'&&row.at==='window'));
+    const saved=world(k);assert.equal((await k.table('apply',{call_id:'t1-c2',effects:[{kind:'time',minutes:2,why:'The selected inspection.'},command]})).replayed,true);
     assert.deepEqual(world(k),saved,'replay cannot charge time or perception twice');
 });

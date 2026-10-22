@@ -16,7 +16,7 @@ test('explicit selected minutes survive every native entrance without selecting 
  assert.equal(Errors(payload.tools[0].input_schema,packet).length,0);
  const travel={kind:'move',to:'Library'},after={...command,beyond_travel:true};
  assert.doesNotThrow(()=>turnPacket(JSON.stringify({...packet,commands:[travel,after]})));
- assert.throws(()=>turnPacket(JSON.stringify({...packet,commands:[travel,command]})),/Movement already owns travel time/);
+ assert.doesNotThrow(()=>turnPacket(JSON.stringify({...packet,commands:[travel,command]})),'§250: time beside a move is always additional');
 });
 
 test('issued output schema declares movement and stale-scene assessment before generation',()=>{
@@ -25,7 +25,7 @@ test('issued output schema declares movement and stale-scene assessment before g
  const schema=(required)=>turnPacketParameterSchema(false,[],choices,required);
  const packet=commands=>({version:4,commands,interactions:[]});
  const movement={kind:'move',to:'Library'},assessment={kind:'scene',service:'open',crowd:'quiet'};
- assert.ok(Errors(schema(false),packet([movement])).length,'movement without assessment must not be advertised as valid');
+ assert.equal(Errors(schema(false),packet([movement])).length,0,'§250: an unassessed arrival is valid and recorded as unknown');
  assert.equal(Errors(schema(false),packet([movement,assessment])).length,0);
  assert.equal(Errors(schema(false),packet([])).length,0,'valid stationary scene needs no new assessment');
  assert.ok(Errors(schema(true),packet([])).length,'stale stationary scene requires assessment');

@@ -26,7 +26,7 @@ import {EquipmentJobs} from './equipment.js';
 import {stageLocation} from './locations.js';
 import {isAmbiguity} from '../read/module-graph.js';
 import {locationView,locationProvider,locationCandidates,locationFeature} from '../read/locations.js';
-import {PlaceParameters,PlaceEffect} from '../../shared/place-structures.js';
+import {PLACE_CONTRACT_GUIDE} from '../../shared/place-structures.js';
 import {locationObservationView,locationRelations,locationInspectionPoint} from '../read/location-observations.js';
 import {committedOnLine} from '../read/exchange.js';
 export { validateDefinition, validateDocumentSeed, definitionExpression } from './definition.js';
@@ -104,7 +104,8 @@ export function createModRuntime(context: KernelContext, sources: ModSources = {
         const {campaign,module}=await readCampaign(context,params,false,false,writer.read);
         const provider=locationProvider(await runtime.active(campaign.world));
         const availability={enabled:!!provider,location_inspection:{turn:campaign.turn.turn,need:params.need??'context'},...(provider?{mod:provider.id,version:provider.version}:{})};
-        if(params.need==='contract')return {...availability,parameters:JSON.parse(JSON.stringify(PlaceParameters)),command:JSON.parse(JSON.stringify(PlaceEffect)),sections:provider?packageSections(provider).map(section=>({heading:section.heading,text:section.text})):[]};
+        // §250: every place field is declared in the tool and output schemas; the contract read is a pointer, not a second grammar.
+        if(params.need==='contract')return {...availability,guide:PLACE_CONTRACT_GUIDE};
         try{
             if(params.need==='observation')return {...availability,observation:locationObservationView(module.graph,campaign.world,params,
                 committedOnLine(campaign,await campaign.turnRecords()).records,row(await campaign.optional('npc-journal.json')))};

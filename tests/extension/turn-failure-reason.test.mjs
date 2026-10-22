@@ -3,6 +3,7 @@ import uiSeed from '../../content/ui/zh-Hans/extension.json' with {type:'json'};
 import {test} from 'node:test';
 import assert from 'node:assert/strict';
 import {join} from 'node:path';
+import {readFileSync} from 'node:fs';
 import {fauxAssistantMessage,fauxToolCall} from '@earendil-works/pi-ai';
 import {openTable,customMessages,waitFor} from './harness.mjs';
 import {RpcClient} from '../integration/support.ts';
@@ -40,6 +41,19 @@ test('a fatal active-run capsule error reaches the notice with its actual cause'
  assert.doesNotMatch(notice.content,/[{}]|missing_final_output/);
 });
 
+test('a transient author provider refusal before any text is asked again and the turn publishes (§252.2, live el-v2-20261021g T5, T6)',async t=>{
+ const env={PI_COC_LOOP_ENGINE:'hybrid-v1',PI_COC_TURN_PACKET_PROTOTYPE:'1',PI_COC_JEV_PRESELECT:'0',PI_COC_MATERIAL_SCREEN:'0',EXT_JEV_APIKEY:undefined,TYPESAFE_API_KEY:undefined,
+  PI_COC_READER_CMD:JSON.stringify([process.execPath,join(import.meta.dirname,'fixtures/overloaded-once-author.mjs')])};
+ const engine=createHybridEngine({env,decision:{decide:async batch=>answer(batch)}});
+ const table=await openTable({legacyDeliveryFixtures:false,realKernel:true,prepareWorkspace:opened,env,runDriver:engine.runDriver,
+  extraExtensions:[{name:'engine',factory:engine.extension}],responses:[fauxAssistantMessage([fauxToolCall('output',{version:4,commands:[{kind:'scene',service:'open',crowd:'quiet'}]})],{stopReason:'toolUse'})]});
+ t.after(()=>table.dispose());await table.session.prompt('I remain beside the desk.');
+ await waitFor(()=>table.entries('coc-final-delivery').some(row=>row.event==='end'),{label:'the retried author publishes'});
+ assert.deepEqual(table.telemetry().filter(row=>row.lane==='isolated-expression'&&row.event==='provider_retry').map(row=>[row.status,row.try]),[['529',1]]);
+ assert.equal(table.entries('coc-final-delivery').filter(row=>row.event==='end'&&row.status==='completed').length,1);
+ assert.equal(notices(table).length,0,'no failure notice reaches the player');
+});
+
 test('an actual native author failure reaches the player as HTTP 504 with committed state retained',async t=>{
  const env={PI_COC_LOOP_ENGINE:'hybrid-v1',PI_COC_TURN_PACKET_PROTOTYPE:'1',PI_COC_JEV_PRESELECT:'0',PI_COC_MATERIAL_SCREEN:'0',EXT_JEV_APIKEY:undefined,TYPESAFE_API_KEY:undefined,
   PI_COC_READER_CMD:JSON.stringify([process.execPath,join(import.meta.dirname,'fixtures/failed-direct-author.mjs')])};
@@ -69,9 +83,10 @@ test('native missing output identifies the failed publication stage instead of a
  assert.match(JSON.stringify(notice.details.failure),/native_output_missing/);
 });
 
-test('a native observation point refusal preserves its concrete registration cause in the player notice',async t=>{
+test('an unregistered observation point no longer fails the turn; it publishes as a descriptive spot (§250)',async t=>{
  let office;
- const env={PI_COC_LOOP_ENGINE:'hybrid-v1',PI_COC_TURN_PACKET_PROTOTYPE:'1',PI_COC_JEV_PRESELECT:'0',PI_COC_MATERIAL_SCREEN:'0',EXT_JEV_APIKEY:undefined,TYPESAFE_API_KEY:undefined};
+ const env={PI_COC_LOOP_ENGINE:'hybrid-v1',PI_COC_TURN_PACKET_PROTOTYPE:'1',PI_COC_JEV_PRESELECT:'0',PI_COC_MATERIAL_SCREEN:'0',EXT_JEV_APIKEY:undefined,TYPESAFE_API_KEY:undefined,
+  PI_COC_READER_CMD:JSON.stringify([process.execPath,join(import.meta.dirname,'fixtures/isolated-expression-writer.mjs')])};
  const engine=createHybridEngine({env,decision:{decide:async batch=>{
   const result=answer(batch);
   if(batch.family==='continuous-action-admission')for(const question of batch.questions)if(question.type==='noul')result.answers[question.key].noul=question.key.startsWith('restriction_')?.01:.99;
@@ -79,14 +94,16 @@ test('a native observation point refusal preserves its concrete registration cau
  }}});
  const observation=()=>fauxAssistantMessage([fauxToolCall('output',{version:4,commands:[{kind:'place',action:'observe',to:office,at:'unregistered doorway',sense:'sight',access:'clear',scope:'The doorway.',facts:['The door is open.']},{kind:'scene',service:'open',crowd:'quiet'}]})],{stopReason:'toolUse'});
  const table=await openTable({legacyDeliveryFixtures:false,realKernel:true,prepareWorkspace:opened,env,runDriver:engine.runDriver,
-  extraExtensions:[{name:'engine',factory:engine.extension}],responses:[observation,observation]});
+  extraExtensions:[{name:'engine',factory:engine.extension}],responses:[observation]});
  t.after(()=>table.dispose());office=(await table.runtimeBridges().at(-1).call('table.capsule',{campaign:'test-camp'})).where.scene;
  await table.session.prompt('I stay here and look through the doorway.');
- await waitFor(()=>notices(table).length===1,{label:'the concrete observation registration cause'});
- const notice=notices(table)[0];assert.ok(notice.content.includes(uiSeed.turn_failure_observation_point));
- assert.ok(notice.content.includes(uiSeed.turn_failure_no_settlement));assert.equal(notice.details.failure.settled_receipts,0);
- assert.match(JSON.stringify(notice.details.failure),/place_observation_point_unresolved/);
- assert.doesNotMatch(notice.content,/turn_packet_parameters|[{}]/);assert.deepEqual(table.extensionErrors,[]);
+ await waitFor(()=>table.entries('coc-final-delivery').some(row=>row.event==='end'&&row.status==='completed'),{label:'the observation publishes'});
+ assert.equal(notices(table).length,0,'no turn-failure notice');
+ const receipts=JSON.parse(readFileSync(join(table.workspace,'.coc/campaigns/test-camp/turns/0001.json'),'utf8')).receipts;
+ const observed=receipts.find(row=>row.kind==='place'&&row.action==='observe');
+ assert.equal(observed.observation.to.spot,'unregistered doorway');
+ assert(observed.adjusted.some(row=>row.reason==='unregistered_feature_as_spot'));
+ assert.deepEqual(table.extensionErrors,[]);
 });
 
 test('a native shape failure exposes the exact field constraint without values or JSON in the notice',async t=>{
@@ -102,19 +119,27 @@ test('a native shape failure exposes the exact field constraint without values o
  assert.match(JSON.stringify(notice.details.failure),/parameter|parameters/);assert.deepEqual(table.extensionErrors,[]);
 });
 
-test('native output refusal retains its actual consent cause when the allowed continuation produces no output',async t=>{
+// §249/§249.6: native packet commands and document writes are the single Keeper's own judgment or unreviewed, so the consent
+// refusal comes from an apply map reveal, the line the typed consent review still reads.
+test('a typed consent refusal retains its actual cause when the allowed continuation produces no output',async t=>{
  const env={PI_COC_LOOP_ENGINE:'hybrid-v1',PI_COC_TURN_PACKET_PROTOTYPE:'1',PI_COC_JEV_PRESELECT:'0',PI_COC_MATERIAL_SCREEN:'0',EXT_JEV_APIKEY:undefined,TYPESAFE_API_KEY:undefined};
  const engine=createHybridEngine({env,decision:{decide:async batch=>answer(batch)}});
- const move={kind:'move',to:'Central Library'};
- const table=await openTable({legacyDeliveryFixtures:false,realKernel:true,prepareWorkspace:opened,env,
+ const write={kind:'map',name:'player-corbitt-house-map',regions:['ground-entry-hall'],region_labels:{'ground-entry-hall':'Entry hall'},
+  level_labels:{'Ground Floor':'Ground floor'},label:'Library approach.',why:'Knott spreads the house plan on the desk.'};
+ const table=await openTable({legacyDeliveryFixtures:false,realKernel:true,env,prepareWorkspace:async workspace=>{
+  const client=new RpcClient(workspace);
+  try{
+   await client.ok('table.open',{campaign:'test-camp'});
+   await client.ok('table.narrate',{campaign:'test-camp',call_id:'t0-c1',text:'Knott waits at his desk.'});
+  }finally{await client.close();}
+ },
   runDriver:engine.runDriver,extraExtensions:[{name:'engine',factory:engine.extension}],responses:[
-   fauxAssistantMessage([fauxToolCall('output',{version:4,commands:[move],interactions:[]})],{stopReason:'toolUse'}),
-   fauxAssistantMessage([fauxToolCall('output',{version:4,commands:[move,{kind:'scene',service:'unknown',crowd:'quiet'}],interactions:[]})],{stopReason:'toolUse'}),
+   fauxAssistantMessage([fauxToolCall('apply',{effects:[write]})],{stopReason:'toolUse'}),
    fauxAssistantMessage([{type:'thinking',thinking:'PRIVATE_NEXT_TURN'}],{stopReason:'stop'}),
    fauxAssistantMessage([{type:'thinking',thinking:'PRIVATE_NEXT_TURN'}],{stopReason:'stop'})
   ]});
  t.after(()=>table.dispose());
- await table.session.prompt('I drive back to the Central Library approach and stop outside.');
+ await table.session.prompt('I study the house plan Knott spreads out.');
  await waitFor(()=>notices(table).length===1,{label:'the terminal failure reason'});
  const notice=notices(table)[0];
  assert.ok(notice.content.includes(uiSeed.turn_failure_admission));
@@ -122,7 +147,8 @@ test('native output refusal retains its actual consent cause when the allowed co
  assert.doesNotMatch(notice.content,/```|action_admission_uncertain|0\.46/);
  assert.match(JSON.stringify(notice.details.failure),/action_admission_uncertain/);
  assert.equal(notice.details.failure.stopped_by,'run_aborted');
- assert.equal(table.telemetry().filter(row=>row.lane==='output-refusal-recovery'&&row.event==='returned').length,1);
+ // The refusal returned to the same Keeper as its apply result (a packet line can no longer be consent-refused, §249).
+ assert.equal(table.session.messages.filter(row=>row.role==='toolResult'&&row.toolName==='apply'&&row.isError&&JSON.stringify(row.details).includes('action_admission_uncertain')).length,1);
  assert.match(JSON.stringify(notice.details.failure),/0\.46/);
  assert.doesNotMatch(notice.content,/send anything|without a delivered result/);
  assert.equal(notice.details.failure.settled_receipts,0);

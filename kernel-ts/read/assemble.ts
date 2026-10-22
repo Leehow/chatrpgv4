@@ -6,7 +6,7 @@ import { DirectorGraph, TextGraph, Ontology } from "./content.js";
 import { RuleObservations } from "./rule-facts.js";
 import { SessionView } from "./session-view.js";
 import { briefWindow } from "./brief-window.js";
-import { whereSection, clockSection, npcsPresent, cluesHere, presentSection, knownSection, knownNpcReferences, fitBudget, fittedModuleSection, sceneLabel, voicesSection, samePersonReference, jsonSize } from "./capsule.js";
+import { whereSection, knownPlaces, clockSection, npcsPresent, cluesHere, presentSection, knownSection, knownNpcReferences, fitBudget, fittedModuleSection, sceneLabel, voicesSection, samePersonReference, jsonSize } from "./capsule.js";
 import {publicInventory} from './public-inventory.js';
 import { OWN_BUDGET, ownSection } from "./own.js";
 import { playerKnowsSection } from "./player-knows.js";
@@ -743,6 +743,12 @@ export async function buildCapsule(campaign: CampaignSnapshot, module: LoadedMod
             if (!Array.isArray(sections[name]) && sections[name] && typeof sections[name] === "object")
                 sections[name].truncated = true;
         }
+    }
+    // §250.7: the nameable places ride beside the sections under their own cap; they are no section and displace nothing.
+    {
+        const named = knownPlaces(graph, world, graph.scene(world.active_scene));
+        sections.known_places = named.rows;
+        if (named.omitted) sections.known_places_omitted = named.omitted;
     }
     for (const [name, budget] of Object.entries(SLICE2_BUDGETS))
         if (fitBudget(sections[name], budget, "last"))

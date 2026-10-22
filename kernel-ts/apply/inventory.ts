@@ -223,7 +223,7 @@ export async function stageCash(context:CashContext,effect:Row,staged:Map<string
     if(covered.ledger)finance.daily_spending=covered.ledger;
     cash.amount=after;sheet.finance=finance;sheet.cash=`${string(after)} ${currency}`;
     const receipt={id:context.mint(`cash:t${context.turn.turn}-c${context.ordinal}`),kind:'cash',call_id:context.callId,resource:'cash',subject:id,subject_label:personLabel(context.world,id,subject),before,after,delta:actualDelta,
-        ...covered.fields,...(effect.bill?{bill:effect.bill}:{}),...(priced?{items:priced.items}:{}),...(bound.quote?{quote:bound.quote.name}:{}),with:otherId,with_label:otherLabel,currency,...sourced,why,at:nowIso()};
+        ...covered.fields,...(effect.bill?{bill:effect.bill}:{}),...(priced?{items:priced.items}:{}),...(bound.quote?{quote:bound.quote.name}:{}),...(bound.repaired?{adjusted:[bound.repaired]}:{}),with:otherId,with_label:otherLabel,currency,...sourced,why,at:nowIso()};
     if(bound.quote)bound.quote.settled=receipt.id;
     if(typeof effect._purchase_quote==='string'){
         const name=effect._purchase_quote,offer=array(context.world.cash_quotes).find(q=>q.subject===id&&normalize(string(q.name))===normalize(name));

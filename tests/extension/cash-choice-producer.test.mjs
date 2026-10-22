@@ -1,7 +1,7 @@
 /** Closed cash-confirmation producer/consumer seams. Fixtures are not browser or live-play acceptance. */
 import {test} from 'node:test';
 import assert from 'node:assert/strict';
-import {readFileSync,writeFileSync,mkdtempSync,mkdirSync} from 'node:fs';
+import {readFileSync,writeFileSync,mkdtempSync,mkdirSync,existsSync} from 'node:fs';
 import {join} from 'node:path';
 import {kernel,openTurn,campaignDir,readJson,RpcClient} from '../integration/support.ts';
 import {PurchaseRecovery} from '../../extensions/kernel/purchase-recovery.ts';
@@ -88,12 +88,15 @@ test('a cancelled quotation cannot be recreated as a held cash confirmation',asy
     assert.equal(error.details.reason,'cash_confirmation_unavailable');
 });
 
-test('a choice produced by cash refusal and ask reaches one payment through its returned binding',async t=>{
-    let accepted=false,recoveryError,produced,reviews=0;
+// §249: in the single Keeper the settlement of a registered quotation is the Keeper's own judgment of the player's order. The
+// consent refusal that produced a held cash confirmation no longer runs there (the producer itself is covered above); the
+// kernel still prices the full debit, daily spending included, and settles it once.
+test('a Keeper-judged settlement of a registered quotation pays the full debit once without a consent refusal or held choice',async t=>{
+    let reviews=0;
     const engine=createHybridEngine({env:{},decision:{decide:async batch=>{
         if(batch.family==='continuous-action-admission')reviews++;
         const answers=Object.fromEntries(batch.questions.map(question=>{
-            if(question.type==='noul')return [question.key,{type:'noul',status:'answered',noul:question.key.startsWith('restriction_')?.01:question.key.startsWith('cash_input_')?.01:question.key.startsWith('cash_offer_')?(accepted?.99:.01):.99}];
+            if(question.type==='noul')return [question.key,{type:'noul',status:'answered',noul:question.key.startsWith('restriction_')?.01:question.key.startsWith('cash_input_')?.01:question.key.startsWith('cash_offer_')?.01:.99}];
             const values=Object.keys(question.criteria),choice=values.includes('later')?'later':values.includes('unknown')?'unknown':values[0];
             return [question.key,{type:'choice',status:'answered',choice,confidence:.99,
                 probabilities:Object.fromEntries(values.map(value=>[value,value===choice?.99:.01/(values.length-1)]))}];
@@ -101,6 +104,7 @@ test('a choice produced by cash refusal and ask reaches one payment through its 
         return {batchId:batch.id,status:'complete',answers,coverage:{required:Object.keys(answers),answered:Object.keys(answers),unknown:[]},issues:[],usage:{inputTokens:100,outputTokens:0}};
     }}});
     const env={PI_COC_ISOLATED_OUTPUT:'0',EXT_JEV_APIKEY:undefined,TYPESAFE_API_KEY:undefined};
+    const errors=[];
     const table=await openTable({realKernel:true,legacyDeliveryFixtures:false,env,runDriver:engine.runDriver,
         prepareWorkspace:async workspace=>{
             const client=new RpcClient(workspace);
@@ -116,26 +120,21 @@ test('a choice produced by cash refusal and ask reaches one payment through its 
                 return await client.ok('table.capsule',{campaign:'test-camp',_context_read:true});
             }finally{await client.close();}
         },extraExtensions:[{name:'continuous',factory:engine.extension},{name:'cash-refusal-observer',factory(pi){
-            pi.on('tool_result',event=>{if(event.toolName==='apply'&&event.isError)recoveryError=event.details?.coc_error;});
+            pi.on('tool_result',event=>{if(event.toolName==='apply'&&event.isError)errors.push(event.details?.coc_error);});
         }}],responses:[
             fauxAssistantMessage([fauxToolCall('apply',{effects:[{kind:'cash',mode:'settle',quote,bill:alias}]})],{stopReason:'toolUse'}),
-            ()=>{assert.ok(recoveryError);const correction=recoveryError.details.cash_confirmations[0];
-                return fauxAssistantMessage([fauxToolCall('ask',correction)],{stopReason:'toolUse'});},
-            ()=>fauxAssistantMessage(JSON.stringify({version:1,record:{effects:[{kind:'cash',mode:'settle',quote:produced.binds}]},text:'The copy order is settled once.'}))
+            fauxAssistantMessage('{{public}}The copy order is settled once.')
         ]});
     t.after(()=>table.dispose());
     await table.session.prompt('I choose the one-dollar copy order.');
     const directory=join(table.workspace,'.coc/campaigns/test-camp');
-    produced=readJson(join(directory,'turns/0002.json')).pending_choice;
-    assert.equal(produced.binds,quote);assert.equal(readJson(join(directory,'party/thomas-hayes.json')).finance.cash.amount,20);
-    const card=readJson(join(directory,'turns/0002.json')).mechanics.find(row=>row.quote===quote&&row.cash_debit!==undefined);
-    assert.equal(card.cash_debit,3);assert.equal(card.purchase_amount,1);
-    accepted=true;
-    await table.session.prompt(JSON.stringify({kind:'mechanics_choice',action:'accept',choice:produced}));
-    const paid=readJson(join(directory,'turns/0003.json'));
-    assert.equal(paid.receipts.filter(row=>row.kind==='cash').length,1);
-    assert.equal(paid.receipts.find(row=>row.kind==='cash').delta,-3);
+    const turn=readJson(join(directory,'turns/0002.json'));
+    assert.deepEqual(errors,[]);assert.equal(turn.pending_choice,null);
+    assert.equal(turn.receipts.filter(row=>row.kind==='cash').length,1);
+    assert.equal(turn.receipts.find(row=>row.kind==='cash').delta,-3);
     assert.equal(readJson(join(directory,'party/thomas-hayes.json')).finance.cash.amount,17);
-    assert.equal(reviews,2);assert.deepEqual(table.extensionErrors,[]);
-    assert.deepEqual(Object.values(readJson(join(directory,'purchase-recovery.json')).lines).flat(),[]);
+    assert.equal(reviews,0);assert.deepEqual(table.extensionErrors,[]);
+    assert.deepEqual(table.telemetry().filter(row=>row.lane==='admission'&&row.path==='keeper_judged').map(row=>({kinds:row.kinds,jev_calls:row.jev_calls})),
+        [{kinds:['cash'],jev_calls:0}]);
+    assert.equal(existsSync(join(directory,'purchase-recovery.json')),false,'no refused purchase line was retained for recovery');
 });

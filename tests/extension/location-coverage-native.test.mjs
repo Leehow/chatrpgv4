@@ -13,28 +13,21 @@ const step=[{kind:'place',action:'move',to:'here',at:'Door',relation:'beside'},
  {kind:'place',action:'observe',to:'here',sense:'sight',access:'limited',scope:'The near furniture.',facts:['A wooden chair stands by the wall.']}];
 const packet=commands=>({version:4,commands:[...commands,{kind:'scene',service:'open',crowd:'quiet'}]});
 const decide=async batch=>({batchId:batch.id,status:'complete',answers:Object.fromEntries(batch.questions.map(q=>[q.key,q.type==='noul'?{status:'answered',type:'noul',noul:q.key==='feature_blocked'||q.key==='feature_satisfied'||q.key.startsWith('restriction_')?.01:.99}:{status:'answered',type:'choice',choice:Object.keys(q.criteria??{}).find(key=>key!=='none')??'none',confidence:.99}])),usage:{}});
-for(const mixedReference of [false,true])test('native recovery preserves input scope and settles once; mixed reference='+mixedReference,async t=>{
- const engine=createHybridEngine({env,decision:{decide}});let calls=0;const failures=[];
+test('a native spatial packet publishes on its first submission without a completion review (§249)',async t=>{
+ const families=[];const engine=createHybridEngine({env,decision:{decide:async batch=>{families.push(batch.family);return decide(batch);}}});let calls=0;const failures=[];
  const table=await openTable({legacyDeliveryFixtures:false,realKernel:true,prepareWorkspace:prepared,env,runDriver:engine.runDriver,
   extraExtensions:[{name:'engine',factory:engine.extension},{name:'review-fixture',factory:pi=>{
    pi.on('tool_result',event=>{if(event.isError)failures.push(event);});
-   pi.on('tool_call',event=>{if(event.toolName==='output')pi.events.emit('coc:location-demand',{campaign:'test-camp',turn:2,review:true,selection:{move:.99,feature:.99,observation:.99}});});
+   pi.on('tool_call',event=>{if(event.toolName==='output')pi.events.emit('coc:location-demand',{campaign:'test-camp',turn:2});});
   }}],responses:[
    ()=>{calls++;return fauxAssistantMessage([fauxToolCall('output',packet(step))],{stopReason:'toolUse'});},
-   context=>{calls++;const refusal=context.messages.findLast(row=>row.role==='toolResult'&&row.toolName==='output'&&row.isError);
-    assert(refusal);const payload=refusal.details?.coc_error??JSON.parse(refusal.content.find(row=>row.type==='text').text);
-    assert.equal(payload.details.reason,'place_decision_incomplete');assert.deepEqual(payload.details.corrections.map(row=>row.axis),['feature']);
-    assert(payload.fix.includes('action:"feature"'));
-    assert.equal(table.telemetry().filter(row=>row.lane==='isolated-expression'&&row.event==='start').length,0);
-    return fauxAssistantMessage([...(mixedReference?[{type:'text',text:'{{reference}}CORRECTION_NOTE_MUST_STAY_PRIVATE'}]:[]),fauxToolCall('output',packet([{kind:'place',action:'feature',to:'here',at:'Door',state:'open',passable:true},...step]))],{stopReason:'toolUse'});
-   }
   ]});t.after(()=>table.dispose());
- await table.session.prompt('I walk to the door, open it and look at the near furniture.');
- assert.equal(calls,2);assert.deepEqual(table.extensionErrors,[]);
+ await table.session.prompt('I walk to the door and look at the near furniture.');
+ assert.equal(calls,1);assert.deepEqual(failures,[]);assert.deepEqual(table.extensionErrors,[]);
+ assert(!families.some(family=>family.startsWith('location-')),'no location review is asked: '+families.join(','));
  const turn=JSON.parse(readFileSync(join(table.workspace,'.coc/campaigns/test-camp/turns/0002.json'),'utf8'));
- assert.deepEqual(turn.receipts.filter(row=>row.kind==='place').map(row=>row.action),['feature','move','observe'],JSON.stringify(failures));
+ assert.deepEqual(turn.receipts.filter(row=>row.kind==='place').map(row=>row.action),['move','observe']);
  assert.equal(table.entries('coc-final-delivery').filter(row=>row.event==='end'&&row.status==='completed').length,1);
- assert(!table.entries('coc-final-delivery').filter(row=>row.event==='delta').map(row=>row.delta??'').join('').includes('CORRECTION_NOTE_MUST_STAY_PRIVATE'));
 });
 
 test('a genuine reference input still blocks physical effects and publishes its direct reference reply',async t=>{

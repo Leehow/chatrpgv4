@@ -45,17 +45,13 @@ for(const [label,facts] of [
     assert.equal(world(restarted).clock.minutes,before+2,'publication and restart do not charge extra observation time');
 });
 
-test('malformed and blocked observation facts still refuse atomically',async t=>{
+test('malformed observation facts still refuse atomically (§250)',async t=>{
     const k=await kernel(t);await street(k);const before=world(k);
-    for(const facts of [[42],[''],['   ']]){
+    for(const facts of [[42],'one fact',[{text:'A table.'}]]){
         const error=await k.tableErr('apply',{call_id:'t1-c2',effects:[{kind:'time',minutes:2,why:'The selected brief inspection.'},
             {kind:'place',action:'observe',to:'Street',at:'front steps',sense:'sight',access:'clear',scope:'The near wall.',facts}]});
         assert.equal(error.code,'invalid_params');assert.deepEqual(world(k),before);
     }
-    const blocked=await k.tableErr('apply',{call_id:'t1-c2',effects:[
-        {kind:'place',action:'observe',to:'Street',at:'front steps',sense:'sight',access:'blocked',reason:'A solid shutter blocks the view.',scope:'The near wall.',facts:['A table is behind the shutter.']}]});
-    assert.equal(blocked.code,'invalid_params');assert.equal(blocked.details.reason,'place_observation_blocked_shape');
-    assert.deepEqual(world(k),before);
 });
 
 test('the same incident survives viewpoint changes, real NPC departure, delivery and restart',async t=>{
@@ -71,8 +67,6 @@ test('the same incident survives viewpoint changes, real NPC departure, delivery
     await k.table('player_input',{text:'I go upstairs and watch the entrance through the closed window.'});
     await room(k);
     const before=world(k);
-    const missing=await k.tableErr('apply',{call_id:'t2-c2',effects:[initial]});
-    assert.equal(missing.code,'invalid_params');assert.equal(missing.details.reason,'place_observation_relation_required');assert.deepEqual(world(k),before);
     const view=(await inspect(k)).observation;
     assert.deepEqual(view.from,{place:'Inn room',at:'window',relation:'beside'});assert.equal(view.last_observation.observed_clock.minutes,atFirst);
     assert.equal(view.people.length,2);assert.equal(view.relations.length,0);
@@ -119,8 +113,6 @@ test('senses and direction are separate, and blocked attempts do not overwrite l
     await k.table('narrate',{call_id:'t1-c3',text:'Two men argue beside the entrance.'});
     await k.table('player_input',{text:'I watch through the upstairs window without opening it.'});await room(k);
     await k.table('apply',{call_id:'t2-c2',effects:[{kind:'place',action:'relate',relations:[relation]}]});
-    const start=world(k),hearing=await k.tableErr('apply',{call_id:'t2-c3',effects:[{...initial,sense:'hearing'}]});
-    assert.equal(hearing.details.reason,'place_observation_relation_required');assert.deepEqual(world(k),start);
     const seen=await k.table('apply',{call_id:'t2-c3',effects:[{...initial,situations:undefined}]});
     assert.equal(seen.outcomes[0].observation.access,'clear','closed glass can transmit sight without passage');
     await k.table('apply',{call_id:'t2-c4',effects:[{...initial,sense:'hearing',access:'limited',facts:['Raised voices are audible, but individual words are unclear.'],situations:undefined,
@@ -130,8 +122,6 @@ test('senses and direction are separate, and blocked attempts do not overwrite l
     await k.table('narrate',{call_id:'t2-c5',text:'You can see the men, although the glass muffles their words.'});
     await k.table('player_input',{text:'I try to see the entrance after the curtain is drawn.'});
     const clock=world(k).clock.minutes;
-    const invalid=await k.tableErr('apply',{call_id:'t3-c1',effects:[{...initial,access:'blocked',reason:'The curtain covers the window.'}]});
-    assert.equal(invalid.details.reason,'place_observation_blocked_shape');
     await k.table('apply',{call_id:'t3-c1',effects:[{kind:'place',action:'feature',to:'Inn room',at:'window',state:'curtain drawn'},
         {...initial,access:'blocked',reason:'The curtain covers the window.',facts:[],people:[],situations:[]}]});
     await k.table('narrate',{call_id:'t3-c2',text:'The curtain blocks the view of the entrance.'});
@@ -150,16 +140,9 @@ test('observation writes are atomic, replayable and additive to old schema-1 loc
     assert.equal(locations(k).schema,1);assert.equal(locations(k).observations,undefined);
     const before=world(k),packet={call_id:'t1-c2',effects:[initial,{kind:'time',minutes:-1}]};
     assert.equal((await k.tableErr('apply',packet)).code,'invalid_params');assert.deepEqual(world(k),before);
-    const missing=await k.tableErr('apply',{call_id:'t1-c2',effects:[{...initial,to:'Another street',at:undefined}]});
-    assert.equal(missing.code,'invalid_params');assert.equal(missing.details.reason,'place_observation_point_unresolved');assert.deepEqual(world(k),before);
-    const unknown=await k.tableErr('apply',{call_id:'t1-c2',effects:[{...initial,people:['An unregistered stranger']}]});
-    assert.equal(unknown.code,'invalid_params');assert.equal(unknown.details.reason,'place_observation_person_unresolved');assert.deepEqual(world(k),before);
     const valid={...packet,effects:[initial]};await k.table('apply',valid);
     const saved=world(k);assert.equal((await k.table('apply',valid)).replayed,true);assert.deepEqual(world(k),saved);
     assert.equal(locations(k).observations.length,1);assert.equal(locations(k).situations.length,1);assert.equal(locations(k).places[0].id,identity);
-    const elsewhere={...initial,people:['Man in cap','Steven Knott'],situations:[]};
-    assert.equal((await k.tableErr('apply',{call_id:'t1-c3',effects:[elsewhere]})).details.reason,'place_observation_presence');
-    assert.deepEqual(world(k),saved,'observation cannot teleport an existing person');
     await k.table('narrate',{call_id:'t1-c3',text:'The men remain beside the steps.'});
     await k.ok('mods.configure',{campaign:CAMPAIGN,id:'enhanced-locations',enabled:false});
     assert.equal((await inspect(k)).enabled,false);assert.equal((await inspect(k)).observation.last_observation.access,'clear');
@@ -174,14 +157,7 @@ test('an ordinary view derives the actual counter position without registering i
     await k.table('player_input',{text:'I stay at the counter and look outside through the doorway.'});
     await k.table('apply',{call_id:'t2-c1',effects:[{kind:'place',action:'move',to:'Inn room',at:'counter',relation:'beside',via:'Inside the inn',travel_band:'adjacent',
         additions:[{name:'Inn room',features:[{name:'counter',description:'A counter opposite the entrance.'}]}]}]});
-    const before=world(k),wrong={...relation,from:{place:'Inn room',at:'doorway'}};
-    const rejected=await k.tableErr('apply',{call_id:'t2-c2',effects:[{...initial,relations:[wrong]}]});
-    assert.equal(rejected.details.reason,'place_observation_point_unresolved');assert.equal(rejected.details.field,'relations[0].from');
-    assert.deepEqual(rejected.details.current_viewpoint,{place:'Inn room',at:'counter',relation:'beside'});
-    assert.match(rejected.fix,/features/);assert.match(rejected.fix,/not as a child place/);assert.match(rejected.fix,/use view/);
-    assert.deepEqual(world(k),before);
-    const child=await k.tableErr('apply',{call_id:'t2-c2',effects:[{...initial,relations:[wrong],additions:[{name:'doorway',within:'Inn room',description:'The open doorway.'}]}]});
-    assert.equal(child.details.reason,'place_observation_point_unresolved');assert.deepEqual(world(k),before);
+    const before=world(k);
     const description='From the counter, the open doorway shows the pavement at the entrance.';
     const result=await k.table('apply',{call_id:'t2-c2',effects:[{...initial,view:description}]});
     assert.deepEqual(result.outcomes[0].observation.from,{place:'Inn room',at:'counter',relation:'beside'});
@@ -193,15 +169,19 @@ test('an ordinary view derives the actual counter position without registering i
     assert.equal(locations(k).relations.length,1);assert.equal(locations(k).relations[0].description,description,'a new wording reuses established layout');
 });
 
-test('an explicit empty parent is root only, without accepting blank facts or guessing unknown parents',async t=>{
+test('an explicit empty parent is root only; a blank name refuses while blank descriptions and unknown parents are repaired (§250)',async t=>{
     const k=await kernel(t);await openTurn(k,'I look at the ordinary building across the street.');
     const effect={kind:'place',action:'establish',additions:[{name:'Across the street',within:'',description:'An ordinary independent building.'}]};
     await k.table('apply',{call_id:'t1-c1',effects:[effect]});
     const saved=world(k),place=locations(k).places.find((place:Row)=>place.name==='Across the street');assert.equal(place.within,null);
-    for(const [index,change] of [{name:'',within:''},{name:'Blank description',within:'',description:''},{name:'Unknown parent',within:'null'},{name:'Whitespace parent',within:' '}].entries()){
-        const error=await k.tableErr('apply',{call_id:'t1-c2',effects:[{...effect,additions:[{...effect.additions[0],...change}]}]});
-        assert.equal(error.code,'invalid_params',String(index));assert.deepEqual(world(k),saved);
-    }
+    const error=await k.tableErr('apply',{call_id:'t1-c2',effects:[{...effect,additions:[{...effect.additions[0],name:'',within:''}]}]});
+    assert.equal(error.code,'invalid_params');assert.deepEqual(world(k),saved);
+    await k.table('apply',{call_id:'t1-c2',effects:[{kind:'place',action:'establish',additions:[{name:'Blank description',within:'',description:''},{name:'Unknown parent',within:'null'},{name:'Whitespace parent',within:' '}]}]});
+    const records=locations(k).places;
+    for(const name of ['Blank description','Unknown parent','Whitespace parent'])assert.equal(records.find((place:Row)=>place.name===name)?.within,null,name);
+    assert.equal(records.find((place:Row)=>place.name==='Blank description').description,'Blank description','a missing description uses the name');
+    const receipt=(await k.table('status',{projection:'receipts'})).receipts.find((row:Row)=>row.call_id==='t1-c2'&&row.kind==='place');
+    assert.equal(receipt.adjusted.filter((row:Row)=>row.reason==='unregistered_parent_ignored').length,2);
 });
 
 test('native remote creation shares NPC and place rollback, then reuses the one created identity',async t=>{
@@ -210,8 +190,8 @@ test('native remote creation shares NPC and place rollback, then reuses the one 
         {kind:'place',action:'observe',to:'Outside',sense:'sight',access:'clear',scope:'The entrance pavement.',view:'The open doorway shows the street from here.',facts:['The vendor counts his coins.'],
             additions:[{name:'Outside',within:'',description:'The street outside the current room.'}],people:['new_1']}]};
     const effects=compileTurnPacket(turnPacket(JSON.stringify(packet))).effects;
-    const invalid=structuredClone(effects);invalid.at(-1)!.people=['Unregistered person'];
-    assert.equal((await k.tableErr('apply',{call_id:'t1-c1',effects:invalid})).details.reason,'place_observation_person_unresolved');
+    const invalid=[...structuredClone(effects),{kind:'time',minutes:-1,why:'An invalid amount.'}];
+    assert.equal((await k.tableErr('apply',{call_id:'t1-c1',effects:invalid})).code,'invalid_params');
     assert.deepEqual(world(k),before,'the staged place, person, relation and observation all roll back');
     const result=await k.table('apply',{call_id:'t1-c1',effects});
     const ref=result.outcomes.find((outcome:Row)=>outcome.action==='observe').observation.people[0].ref;
@@ -248,4 +228,22 @@ test('a current observation route binds an investigative target without granting
     await k.table('apply',{call_id:'t2-c10',effects:[{kind:'place',action:'move',to:'here',at:'window',relation:'beside'}]});await k.table('apply',{call_id:'t2-c11',effects:[initial]});
     await k.table('apply',{call_id:'t2-c12',effects:[{kind:'npc',name:'Man in cap',to:'away',why:'He leaves during the selected observation.'}]});
     assert.equal((await k.tableErr('resolve',{call_id:'t2-c13',action})).code,'unknown_entity','last-seen identity is not current presence');
+});
+
+test('observation shapes are repaired and reported instead of refused (§250)',async t=>{
+    const k=await kernel(t);await street(k);
+    await k.table('apply',{call_id:'t1-c2',effects:[{...initial,to:'Another street',at:undefined,people:['An unregistered stranger','Man in cap','Steven Knott','Man in cap']}]});
+    const receipt=(await k.table('status',{projection:'receipts'})).receipts.find((row:Row)=>row.call_id==='t1-c2'&&row.kind==='place');
+    const reasons=receipt.adjusted.map((row:Row)=>row.reason);
+    assert(reasons.includes('unregistered_target_as_spot'));assert(reasons.includes('unrecognized_person_dropped'));
+    assert.equal(receipt.observation.to.spot,'Another street');assert.equal(receipt.observation.people.length,1,'one present person, named once');
+    await k.table('narrate',{call_id:'t1-c3',text:'The man in the cap stands at the steps.'});
+    await k.table('player_input',{text:'I go upstairs and watch the entrance, then listen.'});await room(k);
+    await k.table('apply',{call_id:'t2-c2',effects:[{...initial,situations:undefined},{...initial,sense:'hearing',access:'blocked',reason:'Glass muffles everything.',facts:['Raised voices carry faintly.'],situations:undefined}]});
+    const settled=(await k.table('status',{projection:'receipts'})).receipts.filter((row:Row)=>row.call_id==='t2-c2'&&row.kind==='place');
+    assert.equal(locations(k).relations.length,2,'each sense records its sightline from the Keeper scope');
+    assert(settled[0].adjusted.some((row:Row)=>row.reason==='relation_from_scope'));
+    assert.equal(settled[1].observation.access,'limited');assert(settled[1].adjusted.some((row:Row)=>row.reason==='blocked_with_facts_as_limited'));
+    await k.table('apply',{call_id:'t2-c3',effects:[{...initial,situations:undefined,relations:[{...relation,from:{...relation.from,relation:'beside'},description:'Another wording.'}]}]});
+    assert.equal(locations(k).relations.length,2);
 });
