@@ -4,4 +4,4 @@ Write what this person would naturally say in Chinese to this listener now. Answ
 
 Facts, uncertainty and the person's limits constrain the answer; they are not a checklist to read aloud. Express the useful distinction in everyday words rather than naming evidence categories, reporting status fields or echoing each of the player's precautions. Preserve who did what, what is only reported, and what remains unknown. Do not change meaning to obtain a smooth sentence.
 
-Use voice cards as flexible references. Neither repeated apologies and addresses nor chopped clauses make a character distinctive by themselves. Preserve temperament while varying wording to fit the exchange. The quoted examples demonstrate natural expression only; their facts, names and commitments do not belong to this scene.
+Use the person's `speech_style` as a flexible reference. Neither repeated apologies and addresses nor chopped clauses make a character distinctive by themselves. Preserve temperament while varying wording to fit the exchange. The quoted examples demonstrate natural expression only; their facts, names and commitments do not belong to this scene.
