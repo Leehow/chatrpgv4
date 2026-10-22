@@ -2,14 +2,14 @@
  * Contract §187.5.3: a reader child's instructions, assembled per purpose. The source reader's instructions are the
  * directory `content/setup/visual-reader/`: the phase's own files first, then `common.md` -- `index.md` for the
  * index author, `read.md` and the purpose's file (`skeleton.md`, `opening.md`, `detail.md`) for a reading author, then a
- * detail material's own file (`pregens.md`, §207.3), and `review.md` for a reviewer. Single-file jobs share only the common capability paragraph.
+ * detail material's own file (`pregens.md`, §207.3; `exhibits.md`, §257.R), and `review.md` for a reviewer. Single-file jobs share only the common capability paragraph.
  */
 import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 
 export type ReaderPrompt = { phase: "index" | "read" | "verify"; purpose?: string; guidance?: boolean; answer?: boolean;
 	visual?: "scan" | "asset" | "scope"; reference?: "guidance" | "lookup";
-	/** §207.3: a detail reading's material; `pregens` adds its own file to the reading author's phase files. */
+	/** §207.3: a detail reading's material; `pregens` and `exhibits` add their own file to the reading author's phase files. */
 	material?: string };
 
 export const VISUAL_READER_DIR = "visual-reader";
@@ -17,7 +17,7 @@ export const VISUAL_READER_DIR = "visual-reader";
 const READ_PURPOSES = ["skeleton", "opening", "detail"];
 
 /** §207.3: the detail materials with a file of their own under `visual-reader/`, read after the purpose's file. */
-const READ_MATERIALS = ["pregens"];
+const READ_MATERIALS = ["pregens", "exhibits"];
 
 /** The `visual-reader/` files one source-reader child receives, in order. A read without a known purpose gets every purpose file. */
 export function visualReaderFiles(phase: ReaderPrompt["phase"], purpose?: string, material?: string): string[] {

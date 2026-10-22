@@ -30,7 +30,7 @@ function entityClaims(raw: Row, nodeId: string): Row[] {
         .map(claim => [jsonDigest(claim), claim] as const).sort(([a], [b]) => a < b ? -1 : a > b ? 1 : 0).map(([, claim]) => claim);
 }
 /** The bound-PDF pages (1-based) the given source references cite. */
-function citedPages(refs: unknown[], moduleId: string): number[] {
+export function citedPages(refs: unknown[], moduleId: string): number[] {
     const pages = new Set<number>();
     for (const ref of refs)
         if (row(ref).source_id === `pdf:${moduleId}` && integer(row(ref).pdf_index)) pages.add(number(row(ref).pdf_index) + 1);

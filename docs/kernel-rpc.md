@@ -51828,3 +51828,65 @@ refusal reason (`check_first`, `not_here`).
 
 Test: `tests/extension/exhibit-reveal.test.mjs` (a real kernel over a content root whose Haunting starter carries exhibits, the
 controlled Keeper's `reveal`, the real settlement and the real author `task.json`).
+
+### 257.R1 The reader extracts exhibits in its existing reads (ticket 02; renumber on merge)
+
+The opening and detail reads write exhibits for the nodes they make ready, in the same read and from the pages already in
+view (no extra pass; `skeleton` writes none). The instructions (`content/setup/visual-reader/read.md`, section "Exhibits",
+plus a paragraph each in `opening.md` and `detail.md`) no longer forbid a person's words, manner or read-aloud; they define
+the six kinds and the fields of 257.1 and carry the rules the sandbox probe showed were needed:
+
+- Player-safety law: a surface states only what the investigator perceives or is told; Keeper interpretation goes in
+  `keeper_note` and `teaches`. A secret appears only as testimony of an owner who would say it.
+- Names: a paraphrased surface names a person only as `{{who:<node_id>}}`; a verbatim surface keeps the printed words.
+- Carrier scoping: an exhibit belongs to the node whose pages it cites; a prologue's or a neighbour's material is not the
+  place's.
+- Owners: an owner-less voice is a `perception` on `sound`; owners only on `testimony`/`voice`, each a person.
+- `teaches` names a clue or a knowledge claim only, never a structural relation.
+- Voice surfaces include the book's sample lines, quoted as printed.
+
+Prompt bytes of every opening, detail and verify read changed, so reading caches keyed on instruction bytes are invalidated
+(expected).
+
+### 257.R2 `material: "exhibits"`
+
+`module.read.request {purpose: "detail", material: "exhibits", focus}` is a valid detail read (`material` is `map`,
+`pregens` or `exhibits`; `focus` is required). The kernel names the question (`EXHIBITS_QUESTION`) so a focus has one
+identity for its exhibits reading and a focus prepared without exhibits is still read; the job's key includes the material,
+so it never collides with the ordinary detail read of the same focus. Its `pages` are the pages the graph already cites for
+the focus node and for the nodes a claim links to it (at most 8, the focus's own first); a focus the graph does not hold has
+none. The reader receives `exhibits.md` after `detail.md`. The draft check refuses a draft of this material that writes any
+`nodes`, `claims` or `ready_nodes` (`exhibits_scope`); an empty `exhibits` array is the answer "none printed", published as a
+settled material row (`material: "exhibits"`, `node_ids: []`), after which the same request answers `ready`. Budget stage:
+`detail` (unchanged).
+
+### 257.R3 Review: a player-safety verdict per exhibit
+
+Every exhibit that passed 257.2 is owed one review pointer, `/exhibits/<i>`, `i` being its position in the draft the reviewer
+reads (`required_review`; a checker-refused exhibit is owed none). `review.md` states the item: the surface is `supported`
+when it faithfully states what the page lets an investigator perceive and states no Keeper-only proposition (unless that is
+exactly what the exhibit teaches and its owner would say it); `teaches`, `keeper_note` and `label` are not judged as surface
+text. The host reviews exhibits as records (`recordRoot` knows the `exhibits` collection), with the carrier and owners as
+connected context.
+
+The verdict never refuses the shard (`exhibitReviewPath`, `module-review-policy`: an exhibit finding is not a blocking
+finding; the host's `gateRefusal` is false for it, so it asks no repair round). `checkReview` drops an exhibit that is not
+`supported`, or that a negative row or a `missing` item names, with rule `exhibit_player_safety` and the reviewer's reason;
+an exhibit the review gave no verdict is dropped as `exhibit_unreviewed` (fail closed). Drops are appended to the same
+`filled.exhibit_refusals` the checker's refusals use, so they reach the `module.read.finish` result (`exhibit_refusals`) and
+`module.json` `reading.exhibit_refusals` with `{exhibit_id, path, rule, rules, message, job_id, generation}`. Dropped means not
+in the graph; the rest of the shard publishes.
+
+Test: `tests/extension/module-exhibits-reader.test.mjs`.
+
+### 257.V1 Voice reaches the author
+
+Voice exhibits are the one exhibit kind that reaches the author without a catalog or a selection: they ride with the
+person. `npcView` (the capsule's `table.look focus=npc`) carries `voice`, an array of the surface texts of the graph's
+`voice` exhibits whose `owners` hold the person, in graph order (`voiceSurfaces`, `kernel-ts/read/capsule.ts`); absent
+when there are none. Only `surface.text` is carried: `label`, `keeper_note`, `teaches`, ids and sources never are.
+`decisionPerson` (`runtime/decision-content.ts`) projects it as `speech_style`, the surfaces joined by a newline;
+`{{who:<node_id>}}` tokens are left as written until the host's resolver (ticket 03) runs over the author input. When a
+person has no voice exhibit, `speech_style` is the derived profile `expression` as before, and absent when neither
+exists. narration-craft 2.6.1 and zh-optimize 1.4.1 speak of `speech_style` instead of voice cards and masks. Tests:
+`tests/extension/module-exhibits-contract.test.mjs` (the `§257.V1` cases) and `tests/extension/decision-only-v4.test.mjs`.

@@ -288,6 +288,7 @@ export function decisionPerson(person:Row,cast:Row[]):Row {
   }
  }
  const profile=person.personality?.profile?.profile??person.personality?.profile;
+ const voice=Array.isArray(person.voice)?person.voice.filter((line:unknown)=>typeof line==='string'&&line.trim()).join('\n'):'';
  const speech=rows(person.recent_speech).filter(line=>line.authority==='conversation_report'&&line.attribution?.kind==='speech'&&line.attribution?.speaker?.kind==='npc'&&Number.isFinite(Number(line.turn))&&typeof line.statement==='string');
  const lastTurn=Math.max(...speech.map(line=>Number(line.turn)));
  const lastSpeech=speech.filter(line=>Number(line.turn)===lastTurn).slice(-6).map(line=>line.statement.slice(0,800));
@@ -295,7 +296,7 @@ export function decisionPerson(person:Row,cast:Row[]):Row {
   ...(typeof person.public_appearance==='string'&&person.public_appearance.trim()?{public_appearance:person.public_appearance}:{}),
   ...(person.last_public_rendering?{last_public_rendering:structuredClone(person.last_public_rendering)}:{}),
   ...(lastSpeech.length?{last_public_exchange:{turn:lastTurn,words:lastSpeech}}:{}),
-  ...(typeof profile?.expression==='string'?{speech_style:profile.expression}:{}),
+  ...(voice?{speech_style:voice}:typeof profile?.expression==='string'?{speech_style:profile.expression}:{}),
   ...(typeof person.personality?.description==='string'?{personality:{description:person.personality.description,origin:person.personality.origin}}:{}),
   ...(person.variation?{variation:structuredClone(person.variation)}:{}),
   ...(person.activity?.current===true?{activity:Object.fromEntries(['current','summary','wakefulness','basis'].filter(key=>person.activity[key]!==undefined).map(key=>[key,person.activity[key]]))}:{}),

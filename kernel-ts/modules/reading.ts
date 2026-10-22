@@ -36,7 +36,7 @@ import { ROUTE_TRAVEL_FIELD, applyTravelFill, type TravelRow } from './route-tra
 import { bandRows } from '../rules/bands.js';
 import {validatePublicGuidance} from './public-guidance.js';
 import {sourceNeedKey} from './source-needs.js';
-import {READABLE_NEED_KINDS,carriedNeeds,needDispositionRecord,needDone,needEligible,needMaterial,needPacket,readUnitPages,retainedNeed,settledNeed,unitJobs,unreadUnits} from './need-reads.js';
+import {READABLE_NEED_KINDS,carriedNeeds,needDispositionRecord,needDone,citedPages as citedBoundPages,needEligible,needMaterial,needPacket,readUnitPages,retainedNeed,settledNeed,unitJobs,unreadUnits} from './need-reads.js';
 import {MODULE_LOGIC_REVIEW,moduleGuidanceApproved} from './module-review-policy.js';
 import {backgroundSourceUnits,referenceSourceUnits,sourceUnitKey,sourceUnitPages,type SourceUnit} from './background-source.js';
 import {publishReferencePlace,publishReferenceContext,referenceReady as sourceReferenceReady} from './reference.js';
@@ -49,6 +49,9 @@ import {visualScanRanges,visualScanKey,validVisualScan,requireVisualOverview,vis
 import {IDENTITY_FAILURES,IDENTITY_HOLDS,IDENTITY_QUESTION,draftIdentityPairs,identitySource,judgeDraftIdentity,publishedIdentityPairs,recordIdentityVerdicts,writeVariants,type IdentityPair} from './visual-identity.js';
 import {identityVerdicts} from './visual-identity-shape.js';
 import {MAP_SCOPE_FAILURES,MAP_SCOPE_QUESTION,mapScopeFocus,mapsLackingScope} from './map-scope.js';
+import {EXHIBITS_MATERIAL,EXHIBITS_QUESTION} from './exhibits.js';
+/** §257.R: the most pages an exhibits reading opens, the focus's own first. */
+const EXHIBIT_READ_PAGES = 8;
 import {PREGENS_FOCUS,PREGENS_MATERIAL,PREGENS_QUESTION,pregensSettlement} from './pregens.js';
 import {anchorPage,cleanOutline,indexChapters,outlineChapters,pageInside,rangeMeets,readingBudget,readingWindow,transcriptRanges,transcriptWindowPages,wholeTranscript,wholeWindow,type Chapter,type PageRange,type ReadingWindow} from './chapters.js';
 const PURPOSES = ['index', 'skeleton', 'guidance', 'opening', 'detail', 'answer'];
@@ -649,6 +652,20 @@ export class Reading {
         if (reply.state === 'blocked') reply = await this.request({ ...read, retry: true });
         if (reply.state === 'unusable') return { state: 'unusable', focus };
         return { state: string(reply.state), focus, ...(truth(reply.job_id) ? { job_id: reply.job_id } : {}) };
+    }
+    /**
+     * §257.R: the pages an exhibits reading of `focus` opens: those the focus node cites and those of the nodes a claim links to it
+     * (the people present, the clues and handouts found there), at most `EXHIBIT_READ_PAGES` of them, the focus node's own first.
+     * Nothing is guessed from names: the graph's own references decide. A focus the graph does not hold has none, and the
+     * reader navigates from the focus itself.
+     */
+    private async exhibitPages(mid: string, focus: string, pageCount: number): Promise<number[]> {
+        const graph = await this.store.graph(mid), target = graph.find(focus);
+        if (!target) return [];
+        const raw = graph.raw, id = string(target.node_id), own = needMaterial(raw, id, mid).pages;
+        const linked = array(raw.claims).flatMap(claim => [row(claim).subject_id, row(row(claim).object).node_id]).filter((other): other is string => typeof other === 'string' && other !== id);
+        const near = [...new Set(linked)].flatMap(other => citedBoundPages(array(row(array(raw.nodes).find(node => row(node).node_id === other)).source_refs), mid));
+        return [...new Set([...own, ...near])].filter(page => page >= 1 && page <= pageCount).slice(0, EXHIBIT_READ_PAGES);
     }
     /** §107.1: the settled row of a map focus (published or unusable), if any. */
     static mapSettlement(meta: Row, focus: string): Row | undefined {
@@ -1504,12 +1521,15 @@ export class Reading {
             if (purpose === 'opening' && !truth(focus) && truth(meta.opening_choice))
                 focus = meta.opening_choice.start_scene;
             const material = params.material;
-            if (material !== undefined && material !== 'map' && material !== PREGENS_MATERIAL)
-                throw new RpcError('invalid_params', 'material must be map or pregens when supplied');
+            if (material !== undefined && material !== 'map' && material !== PREGENS_MATERIAL && material !== EXHIBITS_MATERIAL)
+                throw new RpcError('invalid_params', 'material must be map, pregens or exhibits when supplied');
             if (material !== undefined && purpose !== 'detail')
                 throw new RpcError('invalid_params', 'material is only supported for detail readings');
             // §207.3: the kernel names the book's pregens reading, so one book has one identity for it.
             if (material === PREGENS_MATERIAL) { focus = PREGENS_FOCUS; question = PREGENS_QUESTION; }
+            // §257.R: an exhibits reading is of one named focus; the kernel names its question, so the focus has one identity for it
+            // and a prepared focus is not mistaken for read (`materialReady` answers only questionless ordinary detail reads).
+            if (material === EXHIBITS_MATERIAL) question = EXHIBITS_QUESTION;
             if (typeof focus !== 'string' || typeof question !== 'string')
                 throw new RpcError('invalid_params', 'focus and question must be strings');
             if (purpose === 'detail' && !focus.trim())
@@ -1614,7 +1634,9 @@ export class Reading {
                 const matching=mapCandidates.filter(candidate=>[candidate.focus,candidate.name].some(value=>Reading.meet(identity(value),wanted)));
                 if(matching.length)mapCandidates=matching;
             }
-            const pages:number[]=visualIdentity?[visualIdentity.page]:mapScope?mapScope.pages:visualAsset?[visualAsset.page]:sourceUnit?sourceUnitPages(sourceUnit):material==='map'?[...new Set([
+            // §257.R: an exhibits reading opens the pages its focus and the things the book links to it already cite (carrier scoping).
+            const exhibitPages:number[]=material===EXHIBITS_MATERIAL?await this.exhibitPages(mid,focus,source.page_count):[];
+            const pages:number[]=material===EXHIBITS_MATERIAL?exhibitPages:visualIdentity?[visualIdentity.page]:mapScope?mapScope.pages:visualAsset?[visualAsset.page]:sourceUnit?sourceUnitPages(sourceUnit):material==='map'?[...new Set([
                 ...mapCandidates.flatMap(candidate=>array(candidate.pages).map(number)),
                 ...array(reading.visual_candidates).filter(candidate=>candidate.kind==='map'||candidate.kind==='uncertain').map(candidate=>candidate.page)])]
                 .filter(page=>page>=1&&page<=source.page_count).sort((a,b)=>a-b):[];
@@ -2675,7 +2697,7 @@ export class Reading {
             reject('guidance must name an authored entrance');
         if (guidance.guide) {
             const actors = new Set(array(graph.nodes).filter(node => node.node_kind === 'npc' && normalize(node.name) === normalize(guidance.guide)).map(node => node.node_id));
-            if (!array(graph.claims).some(claim => actors.has(claim.subject_id) && claim.predicate === 'present-in' && row(claim.object).node_id === chosen))
+            if (!array(graph.claims).some(claim => actors.has(claim.subject_id) && claim.predicate === 'present-in' && row(row(claim).object).node_id === chosen))
                 reject('the guidance person must be present at the selected opening');
         }
         return guidance;
