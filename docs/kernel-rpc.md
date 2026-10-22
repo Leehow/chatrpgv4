@@ -51833,9 +51833,13 @@ the read is queued, running or done (including done to "none printed") queues no
 (`queued`, `reading`, `ready`, `blocked`) is ignored, a kernel error while queueing is appended to `telemetry.jsonl` as
 `exhibits-unavailable` and does not refuse the move, and clue disclosure keeps its present fact until the read lands. When it
 publishes, the accepted graph carries the scene's exhibits and the next catalog refresh sees them (`ModuleGraph.exhibits`).
-Not covered: the scene a campaign opens in, and a campaign resumed in its current scene (no move enters them).
+The same call is made when a table is opened (`table.open`, in the write layer next to `queueAdjacentReading`): the scene the
+party stands in, whether it is a campaign's opening scene or a resumed campaign's current scene, is queued its read when it has
+no exhibits. The job identity dedups every later open and move, and a kernel error there is logged (`exhibits-unavailable`)
+and never refuses the open.
 
-Test: `tests/extension/ts-kernel-modules.test.mjs` (257.L1).
+Tests: `tests/extension/ts-kernel-modules.test.mjs` (the read and its dedup), `tests/extension/legacy-scene-exhibits.test.mjs`
+(`table.open` on a bound book queues the opening scene's read; `table.apply` move queues the arrival scene's; re-entry queues none).
 
 ### 257.V1 Voice reaches the author
 
