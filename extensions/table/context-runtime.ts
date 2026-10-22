@@ -165,6 +165,9 @@ export function installContextPolicy(pi: ExtensionAPI, writeTelemetry: (row: Row
         // pull mode (§248.4): state and calls push sections and the Keeper reads the rest.
         pull:()=>singleKeeper});
     const discoveryMode=()=>singleKeeper?'full':['selective','shadow'].includes(sessionEnv.COC_TURN_DISCOVERY??'')?sessionEnv.COC_TURN_DISCOVERY!:'full';
+    // Experiment (PI_COC_FIXED_TOOLS=1): the single Keeper's request carries §228.1's fixed tool view and its apply
+    // detail arrives in the conversation (§228.2-228.4); discovery itself stays full, so no selection is waited for.
+    const toolView=()=>singleKeeper&&sessionEnv.PI_COC_FIXED_TOOLS==='1'?'selective':discoveryMode();
     // Both discovery stages reserve from the same preparation owner and its foreground parent.
     // A missing owner is a full-view fallback, never an independent provider allowance.
     const visibilityMode=()=>fallbackForInput?'full':discoveryMode();
@@ -191,7 +194,7 @@ export function installContextPolicy(pi: ExtensionAPI, writeTelemetry: (row: Row
         }
         return lookupBudget.budget.decision;
     };
-    const capabilityRuntime=createCapabilityRuntime({tools:()=>offeredTools(COC_TOOLS,sessionEnv),decision:discoveryDecision,lookupDecision,mode:visibilityMode,view:discoveryMode,record});
+    const capabilityRuntime=createCapabilityRuntime({tools:()=>offeredTools(COC_TOOLS,sessionEnv),decision:discoveryDecision,lookupDecision,mode:visibilityMode,view:toolView,record});
     const modDiscovery=createModDiscovery({read:async(method,params)=>boundedDiscoveryRead(async()=>call?call(method,{campaign,...params}):undefined),
         decision:discoveryDecision,mode:visibilityMode,record});
     // §228.2: this input's disclosure (capability detail and package sections), sent once at a stable place.

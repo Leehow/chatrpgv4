@@ -137,7 +137,11 @@ export function createCapabilityRuntime(deps:{
         const live=()=>basis?.input===epoch.input&&!epoch.signal.aborted;
         const catalogue=capabilityCatalogue(deps.tools());
         let names:string[];
-        if(typeof args.name==='string'){
+        // A query that is exactly a capability name or effect kind is that name: it needs no decision to answer.
+        const exact=typeof args.query==='string'?args.query.trim().toLowerCase():'';
+        const named=exact?catalogue.filter(c=>c.verb==='apply'&&(c.name.toLowerCase()===exact||c.effect===exact)).map(c=>c.name):[];
+        if(typeof args.name!=='string'&&named.length)names=named;
+        else if(typeof args.name==='string'){
             const found=catalogue.find(c=>c.name.toLowerCase()===args.name.trim().toLowerCase());
             if(!found)throw Error('Unknown capability name');
             names=[found.name];
