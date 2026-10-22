@@ -16,6 +16,7 @@ import {createLaneTelemetry} from '../../extensions/lanes/telemetry.ts';
 import {locateExcerpt} from '../../kernel-ts/read/excerpt.ts';
 import {decideFirstSight, FIRST_SIGHT_DECISION_FAMILY} from './first-sight-decision.ts';
 import {createDecisionAdapter} from './decision-adapter.ts';
+import {completeLooks, decideLooks, KEPT_LOOKS_DECISION_FAMILY, type LookTarget, type LooksResult} from './kept-looks.ts';
 
 /** The lane's name on every row it writes. */
 export const FIRST_SIGHT_LANE = 'first-sight';
@@ -64,7 +65,11 @@ export type FirstSightResult = {ok: true; items: FirstSightAnswer[]; unanchored:
  * sunburnt, in dusty overalls -- while he still stood in the next scene, and the check of the turn that arrived there,
  * reading that turn's prose alone, owed all of it again.
  */
-export interface FirstSightPort {check(input: {turn: number; prose: string; earlier?: string; items: FirstSightItem[]}, signal: AbortSignal): Promise<FirstSightResult>}
+export interface FirstSightPort {
+  check(input: {turn: number; prose: string; earlier?: string; items: FirstSightItem[]}, signal: AbortSignal): Promise<FirstSightResult>;
+  /** §255: the look questions of the same delivery, for the targets `table.looks.job` named. */
+  looks(input: {turn: number; prose: string; earlier?: string; targets: LookTarget[]}, signal: AbortSignal): Promise<LooksResult>;
+}
 
 /**
  * The closed shape: `items` a list of `{id, details: [{excerpt, visible, shown}]}`, read as each item's `missing` -- the
@@ -195,6 +200,36 @@ export function createFirstSightLane(pi: ExtensionAPI, options: {ctx: () => Exte
       } catch (error) {
         return finish({ok: false, reason: 'lane_error', detail: error instanceof Error ? error.message : String(error), ms: Date.now() - began});
       }
+    },
+    async looks(input, signal): Promise<LooksResult> {
+      const began = Date.now(), ownerCtx = safeCtx();
+      let campaign: string | undefined;
+      try { campaign = options.campaign(); } catch { campaign = undefined; }
+      const record = async (row: Record<string, unknown>): Promise<void> => {
+        if (!campaign || safeCtx() !== ownerCtx) return;
+        try { await telemetry.record(campaign, row); } catch { /* telemetry never breaks the check */ }
+      };
+      let result: LooksResult;
+      try {
+        if (signal.aborted) result = {ok: false, reason: 'cancelled', detail: 'cancelled before the lane began', ms: 0};
+        else if (!ownerCtx) result = {ok: false, reason: 'no_session', detail: 'no session context to run the lane in', ms: 0};
+        else if (options.sourceReferences?.())
+          result = await decideLooks({campaign: campaign ?? 'unbound', ...input}, createDecisionAdapter({env: {...process.env}, enabled: true, maxConcurrency: 1,
+            retryPolicies: {[KEPT_LOOKS_DECISION_FAMILY]: {maxRetries: 0, backoffInitialMs: 0, backoffMaxMs: 0, attemptTimeoutMs: 4000}}}), signal);
+        // Reasoning off for the reason the coverage check names it: recording what a reply showed is a comparison.
+        else result = await completeLooks(input, {ctx: ownerCtx, envName: FIRST_SIGHT_MODEL_ENV, lane: FIRST_SIGHT_LANE, record, signal,
+          timeoutMs: FIRST_SIGHT_TIMEOUT_MS, thinking: 'off'});
+      } catch (error) {
+        result = {ok: false, reason: 'lane_error', detail: error instanceof Error ? error.message : String(error), ms: Date.now() - began};
+      }
+      await record(result.ok
+        ? {event: 'looks', ok: true, turn: input.turn, ms: result.ms, model: result.model ?? null, targets: input.targets.length,
+          kept: {people: result.items.filter(item => item.kind === 'person' && item.excerpts.length).length,
+            places: result.items.filter(item => item.kind === 'place').length},
+          pronouns: result.items.filter(item => item.pronoun).length, ...(result.blockers ? {blockers: result.blockers} : {})}
+        : {event: 'looks', ok: false, turn: input.turn, ms: result.ms, model: result.model ?? null, targets: input.targets.length,
+          reason: result.reason, detail: result.detail.slice(0, 200)});
+      return result;
     },
   };
 }

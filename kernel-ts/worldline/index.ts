@@ -80,7 +80,7 @@ export function createWorldlineRuntime(kernel:KernelContext,engines:readonly Clo
         // §158.3: a fork at a named earlier commit takes that turn's own owed rows, written after its commit, with it.
         const told=plan.operation==='fork'&&plan.from.commit?await owedOfTurn(campaign,number(plan.from.turn)):[];
         // §168.5: and its own first-sight results, for the same reason.
-        const seen=plan.operation==='fork'&&plan.from.commit?await firstSightOfTurn(campaign,number(plan.from.turn)):[];
+        const seen=plan.operation==='fork'&&plan.from.commit?await firstSightOfTurn(campaign,number(plan.from.turn)):{results:[],looks:[]};
         try{
             if(plan.operation==='fork'){const fork=string(plan.from.commit||base);plan.from.commit=fork;await createBranch(context,target,fork);created=true;}
             await checkout(context,target);

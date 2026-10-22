@@ -24,6 +24,7 @@ import { jsonSize, npcsPresent, sceneLabel } from '../read/capsule.js';
 import { locateExcerpt } from '../read/excerpt.js';
 import { array, chars, clone, length, number, repr, row, type Row } from '../read/values.js';
 import { writeJsonAtomic } from '../fileio.js';
+import { applyLooks, emptyLooks, keptLooks, looksOfRecord, type KeptLooks, type LookResult } from './looks.js';
 
 export const FIRST_SIGHT_FILE = 'first-sight.json';
 /** The section's own budget (§168.5): nothing else's budget cuts it. A book's descriptions of a place and three
@@ -39,7 +40,8 @@ const OPEN_KEPT = 64;
 /** A cut description keeps at least this many characters. */
 const DESCRIBED_FLOOR = 40;
 
-export interface FirstSightLedger { shown: { places: string[]; people: string[] }; open: Row[] }
+/** §255: `looks` rides the same ledger, so it is committed and carried by a fork exactly as `shown` and `open` are. */
+export interface FirstSightLedger { shown: { places: string[]; people: string[] }; open: Row[]; looks: KeptLooks }
 /** One checked item as the kernel keeps it: its graph handle and the book's words the prose did not show. */
 export interface FirstSightResult { kind: string; id: string; missing: string[] }
 
@@ -53,7 +55,8 @@ export function firstSightLedger(value: unknown): FirstSightLedger {
     return {
         shown: { places: handles(shown.places), people: handles(shown.people) },
         open: array(stored.open).map(row).filter(entry => FIRST_SIGHT_KINDS.includes(text(entry.kind)) && text(entry.id) !== ''
-            && array(entry.missing).some(item => typeof item === 'string' && item !== ''))
+            && array(entry.missing).some(item => typeof item === 'string' && item !== '')),
+        looks: keptLooks(stored.looks)
     };
 }
 function ledgerPath(context: KernelContext, campaign: string): string {
@@ -66,7 +69,8 @@ export async function readFirstSight(context: KernelContext, campaign: string): 
     return firstSightLedger(clone(await context.snapshots.readJson(path)));
 }
 export async function writeFirstSight(context: KernelContext, campaign: string, ledger: FirstSightLedger): Promise<void> {
-    await writeJsonAtomic(ledgerPath(context, campaign), { shown: ledger.shown, open: ledger.open });
+    await writeJsonAtomic(ledgerPath(context, campaign), { shown: ledger.shown, open: ledger.open,
+        ...(emptyLooks(ledger.looks) ? {} : { looks: ledger.looks as unknown as Row }) });
 }
 
 /**
@@ -242,7 +246,7 @@ export function applyFirstSight(ledger: FirstSightLedger, turn: number, results:
         }
         open = [...open.filter(entry => !same(entry)), { kind: result.kind, id: result.id, missing: [...result.missing], turn, at }];
     }
-    return { shown, open: open.slice(-OPEN_KEPT) };
+    return { shown, open: open.slice(-OPEN_KEPT), looks: ledger.looks };
 }
 
 /** What a delivered turn's checks recorded, for its own record: one row per item, the latest call's answer kept. */
@@ -256,14 +260,22 @@ export function turnFirstSight(previous: unknown, results: readonly FirstSightRe
  * turn's commit, so its results are on the source line's working record and not yet in the commit: they go with the
  * line, read before leaving it (as §158.3's `owedOfTurn` / `carryOwed`).
  */
-export async function firstSightOfTurn(campaign: { readTurnRecord(turn: number): Promise<Row | null> }, turn: number): Promise<FirstSightResult[]> {
-    if (!(turn >= 0)) return [];
-    return array((await campaign.readTurnRecord(turn))?.first_sight).map(row)
-        .filter(entry => FIRST_SIGHT_KINDS.includes(text(entry.kind)) && text(entry.id) !== '')
-        .map(entry => ({ kind: text(entry.kind), id: text(entry.id), missing: array(entry.missing).filter((value): value is string => typeof value === 'string' && value !== '') }));
+export interface FirstSightCarry { results: FirstSightResult[]; looks: LookResult[] }
+export async function firstSightOfTurn(campaign: { readTurnRecord(turn: number): Promise<Row | null> }, turn: number): Promise<FirstSightCarry> {
+    if (!(turn >= 0)) return { results: [], looks: [] };
+    const record = await campaign.readTurnRecord(turn);
+    return {
+        results: array(record?.first_sight).map(row)
+            .filter(entry => FIRST_SIGHT_KINDS.includes(text(entry.kind)) && text(entry.id) !== '')
+            .map(entry => ({ kind: text(entry.kind), id: text(entry.id), missing: array(entry.missing).filter((value): value is string => typeof value === 'string' && value !== '') })),
+        // §255: the fork turn's kept looks were written after its commit too.
+        looks: looksOfRecord(record)
+    };
 }
-export async function carryFirstSight(context: KernelContext, campaign: string, turn: number, results: FirstSightResult[], at: string): Promise<number> {
-    if (!results.length) return 0;
-    await writeFirstSight(context, campaign, applyFirstSight(await readFirstSight(context, campaign), turn, results, at));
-    return results.length;
+export async function carryFirstSight(context: KernelContext, campaign: string, turn: number, { results, looks }: FirstSightCarry, at: string): Promise<number> {
+    if (!results.length && !looks.length) return 0;
+    let ledger = applyFirstSight(await readFirstSight(context, campaign), turn, results, at);
+    if (looks.length) ledger = { ...ledger, looks: applyLooks(ledger.looks, turn, [], looks, at).looks };
+    await writeFirstSight(context, campaign, ledger);
+    return results.length + looks.length;
 }

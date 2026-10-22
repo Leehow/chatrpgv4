@@ -51573,3 +51573,70 @@ section's `grants` names one of:
 The resolver writes the definitions of the grants its chosen sections carry once after the frame, and marks each granting
 section. A grant widens nothing in the delivery contract: settled results, presence, names and secrets bind as before.
 Enhanced Locations' place description grants `surface_detail`.
+
+## 255. Kept looks: what the prose showed of a person or place is written back (owner 2026-10-22)
+
+Spec: `docs/specs/kept-looks.md`. The owner ruled against a unified entity schema: the gap is that what the sole author
+improvises (§254.6's `surface_detail` and `appearance`) is never written back, so the next author invents again (a
+stooped grey clerk returns young; a person written 她 becomes 他). After a delivery, a background check records the
+delivered prose's own sentences that show how the place and the people of the scene look, and the pronoun the prose
+uses for each person; later capsules and the sole author's input carry them. The delivery never waits for it.
+
+### 255.1 The ledger
+
+`first-sight.json` gains `looks: {people: {<handle>: Look}, places: {<handle>: Look}, tries: {"<kind>:<id>:<field>": n}}`,
+`Look = {excerpts: string[], pronoun?: "he"|"she"|"they", turn, at}`. It is written after the turn closed and committed
+with the next turn, as §168.5's `shown` and `open` are; the turn record carries `looks: [{kind, id, excerpts, pronoun?,
+at}]`, and a fork carries them (`firstSightOfTurn` / `carryFirstSight` now return and take `{results, looks}`).
+A field is written once and never replaced: the first delivered look is the table's look. A field asked for on
+`LOOK_TRIES_MAX` (4) checked deliveries without an answer is no longer asked.
+
+### 255.2 RPC
+
+- `table.looks.job {campaign, turn}` -> `{turn, prose, earlier?, targets: [{kind, id, name, want}]}`, or `targets: []`.
+  The turn must have a delivery with text (`invalid_params` otherwise). Targets are the scene the turn ended in
+  (`record.world.scene`) and each person present there whom the player sees (`seenPerson`), while they want `look`
+  and (people) `pronoun`; the place first; at most 8. `name` is the table's word for a person (`tableWord`), else the
+  graph's, and the scene's label for a place.
+- `table.looks {campaign, turn, items: [{kind, id, excerpts?, pronoun?}]}` -> `{turn, kept: [{kind, id, fields}],
+  dropped}`. At most 8 items; `[]` is a check that found nothing. Excerpts: at most 3 for a person and 5 for a place,
+  each at most 240 characters, kept only where §139's locator finds them in that turn's delivered text or the delivery
+  before it (`excerpt_not_delivered` otherwise). `pronoun` only for a person, from the closed list. Unknown ids are
+  `invalid_params`. Every target the job would name counts a try for each field it still wants after this landing.
+  Telemetry: `{lane: "first-sight", event: "looks_recorded", turn, asked, kept, dropped?}`.
+
+### 255.3 The check
+
+The first-sight lane's second question set (`runtime/jev/kept-looks.ts`, `FirstSightPort.looks`), started by the host
+after every delivery with text (`afterDeliveryLooks`), never awaited, independent of whether first sight owed anything.
+It is the same lane as §168.5 (model setting, 120 s watchdog, thinking off, no `temperature`/`top_p`) and qualifies as a
+single completion as that lane does.
+- Native source-reference sessions: typed choices only. Each sentence unit of the reply (`firstSightUnits`) is asked
+  whose look it shows (a target alias, or none); each person wanting a pronoun is asked he, she, they or none. Confidence
+  below 0.8 selects nothing. Units are the reply's own sentences, so nothing is authored.
+- Legacy: one zero-tool completion answering `{targets: [{id, excerpts?: [{text, shows}], pronoun?}]}`, `shows` one of
+  look, action, speech or mixed for each excerpt; only `look` is kept (looks-a2: asked in one breath, the fast model
+  copied a nod and a remark as the person's look). The host keeps only spans it locates in the prose and fields the
+  job wanted.
+- A look is only lasting appearance: for a place its structure, fittings, furniture, materials, wear, light, sound,
+  smell and temperature, never a portable thing, money, paper or key or anything that can change hands, and never where
+  someone is; for a person build, apparent age, face, hair, dress and bearing, never what they hold or do. A sentence
+  that mixes it with a name, history, motive, knowledge, relationship, speech or event is not kept (looks-a3: the kept
+  "twenty dollars still on the desk" put the money back on the desk after the investigator took it). No word or
+  character of the prose is tested by code. The author instruction adds that current outcomes, inventory and presence
+  decide what is where now.
+- Telemetry: `{lane: "first-sight", event: "looks", ok, turn, ms, model, targets, kept: {people, places}, pronouns,
+  blockers?}` or `{ok: false, reason, detail}`. A failure records nothing.
+
+### 255.4 Readers
+
+- The capsule's `kept_looks` section (before `present`, its own 2048-byte budget; past it the last people give way):
+  `{place?: {id, look}, people?: [{id, look?, pronoun?}]}`, `look` being the excerpts joined (at most 300 characters
+  for a person, 600 for the place), ids as `present[].id`. The head adds `HEAD_KEPT_LOOKS` when it is there.
+- The sole author: `decision_context.scene.presence.people[]` carries `look` / `pronoun` beside the reference, and the
+  scene carries `kept_look`. `DECISION_AUTHOR_INSTRUCTION` says they are what earlier deliveries showed: keep them, add
+  detail only within a granted improvisation, never contradict them. A kept look is a supplied appearance, so §254.6's
+  `appearance` no longer reaches that person.
+
+Tests: `tests/extension/kept-looks-kernel.test.mjs`, `tests/extension/kept-looks-lane.test.mjs`,
+`tests/extension/kept-looks-host.test.mjs`.

@@ -577,6 +577,8 @@ This is the same scanner false positive, without a second model or history owner
 
 `runtime/jev/first-sight.ts#createFirstSightLane.check` constructs one bounded Jev adapter for native background coverage of exact host-issued source sentence units. The helper `decideFirstSight` selects closed categories, with uncertainty preserving the item owed. It never writes prose or falls back to the existing generative lane. That older `runLane` site remains inventoried for the non-source-reference harness path, with its actual 120-second ceiling.
 
+`runtime/jev/first-sight.ts#createFirstSightLane.looks` constructs one bounded Jev adapter for §255's kept looks after a delivery: per sentence unit of the reply, whose look it shows (or none), and per person the pronoun the reply uses (or none). Its legacy path, `runtime/jev/kept-looks.ts#completeLooks` `runLane`, is one zero-tool completion whose excerpts the host locates in the delivered prose. Both are background leaves, never awaited; `table.looks` is their only write, and neither can start, continue or steer a Keeper run.
+
 Stage 10: `extensions/memory/index.ts` `runJob` creates the native `memory-story` Jev adapter once per job. Independent story questions run beside candidate authorship; pending judgment retains its source-bound draft and never starts a generative reviewer.
 
 ### Owner 2026-10-18 direct prose transport
