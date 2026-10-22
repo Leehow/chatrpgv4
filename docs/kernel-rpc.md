@@ -51326,6 +51326,19 @@ and clocks are past. These are recorded facts, never earlier prose. A failed rea
 the turn goes on without it. Tests: `tests/integration/enhanced-locations.test.ts` (visit history),
 `tests/extension/location-revisit-history.test.mjs`.
 
+### 250.19 A clue refused away from its place says where it is found
+
+Live (`el-v2-20261022h` T4): the player walked from the tobacconist back to Knott's office to ask him something. The
+Keeper granted Knott's clue first and settled the walk after it, so the clue was `not_here` at the shop. The refusal
+said only that a distant clue is not obtained by a report, and the clue landed a turn late. Effects settle in order,
+and a later move does not reach back to an earlier one. The outside-scene `not_here` refusal now carries
+`details.found_at: [{scene, display_name}]`, every scene where the book or the table makes the clue discoverable, and
+its fix names that detail, which is what makes the host render it. The fix adds that when the player chose to go there
+this turn, the move settles before the clue. The rest of the fix is unchanged: a report is still not the clue, and a
+move the player did not choose is still not required. The handles stay in `details`, not in the fix text, so the inner
+scene correction still names only the direct child. Test: `tests/integration/enhanced-locations.test.ts` (clue refused
+away from its place).
+
 ## 251. A progress note for a read spiral (owner direction 2026-10-21: fewer deliberations, faster turns)
 
 Live evidence: on `el-v2-20261021a` T16 the single Keeper answered one sentence about a door and a hired middleman with

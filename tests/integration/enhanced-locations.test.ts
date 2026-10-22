@@ -325,6 +325,20 @@ test('a road already travelled keeps its length when a later trip names another 
     assert.equal((await k.table('status')).receipts.filter((receipt:Row)=>receipt.kind==='move').at(-1).minutes,25,'given minutes are the road from then on; a band alone does not change it (§218.3)');
 });
 
+test('a clue refused away from its place names where it is found; the move there first, then the clue, lands it (live el-v2-20261022h T4)',async t=>{
+    const k=await kernel(t);await openTurn(k,'I walk a few doors down to the corner cafe.');
+    const office=state(k).active_scene;
+    await k.table('apply',{call_id:'t1-c1',effects:[{kind:'place',action:'move',to:'Corner Cafe',via:'A few doors down the street',travel_band:'adjacent',additions:[hotel('Corner Cafe')]}]});
+    await k.table('narrate',{call_id:'t1-c2',text:'The cafe is quiet.'});
+    await k.table('player_input',{text:'I walk back to Knott and ask him where to start digging.'});
+    const refused=await k.tableErr('apply',{call_id:'t2-c1',effects:[{kind:'clue',clue:'knott-research-leads',from:'Steven Knott'}]});
+    assert.equal(refused.code,'not_here');
+    assert.ok((refused.details.found_at??[]).some((place:Row)=>place.scene===office),JSON.stringify(refused.details));
+    assert.ok(String(refused.fix).includes('details.found_at'),'the host renders a detail only when the fix names it');
+    await k.table('apply',{call_id:'t2-c1',effects:[{kind:'place',action:'move',to:office},{kind:'clue',clue:'knott-research-leads',from:'Steven Knott'}]});
+    assert.ok(state(k).discovered_clues.includes('knott-research-leads'));
+});
+
 test('a place\'s visit history is what was shown there on earlier turns, at any point and by any sense (§250.18)',async t=>{
     const k=await kernel(t);await openTurn(k,'I look out of the office window.');
     const office=state(k).active_scene;
