@@ -189,7 +189,8 @@ test('§257.V1: a person with a voice exhibit has speech_style in the author inp
     const view = await graph();
     const person = node => api.decisionPerson({...api.npcView(view, {}, view.nodes.get(node)), ref: 'npc_1', display_name: 'Someone', name_known: false}, []);
     const edna = person('npc-edna-marsh'), bob = person('npc-bob-hale');
-    assert.equal(edna.speech_style, 'Clipped and low; "Mind the step, {{who:npc-bob-hale}}."');
+    // §257.T1: the token is resolved in the view (an untold person with no table word reads as the generic epithet).
+    assert.equal(edna.speech_style, 'Clipped and low; "Mind the step, Person."');
     assert.equal(Object.hasOwn(bob, 'speech_style'), false);
     assert.ok(!/KEEPER_|clue-ledger/.test(JSON.stringify(edna)), JSON.stringify(edna));
 });

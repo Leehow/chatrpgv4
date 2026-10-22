@@ -10,10 +10,10 @@ import type {ModuleGraph} from './module-graph.js';
 import {array,row,string,type Row} from './values.js';
 import {npcReferenceView,npcsPresent,sceneLabel,untoldBlock,clueDiscovered} from './capsule.js';
 import {clueCheck} from './clue-check.js';
-import {WHO_REFERENCE} from '../modules/exhibits.js';
+import {whoResolver} from './who.js';
 
-/** The kinds a Keeper may select to reveal. Testimony joins with ticket 04; description, appearance and voice are used automatically. */
-export const REVEALABLE_EXHIBIT_KINDS: readonly string[] = ['document', 'perception'];
+/** The kinds a Keeper may select to reveal. Testimony (§257.T1) is spoken by an owner who is present; description, appearance and voice are used automatically. */
+export const REVEALABLE_EXHIBIT_KINDS: readonly string[] = ['document', 'perception', 'testimony'];
 
 /** Where the carrier stands for the investigators: the scene, a person present, or a thing they hold or can perceive here. */
 export type ExhibitScope = 'scene' | 'person' | 'handout' | 'object';
@@ -29,7 +29,8 @@ export function exhibitsView(graph: ModuleGraph, world: Row, scene: Row, reads: 
         for (const each of graph.groupOf(node)) if (!scopes.has(string(each.node_id))) scopes.set(string(each.node_id), scope);
     };
     stand(scene, 'scene');
-    for (const node of npcsPresent(graph, world, scene)) stand(node, 'person');
+    const present = npcsPresent(graph, world, scene);
+    for (const node of present) stand(node, 'person');
     for (const node of graph.sceneAssetNodes(scene)) stand(node, node.node_kind === 'handout' ? 'handout' : 'object');
     for (const handle of array(world.handouts_shown)) stand(graph.nodeOfHandle(handle), 'handout');
     for (const item of Object.values(row(row(world.objects).instances)).map(row))
@@ -40,13 +41,15 @@ export function exhibitsView(graph: ModuleGraph, world: Row, scene: Row, reads: 
     };
     const label = (node: Row): string => node.node_id === sceneId || graph.groupOf(scene).includes(node) ? sceneLabel(graph, world, node)
         : graph.isPerson(node) ? person(node) : node.node_kind === 'scene' ? sceneLabel(graph, world, node) : graph.displayName(node);
-    const resolve = (text: string): string => text.replace(WHO_REFERENCE, (_all, id: string) => {
-        const node = graph.nodes.get(id) ?? graph.nodeOfHandle(id);
-        return node && graph.isPerson(node) ? person(node) : 'someone';
-    });
+    const resolve = whoResolver(graph, world, row(reads.journal), array(reads.records).map(row));
     const found = rows.flatMap(item => {
         const carrier = graph.nodes.get(graph.survivorId(string(item.carrier))) ?? graph.nodes.get(string(item.carrier));
-        const scope = carrier ? scopes.get(string(carrier.node_id)) : undefined;
+        // §257.T1: testimony is in scope when an owner is here (the carrier may be elsewhere: a person tells of a place); the rest by carrier.
+        const speakers = item.kind === 'testimony' ? array(item.owners).flatMap(id => {
+            const owner = graph.nodes.get(graph.survivorId(string(id))) ?? graph.nodes.get(string(id));
+            return owner && present.some(node => graph.groupOf(node).some(each => each.node_id === owner.node_id)) ? [graph.handle(owner)] : [];
+        }) : [];
+        const scope = item.kind === 'testimony' ? (speakers.length ? 'person' as ExhibitScope : undefined) : carrier ? scopes.get(string(carrier.node_id)) : undefined;
         if (!carrier || !scope) return [];
         const clues = array(item.teaches).flatMap(id => {
             const node = graph.nodes.get(graph.survivorId(string(id))) ?? graph.nodes.get(string(id));
@@ -59,7 +62,7 @@ export function exhibitsView(graph: ModuleGraph, world: Row, scene: Row, reads: 
         return [{
             exhibit_id: string(item.exhibit_id), kind: string(item.kind), channel: string(item.channel), scope,
             carrier: {id: graph.handle(carrier), node_kind: string(carrier.node_kind), display_name: label(carrier)},
-            ...(item.stance ? {stance: string(item.stance)} : {}),
+            ...(item.kind === 'testimony' ? {owners: [...new Set(speakers)], stance: string(item.stance || 'fact')} : {}),
             label: string(item.label),
             ...(clues.length ? {clue: open ? {state: open.state, ...(open.check ? {check: open.check} : {})} : {state: 'discovered'}, teaches: clues.map(entry => entry.clue),
                 clue_states: clues.map(({clue, state}) => ({clue, state}))} : {}),

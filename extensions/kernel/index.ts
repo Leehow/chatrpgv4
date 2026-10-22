@@ -5903,9 +5903,9 @@ export default function (pi: ExtensionAPI, host: {capabilities?:RuntimeCapabilit
             // §257.C3: a revealed exhibit settles against the kernel's current scope before anything is written. A clue it teaches
             // joins the same atomic apply as the clue's ordinary discovery effect, ahead of the packet's movement.
             let exhibits:ReturnType<DecisionContent['settleExhibits']>|undefined;
-            if((packet.reveal??[]).some(row=>'exhibit_ref'in row)){
+            if((packet.reveal??[]).some(row=>'exhibit_ref'in row)||(packet.interactions??[]).some(row=>'content'in row&&(row.content??[]).some(content=>'exhibit_ref'in content))){
                 const scope=await state.kernel.call<Record<string,any>>('table.look',{campaign:state.campaign,focus:'exhibits',_context_read:true});
-                try{exhibits=materialOwner.settleExhibits(packet.reveal??[],Array.isArray(scope.exhibits)?scope.exhibits:[]);}
+                try{exhibits=materialOwner.settleExhibits(packet.reveal??[],Array.isArray(scope.exhibits)?scope.exhibits:[],compiled.responses);}
                 catch(error){
                     if(!(error instanceof ExhibitRefusal))throw error;
                     await record({lane:'decision-content',event:'exhibit_refused',turn:state.turn,run:reply.run,...materialOwner.exhibitIssue(),refused:[{ref:error.ref,reason:error.reason}]});
@@ -5914,7 +5914,7 @@ export default function (pi: ExtensionAPI, host: {capabilities?:RuntimeCapabilit
                 compiled.effects.unshift(...exhibits.effects);
             }
             let hydrated:ReturnType<DecisionContent['hydrate']>;
-            try{hydrated=materialOwner.hydrate(compiled.responses,packet.reveal??[]);if(exhibits)hydrated.materials=materialOwner.authorMaterials(hydrated.materials,exhibits.authors);}catch(error){throw new KernelError({code:'invalid_params',message:error instanceof Error?error.message:String(error),details:{reason:'decision_material_binding',transaction_state:'uncommitted'}});}
+            try{hydrated=materialOwner.hydrate(compiled.responses,packet.reveal??[]);if(exhibits){hydrated.materials=materialOwner.authorMaterials(hydrated.materials,exhibits.authors);hydrated.responses=materialOwner.authorClaims(hydrated.responses,exhibits.authors);}}catch(error){throw new KernelError({code:'invalid_params',message:error instanceof Error?error.message:String(error),details:{reason:'decision_material_binding',transaction_state:'uncommitted'}});}
             if(compiled.event)for(const relation of compiled.event.relationships){
                 const match=/^investigator_([1-9][0-9]*)$/.exec(relation.toward);
                 if(match){const person=state.party[Number(match[1])-1];if(!person)throw new KernelError({code:'invalid_params',message:'Unissued relationship recipient',details:{transaction_state:'uncommitted'}});relation.toward=person.name;}

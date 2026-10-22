@@ -117,21 +117,21 @@ export const seenPerson = (node: Row): boolean => node.node_kind === 'npc';
  * book person present whom the player may see and has not been shown. An item with an open row carries what the last
  * check found unshown (`missing`) instead of the whole description.
  */
-export function firstSightSection(graph: ModuleGraph, world: Row, scene: Row, stored: unknown): Row | null {
+export function firstSightSection(graph: ModuleGraph, world: Row, scene: Row, stored: unknown, resolve: (text: string) => string = text => text): Row | null {
     const ledger = firstSightLedger(stored);
     const item = (kind: string, node: Row, name: string, described: string): Row => {
         const id = graph.handle(node), open = ledger.open.find(entry => entry.kind === kind && entry.id === id);
         return open ? { id, name, missing: array(open.missing).filter(value => typeof value === 'string' && value !== '') } : { id, name, described };
     };
-    const section: Row = {}, place = placeDescribed(graph, scene);
+    const section: Row = {}, place = placeDescribed(graph, scene);  // §257.T1: `resolve` runs over `{{who:}}` before the Keeper or the author sees the words
     if (place && !ledger.shown.places.includes(graph.handle(scene)))
-        section.place = item('place', scene, sceneLabel(graph, world, scene), place);
+        section.place = item('place', scene, sceneLabel(graph, world, scene), resolve(place));
     // §203.5: a person the book gives no words is still seen; they are carried `undescribed`, and the Keeper gives them a look.
     const people = npcsPresent(graph, world, scene)
         .filter(node => seenPerson(node) && !ledger.shown.people.includes(graph.handle(node)))
         .map(node => {
             const described = personDescribed(graph, node);
-            return described ? item('person', node, graph.displayName(node), described)
+            return described ? item('person', node, graph.displayName(node), resolve(described))
                 : { id: graph.handle(node), name: graph.displayName(node), undescribed: true };
         });
     if (people.length) section.people = people;
@@ -190,7 +190,7 @@ function bookItem(graph: ModuleGraph, kind: string, id: string, index: number): 
  * item whose every excerpt was dropped is not recorded at all, so a check that could not quote leaves the item owed
  * as it was rather than calling it shown.
  */
-export function checkFirstSightItems(graph: ModuleGraph, items: unknown): { results: FirstSightResult[]; dropped: Row[] } {
+export function checkFirstSightItems(graph: ModuleGraph, items: unknown, variants: (text: string) => string[] = text => [text]): { results: FirstSightResult[]; dropped: Row[] } {
     if (!Array.isArray(items) || !items.length || items.length > FIRST_SIGHT_ITEMS_MAX)
         throw new RpcError('invalid_params', `params.items must be a list of 1 to ${FIRST_SIGHT_ITEMS_MAX} checked items`,
             { fix: 'send {id, kind, missing} for each item the check answered' });
@@ -214,7 +214,8 @@ export function checkFirstSightItems(graph: ModuleGraph, items: unknown): { resu
         }
         seen.add(key);
         const kept = [...new Set((missing as string[]).flatMap(excerpt => {
-            const located = locateExcerpt(target.book, excerpt);
+            // §257.T1: the book's words reached the check resolved; a name told since then must not hide the excerpt.
+            const located = variants(target.book).map(book => locateExcerpt(book, excerpt)).find(found => found !== null) ?? null;
             return located ? [located] : [];
         }))];
         if (missing.length && !kept.length) {
