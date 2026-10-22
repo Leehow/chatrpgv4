@@ -33,6 +33,7 @@ import {createExpressionPreparation,EXPRESSION_MESSAGE} from './expression-refer
 import {createModSections,emptyCalls,noteCall,applyEffectKinds,MOD_SECTIONS_MESSAGE} from './mod-sections.ts';
 import {createTemporalAdvice,TEMPORAL_ADVICE_MESSAGE} from './temporal-advice.ts';
 import {foldConsumedReads} from './turn-fold.ts';
+import {fixedToolView} from '../../shared/fixed-tool-view.ts';
 import {createWritingSupportNames} from '../../runtime/writing-support.ts';
 import {bindingOf, customMessage, epochOf, sourceOf, historyView, metadata, quoteView, briefForTurn, projectedMessages, foldPlan,
     boundedTail, retainsLatestToolBatch, requestBudget, BYTES_PER_TOKEN, HISTORY_BYTES, POLICY_VERSION, DIAGNOSTIC_TYPE, WORKSPACE_TYPE, PRESCREEN_TYPE, entryMessage, object, sizeOf, requestSize,
@@ -166,11 +167,13 @@ export function installContextPolicy(pi: ExtensionAPI, writeTelemetry: (row: Row
         // pull mode (§248.4): state and calls push sections and the Keeper reads the rest.
         pull:()=>singleKeeper});
     const discoveryMode=()=>singleKeeper?'full':['selective','shadow'].includes(sessionEnv.COC_TURN_DISCOVERY??'')?sessionEnv.COC_TURN_DISCOVERY!:'full';
-    // Experiment (PI_COC_FIXED_TOOLS=1): the single Keeper's request carries §228.1's fixed tool view and its apply
-    // detail arrives in the conversation (§228.2-228.4); discovery itself stays full, so no selection is waited for.
-    const fixedTools=()=>singleKeeper&&sessionEnv.PI_COC_FIXED_TOOLS==='1';
+    // The single Keeper on a provider the fixed view is measured for (or PI_COC_FIXED_TOOLS=1) carries §228.1's fixed
+    // tool view and its apply detail arrives in the conversation (§228.2-228.4); discovery itself stays full.
+    // The provider of the Keeper's latest request; the fixed view follows it (shared/fixed-tool-view.ts).
+    let keeperProvider:string|undefined;
+    const fixedTools=()=>singleKeeper&&fixedToolView(sessionEnv,keeperProvider);
     const toolView=()=>fixedTools()?'selective':discoveryMode();
-    // The same experiment keeps place and output at their entry declarations on every request; a location turn's
+    // The same view keeps place and output at their entry declarations on every request; a location turn's
     // command grammar is disclosed in the conversation instead of widening the tool list.
     const locationView=()=>!fixedTools()&&locationDetail();
     let turnFolds={input:'',ids:new Set<string>(),signatures:new Set<string>()};
@@ -690,6 +693,7 @@ export function installContextPolicy(pi: ExtensionAPI, writeTelemetry: (row: Row
     const PACKAGE_OMISSIONS = new Set(['mod_discovery_capacity', 'mod_discovery_detail_unavailable']);
     /** The serialized system head and tool declarations Pi restores after this hook (Pi 0.87). */
     const systemMeasure = (ctx: ExtensionContext): {systemBytes: number; systemDigest: string | null} => {
+        keeperProvider=ctx.model?.provider??keeperProvider;
         if (typeof ctx.sessionManager?.buildSessionProjection === 'function') {
             const system = getCurrentSystemMessage(ctx.sessionManager.buildSessionProjection().messages);
             // §184.3: the prompt text and the tool declarations the provider sees; the transcript timestamp is not sent.
@@ -761,6 +765,7 @@ export function installContextPolicy(pi: ExtensionAPI, writeTelemetry: (row: Row
     // Contract §209.13: Pi keeps the messages a `context` handler was given when it throws, and for this hook those are
     // the whole stored branch. So nothing thrown leaves it: any failure is answered with the bounded degraded request.
     pi.on('context', async (event, ctx) => {
+        keeperProvider=ctx.model?.provider??keeperProvider;
         try {return await projectRequest(event, ctx);}
         catch (error) {
             const failure = (error instanceof Error ? error.message : String(error)).slice(0, 160);
@@ -1093,7 +1098,7 @@ export function installContextPolicy(pi: ExtensionAPI, writeTelemetry: (row: Row
                 details:{coc_host:true,capability_detail:{turn:snapshot.binding.turn,names:detail.map(card=>card.name)}}};
         });
         if(detailPacket)fresh.push(detailPacket);
-        // Experiment: a location turn's place command grammar, once per input, in place of widening output and place.
+        // Fixed view: a location turn's place command grammar, once per input, in place of widening output and place.
         if(fixedTools()&&locationDetail()){
             const grammarPacket=disclosure.offer([capabilityKey('location-grammar')],anchor,()=>{
                 const grammar=locationCommandGrammar(offeredTools(COC_TOOLS,sessionEnv,{routineSummary:true}));
@@ -1125,7 +1130,7 @@ export function installContextPolicy(pi: ExtensionAPI, writeTelemetry: (row: Row
         }
         if(packets.length)outgoing=disclosure.place(outgoing,outgoing.length-projectedTail(result).length);
         pendingDiscovery=fresh;
-        // Experiment: when the sections this turn needs do not fit, this input's read results before its latest batch are
+        // Fixed view: when the sections this turn needs do not fit, this input's read results before its latest batch are
         // folded, oldest first; a result folded once stays folded for the input, so later requests keep the same prefix.
         if(fixedTools()){
             const inputKey=String(inputEpoch??snapshot.key);

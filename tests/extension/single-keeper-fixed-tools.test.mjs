@@ -17,11 +17,11 @@ await build({stdin:{contents:[
 const api=await import(pathToFileURL(join(temp,'api.mjs')).href);
 test.after(()=>rm(temp,{recursive:true,force:true}));
 
-async function table(t,flag,extra={}){
+async function table(t,flag,extra={},provider){
     const names=['PI_COC_FIXED_TOOLS','COC_TURN_DISCOVERY','EXT_JEV_APIKEY',...Object.keys(extra)],old=Object.fromEntries(names.map(n=>[n,process.env[n]]));
     t.after(()=>{for(const name of names){if(old[name]===undefined)delete process.env[name];else process.env[name]=old[name];}});
     for(const name of names)delete process.env[name];
-    if(flag)process.env.PI_COC_FIXED_TOOLS='1';
+    if(flag!==undefined&&flag!==false)process.env.PI_COC_FIXED_TOOLS=flag===true?'1':flag;
     Object.assign(process.env,extra);
     const hooks=new Map(),bus=new Map(),rows=[];
     const pi={on:(name,handler)=>hooks.set(name,handler),events:{on:(name,handler)=>bus.set(name,handler),
@@ -46,7 +46,7 @@ async function table(t,flag,extra={}){
     const messages=[{role:'system',content:'Keeper core.',toolsAdded:declared,timestamp:0},
         {role:'user',content:[{type:'text',text:'I pay for the coffee.'}],timestamp:1},
         {role:'custom',customType:'coc-capsule',content:JSON.stringify(cap),details:{context:binding,epoch:'input-1'},timestamp:2}];
-    const ctx={model:{contextWindow:500000},getContextUsage:()=>({percent:1}),
+    const ctx={model:{contextWindow:500000,...(provider?{provider}:{})},getContextUsage:()=>({percent:1}),
         sessionManager:{getBranch:()=>[],buildSessionProjection:()=>({messages})}};
     const request=async()=>{
         const outgoing=await hooks.get('context')({messages:messages.filter(m=>m.role!=='system')},ctx);
@@ -117,4 +117,14 @@ test('PI_COC_FIXED_TOOLS keeps output and place byte-stable on a location turn a
     assert.ok(grammar(first)[0].fields.anyOf.every(variant=>variant.properties.kind.const==='place'));
     const second=await fixed.sent();
     assert.equal(grammar(second).length,1,'placed once per input and re-placed, never sent twice');
+});
+
+test('the fixed view is the default for a Grok Keeper and PI_COC_FIXED_TOOLS overrides it',async t=>{
+    const envelope=async(flag,provider)=>(await (await table(t,flag,{},provider)).request())
+        .find(tool=>tool.name==='apply').parameters.properties.effects.items.anyOf===undefined;
+    assert.equal(await envelope(undefined,'grok-build'),true);
+    assert.equal(await envelope(undefined,'xai'),true);
+    assert.equal(await envelope(undefined,'minimax-cn'),false);
+    assert.equal(await envelope('0','grok-build'),false,'0 forces it off');
+    assert.equal(await envelope('1','minimax-cn'),true,'1 forces it on');
 });
