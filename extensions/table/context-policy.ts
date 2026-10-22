@@ -9,6 +9,12 @@ export const HISTORY_METADATA_BYTES = 4096;
  * default, and a known model window clamps it so the local estimate cannot claim the window.
  */
 export const REQUEST_BYTES = 384 * 1024;
+/**
+ * Providers whose measured window leaves room for a larger request (MiniMax: a 1M-token window; long turns there lost
+ * required package sections at 384 KiB, chatrpgv4-research/reports/tool-slim-20261021). The configured
+ * `PI_COC_REQUEST_BYTES` still wins and a known model window still clamps.
+ */
+export const PROVIDER_REQUEST_BYTES: Readonly<Record<string, number>> = Object.freeze({'minimax-cn': 768 * 1024});
 /** The local estimate the request path already uses; measured to over-report real tokens. */
 export const BYTES_PER_TOKEN = 4;
 /** Retained pre-boundary material is the first thing the ceiling gives up. */
@@ -100,10 +106,11 @@ export function requestSize(messages:readonly Row[]):number {
     return sizeOf(projected.map(message=>{const {details: _private,...visible}=message as unknown as Row;return visible;}));
 }
 /** Read on each call. A positive integer of bytes; anything else falls back to the default. */
-export function requestBudget(contextWindow?: number | null): number {
+export function requestBudget(contextWindow?: number | null, provider?: string | null): number {
     const raw = process.env.PI_COC_REQUEST_BYTES?.trim();
     const configured = raw ? Number(raw) : Number.NaN;
-    const base = Number.isSafeInteger(configured) && configured > 0 ? configured : REQUEST_BYTES;
+    const base = Number.isSafeInteger(configured) && configured > 0 ? configured
+        : (provider && Object.hasOwn(PROVIDER_REQUEST_BYTES, provider) ? PROVIDER_REQUEST_BYTES[provider] : REQUEST_BYTES);
     if (!Number.isSafeInteger(contextWindow ?? null) || Number(contextWindow) <= 0) return base;
     // A known window can only lower the budget, never raise it above what was configured.
     return Math.max(Math.min(base, HISTORY_BYTES), Math.min(base, Math.floor(Number(contextWindow) * BYTES_PER_TOKEN / 2)));

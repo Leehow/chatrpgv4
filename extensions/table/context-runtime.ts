@@ -746,7 +746,7 @@ export function installContextPolicy(pi: ExtensionAPI, writeTelemetry: (row: Row
      */
     function degradedRequest(requestMessages: Row[], ctx: ExtensionContext, reason: string, failure?: string): Row[] {
         const {systemBytes, systemDigest} = systemMeasure(ctx);
-        const ceiling = requestBudget(ctx.model?.contextWindow), budget = Math.max(0, ceiling - systemBytes);
+        const ceiling = requestBudget(ctx.model?.contextWindow,ctx.model?.provider), budget = Math.max(0, ceiling - systemBytes);
         // §176.8: renamed before the cut, so the ceiling measures the names and notes that go out.
         const evidence=discoveryMode()==='full'?requestMessages:discoveryEvidence(requestMessages);
         const rest = rename(evidence.filter(message => !(message.role === 'custom' && [DIAGNOSTIC_TYPE, PRESCREEN_TYPE].includes(message.customType)))
@@ -840,7 +840,7 @@ export function installContextPolicy(pi: ExtensionAPI, writeTelemetry: (row: Row
         // Pi 0.87 restores the canonical system/tool checkpoint after this hook. Reserve its
         // serialized size on every exit, including degraded turns, without treating it as history.
         const {systemBytes, systemDigest} = systemMeasure(ctx);
-        const ceiling = requestBudget(ctx.model?.contextWindow), budget = Math.max(0, ceiling - systemBytes);
+        const ceiling = requestBudget(ctx.model?.contextWindow,ctx.model?.provider), budget = Math.max(0, ceiling - systemBytes);
         if (!snapshot) return {messages: degradedRequest(requestMessages as unknown as Row[], ctx, lastReason) as typeof requestMessages};
         const messages = requestMessages as unknown as Row[];
         let seen = false;
