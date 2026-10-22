@@ -324,3 +324,16 @@ test('a road already travelled keeps its length when a later trip names another 
     await k.table('apply',{call_id:'t1-c4',effects:[{kind:'place',action:'move',to:office,travel_band:'long_travel'}]});
     assert.equal((await k.table('status')).receipts.filter((receipt:Row)=>receipt.kind==='move').at(-1).minutes,out.minutes,'one slow journey does not change the road');
 });
+
+test('a place\'s visit history is what was shown there on earlier turns, at any point and by any sense (§250.18)',async t=>{
+    const k=await kernel(t);await openTurn(k,'I look out of the office window.');
+    const office=state(k).active_scene;
+    await k.table('apply',{call_id:'t1-c1',effects:[{kind:'place',action:'observe',to:'here',at:'office window',sense:'sight',facts:['Across the street stand two brick office blocks.']}]});
+    await k.table('narrate',{call_id:'t1-c2',text:'Two brick office blocks face the window.'});
+    await k.table('player_input',{text:'I walk to the cafe a few doors down, then glance back at the office.'});
+    await k.table('apply',{call_id:'t2-c1',effects:[{kind:'place',action:'move',to:'Corner Cafe',via:'A few doors down',travel_band:'adjacent',additions:[hotel('Corner Cafe')]},
+        {kind:'place',action:'observe',to:'here',facts:['The cafe is quiet.']}]});
+    const history=(await k.ok('mods.locations.inspect',{campaign:CAMPAIGN,name:office,need:'history'})).history;
+    assert.deepEqual(history.records.map((row:Row)=>[row.delivered_turn,row.facts]),[[1,['Across the street stand two brick office blocks.']]]);
+    assert.equal((await k.ok('mods.locations.inspect',{campaign:CAMPAIGN,name:'Corner Cafe',need:'history'})).history.records.length,0,'this turn\'s undelivered look is not history');
+});

@@ -5828,7 +5828,7 @@ export default function (pi: ExtensionAPI, host: {capabilities?:RuntimeCapabilit
 		reply:NonNullable<typeof keeperReply>,ctx?:ExtensionContext){
 		let operationResult:ReturnType<typeof turnPacketResult>={player_actions_complete:true,npc_actions_complete:true,outcomes:[]};
 		let decision:import('../../runtime/isolated-expression.ts').DecisionAuthorContext|undefined;
-        let observationIdentities:Record<string,any>[]=[];
+        let observationIdentities:Record<string,any>[]=[],arrivedAt:string|undefined;
         const heldBoundary=heldActs.get(state),held=heldBoundary?.basis;
 		if(held&&(!turnPacketPrototype||heldBoundary?.uncommittedFailures()===undefined)){
 			endInput(state,'held_act_unconfirmed',undefined,'settled_operation');
@@ -5893,6 +5893,7 @@ export default function (pi: ExtensionAPI, host: {capabilities?:RuntimeCapabilit
 			}
 			const current=await state.kernel.call<Record<string,any>>('table.capsule',{campaign:state.campaign,_context_read:true});
             observationIdentities=[...(current.npc_references?.people??[]),...(current.present??[])];
+            if(typeof current.where?.scene==='string'&&current.where.scene!==before.where?.scene)arrivedAt=current.where.scene;
             if(scenePopulationRequired(current)&&!compiled.effects.some(row=>row.kind==='scene')){
                 // §250.6: only an assessment the registered presence contradicts needs the Keeper's new one before prose; a
                 // missing or expired assessment renders as unknown population.
@@ -5947,6 +5948,15 @@ export default function (pi: ExtensionAPI, host: {capabilities?:RuntimeCapabilit
             decision.observations=decisionObservationScope(operationResult.outcomes,observationIdentities);
             const references=authorObservationReferences(state,operationResult.outcomes);
             if(references)decision.reference_observations=references;
+            // §250.18: arriving at a place shown before, the author gets what was recorded there on earlier visits, so a
+            // return keeps the place's fixed features and views (live el-v2-20261021e: the cafe window looked onto offices,
+            // then onto a hardware shop and a pharmacy).
+            if(arrivedAt)try{
+                const read=await state.kernel.call<Record<string,any>>('mods.locations.inspect',{campaign:state.campaign,name:arrivedAt,need:'history'});
+                const records=Array.isArray(read.history?.records)?read.history.records:[];
+                if(records.length)decision.reference_observations=[...(decision.reference_observations??[]),{to:{place:read.history.place},revisit:true,records}];
+                await record({lane:'location-revisit',event:'history',turn:state.turn,place:arrivedAt,records:records.length});
+            }catch(error){await record({lane:'location-revisit',event:'unavailable',turn:state.turn,place:arrivedAt,reason:String(error)});}
         }
 		const authored=await writeIsolatedExpression({runtime,campaign:state.campaign,turn:state.turn,run:reply.run,
 			brief:legacy,decision,...(decision?{result:operationResult}:{}),language:state.playLanguage||'en',playerText:reply.stream.playerText,investigatorNames:reply.stream.investigatorNames,

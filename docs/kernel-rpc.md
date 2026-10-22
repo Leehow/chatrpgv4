@@ -51303,6 +51303,21 @@ rewrote the road. Between two places that already share a road -- the book's, or
 `adjusted: {field:"travel_band", reason:"road_known", given, minutes}`. `travel_minutes` the Keeper gives for this
 journey are still its own (§250.5), and no band or single journey rewrites a known road's length.
 
+### 250.18 A return visit carries what was recorded there before
+
+Live (`el-v2-20261021e` T6, T13): the cafe window looked onto closed office blocks on the first visit and onto a
+hardware shop and a pharmacy on the return. The author is kept from earlier prose on purpose
+(`decision-author-bindings`), and observation history reached it only when the Keeper read it or looked again from the
+same point. Now, when a turn's packet ends at another place than it started, the host reads that place's visit history
+-- `mods.locations.inspect {name, need:"history"}`, a host-only read the Keeper's place tool does not offer: up to four
+delivered observations whose target lies in the place, at any point and by any sense, from earlier turns, newest first --
+and hands it to the author as a `reference_observations` group marked `revisit:true`
+(`{lane:"location-revisit", event:"history", place, records}`). The author keeps the fixed features, layout and views
+of the place consistent with those records unless this turn's outcomes or facts change them; their people, situations
+and clocks are past. These are recorded facts, never earlier prose. A failed read is recorded (`event:"unavailable"`) and
+the turn goes on without it. Tests: `tests/integration/enhanced-locations.test.ts` (visit history),
+`tests/extension/location-revisit-history.test.mjs`.
+
 ## 251. A progress note for a read spiral (owner direction 2026-10-21: fewer deliberations, faster turns)
 
 Live evidence: on `el-v2-20261021a` T16 the single Keeper answered one sentence about a door and a hired middleman with
