@@ -314,6 +314,8 @@ export interface AdmissionProposal {
 	preceding?: { operations: Record<string,unknown>[]; signatures: string[] };
 	/** An `apply` batch's effect kinds, in order: closed contract enums the typed route reads (§32.10). */
 	kinds?: string[];
+	/** §249: the resolve settles a Mod's registered meeting check (a first impression or contact reaction). */
+	meetingCheck?: true;
 	/**
 	 * §32.12.3: `lines[i]` is the batch's effect `effects[i]`. An `apply` proposal's lines are only the effects §32.1 puts to
 	 * review; the others (a `person`, a `threat`, a scene rename, ...) are not shown to either reviewer and land with the batch.
@@ -389,6 +391,26 @@ export interface AdmissionScope {
  * (Keeper bookkeeping, NPC movement, pacing, world switches, Mod registration) is not reviewed.
  */
 export const TRIGGER_KINDS: ReadonlySet<string> = new Set(["move", "place", "clue", "time", "cash", "item", "handout", "map", "object", "usage"]);
+
+/**
+ * §249 (owner 2026-10-21): in the single-Keeper typed path the Keeper itself judges whether the player selected these
+ * lines. Real play kept refusing them on the reviewer's uncertainty (movement and local positions, explicit waits and
+ * activity time, ordered services with their goods and payment), so they are not put to the consent review. §249.6
+ * (owner 2026-10-21): a document write on an object is the Keeper's too -- the reviewer refused six of eight explicit
+ * "copy it into my notebook" writes across six tables. Maps and usages stay reviewed; kernel validation of every line,
+ * the malformed-write refusal and the selected-recording check are unchanged.
+ */
+export const KEEPER_JUDGED_KINDS: ReadonlySet<string> = new Set(["move", "place", "time", "cash", "item", "object"]);
+const documentWrite = (effect: Record<string, unknown>): boolean =>
+	['write', 'append', 'requested_edit'].includes(String((effect.document as Record<string, unknown> | undefined)?.action));
+/** The Keeper-judged kinds a batch carries, for the admission record. */
+export function keeperJudgedKinds(effects: readonly unknown[]): string[] {
+	return [...new Set(effects.flatMap(effect => {
+		const row = effect && typeof effect === 'object' ? effect as Record<string, unknown> : {};
+		const kind = text(row.kind);
+		return kind && KEEPER_JUDGED_KINDS.has(kind) ? [kind] : [];
+	}))];
+}
 
 /** `resolve` decision families that are never a voluntary player action: the rules or the table run them. */
 const EXEMPT_DECISION_PREFIXES: readonly string[] = ["sanity:", "development:"];
@@ -573,10 +595,11 @@ export function admissionRequest(tool: string, payload: Record<string, unknown>,
 			if (!kind || !TRIGGER_KINDS.has(kind)) return false;
             if(kind==='place'&&['establish','relate'].includes(String(effect.action)))return false;
             if(scope.consentOnly&&['clue','handout'].includes(kind))return false;
+            if(scope.consentOnly&&KEEPER_JUDGED_KINDS.has(kind))return false;
 			if (kind === "cash" && effect.mode === "quote") return false;
 			if (kind === "move" && here.includes(norm(effect.to)) && !text(effect.label)) return false;
 			if (kind === "object") {
-                if (['write','append','requested_edit'].includes(String((effect.document as Record<string,unknown> | undefined)?.action))) return true;
+                if (documentWrite(effect)) return true;
 				// Adoption enriches an owned row; same-owner edits record state rather than transfer it.
 				if (!text(effect.to) || text(effect.adopt) || text(effect.from) && norm(effect.from) === norm(effect.to)) return false;
 			}
@@ -1791,7 +1814,7 @@ export function registeredContactProposal(proposal: AdmissionProposal, payload: 
 		settles: rule.trigger === "presence"
 			? "The NPC's first impression of the investigator. This is a reusable rule of the meeting, not the investigator persuading, deceiving or bargaining. Invocation intent does not prescribe an influence method. It is rolled when that impression matters this turn: the investigator seeks something from this NPC, approaches them socially, must get past them, or the NPC is hostile or suspicious; mere presence does not establish it."
 			: "The NPC's initial reaction to meaningful contact. This is a reusable contact rule, not the investigator persuading, deceiving or bargaining. Invocation intent does not prescribe an influence method. Meaningful contact must follow from the current declaration or an earlier chosen contact with this NPC; mere presence does not establish it." };
-	return { ...proposal, key: canonical({ proposal: proposal.key, registered_contact_check: registered }),
+	return { ...proposal, key: canonical({ proposal: proposal.key, registered_contact_check: registered }), meetingCheck: true,
 		lines: proposal.lines.map(line => `${line}; registered_contact_check=${JSON.stringify(registered)}`) };
 }
 
@@ -1801,16 +1824,17 @@ export function capsuleContactProposal(proposal: AdmissionProposal, payload: Rec
     const action = record(payload.action);
     if (!action || !['actor', 'target', 'decision'].every(key => typeof action[key] === 'string')) return proposal;
     const present = Array.isArray(capsule.present) ? capsule.present.map(record).filter(Boolean) : [];
-    const people = present.filter(person => [person!.id, person!.name, person!.ref].includes(action.target));
+    const people = present.filter(person => [person!.id, person!.name, person!.ref, person!.display_name].includes(action.target));
     if (people.length !== 1) return proposal;
     const person = people[0]!;
     const contacts = record(capsule.mods)?.pending_contacts;
     if (!Array.isArray(contacts)) return proposal;
-    const matches = contacts.map(record).filter(contact => contact && contact.actor === action.actor && contact.decision === action.decision
-        && typeof person.id === 'string' && contact.handle === person.id);
+    // The Keeper names the investigator by display name or id; the row carries both.
+    const matches = contacts.map(record).filter(contact => contact && (contact.actor === action.actor || contact.actor_id === action.actor)
+        && contact.decision === action.decision && typeof person.id === 'string' && contact.handle === person.id);
     if (matches.length !== 1) return proposal;
     return registeredContactProposal(proposal, payload, {origin: 'policy', clerk: 'mod_contact',
-        basis: {read: 'table.capsule', path: 'mods.pending_contacts', row: {...matches[0], target: action.target}}});
+        basis: {read: 'table.capsule', path: 'mods.pending_contacts', row: {...matches[0], actor: action.actor, target: action.target}}});
 }
 
 /**

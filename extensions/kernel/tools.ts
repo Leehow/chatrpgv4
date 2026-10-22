@@ -83,7 +83,7 @@ export function argumentLimitRefusal(tool: string, args: unknown): { code: strin
 }
 
 /** One branch of `apply`'s `effects[]` union: its kind and the properties it requires (read off the schema itself). */
-interface EffectBranch { kind: string; required: string[]; arrays: string[] }
+interface EffectBranch { kind: string; required: string[]; arrays: string[]; properties: string[]; nested: Record<string, string[]> }
 const branchCache = new WeakMap<object, EffectBranch[]>();
 function effectBranches(parameters: TSchema): EffectBranch[] {
 	const cached = branchCache.get(parameters);
@@ -94,11 +94,59 @@ function effectBranches(parameters: TSchema): EffectBranch[] {
 		const kind = shape.properties?.kind, names = [...(kind?.enum ?? []), ...(kind?.const !== undefined ? [kind.const] : [])];
 		const required = (shape.required ?? []).filter((key): key is string => typeof key === "string" && key !== "kind");
 		const arrays = Object.entries(shape.properties ?? {}).filter(([, field]) => field.type === "array").map(([name]) => name);
-		return names.filter((name): name is string => typeof name === "string").map(name => ({ kind: name, required, arrays }));
+		const properties = Object.keys(shape.properties ?? {});
+		// The declared fields of each object-valued property, so a field two kinds share can still be read by what it holds.
+		const nested = Object.fromEntries(Object.entries(shape.properties ?? {}).flatMap(([name, field]) => {
+			const inner = (field as { properties?: Record<string, unknown> }).properties;
+			return inner && typeof inner === "object" ? [[name, Object.keys(inner)]] : [];
+		}));
+		return names.filter((name): name is string => typeof name === "string").map(name => ({ kind: name, required, arrays, properties, nested }));
 	});
 	branchCache.set(parameters, branches);
 	return branches;
 }
+/**
+ * §250.4: an effect whose `kind` names no effect kind but names one of its own fields (`{kind:"document", document:{...}}`)
+ * took the field for the kind. When exactly one effect kind declares that field and every field the effect carries,
+ * that kind is the only reading and replaces it; otherwise the effect is left for `effectShapeRefusal`. A known kind
+ * missing its one required field while carrying an undeclared `name` names that field.
+ */
+export function aliasEffectKinds(tool: string, parameters: TSchema, args: unknown): { args: unknown; repairs: Array<{ index: number; from: string; to: string }> } {
+	if (tool !== "apply" || !args || typeof args !== "object" || Array.isArray(args)) return { args, repairs: [] };
+	const effects = (args as Record<string, unknown>).effects;
+	if (!Array.isArray(effects)) return { args, repairs: [] };
+	const branches = effectBranches(parameters), kinds = new Set(branches.map(branch => branch.kind));
+	const repairs: Array<{ index: number; from: string; to: string }> = [];
+	const next = effects.map((value, index) => {
+		if (!value || typeof value !== "object" || Array.isArray(value)) return value;
+		const effect = value as Record<string, unknown>, kind = effect.kind;
+		if (typeof kind === "string" && kinds.has(kind)) {
+			// A known kind missing one required identity field it carries under the undeclared `name` (`{kind:"clue",
+			// name:"nailed-windows"}`, live el-v2-20261021b T20) names that field.
+			const branch = branches.find(entry => entry.kind === kind);
+			const missing = branch ? branch.required.filter(key => !Object.hasOwn(effect, key)) : [];
+			if (!branch || missing.length !== 1 || branch.properties.includes("name") || typeof effect.name !== "string") return value;
+			const { name, ...rest } = effect;
+			repairs.push({ index, from: "name", to: missing[0] });
+			return { ...rest, [missing[0]]: name };
+		}
+		if (typeof kind !== "string" || !Object.hasOwn(effect, kind)) return value;
+		const fields = Object.keys(effect).filter(key => key !== "kind");
+		let readings = [...new Set(branches.filter(branch => fields.every(key => branch.properties.includes(key))).map(branch => branch.kind))];
+		// Two kinds declaring the field (npc and scene both carry `activity`) are told apart by what it holds: `wakefulness`
+		// is an NPC's, `service` and `crowd` a scene's (live el-v2-20261021f T11). Shared fields alone stay ambiguous.
+		const held = effect[kind];
+		if (readings.length > 1 && held && typeof held === "object" && !Array.isArray(held)) {
+			const keys = Object.keys(held as Record<string, unknown>);
+			readings = readings.filter(reading => branches.some(branch => branch.kind === reading && keys.every(key => (branch.nested[kind] ?? []).includes(key))));
+		}
+		if (readings.length !== 1) return value;
+		repairs.push({ index, from: kind, to: readings[0] });
+		return { ...effect, kind: readings[0] };
+	});
+	return repairs.length ? { args: { ...(args as Record<string, unknown>), effects: next }, repairs } : { args, repairs };
+}
+
 /** How a clue the prose gives is written, for a fix that must say it (§201.3). */
 const CLUE_EFFECT_WORDS = 'a clue the book has is {kind: "clue", clue: <its name, as where.affordances or known.clues_here list it>}';
 
@@ -147,7 +195,7 @@ export function effectShapeRefusal(tool: string, parameters: TSchema, args: unkn
 		}
 		const missing = branch.required.filter(key => effect[key] === undefined);
 		if (missing.length) {
-			const clue = branch.kind === "clue" ? ` For a clue: ${CLUE_EFFECT_WORDS}.` : "";
+			const clue = branch.kind === "clue" ? ` For a clue: ${CLUE_EFFECT_WORDS}${effect.establish !== undefined ? '; one you establish takes a new short name of its own: {kind: "clue", clue: <new name>, establish: {summary}, how}' : ""}.` : "";
 			return { code: "invalid_params", code_detail: "effect_field_missing", retryable: false, next: "change_input",
 				message: `apply: ${field} (${branch.kind}) is missing ${missing.join(", ")}`,
 				fix: `Give ${field} its ${missing.join(", ")}: a ${branch.kind} effect requires ${branch.required.join(", ")}.${clue} ${unchanged}`,
@@ -353,8 +401,8 @@ const ObjectEffect = Type.Object({
     Type.Object({action:StringEnum(["write"] as const,{description:"Replace text on an existing writable carrier only. For a newly acquired note, omit action and supply initial document.text with its acquisition instead."}),text:Type.String({maxLength:64000,description:"The carrier's current text after this writing, in the campaign's play_language"})}),
     Type.Object({action:StringEnum(["append"] as const),text:Type.String({maxLength:64000,description:"Only the exact new suffix, including any desired leading newline; the kernel preserves all existing text. Use when adding writing without changing old content"})}),
     Type.Object({action:StringEnum(["open","close"] as const)}),
-    Type.Object({action:StringEnum(["show"] as const),reader:Type.String({description:"The present person to whom the owner actually shows this writing; asking to inspect does not authorize showing"})}),
-    Type.Object({action:StringEnum(["observe"] as const),reader:Type.String({description:"Person who actually read this writing after visibility, comprehension and any required check were established"}),
+    Type.Object({action:StringEnum(["show"] as const),reader:Type.String({description:"The present person -- an NPC here or the investigator -- to whom the owner actually shows this writing; asking to inspect does not authorize showing"})}),
+    Type.Object({action:StringEnum(["observe"] as const),reader:Type.String({description:"Person who actually read this writing -- an NPC here or the investigator -- after visibility, comprehension and any required check were established"}),
       access:StringEnum(["held","shown","glimpse"] as const),quote:Type.Optional(Type.String({maxLength:64000,description:"One exact unique visible passage; mandatory for a partial glimpse. The kernel captures its bytes, not a rewritten report"}))}),
     Type.Object({action:StringEnum(["requested_edit"] as const),method:StringEnum(["erase","cross_out","rewrite"] as const),
       implements:Type.Array(Type.String(),{minItems:1,maxItems:8,description:"Actual directly available carried implements; judge suitability from their physical facts and the scene"}),
@@ -1000,7 +1048,7 @@ export const COC_TOOLS: readonly CocToolSpec[] = [
 	},
 	{
         name:'place',label:'Place',method:'mods.locations.inspect',
-        description:'Read place state or prior observations without movement, new perception or elapsed time, or submit a location action. For earlier sightings, people identity or incident continuity inspect need observation with the target name; recall prose is not the observation register. Inspect need contract supplies writing detail.',
+        description:'Move the party, change a fixture, record what is perceived, or read a place (inspect; need observation reads earlier looks at a target). In a turn, put the whole route in output commands; call place first only when a roll must follow an arrival at another place.',
         promptSnippet:'Manage places, local features and sensory observations through Enhanced Locations.',parameters:PlaceParameters,
     },
 	{

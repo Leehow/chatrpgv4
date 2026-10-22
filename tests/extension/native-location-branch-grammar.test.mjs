@@ -35,7 +35,9 @@ test('Responses action branches resolve their complete local array grammar witho
  assert(Check(move,request));
  assert(!Check(move,{...request,additions:JSON.stringify(request.additions)}));
  assert(!Check(move,{...request,additions:[{name:'Station',features:'[]'}]}));
- assert(!Check(move,{...request,additions:[{name:'Station',features:[{name:'Counter'}]}]}));
+ assert(Check(move,{...request,additions:[{name:'Station',features:[{name:'Counter'}]}]}),'§250.2: a new feature without a description uses its name');
+ assert(!Check(move,{...request,additions:[{name:'Station',features:[{description:'A worn oak counter.'}]}]}),'a nested feature still requires its name');
+ assert(!Check(move,{...request,additions:[{name:'Station',features:[{name:'Counter',invented:true}]}]}),'a nested feature stays closed');
  assert(!Check(move,{...request,additions:[]}));
  assert(Check(NativePlaceParameters,request));
  assert(!Check(NativePlaceParameters,{...request,action:'inspect'}));

@@ -26,8 +26,8 @@ import {EquipmentJobs} from './equipment.js';
 import {stageLocation} from './locations.js';
 import {isAmbiguity} from '../read/module-graph.js';
 import {locationView,locationProvider,locationCandidates,locationFeature} from '../read/locations.js';
-import {PlaceParameters,PlaceEffect} from '../../shared/place-structures.js';
-import {locationObservationView,locationRelations,locationInspectionPoint} from '../read/location-observations.js';
+import {PLACE_CONTRACT_GUIDE} from '../../shared/place-structures.js';
+import {locationObservationView,locationRelations,locationInspectionPoint,placeVisitHistory} from '../read/location-observations.js';
 import {committedOnLine} from '../read/exchange.js';
 export { validateDefinition, validateDocumentSeed, definitionExpression } from './definition.js';
 export { projectInventory, projectSheet, weaponRows } from './projection.js';
@@ -99,15 +99,22 @@ export function createModRuntime(context: KernelContext, sources: ModSources = {
     return Object.freeze({
       ...createDocumentHandlers(writer, runtime, jobs),
       'mods.locations.inspect': async params => {
-        if(params.need!==undefined&&(typeof params.need!=='string'||!['context','contract','observation'].includes(params.need)))throw new RpcError('invalid_params','Location inspect need is context, contract or observation');
+        // §250.18: `history` is the host's read for the author on a return visit; the Keeper's place tool does not offer it.
+        if(params.need!==undefined&&(typeof params.need!=='string'||!['context','contract','observation','history'].includes(params.need)))throw new RpcError('invalid_params','Location inspect need is context, contract or observation');
         if(params.sense!==undefined&&(typeof params.sense!=='string'||!['sight','hearing'].includes(params.sense)))throw new RpcError('invalid_params','Observation sense is sight or hearing');
         const {campaign,module}=await readCampaign(context,params,false,false,writer.read);
         const provider=locationProvider(await runtime.active(campaign.world));
         const availability={enabled:!!provider,location_inspection:{turn:campaign.turn.turn,need:params.need??'context'},...(provider?{mod:provider.id,version:provider.version}:{})};
-        if(params.need==='contract')return {...availability,parameters:JSON.parse(JSON.stringify(PlaceParameters)),command:JSON.parse(JSON.stringify(PlaceEffect)),sections:provider?packageSections(provider).map(section=>({heading:section.heading,text:section.text})):[]};
+        // §250: every place field is declared in the tool and output schemas; the contract read is a pointer, not a second grammar.
+        if(params.need==='contract')return {...availability,guide:PLACE_CONTRACT_GUIDE};
         try{
             if(params.need==='observation')return {...availability,observation:locationObservationView(module.graph,campaign.world,params,
                 committedOnLine(campaign,await campaign.turnRecords()).records,row(await campaign.optional('npc-journal.json')))};
+            if(params.need==='history'){
+                const place=locationInspectionPoint(module.graph,campaign.world,params).place;
+                return {...availability,history:{place,records:placeVisitHistory(module.graph,campaign.world,string(place),
+                    committedOnLine(campaign,await campaign.turnRecords()).records,number(campaign.turn.turn))}};
+            }
             const target=locationInspectionPoint(module.graph,campaign.world,params),place=locationView(module.graph,campaign.world,target.place);
             const relations=locationRelations(campaign.world).filter(relation=>relation.from.place===place.name||relation.to.place===place.name).slice(0,8)
                 .map(({from,to,sense,description})=>({from,to,sense,description}));

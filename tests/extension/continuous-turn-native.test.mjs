@@ -29,13 +29,20 @@ async function opened(workspace){
         return await client.ok('table.capsule',{campaign:'test-camp',_context_read:true});
     }finally{await client.close();}
 }
+// §249/§249.6: the single Keeper judges move, place, time, cash, item and object lines itself, document writes included.
+// A probe of the generic consent machinery therefore carries a map reveal, which the typed consent review still reads.
+const MAP='player-corbitt-house-map';
+const reveal=(label='House plan')=>({kind:'map',name:MAP,regions:['ground-entry-hall'],region_labels:{'ground-entry-hall':'Entry hall'},
+    level_labels:{'Ground Floor':'Ground floor'},label,why:'Knott spreads the house plan on the desk.'});
+const mapTitle=workspace=>JSON.parse(readFileSync(join(workspace,'.coc/campaigns/test-camp/world.json'),'utf8')).map_labels?.[MAP]?.title;
 const env={PI_COC_LOOP_ENGINE:'hybrid-v1',PI_COC_JEV_PRESELECT:'0',PI_COC_ISOLATED_OUTPUT:'0',
     EXT_JEV_APIKEY:undefined,TYPESAFE_API_KEY:undefined};
 
 test('a missing decision owner holds player writes and repeated false success without issuing requests',async t=>{
     const engine=createHybridEngine({env:{},decision:null});
     const results=[];
-    const move={effects:[{kind:'time',minutes:5},{kind:'move',to:'Central Library'}]};
+    // The map reveal is the reviewed line; the Keeper-judged time and move fall with it in the one atomic batch.
+    const move={effects:[{kind:'time',minutes:5},{kind:'move',to:'Central Library'},reveal('Library trip.')]};
     const table=await openTable({legacyDeliveryFixtures:false,realKernel:true,prepareWorkspace:opened,env,
         runDriver:engine.runDriver,extraExtensions:[{name:'continuous',factory:engine.extension},
             {name:'admission-results',factory:pi=>pi.on('tool_result',event=>{if(event.toolName==='apply')results.push(event);})}],
@@ -44,7 +51,7 @@ test('a missing decision owner holds player writes and repeated false success wi
             fauxAssistantMessage('{{public}}You arrive at the library.'),
             fauxAssistantMessage('{{public}}You arrive at the library.')]});
     t.after(()=>table.dispose());
-    await table.session.prompt('I walk to the Central Library, taking five minutes.');
+    await table.session.prompt('I study the house plan Knott spreads out and walk to the Central Library, taking five minutes.');
     assert.equal(results.length,2);
     assert.ok(results.every(row=>row.details?.coc_error?.details?.reason==='typed_admission_unavailable'));
     assert.ok(results.every(row=>row.details.coc_error.details.jev_reason==='unconfigured'));
@@ -52,6 +59,7 @@ test('a missing decision owner holds player writes and repeated false success wi
     const turn=JSON.parse(readFileSync(join(table.workspace,'.coc/campaigns/test-camp/turns/0001.json'),'utf8'));
     assert.equal(turn.world.clock.minutes,0);
     assert.equal(turn.receipts.filter(row=>['time','move'].includes(row.kind)).length,0);
+    assert.equal(mapTitle(table.workspace),undefined);
     assert.equal(table.entries('coc-final-delivery').filter(frame=>frame.event==='delta').map(frame=>frame.delta).join(''),'');
 });
 
@@ -98,28 +106,30 @@ test('the same uncertain record is not judged twice or exposed on correction',as
         if(admission)admissionBatches++;
         return result(batch,selected,admission?.5:.99);
     }}});
-    const response=JSON.stringify({version:1,record:{effects:[{kind:'time',minutes:5,why:'The selected short wait.'}]},text:'DEPENDENT_UNCERTAIN_TEXT'});
+    const response=JSON.stringify({version:1,record:{effects:[{kind:'time',minutes:5,why:'The selected short wait.'},reveal('Five minutes.')]},text:'DEPENDENT_UNCERTAIN_TEXT'});
     const table=await openTable({legacyDeliveryFixtures:false,realKernel:true,prepareWorkspace:opened,env,
         runDriver:engine.runDriver,extraExtensions:[{name:'continuous',factory:engine.extension}],
         responses:[()=>{requests++;return fauxAssistantMessage(response);},()=>{requests++;return fauxAssistantMessage(response);}]});
     t.after(()=>table.dispose());
-    await table.session.prompt('I wait here for five minutes.');
+    await table.session.prompt('I wait here for five minutes and study the house plan.');
     assert.equal(requests,2);assert.equal(admissionBatches,1);
+    assert.equal(mapTitle(table.workspace),undefined);
     assert.equal(table.entries('coc-final-delivery').filter(frame=>frame.event==='delta').map(frame=>frame.delta).join(''),'');
     assert.ok(table.telemetry().some(row=>row.lane==='admission'&&row.reused===true&&row.jev_calls===0));
 });
 
-test('an uncertain typed move permits verified non-arrival prose and preserves its refusal ledger',async t=>{
+test('an uncertain typed batch carrying a move permits verified non-arrival prose and preserves its refusal ledger',async t=>{
     let correction='';
     const engine=createHybridEngine({env:{},decision:{decide:async batch=>
         result(batch,selected,batch.family==='continuous-action-admission'?.5:batch.family==='held-act-outcome'?.01:.99)}});
+    // The Keeper-judged move is refused with the uncertain map reveal of its atomic batch.
     const table=await openTable({legacyDeliveryFixtures:false,realKernel:true,prepareWorkspace:opened,env,
         runDriver:engine.runDriver,extraExtensions:[{name:'continuous',factory:engine.extension}],responses:[
-            fauxAssistantMessage([fauxToolCall('apply',{effects:[{kind:'move',to:'Central Library'}]})],{stopReason:'toolUse'}),
+            fauxAssistantMessage([fauxToolCall('apply',{effects:[{kind:'move',to:'Central Library'},reveal('Library.')]})],{stopReason:'toolUse'}),
             context=>{correction=JSON.stringify(context.messages);return fauxAssistantMessage('{{public}}You remain beside the desk.');}
         ]});
     t.after(()=>table.dispose());
-    await table.session.prompt('I go to the Central Library.');
+    await table.session.prompt('I study the house plan and go to the Central Library.');
     const turn=JSON.parse(readFileSync(join(table.workspace,'.coc/campaigns/test-camp/turns/0001.json'),'utf8'));
     assert.deepEqual(turn.refused_moves,[{to:'Central Library',reason:'action_admission_uncertain'}]);
     assert.ok(correction.includes('action_admission_uncertain'));
@@ -135,7 +145,7 @@ test('a refused tool followed by false public success never exposes bytes, inclu
         result(batch,selected,batch.family==='continuous-action-admission'?.5:.99)}});
     const table=await openTable({legacyDeliveryFixtures:false,realKernel:true,prepareWorkspace:opened,env,
         runDriver:engine.runDriver,extraExtensions:[{name:'continuous',factory:engine.extension}],responses:[
-            ()=>{requests++;return fauxAssistantMessage([fauxToolCall('apply',{effects:[{kind:'move',to:'Central Library'}]})],{stopReason:'toolUse'});},
+            ()=>{requests++;return fauxAssistantMessage([fauxToolCall('apply',{effects:[{kind:'move',to:'Central Library'},reveal('Library.')]})],{stopReason:'toolUse'});},
             ()=>{requests++;return fauxAssistantMessage('{{public}}You arrive at the library and speak to the clerk.');},
             ()=>{requests++;return fauxAssistantMessage('{{public}}You arrive at the library and speak to the clerk.');}
         ]});
@@ -153,7 +163,7 @@ for(const probability of [.5,null])test(`uncertain or unavailable publication ch
     }}});
     const table=await openTable({legacyDeliveryFixtures:false,realKernel:true,prepareWorkspace:opened,env,
         runDriver:engine.runDriver,extraExtensions:[{name:'continuous',factory:engine.extension}],responses:[
-            fauxAssistantMessage([fauxToolCall('apply',{effects:[{kind:'move',to:'Central Library'}]})],{stopReason:'toolUse'}),
+            fauxAssistantMessage([fauxToolCall('apply',{effects:[{kind:'move',to:'Central Library'},reveal('Library.')]})],{stopReason:'toolUse'}),
             fauxAssistantMessage('{{public}}You arrive at the library.')
         ]});
     t.after(()=>table.dispose());await table.session.prompt('I stay here.');
@@ -166,12 +176,13 @@ test('independent settlement cannot clear refusal; a clean correction publishes 
     const clean='You wait beside the desk. You have not left for the library.';
     const engine=createHybridEngine({env:{},decision:{decide:async batch=>{
         if(batch.family==='held-act-outcome'){checks++;return result(batch,selected,batch.state.draft===clean?.01:.99);}
-        return result(batch,selected,batch.family==='continuous-action-admission'&&batch.state.proposal.kinds.includes('move')?.01:.99);
+        return result(batch,selected,batch.family==='continuous-action-admission'&&batch.state.proposal.kinds.includes('map')?.01:.99);
     }}});
+    // The independent wait lands; the refused map reveal takes the Keeper-judged move of its batch with it.
     const table=await openTable({legacyDeliveryFixtures:false,realKernel:true,prepareWorkspace:opened,env,
         runDriver:engine.runDriver,extraExtensions:[{name:'continuous',factory:engine.extension}],responses:[
             fauxAssistantMessage([fauxToolCall('apply',{effects:[{kind:'time',minutes:2,why:'The selected short wait.'}]})],{stopReason:'toolUse'}),
-            fauxAssistantMessage([fauxToolCall('apply',{effects:[{kind:'move',to:'Central Library'}]})],{stopReason:'toolUse'}),
+            fauxAssistantMessage([fauxToolCall('apply',{effects:[{kind:'move',to:'Central Library'},reveal('Library.')]})],{stopReason:'toolUse'}),
             fauxAssistantMessage('{{public}}You arrive at the library.'),
             fauxAssistantMessage('{{public}}'+clean),
             fauxAssistantMessage('{{public}}Knott answers your question beside the desk.')
@@ -179,6 +190,7 @@ test('independent settlement cannot clear refusal; a clean correction publishes 
     t.after(()=>table.dispose());await table.session.prompt('I wait here two minutes; I do not leave.');
     const turn=JSON.parse(readFileSync(join(table.workspace,'.coc/campaigns/test-camp/turns/0001.json'),'utf8'));
     assert.equal(turn.world.clock.minutes,2);assert.equal(turn.receipts.filter(row=>row.kind==='move').length,0);
+    assert.equal(mapTitle(table.workspace),undefined);
     assert.equal(turn.rendered_text,clean);assert.equal(checks,2);
     await table.session.prompt('I stay here and ask Knott what he needs.');
     assert.equal(checks,2,'a new input does not inherit the previous failure or add a check');
@@ -192,17 +204,20 @@ test('missing establishment route is corrected before consent and the repaired m
         return result(batch,selected,batch.family==='held-act-outcome'?.01:.99);
     }}});
     const move={kind:'move',to:'Corner lodging house',establish:{summary:'A lodging house at the nearby corner.'},travel_minutes:3};
+    // The batch's map reveal keeps it under consent review; the route check still runs first.
+    const note=reveal('Corner lodging house.');
     const table=await openTable({legacyDeliveryFixtures:false,realKernel:true,prepareWorkspace:opened,env,
         runDriver:engine.runDriver,extraExtensions:[{name:'continuous',factory:engine.extension}],responses:[
-            fauxAssistantMessage([fauxToolCall('apply',{effects:[move]})],{stopReason:'toolUse'}),
+            fauxAssistantMessage([fauxToolCall('apply',{effects:[move,note]})],{stopReason:'toolUse'}),
             context=>{assert.equal(consent,0);assert.ok(JSON.stringify(context.messages).includes('move_route_missing'));
-                return fauxAssistantMessage([fauxToolCall('apply',{effects:[{...move,via:'Walk along the public street to the corner.'}]})],{stopReason:'toolUse'});},
+                return fauxAssistantMessage([fauxToolCall('apply',{effects:[{...move,via:'Walk along the public street to the corner.'},note]})],{stopReason:'toolUse'});},
             fauxAssistantMessage('{{public}}You enter the lodging house and greet the clerk.')
         ]});
-    t.after(()=>table.dispose());await table.session.prompt('I walk to the corner lodging house along the street.');
+    t.after(()=>table.dispose());await table.session.prompt('I study the house plan and walk to the corner lodging house along the street.');
     const turn=JSON.parse(readFileSync(join(table.workspace,'.coc/campaigns/test-camp/turns/0001.json'),'utf8'));
     assert.equal(consent,1,JSON.stringify(table.session.messages.filter(row=>row.role==='toolResult')));assert.equal(checks,1);
     assert.equal(turn.receipts.filter(row=>row.kind==='move').length,1);assert.equal(turn.world.clock.minutes,3);
+    assert.equal(mapTitle(table.workspace),'Corner lodging house.');
 });
 
 async function cashOpened(workspace){
@@ -223,16 +238,13 @@ async function cashOpened(workspace){
     }finally{await client.close();}
 }
 
-for(const choice of [false,true])test(`typed ${choice?'bound quotation':'explicit debit'} consent reaches one real cash transaction`,async t=>{
+// §249: the single Keeper's settlement of a registered quotation is its own judgment of the player's choice; the kernel
+// still prices the debit (daily spending included) and settles it once.
+for(const choice of [false,true])test(`a Keeper-judged ${choice?'bound quotation':'explicit debit'} settlement reaches one real cash transaction without consent review`,async t=>{
     let admissionBatches=0;
     const engine=createHybridEngine({env:{},decision:{decide:async batch=>{
-        const answer=result(batch,selected);
-        if(batch.family==='continuous-action-admission'){
-            admissionBatches++;
-            answer.answers.cash_input_0.noul=choice?.01:.99;
-            answer.answers.cash_offer_0_0.noul=choice?.99:.01;
-        }
-        return answer;
+        if(batch.family==='continuous-action-admission')admissionBatches++;
+        return result(batch,selected);
     }}});
     const table=await openTable({legacyDeliveryFixtures:false,realKernel:true,prepareWorkspace:cashOpened,env,
         runDriver:engine.runDriver,extraExtensions:[{name:'continuous',factory:engine.extension}],responses:[
@@ -246,16 +258,16 @@ for(const choice of [false,true])test(`typed ${choice?'bound quotation':'explici
     assert.equal(card.finance.daily_spending.total,47);assert.equal(card.finance.daily_spending.debited,47);
     const turn=JSON.parse(readFileSync(join(table.workspace,'.coc/campaigns/test-camp/turns/0002.json'),'utf8'));
     assert.equal(turn.receipts.filter(row=>row.kind==='cash').length,1);
-    assert.equal(admissionBatches,1);assert.deepEqual(table.extensionErrors,[]);
+    assert.equal(admissionBatches,0);assert.deepEqual(table.extensionErrors,[]);
+    assert.deepEqual(table.telemetry().filter(row=>row.lane==='admission'&&row.path==='keeper_judged').map(row=>({kinds:row.kinds,jev_calls:row.jev_calls})),
+        [{kinds:['cash'],jev_calls:0}]);
+    assert.equal(table.telemetry().filter(row=>row.lane==='admission'&&row.path==='typed').length,0);
 });
 
-test('requested NPC work carries elapsed time while the investigator stays clear',async t=>{
+test('requested NPC work carries Keeper-judged elapsed time while the investigator stays clear',async t=>{
     let reviews=0;
     const engine=createHybridEngine({env:{},decision:{decide:async batch=>{
-        if(batch.family==='continuous-action-admission'){
-            reviews++;assert.deepEqual(batch.state.proposal.kinds,['time']);
-            assert.equal(batch.questions.length,2);
-        }
+        if(batch.family==='continuous-action-admission')reviews++;
         return result(batch,selected);
     }}});
     const table=await openTable({legacyDeliveryFixtures:false,realKernel:true,prepareWorkspace:opened,env,
@@ -266,27 +278,30 @@ test('requested NPC work carries elapsed time while the investigator stays clear
     t.after(()=>table.dispose());
     await table.session.prompt('Please fetch the records. I stay beside the desk and watch; I do not follow you into storage.');
     const turn=JSON.parse(readFileSync(join(table.workspace,'.coc/campaigns/test-camp/turns/0001.json'),'utf8'));
-    assert.equal(turn.world.clock.minutes,5);assert.equal(reviews,1);
+    assert.equal(turn.world.clock.minutes,5);assert.equal(reviews,0);
+    assert.deepEqual(table.telemetry().filter(row=>row.lane==='admission'&&row.path==='keeper_judged').map(row=>({kinds:row.kinds,jev_calls:row.jev_calls})),
+        [{kinds:['time'],jev_calls:0}]);
     assert.equal(turn.receipts.filter(row=>row.kind==='time').length,1);
     assert.equal(turn.receipts.filter(row=>row.kind==='move').length,0);
     assert.deepEqual(table.extensionErrors,[]);
 });
 
-test('an unchosen move beside requested NPC work refuses the entire atomic batch',async t=>{
+test('an unchosen reviewed line beside requested NPC work refuses the entire atomic batch',async t=>{
     let reviews=0;
     const engine=createHybridEngine({env:{},decision:{decide:async batch=>{
         const answer=result(batch,selected);
         if(batch.family==='held-act-outcome')answer.answers.held_result.noul=.01;
         if(batch.family==='continuous-action-admission'){
-            reviews++;assert.deepEqual(batch.state.proposal.kinds,['time','move']);
-            answer.answers.consent_1.noul=.01;
+            // §249: only the map reveal is put to review; the time and move are the Keeper's own judgment.
+            reviews++;assert.deepEqual(batch.state.proposal.kinds,['map']);
+            answer.answers.consent_0.noul=.01;
         }
         return answer;
     }}});
     const table=await openTable({legacyDeliveryFixtures:false,realKernel:true,prepareWorkspace:opened,env,
         runDriver:engine.runDriver,extraExtensions:[{name:'continuous',factory:engine.extension}],responses:[
             fauxAssistantMessage([fauxToolCall('apply',{effects:[{kind:'time',minutes:5,why:'Knott fetches the requested records.'},
-                {kind:'npc',name:'Steven Knott',mood:'working'},{kind:'move',to:'Central Library'}]})],{stopReason:'toolUse'}),
+                {kind:'npc',name:'Steven Knott',mood:'working'},{kind:'move',to:'Central Library'},reveal('Unchosen note.')]})],{stopReason:'toolUse'}),
             fauxAssistantMessage('{{public}}You remain beside the desk.')
         ]});
     t.after(()=>table.dispose());
@@ -294,6 +309,7 @@ test('an unchosen move beside requested NPC work refuses the entire atomic batch
     const turn=JSON.parse(readFileSync(join(table.workspace,'.coc/campaigns/test-camp/turns/0001.json'),'utf8'));
     assert.equal(turn.world.clock.minutes,0);assert.equal(reviews,1);
     assert.equal(turn.receipts.filter(row=>['time','move','npc'].includes(row.kind)).length,0);
+    assert.equal(mapTitle(table.workspace),undefined);
     assert.deepEqual(turn.refused_moves,[{to:'Central Library',reason:'action_not_authorized'}]);
     assert.deepEqual(table.extensionErrors,[]);
 });

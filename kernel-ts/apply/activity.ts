@@ -42,7 +42,9 @@ export function stageSceneActivity(context:ApplyContext,effect:Row):StagedEffect
     const previous=row(row(context.world.scene_activity)[handle]),next=record(context,effect,false,handle,previous);
     if(effect._population===true){
         const people=npcsPresent(context.graph,context.world,scene).filter(node=>context.graph.isPerson(node));
-        if(next.crowd==='empty'&&people.length||['quiet','active','crowded'].includes(next.crowd)&&!people.length)throw new RpcError('invalid_params','Population assessment conflicts with registered presence; seat a temporary person for a populated scene or explicitly move departed people away before an empty assessment');
+        // §250.6: an empty assessment beside a seated registered person contradicts the cast; a populated one with nobody
+        // registered is an unnamed crowd, which registration never has to list.
+        if(next.crowd==='empty'&&people.length)throw new RpcError('invalid_params','Population assessment conflicts with registered presence; explicitly move departed people away before an empty assessment, or assess the people who are here');
     }
     (context.world.scene_activity??={})[handle]=next;
     const receipt={id:effectId(context,'scene',handle),kind:'scene',call_id:context.callId,scene:handle,activity:clone(next),previous:clone(previous),why:effect.why,visibility:'keeper',at:nowIso()};

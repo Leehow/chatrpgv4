@@ -309,6 +309,9 @@ export async function settleBasic(context: SettleContext, runtime: RuleGraph, se
             if (data.outcome === 'fumble')
                 hints = [...hints, 'a fumble cannot be pushed or bought off with Luck'];
         }
+        // §253.5: the failed goal is not achieved; live el-v2-20261021e T24 (STR failed, door opened) and el-v2-20261021f T21.
+        if (['failure', 'fumble'].includes(string(data.outcome)))
+            hints = [...hints, 'failed check: its goal did not happen. Do not land, open, move through or reveal what this check was for in this input; the story tells the failure and what it costs'];
         extra.visibility = 'public';
     }
     else if (ref === LUCK_ROLL) {

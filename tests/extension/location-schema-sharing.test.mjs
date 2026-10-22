@@ -6,7 +6,8 @@ import {sharedOutputSchema,availableOutputSchema} from '../../runtime/provider-o
 import {turnPacketParameterSchema,turnPacketProviderPayload} from '../../runtime/turn-packet-prototype.ts';
 const json=value=>JSON.parse(JSON.stringify(value));
 function expand(schema){
- const definitions=schema.$defs??{};
+ // Resolve references from the same JSON view that is walked: the wire is compared as serialized bytes.
+ const definitions=json(schema).$defs??{};
  const visit=(value,stack=[])=>{
   if(Array.isArray(value))return value.map(child=>visit(child,stack));
   if(!value||typeof value!=='object')return value;

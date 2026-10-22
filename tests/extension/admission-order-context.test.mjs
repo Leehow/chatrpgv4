@@ -15,11 +15,7 @@ test('conditional positions advance only through typed movements without changin
  assert.equal(conditionalExecutionPositions([observe],[],undefined)[0].execution_position.before,null);
  assert.equal(conditionalExecutionPositions([observe],[move],current)[0].execution_position.before.at,'Window');
 });
-test('native atomic review retains the actual start, source order and conditional prior move while uncertainty still holds',async()=>{
- const player='I go to the counter, wait until seven, return to the window, then look out.';
- const proposal=admissionRequest('apply',{effects:[{kind:'place',action:'move',to:'Dining room',at:'Window'},{kind:'place',action:'observe',to:'Street',sense:'sight',access:'clear',scope:'The door',facts:['The door remains closed.']}]},{party:['Thomas'],consentOnly:true});let batch;
- const result=await reviewAdmissionJevOnly({campaign:'order',proposal,context:{turn:1,playerText:player,investigators:[{name:'Thomas'}],present:[],delivered:[],landed:['Actual wait settled.'],refused:[],currentPosition:{place:'Dining room',at:'Counter'},currentClock:{at:'1920-10-12T19:00'}},env:{},record:()=>{},ctx:{},decision:{decide:async value=>{batch=value;return{batchId:value.id,status:'complete',answers:Object.fromEntries(value.questions.map(q=>[q.key,{status:'answered',type:'noul',noul:q.key==='restriction_1'?.45:q.key.startsWith('restriction_')?.1:.9}])),usage:{}};}}});
- assert.equal(batch.familyVersion,'23');assert.equal(batch.state.current_player_words,player);assert.deepEqual(batch.state.current_position,{place:'Dining room',at:'Counter'});
- assert.equal(batch.state.declaration_segments.map(x=>x.text).join(''),player);assert.equal(batch.state.proposal.lines[1].execution_position.before.at,'Window');
- assert.match(batch.questions.find(q=>q.key==='restriction_1').instructions,/never settled state or permission/);assert.equal(result.verdict.verdict,'uncertain');
+test('§249: a selected route with its final look is judged by the single Keeper, not the typed review',()=>{
+ const effects=[{kind:'place',action:'move',to:'Dining room',at:'Window'},{kind:'place',action:'observe',to:'Street',sense:'sight',access:'clear',scope:'The door',facts:['The door remains closed.']}];
+ assert.equal(admissionRequest('apply',{effects},{party:['Thomas'],consentOnly:true}),null);
 });

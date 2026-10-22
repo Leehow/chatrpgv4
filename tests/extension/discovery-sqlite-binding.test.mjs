@@ -36,7 +36,7 @@ function assertFixedView(projected,tools){
     assert.deepEqual(view.map(tool=>tool.name),tools.map(tool=>tool.name),'nothing is narrowed or widened');
     for(const tool of tools.filter(tool=>tool.name!=='apply'&&tool.name!=='place'))assert.deepEqual(view.find(t=>t.name===tool.name),tool);
     const place=view.find(tool=>tool.name==='place').parameters;
-    assert.deepEqual(place.properties.action.enum,['inspect','move','establish','feature','relate','observe'],'location detail has its own demand-loaded flat action envelope');
+    assert.deepEqual(place.properties.action.enum,['move','establish','feature','relate','observe','inspect'],'location detail has its own demand-loaded flat action envelope; §250.3 write branches precede the read branch');
     assert.equal(place.properties.change,undefined);
     const apply=view.find(tool=>tool.name==='apply'),items=apply.parameters.properties.effects.items;
     assert.ok(apply.description.startsWith(tools.find(tool=>tool.name==='apply').description));

@@ -51,6 +51,7 @@ test('the current first-impression instructions let the Keeper choose a meaningf
 test('test_pending_contact_carries_the_handle_the_first_impression_receipt_carries',async t=>{
   const k=await seeded(t);await contactTurn(k);const pending=(await k.table('capsule')).mods.pending_contacts.filter((row:Row)=>row.decision==='natural-npc:first-impression'),knott=pending.find((row:Row)=>row.target==='Steven Knott');
   assert.equal(knott.handle,'steven-knott');assert.ok(pending.every((row:Row)=>row.handle&&row.handle!==row.target));
+  assert.ok(pending.every((row:Row)=>typeof row.actor_id==='string'&&row.actor_id.length>0),'the row names the investigator by id as well as by display name (§249)');
   await k.table('resolve',{call_id:'t1-c1',action:{intent:'social',decision:'natural-npc:first-impression',target:'Steven Knott',goal:'Introduce myself'}});
   const roll=(await k.table('status')).receipts.find((row:Row)=>row.kind==='roll'&&row.decision==='natural-npc:first-impression');assert.equal(roll.npc,knott.handle);
   const mods=(await k.table('capsule')).mods;assert.ok(!mods.pending_contacts.some((row:Row)=>row.handle===knott.handle));assert.equal(mods.relationships.find((row:Row)=>row.decision==='natural-npc:first-impression'&&row.target==='Steven Knott').handle,roll.npc);

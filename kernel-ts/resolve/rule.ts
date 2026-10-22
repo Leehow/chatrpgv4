@@ -70,7 +70,7 @@ function mappedDecision(check: Row): string {
  */
 export async function bindRule(input: {
     tables: RuleTables; graph: ModuleGraph; world: Row; transaction: TurnTransaction; action: Row; intent: string;
-}): Promise<{ claim: RuleClaim; action: Row }> {
+}): Promise<{ claim: RuleClaim | null; action: Row }> {
     const { tables, graph, world, transaction, intent } = input;
     const action: Row = { ...input.action };
     delete action._stated_opposing;
@@ -106,6 +106,12 @@ export async function bindRule(input: {
         if (step !== null)
             refuse('invalid_params', 'rule_step', steps ? `${handle} states steps 0 to ${steps - 1}, not ${step}` : `${handle} states no hazard steps`, {
                 fix: steps ? 'name one of its steps, or leave action.step out for the first' : 'leave action.step out', details: { rule: handle, steps } });
+        // §249.7: a rule that states no check beside an explicitly named skill is the ordinary check of that skill; what the
+        // rule states is still applied with apply stated (live el-v2-20261021f T18, el-v2-20261021g T11: refused, then resent).
+        if (typeof action.skill === 'string' && action.skill.trim()) {
+            const { rule: _unrolled, ...ordinary } = action;
+            return { claim: null, action: ordinary };
+        }
         refuse('invalid_params', 'rule_no_check', `${handle} states no check to roll`, {
             fix: 'resolve without action.rule; what it states is applied with apply stated, or with decision sanity:check for its sanity loss',
             details: { rule: handle, shapes: Object.keys(graph.mechanicsOf(node!)) } });

@@ -121,8 +121,8 @@ test('§228.3 a Keeper write before any prepared request of the input still gets
     assert.deepEqual(call.detail?.package_sections,establishing);
 });
 
-test('a failed ordinary expense receives the shipped place service guidance without a location call',async()=>{
-    const path=join(root,'mods/enhanced-locations');
+test('a failed non-routine expense receives the shipped service-order section without a location call',async()=>{
+    const path=join(root,'mods/quick-settlement');
     const manifest=JSON.parse(await readFile(join(path,'mod.json'),'utf8'));
     const sections=api.parseSections(manifest,JSON.parse(await readFile(join(path,'sections.json'),'utf8')),await readFile(join(path,'agent.md'),'utf8'));
     const instruction={mod:manifest.id,version:manifest.version,form:'indexed',index_contract_version:2,instruction:'Core.',
@@ -133,9 +133,10 @@ test('a failed ordinary expense receives the shipped place service guidance with
     const patched=await hooks.get('tool_result')({toolName:'apply',toolCallId:'service-expense',input,content,details:{},isError:true});
     assert.deepEqual(patched?.content.slice(0,-1),content,'the original refusal remains intact');
     const detail=JSON.parse(patched.content.at(-1).text);
-    const delivered=detail.package_sections.find(section=>section.package===manifest.id&&section.section==='Continuity and authority');
-    assert(delivered,'ordinary cash use must disclose the active place service instructions');
-    assert.match(delivered.text,/requires item quantity gain from its established supplier, then consumption loss/);
-    assert.match(delivered.text,/Payment selected after completion cannot execute first/);
-    assert.equal(reads.length,1,'unrelated place and author sections are not loaded for this expense');
+    const delivered=detail.package_sections.find(section=>section.package===manifest.id&&section.section==='Services beyond routine');
+    assert(delivered,'a cash apply discloses the service-order section of its owner (§250: no longer a location rule)');
+    const body=(await readFile(join(path,'agent.md'),'utf8')).split('## Services beyond routine')[1].split('\n## ')[0].trim();
+    assert(body.length>100&&delivered.text.includes(body),'the delivered text is the shipped section');
+    assert.equal(detail.package_sections.some(section=>section.package==='enhanced-locations'),false);
+    assert.equal(reads.length,1,'the resident and author sections are not reloaded for this expense');
 });

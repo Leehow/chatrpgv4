@@ -41,8 +41,8 @@ function fixture(extra={}) {
   const f={hooks,commands,rows,registrations,shutdown:()=>{for(const fn of hooks.get('session_shutdown')??[])fn();}};
   owned.push(f);return f;
 }
-function frames(blocks,stop='end_turn') {
-  const values=[{type:'message_start',message:{id:'mini-response',type:'message',role:'assistant',model:model.id,content:[],usage:{input_tokens:20,output_tokens:0}}}];
+function frames(blocks,stop='end_turn',id='mini-response') {
+  const values=[{type:'message_start',message:{id,type:'message',role:'assistant',model:model.id,content:[],usage:{input_tokens:20,output_tokens:0}}}];
   for(const [index,block]of blocks.entries()) {
     const tool=['tool_use','server_tool_use'].includes(block.type);
     values.push({type:'content_block_start',index,content_block:tool?{...block,input:{}}:block});
@@ -143,6 +143,98 @@ test('mixed client and deferred server tools retain exact continuation without i
   assert(contextBlock,'supplementary context is preserved as user-role context, never fabricated search output');
   assert.match(JSON.stringify(follow.content[0].content),/no journey is settled/);
   assert.deepEqual(wires[2].messages.find(row=>row.role==='assistant').content,originals);
+});
+// el-v2-a turn 12 (events.jsonl 8913/9272/9501/9513): the host's request ceiling cut the response that issued a
+// deferred server search while keeping the next response, whose first block is that search's result.
+const deferredCall={type:'server_tool_use',id:'call_function_35x4msu7q1yn_4',name:'web_search',input:{query:'1920s Boston horse-drawn cab fare price per trip'}};
+const deferredFirst=[{type:'thinking',thinking:'Check both people and the office before the cab ride.'},
+  {type:'tool_use',id:'call_function_35x4msu7q1yn_1',name:'look',input:{focus:'npc',name:'看房的中间人'}},
+  {type:'tool_use',id:'call_function_35x4msu7q1yn_2',name:'look',input:{focus:'npc',name:'史蒂文·诺特'}},
+  {type:'tool_use',id:'call_function_35x4msu7q1yn_3',name:'place',input:{action:'inspect',name:'commission-briefing',need:'context'}},deferredCall];
+const deferredSecond=[{type:'web_search_tool_result',tool_use_id:deferredCall.id,content:[{type:'web_search_result',title:'Is the Fare Fair? Taximeter Testing in the 1920s',url:'https://nist.example/fare',content:'Period fares'}]},
+  {type:'thinking',thinking:'The fare is known; settle the ride.'},
+  {type:'tool_use',id:'call_function_jthfcym6nugf_1',name:'apply',input:{effects:[{kind:'cash',mode:'settle'}]}}];
+const deferredThird=[{type:'thinking',thinking:'Look up the ledger and settle again.'},
+  {type:'tool_use',id:'call_function_bok0tglm9swe_1',name:'lookup',input:{query:'fare'}},
+  {type:'tool_use',id:'call_function_bok0tglm9swe_2',name:'apply',input:{effects:[]}}];
+const toolResult=(toolCallId,toolName,text)=>({role:'toolResult',toolCallId,toolName,content:[{type:'text',text}],isError:false,timestamp:1});
+const contentOf=message=>Array.isArray(message.content)?message.content:[];
+/** MiniMax rejects (2013) a server result whose server call is absent earlier in the request. */
+function orphanServerResult(body) {
+  const calls=new Set();
+  for(const message of body.messages)for(const block of contentOf(message)){
+    if(block.type==='server_tool_use')calls.add(block.id);
+    if(block.type==='web_search_tool_result'&&!calls.has(block.tool_use_id))return block.tool_use_id;
+  }
+}
+/** A server call may stay unanswered only in the last assistant message (a deferred continuation). */
+function abandonedServerCall(body) {
+  const assistants=body.messages.filter(message=>message.role==='assistant');
+  const results=new Set(assistants.flatMap(contentOf).filter(b=>b.type==='web_search_tool_result').map(b=>b.tool_use_id));
+  return assistants.slice(0,-1).flatMap(contentOf).find(b=>b.type==='server_tool_use'&&!results.has(b.id))?.id;
+}
+function deferredTable() {
+  fixture();setNativeSearchPolicy(policy);
+  const wires=[],reports=[],responses=[[deferredFirst,'tool_use','resp-call'],[deferredSecond,'tool_use','resp-result'],[deferredThird,'tool_use','resp-plain']];
+  nativeSearchState().report=row=>reports.push(row);
+  const opts={apiKey:key,maxTokens:1024,onPayload:body=>nativeSearchPayload(body,model),
+    onProviderStreamEvent:(data,physical)=>nativeSearchEvent({provider:physical.provider,model:physical.id,data}),
+    fetch:async(_url,init)=>{
+      const body=JSON.parse(init.body);wires.push(body);const orphan=orphanServerResult(body);
+      if(orphan)return new Response(JSON.stringify({type:'error',error:{type:'invalid_request_error',message:`invalid params, tool result's tool id(${orphan}) not found (2013)`}}),{status:400,headers:{'content-type':'application/json'}});
+      const next=responses.shift()??[[{type:'text',text:'Done.'}],'end_turn','resp-final'];
+      return new Response(frames(...next),{headers:{'content-type':'text/event-stream'}});
+    }};
+  return {wires,reports,opts,stream:miniMaxStream()};
+}
+test('a trimmed deferred-call response keeps its server result paired on the next MiniMax request',async()=>{
+  const {wires,reports,opts,stream}=deferredTable();
+  const first=await stream(model,{messages:[note]},opts).result();
+  assert.notEqual(first.stopReason,'error',first.errorMessage);
+  const looks=[toolResult('call_function_35x4msu7q1yn_1','look','A broker waits.'),toolResult('call_function_35x4msu7q1yn_2','look','Knott is out.'),
+    toolResult('call_function_35x4msu7q1yn_3','place','The office.')];
+  const host={role:'user',content:[{type:'text',text:'Fresh host context for this step.'}],timestamp:1};
+  const second=await stream(model,{messages:[note,first,...looks,host]},opts).result();
+  assert.notEqual(second.stopReason,'error',second.errorMessage);
+  const settled=toolResult('call_function_jthfcym6nugf_1','apply','refused');
+  const third=await stream(model,{messages:[note,first,...looks,second,settled]},opts).result();
+  assert.notEqual(third.stopReason,'error',third.errorMessage);
+  assert.deepEqual(wires[2].messages.filter(row=>row.role==='assistant').map(row=>row.content),[deferredFirst,deferredSecond],'untrimmed history replays both halves in place');
+  // The host's ceiling drops the oldest pair-safe step: the call's response and its three local results.
+  const trimmed=[note,second,settled,third,toolResult('call_function_bok0tglm9swe_1','lookup','none'),toolResult('call_function_bok0tglm9swe_2','apply','ok')];
+  const final=await stream(model,{messages:trimmed},opts).result();
+  assert.notEqual(final.stopReason,'error',final.errorMessage);
+  assert.equal(final.content.at(-1).text,'Done.');
+  const wire=wires[3];
+  assert.equal(orphanServerResult(wire),undefined);assert.equal(abandonedServerCall(wire),undefined);
+  const carrier=wire.messages.find(row=>contentOf(row).some(b=>b.type==='web_search_tool_result'));
+  assert.deepEqual(carrier.content,[deferredCall,...deferredSecond],'the result keeps its own original call, immediately before it');
+  assert.equal(wire.messages.flatMap(contentOf).filter(b=>b.type==='server_tool_use').length,1);
+  assert.ok(reports.some(row=>row.event==='server_call_reanchored'&&row.server_id===deferredCall.id
+    &&row.response_id==='resp-result'&&row.call_response_id==='resp-call'));
+});
+test('an unrestorable server pair half is omitted together with its partner and reported',async()=>{
+  const {wires,reports,opts,stream}=deferredTable();
+  const first=await stream(model,{messages:[note]},opts).result();
+  const looks=[toolResult('call_function_35x4msu7q1yn_1','look','A broker waits.'),toolResult('call_function_35x4msu7q1yn_2','look','Knott is out.'),
+    toolResult('call_function_35x4msu7q1yn_3','place','The office.')];
+  const second=await stream(model,{messages:[note,first,...looks]},opts).result();
+  assert.notEqual(second.stopReason,'error',second.errorMessage);
+  const settled=toolResult('call_function_jthfcym6nugf_1','apply','refused');
+  const records=[...nativeSearchState().records];
+  // The call's journal record is gone (for example past the 64-record bound): its result cannot be re-paired.
+  nativeSearchState().records=records.filter(record=>record.responseId!=='resp-call');
+  const orphaned=await stream(model,{messages:[note,second,settled]},opts).result();
+  assert.notEqual(orphaned.stopReason,'error',orphaned.errorMessage);
+  assert.deepEqual(wires[2].messages.find(row=>row.role==='assistant').content,deferredSecond.slice(1),'neither half reaches the provider');
+  assert.ok(reports.some(row=>row.event==='server_pair_omitted'&&row.reason==='server_call_absent'&&row.server_id===deferredCall.id&&row.response_id==='resp-result'));
+  // The result's journal record is gone: the call cannot stay open once a later response has been sent.
+  nativeSearchState().records=records.filter(record=>record.responseId!=='resp-result');
+  await stream(model,{messages:[note,first,...looks,second,settled]},opts).result();
+  const wire=wires[3];
+  assert.equal(abandonedServerCall(wire),undefined);assert.equal(orphanServerResult(wire),undefined);
+  assert.deepEqual(wire.messages.find(row=>row.role==='assistant').content,deferredFirst.slice(0,-1));
+  assert.ok(reports.some(row=>row.event==='server_pair_omitted'&&row.reason==='server_result_absent'&&row.server_id===deferredCall.id&&row.response_id==='resp-call'));
 });
 test('incomplete MiniMax server pairs without a continuation are unavailable',()=>{
   fixture();setNativeSearchPolicy(policy);

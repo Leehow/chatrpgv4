@@ -10,6 +10,28 @@ export function normalizePlaceArrayArguments(input:unknown):{args:unknown;fields
     const branch=NativePlaceParameters.anyOf.find(schema=>schema.properties.action.const===params.action);
     if(!branch)return {args:input,fields:[]};
     let args=params;const fields:string[]=[];
+    // §250.4: an optional field sent as a blank string says nothing; it is omitted before validation (live el-v2-20261021e
+    // T8: via:"", travel_band:"" and relation:"" each refused a plain move).
+    const required=new Set<string>(Array.isArray((branch as {required?:unknown}).required)?(branch as {required:string[]}).required:[]);
+    for(const field of Object.keys(branch.properties))
+        if(!required.has(field)&&typeof params[field]==='string'&&!(params[field] as string).trim()){
+            const {[field]:_blank,...rest}=args;args=rest;fields.push(`${field}:blank`);
+        }
+    // §250.4: a read names its place by `to` the way every write does (live el-v2-20261021e T25: inspect with to, at and
+    // need refused as a write); with no write field beside it, `to` is the read's `name`.
+    if(params.action==='inspect'&&typeof args.to==='string'&&(args.name===undefined||args.name===args.to)){
+        const {to,...rest}=args;
+        if(!placeModeConflict(rest)){args={...rest,name:to};fields.push('to:name');}
+    }
+    // §250.4: a declared integer sent as its canonical decimal string within the declared bounds is that integer (live
+    // el-v2-20261021f T21: travel_minutes:"30" refused a plain journey), the same repair the output packet makes.
+    for(const [field,schema] of Object.entries(branch.properties)){
+        const bounds=schema as {type?:unknown;minimum?:number;maximum?:number},value=args[field];
+        if(bounds.type!=='integer'||typeof value!=='string'||!/^(0|[1-9][0-9]*)$/.test(value))continue;
+        const number=Number(value);
+        if(!Number.isSafeInteger(number)||bounds.minimum!==undefined&&number<bounds.minimum||bounds.maximum!==undefined&&number>bounds.maximum)continue;
+        args={...args,[field]:number};fields.push(`${field}:integer`);
+    }
     for(const [field,schema] of Object.entries(branch.properties)){
         if(schema.type!=='array'||typeof params[field]!=='string')continue;
         let decoded:unknown;
@@ -27,8 +49,8 @@ export function placeModeConflict(params:unknown):boolean {
 }
 /** Known preparation failures only; the message boundary must not classify arbitrary SDK errors. */
 export function placeParameterRefusal(args:unknown):KernelError|undefined {
-    if(placeModeConflict(args))return new KernelError({code:'invalid_params',message:'place inspect is read-only and cannot accept change',
-        fix:'For a move, explicitly send {action:"move",to,via?,at?,spot?,relation?,additions?}; keep its destination and route. For a read, send {action:"inspect",name?,at?,spot?,relation?,sense?,need?} without write fields. Use at or spot, never both. No op or change wrapper. Nothing executed; retain successful earlier receipts.',
+    if(placeModeConflict(args))return new KernelError({code:'invalid_params',message:'inspect is read-only; a move, feature or observe needs that action',
+        fix:'Resend with action:"move" (or "observe"/"feature") and the same fields. Nothing executed.',
         details:{reason:'place_mode_conflict',field:'action',transaction_state:'uncommitted'}});
     const params=args as Record<string,unknown>|null;
     const branch=NativePlaceParameters.anyOf.find(schema=>schema.properties.action.const===params?.action);
@@ -41,7 +63,7 @@ export function placeParameterRefusal(args:unknown):KernelError|undefined {
 
     if(params?.action==='move'&&typeof params.travel_band==='string'&&!LocationTravelBand.enum.includes(params.travel_band))
         return new KernelError({code:'invalid_params',message:'The selected travel_band is not a registered road row',
-            fix:'Keep action:"move" and choose one of the supplied travel_band options. Do not invent a row or supply travel_minutes.',
+            fix:'Keep action:"move" and choose one of the supplied travel_band options (travel_minutes may give this journey\'s own time within it). Do not invent a row.',
             details:{reason:'travel_band_unknown',field:'travel_band',options:[...LocationTravelBand.enum],transaction_state:'uncommitted'}});
     try{normalizePlaceTarget(args);}catch(error){if(error instanceof KernelError)return error;throw error;}
 }

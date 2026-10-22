@@ -16,9 +16,10 @@ export const locationObservations=(world:Row):Row[]=>locationStates(world).flatM
 const pointDetail=(point:Row):Row=>Object.fromEntries(['at','spot','relation'].filter(key=>typeof point?.[key]==='string').map(key=>[key,point[key]]));
 export const spatialPointKey=(point:Row):string=>JSON.stringify([point.place,point.at??null,point.spot??null,point.relation??null]);
 export function observationPoint(graph:ModuleGraph,world:Row,value:Row):Row {
-    if(!Check(SpatialPoint,value)||value.relation!==undefined&&value.at===undefined&&value.spot===undefined)
-        throw new RpcError('invalid_params','A spatial point needs one valid at feature or descriptive spot when locally qualified',{
-            details:{reason:'place_point_shape'}});
+    // §250: a pose alone is a valid point; with both anchors the registered feature wins.
+    if(value.at!==undefined&&value.spot!==undefined){value={...value};delete value.spot;}
+    if(!Check(SpatialPoint,value))
+        throw new RpcError('invalid_params','A spatial point needs a place name',{details:{reason:'place_point_shape'}});
     const place=graph.handle(locationPlace(graph,world,value.place));
     return {place,...pointDetail(value),...(value.at!==undefined?{at:locationFeature(world,place,value.at).name}:{})};
 }
@@ -58,6 +59,19 @@ export function observationIdentity(graph:ModuleGraph,world:Row,node:Row,journal
     return npcReferenceView(graph,world,node,untoldBlock(graph,world,journal,node,records));
 }
 /** Public immutable receipt material only; private target activity is not an author input. */
+/**
+ * §250.18: what the investigators were shown at a place on earlier visits -- delivered observations whose target lies in
+ * that place, at any point and by any sense, newest first and before this turn -- for the author on a return visit.
+ */
+export function placeVisitHistory(graph:ModuleGraph,world:Row,place:string,records:Row[],turn:number,limit=4):Row[] {
+    const clock=clockSection(graph,world),elapsed=(then:Row)=>Math.max(0,number(clock.minutes)-number(then.minutes));
+    return records.filter(record=>record.commit&&number(record.turn)<turn&&record.interaction_scope!=='reference'&&record.interaction_scope!=='uncertain')
+        .sort((a,b)=>number(b.turn)-number(a.turn))
+        .flatMap(record=>array(record.receipts).slice().reverse().filter(receipt=>receipt.kind==='place'&&receipt.action==='observe'
+            &&row(row(receipt.observation).to).place===place&&row(receipt.observation).access!=='blocked')
+            .map(receipt=>({...publicObservation(graph,world,row(receipt.observation)),delivered_turn:record.turn,elapsed_minutes:elapsed(row(row(receipt.observation).observed_clock))})))
+        .slice(0,limit);
+}
 export function publicObservation(graph:ModuleGraph,world:Row,value:Row):Row {
     const point=(value:Row)=>({place:publicSceneLabel(graph,world,graph.scene(value.place)),...pointDetail(value)});
     const identity=(id:string):Row|undefined=>{

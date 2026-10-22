@@ -277,6 +277,7 @@ export function createResolveRuntime(kernel: KernelContext, writer: ResolveWrite
                         decision: action.decision ?? null
                     }
                 });
+            const offered = string(row(transaction.turn.pending_choice).binds).replace(/^decision:coc7:/, '');
             const choice = bindChoice(transaction.turn, action, start.callId);
             const choices = choice ? [choice] : [];
             if (!Object.hasOwn(transaction.turn, 'intents'))
@@ -344,6 +345,10 @@ export function createResolveRuntime(kernel: KernelContext, writer: ResolveWrite
             }
             if (NONE_INTENTS.has(intent))
                 return noneResult(`intent ${intent}: nothing to roll; answer or clarify in the narration`);
+            // §249.5: accepting a failed roll's push or Luck offer settles the offer and rolls nothing, whatever intent the
+            // answer carries (live el-v2-20261021e T27: a social accept was refused for a skill, then rolled Accounting).
+            if (choice && choice.option === 'accept' && offered.startsWith('push-luck:'))
+                return noneResult('the player accepted the failed roll: nothing to roll; narrate the failure standing');
             validateExtras(action);
             await snapshot.preload();snapshot.party=clone(snapshot.party);
             const sessions = new SessionView(snapshot, graph, snapshot.party, transaction.world);

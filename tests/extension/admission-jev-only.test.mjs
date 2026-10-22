@@ -38,95 +38,11 @@ test('uncertain typed admission never grants authority',async()=>{
     const basis=rows.find(row=>row.event==='uncertain_basis').basis;assert.equal(basis.request.state.current_player_words,context.playerText);assert.equal(basis.answers.consent_0.noul,.5);assert(!JSON.stringify(basis).includes('SECRET_DOES_NOT_AUTHORIZE'));assert(basis.bytes<=32768);
 });
 
-test('local movement can resolve a spatial reference from delivered description without turning it into consent',async()=>{
- const selected=options(),decide=selected.value.decision.decide;let batch;
- selected.value.decision={decide:(value,lease)=>{batch=value;return decide(value,lease);}};
- const description='Two tables stand under the street windows. The customer occupies one; the other is empty.';
- const proposal=admission.admissionRequest('apply',{effects:[{kind:'place',action:'move',to:'Lunchroom',at:'Window tables',relation:'seated at the empty table'}]},
-  {party:['Thomas Hayes'],consentOnly:true,destinations:[{requested:'Lunchroom',handle:'Lunchroom',label:'Lunchroom',summary:'A small lunchroom.'}]});
- const result=await admission.reviewAdmissionJevOnly({...selected.value,proposal,context:{...context,playerText:'I sit at that empty window table.',
-  delivered:[{turn:0,player:'I look around.',keeper:description}],landed:['apply landed: cash:t1-c1; canonical outcomes: [{"kind":"cash","status":"changed","settlement":"living_standard","purchase_amount":0.25}]']}});
- assert(JSON.stringify(batch.state.previous_public).includes(description),'actual delivered spatial description is needed to resolve that table');
- assert.equal(batch.questions.length,2,'reference context adds no vote or authority');
- assert.equal(result.verdict.verdict,'authorized');
-});
-
-test('enhanced location admission names its entry and Keeper-creation semantics without granting uncertain consent',async()=>{
-    const selected=options('authorized',.42),decide=selected.value.decision.decide;let batch;
-    selected.value.decision={decide:(value,lease)=>{batch=value;return decide(value,lease);}};
-    const effect={kind:'place',action:'move',to:'Ordinary Inn',at:'counter',additions:[{name:'Ordinary Inn',description:'A public lobby.'}]};
-    const proposal=admission.admissionRequest('apply',{effects:[effect]},{party:['Thomas Hayes'],consentOnly:true});
-    const result=await admission.reviewAdmissionJevOnly({...selected.value,proposal});
-    assert.equal(batch.familyVersion,'23');assert.equal(batch.state.proposal.lines[0].to,effect.to);
-    assert.match(batch.state.proposal.lines[0].arrival_scope.additions,/Keeper-authored/);
-    assert.match(batch.questions[1].instructions,/entry or crossing/);
-    assert.equal(result.verdict.verdict,'uncertain');
-});
-
 test('admission uses the Noul probability without a multiclass confidence',async()=>{
     const result=await admission.reviewAdmissionJevOnly(options('authorized',.86).value);
     assert.equal(result.ok,true);assert.equal(result.verdict.verdict,'authorized');
     assert.deepEqual(result.meta.line_admit_probabilities,[.86]);
     assert.equal(result.meta.jev_confidence,undefined);
-});
-
-test('observation consent reads ordered waits without treating them as already settled or bypassing restrictions',async()=>{
-    const wait={kind:'time',minutes:5,why:'The selected rest.'};
-    const observe={kind:'place',action:'observe',to:'Street',sense:'sight',access:'clear',scope:'The opposite pavement',facts:['The seller reaches the next shop.']};
-    const scope={party:['Thomas Hayes'],consentOnly:true};
-    const proposal=admission.admissionRequest('apply',{effects:[wait,observe]},scope);
-    const reversed=admission.admissionRequest('apply',{effects:[observe,wait]},scope);
-    assert.notEqual(proposal.key,reversed.key,'observing before waiting is a different transaction');
-    const own=admission.lineProposal(proposal,1),earlier=admission.lineProposal(reversed,0);
-    assert.deepEqual(own.operations,[observe],'a split line contains only its own operation');
-    assert.deepEqual(own.preceding.operations,[wait]);
-    assert.deepEqual(earlier.preceding.operations,[],'a later wait cannot supply an earlier prerequisite');
-    const alone=admission.admissionRequest('apply',{effects:[observe]},scope);
-    const joined=admission.besideBatch(alone,own.beside,own.preceding);
-    const first=admission.besideBatch(alone,earlier.beside,earlier.preceding);
-    assert.notEqual(joined.key,first.key,'identical siblings in a different order must be reviewed again');
-    const selected=options(),decide=selected.value.decision.decide;let batch;
-    selected.value.decision={decide:async(value,lease)=>{batch=value;const answer=await decide(value,lease);
-        answer.answers.restriction_0.noul=.99;return answer;}};
-    const result=await admission.reviewAdmissionJevOnly({...selected.value,proposal:joined});
-    assert.equal(batch.familyVersion,'23');
-    assert.deepEqual(batch.state.proposal.execution.preceding,[wait]);
-    assert.match(batch.state.proposal.execution.authority,/not settled facts/);
-    assert.equal(batch.state.proposal.lines.length,1);
-    assert.equal(batch.questions.length,2,'the same selection and restriction questions remain');
-    assert.match(batch.questions[1].instructions,/independent approval and validation/);
-    assert.equal(result.verdict.verdict,'not_authorized','the ordered prefix cannot override a current restriction');
-});
-
-test('ordinary service consent retains the time prefix without requiring an observation',async()=>{
- const wait={kind:'time',minutes:14,why:'Wait until service opens.'};
- const meal={kind:'time',band:'brief_activity',why:'Eat the selected meal.'};
- const scope={party:['Thomas Hayes'],consentOnly:true};
- const proposal=admission.admissionRequest('apply',{effects:[wait,meal]},scope);
- const reversed=admission.admissionRequest('apply',{effects:[meal,wait]},scope);
- assert.notEqual(proposal.key,reversed.key,'a later wait cannot authorize an earlier meal');
- const own=admission.lineProposal(proposal,1);
- assert.deepEqual(own.preceding?.operations,[wait]);
- const selected=options(),decide=selected.value.decision.decide;let batch;
- selected.value.decision={decide:async(value,lease)=>{batch=value;const answer=await decide(value,lease);answer.answers.restriction_0.noul=.99;return answer;}};
- const result=await admission.reviewAdmissionJevOnly({...selected.value,proposal:own,
-  context:{...context,playerText:'I wait until five, then eat the soup, bread and coffee; pay no more than one dollar.',currentClock:{minutes:406,at:'1920-10-12T16:46',day_part:'afternoon'}}});
- assert.deepEqual(batch.state.proposal.execution.preceding,[wait]);
- assert.equal(batch.state.current_clock.at,'1920-10-12T16:46');
- assert.equal(batch.familyVersion,'24');
- assert.equal(batch.questions.length,2);
- assert.equal(result.verdict.verdict,'not_authorized','the prefix never waives independent restrictions');
-});
-
-test('physical delivery precedes consumption even when the batch has no clock or observation',()=>{
- const gain={kind:'item',name:'Soup',from:'Server',to:'Thomas Hayes',quantity:1};
- const consume={kind:'item',name:'Soup',to:'Thomas Hayes',quantity:-1};
- const scope={party:['Thomas Hayes'],consentOnly:true};
- const proposed=admission.admissionRequest('apply',{effects:[gain,consume]},scope);
- const reversed=admission.admissionRequest('apply',{effects:[consume,gain]},scope);
- assert.notEqual(proposed.key,reversed.key,'kernel execution order also matters for physical services');
- assert.deepEqual(admission.lineProposal(proposed,1).preceding?.operations,[gain]);
- assert.deepEqual(admission.lineProposal(reversed,0).preceding?.operations,[]);
 });
 
 test('a confident Jev refusal stands without asking a generative judge',async()=>{
@@ -152,21 +68,8 @@ test('NPC disclosures and event truth do not masquerade as voluntary player choi
     const scope={party:['Thomas Hayes'],consentOnly:true};
     assert.equal(admission.admissionRequest('apply',payload,scope),null);
     const mixed=admission.admissionRequest('apply',{...payload,effects:[...payload.effects,{kind:'move',to:'Central Library'}]},scope);
-    assert.equal(mixed.lines.length,1);assert.deepEqual(mixed.kinds,['move']);
-    assert.match(mixed.lines[0],/Central Library/);assert.equal(mixed.atomicEvent,undefined);
+    assert.equal(mixed,null,'§249: the single Keeper judges the journey; the batch has no reviewed line');
     assert.equal(admission.admissionRequest('apply',payload,{party:['Thomas Hayes']}).atomicEvent,true);
-});
-
-test('the existing time effect kind reaches the typed permission reader without adding an NPC review',async()=>{
-    const payload={effects:[{kind:'time',minutes:5,why:'The requested assistant fetches the records.'},
-        {kind:'npc',name:'Clerk',mood:'working'},{kind:'flag',name:'cabinet-open',value:true}],event:{name:'records-ready',summary:'The clerk opens the cabinet.'}};
-    const projected=admission.admissionRequest('apply',payload,{party:['Thomas Hayes'],consentOnly:true});
-    const selected=options(),decide=selected.value.decision.decide;let batch;
-    selected.value.decision={decide:(value,lease)=>{batch=value;return decide(value,lease);}};
-    const result=await admission.reviewAdmissionJevOnly({...selected.value,proposal:projected,
-        context:{...context,playerText:'Please fetch the records. I stay at the desk and watch.'}});
-    assert.equal(result.ok,true);assert.deepEqual(batch.state.proposal.kinds,['time']);
-    assert.equal(batch.questions.length,2);assert.equal(selected.calls(),1);
 });
 
 const cashItems=[{name:'Round trip',quantity:1,unit_price:25}];
@@ -226,64 +129,6 @@ test('an unbound, differently bound or declined mechanics choice cannot gain cas
     }
 });
 
-test('registered journey consent retains committed public history only as bounded reference evidence',async()=>{
- const chosen=options(),run=chosen.value.decision.decide;let seen;
- const proposed=admission.admissionRequest('apply',{effects:[{kind:'move',to:'Central Library',via:'public street'}]},
-   {party:['Thomas Hayes'],consentOnly:true,destinations:[{requested:'Central Library',handle:'central-library',label:'Central Library'}]});
- const result=await admission.reviewAdmissionJevOnly({...chosen.value,proposal:proposed,
-   context:{...context,delivered:[{turn:0,player:'I came from the Central Library.',keeper:'UNRELATED_AUTHOR_RULE: payments first.'}]},
-   decision:{decide:async(batch,lease)=>{seen=batch;return run(batch,lease);}}});
- assert.equal(result.verdict.verdict,'authorized');
- assert.deepEqual(seen.state.previous_public,[{turn:0,player:'I came from the Central Library.',keeper:'UNRELATED_AUTHOR_RULE: payments first.'}]);
- assert.equal(seen.state.proposal.lines[0].registered_destination.label,'Central Library');
- assert.equal(seen.questions.length,2);assert.equal(chosen.calls(),1);
-});
-
-test('ordinary object consent sees prior public speech and player references without authored physical replay',async()=>{
- const selected=options();let seen;
- const payload={effects:[{kind:'object',name:'Photographed roll',from:'Thomas Hayes',to:'Clerk',handover:'given'}]};
- const proposed=admission.admissionRequest('apply',payload,{party:['Thomas Hayes'],consentOnly:true});
- await admission.reviewAdmissionJevOnly({...selected.value,proposal:proposed,context:{...context,playerText:'I give the photographed roll to the clerk.',
-  delivered:[{turn:0,player:'I ask about processing.',keeper:'OLD_AUTHOR_ACTION: puts the returned roll back in the pan.',speech:[{speaker:'Clerk',text:'The original payment covers processing.'}]}]},
-  decision:{decide:async(batch,lease)=>{seen=batch;return selected.value.decision.decide(batch,lease);}}});
- assert.deepEqual(seen.state.previous_public,[{turn:0,player:'I ask about processing.',speech:[{speaker:'Clerk',text:'The original payment covers processing.'}]}]);
- assert.ok(!JSON.stringify(seen.state).includes('OLD_AUTHOR_ACTION'));
- assert.equal(seen.questions.length,2);assert.equal(selected.calls(),1);
-});
-
-test('a spatial prerequisite reads the current position without relaxing consent',async()=>{
- const selected=options(),decide=selected.value.decision.decide;let batch;selected.value.decision={decide:async(value,lease)=>{batch=value;const answer=await decide(value,lease);answer.answers.restriction_0.noul=.99;return answer;}};
- const proposal=admission.admissionRequest('apply',{effects:[{kind:'time',until:{time:'18:00'},why:'Wait at the counter.'}]},{party:['Thomas Hayes'],consentOnly:true});
- const result=await admission.reviewAdmissionJevOnly({...selected.value,proposal,context:{...context,playerText:'I go to the counter, wait until six, then return to the window.',currentClock:{minutes:465,at:'1920-10-12T17:45'},currentPosition:{place:'Dining room',at:'window',relation:'beside'}}});
- assert.equal(batch.state.current_position.at,'window');assert.equal(batch.familyVersion,'22');assert.equal(batch.questions.length,2);assert.match(batch.questions.find(q=>q.key==='restriction_0').instructions,/intermediate visit/);assert.equal(result.verdict.verdict,'not_authorized');
-});
-
-test('a selected movement establishes the position prerequisite rather than requiring arrival first',async()=>{
- const selected=options(),decide=selected.value.decision.decide;let batch;selected.value.decision={decide:async(value,lease)=>{batch=value;return decide(value,lease);}};
- const proposal=admission.admissionRequest('apply',{effects:[{kind:'place',action:'move',to:'Dining room',at:'counter',relation:'beside'}]},{party:['Thomas Hayes'],consentOnly:true});
- await admission.reviewAdmissionJevOnly({...selected.value,proposal,context:{...context,playerText:'I go to the counter, wait until six, then return to the window.',currentPosition:{place:'Dining room',at:'window',relation:'beside'}}});
- const instruction=batch.questions.find(q=>q.key==='restriction_0').instructions;assert.match(instruction,/move itself establishes arrival/);assert(!instruction.includes('before this time proposal'));assert.equal(batch.state.current_position.at,'window');assert.equal(batch.questions.length,2);
-});
-
-test('native move consent asks about the typed journey while retaining references and restriction closure',async()=>{
- const selected=options(),decide=selected.value.decision.decide;let batch;
- selected.value.decision={decide:async(value,lease)=>{batch=value;const result=await decide(value,lease);result.answers.restriction_0.noul=.5;return result;}};
- const proposal=admission.admissionRequest('apply',{effects:[{kind:'place',action:'move',to:'Dining room',at:'Street window',relation:'beside'}]},
-  {party:['Thomas Hayes'],consentOnly:true,destinations:[{requested:'Dining room',handle:'Dining room',label:'Dining room',summary:'A dining room with street windows.'}]});
- const result=await admission.reviewAdmissionJevOnly({...selected.value,proposal,context:{...context,playerText:'At eight I return to the window; for now I stay here.',
-  currentPosition:{place:'Dining room',at:'Long table',relation:'beside'},currentClock:{at:'1920-10-12T19:00'},
-  interruptedPlayerText:'I wait, then return to the window.',delivered:[{turn:0,player:'I look out.',keeper:'The street window faces the hotel entrance.'}]}});
- assert.equal(batch.familyVersion,'23');assert.equal(batch.questions.length,2);
- assert.match(batch.questions[0].instructions,/proposed arrival or local position/);
- assert.match(batch.questions[0].instructions,/execution_position.before/);
- assert.match(batch.questions[0].instructions,/do not require a new journey/);
- assert.doesNotMatch(batch.questions[0].instructions,/Action feature|For action observe/);
- assert.match(batch.questions[1].instructions,/unmet prerequisite/);
- assert.match(JSON.stringify(batch.state.previous_public),/hotel entrance/);
- assert.equal(batch.state.unfinished_player_words,'I wait, then return to the window.');
- assert.equal(result.verdict.verdict,'uncertain','an uncertain current restriction still closes the move');
-});
-
 test('consent errors retain every blocking line and axis without admitting a subset',async()=>{
  for(const refused of [false,true]){
   const selected=options(),decide=selected.value.decision.decide;
@@ -301,4 +146,26 @@ test('consent errors retain every blocking line and axis without admitting a sub
   assert.equal(error.details.grounds,result.verdict.grounds);assert.equal(selected.calls(),1);
   assert.equal(admission.CONTINUOUS_ADMISSION_MIN_PROBABILITY,.6);
  }
+});
+
+test('§249: the typed consent review receives no Keeper-judged line, while maps, usages and checks stay reviewed (§249.6: documents are the Keeper\'s)',()=>{
+ const scope={party:['Thomas Hayes'],consentOnly:true};
+ const judged=[{kind:'move',to:'Central Library'},{kind:'place',action:'move',to:'Inn',at:'counter',relation:'beside'},
+  {kind:'place',action:'observe',to:'Street',sense:'sight',access:'clear',scope:'The pavement',facts:['A cart passes.']},
+  {kind:'place',action:'feature',to:'Inn',at:'door',state:'open'},{kind:'time',until:{time:'18:00'},why:'Wait.'},{kind:'time',minutes:5,why:'Wait.'},
+  {kind:'time',band:'brief_activity',why:'Eat.'},{kind:'item',name:'Soup',from:'Server',to:'Thomas Hayes',quantity:1},{kind:'item',name:'Soup',to:'Thomas Hayes',quantity:-1},
+  {kind:'object',name:'Roll',from:'Thomas Hayes',to:'Clerk',handover:'given'},{kind:'cash',mode:'settle',quote:'Supper',subject:'investigator',with:'Server'}];
+ for(const effect of judged)assert.equal(admission.admissionRequest('apply',{effects:[effect]},scope),null,JSON.stringify(effect));
+ assert.equal(admission.admissionRequest('apply',{effects:judged},scope),null);
+ assert.deepEqual(admission.keeperJudgedKinds(judged),['move','place','time','item','object','cash']);
+ const write={kind:'object',name:'Notebook',to:'Thomas Hayes',document:{action:'append',text:'1835 entry.'}};
+ for(const [effect,kind] of [[{kind:'map',name:'Ground floor'},'map'],[{kind:'usage',name:'Lantern'},'usage']]){
+  const proposal=admission.admissionRequest('apply',{effects:[effect]},scope);assert(proposal,kind);assert.deepEqual(proposal.kinds,[kind]);
+ }
+ assert.equal(admission.admissionRequest('apply',{effects:[write]},scope),null,'a document write is the Keeper\'s own judgment');
+ assert.deepEqual(admission.keeperJudgedKinds([write]),['object']);
+ assert.deepEqual(admission.admissionRequest('apply',{effects:[write]},{party:['Thomas Hayes']}).kinds,['object'],'outside the single Keeper the write is still reviewed');
+ assert(admission.admissionRequest('resolve',{action:{decision:'core-check:spot-hidden',actor:'Thomas Hayes'}},scope));
+ const lane=admission.admissionRequest('apply',{effects:[judged[1]]},{party:['Thomas Hayes']});
+ assert.deepEqual(lane.kinds,['place'],'the lane reviewer path outside the single Keeper is unchanged');
 });

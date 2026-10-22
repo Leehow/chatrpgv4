@@ -925,6 +925,8 @@ export function contactRows(graph: ModuleGraph, world: Row, party: Row[], active
                 else
                     contacts.push({
                         actor: actor.name,
+                        // The investigator's id, which the Keeper may name as `action.actor` instead of the display name.
+                        ...(typeof actor.id === "string" ? { actor_id: actor.id } : {}),
                         target: graph.displayName(npc),
                         handle: graph.handle(npc),
                         decision: name,

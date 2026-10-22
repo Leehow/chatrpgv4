@@ -9,7 +9,7 @@ import {pathToFileURL} from 'node:url';
 import {Errors} from 'typebox/value';
 import {fauxAssistantMessage,fauxToolCall} from '@earendil-works/pi-ai';
 import {turnPacket,turnPacketParameterSchema,compileTurnPacket,TURN_PACKET_PARAMETERS} from '../../runtime/turn-packet-prototype.ts';
-import {routineDescription,routineRefusal,ROUTINE_AUTHOR_HEADING} from '../../extensions/kernel/routine-summary.ts';
+import {routineDescription,routineRefusal,routineCharge,ROUTINE_AUTHOR_HEADING} from '../../extensions/kernel/routine-summary.ts';
 import {writeIsolatedExpression,EXPRESSION_PROFILE} from '../../runtime/isolated-expression.ts';
 import {createHybridEngine} from '../../runtime/jev/hybrid-engine.ts';
 import {RpcClient} from '../integration/support.ts';
@@ -71,7 +71,10 @@ test('the routine element is issued only with the capability and is bounded and 
     assert.throws(()=>turnPacket(JSON.stringify(packet),off),/routine is not issued/);
     assert.deepEqual(turnPacket(JSON.stringify(packet),on).routine,routine);
     assert.deepEqual(turnPacket(JSON.stringify({version:4,commands:[time,scene]}),off).routine,undefined);
-    for(const bad of [{acts:[]},{acts:['x'.repeat(121)]},{acts:['a'],ambient:[{target:'t',notes:['1','2','3','4']}]},{acts:['a'],extra:true},
+    assert.deepEqual(turnPacket(JSON.stringify({...packet,routine:{ambient:[{target:'the window'}]}}),on).routine,{ambient:[{target:'the window'}]},
+        'ambient looks alone are a routine summary (live el-v2-20261021b T13)');
+    assert.equal(routineCharge({ambient:[{target:'the window'}]},[],false),'look','a look alone charges no time');
+    for(const bad of [{},{ambient:[]},{acts:[]},{acts:['x'.repeat(121)]},{acts:['a'],ambient:[{target:'t',notes:['1','2','3','4']}]},{acts:['a'],extra:true},
         {acts:['a'],ambient:[{target:'t',fact:'a new clue'}]}])
         assert.throws(()=>turnPacket(JSON.stringify({...packet,routine:bad}),on),/routine/,JSON.stringify(bad));
     assert.deepEqual(compileTurnPacket(turnPacket(JSON.stringify(packet),on)).effects.map(effect=>effect.kind),['time','scene'],'routine compiles to no effect');
@@ -85,16 +88,18 @@ test('the declared output tool names routine only while the package is active, f
     assert.ok(output(true).properties.routine);
 });
 
-test('a routine summary needs the active capability and exactly one time charge for the input',()=>{
+test('a routine summary needs the active capability; its time charge is the Keeper\'s judgment, recorded not refused (§250.8)',()=>{
     const active={mods:{routine_summary:{mod:'quick-settlement',version:'1.0.0'}}};
     assert.equal(routineRefusal(active,undefined,[],false),undefined);
     assert.equal(routineRefusal({mods:{}},routine,[time],false).reason,'routine_summary_inactive');
-    assert.equal(routineRefusal(active,routine,[],false).reason,'routine_time_missing');
-    assert.equal(routineRefusal(active,routine,[time,time],false).reason,'routine_time_repeated');
-    assert.equal(routineRefusal(active,routine,[],false,1),undefined,'an earlier apply of this input already charged the stretch');
-    assert.equal(routineRefusal(active,routine,[time],false,1).reason,'routine_time_repeated');
-    assert.equal(routineRefusal(active,routine,[time],false),undefined);
-    assert.equal(routineRefusal(active,routine,[],true),undefined,'a host-settled journey already charged this input');
+    for(const [effects,earlier] of [[[],0],[[time,time],0],[[time],1],[[time],0],[[],1]])
+        assert.equal(routineRefusal(active,routine,effects,false,earlier),undefined,JSON.stringify([effects.length,earlier]));
+    assert.equal(routineCharge(routine,[],false),'uncharged','live el-v2-20261021d T2 was refused for this');
+    assert.equal(routineCharge(routine,[time,time],false),'several','a selected wait beside the routine charge (T4) is its own time');
+    assert.equal(routineCharge(routine,[],false,1),'charged','an earlier apply of this input already charged the stretch');
+    assert.equal(routineCharge(routine,[time],false),'charged');
+    assert.equal(routineCharge(routine,[],true),'charged','a host-settled journey already charged this input');
+    assert.equal(routineCharge({ambient:[{target:'the window'}]},[],false),'look');assert.equal(routineCharge(undefined,[],false),'none');
 });
 
 const section={key:'quick-settlement@1.0.0#3',mod:'quick-settlement',version:'1.0.0',heading:ROUTINE_AUTHOR_HEADING,text:'ROUTINE_CRAFT_FROM_THE_LOCKED_PACKAGE'};

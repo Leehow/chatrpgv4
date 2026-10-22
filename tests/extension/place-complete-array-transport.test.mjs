@@ -29,3 +29,42 @@ test('a complete schema-valid encoded place array reaches normal execution as an
  assert.equal(raw.additions,JSON.stringify(additions),'raw provider evidence stays intact');
  assert.ok(table.telemetry().some(row=>row.lane==='arguments'&&row.event==='place_array_transport_normalized'));
 });
+
+test('blank optional place fields say nothing and are omitted before validation (§250.4, live el-v2-20261021e T8)',()=>{
+ const raw={action:'move',to:'Central Library',via:'',travel_band:' ',relation:''};
+ const normalized=normalizePlaceArrayArguments(raw);
+ assert.deepEqual(normalized.args,{action:'move',to:'Central Library'});
+ assert.deepEqual(normalized.fields.sort(),['relation:blank','travel_band:blank','via:blank']);
+ assert.equal(placeParameterRefusal(normalized.args),undefined,'the plain move is no longer refused');
+ assert.equal(normalizePlaceArrayArguments({action:'move',to:''}).args.to,'','a required field is left for its own refusal');
+});
+
+test('a read that names its place by to is a read of that place; a write field beside it is still a conflict (§250.4, live el-v2-20261021e T25)',()=>{
+ const raw={action:'inspect',to:'corbitt-house-ground',at:'前门',need:'context'};
+ const normalized=normalizePlaceArrayArguments(raw);
+ assert.deepEqual(normalized.args,{action:'inspect',name:'corbitt-house-ground',at:'前门',need:'context'});
+ assert.deepEqual(normalized.fields,['to:name']);
+ assert.equal(placeParameterRefusal(normalized.args),undefined,'the read is no longer refused');
+ const write={action:'inspect',to:'corbitt-house-ground',at:'前门',state:'locked'};
+ assert.deepEqual(normalizePlaceArrayArguments(write).fields,[],'a state beside to is not guessed into a read or a write');
+ assert.equal(placeParameterRefusal(normalizePlaceArrayArguments(write).args).details.reason,'place_mode_conflict');
+ assert.deepEqual(normalizePlaceArrayArguments({action:'inspect',to:'A',name:'B'}).fields,[],'two different targets stay for their own refusal');
+});
+
+test('a look at a place is carried to place inspect instead of failing look validation (§250.4, live el-v2-20261021e T33)',async t=>{
+ const table=await openTable({responses:[fauxAssistantMessage([fauxToolCall('look',{focus:'place',name:'Station',need:'context'})],{stopReason:'toolUse'}),fauxAssistantMessage('Stopped fixture.')]});
+ t.after(()=>table.dispose());await table.session.prompt('I think back over the station.');await waitForIdle(table.session);
+ const request=table.kernelRequests().find(row=>row.method==='mods.locations.inspect'||row.method==='table.look');
+ assert.ok(request,'the read reaches the kernel');
+ assert.equal(request.method,'mods.locations.inspect','it is the place read, not a scene look');
+ assert.equal(request.params.name,'Station');assert.equal(request.params.need,'context');
+ assert.ok(table.telemetry().some(row=>row.lane==='arguments'&&row.event==='look_place_routed'));
+});
+
+test('a declared integer sent as its canonical decimal string is that integer; anything else is left for validation (§250.4, live el-v2-20261021f T21)',()=>{
+ const raw={action:'move',to:'corbitt-house-ground',travel_band:'local_travel',travel_minutes:'30',via:'Along the street'};
+ const normalized=normalizePlaceArrayArguments(raw);
+ assert.equal(normalized.args.travel_minutes,30);assert.deepEqual(normalized.fields,['travel_minutes:integer']);
+ assert.equal(placeParameterRefusal(normalized.args),undefined);
+ for(const value of ['030','3.5','-5',' 30','thirty',''])assert.notEqual(typeof normalizePlaceArrayArguments({...raw,travel_minutes:value}).args.travel_minutes,'number',value);
+});

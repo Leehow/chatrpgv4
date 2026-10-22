@@ -43727,7 +43727,7 @@ A road is one length both ways and every time (§138.9). Three additions make a 
   book road when the table knows it; the capsule is unchanged) and the told-position owed move read it. A move whose minutes come
   from a table road carries `travel: {basis: "travelled", turn}`.
 - **`apply move {travel_band}`**: `adjacent` (0), or a road row of `time-costs` (`local_travel`, `long_travel`) whose `default` is the
-  minutes (never a roll, as §138.9 fills a book road). `travel_band` beside `travel_minutes` is `travel_conflict`; another value is
+  minutes (never a roll, as §138.9 fills a book road). `travel_band` without a range beside `travel_minutes` takes the minutes (§250.17); another value is
   `travel_band_unknown` with the rows in `details.options`. The receipt carries `travel: {basis: "banded", band}`.
 - **Unknown**: a move between two places that no road, book or table, has timed, with neither field, still lands with 0 minutes
   (refusing it would take the walk away for a missing number) but says so: the receipt carries `travel: {basis: "unknown"}` and the
@@ -50955,3 +50955,498 @@ perception, access and elapsed time retain their existing separate authorities.
 The registry writes identity; the current read and host projection expose it;
 the Keeper submits the selected ordinary command using the returned place/at.
 No new review, permission, timeout, fallback or content limit is introduced.
+
+## 249. Keeper-judged selection where the typed reviewer kept misjudging (owner 2026-10-21; amends §32.1, §32.12.3, §242.3a, §243)
+
+Owner ruling, 2026-10-21: where Jev keeps misjudging, stop asking it and let the Keeper judge; otherwise the review
+slows play instead of speeding it up. The evidence is the retained 鬼屋 campaign `game-aed1e3e3-…` (T0–T107, one App
+session, MiniMax and grok Keepers): 37 of 108 turns delivered nothing and 216 tool calls were refused. The location
+completion review refused 37 outputs on probabilities in its own noise band (T107: the same journey scored move 0.61,
+then 0.59, and the verdict flipped); the typed consent review refused movement, explicit waits and ordered meals whose
+words the player had plainly chosen, sometimes passing the same payload a turn later or after a relation was reworded
+("beside" refused, "站在点菜台旁" admitted). Player-ordered payments were refused six times in T100–T102 while
+Keeper-initiated NPC, threat and quote writes passed. Design review: `docs/specs/enhanced-locations-v2.md`.
+
+### 249.1 What the Keeper now judges
+
+In the single-Keeper typed path (`consentOnly`), `admissionRequest` does not put these apply lines to the consent review:
+`move`, `place` (every action), `time` (minutes, until and band), `item`, `cash` (quote and settle) and `object`
+transfers. `KEEPER_JUDGED_KINDS` in `extensions/kernel/admission.ts` names them. The Keeper's own proposal is its
+judgment that the player selected the line; every kernel validation (destinations, barriers, prices, purse, quotes,
+travel and wait arithmetic, ownership) is unchanged, and refused kernel writes still refuse atomically.
+
+Still reviewed: `map`, `usage`, and the lane reviewers outside the single Keeper. (Object document writes were kept
+reviewed here until §249.6, and `resolve` until §249.4.) Clue and handout lines were already outside the consent review (§32.12.3).
+Admission remains host behaviour; for the kinds still reviewed, an unavailable review still grants nothing.
+
+The admission lane records `path:"keeper_judged"` with the judged kinds and `jev_calls:0` for every batch that
+carries them, so live play can audit what the Keeper settled without review.
+
+A `resolve` of a Mod's registered meeting check (a `presence` first impression or a `contact` reaction, matched to its
+row in the fresh capsule's `mods.pending_contacts`) is also the Keeper's: since the owner's 2026-10-13 ruling the
+Keeper decides when an impression matters, so the consent reviewer is not asked whether the player's words selected a
+rule of the meeting. It records `kinds:["meeting_check"]`. Found live (`el-v2-20261021a` T8): the reviewer scored such a
+roll 0.53 and refused it, and the pending row never matched because it named the investigator by display name while
+the Keeper used the id; each row now also carries `actor_id`, and either name matches. Any other `resolve` stays
+reviewed.
+
+### 249.4 The single Keeper's rule operation
+
+Live evidence after §249.1 (`el-v2-20261021a`, `el-v2-20261021b`, 48 turns): every consent refusal of a `resolve` was a
+misjudgment -- two first impressions, and a Strength check to force the door the player said they were forcing (0.53,
+uncertain) -- and no refusal caught an unselected roll; the retained 鬼屋 campaign shows the same (2 of 2). In the
+single-Keeper path a `resolve` is now the Keeper's own call for the roll the fiction asks for
+(`{path:"keeper_judged", kinds:["resolve"]}`); it is still bound as the player's act, so a kernel refusal is held.
+Exempt families, answered choices and NPC actors are unchanged, and the lane reviewers outside the single Keeper still
+review. A registered meeting check also matches when the Keeper names the person by display name, and a `resolve`
+whose decision the kernel's contact rows name (pending contacts or settled relationships) is a meeting check even when
+its target does not resolve. A failed `resolve` that admission found to be no player act (an NPC's roll, a meeting
+check, a rule-run family) holds nothing (`held-operation` `non_player_operation_failed`), so it cannot block the turn's
+prose (`el-v2-20261021c` T6 and T14 were undelivered for it). An issued `npc_N` in a resolve's `actor` or `target` names
+that person by their one public appellation before the kernel resolves it (`npc_reference_named`).
+
+A Keeper-judged batch is still the player's act. When no line of an `apply` goes to review, the judged lines are bound
+as the player's action (`capturePlayerAction`), so a kernel refusal of them is held (§166.2) and the turn's prose cannot
+publish the refused act as done; before this binding such a batch read as bookkeeping (`argument_outside_player_scope`)
+and a false completion claim was delivered (`tests/extension/keeper-judged-held-act.test.mjs`).
+
+### 249.2 Quotation versus settlement
+
+The single Keeper decides whether an order is a quotation or a settlement. The covered-quote choice check
+(`correctCoveredQuote`, which asked a reviewer whether a quote-only proposal was "already chosen" and refused it) no
+longer runs in that path; it produced the contradiction "not chosen" / "already chosen" on the same order (T12–T14, T77).
+
+### 249.3 Location context and completion
+
+`location-context` asks Jev nothing. When a location provider is active the host always loads the compact identity
+context (and, with a single observation route, the delivered observation records); the capsule no longer carries a
+`location_intent` assessment. The location completion review (`location-decision-coverage` with its route and
+observation batches, `place_decision_incomplete`) is removed: an output is not refused because a reviewer judged a
+selected move, feature change or look unaccounted. `extensions/table/location-relevance.ts` and
+`extensions/kernel/location-coverage-error.ts` are deleted.
+
+Known boundary, kept under its own test (`tests/extension/turn-packet-prototype.test.mjs`): a Keeper packet that
+omits the player's selected journey publishes as judged and moves nobody. The sole author still renders only committed
+positions (`LOCATION_AUTHOR_NOTE`). Omitted looks are not refused; ordinary visible texture remains the author's.
+
+Preloaded observation history reaches the Keeper's context every turn, but the sole author receives
+`reference_observations` only for history the Keeper read with `place inspect need:"observation"` in this input, or
+for preloaded history of a view this turn observes again (an observe outcome on the same place and sense). Reading old
+records is not a new perception, and a turn that does not look again carries no history to the author.
+
+Writer: the Keeper's proposal. Reader: the unchanged kernel validators and the sole author's committed outcomes.
+Actor: the Keeper, whose judgment is recorded in the admission lane. No threshold, new review, keyword rule or
+fallback is introduced; this removes reviews rather than relaxing them.
+
+### 249.4.1 A resolve corrected after a parameter refusal settles the same act
+
+Live (`el-v2-20261021f` T25, undelivered): the Keeper resolved the player's lockpicking with `skill:"Lockpicks"`, was
+refused (`needs`, `details.needs.field:"skill"`), resolved again with `Locksmith` and passed, and the turn's output was
+still refused ("A failed operation cannot release an unverified expression"): the refusal was held as an unconfirmed
+failure, and the corrected call had another key. A refusal that names one parameter to complete (`needs.field`) ran
+nothing, so it is held as a parameter failure like `invalid_params`, and a player resolve's completion key is the act
+without its `skill`; the corrected call of the same act reconciles it (`held-operation`, `parameter_failure_reconciled`).
+Test: `tests/extension/resolve-skill-correction.test.mjs`.
+
+### 249.6 A document write is the Keeper's own judgment (owner decision 2026-10-21; amends §249.1)
+
+§249.1 kept object document writes (`write`, `append`, `requested_edit`) under the typed consent review, after the
+2026-10-06 incident where a Keeper appended notes the player never chose. Across six live tables (`el-v2-20261021a`–`f`)
+the reviewer refused or doubted six of eight writes the player had asked for in so many words ("copy what is useful into
+my notebook", "sit down and copy it", filling in a request form), and was arguably right twice; in `el-v2-20261021f` the
+refusals cost eight tool errors and one undelivered turn (T19). On the owner's decision a document write on an object is
+now Keeper-judged in the single-Keeper path like every other object line (`admission`, `path:"keeper_judged"`,
+`kinds:["object"]`, no Jev call). Unchanged: the malformed-write refusal (`documentWriteRefusal`), the selected-recording
+check that a refused or missing write cannot be narrated as done (§200), kernel validation, and the review of document
+writes by the lane reviewers outside the single Keeper. The consent-machinery probes in the tests now carry a map reveal,
+the line the consent review still reads. Test: `tests/extension/document-write-keeper-judged.test.mjs`.
+
+### 249.7 A rule that states no check beside a named skill
+
+Live (`el-v2-20261021f` T18, `el-v2-20261021g` T11): the Keeper resolved Library Use with `rule:"library-research"`,
+which states a time cost and no check, and was refused (`rule_no_check`); it resent the same action without the rule
+and applied `time stated:library-research`. A rule that states no check, with no `step` asked and an explicitly named
+`skill`, now settles as the ordinary check of that skill; what the rule states is still the Keeper's to apply with
+`apply stated`. Without a named skill the refusal is unchanged. Test: `tests/integration/rule-no-check-skill.test.ts`.
+
+### 249.5 Accepting a failed roll's offer rolls nothing
+
+Live (`el-v2-20261021e` T26–T27): the Keeper offered push, Luck or accept after a failed Law roll, and the player
+accepted. The answer `resolve {intent:"social", choice:{pending, option:"accept"}}` was refused for naming no skill, and
+the fix ("set action.skill") led the Keeper to roll Accounting to accept a refusal. A bound choice whose pending offer is
+a `push-luck:` decision and whose option is `accept` now settles with outcome `none` and the choice receipt alone,
+whatever intent the answer carries; the failure stands for the narration. `push` and `spend_luck` are unchanged.
+
+## 250. Enhanced Locations v2: whole routes in one packet and forgiving place commands (owner 2026-10-21; amends §242, §243, §245 packet rules)
+
+Owner direction, 2026-10-21: redesign and refactor Enhanced Locations so a player reaches any place smoothly, with
+as few tool errors, as little Keeper deliberation and as short a turn as possible, and without conflicting or
+mutually exclusive system rules. Design review and evidence: `docs/specs/enhanced-locations-v2.md`; §249 removed the
+Jev reviews that refused location lines.
+
+### 250.1 One route, one packet
+
+The native decision packet carries the whole selected route in order. `commands` is one array (at most 16) of moves,
+place actions, time, NPC, walk_on, scene and relationship commands. Several stops, local positions, waits and
+observations share one packet; the kernel stages them in submitted order in one transaction, as `apply` already does.
+Removed: the one-destination limit, the split between a moving and a stationary command array, the requirement that
+time beside a move carry `beyond_travel` and follow the journey, and the "Movement already owns travel time" refusal.
+A move counts its own travel; a time command is always additional activity or waiting. `beyond_travel` remains an
+optional receipt annotation. A time command takes exactly one of `minutes`, `band` or `until {time:"HH:MM", days?}`;
+`until` compiles to the kernel's §145.1 clock endpoint. The place tool's writes remain for one case: an arrival a
+following roll depends on (resolve targets must be present in the active scene).
+
+An arrival at another place without a scene command is recorded as service and crowd `unknown` instead of refused.
+A scene whose current assessment has expired still requires the Keeper's assessment. A move inside the current place
+(`to:"here"` or the current place) needs no scene command and takes no travel time; a supplied travel band there is
+ignored and reported.
+
+### 250.2 Forgiving place commands
+
+`kernel-ts/mods/locations.ts` and `location-observations.ts` repair the Keeper's own command shape deterministically
+and report each repair on the receipt as `adjusted: [{field, reason, ...}]`. No semantic guess is made; ambiguity and
+real obstacles still refuse.
+
+- An `at` that names no registered feature is kept as a descriptive `spot` (move and observe). With both a
+  registered `at` and a `spot`, the feature wins. A relation alone is a valid local point.
+- A destination that is neither registered nor defined in the move's additions refuses once with
+  `place_destination_unknown` and `known_places` (registering it could silently split a known place under another
+  wording). A registered feature named as the destination (`Place / feature`) resolves to that place and feature.
+  A destination name shared by several places still refuses as ambiguous.
+- A new route without `via` is an open, improvised arrival (`improvised: true`), never `not_reachable`.
+- Repeating a registered place description or feature keeps the record as it was (`existing_description_kept`,
+  `existing_feature_kept`); a state change remains the `feature` action. A new place or feature without a description
+  uses its name. An unresolvable `within` registers a standalone place.
+- A `feature` change on an unregistered fixture registers it first; a change with neither state nor passable is a
+  reported no-op. A crossing through an unregistered or unrelated feature is ignored; a known `passable:false`
+  crossing is still impassable.
+- Observe: `to` defaults to here, `sense` to sight, `access` to clear, `scope` to the target. An unregistered target
+  place is a descriptive target in the current place. A cross-place look without a recorded sightline records one
+  from `view` (or the scope). Unknown, absent or repeated people are dropped from the observation, repeated situation
+  names merge, and a blocked look that lists facts is recorded as limited. A known relation keeps its first
+  description.
+
+### 250.3 Declarations, contract read and package
+
+Every place field is declared in the place tool and in output commands; write branches precede the read branch.
+`mods.locations.inspect need:"contract"` returns only `guide` (no schemas or sections). Tool descriptions state field
+meanings, not procedures. The Enhanced Locations package is 2.0.0: one resident instruction of about 2.3 KB plus the
+author-only "Place description for the author" reference section; the four `before_apply` situational sections and
+the service, meal and payment ordering rules are removed. Quick Settlement 1.1.0 carries the ordering rule for a
+non-routine service as its `Services beyond routine` section, triggered before a cash or item apply (supplier and
+terms first, item gain before consumption, time after delivery, a payment chosen after completion settles last);
+routine food and drink stay under Spending Level, so the two packages no longer give conflicting meal instructions.
+
+### 250.4 The same repairs where live play met them beside a route
+
+The first v2 table (`el-v2-20261021a`, MiniMax-M3.1-Flash-Preview medium) moved without a location refusal; its
+remaining tool errors sat in neighbouring owners. Those that have one mechanical reading are repaired and reported the
+same way (`adjusted` on the receipt and its outcome):
+
+- An object moved from a place, a container or an award with no named giver, carrying `handover` or `check`, lands
+  without them: `{field:"handover", reason:"no_second_person"}`. This amends §88, which refused the meaningless
+  ground; a person-to-person move still needs its ground.
+- A cash settlement whose `quote` names no offer this investigator ever had, and which prices its own `items`, settles
+  as that fresh priced expense with the name as its `bill`: `{field:"quote", reason:"no_open_quote_fresh_expense"}`. A
+  settled or cancelled offer, or a missing one without priced lines, still refuses, so nothing is paid twice.
+- A blank entry in `lookup` `kinds` is the forbidden "search all" placeholder; it is omitted before validation, which
+  is that search (`arguments` lane `blank_lookup_kinds_omitted`).
+- An `apply` effect whose `kind` names no effect kind but names one of its own fields (`{kind:"document",
+  document:{...}}`) takes the one kind that declares that field and every field the effect carries (`object`;
+  `arguments` lane `effect_kind_aliased`). With two readings (`activity` is both an `npc` and a `scene` field) it
+  still refuses with the kind list.
+- A packet claim's person fields (`new.actor`, `new.provider`) written as a present person's one exact public
+  appellation bind to that person's ref, as the interaction's own `actor` already did (`bindActors`).
+- A packet command carrying a place action (`move`, `establish`, `feature`, `relate`, `observe`, `inspect`) but no
+  `kind` is a place command (`place_kind_inferred`).
+- A known effect kind missing exactly one required field, carrying an undeclared `name`, takes it as that field
+  (`{kind:"clue", name:"nailed-windows"}` → `clue`); a kind that declares `name` keeps it.
+- Each packet command is diagnosed against the variants its own kind and action name, so a refusal names that
+  command's real constraint instead of every union branch (`el-v2-20261021d` T21 reported an npc `to` as a missing place
+  action, and the Keeper resent the same packet and gave up).
+- An optional place field sent as a blank string (`via:""`, `travel_band:""`, `relation:""`) is omitted before
+  validation, in the place tool and in packet place commands (`el-v2-20261021e` T8 refused a plain move twice for it).
+- After the packet's own move reaches a place, an npc command sending someone to that place sends them `here`
+  (`npc_destination_here`); before the move `here` is still the departure, so an earlier command is left alone.
+- A routine summary may carry `ambient` looks alone (`acts` is optional; one of the two is required). Looks alone are no
+  routine stretch, so they need no time charge; routine `acts` still need exactly one (§247.3).
+- A place `inspect` that names its place by `to`, the way every write action does, reads that place: `to` becomes the
+  read's `name` (`place_array_transport_normalized`, `to:name`) when no write field (`state`, `facts`, `additions`, ...)
+  stands beside it and no different `name` is given (`el-v2-20261021e` T25: `inspect {to, at, need}` was refused as a
+  write, and the Keeper then registered the front door as a place). A state beside `to` is still a mode conflict.
+- A declared integer of a place action sent as its canonical decimal string within the declared bounds is that integer
+  (`place_array_transport_normalized`, `travel_minutes:integer`; `el-v2-20261021f` T21: `travel_minutes:"30"` refused a
+  plain journey), the repair the output packet already makes; any other string is left for validation.
+- A command written as a field of its own beside `commands` (`el-v2-20261021g` T32: `item:{kind:"place",
+  action:"observe",...}` refused as an additional packet property) is that command, appended after the ones in
+  `commands` (`{lane:"arguments", event:"stray_command_moved", repairs}`). Only a value that is a command of a declared
+  kind, or a non-empty list of them, moves; any other field stays for the schema's refusal.
+- A feature change says that it registers an unregistered fixture itself (`adjusted: at: implicit_feature`), here or at
+  a place left behind, and that a fixture is never a place; the description no longer sends the Keeper to `additions`.
+
+Still refused, because each needs the Keeper's decision: an empty population assessment while a registered person is
+seated at the destination (move them away or keep them), and an effect kind with no single reading.
+
+Writer: the Keeper's packet and the kernel's deterministic repairs. Reader: the kernel transaction, the observation
+register and the sole author (which reads committed outcomes and `adjusted`). Actor: the Keeper, continuing from what
+settled. Existing places, features, relations, situations and observations from 1.x remain readable; state version 1
+is unchanged.
+
+### 250.5 A journey's own minutes inside its band
+
+Live (`el-v2-20261021a`): every trip took the band's usual 30 minutes whatever the distance -- the next-door cafe and
+the far side of the district alike -- because a native packet move could name only `travel_band`. A move may now give
+`travel_minutes` with its `travel_band`: inside the rule row's range (`time-costs.json`, `local_travel` 10–120,
+`long_travel` 120–1440) it is the journey's time (`travel:{basis:"banded", band, given:true}`); outside it is brought to
+the nearer edge and reported (`{field:"travel_minutes", reason:"clamped_to_band", given, min, max}`). A band alone keeps
+its usual minutes; a row without a range (`adjacent`) still refuses a second figure. The road remembers the minutes as
+before (§218.3).
+
+### 250.6 A missing population assessment is unknown, a contradicted one is asked for
+
+§250.1 recorded an unassessed arrival as unknown, but the next stationary turn's packet then had to carry a scene
+command because the assessment was not current (`el-v2-20261021b` T13 and T15 refused for it). Now the packet schema,
+the pre-settlement check and the post-settlement check all ask for an assessment only when a current one is contradicted
+by registered presence (`scenePopulationConflict`: an empty assessment while a registered person is seated). A
+populated assessment with nobody registered is an unnamed crowd, never a contradiction, in the packet checks and in
+the kernel's own `_population` guard (`el-v2-20261021b` T19 refused a quiet street for it). A missing or
+expired assessment publishes as population `unknown` (`scene-population` lane, `assessment_retired`, reason
+`unassessed`). The Keeper's own empty assessment beside a seated person still refuses in the kernel, and the
+supplement after a settled arrival into an empty-assessed scene is still asked for.
+
+### 250.7 Places an NPC can name
+
+Live (`el-v2-20261021c` T6–T7, one undelivered turn and five refusals; `el-v2-20261021b` T6): asked the way to the
+Central Library, the Keeper could not let the person answer, because a communication claim's `to`/`via` may only
+select issued place references and the only issued places were the current one, its exits and the trail back. The
+capsule now carries a top-level `known_places` (`{to, display_name}` for the book's scenes and the places this table
+registered -- graph scenes and the location provider's records -- the current one excluded) under its own 1536-byte cap
+(`known_places_omitted` counts any rows left out). It is no section: it displaces none of the budgeted sections and never
+marks `where` truncated. The decision content issues these as places. They
+are references for directions, whereabouts and planned visits, not access or player knowledge.
+
+### 250.8 A routine summary's time is the Keeper's judgment (amends §247.3)
+
+§247.3 refused a routine summary without exactly one time charge. Live (`el-v2-20261021d` T2, T4) it refused both ways:
+a summary whose acts the Keeper left uncharged, and a packet that charged the coffee and also carried the ten-minute wait
+the player had selected -- two waits in one packet are §250.1's ordinary route. Time is Keeper-judged (§249.1), so a
+missing or a second charge beside a routine summary is now recorded (`routine-summary` lane, `time_charge`,
+`uncharged` or `several`), never refused. Only an inactive routine capability still refuses. Quick Settlement's own
+guidance to charge the stretch once is unchanged.
+
+### 250.9 A room inside a place assessed empty is empty
+
+Live (`el-v2-20261021e` T21, T23): each room the investigator entered inside the shut Corbitt House came back
+`unassessed`, and the Keeper deliberated and wrote `closed`/`empty` again for a house already assessed empty. A place with
+no assessment of its own whose nearest container (§204.1) carries a current `empty` assessment now reads as that
+assessment with `inherited_from` naming the container -- containment entails it. Any other container population says
+nothing about a room within it, and the room stays unassessed. A registered person seated in the room still contradicts
+the inherited empty (§250.6). The packet guidance now says what §250.6 settled: an assessment left out is recorded as
+unknown, never refused, and only an empty one beside a registered person here must be corrected.
+
+### 250.10 Clue effects the Keeper half-wrote
+
+Live (`el-v2-20261021e`): T20 sent the book's own clue name with an `establish` summary and was refused ("establish
+cannot replace an authored clue"); T23 established a clue without naming it and the fix showed only the book-clue form, so
+the next 80 seconds of deliberation guessed the schema. An `establish` beside the book's clue name now obtains that clue
+with the book's content and reports `adjusted: establish: authored_clue_kept` on the receipt; a table clue is still
+established only under a new name. A clue missing its name while carrying `establish` is refused with the establish form
+`{kind: "clue", clue: <new name>, establish: {summary}, how}` beside the book-clue form.
+
+### 250.11 A book place's name for the player
+
+Live (`el-v2-20261021e` T18, T21, T24, T25, T33): every travel card to a book place read `Scene -> Scene`. A
+`keeper-only` book scene shows the player only a name this table gave it (`world.scene_labels`, §204.5), and the v1
+`move` effect's `label` that wrote it was not carried into `place move`. `place move` now takes an optional `label` -- the
+place's name in play_language as the investigators know it -- and hands it to canonical movement, which records it as
+before; the cards, the capsule's `display_name` and later context use it. Without a label nothing is named for the
+player, so a book place's own name is still never revealed by arriving.
+
+### 250.12 One population assessment per stop, and a look at a place
+
+Live (`el-v2-20261021e` T33): a route from the hotel back to the Corbitt House carried a scene assessment for each stop,
+and the packet was refused ("Duplicate newcomer labels, scene or slot") because every scene command compiled to the end
+as `here`, so a packet could hold one. The Keeper resent it without the hotel's clerk and assessment. A single scene
+command is still the final declaration for where the route ends, wherever it is written. With several, each stop of the
+route carries at most one: each settles at the end of the stop it is written in -- after the newcomers submitted before
+it and before the route leaves -- and the last stop's settles after everything. Two assessments within one stop are
+still a duplicate. With several, a newcomer written for `here` before the route leaves is placed at that stop, unless a
+later look names it.
+
+The same turn read a place with `look {focus:"place", name, need}`, which `look` does not offer, and the call failed
+validation. Such a look is carried to `place inspect` with the same `name`, `at`, `spot`, `relation`, `sense` and `need`
+(`{lane:"arguments", event:"look_place_routed"}`); `look` advertises no new focus.
+
+### 250.13 An assessed crowd is populated without named people
+
+§250.6 settled that a populated assessment with nobody registered is an unnamed crowd, but three readers still said
+otherwise: the packet guidance and the `crowd` field ("quiet, active or crowded require actual NPC placement"), the
+author's `presence.population` (`populated` only beside a registered person, else `unknown`) and
+`scenePopulationRequired` (a populated scene with nobody registered needed a new assessment). Live (`el-v2-20261021e`
+T28, T29, T33) the Keeper deliberated over it and placed two or three invented walk-ons per arrival "to be safe". Now a
+current quiet, active or crowded assessment is `populated` for the author and needs no new assessment; a person is
+registered with `walk_on` only when they act, speak or are singled out. An empty assessment beside a registered person
+is still the one contradiction (§250.6).
+
+### 250.14 A handover the Keeper wrote as an accepted offer, and the packet's person references in apply
+
+Live (`el-v2-20261021f` T2, a movement turn with four refusals): Knott pushed the house keys across the desk. The Keeper
+wrote `object {from, to:"investigator_1", handover:"given", offer:"accepted", condition}`: refused as an unknown
+investigator, twice as "an offer carries no condition", then "no open offer to accept", before the plain transfer landed.
+
+- In the packet mode an `apply` effect's person fields (`to`, `from`, `subject`, `with`, `who`, `actor`, `target`,
+  `toward`) that hold the packet's own issued reference -- `investigator_N` for the party's Nth investigator, or a
+  unique issued `npc_N` -- are named as that person before validation (`{lane:"arguments",
+  event:"person_reference_named", fields}`). A value that is already a party member's name is untouched.
+- An object effect with `offer:"accepted"` while no offer stands, carrying a handover between two people, is the direct
+  transfer it describes: the offer is dropped and the receipt reports `adjusted: offer: no_open_offer_direct_transfer`.
+  An offer that stands is closed by `accepted` exactly as before, and a `declined` offer that was never made is still
+  refused.
+
+### 250.16 A field two effect kinds share is read by what it holds
+
+Live (`el-v2-20261021f` T11): `{kind:"activity", name, activity:{summary, basis, wakefulness}}` was refused as an unknown
+kind, because both `npc` and `scene` declare `activity`, so §250.4's field-named reading found two. The value's own
+fields now decide when only one kind declares them all: `wakefulness` is an NPC's activity, `service` and `crowd` a
+scene's. An activity carrying only the fields both share is still ambiguous and refused.
+
+### 250.15 The investigator reads a document too
+
+Live (`el-v2-20261021f` T8, five refusals): Knott laid the lease on the desk for the investigator, and the Keeper wrote
+`document {action:"observe", reader}` with the investigator as `investigator_1`, `thomas-hayes` and the name; each was
+refused as an unknown NPC, because `show` and `observe` resolved the reader through the graph's people only, while the
+schema asked for a "person". A reader may now be an investigator by sheet id or name (and `investigator_N` is named by
+§250.14): they are always present, `held` access means their own custody, and the observation is recorded under their
+sheet id with their name on the receipt. An NPC reader is unchanged and still needs the writing shown or open.
+
+### 250.17 A known road keeps its length
+
+Live (`el-v2-20261021f` T2, T7): the Keeper walked a few doors from Knott's office to a new cafe with
+`travel_band:"adjacent"` (0 minutes), and walked back with `travel_band:"local_travel"`, which took 30 minutes and
+rewrote the road. Between two places that already share a road -- the book's, or one this table travelled (§218.3) -- a
+`travel_band` now names nothing new: the move takes the road's minutes, and the receipt reports
+`adjusted: {field:"travel_band", reason:"road_known", given, minutes}`. `travel_minutes` the Keeper gives for this
+journey are still its own (§250.5).
+
+Which journey sets the road: a move with `travel_minutes` keeps them as the road from then on (§218.3), and a band alone
+never rewrites a known road. Live (`el-v2-20261022h` T6): the Keeper walked back along the street with
+`travel_band:"adjacent", travel_minutes:7`, the kernel refused it as `travel_conflict`, and the resend with the minutes
+alone was what counted. A row without a range (`adjacent`) beside the journey's own minutes now names nothing the minutes
+do not: the move takes the minutes and reports `adjusted: {field:"travel_band", reason:"band_without_range", given}`;
+`travel_conflict` is retired. Tests: `tests/integration/enhanced-locations.test.ts` (known road),
+`tests/extension/move-travel.test.mjs` (band rows).
+
+### 250.18 A return visit carries what was recorded there before
+
+Live (`el-v2-20261021e` T6, T13): the cafe window looked onto closed office blocks on the first visit and onto a
+hardware shop and a pharmacy on the return. The author is kept from earlier prose on purpose
+(`decision-author-bindings`), and observation history reached it only when the Keeper read it or looked again from the
+same point. Now, when a turn's packet ends at another place than it started, the host reads that place's visit history
+-- `mods.locations.inspect {name, need:"history"}`, a host-only read the Keeper's place tool does not offer: up to four
+delivered observations whose target lies in the place, at any point and by any sense, from earlier turns, newest first --
+and hands it to the author as a `reference_observations` group marked `revisit:true`
+(`{lane:"location-revisit", event:"history", place, records}`). The author keeps the fixed features, layout and views
+of the place consistent with those records unless this turn's outcomes or facts change them; their people, situations
+and clocks are past. These are recorded facts, never earlier prose. A failed read is recorded (`event:"unavailable"`) and
+the turn goes on without it. Tests: `tests/integration/enhanced-locations.test.ts` (visit history),
+`tests/extension/location-revisit-history.test.mjs`.
+
+## 251. A progress note for a read spiral (owner direction 2026-10-21: fewer deliberations, faster turns)
+
+Live evidence: on `el-v2-20261021a` T16 the single Keeper answered one sentence about a door and a hired middleman with
+38 consecutive reads (looks, catalogue and source lookups, every knowledge page) over 703 s and ended without an output;
+in the retained 鬼屋 campaign 3 of 109 turns reached 8 or more consecutive reads. Reading is never refused or cut (a call
+cap once killed the thinking step). Instead, every eighth consecutive successful read in one input carries one host note
+on that read's own result: the reads so far, and that what the capsule and the reads leave open is the Keeper's to
+settle in the fiction because the module is reference, not a script. Any write (`apply`, `resolve`, `ask`, `output`, a
+place write) or `narrate` resets the count; a refused read neither counts nor resets. The lane records
+`{lane:"keeper-progress", event:"read_streak_noted", reads}`.
+
+Writer: `keeperProgressNote` in `extensions/kernel/index.ts` (single Keeper only). Reader: the Keeper, on the next
+request. Actor: the Keeper, who decides whether to keep reading. Test: `tests/extension/keeper-read-streak.test.mjs`.
+
+
+## 252. A packet-mode mechanical choice publishes with the turn's prose (owner direction 2026-10-21: no undelivered turns)
+
+Live (`el-v2-20261021e` T26): after a failed Law roll the Keeper planned "ask first, then output". In the packet mode
+`ask` lost its `text` and `handoff` fields, and `table.ask` closed the turn at once, so the output never ran: the player
+got the roll and three buttons (`spend_luck`, `push`, `accept`) and no word of what happened.
+
+In the packet mode `ask` now stages its choice on the table (`{lane:"packet-choice", event:"staged"}`) and returns
+`{staged:true, choice, next}`; nothing closes. The turn's output packet is authored as usual, and its prose publishes
+through `table.ask` with that choice (`event:"published"`), the same path a non-packet `{{record}}` choice takes. The
+closed option set lives in one place, `kernel-ts/write/mechanics-options.ts`, and `table.ask` and the staging both check
+it; an unknown option is refused before anything is staged. The kernel still validates the binding when it publishes.
+A staged choice belongs to its turn only.
+
+Writer: the packet-mode `ask` dispatch in `extensions/kernel/index.ts`. Reader: `submitTurnPacket`, which hands the
+staged choice to `publishKeeperResult`. Actor: the Keeper, who decides whether a mechanical choice is due. Test:
+`tests/extension/packet-choice.test.mjs`.
+
+### 252.1 A clue refused as not discoverable here does not strand the turn
+
+Live (`el-v2-20261021f` T19, undelivered): beside a reviewed notebook write, the Keeper landed a clue the kernel refused
+as `not_here`. A held failure whose cause is not a known atomic refusal makes the packet-mode author refuse the whole
+expression, and `not_here` was not on the apply list, so the turn ended with no prose. `not_here` writes nothing, like
+`unknown_entity`, so it is now projected to the author as an uncommitted failure and the turn publishes what did land.
+
+### 252.2 A transient author provider refusal before any text is asked again
+
+Live (`el-v2-20261021g` T5, T6, both undelivered): the isolated author's provider answered HTTP 529 (overloaded) on its
+single request, the public stream was interrupted and the turn ended with no prose, while the Keeper's own requests are
+retried by Pi. The direct prose author now asks again, at most twice with a short backoff, when its provider refuses
+with a transient status (429, 500, 502, 503, 504, 529) before any text reached the player
+(`{lane:"isolated-expression", event:"provider_retry", status, try}`). Streamed text is never redone, and a refusal that
+outlasts the retries reaches the player as before (HTTP 504 notice, committed state kept).
+
+## 253. Table-six regressions: the opening's place, what the author is told, grant-then-roll and long costs (owner report 2026-10-22)
+
+The owner's report on `el-v2-20261021f` (and `el-v2-20261021e`) named four problems that earlier play had not shown. Each
+is traced to its writer, reader and actor (§31); none adds a review, threshold on words or keyword rule.
+
+### 253.1 The opening registers its place
+
+Enhanced Locations v2 (§250) has the Keeper register the opening place with `place establish` in the opening packet, but
+the turn-0 gate (`kernel-ts/apply/index.ts`, `allowOpening`) admitted only `define`, `object`, `ability`, `usage`,
+`clock`, `scene` and the §198 NPC shapes. Tables a–e passed only because a first-impression `resolve` happened to open
+the turn first; in f the opening was refused four times and in g nineteen, and the refusal told the Keeper to "wait for
+player_input", which the Keeper writing the opening cannot do. A `place` line whose action is `establish`, `observe`,
+`feature` or `relate` is now an opening preparation (a move still is not), and a refused opening line says the opening is
+still owed and which lines it may carry. Test: `tests/integration/opening-place-establish.test.ts`.
+
+### 253.2 The sole author is told what each settlement was for
+
+Since the structured Keeper decisions (2026-10-18/19) the sole author's only mechanics were `settled_results`, which
+carried a check as `{skill, passed, level}`, time as bare minutes, and no resource change, damage or clue. The author
+could not tell a failed Library Use from a failed Spot Hidden, nor narrate eight hours of research, a Sanity loss or a
+bruise (`el-v2-20261021e` T23/T25, `el-v2-20261021f` T18). `table.delivery.check` now adds, from receipts only: a check's
+`goal`, a failed check's `on_failure` and a sanity check's `cause`; `elapsed[] {minutes, why}`; `changes[] {resource,
+who, before, after, cause}` for investigator deltas, the cause read from the delta, its `source_receipt` or the roll of
+the same call; and `clues[] {how, found?}` (`found` only for a table-established clue's own summary). Keeper-only and
+concealed receipts stay out. The author instruction states that each listed item happened and must be perceptible, that a
+failed goal was not achieved, and that elapsed time is told through its activity.
+Test: `tests/integration/author-settled-meaning.test.ts`, `tests/integration/delivery-preparation.test.ts`.
+
+### 253.3 A roll cannot decide what was already granted
+
+A stated obligation's guards are information, never a refusal (owner ruling Q5), so the Keeper may land guarded results
+without a roll. In `el-v2-20261021f` T12 it landed the clippings, then rolled the obligation's Persuade, which failed, and
+spent three minutes reconciling. When this input already holds receipts stamped `obligation_open` for an obligation, its
+check -- claimed with `action.obligation` or folded (§134.17) -- is refused `invalid_params`
+(`obligation_outcome_landed`): the landing was the Keeper's judgment that access was given. Rolling first and landing
+after is unchanged. Test: `tests/integration/obligation-grant-then-roll.test.ts`.
+
+### 253.4 A long stated cost carries its ask
+
+§249.1 made time Keeper-judged, so nothing asked whether the player chose to spend a rule's stated cost; in T18 "fetch
+these two records" was charged two half-days and the next prose opened at night. A `where.rules[]` row whose typed
+`time_cost` is an hour or more now carries `ask_first` beside the cost (§31: cost and invitation in one row): unless the
+player already chose to spend that time, the Keeper says what each attempt costs in the fiction and lets them choose
+before rolling or charging it. The amount comes from the typed shape only. Test: `tests/integration/long-cost-ask-first.test.ts`.
+
+### 253.5 A failed check's goal
+
+A failed or fumbled ordinary check's result now carries the hint that its goal did not happen and that this input does not
+land, open, move through or reveal what the check was for (`el-v2-20261021e` T24: Strength failed and the packet moved the
+investigator through the door; `el-v2-20261021f` T21: Spot Hidden failed and the packet observed what it was for). This
+is guidance at the moment of the result; a typed binding of a check to the effects it decides is not added here.

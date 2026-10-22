@@ -3,7 +3,7 @@ import {test} from 'node:test';
 import assert from 'node:assert/strict';
 import {turnPacket,compileTurnPacket} from '../../runtime/turn-packet-prototype.ts';
 import {decisionScene} from '../../runtime/isolated-expression.ts';
-import {scenePopulationRequired} from '../../runtime/scene-population.ts';
+import {scenePopulationRequired,scenePopulationConflict} from '../../runtime/scene-population.ts';
 
 test('an empty registered cast does not assert an empty scene',()=>{
  const scene=decisionScene({where:{scene:'Daytime shop',clock:{day_part:'afternoon'},temporal:{current:false,review_required:true}},present:[]});
@@ -18,10 +18,21 @@ test('scene assessment and a temporary role share the normal transaction, with a
  assert.throws(()=>turnPacket(JSON.stringify({...packet,commands:[...packet.commands,{kind:'walk_on',slot:'new_2',label:' THE DAY ATTENDANT ',reason:'A duplicate label.'}]})),/Duplicate newcomer labels/);
  assert.equal(compileTurnPacket({...packet,commands:[{kind:'scene',service:'open',crowd:'quiet',review_after_minutes:2}]}).effects[0].activity.review_after_minutes,2);
 });
-test('only a current coherent assessment qualifies for the warm travel path',()=>{
+test('only a current coherent assessment qualifies for the warm travel path; an unnamed crowd is coherent (§250.13)',()=>{
  const attendant={kind:'npc',ref:'npc_1',display_name:'the attendant'};
  const capsule=(current,crowd,present=[])=>({where:{temporal:{current,crowd}},present});
- for(const state of [capsule(false,'empty'),capsule(true,'unknown'),capsule(true,'quiet'),capsule(true,'empty',[attendant])])assert.equal(scenePopulationRequired(state),true);
- assert.equal(scenePopulationRequired(capsule(true,'empty')),false);
- assert.equal(scenePopulationRequired(capsule(true,'quiet',[attendant])),false);
+ for(const state of [capsule(false,'empty'),capsule(true,'unknown'),capsule(true,'empty',[attendant])])assert.equal(scenePopulationRequired(state),true);
+ for(const state of [capsule(true,'empty'),capsule(true,'quiet',[attendant]),capsule(true,'quiet'),capsule(true,'crowded')])assert.equal(scenePopulationRequired(state),false,JSON.stringify(state));
+});
+test('the author reads an assessed crowd as populated whether or not anyone in it is registered (§250.13)',()=>{
+ const scene=present=>decisionScene({where:{scene:'Station',clock:{day_part:'evening'},temporal:{current:true,review_required:false,crowd:'active',service:'open'}},present});
+ assert.equal(scene([]).presence.population,'populated');
+ assert.equal(scene([{kind:'npc',ref:'npc_1',display_name:'the clerk'}]).presence.population,'populated');
+});
+test('only a current empty assessment beside a seated registered person is a conflict; an unnamed crowd is not (§250.6)',()=>{
+ const attendant={kind:'npc',ref:'npc_1',display_name:'the attendant'};
+ const capsule=(current,crowd,present=[])=>({where:{temporal:{current,crowd}},present});
+ assert.equal(scenePopulationConflict(capsule(true,'empty',[attendant])),true);
+ for(const state of [capsule(true,'quiet'),capsule(true,'crowded'),capsule(false,'empty',[attendant]),capsule(true,'unknown'),capsule(false,'quiet'),capsule(true,'empty'),capsule(true,'quiet',[attendant]),{where:{},present:[]}])
+  assert.equal(scenePopulationConflict(state),false,JSON.stringify(state));
 });

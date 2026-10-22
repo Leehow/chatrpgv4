@@ -1,5 +1,6 @@
 import {readSourceMetadata} from '../modules/source-state.js';
 import {decisionRecentPublic} from '../../runtime/public-exchanges.ts';
+import { MECHANICS_CHOICE_OPTIONS } from './mechanics-options.js';
 import {committedOnLine} from '../read/exchange.js';
 import { SINGLE_PASS_NARRATION } from '../runtime/narration-policy.ts';
 import {validateDeliveryArtifact} from '../../runtime/final-output-artifact.js';
@@ -1412,6 +1413,35 @@ export function createWriteRuntime(context: KernelContext, contributions: WriteC
 			}
 		}
     }
+    /**
+     * §253.2: what each public settlement this input made was for, so the sole author can tell it. A check carries its
+     * goal and what its failure means, an elapsed time its reason, a resource change its cause, and a landed clue how the
+     * investigator came by it. Receipts only; nothing is read from prose, and keeper-only receipts stay out.
+     */
+    function settledMeaning(receipts:Row[]):Row {
+        const visible=(receipt:Row)=>receipt.visibility===undefined||receipt.visibility==='public';
+        const reason=(receipt:Row|undefined)=>receipt?string(receipt.why??receipt.source??row(receipt.check).goal??''):'';
+        const byId=new Map(receipts.map(receipt=>[string(receipt.id),receipt]));
+        const checks=receipts.filter(receipt=>receipt.kind==='roll'&&receipt.form!=='dice'&&visible(receipt)).map(receipt=>{
+            const check=row(receipt.check),stakes=row(check.stakes);
+            return {kind:'roll',skill:receipt.skill,passed:receipt.passed,level:receipt.level,
+                ...(receipt.pushed===true?{pushed:true}:{}),
+                ...(typeof check.goal==='string'&&check.goal.trim()?{goal:check.goal}:{}),
+                ...(receipt.passed===false&&typeof stakes.on_failure==='string'&&stakes.on_failure.trim()?{on_failure:stakes.on_failure}:{}),
+                ...(typeof receipt.source==='string'&&receipt.source.trim()?{cause:receipt.source}:{})};
+        });
+        const elapsed=receipts.filter(receipt=>receipt.kind==='time'&&number(receipt.minutes)>0)
+            .map(receipt=>({minutes:receipt.minutes,...(typeof receipt.why==='string'&&receipt.why.trim()?{why:receipt.why}:{})}));
+        const changes=receipts.filter(receipt=>receipt.kind==='delta'&&visible(receipt)&&receipt.subject_is_investigator===true).map(receipt=>{
+            const source=byId.get(string(receipt.source_receipt))
+                ??receipts.find(other=>other!==receipt&&other.call_id===receipt.call_id&&other.kind==='roll'&&reason(other));
+            const cause=string(receipt.why??'')||reason(source);
+            return {resource:receipt.resource,who:receipt.subject_label,before:receipt.before,after:receipt.after,...(cause?{cause}:{})};
+        });
+        const clues=receipts.filter(receipt=>receipt.kind==='clue'&&typeof receipt.how==='string'&&receipt.how.trim())
+            .map(receipt=>({how:receipt.how,...(receipt.established==='table'&&typeof receipt.summary==='string'?{found:receipt.summary}:{})}));
+        return {checks,...(elapsed.length?{elapsed}:{}),...(changes.length?{changes}:{}),...(clues.length?{clues}:{})};
+    }
     async function checkDelivery(params:Row):Promise<Row> {
         const {campaign,snapshot,module}=await load(params);
         preflightCampaign(snapshot.meta,snapshot.world,snapshot.turn,snapshot.party);
@@ -1439,8 +1469,7 @@ export function createWriteRuntime(context: KernelContext, contributions: WriteC
         }
         const settled_results={
             outcomes:operationOutcomes(array(snapshot.turn.receipts),module.graph,snapshot.world),
-            checks:array(snapshot.turn.receipts).filter(receipt=>receipt.kind==='roll'&&receipt.form!=='dice'
-                &&(receipt.visibility===undefined||receipt.visibility==='public')).map(receipt=>({kind:'roll',skill:receipt.skill,passed:receipt.passed,level:receipt.level})),
+            ...settledMeaning(array(snapshot.turn.receipts)),
             materials:publicMaterials.filter(material=>material.visibility==='player').map(material=>({
                 ...Object.fromEntries(['kind','name','text'].filter(key=>material[key]!==undefined).map(key=>[key,material[key]])),
                 ...(material.kind==='speech'?{speaker:prepared(string(material.speaker)).who.name}:{})}))};
@@ -1471,9 +1500,7 @@ export function createWriteRuntime(context: KernelContext, contributions: WriteC
         const options = params.options;
         if (!Array.isArray(options) || !options.length || options.some(option => typeof option !== 'string' || !option.trim()))
             throw new RpcError('invalid_params', 'params.options must be a non-empty list of strings');
-        // `none` is the player's own "no defence" (contract §11.5, §11.11 "none is legal everywhere"; §11.5.2): the
-        // kernel offers it in `pending_defense.options`, so the choice that hands it to the player takes it too.
-        if (kind === 'mechanics' && options.some(option => !['push', 'spend_luck', 'accept', 'dodge', 'fight_back', 'none', 'flee'].includes(option)))
+        if (kind === 'mechanics' && options.some(option => !MECHANICS_CHOICE_OPTIONS.includes(option)))
             throw new RpcError('invalid_params', 'unknown mechanics choice option');
         const requestedBinds = required(params, 'binds', true), text = required(params, 'text', true), ending = row(snapshot.world.ending), n = number(turn.turn);
         const quoteDrafts=quotationDrafts(params.quotes,n,snapshot.meta,snapshot.party);
