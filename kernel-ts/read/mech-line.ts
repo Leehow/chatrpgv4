@@ -235,7 +235,7 @@ export const mechRow = (graph: ModuleGraph) => (node: Row): Row => {
  * The amount is read from the typed shape only.
  */
 const LONG_COST_MINUTES = 60;
-const LONG_COST_ASK = "This cost is the player's to accept: unless they already chose to spend this time, say in the fiction what each attempt costs and let them choose before rolling or charging it.";
+const LONG_COST_ASK = "This cost is the player's to accept: unless they already chose to spend this time, have someone in the fiction say plainly how long each attempt takes, then stop for their choice before rolling or charging it. A vague hint that it takes time is not telling them.";
 const UNIT_MINUTES: Record<string, number> = { minute: 1, minutes: 1, hour: 60, hours: 60, day: 1440, days: 1440, week: 10080, weeks: 10080 };
 function costMinutes(shape: Row): number {
     const amount = Number(shape.amount), unit = UNIT_MINUTES[String(shape.unit ?? "").toLowerCase()];
