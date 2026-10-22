@@ -51450,3 +51450,96 @@ A failed or fumbled ordinary check's result now carries the hint that its goal d
 land, open, move through or reveal what the check was for (`el-v2-20261021e` T24: Strength failed and the packet moved the
 investigator through the door; `el-v2-20261021f` T21: Spot Hidden failed and the packet observed what it was for). This
 is guidance at the moment of the result; a typed binding of a check to the effects it decides is not added here.
+
+## 254. Author craft sections: writing craft reaches the sole author (owner 2026-10-22; amends §183, §203, §242.3, §247.4, §248)
+
+Since the structured Keeper (§242, 2026-10-18/19) the sole author writes every player-facing word, yet the prose
+package's craft (narration-craft `agent.md`, 16.5 KB, almost all resident) still rode the Keeper's request and never
+reached the author, while two packages reached the author through host code written for one heading each (§242's place
+description, §247.4's routine summary). The owner's rule (2026-10-22): the core owns what the text must be faithful to
+and never the craft of writing it; all craft lives in packages as author-only sections; the author makes one tool-free
+call, so the host chooses and assembles them before it, from the settled turn (the design plan on author craft
+skills is in the owner's project library).
+
+Three layers, never mixed in one section: the Keeper's decisions (what happens, who says what); the delivery contract
+(what must reach the player, what must not, how settled results bind the prose -- the core's author instruction and the
+host's `decision_context`); and craft (how it is written -- packages only).
+
+### 254.1 The declaration
+
+A package that requires `instructions.sections.author.v1` may mark a `sections.json` entry (schema 1 or 2)
+`"kind": "author"` with:
+
+- `slot`: an id (`^[a-z][a-z0-9_-]{0,31}$`). One section fills a slot per turn; when two active packages fill the same
+  slot, the later in load order wins and the earlier is recorded as overridden.
+- `on`: a non-empty list without repeats from the host's closed list of settled facts (§254.2).
+- `grants` (optional): a non-empty list without repeats from the core's closed list of bounded improvisation (§254.6).
+
+An author section names no topics, gates, triggers or topic threshold. It is not listed in the Keeper's index, cannot be
+read with the `mod` verb, and is never selected for the Keeper by topics, discovery or calls, except as §254.4 says. The
+capsule's indexed row carries it as `{key, heading, kind: "author", slot, on, bytes}`. A package whose sections are only
+author sections (and no resident or listed situational section) carries an empty resident text.
+
+### 254.2 Settled facts
+
+Evaluated by the host after the packet's effects settled, from what the author is about to receive:
+
+| fact | holds when |
+| --- | --- |
+| `always` | every authored turn |
+| `speech` | a selected response is spoken (`mode: speech_only`) |
+| `establish` | the capsule read after settlement carries `mods.establish` (§203) |
+| `opening` | that item's `why` includes `opening` |
+| `place` | the turn's settled effects include a `place` or `move`, or the scene carries a first-sight place |
+| `routine` | the packet carries `routine` (§247) |
+
+A fact is never read from the packet before settlement: a move that failed does not make `establish`.
+
+### 254.3 Assembly and delivery
+
+The host resolver (`extensions/kernel/author-craft.ts`) walks the capsule's indexed rows in load order, keeps each author
+section with a fact of `on` that holds, resolves slots, reads the texts by key through `mods.sections` (mod and version
+checked, as §242.3), and appends them to the author's system prompt after the core instruction, under one frame saying
+they shape wording only and never add, remove or change a fact. A package's non-empty `settings` ride after its
+sections. Sections past `AUTHOR_CRAFT_BYTES` (32768 UTF-8 bytes of section text) are omitted, last first. Telemetry:
+`lane: "author-craft"` records each kept key with its facts and slot, overridden and omitted keys, and bytes. A section
+that cannot be read stops the turn as an unavailable author input (as §242.3's place description did); nothing is
+substituted.
+
+When `mods.establish` holds, `decision_context.establish = {why, owes}` carries the owed rows to the author: what an
+establishing reply must convey is delivery contract; how to write it is the package's author section.
+
+§242.3's `Place description for the author` and §247.4's `Routine summary for the author` become author sections
+(`on: ["place"]`, `on: ["routine"]`); `decision_context.location_description` and the routine's `mod`, `version`,
+`key` and `instruction` fields are retired, and `decision_context.routine` keeps `{acts, ambient?}`.
+
+### 254.4 When the Keeper writes the prose
+
+Outside the decision-author path (the legacy loop, or `PI_COC_TURN_PACKET_PROTOTYPE=0`) the Keeper is the writer, so the
+host's `coc-mod-sections` message carries every author section of a schema-1 package every turn (`why: writer`),
+ranked with call-sent sections; their facts are not evaluated before settlement.
+
+### 254.6 Granted improvisation (owner 2026-10-22)
+
+The author sometimes owes detail no source gives: a place the book names only by purpose still needs a room the player
+can picture. A package says where that is wanted and how to write it; the core alone says how far it may reach. An author
+section's `grants` names one of:
+
+- `surface_detail`: ordinary perceivable detail of the current place and its things (shape, fittings, materials, wear,
+  light, sound, smell, temperature, unnamed background activity) where source, references and delivered play are
+  silent, consistent with the clock, place, period, `presence.population` and everything delivered. It adds no person
+  who acts or speaks, no name, no clue or lead, no event that demands a response and nothing the investigator could
+  pursue; it contradicts no canon and changes no state.
+- `appearance`: looks, build, apparent age, dress, posture and what their hands are doing for a present person the
+  source leaves undescribed, fitting place, period and supplied role; no identity, name, history, knowledge, motive or
+  relationship. Once delivered it is the look the table keeps.
+
+The resolver writes the definitions of the grants its chosen sections carry once after the frame, and marks each granting
+section. A grant widens nothing in the delivery contract: settled results, presence, names and secrets bind as before.
+Enhanced Locations' place description grants `surface_detail`.
+
+### 254.5 Three ends (§31)
+
+- Writer: the package author (`sections.json` + `agent.md`), version-locked; any byte change is a version bump.
+- Reader: the host resolver, for the sole author only.
+- Actor: the sole author; `lane: "author-craft"` counts what each turn carried.
