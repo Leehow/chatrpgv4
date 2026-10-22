@@ -25,7 +25,8 @@ test('compressed context supplies facts but never the player-facing sentence pat
   assert.ok(craft.includes('A willing informed person answers the actual question'));
   assert.ok(craft.includes('Keep the thought connected and the meaning easy to hear'));
   assert.equal(craft.includes('Answer the actual question first, with natural connected speech'), false);
-  const peopleAt = craft.indexOf('\n## The people here\n');
+  // §254 (2.6.0): the people section splits by layer; how a person decides what to say stays the Keeper's.
+  const peopleAt = craft.indexOf('\n## What people decide to say\n');
   assert.ok(peopleAt >= 0, 'the full instruction keeps its people section');
   const people = craft.slice(peopleAt, craft.indexOf('\n## ', peopleAt + 1));
   assert.ok(craft.includes('say that in their own register'));

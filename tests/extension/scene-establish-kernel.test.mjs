@@ -7,6 +7,7 @@
  * arrived at in about 140 characters, and nobody there had a look. The Haunting is the fixture: its scenes have no words
  * §168.5 counts as a description and its people are keeper-only and name-only.
  */
+import {readFileSync} from 'node:fs';
 import assert from 'node:assert/strict';
 import {cp, mkdir, mkdtemp, readFile, readdir, symlink, writeFile} from 'node:fs/promises';
 import {tmpdir} from 'node:os';
@@ -56,7 +57,7 @@ test('a new place owes an establishing reply once: the opening, an arrival, neve
   assert.deepEqual(item.place, {id: 'commission-briefing', name: item.place.name}, 'the place the party stands in');
   assert.deepEqual(item.why, ['opening']);
   assert.deepEqual(item.owes.map(owe => owe.key), OWES, 'the prose package says what establishing owes');
-  assert.deepEqual(item.package, {mod: 'narration-craft', version: '2.5.3'});
+  assert.deepEqual(item.package, {mod: 'narration-craft', version: JSON.parse(readFileSync(new URL('../../mods/narration-craft/mod.json', import.meta.url), 'utf8')).version});
   assert.ok(opening.head.endsWith(api.HEAD_ESTABLISH), 'the head says what the item is, only when it is there');
 
   await game.call('table.narrate', {call_id: game.next(0), text: '你推开诺特事务所的门。'});
@@ -95,7 +96,7 @@ test('a new place owes an establishing reply once: the opening, an arrival, neve
   assert.deepEqual((await game.record(2)).establish, {scene: 'commission-briefing', why: ['look'], review: {status: 'pass', look: true}});
 });
 
-test('a reference answer establishes nothing; the gate opens on an owed turn and an indexed narration-craft loads its section by it', async t => {
+test('a reference answer establishes nothing; the owed item opens on an owed turn, and narration-craft sends its establishing craft to the author on it (§254)', async t => {
   const game = await haunting(t, 'en');
   const previous = process.env.COC_INSTRUCTION_BUDGET;
   process.env.COC_INSTRUCTION_BUDGET = '1';
@@ -104,19 +105,19 @@ test('a reference answer establishes nothing; the gate opens on an owed turn and
   const section = capsule => capsule.mods.instructions.find(row => row.mod === 'narration-craft').sections.find(row => row.heading === 'Establishing a place');
   const owed = await game.call('table.capsule');
   assert.equal(owed.mods.instructions.find(row => row.mod === 'narration-craft').form, 'indexed');
-  assert.deepEqual([section(owed).due, section(owed).triggers], [true, ['state:establish', 'before_apply:move']]);
+  assert.deepEqual([section(owed).kind, section(owed).on, owed.mods.establish != null], ['author', ['establish'], true]);
   await game.call('table.narrate', {call_id: 't0-c1', text: 'You push open the door of Knott\'s office.'});
   await game.call('table.player_input', {text: 'I go to the Globe.'});
-  assert.equal(section(await game.call('table.capsule')).due, false, 'established: the gate is shut');
+  assert.equal((await game.call('table.capsule')).mods.establish, undefined, 'established: nothing owed');
   await game.call('table.apply', {call_id: 't1-c1', effects: [{kind: 'move', to: 'newspaper-morgue', travel_minutes: 30}]});
   await game.call('table.narrate', {call_id: 't1-c2', text: 'How long the walk takes is up to the table.', _interaction_scope: 'reference'});
   assert.equal((await game.record(1)).establish, undefined, 'a reference answer is not a world turn');
   await game.call('table.player_input', {text: 'I look around the newsroom.'});
   const still = await game.call('table.capsule');
-  assert.deepEqual([section(still).due, still.mods.establish.place.id], [true, 'newspaper-morgue'], 'still owed: nothing in the fiction established it');
+  assert.deepEqual(still.mods.establish.place.id, 'newspaper-morgue', 'still owed: nothing in the fiction established it');
   await game.call('table.narrate', {call_id: 't2-c1', text: 'The newsroom is long and loud.'});
   await game.call('table.player_input', {text: 'I sit down.'});
-  assert.equal(section(await game.call('table.capsule')).due, false, 'established now');
+  assert.equal((await game.call('table.capsule')).mods.establish, undefined, 'established now');
 });
 
 test('a place the party already stood in when nothing was owed is not owed by standing; a stranded arrival is owed on the next turn', async t => {
