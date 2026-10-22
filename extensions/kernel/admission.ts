@@ -395,8 +395,10 @@ export const TRIGGER_KINDS: ReadonlySet<string> = new Set(["move", "place", "clu
 /**
  * §249 (owner 2026-10-21): in the single-Keeper typed path the Keeper itself judges whether the player selected these
  * lines. Real play kept refusing them on the reviewer's uncertainty (movement and local positions, explicit waits and
- * activity time, ordered services with their goods and payment), so they are not put to the consent review. Document
- * writes on an object, maps, usages and resolve stay reviewed; kernel validation of every line is unchanged.
+ * activity time, ordered services with their goods and payment), so they are not put to the consent review. §249.6
+ * (owner 2026-10-21): a document write on an object is the Keeper's too -- the reviewer refused six of eight explicit
+ * "copy it into my notebook" writes across six tables. Maps and usages stay reviewed; kernel validation of every line,
+ * the malformed-write refusal and the selected-recording check are unchanged.
  */
 export const KEEPER_JUDGED_KINDS: ReadonlySet<string> = new Set(["move", "place", "time", "cash", "item", "object"]);
 const documentWrite = (effect: Record<string, unknown>): boolean =>
@@ -406,7 +408,7 @@ export function keeperJudgedKinds(effects: readonly unknown[]): string[] {
 	return [...new Set(effects.flatMap(effect => {
 		const row = effect && typeof effect === 'object' ? effect as Record<string, unknown> : {};
 		const kind = text(row.kind);
-		return kind && KEEPER_JUDGED_KINDS.has(kind) && !(kind === 'object' && documentWrite(row)) ? [kind] : [];
+		return kind && KEEPER_JUDGED_KINDS.has(kind) ? [kind] : [];
 	}))];
 }
 
@@ -593,7 +595,7 @@ export function admissionRequest(tool: string, payload: Record<string, unknown>,
 			if (!kind || !TRIGGER_KINDS.has(kind)) return false;
             if(kind==='place'&&['establish','relate'].includes(String(effect.action)))return false;
             if(scope.consentOnly&&['clue','handout'].includes(kind))return false;
-            if(scope.consentOnly&&KEEPER_JUDGED_KINDS.has(kind)&&!(kind==='object'&&documentWrite(effect)))return false;
+            if(scope.consentOnly&&KEEPER_JUDGED_KINDS.has(kind))return false;
 			if (kind === "cash" && effect.mode === "quote") return false;
 			if (kind === "move" && here.includes(norm(effect.to)) && !text(effect.label)) return false;
 			if (kind === "object") {
