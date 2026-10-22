@@ -339,6 +339,18 @@ test('a clue refused away from its place names where it is found; the move there
     assert.ok(state(k).discovered_clues.includes('knott-research-leads'));
 });
 
+test('an empty assessment beside a registered person names who is registered; moving them away first lands it (live el-v2-20261022h T14)',async t=>{
+    const k=await kernel(t);await openTurn(k,'Knott has gone home; I find the office empty.');
+    const empty=compileTurnPacket({version:4,commands:[{kind:'scene',service:'closed',crowd:'empty',review_after_minutes:45}]}).effects;
+    const refused=await k.tableErr('apply',{call_id:'t1-c1',effects:empty});
+    assert.equal(refused.code,'invalid_params');
+    const present=refused.details?.present??[];
+    assert.ok(present.length>0&&present.every((ref:string)=>Object.values(state(k).npc_references?.by_node??{}).includes(ref)),JSON.stringify(refused));
+    assert.ok(String(refused.fix).includes(present[0]),'the fix names them too, for paths that render only the fix');
+    await k.table('apply',{call_id:'t1-c1',effects:[...present.map((ref:string)=>({kind:'npc',name:ref,to:'away',why:'He went home for the night.'})),...empty]});
+    assert.equal(state(k).scene_activity[state(k).active_scene].crowd,'empty');
+});
+
 test('a place\'s visit history is what was shown there on earlier turns, at any point and by any sense (§250.18)',async t=>{
     const k=await kernel(t);await openTurn(k,'I look out of the office window.');
     const office=state(k).active_scene;

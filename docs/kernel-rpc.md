@@ -51189,6 +51189,13 @@ expired assessment publishes as population `unknown` (`scene-population` lane, `
 `unassessed`). The Keeper's own empty assessment beside a seated person still refuses in the kernel, and the
 supplement after a settled arrival into an empty-assessed scene is still asked for.
 
+That kernel refusal names who is registered (`el-v2-20261022h` T14). Back at Knott's office at night, the Keeper called
+the room empty, and the refusal did not say who was still seated there, so the Keeper had to guess. It now carries
+`details.present`, the seated people's stable `npc_N` references (or the handle of a person who has none). Its fix
+names the same people inline, because some host paths render only the fix. The fix says to move each one away (or to
+where they went) before the empty assessment, or to assess the people who are there. Test:
+`tests/integration/enhanced-locations.test.ts` (empty assessment beside a registered person).
+
 ### 250.7 Places an NPC can name
 
 Live (`el-v2-20261021c` T6–T7, one undelivered turn and five refusals; `el-v2-20261021b` T6): asked the way to the
