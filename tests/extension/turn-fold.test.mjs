@@ -44,3 +44,19 @@ test('a result folded on an earlier request stays folded with no need',()=>{
     assert.deepEqual(folded.map(row=>row.id),['d']);
     assert.deepEqual(foldConsumedReads(messages,0,size).folded,[]);
 });
+
+test('disclosed detail and a read repeated after its fold stay whole',()=>{
+    const list=[
+        {role:'user',content:[{type:'text',text:'I pay the clerk.'}]},
+        call('cap','lookup',{kind:'capability',name:'cash'}),result('cap','lookup',big('CAPABILITY_DETAIL')),
+        call('sec','mod',{name:'pacing: Time'}),result('sec','mod',big('SECTION_TEXT')),
+        call('src','lookup',{kind:'source',query:'clerk'}),result('src','lookup',big('SOURCE_FIRST')),
+        call('again','lookup',{kind:'source',query:'clerk'}),result('again','lookup',big('SOURCE_AGAIN')),
+        call('last','look'),result('last','look',big('LATEST_READ')),
+    ];
+    const first=foldConsumedReads(list,1e9,size);
+    assert.deepEqual(first.folded.map(row=>row.id),['src','again']);
+    const signatures=new Set(first.folded.filter(row=>row.id==='src').map(row=>row.signature));
+    const later=foldConsumedReads(list,1e9,size,new Set(['src']),signatures);
+    assert.deepEqual(later.folded.map(row=>row.id),['src'],'the repeated read is kept whole');
+});

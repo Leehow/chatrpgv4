@@ -109,7 +109,9 @@ export function normalizeTurnPacketArguments(input:unknown):{args:unknown;repair
   return normalizeToolArgumentSyntax(TURN_PACKET_ROUTINE_PARAMETERS,input,{boundedIntegers:true,exactBooleans:true,partialTransport:true});
 }
 /** One current parameter contract for the native declaration and submission. */
-export function turnPacketParameterSchema(journeySettled=false,timeBands?:readonly string[],moveChoices?:readonly Record<string,unknown>[],sceneRequired=false,bindings?:DecisionBindings,locations=false,timeBandRows?:readonly {handle:string;covers?:string}[],routine=false):TSchema {
+export function turnPacketParameterSchema(journeySettled=false,timeBands?:readonly string[],moveChoices?:readonly Record<string,unknown>[],sceneRequired=false,bindings?:DecisionBindings,locations=false,timeBandRows?:readonly {handle:string;covers?:string}[],routine=false,
+    /** Whether location turns project the location provider's owner view; false leaves the raw commands for an entry view. */
+    ownerView=true):TSchema {
     // §247.3: the routine element exists only while an active package declares the routine-summary capability.
     const schema:Record<string,any>=structuredClone(routine?TURN_PACKET_ROUTINE_PARAMETERS:TURN_PACKET_PARAMETERS);
     const meanings=timeBandRows?.filter(row=>timeBands?.includes(row.handle)&&row.covers).map(row=>`${row.handle}: ${row.covers}`);
@@ -138,7 +140,7 @@ export function turnPacketParameterSchema(journeySettled=false,timeBands?:readon
     if(journeySettled)schema.properties.commands=Type.Array(Type.Union([...(locations?arrivedLocal:[]),...local,issuedNpc,walkOn,scene,relationship]),{maxItems:12,...stationary});
     else schema.properties.commands=Type.Union([Type.Array(Type.Union([...issuedMoves,...journey,Type.Object({...boundedTime.properties,beyond_travel:Type.Literal(true)},timeOptions),...local,issuedNpc,walkOn,scene,relationship]),{maxItems:12,...moving}),Type.Array(Type.Union([boundedTime,...local,issuedNpc,walkOn,scene,relationship]),{maxItems:12,...stationary})]);
     if(sceneRequired)schema.required=[...new Set([...(schema.required??[]),'commands'])];
-    return locations?locationCommandOwner(schema as TSchema):schema as TSchema;
+    return locations&&ownerView?locationCommandOwner(schema as TSchema):schema as TSchema;
 }
 /** Install the current execution contract after either supported provider conversion. */
 export function turnPacketProviderPayload(payload:unknown,schema:TSchema=turnPacketParameterSchema(),requireTool=true):unknown {

@@ -20,6 +20,7 @@ import {patchCard} from "../table/card-patch.ts";
 import { SINGLE_PASS_NARRATION } from '../../kernel-ts/runtime/narration-policy.ts';
 import {ArtifactTextStream} from '../../runtime/final-output-stream.ts';
 import {moveEstablishmentRefusal} from '../../shared/move-protocol.ts';
+import {locationCommandEntry} from '../../shared/place-structures.ts';
 import {SAME_KEEPER_AFTER_RESULT_GUIDANCE} from '../../runtime/keeper-output-guidance.ts';
 import {scenePopulationRequired,sceneAssessmentExpiredDuringActivity} from '../../runtime/scene-population.ts';
 import {ExpressionPlanStream,writeIsolatedExpression,decisionScene,decisionClock,decisionRecentPublic,decisionResponseScope,decisionObservationScope} from '../../runtime/isolated-expression.ts';
@@ -9044,9 +9045,15 @@ export default function (pi: ExtensionAPI, host: {capabilities?:RuntimeCapabilit
                 await packetTimeBandHandles(table);
             }
             const choices=keeperRun?.prescreen?.choices?turnPacketMovementChoices(keeperRun.prescreen.choices):undefined;
-            const schema=turnPacketParameterSchema(journeySettled,table?.packetTimeBands,choices,table?.packetSceneRequired??true,table?packetContent(table).bindings():undefined,!!table&&table.locationContextTurn===table.turn,table?.packetTimeBandRows,table?.packetRoutineSummary===true);
+            const locations=!!table&&table.locationContextTurn===table.turn;
+            const schema=turnPacketParameterSchema(journeySettled,table?.packetTimeBands,choices,table?.packetSceneRequired??true,table?packetContent(table).bindings():undefined,locations,table?.packetTimeBandRows,table?.packetRoutineSummary===true);
             if(table)table.packetParameters={turn:table.turn,run:keeperRun?.runId,schema};
-            outgoing=turnPacketProviderPayload(outgoing,schema,table?.interactionScope!=='reference');
+            // Experiment (PI_COC_FIXED_TOOLS=1): the declaration keeps place commands at their entry form on a location
+            // turn; their grammar is disclosed in the conversation and `schema` above still validates the packet.
+            const declared=locations&&process.env.PI_COC_FIXED_TOOLS==='1'
+                ?locationCommandEntry(turnPacketParameterSchema(journeySettled,table?.packetTimeBands,choices,table?.packetSceneRequired??true,table?packetContent(table).bindings():undefined,locations,table?.packetTimeBandRows,table?.packetRoutineSummary===true,false))
+                :schema;
+            outgoing=turnPacketProviderPayload(outgoing,declared,table?.interactionScope!=='reference');
         }
 		if (outgoing !== event.payload) return outgoing;
 	});

@@ -173,7 +173,7 @@ export function installContextPolicy(pi: ExtensionAPI, writeTelemetry: (row: Row
     // The same experiment keeps place and output at their entry declarations on every request; a location turn's
     // command grammar is disclosed in the conversation instead of widening the tool list.
     const locationView=()=>!fixedTools()&&locationDetail();
-    let turnFolds={input:'',ids:new Set<string>()};
+    let turnFolds={input:'',ids:new Set<string>(),signatures:new Set<string>()};
     // Both discovery stages reserve from the same preparation owner and its foreground parent.
     // A missing owner is a full-view fallback, never an independent provider allowance.
     const visibilityMode=()=>fallbackForInput?'full':discoveryMode();
@@ -1129,12 +1129,12 @@ export function installContextPolicy(pi: ExtensionAPI, writeTelemetry: (row: Row
         // folded, oldest first; a result folded once stays folded for the input, so later requests keep the same prefix.
         if(fixedTools()){
             const inputKey=String(inputEpoch??snapshot.key);
-            if(turnFolds.input!==inputKey)turnFolds={input:inputKey,ids:new Set()};
+            if(turnFolds.input!==inputKey)turnFolds={input:inputKey,ids:new Set(),signatures:new Set()};
             const need=sectionsMessage&&!fits([...outgoing,sectionsMessage])
                 ?requestSize([...outgoing,sectionsMessage])+hintBytes+systemBytes-ceiling+1024:0;
-            const fold=foldConsumedReads(outgoing,need,requestSize,turnFolds.ids);
+            const fold=foldConsumedReads(outgoing,need,requestSize,turnFolds.ids,turnFolds.signatures);
             if(fold.folded.length){
-                outgoing=fold.messages;for(const row of fold.folded)turnFolds.ids.add(row.id);
+                outgoing=fold.messages;for(const row of fold.folded){turnFolds.ids.add(row.id);turnFolds.signatures.add(row.signature);}
                 record({lane:'context',event:'turn_reads_folded',turn:snapshot.binding.turn,count:fold.folded.length,
                     bytes:fold.folded.reduce((sum,row)=>sum+row.bytes,0),need});
             }
