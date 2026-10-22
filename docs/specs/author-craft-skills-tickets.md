@@ -78,3 +78,17 @@ correctness, completeness, Chinese prose and author first-text latency.
 - [ ] Evidence recorded under the test storage contract; findings reported to the owner.
 
 ## Comments
+
+2026-10-22, ticket 06 live comparison (MiniMax-M3.1-Flash-Preview / medium, the-haunting, pregen thomas-hayes, zh-Hans,
+same five player inputs; the old arm at 231fc099e in a detached worktree):
+- Evidence: old `chatrpgv4-wt-author-craft-base/.coc/playtests/ac-base` (campaign `ac-base-1022`); new
+  `chatrpgv4-wt-author-craft/.coc/playtests/ac-new` (campaign `ac-new-1022`); `lane: "author-craft"` rows per turn
+  (12-19 KB of craft, 7-10 sections).
+- Arrival at the Globe: the new author established the place with the people's looks, dress and reception, a spoken
+  refusal, senses and a hook; the old arm's arrival and the next turn carried no spoken line from the people present.
+  The old arm leaked English ("downtown") into Chinese prose; the new arm did not.
+- Author wall time per turn was similar (old 9-30 s, new 11-29 s; MiniMax variance exceeds the difference); no latency claim.
+- Not caused by this change, recorded for their owners: a person's improvised looks changed between turns while
+  first sight stayed owed (looks are not persisted; the entity-descriptor work, §255); the author put the text of the
+  investigator's own address slip into an NPC's answer (material attribution).
+- Full suite on leehow-pc at fc08909bc: extension 6465 pass / 0 fail, integration 2273 pass / 0 fail, loop 12 / 12.
