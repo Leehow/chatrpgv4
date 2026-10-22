@@ -239,3 +239,29 @@ test('packet guidance prefers revealing the exhibit to applying the clue it teac
   assert.match(TURN_PACKET_GUIDANCE,/exhibit_ref/);
   assert.match(TURN_PACKET_GUIDANCE,/do not apply the clue it teaches/);
 });
+
+test('a lookup source answer is Keeper-only: its text never reaches the author task (§257.P1)',async t=>{
+  const SENTINEL='SOURCE_ANSWER_SENTINEL_Q7';
+  const answer={status:'answered',answer:`${SENTINEL} Knott keeps a second ledger.`,limitations:'',source_refs:REFS,authority:'source-consultation',prepared:false,supported:true};
+  const seen=[];let table;
+  const engine=createHybridEngine({env,decision:null});
+  const content=contentWith(t,EXHIBITS());
+  const keepers=[()=>[fauxToolCall('lookup',{kind:'source',source_mode:'answer',query:'Steven Knott',question:'What does he keep?'})],
+    catalog=>reveals(['exhibit-desk-tap'])(catalog)];
+  table=await openTable({legacyDeliveryFixtures:false,realKernel:true,seedCampaign:false,prepareWorkspace:workspace=>opened(workspace,content),env:{...env,PI_COC_CONTENT_ROOT:content},runDriver:engine.runDriver,
+    extraExtensions:[{name:'engine',factory:engine.extension}],responses:keepers.map(keeper=>context=>{
+      const catalog=catalogOf(context);seen.push(context);return fauxAssistantMessage(keeper(catalog,table),{stopReason:'toolUse'});
+    })});
+  t.after(()=>table.dispose());
+  let asked=0;
+  table.emit('coc:reading-bridge',{async reference(){return undefined;},async ensure(_mid,params){asked++;return {state:'ready',source_answer:answer};}});
+  await table.session.prompt('I ask what Knott keeps in the desk.');
+  assert.deepEqual(table.extensionErrors,[]);
+  assert.ok(asked>=1,'the Keeper really consulted the source');
+  const lookup=table.session.messages.find(message=>message.role==='toolResult'&&message.toolName==='lookup');
+  assert.ok(JSON.stringify(lookup).includes(SENTINEL),'the Keeper received the answer');
+  const task=authorTask(table);
+  assert.ok(!JSON.stringify(task).includes(SENTINEL),'the author input carries no source answer');
+  const written=table.telemetry().find(row=>row.lane==='isolated-expression'&&row.event==='written');
+  for(const file of ['task.json'])assert.ok(!readFileSync(join(written.attempt,file),'utf8').includes(SENTINEL));
+});
