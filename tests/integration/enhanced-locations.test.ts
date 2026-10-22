@@ -309,3 +309,18 @@ test('a place move can name a book place in the player\'s language, and the card
     await plain.table('apply',{call_id:'t1-c1',effects:[{kind:'place',action:'move',to:'hall-of-records'}]});
     assert.equal(state(plain).scene_labels['hall-of-records'],undefined,'without a label nothing is named for the player');
 });
+
+test('a road already travelled keeps its length when a later trip names another band; a journey\'s own minutes still count (§250.17, live el-v2-20261021f T2/T7)',async t=>{
+    const k=await kernel(t);await openTurn(k,'I walk a few doors down to the corner cafe, then come back.');
+    const office=state(k).active_scene;
+    await k.table('apply',{call_id:'t1-c1',effects:[{kind:'place',action:'move',to:'Corner Cafe',via:'A few doors down the street',travel_band:'adjacent',additions:[hotel('Corner Cafe')]}]});
+    const out=(await k.table('status')).receipts.filter((receipt:Row)=>receipt.kind==='move').at(-1);
+    await k.table('apply',{call_id:'t1-c2',effects:[{kind:'place',action:'move',to:office,travel_band:'local_travel'}]});
+    const back=(await k.table('status')).receipts.filter((receipt:Row)=>receipt.kind==='move').at(-1);
+    assert.equal(back.minutes,out.minutes,'the same few doors take the same time back');
+    assert.ok((back.adjusted??[]).some((row:Row)=>row.reason==='road_known'&&row.given==='local_travel'),JSON.stringify(back.adjusted));
+    await k.table('apply',{call_id:'t1-c3',effects:[{kind:'place',action:'move',to:'Corner Cafe',travel_band:'local_travel',travel_minutes:25}]});
+    assert.equal((await k.table('status')).receipts.filter((receipt:Row)=>receipt.kind==='move').at(-1).minutes,25,'a journey\'s own minutes are its own (§250.5)');
+    await k.table('apply',{call_id:'t1-c4',effects:[{kind:'place',action:'move',to:office,travel_band:'long_travel'}]});
+    assert.equal((await k.table('status')).receipts.filter((receipt:Row)=>receipt.kind==='move').at(-1).minutes,out.minutes,'one slow journey does not change the road');
+});

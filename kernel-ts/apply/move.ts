@@ -92,7 +92,7 @@ export function stageMove(context: ApplyContext, effect: Row, travelRows?: Trave
     let minutes = effect.travel_minutes, travel: Row | null = null;
     // §218.3: a road row named instead of minutes takes the row's usual minutes, as §138.9 fills a book road (never a roll).
     const band = effect.travel_band;
-    let travelAdjusted: Row | null = null;
+    let travelAdjusted: Row | null = null, roadKept = false;
     if (band != null) {
         if (typeof band !== 'string' || !travelRows?.has(band))
             throw new RpcError('invalid_params', `${repr(band)} is not a road row`, {
@@ -100,10 +100,20 @@ export function stageMove(context: ApplyContext, effect: Row, travelRows?: Trave
         // §250.5: the row bounds the journey and the Keeper may say how long this one takes; a figure outside the row is
         // brought to its edge and reported. A row without a range keeps its usual minutes, as before.
         const range = travelRows.ranges?.get(band);
-        if (minutes != null && !range)
+        // §250.17: a road already known between these two places keeps its length; a band beside it names nothing new
+        // (live el-v2-20261021f T2/T7: the same few doors walked out at 0 minutes and back at 30). Minutes the Keeper gives
+        // for this journey are still its own (§250.5).
+        const known = bookRoadMinutes(graph, current, destination) ?? tableRoad(world, from, target)?.minutes ?? null;
+        roadKept = known !== null;
+        if (known !== null && minutes == null) {
+            travelAdjusted = { field: 'travel_band', reason: 'road_known', given: band, minutes: known };
+            minutes = known;
+            travel = { basis: 'travelled' };
+        }
+        else if (minutes != null && !range)
             throw new RpcError('invalid_params', 'travel_band names the road\'s length, and travel_minutes is another; give one', {
                 fix: 'leave travel_minutes out to use the road row, or travel_band out to give your own minutes', details: { field: 'travel_band', reason: 'travel_conflict' } });
-        if (minutes != null && range) {
+        else if (minutes != null && range) {
             if (!integer(minutes) || number(minutes) < 0) throw new RpcError('invalid_params', 'travel_minutes must be a non-negative integer');
             const bounded = Math.min(range.max, Math.max(range.min, number(minutes)));
             if (bounded !== number(minutes)) travelAdjusted = { field: 'travel_minutes', reason: 'clamped_to_band', given: number(minutes), min: range.min, max: range.max };
@@ -130,7 +140,7 @@ export function stageMove(context: ApplyContext, effect: Row, travelRows?: Trave
     if (!integer(minutes) || number(minutes) < 0)
         throw new RpcError('invalid_params', 'travel_minutes must be a non-negative integer');
     // §218.3: a road no book road times keeps the minutes this move gave it, so the next trip either way takes the same.
-    if ((band != null || effect.travel_minutes != null && number(minutes) > 0) && bookRoadMinutes(graph, current, destination) === null)
+    if (!roadKept && (band != null || effect.travel_minutes != null && number(minutes) > 0) && bookRoadMinutes(graph, current, destination) === null)
         (world.table_roads ??= {})[roadKey(from, target)] = { minutes: number(minutes), basis: band != null ? 'banded' : 'given', turn: turn.turn, ...(band != null ? { band } : {}) };
     // §218.8: a stated end this turn whose journeys come before it ("ride home, then work until three") already counts this
     // journey: the move lands inside that time, keeps its own minutes for the road above, and moves the clock no further.
