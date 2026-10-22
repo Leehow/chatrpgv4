@@ -654,6 +654,18 @@ export class Reading {
         return { state: string(reply.state), focus, ...(truth(reply.job_id) ? { job_id: reply.job_id } : {}) };
     }
     /**
+     * §257.L1: a legacy graph (read before exhibits existed) has a scene no exhibit is carried by. The first arrival at it queues one
+     * background `material: "exhibits"` detail read of that scene and never waits for it: the same focus is the same job, so
+     * a scene already queued, running or read (even read to nothing) queues no second one. A graph without a bound book queues nothing.
+     */
+    async queueSceneExhibits(graph: ModuleGraph, scene: Row): Promise<Row> {
+        const mid = graph.moduleId;
+        if (graph.materialOverride || graph.exhibitsOf(string(scene.node_id)).length || !await this.store.exists(mid)) return { state: 'none' };
+        const focus = readingFocus(graph, scene);
+        const reply = await this.request({ module_id: mid, purpose: 'detail', material: EXHIBITS_MATERIAL, focus, foreground: false });
+        return { state: string(reply.state), focus, ...(truth(reply.job_id) ? { job_id: reply.job_id } : {}) };
+    }
+    /**
      * §257.R: the pages an exhibits reading of `focus` opens: those the focus node cites and those of the nodes a claim links to it
      * (the people present, the clues and handouts found there), at most `EXHIBIT_READ_PAGES` of them, the focus node's own first.
      * Nothing is guessed from names: the graph's own references decide. A focus the graph does not hold has none, and the
