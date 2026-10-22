@@ -91,7 +91,8 @@ export function checkExhibits(drafted: unknown[], scope: ExhibitScope): ExhibitC
                 const references = [...surface.text.matchAll(WHO_REFERENCE)].map(match => match[1]);
                 if (references.some(who => scope.nodes.get(who)?.node_kind !== 'npc')) noted(found, 'exhibit_who_unknown', '{{who:<node_id>}} names a person of the graph');
                 const bare = surface.text.replace(WHO_REFERENCE, '');
-                const named = persons.flatMap(person => names(person).filter(name => bare.includes(name)));
+                // A verbatim surface (a handout, a sign, read-aloud) shows names as printed; the reader quotes them as the page does.
+                const named = surface.verbatim ? [] : persons.flatMap(person => names(person).filter(name => bare.includes(name)));
                 if (named.length) noted(found, 'exhibit_name_in_surface', `a person's name appears literally in the surface; use {{who:<node_id>}}: ${[...new Set(named)].join(', ')}`);
             }
         }

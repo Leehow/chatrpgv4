@@ -100,7 +100,7 @@ fix or replace it, about an hour"); without them it held the Keeper summary and 
   voice without owners (the reader must make an owner-less voice a `perception` on `sound`); owners not linked to the
   carrier or to `teaches` by an existing knowledge relation (testimony only); `teaches` pointing at anything but a
   clue or a knowledge claim; missing `source_refs`; surface over the byte cap; a person's display name or alias
-  literally in a surface where the reader should have used `{{who:}}` (an exact-name check from the graph's own
+  literally in a paraphrased (non-verbatim) surface where the reader should have used `{{who:}}` (an exact-name check from the graph's own
   identity fields, not a semantic list).
 - **Reader**: the opening and detail read instructions (`content/setup/visual-reader/`) replace "do not extract
   dialogue, mannerisms, read-aloud" with "extract exhibits for the nodes this task makes ready", with the player-safety

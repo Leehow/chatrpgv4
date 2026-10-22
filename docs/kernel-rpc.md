@@ -51727,7 +51727,7 @@ as `{exhibit_id, path: "/exhibits/<i>", rule, rules[], message}` in `filled.exhi
 | `exhibit_teaches_target` | `teaches` names anything but a `clue` node or a knowledge claim's `claim_id` |
 | `exhibit_source_refs` | `source_refs` missing, empty, outside the PDF or on a page this reader did not view |
 | `exhibit_surface_oversize` | surface text over the byte cap |
-| `exhibit_name_in_surface` | the `name` or an `alias` of any `npc` node of the graph occurs literally in the surface text after `{{who:...}}` references are removed: exact, case-sensitive substring of the graph's own identity fields; no list, pattern or semantic judgement |
+| `exhibit_name_in_surface` | the `name` or an `alias` of any `npc` node of the graph occurs literally in a non-verbatim surface text (a verbatim handout, sign or read-aloud shows names as printed) after `{{who:...}}` references are removed: exact, case-sensitive substring of the graph's own identity fields; no list, pattern or semantic judgement |
 | `exhibit_who_unknown` | a `{{who:<id>}}` names no `npc` node |
 
 Whether a surface leaks a Keeper secret is **not** decided here (Agents.md: no semantic classification by lists or

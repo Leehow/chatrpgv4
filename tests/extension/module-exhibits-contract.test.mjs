@@ -74,6 +74,8 @@ const GOOD = () => [
     exhibit('exhibit-hall-sight', 'description', 'scene-hall', 'sight', {surface: surface('Lamp oil and damp plaster.', {verbatim: true})}),
     exhibit('exhibit-edna-look', 'appearance', 'npc-edna-marsh', 'sight'),
     exhibit('exhibit-ledger-page', 'document', 'handout-ledger', 'text', {teaches: ['clue-ledger'], keeper_note: 'The date is the lie.'}),
+    // A verbatim handout shows a name as printed: the name check applies to paraphrase only.
+    exhibit('exhibit-ledger-signature', 'document', 'handout-ledger', 'text', {surface: surface('Received with thanks, Edna Marsh.', {verbatim: true})}),
     exhibit('exhibit-edna-lie', 'testimony', 'npc-edna-marsh', 'speech', {owners: ['npc-edna-marsh'], stance: 'lie', teaches: ['clue-ledger'],
         surface: surface('{{who:npc-edna-marsh}} says nobody came down here.')}),
     exhibit('exhibit-edna-voice', 'voice', 'npc-edna-marsh', 'speech', {owners: ['npc-edna-marsh']}),
