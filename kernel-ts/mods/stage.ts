@@ -187,6 +187,11 @@ export async function stageModEffect(context: ApplyContext, original: Row, sheet
             effect = {...effect, quantity: count, condition}; sheet.equipment.splice(index, 1);
         }
         const beforeCondition = prior?.state.condition ?? null;
+        // A carrier that has never held text has nothing to write over or append to; it is given its first text instead.
+        if (prior && !division && ['write','append'].includes(row(effect.document).action) && !truth(prior.document))
+            throw new RpcError('invalid_params', 'Initialize the writable carrier before changing its text',
+                {fix:'This carrier has no text yet. Give its first text as object.document {text} (optionally with presentation) and omit document.action; later changes use action write or append.',
+                 details:{field:'object.document',reason:'document_not_initialized'}});
         const writingBefore = prior && ['write','append'].includes(row(effect.document).action)
             ? {version:await documentVersion(campaign,world,prior),text:string(prior.document?.text),
                 root:rootObjectOwner(world,prior),direct:clone(prior.owner)} : null;

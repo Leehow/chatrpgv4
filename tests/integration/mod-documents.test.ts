@@ -128,3 +128,16 @@ test('test_instance_writing_is_captured_once_ahead_of_a_blank_template',async t=
   const changed=await edit(k,received,'save','A temporary edit');assert.equal((await edit(k,changed,'reset')).text,'The received task details');
   const definition=Object.values(readJson(join(campaignDir(k.workspace),'world.json')).objects.definitions)[0] as Row;assert.equal(definition.document.text,'');
 });
+
+test('test_writing_a_carrier_without_text_is_refused_with_its_initialization',async t=>{
+  // 2026-10-22 sandbox (mc1 turn 3): writing into an adopted notebook that had no document yet threw
+  // "TypeError: unsupported JSON value" from the version digest instead of the carrier's own refusal.
+  const k=await kernel(t);await openTurn(k);const draft=paper();delete draft.document;
+  await k.table('apply',{call_id:'t1-c1',effects:[await prepared(k,draft),{kind:'object',name:'Notebook',to:'Thomas Hayes'}]});
+  const refused=await k.tableErr('apply',{call_id:'t1-c2',effects:[{kind:'object',name:'Notebook',from:'Thomas Hayes',to:'Thomas Hayes',
+    document:{action:'write',text:'Line one\nLine two'},why:'Hayes writes down what he learned'}]});
+  assert.equal(refused.code,'invalid_params');assert.equal(refused.details?.reason,'document_not_initialized');
+  await k.table('apply',{call_id:'t1-c3',effects:[{kind:'object',name:'Notebook',from:'Thomas Hayes',to:'Thomas Hayes',
+    document:{text:'Line one\nLine two',presentation:'notebook'},why:'Hayes writes down what he learned'}]});
+  assert.equal((await view(k)).text,'Line one\nLine two');
+});
