@@ -383,7 +383,7 @@ test('native final output retains the production rule path and delivers actual p
  const author=table.telemetry().find(row=>row.lane==='isolated-expression'&&row.event==='written');assert.ok(author,JSON.stringify(table.telemetry().slice(-8)));
  const task=JSON.parse(readFileSync(join(author.attempt,'task.json'),'utf8'));
  const roll=JSON.parse(readFileSync(join(table.workspace,'.coc/campaigns/test-camp/turns/0001.json'))).receipts.find(row=>row.kind==='roll');assert.ok(roll);
- assert.deepEqual(task.decision_context.settled_results.checks,[{kind:'roll',skill:roll.skill,passed:roll.passed,level:roll.level}]);
+ assert.deepEqual(task.decision_context.settled_results.checks,[{kind:'roll',skill:roll.skill,passed:roll.passed,level:roll.level,goal:'Notice signs around the desk'}],'§253.2: the author learns what the check was for');
  assert.equal(table.telemetry().filter(row=>row.lane==='isolated-expression'&&row.event==='start').length,1);
 });
 
