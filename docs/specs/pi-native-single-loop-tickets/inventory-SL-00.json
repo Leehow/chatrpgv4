@@ -1830,6 +1830,18 @@
       "note": "Legacy non-source-reference path only (section 240.2): one background zero-tool comparison, with a 120 s process ceiling. The native source-reference runtime returns through typed span choices before this branch; no generative fallback follows Jev uncertainty."
     },
     {
+      "file": "runtime/jev/kept-looks.ts",
+      "symbol": "completeLooks",
+      "kind": "lane",
+      "callee": "runLane",
+      "count": 1,
+      "owner": "Kept looks: the look questions of the first-sight lane (contract 255, owner 2026-10-22)",
+      "path": "app-play-gated",
+      "role": "leaf",
+      "trace": "lane: first-sight, event: looks; section 255.3",
+      "note": "Legacy non-source-reference path only: one background zero-tool completion after delivery, never awaited, 120 s ceiling. The host keeps only spans located in the delivered prose; table.looks is the only write. It cannot start, continue or steer a Keeper run."
+    },
+    {
       "file": "runtime/jev/npc-act.ts",
       "symbol": "createNpcActLane.generate",
       "kind": "lane",
@@ -2471,6 +2483,18 @@
       "role": "leaf",
       "trace": "lane: first-sight; section 240.2",
       "note": "One bounded typed batch selects among exact host-issued sentence spans after delivery. Mixed, uncertain or unavailable items stay owed. No generative fallback, prose rewrite or world mutation; existing tracker and kernel publication authority remain."
+    },
+    {
+      "file": "runtime/jev/first-sight.ts",
+      "symbol": "createFirstSightLane.looks",
+      "kind": "jev-adapter",
+      "callee": "createDecisionAdapter",
+      "count": 1,
+      "owner": "Native background kept-looks span selection (contract 255)",
+      "path": "app-play-gated",
+      "role": "leaf",
+      "trace": "lane: first-sight, event: looks; section 255.3",
+      "note": "One bounded typed batch after delivery: per sentence unit of the reply, whose look it shows or none; per person, the pronoun the reply uses or none. Uncertainty selects nothing. No generative fallback or prose rewrite; table.looks is the only write."
     },
     {
       "file": "extensions/memory/index.ts",
