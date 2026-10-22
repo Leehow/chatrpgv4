@@ -377,6 +377,10 @@ export const MessageView = memo(function MessageView({ message, showFooter, elap
       <pre>{message.failureNotice.details}</pre>
     </CollapsibleActivityCard>{footer}
   </article>
+  if (message.role === 'assistant' && message.tableNote) return <article className="message assistant-message table-note" role="note">
+    <div className="table-note-label">{transcriptWord(transcriptWords, 'table_note')}</div>
+    <TranscriptMarkdown content={message.content} />{footer}
+  </article>
   if (message.role === 'assistant' && message.providerNotice) return <article className="message assistant-message provider-notice" role="status">
     <CollapsibleActivityCard kind="result" summary={message.providerNotice === 'recovered'
       ? transcriptWord(transcriptWords, 'provider_recovered') : transcriptWord(transcriptWords, 'provider_failed')}

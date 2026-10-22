@@ -15,7 +15,7 @@ export const DEFAULT_MODEL = 'minimax-cn/MiniMax-M3.1-Flash-Preview', DEFAULT_TH
 export const TEST_LANE_MODEL_ENVS = ['PI_COC_ADAPTATION_MODEL', 'PI_COC_ADMISSION_MODEL', 'PI_COC_BUILD_MODEL', 'PI_COC_EPITHETS_MODEL', 'PI_COC_ESTABLISH_REVIEW_MODEL', 'PI_COC_FIRST_SIGHT_MODEL', 'PI_COC_HANDLES_MODEL', 'PI_COC_MEMORY_MODEL', 'PI_COC_MOD_MODEL', 'PI_COC_NPCJOURNAL_MODEL', 'PI_COC_NPC_ACT_MODEL', 'PI_COC_NPC_MODEL', 'PI_COC_SPEECH_EDIT_MODEL', 'PI_COC_VERIFIER_MODEL', 'PI_COC_VOICE_MODEL'];
 export let ACK_TIMEOUT = 10, STOP_SETTLE_GRACE = 1.5, STALE_SETTLE_GRACE = 20, OPENING_QUIET = 3, HEARTBEAT_INTERVAL = 2, STARTUP_READY_TIMEOUT = 30;
 export const TOOL_RESULT_TRUNCATE_BYTES = 4096, SETTLE_EXIT_CODES: Row = { settled: 0, undelivered_with_tools: 5, empty: 4, timeout: 3 };
-export const NOTICE_DETAIL_KEYS = new Set(['provider_outage', 'commit_unavailable', 'delivery_cut_short', 'refused_effect', 'preparation_wait', 'resend_held', 'turn_unfinished', 'standing_conditions', 'input_refused', 'empty_input', 'review_unavailable', 'check_selection_unresolved']);
+export const NOTICE_DETAIL_KEYS = new Set(['table_note', 'provider_outage', 'commit_unavailable', 'delivery_cut_short', 'refused_effect', 'preparation_wait', 'resend_held', 'turn_unfinished', 'standing_conditions', 'input_refused', 'empty_input', 'review_unavailable', 'check_selection_unresolved']);
 export class DriverError extends Error {
 }
 export class DaemonUnavailable extends Error {

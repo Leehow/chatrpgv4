@@ -1602,7 +1602,8 @@ function visibleHistoryEntry(entry: any, secrets: RevealedSecret[] = [], languag
     const failure = entry.customType === "coc-delivery" && details?.turn_unfinished === true
       ? turnFailureNotice(details.failure, words.ui?.words.extension) : undefined;
     const failureNotice = failure ? {label:failure.label, details:redactText(JSON.stringify(details.failure,null,2),secrets)} : undefined;
-    return { id: entry.id, role: placedByHost ? "assistant" : "user", content: redactText(failure?.content ?? content, secrets), timestamp: asTime(entry.timestamp), ...(placedByHost ? { placedByHost: true as const } : {}), ...(help ? { help } : {}), ...(providerNotice ? { providerNotice } : {}), ...(failureNotice ? {failureNotice} : {}) };
+    const tableNote = entry.customType === "coc-delivery" && details?.table_note === true;
+    return { id: entry.id, role: placedByHost ? "assistant" : "user", content: redactText(failure?.content ?? content, secrets), timestamp: asTime(entry.timestamp), ...(placedByHost ? { placedByHost: true as const } : {}), ...(help ? { help } : {}), ...(providerNotice ? { providerNotice } : {}), ...(failureNotice ? {failureNotice} : {}), ...(tableNote ? { tableNote: true as const } : {}) };
   }
   if (entry?.type === "compaction") {
     return {

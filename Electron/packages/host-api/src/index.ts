@@ -91,6 +91,8 @@ export type HistoryEntry = {
   presentation?: {renderer:string; details:unknown};
   /** Provider outage notice outcome, projected from the host's terminal discriminator. */
   providerNotice?: "recovered" | "failed";
+  /** §256.1: the Keeper's out-of-character table note, drawn apart from the story. */
+  tableNote?: true;
   /** Readable body plus bounded diagnostics, disclosed only on request. */
   failureNotice?: {label:string; details:string};
   /** assistant only: a host-delivered opening that carries a help fold the renderer draws behind a "?" button. */
