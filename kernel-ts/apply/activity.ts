@@ -2,6 +2,7 @@
 import {RpcError} from '../errors.js';
 import {isJsonObject} from '../json.js';
 import {clockSection,npcsPresent} from '../read/capsule.js';
+import {npcReference} from '../npc/references.js';
 import {activityView,temporalAnchor} from '../read/temporal.js';
 import {clone,integer,number,row,string,type Row} from '../read/values.js';
 import {effectId,type StagedEffect} from './bookkeeping.js';
@@ -44,7 +45,14 @@ export function stageSceneActivity(context:ApplyContext,effect:Row):StagedEffect
         const people=npcsPresent(context.graph,context.world,scene).filter(node=>context.graph.isPerson(node));
         // §250.6: an empty assessment beside a seated registered person contradicts the cast; a populated one with nobody
         // registered is an unnamed crowd, which registration never has to list.
-        if(next.crowd==='empty'&&people.length)throw new RpcError('invalid_params','Population assessment conflicts with registered presence; explicitly move departed people away before an empty assessment, or assess the people who are here');
+        // live el-v2-20261022h T14: back at Knott's office at night the Keeper called it empty, and the refusal never said
+        // who was still registered there, so the Keeper had to guess.
+        if(next.crowd==='empty'&&people.length){
+            const present=people.map(node=>npcReference(context.graph,context.world,node)??context.graph.handle(node));
+            throw new RpcError('invalid_params','Population assessment conflicts with registered presence; explicitly move departed people away before an empty assessment, or assess the people who are here',{
+                fix:`Registered here now: ${present.join(', ')} (details.present). If they have left, move each one away first (an npc line with to "away" or where they went) before the empty assessment; if they are here, assess the people who are here.`,
+                details:{present}});
+        }
     }
     (context.world.scene_activity??={})[handle]=next;
     const receipt={id:effectId(context,'scene',handle),kind:'scene',call_id:context.callId,scene:handle,activity:clone(next),previous:clone(previous),why:effect.why,visibility:'keeper',at:nowIso()};
