@@ -109,6 +109,8 @@ export interface ApplyContributions {
     readonly asset?: (moduleId:string,name:string)=>Promise<Row|null>;
     readonly weaponCatalog?: (graph:ModuleGraph)=>Promise<Map<string,Row>>;
 }
+/** §253.1: a place command that registers the opening scene without moving the investigator. */
+const openingPlaceShape = (effect: Row): boolean => string(effect.kind) === 'place' && ['establish', 'observe', 'feature', 'relate'].includes(string(effect.action));
 function atIndex(error: RpcError, index: number): RpcError {
     return new RpcError(error.code, error.message, { fix: error.fix, codeDetail: error.codeDetail, details: { index, ...error.details } });
 }
@@ -120,10 +122,11 @@ export function createApplyHandlers(kernel: KernelContext, writer: ReturnType<ty
             const transaction = await writer.transaction(params, { repairLegacyTrail: false, preload: false }), { campaign, turn } = transaction;
             const effects = Array.isArray(params.effects) ? params.effects.map(effect => isJsonObject(effect) ? {...effect} : effect) : params.effects;
             const callParams = Array.isArray(effects) ? { ...params, effects: effects.map(effect => isJsonObject(effect) ? Object.fromEntries(entries(effect).filter(([key]) => !key.startsWith('_')||key==='_new_person'||key==='_population')) : effect) } : params;
+            // §253.1: the opening registers where it stands (place establish/observe/feature/relate) without moving anyone.
             // §198.3: beside the preparations the opening already admits, an npc effect shaped as a seat (stageNpc decides whether
             // it is one: a person the book places in the opening scene whom nobody has placed yet).
             const opening = Array.isArray(effects) && effects.length > 0 && effects.every(effect => isJsonObject(effect)
-                && (['define', 'object', 'ability', 'usage', 'clock','scene'].includes(string(effect.kind)) || openingSeatShape(effect) || openingActivityShape(effect) || openingInformationShape(effect)));
+                && (['define', 'object', 'ability', 'usage', 'clock','scene'].includes(string(effect.kind)) || openingPlaceShape(effect) || openingSeatShape(effect) || openingActivityShape(effect) || openingInformationShape(effect)));
             const started = await transaction.beginWrite('table.apply', callParams, { allowOpening: opening });
             if (started.kind === 'replay')
                 return started.result;

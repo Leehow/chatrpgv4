@@ -16,7 +16,8 @@ test('delivery preparation exposes actual public check outcomes without hidden g
   {...roll,id:'CONCEALED_RECEIPT',visibility:'concealed',skill:'CONCEALED_SKILL',passed:!roll.passed}];
  writeFileSync(file,JSON.stringify(turn));
  const prepared=await k.table('delivery.check',{});
- assert.deepEqual(prepared.settled_results.checks,[{kind:'roll',skill:roll.skill,passed:roll.passed,level:roll.level}]);
+ const {goal,on_failure,...check}=prepared.settled_results.checks[0];assert.equal(prepared.settled_results.checks.length,1);
+ assert.deepEqual(check,{kind:'roll',skill:roll.skill,passed:roll.passed,level:roll.level});assert.equal(goal,'Notice signs around the desk','§253.2: the author learns what the check was for');
  const publicBytes=JSON.stringify(prepared.settled_results);
  for(const forbidden of ['PRIVATE_RECEIPT','PRIVATE_SKILL','CONCEALED_RECEIPT','CONCEALED_SKILL',roll.id])assert.ok(!publicBytes.includes(forbidden));
  assert.equal(Object.hasOwn(prepared.settled_results.checks[0],'roll'),false);

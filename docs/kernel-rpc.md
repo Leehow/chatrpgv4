@@ -51362,3 +51362,55 @@ retried by Pi. The direct prose author now asks again, at most twice with a shor
 with a transient status (429, 500, 502, 503, 504, 529) before any text reached the player
 (`{lane:"isolated-expression", event:"provider_retry", status, try}`). Streamed text is never redone, and a refusal that
 outlasts the retries reaches the player as before (HTTP 504 notice, committed state kept).
+
+## 253. Table-six regressions: the opening's place, what the author is told, grant-then-roll and long costs (owner report 2026-10-22)
+
+The owner's report on `el-v2-20261021f` (and `el-v2-20261021e`) named four problems that earlier play had not shown. Each
+is traced to its writer, reader and actor (§31); none adds a review, threshold on words or keyword rule.
+
+### 253.1 The opening registers its place
+
+Enhanced Locations v2 (§250) has the Keeper register the opening place with `place establish` in the opening packet, but
+the turn-0 gate (`kernel-ts/apply/index.ts`, `allowOpening`) admitted only `define`, `object`, `ability`, `usage`,
+`clock`, `scene` and the §198 NPC shapes. Tables a–e passed only because a first-impression `resolve` happened to open
+the turn first; in f the opening was refused four times and in g nineteen, and the refusal told the Keeper to "wait for
+player_input", which the Keeper writing the opening cannot do. A `place` line whose action is `establish`, `observe`,
+`feature` or `relate` is now an opening preparation (a move still is not), and a refused opening line says the opening is
+still owed and which lines it may carry. Test: `tests/integration/opening-place-establish.test.ts`.
+
+### 253.2 The sole author is told what each settlement was for
+
+Since the structured Keeper decisions (2026-10-18/19) the sole author's only mechanics were `settled_results`, which
+carried a check as `{skill, passed, level}`, time as bare minutes, and no resource change, damage or clue. The author
+could not tell a failed Library Use from a failed Spot Hidden, nor narrate eight hours of research, a Sanity loss or a
+bruise (`el-v2-20261021e` T23/T25, `el-v2-20261021f` T18). `table.delivery.check` now adds, from receipts only: a check's
+`goal`, a failed check's `on_failure` and a sanity check's `cause`; `elapsed[] {minutes, why}`; `changes[] {resource,
+who, before, after, cause}` for investigator deltas, the cause read from the delta, its `source_receipt` or the roll of
+the same call; and `clues[] {how, found?}` (`found` only for a table-established clue's own summary). Keeper-only and
+concealed receipts stay out. The author instruction states that each listed item happened and must be perceptible, that a
+failed goal was not achieved, and that elapsed time is told through its activity.
+Test: `tests/integration/author-settled-meaning.test.ts`, `tests/integration/delivery-preparation.test.ts`.
+
+### 253.3 A roll cannot decide what was already granted
+
+A stated obligation's guards are information, never a refusal (owner ruling Q5), so the Keeper may land guarded results
+without a roll. In `el-v2-20261021f` T12 it landed the clippings, then rolled the obligation's Persuade, which failed, and
+spent three minutes reconciling. When this input already holds receipts stamped `obligation_open` for an obligation, its
+check -- claimed with `action.obligation` or folded (§134.17) -- is refused `invalid_params`
+(`obligation_outcome_landed`): the landing was the Keeper's judgment that access was given. Rolling first and landing
+after is unchanged. Test: `tests/integration/obligation-grant-then-roll.test.ts`.
+
+### 253.4 A long stated cost carries its ask
+
+§249.1 made time Keeper-judged, so nothing asked whether the player chose to spend a rule's stated cost; in T18 "fetch
+these two records" was charged two half-days and the next prose opened at night. A `where.rules[]` row whose typed
+`time_cost` is an hour or more now carries `ask_first` beside the cost (§31: cost and invitation in one row): unless the
+player already chose to spend that time, the Keeper says what each attempt costs in the fiction and lets them choose
+before rolling or charging it. The amount comes from the typed shape only. Test: `tests/integration/long-cost-ask-first.test.ts`.
+
+### 253.5 A failed check's goal
+
+A failed or fumbled ordinary check's result now carries the hint that its goal did not happen and that this input does not
+land, open, move through or reveal what the check was for (`el-v2-20261021e` T24: Strength failed and the packet moved the
+investigator through the door; `el-v2-20261021f` T21: Spot Hidden failed and the packet observed what it was for). This
+is guidance at the moment of the result; a typed binding of a check to the effects it decides is not added here.
