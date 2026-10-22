@@ -18,7 +18,7 @@ Image history is bounded. During index/read phases, write sourced entries into d
 
 ## Module reference policy: logic and campaign continuity
 
-Prepare a concise conversational boundary for a current contact: what they know, what they want, and what they will or will not disclose. Authored vagueness or refusal is usable material, not a missing exact quotation. Do not extract a dialogue script or full biography to make a conversation playable.
+Prepare a concise conversational boundary for a current contact: what they know, what they want, and what they will or will not disclose. Authored vagueness or refusal is usable material, not a missing exact quotation. Do not build a full biography to make a conversation playable; the book's own words for what a person says and how they speak are exhibits (read phase, Exhibits), not Keeper properties.
 
 For a conversational first_interaction, do not build complete combat dossiers just because the NPCs are present. Prepare their identities, motives, knowledge and immediate relationships. A later printed profile with a concrete source lead can be a deferred source_need. Ordinary numerical parameters not located in the current material are instead runtime_context for the existing Keeper/rules profile choice; do not search appendices merely to fill those numbers or prove they are absent. State the local source limitation without a whole-book absence claim. Keep already available profiles and known special item/rule conditions. If the first interaction actually requires a parameter-dependent action, its executable values must be supplied by the existing source/profile owner before use, not silently treated as ready mechanics.
 
