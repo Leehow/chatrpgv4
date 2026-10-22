@@ -51911,6 +51911,10 @@ party stands in, whether it is a campaign's opening scene or a resumed campaign'
 no exhibits. The job identity dedups every later open and move, and a kernel error there is logged (`exhibits-unavailable`)
 and never refuses the open.
 
+The read is the least urgent background work: a queued background `material: "exhibits"` job sorts after every other queued job at claim
+(`workPriority` 6, `reading-policy.ts`), so it never goes ahead of a read another flow asked for. A foreground exhibits read
+(`lookup source prepare`, 257.P1) keeps foreground priority.
+
 Tests: `tests/extension/ts-kernel-modules.test.mjs` (the read and its dedup), `tests/extension/legacy-scene-exhibits.test.mjs`
 (`table.open` on a bound book queues the opening scene's read; `table.apply` move queues the arrival scene's; re-entry queues none).
 
