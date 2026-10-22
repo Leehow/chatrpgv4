@@ -83,14 +83,21 @@ function bookWords(graph: ModuleGraph, node: Row, property: string, summary = tr
     const names = [text(node.name), graph.displayName(node), graph.handle(node), text(node.node_id)].map(name => name.trim());
     return names.includes(own) ? null : own;
 }
-/** What the book describes of a place (§168.5): `properties.description`, else the scene's summary. */
-export const placeDescribed = (graph: ModuleGraph, scene: Row): string | null => bookWords(graph, scene, 'description');
 /**
- * What the book describes of a person: §199.4's first-meeting `properties.appearance` when the reader wrote one, else
- * `properties.biography`, else the summary (§168.5, unchanged for a book read before §199).
+ * §257.F1 (amends §168.5): the player-facing words of a node for first sight -- the carrier's exhibits of `kind` (surfaces
+ * joined, `{{who:...}}` tokens left for the resolver), else the hand-authored property, else none. Never the Keeper's
+ * summary or biography.
  */
-export const personDescribed = (graph: ModuleGraph, node: Row): string | null =>
-    bookWords(graph, node, 'appearance', false) ?? bookWords(graph, node, 'biography');
+function playerFacing(graph: ModuleGraph, node: Row, kind: string, property: string): string | null {
+    const carriers = [...new Set([text(node.node_id), graph.handle(node)].filter(id => id !== ''))];
+    const surfaces = carriers.flatMap(id => graph.exhibitsOf(id)).filter(item => item.kind === kind)
+        .map(item => text(row(item.surface).text).trim()).filter(surface => surface !== '');
+    return surfaces.length ? surfaces.join('\n') : bookWords(graph, node, property, false);
+}
+/** What the book shows of a place (§257.F1): description exhibits, else `properties.description`. */
+export const placeDescribed = (graph: ModuleGraph, scene: Row): string | null => playerFacing(graph, scene, 'description', 'description');
+/** What the book shows of a person (§257.F1): appearance exhibits, else `properties.appearance` (§199.4); never the biography or summary. */
+export const personDescribed = (graph: ModuleGraph, node: Row): string | null => playerFacing(graph, node, 'appearance', 'appearance');
 /**
  * §199.4 (amends §194.4): what the epithet lane reads of a graph person -- their first-meeting `properties.appearance` only.
  * Never the summary, the Keeper's account of them (TR-F: the victim became "the creature that mutated two families"), and

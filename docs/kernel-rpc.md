@@ -51755,3 +51755,18 @@ Exhibits have a Keeper side and an author side, and the line is structural:
 This ticket adds the data and its gate only; no projection reads exhibits yet. Test:
 `tests/extension/module-exhibits-contract.test.mjs` (real `module.read.finish`, accepted graph read back, each reason, v4
 unchanged).
+
+### 257.F1 First sight reads player-facing material only (amends §168.5)
+
+§168.5's `first_sight` words for a place and a person no longer fall back to the Keeper's fields. For a scene (placeholder
+number; the ticket-05 slice): the scene's `description` exhibits (surfaces joined with a newline, `{{who:...}}` tokens left
+as written for the host's resolver), else the hand-authored `properties.description`, else the scene is not owed a
+description. For a person: their `appearance` exhibits, else the hand-authored `properties.appearance` (§199.4), else the
+person is carried `undescribed` (§203.5), which the §254.6 grant already covers. The scene `summary` and the person
+`biography` are never read (the biography fallback of §168.5 and §199.4 and the summary fallback are removed). A graph read
+before exhibits keeps working: its hand-authored properties still count, everything else is undescribed until a
+background read adds exhibits. `placeDescribed` / `personDescribed` also feed the `check` lane's book words
+(`table.first_sight` excerpts are located in them) and `public_scene.description`, so all three share one source.
+Kept looks (§255) are a separate section the capsule carries beside `first_sight` and are never derived from the book's
+words, so for the same subject they continue to win; an exhibit does not replace a kept look. `personAppearance` (the
+epithet lane, §199.4) is unchanged. Tests: `tests/extension/first-sight-kernel.test.mjs`, `first-sight-step.test.mjs`.
