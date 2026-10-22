@@ -29,37 +29,21 @@ async function opened(workspace){
         return await client.ok('table.capsule',{campaign:'test-camp',_context_read:true});
     }finally{await client.close();}
 }
-// §249: the single Keeper judges move, place, time, cash, item and object transfers itself. A probe of the generic
-// consent machinery therefore carries a document write, which the typed consent review still reads.
-const NOTEBOOK='Notebook';
-const append=(text='B')=>({kind:'object',name:NOTEBOOK,from:'Thomas Hayes',to:'Thomas Hayes',document:{action:'append',text},why:'Write the chosen note.'});
-async function notebookOpened(workspace){
-    const client=new RpcClient(workspace);
-    try{
-        const draft={name:NOTEBOOK,category:'item',description:'An ordinary writable carrier.',basis:'Ordinary fixture paper.',
-            parameters:{charges:null,effects:[]},document:{text:'A',presentation:'notebook'},player_view:{description:'A notebook.',fields:[]}};
-        const job=await client.ok('mods.job',{campaign:'test-camp',role:'create',input:{name:draft.name,category:draft.category,description:draft.description}});
-        writeFileSync(join(job.cwd,'result.json'),JSON.stringify(draft));
-        const accepted=await client.ok('mods.accept',{campaign:'test-camp',job:job.job});
-        await client.ok('table.open',{campaign:'test-camp'});
-        await client.ok('table.apply',{campaign:'test-camp',call_id:'t0-c1',effects:[
-            {kind:'define',name:draft.name,category:draft.category,description:draft.description,_definition:accepted.definition,_provenance:accepted.provenance},
-            {kind:'object',name:NOTEBOOK,to:'Thomas Hayes'}]});
-        await client.ok('table.narrate',{campaign:'test-camp',call_id:'t0-c2',text:'Knott waits beside his desk. Hayes holds his notebook.'});
-        return await client.ok('table.capsule',{campaign:'test-camp',_context_read:true});
-    }finally{await client.close();}
-}
-const notebookText=workspace=>Object.values(JSON.parse(readFileSync(join(workspace,'.coc/campaigns/test-camp/world.json'),'utf8')).objects.instances)
-    .find(row=>row.name===NOTEBOOK)?.document?.text;
+// §249/§249.6: the single Keeper judges move, place, time, cash, item and object lines itself, document writes included.
+// A probe of the generic consent machinery therefore carries a map reveal, which the typed consent review still reads.
+const MAP='player-corbitt-house-map';
+const reveal=(label='House plan')=>({kind:'map',name:MAP,regions:['ground-entry-hall'],region_labels:{'ground-entry-hall':'Entry hall'},
+    level_labels:{'Ground Floor':'Ground floor'},label,why:'Knott spreads the house plan on the desk.'});
+const mapTitle=workspace=>JSON.parse(readFileSync(join(workspace,'.coc/campaigns/test-camp/world.json'),'utf8')).map_labels?.[MAP]?.title;
 const env={PI_COC_LOOP_ENGINE:'hybrid-v1',PI_COC_JEV_PRESELECT:'0',PI_COC_ISOLATED_OUTPUT:'0',
     EXT_JEV_APIKEY:undefined,TYPESAFE_API_KEY:undefined};
 
 test('a missing decision owner holds player writes and repeated false success without issuing requests',async t=>{
     const engine=createHybridEngine({env:{},decision:null});
     const results=[];
-    // The document write is the reviewed line; the Keeper-judged time and move fall with it in the one atomic batch.
-    const move={effects:[{kind:'time',minutes:5},{kind:'move',to:'Central Library'},append('Library trip.')]};
-    const table=await openTable({legacyDeliveryFixtures:false,realKernel:true,prepareWorkspace:notebookOpened,env,
+    // The map reveal is the reviewed line; the Keeper-judged time and move fall with it in the one atomic batch.
+    const move={effects:[{kind:'time',minutes:5},{kind:'move',to:'Central Library'},reveal('Library trip.')]};
+    const table=await openTable({legacyDeliveryFixtures:false,realKernel:true,prepareWorkspace:opened,env,
         runDriver:engine.runDriver,extraExtensions:[{name:'continuous',factory:engine.extension},
             {name:'admission-results',factory:pi=>pi.on('tool_result',event=>{if(event.toolName==='apply')results.push(event);})}],
         responses:[fauxAssistantMessage([fauxToolCall('apply',move)],{stopReason:'toolUse'}),
@@ -67,7 +51,7 @@ test('a missing decision owner holds player writes and repeated false success wi
             fauxAssistantMessage('{{public}}You arrive at the library.'),
             fauxAssistantMessage('{{public}}You arrive at the library.')]});
     t.after(()=>table.dispose());
-    await table.session.prompt('I note the library trip in my notebook and walk to the Central Library, taking five minutes.');
+    await table.session.prompt('I study the house plan Knott spreads out and walk to the Central Library, taking five minutes.');
     assert.equal(results.length,2);
     assert.ok(results.every(row=>row.details?.coc_error?.details?.reason==='typed_admission_unavailable'));
     assert.ok(results.every(row=>row.details.coc_error.details.jev_reason==='unconfigured'));
@@ -75,7 +59,7 @@ test('a missing decision owner holds player writes and repeated false success wi
     const turn=JSON.parse(readFileSync(join(table.workspace,'.coc/campaigns/test-camp/turns/0001.json'),'utf8'));
     assert.equal(turn.world.clock.minutes,0);
     assert.equal(turn.receipts.filter(row=>['time','move'].includes(row.kind)).length,0);
-    assert.equal(notebookText(table.workspace),'A');
+    assert.equal(mapTitle(table.workspace),undefined);
     assert.equal(table.entries('coc-final-delivery').filter(frame=>frame.event==='delta').map(frame=>frame.delta).join(''),'');
 });
 
@@ -122,14 +106,14 @@ test('the same uncertain record is not judged twice or exposed on correction',as
         if(admission)admissionBatches++;
         return result(batch,selected,admission?.5:.99);
     }}});
-    const response=JSON.stringify({version:1,record:{effects:[{kind:'time',minutes:5,why:'The selected short wait.'},append('Five minutes.')]},text:'DEPENDENT_UNCERTAIN_TEXT'});
-    const table=await openTable({legacyDeliveryFixtures:false,realKernel:true,prepareWorkspace:notebookOpened,env,
+    const response=JSON.stringify({version:1,record:{effects:[{kind:'time',minutes:5,why:'The selected short wait.'},reveal('Five minutes.')]},text:'DEPENDENT_UNCERTAIN_TEXT'});
+    const table=await openTable({legacyDeliveryFixtures:false,realKernel:true,prepareWorkspace:opened,env,
         runDriver:engine.runDriver,extraExtensions:[{name:'continuous',factory:engine.extension}],
         responses:[()=>{requests++;return fauxAssistantMessage(response);},()=>{requests++;return fauxAssistantMessage(response);}]});
     t.after(()=>table.dispose());
-    await table.session.prompt('I wait here for five minutes and note it in my notebook.');
+    await table.session.prompt('I wait here for five minutes and study the house plan.');
     assert.equal(requests,2);assert.equal(admissionBatches,1);
-    assert.equal(notebookText(table.workspace),'A');
+    assert.equal(mapTitle(table.workspace),undefined);
     assert.equal(table.entries('coc-final-delivery').filter(frame=>frame.event==='delta').map(frame=>frame.delta).join(''),'');
     assert.ok(table.telemetry().some(row=>row.lane==='admission'&&row.reused===true&&row.jev_calls===0));
 });
@@ -138,14 +122,14 @@ test('an uncertain typed batch carrying a move permits verified non-arrival pros
     let correction='';
     const engine=createHybridEngine({env:{},decision:{decide:async batch=>
         result(batch,selected,batch.family==='continuous-action-admission'?.5:batch.family==='held-act-outcome'?.01:.99)}});
-    // The Keeper-judged move is refused with the uncertain document write of its atomic batch.
-    const table=await openTable({legacyDeliveryFixtures:false,realKernel:true,prepareWorkspace:notebookOpened,env,
+    // The Keeper-judged move is refused with the uncertain map reveal of its atomic batch.
+    const table=await openTable({legacyDeliveryFixtures:false,realKernel:true,prepareWorkspace:opened,env,
         runDriver:engine.runDriver,extraExtensions:[{name:'continuous',factory:engine.extension}],responses:[
-            fauxAssistantMessage([fauxToolCall('apply',{effects:[{kind:'move',to:'Central Library'},append('Library.')]})],{stopReason:'toolUse'}),
+            fauxAssistantMessage([fauxToolCall('apply',{effects:[{kind:'move',to:'Central Library'},reveal('Library.')]})],{stopReason:'toolUse'}),
             context=>{correction=JSON.stringify(context.messages);return fauxAssistantMessage('{{public}}You remain beside the desk.');}
         ]});
     t.after(()=>table.dispose());
-    await table.session.prompt('I note the library in my notebook and go to the Central Library.');
+    await table.session.prompt('I study the house plan and go to the Central Library.');
     const turn=JSON.parse(readFileSync(join(table.workspace,'.coc/campaigns/test-camp/turns/0001.json'),'utf8'));
     assert.deepEqual(turn.refused_moves,[{to:'Central Library',reason:'action_admission_uncertain'}]);
     assert.ok(correction.includes('action_admission_uncertain'));
@@ -159,9 +143,9 @@ test('a refused tool followed by false public success never exposes bytes, inclu
     let requests=0;
     const engine=createHybridEngine({env:{},maxSteps:14,decision:{decide:async batch=>
         result(batch,selected,batch.family==='continuous-action-admission'?.5:.99)}});
-    const table=await openTable({legacyDeliveryFixtures:false,realKernel:true,prepareWorkspace:notebookOpened,env,
+    const table=await openTable({legacyDeliveryFixtures:false,realKernel:true,prepareWorkspace:opened,env,
         runDriver:engine.runDriver,extraExtensions:[{name:'continuous',factory:engine.extension}],responses:[
-            ()=>{requests++;return fauxAssistantMessage([fauxToolCall('apply',{effects:[{kind:'move',to:'Central Library'},append('Library.')]})],{stopReason:'toolUse'});},
+            ()=>{requests++;return fauxAssistantMessage([fauxToolCall('apply',{effects:[{kind:'move',to:'Central Library'},reveal('Library.')]})],{stopReason:'toolUse'});},
             ()=>{requests++;return fauxAssistantMessage('{{public}}You arrive at the library and speak to the clerk.');},
             ()=>{requests++;return fauxAssistantMessage('{{public}}You arrive at the library and speak to the clerk.');}
         ]});
@@ -177,9 +161,9 @@ for(const probability of [.5,null])test(`uncertain or unavailable publication ch
         if(batch.family==='held-act-outcome'&&probability===null)return{batchId:batch.id,status:'unavailable',answers:{},coverage:{required:[],answered:[],unknown:[]},issues:[]};
         return result(batch,selected,batch.family==='continuous-action-admission'?.01:batch.family==='held-act-outcome'?probability:.99);
     }}});
-    const table=await openTable({legacyDeliveryFixtures:false,realKernel:true,prepareWorkspace:notebookOpened,env,
+    const table=await openTable({legacyDeliveryFixtures:false,realKernel:true,prepareWorkspace:opened,env,
         runDriver:engine.runDriver,extraExtensions:[{name:'continuous',factory:engine.extension}],responses:[
-            fauxAssistantMessage([fauxToolCall('apply',{effects:[{kind:'move',to:'Central Library'},append('Library.')]})],{stopReason:'toolUse'}),
+            fauxAssistantMessage([fauxToolCall('apply',{effects:[{kind:'move',to:'Central Library'},reveal('Library.')]})],{stopReason:'toolUse'}),
             fauxAssistantMessage('{{public}}You arrive at the library.')
         ]});
     t.after(()=>table.dispose());await table.session.prompt('I stay here.');
@@ -192,13 +176,13 @@ test('independent settlement cannot clear refusal; a clean correction publishes 
     const clean='You wait beside the desk. You have not left for the library.';
     const engine=createHybridEngine({env:{},decision:{decide:async batch=>{
         if(batch.family==='held-act-outcome'){checks++;return result(batch,selected,batch.state.draft===clean?.01:.99);}
-        return result(batch,selected,batch.family==='continuous-action-admission'&&batch.state.proposal.kinds.includes('object')?.01:.99);
+        return result(batch,selected,batch.family==='continuous-action-admission'&&batch.state.proposal.kinds.includes('map')?.01:.99);
     }}});
-    // The independent wait lands; the refused document write takes the Keeper-judged move of its batch with it.
-    const table=await openTable({legacyDeliveryFixtures:false,realKernel:true,prepareWorkspace:notebookOpened,env,
+    // The independent wait lands; the refused map reveal takes the Keeper-judged move of its batch with it.
+    const table=await openTable({legacyDeliveryFixtures:false,realKernel:true,prepareWorkspace:opened,env,
         runDriver:engine.runDriver,extraExtensions:[{name:'continuous',factory:engine.extension}],responses:[
             fauxAssistantMessage([fauxToolCall('apply',{effects:[{kind:'time',minutes:2,why:'The selected short wait.'}]})],{stopReason:'toolUse'}),
-            fauxAssistantMessage([fauxToolCall('apply',{effects:[{kind:'move',to:'Central Library'},append('Library.')]})],{stopReason:'toolUse'}),
+            fauxAssistantMessage([fauxToolCall('apply',{effects:[{kind:'move',to:'Central Library'},reveal('Library.')]})],{stopReason:'toolUse'}),
             fauxAssistantMessage('{{public}}You arrive at the library.'),
             fauxAssistantMessage('{{public}}'+clean),
             fauxAssistantMessage('{{public}}Knott answers your question beside the desk.')
@@ -206,7 +190,7 @@ test('independent settlement cannot clear refusal; a clean correction publishes 
     t.after(()=>table.dispose());await table.session.prompt('I wait here two minutes; I do not leave.');
     const turn=JSON.parse(readFileSync(join(table.workspace,'.coc/campaigns/test-camp/turns/0001.json'),'utf8'));
     assert.equal(turn.world.clock.minutes,2);assert.equal(turn.receipts.filter(row=>row.kind==='move').length,0);
-    assert.equal(notebookText(table.workspace),'A');
+    assert.equal(mapTitle(table.workspace),undefined);
     assert.equal(turn.rendered_text,clean);assert.equal(checks,2);
     await table.session.prompt('I stay here and ask Knott what he needs.');
     assert.equal(checks,2,'a new input does not inherit the previous failure or add a check');
@@ -220,20 +204,20 @@ test('missing establishment route is corrected before consent and the repaired m
         return result(batch,selected,batch.family==='held-act-outcome'?.01:.99);
     }}});
     const move={kind:'move',to:'Corner lodging house',establish:{summary:'A lodging house at the nearby corner.'},travel_minutes:3};
-    // The batch's document write keeps it under consent review; the route check still runs first.
-    const note=append('Corner lodging house.');
-    const table=await openTable({legacyDeliveryFixtures:false,realKernel:true,prepareWorkspace:notebookOpened,env,
+    // The batch's map reveal keeps it under consent review; the route check still runs first.
+    const note=reveal('Corner lodging house.');
+    const table=await openTable({legacyDeliveryFixtures:false,realKernel:true,prepareWorkspace:opened,env,
         runDriver:engine.runDriver,extraExtensions:[{name:'continuous',factory:engine.extension}],responses:[
             fauxAssistantMessage([fauxToolCall('apply',{effects:[move,note]})],{stopReason:'toolUse'}),
             context=>{assert.equal(consent,0);assert.ok(JSON.stringify(context.messages).includes('move_route_missing'));
                 return fauxAssistantMessage([fauxToolCall('apply',{effects:[{...move,via:'Walk along the public street to the corner.'},note]})],{stopReason:'toolUse'});},
             fauxAssistantMessage('{{public}}You enter the lodging house and greet the clerk.')
         ]});
-    t.after(()=>table.dispose());await table.session.prompt('I note the corner lodging house in my notebook and walk there along the street.');
+    t.after(()=>table.dispose());await table.session.prompt('I study the house plan and walk to the corner lodging house along the street.');
     const turn=JSON.parse(readFileSync(join(table.workspace,'.coc/campaigns/test-camp/turns/0001.json'),'utf8'));
     assert.equal(consent,1,JSON.stringify(table.session.messages.filter(row=>row.role==='toolResult')));assert.equal(checks,1);
     assert.equal(turn.receipts.filter(row=>row.kind==='move').length,1);assert.equal(turn.world.clock.minutes,3);
-    assert.equal(notebookText(table.workspace),'ACorner lodging house.');
+    assert.equal(mapTitle(table.workspace),'Corner lodging house.');
 });
 
 async function cashOpened(workspace){
@@ -302,22 +286,22 @@ test('requested NPC work carries Keeper-judged elapsed time while the investigat
     assert.deepEqual(table.extensionErrors,[]);
 });
 
-test('an unchosen document write beside requested NPC work refuses the entire atomic batch',async t=>{
+test('an unchosen reviewed line beside requested NPC work refuses the entire atomic batch',async t=>{
     let reviews=0;
     const engine=createHybridEngine({env:{},decision:{decide:async batch=>{
         const answer=result(batch,selected);
         if(batch.family==='held-act-outcome')answer.answers.held_result.noul=.01;
         if(batch.family==='continuous-action-admission'){
-            // §249: only the document write is put to review; the time and move are the Keeper's own judgment.
-            reviews++;assert.deepEqual(batch.state.proposal.kinds,['object']);
+            // §249: only the map reveal is put to review; the time and move are the Keeper's own judgment.
+            reviews++;assert.deepEqual(batch.state.proposal.kinds,['map']);
             answer.answers.consent_0.noul=.01;
         }
         return answer;
     }}});
-    const table=await openTable({legacyDeliveryFixtures:false,realKernel:true,prepareWorkspace:notebookOpened,env,
+    const table=await openTable({legacyDeliveryFixtures:false,realKernel:true,prepareWorkspace:opened,env,
         runDriver:engine.runDriver,extraExtensions:[{name:'continuous',factory:engine.extension}],responses:[
             fauxAssistantMessage([fauxToolCall('apply',{effects:[{kind:'time',minutes:5,why:'Knott fetches the requested records.'},
-                {kind:'npc',name:'Steven Knott',mood:'working'},{kind:'move',to:'Central Library'},append('Unchosen note.')]})],{stopReason:'toolUse'}),
+                {kind:'npc',name:'Steven Knott',mood:'working'},{kind:'move',to:'Central Library'},reveal('Unchosen note.')]})],{stopReason:'toolUse'}),
             fauxAssistantMessage('{{public}}You remain beside the desk.')
         ]});
     t.after(()=>table.dispose());
@@ -325,7 +309,7 @@ test('an unchosen document write beside requested NPC work refuses the entire at
     const turn=JSON.parse(readFileSync(join(table.workspace,'.coc/campaigns/test-camp/turns/0001.json'),'utf8'));
     assert.equal(turn.world.clock.minutes,0);assert.equal(reviews,1);
     assert.equal(turn.receipts.filter(row=>['time','move','npc'].includes(row.kind)).length,0);
-    assert.equal(notebookText(table.workspace),'A');
+    assert.equal(mapTitle(table.workspace),undefined);
     assert.deepEqual(turn.refused_moves,[{to:'Central Library',reason:'action_not_authorized'}]);
     assert.deepEqual(table.extensionErrors,[]);
 });

@@ -90,23 +90,14 @@ const env={PI_COC_LOOP_ENGINE:'hybrid-v1',PI_COC_TURN_PACKET_PROTOTYPE:'1',PI_CO
 // The controlled Keeper supplies current scene activity alongside its selected actions.
 const fauxToolCall=(name,args)=>rawToolCall(name,name==='output'?{...args,commands:[...args.commands,{kind:'scene',service:'open',crowd:args.commands?.some(row=>row.kind==='move')?'empty':'quiet'}]}:args);
 async function opened(workspace){const client=new RpcClient(workspace);try{await client.ok('table.open',{campaign:'test-camp'});await client.ok('table.narrate',{campaign:'test-camp',call_id:'t0-c1',text:'Knott waits at his desk.'});}finally{await client.close();}}
-// §249: the single Keeper judges move, place, time, cash, item and object transfers itself; the admission lane records
-// them without a consent batch. A document write on an object is still reviewed, so it carries the consent machinery.
+// §249/§249.6: the single Keeper judges move, place, time, cash, item and object lines itself, document writes included;
+// the admission lane records them without a consent batch. A map reveal is still reviewed, so it carries the consent machinery.
 const consent=batches=>batches.filter(batch=>batch.family==='continuous-action-admission');
 const keeperJudged=table=>table.telemetry().filter(row=>row.lane==='admission'&&row.path==='keeper_judged').map(row=>({kinds:row.kinds,jev_calls:row.jev_calls}));
-const NOTEBOOK='Notebook';
-const append=text=>({kind:'object',name:NOTEBOOK,from:'Thomas Hayes',to:'Thomas Hayes',document:{action:'append',text},why:'Write the chosen note.'});
-async function notebookOpened(workspace){const client=new RpcClient(workspace);try{
- const draft={name:NOTEBOOK,category:'item',description:'An ordinary writable carrier.',basis:'Ordinary fixture paper.',
-  parameters:{charges:null,effects:[]},document:{text:'A',presentation:'notebook'},player_view:{description:'A notebook.',fields:[]}};
- const job=await client.ok('mods.job',{campaign:'test-camp',role:'create',input:{name:draft.name,category:draft.category,description:draft.description}});
- writeFileSync(join(job.cwd,'result.json'),JSON.stringify(draft));const accepted=await client.ok('mods.accept',{campaign:'test-camp',job:job.job});
- await client.ok('table.open',{campaign:'test-camp'});
- await client.ok('table.apply',{campaign:'test-camp',call_id:'t0-c0',effects:[{kind:'define',name:NOTEBOOK,category:draft.category,description:draft.description,
-  _definition:accepted.definition,_provenance:accepted.provenance},{kind:'object',name:NOTEBOOK,to:'Thomas Hayes'}]});
- await client.ok('table.narrate',{campaign:'test-camp',call_id:'t0-c1',text:'Knott waits at his desk.'});
-}finally{await client.close();}}
-const notebookText=workspace=>Object.values(JSON.parse(readFileSync(join(workspace,'.coc/campaigns/test-camp/world.json'),'utf8')).objects.instances).find(row=>row.name===NOTEBOOK)?.document?.text;
+const MAP='player-corbitt-house-map';
+const reveal=label=>({kind:'map',name:MAP,regions:['ground-entry-hall'],region_labels:{'ground-entry-hall':'Entry hall'},
+ level_labels:{'Ground Floor':'Ground floor'},label,why:'Knott spreads the house plan on the desk.'});
+const mapTitle=workspace=>JSON.parse(readFileSync(join(workspace,'.coc/campaigns/test-camp/world.json'),'utf8')).map_labels?.[MAP]?.title;
 const authorTask=table=>{const written=table.telemetry().find(row=>row.lane==='isolated-expression'&&row.event==='written');assert.ok(written,JSON.stringify(table.telemetry().slice(-8)));return JSON.parse(readFileSync(join(written.attempt,'task.json'),'utf8'));};
 function answer(batch,p){const answers=Object.fromEntries(batch.questions.map(q=>{if(q.type==='noul')return[q.key,{status:'answered',type:'noul',noul:q.key.startsWith('restriction_')?1-p:p}];const choice=Object.keys(q.criteria).find(x=>x!=='none')??'none';return[q.key,{status:'answered',type:'choice',choice,confidence:.99,probabilities:Object.fromEntries(Object.keys(q.criteria).map(x=>[x,x===choice?.99:.01/(Object.keys(q.criteria).length-1)]))}];}));return{batchId:batch.id,status:'complete',answers,coverage:{required:Object.keys(answers),answered:Object.keys(answers),unknown:[]},issues:[],usage:{inputTokens:100,outputTokens:0}};}
 
@@ -444,21 +435,21 @@ test('repeated unissued time bands terminate without consent, mutation or a late
 test('a refused earlier write cannot publish false success through native output',async t=>{
  const batches=[];let requests=0;
  const engine=createHybridEngine({env,decision:{decide:async batch=>{batches.push(batch);return answer(batch,.01);}}});
- // §249: a native output carries only Keeper-judged lines, so the refused write is an earlier reviewed document write.
- const table=await openTable({legacyDeliveryFixtures:false,realKernel:true,prepareWorkspace:notebookOpened,env,runDriver:engine.runDriver,
+ // §249: a native output carries only Keeper-judged lines, so the refused line is an earlier reviewed map reveal.
+ const table=await openTable({legacyDeliveryFixtures:false,realKernel:true,prepareWorkspace:opened,env,runDriver:engine.runDriver,
   extraExtensions:[{name:'engine',factory:engine.extension}],responses:[
-   ()=>{requests++;return fauxAssistantMessage([rawToolCall('apply',{effects:[append('An unchosen note.')]})],{stopReason:'toolUse'});},
+   ()=>{requests++;return fauxAssistantMessage([rawToolCall('apply',{effects:[reveal('An unchosen note.')]})],{stopReason:'toolUse'});},
    ()=>{requests++;return fauxAssistantMessage([fauxToolCall('output',{...brief,commands:[{kind:'time',band:'quick_observation',reason:'Stay beside the desk.'}]})],{stopReason:'toolUse'});}
   ]});
  t.after(()=>table.dispose());await table.session.prompt('I stay beside the desk and write nothing.');
  assert.deepEqual(table.extensionErrors,[]);assert.equal(requests,2);
- assert.deepEqual(consent(batches).map(batch=>batch.state.proposal.kinds),[['object']],'only the document write is reviewed');
+ assert.deepEqual(consent(batches).map(batch=>batch.state.proposal.kinds),[['map']],'only the map reveal is reviewed');
  assert.deepEqual(keeperJudged(table),[{kinds:['time'],jev_calls:0}],'the wait in the published packet is the Keeper\'s own judgment');
  assert.equal(batches.filter(b=>b.family==='held-act-outcome').length,0);
- assert.equal(notebookText(table.workspace),'A','the refused write changed nothing');
+ assert.equal(mapTitle(table.workspace),undefined,'the refused reveal changed nothing');
  const task=authorTask(table);
  assert.deepEqual(task.decision_context.failed_attempts,[{tool:'apply',status:'uncommitted',reason:'action_not_authorized'}],'the author learns the write was refused');
- assert.ok(!task.result.outcomes.some(row=>row.kind==='object'),'the refused write never reaches the author as an outcome');
+ assert.ok(!JSON.stringify(task).includes('An unchosen note.'),'the refused reveal never reaches the author');
  assert.equal(table.entries('coc-final-delivery').filter(r=>r.event==='end'&&r.status==='completed').length,1);
 });
 
@@ -480,19 +471,19 @@ test('model event writes are refused atomically before their accompanying mechan
 test('clue parameter corrections reuse the same player-action decision and release only its completed time',async t=>{
  const batches=[];let requests=0;
  const engine=createHybridEngine({env,decision:{decide:async batch=>{batches.push(batch);return answer(batch,.99);}}});
- // §249: the wait is the Keeper's own judgment; the copied note is the reviewed player action held across the corrections.
- const clock={kind:'time',minutes:1,why:'Read the posted notice.'},note=append('Office hours: nine to noon.');
+ // §249: the wait is the Keeper's own judgment; the map reveal is the reviewed player action held across the corrections.
+ const clock={kind:'time',minutes:1,why:'Read the posted notice.'},note=reveal('Office hours: nine to noon.');
  const clue={kind:'clue',clue:'A new posted notice',establish:{summary:'A posted office-hours notice.',how:'read it'}};
  const attempts=[{effects:[clock,note,clue]},
   {effects:[clock,note,{...clue,establish:{summary:'The selected hours notice.',how:'read it'}}]},
   {effects:[clock,note,{...clue,establish:{summary:'The selected hours notice.'}}]},
   {effects:[clock,note,{...clue,establish:{summary:'The selected hours notice.'},how:'The investigator reads it on the door.'}]}];
- const table=await openTable({legacyDeliveryFixtures:false,realKernel:true,prepareWorkspace:notebookOpened,env,runDriver:engine.runDriver,
+ const table=await openTable({legacyDeliveryFixtures:false,realKernel:true,prepareWorkspace:opened,env,runDriver:engine.runDriver,
   extraExtensions:[{name:'engine',factory:engine.extension}],responses:[...attempts.map(args=>()=>{requests++;return fauxAssistantMessage([rawToolCall('apply',args)],{stopReason:'toolUse'});}),
    ()=>{requests++;return fauxAssistantMessage([fauxToolCall('output',brief)],{stopReason:'toolUse'});}]
- });t.after(()=>table.dispose());await table.session.prompt('I spend a minute reading the posted notice and copy its hours into my notebook.');
+ });t.after(()=>table.dispose());await table.session.prompt('I spend a minute reading the posted notice and study the house plan beside it.');
  assert.deepEqual(table.extensionErrors,[]);assert.equal(requests,5);
- assert.deepEqual(consent(batches).map(batch=>batch.state.proposal.kinds),[['object']],JSON.stringify(table.telemetry().filter(row=>row.lane==='held-operation'||row.lane==='keeper-delivery').slice(-8)));
+ assert.deepEqual(consent(batches).map(batch=>batch.state.proposal.kinds),[['map']],JSON.stringify(table.telemetry().filter(row=>row.lane==='held-operation'||row.lane==='keeper-delivery').slice(-8)));
  assert.ok(table.telemetry().some(row=>row.lane==='admission'&&row.reused&&row.verdict==='authorized'),'the corrected attempt reuses the one player-action decision');
  const judged=keeperJudged(table);assert.ok(judged.length&&judged.every(row=>row.kinds.join()==='time'&&row.jev_calls===0),JSON.stringify(judged));
  assert.equal(batches.filter(row=>row.family==='held-act-outcome').length,0);
@@ -500,7 +491,7 @@ test('clue parameter corrections reuse the same player-action decision and relea
  const repaired=table.telemetry().filter(row=>row.lane==='held-operation'&&row.event==='parameter_failure_reconciled');assert.equal(repaired.length,1,'bookkeeping variations share one held player-action row');
  const turn=JSON.parse(readFileSync(join(table.workspace,'.coc/campaigns/test-camp/turns/0001.json'),'utf8'));
  assert.equal(turn.receipts.filter(row=>row.kind==='time').length,1);assert.equal(turn.receipts.filter(row=>row.kind==='clue').length,1);assert.equal(turn.world.clock.minutes,1);
- assert.equal(notebookText(table.workspace),'AOffice hours: nine to noon.','the held note lands once with its corrected batch');
+ assert.equal(mapTitle(table.workspace),'Office hours: nine to noon.','the held reveal lands once with its corrected batch');
 });
 
 test('invalid NPC bookkeeping never becomes a refused player action',async t=>{
@@ -736,21 +727,21 @@ test('renaming the current scene is never projected as an arrival',async()=>{
 test('reordered identical refused object operations reuse the native negative verdict',async t=>{
  const batches=[];
  const engine=createHybridEngine({env,decision:{decide:async batch=>{batches.push(batch);return answer(batch,.01);}}});
- // §249: an object transfer is the Keeper's own judgment; a document write on the object is still reviewed.
- const note=append('An unchosen note.'),reordered={why:note.why,document:{text:note.document.text,action:'append'},to:note.to,from:note.from,name:note.name,kind:'object'};
- const table=await openTable({legacyDeliveryFixtures:false,realKernel:true,prepareWorkspace:notebookOpened,env,runDriver:engine.runDriver,
+ // §249/§249.6: object lines are the Keeper's own judgment; a map reveal is still reviewed.
+ const note=reveal('An unchosen note.'),reordered=Object.fromEntries(Object.entries(note).reverse());
+ const table=await openTable({legacyDeliveryFixtures:false,realKernel:true,prepareWorkspace:opened,env,runDriver:engine.runDriver,
   extraExtensions:[{name:'engine',factory:engine.extension}],responses:[
    ()=>fauxAssistantMessage([rawToolCall('apply',{effects:[note]})],{stopReason:'toolUse'}),
    ()=>fauxAssistantMessage([rawToolCall('apply',{effects:[reordered]})],{stopReason:'toolUse'}),
    ()=>fauxAssistantMessage([fauxToolCall('output',brief)],{stopReason:'toolUse'})]});
  t.after(()=>table.dispose());await table.session.prompt('I remain at the desk and ask what the clerk knows.');
  assert.deepEqual(table.extensionErrors,[]);
- assert.deepEqual(consent(batches).map(batch=>batch.state.proposal.kinds),[['object']]);
+ assert.deepEqual(consent(batches).map(batch=>batch.state.proposal.kinds),[['map']]);
  assert.ok(table.telemetry().some(row=>row.lane==='admission'&&row.reused&&row.verdict==='not_authorized'));
- assert.equal(notebookText(table.workspace),'A','a reused negative verdict never becomes permission');
+ assert.equal(mapTitle(table.workspace),undefined,'a reused negative verdict never becomes permission');
  const task=authorTask(table);
  assert.ok(task.decision_context.failed_attempts.length&&task.decision_context.failed_attempts.every(row=>row.reason==='action_not_authorized'),JSON.stringify(task.decision_context.failed_attempts));
- assert.ok(!task.result.outcomes.some(row=>row.kind==='object'));
+ assert.ok(!JSON.stringify(task).includes('An unchosen note.'));
 });
 
 test('a stationary activity retires expired population material without blocking already settled output',async t=>{

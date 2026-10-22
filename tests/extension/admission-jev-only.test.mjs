@@ -148,7 +148,7 @@ test('consent errors retain every blocking line and axis without admitting a sub
  }
 });
 
-test('§249: the typed consent review receives no Keeper-judged line, while maps, usages, documents and checks stay reviewed',()=>{
+test('§249: the typed consent review receives no Keeper-judged line, while maps, usages and checks stay reviewed (§249.6: documents are the Keeper\'s)',()=>{
  const scope={party:['Thomas Hayes'],consentOnly:true};
  const judged=[{kind:'move',to:'Central Library'},{kind:'place',action:'move',to:'Inn',at:'counter',relation:'beside'},
   {kind:'place',action:'observe',to:'Street',sense:'sight',access:'clear',scope:'The pavement',facts:['A cart passes.']},
@@ -159,10 +159,12 @@ test('§249: the typed consent review receives no Keeper-judged line, while maps
  assert.equal(admission.admissionRequest('apply',{effects:judged},scope),null);
  assert.deepEqual(admission.keeperJudgedKinds(judged),['move','place','time','item','object','cash']);
  const write={kind:'object',name:'Notebook',to:'Thomas Hayes',document:{action:'append',text:'1835 entry.'}};
- for(const [effect,kind] of [[{kind:'map',name:'Ground floor'},'map'],[{kind:'usage',name:'Lantern'},'usage'],[write,'object']]){
+ for(const [effect,kind] of [[{kind:'map',name:'Ground floor'},'map'],[{kind:'usage',name:'Lantern'},'usage']]){
   const proposal=admission.admissionRequest('apply',{effects:[effect]},scope);assert(proposal,kind);assert.deepEqual(proposal.kinds,[kind]);
  }
- assert.deepEqual(admission.keeperJudgedKinds([write]),[]);
+ assert.equal(admission.admissionRequest('apply',{effects:[write]},scope),null,'a document write is the Keeper\'s own judgment');
+ assert.deepEqual(admission.keeperJudgedKinds([write]),['object']);
+ assert.deepEqual(admission.admissionRequest('apply',{effects:[write]},{party:['Thomas Hayes']}).kinds,['object'],'outside the single Keeper the write is still reviewed');
  assert(admission.admissionRequest('resolve',{action:{decision:'core-check:spot-hidden',actor:'Thomas Hayes'}},scope));
  const lane=admission.admissionRequest('apply',{effects:[judged[1]]},{party:['Thomas Hayes']});
  assert.deepEqual(lane.kinds,['place'],'the lane reviewer path outside the single Keeper is unchanged');

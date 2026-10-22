@@ -50950,8 +50950,8 @@ transfers. `KEEPER_JUDGED_KINDS` in `extensions/kernel/admission.ts` names them.
 judgment that the player selected the line; every kernel validation (destinations, barriers, prices, purse, quotes,
 travel and wait arithmetic, ownership) is unchanged, and refused kernel writes still refuse atomically.
 
-Still reviewed: object document writes (`write`, `append`, `requested_edit`), `map`, `usage`, `resolve`, and the
-lane reviewers outside the single Keeper. Clue and handout lines were already outside the consent review (§32.12.3).
+Still reviewed: `map`, `usage`, and the lane reviewers outside the single Keeper. (Object document writes were kept
+reviewed here until §249.6, and `resolve` until §249.4.) Clue and handout lines were already outside the consent review (§32.12.3).
 Admission remains host behaviour; for the kinds still reviewed, an unavailable review still grants nothing.
 
 The admission lane records `path:"keeper_judged"` with the judged kinds and `jev_calls:0` for every batch that
@@ -51022,6 +51022,19 @@ failure, and the corrected call had another key. A refusal that names one parame
 nothing, so it is held as a parameter failure like `invalid_params`, and a player resolve's completion key is the act
 without its `skill`; the corrected call of the same act reconciles it (`held-operation`, `parameter_failure_reconciled`).
 Test: `tests/extension/resolve-skill-correction.test.mjs`.
+
+### 249.6 A document write is the Keeper's own judgment (owner decision 2026-10-21; amends §249.1)
+
+§249.1 kept object document writes (`write`, `append`, `requested_edit`) under the typed consent review, after the
+2026-10-06 incident where a Keeper appended notes the player never chose. Across six live tables (`el-v2-20261021a`–`f`)
+the reviewer refused or doubted six of eight writes the player had asked for in so many words ("copy what is useful into
+my notebook", "sit down and copy it", filling in a request form), and was arguably right twice; in `el-v2-20261021f` the
+refusals cost eight tool errors and one undelivered turn (T19). On the owner's decision a document write on an object is
+now Keeper-judged in the single-Keeper path like every other object line (`admission`, `path:"keeper_judged"`,
+`kinds:["object"]`, no Jev call). Unchanged: the malformed-write refusal (`documentWriteRefusal`), the selected-recording
+check that a refused or missing write cannot be narrated as done (§200), kernel validation, and the review of document
+writes by the lane reviewers outside the single Keeper. The consent-machinery probes in the tests now carry a map reveal,
+the line the consent review still reads. Test: `tests/extension/document-write-keeper-judged.test.mjs`.
 
 ### 249.7 A rule that states no check beside a named skill
 

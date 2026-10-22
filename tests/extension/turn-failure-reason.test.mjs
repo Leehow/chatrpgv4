@@ -4,7 +4,6 @@ import {test} from 'node:test';
 import assert from 'node:assert/strict';
 import {join} from 'node:path';
 import {readFileSync} from 'node:fs';
-import {writeFileSync} from 'node:fs';
 import {fauxAssistantMessage,fauxToolCall} from '@earendil-works/pi-ai';
 import {openTable,customMessages,waitFor} from './harness.mjs';
 import {RpcClient} from '../integration/support.ts';
@@ -120,22 +119,17 @@ test('a native shape failure exposes the exact field constraint without values o
  assert.match(JSON.stringify(notice.details.failure),/parameter|parameters/);assert.deepEqual(table.extensionErrors,[]);
 });
 
-// §249: native packet commands are the single Keeper's own judgment or unreviewed, so the consent refusal comes from an apply
-// document write, the line the typed consent review still reads.
+// §249/§249.6: native packet commands and document writes are the single Keeper's own judgment or unreviewed, so the consent
+// refusal comes from an apply map reveal, the line the typed consent review still reads.
 test('a typed consent refusal retains its actual cause when the allowed continuation produces no output',async t=>{
  const env={PI_COC_LOOP_ENGINE:'hybrid-v1',PI_COC_TURN_PACKET_PROTOTYPE:'1',PI_COC_JEV_PRESELECT:'0',PI_COC_MATERIAL_SCREEN:'0',EXT_JEV_APIKEY:undefined,TYPESAFE_API_KEY:undefined};
  const engine=createHybridEngine({env,decision:{decide:async batch=>answer(batch)}});
- const draft={name:'Notebook',category:'item',description:'An ordinary writable carrier.',basis:'Ordinary fixture paper.',
-  parameters:{charges:null,effects:[]},document:{text:'A',presentation:'notebook'},player_view:{description:'A notebook.',fields:[]}};
- const write={kind:'object',name:draft.name,from:'Thomas Hayes',to:'Thomas Hayes',document:{action:'append',text:'Library approach.'},why:'Write the chosen note.'};
+ const write={kind:'map',name:'player-corbitt-house-map',regions:['ground-entry-hall'],region_labels:{'ground-entry-hall':'Entry hall'},
+  level_labels:{'Ground Floor':'Ground floor'},label:'Library approach.',why:'Knott spreads the house plan on the desk.'};
  const table=await openTable({legacyDeliveryFixtures:false,realKernel:true,env,prepareWorkspace:async workspace=>{
   const client=new RpcClient(workspace);
   try{
-   const job=await client.ok('mods.job',{campaign:'test-camp',role:'create',input:{name:draft.name,category:draft.category,description:draft.description}});
-   writeFileSync(join(job.cwd,'result.json'),JSON.stringify(draft));const accepted=await client.ok('mods.accept',{campaign:'test-camp',job:job.job});
    await client.ok('table.open',{campaign:'test-camp'});
-   await client.ok('table.apply',{campaign:'test-camp',call_id:'t0-c0',effects:[{kind:'define',name:draft.name,category:draft.category,description:draft.description,
-    _definition:accepted.definition,_provenance:accepted.provenance},{kind:'object',name:draft.name,to:'Thomas Hayes'}]});
    await client.ok('table.narrate',{campaign:'test-camp',call_id:'t0-c1',text:'Knott waits at his desk.'});
   }finally{await client.close();}
  },
@@ -145,7 +139,7 @@ test('a typed consent refusal retains its actual cause when the allowed continua
    fauxAssistantMessage([{type:'thinking',thinking:'PRIVATE_NEXT_TURN'}],{stopReason:'stop'})
   ]});
  t.after(()=>table.dispose());
- await table.session.prompt('I write "Library approach." in my notebook.');
+ await table.session.prompt('I study the house plan Knott spreads out.');
  await waitFor(()=>notices(table).length===1,{label:'the terminal failure reason'});
  const notice=notices(table)[0];
  assert.ok(notice.content.includes(uiSeed.turn_failure_admission));

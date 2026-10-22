@@ -24,22 +24,12 @@ function answer(batch,p=.99){return{batchId:batch.id,status:'complete',answers:O
 const move={kind:'move',to:'Corner Cafe',via:'Across Main Street',establish:{summary:'A public cafe across the street.'},owed:'t1-owed-1'};
 const output={version:4,commands:[{kind:'scene',service:'open',crowd:'empty'}],interactions:[]};
 const keeperJudged=table=>table.telemetry().filter(row=>row.lane==='admission'&&row.path==='keeper_judged').map(row=>({kinds:row.kinds,jev_calls:row.jev_calls}));
-// §249: the single Keeper judges move, place, time, cash, item and object transfers itself; a document write is still reviewed.
-const NOTEBOOK='Notebook';
-const append=text=>({kind:'object',name:NOTEBOOK,from:'Thomas Hayes',to:'Thomas Hayes',document:{action:'append',text},why:'Write the chosen note.'});
-async function seedNotebook(c){
- const draft={name:NOTEBOOK,category:'item',description:'An ordinary writable carrier.',basis:'Ordinary fixture paper.',
-  parameters:{charges:null,effects:[]},document:{text:'A',presentation:'notebook'},player_view:{description:'A notebook.',fields:[]}};
- const job=await c.ok('mods.job',{campaign:'test-camp',role:'create',input:{name:draft.name,category:draft.category,description:draft.description}});
- writeFileSync(join(job.cwd,'result.json'),JSON.stringify(draft));
- const accepted=await c.ok('mods.accept',{campaign:'test-camp',job:job.job});
- await c.ok('table.open',{campaign:'test-camp'});
- await c.ok('table.apply',{campaign:'test-camp',call_id:'t0-c0',effects:[
-  {kind:'define',name:NOTEBOOK,category:'item',description:draft.description,_definition:accepted.definition,_provenance:accepted.provenance},
-  {kind:'object',name:NOTEBOOK,to:'Thomas Hayes'}]});
-}
-const notebookText=workspace=>Object.values(JSON.parse(readFileSync(join(workspace,'.coc/campaigns/test-camp/world.json'),'utf8')).objects.instances)
- .find(row=>row.name===NOTEBOOK)?.document?.text;
+// §249/§249.6: the single Keeper judges move, place, time, cash, item and object lines itself, document writes included; a map
+// reveal is still reviewed.
+const MAP='player-corbitt-house-map';
+const reveal=label=>({kind:'map',name:MAP,regions:['ground-entry-hall'],region_labels:{'ground-entry-hall':'Entry hall'},
+ level_labels:{'Ground Floor':'Ground floor'},label,why:'Knott spreads the house plan on the desk.'});
+const mapTitle=workspace=>JSON.parse(readFileSync(join(workspace,'.coc/campaigns/test-camp/world.json'),'utf8')).map_labels?.[MAP]?.title;
 test('a corrected unknown owner does not poison the actual committed handover at native publication',async t=>{
  const engine=createHybridEngine({env,decision:{decide:async batch=>answer(batch)}});
  const effects=[{kind:'object',name:'Test notebook',to:'Steven Knott',from:'npc_1',handover:'given',why:'Hayes hands over his notebook.'}];
@@ -101,21 +91,21 @@ test('a kernel-issued complete owed effect settles without any consent inference
  assert.ok(table.telemetry().some(x=>x.lane==='admission'&&x.path==='told'&&x.jev_calls===0));
 });
 
-test('a refused atomic document-write and move batch does not suppress a later committed move in a native decision',async t=>{
- const batches=[];const engine=createHybridEngine({env,decision:{decide:async batch=>{batches.push(batch);return answer(batch,batch.family==='continuous-action-admission'&&batch.state.proposal.kinds.includes('object')?.01:.99);}}});
+test('a refused atomic reviewed-line and move batch does not suppress a later committed move in a native decision',async t=>{
+ const batches=[];const engine=createHybridEngine({env,decision:{decide:async batch=>{batches.push(batch);return answer(batch,batch.family==='continuous-action-admission'&&batch.state.proposal.kinds.includes('map')?.01:.99);}}});
  const destination={kind:'move',to:'central-library',travel_band:'local_travel'};
  const table=await openTable({legacyDeliveryFixtures:false,realKernel:true,prepareWorkspace:async workspace=>{
-  process.env.PI_COC_KERNEL_CMD=JSON.stringify([...rpcCommand(),'--workspace',workspace,'--content',CONTENT_DIR]);const c=new RpcClient(workspace);try{await seedNotebook(c);await c.ok('table.narrate',{campaign:'test-camp',call_id:'t0-c1',text:'Knott waits at the office.'});}finally{await c.close();}
+  process.env.PI_COC_KERNEL_CMD=JSON.stringify([...rpcCommand(),'--workspace',workspace,'--content',CONTENT_DIR]);const c=new RpcClient(workspace);try{await c.ok('table.open',{campaign:'test-camp'});await c.ok('table.narrate',{campaign:'test-camp',call_id:'t0-c1',text:'Knott waits at the office.'});}finally{await c.close();}
  },env,runDriver:engine.runDriver,extraExtensions:[{name:'engine',factory:engine.extension}],responses:[
-  // The unchosen document write is the reviewed line; the Keeper-judged move falls with it in the atomic batch.
-  ()=>fauxAssistantMessage([fauxToolCall('apply',{effects:[append('An unchosen note.'),destination]})],{stopReason:'toolUse'}),
+  // The unchosen map reveal is the reviewed line; the Keeper-judged move falls with it in the atomic batch.
+  ()=>fauxAssistantMessage([fauxToolCall('apply',{effects:[reveal('An unchosen note.'),destination]})],{stopReason:'toolUse'}),
   ()=>fauxAssistantMessage([fauxToolCall('apply',{effects:[destination]})],{stopReason:'toolUse'}),
   ()=>fauxAssistantMessage([fauxToolCall('output',{version:4,commands:[{kind:'scene',service:'open',crowd:'quiet'},{kind:'walk_on',slot:'new_1',label:'The reference clerk',reason:'A staffed reference desk during service hours.'}]})],{stopReason:'toolUse'})]});
  t.after(()=>table.dispose());await table.session.prompt('I leave the office and go to Central Library, stopping by the reference desk.');
  const calls=table.session.messages.filter(row=>row.role==='toolResult'&&row.toolName==='apply');assert.equal(calls[0].isError,true);assert.notEqual(calls[1].isError,true,JSON.stringify(calls[1]));
  const published=table.session.messages.findLast(row=>row.role==='toolResult'&&row.toolName==='output');assert.notEqual(published?.isError,true,JSON.stringify({published,errors:table.extensionErrors,telemetry:table.telemetry().slice(-12)}));
  const record=JSON.parse(readFileSync(join(table.workspace,'.coc/campaigns/test-camp/turns/0001.json'),'utf8'));
- assert.equal(record.receipts.filter(row=>row.kind==='move').length,1);assert.equal(notebookText(table.workspace),'A','the refused document write never lands');
+ assert.equal(record.receipts.filter(row=>row.kind==='move').length,1);assert.equal(mapTitle(table.workspace),undefined,'the refused reveal never lands');
  assert.equal(table.entries('coc-final-delivery').filter(row=>row.event==='end'&&row.status==='completed').length,1);
  const author=table.telemetry().find(row=>row.lane==='isolated-expression'&&row.event==='written');assert.ok(author);
  const task=JSON.parse(readFileSync(join(author.attempt,'task.json'),'utf8'));
