@@ -30,9 +30,16 @@ export type LooksFailure = 'no_session' | 'cancelled' | 'timeout' | 'model_unava
 export type LooksResult = {ok: true; items: LookAnswer[]; ms: number; model?: string; units?: number; blockers?: number}
   | {ok: false; reason: LooksFailure; detail: string; ms: number; model?: string};
 
-const LOOK_RULE = 'A look is only what anyone present could see or hear of them now: for a place its shape, fittings, materials, wear, '
-  + 'light, sound, smell and temperature; for a person their build, apparent age, face, hair, dress, posture and manner, and what '
-  + 'their hands are doing. Never a name, history, motive, knowledge, relationship, something said, or an event.';
+/**
+ * What a look is. The place half names fixed character only: on looks-a3 the kept look of Knott's office held "the
+ * twenty dollars still lie on the desk", the investigator took the money that turn, and on the return visit the author
+ * put the money back on the desk. A presence clause ("also in the archive") was kept as a clerk's look the same day.
+ */
+const LOOK_RULE = 'A look is only lasting appearance anyone present could see or hear. For a place: its structure, fittings, furniture, '
+  + 'materials, wear, light, sound, smell and temperature; never a portable thing, money, paper or key, never anything that '
+  + 'can be taken, moved, opened or handed over, and never where someone is. For a person: their build, apparent age, face, '
+  + 'hair, dress and bearing; never what they hold or do, where they are, or that they are present. Never a name, history, '
+  + 'motive, knowledge, relationship, something said, or an event.';
 
 export const KEPT_LOOKS_INSTRUCTION = [
   'You read one reply of a tabletop horror game, already delivered to the player, and record how it showed a place and some people.',

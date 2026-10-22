@@ -51495,8 +51495,13 @@ single completion as that lane does.
   look, action, speech or mixed for each excerpt; only `look` is kept (looks-a2: asked in one breath, the fast model
   copied a nod and a remark as the person's look). The host keeps only spans it locates in the prose and fields the
   job wanted.
-- A look is only what anyone present could see or hear now; a sentence that mixes it with a name, history, motive,
-  knowledge, relationship, speech or event is not kept. No word or character of the prose is tested by code.
+- A look is only lasting appearance: for a place its structure, fittings, furniture, materials, wear, light, sound,
+  smell and temperature, never a portable thing, money, paper or key or anything that can change hands, and never where
+  someone is; for a person build, apparent age, face, hair, dress and bearing, never what they hold or do. A sentence
+  that mixes it with a name, history, motive, knowledge, relationship, speech or event is not kept (looks-a3: the kept
+  "twenty dollars still on the desk" put the money back on the desk after the investigator took it). No word or
+  character of the prose is tested by code. The author instruction adds that current outcomes, inventory and presence
+  decide what is where now.
 - Telemetry: `{lane: "first-sight", event: "looks", ok, turn, ms, model, targets, kept: {people, places}, pronouns,
   blockers?}` or `{ok: false, reason, detail}`. A failure records nothing.
 
