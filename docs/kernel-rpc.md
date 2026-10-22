@@ -43727,7 +43727,7 @@ A road is one length both ways and every time (§138.9). Three additions make a 
   book road when the table knows it; the capsule is unchanged) and the told-position owed move read it. A move whose minutes come
   from a table road carries `travel: {basis: "travelled", turn}`.
 - **`apply move {travel_band}`**: `adjacent` (0), or a road row of `time-costs` (`local_travel`, `long_travel`) whose `default` is the
-  minutes (never a roll, as §138.9 fills a book road). `travel_band` beside `travel_minutes` is `travel_conflict`; another value is
+  minutes (never a roll, as §138.9 fills a book road). `travel_band` without a range beside `travel_minutes` takes the minutes (§250.17); another value is
   `travel_band_unknown` with the rows in `details.options`. The receipt carries `travel: {basis: "banded", band}`.
 - **Unknown**: a move between two places that no road, book or table, has timed, with neither field, still lands with 0 minutes
   (refusing it would take the walk away for a missing number) but says so: the receipt carries `travel: {basis: "unknown"}` and the
@@ -51301,7 +51301,15 @@ Live (`el-v2-20261021f` T2, T7): the Keeper walked a few doors from Knott's offi
 rewrote the road. Between two places that already share a road -- the book's, or one this table travelled (§218.3) -- a
 `travel_band` now names nothing new: the move takes the road's minutes, and the receipt reports
 `adjusted: {field:"travel_band", reason:"road_known", given, minutes}`. `travel_minutes` the Keeper gives for this
-journey are still its own (§250.5), and no band or single journey rewrites a known road's length.
+journey are still its own (§250.5).
+
+Which journey sets the road: a move with `travel_minutes` keeps them as the road from then on (§218.3), and a band alone
+never rewrites a known road. Live (`el-v2-20261022h` T6): the Keeper walked back along the street with
+`travel_band:"adjacent", travel_minutes:7`, the kernel refused it as `travel_conflict`, and the resend with the minutes
+alone was what counted. A row without a range (`adjacent`) beside the journey's own minutes now names nothing the minutes
+do not: the move takes the minutes and reports `adjusted: {field:"travel_band", reason:"band_without_range", given}`;
+`travel_conflict` is retired. Tests: `tests/integration/enhanced-locations.test.ts` (known road),
+`tests/extension/move-travel.test.mjs` (band rows).
 
 ### 250.18 A return visit carries what was recorded there before
 

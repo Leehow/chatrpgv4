@@ -322,7 +322,7 @@ test('a road already travelled keeps its length when a later trip names another 
     await k.table('apply',{call_id:'t1-c3',effects:[{kind:'place',action:'move',to:'Corner Cafe',travel_band:'local_travel',travel_minutes:25}]});
     assert.equal((await k.table('status')).receipts.filter((receipt:Row)=>receipt.kind==='move').at(-1).minutes,25,'a journey\'s own minutes are its own (§250.5)');
     await k.table('apply',{call_id:'t1-c4',effects:[{kind:'place',action:'move',to:office,travel_band:'long_travel'}]});
-    assert.equal((await k.table('status')).receipts.filter((receipt:Row)=>receipt.kind==='move').at(-1).minutes,out.minutes,'one slow journey does not change the road');
+    assert.equal((await k.table('status')).receipts.filter((receipt:Row)=>receipt.kind==='move').at(-1).minutes,25,'given minutes are the road from then on; a band alone does not change it (§218.3)');
 });
 
 test('a place\'s visit history is what was shown there on earlier turns, at any point and by any sense (§250.18)',async t=>{

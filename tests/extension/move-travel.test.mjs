@@ -86,10 +86,9 @@ test('§218.3 a road walked with minutes is walked back with them, and an improv
     assert.equal(row?.description?.travel_minutes,20);
 });
 
-test('§218.3 travel_band names a road row: its usual minutes, kept as the road; unknown rows and a second figure on a rangeless row are refused',async t=>{
+test('§218.3 travel_band names a road row: its usual minutes, kept as the road; unknown rows are refused (§250.17: a rangeless row beside minutes takes the minutes)',async t=>{
     const {call}=await table('move-travel-band',t);
     await call('table.player_input',{text:'I take the tram to my rooming house.'});
-    await assert.rejects(call('table.apply',{call_id:'t1-c1',effects:[{...LODGING,travel_band:'adjacent',travel_minutes:12}]}),error=>error.details?.reason==='travel_conflict');
     await assert.rejects(call('table.apply',{call_id:'t1-c2',effects:[{...LODGING,travel_band:'a_long_way'}]}),
         error=>error.details?.reason==='travel_band_unknown'&&error.details.options.includes('local_travel')&&error.details.options.includes('adjacent'));
     await call('table.apply',{call_id:'t1-c3',effects:[{...LODGING,travel_band:'local_travel'}]});
@@ -97,6 +96,12 @@ test('§218.3 travel_band names a road row: its usual minutes, kept as the road;
     assert.equal(landed.minutes,30,'local_travel\'s default');assert.deepEqual(landed.travel,{basis:'banded',band:'local_travel'});
     await call('table.apply',{call_id:'t1-c4',effects:[{kind:'move',to:'commission-briefing'}]});
     assert.equal((await lastMove(call)).minutes,30,'the banded road is kept');
+    await call('table.apply',{call_id:'t1-c5',effects:[{...LODGING,travel_band:'adjacent',travel_minutes:12}]});
+    const given=await lastMove(call);
+    assert.equal(given.minutes,12,'the journey\'s own minutes beside a rangeless row');
+    assert.ok((given.adjusted??[]).some(row=>row.field==='travel_band'&&row.reason==='band_without_range'),JSON.stringify(given.adjusted));
+    await call('table.apply',{call_id:'t1-c6',effects:[{kind:'move',to:'commission-briefing',travel_band:'local_travel'}]});
+    assert.equal((await lastMove(call)).minutes,12,'the given minutes are the road now; a band alone does not change it (§250.17)');
 });
 
 test('§250.5 a journey\'s own minutes inside its band are the journey; outside they are brought to the band\'s edge',async t=>{
