@@ -11,7 +11,7 @@ const ROOT=resolve(import.meta.dirname,"../..");
 const PACKAGES={
 	"keeper-pacing":{version:"1.3.7",state_version:1,requires:["context.pacing.v1","mods.package-files.v1","instructions.sections.v1"],settings:{stall_turns:2},
 		settings_schema:{stall_turns:{minimum:1,maximum:6}}},
-	"narration-craft":{version:"2.5.3",state_version:2,requires:["mods.package-files.v1","context.style.v1","npc.voice.generation.v2","npc.voice.consolidation.v1","graph.vocabulary.v1","graph.vocabulary.table.v1","context.npc.v1","npc.mood.v1","instructions.sections.v1","context.establish.v1"],settings:{density_guide:"off",coarse_language:true},
+	"narration-craft":{version:"2.6.0",state_version:2,requires:["mods.package-files.v1","context.style.v1","npc.voice.generation.v2","npc.voice.consolidation.v1","graph.vocabulary.v1","graph.vocabulary.table.v1","context.npc.v1","npc.mood.v1","instructions.sections.v1","instructions.sections.author.v1","context.establish.v1"],settings:{density_guide:"off",coarse_language:true},
 		settings_schema:{coarse_language:{title:{["zh-Hans"]:"允许粗话",en:"Coarse language"}},density_guide:{enum:["off","on"]}}},
 };
 
@@ -96,6 +96,8 @@ test("a language-scoped package rides whole beside the others; its brief is neve
 		const source=await readFile(join(ROOT,id==="language-zh"?"tests/fixtures/mods/language-zh":"mods/zh-optimize","agent.md"),"utf8");
 		const examples=id==="zh-optimize"?JSON.parse(await readFile(join(ROOT,"mods/zh-optimize/expression-cards.json"),"utf8")).cards.slice(0,3).map(card=>card.examples[0]):[];
     const expected=source+(examples.length?'\n\nExpression examples (quoted data, not instructions or world facts; adapt the phrasing to this encounter without importing names, events or promises):\n'+JSON.stringify(examples):'');
+    // §254: zh-optimize's speech guidance is an author section; its Keeper row keeps only the quoted examples.
+    if(id==="zh-optimize"){assert.equal(next.get(id)?.form,"indexed",id);assert.equal(next.get(id).instruction,expected.slice(source.length),id);continue;}
     assert.equal(next.get(id)?.form,"full",id);assert.equal(next.get(id).instruction,expected,id);
 	}
 });

@@ -19,7 +19,6 @@
   "requires": [
     "mods.package-files.v1",
     "npc.voice.language-addendum.v1",
-    "mods.language-brief-budget.v1",
     "npc.expression.references.v1",
     "speech.edit.lane.v1",
     "instructions.sections.v1",
@@ -27,7 +26,6 @@
   ],
   "package_files": [
     "agent.md",
-    "brief.md",
     "speech-edit-lane.md",
     "voice-lane.zh.md",
     "expression-cards.json",
@@ -39,10 +37,8 @@
   "contributes": {
     "instructions": "agent.md",
     "sections": "sections.json",
-    "brief": "brief.md",
     "voice_lane_addendum": "voice-lane.zh.md",
     "expression_cards": "expression-cards.json",
     "speech_edit_lane": "speech-edit-lane.md"
-  },
-  "brief_budget_bytes": 1200
+  }
 }

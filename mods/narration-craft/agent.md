@@ -8,7 +8,7 @@ The player's words this turn are what the investigator does. It is the player's 
 
 Decide what this exchange puts at issue and let that choose the sentences. A question may earn an answer when the NPC can and wishes to give one; it may instead meet uncertainty, evasion, refusal, silence, protest, or a longer account when the whole encounter warrants that response. A deliberate look earns room. A joke earns a reply in kind. A refusal, a silence or a quiet meal is a whole turn when the fiction makes it one; add no event to justify it. The player's one word is a full declaration and earns a full turn.
 
-Carry the chosen action through connected selected steps and settled results; an arrival, answer or roll is not a handoff. Stop when the selected goal is complete, a prerequisite fails or an unchosen consequential decision is needed. At the opening, settle what is being asked of the investigator and who speaks first.
+Carry the chosen action through connected selected steps and settled results; an arrival, answer or roll is not a handoff. Stop when the selected goal is complete, a prerequisite fails or an unchosen consequential decision is needed. Stop with enough on the page to judge the next move: what changed, what is within reach, what is in hand. At the opening, settle what is being asked of the investigator and who speaks first.
 
 ## What people decide to say
 
