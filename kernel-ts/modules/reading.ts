@@ -2132,7 +2132,7 @@ export class Reading {
                 this.owned();await this.store.writeModule(meta);await this.store.writeQueue(mid,queue);await this.release(mid,job.job_id);
                 return result;
             }
-            let guidance: Row | null = null, publicFields:Row|undefined, opening: Row | null = null, publicationGraph:Row|undefined, travel: Row | null = null;
+            let guidance: Row | null = null, publicFields:Row|undefined, opening: Row | null = null, publicationGraph:Row|undefined, travel: Row | null = null, exhibitRefusals: Row[] = [];
             if (job.purpose === 'index')
                 await this.finishIndex(mid, meta, job, draft, new Set(array(observations.full_pages)));
             else if (job.purpose === 'answer') {
@@ -2221,6 +2221,8 @@ export class Reading {
                 recordDistinct(meta, array(filled.nodes), array(landing?.nodes), identitySource(meta), string(job.job_id), number(meta.generation) + 1, path => reviewReasons.get(path), standsFor);
                 const retranscribed: Row[] = [];
                 const graph = assembleVisual(landing, withoutDistinctFrom(filled), meta, contract, retranscribed);
+                // §257.2: refused exhibits are recorded, not published; the rest of the shard is.
+                exhibitRefusals = array(filled.exhibit_refusals).map(item => ({ ...clone(item), job_id: job.job_id, generation: number(meta.generation) + 1 }));
                 if(job.purpose==='detail'&&truth(job.question)){
                     const view=new ModuleGraph(mid,graph,'',row(contract.graph.actor_dossier)),target=view.find(string(job.focus));
                     // §192.3: the read of a thing resolves the same question on every node of it (a need on a copy is the survivor's).
@@ -2354,6 +2356,10 @@ export class Reading {
                 }
             }
             const result: Row = { state: truth(meta.opening_ready) ? 'ready' : meta.reading.state, generation: meta.generation ?? 0, opening_ready: meta.opening_ready ?? false };
+            if (exhibitRefusals.length) {
+                result.exhibit_refusals = exhibitRefusals;
+                meta.reading.exhibit_refusals = [...array(meta.reading.exhibit_refusals), ...exhibitRefusals].slice(-200);
+            }
             if (travel)
                 result.travel = travel;
             if (job.purpose === 'guidance') {

@@ -85,7 +85,7 @@ export function checkMapScopeDraft(draft: Row, packet: Row, seen?: ReadonlySet<a
     const nodes = array(draft.nodes);
     if (nodes.length !== 1 || row(nodes[0]).node_id !== target) bound(`the draft lists ${nodes.length} node(s) and must list only ${target}`, '/nodes');
     const node = row(nodes[0]);
-    for (const key of ['claims', 'node_refs', 'critical', 'ready_nodes', 'dependencies'])
+    for (const key of ['claims', 'node_refs', 'critical', 'ready_nodes', 'dependencies', 'exhibits'])
         if (array(draft[key]).length) bound(`${key} must be empty`, `/${key}`);
     if (Object.keys(row(draft.coverage)).length) bound('coverage must be {}', '/coverage');
     if (Object.hasOwn(draft, 'source_needs')) bound('a map-scope reading records no source_needs', '/source_needs');

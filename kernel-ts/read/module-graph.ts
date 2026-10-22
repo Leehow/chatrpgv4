@@ -320,6 +320,10 @@ export class ModuleGraph {
      */
     investigatorNames: readonly string[] = [];
     readonly nodes = new Map<string, Row>();
+    /** §257.1: the exhibits the accepted graph carries (empty for a graph read before exhibits). Keeper-side rows: `teaches`, `keeper_note` and `label` never reach the author. */
+    get exhibits(): Row[] { return array(this.raw.exhibits).filter(item => item && typeof item === "object"); }
+    /** §257.1: the exhibits tied to one carrier node, in graph order. */
+    exhibitsOf(carrierId: string): Row[] { return this.exhibits.filter(item => item.carrier === carrierId); }
     readonly byKind = new Map<string, Row[]>();
     readonly out = new Map<string, Row[]>();
     readonly incoming = new Map<string, Row[]>();
