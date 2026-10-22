@@ -51183,6 +51183,12 @@ same way (`adjusted` on the receipt and its outcome):
   kind, or a non-empty list of them, moves; any other field stays for the schema's refusal.
 - A feature change says that it registers an unregistered fixture itself (`adjusted: at: implicit_feature`), here or at
   a place left behind, and that a fixture is never a place; the description no longer sends the Keeper to `additions`.
+- A command is checked against the schema it was written as: the one its `kind` names and the one its `action` names
+  compete, and the one declaring more of the command's keys wins, its kind's on a tie (`el-v2-20261022h` T12:
+  `{kind:"scene", action:"observe", service, crowd}` was checked as a place observation and refused for missing
+  `facts`; a place observation written under `kind:"move"` is still reported as a wrong `kind`). A refused extra key is named when the schema declares it on some command (`action`, a
+  field of another command kind); any other key stays `<additional-property>`, since it is model text. Test:
+  `tests/extension/turn-packet-command-kind.test.mjs`.
 
 Still refused, because each needs the Keeper's decision: an empty population assessment while a registered person is
 seated at the destination (move them away or keep them), and an effect kind with no single reading.
@@ -51213,6 +51219,13 @@ the kernel's own `_population` guard (`el-v2-20261021b` T19 refused a quiet stre
 expired assessment publishes as population `unknown` (`scene-population` lane, `assessment_retired`, reason
 `unassessed`). The Keeper's own empty assessment beside a seated person still refuses in the kernel, and the
 supplement after a settled arrival into an empty-assessed scene is still asked for.
+
+That kernel refusal names who is registered (`el-v2-20261022h` T14). Back at Knott's office at night, the Keeper called
+the room empty, and the refusal did not say who was still seated there, so the Keeper had to guess. It now carries
+`details.present`, the seated people's stable `npc_N` references (or the handle of a person who has none). Its fix
+names the same people inline, because some host paths render only the fix. The fix says to move each one away (or to
+where they went) before the empty assessment, or to assess the people who are there. Test:
+`tests/integration/enhanced-locations.test.ts` (empty assessment beside a registered person).
 
 ### 250.7 Places an NPC can name
 
@@ -51350,6 +51363,19 @@ of the place consistent with those records unless this turn's outcomes or facts 
 and clocks are past. These are recorded facts, never earlier prose. A failed read is recorded (`event:"unavailable"`) and
 the turn goes on without it. Tests: `tests/integration/enhanced-locations.test.ts` (visit history),
 `tests/extension/location-revisit-history.test.mjs`.
+
+### 250.19 A clue refused away from its place says where it is found
+
+Live (`el-v2-20261022h` T4): the player walked from the tobacconist back to Knott's office to ask him something. The
+Keeper granted Knott's clue first and settled the walk after it, so the clue was `not_here` at the shop. The refusal
+said only that a distant clue is not obtained by a report, and the clue landed a turn late. Effects settle in order,
+and a later move does not reach back to an earlier one. The outside-scene `not_here` refusal now carries
+`details.found_at: [{scene, display_name}]`, every scene where the book or the table makes the clue discoverable, and
+its fix names that detail, which is what makes the host render it. The fix adds that when the player chose to go there
+this turn, the move settles before the clue. The rest of the fix is unchanged: a report is still not the clue, and a
+move the player did not choose is still not required. The handles stay in `details`, not in the fix text, so the inner
+scene correction still names only the direct child. Test: `tests/integration/enhanced-locations.test.ts` (clue refused
+away from its place).
 
 ## 251. A progress note for a read spiral (owner direction 2026-10-21: fewer deliberations, faster turns)
 

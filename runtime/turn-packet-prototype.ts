@@ -26,6 +26,8 @@ const relationship=Type.Object({kind:Type.Literal('relationship'),actor,toward:T
 const placeMove=Type.Object(PlaceEffect.anyOf[0].properties,{additionalProperties:false,description:(PlaceEffect.anyOf[0] as {description?:string}).description});
 const placeStationary=PlaceEffect.anyOf.slice(1);
 const commandSchemas=[move,placeMove,...placeStationary,npc,walkOn,scene,time,relationship];
+/** §250.4: field names the schema itself declares on some command; only these are ever named back in a refusal. */
+const COMMAND_FIELDS=new Set(commandSchemas.flatMap(schema=>Object.keys((schema as Record<string,any>).properties??{})));
 // §250: stops, waits and looks settle in their submitted order; a move counts its own travel, so time is always additional.
 const commands=Type.Union([Type.Array(Type.Union([move,placeMove,time,...placeStationary,npc,walkOn,scene,relationship]),{maxItems:16})]);
 /** Contract §247.3: a closed rendering selection for routine acts carried without per-act settlement; it writes nothing. */
@@ -62,7 +64,13 @@ function parameterError(label:string,schema:TSchema,value:unknown):Error {
   return error.message;
  };
  const findings=errors.map(error=>{
-  if(error.keyword==='additionalProperties'||error.schemaPath.endsWith('/additionalProperties'))return `${label}/<additional-property>: must not have additional properties`;
+  // live el-v2-20261022h T12: a scene command carried a place command's action, and the refusal could not say which key.
+  // A key is named only when the schema declares it on some command; any other key stays unnamed (it is model text).
+  if(error.keyword==='additionalProperties'||error.schemaPath.endsWith('/additionalProperties')){
+   const extra=(error.keyword==='additionalProperties'?[...((error.params as Record<string,any>)?.additionalProperties??[])]:[error.instancePath.split('/').at(-1)])
+    .filter((key:unknown):key is string=>typeof key==='string'&&COMMAND_FIELDS.has(key));
+   return `${label}/<additional-property>: must not have additional properties${extra.length?` (${[...new Set(extra)].join(', ')}, a field of another command kind)`:''}`;
+  }
   const received=error.instancePath.split('/').slice(1).reduce<unknown>((row,key)=>object(row)||Array.isArray(row)?(row as Record<string,unknown>)[key.replace(/~1/g,'/').replace(/~0/g,'~')]:undefined,value);
   const type=received===null?'null':Array.isArray(received)?'array':typeof received;
   return `${label}${error.instancePath}: ${explanation(error)} (${error.keyword} ${JSON.stringify(error.params)}); received ${type}`;
@@ -259,8 +267,15 @@ export function bindTurnPacketMoves(packet:TurnPacket,choices:readonly Record<st
 export function turnPacket(text:string,parameters?:TSchema):TurnPacket {
  const raw=JSON.parse(text);
  if(object(raw)&&Array.isArray(raw.commands))for(const [index,command]of raw.commands.entries()){
-  const actionSchema=commandSchemas.find(schema=>(schema.properties as Record<string,any>).action?.const===command?.action&&command?.action!==undefined);
-  const schema=actionSchema??commandSchemas.find(schema=>schema.properties.kind.const===command?.kind&&(!(schema.properties as Record<string,any>).action||(schema.properties as Record<string,any>).action.const===command?.action));
+  // §250.4: the schema the command's own kind names and the one its action names compete; the one that declares more of
+  // the command's keys is what it was written as, the kind's on a tie. A place observation under kind "move" is still
+  // reported as a wrong kind, and a scene assessment carrying a stray action (live el-v2-20261022h T12) as a stray action,
+  // not as a place observation missing its facts.
+  const declared=(schema:TSchema)=>Object.keys(command??{}).filter(key=>Object.hasOwn((schema as Record<string,any>).properties??{},key)).length;
+  const byKind=commandSchemas.filter(schema=>schema.properties.kind.const===command?.kind
+   &&(!(schema.properties as Record<string,any>).action||(schema.properties as Record<string,any>).action.const===command?.action));
+  const byAction=command?.action===undefined?[]:commandSchemas.filter(schema=>(schema.properties as Record<string,any>).action?.const===command.action);
+  const schema=[...byKind,...byAction].reduce<TSchema|undefined>((best,candidate)=>!best||declared(candidate)>declared(best)?candidate:best,undefined);
   if(schema&&Errors(schema,command).length)throw parameterError(`commands[${index}]`,schema,command);
  }
  {const content=contentDiagnostic(TURN_PACKET_PARAMETERS,raw);if(content)throw content;}
