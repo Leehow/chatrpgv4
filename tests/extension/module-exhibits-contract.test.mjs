@@ -26,6 +26,8 @@ await build({stdin: {contents: [
     `export {nativeAdvisoryLocks} from './kernel-ts/native-locks.ts';`,
     `export {createKernelRuntime} from './kernel-ts/registry.ts';`,
     `export {ModuleStore} from './kernel-ts/modules/store.ts';`,
+    `export {npcView} from './kernel-ts/read/capsule.ts';`,
+    `export {decisionPerson} from './runtime/decision-content.ts';`,
 ].join('\n'), resolveDir: root, sourcefile: 'module-exhibits-api.ts', loader: 'ts'},
     outfile: join(scratch, 'api.mjs'), bundle: true, packages: 'external', platform: 'node', format: 'esm', target: 'node22', logLevel: 'silent'});
 const api = await import(pathToFileURL(join(scratch, 'api.mjs')).href);
@@ -177,4 +179,23 @@ test('each checker refusal is a named reason, the exhibit is dropped and the res
     const view = await graph();
     assert.deepEqual(view.exhibits.map(item => item.exhibit_id), ['exhibit-kept', 'exhibit-edna-ok']);
     assert.ok(view.nodes.has('npc-edna-marsh'));
+});
+
+test('§257.V1: a person with a voice exhibit has speech_style in the author input, without one none; only the surface travels', async () => {
+    const {job, publish, graph} = await kernelFixture();
+    const draft = opening(GOOD().map(item => item.exhibit_id === 'exhibit-edna-voice'
+        ? {...item, label: 'KEEPER_LABEL', keeper_note: 'KEEPER_NOTE', teaches: ['clue-ledger'], surface: surface('Clipped and low; "Mind the step, {{who:npc-bob-hale}}."')} : item));
+    await publish(job, draft);
+    const view = await graph();
+    const person = node => api.decisionPerson({...api.npcView(view, {}, view.nodes.get(node)), ref: 'npc_1', display_name: 'Someone', name_known: false}, []);
+    const edna = person('npc-edna-marsh'), bob = person('npc-bob-hale');
+    assert.equal(edna.speech_style, 'Clipped and low; "Mind the step, {{who:npc-bob-hale}}."');
+    assert.equal(Object.hasOwn(bob, 'speech_style'), false);
+    assert.ok(!/KEEPER_|clue-ledger/.test(JSON.stringify(edna)), JSON.stringify(edna));
+});
+
+test('§257.V1: voice exhibits win over a derived profile expression and several surfaces are joined', () => {
+    const base = {ref: 'npc_1', display_name: 'X', name_known: false, personality: {profile: {expression: 'Derived'}}};
+    assert.equal(api.decisionPerson({...base, voice: ['One.', 'Two.']}, []).speech_style, 'One.\nTwo.');
+    assert.equal(api.decisionPerson(base, []).speech_style, 'Derived');
 });

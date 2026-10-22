@@ -74,3 +74,12 @@ export function sheetReviewPath(path: unknown): boolean {
     const tokens = typeof path === "string" ? path.split("/") : [];
     return tokens.length >= 5 && tokens[0] === "" && tokens[1] === "nodes" && /^\d+$/.test(tokens[2]) && tokens[3] === "properties" && tokens[4] === "sheet";
 }
+
+/**
+ * Contract §257.R: whether a draft pointer is an exhibit (`/exhibits/<i>`, or inside one). An exhibit's player-safety verdict
+ * is its own and never refuses the shard: a surface that is not `supported` is dropped from the graph with its reason, on the
+ * channel the draft check's refusals use (`exhibit_refusals`). Structural only: the pointer's place, never what it says.
+ */
+export function exhibitReviewPath(path: unknown): boolean {
+    return typeof path === "string" && /^\/exhibits\/(0|[1-9][0-9]*)(?:\/|$)/.test(path);
+}

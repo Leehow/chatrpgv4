@@ -1,5 +1,9 @@
 # Chinese Optimization (zh-optimize)
 
+## 1.4.1
+
+- Exhibits (spec module-exhibits, Voice): the speech section refers to the person's `speech_style` in the author input instead of voice cards. Expression cards, the voice-lane addendum and the speech-edit lane are unchanged.
+
 ## 1.4.0
 
 - Contract §254: the Chinese speech guidance (`agent.md`, unchanged) is an author section sent on `speech` (slot `speech-language`), so it reaches the sole author who writes the lines instead of the Keeper. Requires `instructions.sections.v1` and `instructions.sections.author.v1`. Expression cards, the voice-lane addendum and the speech-edit lane are unchanged.

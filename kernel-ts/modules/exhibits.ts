@@ -9,6 +9,14 @@ import { isJsonObject } from '../json.js';
 import { array, row, string, type Row } from '../read/values.js';
 import { validSemanticId, validSourceLanguage } from './contract.js';
 
+/** §257.R: the detail material that reads for exhibits alone, as `map` reads for a map and `pregens` for the book's investigators. */
+export const EXHIBITS_MATERIAL = 'exhibits';
+/** §257.R: the focus-less question the kernel names for it, so one focus has one identity for its exhibits reading. */
+export const EXHIBITS_QUESTION = 'Extract the exhibits an investigator can perceive or be told for this focus; write no nodes or claims.';
+
+/** §257.R: the pointer an exhibit is reviewed at: its position in the draft's own `exhibits` array. */
+export function exhibitPointer(drafted: unknown, item: Row): string { return `/exhibits/${Array.isArray(drafted) ? drafted.indexOf(item) : -1}`; }
+
 export const EXHIBIT_KINDS = ['description', 'appearance', 'document', 'perception', 'testimony', 'voice'] as const;
 export const EXHIBIT_CHANNELS = ['sight', 'text', 'speech', 'sound', 'touch', 'smell'] as const;
 export const EXHIBIT_STANCES = ['fact', 'belief', 'rumor', 'lie', 'deflection'] as const;
