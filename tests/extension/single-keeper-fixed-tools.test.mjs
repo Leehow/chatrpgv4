@@ -93,6 +93,9 @@ test('PI_COC_FIXED_TOOLS gives the single Keeper the fixed list and discloses ap
     const byKind=await lookup()({kind:'capability',query:'object'});
     assert.ok(byKind.capabilities.length>1&&byKind.capabilities.every(card=>card.detail));
     assert.equal((await lookup()({kind:'capability',query:'how do I pay'})).status,'index_fallback');
+    const listed=await lookup()({kind:'capability',query:'flag cash, define'});
+    assert.deepEqual(listed.capabilities.map(card=>card.name).sort(),['cash','define','flag']);
+    assert.equal((await lookup()({kind:'capability',query:'cash for the coffee'})).status,'index_fallback','a list is only names');
 });
 
 test('PI_COC_FIXED_TOOLS keeps output and place byte-stable on a location turn and discloses the grammar once',async t=>{
