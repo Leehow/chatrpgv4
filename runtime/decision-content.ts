@@ -19,7 +19,7 @@ export const NewCommunicationFact=Type.Union([
  closed({predicate:Type.Literal('knowledge_status'),topic:ref,status:StringEnum(['unknown','uncertain','withheld'])}),
  closed({predicate:Type.Literal('input_requirements'),topic:ref,fields:Type.Array(StringEnum(['subject_name','person_name','location','time_range','record_type','purpose','quantity','budget']),{minItems:1,maxItems:8,uniqueItems:true})})
 ]);
-export const ExistingCommunicationFact=Type.Union([closed({fact_ref:ref}),closed({source_ref:ref}),closed({result_ref:StringEnum(['scene','outcomes','clock'])})]);
+export const ExistingCommunicationFact=Type.Union([closed({fact_ref:ref}),closed({source_ref:ref}),closed({result_ref:StringEnum(['scene','outcomes','clock'])}),closed({exhibit_ref:ref})]);
 export const CommunicationContent=Type.Union([ExistingCommunicationFact,closed({new:NewCommunicationFact})]);
 const actor=Type.String({pattern:"^(npc_[1-9][0-9]*|new_[1-4])$",maxLength:32});
 const to=Type.Array(ref,{minItems:1,maxItems:16,uniqueItems:true});
@@ -30,7 +30,9 @@ export const Interaction=Type.Union([
 ]);
 export type InteractionDecision=Static<typeof Interaction>;
 export type HydratedInteraction=InteractionDecision&{claims?:Row[]};
-export interface DecisionBindings {entities:string[];people:string[];places:string[];facts:string[];sources:string[];narrationFacts?:string[];factActors?:Record<string,string>}
+export interface DecisionBindings {entities:string[];people:string[];places:string[];facts:string[];sources:string[];narrationFacts?:string[];factActors?:Record<string,string>;
+ /** §257.C2: issued exhibit references, and the subsets a reveal and a person's speech may select. */
+ exhibits?:string[];revealExhibits?:string[];speechExhibits?:string[]}
 /** Prepared schemas and execution use the same issued reference vocabulary. */
 export function bindCommunicationParameters(schema:TSchema,bindings:DecisionBindings,narration=false):TSchema {
  const result=structuredClone(schema) as Row;
@@ -48,6 +50,7 @@ export function bindCommunicationParameters(schema:TSchema,bindings:DecisionBind
   }else if(p?.actor&&p?.act){p.actor=selection(bindings.people.filter(isNpcReference),true);if(p.to)p.to.items=selection(bindings.people,true);}
   if(p?.fact_ref)p.fact_ref=selection(narration?bindings.narrationFacts??bindings.facts:bindings.facts);
   if(p?.source_ref)p.source_ref=selection(bindings.sources);
+  if(p?.exhibit_ref)p.exhibit_ref=selection(narration?bindings.revealExhibits??[]:bindings.speechExhibits??[]);
   for(const child of Object.values(row))visit(child);
   if(p?.actor&&p?.act&&owned.size)row.allOf=[...row.allOf??[],...[...owned].map(([actor,refs])=>({
    if:{required:['content'],properties:{content:{contains:{required:['fact_ref'],properties:{fact_ref:{enum:refs}}}}}},
@@ -80,6 +83,8 @@ export function decisionCharacter(person:Row):Row {
  }
  return result;
 }
+/** An exhibit selection the host refuses whole; the message is the repair the Keeper reads. */
+export class ExhibitRefusal extends Error {reason:'unissued'|'carrier_absent';ref:string;constructor(message:string,reason:'unissued'|'carrier_absent',ref:string){super(message);this.reason=reason;this.ref=ref;}}
 interface Fact {ref:string;actor?:string;kind:string;availability:'current'|'supplemental';value:unknown;revision:string}
 /** Aliases survive unchanged material; current issuance and scoped contents do not. */
 export class DecisionContent {
@@ -88,12 +93,13 @@ export class DecisionContent {
  private people=new Set<string>();private listenerAliases=new Map<string,string|null>();
  private places=new Set<string>();
  private entityLabels=new Map<string,string>();
+ private exhibitRows=new Map<string,Row>();private activeExhibits=new Set<string>();private exhibitOrdinal=0;private exhibitsOmitted=0;private exhibitsGiven=false;
  private reads=new Map<string,Row>();private sourceRevision:unknown;private bytes=0;private omitted=0;private previous=new Set<string>();
  assertCurrent(capsule:Row):void {if(this.sourceRevision!==undefined&&this.sourceRevision!==(capsule._context?.task_source_revision??capsule._context?.source_revision))throw Error('Prepared communication source revision changed');}
- forScope(scope:string):void {if(scope!==this.scope){this.scope=scope;this.active.clear();this.entities.clear();this.people.clear();this.places.clear();this.listenerAliases.clear();this.entityLabels.clear();this.reads.clear();this.facts.clear();}}
+ forScope(scope:string):void {if(scope!==this.scope){this.scope=scope;this.active.clear();this.entities.clear();this.people.clear();this.places.clear();this.listenerAliases.clear();this.entityLabels.clear();this.reads.clear();this.facts.clear();this.exhibitRows.clear();this.activeExhibits.clear();}}
  observePerson(value:Row):void {if(isNpcReference(value.ref))this.reads.set(value.ref,structuredClone(value));}
- prepare(scope:string,capsule:Row,people:Row[],sources:Row[]=[],investigators:string[]=[],issuedPeople:string[]=[],prepared:Row[]=[]):Row {
-  this.forScope(scope);this.active.clear();this.entities.clear();this.people.clear();this.places.clear();this.listenerAliases.clear();this.entityLabels.clear();this.bytes=0;this.omitted=0;this.sourceRevision=capsule._context?.task_source_revision??capsule._context?.source_revision;
+ prepare(scope:string,capsule:Row,people:Row[],sources:Row[]=[],investigators:string[]=[],issuedPeople:string[]=[],prepared:Row[]=[],exhibits:Row[]=[]):Row {
+  this.forScope(scope);this.active.clear();this.activeExhibits.clear();this.exhibitsOmitted=0;this.exhibitsGiven=exhibits.length>0;this.entities.clear();this.people.clear();this.places.clear();this.listenerAliases.clear();this.entityLabels.clear();this.bytes=0;this.omitted=0;this.sourceRevision=capsule._context?.task_source_revision??capsule._context?.source_revision;
   for(const [i,name] of investigators.entries()){
    const ref=`investigator_${i+1}`;this.entities.add(ref);this.people.add(ref);this.listenerAlias(name,ref);this.entityLabels.set(ref,name);
    const known=capsule.known?.investigator;
@@ -150,12 +156,14 @@ export class DecisionContent {
   }
   for(const clue of rows(capsule.known?.clues_here))if(clue.discovered===true&&typeof clue.summary==='string')
    this.issue('fact',{name:clue.name,summary:clue.summary},undefined,'discovered_source_clue','current');
+  for(const item of exhibits)this.issueExhibit(item);
   for(const material of rows(capsule.outcome?.public_materials))if(material.visibility==='player')this.issue('fact',material,undefined,'canonical_material','current');
   for(const source of sources)if(typeof source.text==='string'&&source.text.trim())this.issue('source',{name:source.name,text:source.text,authority:source.authority??'reference_only'},undefined,'reference_only');
   for(const entry of rows(capsule.public_scene?.entries))if(typeof entry.text==='string'&&entry.text.trim())
    this.issue('fact',{turn:entry.turn,text:entry.text,...(entry.truncated?{truncated:true}:{})},undefined,'public_scene_history');
   const reused=[...this.active].filter(ref=>this.previous.has(ref)).length;this.previous=new Set(this.active);
-  return {coverage:{issued:this.active.size,reused_refs:reused,omitted:this.omitted,byte_limit:32768},facts:[...this.active].map(key=>{const {revision,...fact}=this.facts.get(key)!;return fact;}),entities:[...this.entities],
+  return {coverage:{issued:this.active.size,reused_refs:reused,omitted:this.omitted,byte_limit:32768,...(this.exhibitsGiven?{exhibits:{issued:this.activeExhibits.size,omitted:this.exhibitsOmitted}}:{})},facts:[...this.active].map(key=>{const {revision,...fact}=this.facts.get(key)!;return fact;}),entities:[...this.entities],
+   ...(this.activeExhibits.size?{exhibits:[...this.activeExhibits].map(ref=>this.exhibitRows.get(ref)!.catalog)}:{}),
    authority:'Exact prepared content references only. Actor-scoped facts belong to that actor; a report, belief or plan is not world truth. A selection is not a transaction or proof of delivery.'};
  }
  private issue(kind:'fact'|'source',value:unknown,actor:string|undefined,evidence:string,availability:'current'|'supplemental'='supplemental'):void {
@@ -167,8 +175,54 @@ export class DecisionContent {
   this.bytes+=cost;
   this.facts.set(ref,{ref,...(actor?{actor}:{}),kind:evidence,availability,value:structuredClone(value),revision:identity});this.active.add(ref);
  }
+ /**
+  * §257.C2: one exhibit the table may reveal now. The Keeper's catalog entry never holds the surface; the host row keeps only
+  * what settlement needs (the exhibit id and its label). Shares the catalog's byte budget and caps its own count.
+  */
+ private issueExhibit(item:Row):void {
+  if(typeof item.exhibit_id!=='string'||typeof item.kind!=='string')return;
+  const identity=digest({kind:'exhibit',id:item.exhibit_id});let ref=this.aliases.get(identity);
+  if(ref&&this.activeExhibits.has(ref))return;
+  const state=item.clue?.state,check=item.clue?.check,needs=typeof check?.skill==='string'?`${check.skill}${check.difficulty?` (${check.difficulty})`:''}`:undefined;
+  const catalog:Row={ref:'',kind:item.kind,channel:item.channel,carrier:item.carrier?.display_name,label:item.label,
+   ...(typeof item.stance==='string'?{stance:item.stance}:{}),
+   ...(typeof state==='string'?{clue:state==='needs'&&needs?`needs ${needs}`:state}:{})};
+  const cost=Buffer.byteLength(JSON.stringify(catalog))+160;
+  if(this.activeExhibits.size>=48||this.bytes+cost>32768){this.exhibitsOmitted++;return;}
+  if(!ref){if(this.aliases.size>=2048)this.aliases.delete(this.aliases.keys().next().value!);ref=`exhibit_${++this.exhibitOrdinal}`;this.aliases.set(identity,ref);}
+  catalog.ref=ref;this.bytes+=cost;
+  this.exhibitRows.set(ref,{exhibit_id:item.exhibit_id,kind:item.kind,label:item.label,carrier:item.carrier?.display_name,catalog});this.activeExhibits.add(ref);
+ }
+ /** The exhibit references this turn's catalog issued, for the decision-content telemetry. */
+ exhibitIssue():{issued:string[];omitted:number} {return {issued:[...this.activeExhibits],omitted:this.exhibitsOmitted};}
+ /**
+  * §257.C2/C3: settle the exhibits a packet reveals against the kernel's current scope. An exhibit whose carrier is no longer
+  * here is refused whole with a repair naming it. Each undiscovered clue an exhibit teaches becomes the clue's ordinary
+  * discovery effect (its own validation applies); a discovered clue gets none. The author receives the surface only.
+  */
+ settleExhibits(reveal:unknown[],current:Row[]):{effects:Row[];selected:string[];authors:Map<string,Row>;taughtBy:Map<string,string>} {
+  const effects:Row[]=[],selected:string[]=[],authors=new Map<string,Row>(),taughtBy=new Map<string,string>();
+  for(const content of reveal){
+   const ref=(content as Row)?.exhibit_ref;if(typeof ref!=='string')continue;
+   const issued=this.exhibitRows.get(ref);
+   if(!issued||!this.activeExhibits.has(ref))throw new ExhibitRefusal(`Exhibit ${ref} is not issued for this turn; select one from decision_materials.exhibits`,'unissued',ref);
+   const now=current.find(row=>row.exhibit_id===issued.exhibit_id);
+   if(!now)throw new ExhibitRefusal(`Exhibit ${ref} (${issued.label}) cannot be revealed: its carrier, ${issued.carrier}, is not here now. Leave {exhibit_ref:"${ref}"} out of reveal, or reveal it once its carrier is in the scene.`,'carrier_absent',ref);
+   if(!selected.includes(ref))selected.push(ref);
+   for(const state of rows(now.clue_states))if(state.state!=='discovered'&&typeof state.clue==='string'&&!taughtBy.has(state.clue)){taughtBy.set(state.clue,ref);effects.push({kind:'clue',clue:state.clue});}
+   const surface=now.surface??{};
+   authors.set(ref,{kind:'exhibit',exhibit:{kind:now.kind,channel:now.channel,carrier:now.carrier?.display_name,surface:surface.text,...(typeof now.stance==='string'?{stance:now.stance}:{})},
+    authority:['lie','deflection'].includes(now.stance)?'What this speaker says, in their terms; not world truth. Render as their speech; do not correct or expose it in narration.'
+     :surface.verbatim===true?'Render faithfully in the play language; do not summarize.':'Perceivable book material; render it in the play language without adding what it does not show.'});
+  }
+  return {effects,selected,authors,taughtBy};
+ }
+ /** Replace the selection placeholders with what the author may see, in the Keeper's order. */
+ authorMaterials(materials:Row[],authors:Map<string,Row>):Row[] {
+  return materials.map(material=>material.kind==='exhibit'?authors.get(material.ref)??(()=>{throw Error('An exhibit selection reached the author unsettled');})():material);
+ }
  addEntities(values:readonly string[]):void {for(const value of values)this.entities.add(value);}
- bindings():DecisionBindings {return {entities:[...this.entities],people:[...this.people],places:[...this.places],facts:[...this.active].filter(ref=>ref.startsWith('fact_')&&!['current_document','public_scene_history'].includes(this.facts.get(ref)?.kind??'')),narrationFacts:[...this.active].filter(ref=>ref.startsWith('fact_')&&!this.facts.get(ref)?.actor),sources:[...this.active].filter(ref=>ref.startsWith('source_')),factActors:Object.fromEntries([...this.active].flatMap(ref=>this.facts.get(ref)?.actor?[[ref,this.facts.get(ref)!.actor!]]:[]))};}
+ bindings():DecisionBindings {return {entities:[...this.entities],people:[...this.people],places:[...this.places],facts:[...this.active].filter(ref=>ref.startsWith('fact_')&&!['current_document','public_scene_history'].includes(this.facts.get(ref)?.kind??'')),narrationFacts:[...this.active].filter(ref=>ref.startsWith('fact_')&&!this.facts.get(ref)?.actor),sources:[...this.active].filter(ref=>ref.startsWith('source_')),exhibits:[...this.activeExhibits],revealExhibits:[...this.activeExhibits].filter(ref=>['document','perception'].includes(this.exhibitRows.get(ref)?.kind)),speechExhibits:[],factActors:Object.fromEntries([...this.active].flatMap(ref=>this.facts.get(ref)?.actor?[[ref,this.facts.get(ref)!.actor!]]:[]))};}
  private listenerAlias(value:string,ref:string):void {
   const key=value.normalize('NFKC').trim().toLowerCase(),prior=this.listenerAliases.get(key);
   this.listenerAliases.set(key,prior!==undefined&&prior!==ref?null:ref);
@@ -186,6 +240,12 @@ export class DecisionContent {
    for(const item of [...fact.items??[],...fact.via??[]])if(typeof item==='string'&&!this.entities.has(item))throw Error('New communication content uses an unissued item or waypoint reference');
    const refs=[fact.provider,fact.actor,fact.to,fact.topic,...fact.items??[],...fact.via??[]].filter((value):value is string=>typeof value==='string');
    return {kind:'proposed_claim',value:structuredClone(fact),entities:[...new Set(refs)].flatMap(ref=>this.entityLabels.has(ref)?[{ref,display_name:this.entityLabels.get(ref)}]:[]),authority:'Communication content only; not a receipt, truth, order or completed action'};
+  }
+  if(selected.exhibit_ref!==undefined){
+   const issued=this.exhibitRows.get(selected.exhibit_ref);
+   if(!issued||!this.activeExhibits.has(selected.exhibit_ref))throw Error('Unissued, retired or wrong-kind communication reference');
+   if(actor!==undefined)throw Error('A document or perception exhibit is revealed to the investigators; a person does not speak it');
+   return {kind:'exhibit',ref:selected.exhibit_ref};
   }
   const key=selected.fact_ref??selected.source_ref,fact=this.facts.get(key);
   if(!fact||!this.active.has(key)||(selected.source_ref!==undefined)!==key.startsWith('source_'))throw Error('Unissued, retired or wrong-kind communication reference');
