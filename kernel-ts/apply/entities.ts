@@ -6,7 +6,7 @@ import {isJsonObject} from '../json.js';
 import {isAmbiguity,notAPerson,personRefusal,recordOf,type ModuleGraph} from '../read/module-graph.js';
 import {handoutImageSource} from '../read/handout-image-source.js';
 import {handoutFile} from '../read/handout-document.js';
-import {npcNode,npcsPresent,personLabel,personNode,personRecord,unplacedPeople,untoldBlock} from '../read/capsule.js';
+import {npcNode,npcsPresent,personLabel,personNode,personRecord,sceneLabel,unplacedPeople,untoldBlock} from '../read/capsule.js';
 import {unsupported} from '../read/handlers.js';
 import {passageOf,tablePersonId} from '../read/table-people.js';
 import {sourceNameReadFix} from '../read/cast.js';
@@ -75,12 +75,17 @@ export async function stageClue(context:ApplyContext,effect:Row,told=false):Prom
     const left=here.includes(node.node_id)?undefined:departedThisTurn(context).map(handle=>graph.scene(handle)).find(value=>graph.sceneClueIds(value).includes(node.node_id));
     const scene=left??active;
     if(!here.includes(node.node_id)&&!left&&!told){
+        // live el-v2-20261022h T4: the Keeper granted Knott's clue at the shop, then settled the walk back to his office,
+        // and the refusal never said where the clue lives; it landed a turn late.
+        const foundAt=graph.kind('scene').filter(place=>graph.sceneClueIds(place).includes(node.node_id))
+            .map(place=>({scene:graph.handle(place),display_name:sceneLabel(graph,world,place)}));
         const inner=graph.scenePlaces(active).map(place=>graph.find(string(place.name)))
             .filter((place):place is Row=>place?.node_kind==='scene'&&graph.sceneClueIds(place).includes(node.node_id));
         const fix=inner.length
             ? `This clue is scoped to an existing inner scene: ${inner.map(place=>repr(graph.handle(place))).join(', ')}, not the enclosing place. If the player already chose to enter that area, settle the existing move to it before the local clue effect; do not establish or replace its authored identity. Containment does not authorize entry or discovery. If the player remains at a doorway or only hears a report, leave this clue effect out and record only the actually warranted observation or hearing through event.knowledge, preserving source and epistemic state. Keep other valid effects; do not move anyone just to obtain this clue.`
-            : 'A source reference does not obtain a distant clue. Leave this clue effect out and keep other valid effects. Record what a named actor heard through existing event.knowledge, retaining the source and epistemic state; an attributed report is not established world truth. Use the existing dossier path only for a record actually obtained locally. Obtain one of details.clues_here, or move by the normal route only if the player chose to travel; an unchosen move is not required to continue a conversation. Explanatory notes do not add fields to the closed event schema.';
-        throw new RpcError('not_here',`clue ${repr(handle)} is not discoverable at ${repr(graph.handle(scene))}`,{fix,details:{clue:handle,scene:graph.handle(scene),clues_here:here.map(id=>graph.handle(graph.nodes.get(id)!))}});
+            : 'A source reference does not obtain a distant clue. Leave this clue effect out and keep other valid effects. Record what a named actor heard through existing event.knowledge, retaining the source and epistemic state; an attributed report is not established world truth. Use the existing dossier path only for a record actually obtained locally. Obtain one of details.clues_here, or move by the normal route only if the player chose to travel; an unchosen move is not required to continue a conversation. Explanatory notes do not add fields to the closed event schema.'
+            +(foundAt.length ? ' This clue is found at details.found_at. If the player chose to go there this turn, the move there settles before this clue: an effect settles where the party stands when it settles, and a later move does not reach back to it.' : '');
+        throw new RpcError('not_here',`clue ${repr(handle)} is not discoverable at ${repr(graph.handle(scene))}`,{fix,details:{clue:handle,scene:graph.handle(scene),clues_here:here.map(id=>graph.handle(graph.nodes.get(id)!)),...(foundAt.length?{found_at:foundAt}:{})}});
     }
     // §201.2 / §222.1: a clue the book finds by a check of a named skill lands by one of the rulebook's ways to it -- the
     // book's roll on this visit, an Idea roll naming it, or a route the host attests (`found_by`: a fitting other roll Jev

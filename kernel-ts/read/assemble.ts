@@ -35,7 +35,8 @@ import {openIntents, shownIntentRef} from '../npc/intents.js';
 import {deferredNpcContext} from './deferred-context.js';
 import {allReceipts, coercionPressures} from '../resolve/coercion.js';
 import { capsuleOwed } from "../owed/index.js";
-import { FIRST_SIGHT_BUDGET, firstSightSection, fitFirstSight } from "../first-sight/index.js";
+import { FIRST_SIGHT_BUDGET, firstSightLedger, firstSightSection, fitFirstSight } from "../first-sight/index.js";
+import { KEPT_LOOKS_BUDGET, keptLooksSection } from "../first-sight/looks.js";
 import { historicalSetting } from './historical-setting.js';
 import { HEAD_ESTABLISH } from "./establish.js";
 /**
@@ -131,6 +132,9 @@ export const HEAD_FIRST_SIGHT = " first_sight is the player's first sight of the
     "when they first come into view, give them one in your own words, in keeping with the place and the period (build, " +
     "apparent age, dress, what their hands are doing, how they carry themselves); a person the book keeps hidden stays " +
     "hidden until found.";
+/** Contract §255: said only on a capsule that carries `kept_looks`. */
+export const HEAD_KEPT_LOOKS = " kept_looks is how earlier replies showed this place and the people here, in their own words, and the " +
+    "pronoun they used for each person: keep to it; add detail, never contradict it.";
 export const BUDGETS: Readonly<Record<string, number>> = Object.freeze({
     where: 4096,
     present: 3072,
@@ -570,6 +574,8 @@ export async function buildCapsule(campaign: CampaignSnapshot, module: LoadedMod
         present = npcsPresent(graph, world, scene);
     // §168.5: what the book describes of the place and the people here that the player has not yet been shown.
     const firstSight = firstSightSection(graph, world, scene, campaign.jsonFiles.get("first-sight.json"));
+    // §255: what earlier replies showed of how this place and the people here look.
+    const keptLooks = keptLooksSection(graph, world, scene, firstSightLedger(campaign.jsonFiles.get("first-sight.json")).looks);
     const dg = await DirectorGraph.load(context),
         craft = await TextGraph.load(context),
         ontology = await Ontology.load(context),
@@ -658,6 +664,7 @@ export async function buildCapsule(campaign: CampaignSnapshot, module: LoadedMod
         historical_setting: await historicalSetting(campaign, module),
         // §168.5: before present, so the material for a first sight is read before the dossiers.
         ...(firstSight ? { first_sight: firstSight } : {}),
+        ...(keptLooks ? { kept_looks: keptLooks } : {}),
         present: presentSection(graph, world, scene, row(campaign.jsonFiles.get("npc-ledger.json")), memory, across, { voices: true, campaign:campaign.id, currentReceipts:array(turn.receipts), journal: row(campaign.jsonFiles.get("npc-journal.json")), records: campaign.records, scope:npcScope, chain: campaign.chainReads() }),
         ...(deferred ? {deferred_npcs: deferred} : {}),
         voices: voicesSection(graph, world, scene),
@@ -724,6 +731,13 @@ export async function buildCapsule(campaign: CampaignSnapshot, module: LoadedMod
     // §168.5: its own budget, fitted on its own; no other section's budget cuts it.
     if (sections.first_sight && fitFirstSight(sections.first_sight, FIRST_SIGHT_BUDGET))
         truncated.push("first_sight");
+    // §255: a kept look is a few delivered sentences; past its own budget the last people give way, the place stays.
+    if (sections.kept_looks && jsonSize(sections.kept_looks) > KEPT_LOOKS_BUDGET) {
+        const people = array(sections.kept_looks.people);
+        while (people.length && jsonSize(sections.kept_looks) > KEPT_LOOKS_BUDGET) people.pop();
+        if (!people.length) delete sections.kept_looks.people;
+        truncated.push("kept_looks");
+    }
     if (fitBudget(sections.known.flags, 512, "last"))
         truncated.push("known.flags");
     if (sections.unconfirmed_recordings && fitBudget(sections.unconfirmed_recordings, UNCONFIRMED_RECORDINGS_BUDGET, "last"))
@@ -763,6 +777,8 @@ export async function buildCapsule(campaign: CampaignSnapshot, module: LoadedMod
     let head = HEAD;
     if (sections.first_sight)
         head += HEAD_FIRST_SIGHT;
+    if (sections.kept_looks)
+        head += HEAD_KEPT_LOOKS;
     // The book's own navigation (spec thin-book-play B): what the book holds and what is still unread, so a
     // thin graph is never mistaken for the book saying no. Names and pages only; the reading is asked for by name.
     if (truth(module.meta.reading_version)) {

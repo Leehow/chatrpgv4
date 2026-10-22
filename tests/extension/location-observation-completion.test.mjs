@@ -39,7 +39,8 @@ test('a focused observation publishes on its first packet and reaches the sole a
  const authors=table.telemetry().filter(r=>r.lane==='isolated-expression'&&r.event==='written');assert.equal(authors.length,1,JSON.stringify({errors:refused,delivery:table.telemetry().filter(r=>r.lane==='keeper-delivery'||r.lane==='delivery')}));
  const task=readFileSync(join(authors[0].attempt,'task.json'),'utf8');assert.match(task,/Records ledger/);
  assert.equal(JSON.parse(task).player_input,'I look closely at the ledger label on the desk and read it.','the location author must receive this input rather than reconstruct intent from history');
- assert.equal(JSON.parse(task).decision_context.location_description?.version,JSON.parse(readFileSync(new URL('../../mods/enhanced-locations/mod.json',import.meta.url),'utf8')).version,'a location-selected native turn loads the installed locked Mod description section');
+ const version=JSON.parse(readFileSync(new URL('../../mods/enhanced-locations/mod.json',import.meta.url),'utf8')).version;
+ assert(table.telemetry().find(r=>r.lane==='author-craft')?.sections.some(row=>row.key.startsWith(`enhanced-locations@${version}#`)),'a location-selected native turn loads the installed locked Mod description section');
  assert.equal(table.entries('coc-final-delivery').filter(r=>r.event==='end'&&r.status==='completed').length,1);
 });
 

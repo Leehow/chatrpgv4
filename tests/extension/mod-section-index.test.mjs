@@ -12,7 +12,7 @@ import {fauxAssistantMessage,fauxToolCall} from "@earendil-works/pi-ai";
 import {openTable} from "./harness.mjs";
 
 const ROOT=resolve(import.meta.dirname,"../..");
-const SECTIONED=["enhanced-locations","narration-craft","natural-npc","enhanced-items","keeper-pacing","story-thread","historical-reference","hostile-creatures","quick-settlement"];
+const SECTIONED=["enhanced-locations","narration-craft","natural-npc","enhanced-items","keeper-pacing","story-thread","historical-reference","hostile-creatures","quick-settlement","zh-optimize"];
 /** A locations provider or a package with a reference section is indexed at any budget (§242, §247.4). */
 const temporary=await mkdtemp(join(tmpdir(),"mod-section-index-"));
 await symlink(join(ROOT,"node_modules"),join(temporary,"node_modules"),"dir");
@@ -151,7 +151,9 @@ test("every sectioned package is indexed at any budget; an unsectioned one is wh
 		'- "keeper-pacing: Stalled turns" topics: * sent on: gate:stall',
 		'- "keeper-pacing: A stuck or confused player" topics: out_of_character',
 		'- "keeper-pacing: Empty and repeated turns" topics: * sent on: gate:recover']);
-	assert.ok(rows.get("narration-craft").instruction.includes('- "narration-craft: Opening the table" sent on: state:opening'));
+	// §254: the prose package's craft is the author's; its Keeper text lists nothing and carries no index lead.
+	assert.deepEqual(rows.get("narration-craft").sections.find(section=>section.heading==="Opening the table")?.on,["opening"]);
+	assert.ok(!rows.get("narration-craft").instruction.includes("Opening the table")&&!rows.get("narration-craft").instruction.startsWith(api.INDEXED_LEAD));
 	const named=new Set([...rows.values()].filter(row=>row.form==="indexed").flatMap(row=>row.sections.flatMap(section=>section.topics)));
 	// The definitions of the topics the indexed rows name; "*" names every one.
 	const list=JSON.parse(await readFile(join(ROOT,"content/mods/topics.json"),"utf8")).topics.map(topic=>topic.id);
@@ -163,11 +165,11 @@ test("an indexed row's gates read the turn's state: the opening, people present,
 	budget(t,1);
 	await call("table.open");
 	const opening=await call("table.capsule");
-	const due=capsule=>byId(capsule).get("narration-craft").sections.find(section=>section.heading==="Opening the table").due;
+	// §254: the opening's craft is an author section; the turn-0 state it is sent on is the capsule's establish item.
 	assert.equal(opening.turn.number,0);
-	assert.equal(due(opening),true,"the opening trigger holds on turn 0");
+	assert.ok(opening.mods.establish?.why.includes("opening"),"the opening is owed on turn 0");
 	const first=(await call("table.player_input",{text:"I look around the office."})).capsule;
-	assert.equal(due(first),false,"and not after");
+	assert.ok(!first.mods.establish?.why.includes("opening"),"and not after");
 	const rows=byId(first);
 	const equipment=rows.get("enhanced-items").sections.find(section=>section.heading==="Registering carried equipment");
 	assert.equal(equipment.gates_open,first.mods.unregistered_equipment.length>0);
@@ -355,7 +357,7 @@ test("over the budget the Keeper's actual requests carry resident text in the br
 	assert.equal(npc.form,"indexed");
 	assert.equal(npc.sections,undefined,"the brief carries text only");
 	assert.ok(npc.instruction.includes("## The impression in play")&&!npc.instruction.includes("## What the asker is after"));
-	assert.equal(brief.find(row=>row.mod==="zh-optimize").form,"full","an unsectioned package goes whole");
+	assert.equal(brief.find(row=>row.mod==="zh-optimize").form,"indexed","§254: its speech guidance is an author section");
 
 	const second=sectionsOf(requests[1]);
 	assert.ok(second.sections.some(row=>row.package==="historical-reference"&&row.section==="Prices"),"the cash call this turn loads the price section for the next request");
@@ -378,5 +380,5 @@ test("with Jev unavailable every section whose gates hold and that names a topic
 		assert.ok(named.includes(section),`${section} in ${named.join(" | ")}`);
 	const rows=table.telemetry().filter(row=>row.lane==="mod-sections");
 	assert.ok(rows.some(row=>row.event==="fallback"&&row.reason==="unconfigured"));
-	assert.ok(rows.some(row=>row.event==="selected"&&row.keys.every(key=>key.why.every(why=>why==="fallback"||why==="due"||why.startsWith("call:")||why.startsWith('context:')))));
+	assert.ok(rows.some(row=>row.event==="selected"&&row.keys.every(key=>key.why.every(why=>why==="fallback"||why==="due"||why==="writer"||why.startsWith("call:")||why.startsWith('context:')))));
 });

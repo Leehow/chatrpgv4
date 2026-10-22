@@ -14,8 +14,9 @@ const style = JSON.parse(await readFile(join(root, 'mods/narration-craft/style.j
 const messageText = message => typeof message.content === 'string' ? message.content
   : (message.content ?? []).filter(part => part.type === 'text').map(part => part.text).join('\n');
 /** §248.2: the shipped package rides indexed: its resident sections and the index of the rest, never a situational body. */
+// §254: the craft sections are the author's, declared on the row and never in the Keeper's text.
 const residentOf = row => row.form === 'indexed' && row.instruction.includes('## This turn\n') && !row.instruction.includes('## Opening the table\n')
-  && row.instruction.includes('"narration-craft: Opening the table"');
+  && !row.instruction.includes('Opening the table');
 const craftOf = context => {
   const text = context.messages.map(messageText).find(text => text.includes('"kind":"context_brief"'));
   assert.ok(text, 'the real provider receives the host briefing');

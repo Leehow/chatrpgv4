@@ -30,7 +30,8 @@ export function createModDiscovery(deps:{
     /** §228.3: the last observed package index by key, so a result or a lookup can read a section after the capsule moved on. */
     const known=new Map<string,Row>();
     const record=(row:Row)=>deps.record({lane:'mod-discovery',...row});
-    const entries=(capsule:Row)=>discoveryRows(capsule).flatMap(mod=>array(mod.sections).map(section=>({
+    // §254.1: an author section is the sole author's, never the Keeper's discovery.
+    const entries=(capsule:Row)=>discoveryRows(capsule).flatMap(mod=>array(mod.sections).filter(section=>object(section).kind!=='author').map(section=>({
         ...section,mod:mod.mod,version:mod.version,name:String(mod.mod)+': '+String(section.heading??'Package core'),
     })));
     async function load(values:readonly Row[]){

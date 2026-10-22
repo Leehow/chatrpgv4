@@ -11,11 +11,11 @@ test('reference sections require their capability and reject every automatic sel
  assert.throws(()=>parse(entry,{...manifest,requires:[]}),/reference section requires/);
  for(const fields of [{topics:['*']},{triggers:['before_apply:place']},{gates:['opening']},{topic_threshold:.9}])assert.throws(()=>parse({...entry,...fields}),/no automatic selectors/);
 });
-test('the real locked author section is indexed and explicitly readable but never automatically selected',async t=>{
+test('the real locked author section (§254) is indexed and explicitly readable but never automatically selected',async t=>{
  const client=await kernel(t,{env:{COC_INSTRUCTION_BUDGET:'99999999'}});await openTurn(client);
  const capsule=await client.table('capsule');
  const mod=capsule.mods.instructions.find(row=>row.mod==='enhanced-locations');assert.equal(mod.form,'indexed');
- const section=mod.sections.find(row=>row.heading==='Place description for the author');assert.ok(section?.key);
+ const section=mod.sections.find(row=>row.heading==='Place description for the author');assert.ok(section?.key);assert.equal(section.kind,'author');
  assert(!mod.instruction.includes('Let the player inhabit a particular place'));
  const calls=emptyCalls();calls.apply.add('place');calls.context=new Set(['place']);
  for(const judgement of [undefined,{status:'scored',scores:{asks_question:1,speaks_to_person:1}}])

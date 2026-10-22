@@ -1,3 +1,0 @@
-# Chinese addendum
-
-Use idiomatic spoken Chinese with the fitting register. Shared context may license ellipsis, repairs, connectives and particles, but only when useful. The current relationship, listener, facts, knowledge, immediate purpose and feeling decide the line. Chinese realization does not add motives, canon, authority, resources or choices. A reply may be short, connected, hesitant, evasive, warm, firm, quiet, formal or extended as the situation warrants; do not make brevity, one-breath delivery, fragments or a fixed ending universal. Adapt examples; never recite them.

@@ -163,7 +163,9 @@ export function installContextPolicy(pi: ExtensionAPI, writeTelemetry: (row: Row
     const modSections=createModSections({read:async(method,params)=>call?call(method,params):undefined,decision,record,
         // §248.7 (owner 2026-10-21, option A): the single Keeper's topics are judged by Jev too; without a judgement it is in
         // pull mode (§248.4): state and calls push sections and the Keeper reads the rest.
-        pull:()=>singleKeeper});
+        pull:()=>singleKeeper,
+        // §254.4: outside the decision-author path the Keeper writes the prose, so it carries the author sections.
+        writer:()=>!decisionAuthor});
     const discoveryMode=()=>singleKeeper?'full':['selective','shadow'].includes(sessionEnv.COC_TURN_DISCOVERY??'')?sessionEnv.COC_TURN_DISCOVERY!:'full';
     // The single Keeper on a provider the fixed view is measured for (or PI_COC_FIXED_TOOLS=1) carries §228.1's fixed
     // tool view and its apply detail arrives in the conversation (§228.2-228.4); discovery itself stays full.

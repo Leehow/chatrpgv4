@@ -19,5 +19,5 @@ test('native capsule carries bounded verbatim package examples in the existing i
   assert.ok(instruction.instruction.includes(JSON.stringify(examples)),'authored language examples actually reach the Keeper');
   assert.ok(!instruction.instruction.includes(catalog.cards[3].examples[0].reply),'the full reference library is not copied');
   assert.ok(Buffer.byteLength(JSON.stringify(examples))<1800,'examples remain a small static addition');
-  assert.equal(instruction.form,'full');
+  assert.equal(instruction.form,'indexed','§254: the speech guidance itself is an author section');
 });

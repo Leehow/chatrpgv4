@@ -1,6 +1,7 @@
 /** Contract §183.5: the sections of indexed packages a turn needs. Jev scores the product's topics once per input; the
  *  kernel's gates and the turn's own calls do the rest; the text rides at the end of the request. Idle on any table whose
  *  instructions all go whole. */
+import {AUTHOR_GRANT_LIMITS} from '../kernel/author-craft.ts';
 import {createHash} from 'node:crypto';
 import {TaskLease} from '../../runtime/jev/task-context.ts';
 import type {DecisionPort} from '../../runtime/jev/decision-port.ts';
@@ -42,16 +43,23 @@ export function noteCall(calls:TurnCalls,tool:string,input:Row,details?:Row):voi
  if(tool==='resolve'){const family=resolveFamily(input,details);if(family)calls.resolve.add(family);}
 }
 
-export type Picked={key:string;mod:string;version:string;heading:string|null;why:string[]};
+export type Picked={key:string;mod:string;version:string;heading:string|null;why:string[];grants?:string[]};
 /** The selection rule of §183.5, over the capsule's indexed rows. `judgement` undefined or unavailable is the fallback:
  *  every section with a topic whose kernel gates hold loads, its host gates aside. In pull mode (§248.4, the single
  *  Keeper) a scored judgement selects as above (§248.7); without one there is no fallback: a topic section loads only
  *  when it has a kernel gate and its gates hold, and the Keeper reads the others itself. */
-export function selectSections(capsule:Row,judgement:TopicJudgement|undefined,calls:TurnCalls,pull=false):Picked[] {
+/** §254.4: with `writer` the Keeper writes the prose itself, so every author section of a schema-1 package rides with
+ *  the turn's sections; otherwise an author section is the sole author's and never the Keeper's. */
+export function selectSections(capsule:Row,judgement:TopicJudgement|undefined,calls:TurnCalls,pull=false,writer=false):Picked[] {
  const scores=judgement?.status==='scored'?judgement.scores:undefined;
  const host={no_topic:!!scores&&!Object.values(scores).some(score=>score>=DEFAULT_TOPIC_THRESHOLD)};
  const picked:Picked[]=[];
  for(const instruction of indexedRows(capsule))for(const section of array(instruction.sections)){
+  if(section.kind==='author'){
+   if(writer)picked.push({key:String(section.key),mod:String(instruction.mod),version:String(instruction.version),heading:section.heading??null,why:['writer'],
+    ...(Array.isArray(section.grants)&&section.grants.length?{grants:section.grants.map(String)}:{})});
+   continue;
+  }
   const why:string[]=[],topics=array(section.topics).map(String),gates=array(section.gates).map(String);
   if(section.due===true)why.push('due');
   if(topics.length&&section.gates_open===true){
@@ -77,7 +85,9 @@ export const sectionName=(mod:string,heading:string|null)=>`${mod}: ${heading??'
 export function createModSections(deps:{read:(method:string,params:Row)=>Promise<unknown>;decision:()=>DecisionPort|undefined;record:(row:Row)=>void;
  firstWaitMs?:number;allowanceMs?:number;
  /** §248.4: the table asks no topic judgement; the Keeper reads topic sections itself. */
- pull?:()=>boolean}) {
+ pull?:()=>boolean;
+ /** §254.4: the Keeper writes the prose itself (the decision-author path is off). */
+ writer?:()=>boolean}) {
  let key='',judgement:TopicJudgement|undefined,work:Promise<void>|undefined,startedAt=0,lifetime:AbortController|undefined,waited=false,lastSelection='';
  const texts=new Map<string,string>();
  /** §248.4: the schema-1 sections the last observed capsule indexes, by name, so the Keeper can read one. */
@@ -85,8 +95,9 @@ export function createModSections(deps:{read:(method:string,params:Row)=>Promise
  const pulling=()=>deps.pull?.()===true;
  const know=(capsule:Row)=>{
   known.clear();
-  // A reference section is its own consumer's (§242, §247.4); the Keeper reads situational sections only.
-  for(const instruction of indexedRows(capsule))for(const section of array(instruction.sections))if(section.kind!=='reference')
+  // A reference section is its own consumer's (§242, §247.4), an author section the sole author's (§254); the Keeper
+  // reads situational sections only.
+  for(const instruction of indexedRows(capsule))for(const section of array(instruction.sections))if(section.kind!=='reference'&&section.kind!=='author')
    known.set(sectionName(String(instruction.mod),section.heading??null).toLowerCase(),{key:String(section.key),mod:String(instruction.mod),
     version:String(instruction.version),heading:section.heading??null});
  };
@@ -147,7 +158,7 @@ export function createModSections(deps:{read:(method:string,params:Row)=>Promise
   if(!indexedRows(capsule).length)return undefined;
   const late=!judgement&&!pulling();
   // §248.7: in pull mode an unscored judgement (late or failed) pushes no topic section; the Keeper reads them itself.
-  const picked=selectSections(capsule,judgement,calls,pulling());
+  const picked=selectSections(capsule,judgement,calls,pulling(),deps.writer?.()===true);
   if(late&&picked.some(entry=>entry.why.includes('fallback')))
    deps.record({lane:'mod-sections',event:'fallback',turn:binding.turn,reason:'late',ms:startedAt?Date.now()-startedAt:0});
   if(!picked.length)return undefined;
@@ -156,7 +167,7 @@ export function createModSections(deps:{read:(method:string,params:Row)=>Promise
   const sections:Row[]=[],omitted:Row[]=[];
   // §248.6: when room runs short, what the table's state owes goes first, then what this turn's calls and kernel gates
   // send, then what a topic judgement or a fallback adds; the message keeps that order, so a cut drops the last first.
-  const rank=(entry:Picked)=>Math.min(...entry.why.map(why=>why==='due'?0:why==='gate'||why.startsWith('call:')||why.startsWith('context:')?1:2));
+  const rank=(entry:Picked)=>Math.min(...entry.why.map(why=>why==='due'?0:why==='gate'||why==='writer'||why.startsWith('call:')||why.startsWith('context:')?1:2));
   let owed=0;
   for(const entry of [...picked].sort((a,b)=>rank(a)-rank(b))){
    const text=texts.get(entry.key);if(typeof text!=='string')continue;
@@ -164,6 +175,10 @@ export function createModSections(deps:{read:(method:string,params:Row)=>Promise
    if(bytes(JSON.stringify({authority:AUTHORITY,sections:[...sections,row],omitted}))<=MOD_SECTIONS_BYTES){sections.push(row);if(rank(entry)===0)owed++;}
    else omitted.push({package:entry.mod,section:row.section});
   }
+  // §254.6: a writing Keeper reads the core's limits of every grant its author sections carry.
+  const granted=[...new Set(picked.filter(entry=>sections.some(row=>row.package===entry.mod&&row.section===(entry.heading??'(opening text)'))).flatMap(entry=>entry.grants??[]))]
+   .filter(grant=>grant in AUTHOR_GRANT_LIMITS);
+  if(granted.length)sections.push({package:'core',section:'Granted improvisation',text:granted.map(grant=>`- ${grant}: ${AUTHOR_GRANT_LIMITS[grant]}`).join('\n')});
   const content=JSON.stringify({authority:AUTHORITY,sections,...(omitted.length?{omitted}:{})});
   const selection=fingerprint([binding.turn,picked,omitted]);
   if(selection!==lastSelection){lastSelection=selection;

@@ -51183,6 +51183,12 @@ same way (`adjusted` on the receipt and its outcome):
   kind, or a non-empty list of them, moves; any other field stays for the schema's refusal.
 - A feature change says that it registers an unregistered fixture itself (`adjusted: at: implicit_feature`), here or at
   a place left behind, and that a fixture is never a place; the description no longer sends the Keeper to `additions`.
+- A command is checked against the schema it was written as: the one its `kind` names and the one its `action` names
+  compete, and the one declaring more of the command's keys wins, its kind's on a tie (`el-v2-20261022h` T12:
+  `{kind:"scene", action:"observe", service, crowd}` was checked as a place observation and refused for missing
+  `facts`; a place observation written under `kind:"move"` is still reported as a wrong `kind`). A refused extra key is named when the schema declares it on some command (`action`, a
+  field of another command kind); any other key stays `<additional-property>`, since it is model text. Test:
+  `tests/extension/turn-packet-command-kind.test.mjs`.
 
 Still refused, because each needs the Keeper's decision: an empty population assessment while a registered person is
 seated at the destination (move them away or keep them), and an effect kind with no single reading.
@@ -51213,6 +51219,13 @@ the kernel's own `_population` guard (`el-v2-20261021b` T19 refused a quiet stre
 expired assessment publishes as population `unknown` (`scene-population` lane, `assessment_retired`, reason
 `unassessed`). The Keeper's own empty assessment beside a seated person still refuses in the kernel, and the
 supplement after a settled arrival into an empty-assessed scene is still asked for.
+
+That kernel refusal names who is registered (`el-v2-20261022h` T14). Back at Knott's office at night, the Keeper called
+the room empty, and the refusal did not say who was still seated there, so the Keeper had to guess. It now carries
+`details.present`, the seated people's stable `npc_N` references (or the handle of a person who has none). Its fix
+names the same people inline, because some host paths render only the fix. The fix says to move each one away (or to
+where they went) before the empty assessment, or to assess the people who are there. Test:
+`tests/integration/enhanced-locations.test.ts` (empty assessment beside a registered person).
 
 ### 250.7 Places an NPC can name
 
@@ -51351,6 +51364,19 @@ and clocks are past. These are recorded facts, never earlier prose. A failed rea
 the turn goes on without it. Tests: `tests/integration/enhanced-locations.test.ts` (visit history),
 `tests/extension/location-revisit-history.test.mjs`.
 
+### 250.19 A clue refused away from its place says where it is found
+
+Live (`el-v2-20261022h` T4): the player walked from the tobacconist back to Knott's office to ask him something. The
+Keeper granted Knott's clue first and settled the walk after it, so the clue was `not_here` at the shop. The refusal
+said only that a distant clue is not obtained by a report, and the clue landed a turn late. Effects settle in order,
+and a later move does not reach back to an earlier one. The outside-scene `not_here` refusal now carries
+`details.found_at: [{scene, display_name}]`, every scene where the book or the table makes the clue discoverable, and
+its fix names that detail, which is what makes the host render it. The fix adds that when the player chose to go there
+this turn, the move settles before the clue. The rest of the fix is unchanged: a report is still not the clue, and a
+move the player did not choose is still not required. The handles stay in `details`, not in the fix text, so the inner
+scene correction still names only the direct child. Test: `tests/integration/enhanced-locations.test.ts` (clue refused
+away from its place).
+
 ## 251. A progress note for a read spiral (owner direction 2026-10-21: fewer deliberations, faster turns)
 
 Live evidence: on `el-v2-20261021a` T16 the single Keeper answered one sentence about a door and a hired middleman with
@@ -51450,3 +51476,167 @@ A failed or fumbled ordinary check's result now carries the hint that its goal d
 land, open, move through or reveal what the check was for (`el-v2-20261021e` T24: Strength failed and the packet moved the
 investigator through the door; `el-v2-20261021f` T21: Spot Hidden failed and the packet observed what it was for). This
 is guidance at the moment of the result; a typed binding of a check to the effects it decides is not added here.
+
+## 254. Author craft sections: writing craft reaches the sole author (owner 2026-10-22; amends §183, §203, §242.3, §247.4, §248)
+
+Since the structured Keeper (§242, 2026-10-18/19) the sole author writes every player-facing word, yet the prose
+package's craft (narration-craft `agent.md`, 16.5 KB, almost all resident) still rode the Keeper's request and never
+reached the author, while two packages reached the author through host code written for one heading each (§242's place
+description, §247.4's routine summary). The owner's rule (2026-10-22): the core owns what the text must be faithful to
+and never the craft of writing it; all craft lives in packages as author-only sections; the author makes one tool-free
+call, so the host chooses and assembles them before it, from the settled turn (the design plan on author craft
+skills is in the owner's project library).
+
+Three layers, never mixed in one section: the Keeper's decisions (what happens, who says what); the delivery contract
+(what must reach the player, what must not, how settled results bind the prose -- the core's author instruction and the
+host's `decision_context`); and craft (how it is written -- packages only).
+
+### 254.1 The declaration
+
+A package that requires `instructions.sections.author.v1` may mark a `sections.json` entry (schema 1 or 2)
+`"kind": "author"` with:
+
+- `slot`: an id (`^[a-z][a-z0-9_-]{0,31}$`). One section fills a slot per turn; when two active packages fill the same
+  slot, the later in load order wins and the earlier is recorded as overridden.
+- `on`: a non-empty list without repeats from the host's closed list of settled facts (§254.2).
+- `grants` (optional): a non-empty list without repeats from the core's closed list of bounded improvisation (§254.6).
+
+An author section names no topics, gates, triggers or topic threshold. It is not listed in the Keeper's index, cannot be
+read with the `mod` verb, and is never selected for the Keeper by topics, discovery or calls, except as §254.4 says. The
+capsule's indexed row carries it as `{key, heading, kind: "author", slot, on, grants?, bytes}` beside the empty selector
+fields every indexed row has. A package whose sections are only author sections (and no resident or listed situational
+section) carries an empty resident text, and the index lead ("Further sections of this package are listed below...")
+appears only when a section is listed.
+
+### 254.2 Settled facts
+
+Evaluated by the host after the packet's effects settled, from what the author is about to receive:
+
+| fact | holds when |
+| --- | --- |
+| `always` | every authored turn |
+| `speech` | a selected response is not silent (the author's packet calls it `mode: speech_only`) |
+| `establish` | the capsule read after settlement carries `mods.establish` (§203) |
+| `opening` | that item's `why` includes `opening` |
+| `place` | a settled `place` outcome, a `move` outcome with `status: changed`, or a first-sight place on the scene |
+| `routine` | the packet carries `routine` (§247) |
+
+A fact is never read from the packet before settlement: a move that failed does not make `establish`.
+
+### 254.3 Assembly and delivery
+
+The host resolver (`extensions/kernel/author-craft.ts`) walks the capsule's indexed rows in load order, keeps each author
+section with a fact of `on` that holds, resolves slots, reads the texts by key through `mods.sections` (mod and version
+checked, as §242.3), and appends them to the author's system prompt after the core instruction (before the direct-text
+transport sentence), under one frame saying
+they shape wording only and never add, remove or change a fact. A package's non-empty `settings` ride after its
+sections. Sections past `AUTHOR_CRAFT_BYTES` (32768 UTF-8 bytes of section text) are omitted, last first. Telemetry:
+`lane: "author-craft"` records each kept key with its facts and slot, overridden and omitted keys, and bytes. A section
+that cannot be read stops the turn as an unavailable author input (as §242.3's place description did); nothing is
+substituted.
+
+When `mods.establish` holds, `decision_context.establish = {why, owes}` carries the owed rows to the author: what an
+establishing reply must convey is delivery contract; how to write it is the package's author section.
+
+§242.3's `Place description for the author` and §247.4's `Routine summary for the author` become author sections
+(`on: ["place"]`, `on: ["routine"]`); `decision_context.location_description` and the routine's `mod`, `version`,
+`key` and `instruction` fields are retired, and `decision_context.routine` keeps `{acts, ambient?}`.
+
+### 254.4 When the Keeper writes the prose
+
+Outside the decision-author path (the legacy loop, or `PI_COC_TURN_PACKET_PROTOTYPE=0`) the Keeper is the writer, so the
+host's `coc-mod-sections` message carries every author section of a schema-1 package every turn (`why: writer`),
+ranked with call-sent sections; their facts are not evaluated before settlement. The message adds the core's limits of
+every grant those sections carry (§254.6).
+
+### 254.5 Three ends (§31)
+
+- Writer: the package author (`sections.json` + `agent.md`), version-locked; any byte change is a version bump.
+- Reader: the host resolver, for the sole author only.
+- Actor: the sole author; `lane: "author-craft"` counts what each turn carried.
+
+### 254.6 Granted improvisation (owner 2026-10-22)
+
+The author sometimes owes detail no source gives: a place the book names only by purpose still needs a room the player
+can picture. A package says where that is wanted and how to write it; the core alone says how far it may reach. An author
+section's `grants` names one of:
+
+- `surface_detail`: ordinary perceivable detail of the current place and its things (shape, fittings, materials, wear,
+  light, sound, smell, temperature, unnamed background activity) where source, references and delivered play are
+  silent, consistent with the clock, place, period, `presence.population` and everything delivered. It adds no person
+  who acts or speaks, no name, no clue or lead, no event that demands a response and nothing the investigator could
+  pursue; it contradicts no canon and changes no state.
+- `appearance`: looks, build, apparent age, dress, posture and what their hands are doing for a present person the
+  source leaves undescribed, fitting place, period and supplied role; no identity, name, history, knowledge, motive or
+  relationship. Once delivered it is the look the table keeps.
+
+The resolver writes the definitions of the grants its chosen sections carry once after the frame, and marks each granting
+section. A grant widens nothing in the delivery contract: settled results, presence, names and secrets bind as before.
+Enhanced Locations' place description grants `surface_detail`.
+
+## 255. Kept looks: what the prose showed of a person or place is written back (owner 2026-10-22)
+
+Spec: `docs/specs/kept-looks.md`. The owner ruled against a unified entity schema: the gap is that what the sole author
+improvises (§254.6's `surface_detail` and `appearance`) is never written back, so the next author invents again (a
+stooped grey clerk returns young; a person written 她 becomes 他). After a delivery, a background check records the
+delivered prose's own sentences that show how the place and the people of the scene look, and the pronoun the prose
+uses for each person; later capsules and the sole author's input carry them. The delivery never waits for it.
+
+### 255.1 The ledger
+
+`first-sight.json` gains `looks: {people: {<handle>: Look}, places: {<handle>: Look}, tries: {"<kind>:<id>:<field>": n}}`,
+`Look = {excerpts: string[], pronoun?: "he"|"she"|"they", turn, at}`. It is written after the turn closed and committed
+with the next turn, as §168.5's `shown` and `open` are; the turn record carries `looks: [{kind, id, excerpts, pronoun?,
+at}]`, and a fork carries them (`firstSightOfTurn` / `carryFirstSight` now return and take `{results, looks}`).
+A field is written once and never replaced: the first delivered look is the table's look. A field asked for on
+`LOOK_TRIES_MAX` (4) checked deliveries without an answer is no longer asked.
+
+### 255.2 RPC
+
+- `table.looks.job {campaign, turn}` -> `{turn, prose, earlier?, targets: [{kind, id, name, want}]}`, or `targets: []`.
+  The turn must have a delivery with text (`invalid_params` otherwise). Targets are the scene the turn ended in
+  (`record.world.scene`) and each person present there whom the player sees (`seenPerson`), while they want `look`
+  and (people) `pronoun`; the place first; at most 8. `name` is the table's word for a person (`tableWord`), else the
+  graph's, and the scene's label for a place.
+- `table.looks {campaign, turn, items: [{kind, id, excerpts?, pronoun?}]}` -> `{turn, kept: [{kind, id, fields}],
+  dropped}`. At most 8 items; `[]` is a check that found nothing. Excerpts: at most 3 for a person and 5 for a place,
+  each at most 240 characters, kept only where §139's locator finds them in that turn's delivered text or the delivery
+  before it (`excerpt_not_delivered` otherwise). `pronoun` only for a person, from the closed list. Unknown ids are
+  `invalid_params`. Every target the job would name counts a try for each field it still wants after this landing.
+  Telemetry: `{lane: "first-sight", event: "looks_recorded", turn, asked, kept, dropped?}`.
+
+### 255.3 The check
+
+The first-sight lane's second question set (`runtime/jev/kept-looks.ts`, `FirstSightPort.looks`), started by the host
+after every delivery with text (`afterDeliveryLooks`), never awaited, independent of whether first sight owed anything.
+It is the same lane as §168.5 (model setting, 120 s watchdog, thinking off, no `temperature`/`top_p`) and qualifies as a
+single completion as that lane does.
+- Native source-reference sessions: typed choices only. Each sentence unit of the reply (`firstSightUnits`) is asked
+  whose look it shows (a target alias, or none); each person wanting a pronoun is asked he, she, they or none. Confidence
+  below 0.8 selects nothing. Units are the reply's own sentences, so nothing is authored.
+- Legacy: one zero-tool completion answering `{targets: [{id, excerpts?: [{text, shows}], pronoun?}]}`, `shows` one of
+  look, action, speech or mixed for each excerpt; only `look` is kept (looks-a2: asked in one breath, the fast model
+  copied a nod and a remark as the person's look). The host keeps only spans it locates in the prose and fields the
+  job wanted.
+- A look is only lasting appearance: for a place its structure, fittings, furniture, materials, wear, light, sound,
+  smell and temperature, never a portable thing, money, paper or key or anything that can change hands, and never where
+  someone is; for a person build, apparent age, face, hair, dress and bearing, never what they hold or do. A sentence
+  that mixes it with a name, history, motive, knowledge, relationship, speech or event is not kept (looks-a3: the kept
+  "twenty dollars still on the desk" put the money back on the desk after the investigator took it). No word or
+  character of the prose is tested by code. The author instruction adds that current outcomes, inventory and presence
+  decide what is where now.
+- Telemetry: `{lane: "first-sight", event: "looks", ok, turn, ms, model, targets, kept: {people, places}, pronouns,
+  blockers?}` or `{ok: false, reason, detail}`. A failure records nothing.
+
+### 255.4 Readers
+
+- The capsule's `kept_looks` section (before `present`, its own 2048-byte budget; past it the last people give way):
+  `{place?: {id, look}, people?: [{id, look?, pronoun?}]}`, `look` being the excerpts joined (at most 300 characters
+  for a person, 600 for the place), ids as `present[].id`. The head adds `HEAD_KEPT_LOOKS` when it is there.
+- The sole author: `decision_context.scene.presence.people[]` carries `look` / `pronoun` beside the reference, and the
+  scene carries `kept_look`. `DECISION_AUTHOR_INSTRUCTION` says they are what earlier deliveries showed: keep them, add
+  detail only within a granted improvisation, never contradict them. A kept look is a supplied appearance, so §254.6's
+  `appearance` no longer reaches that person.
+
+Tests: `tests/extension/kept-looks-kernel.test.mjs`, `tests/extension/kept-looks-lane.test.mjs`,
+`tests/extension/kept-looks-host.test.mjs`.

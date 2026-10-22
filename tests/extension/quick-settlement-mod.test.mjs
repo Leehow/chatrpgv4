@@ -9,7 +9,8 @@ import {pathToFileURL} from 'node:url';
 import {Errors} from 'typebox/value';
 import {fauxAssistantMessage,fauxToolCall} from '@earendil-works/pi-ai';
 import {turnPacket,turnPacketParameterSchema,compileTurnPacket,TURN_PACKET_PARAMETERS} from '../../runtime/turn-packet-prototype.ts';
-import {routineDescription,routineRefusal,routineCharge,ROUTINE_AUTHOR_HEADING} from '../../extensions/kernel/routine-summary.ts';
+import {routineSummary,routineRefusal,routineCharge} from '../../extensions/kernel/routine-summary.ts';
+const ROUTINE_AUTHOR_HEADING='Routine summary for the author';
 import {writeIsolatedExpression,EXPRESSION_PROFILE} from '../../runtime/isolated-expression.ts';
 import {createHybridEngine} from '../../runtime/jev/hybrid-engine.ts';
 import {RpcClient} from '../integration/support.ts';
@@ -43,16 +44,16 @@ async function kernel(t){
 
 test('the shipped package is default on, names the routine capability and keeps its author section out of the Keeper text',async t=>{
     assert.equal(manifest.default_enabled,true);
-    assert.ok(manifest.requires.includes('turn.routine-summary.v1')&&manifest.requires.includes('instructions.sections.reference.v1'));
+    assert.ok(manifest.requires.includes('turn.routine-summary.v1')&&manifest.requires.includes('instructions.sections.author.v1'));
     const call=await kernel(t);
     const capsule=await call('table.capsule',{rehydrate:true});
     assert.deepEqual(capsule.mods.routine_summary,{mod:'quick-settlement',version:manifest.version});
     const row=capsule.mods.instructions.find(entry=>entry.mod==='quick-settlement');
-    assert.equal(row.form,'indexed','a reference section keeps the package indexed at any budget');
+    assert.equal(row.form,'indexed','an author section keeps the package indexed at any budget');
     for(const heading of ['Chained routine acts'])assert.ok(row.instruction.includes(`## ${heading}\n`),heading);
     assert.ok(!row.instruction.includes(ROUTINE_AUTHOR_HEADING),'the author section never reaches the Keeper');
     const section=row.sections.find(entry=>entry.heading===ROUTINE_AUTHOR_HEADING);
-    assert.deepEqual([section.topics,section.gates,section.triggers],[[],[],[]],'a reference section has no automatic selector');
+    assert.deepEqual([section.kind,section.slot,section.on,section.topics,section.gates,section.triggers],['author','routine',['routine'],[],[],[]],'§254: an author section sent on the settled routine');
     const loaded=await call('mods.sections',{keys:[section.key]});
     assert.match(loaded.sections[0].text,/^## Routine summary for the author\n/);
     await call('mods.configure',{id:'quick-settlement',enabled:false});
@@ -102,21 +103,19 @@ test('a routine summary needs the active capability; its time charge is the Keep
     assert.equal(routineCharge({ambient:[{target:'the window'}]},[],false),'look');assert.equal(routineCharge(undefined,[],false),'none');
 });
 
-const section={key:'quick-settlement@1.0.0#3',mod:'quick-settlement',version:'1.0.0',heading:ROUTINE_AUTHOR_HEADING,text:'ROUTINE_CRAFT_FROM_THE_LOCKED_PACKAGE'};
-const capsule={mods:{routine_summary:{mod:'quick-settlement',version:'1.0.0'},instructions:[{mod:'quick-settlement',version:'1.0.0',sections:[{key:section.key,heading:section.heading}]}]}};
-test('only the locked provider section is loaded for the author, and a replaced version fails closed',async()=>{
-    const read=async keys=>{assert.deepEqual(keys,[section.key]);return {sections:[section]};};
-    const selected=await routineDescription(capsule,routine,read);
-    assert.deepEqual({acts:selected.acts,ambient:selected.ambient,instruction:selected.instruction},{...routine,instruction:section.text});
-    await assert.rejects(()=>routineDescription(capsule,routine,async()=>({sections:[{...section,version:'2.0.0'}]})),/locked routine summary/);
-    await assert.rejects(()=>routineDescription({mods:{}},routine,read),/locked routine summary/);
+const section={key:'quick-settlement@1.2.0#3',mod:'quick-settlement',version:'1.2.0',heading:ROUTINE_AUTHOR_HEADING,text:'## Routine summary for the author\n\nROUTINE_CRAFT_FROM_THE_LOCKED_PACKAGE'};
+test('the routine summary the author receives is the acts and ambient, never a provider identity',()=>{
+    assert.deepEqual(routineSummary(routine),routine);
+    assert.deepEqual(routineSummary({acts:['ate']}),{acts:['ate']});
 });
 
 test('the sole author gets the routine acts in its packet and the Mod section once in its system prompt',async t=>{
     const home=await mkdtemp(join(temp,'author-'));let calls=0;
-    const description=await routineDescription(capsule,routine,async()=>({sections:[section]}));
+    const {authorCraft}=await import('../../extensions/kernel/author-craft.ts');
+    const craft=await authorCraft({mods:{instructions:[{mod:'quick-settlement',version:'1.2.0',form:'indexed',settings:{},
+        sections:[{key:section.key,heading:section.heading,kind:'author',slot:'routine',on:['routine']}]}]}},{always:true,routine:true},async()=>({sections:[section]}));
     const runtime={home,async runTask({request}){
-        calls++;assert.equal(request.systemPrompt.split(section.text).length-1,1);assert.ok(!request.brief.includes(section.text));
+        calls++;assert.equal(request.systemPrompt.split('ROUTINE_CRAFT_FROM_THE_LOCKED_PACKAGE').length-1,1);assert.ok(!request.brief.includes('ROUTINE_CRAFT'));
         const packet=JSON.parse(request.brief);
         assert.deepEqual(packet.decision_context.routine,routine,'acts and ambient only; no instruction, key or provider identity');
         assert.equal(packet.player_input,undefined,'acts reach the author even where the player input is withheld');
@@ -125,8 +124,8 @@ test('the sole author gets the routine acts in its packet and the Mod section on
         request.onEvent({type:'message_end',message:{role:'assistant',provider,model:name.join('/'),stopReason:'stop',content:[{type:'text',text:'You drink your coffee over the paper.'}]}});
         return {ok:true,ms:1};
     }};
-    const text=[];await writeIsolatedExpression({runtime,campaign:'fixture',turn:1,run:'r',language:'en',
-        decision:{scene:{name:'Cafe'},clock:{},people:[],responses:[],recent_public:[],routine:description},stream:{push:delta=>text.push(delta)},record:async()=>{}});
+    const text=[];await writeIsolatedExpression({runtime,campaign:'fixture',turn:1,run:'r',language:'en',craft:craft.text,
+        decision:{scene:{name:'Cafe'},clock:{},people:[],responses:[],recent_public:[],routine:routineSummary(routine)},stream:{push:delta=>text.push(delta)},record:async()=>{}});
     assert.equal(calls,1);assert.equal(text.join(''),'You drink your coffee over the paper.');
 });
 
@@ -156,8 +155,9 @@ test('a native packet with routine acts charges one time and hands the acts and 
     assert.deepEqual(telemetry.filter(row=>row.lane==='routine-summary').map(row=>[row.acts,row.ambient,row.time_charges]),[[3,2,1]]);
     const author=telemetry.find(row=>row.lane==='isolated-expression'&&row.event==='written');assert.ok(author,JSON.stringify(telemetry.slice(-6)));
     const task=JSON.parse(await readFile(join(author.attempt,'task.json'),'utf8'));
-    assert.deepEqual({acts:task.decision_context.routine.acts,ambient:task.decision_context.routine.ambient},routine);
-    assert.equal(task.decision_context.routine.version,manifest.version,'the locked provider section was resolved');
+    assert.deepEqual(task.decision_context.routine,routine);
+    const craft=telemetry.find(row=>row.lane==='author-craft');
+    assert.ok(craft.sections.some(entry=>entry.key.startsWith(`quick-settlement@${manifest.version}#`)&&entry.slot==='routine'),'the locked provider section was resolved');
     assert.deepEqual(task.result.outcomes.filter(row=>row.kind==='time').map(row=>row.minutes),[20]);
     assert.ok(!task.result.outcomes.some(row=>['item','cash'].includes(row.kind)),'routine acts leave no item or cash receipt');
 });

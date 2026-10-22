@@ -1,5 +1,12 @@
 # Narration Craft
 
+## 2.6.0
+
+- Owner, 2026-10-22: the core owns what the text must be faithful to, never the craft of writing it; craft reaches the sole author (contract §254). The text is split by layer, not rewritten: the Keeper keeps "This turn" (what the turn puts at issue, how far the chosen action is carried) and "What people decide to say" (knowledge limits, how a person decides, mood records, knowledge separation, object transactions); the author receives "The voice of the table", "Sentences and paragraphs", "Register and atmosphere", "People on the page", "Scene and detail", "Establishing a place" (sent on `establish`, owed rows from `decision_context.establish`), "Opening the table" (sent on `opening`) and "Settings" as author sections.
+- Grants (§254.6): "People on the page" grants `appearance`; "Establishing a place" grants `surface_detail` and `appearance`.
+- The `{{say:Name}}` markup sentence stays with the Keeper for tables where it writes the prose; the sole author's markup is the core's.
+- Requires `instructions.sections.author.v1`. Sentences are the 2.5.3 text, moved; only the references to the capsule (`style.register`, `mods.establish`) name the decision context instead.
+
 ## 2.5.1
 
 - Align the full instruction and both carry-through style forms with the single Keeper's selected-action boundary (§237.67): continue connected selected steps through actual rule and state results; an intermediate arrival, answer or roll is not an automatic handoff.

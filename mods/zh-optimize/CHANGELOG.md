@@ -1,5 +1,10 @@
 # Chinese Optimization (zh-optimize)
 
+## 1.4.0
+
+- Contract §254: the Chinese speech guidance (`agent.md`, unchanged) is an author section sent on `speech` (slot `speech-language`), so it reaches the sole author who writes the lines instead of the Keeper. Requires `instructions.sections.v1` and `instructions.sections.author.v1`. Expression cards, the voice-lane addendum and the speech-edit lane are unchanged.
+- Retires `brief.md`, `brief_budget_bytes` and `mods.language-brief-budget.v1`: no request has read the brief since §183.3, and a sectioned package carries none (§248).
+
 ## 1.3.9
 - Integration evidence records mixed live behavior: one real key-return path succeeded, while another actor ignored/misrepresented the chosen correction at ending. Chinese realization must keep the strict source mask and unknown-factual rule: do not turn procedural repetition, agenda, unsupported past/negative claims, or missing exchanges into invented facts or style proof. Observed wording is not server acknowledgement, and this record does not add runtime/state behavior.
 
