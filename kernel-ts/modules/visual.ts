@@ -13,12 +13,12 @@ import { shapeReviewPaths, statesMechanics } from './shape-review.js';
 import {validateSourceNeeds,sourceNeedKey} from './source-needs.js';
 import {moduleLogicReview,moduleReviewRoot,advisoryModuleFinding,blockingModuleFindings,moduleReviewOutcome} from './module-review-policy.js';
 import { anchors, pages, recordSpans, sameSpan, spanOf, type Anchor } from './transcription.js';
-import { REVIEW_VERDICTS, classificationMatcher, PERSON_STATEMENTS, personStatementPath, statementReviewPath } from './review-verdicts.js';
+import { REVIEW_VERDICTS, exhibitReviewPath, classificationMatcher, PERSON_STATEMENTS, personStatementPath, statementReviewPath } from './review-verdicts.js';
 import { DISTINCT_FROM, DUPLICATE_RULE, duplicateMessage, duplicateRefusal, publishedDuplicates } from './published-duplicates.js';
 import { CLAIM_SUPPORT_PROTOCOL, JEV_REVIEWER, JEV_REVIEW_RULES, claimRecordPages, claimRecordRoot, claimSupportIneligibility, pathsOverlap, claimRecord } from './claim-support.js';
 import { preserveTravel } from './route-travel.js';
 import {validVisualScan,visualCandidates} from './visual-discovery.js';
-import { checkExhibits } from './exhibits.js';
+import { checkExhibits, EXHIBITS_MATERIAL, exhibitPointer } from './exhibits.js';
 import { checkMapScope, checkMapScopeDraft, publishedNodes } from './map-scope.js';
 import { checkPregensScope, checkSheets, PREGENS_MATERIAL } from './pregens.js';
 import { sheetReviewPaths } from './sheet-review.js';
@@ -366,6 +366,7 @@ export function checkDraft(draft: any, packet: Row, contract: ModuleContract, se
     if (packet.visual_scan) filled.visual_candidates = candidates;
     if (moduleLogicReview(packet)) filled.review_policy = packet.review_policy;
     if (packet.material === PREGENS_MATERIAL) filled.material = PREGENS_MATERIAL;
+    if (packet.material === EXHIBITS_MATERIAL) filled.material = EXHIBITS_MATERIAL;
     const count = packet.source.page_count, records = new Stage();
     for (const [i, node] of nodes.entries()) {
         if (!object(node)) {
@@ -531,6 +532,8 @@ export function checkDraft(draft: any, packet: Row, contract: ModuleContract, se
         const scope = new Map<string, Row>([...array(packet.known_nodes).filter(object).map((n): [string, Row] => [n.node_id, n]), ...nodes.map((n): [string, Row] => [n.node_id, n])]);
         const checked = checkExhibits(draft.exhibits, { nodes: scope, claims: [...array(packet.known_claims).filter(object), ...(filled.claims as Row[])], references: refs => references(refs, count, seen) });
         filled.exhibits = checked.accepted;
+        // §257.R: the pointer each accepted exhibit is reviewed at is its position in the draft the reviewer reads, not in the accepted list.
+        filled.exhibit_pointers = checked.accepted.map(item => exhibitPointer(draft.exhibits, item));
         if (checked.refused.length) filled.exhibit_refusals = checked.refused;
     }
 
@@ -554,7 +557,7 @@ export function checkDraft(draft: any, packet: Row, contract: ModuleContract, se
     if (skeleton && filled.ready_nodes.length)
         graph.note(refusal('a skeleton cannot grant material readiness; ready_nodes must be empty', '/ready_nodes'), { rule: 'skeleton_readiness', value: filled.ready_nodes });
     // §207.3: a pregens reading that finds no pregenerated investigator answers with an empty draft.
-    if (!filled.ready_nodes.length && !skeleton && !packet.source_unit && !packet.visual_scan && !packet.visual_asset && !packet.map_scope && packet.material !== PREGENS_MATERIAL)
+    if (!filled.ready_nodes.length && !skeleton && !packet.source_unit && !packet.visual_scan && !packet.visual_asset && !packet.map_scope && packet.material !== PREGENS_MATERIAL && packet.material !== EXHIBITS_MATERIAL)
         graph.note(refusal('declare the nodes whose material this task has prepared', '/ready_nodes'), { rule: 'readiness_undeclared' });
     const absent = (filled.ready_nodes as any[]).flatMap((id, k) => defined.has(id) ? [] : [{ path: `/ready_nodes/${k}`, rule: 'readiness_unreviewable', value: id }]);
     if (absent.length)
@@ -659,6 +662,10 @@ export function checkDraft(draft: any, packet: Row, contract: ModuleContract, se
     graph.run(() => checkSheets(filled.nodes, contract), {}, item => `sheet ${item.node}: ${item.path}: ${item.message}`);
     if (packet.material === PREGENS_MATERIAL)
         graph.run(() => checkPregensScope(filled), {}, item => `pregens reading: ${item.path}: ${item.message}`);
+    // §257.R: what an exhibits reading may write.
+    if (packet.material === EXHIBITS_MATERIAL)
+        for (const key of ['nodes', 'claims', 'ready_nodes'])
+            if (array(filled[key]).length) graph.note(refusal(`a material exhibits reading writes only exhibits; ${key} must be empty`, `/${key}`), { rule: 'exhibits_scope', value: key });
     graph.run(() => checkBeings(filled, packet, contract), {}, item => `${item.claim ? `claim ${item.claim}` : `node ${item.node}`}: ${item.path}: ${item.message}`);
     // §192.1: one thing, one node. A new node named like a published node of its kind, and not answered by its distinct_from or
     // by a verdict already recorded, is refused here before any review is spent; `module.read.finish` asks again, against the
@@ -690,6 +697,9 @@ export function checkDraft(draft: any, packet: Row, contract: ModuleContract, se
     }
     for (const i of (filled.claims as Row[]).keys())
         required.add(`/claims/${i}`);
+    // §257.R: every exhibit that passed the checker is reviewed for player safety, one verdict each.
+    for (const path of array(filled.exhibit_pointers))
+        required.add(path);
     // §192.1: a node's distinct_from is reviewed as written under either policy; an unsupported one refuses (`checkReview`).
     for (const [i, node] of nodes.entries())
         if (Object.hasOwn(node, DISTINCT_FROM))
@@ -997,7 +1007,7 @@ export function checkReview(draft: Row, filled: Row, review: any, count: number,
     claims?: ClaimEvidence): ReviewJudgement {
     if (!object(review) || !Array.isArray(review.missing) || !Array.isArray(review.checked))
         reject('review must contain checked facts and an empty missing list');
-    if (blockingModuleFindings(review.missing.filter((item: Row) => !characterProfilePath(item?.path)),filled).length)
+    if (blockingModuleFindings(review.missing.filter((item: Row) => !characterProfilePath(item?.path) && !exhibitReviewPath(item?.path)),filled).length)
         reject('the independent review found missing or incorrect material: ' + canonicalJson(review.missing), '/review/missing');
     const supported = new Set<string>(), reviewed = new Set<string>(), contested: Row[] = [];
     // §151.3: a Jev-checked row is judged first, against every path a vision row did not support.
@@ -1022,7 +1032,7 @@ export function checkReview(draft: Row, filled: Row, review: any, count: number,
         const refs = references(item.source_refs, count, seen);
         for (const path of paths) {
             reviewed.add(path);
-            if (characterProfilePath(path)) {
+            if (characterProfilePath(path) || exhibitReviewPath(path)) {
                 if (item.verdict === 'supported') supported.add(path);
                 continue;
             }
@@ -1041,7 +1051,7 @@ export function checkReview(draft: Row, filled: Row, review: any, count: number,
             });
         }
     }
-    const missing = array(filled.required_review).filter(path => !characterProfilePath(path) && !reviewed.has(path));
+    const missing = array(filled.required_review).filter(path => !characterProfilePath(path) && !exhibitReviewPath(path) && !reviewed.has(path));
     if (missing.length)
         throw new RpcError('invalid_params', `visual review omitted required fields: ${repr(sorted(missing))}`, {
             fix: 'review the omitted source fields against their original pages; preserve the completed author draft',
@@ -1054,9 +1064,34 @@ export function checkReview(draft: Row, filled: Row, review: any, count: number,
         if (!supported.has(at) || negative || review.missing.some((item: Row) => characterProfilePath(item?.path) && item.path.startsWith(at)))
             delete row(node.properties).character_profile;
     }
+    dropUnsafeExhibits(filled, review, supported);
     filled.character_profile_supported = array(filled.nodes).filter(node => row(node.properties).character_profile).map(node => node.node_id);
     return { supported, contested };
 }
+/**
+ * Contract §257.R: the review's player-safety verdict on each exhibit. An exhibit stays only when its pointer is `supported`
+ * and no negative row or missing item names it; any other exhibit is dropped, never the shard. A reviewer's negative word
+ * is `exhibit_player_safety` with its reason; an exhibit the review did not answer is `exhibit_unreviewed` (fail closed).
+ * Drops join `filled.exhibit_refusals`, the channel the draft check's refusals are recorded on.
+ */
+function dropUnsafeExhibits(filled: Row, review: Row, supported: ReadonlySet<string>): void {
+    const pointers = array(filled.exhibit_pointers), kept: Row[] = [], keptPointers: string[] = [], dropped: Row[] = [];
+    const about = (item: Row, at: string) => array(Object.hasOwn(item, 'paths') ? item.paths : [item.path]).some(path => typeof path === 'string' && (path === at || path.startsWith(at + '/')));
+    array(filled.exhibits).forEach((exhibit: Row, k) => {
+        const at = string(pointers[k]);
+        const negative = [...review.checked.filter((item: Row) => item.verdict !== 'supported' && about(item, at)), ...review.missing.filter((item: Row) => about(item, at))];
+        if (supported.has(at) && !negative.length) { kept.push(exhibit); keptPointers.push(at); return; }
+        const reason = negative.length ? 'exhibit_player_safety' : 'exhibit_unreviewed';
+        const said = negative.map(item => string(item.reason ?? '')).filter(Boolean).join('; ');
+        dropped.push({ exhibit_id: exhibit.exhibit_id, path: at, rule: reason, rules: [reason],
+            message: negative.length ? `the independent review did not support this surface as player-safe${said ? `: ${said}` : ''}` : 'the independent review gave no verdict on this exhibit' });
+    });
+    if (!dropped.length) return;
+    filled.exhibits = kept;
+    filled.exhibit_pointers = keptPointers;
+    filled.exhibit_refusals = [...array(filled.exhibit_refusals), ...dropped];
+}
+
 /**
  * Contract §22.3.2: the graph's `contested` marks after a reviewed publication. A mark on a field this review supported
  * (the field or an ancestor) is settled and removed; each contest of this review is written (or replaces its mark) under
