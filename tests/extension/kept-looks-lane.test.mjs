@@ -19,12 +19,14 @@ const TARGETS = [{kind: 'place', id: 'teahouse', name: '茶馆', want: ['look']}
 test('the legacy answer is a closed shape, and only delivered spans the job wanted are kept', () => {
   assert.equal(checkLooksAnswer({targets: [{id: 'liu', pronoun: 'female'}]}), undefined, 'a pronoun outside the list refuses the answer');
   assert.equal(checkLooksAnswer({items: []}), undefined);
+  assert.equal(checkLooksAnswer({targets: [{id: 'liu', excerpts: ['灰白头发。']}]}), undefined, 'every excerpt carries its verdict');
+  const look = text => ({text, shows: 'look'});
   const answers = checkLooksAnswer({targets: [
-    {id: 'teahouse', excerpts: ['靠窗的条凳缺了一条腿，用砖头垫着。', '墙上挂着一幅山水画。']},
-    // Curly quotes or not, the prose's own span is kept; a pronoun for a target that wants none is ignored.
-    {id: 'liu', excerpts: ['柜台后坐着个五十来岁的妇人，灰白头发在脑后挽成髻。'], pronoun: 'she'},
-    {id: 'wang', excerpts: ['他光着膀子。']},
-    {id: 'nobody', excerpts: ['她抬眼看了看你。']},
+    {id: 'teahouse', excerpts: [look('靠窗的条凳缺了一条腿，用砖头垫着。'), look('墙上挂着一幅山水画。')]},
+    // What she did in the scene is no look, whatever the model copied.
+    {id: 'liu', excerpts: [look('柜台后坐着个五十来岁的妇人，灰白头发在脑后挽成髻。'), {text: '她抬眼看了看你。', shows: 'action'}], pronoun: 'she'},
+    {id: 'wang', excerpts: [look('他光着膀子。')]},
+    {id: 'nobody', excerpts: [look('她抬眼看了看你。')]},
   ]});
   assert.deepEqual(anchorLooks(TARGETS, answers, [PROSE]), [
     {kind: 'place', id: 'teahouse', excerpts: ['靠窗的条凳缺了一条腿，用砖头垫着。']},

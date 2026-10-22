@@ -32,7 +32,8 @@ test("a delivery's looks are asked after it, in the background, and only deliver
 	assert.deepEqual(input, { prose: OPENING, targets: TARGETS.map(({ id, kind, name, want }) => ({ id, kind, name, want })) });
 	assert.equal(table.session.isStreaming, false, "the turn is over while its look check is still held");
 	assert.equal(calls(table, "table.looks").length, 0, "the delivery did not wait for it");
-	release({ targets: [{ id: "fs-lars", excerpts: ["棚下坐着一个高瘦的男人，衬衫袖子卷到肘上。", "他戴着一顶牛仔帽。"], pronoun: "he" },
+	release({ targets: [{ id: "fs-lars", excerpts: [{ text: "棚下坐着一个高瘦的男人，衬衫袖子卷到肘上。", shows: "look" }, { text: "他戴着一顶牛仔帽。", shows: "look" },
+		{ text: "他朝你点了点头。", shows: "action" }], pronoun: "he" },
 		{ id: "fs-esso-station", excerpts: [] }] });
 	const [recorded] = await waitFor(() => calls(table, "table.looks").length && calls(table, "table.looks"), { label: "table.looks" });
 	assert.deepEqual(recorded.params, { campaign: "test-camp", turn: 0,

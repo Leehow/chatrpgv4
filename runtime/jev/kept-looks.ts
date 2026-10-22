@@ -37,12 +37,19 @@ const LOOK_RULE = 'A look is only what anyone present could see or hear of them 
 export const KEPT_LOOKS_INSTRUCTION = [
   'You read one reply of a tabletop horror game, already delivered to the player, and record how it showed a place and some people.',
   'The input JSON holds prose, the reply; earlier, when present, the reply before it; and targets, each with id, kind (place or person), name (what the table calls them) and want: look, pronoun or both.',
-  `For each target that wants look: copy the sentences or clauses of prose or earlier that show how that target looks, each one unbroken excerpt exactly as written, character for character, at most ${LOOK_EXCERPTS.person} for a person and ${LOOK_EXCERPTS.place} for the place, each at most ${LOOK_EXCERPT_CHARS} characters. ${LOOK_RULE} A sentence that mixes a look with any of those is not copied. When the replies do not show the target's look, give no excerpts.`,
+  `Step 1, for each target that wants look: copy every sentence or clause of prose or earlier that tells anything about that target, each one unbroken excerpt exactly as written, character for character, each at most ${LOOK_EXCERPT_CHARS} characters.`,
+  `Step 2, for each excerpt: shows is look when the whole excerpt is only what anyone present could see or hear of the target as it stands. ${LOOK_RULE} shows is action when it tells something the target did in this scene (nodding, looking at someone, reaching for something, answering); speech when it quotes or reports what anyone said or how they said it; mixed when it combines a look with any of those. Only look excerpts are recorded, at most ${LOOK_EXCERPTS.person} for a person and ${LOOK_EXCERPTS.place} for the place.`,
   'For each person that wants pronoun: the pronoun the replies use for that person, he, she or they (they only when the replies deliberately keep it unspecified); leave it out when the replies use none for them.',
-  'Answer with one JSON object and nothing else: {"targets": [{"id": "<target id>", "excerpts": ["..."], "pronoun": "he|she|they"}]}, leaving out excerpts or pronoun where there is none.',
+  'Answer with one JSON object and nothing else: {"targets": [{"id": "<target id>", "excerpts": [{"text": "<excerpt>", "shows": "look|action|speech|mixed"}], "pronoun": "he|she|they"}]}, leaving out excerpts or pronoun where there is none.',
 ].join('\n');
 
-/** The closed answer shape; anything else is refused whole. */
+/**
+ * The closed answer shape; anything else is refused whole. Each excerpt carries its own verdict, and only `look` ones are
+ * kept: asked for "the sentences that show the look" in one breath, the fast model also copied what the person did and
+ * said in the scene (looks-a2, 2026-10-22: a nod and a remark about losses became Knott's look). One verdict per
+ * excerpt is the same repair first sight needed (§168.5).
+ */
+export const LOOK_VERDICTS = ['look', 'action', 'speech', 'mixed'] as const;
 export function checkLooksAnswer(parsed: unknown): Array<{id: string; excerpts: string[]; pronoun?: string}> | undefined {
   if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return undefined;
   const targets = (parsed as Record<string, unknown>).targets;
@@ -51,9 +58,16 @@ export function checkLooksAnswer(parsed: unknown): Array<{id: string; excerpts: 
   for (const entry of targets) {
     if (!entry || typeof entry !== 'object' || Array.isArray(entry)) return undefined;
     const {id, excerpts = [], pronoun} = entry as Record<string, unknown>;
-    if (typeof id !== 'string' || !id.trim() || !Array.isArray(excerpts) || excerpts.some(value => typeof value !== 'string')) return undefined;
+    if (typeof id !== 'string' || !id.trim() || !Array.isArray(excerpts)) return undefined;
+    const kept: string[] = [];
+    for (const excerpt of excerpts) {
+      if (!excerpt || typeof excerpt !== 'object' || Array.isArray(excerpt)) return undefined;
+      const {text, shows} = excerpt as Record<string, unknown>;
+      if (typeof text !== 'string' || !(LOOK_VERDICTS as readonly string[]).includes(String(shows))) return undefined;
+      if (shows === 'look' && text.trim()) kept.push(text);
+    }
     if (pronoun !== undefined && !(PRONOUNS as readonly string[]).includes(String(pronoun))) return undefined;
-    answers.push({id: id.trim(), excerpts: (excerpts as string[]).filter(value => value.trim()), ...(pronoun !== undefined ? {pronoun: String(pronoun)} : {})});
+    answers.push({id: id.trim(), excerpts: kept, ...(pronoun !== undefined ? {pronoun: String(pronoun)} : {})});
   }
   return answers;
 }

@@ -51491,8 +51491,10 @@ single completion as that lane does.
 - Native source-reference sessions: typed choices only. Each sentence unit of the reply (`firstSightUnits`) is asked
   whose look it shows (a target alias, or none); each person wanting a pronoun is asked he, she, they or none. Confidence
   below 0.8 selects nothing. Units are the reply's own sentences, so nothing is authored.
-- Legacy: one zero-tool completion answering `{targets: [{id, excerpts?, pronoun?}]}`; the host keeps only spans it
-  locates in the prose and fields the job wanted.
+- Legacy: one zero-tool completion answering `{targets: [{id, excerpts?: [{text, shows}], pronoun?}]}`, `shows` one of
+  look, action, speech or mixed for each excerpt; only `look` is kept (looks-a2: asked in one breath, the fast model
+  copied a nod and a remark as the person's look). The host keeps only spans it locates in the prose and fields the
+  job wanted.
 - A look is only what anyone present could see or hear now; a sentence that mixes it with a name, history, motive,
   knowledge, relationship, speech or event is not kept. No word or character of the prose is tested by code.
 - Telemetry: `{lane: "first-sight", event: "looks", ok, turn, ms, model, targets, kept: {people, places}, pronouns,
