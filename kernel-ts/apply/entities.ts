@@ -8,6 +8,7 @@ import {handoutImageSource} from '../read/handout-image-source.js';
 import {handoutFile} from '../read/handout-document.js';
 import {npcNode,npcsPresent,personLabel,personNode,personRecord,sceneLabel,unplacedPeople,untoldBlock} from '../read/capsule.js';
 import {unsupported} from '../read/handlers.js';
+import {exhibitTeaches} from '../read/exhibits.js';
 import {passageOf,tablePersonId} from '../read/table-people.js';
 import {sourceNameReadFix} from '../read/cast.js';
 import {array,entries,integer,normalize,number,repr,row,sorted,string,truth,type Row} from '../read/values.js';
@@ -74,7 +75,9 @@ export async function stageClue(context:ApplyContext,effect:Row,told=false):Prom
     // `from` of its move receipts (earlier calls, then earlier in this batch; a rename is not a departure), latest first.
     const left=here.includes(node.node_id)?undefined:departedThisTurn(context).map(handle=>graph.scene(handle)).find(value=>graph.sceneClueIds(value).includes(node.node_id));
     const scene=left??active;
-    if(!here.includes(node.node_id)&&!left&&!told){
+    // §257.7: a clue an exhibit teaches is obtained through that exhibit; the kernel itself verifies the exhibit is in scope now and teaches it.
+    const exhibited=!here.includes(node.node_id)&&!left&&!told&&typeof effect.via_exhibit==='string'&&exhibitTeaches(graph,world,active,effect.via_exhibit,handle);
+    if(!here.includes(node.node_id)&&!left&&!told&&!exhibited){
         // live el-v2-20261022h T4: the Keeper granted Knott's clue at the shop, then settled the walk back to his office,
         // and the refusal never said where the clue lives; it landed a turn late.
         const foundAt=graph.kind('scene').filter(place=>graph.sceneClueIds(place).includes(node.node_id))

@@ -1211,8 +1211,12 @@ export function assembleVisual(previous: Row | null, filled: Row, meta: Row, con
     // §257.1: accepted exhibits join the graph by exhibit_id; a later accepted exhibit replaces the earlier of its id.
     if (array(filled.exhibits).length) {
         const merged = new Map(array(graph.exhibits).map(item => [item.exhibit_id, item]));
-        for (const raw of array(filled.exhibits))
+        // A new id whose (carrier, kind, surface text) is an existing exhibit's is that exhibit again; it is not added twice.
+        const same = (left: Row, right: Row): boolean => left.carrier === right.carrier && left.kind === right.kind && row(left.surface).text === row(right.surface).text;
+        for (const raw of array(filled.exhibits)) {
+            if (!merged.has(raw.exhibit_id) && [...merged.values()].some(old => same(old, raw))) continue;
             merged.set(raw.exhibit_id, { ...clone(raw), source_refs: raw.source_refs.map((ref: Row) => ({ source_id: `pdf:${meta.id}`, pdf_index: typeof ref.page === 'bigint' ? ref.page - 1n : ref.page - 1, ...(Object.hasOwn(ref, 'box') ? { box: ref.box } : {}) })) });
+        }
         graph.exhibits = [...merged.values()];
     }
     const nodes = new Map<string, Row>(graph.nodes.map((node: Row) => [node.node_id, node])), relations = new Map<string, Row>(graph.relations.map((rel: Row) => [rel.relation_id, rel]));

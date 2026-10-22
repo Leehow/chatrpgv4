@@ -6,4 +6,6 @@ Write only the draft's `exhibits` array: `nodes`, `claims`, `ready_nodes` and `n
 
 Cover the focus and what an investigator meets with it: for a place, its description and its read-aloud; for each person the book places there, their appearance, voice with the book's sample lines, and the testimony the book gives them; for each handout or object there, its text or what is perceived on finding it. Open task.pages first (the pages the graph already cites for the focus and for the things linked to it); open another page only to see material those pages point to. Do not extract exhibits for other places, later encounters or people who are not there.
 
+task.existing_exhibits lists the `{exhibit_id, carrier, kind}` of the exhibits the graph already holds for this focus and the things placed in it. Do not write them again: add only an exhibit of a carrier and kind that is missing, or one with a different surface the book prints.
+
 When the book prints nothing perceivable for the focus, submit an empty draft (`"exhibits": []`): that is the answer, not a failure.

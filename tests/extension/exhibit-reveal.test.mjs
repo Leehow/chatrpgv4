@@ -48,11 +48,13 @@ function contentWith(t,exhibits){
   // The book finds the keys by a check, so the drawer is a checked disclosure; the other clue has none.
   const keys=graph.nodes.find(node=>node.node_id==='clue-knott-keys');
   keys.properties={...keys.properties,delivery_kind:'skill_check',skill:'Spot Hidden',difficulty:'regular'};
+  // The chapel raid clue is filed in another place and carries no check here, so the tests below isolate the scope rule.
+  graph.nodes.find(node=>node.node_id==='clue-police-raid-chapel').properties.delivery_kind='obvious';
   graph.exhibits=exhibits;
   writeFileSync(file,JSON.stringify(graph));
   return root;
 }
-async function opened(workspace,content,{epithet='the man behind the desk',named=false}={}){
+async function opened(workspace,content,{epithet='the man behind the desk',named=false,shown=[]}={}){
   const client=new RpcClient(workspace,{content});
   try{
     await client.ok('campaign.create',{id:'test-camp',module:'the-haunting',pregen:'thomas-hayes',play_language:'zh-Hans',title:'exhibits'});
@@ -60,6 +62,7 @@ async function opened(workspace,content,{epithet='the man behind the desk',named
   }finally{await client.close();}
   const campaign=join(workspace,'.coc/campaigns/test-camp'),world=JSON.parse(readFileSync(join(campaign,'world.json'),'utf8'));
   world.person_epithets={...world.person_epithets,'steven-knott':{word:epithet,by:'graph'}};
+  if(shown.length)world.handouts_shown=[...(world.handouts_shown??[]),...shown];
   writeFileSync(join(campaign,'world.json'),JSON.stringify(world));
   if(named)writeFileSync(join(campaign,'npc-journal.json'),JSON.stringify({entries:{[KNOTT]:{named_at:1}}}));
 }
@@ -133,7 +136,7 @@ test('revealing a document that teaches a clue discovers the clue once; the auth
   assert.equal(discovered(table).filter(name=>/knott-commission/.test(name)).length,1);
   const task=authorTask(table);
   const material=task.decision_context.selected_materials.find(row=>row.kind==='exhibit');
-  assert.deepEqual(Object.keys(material.exhibit).sort(),['carrier','channel','kind','surface']);
+  assert.deepEqual(Object.keys(material.exhibit).sort(),['channel','kind','surface'],'a handout the table has not been shown has no public name: the author gets no carrier');
   assert.equal(material.exhibit.kind,'document');assert.equal(material.exhibit.channel,'text');
   assert.equal(material.exhibit.surface,'Twenty dollars a day, signed the man behind the desk.','{{who:}} is the epithet before an introduction');
   assert.match(material.authority,/faithfully/);
@@ -193,7 +196,7 @@ test('{{who:}} resolves to the name once the table knows it; a perception with n
 });
 
 /** Kernel-shaped rows for the catalog, without a kernel. */
-const row=(id,extra={})=>({exhibit_id:id,kind:'document',channel:'text',scope:'handout',carrier:{id:'handout-a',node_kind:'handout',display_name:'Handout A'},label:`Label ${id}`,
+const row=(id,extra={})=>({exhibit_id:id,kind:'document',channel:'text',scope:'handout',carrier:{id:'handout-a',node_kind:'handout',display_name:'Handout A',public_label:'Handout A'},label:`Label ${id}`,
   surface:{text:`Surface ${id}`,language:'en',verbatim:false},...extra});
 const taught=(...clues)=>({teaches:clues,clue:{state:'open'},clue_states:clues.map(clue=>({clue,state:'open'}))});
 const capsule={_context:{task_source_revision:'s1'},where:{scene:'Office'},present:[{ref:'npc_1',id:'the-clerk',display_name:'The clerk'},{ref:'npc_2',id:'the-porter',display_name:'The porter'}]};
@@ -229,7 +232,7 @@ test('settlement compiles each undiscovered taught clue once and refuses an exhi
   owner.prepare('c:1',capsule,[],[],['Investigator'],[],[],[row('a',taught('clue-a')),row('b',taught('clue-a','clue-b')),row('c',{...taught('clue-c'),clue:{state:'discovered'},clue_states:[{clue:'clue-c',state:'discovered'}]})]);
   const current=[row('a',taught('clue-a')),row('b',taught('clue-a','clue-b')),row('c',{clue_states:[{clue:'clue-c',state:'discovered'}]})];
   const settled=owner.settleExhibits([{exhibit_ref:'exhibit_1'},{exhibit_ref:'exhibit_2'},{exhibit_ref:'exhibit_3'}],current);
-  assert.deepEqual(settled.effects,[{kind:'clue',clue:'clue-a'},{kind:'clue',clue:'clue-b'}],'one discovery per clue; a discovered clue has none');
+  assert.deepEqual(settled.effects,[{kind:'clue',clue:'clue-a',via_exhibit:'a'},{kind:'clue',clue:'clue-b',via_exhibit:'b'}],'each discovery names the exhibit that teaches it, which the kernel verifies; one discovery per clue; a discovered clue has none');
   assert.deepEqual(settled.selected,['exhibit_1','exhibit_2','exhibit_3']);
   assert.deepEqual(settled.authors.get('exhibit_1'),{kind:'exhibit',exhibit:{kind:'document',channel:'text',carrier:'Handout A',surface:'Surface a'},
     authority:'Perceivable book material; render it in the play language without adding what it does not show.'});
@@ -298,7 +301,7 @@ test('a non-owner is refused with the owners named; testimony in reveal is refus
   assert.throws(()=>owner.settleExhibits([],[row('d')],[{actor:'npc_1',content:[{exhibit_ref:'exhibit_2'}]}]),error=>error instanceof ExhibitRefusal&&/does not speak|a person does not speak/.test(error.message));
   assert.throws(()=>owner.resolve({exhibit_ref:'exhibit_1'},'npc_2'),/npc_1 \(The clerk\)/);
   const settled=owner.settleExhibits([],[clerk],speak('npc_1'));
-  assert.deepEqual(settled.effects,[{kind:'clue',clue:'clue-t'}]);
+  assert.deepEqual(settled.effects,[{kind:'clue',clue:'clue-t',via_exhibit:'t'}]);
   const claims=owner.authorClaims(owner.hydrate([{actor:'npc_1',to:['investigator_1'],act:'answer',content:[{exhibit_ref:'exhibit_1'}]}]).responses,settled.authors)[0].claims;
   assert.deepEqual(claims,[{kind:'exhibit',exhibit:{kind:'testimony',channel:'speech',surface:'Surface t',stance:'deflection'},
     authority:'What this speaker says, in their terms; not world truth. Render as their speech; do not correct or expose it in narration.'}]);
@@ -372,4 +375,29 @@ test('a lookup source answer is Keeper-only: its text never reaches the author t
   assert.ok(!JSON.stringify(task).includes(SENTINEL),'the author input carries no source answer');
   const written=table.telemetry().find(row=>row.lane==='isolated-expression'&&row.event==='written');
   for(const file of ['task.json'])assert.ok(!readFileSync(join(written.attempt,file),'utf8').includes(SENTINEL));
+});
+
+// ---- review fixes: out-of-scene clues taught by an exhibit in scope (finding 1) ----
+const RAID='handout-the-haunting-handout-8-chapel-police-raid',RAID_CLUE='clue-police-raid-chapel';
+test('a shown handout whose document teaches a clue filed in another place discovers it; the kernel verifies the exhibit',async t=>{
+  const {table}=await play(t,[reveals(['exhibit-raid-record'])],{options:{shown:['the-haunting-handout-8-chapel-police-raid']},prompts:['I read the raid file I was given.']});
+  assert.deepEqual(table.extensionErrors,[]);assert.deepEqual(errorsOf(table),[]);
+  assert.equal(clueReceipts(table).length,1);assert.ok(discovered(table).some(name=>/police-raid/.test(name)));
+});
+test('testimony of a person here about another place teaches that place\'s clue when said',async t=>{
+  const exhibits=[...EXHIBITS(),exhibit('exhibit-knott-raid','testimony',KNOTT,'speech',{owners:[KNOTT],stance:'fact',teaches:[RAID_CLUE]})];
+  const {table}=await play(t,[says(['exhibit-knott-raid'])],{options:{exhibits}});
+  assert.deepEqual(table.extensionErrors,[]);assert.deepEqual(errorsOf(table),[]);
+  assert.equal(clueReceipts(table).length,1);assert.ok(discovered(table).some(name=>/police-raid/.test(name)));
+});
+test('via_exhibit is not trusted: an exhibit not in scope leaves the out-of-scene clue refused not_here',async t=>{
+  const {table}=await play(t,[()=>[rawToolCall('apply',{effects:[{kind:'clue',clue:RAID_CLUE,via_exhibit:'exhibit-raid-record'}]})],reveals([])]);
+  const refused=errorsOf(table);
+  assert.ok(refused.some(error=>error.code==='not_here'),JSON.stringify(refused));
+  assert.equal(clueReceipts(table).length,0);
+});
+test('a refused apply that selected no exhibit is not logged as an exhibit refusal',async t=>{
+  const {table}=await play(t,[()=>[fauxToolCall('output',{version:4,commands:[{kind:'move',to:'nowhere-at-all'}],reveal:[]})],reveals([])]);
+  assert.ok(errorsOf(table).length>0,'the packet was refused');
+  assert.equal(table.telemetry().filter(entry=>entry.event==='exhibit_refused').length,0);
 });
