@@ -17,11 +17,12 @@ await build({stdin:{contents:[
 const api=await import(pathToFileURL(join(temp,'api.mjs')).href);
 test.after(()=>rm(temp,{recursive:true,force:true}));
 
-async function table(t,flag){
-    const names=['PI_COC_FIXED_TOOLS','COC_TURN_DISCOVERY','EXT_JEV_APIKEY'],old=Object.fromEntries(names.map(n=>[n,process.env[n]]));
+async function table(t,flag,extra={}){
+    const names=['PI_COC_FIXED_TOOLS','COC_TURN_DISCOVERY','EXT_JEV_APIKEY',...Object.keys(extra)],old=Object.fromEntries(names.map(n=>[n,process.env[n]]));
     t.after(()=>{for(const name of names){if(old[name]===undefined)delete process.env[name];else process.env[name]=old[name];}});
     for(const name of names)delete process.env[name];
     if(flag)process.env.PI_COC_FIXED_TOOLS='1';
+    Object.assign(process.env,extra);
     const hooks=new Map(),bus=new Map(),rows=[];
     const pi={on:(name,handler)=>hooks.set(name,handler),events:{on:(name,handler)=>bus.set(name,handler),
         emit:(name,value)=>bus.get(name)?.(value)},sendMessage(){},
@@ -41,7 +42,7 @@ async function table(t,flag){
     }});
     bus.get('coc:loop-engine')({engine:'hybrid-v1',prescreen:'run',singleKeeper:true});
     bus.get('coc:capsule')({capsule:cap,context:binding,epoch:'input-1'});
-    const declared=api.offeredTools(api.COC_TOOLS,{}).map(({name,description,parameters})=>({name,description,parameters}));
+    const declared=api.offeredTools(api.COC_TOOLS,process.env).map(({name,description,parameters})=>({name,description,parameters}));
     const messages=[{role:'system',content:'Keeper core.',toolsAdded:declared,timestamp:0},
         {role:'user',content:[{type:'text',text:'I pay for the coffee.'}],timestamp:1},
         {role:'custom',customType:'coc-capsule',content:JSON.stringify(cap),details:{context:binding,epoch:'input-1'},timestamp:2}];
@@ -52,7 +53,9 @@ async function table(t,flag){
         const withSystem=hooks.get('context_with_system')({messages:[messages[0],...outgoing.messages]},ctx);
         return getCurrentTools(withSystem?.messages??[messages[0],...outgoing.messages]);
     };
-    return{hooks,rows,request,lookup:()=>lookup};
+    const sent=async()=>(await hooks.get('context')({messages:messages.filter(m=>m.role!=='system')},ctx)).messages;
+    const demand=()=>bus.get('coc:location-demand')({campaign:'table',turn:0});
+    return{hooks,rows,request,sent,demand,lookup:()=>lookup};
 }
 
 test('PI_COC_FIXED_TOOLS gives the single Keeper the fixed list and discloses apply detail in the conversation',async t=>{
@@ -90,4 +93,25 @@ test('PI_COC_FIXED_TOOLS gives the single Keeper the fixed list and discloses ap
     const byKind=await lookup()({kind:'capability',query:'object'});
     assert.ok(byKind.capabilities.length>1&&byKind.capabilities.every(card=>card.detail));
     assert.equal((await lookup()({kind:'capability',query:'how do I pay'})).status,'index_fallback');
+});
+
+test('PI_COC_FIXED_TOOLS keeps output and place byte-stable on a location turn and discloses the grammar once',async t=>{
+    const packet={PI_COC_LOOP_ENGINE:'hybrid-v1',PI_COC_TURN_PACKET_PROTOTYPE:'1',PI_COC_ISOLATED_OUTPUT:'1'};
+    const control=await table(t,false,packet),plain=await control.request();
+    control.demand();
+    const widened=await control.request();
+    const bytes=(list,name)=>Buffer.byteLength(JSON.stringify(list.find(tool=>tool.name===name)));
+    assert.ok(bytes(widened,'output')>bytes(plain,'output')*2,'without the flag a location turn widens output');
+    const fixed=await table(t,true,packet),before=await fixed.request();
+    fixed.demand();
+    const after=await fixed.request();
+    for(const name of ['output','place'])assert.equal(JSON.stringify(after.find(tool=>tool.name===name)),JSON.stringify(before.find(tool=>tool.name===name)),name);
+    const grammar=list=>list.filter(m=>m.customType==='coc-capability-detail')
+        .flatMap(m=>JSON.parse(m.content).capabilities).filter(card=>card.name==='location-grammar');
+    const first=await fixed.sent();
+    fixed.hooks.get('before_provider_request')({payload:{input:first}});
+    assert.equal(grammar(first).length,1);
+    assert.ok(grammar(first)[0].fields.anyOf.every(variant=>variant.properties.kind.const==='place'));
+    const second=await fixed.sent();
+    assert.equal(grammar(second).length,1,'placed once per input and re-placed, never sent twice');
 });

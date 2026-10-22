@@ -96,3 +96,19 @@ export function projectLocationInspections(messages:readonly Row[],turn:number):
         return {...message,content,details:{location_inspection:marker}};
     }),get omittedBytes(){return omittedBytes;}};
 }
+
+/**
+ * The output place command variants a location turn uses, deduplicated: what `locationCommandEntry` leaves out of the
+ * declaration, disclosed in the conversation instead. The registered validator is unchanged.
+ */
+export function locationCommandGrammar(tools:readonly {name:string;parameters:any}[]):Row|undefined {
+    const commands=tools.find(tool=>tool.name==='output')?.parameters?.properties?.commands;
+    if(!commands)return;
+    const variants=new Map<string,Row>();
+    for(const list of commands.anyOf??[commands])for(const variant of list.items?.anyOf??[])
+        if(variant.properties?.kind?.const==='place')variants.set(JSON.stringify(variant),variant);
+    if(!variants.size)return;
+    return {name:'location-grammar',effect:'place',
+        applicability:'Exact fields of output.commands entries of kind place on this location turn; the place tool actions take the same fields.',
+        exclusions:'Unchosen travel, source redefinition or bypassing a real obstacle.',fields:{anyOf:[...variants.values()]}};
+}

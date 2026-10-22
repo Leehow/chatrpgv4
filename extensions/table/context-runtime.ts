@@ -1,4 +1,4 @@
-import {locationToolDeclarations,projectLocationInspections,locationIdentityContext} from './location-context.ts';
+import {locationToolDeclarations,projectLocationInspections,locationIdentityContext,locationCommandGrammar} from './location-context.ts';
 import {keeperCapsuleHead,keeperCapsuleMessage} from '../../runtime/instruction-audience.ts';
 import {locationContextRelevance,locationDeclarationContext} from './location-relevance.ts';
 import {createDecisionAdapter} from '../../runtime/jev/decision-adapter.ts';
@@ -32,6 +32,7 @@ import type {PrescreenSourceRuntime} from '../../runtime/jev/prescreen-source-pr
 import {createExpressionPreparation,EXPRESSION_MESSAGE} from './expression-reference.ts';
 import {createModSections,emptyCalls,noteCall,applyEffectKinds,MOD_SECTIONS_MESSAGE} from './mod-sections.ts';
 import {createTemporalAdvice,TEMPORAL_ADVICE_MESSAGE} from './temporal-advice.ts';
+import {foldConsumedReads} from './turn-fold.ts';
 import {createWritingSupportNames} from '../../runtime/writing-support.ts';
 import {bindingOf, customMessage, epochOf, sourceOf, historyView, metadata, quoteView, briefForTurn, projectedMessages, foldPlan,
     boundedTail, retainsLatestToolBatch, requestBudget, BYTES_PER_TOKEN, HISTORY_BYTES, POLICY_VERSION, DIAGNOSTIC_TYPE, WORKSPACE_TYPE, PRESCREEN_TYPE, entryMessage, object, sizeOf, requestSize,
@@ -167,7 +168,12 @@ export function installContextPolicy(pi: ExtensionAPI, writeTelemetry: (row: Row
     const discoveryMode=()=>singleKeeper?'full':['selective','shadow'].includes(sessionEnv.COC_TURN_DISCOVERY??'')?sessionEnv.COC_TURN_DISCOVERY!:'full';
     // Experiment (PI_COC_FIXED_TOOLS=1): the single Keeper's request carries §228.1's fixed tool view and its apply
     // detail arrives in the conversation (§228.2-228.4); discovery itself stays full, so no selection is waited for.
-    const toolView=()=>singleKeeper&&sessionEnv.PI_COC_FIXED_TOOLS==='1'?'selective':discoveryMode();
+    const fixedTools=()=>singleKeeper&&sessionEnv.PI_COC_FIXED_TOOLS==='1';
+    const toolView=()=>fixedTools()?'selective':discoveryMode();
+    // The same experiment keeps place and output at their entry declarations on every request; a location turn's
+    // command grammar is disclosed in the conversation instead of widening the tool list.
+    const locationView=()=>!fixedTools()&&locationDetail();
+    let turnFolds={input:'',ids:new Set<string>()};
     // Both discovery stages reserve from the same preparation owner and its foreground parent.
     // A missing owner is a full-view fallback, never an independent provider allowance.
     const visibilityMode=()=>fallbackForInput?'full':discoveryMode();
@@ -687,13 +693,13 @@ export function installContextPolicy(pi: ExtensionAPI, writeTelemetry: (row: Row
         if (typeof ctx.sessionManager?.buildSessionProjection === 'function') {
             const system = getCurrentSystemMessage(ctx.sessionManager.buildSessionProjection().messages);
             // §184.3: the prompt text and the tool declarations the provider sees; the transcript timestamp is not sent.
-            const measured=system?{...system,toolsAdded:locationToolDeclarations(capabilityRuntime.project(system.toolsAdded??[])??system.toolsAdded??[],locationDetail())}:undefined;
+            const measured=system?{...system,toolsAdded:locationToolDeclarations(capabilityRuntime.project(system.toolsAdded??[])??system.toolsAdded??[],locationView())}:undefined;
             return {systemBytes: measured ? sizeOf(measured) + 1 : 0,
                 systemDigest: measured ? shortDigest({content: measured.content, sections: measured.sections ?? null, tools: measured.toolsAdded}) : null};
         }
         const active = typeof pi.getActiveTools === 'function' ? new Set(pi.getActiveTools()) : undefined;
         const tools = typeof pi.getAllTools === 'function' ? pi.getAllTools().filter(tool => !active || active.has(tool.name)) : [];
-        const material = {system: typeof ctx.getSystemPrompt === 'function' ? ctx.getSystemPrompt() : '', tools:locationToolDeclarations(capabilityRuntime.project(tools)??tools,locationDetail())};
+        const material = {system: typeof ctx.getSystemPrompt === 'function' ? ctx.getSystemPrompt() : '', tools:locationToolDeclarations(capabilityRuntime.project(tools)??tools,locationView())};
         return {systemBytes: sizeOf(material), systemDigest: shortDigest(material)};
     };
     const discoveryEvidence=(messages:readonly Row[])=>messages.filter(message=>message.role!=='custom'
@@ -1087,6 +1093,17 @@ export function installContextPolicy(pi: ExtensionAPI, writeTelemetry: (row: Row
                 details:{coc_host:true,capability_detail:{turn:snapshot.binding.turn,names:detail.map(card=>card.name)}}};
         });
         if(detailPacket)fresh.push(detailPacket);
+        // Experiment: a location turn's place command grammar, once per input, in place of widening output and place.
+        if(fixedTools()&&locationDetail()){
+            const grammarPacket=disclosure.offer([capabilityKey('location-grammar')],anchor,()=>{
+                const grammar=locationCommandGrammar(offeredTools(COC_TOOLS,sessionEnv,{routineSummary:true}));
+                if(!grammar)return;
+                return{role:'custom',customType:CAPABILITY_DETAIL_TYPE,display:false,timestamp:0,
+                    content:JSON.stringify({authority:CAPABILITY_AUTHORITY,capabilities:[grammar]}),
+                    details:{coc_host:true,capability_detail:{turn:snapshot.binding.turn,names:[grammar.name]}}};
+            });
+            if(grammarPacket)fresh.push(grammarPacket);
+        }
         // §209.13: required package detail outranks history and this turn's older tool traffic. Everything this input
         // disclosed stays in its requests, so the room is reserved for all of it. When it does not fit, what is new this
         // request is withdrawn (it stays due) and said so; when even the earlier disclosure cannot fit, none is placed.
@@ -1108,6 +1125,20 @@ export function installContextPolicy(pi: ExtensionAPI, writeTelemetry: (row: Row
         }
         if(packets.length)outgoing=disclosure.place(outgoing,outgoing.length-projectedTail(result).length);
         pendingDiscovery=fresh;
+        // Experiment: when the sections this turn needs do not fit, this input's read results before its latest batch are
+        // folded, oldest first; a result folded once stays folded for the input, so later requests keep the same prefix.
+        if(fixedTools()){
+            const inputKey=String(inputEpoch??snapshot.key);
+            if(turnFolds.input!==inputKey)turnFolds={input:inputKey,ids:new Set()};
+            const need=sectionsMessage&&!fits([...outgoing,sectionsMessage])
+                ?requestSize([...outgoing,sectionsMessage])+hintBytes+systemBytes-ceiling+1024:0;
+            const fold=foldConsumedReads(outgoing,need,requestSize,turnFolds.ids);
+            if(fold.folded.length){
+                outgoing=fold.messages;for(const row of fold.folded)turnFolds.ids.add(row.id);
+                record({lane:'context',event:'turn_reads_folded',turn:snapshot.binding.turn,count:fold.folded.length,
+                    bytes:fold.folded.reduce((sum,row)=>sum+row.bytes,0),need});
+            }
+        }
         // §248.6: when the whole message does not fit, the sections the table's state owes (its leading `owed` rows) may
         // take room from history and this turn's older tool traffic, as the brief that carried them before §248 did, but
         // never from the latest tool results. Then the sections that fit go in the message's order and the rest are named
@@ -1215,7 +1246,7 @@ export function installContextPolicy(pi: ExtensionAPI, writeTelemetry: (row: Row
     pi.on('context_with_system',event=>{
         const tools=getCurrentTools(event.messages as never);
         const selectedView=capabilityRuntime.project(tools as any);
-        const view=locationToolDeclarations((selectedView??tools) as any,locationDetail());
+        const view=locationToolDeclarations((selectedView??tools) as any,locationView());
         const current=getCurrentSystemMessage(event.messages as never) as Row|undefined;
         if(!current)return;
         const {toolsAdded:_added,toolsRemoved:_removed,...head}=current;
