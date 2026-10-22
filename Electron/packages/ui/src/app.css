@@ -1028,3 +1028,4 @@ body{overscroll-behavior:none}
   .extensions-pack-master { align-items: flex-start; }
   .extensions-pack-detail .extensions-overview-stats { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 }
+.table-note{color:var(--muted);font-size:13px;line-height:1.6}.table-note>:not(.message-footer):not(.table-note-label){padding:8px 12px;border-left:3px solid var(--border-strong);border-radius:0 6px 6px 0;background:var(--surface)}.table-note-label{margin-bottom:4px;color:var(--subtle);font-size:11px;font-weight:650;letter-spacing:.04em}

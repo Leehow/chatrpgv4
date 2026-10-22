@@ -5953,6 +5953,8 @@ export default function (pi: ExtensionAPI, host: {capabilities?:RuntimeCapabilit
 			decision={scene:decisionScene(sightView),clock:decisionClock(where.clock??{}),...decisionResponseScope(before,current,hydrated.responses),people,selected_materials:hydrated.materials,style:current.style,
 				recent_public:decisionRecentPublic(current.recent,state.delivered)};
             // §254.3: what an establishing reply owes is delivery contract; how to write it is the package's author section.
+            // §256.1: the correction is the table note's; the story and its people do not make it.
+            if(packet.ooc)decision.table_note=packet.ooc;
             if(current.mods?.establish)decision.establish={why:[...(current.mods.establish.why??[])],owes:(current.mods.establish.owes??[]).map((owe:Record<string,any>)=>({...owe}))};
             if(packet.routine){
                 decision.routine=routineSummary(packet.routine);
@@ -6063,6 +6065,7 @@ export default function (pi: ExtensionAPI, host: {capabilities?:RuntimeCapabilit
 			const authored=await composeKeeperExpression(state,packet,reply,ctx);
             const staged=state.packetChoice?.turn===submittedTurn?state.packetChoice.choice:undefined;
 			await publishKeeperResult(state,reply,staged?{...authored,record:{choice:staged}}:authored,authored.model,authored.thinking,ctx,compiledDecisionAuthority);
+            if(packet.ooc)sendTableNote(state,packet.ooc,submittedTurn);
             if(staged){state.packetChoice=undefined;await record({lane:'packet-choice',event:'published',turn:submittedTurn,binds:staged.binds??null});}
 			return{content:[{type:'text' as const,text:'The turn was published.'}],details:{published:true},terminate:true};
 		}catch(error){
@@ -8794,6 +8797,12 @@ export default function (pi: ExtensionAPI, host: {capabilities?:RuntimeCapabilit
 		}
 	}
 
+	/** §256.1: the packet's out-of-character note follows the story as its own table note; it closes no turn and is no story. */
+	function sendTableNote(state: TableState, text: string, turn: number): void {
+		pi.sendMessage({customType:'coc-delivery',content:text,display:true,
+			details:{coc_delivery:true,turn,table_note:true}},{triggerTurn:false});
+		void record({lane:'delivery',turn,ok:true,reason:'table_note',published:false,bytes:Buffer.byteLength(text)});
+	}
 	/** A closed {{ooc}} span goes to the player on the direct channel once per input; it closes no turn and is no story. */
 	function sendDirectReply(state: TableState, text: string): void {
 		const seen = state.referenceReplies ??= new Set<string>();

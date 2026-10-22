@@ -7,5 +7,6 @@
   "checking_action": "Checking the declared action and applicable rules…",
   "settling_action": "Resolving the action and recording its consequences…",
   "preparing_reply": "Preparing the Keeper's response…",
-  "writing_reply": "Writing the response…"
+  "writing_reply": "Writing the response…",
+  "table_note": "Keeper's note (out of character)"
 }

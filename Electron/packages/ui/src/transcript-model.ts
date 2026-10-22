@@ -35,6 +35,7 @@ export type TranscriptSegment =
 export type ChatMessage = {
   presentation?: HistoryEntry["presentation"];
   providerNotice?: HistoryEntry["providerNotice"];
+  tableNote?: HistoryEntry["tableNote"];
   failureNotice?: HistoryEntry["failureNotice"];
   id: string
   role: 'user' | 'assistant' | 'tool' | 'compaction'
@@ -379,7 +380,7 @@ export function historyMessages(entries: HistoryEntry[]): ChatMessage[] {
       if (entry.fileSources?.length) previous.fileSources = entry.fileSources
       continue
     }
-    messages.push({ id: entry.id, role: entry.role, content: entry.role === 'user' ? stripAttachmentPathsForDisplay(entry.content) : entry.content, timestamp: entry.timestamp, ...(entry.providerNotice ? { providerNotice: entry.providerNotice } : {}), ...(entry.failureNotice ? { failureNotice: entry.failureNotice } : {}), ...(entry.role === 'assistant' && entry.help ? { help: entry.help } : {}), ...(entry.role === 'assistant' && entry.errorMessage ? { error: entry.errorMessage } : {}), ...(entry.role === 'assistant' && entry.citations?.length ? { citations: entry.citations } : {}), ...(entry.role === 'assistant' && entry.fileSources?.length ? { fileSources: entry.fileSources } : {}), ...(entry.role === 'user' && entry.images?.length ? { images: entry.images } : {}), ...(entry.role === 'user' && entry.sentAt !== undefined ? { sentAt: entry.sentAt } : {}) })
+    messages.push({ id: entry.id, role: entry.role, content: entry.role === 'user' ? stripAttachmentPathsForDisplay(entry.content) : entry.content, timestamp: entry.timestamp, ...(entry.providerNotice ? { providerNotice: entry.providerNotice } : {}), ...(entry.tableNote ? { tableNote: true as const } : {}), ...(entry.failureNotice ? { failureNotice: entry.failureNotice } : {}), ...(entry.role === 'assistant' && entry.help ? { help: entry.help } : {}), ...(entry.role === 'assistant' && entry.errorMessage ? { error: entry.errorMessage } : {}), ...(entry.role === 'assistant' && entry.citations?.length ? { citations: entry.citations } : {}), ...(entry.role === 'assistant' && entry.fileSources?.length ? { fileSources: entry.fileSources } : {}), ...(entry.role === 'user' && entry.images?.length ? { images: entry.images } : {}), ...(entry.role === 'user' && entry.sentAt !== undefined ? { sentAt: entry.sentAt } : {}) })
   }
   return messages
 }
@@ -396,6 +397,7 @@ export function transcriptFingerprint(messages: readonly ChatMessage[]): string 
     thinking: message.thinking,
     presentation: message.presentation,
     providerNotice: message.providerNotice,
+    tableNote: message.tableNote,
     failureNotice: message.failureNotice,
     tools: message.tools?.map(tool => ({ id: tool.id, name: tool.name, input: tool.input, result: tool.result, error: tool.error, details: tool.details })),
     activities: message.activities?.map(activity => activity.type === 'tool'
@@ -710,7 +712,7 @@ export function applyStreamEvent(previous: ChatMessage[], event: Exclude<StreamE
     const finalId=(event.entry.presentation?.details as {final_stream_id?:string})?.final_stream_id;
     const replaces = finalId&&!liveProse?undefined:event.replacesDraft??(finalId?`coc-final:${finalId}`:undefined)
     const draftAt = replaces ? previous.findIndex(item => item.id === replaces) : -1
-    const message:ChatMessage={id:event.entry.id,role:event.entry.role??'assistant',content:event.entry.content,timestamp:event.entry.timestamp,presentation:event.entry.presentation,...(event.entry.providerNotice?{providerNotice:event.entry.providerNotice}:{}),...(event.entry.failureNotice?{failureNotice:event.entry.failureNotice}:{}),...(opening?{opening:true}:{}),...(event.entry.help?{help:event.entry.help}:{})};
+    const message:ChatMessage={id:event.entry.id,role:event.entry.role??'assistant',content:event.entry.content,timestamp:event.entry.timestamp,presentation:event.entry.presentation,...(event.entry.tableNote?{tableNote:true as const}:{}),...(event.entry.providerNotice?{providerNotice:event.entry.providerNotice}:{}),...(event.entry.failureNotice?{failureNotice:event.entry.failureNotice}:{}),...(opening?{opening:true}:{}),...(event.entry.help?{help:event.entry.help}:{})};
     const prior = at >= 0 ? previous[at] : draftAt >= 0 ? previous[draftAt] : undefined
     const typewriter = prior?.presentation?.renderer==='coc-stream'?undefined:prior ? playbackForRedraw(prior, message) : liveProse ? {} : undefined
     if (typewriter) message.typewriter = typewriter

@@ -51640,3 +51640,34 @@ single completion as that lane does.
 
 Tests: `tests/extension/kept-looks-kernel.test.mjs`, `tests/extension/kept-looks-lane.test.mjs`,
 `tests/extension/kept-looks-host.test.mjs`.
+
+## 256. Selected material is narrated, never put in a person's mouth (owner report 2026-10-22)
+
+Live `ac-new-1022` T4: the Keeper revealed the investigator's own address slip (`current_document`, owner the
+investigator) as narration material beside an NPC's `answer` whose only claim was the Globe's 1878 fire. The sole author
+had the NPC read out the slip's address and correct the player with it: a person said what she could not know. The
+author instruction said what `selected_materials` are not (execution commands) but not who may voice them.
+
+The delivery contract now states it (`DECISION_AUTHOR_INSTRUCTION`): a person speaks only the claims of their own
+selected response; `selected_materials` reach the player through narration, as what the investigator perceives, reads,
+holds or recalls, and are never spoken by a person unless the same material is among that person's claims. Nothing is
+added to the packet and nothing reads prose. Test: `tests/extension/author-material-voice.test.mjs`.
+
+### 256.1 An out-of-character table note (owner 2026-10-22)
+
+The owner's remedy for the case behind §256: a correction the player needs is the Keeper's to make, outside the story,
+not the author's to slip into a person's speech. The native packet carries an optional `ooc`: one or two sentences in the
+play language, at most 400 characters, written by the Keeper. Its scope is closed by the field's own description: only
+what the player misstated or misremembers of something the investigator knows, or a rule or choice to clarify; never a
+secret, hint, lead, suggestion of what to do, or menu.
+
+- Writer: the Keeper's `output` packet.
+- Reader: after the turn's story publishes, the host sends the note as its own `coc-delivery` entry with
+  `details.table_note: true`; it closes no turn, is no story material and is not in the author's `recent_public`. The
+  author receives the note as `decision_context.table_note`: `player_input` may still hold the misstatement, so the story
+  uses the corrected fact and never the misstated detail, and neither narration nor any person repeats, explains or
+  makes the correction. (Live `ac-ooc-1022` T3: with only a flag the author walked the investigator to the misstated
+  address while the note corrected it.)
+- Actor: the player reads it apart from the story: PipiCOC draws it as a table note captioned by the `transcript`
+  surface's `table_note` word; the live driver lists it as a notice. Telemetry: `lane: "delivery"`, `reason: "table_note"`.
+Tests: `tests/extension/author-material-voice.test.mjs`, `Electron/packages/ui/src/table-note.test.tsx`.
