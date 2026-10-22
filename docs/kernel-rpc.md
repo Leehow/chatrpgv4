@@ -51805,3 +51805,15 @@ an exhibit the review gave no verdict is dropped as `exhibit_unreviewed` (fail c
 in the graph; the rest of the shard publishes.
 
 Test: `tests/extension/module-exhibits-reader.test.mjs`.
+
+### 257.V1 Voice reaches the author
+
+Voice exhibits are the one exhibit kind that reaches the author without a catalog or a selection: they ride with the
+person. `npcView` (the capsule's `table.look focus=npc`) carries `voice`, an array of the surface texts of the graph's
+`voice` exhibits whose `owners` hold the person, in graph order (`voiceSurfaces`, `kernel-ts/read/capsule.ts`); absent
+when there are none. Only `surface.text` is carried: `label`, `keeper_note`, `teaches`, ids and sources never are.
+`decisionPerson` (`runtime/decision-content.ts`) projects it as `speech_style`, the surfaces joined by a newline;
+`{{who:<node_id>}}` tokens are left as written until the host's resolver (ticket 03) runs over the author input. When a
+person has no voice exhibit, `speech_style` is the derived profile `expression` as before, and absent when neither
+exists. narration-craft 2.6.1 and zh-optimize 1.4.1 speak of `speech_style` instead of voice cards and masks. Tests:
+`tests/extension/module-exhibits-contract.test.mjs` (the `§257.V1` cases) and `tests/extension/decision-only-v4.test.mjs`.
