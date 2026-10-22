@@ -51671,3 +51671,87 @@ secret, hint, lead, suggestion of what to do, or menu.
 - Actor: the player reads it apart from the story: PipiCOC draws it as a table note captioned by the `transcript`
   surface's `table_note` word; the live driver lists it as a notice. Telemetry: `lane: "delivery"`, `reason: "table_note"`.
 Tests: `tests/extension/author-material-voice.test.mjs`, `Electron/packages/ui/src/table-note.test.tsx`.
+
+## 257. Module exhibits: what the investigators perceive reaches the sole author (owner 2026-10-22)
+
+Spec: `docs/specs/module-exhibits.md`. The module graph was shaped for a Keeper who sees every secret: first sight fell back
+to a scene summary or a biography, a revealed clue reached the author as `{name, summary}`, and a person's authored lie or
+voice could not be selected. An **exhibit** is one piece of player-perceivable book material (read-aloud and handouts
+verbatim, the rest a faithful close paraphrase) tied to a carrier node, with the Keeper's interpretation on a separate
+Keeper-only side. It is not the reading pipeline's "source unit" (a range of book pages). This section is the graph
+contract; later tickets append the reader, catalog, packet, settlement and author sections below as §257.N.
+
+### 257.1 Shape
+
+A shard gains an optional top-level `exhibits` array (`SHARD_KEYS`); every row (`kernel-ts/modules/exhibits.ts`):
+
+```
+{exhibit_id: "exhibit-<kebab>",
+ kind: "description" | "appearance" | "document" | "perception" | "testimony" | "voice",
+ carrier: <node_id of the scene, person, creature, object or handout>,
+ channel: "sight" | "text" | "speech" | "sound" | "touch" | "smell",
+ owners?: [<npc node_id>],                                   // required for testimony and voice, forbidden otherwise
+ stance?: "fact" | "belief" | "rumor" | "lie" | "deflection", // testimony only; absent means fact
+ teaches?: [<clue node_id | claim_id of a knows/believes/asserts claim>],   // Keeper and kernel only
+ keeper_note?: <one English line>,                            // Keeper only
+ label: <one English Keeper line: what it is>,                // Keeper only
+ surface: {text, language, verbatim},                         // people as {{who:<node_id>}}
+ source_refs: [{page, box?}]}                                 // required, non-empty; stored like every node's refs
+```
+
+- Where they live. The accepted graph (`module-graph.json`) carries `exhibits` as a top-level array beside `nodes` and
+  `claims`, keyed by `exhibit_id`; a later accepted exhibit of the same id replaces the earlier one. Absent on graphs read
+  before this change. Read API: `ModuleGraph.exhibits` (all rows) and `ModuleGraph.exhibitsOf(carrierId)`.
+- Writer: the opening and detail reader (`module.read.finish`), through the draft check. Reader: later tickets' catalog,
+  first-sight and author projections, always through the API above. No exhibit field is written by play.
+- `surface.text` is at most `EXHIBIT_SURFACE_BYTES` (4096) UTF-8 bytes. `{{who:<node_id>}}` is the only way a surface names
+  a person; the host resolves it later (not part of this section).
+
+### 257.2 The checker and its reasons
+
+`checkExhibits` runs inside `checkDraft` (so also the offline `coc-read-check`) after the record laws, against the
+graph the draft would publish into (known nodes and claims overlaid by the draft's). It never throws: an exhibit that
+fails any law is **dropped with its reasons** and the rest of the shard is accepted and published. The drop is recorded
+as `{exhibit_id, path: "/exhibits/<i>", rule, rules[], message}` in `filled.exhibit_refusals`, in the
+`module.read.finish` result (`exhibit_refusals`, with `job_id` and `generation`) and in `module.json`
+`reading.exhibit_refusals` (last 200). Stable reasons (`rule`; wording is not contract):
+
+| Reason | Refused when |
+| --- | --- |
+| `exhibit_shape`, `exhibit_id`, `exhibit_kind`, `exhibit_channel`, `exhibit_label`, `exhibit_stance`, `exhibit_surface` | the row is not an exhibit of 257.1 (unknown key, id not unique `exhibit-...`, closed values, empty label, `stance` on a kind other than testimony, malformed surface) |
+| `exhibit_carrier_unknown` | `carrier` is no node of the graph or the draft |
+| `exhibit_owner_unknown` | an owner is no `npc` node |
+| `exhibit_owners_wrong_kind` | `owners` on a kind other than testimony or voice |
+| `exhibit_owners_missing` | testimony or voice without owners (an owner-less voice is a `perception` on `sound`) |
+| `exhibit_owner_unlinked` | a testimony owner has no `knows`, `believes` or `asserts` relation (as claim subject, `known_by_ids` or `asserted_by_ids`) to the carrier or to something the exhibit teaches |
+| `exhibit_teaches_target` | `teaches` names anything but a `clue` node or a knowledge claim's `claim_id` |
+| `exhibit_source_refs` | `source_refs` missing, empty, outside the PDF or on a page this reader did not view |
+| `exhibit_surface_oversize` | surface text over the byte cap |
+| `exhibit_name_in_surface` | the `name` or an `alias` of any `npc` node of the graph occurs literally in a non-verbatim surface text (a verbatim handout, sign or read-aloud shows names as printed) after `{{who:...}}` references are removed: exact, case-sensitive substring of the graph's own identity fields; no list, pattern or semantic judgement |
+| `exhibit_who_unknown` | a `{{who:<id>}}` names no `npc` node |
+
+Whether a surface leaks a Keeper secret is **not** decided here (Agents.md: no semantic classification by lists or
+patterns); that is the independent review's player-safety item (ticket 02).
+
+### 257.3 v4 and v5
+
+`VISUAL_CONTRACT_ID` is `coc.module-graph-shard.v5`; `ACCEPTED_VISUAL_CONTRACT_IDS` is v4 and v5. A v4 shard is accepted
+exactly as before (no `exhibits`, graph unchanged, no `exhibits` key written). `exhibits` is a v5 key: a v4 shard carrying
+it is refused whole (`exhibits_contract`), as is a non-array `exhibits` (`not_an_array`) and a visual-scan or map-scope
+job that writes any (`visual_scan_bounds`, map-scope bounds). A missing `contract_id` means v5. The reader vocabulary
+(`shard_contract_id`, `shard_keys`) now names v5 and `exhibits`; the unknown-contract refusal text is unchanged and its
+`allowed` lists both ids. Graphs published before this change simply have no `exhibits`; every reader treats that as
+empty.
+
+### 257.4 The author boundary
+
+Exhibits have a Keeper side and an author side, and the line is structural:
+
+- Keeper and kernel only: `teaches`, `keeper_note`, `label` (and `owners`/`carrier` ids as references).
+- The sole author may receive only the surface: `{kind, channel, carrier: public display, surface, stance}`, with
+  `{{who:}}` resolved by the host and verbatim and lie/deflection authority lines added later (tickets 03-06).
+  `teaches`, `keeper_note` and `label` never reach the author, in any projection, whatever the prompt says.
+
+This ticket adds the data and its gate only; no projection reads exhibits yet. Test:
+`tests/extension/module-exhibits-contract.test.mjs` (real `module.read.finish`, accepted graph read back, each reason, v4
+unchanged).

@@ -4,7 +4,7 @@ import { canonicalJson, isJsonObject, orderedObject, pythonJsonDumps, sha256Text
 import { array, clone, entries, equal, integer, normalize, normalizeText, number, numeric, repr, row, sorted, string, truth, type Row } from '../read/values.js';
 import { ModuleGraph, recordOf } from '../read/module-graph.js';
 import { startSceneCandidates } from '../write/source.js';
-import { CLAIM_KEYS, NODE_KEYS, SHARD_KEYS, SHARD_REFERENCE_FIELDS, VISUAL_CONTRACT_ID, validSemanticId, type ModuleContract } from './contract.js';
+import { ACCEPTED_VISUAL_CONTRACT_IDS, CLAIM_KEYS, NODE_KEYS, SHARD_KEYS, SHARD_REFERENCE_FIELDS, VISUAL_CONTRACT_ID, validSemanticId, type ModuleContract } from './contract.js';
 import { obligationRefusals, type Refusal } from './obligation-shape.js';
 import { obligationReviewPaths, statesObligation } from './obligation-review.js';
 import { carriesMechanics, mechanicsRefusals } from './mechanics-shape.js';
@@ -18,6 +18,7 @@ import { DISTINCT_FROM, DUPLICATE_RULE, duplicateMessage, duplicateRefusal, publ
 import { CLAIM_SUPPORT_PROTOCOL, JEV_REVIEWER, JEV_REVIEW_RULES, claimRecordPages, claimRecordRoot, claimSupportIneligibility, pathsOverlap, claimRecord } from './claim-support.js';
 import { preserveTravel } from './route-travel.js';
 import {validVisualScan,visualCandidates} from './visual-discovery.js';
+import { checkExhibits } from './exhibits.js';
 import { checkMapScope, checkMapScopeDraft, publishedNodes } from './map-scope.js';
 import { checkPregensScope, checkSheets, PREGENS_MATERIAL } from './pregens.js';
 import { sheetReviewPaths } from './sheet-review.js';
@@ -305,8 +306,16 @@ export function checkDraft(draft: any, packet: Row, contract: ModuleContract, se
     if (unknown.length)
         envelope.note(refusal(`unknown draft keys: ${repr(sorted(unknown))}`), { rule: 'unknown_key', value: sorted(unknown), allowed: sorted(shardKeys) });
     const contractId = Object.hasOwn(draft, 'contract_id') ? draft.contract_id : VISUAL_CONTRACT_ID;
-    if (contractId !== VISUAL_CONTRACT_ID)
-        envelope.note(refusal('use the visual shard contract coc.module-graph-shard.v4'), { path: '/contract_id', rule: 'contract_id', value: contractId, allowed: [VISUAL_CONTRACT_ID] });
+    // The message is the frozen oracle's (tests/extension/fixtures/oracle); `allowed` names both accepted ids (§257.3).
+    if (!ACCEPTED_VISUAL_CONTRACT_IDS.includes(contractId))
+        envelope.note(refusal('use the visual shard contract coc.module-graph-shard.v4'), { path: '/contract_id', rule: 'contract_id', value: contractId, allowed: [...ACCEPTED_VISUAL_CONTRACT_IDS] });
+    // §257.3: exhibits are a v5 key; a v4 shard that carries them is refused whole, as any unknown key of its contract.
+    if (Object.hasOwn(draft, 'exhibits')) {
+        if (contractId !== VISUAL_CONTRACT_ID)
+            envelope.note(refusal(`exhibits belong to the shard contract ${VISUAL_CONTRACT_ID}`, '/exhibits'), { rule: 'exhibits_contract', value: contractId, allowed: [VISUAL_CONTRACT_ID] });
+        else if (!Array.isArray(draft.exhibits))
+            envelope.note(refusal('exhibits must be an array', '/exhibits'), { rule: 'not_an_array', value: draft.exhibits });
+    }
     // §39.4 (2026-09-30): a map-scope job's draft writes only the kind of its one map.
     if (packet.map_scope) envelope.run(() => checkMapScopeDraft(draft, packet, seen));
     if (Object.hasOwn(draft, 'source_needs') && !['guidance', 'opening', 'detail'].includes(packet.purpose))
@@ -336,7 +345,7 @@ export function checkDraft(draft: any, packet: Row, contract: ModuleContract, se
         else envelope.run(() => {
             try { candidates = visualCandidates(draft.visual_candidates, packet.visual_scan); } catch (error) { reject(String(error)); }
         }, { path: '/visual_candidates', rule: 'visual_candidates' });
-        if (array(draft.nodes).length || array(draft.claims).length || array(draft.node_refs).length || array(draft.ready_nodes).length || array(draft.critical).length
+        if (array(draft.nodes).length || array(draft.claims).length || array(draft.node_refs).length || array(draft.ready_nodes).length || array(draft.critical).length || array(draft.exhibits).length
             || object(draft.coverage) && Object.keys(draft.coverage).length || array(draft.source_needs).length)
             envelope.note(refusal('Visual navigation may nominate pages only; prepare assets in independent original-page tasks'), { rule: 'visual_scan_bounds' });
     }
@@ -517,6 +526,13 @@ export function checkDraft(draft: any, packet: Row, contract: ModuleContract, se
             claim.validity = known.validity ?? null;
     }
     records.settle();
+    // §257.2: exhibits are judged one by one; a refused exhibit is dropped with its reasons and never blocks the shard.
+    if (Array.isArray(draft.exhibits)) {
+        const scope = new Map<string, Row>([...array(packet.known_nodes).filter(object).map((n): [string, Row] => [n.node_id, n]), ...nodes.map((n): [string, Row] => [n.node_id, n])]);
+        const checked = checkExhibits(draft.exhibits, { nodes: scope, claims: [...array(packet.known_claims).filter(object), ...(filled.claims as Row[])], references: refs => references(refs, count, seen) });
+        filled.exhibits = checked.accepted;
+        if (checked.refused.length) filled.exhibit_refusals = checked.refused;
+    }
 
     // Stage 3, the graph and its evidence: cross-record and scope laws -- source needs, dependencies, readiness,
     // published-value contradictions, pointers the review must reach, required views, and the graph-wide shape laws.
@@ -1157,6 +1173,13 @@ export function assembleVisual(previous: Row | null, filled: Row, meta: Row, con
         graph[collection] = [...merged.values()];
     }
     graph.field_spans = spans;
+    // §257.1: accepted exhibits join the graph by exhibit_id; a later accepted exhibit replaces the earlier of its id.
+    if (array(filled.exhibits).length) {
+        const merged = new Map(array(graph.exhibits).map(item => [item.exhibit_id, item]));
+        for (const raw of array(filled.exhibits))
+            merged.set(raw.exhibit_id, { ...clone(raw), source_refs: raw.source_refs.map((ref: Row) => ({ source_id: `pdf:${meta.id}`, pdf_index: typeof ref.page === 'bigint' ? ref.page - 1n : ref.page - 1, ...(Object.hasOwn(ref, 'box') ? { box: ref.box } : {}) })) });
+        graph.exhibits = [...merged.values()];
+    }
     const nodes = new Map<string, Row>(graph.nodes.map((node: Row) => [node.node_id, node])), relations = new Map<string, Row>(graph.relations.map((rel: Row) => [rel.relation_id, rel]));
     for (const claim of graph.claims) {
         const target = row(claim.object).node_id;
