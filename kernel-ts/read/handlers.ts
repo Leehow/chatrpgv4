@@ -32,10 +32,11 @@ import { publicSheet, objectLook, activeMods, effectiveMods } from "./mods.js";
 import { establishItem, establishProvider, HEAD_ESTABLISH } from "./establish.js";
 import {equipmentPreparation, equipmentPreparationRows} from '../mods/equipment.js';
 import {isDocumentRead,readCurrentDocument} from './document-reading.js';
+import {exhibitsView} from './exhibits.js';
 import { knownMapViews, mapCatalog, mapView, type AssetReader } from './maps.js';
 import { BAND_FIELDS, bandRows } from "../rules/bands.js";
 import { array, row, entries, number, integer, truth, string, repr, normalize, clone, sorted, type Row } from "./values.js";
-const LOOK_FOCUS = ["knowledge", "clues", "investigator", "map", "npc", "object", "scene", "session", "time"];
+const LOOK_FOCUS = ["knowledge", "clues", "exhibits", "investigator", "map", "npc", "object", "scene", "session", "time"];
 const LOOKUP_KINDS = ["catalog", "module", "rule", "secret", "continuity"];
 export type RuleLookup = (campaign: CampaignSnapshot, module: LoadedModule, params: Row) => Promise<KernelResult>;
 export interface ReadContributions {
@@ -547,6 +548,11 @@ export function readHandlers(context: KernelContext, contributions: ReadContribu
             if (focus === "investigator") {
                 campaign.party = await campaign.files("party");
                 return investigatorView(actor(campaign.party, params.name));
+            }
+            // §257.C1: the host's exhibit catalog read; surfaces never ride a model-visible focus.
+            if (focus === "exhibits") {
+                if (!contextRead) throw new RpcError('invalid_params', 'focus exhibits is the host context read');
+                return exhibitsView(graph, world, scene, {journal: row(await campaign.optional("npc-journal.json").catch(() => ({}))), records: await campaign.files('turns')});
             }
             if (focus === "clues")
                 return {

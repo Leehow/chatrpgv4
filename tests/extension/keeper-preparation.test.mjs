@@ -23,6 +23,7 @@ function fixture({input='I ask Vera where to find Doctor Bob.',read,decision,ser
     if(method==='table.apply.options')return{candidates:[{effect:{kind:'move',to:'library'},description:{display_name:'Library',travel_minutes:10,unlock_when:{met:true}}},
       ...(bandPrerequisite?[{effect:{kind:'move',to:'annex'},description:{display_name:'Annex',unlock_when:{met:true}}}]:[])]};
     if(method==='fixture.bands')return[{handle:'local_travel',min:5,max:30,default:20}];
+    if(method==='table.look'&&args.focus==='exhibits')return{exhibits:[]};
     if(method==='table.look'){
       reads.push(args.name);if(read)await read(args);
       return{name:args.name==='vera'?'Vera':args.name==='npc_2'?'Doctor Bob':args.name,

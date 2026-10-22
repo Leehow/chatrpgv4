@@ -51755,3 +51755,76 @@ Exhibits have a Keeper side and an author side, and the line is structural:
 This ticket adds the data and its gate only; no projection reads exhibits yet. Test:
 `tests/extension/module-exhibits-contract.test.mjs` (real `module.read.finish`, accepted graph read back, each reason, v4
 unchanged).
+
+### 257.C1 The exhibit read (ticket 03; renumber with the other tickets' sections)
+
+`table.look {focus: "exhibits", _context_read: true}` is the host's read of the exhibits the table may reveal now. It is refused
+(`invalid_params`) without `_context_read`, so a model-called `look` never sees it; it is deliberately not a capsule section,
+because the capsule is sent to the Keeper whole and a surface must not be. Result:
+`{scene, exhibits: [{exhibit_id, kind, channel, scope, carrier: {id, node_kind, display_name}, stance?, label, clue?, teaches?,
+clue_states?, surface: {text, language, verbatim}}]}` (`kernel-ts/read/exhibits.ts`).
+
+- Kinds read: `document` and `perception` only (`REVEALABLE_EXHIBIT_KINDS`). Description, appearance and voice are used
+  automatically by later tickets; testimony joins in ticket 04. Nothing else is issued.
+- Scope (`scope`, in rank order scene, person, handout, object): the carrier is the active scene (any node of its group), a
+  person present (`npcsPresent`), a handout or object the scene depicts or holds (`sceneAssetNodes`), a handout in
+  `world.handouts_shown`, or an object an investigator owns in `world.objects.instances`. Any other carrier is simply absent from
+  the result. `carrier.display_name` is the public display: the scene label, a person's current name-or-epithet, a node's display name.
+- `clue` is the Keeper's summary over the clue nodes the exhibit `teaches`: `{state: "open" | "needs" | "discovered", check?: {skill,
+  difficulty?}}` (`needs` is an undiscovered clue the book finds by a named-skill check, `clueCheck`); `teaches` holds the clue
+  handles and `clue_states` their per-clue state. A knowledge-claim target teaches nothing here (no effect is compiled for it).
+- `surface.text` has every `{{who:<node_id>}}` resolved by the kernel: the person's name when the table has been told it, otherwise
+  the table's word for them (the same `display_name` `present[]` shows, §176/§103). An unresolvable reference reads `someone`.
+- The row is Keeper-side. `teaches`, `keeper_note` and `label` never leave the host's catalog code; `keeper_note` is not in the read at all.
+
+### 257.C2 The catalog and the packet
+
+`DecisionContent.prepare(..., exhibits)` (the 8th argument; the hybrid engine reads `table.look focus=exhibits` beside the capsule,
+and a kernel or graph without it issues none) issues `exhibit_N` for each row, aliased by `exhibit_id` so a reference survives
+unchanged scope like `fact_N`. `decision_materials.exhibits` lists `{ref, kind, channel, carrier, label, stance?, clue?}` with
+`clue` one of `open`, `discovered` or `needs <skill> (<difficulty>)`; the surface is never in it. They share the catalog's byte
+budget and are capped at 48; the overflow is counted in `coverage.exhibits: {issued, omitted}` (present only when the kernel
+returned exhibits). `ExistingCommunicationFact` gains `{exhibit_ref}`. The per-turn schema binds it: in `reveal` to the issued
+document and perception references (`DecisionBindings.revealExhibits`), in `interactions[].content` to
+`DecisionBindings.speechExhibits`, which is empty until ticket 04 (the unissued branch is pruned like any empty enum).
+
+### 257.C3 Settlement
+
+Before anything is written, a packet whose `reveal` names an exhibit re-reads `table.look focus=exhibits` and
+`DecisionContent.settleExhibits` settles it:
+
+1. An exhibit no longer issued is refused (`invalid_params`, `details.reason: "exhibit_unissued"`); one whose carrier is no longer
+   in scope is refused naming the exhibit and the carrier (`exhibit_carrier_absent`) and the repair says to leave it out of
+   `reveal`. Both are `transaction_state: "uncommitted"`: the whole packet is refused.
+2. Each undiscovered clue an exhibit teaches becomes the clue's ordinary `{kind: "clue", clue}` effect, placed ahead of the
+   packet's other effects in the same atomic `apply`, so the clue's own validation applies (`not_here`, `check_first`). A clue
+   already discovered gets no effect, so revealing an exhibit again never rediscovers it; two exhibits teaching one clue yield one effect.
+3. When the clue's validation refuses (a missing check), the whole packet is refused with the clue's refusal and an added line
+   naming the exhibit (`Exhibit exhibit_N teaches this clue ...`, `fix` naming `{exhibit_ref:"exhibit_N"}`); nothing the packet
+   carried (time, movement) lands.
+
+### 257.C4 The author's input
+
+A revealed exhibit is one `selected_materials` row of the decision context:
+`{kind: "exhibit", exhibit: {kind, channel, carrier, surface, stance?}, authority}`. `carrier` is the public display and `surface` the
+resolved text; `teaches`, `keeper_note`, `label` and the exhibit id are not in it. `authority` is, for a verbatim surface, "Render
+faithfully in the play language; do not summarize."; for a `lie` or `deflection` stance (ticket 04) "What this speaker says, in their
+terms; not world truth. Render as their speech; do not correct or expose it in narration."; otherwise "Perceivable book material;
+render it in the play language without adding what it does not show."
+
+### 257.C5 Packet guidance
+
+`TURN_PACKET_GUIDANCE` says `reveal` also selects `{exhibit_ref}`, that the catalog lists carrier, label and clue state but never the
+text, and that when an exhibit exists for what is found the Keeper reveals the exhibit and does not apply the clue it teaches (the
+packet is refused with the missing check named otherwise). `apply clue` stays valid for compatibility.
+
+### 257.C6 Telemetry
+
+The `run` record `decision_material_catalog` carries `coverage.exhibits` and `exhibits_issued: [ref]`. Each turn that issued or
+selected an exhibit writes `{lane: "decision-content", event: "exhibits", turn, run, issued, omitted, selected, refused, author_bytes}`
+(`author_bytes` is the UTF-8 size of the exhibit rows handed to the author); a refused selection writes
+`{event: "exhibit_refused", ..., refused: [{ref, reason}]}` with `reason` one of `unissued`, `carrier_absent` or the clue's own
+refusal reason (`check_first`, `not_here`).
+
+Test: `tests/extension/exhibit-reveal.test.mjs` (a real kernel over a content root whose Haunting starter carries exhibits, the
+controlled Keeper's `reveal`, the real settlement and the real author `task.json`).
