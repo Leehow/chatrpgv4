@@ -298,6 +298,11 @@ export function createModuleRuntime(context: KernelContext) {
             : (await owner(graph.sourceCampaign, graph.moduleId)).reading.queueAdjacentReading(graph, scene),
         requireMaterial: async (graph: ModuleGraph, names: any[], gate?: MaterialGate) => (await owner(graph.sourceCampaign, graph.moduleId)).reading.requireMaterial(graph, names, gate),
         requireMapMaterial: async (graph: ModuleGraph, params: Row) => (await owner(graph.sourceCampaign, graph.moduleId)).reading.requireMapMaterial(graph, params),
+        // §257.L1: the same rule for a legacy scene's exhibits.
+        queueSceneExhibits: async (graph: ModuleGraph, scene: Row): Promise<Row> => {
+            if (graph.sourceCampaign === undefined) return { state: 'none' };
+            return await (await owner(graph.sourceCampaign, graph.moduleId)).reading.queueSceneExhibits(graph, scene);
+        },
         // §107.1: like the adjacent prefetch, a table that still follows the shared library queues nothing there.
         queueArrivalMap: async (graph: ModuleGraph, scene: Row): Promise<Row> => {
             if (graph.sourceCampaign === undefined) return { state: 'none' };

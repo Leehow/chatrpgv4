@@ -51821,6 +51821,22 @@ in the graph; the rest of the shard publishes.
 
 Test: `tests/extension/module-exhibits-reader.test.mjs`.
 
+### 257.L1 Legacy graphs get exhibits in the background
+
+A graph read before exhibits existed has scenes that no exhibit names as its carrier. The first `apply` whose move makes such
+a scene the party's current scene (a move receipt that is not a rename, to a scene other than the one it left) queues exactly one
+background read through `contributions.queueSceneExhibits` -> `Reading.queueSceneExhibits(graph, scene)`:
+`module.read.request {purpose: "detail", material: "exhibits", focus: <the scene's reading focus>, foreground: false}` (257.R2).
+Nothing is queued when the scene already has an exhibit (`graph.exhibitsOf(scene)`), when the graph has no bound book, or when the
+table still follows the shared library (as for the arrival map, 107.1). The job identity is the scene's focus, so re-entering while
+the read is queued, running or done (including done to "none printed") queues no second job. The turn never waits: the answer
+(`queued`, `reading`, `ready`, `blocked`) is ignored, a kernel error while queueing is appended to `telemetry.jsonl` as
+`exhibits-unavailable` and does not refuse the move, and clue disclosure keeps its present fact until the read lands. When it
+publishes, the accepted graph carries the scene's exhibits and the next catalog refresh sees them (`ModuleGraph.exhibits`).
+Not covered: the scene a campaign opens in, and a campaign resumed in its current scene (no move enters them).
+
+Test: `tests/extension/ts-kernel-modules.test.mjs` (257.L1).
+
 ### 257.V1 Voice reaches the author
 
 Voice exhibits are the one exhibit kind that reaches the author without a catalog or a selection: they ride with the
