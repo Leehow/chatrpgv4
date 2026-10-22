@@ -267,12 +267,15 @@ export function bindTurnPacketMoves(packet:TurnPacket,choices:readonly Record<st
 export function turnPacket(text:string,parameters?:TSchema):TurnPacket {
  const raw=JSON.parse(text);
  if(object(raw)&&Array.isArray(raw.commands))for(const [index,command]of raw.commands.entries()){
-  // §250.4: the command's own kind names its schema; an action alone chooses only when no schema has that kind (live
-  // el-v2-20261022h T12: a scene command with action "observe" was checked as a place observation and asked for facts).
-  const byKind=commandSchemas.filter(schema=>schema.properties.kind.const===command?.kind);
-  const schema=byKind.length
-   ?byKind.find(schema=>!(schema.properties as Record<string,any>).action||(schema.properties as Record<string,any>).action.const===command?.action)
-   :commandSchemas.find(schema=>(schema.properties as Record<string,any>).action?.const===command?.action&&command?.action!==undefined);
+  // §250.4: the schema the command's own kind names and the one its action names compete; the one that declares more of
+  // the command's keys is what it was written as, the kind's on a tie. A place observation under kind "move" is still
+  // reported as a wrong kind, and a scene assessment carrying a stray action (live el-v2-20261022h T12) as a stray action,
+  // not as a place observation missing its facts.
+  const declared=(schema:TSchema)=>Object.keys(command??{}).filter(key=>Object.hasOwn((schema as Record<string,any>).properties??{},key)).length;
+  const byKind=commandSchemas.filter(schema=>schema.properties.kind.const===command?.kind
+   &&(!(schema.properties as Record<string,any>).action||(schema.properties as Record<string,any>).action.const===command?.action));
+  const byAction=command?.action===undefined?[]:commandSchemas.filter(schema=>(schema.properties as Record<string,any>).action?.const===command.action);
+  const schema=[...byKind,...byAction].reduce<TSchema|undefined>((best,candidate)=>!best||declared(candidate)>declared(best)?candidate:best,undefined);
   if(schema&&Errors(schema,command).length)throw parameterError(`commands[${index}]`,schema,command);
  }
  {const content=contentDiagnostic(TURN_PACKET_PARAMETERS,raw);if(content)throw content;}
