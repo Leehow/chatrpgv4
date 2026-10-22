@@ -10,7 +10,7 @@ export function assertSourcePreparationRequest(value:unknown):asserts value is S
   if(!isPlainRecord(value)||Object.keys(value).some(key=>!['authority','read'].includes(key))||!isPlainRecord(value.read)
     ||Object.keys(value.read).some(key=>!['purpose','focus','question','material','pages'].includes(key))||value.read.purpose!=='detail'
     ||typeof value.read.focus!=='string'||!value.read.focus.trim()||value.read.question!==undefined&&typeof value.read.question!=='string'
-    ||value.read.material!==undefined&&value.read.material!=='map'||value.read.pages!==undefined&&(!Array.isArray(value.read.pages)||value.read.pages.some(page=>!Number.isSafeInteger(page)||Number(page)<1)))
+    ||value.read.material!==undefined&&value.read.material!=='map'&&value.read.material!=='exhibits'||value.read.pages!==undefined&&(!Array.isArray(value.read.pages)||value.read.pages.some(page=>!Number.isSafeInteger(page)||Number(page)<1)))
     throw new ContractError('invalid_source_preparation_request');
   assertSourcePreparationAuthority(value.authority);
 }

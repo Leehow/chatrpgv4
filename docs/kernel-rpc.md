@@ -51925,3 +51925,18 @@ when there are none. Only `surface.text` is carried: `label`, `keeper_note`, `te
 person has no voice exhibit, `speech_style` is the derived profile `expression` as before, and absent when neither
 exists. narration-craft 2.6.1 and zh-optimize 1.4.1 speak of `speech_style` instead of voice cards and masks. Tests:
 `tests/extension/module-exhibits-contract.test.mjs` (the `§257.V1` cases) and `tests/extension/decision-only-v4.test.mjs`.
+
+### 257.P1 Mid-play lookups can become exhibits
+
+`lookup {kind: "source", source_mode: "prepare", material: "exhibits", query: <focus>}` is the Keeper's way to make book
+material disclosable mid-play. It is the same detail read as 257.R2 (`purpose: "detail"`, `material: "exhibits"`, `focus` =
+`query`), reached through the existing source-preparation path: no place shortcut (`reference`) is taken, the consultation key
+carries the material, and `runtime/jev/source-preparation.ts` accepts `material` `map` or `exhibits`. A missing `question` is
+filled in; the kernel names the question itself (257.R2), so a focus has one identity. Chosen over "prepare always also reads
+exhibits" because that would add a second job to every prepare; the Keeper asks when the focus (an object, handout, scene or
+person) is wanted for its exhibits. When the read publishes, the next catalog refresh issues the new document and perception
+exhibits whose carrier is in scope (257.C1). `source_mode: "answer"` is unchanged and Keeper-only: its text reaches the Keeper's
+tool result and never the author input. The tool description says both.
+
+Tests: `tests/extension/source-answer.test.mjs` (prepare with `material: exhibits` reaches `ensure` as the exhibits detail read),
+`tests/extension/exhibit-reveal.test.mjs` (a source answer's text is absent from the author's `task.json`).
