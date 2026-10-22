@@ -6,7 +6,7 @@ type Wait = {pending: boolean; reference?: Reference; key?: string};
 type Reference = {controller: AbortController; waits: Set<Wait>; retained: boolean; blocking: boolean; task: Promise<Row | undefined>; value?: Row; bytes: number};
 export interface SourceConsultation {
     campaign: string; moduleId: string; worldline?: string; loop?: number;
-    focus: string; question: string; mode: 'answer' | 'prepare'; material?: 'map'; retry?: boolean;
+    focus: string; question: string; mode: 'answer' | 'prepare'; material?: 'map' | 'exhibits'; retry?: boolean;
     allowanceMs: number; signal?: AbortSignal;
     binding(signal: AbortSignal): Promise<string>;
     accepted?(signal: AbortSignal): Promise<Row | undefined>;

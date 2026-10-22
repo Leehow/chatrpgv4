@@ -6565,10 +6565,14 @@ export default function (pi: ExtensionAPI, host: {capabilities?:RuntimeCapabilit
 						fix: "reopen the table with its module reading extension available", details: { reason: "reading_failed" } });
 					const askedAt = state.scene?.handle, askedTurn = state.turn, askedScope = state.sourceAnswerScope ? {...state.sourceAnswerScope} : undefined;
 					const mapPreparation = !answerOnly && params.material === 'map';
+					// §257.P1: material exhibits is the same detail read the kernel names itself (257.R2); no place shortcut.
+					const exhibitsPreparation = !answerOnly && params.material === 'exhibits';
 					const sourceQuestion = mapPreparation && (typeof params.question !== 'string' || !params.question.trim())
-						? `Prepare source-backed map images and independently revealable regions for ${String(params.query)}.` : params.question ?? '';
+						? `Prepare source-backed map images and independently revealable regions for ${String(params.query)}.`
+						: exhibitsPreparation && (typeof params.question !== 'string' || !params.question.trim())
+							? `Extract the printed exhibits (documents, perceptions, testimony) carried by ${String(params.query)}.` : params.question ?? '';
 					const sourceRead = { purpose: answerOnly ? "answer" : "detail", focus: params.query, question: sourceQuestion,
-						...(mapPreparation ? {material:'map'} : {}) };
+						...(mapPreparation ? {material:'map'} : exhibitsPreparation ? {material:'exhibits'} : {}) };
 					let memoEnvelope = false;
 					const sourceOwner=JSON.stringify([readingModule,fromStep?.run??`turn:${askedTurn}`]);
 					const waiting=answerOnly&&params.retry!==true?pendingAnswers.pendingFor(state.campaign,{scene:askedAt,turn:askedTurn,
@@ -6597,7 +6601,7 @@ export default function (pi: ExtensionAPI, host: {capabilities?:RuntimeCapabilit
 						const response = await sourceConsultations.lookup({campaign: state.campaign, moduleId: readingModule,
                             ...askedScope, focus: String(params.query), question: String(sourceQuestion),
                             mode: answerOnly ? 'answer' : 'prepare', retry: params.retry === true,
-                            ...(mapPreparation ? {material:'map' as const} : {}),
+                            ...(mapPreparation ? {material:'map' as const} : exhibitsPreparation ? {material:'exhibits' as const} : {}),
                             allowanceMs: sourceAnswerAllowanceMs(), signal,
                             binding: async workSignal => {
                                 workSignal.throwIfAborted();
@@ -6617,7 +6621,7 @@ export default function (pi: ExtensionAPI, host: {capabilities?:RuntimeCapabilit
                                     cache_only: true, foreground: false});
                                 return cached.state === 'ready' ? cached : undefined;
                             },
-                            reference: (workSignal, priority) => mapPreparation ? Promise.resolve(undefined) : reading?.reference?.(readingModule!,
+                            reference: (workSignal, priority) => mapPreparation || exhibitsPreparation ? Promise.resolve(undefined) : reading?.reference?.(readingModule!,
                                 {...sourceRead, campaign: state.campaign, ...(!answerOnly ? {materialize_place: true} : {})}, workSignal, priority) ?? Promise.resolve(undefined),
                             fallback: (workSignal, options) => answerOnly && nativeSource
                                 ? nativeSource({moduleId: readingModule!, campaign: state.campaign, toolCallId, question: String(params.question)}, workSignal)

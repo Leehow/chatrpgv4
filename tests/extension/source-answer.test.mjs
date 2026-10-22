@@ -121,3 +121,17 @@ test('explicit map crop repair reaches the existing material reader rather than 
  assert.equal(requests[0].focus,'Camp map');assert.match(requests[0].question,/clipped edge/);
  const result=table.session.messages.find(m=>m.role==='toolResult'&&m.toolName==='lookup');assert.ok(result&&!result.isError);
 });
+
+test('prepare with material exhibits reaches the exhibits detail read, not the place shortcut (§257.P1)',async t=>{
+ const table=await openTable({responses:[
+  fauxAssistantMessage([fauxToolCall('lookup',{kind:'source',source_mode:'prepare',material:'exhibits',query:'Harbor ledger'})],{stopReason:'toolUse'}),
+  fauxAssistantMessage([fauxToolCall('output',{text:'Prepared.'})],{stopReason:'toolUse'}),
+  fauxAssistantMessage('Prepared.')
+ ]});t.after(()=>table.dispose());const requests=[];let references=0;
+ table.emit('coc:reading-bridge',{async reference(){references++;return {state:'ready',scene:'Harbor'};},
+   async ensure(_mid,params){requests.push(params);return {state:'ready'};}});
+ await table.session.prompt('Look up what the ledger says.');
+ assert.equal(references,0);assert.equal(requests.length,1);
+ assert.equal(requests[0].purpose,'detail');assert.equal(requests[0].material,'exhibits');assert.equal(requests[0].focus,'Harbor ledger');
+ const result=table.session.messages.find(m=>m.role==='toolResult'&&m.toolName==='lookup');assert.ok(result&&!result.isError,JSON.stringify(result));
+});
