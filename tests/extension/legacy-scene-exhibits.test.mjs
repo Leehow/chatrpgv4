@@ -1,5 +1,5 @@
 /**
- * Contract §257.L1 through the kernel's real entries: a bound book whose graph carries no exhibits, a campaign opened on it
+ * Contract §257.15 through the kernel's real entries: a bound book whose graph carries no exhibits, a campaign opened on it
  * (`table.open`) and a move made with `table.apply`. The scene the table opens in and the scene a move arrives at are each
  * queued one background exhibits read; re-entering queues no second. Jobs are observed as the reader would claim them.
  */

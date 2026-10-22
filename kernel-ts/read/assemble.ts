@@ -330,7 +330,7 @@ export function publicSceneMaterial(campaign:CampaignSnapshot,graph:ModuleGraph,
     const entries=records.slice(0,3).map(record=>({turn:record.turn,text:record.rendered_text.slice(0,2000),
         ...(record.rendered_text.length>2000?{truncated:true}:{})}));
     while(entries.length&&jsonSize(entries)>7800)entries.pop();
-    // §257.F1: the scene's description exhibits, else its hand-authored description -- the same player-facing source as first sight.
+    // §257.5: the scene's description exhibits, else its hand-authored description -- the same player-facing source as first sight.
     const description=who(placeDescribed(graph,graph.scene(world.active_scene))??'');
     return {authority:'Current source scenery and previously delivered public history; no population or transaction authority.',
         ...(description?{description}:{}),entries:entries.reverse(),omitted:records.length-entries.length};

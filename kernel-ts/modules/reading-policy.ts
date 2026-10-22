@@ -4,7 +4,7 @@ export const readingFocusDomain = (job: Job): 'answer' | 'publication' => job.pu
 export const sameReadingFocusDomain = (left: Job, right: Job): boolean => readingFocusDomain(left) === readingFocusDomain(right);
 export const attachesReadingFocus = (job: Job): boolean => ['answer', 'opening', 'detail'].includes(String(job.purpose));
 function workPriority(job: Job): number {
-    // §257.L1: a legacy scene's exhibits read is the least urgent background work; it never goes ahead of a read another flow asked for.
+    // §257.15: a legacy scene's exhibits read is the least urgent background work; it never goes ahead of a read another flow asked for.
     if (job.material === 'exhibits') return 6;
     if (job.purpose === 'opening') return 1;
     if (job.reference_fragment) return 2;

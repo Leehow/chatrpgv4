@@ -1036,7 +1036,7 @@ export function createWriteRuntime(context: KernelContext, contributions: WriteC
         }
         if (contributions.queueAdjacentReading)
             await contributions.queueAdjacentReading(module.graph, module.graph.scene(snapshot.world.active_scene));
-        // §257.L1: the scene the table opens or resumes in is read for exhibits too, when it has none; never a reason to refuse the open.
+        // §257.15: the scene the table opens or resumes in is read for exhibits too, when it has none; never a reason to refuse the open.
         if (contributions.queueSceneExhibits) {
             try { await contributions.queueSceneExhibits(module.graph, module.graph.scene(snapshot.world.active_scene)); }
             catch (error) {

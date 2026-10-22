@@ -654,7 +654,7 @@ export class Reading {
         return { state: string(reply.state), focus, ...(truth(reply.job_id) ? { job_id: reply.job_id } : {}) };
     }
     /**
-     * §257.L1: a legacy graph (read before exhibits existed) has a scene no exhibit is carried by. The first arrival at it queues one
+     * §257.15: a legacy graph (read before exhibits existed) has a scene no exhibit is carried by. The first arrival at it queues one
      * background `material: "exhibits"` detail read of that scene and never waits for it: the same focus is the same job, so
      * a scene already queued, running or read (even read to nothing) queues no second one. A graph without a bound book queues nothing.
      */

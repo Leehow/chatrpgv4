@@ -5,7 +5,7 @@
  * station; the Keeper's prose gave none of the book's station and no first-sight check ran after it.
  *
  * The engine's step (`firstSightStep`) over stub reads, and the kernel's `table.first_sight.view` in process: the rulebook
- * Haunting's introduction leads on to the Hall of Records, given a description, and Knott, given an appearance (§257.F1: never a biography).
+ * Haunting's introduction leads on to the Hall of Records, given a description, and Knott, given an appearance (§257.5: never a biography).
  */
 import assert from 'node:assert/strict';
 import {after, test} from 'node:test';

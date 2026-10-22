@@ -597,7 +597,7 @@ export function createHybridEngine(options: HybridEngineOptions): {runDriver: Se
             if(passages.length)api?.events.emit('coc:carried-text',{campaign:bridge.campaign,turn:scope.turn,run:context.runId,passages});
           }
           const preparedOperations=continuous?.materials(capsule);
-          // §257.C1: the exhibits in scope, read beside the capsule (never inside it: the Keeper is sent the capsule whole). A kernel
+          // §257.6: the exhibits in scope, read beside the capsule (never inside it: the Keeper is sent the capsule whole). A kernel
           // without the read, or a graph without exhibits, issues none.
           const exhibitRows=turnPacketPrototype?await (async()=>{try{return array(object(await bridge.call!('table.look',{campaign:bridge.campaign,focus:'exhibits',_context_read:true})).exhibits);}catch{return[];}})():[];
           const decisionMaterials=turnPacketPrototype?bridge.decisionMaterials?.(capsule,[...array(capsule.present),...people],array(preparedOperations?.candidates),exhibitRows):undefined;

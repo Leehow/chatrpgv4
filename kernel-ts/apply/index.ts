@@ -468,7 +468,7 @@ export function createApplyHandlers(kernel: KernelContext, writer: ReturnType<ty
                         staged.map_arrivals_pending = [...new Set([...array(staged.map_arrivals_pending).filter(value => typeof value === 'string'), graph.handle(arrived)])];
                 }
             }
-            // §257.L1: a legacy scene without exhibits is read for them in the background; a failure to queue never stops the move.
+            // §257.15: a legacy scene without exhibits is read for them in the background; a failure to queue never stops the move.
             if (contributions.queueSceneExhibits && receipts.some(receipt => receipt.kind === 'move' && !receipt.renamed)) {
                 const arrived = graph.scene(string(staged.active_scene));
                 if (graph.handle(arrived) !== graph.handle(graph.scene(string(transaction.world.active_scene)))) {

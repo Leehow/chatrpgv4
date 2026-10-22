@@ -1,8 +1,8 @@
 /**
- * Contract §257.T1: the one resolver of `{{who:<node_id>}}` tokens in book exhibit text.
+ * Contract §257.17: the one resolver of `{{who:<node_id>}}` tokens in book exhibit text.
  *
  * A token is replaced by what the table may call that person now: their name once the table has been told it, else the
- * table's word (the epithet, else the journal's label). The exhibit read (§257.C1), first sight, the scene's description
+ * table's word (the epithet, else the journal's label). The exhibit read (§257.6), first sight, the scene's description
  * and the check lane's book words all go through it, so the author, the Keeper and the check see one text.
  */
 import type {ModuleGraph} from './module-graph.js';

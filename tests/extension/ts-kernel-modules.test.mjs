@@ -404,7 +404,7 @@ test('first-interaction readiness upgrades a prologue snapshot and continues bey
  }finally{await book.close();}
 });
 
-test('§257.L1: the first arrival at a scene without exhibits queues one background exhibits read and none after', async () => {
+test('§257.15: the first arrival at a scene without exhibits queues one background exhibits read and none after', async () => {
   const book=await mapBook('legacy-exhibits');
   try {
     const graph=await book.graph(),reading=new api.Reading(book.store());

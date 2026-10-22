@@ -31,7 +31,7 @@ export const Interaction=Type.Union([
 export type InteractionDecision=Static<typeof Interaction>;
 export type HydratedInteraction=InteractionDecision&{claims?:Row[]};
 export interface DecisionBindings {entities:string[];people:string[];places:string[];facts:string[];sources:string[];narrationFacts?:string[];factActors?:Record<string,string>;
- /** §257.C2: issued exhibit references, and the subsets a reveal and a person's speech may select. */
+ /** §257.7: issued exhibit references, and the subsets a reveal and a person's speech may select. */
  exhibits?:string[];revealExhibits?:string[];speechExhibits?:string[]}
 /** Prepared schemas and execution use the same issued reference vocabulary. */
 export function bindCommunicationParameters(schema:TSchema,bindings:DecisionBindings,narration=false):TSchema {
@@ -176,14 +176,14 @@ export class DecisionContent {
   this.facts.set(ref,{ref,...(actor?{actor}:{}),kind:evidence,availability,value:structuredClone(value),revision:identity});this.active.add(ref);
  }
  /**
-  * §257.C2: one exhibit the table may reveal now. The Keeper's catalog entry never holds the surface; the host row keeps only
+  * §257.7: one exhibit the table may reveal now. The Keeper's catalog entry never holds the surface; the host row keeps only
   * what settlement needs (the exhibit id and its label). Shares the catalog's byte budget and caps its own count.
   */
  private issueExhibit(item:Row):void {
   if(typeof item.exhibit_id!=='string'||typeof item.kind!=='string')return;
   const identity=digest({kind:'exhibit',id:item.exhibit_id});let ref=this.aliases.get(identity);
   if(ref&&this.activeExhibits.has(ref))return;
-  // §257.T1: a testimony exhibit is issued with the npc references of its owners; one nobody here can speak is not issued.
+  // §257.17: a testimony exhibit is issued with the npc references of its owners; one nobody here can speak is not issued.
   const owners=item.kind==='testimony'?[...new Set((Array.isArray(item.owners)?item.owners:[]).flatMap((handle:unknown)=>typeof handle==='string'&&this.handleRefs.has(handle)?[this.handleRefs.get(handle)!]:[]))]:undefined;
   if(owners&&!owners.length)return;
   const state=item.clue?.state,check=item.clue?.check,needs=typeof check?.skill==='string'?`${check.skill}${check.difficulty?` (${check.difficulty})`:''}`:undefined;
@@ -199,13 +199,13 @@ export class DecisionContent {
  /** The exhibit references this turn's catalog issued, for the decision-content telemetry. */
  exhibitIssue():{issued:string[];omitted:number} {return {issued:[...this.activeExhibits],omitted:this.exhibitsOmitted};}
  /**
-  * §257.C2/C3: settle the exhibits a packet reveals against the kernel's current scope. An exhibit whose carrier is no longer
+  * §257.7/C3: settle the exhibits a packet reveals against the kernel's current scope. An exhibit whose carrier is no longer
   * here is refused whole with a repair naming it. Each undiscovered clue an exhibit teaches becomes the clue's ordinary
   * discovery effect (its own validation applies); a discovered clue gets none. The author receives the surface only.
   */
  settleExhibits(reveal:unknown[],current:Row[],interactions:{actor:string;content?:unknown[]}[]=[]):{effects:Row[];selected:string[];authors:Map<string,Row>;taughtBy:Map<string,string>} {
   const effects:Row[]=[],selected:string[]=[],authors=new Map<string,Row>(),taughtBy=new Map<string,string>();
-  // §257.T1: what a person says is settled with what the investigators read; the speaker must be an owner of the testimony.
+  // §257.17: what a person says is settled with what the investigators read; the speaker must be an owner of the testimony.
   const asked=[...reveal.map(content=>({content,actor:undefined as string|undefined})),...interactions.flatMap(response=>(response.content??[]).map(content=>({content,actor:response.actor as string|undefined})))];
   for(const {content,actor} of asked){
    const ref=(content as Row)?.exhibit_ref;if(typeof ref!=='string')continue;

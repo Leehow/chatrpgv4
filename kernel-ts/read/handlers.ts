@@ -549,7 +549,7 @@ export function readHandlers(context: KernelContext, contributions: ReadContribu
                 campaign.party = await campaign.files("party");
                 return investigatorView(actor(campaign.party, params.name));
             }
-            // §257.C1: the host's exhibit catalog read; surfaces never ride a model-visible focus.
+            // §257.6: the host's exhibit catalog read; surfaces never ride a model-visible focus.
             if (focus === "exhibits") {
                 if (!contextRead) throw new RpcError('invalid_params', 'focus exhibits is the host context read');
                 return exhibitsView(graph, world, scene, {journal: row(await campaign.optional("npc-journal.json").catch(() => ({}))), records: await campaign.files('turns')});

@@ -105,7 +105,7 @@ test('the Keeper catalog lists in-scope document and perception exhibits without
   const catalog=run.catalog;
   assert.ok(catalog,'the Keeper was sent a catalog');
   assert.deepEqual(catalog.exhibits.map(entry=>entry.label.replace('LABEL ','')),['exhibit-drawer','exhibit-desk-tap','exhibit-knott-says','exhibit-knott-badge','exhibit-commission'],
-    'scene first, then the person present (his testimony, §257.T1, then his badge), then handouts; description, appearance, voice and out-of-scope carriers are not issued');
+    'scene first, then the person present (his testimony, §257.17, then his badge), then handouts; description, appearance, voice and out-of-scope carriers are not issued');
   const text=JSON.stringify(catalog.exhibits);
   for(const hidden of ['SURFACE','A key ring','taps the desk','Twenty dollars','KEEPER_NOTE','keeper_note','surface'])assert.ok(!text.includes(hidden),hidden);
   const drawer=catalog.exhibits.find(entry=>entry.label==='LABEL exhibit-drawer');
@@ -244,7 +244,7 @@ test('packet guidance prefers revealing the exhibit to applying the clue it teac
   assert.match(TURN_PACKET_GUIDANCE,/do not apply the clue it teaches/);
 });
 
-// ---- §257.T1: testimony, lies and deflections ----
+// ---- §257.17: testimony, lies and deflections ----
 const says=(ids,extra={})=>catalog=>[fauxToolCall('output',{version:4,commands:[],...extra,
   interactions:[{actor:'npc_1',to:['investigator_1'],act:'answer',content:ids.map(id=>({exhibit_ref:refOf(catalog,id)}))}]})];
 
@@ -304,7 +304,7 @@ test('a non-owner is refused with the owners named; testimony in reveal is refus
     authority:'What this speaker says, in their terms; not world truth. Render as their speech; do not correct or expose it in narration.'}]);
 });
 
-// ---- §257.T1: {{who:}} in first sight and in speech_style ----
+// ---- §257.17: {{who:}} in first sight and in speech_style ----
 const TOKENED=()=>[
   exhibit('exhibit-office-sight','description',OFFICE,'sight',{surface:surface('{{who:npc-steven-knott}} sits behind a cluttered desk.')}),
   exhibit('exhibit-knott-look','appearance',KNOTT,'sight',{surface:surface('{{who:npc-steven-knott}} is gaunt, in a rumpled suit.')}),
@@ -348,7 +348,7 @@ test('the first-sight check still locates an excerpt of the resolved words, whic
   }finally{await client.close();}
 });
 
-test('a lookup source answer is Keeper-only: its text never reaches the author task (§257.P1)',async t=>{
+test('a lookup source answer is Keeper-only: its text never reaches the author task (§257.18)',async t=>{
   const SENTINEL='SOURCE_ANSWER_SENTINEL_Q7';
   const answer={status:'answered',answer:`${SENTINEL} Knott keeps a second ledger.`,limitations:'',source_refs:REFS,authority:'source-consultation',prepared:false,supported:true};
   const seen=[];let table;

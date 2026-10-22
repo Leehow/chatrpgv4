@@ -1,5 +1,5 @@
 /**
- * Contract §257.C1: the exhibits the table may reveal now, as the host's catalog reads them.
+ * Contract §257.6: the exhibits the table may reveal now, as the host's catalog reads them.
  *
  * This is the host's context read (`table.look focus=exhibits`, `_context_read` only), never a capsule section: the capsule
  * is sent to the Keeper whole and a surface must not be. A row is Keeper-side: the host splits it into the Keeper's catalog
@@ -12,7 +12,7 @@ import {npcReferenceView,npcsPresent,sceneLabel,untoldBlock,clueDiscovered} from
 import {clueCheck} from './clue-check.js';
 import {whoResolver} from './who.js';
 
-/** The kinds a Keeper may select to reveal. Testimony (§257.T1) is spoken by an owner who is present; description, appearance and voice are used automatically. */
+/** The kinds a Keeper may select to reveal. Testimony (§257.17) is spoken by an owner who is present; description, appearance and voice are used automatically. */
 export const REVEALABLE_EXHIBIT_KINDS: readonly string[] = ['document', 'perception', 'testimony'];
 
 /** Where the carrier stands for the investigators: the scene, a person present, or a thing they hold or can perceive here. */
@@ -44,7 +44,7 @@ export function exhibitsView(graph: ModuleGraph, world: Row, scene: Row, reads: 
     const resolve = whoResolver(graph, world, row(reads.journal), array(reads.records).map(row));
     const found = rows.flatMap(item => {
         const carrier = graph.nodes.get(graph.survivorId(string(item.carrier))) ?? graph.nodes.get(string(item.carrier));
-        // §257.T1: testimony is in scope when an owner is here (the carrier may be elsewhere: a person tells of a place); the rest by carrier.
+        // §257.17: testimony is in scope when an owner is here (the carrier may be elsewhere: a person tells of a place); the rest by carrier.
         const speakers = item.kind === 'testimony' ? array(item.owners).flatMap(id => {
             const owner = graph.nodes.get(graph.survivorId(string(id))) ?? graph.nodes.get(string(id));
             return owner && present.some(node => graph.groupOf(node).some(each => each.node_id === owner.node_id)) ? [graph.handle(owner)] : [];

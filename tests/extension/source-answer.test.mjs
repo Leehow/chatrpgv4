@@ -122,7 +122,7 @@ test('explicit map crop repair reaches the existing material reader rather than 
  const result=table.session.messages.find(m=>m.role==='toolResult'&&m.toolName==='lookup');assert.ok(result&&!result.isError);
 });
 
-test('prepare with material exhibits reaches the exhibits detail read, not the place shortcut (§257.P1)',async t=>{
+test('prepare with material exhibits reaches the exhibits detail read, not the place shortcut (§257.18)',async t=>{
  const table=await openTable({responses:[
   fauxAssistantMessage([fauxToolCall('lookup',{kind:'source',source_mode:'prepare',material:'exhibits',query:'Harbor ledger'})],{stopReason:'toolUse'}),
   fauxAssistantMessage([fauxToolCall('output',{text:'Prepared.'})],{stopReason:'toolUse'}),

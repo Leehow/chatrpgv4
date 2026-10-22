@@ -1029,7 +1029,7 @@ export function presentSection(graph: ModuleGraph, world: Row, scene: Row, ledge
         ...present.filter(node => !graph.isPerson(node)).map(node => creatureEntry(graph, world, node, ledger, options.chain)),
     ];
 }
-/** §257.V1: the surfaces of the voice exhibits this person owns, in graph order; surface text only (never label, keeper_note or teaches). */
+/** §257.16: the surfaces of the voice exhibits this person owns, in graph order; surface text only (never label, keeper_note or teaches). */
 export function voiceSurfaces(graph: ModuleGraph, node: Row): string[] {
     return graph.exhibits.filter(item => item.kind === "voice" && array(item.owners).includes(node.node_id))
         .flatMap(item => typeof row(item.surface).text === "string" && string(row(item.surface).text).trim() ? [string(row(item.surface).text)] : []);
@@ -1099,7 +1099,7 @@ export function npcView(graph: ModuleGraph, world: Row, node: Row, ledger: Row =
     // table reads the rest in the fight itself. `combat` is the saved fight, so a Keeper's hold shows only in its round.
     // With the disposition table, a person without a disposition also carries what one is inferred from.
     Object.assign(view, cardAction(graph, world, node, combat, dispositions));
-    // §257.T1: a voice's `{{who:}}` tokens are resolved here, before the author's speech_style is joined from them.
+    // §257.17: a voice's `{{who:}}` tokens are resolved here, before the author's speech_style is joined from them.
     const resolveWho=whoResolver(graph,world,journal,records),voice=voiceSurfaces(graph,node).map(resolveWho);
     if(voice.length)view.voice=voice;
     const appearance=personAppearance(graph,node);

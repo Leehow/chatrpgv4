@@ -42,7 +42,7 @@ before(async () => {
   const node = id => graph.nodes.find(entry => entry.node_id === id);
   node('scene-sanyi-teahouse').properties.description = ROOM;
   Object.assign(node('npc-wang-tiezhu'), {visibility: 'player-safe'});
-  // §257.F1: the biography is the Keeper's, never first sight; an appearance exhibit is the book's player-facing words.
+  // §257.5: the biography is the Keeper's, never first sight; an appearance exhibit is the book's player-facing words.
   node('npc-wang-tiezhu').properties = {...node('npc-wang-tiezhu').properties, biography: '王铁柱后来会交代他是帮会的眼线。'};
   graph.exhibits = [{exhibit_id: 'exhibit-wang-look', kind: 'appearance', carrier: 'npc-wang-tiezhu', channel: 'sight', label: '王铁柱的样子',
     surface: {text: WANG, language: 'zh-Hans', verbatim: false}, source_refs: []}];
@@ -225,7 +225,7 @@ test('an apply fork from an earlier turn carries that turn\'s own first-sight re
   assert.deepEqual((await game.read('first-sight.json')).shown.people, ['wang-tiezhu']);
 });
 
-// §257.F1 (amends §168.5): first sight reads player-facing material only -- exhibits, else the hand-authored property.
+// §257.5 (amends §168.5): first sight reads player-facing material only -- exhibits, else the hand-authored property.
 test('first sight: an exhibit, else the hand-authored property, else nothing; the Keeper summary and biography are never read', () => {
   const exhibits = [
     {exhibit_id: 'exhibit-a', kind: 'description', carrier: 'scene-a', surface: {text: 'Corrugated awning.', language: 'en', verbatim: false}},

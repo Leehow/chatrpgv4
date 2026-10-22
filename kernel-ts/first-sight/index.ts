@@ -84,7 +84,7 @@ function bookWords(graph: ModuleGraph, node: Row, property: string, summary = tr
     return names.includes(own) ? null : own;
 }
 /**
- * §257.F1 (amends §168.5): the player-facing words of a node for first sight -- the carrier's exhibits of `kind` (surfaces
+ * §257.5 (amends §168.5): the player-facing words of a node for first sight -- the carrier's exhibits of `kind` (surfaces
  * joined, `{{who:...}}` tokens left for the resolver), else the hand-authored property, else none. Never the Keeper's
  * summary or biography.
  */
@@ -94,9 +94,9 @@ function playerFacing(graph: ModuleGraph, node: Row, kind: string, property: str
         .map(item => text(row(item.surface).text).trim()).filter(surface => surface !== '');
     return surfaces.length ? surfaces.join('\n') : bookWords(graph, node, property, false);
 }
-/** What the book shows of a place (§257.F1): description exhibits, else `properties.description`. */
+/** What the book shows of a place (§257.5): description exhibits, else `properties.description`. */
 export const placeDescribed = (graph: ModuleGraph, scene: Row): string | null => playerFacing(graph, scene, 'description', 'description');
-/** What the book shows of a person (§257.F1): appearance exhibits, else `properties.appearance` (§199.4); never the biography or summary. */
+/** What the book shows of a person (§257.5): appearance exhibits, else `properties.appearance` (§199.4); never the biography or summary. */
 export const personDescribed = (graph: ModuleGraph, node: Row): string | null => playerFacing(graph, node, 'appearance', 'appearance');
 /**
  * §199.4 (amends §194.4): what the epithet lane reads of a graph person -- their first-meeting `properties.appearance` only.
@@ -123,7 +123,7 @@ export function firstSightSection(graph: ModuleGraph, world: Row, scene: Row, st
         const id = graph.handle(node), open = ledger.open.find(entry => entry.kind === kind && entry.id === id);
         return open ? { id, name, missing: array(open.missing).filter(value => typeof value === 'string' && value !== '') } : { id, name, described };
     };
-    const section: Row = {}, place = placeDescribed(graph, scene);  // §257.T1: `resolve` runs over `{{who:}}` before the Keeper or the author sees the words
+    const section: Row = {}, place = placeDescribed(graph, scene);  // §257.17: `resolve` runs over `{{who:}}` before the Keeper or the author sees the words
     if (place && !ledger.shown.places.includes(graph.handle(scene)))
         section.place = item('place', scene, sceneLabel(graph, world, scene), resolve(place));
     // §203.5: a person the book gives no words is still seen; they are carried `undescribed`, and the Keeper gives them a look.
@@ -214,7 +214,7 @@ export function checkFirstSightItems(graph: ModuleGraph, items: unknown, variant
         }
         seen.add(key);
         const kept = [...new Set((missing as string[]).flatMap(excerpt => {
-            // §257.T1: the book's words reached the check resolved; a name told since then must not hide the excerpt.
+            // §257.17: the book's words reached the check resolved; a name told since then must not hide the excerpt.
             const located = variants(target.book).map(book => locateExcerpt(book, excerpt)).find(found => found !== null) ?? null;
             return located ? [located] : [];
         }))];

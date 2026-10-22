@@ -5900,7 +5900,7 @@ export default function (pi: ExtensionAPI, host: {capabilities?:RuntimeCapabilit
 			}));
 			const materialOwner=packetContent(state);materialOwner.assertCurrent(before);
             materialOwner.addEntities(newcomers.map(row=>row.slot));
-            // §257.C3: a revealed exhibit settles against the kernel's current scope before anything is written. A clue it teaches
+            // §257.8: a revealed exhibit settles against the kernel's current scope before anything is written. A clue it teaches
             // joins the same atomic apply as the clue's ordinary discovery effect, ahead of the packet's movement.
             let exhibits:ReturnType<DecisionContent['settleExhibits']>|undefined;
             if((packet.reveal??[]).some(row=>'exhibit_ref'in row)||(packet.interactions??[]).some(row=>'content'in row&&(row.content??[]).some(content=>'exhibit_ref'in content))){
@@ -5976,7 +5976,7 @@ export default function (pi: ExtensionAPI, host: {capabilities?:RuntimeCapabilit
 				recent_public:decisionRecentPublic(current.recent,state.delivered)};
             // §254.3: what an establishing reply owes is delivery contract; how to write it is the package's author section.
             // §256.1: the correction is the table note's; the story and its people do not make it.
-            // §257.C6: what was issued, selected and given to the author, in the turn's decision-content telemetry.
+            // §257.11: what was issued, selected and given to the author, in the turn's decision-content telemetry.
             if(exhibits||materialOwner.exhibitIssue().issued.length)await record({lane:'decision-content',event:'exhibits',turn:state.turn,run:reply.run,...materialOwner.exhibitIssue(),
                 selected:exhibits?.selected??[],refused:[],author_bytes:Buffer.byteLength(JSON.stringify(hydrated.materials.filter(row=>row.kind==='exhibit')),'utf8')});
             if(packet.ooc)decision.table_note=packet.ooc;
@@ -6565,7 +6565,7 @@ export default function (pi: ExtensionAPI, host: {capabilities?:RuntimeCapabilit
 						fix: "reopen the table with its module reading extension available", details: { reason: "reading_failed" } });
 					const askedAt = state.scene?.handle, askedTurn = state.turn, askedScope = state.sourceAnswerScope ? {...state.sourceAnswerScope} : undefined;
 					const mapPreparation = !answerOnly && params.material === 'map';
-					// §257.P1: material exhibits is the same detail read the kernel names itself (257.R2); no place shortcut.
+					// §257.18: material exhibits is the same detail read the kernel names itself (257.13); no place shortcut.
 					const exhibitsPreparation = !answerOnly && params.material === 'exhibits';
 					const sourceQuestion = mapPreparation && (typeof params.question !== 'string' || !params.question.trim())
 						? `Prepare source-backed map images and independently revealable regions for ${String(params.query)}.`

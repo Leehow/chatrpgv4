@@ -181,7 +181,7 @@ test('each checker refusal is a named reason, the exhibit is dropped and the res
     assert.ok(view.nodes.has('npc-edna-marsh'));
 });
 
-test('§257.V1: a person with a voice exhibit has speech_style in the author input, without one none; only the surface travels', async () => {
+test('§257.16: a person with a voice exhibit has speech_style in the author input, without one none; only the surface travels', async () => {
     const {job, publish, graph} = await kernelFixture();
     const draft = opening(GOOD().map(item => item.exhibit_id === 'exhibit-edna-voice'
         ? {...item, label: 'KEEPER_LABEL', keeper_note: 'KEEPER_NOTE', teaches: ['clue-ledger'], surface: surface('Clipped and low; "Mind the step, {{who:npc-bob-hale}}."')} : item));
@@ -189,13 +189,13 @@ test('§257.V1: a person with a voice exhibit has speech_style in the author inp
     const view = await graph();
     const person = node => api.decisionPerson({...api.npcView(view, {}, view.nodes.get(node)), ref: 'npc_1', display_name: 'Someone', name_known: false}, []);
     const edna = person('npc-edna-marsh'), bob = person('npc-bob-hale');
-    // §257.T1: the token is resolved in the view (an untold person with no table word reads as the generic epithet).
+    // §257.17: the token is resolved in the view (an untold person with no table word reads as the generic epithet).
     assert.equal(edna.speech_style, 'Clipped and low; "Mind the step, Person."');
     assert.equal(Object.hasOwn(bob, 'speech_style'), false);
     assert.ok(!/KEEPER_|clue-ledger/.test(JSON.stringify(edna)), JSON.stringify(edna));
 });
 
-test('§257.V1: voice exhibits win over a derived profile expression and several surfaces are joined', () => {
+test('§257.16: voice exhibits win over a derived profile expression and several surfaces are joined', () => {
     const base = {ref: 'npc_1', display_name: 'X', name_known: false, personality: {profile: {expression: 'Derived'}}};
     assert.equal(api.decisionPerson({...base, voice: ['One.', 'Two.']}, []).speech_style, 'One.\nTwo.');
     assert.equal(api.decisionPerson(base, []).speech_style, 'Derived');
