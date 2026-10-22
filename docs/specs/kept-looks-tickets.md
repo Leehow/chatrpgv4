@@ -49,4 +49,8 @@ revisited; report look and pronoun drift.
 
 **Blocked by:** 02, 03.
 
-**Status:** ready-for-human
+**Status:** done (2026-10-22, MiniMax 3.1 medium, the-haunting zh)
+
+- looks-a2: excerpts carried a nod and a remark as Knott's look -> one verdict per excerpt.
+- looks-a3: the office's kept look held the cash on the desk; after the investigator took it, the return visit put it back -> a look is lasting appearance only; the author defers to current outcomes. The newspaper doorman kept his look (sleeve paste) on his second appearance; pronouns held.
+- looks-a4: office revisited after taking the cash: walnut desk, streetcar on wet stone kept, no cash on the desk; Knott stays 他; the library's look kept as fixed features only.
