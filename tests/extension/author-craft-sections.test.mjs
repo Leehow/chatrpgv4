@@ -67,16 +67,17 @@ const reader=texts=>async keys=>({sections:keys.map(key=>({key,mod:key.split('@'
 
 test('settled facts come from what settled, not from what the packet asked',()=>{
  const spoken={responses:[{mode:'speech_only'}],scene:{}};
- assert.deepEqual(authorFacts({capsule:{mods:{}},decision:{responses:[{mode:'nonverbal'}],scene:{}},effects:[]}),
+ assert.deepEqual(authorFacts({capsule:{mods:{}},decision:{responses:[{mode:'nonverbal'}],scene:{}},outcomes:[]}),
   {always:true,speech:false,establish:false,opening:false,place:false,routine:false});
- const facts=authorFacts({capsule:{mods:{establish:{why:['opening']}}},decision:spoken,effects:[{kind:'place',action:'observe'}],routine:{acts:['eat']}});
+ const facts=authorFacts({capsule:{mods:{establish:{why:['opening']}}},decision:spoken,outcomes:[{kind:'place',action:'observe',status:'unchanged'}],routine:{acts:['eat']}});
  assert.deepEqual(facts,{always:true,speech:true,establish:true,opening:true,place:true,routine:true});
- // A move the kernel left unchanged owes no establishing: the capsule after settlement carries no establish item.
- assert.equal(authorFacts({capsule:{mods:{}},decision:spoken,effects:[{kind:'move',to:'Library'}]}).establish,false);
- assert.equal(authorFacts({capsule:{mods:{}},decision:{responses:[],scene:{first_sight:{place:{described:'x'}}}},effects:[]}).place,true);
+ // A move the kernel left unchanged is neither an arrival nor a place change; nothing is read from the packet.
+ assert.deepEqual(['establish','place'].map(fact=>authorFacts({capsule:{mods:{}},decision:spoken,outcomes:[{kind:'move',to:'Library',status:'unchanged'}]})[fact]),[false,false]);
+ assert.equal(authorFacts({capsule:{mods:{}},decision:spoken,outcomes:[{kind:'move',to:'Library',status:'changed'}]}).place,true);
+ assert.equal(authorFacts({capsule:{mods:{}},decision:{responses:[],scene:{first_sight:{place:{described:'x'}}}},outcomes:[]}).place,true);
  // The host's hydrated responses carry the act: a silent one is not speech.
- assert.equal(authorFacts({capsule:{mods:{}},decision:{responses:[{act:'silent'}],scene:{}},effects:[]}).speech,false);
- assert.equal(authorFacts({capsule:{mods:{}},decision:{responses:[{act:'answer'}],scene:{}},effects:[]}).speech,true);
+ assert.equal(authorFacts({capsule:{mods:{}},decision:{responses:[{act:'silent'}],scene:{}},outcomes:[]}).speech,false);
+ assert.equal(authorFacts({capsule:{mods:{}},decision:{responses:[{act:'answer'}],scene:{}},outcomes:[]}).speech,true);
 });
 
 test('only sections whose facts hold reach the author, one per slot, the later package winning',async()=>{
@@ -101,10 +102,12 @@ test('only sections whose facts hold reach the author, one per slot, the later p
 
 test('craft past the byte cap is omitted last first, and an unreadable section stops the author input',async()=>{
  const big='x'.repeat(AUTHOR_CRAFT_BYTES-10);
- const capsule={mods:{instructions:[row('a','1.0.0',[author('a@1.0.0#0',null,'one',['always']),author('a@1.0.0#1','Two','two',['always'])])]}};
- const craft=await authorCraft(capsule,{always:true},reader({'a@1.0.0#0':big,'a@1.0.0#1':'## Two\n\nMore than ten bytes.'}));
+ const capsule={mods:{instructions:[row('a','1.0.0',[author('a@1.0.0#0',null,'one',['always']),author('a@1.0.0#1','Two','two',['always']),author('a@1.0.0#2','Three','three',['always'])],{dense:true})]}};
+ const craft=await authorCraft(capsule,{always:true},reader({'a@1.0.0#0':big,'a@1.0.0#1':'## Two\n\nMore than ten bytes.','a@1.0.0#2':'## Three'}));
  assert(craft.text.includes(big)&&!craft.text.includes('More than ten bytes.'));
- assert.deepEqual(craft.record.omitted,['a@1.0.0#1']);
+ assert(!craft.text.includes('## Three'),'a small later section never stays when an earlier one was cut');
+ assert.deepEqual(craft.record.omitted,['a@1.0.0#1','a@1.0.0#2']);
+ assert(craft.text.includes('Settings of a: {"dense":true}'),'settings follow the package\'s last kept section');
  await assert.rejects(authorCraft(capsule,{always:true},async()=>({sections:[]})),/author craft section is unavailable/);
 });
 
@@ -125,10 +128,18 @@ test('a section may grant bounded improvisation, and the core defines its limits
 
 test('when the Keeper writes the prose itself, every author section rides its section message',async()=>{
  const capsule={mods:{instructions:[{mod:'craft',version:'1.0.0',form:'indexed',sections:[
-  {key:'craft@1.0.0#1',heading:'Speech',kind:'author',slot:'speech',on:['speech'],topics:[],gates:[],triggers:[]}]}]}};
+  {key:'craft@1.0.0#1',heading:'Speech',kind:'author',slot:'speech',on:['speech'],grants:['appearance'],topics:[],gates:[],triggers:[]}]}]}};
  assert.deepEqual(selectSections(capsule,undefined,emptyCalls(),true,true).map(entry=>[entry.key,entry.why]),[['craft@1.0.0#1',['writer']]]);
  assert.deepEqual(selectSections(capsule,undefined,emptyCalls(),true,false),[]);
  const sections=createModSections({read:async()=>({sections:[{key:'craft@1.0.0#1',text:'## Speech\n\nTalk like people.'}]}),decision:()=>undefined,record:()=>{},writer:()=>true});
  const message=await sections.message(capsule,{turn:3,campaign:'c1'},emptyCalls());
  assert.match(message.content,/Talk like people\./);
+ assert.match(message.content,/- appearance: For a present person/,'the core bounds a writing Keeper\'s grants too');
+});
+
+test('the host knows exactly the facts and grants the kernel accepts',async()=>{
+ const {AUTHOR_FACTS,AUTHOR_GRANTS}=await importSource('kernel-ts/read/sections.ts');
+ const {AUTHOR_GRANT_LIMITS}=await import('../../extensions/kernel/author-craft.ts');
+ assert.deepEqual(Object.keys(AUTHOR_GRANT_LIMITS).sort(),[...AUTHOR_GRANTS].sort());
+ assert.deepEqual(Object.keys(authorFacts({capsule:{mods:{}},decision:{},outcomes:[]})).sort(),[...AUTHOR_FACTS].sort());
 });

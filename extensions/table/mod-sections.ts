@@ -1,6 +1,7 @@
 /** Contract §183.5: the sections of indexed packages a turn needs. Jev scores the product's topics once per input; the
  *  kernel's gates and the turn's own calls do the rest; the text rides at the end of the request. Idle on any table whose
  *  instructions all go whole. */
+import {AUTHOR_GRANT_LIMITS} from '../kernel/author-craft.ts';
 import {createHash} from 'node:crypto';
 import {TaskLease} from '../../runtime/jev/task-context.ts';
 import type {DecisionPort} from '../../runtime/jev/decision-port.ts';
@@ -42,7 +43,7 @@ export function noteCall(calls:TurnCalls,tool:string,input:Row,details?:Row):voi
  if(tool==='resolve'){const family=resolveFamily(input,details);if(family)calls.resolve.add(family);}
 }
 
-export type Picked={key:string;mod:string;version:string;heading:string|null;why:string[]};
+export type Picked={key:string;mod:string;version:string;heading:string|null;why:string[];grants?:string[]};
 /** The selection rule of §183.5, over the capsule's indexed rows. `judgement` undefined or unavailable is the fallback:
  *  every section with a topic whose kernel gates hold loads, its host gates aside. In pull mode (§248.4, the single
  *  Keeper) a scored judgement selects as above (§248.7); without one there is no fallback: a topic section loads only
@@ -55,7 +56,8 @@ export function selectSections(capsule:Row,judgement:TopicJudgement|undefined,ca
  const picked:Picked[]=[];
  for(const instruction of indexedRows(capsule))for(const section of array(instruction.sections)){
   if(section.kind==='author'){
-   if(writer)picked.push({key:String(section.key),mod:String(instruction.mod),version:String(instruction.version),heading:section.heading??null,why:['writer']});
+   if(writer)picked.push({key:String(section.key),mod:String(instruction.mod),version:String(instruction.version),heading:section.heading??null,why:['writer'],
+    ...(Array.isArray(section.grants)&&section.grants.length?{grants:section.grants.map(String)}:{})});
    continue;
   }
   const why:string[]=[],topics=array(section.topics).map(String),gates=array(section.gates).map(String);
@@ -173,6 +175,10 @@ export function createModSections(deps:{read:(method:string,params:Row)=>Promise
    if(bytes(JSON.stringify({authority:AUTHORITY,sections:[...sections,row],omitted}))<=MOD_SECTIONS_BYTES){sections.push(row);if(rank(entry)===0)owed++;}
    else omitted.push({package:entry.mod,section:row.section});
   }
+  // §254.6: a writing Keeper reads the core's limits of every grant its author sections carry.
+  const granted=[...new Set(picked.filter(entry=>sections.some(row=>row.package===entry.mod&&row.section===(entry.heading??'(opening text)'))).flatMap(entry=>entry.grants??[]))]
+   .filter(grant=>grant in AUTHOR_GRANT_LIMITS);
+  if(granted.length)sections.push({package:'core',section:'Granted improvisation',text:granted.map(grant=>`- ${grant}: ${AUTHOR_GRANT_LIMITS[grant]}`).join('\n')});
   const content=JSON.stringify({authority:AUTHORITY,sections,...(omitted.length?{omitted}:{})});
   const selection=fingerprint([binding.turn,picked,omitted]);
   if(selection!==lastSelection){lastSelection=selection;

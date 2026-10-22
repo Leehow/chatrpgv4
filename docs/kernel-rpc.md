@@ -51477,8 +51477,10 @@ A package that requires `instructions.sections.author.v1` may mark a `sections.j
 
 An author section names no topics, gates, triggers or topic threshold. It is not listed in the Keeper's index, cannot be
 read with the `mod` verb, and is never selected for the Keeper by topics, discovery or calls, except as §254.4 says. The
-capsule's indexed row carries it as `{key, heading, kind: "author", slot, on, bytes}`. A package whose sections are only
-author sections (and no resident or listed situational section) carries an empty resident text.
+capsule's indexed row carries it as `{key, heading, kind: "author", slot, on, grants?, bytes}` beside the empty selector
+fields every indexed row has. A package whose sections are only author sections (and no resident or listed situational
+section) carries an empty resident text, and the index lead ("Further sections of this package are listed below...")
+appears only when a section is listed.
 
 ### 254.2 Settled facts
 
@@ -51487,10 +51489,10 @@ Evaluated by the host after the packet's effects settled, from what the author i
 | fact | holds when |
 | --- | --- |
 | `always` | every authored turn |
-| `speech` | a selected response is spoken (`mode: speech_only`) |
+| `speech` | a selected response is not silent (the author's packet calls it `mode: speech_only`) |
 | `establish` | the capsule read after settlement carries `mods.establish` (§203) |
 | `opening` | that item's `why` includes `opening` |
-| `place` | the turn's settled effects include a `place` or `move`, or the scene carries a first-sight place |
+| `place` | a settled `place` outcome, a `move` outcome with `status: changed`, or a first-sight place on the scene |
 | `routine` | the packet carries `routine` (§247) |
 
 A fact is never read from the packet before settlement: a move that failed does not make `establish`.
@@ -51499,7 +51501,8 @@ A fact is never read from the packet before settlement: a move that failed does 
 
 The host resolver (`extensions/kernel/author-craft.ts`) walks the capsule's indexed rows in load order, keeps each author
 section with a fact of `on` that holds, resolves slots, reads the texts by key through `mods.sections` (mod and version
-checked, as §242.3), and appends them to the author's system prompt after the core instruction, under one frame saying
+checked, as §242.3), and appends them to the author's system prompt after the core instruction (before the direct-text
+transport sentence), under one frame saying
 they shape wording only and never add, remove or change a fact. A package's non-empty `settings` ride after its
 sections. Sections past `AUTHOR_CRAFT_BYTES` (32768 UTF-8 bytes of section text) are omitted, last first. Telemetry:
 `lane: "author-craft"` records each kept key with its facts and slot, overridden and omitted keys, and bytes. A section
@@ -51517,7 +51520,14 @@ establishing reply must convey is delivery contract; how to write it is the pack
 
 Outside the decision-author path (the legacy loop, or `PI_COC_TURN_PACKET_PROTOTYPE=0`) the Keeper is the writer, so the
 host's `coc-mod-sections` message carries every author section of a schema-1 package every turn (`why: writer`),
-ranked with call-sent sections; their facts are not evaluated before settlement.
+ranked with call-sent sections; their facts are not evaluated before settlement. The message adds the core's limits of
+every grant those sections carry (§254.6).
+
+### 254.5 Three ends (§31)
+
+- Writer: the package author (`sections.json` + `agent.md`), version-locked; any byte change is a version bump.
+- Reader: the host resolver, for the sole author only.
+- Actor: the sole author; `lane: "author-craft"` counts what each turn carried.
 
 ### 254.6 Granted improvisation (owner 2026-10-22)
 
@@ -51537,9 +51547,3 @@ section's `grants` names one of:
 The resolver writes the definitions of the grants its chosen sections carry once after the frame, and marks each granting
 section. A grant widens nothing in the delivery contract: settled results, presence, names and secrets bind as before.
 Enhanced Locations' place description grants `surface_detail`.
-
-### 254.5 Three ends (§31)
-
-- Writer: the package author (`sections.json` + `agent.md`), version-locked; any byte change is a version bump.
-- Reader: the host resolver, for the sole author only.
-- Actor: the sole author; `lane: "author-craft"` counts what each turn carried.

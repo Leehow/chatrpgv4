@@ -21,14 +21,15 @@ export const AUTHOR_GRANT_LIMITS:Record<string,string>={
   +'delivered it is the look the table keeps.'};
 
 /** §254.2: read after settlement only. A move the kernel left unchanged carries no establish item on the capsule. */
-export function authorFacts(input:{capsule:Row;decision:Row;effects:readonly Row[];routine?:unknown}):Record<AuthorFact,boolean> {
+export function authorFacts(input:{capsule:Row;decision:Row;outcomes:readonly Row[];routine?:unknown}):Record<AuthorFact,boolean> {
  const establish=input.capsule.mods?.establish;
  return {always:true,
   // A selected response is spoken unless it is silent (the author's packet names it `speech_only`).
   speech:(input.decision.responses??[]).some((response:Row)=>response?.mode==='speech_only'||typeof response?.act==='string'&&response.act!=='silent'),
   establish:establish!=null,
   opening:Array.isArray(establish?.why)&&establish.why.includes('opening'),
-  place:input.effects.some(effect=>effect.kind==='place'||effect.kind==='move')||input.decision.scene?.first_sight?.place!=null,
+  // A settled place outcome (a look, a step within the place) or a move that changed where the party is.
+  place:input.outcomes.some(outcome=>outcome.kind==='place'||outcome.kind==='move'&&outcome.status==='changed')||input.decision.scene?.first_sight?.place!=null,
   routine:input.routine!=null};
 }
 
@@ -58,22 +59,25 @@ export async function authorCraft(capsule:Row,facts:AuthorFacts,read:(keys:strin
  const texts=new Map<string,string>();
  for(const section of result.sections??[])
   if(typeof section?.key==='string'&&typeof section.text==='string')texts.set(section.key,section.text);
- const parts:string[]=[FRAME],settingsShown=new Set<string>();
+ const included:Row[]=[];
  for(const entry of kept){
   const text=texts.get(entry.key),returned=(result.sections??[]).find((row:Row)=>row?.key===entry.key);
   if(typeof text!=='string'||!text.trim()||returned?.mod!==entry.mod||returned?.version!==entry.version)
    throw Error('The locked author craft section is unavailable');
   const size=Buffer.byteLength(text,'utf8');
-  if(record.bytes+size>AUTHOR_CRAFT_BYTES){record.omitted.push(entry.key);continue;}
+  // Past the cap the rest is omitted, last first: a later section never displaces an earlier one.
+  if(record.omitted.length||record.bytes+size>AUTHOR_CRAFT_BYTES){record.omitted.push(entry.key);continue;}
   record.bytes+=size;
   record.sections.push({key:entry.key,slot:entry.slot,facts:entry.facts,...(entry.grants.length?{grants:entry.grants}:{})});
-  parts.push((entry.grants.length?`(This section grants: ${entry.grants.join(', ')}.)\n`:'')+text.trim());
-  const later=kept.slice(kept.indexOf(entry)+1).some(next=>next.mod===entry.mod&&!record.omitted.includes(next.key));
-  if(!later&&!settingsShown.has(entry.mod)&&entry.settings&&typeof entry.settings==='object'&&Object.keys(entry.settings).length){
-   settingsShown.add(entry.mod);
-   parts.push(`Settings of ${entry.mod}: ${JSON.stringify(entry.settings)}`);
-  }
+  included.push({...entry,text:text.trim()});
  }
+ const parts:string[]=[FRAME];
+ included.forEach((entry,index)=>{
+  parts.push((entry.grants.length?`(This section grants: ${entry.grants.join(', ')}.)\n`:'')+entry.text);
+  const last=!included.slice(index+1).some(next=>next.mod===entry.mod);
+  if(last&&entry.settings&&typeof entry.settings==='object'&&Object.keys(entry.settings).length)
+   parts.push(`Settings of ${entry.mod}: ${JSON.stringify(entry.settings)}`);
+ });
  const granted=[...new Set(record.sections.flatMap((entry:Row)=>entry.grants??[]))] as string[];
  if(granted.length)parts.splice(1,0,['Granted improvisation, bounded by the core:',...granted.map(grant=>`- ${grant}: ${AUTHOR_GRANT_LIMITS[grant]}`)].join('\n'));
  return {text:record.sections.length?'\n\n'+parts.join('\n\n'):'',record};

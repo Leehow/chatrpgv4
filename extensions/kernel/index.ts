@@ -5931,7 +5931,7 @@ export default function (pi: ExtensionAPI, host: {capabilities?:RuntimeCapabilit
                     time_charges:compiled.effects.filter(effect=>effect.kind==='time').length,earlier_time:earlierTime});
             }
             // §254.3: the author sections of active packages whose settled facts hold, read version-locked.
-            const facts=authorFacts({capsule:current,decision,effects:compiled.effects,routine:packet.routine});
+            const facts=authorFacts({capsule:current,decision,outcomes:operationResult.outcomes,routine:packet.routine});
             const chosen=await authorCraft(current,facts,keys=>state.kernel.call('mods.sections',{campaign:state.campaign,keys}));
             craft=chosen.text;
             await record({lane:'author-craft',turn:state.turn,run:reply.run,facts:Object.keys(facts).filter(key=>facts[key as keyof typeof facts]),...chosen.record});
