@@ -51290,6 +51290,15 @@ schema asked for a "person". A reader may now be an investigator by sheet id or 
 §250.14): they are always present, `held` access means their own custody, and the observation is recorded under their
 sheet id with their name on the receipt. An NPC reader is unchanged and still needs the writing shown or open.
 
+### 250.17 A known road keeps its length
+
+Live (`el-v2-20261021f` T2, T7): the Keeper walked a few doors from Knott's office to a new cafe with
+`travel_band:"adjacent"` (0 minutes), and walked back with `travel_band:"local_travel"`, which took 30 minutes and
+rewrote the road. Between two places that already share a road -- the book's, or one this table travelled (§218.3) -- a
+`travel_band` now names nothing new: the move takes the road's minutes, and the receipt reports
+`adjusted: {field:"travel_band", reason:"road_known", given, minutes}`. `travel_minutes` the Keeper gives for this
+journey are still its own (§250.5), and no band or single journey rewrites a known road's length.
+
 ## 251. A progress note for a read spiral (owner direction 2026-10-21: fewer deliberations, faster turns)
 
 Live evidence: on `el-v2-20261021a` T16 the single Keeper answered one sentence about a door and a hired middleman with
