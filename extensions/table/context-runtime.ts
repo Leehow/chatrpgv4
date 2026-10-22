@@ -161,7 +161,9 @@ export function installContextPolicy(pi: ExtensionAPI, writeTelemetry: (row: Row
     const modSections=createModSections({read:async(method,params)=>call?call(method,params):undefined,decision,record,
         // §248.7 (owner 2026-10-21, option A): the single Keeper's topics are judged by Jev too; without a judgement it is in
         // pull mode (§248.4): state and calls push sections and the Keeper reads the rest.
-        pull:()=>singleKeeper});
+        pull:()=>singleKeeper,
+        // §254.4: outside the decision-author path the Keeper writes the prose, so it carries the author sections.
+        writer:()=>!decisionAuthor});
     const discoveryMode=()=>singleKeeper?'full':['selective','shadow'].includes(sessionEnv.COC_TURN_DISCOVERY??'')?sessionEnv.COC_TURN_DISCOVERY!:'full';
     // Both discovery stages reserve from the same preparation owner and its foreground parent.
     // A missing owner is a full-view fallback, never an independent provider allowance.

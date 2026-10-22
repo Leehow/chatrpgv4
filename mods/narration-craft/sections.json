@@ -1,11 +1,13 @@
 {"schema_version": 1, "sections": [
   {"heading": null, "kind": "resident"},
   {"heading": "This turn", "kind": "resident"},
-  {"heading": "Sentences and paragraphs", "kind": "resident"},
-  {"heading": "Register and atmosphere", "kind": "resident"},
-  {"heading": "The people here", "kind": "resident"},
-  {"heading": "Scene and detail", "kind": "resident"},
-  {"heading": "Establishing a place", "kind": "situational", "triggers": ["state:establish", "before_apply:move"]},
-  {"heading": "Opening the table", "kind": "situational", "triggers": ["state:opening"]},
-  {"heading": "Settings", "kind": "resident"}
+  {"heading": "What people decide to say", "kind": "resident"},
+  {"heading": "The voice of the table", "kind": "author", "slot": "voice", "on": ["always"]},
+  {"heading": "Sentences and paragraphs", "kind": "author", "slot": "sentences", "on": ["always"]},
+  {"heading": "Register and atmosphere", "kind": "author", "slot": "register", "on": ["always"]},
+  {"heading": "People on the page", "kind": "author", "slot": "people", "on": ["always"], "grants": ["appearance"]},
+  {"heading": "Scene and detail", "kind": "author", "slot": "scene", "on": ["always"]},
+  {"heading": "Establishing a place", "kind": "author", "slot": "establish", "on": ["establish"], "grants": ["surface_detail", "appearance"]},
+  {"heading": "Opening the table", "kind": "author", "slot": "opening", "on": ["opening"]},
+  {"heading": "Settings", "kind": "author", "slot": "narration-settings", "on": ["always"]}
 ]}

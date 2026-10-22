@@ -1,0 +1,3 @@
+{"schema_version": 1, "sections": [
+  {"heading": null, "kind": "author", "slot": "speech-language", "on": ["speech"]}
+]}

@@ -18,6 +18,13 @@ import { array, row, string, number, integer, numeric, type Row } from "./values
 export const SECTIONS_CAPABILITY = "instructions.sections.v1";
 export const REFERENCE_SECTIONS_CAPABILITY = "instructions.sections.reference.v1";
 export const DISCOVERY_CAPABILITY = "instructions.discovery.v1";
+/** §254: sections written for the sole author, chosen by the host from the settled turn. */
+export const AUTHOR_SECTIONS_CAPABILITY = "instructions.sections.author.v1";
+/** §254.2: the settled facts an author section's `on` may name; the host evaluates them. */
+export const AUTHOR_FACTS: readonly string[] = ["always", "speech", "establish", "opening", "place", "routine"];
+/** §254.6: the bounded improvisation an author section may grant; the core defines each one's limits. */
+export const AUTHOR_GRANTS: readonly string[] = ["surface_detail", "appearance"];
+const SLOT_ID = /^[a-z][a-z0-9_-]{0,31}$/;
 /** The UTF-8 bytes of package instructions every request may carry: full rows and indexed rows' text (§248.1). The
  *  kernel does not cut against it; the shipped packages are held to it by test. */
 export const INSTRUCTION_BUDGET = 65536;
@@ -33,7 +40,7 @@ export const HOST_GATES: readonly string[] = ["no_topic"];
  *  `objects:` decisions. A test holds this to the ruleset. */
 export const RESOLVE_FAMILIES: readonly string[] = ["chase", "combat", "core-check", "development", "healing", "magic", "objects",
     "psychology", "push-luck", "sanity", "social"];
-const ENTRY_FIELDS = new Set(["heading", "kind", "topics", "gates", "triggers", "topic_threshold"]);
+const ENTRY_FIELDS = new Set(["heading", "kind", "topics", "gates", "triggers", "topic_threshold", "slot", "on", "grants"]);
 const DISCOVERY_FIELDS = new Set([...ENTRY_FIELDS,"applicability","category","dependencies"]);
 const TOPIC_ID = /^[a-z][a-z0-9_]{0,63}$/;
 const decode = (bytes: Uint8Array): string => new TextDecoder("utf-8", { fatal: true }).decode(bytes);
@@ -47,7 +54,7 @@ function refuse(manifest: Row, message: string, details: Row = {}): never {
 
 export type Section = {
     readonly heading: string | null;
-    readonly kind: "resident" | "situational" | "reference";
+    readonly kind: "resident" | "situational" | "reference" | "author";
     readonly topics: readonly string[];
     readonly gates: readonly string[];
     readonly triggers: readonly string[];
@@ -58,6 +65,10 @@ export type Section = {
     readonly applicability?: {what:string;not_for:string;examples:string[]};
     readonly category?: string;
     readonly dependencies?: readonly string[];
+    /** §254.1: an author section's slot and the settled facts that send it. */
+    readonly slot?: string;
+    readonly on?: readonly string[];
+    readonly grants?: readonly string[];
 };
 
 /** `agent.md` cut at its `## ` lines. The preamble is the text before the first, less a leading `# ` title line. */
@@ -114,9 +125,30 @@ export function parseSections(manifest: Row, raw: unknown, markdown: string): Se
             refuse(manifest, `two entries name ${heading === null ? "the preamble" : `"## ${heading}"`}`, { entry: at, heading });
         seen.add(heading);
         const kind = entry.kind;
-        if (kind !== "resident" && kind !== "situational" && kind !== "reference")
-            refuse(manifest, `section ${at}: kind is resident, situational or reference`, { entry: at, kind: kind ?? null });
+        if (kind !== "resident" && kind !== "situational" && kind !== "reference" && kind !== "author")
+            refuse(manifest, `section ${at}: kind is resident, situational, reference or author`, { entry: at, kind: kind ?? null });
         const has = (key: string) => Object.hasOwn(entry, key);
+        if (kind !== "author" && (has("slot") || has("on") || has("grants")))
+            refuse(manifest, `section ${at}: slot, on and grants belong to an author section`, { entry: at });
+        if (kind === "author") {
+            if (!array(manifest.requires).includes(AUTHOR_SECTIONS_CAPABILITY)
+                || Object.keys(entry).some(key => !["heading", "kind", "slot", "on", "grants"].includes(key)))
+                refuse(manifest, `section ${at}: an author section requires ${AUTHOR_SECTIONS_CAPABILITY} and names only its slot, on and grants`, { entry: at });
+            if (typeof entry.slot !== "string" || !SLOT_ID.test(entry.slot))
+                refuse(manifest, `section ${at}: slot must be an id matching ${SLOT_ID.source}`, { entry: at, slot: entry.slot ?? null });
+            const on = entry.on;
+            if (!Array.isArray(on) || !on.length || new Set(on).size !== on.length || on.some(fact => typeof fact !== "string" || !AUTHOR_FACTS.includes(fact)))
+                refuse(manifest, `section ${at}: on must be a non-empty list without repeats of ${AUTHOR_FACTS.join(", ")}`, { entry: at, on: on ?? null, facts: [...AUTHOR_FACTS] });
+            const grants = has("grants") ? entry.grants : [];
+            if (!Array.isArray(grants) || (has("grants") && !grants.length) || new Set(grants).size !== grants.length
+                || grants.some(grant => typeof grant !== "string" || !AUTHOR_GRANTS.includes(grant)))
+                refuse(manifest, `section ${at}: grants must be a non-empty list without repeats of ${AUTHOR_GRANTS.join(", ")}`, { entry: at, grants: entry.grants ?? null });
+            const body = heading === null ? preamble : parts.find(part => part.heading === heading)!.body;
+            result.push({ heading, kind, topics: [], gates: [], triggers: [], topic_threshold: 0.5, slot: entry.slot, on: [...on as string[]],
+                ...(grants.length ? { grants: [...grants as string[]] } : {}),
+                ...(discovery ? { index_contract_version: 2 as const } : {}), text: heading === null ? body : `## ${heading}\n\n${body}`.trim() });
+            return;
+        }
         if(kind==='reference'&&(!array(manifest.requires).includes(REFERENCE_SECTIONS_CAPABILITY)
             ||Object.keys(entry).some(key=>!['heading','kind'].includes(key))))
             refuse(manifest, `section ${at}: a reference section requires ${REFERENCE_SECTIONS_CAPABILITY} and has no automatic selectors`, {entry:at});
@@ -271,7 +303,11 @@ export function residentText(mod: string, sections: readonly Section[]): string 
         return `- ${JSON.stringify(sectionName(mod, section.heading))}`
             + (section.topics.length ? ` topics: ${section.topics.join(", ")}` : "") + (sent.length ? ` sent on: ${sent.join(", ")}` : "");
     });
-    return [INDEXED_LEAD, ...sections.filter(section => section.kind === "resident").map(section => section.text),
+    const resident = sections.filter(section => section.kind === "resident");
+    // §254.1: a package whose sections are all for the author or their consumers gives the Keeper nothing to read.
+    if (!resident.length && !listed.length)
+        return "";
+    return [...(listed.length ? [INDEXED_LEAD] : []), ...resident.map(section => section.text),
         ...(listed.length ? [["Sections:", ...listed].join("\n")] : [])].join("\n\n");
 }
 

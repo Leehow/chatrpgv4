@@ -66,6 +66,8 @@ MOD_CAPABILITIES.add(VARIATION_CAPABILITY);
 /** Contract §183.1: a package declares the sections of its instruction, so a table over the instruction budget can index it. */
 MOD_CAPABILITIES.add(SECTIONS_CAPABILITY);
 MOD_CAPABILITIES.add('instructions.sections.reference.v1');
+// §254: author sections the host assembles for the sole author.
+MOD_CAPABILITIES.add('instructions.sections.author.v1');
 MOD_CAPABILITIES.add(DISCOVERY_CAPABILITY);
 /** Contract §23.5: a player-only game clock following the transcript viewport. */
 MOD_CAPABILITIES.add("ui.clock.v1");
@@ -883,6 +885,7 @@ function instructionRows(effective: Row[], world: Row): Row[] {
         const resident = residentText(string(mod.id), sections) + cards;
         return { ...base, form: "indexed", instruction: resident,...(discovery?{index_contract_version:2}:{}),
             sections: sections.flatMap((section, ordinal) => section.kind === "resident" ? [] : [{ key: sectionKey(mod, ordinal), heading: section.heading, ...(section.kind === "reference" ? { kind: "reference" } : {}),
+                ...(section.kind === "author" ? { kind: "author", slot: section.slot, on: [...section.on ?? []], ...(section.grants ? { grants: [...section.grants] } : {}) } : {}),
                 topics: [...section.topics], gates: [...section.gates], triggers: [...section.triggers], topic_threshold: section.topic_threshold,
                 ...(section.index_contract_version===2?{applicability:section.applicability,category:section.category,dependencies:section.dependencies}:{}),
                 bytes: Buffer.byteLength(section.text, "utf8") }]) };

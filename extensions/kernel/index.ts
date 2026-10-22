@@ -1,7 +1,7 @@
 import {adviseLocationReference} from './location-reference.ts';
-import {locationDescription} from './location-description.ts';
+import {authorCraft,authorFacts} from './author-craft.ts';
 import {sourceLocationContext} from './source-location-context.ts';
-import {routineDescription,routineRefusal,routineCharge} from './routine-summary.ts';
+import {routineSummary,routineRefusal,routineCharge} from './routine-summary.ts';
 import {settledAdmissionEvidence,settledTimeEvidence} from './settled-admission.ts';
 import {placeOperation,placeParameterRefusal,normalizePlaceTarget,normalizePlaceArrayArguments} from './place-operation.ts';
 import {immediatelyPrecedingUnfinished} from './admission.ts';
@@ -5828,6 +5828,7 @@ export default function (pi: ExtensionAPI, host: {capabilities?:RuntimeCapabilit
 		reply:NonNullable<typeof keeperReply>,ctx?:ExtensionContext){
 		let operationResult:ReturnType<typeof turnPacketResult>={player_actions_complete:true,npc_actions_complete:true,outcomes:[]};
 		let decision:import('../../runtime/isolated-expression.ts').DecisionAuthorContext|undefined;
+        let craft='';
         let observationIdentities:Record<string,any>[]=[],arrivedAt:string|undefined;
         const heldBoundary=heldActs.get(state),held=heldBoundary?.basis;
 		if(held&&(!turnPacketPrototype||heldBoundary?.uncommittedFailures()===undefined)){
@@ -5922,13 +5923,18 @@ export default function (pi: ExtensionAPI, host: {capabilities?:RuntimeCapabilit
 			const where=current.where??{};
 			decision={scene:decisionScene(sightView),clock:decisionClock(where.clock??{}),...decisionResponseScope(before,current,hydrated.responses),people,selected_materials:hydrated.materials,style:current.style,
 				recent_public:decisionRecentPublic(current.recent,state.delivered)};
-            if(sight.place||compiled.effects.some(effect=>effect.kind==='place'||effect.kind==='move'))
-                decision.location_description=await locationDescription(current,keys=>state.kernel.call('mods.sections',{campaign:state.campaign,keys}));
+            // §254.3: what an establishing reply owes is delivery contract; how to write it is the package's author section.
+            if(current.mods?.establish)decision.establish={why:[...(current.mods.establish.why??[])],owes:(current.mods.establish.owes??[]).map((owe:Record<string,any>)=>({...owe}))};
             if(packet.routine){
-                decision.routine=await routineDescription(current,packet.routine,keys=>state.kernel.call('mods.sections',{campaign:state.campaign,keys}));
+                decision.routine=routineSummary(packet.routine);
                 await record({lane:'routine-summary',turn:state.turn,run:reply.run,acts:packet.routine.acts?.length??0,ambient:packet.routine.ambient?.length??0,
                     time_charges:compiled.effects.filter(effect=>effect.kind==='time').length,earlier_time:earlierTime});
             }
+            // §254.3: the author sections of active packages whose settled facts hold, read version-locked.
+            const facts=authorFacts({capsule:current,decision,effects:compiled.effects,routine:packet.routine});
+            const chosen=await authorCraft(current,facts,keys=>state.kernel.call('mods.sections',{campaign:state.campaign,keys}));
+            craft=chosen.text;
+            await record({lane:'author-craft',turn:state.turn,run:reply.run,facts:Object.keys(facts).filter(key=>facts[key as keyof typeof facts]),...chosen.record});
 		}
         const failedAttempts=heldActs.get(state)?.uncommittedFailures();
         if(heldActs.get(state)?.basis&&(!decision||failedAttempts===undefined)){
@@ -5959,7 +5965,7 @@ export default function (pi: ExtensionAPI, host: {capabilities?:RuntimeCapabilit
             }catch(error){await record({lane:'location-revisit',event:'unavailable',turn:state.turn,place:arrivedAt,reason:String(error)});}
         }
 		const authored=await writeIsolatedExpression({runtime,campaign:state.campaign,turn:state.turn,run:reply.run,
-			brief:legacy,decision,...(decision?{result:operationResult}:{}),language:state.playLanguage||'en',playerText:reply.stream.playerText,investigatorNames:reply.stream.investigatorNames,
+			brief:legacy,decision,craft,...(decision?{result:operationResult}:{}),language:state.playLanguage||'en',playerText:reply.stream.playerText,investigatorNames:reply.stream.investigatorNames,
 			signal:reply.signal,stream:reply.stream,record});
 		return authored;
 	}
