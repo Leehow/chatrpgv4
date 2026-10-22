@@ -51158,6 +51158,11 @@ same way (`adjusted` on the receipt and its outcome):
   kind, or a non-empty list of them, moves; any other field stays for the schema's refusal.
 - A feature change says that it registers an unregistered fixture itself (`adjusted: at: implicit_feature`), here or at
   a place left behind, and that a fixture is never a place; the description no longer sends the Keeper to `additions`.
+- A command is checked against its own `kind`'s schema; an `action` chooses a schema only when no schema has that kind
+  (`el-v2-20261022h` T12: `{kind:"scene", action:"observe", service, crowd}` was checked as a place observation and
+  refused for missing `facts`). A refused extra key is named when the schema declares it on some command (`action`, a
+  field of another command kind); any other key stays `<additional-property>`, since it is model text. Test:
+  `tests/extension/turn-packet-command-kind.test.mjs`.
 
 Still refused, because each needs the Keeper's decision: an empty population assessment while a registered person is
 seated at the destination (move them away or keep them), and an effect kind with no single reading.
