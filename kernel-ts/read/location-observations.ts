@@ -59,6 +59,19 @@ export function observationIdentity(graph:ModuleGraph,world:Row,node:Row,journal
     return npcReferenceView(graph,world,node,untoldBlock(graph,world,journal,node,records));
 }
 /** Public immutable receipt material only; private target activity is not an author input. */
+/**
+ * §250.18: what the investigators were shown at a place on earlier visits -- delivered observations whose target lies in
+ * that place, at any point and by any sense, newest first and before this turn -- for the author on a return visit.
+ */
+export function placeVisitHistory(graph:ModuleGraph,world:Row,place:string,records:Row[],turn:number,limit=4):Row[] {
+    const clock=clockSection(graph,world),elapsed=(then:Row)=>Math.max(0,number(clock.minutes)-number(then.minutes));
+    return records.filter(record=>record.commit&&number(record.turn)<turn&&record.interaction_scope!=='reference'&&record.interaction_scope!=='uncertain')
+        .sort((a,b)=>number(b.turn)-number(a.turn))
+        .flatMap(record=>array(record.receipts).slice().reverse().filter(receipt=>receipt.kind==='place'&&receipt.action==='observe'
+            &&row(row(receipt.observation).to).place===place&&row(receipt.observation).access!=='blocked')
+            .map(receipt=>({...publicObservation(graph,world,row(receipt.observation)),delivered_turn:record.turn,elapsed_minutes:elapsed(row(row(receipt.observation).observed_clock))})))
+        .slice(0,limit);
+}
 export function publicObservation(graph:ModuleGraph,world:Row,value:Row):Row {
     const point=(value:Row)=>({place:publicSceneLabel(graph,world,graph.scene(value.place)),...pointDetail(value)});
     const identity=(id:string):Row|undefined=>{

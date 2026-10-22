@@ -952,3 +952,17 @@ test('each stop of a route carries its own population assessment, settled before
  const one={version:4,commands:[{kind:'walk_on',slot:'new_1',label:'the clerk',reason:'Staffed.'},{kind:'scene',service:'open',crowd:'quiet'},{kind:'place',action:'observe',facts:['A counter.'],people:['new_1']}]};
  assert.deepEqual(compileTurnPacket(turnPacket(JSON.stringify(one))).effects.map(e=>e.kind),['npc','place','scene'],'a single stop still settles its assessment last');
 });
+
+test('a command written as a field of its own beside commands is that command, after the others (§250.4, live el-v2-20261021g T32)',()=>{
+ const observe={kind:'place',action:'observe',to:'here',at:'front door',facts:['The brass around the keyhole shines.']};
+ const raw={version:4,commands:[{kind:'place',action:'move',to:'Corbitt House',via:'By cab',travel_band:'local_travel'}],item:observe};
+ const normalized=normalizeTurnPacketArguments(raw);
+ assert.equal(normalized.strayCommandRepairs,1);assert.equal(normalized.args.item,undefined);
+ assert.deepEqual(normalized.args.commands.map(row=>row.action),['move','observe']);
+ assert.doesNotThrow(()=>turnPacket(JSON.stringify(normalized.args)));
+ assert.deepEqual(normalizeTurnPacketArguments({version:4,extra:[observe,{...observe,facts:['Two.']}]}).args.commands.length,2,'a list of commands moves too');
+ for(const value of [{note:'not a command'},{kind:'invented'},[observe,{kind:'invented'}],'text']){
+  const kept=normalizeTurnPacketArguments({version:4,commands:[],extra:value});
+  assert.equal(kept.strayCommandRepairs,undefined,JSON.stringify(value));assert.deepEqual(kept.args.extra,value);
+ }
+});

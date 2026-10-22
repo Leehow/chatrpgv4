@@ -43727,7 +43727,7 @@ A road is one length both ways and every time (§138.9). Three additions make a 
   book road when the table knows it; the capsule is unchanged) and the told-position owed move read it. A move whose minutes come
   from a table road carries `travel: {basis: "travelled", turn}`.
 - **`apply move {travel_band}`**: `adjacent` (0), or a road row of `time-costs` (`local_travel`, `long_travel`) whose `default` is the
-  minutes (never a roll, as §138.9 fills a book road). `travel_band` beside `travel_minutes` is `travel_conflict`; another value is
+  minutes (never a roll, as §138.9 fills a book road). `travel_band` without a range beside `travel_minutes` takes the minutes (§250.17); another value is
   `travel_band_unknown` with the rows in `details.options`. The receipt carries `travel: {basis: "banded", band}`.
 - **Unknown**: a move between two places that no road, book or table, has timed, with neither field, still lands with 0 minutes
   (refusing it would take the walk away for a missing number) but says so: the receipt carries `travel: {basis: "unknown"}` and the
@@ -51177,6 +51177,10 @@ same way (`adjusted` on the receipt and its outcome):
 - A declared integer of a place action sent as its canonical decimal string within the declared bounds is that integer
   (`place_array_transport_normalized`, `travel_minutes:integer`; `el-v2-20261021f` T21: `travel_minutes:"30"` refused a
   plain journey), the repair the output packet already makes; any other string is left for validation.
+- A command written as a field of its own beside `commands` (`el-v2-20261021g` T32: `item:{kind:"place",
+  action:"observe",...}` refused as an additional packet property) is that command, appended after the ones in
+  `commands` (`{lane:"arguments", event:"stray_command_moved", repairs}`). Only a value that is a command of a declared
+  kind, or a non-empty list of them, moves; any other field stays for the schema's refusal.
 - A feature change says that it registers an unregistered fixture itself (`adjusted: at: implicit_feature`), here or at
   a place left behind, and that a fixture is never a place; the description no longer sends the Keeper to `additions`.
 
@@ -51322,7 +51326,30 @@ Live (`el-v2-20261021f` T2, T7): the Keeper walked a few doors from Knott's offi
 rewrote the road. Between two places that already share a road -- the book's, or one this table travelled (§218.3) -- a
 `travel_band` now names nothing new: the move takes the road's minutes, and the receipt reports
 `adjusted: {field:"travel_band", reason:"road_known", given, minutes}`. `travel_minutes` the Keeper gives for this
-journey are still its own (§250.5), and no band or single journey rewrites a known road's length.
+journey are still its own (§250.5).
+
+Which journey sets the road: a move with `travel_minutes` keeps them as the road from then on (§218.3), and a band alone
+never rewrites a known road. Live (`el-v2-20261022h` T6): the Keeper walked back along the street with
+`travel_band:"adjacent", travel_minutes:7`, the kernel refused it as `travel_conflict`, and the resend with the minutes
+alone was what counted. A row without a range (`adjacent`) beside the journey's own minutes now names nothing the minutes
+do not: the move takes the minutes and reports `adjusted: {field:"travel_band", reason:"band_without_range", given}`;
+`travel_conflict` is retired. Tests: `tests/integration/enhanced-locations.test.ts` (known road),
+`tests/extension/move-travel.test.mjs` (band rows).
+
+### 250.18 A return visit carries what was recorded there before
+
+Live (`el-v2-20261021e` T6, T13): the cafe window looked onto closed office blocks on the first visit and onto a
+hardware shop and a pharmacy on the return. The author is kept from earlier prose on purpose
+(`decision-author-bindings`), and observation history reached it only when the Keeper read it or looked again from the
+same point. Now, when a turn's packet ends at another place than it started, the host reads that place's visit history
+-- `mods.locations.inspect {name, need:"history"}`, a host-only read the Keeper's place tool does not offer: up to four
+delivered observations whose target lies in the place, at any point and by any sense, from earlier turns, newest first --
+and hands it to the author as a `reference_observations` group marked `revisit:true`
+(`{lane:"location-revisit", event:"history", place, records}`). The author keeps the fixed features, layout and views
+of the place consistent with those records unless this turn's outcomes or facts change them; their people, situations
+and clocks are past. These are recorded facts, never earlier prose. A failed read is recorded (`event:"unavailable"`) and
+the turn goes on without it. Tests: `tests/integration/enhanced-locations.test.ts` (visit history),
+`tests/extension/location-revisit-history.test.mjs`.
 
 ## 251. A progress note for a read spiral (owner direction 2026-10-21: fewer deliberations, faster turns)
 

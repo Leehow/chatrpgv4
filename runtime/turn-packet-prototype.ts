@@ -147,11 +147,28 @@ export function requireTurnPacketNpcDestinations(packet:TurnPacket,choices:reado
 }
 /** Decode declared scalar and array transport forms without semantic inference. */
 const PLACE_ACTIONS=new Set(['move','establish','feature','relate','observe','inspect']);
-export function normalizeTurnPacketArguments(input:unknown):{args:unknown;repairs:number;integerRepairs?:number;booleanRepairs?:number;textRepairs?:number;placeKindRepairs?:number;npcHereRepairs?:number} {
+/** The packet's own top-level fields and the kinds a command may carry, read off the declared schema. */
+const PACKET_FIELDS=()=>new Set(Object.keys(TURN_PACKET_ROUTINE_PARAMETERS.properties));
+const COMMAND_KINDS=()=>{const commands=(TURN_PACKET_ROUTINE_PARAMETERS.properties as Record<string,any>).commands;
+ return new Set((commands.anyOf??[commands]).filter((list:any)=>list?.items).flatMap((list:any)=>variantsOf(list.items))
+  .map((variant:any)=>variant.properties?.kind?.const).filter((kind:unknown)=>typeof kind==='string'));};
+export function normalizeTurnPacketArguments(input:unknown):{args:unknown;repairs:number;integerRepairs?:number;booleanRepairs?:number;textRepairs?:number;placeKindRepairs?:number;npcHereRepairs?:number;strayCommandRepairs?:number} {
   const normalized=normalizeToolArgumentSyntax(TURN_PACKET_ROUTINE_PARAMETERS,input,{boundedIntegers:true,exactBooleans:true,partialTransport:true});
+  let value=normalized.args;
+  // §250.4: a command written as a field of its own beside commands (live el-v2-20261021g T32: item:{kind:"place",
+  // action:"observe",...}) is that command, after the ones in commands. Only a value that is a command, or a list of
+  // commands, of a declared kind moves; anything else stays for the schema's refusal.
+  let strayCommandRepairs=0;
+  if(object(value)){
+   const fields=PACKET_FIELDS(),kinds=COMMAND_KINDS(),isCommand=(row:unknown)=>object(row)&&typeof row.kind==='string'&&kinds.has(row.kind);
+   const stray=Object.entries(value).filter(([key,held])=>!fields.has(key)&&(isCommand(held)||Array.isArray(held)&&held.length>0&&held.every(isCommand)));
+   if(stray.length&&(value.commands===undefined||Array.isArray(value.commands))){
+    const moved=stray.flatMap(([,held])=>Array.isArray(held)?held:[held]);strayCommandRepairs=moved.length;
+    value={...Object.fromEntries(Object.entries(value).filter(([key])=>!stray.some(([name])=>name===key))),commands:[...(value.commands as unknown[]??[]),...moved]};
+   }
+  }
   // §250.4: a command carrying a place action but no kind can only be a place command (live el-v2-20261021b T19).
-  const value=normalized.args;
-  if(!object(value)||!Array.isArray(value.commands))return normalized;
+  if(!object(value)||!Array.isArray(value.commands))return strayCommandRepairs?{...normalized,args:value,strayCommandRepairs}:normalized;
   let placeKindRepairs=0;
   const commands=value.commands.map(command=>{
    if(!object(command))return command;
@@ -171,7 +188,7 @@ export function normalizeTurnPacketArguments(input:unknown):{args:unknown;repair
    if(command.kind!=='npc'||typeof command.to!=='string'||reached===undefined||command.to!==reached)return command;
    npcHereRepairs++;return {...command,to:'here'};
   });
-  return placeKindRepairs||npcHereRepairs?{...normalized,args:{...value,commands:bound},...(placeKindRepairs?{placeKindRepairs}:{}),...(npcHereRepairs?{npcHereRepairs}:{})}:normalized;
+  return placeKindRepairs||npcHereRepairs||strayCommandRepairs?{...normalized,args:{...value,commands:bound},...(placeKindRepairs?{placeKindRepairs}:{}),...(npcHereRepairs?{npcHereRepairs}:{}),...(strayCommandRepairs?{strayCommandRepairs}:{})}:normalized;
 }
 /** One current parameter contract for the native declaration and submission. */
 export function turnPacketParameterSchema(journeySettled=false,timeBands?:readonly string[],moveChoices?:readonly Record<string,unknown>[],sceneRequired=false,bindings?:DecisionBindings,locations=false,timeBandRows?:readonly {handle:string;covers?:string}[],routine=false):TSchema {
