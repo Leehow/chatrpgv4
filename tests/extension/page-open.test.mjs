@@ -22,7 +22,7 @@ await build({stdin:{contents:[['modules/index',['createModuleRuntime']],['contex
 const api=await import(pathToFileURL(join(evidence,'api.mjs')).href);
 const sha=value=>createHash('sha256').update(value).digest('hex');
 
-const PAGES=20;
+const PAGES=70;
 const pageText=page=>page===16?'Prologue\nThe road runs straight through the desert.\nRead aloud: the gas station sign flickers.'
   :page===17?'Welcome to the station\nThe pumps are rusted.\nKeeper note: the owner hides a shotgun.'
   :page===20?'Ras the owner\nA tall man in overalls.\nNate, his son, leans on the car lift.'
@@ -32,7 +32,7 @@ const pageText=page=>page===16?'Prologue\nThe road runs straight through the des
 function runtime(answers,runs=[]){
   return {
     async sourceInfo({pdf}){return {path:pdf,file_sha256:runtime.sha,page_count:PAGES,labels:null,bookmarks:[{name:'Introduction',page:6,children:[]},{name:'Prologue',page:16,children:[{name:'The station',page:17,children:[]}]}]};},
-    async sourceLines({pages}){return {file_sha256:runtime.sha,extraction_version:'fixture',page_count:PAGES,errors:[],
+    async sourceLines({pages}){if(pages.length>32)throw new Error('source text pages must be 1-32 unique positive physical page numbers');return {file_sha256:runtime.sha,extraction_version:'fixture',page_count:PAGES,errors:[],
       pages:pages.map(page=>({page,pdf_label:null,native_sha256:'0'.repeat(64),lines:pageText(page).split('\n').filter(Boolean)}))};},
     async runTask({request}){
       const step=basename(request.cwd),task=JSON.parse(await readFile(join(request.cwd,'task.json'),'utf8'));runs.push({step,task,request});

@@ -22,6 +22,8 @@ const PAGE_CHARS=12000;
 /** The table of contents a locate call reads: bookmarks plus each page's first lines. */
 const HEAD_LINES=3,HEAD_CHARS=80,TOC_BYTES=24000;
 const FIELD_CHARS=950;
+/** The most pages one source text request may name. */
+const TEXT_BATCH=32;
 
 const LOCATE_INSTRUCTION=`You find where play begins in a tabletop roleplaying scenario book, from its table of contents.
 task.json holds the book's bookmarks (title and page) and the first lines of every page. Decide:
@@ -75,7 +77,10 @@ export async function runPageOpen(input:PageOpenInput):Promise<ReferenceResult>{
  const info=await input.runtime.sourceInfo({pdf:source.pdf,cache:join(dirname(source.pdf),'cache','pages')},input.signal);
  if(info.file_sha256!==source.file_sha256)throw Error('The bound original changed during the page opening');
  const all=Array.from({length:count},(_,index)=>index+1);
- const lines=await input.runtime.sourceLines({pdf:source.pdf,pages:all,expected_file_sha256:source.file_sha256},input.signal);
+ // The text layer is read in batches the source worker accepts (§191.1: at most 32 pages a request).
+ const batches:number[][]=[];for(let index=0;index<all.length;index+=TEXT_BATCH)batches.push(all.slice(index,index+TEXT_BATCH));
+ const read=[];for(const pages of batches)read.push(await input.runtime.sourceLines({pdf:source.pdf,pages,expected_file_sha256:source.file_sha256},input.signal));
+ const lines={extraction_version:read[0].extraction_version,pages:read.flatMap(batch=>batch.pages)};
  const text=new Map(lines.pages.map(page=>[page.page,page.lines.join('\n')]));
  // The table of contents: as many pages' first lines as fit, in page order; bookmarks first.
  const marks=bookmarks(info.bookmarks);let bytes=Buffer.byteLength(JSON.stringify(marks));
@@ -92,13 +97,13 @@ export async function runPageOpen(input:PageOpenInput):Promise<ReferenceResult>{
  if(!openings.length)throw new SourceReferenceFailure('page_open_no_opening',true);
  const setup=pageList(located.setup_pages,count,SETUP_PAGES).filter(page=>text.get(page)?.trim());
  // §258.2: each page read is one excerpt, whole up to the packet's bound.
- const read=[...new Set([...setup,...openings.flatMap(opening=>opening.pages)])].sort((a,b)=>a-b);
- const excerpts:ReferenceExcerpt[]=read.map((page,index)=>{const body=text.get(page)!.slice(0,PAGE_CHARS);return {id:`page-${index+1}`,page,start:0,end:body.length,text:body};});
+ const pagesRead=[...new Set([...setup,...openings.flatMap(opening=>opening.pages)])].sort((a,b)=>a-b);
+ const excerpts:ReferenceExcerpt[]=pagesRead.map((page,index)=>{const body=text.get(page)!.slice(0,PAGE_CHARS);return {id:`page-${index+1}`,page,start:0,end:body.length,text:body};});
  const spanOf=(page:number)=>excerpts.find(span=>span.page===page)!;
  const guided=await ask(input,cwd,'guide',GUIDE_INSTRUCTION,{play_language:input.language,pages:excerpts.map(span=>({page:span.page,text:span.text}))});
  const publicFields={} as PublicGuidance;
  for(const field of PUBLIC_GUIDANCE_FIELDS){
-  const value=guided[field],body=typeof value?.text==='string'?Array.from(value.text.trim()).slice(0,FIELD_CHARS).join(''):'',refs=pageList(value?.pages,count,12).filter(page=>read.includes(page));
+  const value=guided[field],body=typeof value?.text==='string'?Array.from(value.text.trim()).slice(0,FIELD_CHARS).join(''):'',refs=pageList(value?.pages,count,12).filter(page=>pagesRead.includes(page));
   publicFields[field]=body&&refs.length?{status:'value',text:body,source_refs:refs.map(page=>({page}))}:{status:'unavailable',text:'',source_refs:[]};
  }
  validatePublicGuidance(publicFields,count);
