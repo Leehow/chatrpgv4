@@ -4,8 +4,10 @@ export type BearingTier='focus'|'engaged'|'background';
 export type Disposition='hostile'|'unfriendly'|'neutral'|'friendly'|'ally';
 export interface Bearing {tier:BearingTier;needs_introduction?:true;toward?:Array<{ref:string;disposition:Disposition}>}
 
-/** §260.5: today's directed affinity read as the five-level disposition of §258, a closed enum map. */
+/** §260.5: §258 P1's shown `public` disposition; before it, the directed affinity by a closed enum map. */
 const AFFINITY:Record<string,Disposition>={hostile:'hostile',guarded:'unfriendly',neutral:'neutral',friendly:'friendly'};
+const DISPOSITIONS=new Set<string>(['hostile','unfriendly','neutral','friendly','ally']);
+const shown=(relation:Row):Disposition|undefined=>DISPOSITIONS.has(relation?.public)?relation.public:AFFINITY[relation?.affinity];
 /** Acts whose response carries the moment; a greeting, a nod or silence engages without taking it. */
 const ENGAGING_ONLY=new Set(['greet','acknowledge','silent']);
 
@@ -29,8 +31,8 @@ export function npcBearing(input:{presence:readonly Row[];responses:readonly Row
   const intro=introduced.has(ref),acts=responded.has(ref);
   const tier:BearingTier=responded.get(ref)||outcome.has(ref)||attitude.has(ref)||intro&&acts?'focus':acts?'engaged':'background';
   const toward=(Array.isArray(people.get(ref)?.relationships)?people.get(ref)!.relationships:[])
-   .filter((relation:Row)=>typeof relation?.toward==='string'&&/^investigator_[1-9][0-9]*$/.test(relation.toward)&&AFFINITY[relation.affinity])
-   .map((relation:Row)=>({ref:relation.toward,disposition:AFFINITY[relation.affinity]}));
+   .filter((relation:Row)=>typeof relation?.toward==='string'&&/^investigator_[1-9][0-9]*$/.test(relation.toward)&&shown(relation))
+   .map((relation:Row)=>({ref:relation.toward,disposition:shown(relation)!}));
   result.set(ref,{tier,...(intro?{needs_introduction:true as const}:{}),...(toward.length?{toward}:{})});
  }
  return result;

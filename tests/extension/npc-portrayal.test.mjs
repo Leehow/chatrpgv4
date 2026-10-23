@@ -49,6 +49,12 @@ test('attention follows what settled in public',()=>{
  assert.equal(npcBearing({presence:presence(),people,responses:[],outcomes:[],firstSight:[{ref:'npc_5'}]}).get('npc_5').tier,'background','introduced without acting is not the focus');
 });
 
+test('§258 P1\'s shown public disposition is read before the legacy affinity',()=>{
+ const tiers=npcBearing({presence:[{ref:'npc_1'}],responses:[],outcomes:[],
+  people:[{ref:'npc_1',relationships:[{toward:'investigator_1',public:'ally'},{toward:'npc_2',public:'hostile'}]}]});
+ assert.deepEqual(tiers.get('npc_1').toward,[{ref:'investigator_1',disposition:'ally'}]);
+});
+
 test('hidden state cannot move a tier or reach the author',()=>{
  const input=hidden=>({presence:presence(),responses:[{actor:'npc_1',act:'answer',to:['investigator_1']}],outcomes:[],
   people:people.map(person=>({...person,...hidden}))});
