@@ -3,7 +3,8 @@ import {test} from 'node:test';
 import assert from 'node:assert/strict';
 import {Errors} from 'typebox/value';
 import {DecisionContent} from '../../runtime/decision-content.ts';
-import {turnPacket,turnPacketParameterSchema} from '../../runtime/turn-packet-prototype.ts';
+import {turnPacket,turnPacketParameterSchema,TURN_PACKET_GUIDANCE} from '../../runtime/turn-packet-prototype.ts';
+import {DECISION_AUTHOR_INSTRUCTION} from '../../runtime/isolated-expression.ts';
 import {importSource} from '../integration/support.ts';
 const {communicationRecord,toldView,promiseHasOrigin,selectionsOf}=await importSource('kernel-ts/npc/communication.ts');
 
@@ -192,4 +193,20 @@ test('§258.9 an aside reaches only its addressees',()=>{
  assert.deepEqual(communication.events[0].heard,[]);
  assert.deepEqual(heardView([{turn:1,communication}],'npc_2',scope),[]);
  assert.deepEqual(turnPacket(JSON.stringify({version:4,interactions:[{actor:'npc_1',to:['investigator_1'],act:'greet',channel:'aside'}]})).interactions[0].channel,'aside');
+});
+
+test('live P1 re-run: the Keeper is told disposition follows the exchange, and the author wraps every spoken line and rewords a told claim', () => {
+ assert.match(TURN_PACKET_GUIDANCE,/disposition is the standing attitude and follows what the exchange did to it: a threat or insult toward this person moves it to unfriendly or hostile/);
+ assert.match(TURN_PACKET_GUIDANCE,/when they hide the change, public is what they show instead/);
+ assert.match(DECISION_AUTHOR_INSTRUCTION,/Every quoted line any person speaks, a greeting or acknowledgement with no claim included, sits inside its own say token/);
+ assert.match(DECISION_AUTHOR_INSTRUCTION,/never a bare quote/);
+ assert.match(DECISION_AUTHOR_INSTRUCTION,/clarify means they explain the part that was misunderstood in different words than before/);
+ assert.match(DECISION_AUTHOR_INSTRUCTION,/only restate, because they were asked to say it again, may carry the earlier wording/);
+});
+
+test('a bare quote attests nobody, a say span attests its speaker without speech', () => {
+ const bare=communicationRecord(graph,world,party,scope,5,{selections:[{actor:'npc_2',act:'acknowledge',to:['investigator_1'],content:[]}],artifact_text:'“开了一夜车，先喝口水。”退休司机晃了晃啤酒罐。'},[],[{node_id:'russ'},{node_id:'nate'}]);
+ assert.equal(bare.events.find(e=>e.actor==='npc_2')?.status,'missing');
+ const wrapped=communicationRecord(graph,world,party,scope,5,{selections:[{actor:'npc_2',act:'acknowledge',to:['investigator_1'],content:[]}],artifact_text:'{{say:npc_2}}“开了一夜车，先喝口水。”{{/say}}'},[],[{node_id:'russ'},{node_id:'nate'}]);
+ assert.equal(wrapped.events.find(e=>e.actor==='npc_2')?.status,'attested');
 });
