@@ -210,3 +210,21 @@ test('a bare quote attests nobody, a say span attests its speaker without speech
  const wrapped=communicationRecord(graph,world,party,scope,5,{selections:[{actor:'npc_2',act:'acknowledge',to:['investigator_1'],content:[]}],artifact_text:'{{say:npc_2}}“开了一夜车，先喝口水。”{{/say}}'},[],[{node_id:'russ'},{node_id:'nate'}]);
  assert.equal(wrapped.events.find(e=>e.actor==='npc_2')?.status,'attested');
 });
+
+test('P2 live fixes: a whispered question is not overheard, an NPC pointing back to the investigator keeps the investigator as the speaker, and every speech_only response carries its say token',async()=>{
+ const sel=(channel,to=['investigator_1'])=>({actor:'npc_1',act:'answer',to,items:[],...(channel?{channel}:{})});
+ const quiet=communicationRecord(graph,world,party,scope,4,{selections:[sel('aside')],artifact_text:'{{say:npc_1}}“他嘴松。”{{/say}}'},[],[{node_id:'russ'},{node_id:'nate'}],'我只对他一个人说：那个人靠得住吗？');
+ const asked=quiet.events.find(e=>e.act==='player_input');
+ assert.equal(asked.channel,'aside');assert.deepEqual(asked.heard,[]);
+ assert.deepEqual(quiet.events.find(e=>e.act==='answer').heard,[]);
+ const open=communicationRecord(graph,world,party,scope,4,{selections:[sel()],artifact_text:'{{say:npc_1}}“好。”{{/say}}'},[],[{node_id:'russ'},{node_id:'nate'}],'你好');
+ const openAsked=open.events.find(e=>e.act==='player_input');
+ assert.equal(openAsked.channel,undefined);assert.deepEqual(openAsked.heard,['npc_2']);
+ const first=communicationRecord(graph,world,party,scope,1,{selections:[sel()],artifact_text:'{{say:npc_1}}“好。”{{/say}}'},[],[{node_id:'russ'},{node_id:'nate'}],'今晚借宿一夜吗？');
+ const pid=first.events.find(e=>e.act==='player_input').items[0].content_id;
+ const back=communicationRecord(graph,world,party,scope,2,{selections:[{actor:'npc_2',act:'answer',to:['investigator_1'],items:[{content_id:pid,strategy:'refer',gist:'今晚借宿一夜吗？'}]}],artifact_text:'{{say:npc_2}}“你问过借宿。”{{/say}}'},[],[{node_id:'russ'},{node_id:'nate'}]);
+ const rows=heardView([{turn:1,communication:first},{turn:2,communication:back}],'npc_1',scope,3);
+ assert.equal(rows.length,1);assert.equal(rows[0].said_by,'investigator_1');
+ assert.match(DECISION_AUTHOR_INSTRUCTION,/its words still sit inside the speaker's say token/);
+ assert.match(DECISION_AUTHOR_INSTRUCTION,/Every speech_only response carries say_as/);
+});

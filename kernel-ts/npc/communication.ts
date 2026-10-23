@@ -78,8 +78,11 @@ function partyEvent(turn:number,party:Row[],here:string[],selections:Row[],playe
     if(!actor)return undefined;
     const to=[...new Set(selections.filter(selection=>array(selection.to).includes(actor)).map(selection=>selection.actor as string))];
     const content_id=`p:${createHash('sha256').update(JSON.stringify([actor,turn,text])).digest('hex').slice(0,24)}`;
-    return {seq:-1,id:`t${turn}:p`,actor,act:'player_input',to,status:'attested',
-        heard:here.filter(ref=>ref!==actor&&!to.includes(ref)),items:[{content_id,strategy:'new',kind:'player_input',gist:text}]};
+    // A reply said low to the investigator means the investigator spoke low: nobody else heard the question either.
+    const answering=selections.filter(selection=>array(selection.to).includes(actor));
+    const aside=answering.length>0&&answering.every(selection=>selection.channel==='aside');
+    return {seq:-1,id:`t${turn}:p`,actor,act:'player_input',to,status:'attested',...(aside?{channel:'aside'}:{}),
+        heard:aside?[]:here.filter(ref=>ref!==actor&&!to.includes(ref)),items:[{content_id,strategy:'new',kind:'player_input',gist:text}]};
 }
 
 /** The records of this worldline and loop before `turn`, oldest first; a later turn a rewind left behind is not read. */
@@ -143,10 +146,12 @@ export function promiseHasOrigin(records:Row[],actor:string|undefined,turn:unkno
  * one row per item, at most `TOLD_ROWS`. The words stay the speaker's: a reader issues them as attributed hearsay.
  */
 export function heardView(records:Row[],listener:string,scope:Row,turn?:number):Row[] {
-    const heard=new Map<string,Row>(),own=new Set<string>();
+    const heard=new Map<string,Row>(),own=new Set<string>(),party=new Map<string,string>();
     for(const record of scoped(records,scope,turn))for(const event of array(row(record.communication).events)){
-        // §258.9: what an investigator said is read by partySaidView, as their claim.
-        if(event.status!=='attested'||INVESTIGATOR.test(string(event.actor)))continue;
+        // §258.9: what an investigator said is read by partySaidView, as their claim. An id first seen in an investigator
+        // event stays that investigator's when an NPC points back to it.
+        if(INVESTIGATOR.test(string(event.actor))){for(const item of array(event.items))if(!party.has(item.content_id))party.set(item.content_id,event.actor);continue;}
+        if(event.status!=='attested')continue;
         // What this person said themself is never hearsay to them, even when someone else repeats it later.
         if(event.actor===listener){for(const item of array(event.items))own.add(item.content_id);continue;}
         if(!array(event.heard).includes(listener))continue;
@@ -155,7 +160,7 @@ export function heardView(records:Row[],listener:string,scope:Row,turn?:number):
             // The first speaker keeps the words; a later repeat only refreshes when it was heard.
             const first=heard.get(item.content_id);
             heard.delete(item.content_id);
-            heard.set(item.content_id,{content_id:item.content_id,said_by:first?.said_by??event.actor,to:first?.to??array(event.to),gist:item.gist,turn:number(record.turn)});
+            heard.set(item.content_id,{content_id:item.content_id,said_by:first?.said_by??party.get(item.content_id)??event.actor,to:first?.to??array(event.to),gist:item.gist,turn:number(record.turn)});
         }
     }
     return [...heard.values()].filter(row=>!own.has(row.content_id)).reverse().slice(0,TOLD_ROWS);

@@ -52114,10 +52114,10 @@ The words are the player's as written, an attempt or claim, never verified truth
 `table.look focus:npc` adds `party_said`: such items whose event addresses or was heard by this person, newest first, at most 6,
 `{content_id, said_by: investigator_N, to_me?: true, gist, turn}`. The catalog issues each as a fact of kind `party_said` to
 that person, with the authority "What <name> said or did to this person / in this person's hearing, as the player wrote it;
-this person knows it was said, and it is <name>'s claim, not verified truth." Investigator events are never `heard` rows.
+this person knows it was said, and it is <name>'s claim, not verified truth." Investigator events are never `heard` rows, and an id first seen in an investigator event stays that investigator's in a `heard` row when an NPC later points back to it (`said_by` is the investigator, not the NPC).
 An interaction (other than `silent`) may carry `channel: "speech" | "aside"`; omitted is `speech`. A selection said as `aside`
 records `channel: "aside"` and `heard: []`: only `to` receive it. The author receives the response's `channel`; the instruction
-says an aside is said low or privately, so only its `to` hear it.
+says an aside is said low or privately, so only its `to` hear it, and its words still sit inside the speaker's say token; every `speech_only` response carries `say_as`, the exact token its quoted words go in. When every selection that answers the investigator is an aside, the player's `player_input` event is an aside too: `channel: "aside"`, `heard: []`, since a reply said low means the question was put low.
 
 Tests: `tests/extension/npc-communication.test.mjs` (§258.9).
 
