@@ -18,6 +18,8 @@ export function decisionResponseHistory(responses:Row[],people:Row[],turn:number
   if(!Array.isArray(response.claims)||response.act==='silent')return response;
   const priorTurns=new Set<number>();
   const claims=response.claims.filter((claim:Row)=>{
+   // §258.4: their own earlier words the Keeper chose to have said again stay a claim.
+   if(['restate','clarify'].includes(claim.telling?.strategy))return true;
    const value=claim.value,person=cast.get(response.actor);
    if(!['recent_speech','public_speech_history'].includes(claim.kind)||claim.actor!==response.actor||typeof person?.display_name!=='string'
     ||value?.authority!=='conversation_report'||value.attribution?.kind!=='speech'||value.attribution?.speaker?.kind!=='npc'
@@ -26,7 +28,7 @@ export function decisionResponseHistory(responses:Row[],people:Row[],turn:number
    history.push({turn:Number(value.turn),player:null,keeper:'',speech:[{speaker:person.display_name,text:value.statement}]});
    return false;
   });
-  if(!claims.length&&priorTurns.size)claims.push({kind:'existing_account_response',value:{scope:'current_player_input',new_information:false,prior_turns:[...priorTurns]}});
+  if(!claims.length&&priorTurns.size)claims.push({kind:'existing_account_response',value:{scope:'current_player_input',new_information:false,prior_turns:[...priorTurns]},telling:{strategy:'refer',times:priorTurns.size}});
   return {...response,claims};
  });
  return {responses:current,history};

@@ -963,7 +963,7 @@ export function npcEntry(graph: ModuleGraph, world: Row, node: Row, ledger: Row,
     // The same owned promise already occupies history.promises. Do not duplicate its bytes and
     // crowd an earlier canonical occurrence out of the capsule; the full NPC read retains all rows.
     const commitments=npcCommitments(graph,node,[...memories.values()].filter(value=>value.valid_until_turn==null
-        &&!shownPromises.has(memoryOccurrenceKey(value))),scope).sort(promiseOrder);
+        &&!shownPromises.has(memoryOccurrenceKey(value))),scope,{records,ref:npcReference(graph,world,node)}).sort(promiseOrder);
     if(commitments.length)entry.commitments=commitments.slice(0,4);
     if(commitments.length>4)entry.coverage={commitments_omitted:commitments.length-4};
     const reunion=reunionView(graph,world,node,records,{worldline:scope.worldline,loop:scope.loop});
@@ -1112,7 +1112,7 @@ export function npcView(graph: ModuleGraph, world: Row, node: Row, ledger: Row =
     const relationships=npcRelationships(graph,node,memory,scope),recent=npcRecentSpeech(graph,node,records,scope);
     if(relationships.length)view.relationships=relationships;
     if(recent.length)view.recent_speech=recent;
-    const commitments=npcCommitments(graph,node,memory,scope);
+    const commitments=npcCommitments(graph,node,memory,scope,{records,ref:npcReference(graph,world,node)});
     if(commitments.length)view.commitments=commitments;
     const reunion=reunionView(graph,world,node,records,scope);
     if(reunion)view.reunion=reunion;

@@ -10,6 +10,8 @@ import {canonicalEvents,actorEventView} from '../turn-events.js';
 import {remembersAcrossLoops} from '../read/worldline.js';
 import {currentNpcMood, npcVariation} from './variation.js';
 import {deriveCommittedSpeechSpans} from '../../runtime/jev/committed-speech-spans.ts';
+import {promiseHasOrigin} from './communication.js';
+import {npcReference} from './references.js';
 
 function namesOf(graph:ModuleGraph,node:Row):Set<string>{
     return new Set(graph.nameKeys(node).map(normalize));
@@ -69,10 +71,14 @@ export function npcPublicRendering(graph:ModuleGraph,node:Row,records:Row[],scop
     return {turn:record.turn,scene,text,...(text.length<narration.length?{truncated:true}:{}),
         authority:'Past public rendering only; not current action, presence, physical state or selected response content'};
 }
-export function npcCommitments(graph:ModuleGraph,node:Row,memory:Row[],scope:Row={}):Row[]{
+/**
+ * A person's own promises: the obligor is the promise's subject. §258.5: a knower who only heard it holds no commitment, and
+ * a promise from a turn whose communication shows the obligor voiced nothing has no origin and is not issued.
+ */
+export function npcCommitments(graph:ModuleGraph,node:Row,memory:Row[],scope:Row={},origin?:{records:Row[];ref?:string}):Row[]{
     const names=namesOf(graph,node);
-    return memory.filter(value=>current(value,scope)&&value.kind==='promise'
-        &&(names.has(normalize(string(value.subject)))||array(value.knowers).some(name=>names.has(normalize(string(name))))))
+    return memory.filter(value=>current(value,scope)&&value.kind==='promise'&&names.has(normalize(string(value.subject)))
+        &&(!origin||promiseHasOrigin(origin.records,origin.ref,value.valid_from_turn??value.turn,scope)))
         .sort((a,b)=>number(b.valid_from_turn??b.turn)-number(a.valid_from_turn??a.turn))
         .map(value=>({subject:value.subject,entities:array(value.entities),...report(value)}));
 }
@@ -81,7 +87,7 @@ export function npcPerspective(graph:ModuleGraph,world:Row,node:Row,memory:Row[]
     const reports=memory.filter(value=>current(value,scope)&&['knowledge','belief'].includes(value.kind)
         &&array(value.knowers).some(name=>names.has(normalize(string(name))))&&typeof value.statement==='string')
         .sort((a,b)=>number(b.valid_from_turn??b.turn)-number(a.valid_from_turn??a.turn)).map(report);
-    const commitments=npcCommitments(graph,node,memory,scope);
+    const commitments=npcCommitments(graph,node,memory,scope,{records,ref:npcReference(graph,world,node)});
     const semantic=actorEventView(canonicalEvents(records,array(scope.current_receipts),scope),graph.nameKeys(node),
         {...scope,across_loops:remembersAcrossLoops(graph,node)});
     const documents=observedDocuments(world,string(node.node_id));

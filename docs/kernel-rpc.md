@@ -51989,3 +51989,72 @@ tool result and never the author input. The tool description says both.
 
 Tests: `tests/extension/source-answer.test.mjs` (prepare with `material: exhibits` reaches `ensure` as the exhibits detail read),
 `tests/extension/exhibit-reveal.test.mjs` (a source answer's text is absent from the author's `task.json`).
+
+## 258. NPC mind P0: honest decisions and who said what to whom (owner 2026-10-23)
+
+Spec: `docs/specs/npc-mind.md`; design for the later phases: `docs/research/npc-schema-v3-20261023.md`. P0 fixes the repetition chain the
+2026-10-23 Blood Road run showed (an offer the schema forced the Keeper to invent, a promise every bystander inherited, no record of what
+was told, and an author rule that repeated every reselected answer).
+
+### 258.1 Honest decisions
+
+- `knowledge_status.status` gains `nothing_more`: a person with nothing to add answers with it instead of inventing content.
+- `service_at.items` never names a person: the per-turn schema offers only non-person entities and categories, and `DecisionContent.resolve`
+  refuses a person or `new_N` item ("service_at items are what is served, never a person ...").
+- The Keeper guidance (`TURN_PACKET_GUIDANCE`) says an offer needs something the person actually offers now, and never to invent an
+  appointment to fill a response.
+
+### 258.2 Communication events
+
+At packet settlement the host builds one selection per non-silent response with an `npc_N` actor: `{actor, act, to, items:[{content_id,
+kind, strategy, gist?, told_times?}]}` (`hydrate().units`, index-aligned with the responses, after walk-on slots are bound). They ride
+host-only as `_delivery_evidence.selections` (in `openStream`'s evidence, so a recovered publication keeps them). The narrate and ask commits
+call `communicationRecord` (`kernel-ts/npc/communication.ts`) and store the result on the turn record as `communication`:
+
+`{version: 1, scope: {worldline, loop}, turn, events: [{seq, id: "t<turn>:<seq>", actor, act, to, heard, status, items}]}`
+
+- `status` is `attested` when the committed `speech` holds a non-empty line whose speaker resolves to the actor's `npc_N`, else `missing`.
+  Attestation is by speaker, not per unit: the say grammar is unchanged in P0 (one response per speaker is the norm; a speaker with several
+  responses attests all of them). A truncated, malformed or empty span is `missing`.
+- `heard` is everyone present at publication (`npcsPresent` plus every investigator) who is neither the actor nor addressed.
+- A reference answer stores none. Selections that are malformed are dropped (`selectionsOf`), never trusted.
+- Belief is not written in P0.
+
+Nothing else stores communication: every count is read back from the turn records, so rollback, replay and rebuild read the same counts.
+
+### 258.3 Content identity
+
+`content_id` is `<kind letter>:<24 hex>` from an explicit key per source kind, so two kinds never collide: `m:` a memory or report id, `e:` an
+event material, `c:` a discovered clue name, `x:` an exhibit id, `s:` a source name, `n:` a new constructor with its actor, `h:` otherwise
+the actor and the row's text. A person's own earlier words (`public_speech_history`, `recent_speech`) take the identity of the one told row
+whose `turns` holds the words' turn, so a reworded answer is the same item; a person's catalog keeps one row per content. `result_ref`
+content has none.
+
+### 258.4 Told marks and telling strategies
+
+- `table.look focus:npc` adds `told`: this person's told rows for the current worldline and loop, before the current turn, newest first, at
+  most 6: `{content_id, kind?, gist?, last_turn, turns (attested, last 8), to: {<listener>: {new?, refer?, restate?, clarify?, update?, unverified?, addressed?, last_turn}}}`.
+  Attested deliveries count for addressed and heard listeners; a `missing` one adds `unverified` for the addressed only.
+- `DecisionContent.prepare` marks each catalog fact issued to that person: `told: {to: {investigator_1: 2}, last_turn}` (an unverified-only
+  listener shows `{unverified: n}`). The person's own earlier words (`public_speech_history`, `recent_speech`) and own promises
+  (`commitments`) are marked `told: {earlier: true, turn?}`. A catalog with marks carries a one-line `telling` note.
+- Content items take optional `strategy: new | refer | restate | clarify | update`. Omitted, an item every addressed listener was told
+  (or one marked `earlier`) is settled as `refer`, otherwise `new`; no refusal and no extra Keeper round. `update` needs another `new` item in
+  the same response, else the packet is refused with that repair.
+- The author's claim carries `telling: {strategy, times?}` when the strategy is not `new`; an `existing_account_response` carries
+  `telling: {strategy: "refer", times}` (an exhibit claim keeps its `telling` when the surface replaces the placeholder), and own earlier words selected as `restate` or `clarify` stay a claim.
+- `DECISION_AUTHOR_INSTRUCTION` no longer says a repeated answer must be rendered because "history cannot cancel it"; it says how each
+  strategy is said and never to reuse a sentence from `recent_public`.
+
+### 258.5 Commitments have an obligor and an origin
+
+`npcCommitments` returns only promises whose subject is this person; a knower who only heard a promise holds no commitment. A promise from a
+turn whose record has `communication` is issued only when the obligor's own selection there was `attested`; a turn recorded before §258
+has none to judge by, and its promises stand. Proposal, acceptance and agreement records are P1.
+
+### 258.6 Disposition (P1, recorded here)
+
+Attitude toward a party is five levels `hostile | unfriendly | neutral | friendly | ally`, with optional `trust`, `fear` and `pressure` 0–5
+and a separate control state (charmed, possessed, coerced). Not implemented in P0.
+
+Tests: `tests/extension/npc-communication.test.mjs`, `tests/extension/dialogue-continuity-contract.test.mjs`.
