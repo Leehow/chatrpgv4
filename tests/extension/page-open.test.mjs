@@ -95,6 +95,7 @@ test('the kernel installs a page-text opening: the anchor scene cites every open
   assert.equal(anchor.visibility,'keeper-only');
   assert.ok(anchor.properties.opening_pages_text&&['the gas station sign flickers','the owner hides a shotgun','Nate, his son'].every(words=>anchor.summary.includes(words)),'the anchor holds every opening page');
   const handoff=published.guidance.handoff;
+  assert.ok(handoff.length<=4000,'the handoff is one accepted-guidance field');
   for(const page of [16,17,20])assert.ok(handoff.includes(`[Original physical page ${page}]`),`page ${page} in the handoff`);
   assert.ok(handoff.includes('the owner hides a shotgun'),'the Keeper reads the whole page, Keeper notes included');
   assert.ok(handoff.startsWith('The table opens in Prologue.')&&handoff.includes('do not create another scene'),'the Keeper is told to play the scene from its pages');

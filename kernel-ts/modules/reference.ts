@@ -12,8 +12,10 @@ import{validatePublicGuidance}from'./public-guidance.js';
 import{validSourceLanguage}from'./contract.js';
 import{nowIso}from'../write/store.js';
 const fail=(message:string):never=>{throw new RpcError('invalid_params',message)};
-/** §258.3: the most original text a page-text opening's Keeper handoff carries. */
+/** §258.3: the most original text a page-text opening's anchor holds. */
 const HANDOFF_CHARS=24000;
+/** The accepted guidance's own bound on each field (`extensions/module/character-guidance.ts`), the handoff's lead included. */
+const GUIDANCE_FIELD_CHARS=4000;
 export async function publishReferenceContext(store:ModuleStore,meta:Row,params:Row):Promise<Row>{
  const mid=string(meta.id),root=await resolvedPath(store.moduleDir(mid)),work=await resolvedPath(string(params.work_dir));
  if(!inside(await resolvedPath(join(root,'work')),work))fail('Reference work must belong to the bound source');
@@ -75,9 +77,10 @@ export async function publishReferenceContext(store:ModuleStore,meta:Row,params:
  if(chosen){const entry=entries.find(entry=>bindings[entry.id].node_id===chosen)??fail('Selected opening has no original reference');
   const excerpts=openingText(entry);
   // §258.3: the pages are the scene the table stands in, so the Keeper is told to play it from them rather than build another.
-  const lead=pageText?`The table opens in ${bindings[entry.id].name}. The original pages below are this scene: its place, the people met here and what the investigators are read aloud. Play it from them first: describe and answer from their text, keep the people and things they name, and do not create another scene for a place they describe. Graph fragments arrive later and bind to this scene. Original pages (private):\n`
+  const lead=pageText?`The table opens in ${bindings[entry.id].name}. The original pages below are this scene: its place, the people met here and what the investigators are read aloud. Play it from them first: describe and answer from their text, keep the people and things they name, and do not create another scene for a place they describe. Graph fragments arrive later and bind to this scene. Every turn here carries these pages whole as opening_pages. Original pages (private):\n`
    :'Use the bound original source as reference while graph fragments arrive. Original context (private):\n';
-  guidance={opening:text,advice:text,scene:bindings[entry.id].name,guide:'',handoff:lead+excerpts};
+  // The handoff is one guidance field: it carries the opening's first words, and the whole pages ride every turn's capsule.
+  guidance={opening:text,advice:text,scene:bindings[entry.id].name,guide:'',handoff:(lead+excerpts).slice(0,GUIDANCE_FIELD_CHARS)};
   const folder=join(root,'character-guidance',params.guidance_key);
   await writeJsonAtomic(join(folder,'accepted.json'),{fingerprint:params.guidance_key,approved:true,guidance,source_sha256:meta.file_sha256,source_reference:meta.source_reference,at:nowIso()});
   await writeJsonAtomic(join(folder,'public.json'),{fingerprint:params.guidance_key,approved:true,fields:publicFields,source_sha256:meta.file_sha256});

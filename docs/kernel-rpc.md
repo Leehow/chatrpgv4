@@ -52049,9 +52049,10 @@ public_fields, opening_pages: {<entry id>: [pages]}}`. Telemetry: one `page-open
 `publishReferenceContext` accepts `checks_policy: "page-text-v1"` without the six material-issue checks; the guide carries
 no independent check. `opening_pages` (page-text receipts only) must start at the entry's page and name pages the packet
 holds, or the publication is refused ("Opening pages are not held by the reference packet"). The anchor scene cites every
-opening page (`source_refs`) and holds their text as its summary, marked `properties.opening_pages_text: true`, and the
-Keeper handoff in the accepted guidance carries the same text (each opening page, the entry's own excerpt first, headed
-`[Original physical page N]`, at most 24000 characters) under a lead that tells the Keeper these pages are the scene the table stands
+opening page (`source_refs`) and holds their text as its summary, marked `properties.opening_pages_text: true`. The
+anchor's text is each opening page, the entry's own excerpt first, headed `[Original physical page N]`, at most 24000
+characters. The Keeper handoff in the accepted guidance is one guidance field (at most 4000 characters, lead included): it
+carries the start of that text under a lead that tells the Keeper these pages are the scene the table stands
 in: play it from them, keep the people and things they name, and create no other scene for a place they describe. Everything else is the checked reference's context (§122): the anchor is keeper-only, the
 table may open on it (`referenceReady`), and the graph that lands later binds to it by name or page.
 

@@ -43,7 +43,7 @@ Then stop.`;
 
 const REVIEW_INSTRUCTION=`You check the public setup guide of a tabletop roleplaying scenario before the players see it.
 task.json holds the guide's fields, written for players before they make their investigators, in play_language.
-Players may know only what the book tells them before play. Rewrite each field so it says nothing more: remove every monster, creature, Mythos being or cult name, culprit, secret, twist, hidden motive, threat to come, and what the investigators will discover or must survive. A hook or a piece of advice that only works by naming such a thing is dropped whole, not reworded. Keep everything else as it is, in play_language.
+Players may know only what the book tells them before play. Rewrite each field so it says nothing more: remove every monster, creature, Mythos being or cult name, culprit, secret, twist, hidden motive, threat to come, what the investigators will discover or must survive, and any label that announces the danger (a survival or horror scenario, a fight for their lives). A hook or a piece of advice that only works by naming such a thing is dropped whole, not reworded. Keep everything else as it is, in play_language.
 Write answer.json with the write tool, exactly:
 {"era":"...","starting_place":"...","public_premise":"...","creation_advice":"..."}
 A field left with nothing to say is "".
