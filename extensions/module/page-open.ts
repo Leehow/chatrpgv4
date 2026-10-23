@@ -1,8 +1,8 @@
 /**
  * §258: a bound PDF's opening found from its text layer alone, so a table can open on the opening's pages while the
- * graph is read in the background. Two text-only reader calls (no page images, no review): one finds the opening's pages
- * and the setup pages from the bookmarks and each page's first lines; one writes the public setup guide from those pages'
- * text. The host builds the same source-reference packet and receipt `module.reference.publish` installs, under the
+ * graph is read in the background. Three text-only reader calls (no page images): one finds the opening's pages and the
+ * setup pages from the bookmarks and each page's first lines; one writes the public setup guide from those pages' text;
+ * one checks that guide, seeing only the guide, for what players may not know. The host builds the same source-reference packet and receipt `module.reference.publish` installs, under the
  * `page-text-v1` check policy.
  */
 import{createHash,randomUUID}from'node:crypto';
@@ -39,6 +39,14 @@ Write in play_language. Write only what the players may know before play: the er
 Write answer.json with the write tool, exactly:
 {"era":{"text":"...","pages":[7]},"starting_place":{"text":"...","pages":[16]},"public_premise":{"text":"...","pages":[6]},"creation_advice":{"text":"...","pages":[7]},"era_text":"..."}
 Each text is at most ${FIELD_CHARS} characters; leave one empty ("" with pages []) when the book does not say it. pages are the task.json pages the text rests on. era_text is the era copied exactly, character for character, from one setup or opening page (for example a year or a decade), or "" when none is printed.
+Then stop.`;
+
+const REVIEW_INSTRUCTION=`You check the public setup guide of a tabletop roleplaying scenario before the players see it.
+task.json holds the guide's fields, written for players before they make their investigators, in play_language.
+Players may know only what the book tells them before play. Rewrite each field so it says nothing more: remove every monster, creature, Mythos being or cult name, culprit, secret, twist, hidden motive, threat to come, and what the investigators will discover or must survive. A hook or a piece of advice that only works by naming such a thing is dropped whole, not reworded. Keep everything else as it is, in play_language.
+Write answer.json with the write tool, exactly:
+{"era":"...","starting_place":"...","public_premise":"...","creation_advice":"..."}
+A field left with nothing to say is "".
 Then stop.`;
 
 export type PageOpenInput={runtime:HostRuntime;source:{pdf:string;file_sha256:string;page_count:number};moduleId:string;language:string;
@@ -91,9 +99,20 @@ export async function runPageOpen(input:PageOpenInput):Promise<ReferenceResult>{
  }
  if(!heads.some(head=>head.lines.length))throw new SourceReferenceFailure('page_open_no_text_layer',false,true);
  const located=await ask(input,cwd,'locate',LOCATE_INSTRUCTION,{page_count:count,bookmarks:marks,pages:heads,...(input.focus?{preferred_opening:input.focus}:{})});
+ // §258.2: an opening's people often continue after a map; the first text page past image-only pages that follow the
+ // opening is kept with it, unless a chapter (a top-level bookmark) starts there.
+ const chapters=new Set(Array.isArray(info.bookmarks)?info.bookmarks.flatMap((mark:Row)=>Number.isSafeInteger(mark?.page)?[mark.page as number]:[]):[]);
+ const bridged=(pages:number[]):number[]=>{
+  let page=Math.max(...pages)+1,skipped=false;
+  for(;page<=count&&pages.length<OPENING_PAGES&&!chapters.has(page);page++){
+   if(!text.get(page)?.trim()){skipped=true;continue;}
+   return skipped&&!pages.includes(page)?[...pages,page]:pages;
+  }
+  return pages;
+ };
  const openings=(Array.isArray(located.openings)?located.openings:[]).slice(0,OPENINGS).flatMap((row:Row)=>{
   const name=typeof row?.name==='string'?row.name.trim().slice(0,400):'',pages=pageList(row?.pages,count,OPENING_PAGES).filter(page=>text.get(page)?.trim());
-  return name&&pages.length?[{name,pages}]:[];});
+  return name&&pages.length?[{name,pages:bridged(pages)}]:[];});
  if(!openings.length)throw new SourceReferenceFailure('page_open_no_opening',true);
  const setup=pageList(located.setup_pages,count,SETUP_PAGES).filter(page=>text.get(page)?.trim());
  // §258.2: each page read is one excerpt, whole up to the packet's bound.
@@ -101,9 +120,15 @@ export async function runPageOpen(input:PageOpenInput):Promise<ReferenceResult>{
  const excerpts:ReferenceExcerpt[]=pagesRead.map((page,index)=>{const body=text.get(page)!.slice(0,PAGE_CHARS);return {id:`page-${index+1}`,page,start:0,end:body.length,text:body};});
  const spanOf=(page:number)=>excerpts.find(span=>span.page===page)!;
  const guided=await ask(input,cwd,'guide',GUIDE_INSTRUCTION,{play_language:input.language,pages:excerpts.map(span=>({page:span.page,text:span.text}))});
+ // §258.2: the draft is checked once more for what players may not know, by a call that sees only the draft.
+ const draft=Object.fromEntries(PUBLIC_GUIDANCE_FIELDS.map(field=>[field,typeof guided[field]?.text==='string'?guided[field].text.trim():'']));
+ let reviewed:Row|undefined;
+ try{reviewed=await ask(input,cwd,'review',REVIEW_INSTRUCTION,{play_language:input.language,fields:draft});}
+ catch(error){if(input.signal?.aborted)throw error;input.record?.({lane:'page-open',event:'review_missing',module_id:input.moduleId,detail:error instanceof Error?error.message:String(error)});}
  const publicFields={} as PublicGuidance;
  for(const field of PUBLIC_GUIDANCE_FIELDS){
-  const value=guided[field],body=typeof value?.text==='string'?Array.from(value.text.trim()).slice(0,FIELD_CHARS).join(''):'',refs=pageList(value?.pages,count,12).filter(page=>pagesRead.includes(page));
+  const value=guided[field],said=reviewed&&typeof reviewed[field]==='string'?reviewed[field]:draft[field];
+  const body=Array.from(said.trim()).slice(0,FIELD_CHARS).join(''),refs=pageList(value?.pages,count,12).filter(page=>pagesRead.includes(page));
   publicFields[field]=body&&refs.length?{status:'value',text:body,source_refs:refs.map(page=>({page}))}:{status:'unavailable',text:'',source_refs:[]};
  }
  validatePublicGuidance(publicFields,count);

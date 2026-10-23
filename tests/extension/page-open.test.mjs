@@ -27,7 +27,7 @@ const pageText=page=>page===16?'Prologue\nThe road runs straight through the des
   :page===17?'Welcome to the station\nThe pumps are rusted.\nKeeper note: the owner hides a shotgun.'
   :page===20?'Ras the owner\nA tall man in overalls.\nNate, his son, leans on the car lift.'
   :page===6?'Introduction\nThe investigators drive into a desert town in 1975.\nA car and Drive Auto 55% are required.'
-  :page===18?'':`Page ${page} heading\nBody text of page ${page}.`;
+  :page===18||page===19?'':`Page ${page} heading\nBody text of page ${page}.`;
 /** A fake host runtime: the text layer above, and a reader child that answers each step from `answers`. */
 function runtime(answers,runs=[]){
   return {
@@ -44,7 +44,8 @@ function runtime(answers,runs=[]){
 const ANSWERS={
   locate:{openings:[{name:'Prologue',pages:[16,17,20,99]}],setup_pages:[6,18]},
   guide:{era:{text:'1975, the American desert.',pages:[6]},starting_place:{text:'A gas station on the road into town.',pages:[16]},
-    public_premise:{text:'The investigators drive into a small desert town.',pages:[6]},creation_advice:{text:'Bring a car; Drive Auto 55% is required.',pages:[6]},era_text:'1975'},
+    public_premise:{text:'The investigators drive into a small desert town. The serpent folk wait.',pages:[6]},creation_advice:{text:'Bring a car; Drive Auto 55% is required.',pages:[6]},era_text:'1975'},
+  review:task=>({...task.fields,public_premise:task.fields.public_premise.replace(' The serpent folk wait.','')}),
 };
 
 async function bound(t){
@@ -59,7 +60,7 @@ async function bound(t){
 test('the opening and the setup pages are found from the text layer, and the guide is written from those pages alone',async t=>{
   const f=await bound(t),runs=[],host=runtime(ANSWERS,runs);runtime.sha=f.sha;
   const result=await runPageOpen({runtime:host,source:{pdf:f.pdf,file_sha256:f.sha,page_count:PAGES},moduleId:f.mid,language:'zh-Hans',model:{id:'fixture/model'}});
-  assert.deepEqual(runs.map(run=>run.step),['locate','guide']);
+  assert.deepEqual(runs.map(run=>run.step),['locate','guide','review']);
   assert.ok(runs.every(run=>run.request.tools==='read,write'&&!run.request.prompt),'text-only calls: no page images, no reader phase');
   const toc=runs[0].task;
   assert.deepEqual(toc.bookmarks.map(mark=>[mark.name,mark.page]),[['Introduction',6],['Prologue',16],['The station',17]]);
@@ -70,7 +71,17 @@ test('the opening and the setup pages are found from the text layer, and the gui
   assert.deepEqual(result.receipt.opening_pages,{'scene-source-entry-1':[16,17,20]});
   assert.equal(result.receipt.checks_policy,'page-text-v1');
   assert.ok(result.text.includes('Drive Auto 55%')&&!result.text.includes('shotgun'));
+  assert.deepEqual(runs[2].task.fields.public_premise,'The investigators drive into a small desert town. The serpent folk wait.','the review sees the draft');
+  assert.ok(!result.text.includes('serpent')&&result.receipt.public_fields.public_premise.text==='The investigators drive into a small desert town.','the reviewed text is the guide');
   assert.equal(result.receipt.public_fields.era.status,'value');
+});
+
+test('an opening whose people continue after its maps keeps that page, and a missing review keeps the draft',async t=>{
+  const f=await bound(t),runs=[],rows=[],host=runtime({...ANSWERS,locate:{openings:[{name:'Prologue',pages:[16,17]}],setup_pages:[6]},review:undefined},runs);runtime.sha=f.sha;
+  const result=await runPageOpen({runtime:host,source:{pdf:f.pdf,file_sha256:f.sha,page_count:PAGES},moduleId:f.mid,language:'en',model:{id:'fixture/model'},record:row=>rows.push(row)});
+  assert.deepEqual(result.receipt.opening_pages,{'scene-source-entry-1':[16,17,20]},'pages 18 and 19 are maps; 20 holds the people');
+  assert.ok(rows.some(row=>row.event==='review_missing'));
+  assert.ok(result.text.includes('serpent folk'),'without a review the draft stands');
 });
 
 test('the kernel installs a page-text opening: the anchor scene cites every opening page and the Keeper handoff carries them',async t=>{
@@ -82,6 +93,7 @@ test('the kernel installs a page-text opening: the anchor scene cites every open
   const graph=await f.modules.source.store.readGraph(f.mid),anchor=graph.nodes.find(node=>node.name==='Prologue');
   assert.deepEqual(anchor.source_refs.map(ref=>ref.pdf_index+1),[16,17,20]);
   assert.equal(anchor.visibility,'keeper-only');
+  assert.ok(anchor.properties.opening_pages_text&&['the gas station sign flickers','the owner hides a shotgun','Nate, his son'].every(words=>anchor.summary.includes(words)),'the anchor holds every opening page');
   const handoff=published.guidance.handoff;
   for(const page of [16,17,20])assert.ok(handoff.includes(`[Original physical page ${page}]`),`page ${page} in the handoff`);
   assert.ok(handoff.includes('the owner hides a shotgun'),'the Keeper reads the whole page, Keeper notes included');

@@ -52016,19 +52016,27 @@ The page opening is on whenever the service has a host runtime, unless the host 
 takes it. Any failure other than a cancellation or `needs_choice` is recorded (`lane: "page-open"`, `event: "fallback"`,
 `reason`) and the ordinary read follows, so a book without a usable text layer opens exactly as before.
 
-### 258.2 Two text-only reader calls (`extensions/module/page-open.ts`)
+### 258.2 Three text-only reader calls (`extensions/module/page-open.ts`)
 
-Both are `runtime.runTask({kind: "reader"})` children with their own system prompt, tools `read,write`, no page images and
-no review; each reads `task.json` and writes `answer.json` in its own step directory (`locate`, `guide`) under the module's
+Each is a `runtime.runTask({kind: "reader"})` child with its own system prompt, tools `read,write` and no page images; each
+reads `task.json` and writes `answer.json` in its own step directory (`locate`, `guide`, `review`) under the module's
 `work/page-open-<uuid>/`.
 
 - **locate**: the bookmarks (two levels, `{name, page}`) and each page's first six non-empty native lines (80 characters
   each, until 48 KB) give `{openings: [{name, pages}], setup_pages}`. The host keeps at most 4 openings of at most 5 pages
-  and 6 setup pages, each a page of the book with text; a book with no line of text, or no opening left, fails.
+  and 6 setup pages, each a page of the book with text; a book with no line of text, or no opening left, fails. An
+  opening's people often continue after a map: when image-only pages follow an opening's last page, the first text page
+  after them joins the opening (within the 5), unless a top-level bookmark starts on it or on the pages between.
 - **guide**: the native text of the setup and opening pages (one excerpt per page, whole up to 12000 characters) and
   `play_language` give the four public setup fields (`era`, `starting_place`, `public_premise`, `creation_advice`; text at
-  most 950 characters and the pages it rests on) and `era_text`, copied from one page. The guide text is the non-empty
-  fields joined by blank lines, so each public field is a view of it by construction.
+  most 950 characters and the pages it rests on) and `era_text`, copied from one page.
+- **review**: the four drafted texts alone, and `play_language`, give the same four fields rewritten to say nothing players
+  may not know before play (a Mythos being or creature, a culprit, a threat to come, what must be survived); a hook that
+  only works by naming one is dropped. A field the review returns as a string replaces the draft; a missing review is
+  recorded (`event: "review_missing"`) and the draft stands. The pages each field rests on are the guide's.
+
+The guide text is the non-empty reviewed fields joined by blank lines, so each public field is a view of it by
+construction.
 
 The host writes the packet (`source-reference-v1`: excerpts per page; `fields.opening` the openings' first pages, `era`
 the page holding `era_text` when found, the others the setup pages; one entry per opening, `scene-source-entry-N`, on its
@@ -52041,10 +52049,17 @@ public_fields, opening_pages: {<entry id>: [pages]}}`. Telemetry: one `page-open
 `publishReferenceContext` accepts `checks_policy: "page-text-v1"` without the six material-issue checks; the guide carries
 no independent check. `opening_pages` (page-text receipts only) must start at the entry's page and name pages the packet
 holds, or the publication is refused ("Opening pages are not held by the reference packet"). The anchor scene cites every
-opening page (`source_refs`), and the Keeper handoff in the accepted guidance carries each opening page's text, the entry's
-own excerpt first, at most 24000 characters, under a lead that tells the Keeper these pages are the scene the table stands
+opening page (`source_refs`) and holds their text as its summary, marked `properties.opening_pages_text: true`, and the
+Keeper handoff in the accepted guidance carries the same text (each opening page, the entry's own excerpt first, headed
+`[Original physical page N]`, at most 24000 characters) under a lead that tells the Keeper these pages are the scene the table stands
 in: play it from them, keep the people and things they name, and create no other scene for a place they describe. Everything else is the checked reference's context (§122): the anchor is keeper-only, the
 table may open on it (`referenceReady`), and the graph that lands later binds to it by name or page.
+
+The handoff is read once, at the opening. On every later turn whose active scene is that anchor or lies in it (a place the
+table established within it), the capsule carries the anchor's text beside the sections as `opening_pages: {scene,
+text}` (at most 16000 characters; it displaces no budgeted section), and the capsule head says to answer what the
+investigators see, hear or ask about there from it before any lookup. A module lookup that returns the anchor carries it
+as the turn's book text under its first page, and a refused name found in its text points at all of its pages.
 
 ### 258.4 Opening the table
 

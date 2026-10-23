@@ -48,10 +48,14 @@ export async function publishReferenceContext(store:ModuleStore,meta:Row,params:
  const entryIds=entries.map(entry=>bindings[entry.id].node_id);
  const nodes:Row[]=previous?[]:[{node_id:`module-${mid}`,node_kind:'module',name:meta.title,visibility:'keeper-only',properties:{entry_scene_ids:entryIds,
   ...(entries.length===1&&entries[0].era_text?{era:entries[0].era_text}:{})},source_refs:[{page:entries[0].page}]}];
+ // §258.3: a page-text opening's own words are every page of the opening, its first page's excerpt first.
+ const openingText=(entry:typeof entries[number]):string=>{const span=referenceEntryExcerpt(packet,entry);
+  const spans=[...(span?[span]:[]),...openingPages(entry).slice(1).flatMap(page=>packet.excerpts.filter(other=>other.page===page&&other!==span).slice(0,1))];
+  return spans.map(other=>`[Original physical page ${other.page}]\n${other.text}`).join('\n\n').slice(0,HANDOFF_CHARS);};
  for(const entry of entries){const excerpt=referenceEntryExcerpt(packet,entry);
   if(array(previous?.nodes).some(node=>node.node_id===bindings[entry.id].node_id))continue;
-  nodes.push({node_id:entry.id,node_kind:'scene',name:entry.name,summary:excerpt?.text??'',visibility:'keeper-only',source_refs:openingPages(entry).map(page=>({page})),
-   properties:{is_entrance:true,source_reference_anchor:true,...(entry.era_text?{investigator_setup:{era:entry.era_text}}:{})}});}
+  nodes.push({node_id:entry.id,node_kind:'scene',name:entry.name,summary:pageText?openingText(entry):excerpt?.text??'',visibility:'keeper-only',source_refs:openingPages(entry).map(page=>({page})),
+   properties:{is_entrance:true,source_reference_anchor:true,...(pageText?{opening_pages_text:true}:{}),...(entry.era_text?{investigator_setup:{era:entry.era_text}}:{})}});}
  const graph=assembleVisual(previous,{nodes,claims:[],node_refs:[],ready_nodes:[],critical:[],required_review:[],coverage:{},dependencies:[],review_policy:'module-logic-v1'},meta,contract);
  const requested=string(params.start_scene??''),priorChoice=string(row(meta.opening_choice).start_scene??'');
  const chosen=requested?resolveStartScene(graph,requested,contract):entryIds.includes(priorChoice)?priorChoice:entries.length===1?entryIds[0]:null;
@@ -69,10 +73,7 @@ export async function publishReferenceContext(store:ModuleStore,meta:Row,params:
  await store.writeGraph(meta,graph);
  let guidance:Row|undefined;
  if(chosen){const entry=entries.find(entry=>bindings[entry.id].node_id===chosen)??fail('Selected opening has no original reference');
-  const span=referenceEntryExcerpt(packet,entry);
-  // §258.3: a page-text opening hands the Keeper every page of the opening, its first page's excerpt first.
-  const spans=[...(span?[span]:[]),...openingPages(entry).slice(1).flatMap(page=>packet.excerpts.filter(other=>other.page===page&&other!==span).slice(0,1))];
-  const excerpts=spans.map(other=>`[Original physical page ${other.page}]\n${other.text}`).join('\n\n').slice(0,HANDOFF_CHARS);
+  const excerpts=openingText(entry);
   // §258.3: the pages are the scene the table stands in, so the Keeper is told to play it from them rather than build another.
   const lead=pageText?`The table opens in ${bindings[entry.id].name}. The original pages below are this scene: its place, the people met here and what the investigators are read aloud. Play it from them first: describe and answer from their text, keep the people and things they name, and do not create another scene for a place they describe. Graph fragments arrive later and bind to this scene. Original pages (private):\n`
    :'Use the bound original source as reference while graph fragments arrive. Original context (private):\n';
