@@ -9,6 +9,7 @@ import{createHash,randomUUID}from'node:crypto';
 import{mkdir,readFile,writeFile}from'node:fs/promises';
 import{join,dirname}from'node:path';
 import type{HostRuntime}from'../../runtime/host.ts';
+import{readerInput}from'./reader.ts';
 import type{TaskProviderBudget}from'../../runtime/jev/provider-budget.ts';
 import{PAGE_TEXT_POLICY,REFERENCE_FIELDS,SOURCE_REFERENCE_PROTOCOL,validateReferencePacket,type ReferenceExcerpt,type SourceReferencePacket}from'../../kernel-ts/modules/reference-contract.ts';
 import{PUBLIC_GUIDANCE_FIELDS,validatePublicGuidance,type PublicGuidance}from'../../kernel-ts/modules/public-guidance.ts';
@@ -20,7 +21,7 @@ const OPENING_PAGES=5,SETUP_PAGES=6,OPENINGS=4;
 /** A page's text kept for a reader call and as one excerpt (the packet's own bound). */
 const PAGE_CHARS=12000;
 /** The table of contents a locate call reads: bookmarks plus each page's first lines. */
-const HEAD_LINES=6,HEAD_CHARS=80,TOC_BYTES=48000;
+const HEAD_LINES=6,HEAD_CHARS=80,TOC_BYTES=40000;
 const FIELD_CHARS=950;
 /** The most pages one source text request may name. */
 const TEXT_BATCH=32;
@@ -56,7 +57,7 @@ export type PageOpenInput={runtime:HostRuntime;source:{pdf:string;file_sha256:st
 async function ask(input:PageOpenInput,cwd:string,step:string,instruction:string,task:Row):Promise<Row>{
  const dir=join(cwd,step);await mkdir(dir,{recursive:true});
  await writeFile(join(dir,'task.json'),JSON.stringify(task)+'\n');
- const run=await input.runtime.runTask({kind:'reader',request:{cwd:dir,systemPrompt:instruction,brief:'Read task.json, then write answer.json as instructed.',
+ const run=await input.runtime.runTask({kind:'reader',request:{cwd:dir,systemPrompt:instruction,brief:`${readerInput({task})} Write answer.json as instructed.`,
   model:input.model.id,thinking:input.model.thinking,providerBudget:input.providerBudget,tools:'read,write',maxRequests:4,timeoutMs:180000,eventLog:join(dir,'events.jsonl')}},input.signal);
  await writeFile(join(dir,'run-result.json'),JSON.stringify(run)+'\n');
  input.record?.({lane:'page-open',event:step,module_id:input.moduleId,ok:run.ok,ms:run.ms,usage:run.usage});

@@ -52237,6 +52237,10 @@ takes it. Any failure other than a cancellation or `needs_choice` is recorded (`
 
 ### 261.2 Three text-only reader calls (`extensions/module/page-open.ts`)
 
+Each of the three calls is handed its task inlined in its brief (under `READER_INLINE_BYTES`; the table of contents is
+bounded to 40000 bytes for it), so a call writes its answer without reading task.json in pieces (a 268-page book's locate
+call spent its four requests paging task.json and wrote nothing, 2026-10-23).
+
 Each is a `runtime.runTask({kind: "reader"})` child with its own system prompt, tools `read,write` and no page images; each
 reads `task.json` and writes `answer.json` in its own step directory (`locate`, `guide`, `review`) under the module's
 `work/page-open-<uuid>/`.
