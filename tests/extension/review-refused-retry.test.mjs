@@ -134,7 +134,8 @@ test("§22.3.3 on the emitted kernel: a refused detail read is read once more in
 	// Refused again: settled, and nothing more is queued.
 	const again = fail(second, refusal());
 	assert.equal(again.requeued, undefined, "read once more, not twice");
-	assert.equal(queue().filter((job) => job.state === "queued").length, 0);
+	// §257.15: opening the table also queues the background exhibits read of its scene; it is not a retry of this read.
+	assert.equal(queue().filter((job) => job.state === "queued" && job.material !== "exhibits").length, 0);
 	const settled = meta().reading.materials.filter((row) => row.status === "unusable");
 	assert.deepEqual(settled.map((row) => [row.focus, row.purpose, row.job_id, row.material]), [["tower", "detail", retry.job_id, undefined]]);
 	assert.match(settled[0].reason, /lamp room/);

@@ -52,6 +52,8 @@ export function bindCommunicationParameters(schema:TSchema,bindings:DecisionBind
   if(p?.source_ref)p.source_ref=selection(bindings.sources);
   if(p?.exhibit_ref)p.exhibit_ref=selection(narration?bindings.revealExhibits??[]:bindings.speechExhibits??[]);
   for(const child of Object.values(row))visit(child);
+  // §257.7: with no exhibit issued for a position, its branch is left out rather than offered as an empty choice.
+  if(Array.isArray(row.anyOf))row.anyOf=row.anyOf.filter((variant:Row)=>!(variant?.properties?.exhibit_ref&&variant.properties.exhibit_ref.enum?.length===0));
   if(p?.actor&&p?.act&&owned.size)row.allOf=[...row.allOf??[],...[...owned].map(([actor,refs])=>({
    if:{required:['content'],properties:{content:{contains:{required:['fact_ref'],properties:{fact_ref:{enum:refs}}}}}},
    then:{properties:{actor:{const:actor}}}
