@@ -53,6 +53,15 @@ test('a missing source clue offers its same-handle prepare action, then real pub
   assert.equal(where.affordances[0].clues[0].material, 'missing');
   assert.equal(where.affordances[0].clues[0].next.query, offered.name);
   assert.equal(api.knownSection(module.graph, world, scene, [], [], module.material).clues_here[0].material, 'missing');
+  // §257.15: the opening scene's exhibits read comes first among background reads; read it to nothing printed.
+  const opening = await book.raw('module.read.claim', {module_id: book.mid, campaign: table.id, owner: 'regression-host'});
+  assert.equal(opening.material, 'exhibits');
+  const openingSha = createHash('sha256').update(await readFile(join(book.home, 'harbor.pdf'))).digest('hex');
+  await writeFile(join(opening.work_dir, 'observations.json'), JSON.stringify({file_sha256: openingSha, read_pages: [1], full_pages: [1], review_pages: [1]}));
+  await writeFile(join(opening.work_dir, 'draft.json'), JSON.stringify({nodes: [], claims: [], exhibits: [], node_refs: [], coverage: {}, dependencies: [], critical: [], ready_nodes: []}));
+  await writeFile(join(opening.work_dir, 'review.json'), JSON.stringify({checked: [], missing: []}));
+  await book.raw('module.read.finish', {module_id: book.mid, campaign: table.id, job_id: opening.job_id, lease: opening.lease,
+    outcome: 'completed', draft_path: join(opening.work_dir, 'draft.json'), review_path: join(opening.work_dir, 'review.json')});
   await book.raw('module.read.request', {module_id: book.mid, campaign: table.id, purpose: 'detail', focus: offered.name, question: offered.next.question});
   const job = await book.raw('module.read.claim', {module_id: book.mid, campaign: table.id, owner: 'regression-host'});
   const sha = createHash('sha256').update(await readFile(join(book.home, 'harbor.pdf'))).digest('hex');

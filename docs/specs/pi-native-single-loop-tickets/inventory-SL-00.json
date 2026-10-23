@@ -2167,6 +2167,18 @@
       "note": "With a mounted Jev key, setup produces one final public guide in a tool-enabled Pi source session. Explicit source-answer lookup selects and copies original excerpts through the same RunDriver without generative inference. Graph authoring/review remain background readers."
     },
     {
+      "file": "extensions/module/page-open.ts",
+      "symbol": "ask",
+      "kind": "reader-task",
+      "callee": "runtime.runTask",
+      "count": 1,
+      "owner": "Page opening (§261)",
+      "path": "app-play-gated",
+      "role": "driver",
+      "trace": "page-open telemetry rows (locate, guide)",
+      "note": "Without a checked source reference, setup runs two text-only reader children (no images, no review): one locates the opening and setup pages from bookmarks and page heads, one writes the public guide from those pages. The host builds the source-reference packet; graph authoring and review stay background readers."
+    },
+    {
       "file": "extensions/onboarding/source-intake.ts",
       "symbol": "selectSetupSource",
       "kind": "jev-adapter",

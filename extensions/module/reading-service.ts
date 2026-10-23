@@ -26,6 +26,7 @@ import type {FreshSourceNavigator} from '../../runtime/jev/fresh-source-navigato
 import type {PublicationTravel, TravelFill} from './travel-fill.ts';
 import type {ClaimSupportCheck, ClaimSupportRequest} from './claim-support.ts';
 import {runSourceReference,SourceReferenceFailure} from './source-reference.ts';
+import {runPageOpen} from './page-open.ts';
 import {acceptedGuidance,acceptedPublicGuidance} from './character-guidance.ts';
 import {validateReferencePacket} from '../../kernel-ts/modules/reference-contract.ts';
 import {readNeedReceipt,type NeedReceipt} from '../../runtime/jev/source-need-reads.ts';
@@ -575,6 +576,27 @@ export class ReadingService implements ReadingBridge {
 			details:{...published.opening?.choice,introduction:published.introduction,source_reference:true}});
 		return {...published,source_reference:true};
 	}
+	/** §261.1: whether a PDF's guidance may be written from its pages' text when no checked source reference is available. */
+	private pageOpen():boolean{return this.deps.runtime!==undefined&&process.env.PI_COC_PAGE_OPEN!=='off';}
+	/**
+	 * §261.2: the opening found and the guide written from the book's text layer alone (two text-only reader calls), installed
+	 * through `module.reference.publish` like a checked source reference. Undefined when it is off or the source is a window.
+	 */
+	private async pageGuidance(mid:string,params:Row,signal:AbortSignal|undefined,options:ReadingOptions):Promise<Row|undefined>{
+		if(!this.pageOpen())return;
+		const source=await this.call('module.source.snapshot',{module_id:mid},undefined);
+		if(source.window)return;
+		const status=await this.call('module.reference.status',{module_id:mid,focus:params.start_scene||''},undefined);
+		if(status.source_reference&&status.character_guidance?.[params.guidance_key])return {state:'ready',setup_ready:true,reference_ready:status.ready,source_reference:true,guidance_key:params.guidance_key,
+			guidance:await acceptedGuidance(this.deps.home,mid,params.guidance_key),public_fields:await acceptedPublicGuidance(this.deps.home,mid,params.guidance_key)};
+		this.deps.progress({stage:'guidance',purpose:'guidance',module_id:mid});
+		const result=await runPageOpen({runtime:this.runtime(),source,moduleId:mid,language:params.play_language,focus:params.start_scene||'',
+			providerBudget:options.providerBudget,model:this.deps.model(),signal,record:this.deps.record});
+		const published=await this.call('module.reference.publish',{module_id:mid,work_dir:result.workDir,guidance_key:params.guidance_key,play_language:params.play_language,start_scene:params.start_scene||''},undefined);
+		if(!published.setup_ready)throw new KernelError({code:'needs_choice',message:'Choose an authored starting entrance',fix:'Select one of details.candidates and retry prepare-module',
+			details:{...published.opening?.choice,introduction:published.introduction,source_reference:true}});
+		return {...published,source_reference:true};
+	}
 	async reference(mid:string,params:Row,signal?:AbortSignal,priority?:import('./reader.ts').ReaderPriority):Promise<Row|undefined>{
 		if(!this.deps.runtime?.sourceReferences)return;
 		const campaign=this.campaign(params);
@@ -659,11 +681,19 @@ export class ReadingService implements ReadingBridge {
 						fix:'Retry guidance after checking the source reader and decision service',details:{reason}});
 				}
 			}
+			// §261.2: without a checked source reference, the opening's pages are found and guided from the text layer; a book
+			// that has none, or a page opening that fails, is read as before.
+			try{const paged=await this.pageGuidance(mid,params,signal,options);if(paged)return {...paged,module_id:mid};}
+			catch(failure){
+				if(signal?.aborted||isKernelError(failure)&&failure.code==='needs_choice')throw failure;
+				this.deps.record({lane:'page-open',event:'fallback',module_id:mid,reason:failure instanceof SourceReferenceFailure?failure.reason:'page_open_failed',detail:String(failure).slice(0,500)});
+			}
 			const result = await this.ensure(mid, {...params,public_progress:true, campaign:null, focus: params.start_scene || "", foreground:true}, signal, options);
 			return {...result, module_id:mid};
 		}
 		if (params.start_scene && params.targeted === true) {
-			if(this.deps.runtime?.sourceReferences){const reference=await this.call('module.reference.status',{module_id:mid,focus:params.start_scene},campaign);
+			// §261.4: a page-text opening is a source reference too: the table opens on it while the graph is read behind it.
+			if(this.deps.runtime?.sourceReferences||this.pageOpen()){const reference=await this.call('module.reference.status',{module_id:mid,focus:params.start_scene},campaign);
 				if(reference.ready){void this.readAhead({module_id:mid,focus:params.start_scene},campaign).then(()=>{this.wakes.set(JSON.stringify([campaign,mid]),'reference-ready');return this.pump(mid,campaign);}).catch(()=>undefined);
 					return {ok:true,module_id:mid,opening_ready:true,readiness:'source-reference',graph_complete:false};}}
 			await this.ensure(mid, {purpose:"opening", campaign:campaign ?? null, focus:params.start_scene,
