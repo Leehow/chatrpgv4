@@ -150,7 +150,7 @@ export function openingPassages(value:unknown):Array<{name:string;text:string}> 
   if(heading){close();page=Number(heading[1]);part=0;continue;}
   lines.push(line);
   const size=lines.join('\n').length;
-  if(size>=OPENING_PASSAGE_CHARS||size>=OPENING_PASSAGE_CHARS/2&&/[.!?。！？]["'”’)]?$/.test(line.trim()))close();
+  if(size>=OPENING_PASSAGE_CHARS||size>=OPENING_PASSAGE_CHARS/2&&/[.!?\u3002\uff01\uff1f]["'\u201d\u2019)]?$/.test(line.trim()))close();
  }
  close();
  return out;
