@@ -957,7 +957,7 @@ export function npcEntry(graph: ModuleGraph, world: Row, node: Row, ledger: Row,
     const semantic=actorEventView(canonicalEvents(records,array(scope.current_receipts),scope),graph.nameKeys(node),{...scope,across_loops:remembersAcrossLoops(graph,node)});
     if(array(semantic.cognition).length)entry.cognition=[...semantic.cognition].reverse();
     if(semantic.coverage.cognition_omitted||semantic.coverage.relationships_omitted)entry.semantic_coverage={...semantic.coverage,read:{what:'memory',about:[graph.displayName(node)]}};
-    const relationships=[...array(semantic.relationships).reverse(),...npcRelationships(graph,node,[...memories.values()],scope)],recent=npcRecentSpeech(graph,node,records,scope);
+    const relationships=[...array(semantic.relationships).reverse(),...npcRelationships(graph,node,[...memories.values()],scope)],recent=npcRecentSpeech(graph,node,records,scope,npcReference(graph,world,node));
     if(relationships.length)entry.relationships=relationships;
     if(recent.length)entry.recent_speech=recent;
     // The same owned promise already occupies history.promises. Do not duplicate its bytes and
@@ -1109,7 +1109,7 @@ export function npcView(graph: ModuleGraph, world: Row, node: Row, ledger: Row =
     const authored = withoutChainIds(graph.shownIds(graph.entityView(node).properties), chain);
     if (truth(authored))
         view.properties = authored;
-    const relationships=npcRelationships(graph,node,memory,scope),recent=npcRecentSpeech(graph,node,records,scope);
+    const relationships=npcRelationships(graph,node,memory,scope),recent=npcRecentSpeech(graph,node,records,scope,npcReference(graph,world,node));
     if(relationships.length)view.relationships=relationships;
     if(recent.length)view.recent_speech=recent;
     const commitments=npcCommitments(graph,node,memory,scope,{records,ref:npcReference(graph,world,node)});

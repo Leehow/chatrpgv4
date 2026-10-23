@@ -504,11 +504,13 @@ export function decisionPerson(person:Row,cast:Row[]):Row {
  const voice=Array.isArray(person.voice)?person.voice.filter((line:unknown)=>typeof line==='string'&&line.trim()).join('\n'):'';
  const speech=rows(person.recent_speech).filter(line=>line.authority==='conversation_report'&&line.attribution?.kind==='speech'&&line.attribution?.speaker?.kind==='npc'&&Number.isFinite(Number(line.turn))&&typeof line.statement==='string');
  const lastTurn=Math.max(...speech.map(line=>Number(line.turn)));
- const lastSpeech=speech.filter(line=>Number(line.turn)===lastTurn).slice(-6).map(line=>line.statement.slice(0,800));
+ const lastRows=speech.filter(line=>Number(line.turn)===lastTurn).slice(-6),lastSpeech=lastRows.map(line=>line.statement.slice(0,800));
+ // §258.9: words said as an aside stay marked with who received them, wherever they are later shown.
+ const lastAside=lastRows.some(line=>line.aside===true)?[...new Set(lastRows.flatMap(line=>Array.isArray(line.to)?line.to:[]))]:undefined;
  return {ref:person.ref,name:person.display_name,display_name:person.display_name,name_known:person.name_known===true,
   ...(typeof person.public_appearance==='string'&&person.public_appearance.trim()?{public_appearance:person.public_appearance}:{}),
   ...(person.last_public_rendering?{last_public_rendering:structuredClone(person.last_public_rendering)}:{}),
-  ...(lastSpeech.length?{last_public_exchange:{turn:lastTurn,words:lastSpeech}}:{}),
+  ...(lastSpeech.length?{last_public_exchange:{turn:lastTurn,words:lastSpeech,...(lastAside?{aside:true,to:lastAside}:{})}}:{}),
   ...(voice?{speech_style:voice}:typeof profile?.expression==='string'?{speech_style:profile.expression}:{}),
   ...(typeof person.personality?.description==='string'?{personality:{description:person.personality.description,origin:person.personality.origin}}:{}),
   ...(person.variation?{variation:structuredClone(person.variation)}:{}),

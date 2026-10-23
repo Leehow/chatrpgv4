@@ -38,12 +38,18 @@ export function npcRelationships(graph:ModuleGraph,node:Row,memory:Row[],scope:R
     }
     return [...groups].map(([toward,evidence])=>({toward,evidence})).slice(0,6);
 }
-export function npcRecentSpeech(graph:ModuleGraph,node:Row,records:Row[],scope:Row={}):Row[]{
+export function npcRecentSpeech(graph:ModuleGraph,node:Row,records:Row[],scope:Row={},ref?:string):Row[]{
     const handle=graph.handle(node),name=graph.displayName(node);
     return records.filter(record=>Boolean(record.commit)&&current(record,scope)).sort((a,b)=>number(a.turn)-number(b.turn))
-        .flatMap(record=>array(record.speech).filter(line=>row(line.who).npc===handle&&typeof line.text==='string').map(line=>({
-            statement:line.text,turn:record.turn,authority:'conversation_report',attribution:{kind:'speech',speaker:{kind:'npc',name}}
-        }))).slice(-6);
+        .flatMap(record=>{
+            // §258.9: a turn this person spoke only as an aside is marked with who received it, so no reader treats it as public.
+            const aside=ref?array(row(record.communication).events).filter(event=>event.actor===ref&&event.channel==='aside'):[];
+            const to=[...new Set(aside.flatMap(event=>array(event.to)))];
+            return array(record.speech).filter(line=>row(line.who).npc===handle&&typeof line.text==='string').map(line=>({
+                statement:line.text,turn:record.turn,authority:'conversation_report',attribution:{kind:'speech',speaker:{kind:'npc',name}},
+                ...(aside.length?{aside:true,to}:{})
+            }));
+        }).slice(-6);
 }
 /** Exact prior public staging is continuity evidence, never current state or an inferred identity. */
 export function npcPublicRendering(graph:ModuleGraph,node:Row,records:Row[],scope:Row={}):Row|null {
@@ -102,7 +108,7 @@ export function npcPerspective(graph:ModuleGraph,world:Row,node:Row,memory:Row[]
         commitments:commitments.slice(0,12),
         coverage:{...semantic.coverage,knowledge_reports_omitted:Math.max(0,reports.length-12),commitments_omitted:Math.max(0,commitments.length-12),relationship_view:'bounded; use ordinary recall for older evidence',speech_view:'last six committed own utterances'},
         ...(sourceRelationships(graph,node).length ? {source_relationships:sourceRelationships(graph,node)} : {}),
-        cognition:semantic.cognition,relationships:[...array(semantic.relationships).reverse(),...npcRelationships(graph,node,memory,scope)],recent_speech:npcRecentSpeech(graph,node,records,scope),
+        cognition:semantic.cognition,relationships:[...array(semantic.relationships).reverse(),...npcRelationships(graph,node,memory,scope)],recent_speech:npcRecentSpeech(graph,node,records,scope,npcReference(graph,world,node)),
         reunion:reunionView(graph,world,node,records,{worldline:scope.worldline,loop:scope.loop}),
         note:'Only this person\'s authored material and explicitly attributed reports are supplied. A report or prior utterance is not established world truth. Missing information remains unknown.'};
     return {view,revision:jsonDigest({scope,source:personalitySourceRevision(graph,node),view})};

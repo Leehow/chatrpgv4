@@ -1,6 +1,6 @@
 /** Pure bounded public dialogue shared by canonical recovery and host consumers. */
 type Row=Record<string,any>;
-export interface PublicExchange {turn:number|string;player?:string|null;keeper:string;truncated?:boolean;portrayal?:Row;speech?:Array<{speaker:string;text:string}>}
+export interface PublicExchange {turn:number|string;player?:string|null;keeper:string;truncated?:boolean;portrayal?:Row;speech?:Array<{speaker:string;text:string}>;aside?:Array<{speaker:string;to:string[]}>}
 
 export function decisionRecentPublic(recent:Row[]=[],delivered:Row[]=[]):PublicExchange[] {
  const byTurn=new Map<number,Row>();
@@ -69,6 +69,15 @@ export function decisionDialogueContinuity(exchanges:PublicExchange[],people:Row
   const prior=result.find(entry=>Number(entry.turn)===Number(portrayal.turn));
   if(prior)prior.portrayal={...portrayal,actor:person.ref};
   else result.push({turn:portrayal.turn,player:null,keeper:'',portrayal:{...portrayal,actor:person.ref}});
+ }
+ // §258.9: an aside stays marked with who received it on whichever exchange carries those words.
+ for(const person of people){
+  const entry=person.last_public_exchange;
+  if(entry?.aside!==true||typeof person.display_name!=='string')continue;
+  const target=result.find(row=>Number(row.turn)===Number(entry.turn)&&row.keeper.includes(`${person.display_name}: `));
+  if(!target||target.aside?.some(mark=>mark.speaker===person.display_name))continue;
+  const to=(entry.to??[]).map((ref:string)=>people.find(other=>other.ref===ref)?.display_name??ref);
+  target.aside=[...(target.aside??[]),{speaker:person.display_name,to}];
  }
  return result.sort((a,b)=>Number(a.turn)-Number(b.turn)).slice(-4);
 }

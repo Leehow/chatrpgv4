@@ -228,3 +228,30 @@ test('P2 live fixes: a whispered question is not overheard, an NPC pointing back
  assert.match(DECISION_AUTHOR_INSTRUCTION,/its words still sit inside the speaker's say token/);
  assert.match(DECISION_AUTHOR_INSTRUCTION,/Every speech_only response carries say_as/);
 });
+
+test('P2-4: an aside line stays marked with who received it in recent_public and last_public_exchange, and the author is told nobody else may know it',async()=>{
+ const {decisionDialogueContinuity}=await import('../../runtime/public-exchanges.ts');
+ const line=(turn,statement,extra={})=>({statement,turn,authority:'conversation_report',attribution:{kind:'speech',speaker:{kind:'npc',name:'Russ'}},...extra});
+ const russ={ref:'npc_1',display_name:'Russ',recent_speech:[line(2,'Aloud.'),line(4,'He talks too much.',{aside:true,to:['investigator_1']})]};
+ const shown=decisionPerson(russ,[{ref:'investigator_1',name:'Ada',display_name:'Ada'}]);
+ assert.deepEqual(shown.last_public_exchange,{turn:4,words:['He talks too much.'],aside:true,to:['investigator_1']});
+ const open=decisionPerson({...russ,recent_speech:[line(2,'Aloud.')]},[]);
+ assert.equal(open.last_public_exchange.aside,undefined,'an ordinary line carries no aside mark');
+ const [exchange]=decisionDialogueContinuity([],[{...shown,display_name:'Russ',ref:'npc_1'},{ref:'investigator_1',display_name:'Ada'}]);
+ assert.deepEqual(exchange.aside,[{speaker:'Russ',to:['Ada']}]);
+ assert.match(exchange.keeper,/Russ: He talks too much\./);
+ assert.match(DECISION_AUTHOR_INSTRUCTION,/an exchange carrying aside holds words said low to the listed recipients only/);
+ assert.match(DECISION_AUTHOR_INSTRUCTION,/nobody else may repeat, quote, paraphrase or react to them as known/);
+});
+
+test('P2-4: npcRecentSpeech marks the lines of a turn the person spoke as an aside, and only those',async()=>{
+ const {npcRecentSpeech}=await importSource('kernel-ts/npc/perspective.ts');
+ const fake={handle:()=>'russ',displayName:()=>'Russ'};
+ const turn=(n,channel)=>({turn:n,commit:true,speech:[{who:{npc:'russ'},text:`line ${n}`}],
+  communication:{version:1,scope:{worldline:'main',loop:0},turn:n,events:[{actor:'npc_1',act:'answer',to:['investigator_1'],heard:channel?[]:['npc_2'],...(channel?{channel}:{}),status:'attested',items:[]}]}});
+ const rows=npcRecentSpeech(fake,{},[turn(1),turn(2,'aside')],{},'npc_1');
+ assert.equal(rows.length,2);
+ assert.equal(rows[0].aside,undefined);
+ assert.deepEqual([rows[1].aside,rows[1].to],[true,['investigator_1']]);
+ assert.equal(npcRecentSpeech(fake,{},[turn(2,'aside')],{})[0].aside,undefined,'without the person reference nothing is marked');
+});
