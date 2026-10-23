@@ -52388,7 +52388,8 @@ share a section while they stay under the bound. It starts at a prefetch wake or
 
 Under lean reading an `answer` job's task carries `skeleton_digest` (the skeleton's Keeper-truth, condition and
 cross-reference lines with names and pages, no book text, under about 5K tokens, plus entity names and pages) so the
-reader opens the listed pages before searching, and its reader is bounded to 12 requests. Its review is unchanged.
+reader opens the listed pages before searching, and is told to answer that the book does not say it when those pages and
+at most two searches do not show it. Its reader is bounded to 10 requests. Its review is unchanged.
 
 ### 262.7 The skeleton as a reference book's navigation index
 
@@ -52398,5 +52399,19 @@ and an existing fork, never a fork of its own) writes a reference book's `sectio
 source: "skeleton"}`. A book whose index has any row of another source keeps it (`state: "kept"`); otherwise the answer
 is `written` or `unchanged`. The material gate then knows the skeleton's names (§22.4.7): a person or place play names
 lands on its pages' text or asks its lean detail read.
+
+### 262.8 The cast from the skeleton
+
+Under lean reading the host builds the skeleton before it claims the cast (§177.2), and fills each cast range from the
+skeleton instead of running the cast reader: every entity the skeleton reader marked `npc` or `creature` with pages in
+the range, its printed forms that the range's page text prints (normalised spelling), the same forms as `play`, its
+`english` forms as `notes`, and the pages that print them. The kernel's `cast.submit` check judges every row as before.
+When the skeleton's `language` and the table's `play_language` do not share a primary subtag (a comparison of tag shapes),
+or the skeleton is missing, the cast reader runs as before (`lean_cast_language`, `lean_cast_unavailable` rows).
+
+The skeleton readers also answer the section's `language` (a BCP-47 tag) and each mention's `english` form; a section's
+task carries the digest of its instructions, so changed instructions read it again, and the merged skeleton carries
+`version`. Each mention also cites the section's blocks that print one of its names (normalised spelling), so the index
+pages (§262.7) are the pages that print the entity.
 
 Tests: `tests/extension/lean-reading.test.mjs`, `tests/extension/source-blocks.test.mjs`, `tests/extension/read-window.test.mjs` (the `§262` cases).

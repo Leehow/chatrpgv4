@@ -132,3 +132,24 @@ test('§262.3: a check refusal that names only source needs is recognised; any o
  assert.equal(lean.onlySourceNeedFindings({details:{path:'/critical'}}),false);
  assert.equal(lean.onlySourceNeedFindings(undefined),false);
 });
+
+test('§262.5: a mention also cites the section blocks that print one of its names', ()=>{
+ const answer={mentions:[{name:'Last Stop',aliases:['Last Stop Bar'],kind:'location',blocks:[]},{name:'X',aliases:[],kind:'npc',blocks:['b1-0']}]};
+ const grounded=lean.groundMentions(answer,[{id:'b1-0',text:'The town has a bar.'},{id:'b27-3',text:'3D. Last  Stop Bar'},{id:'b27-4',text:'the last stop serves food'}]);
+ assert.deepEqual(grounded.mentions[0].blocks,['b27-3','b27-4'],'spacing and case are normalised');
+ assert.deepEqual(grounded.mentions[1].blocks,['b1-0'],'a one-character name is never matched by text');
+});
+
+test('§262.8: a cast range draft lists the skeleton\'s people printed on the range\'s pages', ()=>{
+ const skeleton={language:'zh-Hans',entities:[
+  {name:'Russ Williams',aliases:['Russ','Russell'],english:['Russ Williams'],kinds:['npc'],pages:[17,20,45]},
+  {name:'Esso',aliases:[],english:['Esso'],kinds:['location'],pages:[17]},
+  {name:'Ghost',aliases:[],english:[],kinds:['creature'],pages:[19]},
+  {name:'Seth',aliases:[],english:['Seth'],kinds:['npc'],pages:[76]}]};
+ const text={17:'Russ Williams owns the station.',20:'Russ fears them.',19:'nothing here'};
+ const draft=lean.castDraftFromSkeleton(skeleton,{first:1,last:40},page=>text[page]??'');
+ assert.deepEqual(draft,{people:[{book:['Russ Williams','Russ'],play:['Russ Williams','Russ'],notes:['Russ Williams'],pages:[17,20]}]});
+ assert.equal(lean.samePrimaryLanguage('zh-Hans','zh-CN'),true);
+ assert.equal(lean.samePrimaryLanguage('zh-Hans','en'),false);
+ assert.equal(lean.samePrimaryLanguage(undefined,'en'),false);
+});

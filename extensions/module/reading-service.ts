@@ -28,7 +28,7 @@ import type {ClaimSupportCheck, ClaimSupportRequest} from './claim-support.ts';
 import {runSourceReference,SourceReferenceFailure} from './source-reference.ts';
 import {runPageOpen} from './page-open.ts';
 import {leanEligible, runLeanDetail} from './lean-read.ts';
-import {buildSkeleton, leanCrossReferences, skeletonDigest, skeletonIndexRows, LEAN_ANSWER_REQUESTS} from './lean-skeleton.ts';
+import {buildSkeleton, castDraftFromSkeleton, leanCrossReferences, samePrimaryLanguage, skeletonDigest, skeletonIndexRows, skeletonPath, LEAN_ANSWER_ASK, LEAN_ANSWER_REQUESTS} from './lean-skeleton.ts';
 import {acceptedGuidance,acceptedPublicGuidance} from './character-guidance.ts';
 import {validateReferencePacket} from '../../kernel-ts/modules/reference-contract.ts';
 import {readNeedReceipt,type NeedReceipt} from '../../runtime/jev/source-need-reads.ts';
@@ -457,11 +457,12 @@ export class ReadingService implements ReadingBridge {
 	/** §262.5: the documents whose skeleton this host started, by file hash. */
 	private skeletons = new Map<string, Promise<void>>();
 	/** §262.5: under lean reading, build the bound document's skeleton once in the background; never awaited by play. */
-	private leanSkeleton(mid: string, campaign: string | undefined): void {
-		if (process.env.PI_COC_LEAN_READING !== "1" || this.stopped || !this.deps.runtime) return;
+	private leanSkeleton(mid: string, campaign: string | undefined): Promise<void> {
+		if (process.env.PI_COC_LEAN_READING !== "1" || this.stopped || !this.deps.runtime) return Promise.resolve();
 		const started = (async () => {
 			const source = await this.call("module.source.snapshot", { module_id: mid }, campaign);
-			if (source.window || this.skeletons.has(source.file_sha256)) return;
+			if (source.window) return;
+			if (this.skeletons.has(source.file_sha256)) return this.skeletons.get(source.file_sha256);
 			const controller = new AbortController(), key = `skeleton:${source.file_sha256}`;
 			this.controllers.set(key, controller);
 			this.skeletons.set(source.file_sha256, buildSkeleton({ runtime: this.runtime(), moduleId: mid, home: this.deps.home,
@@ -474,8 +475,9 @@ export class ReadingService implements ReadingBridge {
 					this.note({ lane: "reading", event: "skeleton_index", module_id: mid, campaign, library: indexed?.library, fork: indexed?.campaign });
 				}, error => { this.note({ lane: "reading", event: "skeleton_failed", module_id: mid, campaign, detail: String(error).slice(0, 500) }); })
 				.finally(() => this.controllers.delete(key)));
+			return this.skeletons.get(source.file_sha256);
 		})();
-		started.catch(error => this.note({ lane: "reading", event: "skeleton_failed", module_id: mid, campaign, detail: String(error).slice(0, 500) }));
+		return started.catch(error => this.note({ lane: "reading", event: "skeleton_failed", module_id: mid, campaign, detail: String(error).slice(0, 500) }));
 	}
 	/** §262.1: reading spend per module this host recorded (input, cache read and output of every child). */
 	private spent = new Map<string, number>();
@@ -845,6 +847,8 @@ export class ReadingService implements ReadingBridge {
 		try {
 			// The library owns the cast; a campaign-only book is the one scoped exception. Different host processes must
 			// claim the kernel's descriptor lock before extracting text or starting a paid child (§177.2).
+			// §262.8: under lean reading the skeleton is built before the cast is claimed, so no cast lease waits on it.
+			if (process.env.PI_COC_LEAN_READING === "1") { await this.leanSkeleton(mid, bound); signal.throwIfAborted(); }
 			let waiting = false;
 			for (;;) {
 				signal.throwIfAborted();
@@ -870,6 +874,11 @@ export class ReadingService implements ReadingBridge {
 				if (staged.state !== 'ready') { record({ event: 'unavailable', reason: staged.reason, ms: Date.now() - started }); return staged; }
 				ranges = Array.isArray(staged.ranges) ? staged.ranges : [];
 			}
+			// §262.8: under lean reading the cast comes from the skeleton's people, checked range by range by the kernel; a
+			// skeleton that is missing or in another language than the table leaves the cast reader as it is.
+			const lean = await this.leanCast(mid, campaign, owned, ranges, record, signal).catch(error => {
+				record({ event: 'lean_cast_unavailable', message: error instanceof Error ? error.message : String(error) }); return undefined; });
+			if (lean) return lean;
 			const systemPrompt = await readFile(join(this.runtime().contentRoot, 'setup', 'module-cast.md'), 'utf8');
 			const model = this.deps.model();
 			let result: Row = { state: 'partial' };
@@ -914,6 +923,32 @@ export class ReadingService implements ReadingBridge {
 				catch (error) { record({ event: 'failed', stage: 'release', message: error instanceof Error ? error.message : String(error) }); }
 			}
 		}
+	}
+
+	/** §262.8: the cast from the skeleton, or undefined when lean reading cannot build it (the cast reader then runs). */
+	private async leanCast(mid: string, campaign: string | undefined, owned: Row, ranges: Row[], record: (row: Row) => void, signal: AbortSignal): Promise<Row | undefined> {
+		if (process.env.PI_COC_LEAN_READING !== "1") return undefined;
+		const source = await this.call("module.source.snapshot", { module_id: mid }, campaign);
+		const skeleton = JSON.parse(await readFile(skeletonPath(this.deps.home, source.file_sha256), "utf8"));
+		let result: Row | undefined;
+		for (const range of ranges.filter(value => value?.done !== true)) {
+			signal.throwIfAborted();
+			const place = await this.call('cast.range', { ...owned, index: range.index }, campaign);
+			const task = JSON.parse(await readFile(join(place.cwd, 'task.json'), 'utf8'));
+			if (!samePrimaryLanguage(skeleton.language, task.play_language)) { record({ event: 'lean_cast_language', skeleton: skeleton.language ?? null, play: task.play_language }); return undefined; }
+			const text = new Map<number, string>();
+			for (const name of await readdir(join(place.cwd, 'pages')).catch(() => [] as string[])) {
+				const page = Number(/^page-(\d+)\.txt$/.exec(name)?.[1]);
+				if (Number.isSafeInteger(page)) text.set(page, await readFile(join(place.cwd, 'pages', name), 'utf8'));
+			}
+			await writeFile(join(place.cwd, 'draft.json'), JSON.stringify(castDraftFromSkeleton(skeleton, { first: place.first, last: place.last }, page => text.get(page) ?? '')) + '\n');
+			const submitted = await this.call('cast.submit', { ...owned, index: range.index }, campaign);
+			record({ event: submitted.state === 'complete' ? 'published' : 'range', lean: true, range: range.index, people: submitted.people, accepted: submitted.accepted,
+				refused: Array.isArray(submitted.refused) ? submitted.refused.length : 0 });
+			this.deps.published?.({ ...(campaign ? { campaign } : {}), module_id: mid, people: submitted.people, state: submitted.state });
+			result = submitted;
+		}
+		return result ?? { state: 'complete' };
 	}
 
 	async pregens(mid: string, params: Row, signal?: AbortSignal, options: ReadingOptions = {}): Promise<Row> {
@@ -1828,7 +1863,7 @@ export class ReadingService implements ReadingBridge {
 								: targeted ? `${readerInput({task})} Your phase is ${phase}. ${TARGETED_REPAIR_ASK} Use submit_reading as your sole final tool call to save/check this batch and finish without a closing reply.`
 								: appended ? `${readerInput({task})} Your phase is ${phase}. ${APPEND_REPAIR_ASK} Use submit_reading as your sole final tool call to save/check this batch and finish without a closing reply.`
 								: guidanceProjection ? `${readerInput({task})} The selected entrance and public module facts are already source-reviewed. The host wrote an unchanged scene shard to draft.json; do not rewrite it. Use the original page images supplied in context, and pdf only for a missing or newly needed original page. Write the five guidance fields for task.focus in the player's language where requested. If a necessary public fact is absent, request its source instead of inventing it. Submit guidance and the required public_fields with submit_reading as your sole final tool call. ${round > 1 || job.resume_from ? "Read findings.json if present and address its concrete findings." : ""}`
-								: `${readerInput({task})} Your phase is ${phase}. ${job.repair === "way_on" ? WAY_ON_ASK + " " : ""}Use page images to produce draft.json. If a draft was retained from this same interrupted request, inspect its sources and repair it instead of rewriting merely for style. ${job.purpose === 'index' ? "Use submit_reading as your sole final tool call to save this navigation draft and finish without a closing reply. The host validates index completion." : ["guidance","opening","detail","answer"].includes(job.purpose) ? "Use submit_reading as your sole final tool call to save/check this batch and finish without a closing reply." : ""} ${round > 1 || job.resume_from ? "Read findings.json if present and address its concrete findings." : ""}${job.resumed?.reread === true ? " The published material on this focus changed since the retained draft was written: check it against the current task and the pages, and repair what no longer holds." : ""}${job.review_retry ? ` ${REVIEW_RETRY_ASK}` : ""}${Array.isArray(job.carried_needs) && job.carried_needs.length ? ` ${CARRIED_NEEDS_ASK}` : ""}`,
+								: `${readerInput({task})} Your phase is ${phase}. ${job.repair === "way_on" ? WAY_ON_ASK + " " : ""}Use page images to produce draft.json. If a draft was retained from this same interrupted request, inspect its sources and repair it instead of rewriting merely for style. ${job.purpose === 'index' ? "Use submit_reading as your sole final tool call to save this navigation draft and finish without a closing reply. The host validates index completion." : ["guidance","opening","detail","answer"].includes(job.purpose) ? "Use submit_reading as your sole final tool call to save/check this batch and finish without a closing reply." : ""} ${round > 1 || job.resume_from ? "Read findings.json if present and address its concrete findings." : ""}${job.resumed?.reread === true ? " The published material on this focus changed since the retained draft was written: check it against the current task and the pages, and repair what no longer holds." : ""}${job.review_retry ? ` ${REVIEW_RETRY_ASK}` : ""}${Array.isArray(job.carried_needs) && job.carried_needs.length ? ` ${CARRIED_NEEDS_ASK}` : ""}${leanAnswer && task.skeleton_digest ? ` ${LEAN_ANSWER_ASK}` : ""}`,
 							onEvent(event) {
 								childActivity(event);
 								if (event.type === "tool_execution_start" && event.toolName === "read" && event.args?.path) reads.set(event.toolCallId, resolve(cwd, event.args.path));
