@@ -40,8 +40,21 @@ to someone else. And every line is heard by everyone present: a person cannot sa
 - Live: owner's Mac, MiniMax, Blood Road: tell Russ who you are with Nate present; next turn ask Nate; then ask Russ
   something related: neither asks who you are again. An aside from Russ to the investigator is not repeated by Nate.
 
-## Out of Scope (later)
+## Slice 2 (owner 2026-10-23 16:07Z: "你把剩下的全部做完吧，不要问我了")
 
-- Belief events and disclosure rules (GateExpr), Proposal/Commitment/Agreement ledger, D4.
-- Reader changes (NPC definition reads), schedules, triggers, phases, cohorts; phone, letter and dream channels;
-  per-audience author projection for several investigators.
+3. **Telephone and letters** (§258.10): `channel: phone | letter` reach only `to`, from a speaker who need not be present.
+4. **Offers and deals** (§258.11): an attested offer is a proposal; the Keeper's `agreement` command marks it accepted,
+   declined or withdrawn, and an accepted deal (a commitment of the speaker) kept, broken or withdrawn. Both reach the
+   Keeper as facts of kind `proposal` and `commitment`, rebuilt from turn records.
+
+## Not built, and why
+
+- **GateExpr and disclosure rules.** They need the module reader to write gates the books state, and today's clue checks
+  and §257.17 testimony stance (lie, deflection, `needs <skill>`) already gate and shade testimony at the table. Building a
+  second gate language before the reader can fill it would leave it empty.
+- **Belief events.** `heard` (§258.8) and `party_said` (§258.9) already are the "X said P" beliefs, attributed; a separate
+  belief store would duplicate them.
+- **D4** (a refer the author did not voice; a restatement that contradicts the original). Attestation is per speaker, not per
+  item, and judging contradiction needs meaning, which the host never claims (`semantic_verified` is always false).
+- **Reader changes** (NPC definition reads, schedules, triggers, phases, cohorts) and **per-audience author projection** for
+  several investigators: reader work with its own spec, and tables are one investigator today.

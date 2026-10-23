@@ -5,7 +5,7 @@ import type { HandlerGroup, KernelResult } from "../handlers.js";
 import { RpcError } from "../errors.js";
 import {eventOutcome,eventScope,canonicalEvents,actorEventView} from '../turn-events.js';
 import {npcReference} from '../npc/references.js';
-import {heardView,partySaidView,toldView} from '../npc/communication.js';
+import {agreementView,heardView,partySaidView,toldView} from '../npc/communication.js';
 import {turnRecordPath} from '../turn-record.js';
 import {parsePythonJson} from '../json.js';
 import { continuityView } from "./continuity.js";
@@ -546,9 +546,10 @@ export function readHandlers(context: KernelContext, contributions: ReadContribu
                 const semantic=actorEventView(canonicalEvents(records,array(campaign.turn.receipts),scope),graph.nameKeys(node),{...scope,across_loops:remembersAcrossLoops(graph,node)});
                 // §258.4: what this person already told whom, read back from the turn records.
                 const ref=npcReference(graph,world,node),told=ref?toldView(records,ref,scope,number(campaign.turn.turn)):[],heard=ref?heardView(records,ref,scope,number(campaign.turn.turn)):[],
-                    partySaid=ref?partySaidView(records,ref,scope,number(campaign.turn.turn)):[];
+                    partySaid=ref?partySaidView(records,ref,scope,number(campaign.turn.turn)):[],
+                    deals=ref?agreementView(records,ref,scope,number(campaign.turn.turn)):[];
                 return {...view,cognition:semantic.cognition,semantic_coverage:{...semantic.coverage,read:{what:'memory',about:[graph.displayName(node)]}},
-                    relationships:[...array(semantic.relationships).reverse(),...array(view.relationships)],...(told.length?{told}:{}),...(heard.length?{heard}:{}),...(partySaid.length?{party_said:partySaid}:{})};
+                    relationships:[...array(semantic.relationships).reverse(),...array(view.relationships)],...(told.length?{told}:{}),...(heard.length?{heard}:{}),...(partySaid.length?{party_said:partySaid}:{}),...(deals.length?{deals}:{})};
             }
             if (focus === "investigator") {
                 campaign.party = await campaign.files("party");

@@ -428,7 +428,7 @@ export function createFinalOutputOwner(deps: {runtime: () => HostRuntime | undef
     try{return structuredClone(await task);}finally{running.delete(key);}
   }
 
-  async function openStream(campaign:string,turn:number,run:string,author='keeper',selectedSpeakers:string[]=[],investigators:string[]=[],selections:Row[]=[]) {
+  async function openStream(campaign:string,turn:number,run:string,author='keeper',selectedSpeakers:string[]=[],investigators:string[]=[],selections:Row[]=[],agreements:Row[]=[]) {
     forTurn(campaign,turn);
     const root=deps.runtime()?.home;
     if(!root)throw error('The delivery runtime is unavailable');
@@ -503,7 +503,9 @@ export function createFinalOutputOwner(deps: {runtime: () => HostRuntime | undef
         const evidence={version:1,packet:key,binding,context,sources:[],materials,coverage:artifact.coverage,required:[],omitted:[],
           model,thinking,author,artifact_text:text,publication,stream:{delivery_id:key,attempt_id:journal.frames[0].attempt_id},
           // §258.2: host-only; the commit settles each against the speech and presence.
-          ...(selections.length?{selections:structuredClone(selections)}:{})};
+          ...(selections.length?{selections:structuredClone(selections)}:{}),
+          // §258.11: host-only agreement marks, resolved from issued proposal and commitment facts.
+          ...(agreements.length?{agreements:structuredClone(agreements)}:{})};
         await writeWritingCache(join(attempt,'accepted.json'),JSON.stringify({artifact,evidence}));
         journal.write('end',{status:'finalizing'});
         return {text,evidence};

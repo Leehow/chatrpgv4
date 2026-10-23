@@ -5866,7 +5866,7 @@ export default function (pi: ExtensionAPI, host: {capabilities?:RuntimeCapabilit
 		let decision:import('../../runtime/isolated-expression.ts').DecisionAuthorContext|undefined;
         let craft='';
         // §258.2: what the packet gave each speaker to say, which the publication commit settles against the speech.
-        let selections:Record<string,unknown>[]=[];
+        let selections:Record<string,unknown>[]=[],agreements:Record<string,unknown>[]=[];
         let observationIdentities:Record<string,any>[]=[],arrivedAt:string|undefined;
         const heldBoundary=heldActs.get(state),held=heldBoundary?.basis;
 		if(held&&(!turnPacketPrototype||heldBoundary?.uncommittedFailures()===undefined)){
@@ -5984,6 +5984,9 @@ export default function (pi: ExtensionAPI, host: {capabilities?:RuntimeCapabilit
                 const index=people.findIndex(row=>row.ref===actor),projected=decisionPerson(person,[...(current.present??[]),...(current.npc_references?.people??[]),...state.party.map((person,index)=>({ref:`investigator_${index+1}`,name:person.name,display_name:person.name}))]);
                 if(index>=0)people[index]=projected;
             }
+            // §258.11: agreement marks name issued proposal and commitment facts; anything else is the packet's refusal.
+            try{agreements=(compiled.agreements??[]).map(mark=>materialOwner.agreement(mark));}
+            catch(error){throw new KernelError({code:'invalid_params',message:error instanceof Error?error.message:String(error),details:{reason:'decision_material_binding',transaction_state:'uncommitted'}});}
             selections=hydrated.responses.flatMap((response,index)=>response.act==='silent'||!isNpcReference(response.actor)?[]
                 :[{actor:response.actor,act:response.act,to:response.to??[],items:hydrated.units[index]??[],...('channel' in response&&response.channel?{channel:response.channel}:{})}]);
             // The single author renders the settled scene; departure targets are still owed, not checked against this prose.
@@ -6027,7 +6030,7 @@ export default function (pi: ExtensionAPI, host: {capabilities?:RuntimeCapabilit
         }
 		if(!runtime)throw Error('The expression runtime is unavailable');
 		const legacy=decision?undefined:expression as import('../../runtime/isolated-expression.ts').ExpressionBrief;
-		reply.stream=await finalOutput.openStream(state.campaign,state.turn,reply.run,'isolated-expression',decision?decision.responses.map(row=>row.actor):legacy!.npc_turns.map(person=>person.speaker),state.party.map(person=>person.name),selections);
+		reply.stream=await finalOutput.openStream(state.campaign,state.turn,reply.run,'isolated-expression',decision?decision.responses.map(row=>row.actor):legacy!.npc_turns.map(person=>person.speaker),state.party.map(person=>person.name),selections,agreements);
         if(decision){
             decision.settled_results=reply.stream.settledResults;
             operationResult=turnPacketResult(reply.stream.settledResults);

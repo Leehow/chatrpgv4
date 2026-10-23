@@ -52122,6 +52122,30 @@ says an aside is said low or privately, so only its `to` hear it, and its words 
 
 Tests: `tests/extension/npc-communication.test.mjs` (§258.9).
 
+### 258.10 Telephone and letters (P2)
+
+`channel` also takes `phone` and `letter`. Both reach only `to`, from wherever the speaker is (the response may be `offstage`),
+so the event's `heard` is `[]`. The investigator's own words this input are `heard` by the people around them on the telephone,
+and by nobody when every answer was a letter (a letter answers a letter) or an aside. A person's recent speech from a turn they
+spoke only by aside, phone or letter carries `aside: true, to` like an aside (§258.9). The author instruction: phone is heard over
+the telephone and letter is read as the speaker's written words, by `to` only; in every channel the words sit in the say token.
+
+### 258.11 Offers, deals and what became of them (P2)
+
+A proposal is an attested `offer` item: `{content_id, by: the speaker, to, gist, made_turn, status: "open"}`. The Keeper marks
+what became of it with a command `{kind: "agreement", proposal: fact_N, status, with?: [investigator_N]}` naming an issued fact
+of kind `proposal` (status `accepted`, `declined` or `withdrawn`) or `commitment` (status `kept`, `broken` or `withdrawn`); any
+other fact or status refuses the packet, uncommitted. The host resolves the fact to `{content_id, by, status, with?}` and hands it
+to the publication commit as `_delivery_evidence.agreements`; the turn record keeps it as `communication.agreements` (a turn may
+hold marks without selections). `accepted` makes the proposal a commitment of `by` (the obligor) to `with` (default: the offer's
+`to`); open moves only to accepted, declined or withdrawn, accepted only to kept, broken or withdrawn; the newest valid mark wins.
+`table.look focus:npc` adds `deals`: open proposals and accepted commitments of this person, or owed to them, newest first, at
+most 6. The catalog issues each before the person's other words as a fact of kind `proposal` ("still open, nothing is agreed
+until it is accepted") or `commitment` ("their own obligation until kept or broken"), with the offer's `content_id`. Memory-lane
+promises (§258.5) stay as they are.
+
+Tests: `tests/extension/npc-communication.test.mjs` (§258.10, §258.11).
+
 ## 260. NPC portrayal: beats, attention and the bearing grant (owner 2026-10-23; amends §254.2, §254.6)
 
 Spec: `docs/specs/npc-portrayal.md`. Research: `docs/research/npc-portrayal-lotm-20261023.md`. The owner's direction: the

@@ -255,3 +255,60 @@ test('P2-4: npcRecentSpeech marks the lines of a turn the person spoke as an asi
  assert.deepEqual([rows[1].aside,rows[1].to],[true,['investigator_1']]);
  assert.equal(npcRecentSpeech(fake,{},[turn(2,'aside')],{})[0].aside,undefined,'without the person reference nothing is marked');
 });
+
+const {agreementView,agreementsOf}=await importSource('kernel-ts/npc/communication.ts');
+
+test('§258.10 phone and letter reach only their addressees; the investigator side of a call is still heard nearby',()=>{
+ const said=(channel,text)=>communicationRecord(graph,world,party,scope,1,{selections:[{...offer('n:abc'),channel}]},russSays,[{node_id:'nate'}],text);
+ for(const channel of ['phone','letter'])assert.deepEqual(said(channel).events[0].heard,[],channel);
+ assert.deepEqual(said('phone','你好？').events[0].heard,['npc_2'],'Nate hears the investigator talk into the phone');
+ assert.deepEqual(said('letter','回信').events[0].heard,[],'a letter answers a letter');
+ assert.equal(selectionsOf({selections:[{...offer('n:abc'),channel:'phone'}]})[0].channel,'phone');
+ assert.equal(turnPacket(JSON.stringify({version:4,interactions:[{actor:'npc_1',to:['investigator_1'],act:'greet',channel:'letter'}]})).interactions[0].channel,'letter');
+});
+
+test('§258.11 an attested offer is a proposal, an accepted mark makes it the speaker\'s commitment, and kept settles it',()=>{
+ const mark=(turn,status,extra={})=>({turn,communication:communicationRecord(graph,world,party,scope,turn,{agreements:[{content_id:'n:abc',by:'npc_1',status,...extra}]},[],[])});
+ const offered=record(1,[offer('n:abc')],russSays),unvoiced=record(1,[offer('n:zzz')],[]);
+ assert.deepEqual(agreementView([offered],'npc_1',scope).map(row=>[row.content_id,row.status,row.made_turn]),[['n:abc','open',1]]);
+ assert.deepEqual(agreementView([unvoiced],'npc_1',scope),[],'an offer nobody voiced proposes nothing');
+ assert.deepEqual(agreementView([offered],'npc_2',scope),[],'a bystander holds no deal');
+ const accepted=[offered,mark(2,'accepted')];
+ assert.equal(mark(2,'accepted').communication.agreements.length,1,'agreement marks are recorded without selections');
+ const [deal]=agreementView(accepted,'npc_1',scope);
+ assert.deepEqual([deal.status,deal.with,deal.since_turn],['accepted',['investigator_1'],2]);
+ assert.equal(agreementView(accepted,'investigator_1',scope)[0].status,'accepted','owed to the investigator');
+ assert.equal(agreementView([...accepted,mark(3,'declined')],'npc_1',scope)[0].status,'accepted','an accepted deal is not declined later');
+ assert.deepEqual(agreementView([...accepted,mark(3,'kept')],'npc_1',scope),[],'a kept deal is no longer open');
+ assert.equal(agreementView([...accepted,mark(3,'kept')],'npc_1',scope,undefined,true)[0].status,'kept');
+ assert.equal(agreementView([offered,mark(2,'kept')],'npc_1',scope)[0].status,'open','kept needs an accepted deal');
+ assert.deepEqual(agreementsOf({agreements:[{content_id:'n:abc',by:'Russ',status:'accepted'},{content_id:'n:abc',by:'npc_1',status:'maybe'}]}),[]);
+});
+
+test('§258.11 only a service or a visit makes a deal: an exhibit line or an input request inside an offer proposes nothing',()=>{
+ const mixed={actor:'npc_1',act:'offer',to:['investigator_1'],items:[{content_id:'n:svc',strategy:'new',kind:'new:service_at',gist:'tyre repair'},
+  {content_id:'x:ex',strategy:'new',kind:'exhibit',gist:'stock spiel'},{content_id:'n:in',strategy:'new',kind:'new:input_requirements',gist:'quantity'}]};
+ const records=[record(1,[mixed],russSays)];
+ assert.deepEqual(agreementView(records,'npc_1',scope).map(row=>row.content_id),['n:svc']);
+});
+
+test('§258.11 the Keeper sees open offers and deals as facts and marks them by fact_ref; the mark resolves to the deal',()=>{
+ const owner=new DecisionContent();
+ const deals=[{content_id:'n:abc',by:'npc_1',to:['investigator_1'],gist:'coffee at 09:20',made_turn:1,status:'open'}];
+ const facts=owner.prepare('c:1',capsule,[{...russ(),deals}],[],['Ada']).facts;
+ const proposal=facts.find(row=>row.kind==='proposal');
+ assert.equal(proposal.actor,'npc_1');assert.match(proposal.value.authority,/still open, nothing is agreed/);
+ assert.equal(proposal.value.to.length,1,'the offer names who it was made to');assert.doesNotMatch(proposal.value.authority,/made to ;/);
+ assert.deepEqual(owner.agreement({proposal:proposal.ref,status:'accepted'}),{content_id:'n:abc',by:'npc_1',status:'accepted'});
+ assert.throws(()=>owner.agreement({proposal:proposal.ref,status:'kept'}),/proposal: its status is one of accepted, declined, withdrawn/);
+ assert.throws(()=>owner.agreement({proposal:'fact_999',status:'accepted'}),/not an issued proposal or commitment fact/);
+ const commitment=new DecisionContent().prepare('c:1',capsule,[{...russ(),deals:[{...deals[0],status:'accepted',with:['investigator_1']}]}],[],['Ada']).facts.find(row=>row.kind==='commitment');
+ assert.match(commitment.value.authority,/their own obligation until kept or broken/);
+ const packet={version:4,commands:[{kind:'agreement',proposal:'fact_3',status:'accepted'}]};
+ assert.deepEqual(turnPacket(JSON.stringify(packet)),packet);
+ const compiled=compileTurnPacket(packet);
+ assert.deepEqual(compiled.agreements,[{proposal:'fact_3',status:'accepted'}]);assert.deepEqual(compiled.effects,[]);
+ assert.throws(()=>turnPacket(JSON.stringify({version:4,commands:[{kind:'agreement',proposal:'fact_3',status:'maybe'}]})));
+ // live P2b: the schema every turn is actually checked against (not just the static one) declares the agreement command.
+ for(const journeySettled of [false,true])assert.deepEqual(turnPacket(JSON.stringify(packet),turnPacketParameterSchema(journeySettled)),packet,'agreement is declared in the live per-turn schema');
+});

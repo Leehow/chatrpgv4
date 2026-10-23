@@ -122,7 +122,8 @@ const __unpack8471=(await pyInvoke(seed,[kernel,tmp_path],{}));mid=__unpack8471[
 params=({["id"]:"early",["module"]:mid,["guidance_key"]:KEY,["play_language"]:"en"});
 assert.ok(pyBool(pyContains(pyAt((await pyMethod(kernel,"err",["campaign.create",params],{})),"message"),"not been accepted")),"tests/kernel/test_fast_guidance.py:147 assert \"not been accepted\" in kernel.err(\"campaign.create\", params)[\"message\"]");
 (await pyInvoke(finish,[kernel,job],{}));
-assert.ok(pyBool(pyContains(pyAt((await pyMethod(kernel,"err",["campaign.create",({...params,["play_language"]:"zh-Hans"})],{})),"message"),"not been accepted")),"tests/kernel/test_fast_guidance.py:149 assert \"not been accepted\" in kernel.err(\"campaign.create\", {**params, \"play_language\": \"zh-Hans\"})[\"message\"]");
+// §261 (2026-10-23): a guidance accepted for another play_language is refused naming the language it was accepted for.
+assert.ok(pyBool(pyContains(pyAt((await pyMethod(kernel,"err",["campaign.create",({...params,["play_language"]:"zh-Hans"})],{})),"message"),"is for play_language")),"tests/kernel/test_fast_guidance.py:149 the accepted guidance names its own play_language");
 }
 Object.defineProperty(test_campaign_cannot_pin_an_unaccepted_or_different_language_guidance,"__pySignature",{value:[{"name":"kernel","rest":false,"varargs":false},{"name":"tmp_path","rest":false,"varargs":false}]});
 if(process.argv[1]===import.meta.filename)for(const [index,row] of ([{}]).entries())test("test_campaign_cannot_pin_an_unaccepted_or_different_language_guidance"+(([{}]).length>1?' ['+index+']':''),async(t)=>{const temporary=temporaryPath(t);await test_campaign_cannot_pin_an_unaccepted_or_different_language_guidance(await kernel(t,{}),temporary);});
