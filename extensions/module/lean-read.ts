@@ -83,6 +83,13 @@ export function leanInput(task: Row, blocks: Map<number, SourceBlocksPage>, cros
 		...(more_pages.length ? { more_pages } : {}), ...(image_pages.length ? { image_pages } : {}), ...(cross.length ? { cross_references: cross } : {}) };
 }
 
+/** Whether a check refusal names only the draft's source needs (its findings, or its path when it lists none). */
+export function onlySourceNeedFindings(error: unknown): boolean {
+	const details = (error as Row)?.details ?? {}, findings = Array.isArray(details.findings) ? details.findings : [];
+	const paths = findings.length ? findings.map((finding: Row) => String(finding?.path ?? "")) : [String(details.path ?? "")];
+	return paths.length > 0 && paths.every((path: string) => path === "/source_needs" || path.startsWith("/source_needs/"));
+}
+
 /** One high-risk record for the verifier: its draft path, the record and the pages it cites. */
 export type RiskCandidate = { ref: string; path: string; kind: "claim" | "exhibit" | "node"; record: Row; pages: number[] };
 
@@ -224,8 +231,16 @@ export async function runLeanDetail(context: LeanContext): Promise<LeanResult> {
 		for (const id of delivered.toolCallIds) for (const page of viewedCalls.get(id) ?? []) viewed.add(page);
 		for (const row of delivered.hostPages) viewed.add(row.page);
 	} catch { /* no image was delivered */ }
-	// The host's check decides, whether or not the child's last submission passed.
-	const checked = await runtime.check({ kind: "source-draft", packet: join(cwd, "task.json"), draft: join(cwd, "draft.json") }, signal);
+	// The host's check decides, whether or not the child's last submission passed. Source needs are the reader's advisory
+	// notes: a draft refused only for them is checked once more without them.
+	let checked = await runtime.check({ kind: "source-draft", packet: join(cwd, "task.json"), draft: join(cwd, "draft.json") }, signal);
+	if (!checked.ok && onlySourceNeedFindings(checked.error)) {
+		const retained: Row = JSON.parse(await readFile(join(cwd, "draft.json"), "utf8"));
+		retained.source_needs = [];
+		await writeFile(join(cwd, "draft.json"), JSON.stringify(retained) + "\n");
+		record({ lane: "reading", event: "lean_source_needs_dropped", module_id: job.module_id, job_id: job.job_id, focus: job.focus ?? "" });
+		checked = await runtime.check({ kind: "source-draft", packet: join(cwd, "task.json"), draft: join(cwd, "draft.json") }, signal);
+	}
 	if (!checked.ok) throw new Error(`lean reading did not produce a checked draft: ${JSON.stringify(checked.error ?? checked).slice(0, 2000)}`);
 	const unviewed = (Array.isArray(checked.required_view_pages) ? checked.required_view_pages : []).filter((page: number) => !viewed.has(page));
 	if (unviewed.length) throw new Error(`lean reading cites pages it did not view: ${unviewed.join(", ")}`);

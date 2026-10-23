@@ -124,3 +124,11 @@ test('§262.3: a lean job is a plain detail reading under the switch',()=>{
  assert.equal(lean.leanEligible({purpose:'detail',material:'map'},env),false);
  assert.equal(lean.leanEligible({purpose:'opening'},env),false);
 });
+
+test('§262.3: a check refusal that names only source needs is recognised; any other finding is not',()=>{
+ assert.equal(lean.onlySourceNeedFindings({details:{path:'/source_needs',findings:[{path:'/source_needs/0'}]}}),true);
+ assert.equal(lean.onlySourceNeedFindings({details:{path:'/source_needs'}}),true);
+ assert.equal(lean.onlySourceNeedFindings({details:{findings:[{path:'/source_needs/0'},{path:'/nodes/1'}]}}),false);
+ assert.equal(lean.onlySourceNeedFindings({details:{path:'/critical'}}),false);
+ assert.equal(lean.onlySourceNeedFindings(undefined),false);
+});

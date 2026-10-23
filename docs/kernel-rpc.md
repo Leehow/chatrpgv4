@@ -52283,15 +52283,15 @@ Tests: `tests/extension/page-open.test.mjs`.
 Spec: `docs/specs/lean-module-reading.md`. Owner thread 2026-10-23: a reference book's background stream cost 58–117M
 tokens per 111-page book (two-page units, unbounded reader loops, a resent ~65KB packet, per-unit vision review,
 person-state double reads, repair rounds). Lean reading keeps the graph contract, the publication gate, every material
-entry point and every play-time consumer, and replaces what runs behind them. It is on when the host is started with
-`PI_COC_LEAN_READING=1`.
+entry point and every play-time consumer, and replaces what runs behind them. It is on when the host and its kernel
+are started with `PI_COC_LEAN_READING=1` (both read it from their environment; the kernel inherits the host's).
 
 ### 262.1 No background stream
 
-The host passes `lean: true` on `module.read.ahead`. Under it the read-ahead of a reference book asks no
-`referenceSourceUnits`; material is read when play asks for it (`requireMaterial`, `lookup`, §257.15 current-scene
-exhibits, adjacent reads). A claim under `lean: true` does not start a queued job carrying `source_unit`: it is
-finished `cancelled` with `detail: "lean_reading"`.
+Under lean reading the read-ahead of a reference book asks no `referenceSourceUnits`, no contact sheets and no visual
+assets (`queueVisual`); material is read when play asks for it (`requireMaterial`, `lookup`, §257.15 current-scene
+exhibits, adjacent reads). A claim does not start a queued background job carrying `source_unit`, `visual_asset` or
+`visual_scan`: it is finished `cancelled` with `detail: "lean_reading"`.
 
 `PI_COC_READING_CAP_TOKENS` (host): once the reading spend this host recorded for a module (input + cache read +
 output of every reader, reviewer and skeleton child, summed from the `usage` of its telemetry rows) reaches the cap, the
@@ -52318,9 +52318,12 @@ A `detail` job without `visual_scan`, `visual_asset`, `map_scope`, `visual_ident
   about 12K tokens; pages past the bound are named in `more_pages` for the pdf tool); `cross_references` (skeleton rows
   from other sections naming an entity of the job's pages, with their blocks' text, at most 3K tokens). The task is
   inlined in the brief (`READER_INLINE_BYTES`).
-- the child keeps the existing read instructions and tools, `maxRequests: 6`, and ends with `submit_reading`.
-- `observations.read_pages` are the inlined pages plus pages the child viewed.
-- a check that still refuses after the child stops fails the job with the check's findings; there is no second round.
+- the child keeps the existing read instructions and tools plus `visual-reader/lean.md`, `maxRequests: 10`, and ends
+  with `submit_reading`; it never runs as the native source reader.
+- `observations.read_pages` are the pages the child viewed (the submission gate still requires viewing every cited page).
+- whatever ended the child (its last submission, its request bound), the host checks draft.json itself. A refusal that
+  names only `/source_needs` is checked once more with `source_needs: []`; any other refusal fails the job with the
+  check's findings. There is no second round.
 
 ### 262.4 Lean review
 
@@ -52333,9 +52336,11 @@ After a successful submission the host writes `review.json` itself:
    `read,write`): claims whose predicate is `knows`, `uses-rule` or `discoverable-at`; a claim or node property
    whose source states a condition (the reader marks it `conditional: true` or writes `validity`); every exhibit. The
    verifier sees the candidate and the blocks of its cited pages, and answers per candidate `supported`,
-   `unsupported` or `uncertain` with a reason (`verdicts.json`). `unsupported` and `uncertain` records are pruned;
-   each prune adds a `deferred` source need naming the record and its pages, so the Keeper can read the original.
-3. A pruned node removes the claims and exhibits that name it; pruning the job's focus node fails the job.
+   `unsupported` or `uncertain` with a reason and, for a node, the faulted `fields` (`verdicts.json`, content
+   `setup/lean-verify.md`). `unsupported` and `uncertain` claims and exhibits are pruned; a node loses its faulted
+   properties (`summary` is never removed; the finding stays in `lean-review.json`). A node faulted as a whole is
+   pruned unless it is already published. Prunes are recorded in `lean-review.json` and the `lean_review` row.
+3. A pruned node removes the claims, exhibits and list entries that name it; a draft left without nodes fails the job.
 4. Every remaining required path gets a row `{path, verdict: "supported", reviewer: "lean-host" | "lean-verifier"}`.
 
 The existing gate (`checkReview`) then publishes. No vision review unit, no person-state child and no repair round
@@ -52350,7 +52355,24 @@ cross_references: [{name, hint, blocks}], conditional_events: [{summary, blocks}
 using only block ids it was given. The host merges into `skeleton.json` in the module directory: names matched by
 normalised spelling and aliases; an unmatched name stays its own row with `resolved: false`; per section `status:
 "indexed" | "failed"`, `blocks`, `usage`; `image_only` pages listed. A name the skeleton lacks is unknown, never
-absent. The skeleton is reader input only (§262.3 `cross_references`); it is never graph material and table open never
-waits for it.
+absent. The skeleton is reader input only (§262.3 `cross_references`, §262.6, §262.7); it is never graph material and
+table open never waits for it. It is stored by document hash at `<home>/source-skeletons/<sha>.json` (shared by the
+library and its forks); a section answered for the same task by an earlier host is kept. Neighbouring bookmark spans
+share a section while they stay under the bound. It starts at a prefetch wake or read-ahead and stops with the host.
 
-Tests: `tests/extension/lean-reading.test.mjs`, `tests/extension/source-blocks.test.mjs`.
+### 262.6 Lean source answers
+
+Under lean reading an `answer` job's task carries `skeleton_digest` (the skeleton's Keeper-truth, condition and
+cross-reference lines with names and pages, no book text, under about 5K tokens, plus entity names and pages) so the
+reader opens the listed pages before searching, and its reader is bounded to 12 requests. Its review is unchanged.
+
+### 262.7 The skeleton as a reference book's navigation index
+
+`module.skeleton.index {module_id, file_sha256, rows, campaign?}` (host-only, like `module.source.outline`: the library
+and an existing fork, never a fork of its own) writes a reference book's `sections.json` from the skeleton's entities:
+`{name, entities (aliases), pages (0-based ranges, at most 6; the three pages carrying most of the entity's blocks),
+source: "skeleton"}`. A book whose index has any row of another source keeps it (`state: "kept"`); otherwise the answer
+is `written` or `unchanged`. The material gate then knows the skeleton's names (§22.4.7): a person or place play names
+lands on its pages' text or asks its lean detail read.
+
+Tests: `tests/extension/lean-reading.test.mjs`, `tests/extension/source-blocks.test.mjs`, `tests/extension/read-window.test.mjs` (the `§262` cases).
