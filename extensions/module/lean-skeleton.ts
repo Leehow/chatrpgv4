@@ -216,7 +216,12 @@ export async function skeletonDigest(home: string, sha: string): Promise<Row | u
 /** §262.7: the skeleton's entities as navigation index rows: name, aliases and their pages as 0-based ranges. */
 export function skeletonIndexRows(skeleton: Row): Row[] {
 	return (skeleton?.entities ?? []).flatMap((entity: Row) => {
-		const pages: number[] = [...new Set<number>((entity.pages ?? []).filter((page: unknown) => Number.isSafeInteger(page) && Number(page) >= 1))].sort((a, b) => a - b);
+		// The pages carrying most of the entity's blocks come first: a page that only names it in passing weighs one block.
+		const weight = new Map<number, number>();
+		for (const id of entity.blocks ?? []) { const page = Number(/^b(\d+)-/.exec(String(id))?.[1]); if (Number.isSafeInteger(page) && page >= 1) weight.set(page, (weight.get(page) ?? 0) + 1); }
+		const ranked = (entity.pages ?? []).filter((page: unknown) => Number.isSafeInteger(page) && Number(page) >= 1)
+			.sort((a: number, b: number) => (weight.get(b) ?? 0) - (weight.get(a) ?? 0) || a - b).slice(0, 3);
+		const pages: number[] = [...new Set<number>(ranked)].sort((a, b) => a - b);
 		const ranges: number[][] = [];
 		for (const page of pages) { const last = ranges.at(-1); if (last && page - 1 === last[1] + 1) last[1] = page - 1; else ranges.push([page - 1, page - 1]); }
 		return ranges.length && typeof entity.name === "string" ? [{ name: entity.name, entities: entity.aliases ?? [], pages: ranges.slice(0, 6) }] : [];
