@@ -1,0 +1,111 @@
+/**
+ * Contract §258.2: who said what to whom. The host hands the narrate/ask commit what the packet selected for each speaker
+ * (`_delivery_evidence.selections`); the commit settles each selection against the committed say spans and the presence at
+ * publication, and the turn record keeps the result as `communication`. Nothing else stores it: every count is read back
+ * from the turn records, so a rollback, a replay or a rebuilt campaign reads the same counts.
+ */
+import type {ModuleGraph} from '../read/module-graph.js';
+import {array,number,row,string,type Row} from '../read/values.js';
+import {isNpcReference,npcReference} from './references.js';
+
+export const STRATEGIES=['new','refer','restate','clarify','update'] as const;
+export type Strategy=typeof STRATEGIES[number];
+const CONTENT_ID=/^[a-z]:[A-Za-z0-9_.:-]{1,120}$/;
+const LISTENER=/^(npc_[1-9][0-9]*|investigator_[1-9][0-9]*)$/;
+/** At most this many told rows per person reach the Keeper (§258.4). */
+export const TOLD_ROWS=6;
+
+/** The host's selections, as `_delivery_evidence` carries them; anything malformed is dropped, never trusted. */
+export function selectionsOf(evidence:Row):Row[] {
+    return array(evidence.selections).slice(0,16).flatMap((value,index)=>{
+        const selection=row(value);
+        if(!isNpcReference(selection.actor)||typeof selection.act!=='string')return [];
+        const to=array(selection.to).filter(ref=>typeof ref==='string'&&LISTENER.test(ref)).slice(0,16);
+        const items=array(selection.items).slice(0,8).flatMap(item=>{
+            const value=row(item);
+            if(typeof value.content_id!=='string'||!CONTENT_ID.test(value.content_id))return [];
+            return [{content_id:value.content_id,strategy:STRATEGIES.includes(value.strategy)?value.strategy:'new',
+                ...(typeof value.kind==='string'?{kind:value.kind.slice(0,40)}:{}),
+                ...(typeof value.gist==='string'&&value.gist.trim()?{gist:[...value.gist.trim()].slice(0,120).join('')}:{})}];
+        });
+        return [{seq:index,actor:selection.actor,act:selection.act.slice(0,24),to,items}];
+    });
+}
+
+/**
+ * §258.2: one turn's communication events. A selection is `attested` when the committed speech holds a non-empty line by
+ * its speaker, otherwise `missing`: the author did not give that person words, so nothing was told. Addressed listeners are
+ * the selection's `to`; everyone else present at publication, investigators included, `heard` it.
+ */
+export function communicationRecord(graph:ModuleGraph,world:Row,party:Row[],scope:Row,turn:number,evidence:Row,speech:Row[],present:Row[]):Row|undefined {
+    const selections=selectionsOf(evidence);
+    if(!selections.length)return undefined;
+    const investigator=(name:unknown)=>{const at=party.findIndex(sheet=>sheet.name===name||sheet.id===name);return at>=0?`investigator_${at+1}`:undefined;};
+    const refOf=(who:Row):string|undefined=>{
+        if(typeof who.investigator==='string')return investigator(who.investigator);
+        if(typeof who.npc!=='string')return undefined;
+        const node=graph.find(who.npc,['npc']);
+        return node?npcReference(graph,world,node):undefined;
+    };
+    const spoke=new Set(speech.flatMap(line=>string(row(line).text).trim()?[refOf(row(row(line).who))]:[]).filter(Boolean));
+    const here=[...present.map(node=>npcReference(graph,world,node)).filter((ref):ref is string=>!!ref),...party.map((_sheet,index)=>`investigator_${index+1}`)];
+    const events=selections.map(selection=>({...selection,id:`t${turn}:${selection.seq}`,
+        status:spoke.has(selection.actor)?'attested':'missing',
+        heard:here.filter(ref=>ref!==selection.actor&&!selection.to.includes(ref))}));
+    return {version:1,scope:{worldline:string(scope.worldline||'main'),loop:number(scope.loop)},turn,events};
+}
+
+/** The records of this worldline and loop before `turn`, oldest first; a later turn a rewind left behind is not read. */
+function scoped(records:Row[],scope:Row,turn?:number):Row[] {
+    return records.filter(record=>{
+        const communication=row(record.communication),origin=row(communication.scope);
+        return communication.version===1&&origin.worldline===string(scope.worldline||'main')&&number(origin.loop)===number(scope.loop)
+            &&(turn===undefined||number(record.turn)<turn);
+    }).sort((a,b)=>number(a.turn)-number(b.turn));
+}
+
+/**
+ * §258.4: what this speaker already told, newest first, at most `TOLD_ROWS`. Each row counts attested deliveries per
+ * listener by strategy; `unverified` counts selections the author never voiced. `addressed` marks a listener who was spoken
+ * to at least once, as opposed to one who only overheard.
+ */
+export function toldView(records:Row[],actor:string,scope:Row,turn?:number):Row[] {
+    const told=new Map<string,Row>();
+    for(const record of scoped(records,scope,turn))for(const event of array(row(record.communication).events)){
+        if(event.actor!==actor)continue;
+        for(const item of array(event.items)){
+            const entry=told.get(item.content_id)??{content_id:item.content_id,...(item.kind?{kind:item.kind}:{}),to:{} as Row};
+            if(item.gist)entry.gist=item.gist;
+            entry.last_turn=number(record.turn);
+            const listeners=event.status==='attested'?[...array(event.to),...array(event.heard)]:array(event.to);
+            for(const listener of listeners){
+                const counts=entry.to[listener]??={};
+                if(event.status!=='attested')counts.unverified=number(counts.unverified)+1;
+                else{
+                    counts[item.strategy]=number(counts[item.strategy])+1;
+                    if(array(event.to).includes(listener))counts.addressed=true;
+                }
+                counts.last_turn=number(record.turn);
+            }
+            told.delete(item.content_id);told.set(item.content_id,entry);
+        }
+    }
+    return [...told.values()].reverse().slice(0,TOLD_ROWS);
+}
+
+/** How many times this listener was told this content (every strategy but unverified). */
+export function toldCount(counts:Row):number {
+    return STRATEGIES.reduce((sum,strategy)=>sum+number(row(counts)[strategy]),0);
+}
+
+/**
+ * §258.5: whether a promise the memory lane extracted at `turn` has an origin -- a turn with communication records counts
+ * only when its obligor's own selection there was voiced. A turn recorded before §258 has no communication to judge by,
+ * so its promises stand as they did.
+ */
+export function promiseHasOrigin(records:Row[],actor:string|undefined,turn:unknown,scope:Row):boolean {
+    const record=records.find(value=>number(value.turn)===number(turn)&&row(value.communication).version===1
+        &&row(row(value.communication).scope).worldline===string(scope.worldline||'main'));
+    if(!record)return true;
+    return !!actor&&array(row(record.communication).events).some(event=>event.actor===actor&&event.status==='attested');
+}

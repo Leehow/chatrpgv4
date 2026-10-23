@@ -13,7 +13,8 @@ import type { HandlerGroup, ProgressReporter } from '../handlers.js';
 import type { TurnTransaction } from '../transactions.js';
 import { RpcError, internalError } from '../errors.js';
 import {operationOutcomes} from '../apply/outcomes.js';
-import {eventDisclosures,eventOutcome} from '../turn-events.js';
+import {eventDisclosures,eventOutcome,eventScope} from '../turn-events.js';
+import {communicationRecord} from '../npc/communication.js';
 import { sha256Text,isJsonObject } from '../json.js';
 import { appendJsonl, fileSize, truncateFile, writeJsonAtomic } from '../fileio.js';
 import { CampaignSnapshot, loadModule, loadCampaignModule, replayTrail, type LoadedModule } from '../read/campaign.js';
@@ -31,7 +32,7 @@ import {preparationCompatibility} from './preparation-compatibility.js';
 import { SessionView } from '../read/session-view.js';
 import { standingStates } from '../read/standing.js';
 import { authoredMapWords, presentPublishedArrivalMaps } from '../read/maps.js';
-import { clockSection, joinedWord, openingPeopleView, sceneLabel, publicSceneLabel, untoldBlock, untoldRosterNames } from '../read/capsule.js';
+import { clockSection, joinedWord, npcsPresent, openingPeopleView, sceneLabel, publicSceneLabel, untoldBlock, untoldRosterNames } from '../read/capsule.js';
 import { SHARED_FIX, candidatesOf, joinedWritten, sharedNames, sharedNotice } from './shared-untold.js';
 import { tableSnapshot, playerGlossary, unsupported, type ReadContributions } from '../read/handlers.js';
 import { playLanguages, playLanguageOf, declaredPlayLanguage } from '../read/languages.js';
@@ -1389,6 +1390,13 @@ export function createWriteRuntime(context: KernelContext, contributions: WriteC
             { opening: number(turn.turn) === 0, look: row(review).look === true, receipts: array(turn.receipts) }), review);
         return record ? { establish: record } : {};
     }
+    function communicated(snapshot:CampaignSnapshot,module:LoadedModule,turn:number,evidence:unknown,speech:Row[]):Row|undefined {
+        if (evidence === undefined) return undefined;
+        let present: Row[] = [];
+        try { present = npcsPresent(module.graph, snapshot.world, module.graph.scene(snapshot.world.active_scene)); }
+        catch (error) { if (!(error instanceof RpcError)) throw error; }
+        return communicationRecord(module.graph, snapshot.world, snapshot.party, eventScope(snapshot.meta), turn, row(evidence), speech, present);
+    }
     async function validateFinalEvidence(params:Row,snapshot:CampaignSnapshot,module:LoadedModule):Promise<void> {
 		if (params._delivery_evidence !== undefined) {
 			const evidence = row(params._delivery_evidence);
@@ -1579,6 +1587,9 @@ export function createWriteRuntime(context: KernelContext, contributions: WriteC
             // §203.2: the place this delivery established, when the duty was owed on it.
             ...await establishedBy(snapshot, module, turn, establishReview, false)
         };
+        // §258.2: what each selected speaker was given to say, settled against this delivery's speech and presence.
+        const askCommunication = communicated(snapshot, module, n, params._delivery_evidence, array(delivery.speech));
+        if (askCommunication) (record as Row).communication = askCommunication;
         await campaign.writeTurnRecord(record);
         await updateNpcLedger(campaign, module.graph, record);
         await campaign.writeTurn(turn);
@@ -1838,6 +1849,9 @@ export function createWriteRuntime(context: KernelContext, contributions: WriteC
                     ...(stripped ? { stripped: true } : {}),
                     at: nowIso() }] : []), ...(gap ? [timeWarning(gap, nowIso())] : [])] } : {})
         };
+        // §258.2: what each selected speaker was given to say, settled against this delivery's speech and presence.
+        const communication = reference ? undefined : communicated(snapshot, module, n, params._delivery_evidence, array(record.speech));
+        if (communication) record.communication = communication;
         await campaign.writeTurnRecord(record);
         if (!reference) await updateNpcLedger(campaign, module.graph, record);
         if (!reference) await callByBookName(campaign, module.graph, introduced, array(turn.receipts), record);

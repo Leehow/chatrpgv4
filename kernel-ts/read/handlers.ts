@@ -4,6 +4,8 @@ import type { KernelContext } from "../context.js";
 import type { HandlerGroup, KernelResult } from "../handlers.js";
 import { RpcError } from "../errors.js";
 import {eventOutcome,eventScope,canonicalEvents,actorEventView} from '../turn-events.js';
+import {npcReference} from '../npc/references.js';
+import {toldView} from '../npc/communication.js';
 import {turnRecordPath} from '../turn-record.js';
 import {parsePythonJson} from '../json.js';
 import { continuityView } from "./continuity.js";
@@ -542,8 +544,10 @@ export function readHandlers(context: KernelContext, contributions: ReadContribu
                 const view=npcView(graph,world,node,ledger,journal,records,await campaign.log('memory/candidates.jsonl'),{worldline:scope.worldline,loop:scope.loop,current_receipts:array(campaign.turn.receipts)},
                     row(await campaign.optional('save/combat.json')),await dispositionTable(context),campaign.chainReads());
                 const semantic=actorEventView(canonicalEvents(records,array(campaign.turn.receipts),scope),graph.nameKeys(node),{...scope,across_loops:remembersAcrossLoops(graph,node)});
+                // §258.4: what this person already told whom, read back from the turn records.
+                const ref=npcReference(graph,world,node),told=ref?toldView(records,ref,scope,number(campaign.turn.turn)):[];
                 return {...view,cognition:semantic.cognition,semantic_coverage:{...semantic.coverage,read:{what:'memory',about:[graph.displayName(node)]}},
-                    relationships:[...array(semantic.relationships).reverse(),...array(view.relationships)]};
+                    relationships:[...array(semantic.relationships).reverse(),...array(view.relationships)],...(told.length?{told}:{})};
             }
             if (focus === "investigator") {
                 campaign.party = await campaign.files("party");

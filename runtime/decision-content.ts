@@ -16,11 +16,14 @@ export const NewCommunicationFact=Type.Union([
   heading:Type.Optional(StringEnum(['north','northeast','east','southeast','south','southwest','west','northwest','left','right','straight'])),
   via:Type.Optional(Type.Array(ref,{minItems:1,maxItems:8})),retrace:Type.Optional(Type.Literal(true))},
   {additionalProperties:false,anyOf:[{required:['heading']},{required:['via']},{required:['retrace']}]}),
- closed({predicate:Type.Literal('knowledge_status'),topic:ref,status:StringEnum(['unknown','uncertain','withheld'])}),
+ closed({predicate:Type.Literal('knowledge_status'),topic:ref,status:StringEnum(['unknown','uncertain','withheld','nothing_more'])}),
  closed({predicate:Type.Literal('input_requirements'),topic:ref,fields:Type.Array(StringEnum(['subject_name','person_name','location','time_range','record_type','purpose','quantity','budget']),{minItems:1,maxItems:8,uniqueItems:true})})
 ]);
-export const ExistingCommunicationFact=Type.Union([closed({fact_ref:ref}),closed({source_ref:ref}),closed({result_ref:StringEnum(['scene','outcomes','clock'])}),closed({exhibit_ref:ref})]);
-export const CommunicationContent=Type.Union([ExistingCommunicationFact,closed({new:NewCommunicationFact})]);
+/** §258.4: how a selected item is said to a listener who was already told it; omitted, a told item is said as `refer`. */
+export const TELLING=['new','refer','restate','clarify','update'] as const;
+const strategy=Type.Optional(StringEnum([...TELLING]));
+export const ExistingCommunicationFact=Type.Union([closed({fact_ref:ref,strategy}),closed({source_ref:ref,strategy}),closed({result_ref:StringEnum(['scene','outcomes','clock'])}),closed({exhibit_ref:ref,strategy})]);
+export const CommunicationContent=Type.Union([ExistingCommunicationFact,closed({new:NewCommunicationFact,strategy})]);
 const actor=Type.String({pattern:"^(npc_[1-9][0-9]*|new_[1-4])$",maxLength:32});
 const to=Type.Array(ref,{minItems:1,maxItems:16,uniqueItems:true});
 export const Interaction=Type.Union([
@@ -45,7 +48,8 @@ export function bindCommunicationParameters(schema:TSchema,bindings:DecisionBind
   if(p?.predicate){for(const key of ['provider','topic'])if(p[key])p[key]=selection(bindings.entities,true);
    if(p.actor)p.actor=selection(bindings.people,true);
    if(p.to)p.to=selection(bindings.places);
-   if(p.items)p.items.items=Type.Union([selection(bindings.entities,true),category]);
+   // §258.5: what a service serves is a thing, never a person.
+   if(p.items)p.items.items=Type.Union([selection(bindings.entities.filter(entity=>!bindings.people.includes(entity))),category]);
    if(p.via)p.via.items=selection(bindings.places);
   }else if(p?.actor&&p?.act){p.actor=selection(bindings.people.filter(isNpcReference),true);if(p.to)p.to.items=selection(bindings.people,true);}
   if(p?.fact_ref)p.fact_ref=selection(narration?bindings.narrationFacts??bindings.facts:bindings.facts);
@@ -87,7 +91,28 @@ export function decisionCharacter(person:Row):Row {
 }
 /** An exhibit selection the host refuses whole; the message is the repair the Keeper reads. */
 export class ExhibitRefusal extends Error {reason:'unissued'|'carrier_absent'|'not_owner'|'testimony_revealed';ref:string;constructor(message:string,reason:'unissued'|'carrier_absent'|'not_owner'|'testimony_revealed',ref:string){super(message);this.reason=reason;this.ref=ref;}}
-interface Fact {ref:string;actor?:string;kind:string;availability:'current'|'supplemental';value:unknown;revision:string}
+interface Fact {ref:string;actor?:string;kind:string;availability:'current'|'supplemental';value:unknown;revision:string;told?:Row}
+/** §258.3: one selected item as the host records it: a stable content identity and how it is said. Host-only. */
+export interface TellingUnit {content_id:string;kind:string;strategy:typeof TELLING[number];gist?:string;told_times?:number}
+const counted=(counts:Row)=>TELLING.reduce((sum,key)=>sum+(Number(counts?.[key])||0),0);
+const gistOf=(value:unknown):string|undefined=>{
+ const row=value&&typeof value==='object'?value as Row:{};
+ const text=typeof value==='string'?value:[row.statement,row.summary,row.text,row.writing,row.label].find(item=>typeof item==='string'&&item.trim());
+ const chosen=typeof text==='string'?text:value&&typeof value==='object'?JSON.stringify(value):undefined;
+ return chosen?[...chosen.trim()].slice(0,120).join(''):undefined;
+};
+const sorted=(value:unknown):unknown=>Array.isArray(value)?value.map(sorted):value&&typeof value==='object'
+ ?Object.fromEntries(Object.keys(value).sort().map(key=>[key,sorted((value as Row)[key])])):value;
+/** §258.3: a content identity, explicit per source kind so two kinds never collide. */
+const contentId=(prefix:string,key:unknown)=>`${prefix}:${createHash('sha256').update(JSON.stringify(sorted(key))).digest('hex').slice(0,24)}`;
+function factContentId(evidence:string,value:unknown,actor:string|undefined):string {
+ const row=value&&typeof value==='object'?value as Row:{};
+ const id=[row.memory_id,row.id].find(item=>typeof item==='string'&&item.trim());
+ if(id)return contentId('m',id);
+ if(typeof row.event_material==='string')return contentId('e',[row.event_ref,row.event_material]);
+ if(evidence==='discovered_source_clue'&&typeof row.name==='string')return contentId('c',row.name);
+ return contentId('h',{actor:actor??null,text:gistOf(value)??null});
+}
 /** Aliases survive unchanged material; current issuance and scoped contents do not. */
 export class DecisionContent {
  private scope='';private ordinal=0;private aliases=new Map<string,string>();
@@ -96,7 +121,7 @@ export class DecisionContent {
  private places=new Set<string>();
  private entityLabels=new Map<string,string>();
  private exhibitRows=new Map<string,Row>();private handleRefs=new Map<string,string>();private activeExhibits=new Set<string>();private exhibitOrdinal=0;private exhibitsOmitted=0;private exhibitsGiven=false;
- private reads=new Map<string,Row>();private sourceRevision:unknown;private bytes=0;private omitted=0;private previous=new Set<string>();
+ private reads=new Map<string,Row>();private told=new Map<string,Map<string,Row>>();private sourceRevision:unknown;private bytes=0;private omitted=0;private previous=new Set<string>();
  assertCurrent(capsule:Row):void {if(this.sourceRevision!==undefined&&this.sourceRevision!==(capsule._context?.task_source_revision??capsule._context?.source_revision))throw Error('Prepared communication source revision changed');}
  forScope(scope:string):void {if(scope!==this.scope){this.scope=scope;this.active.clear();this.entities.clear();this.people.clear();this.places.clear();this.listenerAliases.clear();this.entityLabels.clear();this.reads.clear();this.facts.clear();this.exhibitRows.clear();this.activeExhibits.clear();this.handleRefs.clear();}}
  observePerson(value:Row):void {if(isNpcReference(value.ref))this.reads.set(value.ref,structuredClone(value));}
@@ -109,6 +134,10 @@ export class DecisionContent {
   }
   for(const ref of issuedPeople)if(isNpcReference(ref)){this.entities.add(ref);this.people.add(ref);}
   const cast=[...rows(capsule.npc_references?.people),...rows(capsule.present),...people,...this.reads.values()];
+  // §258.4: what each present person already told whom, from their read; it marks the rows issued to them.
+  this.told.clear();
+  for(const person of cast)if(isNpcReference(person.ref)&&Array.isArray(person.told)&&!this.told.has(person.ref))
+   this.told.set(person.ref,new Map(rows(person.told).filter(item=>typeof item.content_id==='string').map(item=>[item.content_id,item])));
   const publicAliases=new Map<string,Set<string>>();
   const aliasKey=(value:string)=>value.normalize('NFKC').trim().toLowerCase();
   for(const person of cast)if(isNpcReference(person.ref))for(const key of ['ref','id','name','display_name'])if(typeof person[key]==='string'){
@@ -165,6 +194,7 @@ export class DecisionContent {
    this.issue('fact',{turn:entry.turn,text:entry.text,...(entry.truncated?{truncated:true}:{})},undefined,'public_scene_history');
   const reused=[...this.active].filter(ref=>this.previous.has(ref)).length;this.previous=new Set(this.active);
   return {coverage:{issued:this.active.size,reused_refs:reused,omitted:this.omitted,byte_limit:32768,...(this.exhibitsGiven?{exhibits:{issued:this.activeExhibits.size,omitted:this.exhibitsOmitted}}:{})},facts:[...this.active].map(key=>{const {revision,...fact}=this.facts.get(key)!;return fact;}),entities:[...this.entities],
+   ...([...this.active].some(key=>this.facts.get(key)?.told)?{telling:'A fact marked told was already said by its actor to the listeners named (times, last turn). Select it again only when it serves this exchange, with strategy: refer (brief back-reference, the default), restate (the player asked to hear it again), clarify (explain what was misunderstood) or update (only beside a new item). told earlier means it was said before the counts began.'}:{}),
    ...(this.activeExhibits.size?{exhibits:[...this.activeExhibits].map(ref=>this.exhibitRows.get(ref)!.catalog)}:{}),
    authority:'Exact prepared content references only. Actor-scoped facts belong to that actor; a report, belief or plan is not world truth. A selection is not a transaction or proof of delivery.'};
  }
@@ -175,7 +205,44 @@ export class DecisionContent {
   if(this.active.size>=256||cost>16000||this.bytes+cost>32768){this.omitted++;return;}
   if(!ref){if(this.aliases.size>=2048)this.aliases.delete(this.aliases.keys().next().value!);ref=`${kind}_${++this.ordinal}`;this.aliases.set(identity,ref);}
   this.bytes+=cost;
-  this.facts.set(ref,{ref,...(actor?{actor}:{}),kind:evidence,availability,value:structuredClone(value),revision:identity});this.active.add(ref);
+  const told=actor?this.toldMark(actor,factContentId(evidence,value,actor),evidence,value):undefined;
+  this.facts.set(ref,{ref,...(actor?{actor}:{}),kind:evidence,availability,value:structuredClone(value),...(told?{told}:{}),revision:identity});this.active.add(ref);
+ }
+ /** §258.4: the compact told mark a catalog row carries: per listener how often, and when last. */
+ private toldMark(actor:string,content:string,evidence:string,value:unknown):Row|undefined {
+  const row=this.told.get(actor)?.get(content);
+  if(row){
+   const to=Object.fromEntries(Object.entries(row.to??{}).flatMap(([listener,counts])=>{
+    const times=counted(counts as Row),unverified=Number((counts as Row).unverified)||0;
+    return times||unverified?[[listener,unverified&&!times?{unverified}:times]]:[];
+   }));
+   if(Object.keys(to).length)return {to,last_turn:row.last_turn};
+  }
+  // Their own earlier words and their own promises were said before any count: told, at the turn they carry.
+  if(['commitments','public_speech_history','recent_speech'].includes(evidence)){
+   const turn=(value as Row)?.valid_from_turn??(value as Row)?.turn;
+   return {earlier:true,...(Number.isSafeInteger(turn)?{turn}:{})};
+  }
+  return undefined;
+ }
+ /**
+  * §258.3: the host's record of one selected item. A told item is said as `refer` unless the Keeper chose how; it counts as
+  * told only when every addressed listener was told it. `told_times` is the fewest times any addressed listener heard it.
+  */
+ private unit(content:Row,actor:string,to:string[]):TellingUnit|undefined {
+  let id:string,kind:string,gist:string|undefined,marked:Row|undefined;
+  if(content.result_ref)return undefined;
+  if(content.new){id=contentId('n',{actor,value:content.new});kind=`new:${content.new.predicate}`;gist=gistOf(content.new);}
+  else if(content.exhibit_ref){const issued=this.exhibitRows.get(content.exhibit_ref);if(!issued)return undefined;id=contentId('x',issued.exhibit_id);kind='exhibit';gist=gistOf(issued.label);}
+  else{
+   const fact=this.facts.get(content.fact_ref??content.source_ref);if(!fact)return undefined;
+   id=content.source_ref?contentId('s',(fact.value as Row)?.name??fact.revision):factContentId(fact.kind,fact.value,fact.actor);
+   kind=fact.kind;gist=gistOf(fact.value);marked=fact.told;
+  }
+  const row=this.told.get(actor)?.get(id),listeners=to.length?to:[...this.people].filter(ref=>ref.startsWith('investigator_'));
+  const times=row&&listeners.length?Math.min(...listeners.map(listener=>counted(row.to?.[listener]))):marked?.earlier?1:0;
+  const strategy=content.strategy??(times>0?'refer':'new');
+  return {content_id:id,kind,strategy,...(gist?{gist}:{}),...(times?{told_times:times}:{})};
  }
  /**
   * §257.7: one exhibit the table may reveal now. The Keeper's catalog entry never holds the surface; the host row keeps only
@@ -269,6 +336,9 @@ export class DecisionContent {
    for(const place of fact.via??[])if(!this.places.has(place))throw Error('A communication waypoint must select an issued place reference');
    for(const key of ['provider','actor','to','topic'])if(typeof fact[key]==='string'&&!this.entities.has(fact[key]))throw Error(`New communication content ${key} must select an issued entity reference`);
    for(const item of [...fact.items??[],...fact.via??[]])if(typeof item==='string'&&!this.entities.has(item))throw Error('New communication content uses an unissued item or waypoint reference');
+   // §258.5: a service serves things; a person named as an item is an invented appointment.
+   if(fact.predicate==='service_at'&&(fact.items??[]).some((item:unknown)=>typeof item==='string'&&(this.people.has(item)||/^new_[1-4]$/.test(item))))
+    throw Error('service_at items are what is served, never a person; with nothing to offer, use greet or acknowledge, or answer with knowledge_status nothing_more');
    const refs=[fact.provider,fact.actor,fact.to,fact.topic,...fact.items??[],...fact.via??[]].filter((value):value is string=>typeof value==='string');
    return {kind:'proposed_claim',value:structuredClone(fact),entities:[...new Set(refs)].flatMap(ref=>this.entityLabels.has(ref)?[{ref,display_name:this.entityLabels.get(ref)}]:[]),authority:'Communication content only; not a receipt, truth, order or completed action'};
   }
@@ -285,7 +355,8 @@ export class DecisionContent {
   if(actor&&fact.kind==='public_scene_history')throw Error('Prior public scene text is narration context, not an actor knowledge grant');
   const {revision,...hydrated}=fact;return structuredClone(hydrated);
  }
- hydrate(interactions:InteractionDecision[],reveal:unknown[]=[]):{responses:HydratedInteraction[];materials:Row[]} {
+ hydrate(interactions:InteractionDecision[],reveal:unknown[]=[]):{responses:HydratedInteraction[];materials:Row[];units:TellingUnit[][]} {
+  const units:TellingUnit[][]=[];
   const responses=interactions.map(response=>{
    const to=response.to?.map(listener=>{
     if(this.people.has(listener)||/^new_[1-4]$/.test(listener))return listener;
@@ -293,9 +364,19 @@ export class DecisionContent {
     if(!ref)throw Error('Unissued or non-person communication audience');return ref;
    });
    if(to?.includes(response.actor))throw Error('A speaker cannot be its own addressee');
-   return {...response,...(to?{to}:{}),...('content'in response?{claims:(response.content??[]).map(content=>this.resolve(content,response.actor))}:{})};
+   const contents:Row[]='content'in response?(response.content??[]) as Row[]:[];
+   const claims=contents.map(content=>this.resolve(content,response.actor));
+   const told=contents.map(content=>this.unit(content,response.actor,to??[]));
+   // §258.4: `update` says what changed, so it needs something new beside it.
+   if(told.some(item=>item?.strategy==='update')&&!told.some(item=>item?.strategy==='new'))
+    throw Error(`${response.actor}: strategy update needs a new item in the same response (the change itself); select it, or say the told item as refer`);
+   units.push(told.filter((item):item is TellingUnit=>!!item));
+   return {...response,...(to?{to}:{}),...('content'in response?{claims:claims.map((claim,index)=>{
+    const item=told[index];
+    return item&&item.strategy!=='new'?{...claim,telling:{strategy:item.strategy,...(item.told_times?{times:item.told_times}:{})}}:claim;
+   })}:{})};
   });
-  return {responses,materials:reveal.map(content=>this.resolve(content))};
+  return {responses,materials:reveal.map(content=>this.resolve(content)),units};
  }
 }
 
