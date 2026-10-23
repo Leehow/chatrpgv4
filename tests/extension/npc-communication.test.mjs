@@ -108,3 +108,60 @@ test('an exhibit said as refer keeps its telling when the author claim replaces 
   new Map([['exhibit_1',{kind:'exhibit',exhibit:{kind:'testimony',surface:'Marathon has better food.'}}]]));
  assert.deepEqual(claims[0].claims[0].telling,{strategy:'refer',times:1});
 });
+
+import {decisionCharacter,decisionPerson} from '../../runtime/decision-content.ts';
+import {compileTurnPacket} from '../../runtime/turn-packet-prototype.ts';
+const {heardView}=await importSource('kernel-ts/npc/communication.ts');
+
+test('§258.7 a directed attitude compiles with its numbers, folds newest-over-oldest, and the author sees only what is shown',()=>{
+ const packet={version:4,commands:[{kind:'relationship',actor:'npc_1',toward:'investigator_1',disposition:'hostile',fear:3,public:'friendly',hidden:['disposition']}]};
+ assert.deepEqual(turnPacket(JSON.stringify(packet)),packet);
+ const statement=JSON.parse(compileTurnPacket(packet).event.relationships[0].statement);
+ assert.deepEqual(statement,{kind:'directed_relationship',affinity:'hostile',disposition:'hostile',fear:3,public:'friendly',hidden:['disposition']});
+ const legacy=JSON.parse(compileTurnPacket({version:4,commands:[{kind:'relationship',actor:'npc_1',toward:'investigator_1',affinity:'guarded'}]}).event.relationships[0].statement);
+ assert.equal(legacy.disposition,'unfriendly');
+ const later={kind:'directed_relationship',control:'coerced'};
+ const person={ref:'npc_1',display_name:'Russ',relationships:[{toward:'Ada',evidence:[{statement:JSON.stringify(later),turn:4}]},{toward:'Ada',evidence:[{statement:JSON.stringify(statement),turn:2}]}]};
+ assert.deepEqual(decisionCharacter(person).attitude,[{toward:'Ada',disposition:'hostile',fear:3,public:'friendly',hidden:['disposition'],control:'coerced',since_turn:4}]);
+ const shown=decisionPerson(person,[{ref:'investigator_1',name:'Ada',display_name:'Ada'}]);
+ assert.deepEqual(shown.relationships,[{toward:'investigator_1',public:'friendly'}]);
+ assert.ok(!JSON.stringify(shown).includes('hidden'),'no mark says something is hidden');
+ assert.ok(!JSON.stringify(shown).includes('hostile')&&!JSON.stringify(shown).includes('coerced'),'nothing concealed reaches the author');
+ assert.throws(()=>turnPacket(JSON.stringify({version:4,commands:[{kind:'relationship',actor:'npc_1',toward:'investigator_1',disposition:'hostile',fear:9}]})));
+});
+
+test('§258.8 a bystander hears attested lines and gets them as attributed hearsay',()=>{
+ const records=[record(1,[offer('n:abc')],russSays),record(2,[{...offer('n:zzz'),items:[{content_id:'n:zzz',gist:'unsaid'}]}],[])];
+ assert.deepEqual(heardView(records,'npc_2',scope),[{content_id:'n:abc',said_by:'npc_1',to:['investigator_1'],gist:'coffee at 09:20',turn:1}]);
+ assert.deepEqual(heardView(records,'npc_1',scope),[],'a speaker does not overhear themself');
+ const owner=new DecisionContent();
+ const nate={ref:'npc_2',display_name:'Nate',heard:heardView(records,'npc_2',scope)};
+ const cast={...capsule,present:[...capsule.present,{ref:'npc_2',id:'nate',name:'Nate',display_name:'Nate'}]};
+ const fact=owner.prepare('c:1',cast,[russ(),nate],[],['Ada']).facts.find(row=>row.kind==='heard');
+ assert.equal(fact.actor,'npc_2');assert.equal(fact.value.said_by,'Russ');assert.match(fact.value.authority,/attribute it to Russ/);
+ const {units}=owner.hydrate([{actor:'npc_2',to:['investigator_1'],act:'report',content:[{fact_ref:fact.ref}]}]);
+ assert.equal(units[0][0].content_id,'n:abc');
+});
+
+test('live P1 findings: author say tokens attest without resolved speech; heard keeps the first speaker and never the listener own words',()=>{
+ const viaTokens=communicationRecord(graph,world,party,scope,4,{selections:[offer('n:abc')],artifact_text:'He wipes his hands. {{say:npc_1}}"Coffee is on."{{/say}}'},[],[{node_id:'russ'},{node_id:'nate'}]);
+ assert.equal(viaTokens.events[0].status,'attested');
+ const empty=communicationRecord(graph,world,party,scope,4,{selections:[offer('n:abc')],artifact_text:'{{say:npc_1}}{{/say}}'},[],[]);
+ assert.equal(empty.events[0].status,'missing');
+ const nateSays=[{who:{npc:'nate',name:'Nate'},text:'Like he said.'}];
+ const records=[record(1,[offer('n:abc')],russSays),record(2,[{actor:'npc_2',act:'report',to:['investigator_1'],items:[{content_id:'n:abc',strategy:'new',gist:'coffee at 09:20'}]}],nateSays)];
+ assert.deepEqual(heardView(records,'npc_1',scope),[],'Russ does not overhear his own words when Nate repeats them');
+ const third={...world,npc_references:{version:1,next:4,by_node:{russ:'npc_1',nate:'npc_2',steve:'npc_3'}}};
+ const both=[1,2].map(turn=>({turn,communication:communicationRecord(graph,third,party,scope,turn,{selections:[turn===1?offer('n:abc'):records[1].communication.events[0]]},turn===1?russSays:nateSays,[{node_id:'russ'},{node_id:'nate'},{node_id:'steve'}])}));
+ assert.equal(heardView(both,'npc_3',scope)[0].said_by,'npc_1','Steve heard it first from Russ');
+});
+
+test('a bystander who says, as their own new item, what they heard is given it as hearsay',()=>{
+ const value={predicate:'directions',to:'Esso',retrace:true};
+ const owner=new DecisionContent(),cast={...capsule,present:[...capsule.present,{ref:'npc_2',id:'nate',name:'Nate',display_name:'Nate'}]};
+ const russId=(()=>{const probe=new DecisionContent();probe.prepare('c:1',capsule,[russ()],[],['Ada']);return probe.hydrate([{actor:'npc_1',to:['investigator_1'],act:'answer',content:[{new:value}]}]).units[0][0].content_id;})();
+ owner.prepare('c:1',cast,[russ(),{ref:'npc_2',display_name:'Nate',heard:[{content_id:russId,said_by:'npc_1',gist:'back the way you came',turn:1}]}],[],['Ada']);
+ const hydrated=owner.hydrate([{actor:'npc_2',to:['investigator_1'],act:'answer',content:[{new:value}]}]);
+ assert.equal(hydrated.units[0][0].content_id,russId);assert.equal(hydrated.units[0][0].kind,'heard');
+ assert.equal(hydrated.responses[0].claims[0].heard_from,'Russ');assert.match(hydrated.responses[0].claims[0].authority,/attribute it to Russ/);
+});

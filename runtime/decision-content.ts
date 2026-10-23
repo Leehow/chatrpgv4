@@ -83,9 +83,39 @@ export function bindCreatedDecisionPerson(selected:{responses:HydratedInteractio
 const rows=(x:unknown):Row[]=>Array.isArray(x)?x.filter(v=>v&&typeof v==='object'):[];
 const digest=(x:unknown)=>createHash('sha256').update(JSON.stringify(x)).digest('hex');
 const MATERIAL_FIELDS=['knowledge','knows','authored_knowledge','knowledge_reports','cognition','recent_speech','commitments','believes','authored_beliefs'] as const;
+const DISPOSITION_OF:Record<string,string>={hostile:'hostile',guarded:'unfriendly',unfriendly:'unfriendly',neutral:'neutral',friendly:'friendly',ally:'ally'};
+/**
+ * §258.7: one attitude row per target, folded oldest to newest from the directed_relationship statements a person's read
+ * carries (newest first); a later statement overrides only the fields it names, and `control: none` clears control.
+ */
+export function attitudeRows(relationships:unknown):Row[] {
+ const statements:Row[]=[];
+ for(const [order,relation] of rows(relationships).entries())for(const evidence of [relation,...rows(relation.evidence)]){
+  let value:Row;try{value=JSON.parse(evidence.statement);}catch{continue;}
+  if(value?.kind!=='directed_relationship'||typeof relation.toward!=='string')continue;
+  statements.push({toward:relation.toward,value,turn:Number(evidence.turn??relation.turn),order});break;
+ }
+ statements.sort((a,b)=>(Number.isFinite(a.turn)&&Number.isFinite(b.turn)&&a.turn!==b.turn?a.turn-b.turn:b.order-a.order));
+ const folded=new Map<string,Row>();
+ for(const {toward,value,turn} of statements){
+  const row=folded.get(toward)??{toward};
+  const disposition=DISPOSITION_OF[value.disposition??value.affinity];
+  if(disposition)row.disposition=disposition;
+  for(const key of ['trust','fear','pressure'])if(Number.isInteger(value[key])&&value[key]>=0&&value[key]<=5)row[key]=value[key];
+  if(DISPOSITION_OF[value.public])row.public=DISPOSITION_OF[value.public];
+  if(Array.isArray(value.hidden))row.hidden=value.hidden.filter((item:unknown)=>item==='disposition'||item==='mood');
+  if(typeof value.control==='string'){if(value.control==='none')delete row.control;else row.control=value.control;}
+  if(Number.isFinite(turn))row.since_turn=turn;
+  folded.set(toward,row);
+ }
+ return [...folded.values()].filter(row=>row.disposition||row.control).slice(-6);
+}
 /** Epistemic material has one selectable catalog, not a second implicit disclosure path. */
 export function decisionCharacter(person:Row):Row {
  const result=Object.fromEntries(Object.entries(person).filter(([key])=>!(MATERIAL_FIELDS as readonly string[]).includes(key)&&!['observed_documents','tried','last_public_rendering'].includes(key)));
+ // §258.7: the Keeper reads attitude parsed, one row per target.
+ const attitude=attitudeRows(person.relationships);
+ if(attitude.length)result.attitude=attitude;
  if(result.ledger&&typeof result.ledger==='object'){
   const {intents,...ledger}=result.ledger;result.ledger=ledger;
  }
@@ -95,7 +125,7 @@ export function decisionCharacter(person:Row):Row {
 export class ExhibitRefusal extends Error {reason:'unissued'|'carrier_absent'|'not_owner'|'testimony_revealed';ref:string;constructor(message:string,reason:'unissued'|'carrier_absent'|'not_owner'|'testimony_revealed',ref:string){super(message);this.reason=reason;this.ref=ref;}}
 interface Fact {ref:string;actor?:string;kind:string;availability:'current'|'supplemental';value:unknown;revision:string;told?:Row;content:string}
 /** §258.3: one selected item as the host records it: a stable content identity and how it is said. Host-only. */
-export interface TellingUnit {content_id:string;kind:string;strategy:typeof TELLING[number];gist?:string;told_times?:number}
+export interface TellingUnit {content_id:string;kind:string;strategy:typeof TELLING[number];gist?:string;told_times?:number;heard_from?:string}
 const counted=(counts:Row)=>TELLING.reduce((sum,key)=>sum+(Number(counts?.[key])||0),0);
 const gistOf=(value:unknown):string|undefined=>{
  const row=value&&typeof value==='object'?value as Row:{};
@@ -143,9 +173,9 @@ export class DecisionContent {
  private places=new Set<string>();
  private entityLabels=new Map<string,string>();
  private exhibitRows=new Map<string,Row>();private handleRefs=new Map<string,string>();private activeExhibits=new Set<string>();private exhibitOrdinal=0;private exhibitsOmitted=0;private exhibitsGiven=false;
- /** §257.17: testimony already said at this table, by exhibit id, per play line (campaign, worldline, loop); outlives the turn scope. */
- private said=new Map<string,Set<string>>();private line='';
- private reads=new Map<string,Row>();private told=new Map<string,Map<string,Row>>();private sourceRevision:unknown;private bytes=0;private omitted=0;private previous=new Set<string>();
+  /** §257.17: testimony already said at this table, by exhibit id, per play line (campaign, worldline, loop); outlives the turn scope. */
+  private said=new Map<string,Set<string>>();private line='';
+ private reads=new Map<string,Row>();private told=new Map<string,Map<string,Row>>();private heard=new Map<string,Row[]>();private sourceRevision:unknown;private bytes=0;private omitted=0;private previous=new Set<string>();
  assertCurrent(capsule:Row):void {if(this.sourceRevision!==undefined&&this.sourceRevision!==(capsule._context?.task_source_revision??capsule._context?.source_revision))throw Error('Prepared communication source revision changed');}
  forScope(scope:string,line?:string):void {if(line!==undefined)this.line=line;else if(scope!==this.scope)this.line=scope;if(scope!==this.scope){this.scope=scope;this.active.clear();this.entities.clear();this.people.clear();this.places.clear();this.listenerAliases.clear();this.entityLabels.clear();this.reads.clear();this.facts.clear();this.exhibitRows.clear();this.activeExhibits.clear();this.handleRefs.clear();}}
  observePerson(value:Row):void {if(isNpcReference(value.ref))this.reads.set(value.ref,structuredClone(value));}
@@ -159,7 +189,7 @@ export class DecisionContent {
   for(const ref of issuedPeople)if(isNpcReference(ref)){this.entities.add(ref);this.people.add(ref);}
   const cast=[...rows(capsule.npc_references?.people),...rows(capsule.present),...people,...this.reads.values()];
   // §258.4: what each present person already told whom, from their read; it marks the rows issued to them.
-  this.told.clear();
+  this.told.clear();this.heard.clear();
   for(const person of cast)if(isNpcReference(person.ref)&&Array.isArray(person.told)&&!this.told.has(person.ref))
    this.told.set(person.ref,new Map(rows(person.told).filter(item=>typeof item.content_id==='string').map(item=>[item.content_id,item])));
   const publicAliases=new Map<string,Set<string>>();
@@ -200,6 +230,13 @@ export class DecisionContent {
     for(const value of values){const content=typeof value==='string'?value:typeof value?.statement==='string'||field==='knows'&&typeof value?.summary==='string'?value:undefined;
      if(content!==undefined)this.issue('fact',content,person.ref,ownPublicSpeech(content,person,field)?'public_speech_history':field);
     }
+   }
+   // §258.8: what others said in this person's hearing, as attributed hearsay that is never their own knowledge or promise.
+   if(rows(person.heard).length&&!this.heard.has(person.ref))this.heard.set(person.ref,rows(person.heard));
+   for(const item of rows(person.heard))if(typeof item.gist==='string'&&typeof item.content_id==='string'){
+    const by=typeof item.said_by==='string'?this.entityLabels.get(item.said_by)??item.said_by:'someone';
+    this.issue('fact',{said_by:by,statement:item.gist,turn:item.turn,content_id:item.content_id,
+     authority:`What ${by} said in this person's hearing; attribute it to ${by}, it is not this person's own knowledge or promise.`},person.ref,'heard');
    }
    for(const document of rows(person.observed_documents))if(typeof document.writing==='string'&&document.writing.trim())
     this.issue('fact',document,person.ref,'observed_document');
@@ -243,6 +280,7 @@ export class DecisionContent {
   */
  private contentOf(evidence:string,value:unknown,actor:string|undefined):string {
   const turn=(value as Row)?.turn;
+  if(evidence==='heard'&&typeof (value as Row)?.content_id==='string')return (value as Row).content_id;
   if(actor&&['public_speech_history','recent_speech'].includes(evidence)&&Number.isSafeInteger(turn)){
    const rows=[...this.told.get(actor)?.values()??[]].filter(row=>Array.isArray(row.turns)&&row.turns.includes(turn));
    if(rows.length===1)return rows[0].content_id;
@@ -273,7 +311,12 @@ export class DecisionContent {
  private unit(content:Row,actor:string,to:string[]):TellingUnit|undefined {
   let id:string,kind:string,gist:string|undefined,marked:Row|undefined;
   if(content.result_ref)return undefined;
-  if(content.new){id=contentId('n',{actor,value:content.new});kind=`new:${content.new.predicate}`;gist=gistOf(content.new);}
+  if(content.new){
+   id=contentId('n',{actor,value:content.new});kind=`new:${content.new.predicate}`;gist=gistOf(content.new);
+   // §258.8: the same constructor someone else said in this person's hearing is hearsay, not their own new item.
+   const heard=(this.heard.get(actor)??[]).find(row=>typeof row.said_by==='string'&&contentId('n',{actor:row.said_by,value:content.new})===row.content_id);
+   if(heard)return {content_id:heard.content_id,kind:'heard',strategy:content.strategy??'new',...(gist?{gist}:{}),heard_from:heard.said_by};
+  }
   else if(content.exhibit_ref){const issued=this.exhibitRows.get(content.exhibit_ref);if(!issued)return undefined;id=contentId('x',issued.exhibit_id);kind='exhibit';gist=gistOf(issued.label);}
   else{
    const fact=this.facts.get(content.fact_ref??content.source_ref);if(!fact)return undefined;
@@ -422,7 +465,9 @@ export class DecisionContent {
    units.push(told.filter((item):item is TellingUnit=>!!item));
    return {...response,...(to?{to}:{}),...('content'in response?{claims:claims.map((claim,index)=>{
     const item=told[index];
-    return item&&item.strategy!=='new'?{...claim,telling:{strategy:item.strategy,...(item.told_times?{times:item.told_times}:{})}}:claim;
+    const by=item?.heard_from?this.entityLabels.get(item.heard_from)??item.heard_from:undefined;
+    const attributed=by?{...claim,heard_from:by,authority:`What ${by} said in this person's hearing; attribute it to ${by}, it is not this person's own knowledge or promise.`}:claim;
+    return item&&item.strategy!=='new'?{...attributed,telling:{strategy:item.strategy,...(item.told_times?{times:item.told_times}:{})}}:attributed;
    })}:{})};
   });
   return {responses,materials:reveal.map(content=>this.resolve(content)),units};
@@ -437,16 +482,15 @@ export function decisionPerson(person:Row,cast:Row[]):Row {
  const relationships=rows(person.source_relationships).flatMap(relation=>{
   const target=refs.get(relation.toward);return target?[{toward:target.ref,kind:relation.kind}]:[];
  });
- const affinityTargets=new Set<string>();
- for(const relation of rows(person.relationships)){
-  const target=refs.get(relation.toward);if(!target)continue;
-  if(affinityTargets.has(target.ref))continue;
-  for(const evidence of [relation,...rows(relation.evidence)]){
-   let value:Row;try{value=JSON.parse(evidence.statement);}catch{continue;}
-   if(value?.kind==='directed_relationship'&&['hostile','guarded','neutral','friendly'].includes(value.affinity)){
-    relationships.push({toward:target.ref,affinity:value.affinity} as any);affinityTargets.add(target.ref);break;
-   }
-  }
+ // §258.7: the author sees only what a person shows toward each target: never a number, a hidden disposition or a mark
+ // that something is hidden, so a change to concealed state alone leaves the author input unchanged (§260).
+ const conceals=new Set<string>();
+ for(const row of attitudeRows(person.relationships)){
+  const target=refs.get(row.toward);if(!target)continue;
+  const hidden=Array.isArray(row.hidden)?row.hidden:[];
+  for(const item of hidden)conceals.add(item);
+  const shown=row.public??(hidden.includes('disposition')?'neutral':row.disposition);
+  relationships.push({toward:target.ref,public:shown} as any);
  }
  const profile=person.personality?.profile?.profile??person.personality?.profile;
  const voice=Array.isArray(person.voice)?person.voice.filter((line:unknown)=>typeof line==='string'&&line.trim()).join('\n'):'';
@@ -462,7 +506,7 @@ export function decisionPerson(person:Row,cast:Row[]):Row {
   ...(person.variation?{variation:structuredClone(person.variation)}:{}),
   ...(person.activity?.current===true?{activity:Object.fromEntries(['current','summary','wakefulness','basis'].filter(key=>person.activity[key]!==undefined).map(key=>[key,person.activity[key]]))}:{}),
   ...(person.reunion?{reunion:Object.fromEntries(['status','required','elapsed_minutes'].filter(key=>person.reunion[key]!==undefined).map(key=>[key,person.reunion[key]]))}:{}),
-  ...Object.fromEntries(['now','state','toward_party'].filter(key=>person[key]!==undefined).map(key=>[key,person[key]])),
+  ...Object.fromEntries(['now','state','toward_party'].filter(key=>person[key]!==undefined&&!(key==='now'&&conceals.has('mood'))).map(key=>[key,person[key]])),
   ...(relationships.length?{relationships}:{}),
   authority:'Current public identity and characterization only; relationships are directed and are not additional selected disclosure content'};
 }

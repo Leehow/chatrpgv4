@@ -52071,6 +52071,38 @@ and a separate control state (charmed, possessed, coerced). Not implemented in P
 
 Tests: `tests/extension/npc-communication.test.mjs`, `tests/extension/dialogue-continuity-contract.test.mjs`.
 
+### 258.7 Directed attitude (P1)
+
+The packet `relationship` command is `{kind, actor, toward, disposition?, affinity?, trust?, fear?, pressure?, public?, hidden?, control?}`
+with at least one of `disposition`, `affinity` or `control`. `disposition` is `hostile|unfriendly|neutral|friendly|ally`; `affinity` is
+the pre-§258 word (`guarded` reads as `unfriendly`); `trust`, `fear`, `pressure` are integers 0–5; `public` is the disposition shown;
+`hidden` lists `disposition` and/or `mood`; `control` is `none|charmed|coerced|possessed|drugged|enthralled`, by `toward`. The
+compiled `directed_relationship` statement carries every given field and still writes `affinity` (unfriendly as guarded, ally as
+friendly) for older readers.
+
+`attitudeRows` (`runtime/decision-content.ts`) folds a person's statements oldest to newest per target; a later statement overrides
+only the fields it names, `control: none` clears control. The Keeper's person view (`decisionCharacter`) adds
+`attitude: [{toward, disposition?, trust?, fear?, pressure?, public?, hidden?, control?, since_turn?}]` (≤6). The author's
+(`decisionPerson.relationships`) is `{toward, public}` only, `public` being the shown value (public, else disposition, else neutral
+when the disposition is hidden); a hidden mood drops `now`. No number, control or hidden mark reaches the author, so a change to
+concealed state alone leaves the author input unchanged (§260 reads `public`).
+
+### 258.8 What people overheard (P1)
+
+`table.look focus:npc` adds `heard`: attested items of others' events whose `heard` holds this person, same worldline and loop,
+before the current turn, newest first, one row per item, at most 6: `{content_id, said_by: npc_N, to, gist, turn}`. The catalog issues
+each as a fact of kind `heard` to that person, `{said_by: display name, statement: gist, turn, content_id, authority: "What <name>
+said in this person's hearing; attribute it to <name>, it is not this person's own knowledge or promise."}`; its content identity is
+the original item's, so a bystander's repeat is told-marked like any other.
+A row keeps its first speaker when someone else repeats the item later, and a person's own items are never their hearsay. A new
+constructor a person selects that equals one they heard (the same value under the original speaker) settles as that heard item:
+the unit takes the heard `content_id` and `kind: "heard"`, and the author's claim carries `heard_from` and the attribution authority.
+Attestation (§258.2) also reads the author's own `{{say:npc_N}}` spans in `artifact_text`: a span with words attests its speaker
+even when the committed speech resolved no line. The Keeper's people block carries `attitude` parsed before capsule duplicates are
+dropped (`hybrid-engine`, `keeper-preparation`).
+
+Tests: `tests/extension/npc-communication.test.mjs` (§258.7, §258.8).
+
 ## 260. NPC portrayal: beats, attention and the bearing grant (owner 2026-10-23; amends §254.2, §254.6)
 
 Spec: `docs/specs/npc-portrayal.md`. Research: `docs/research/npc-portrayal-lotm-20261023.md`. The owner's direction: the

@@ -1,7 +1,7 @@
 import type {PrescreenSourceRuntime} from './prescreen-source-provider.ts';
 import {ContinuousTurn} from './continuous-turn.ts';
 import {KeeperPreparation} from './keeper-preparation.ts';
-import {decisionCharacter} from '../decision-content.ts';
+import {attitudeRows,decisionCharacter} from '../decision-content.ts';
 import {SAME_KEEPER_OUTPUT_GUIDANCE,sameKeeperSystemPrompt} from '../keeper-output-guidance.ts';
 import {TURN_PACKET_GUIDANCE,turnPacketSystemPrompt} from '../turn-packet-prototype.ts';
 import {readCarriedViews,carriedSection} from './carried-views.ts';
@@ -577,8 +577,11 @@ export function createHybridEngine(options: HybridEngineOptions): {runDriver: Se
             const identity=typeof person.id==='string'&&person.id.trim()?person.id:person.name;
             try{const full=object(await bridge!.call!('table.look',{campaign:bridge!.campaign,focus:'npc',name:identity,_context_read:true}));
               const voice=array(capsule.voices).find(voice=>voice.name===person.name)??{};
-              return Object.fromEntries(Object.entries(full).filter(([key,value])=>key==='name'
-                ||full.name!==person.name||![person,voice].some(supplied=>Object.hasOwn(supplied,key)&&JSON.stringify(supplied[key])===JSON.stringify(value))));}
+              // §258.7: the attitude is parsed before rows the capsule already carries are dropped, so it survives the dedupe.
+              const attitude=attitudeRows(full.relationships);
+              return {...Object.fromEntries(Object.entries(full).filter(([key,value])=>key==='name'
+                ||full.name!==person.name||![person,voice].some(supplied=>Object.hasOwn(supplied,key)&&JSON.stringify(supplied[key])===JSON.stringify(value)))),
+                ...(attitude.length?{attitude}:{})};}
             catch{return{name:person.name,coverage:'unavailable; use look if needed'};}
           }));
           turn=scope.turn;
