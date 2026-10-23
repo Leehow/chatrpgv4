@@ -938,7 +938,9 @@ export class ReadingService implements ReadingBridge {
 		const campaign = this.campaign(params), focus = String(params.focus ?? ""), question = String(params.question ?? "");
 		const snapshot = await this.call("module.source.snapshot", { module_id: mid }, campaign);
 		let pages: number[] = [];
-		try { pages = answerPages(JSON.parse(await readFile(skeletonPath(this.deps.home, snapshot.file_sha256), "utf8")), `${focus}\n${question}`); }
+		// The focus's own names first; the question's other names fill what is left.
+		try { const skeleton = JSON.parse(await readFile(skeletonPath(this.deps.home, snapshot.file_sha256), "utf8"));
+			pages = [...new Set([...answerPages(skeleton, focus), ...answerPages(skeleton, `${focus}\n${question}`)])].slice(0, 4); }
 		catch { /* no skeleton yet: the text search alone */ }
 		if (pages.length < 4 && focus.trim()) {
 			try {

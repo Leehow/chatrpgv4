@@ -895,7 +895,11 @@ export class Reading {
         if (!await this.store.exists(mid)) return landed;
         const meta = await this.store.module(mid);
         if (!playsFromReading(meta)) return landed;
-        const indexed = new Set((await this.store.sections(mid)).flatMap(section => [section.name ?? '', ...array(section.entities)]).filter(value => typeof value === 'string').map(normalize));
+        const sectionRows = await this.store.sections(mid);
+        const indexed = new Set(sectionRows.flatMap(section => [section.name ?? '', ...array(section.entities)]).filter(value => typeof value === 'string').map(normalize));
+        // §262.7: names only the skeleton indexed are navigation; a place by such a name is not held for its reading.
+        const authored = new Set(sectionRows.filter(section => section.source !== 'skeleton').flatMap(section => [section.name ?? '', ...array(section.entities)])
+            .filter(value => typeof value === 'string').map(normalize));
         for (const name of names) {
             // §185.12: a name-free campaign's handle is matched here by the node's id; a name is the reader's word as it is.
             const known = typeof name === 'string' && graph.nameFree ? graph.nodeOfHandle(name) : null;
@@ -911,6 +915,13 @@ export class Reading {
             const unread = node === null && gate.people?.has(name) ? (gate.cast ? gate.cast(name) : castPersonNamed(graph, {}, name)) : null;
             if (node === null && !unread && !indexed.has(normalize(name)))
                 continue;
+            // §262.7: a place only the skeleton names is played from what the table establishes while its reading runs in the
+            // background; a person keeps the person gate below (their pages land on the text).
+            if (node === null && !unread && !authored.has(normalize(name)) && !gate.people?.has(name)) {
+                try { await this.request({ module_id: mid, purpose: 'detail', focus: name, foreground: false }); }
+                catch (error) { if (!(error instanceof RpcError)) throw error; }
+                continue;
+            }
             // `focus` is what the campaign is told (its handle: the landing, the refusal the host echoes); `read` what this layer
             // keeps and matches (§185.12: the node's book handle in a name-free campaign).
             const focus = node ? graph.handle(node) : unread ? unread.names[0]! : name, read = node ? readingFocus(graph, node) : focus;

@@ -248,7 +248,9 @@ export function skeletonIndexRows(skeleton: Row): Row[] {
 		// The pages carrying most of the entity's blocks come first: a page that only names it in passing weighs one block.
 		const weight = new Map<number, number>();
 		for (const id of entity.blocks ?? []) { const page = Number(/^b(\d+)-/.exec(String(id))?.[1]); if (Number.isSafeInteger(page) && page >= 1) weight.set(page, (weight.get(page) ?? 0) + 1); }
-		const ranked = (entity.pages ?? []).filter((page: unknown) => Number.isSafeInteger(page) && Number(page) >= 1)
+		// A page carrying at least half as many of its blocks as its fullest page; a passing mention elsewhere is left out.
+		const heaviest = Math.max(0, ...weight.values()), floor = Math.max(1, Math.ceil(heaviest / 2));
+		const ranked = (entity.pages ?? []).filter((page: unknown) => Number.isSafeInteger(page) && Number(page) >= 1 && (weight.get(Number(page)) ?? 0) >= floor)
 			.sort((a: number, b: number) => (weight.get(b) ?? 0) - (weight.get(a) ?? 0) || a - b).slice(0, 3);
 		const pages: number[] = [...new Set<number>(ranked)].sort((a, b) => a - b);
 		const ranges: number[][] = [];

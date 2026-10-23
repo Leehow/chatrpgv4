@@ -52400,8 +52400,10 @@ filter on the pages it opens) does not spend another reading every turn.
 and an existing fork, never a fork of its own) writes a reference book's `sections.json` from the skeleton's entities:
 `{name, entities (aliases), pages (0-based ranges, at most 6; the three pages carrying most of the entity's blocks),
 source: "skeleton"}`. A book whose index has any row of another source keeps it (`state: "kept"`); otherwise the answer
-is `written` or `unchanged`. The material gate then knows the skeleton's names (§22.4.7): a person or place play names
-lands on its pages' text or asks its lean detail read.
+is `written` or `unchanged`. The material gate then knows the skeleton's names (§22.4.7): a person play names lands on
+its pages' text (§22.4.7.1) or asks its lean detail read. A place only skeleton rows name and the graph does not hold is
+never held for its reading: the gate asks its detail read in the background and lets the batch through, so the table
+plays it from what it establishes (and a §262.9 lookup) while the reading runs.
 
 ### 262.9 Lean source answers are the book's pages
 
