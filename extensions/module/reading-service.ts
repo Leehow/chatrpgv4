@@ -443,6 +443,14 @@ export class ReadingService implements ReadingBridge {
 		this.deps = { ...deps,
 			record: row => { beat(row); deps.record(row); },
 			progress: row => { beat(row); deps.progress(row); } };
+		// A bounded live test (`PI_COC_READ_DEADLINE_MS`): past it this host reads nothing more, so a test that forgets to stop
+		// its table cannot keep reading the whole book; claimed readings are handed off as at a worker's exit.
+		const deadline = Number(process.env.PI_COC_READ_DEADLINE_MS);
+		if (Number.isFinite(deadline) && deadline > 0) setTimeout(() => {
+			if (this.stopped) return;
+			this.note({ lane: "reading", event: "deadline_stop", deadline_ms: deadline, running: this.controllers.size });
+			this.dispose({ handOff: true });
+		}, deadline).unref();
 	}
 	private campaign(params: Row): string | undefined {
 		// null explicitly selects the library, even when this service is bound to a campaign.

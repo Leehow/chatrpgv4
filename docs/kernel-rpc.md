@@ -52060,7 +52060,8 @@ content has none.
 
 ### 258.5 Commitments have an obligor and an origin
 
-`npcCommitments` returns only promises whose subject is this person; a knower who only heard a promise holds no commitment. A promise from a
+`npcCommitments` returns promises whose subject is this person, and promises made to them (they are an entity and a knower), which keep
+their maker as `subject`; a bystander who only heard a promise holds nothing. A person's own promise from a
 turn whose record has `communication` is issued only when the obligor's own selection there was `attested`; a turn recorded before §258
 has none to judge by, and its promises stand. Proposal, acceptance and agreement records are P1.
 
@@ -52270,5 +52271,9 @@ Background reads keep publishing graph generations while the table plays. A turn
 issued under an earlier source revision is refused before anything is written (`invalid_params`, `reason:
 "decision_material_revision"`, `transaction_state: "uncommitted"`, telemetry `decision-content` / `source_revision_changed`);
 the Keeper's next step is prepared from the new generation and writes the packet again, instead of the turn ending.
+
+A bounded live test sets `PI_COC_READ_DEADLINE_MS`: that long after the reading service starts it records
+`{lane: "reading", event: "deadline_stop"}` and stops as at a worker's exit (claimed readings handed off, nothing more
+claimed), so a test that leaves its table running does not keep reading the whole book.
 
 Tests: `tests/extension/page-open.test.mjs`.
