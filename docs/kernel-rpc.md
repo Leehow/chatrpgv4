@@ -52071,12 +52071,12 @@ and a separate control state (charmed, possessed, coerced). Not implemented in P
 
 Tests: `tests/extension/npc-communication.test.mjs`, `tests/extension/dialogue-continuity-contract.test.mjs`.
 
-## 260. NPC portrayal: beats, attention and the bearing grant (owner 2026-10-23; draft r2, amends §254.2, §254.6)
+## 260. NPC portrayal: beats, attention and the bearing grant (owner 2026-10-23; amends §254.2, §254.6)
 
 Spec: `docs/specs/npc-portrayal.md`. Research: `docs/research/npc-portrayal-lotm-20261023.md`. The owner's direction: the
 Keeper only states a person's condition and a very short line of what they do; a package lets the sole author turn that
 into concrete, vivid behavior, inventing detail for effect, rich where the reader's attention is and brief elsewhere.
-Status: draft, revised after the web-ChatGPT review; nothing below is implemented.
+Revised after a web-ChatGPT review; implemented on 0.9.8a. Tests: `tests/extension/npc-portrayal.test.mjs`.
 
 ### 260.1 Two layers of fact
 

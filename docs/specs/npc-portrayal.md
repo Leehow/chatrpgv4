@@ -1,6 +1,6 @@
 # NPC portrayal: the Keeper says what a person does, the author makes it seen
 
-Status: draft r2 (design only; revised after the web-ChatGPT review of 2026-10-23; owner decisions recorded 2026-10-23)
+Status: implemented (2026-10-23; revised after the web-ChatGPT review; owner decisions recorded)
 
 Contract: `docs/kernel-rpc.md` §260 (draft). Builds on §254 (author craft sections and grants), §255 (kept looks),
 §168.5 (first-sight shown marks) and §258 (NPC mind). Research: `docs/research/npc-portrayal-lotm-20261023.md`.
