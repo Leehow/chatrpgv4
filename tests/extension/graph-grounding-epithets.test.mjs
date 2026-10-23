@@ -107,11 +107,12 @@ test('§199.5: TR-F2\'s job 2 put Sofia (nothing) beside Timur (glasses, beard, 
 	assert.ok(!JSON.stringify(row).includes('据守卧室'));
 });
 
-test('§199.4: first sight takes the first-meeting appearance when the reader wrote one, else the biography, as before', () => {
+test('§199.4: first sight takes the first-meeting appearance when the reader wrote one, else the hand-authored appearance, never the biography (§257.5)', () => {
 	const graph = new api.ModuleGraph('book', {nodes: PEOPLE, claims: [], relations: []}, '', {});
 	const node = id => graph.nodes.get(id);
 	assert.equal(api.personDescribed(graph, node('npc-maria-androvna-yezarova')), MARIA_MEETS);
-	assert.equal(api.personDescribed(graph, node('npc-dmitri-abramov')), DMITRI_REVEAL, 'a book read before §199 keeps its first sight');
+	assert.equal(api.personDescribed(graph, node('npc-dmitri-abramov')), null, '§257.5: a biography is the Keeper\'s, so first sight leaves him undescribed');
+	assert.equal(api.personDescribed(graph, node('npc-sofia')), null, 'and a summary describes no one');
 	assert.equal(api.personAppearance(graph, node('npc-dmitri-abramov')), null, 'the epithet lane never reads a biography');
 	assert.equal(api.personAppearance(graph, node('npc-sofia')), null, 'nor a summary');
 });

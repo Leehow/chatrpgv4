@@ -121,3 +121,41 @@ anger, honesty, cooperation or self-explanation. Do not generate profiles for cr
 For an irregular visual with neighboring text in a corner, preserve the complete picture and use optional `image_sources[].redactions` to cover only the unrelated pixels. Each mask is `[left,top,right,bottom]` in the original rotated-page coordinate frame, not crop coordinates. Inspect the exact masked preview; do not trim away the picture to avoid corner prose. Keep these masks out of `source_refs`. Existing map-region masks remain separate.
 
 When the intended picture fills a supplied native raster placement, start from that whole box. Move an edge inward only where original pixels show unrelated content, not to guess a tighter frame. Composite rasters can include other art; native geometry alone does not select safe publication content.
+
+## Exhibits
+
+The Keeper graph above is the Keeper's private account. An **exhibit** is the other layer: one piece of what an investigator can see, read, hear or be told, drawn from the book's own pages and tied to the node it belongs to. A separate author who never sees the Keeper graph writes the story from exhibits alone, so an exhibit must make sense on its own and must not carry Keeper knowledge the investigators have not earned. For purpose opening and detail, write exhibits for the nodes this task makes ready, in this same read, from pages you are already viewing; this is never a separate pass over the book and never a reason to open more pages. A skeleton writes none. Put them in the draft's top-level `exhibits` array (shard contract `coc.module-graph-shard.v5`; a draft with no exhibits needs nothing added). Omit what the pages do not give: a thin exhibit is better than an invented one.
+
+    {"exhibit_id": "exhibit-<kebab>",
+     "kind": "description" | "appearance" | "document" | "perception" | "testimony" | "voice",
+     "carrier": "<node_id of the scene, person, creature, object or handout it belongs to>",
+     "channel": "sight" | "text" | "speech" | "sound" | "touch" | "smell",
+     "owners": ["<npc node_id>"],
+     "stance": "fact" | "belief" | "rumor" | "lie" | "deflection",
+     "teaches": ["<clue node_id or claim_id>"],
+     "keeper_note": "<one English line>",
+     "label": "<one English line: what this is, for the Keeper>",
+     "surface": {"text": "<what is perceived or said>", "language": "<source language tag>", "verbatim": true | false},
+     "source_refs": [{"page": <physical page you viewed>, "box": [x0,y0,x1,y1]?}]}
+
+Kinds:
+- `description`: what a place looks, sounds and smells like on arrival, the eye's path, including authored read-aloud.
+- `appearance`: how a person or creature looks, dresses and behaves when first met. Nothing they hide, no crime, no later reveal, no backstory the investigators cannot see.
+- `document`: the text of a handout, letter, sign or page as the investigators can read it.
+- `perception`: something found by searching or noticing, written as what is perceived, never as what it means.
+- `testimony`: something a person will say when asked or prompted, in their terms. A lie or a deflection the book gives is testimony with that stance, written as the person would put it and never corrected in the surface. `owners` names the people who would say it.
+- `voice`: how a person speaks (register, habits). Include the book's sample lines of their speech in the surface, quoted as the page prints them, so the author has a line to show and not only a description. `owners` names the speaker.
+
+Words: copy boxed read-aloud text and handout text exactly (`verbatim: true`); for everything else write a faithful, concrete, close paraphrase in the source language (`verbatim: false`). Never add detail the page does not give.
+
+The player-safety law: the surface states only what the investigator perceives or is told. Keeper interpretation (why it matters, who is guilty, what the pacing option is, what a person secretly intends, what happens later) never appears in a surface; it goes in `keeper_note` and `teaches`, which the author never receives. A secret may appear only as testimony whose owner would actually say it. The independent review judges every surface against this law, one verdict per exhibit, and an exhibit it does not support is dropped.
+
+Names. Inside a paraphrased surface a person is always `{{who:<node_id>}}`, never the person's name, nickname or alias, because the investigators may not yet know it; the host later writes the name or a description of how they look. This holds even when the page names them. A verbatim surface keeps the printed words, names included.
+
+Carrier scoping. An exhibit belongs to the node whose pages it cites. Set `carrier` to the scene, person, object or handout that those pages describe, and cite only pages you viewed that print this material. Text about the road before arrival, a prologue, a neighbouring place or an unrelated handout does not become an exhibit of the place you are preparing; it belongs to the node its own pages describe, or to none.
+
+Owners. `testimony` and `voice` need `owners`, each a person (`npc`) node. A voice or sound with no person to own it (a radio announcer nobody is present as, a recorded message, a noise in the dark) is a `perception` with channel `sound`, with no `owners`. `owners` is forbidden on every other kind. A testimony owner must be a person who knows, believes or asserts the carrier or what the exhibit teaches, by a `knows`, `believes` or `asserts` claim in the graph; add that claim when the page supports it.
+
+`teaches`. List only what the exhibit lets the investigators learn: a `clue` node, or the `claim_id` of a knowledge claim (predicate `knows`, `believes` or `asserts`). Never a structural relation such as `present-in` or `route-to`, never a scene, person or rule. Omit `teaches` when the exhibit teaches no clue.
+
+Every exhibit needs `exhibit_id`, `kind`, `carrier`, `channel`, a one-line English `label` and `surface`, and `source_refs` to pages you viewed. A surface is at most 4096 bytes. An exhibit that fails the draft check is dropped with its reason and the rest of your draft is kept; read the check's findings and repair what you can.

@@ -42,9 +42,13 @@ before(async () => {
   const node = id => graph.nodes.find(entry => entry.node_id === id);
   node('scene-sanyi-teahouse').properties.description = ROOM;
   Object.assign(node('npc-wang-tiezhu'), {visibility: 'player-safe'});
-  node('npc-wang-tiezhu').properties = {...node('npc-wang-tiezhu').properties, biography: WANG};
-  // Seen, with no biography: the summary is the book's words for them.
+  // §257.5: the biography is the Keeper's, never first sight; an appearance exhibit is the book's player-facing words.
+  node('npc-wang-tiezhu').properties = {...node('npc-wang-tiezhu').properties, biography: '王铁柱后来会交代他是帮会的眼线。'};
+  graph.exhibits = [{exhibit_id: 'exhibit-wang-look', kind: 'appearance', carrier: 'npc-wang-tiezhu', channel: 'sight', label: '王铁柱的样子',
+    surface: {text: WANG, language: 'zh-Hans', verbatim: false}, source_refs: []}];
+  // Seen, with a hand-authored appearance (player-facing by contract): described. Others with only a summary are undescribed.
   Object.assign(node('npc-zhou-jingzhi'), {visibility: 'player-safe'});
+  node('npc-zhou-jingzhi').properties = {...node('npc-zhou-jingzhi').properties, appearance: `前清秀才,${node('npc-zhou-jingzhi').summary}`};
   // Seen, but the book says nothing beyond the name: there is nothing to show.
   Object.assign(node('npc-liu-guizhi'), {visibility: 'player-safe', summary: node('npc-liu-guizhi').name});
   await writeFile(join(folder, 'module-graph.json'), JSON.stringify(graph, null, 2));
@@ -81,10 +85,12 @@ test('the opening capsule carries the place and the people the book lets the pla
   // (刘桂芝, summarised by her name alone) is carried undescribed, and the keeper-only regulars by their summaries.
   assert.deepEqual(capsule.first_sight.people.slice(0, 2).map(person => person.name), ['王铁柱', '周敬之']);
   assert.deepEqual(capsule.first_sight.people.find(person => person.id === 'liu-guizhi'), {id: 'liu-guizhi', name: '刘桂芝', undescribed: true});
-  assert.ok(capsule.first_sight.people.find(person => person.id === 'xiao-douzi').described, 'a keeper-only person with words is described');
+  assert.deepEqual(capsule.first_sight.people.find(person => person.id === 'xiao-douzi'), {id: 'xiao-douzi', name: capsule.first_sight.people.find(person => person.id === 'xiao-douzi').name, undescribed: true},
+    'a person with only a Keeper summary is undescribed');
   assert.equal(capsule.first_sight.people.length, 9, 'nobody in the room is left out');
-  assert.equal(capsule.first_sight.people[0].described, WANG, 'a person is described by their biography');
-  assert.match(capsule.first_sight.people[1].described, /前清秀才/, 'and by the summary when there is none');
+  assert.equal(capsule.first_sight.people[0].described, WANG, 'a person is described by their appearance exhibit, not the biography');
+  assert.match(capsule.first_sight.people[1].described, /前清秀才/, 'a hand-authored appearance describes when there is no exhibit');
+  assert.equal(JSON.stringify(capsule.first_sight).includes('帮会的眼线'), false, 'the biography never reaches first sight');
   const keys = Object.keys(capsule);
   assert.ok(keys.indexOf('first_sight') < keys.indexOf('present'), 'placed before present');
   assert.ok(capsule.head.includes(api.HEAD_FIRST_SIGHT), 'the head says what the section is, only when it is there');
@@ -217,4 +223,23 @@ test('an apply fork from an earlier turn carries that turn\'s own first-sight re
   await game.call('table.narrate', {call_id: game.next(2), text: '如果当时……'});
   assert.equal((await game.read('campaign.json')).active_worldline, 'side');
   assert.deepEqual((await game.read('first-sight.json')).shown.people, ['wang-tiezhu']);
+});
+
+// §257.5 (amends §168.5): first sight reads player-facing material only -- exhibits, else the hand-authored property.
+test('first sight: an exhibit, else the hand-authored property, else nothing; the Keeper summary and biography are never read', () => {
+  const exhibits = [
+    {exhibit_id: 'exhibit-a', kind: 'description', carrier: 'scene-a', surface: {text: 'Corrugated awning.', language: 'en', verbatim: false}},
+    {exhibit_id: 'exhibit-b', kind: 'description', carrier: 'scene-a', surface: {text: 'Leaking tanks.', language: 'en', verbatim: false}},
+    {exhibit_id: 'exhibit-c', kind: 'appearance', carrier: 'npc-a', surface: {text: '{{who:npc-a}} wipes his hands.', language: 'en', verbatim: false}},
+    {exhibit_id: 'exhibit-d', kind: 'voice', carrier: 'npc-b', surface: {text: 'Slow drawl.', language: 'en', verbatim: false}}];
+  const graph = {handle: node => node.node_id, displayName: node => node.name, exhibitsOf: id => exhibits.filter(item => item.carrier === id)};
+  const scene = (id, properties = {}, summary = 'Keeper summary: the cult meets here.') => ({node_id: id, name: id, summary, properties});
+  const npc = (id, properties = {}) => ({node_id: id, name: id, summary: 'Keeper summary.', properties: {biography: 'Secretly the killer.', ...properties}});
+  assert.equal(api.placeDescribed(graph, scene('scene-a', {description: 'Hand-authored.'})), 'Corrugated awning.\nLeaking tanks.', 'exhibits win over the property, surfaces joined');
+  assert.equal(api.placeDescribed(graph, scene('scene-z', {description: 'Hand-authored.'})), 'Hand-authored.');
+  assert.equal(api.placeDescribed(graph, scene('scene-z')), null, 'a Keeper summary alone is undescribed');
+  assert.equal(api.personDescribed(graph, npc('npc-a', {appearance: 'Hand-authored.'})), '{{who:npc-a}} wipes his hands.', 'tokens are left for the resolver');
+  assert.equal(api.personDescribed(graph, npc('npc-z', {appearance: 'Hand-authored.'})), 'Hand-authored.');
+  assert.equal(api.personDescribed(graph, npc('npc-z')), null, 'a biography alone is undescribed');
+  assert.equal(api.personDescribed(graph, npc('npc-b')), null, 'a voice exhibit is not an appearance');
 });

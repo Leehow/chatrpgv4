@@ -1,5 +1,9 @@
 # Narration Craft
 
+## 2.6.1
+
+- Exhibits (spec module-exhibits, Voice): a person's voice reaches the sole author as `speech_style` in their entry (the book's voice exhibits, surfaces joined, else the derived expression). "People on the page" and the swearing line in "Settings" now speak of `speech_style` instead of voice cards and masks; generated masks and exchanges stay portrayal references. No capability or section declaration changes.
+
 ## 2.6.0
 
 - Owner, 2026-10-22: the core owns what the text must be faithful to, never the craft of writing it; craft reaches the sole author (contract §254). The text is split by layer, not rewritten: the Keeper keeps "This turn" (what the turn puts at issue, how far the chosen action is carried) and "What people decide to say" (knowledge limits, how a person decides, mood records, knowledge separation, object transactions); the author receives "The voice of the table", "Sentences and paragraphs", "Register and atmosphere", "People on the page", "Scene and detail", "Establishing a place" (sent on `establish`, owed rows from `decision_context.establish`), "Opening the table" (sent on `opening`) and "Settings" as author sections.

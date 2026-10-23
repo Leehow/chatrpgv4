@@ -316,7 +316,7 @@ async function mapBook(name,extraMapCandidates=[]) {
   const book={context,runtime:api.createModuleRuntime(context),mid:null};
   const call=(method,params)=>book.runtime.handlers[method]({module_id:book.mid,...params});
   const save=(file,value)=>writeFile(file,JSON.stringify(value));
-  book.call=call;
+  book.call=call;book.pdf=path;
   book.store=()=>book.runtime.source.store;
   book.claim=owner=>call('module.read.claim',{owner});
   book.fail=(job,refusal)=>call('module.read.finish',{job_id:job.job_id,lease:job.lease,outcome:'failed',detail:`invalid_params: ${refusal}`,refusal:{message:refusal}});
@@ -402,6 +402,39 @@ test('first-interaction readiness upgrades a prologue snapshot and continues bey
   await book.call('module.read.ahead',{focus:'Dock'});
   assert.ok((await book.store().queue(book.mid)).some(job=>job.purpose==='detail'&&job.focus==='mill'&&job.foreground===false));
  }finally{await book.close();}
+});
+
+test('§257.15: the first arrival at a scene without exhibits queues one background exhibits read and none after', async () => {
+  const book=await mapBook('legacy-exhibits');
+  try {
+    const graph=await book.graph(),reading=new api.Reading(book.store());
+    const jobs=async()=>(await book.store().queue(book.mid)).filter(job=>job.material==='exhibits');
+    const first=await reading.queueSceneExhibits(graph,graph.scene('Tower'));
+    const [job]=await jobs();
+    assert.equal(first.state,'queued');
+    assert.deepEqual(Object.fromEntries(['purpose','material','focus','foreground','state'].map(key=>[key,job[key]])),
+      {purpose:'detail',material:'exhibits',focus:'tower',foreground:false,state:'queued'});
+    // Re-entering while queued queues nothing more.
+    await reading.queueSceneExhibits(graph,graph.scene('Tower'));
+    assert.equal((await jobs()).length,1);
+    // Once the read has landed (even to nothing printed) a re-entry queues nothing.
+    const claimed=await book.claim('test-host');
+    assert.equal(claimed.material,'exhibits');
+    await writeFile(join(claimed.work_dir,'observations.json'),JSON.stringify({file_sha256:createHash('sha256').update(await readFile(book.pdf)).digest('hex'),read_pages:[1,2],full_pages:[1,2],review_pages:[1,2]}));
+    await writeFile(join(claimed.work_dir,'draft.json'),JSON.stringify({exhibits:[],nodes:[],claims:[],node_refs:[],coverage:{},dependencies:[],critical:[],ready_nodes:[]}));
+    await writeFile(join(claimed.work_dir,'review.json'),JSON.stringify({checked:[],missing:[]}));
+    await book.call('module.read.finish',{job_id:claimed.job_id,lease:claimed.lease,outcome:'completed',draft_path:join(claimed.work_dir,'draft.json'),review_path:join(claimed.work_dir,'review.json')});
+    assert.equal((await reading.queueSceneExhibits(await book.graph(),graph.scene('Tower'))).state,'ready');
+    assert.equal((await jobs()).length,1);
+    // A scene that has an exhibit queues none.
+    assert.deepEqual(await reading.queueSceneExhibits({__proto__:graph,exhibitsOf:id=>id==='scene-dock'?[{carrier:id}]:[]},graph.scene('Dock')),{state:'none'});
+    assert.equal((await jobs()).length,1);
+    // A scene whose person, or whose handout, has an exhibit was read for exhibits already, though the scene itself carries none.
+    for(const carried of [{scenePeople:()=>[{id:'npc-someone',via:null}]},{sceneAssetNodes:()=>[{node_id:'npc-someone'}]}])
+      assert.deepEqual(await reading.queueSceneExhibits({__proto__:graph,...carried,exhibitsOf:id=>id==='npc-someone'?[{carrier:id}]:[]},graph.scene('Dock')),{state:'none'});
+    assert.equal((await jobs()).length,1);
+    await reading.close();
+  } finally {await book.close();}
 });
 
 test('§107.1: the first arrival at a marked scene queues one background map reading and raises nothing', async () => {

@@ -36,7 +36,7 @@ import { ROUTE_TRAVEL_FIELD, applyTravelFill, type TravelRow } from './route-tra
 import { bandRows } from '../rules/bands.js';
 import {validatePublicGuidance} from './public-guidance.js';
 import {sourceNeedKey} from './source-needs.js';
-import {READABLE_NEED_KINDS,carriedNeeds,needDispositionRecord,needDone,needEligible,needMaterial,needPacket,readUnitPages,retainedNeed,settledNeed,unitJobs,unreadUnits} from './need-reads.js';
+import {READABLE_NEED_KINDS,carriedNeeds,needDispositionRecord,needDone,citedPages as citedBoundPages,needEligible,needMaterial,needPacket,readUnitPages,retainedNeed,settledNeed,unitJobs,unreadUnits} from './need-reads.js';
 import {MODULE_LOGIC_REVIEW,moduleGuidanceApproved} from './module-review-policy.js';
 import {backgroundSourceUnits,referenceSourceUnits,sourceUnitKey,sourceUnitPages,type SourceUnit} from './background-source.js';
 import {publishReferencePlace,publishReferenceContext,referenceReady as sourceReferenceReady} from './reference.js';
@@ -49,6 +49,9 @@ import {visualScanRanges,visualScanKey,validVisualScan,requireVisualOverview,vis
 import {IDENTITY_FAILURES,IDENTITY_HOLDS,IDENTITY_QUESTION,draftIdentityPairs,identitySource,judgeDraftIdentity,publishedIdentityPairs,recordIdentityVerdicts,writeVariants,type IdentityPair} from './visual-identity.js';
 import {identityVerdicts} from './visual-identity-shape.js';
 import {MAP_SCOPE_FAILURES,MAP_SCOPE_QUESTION,mapScopeFocus,mapsLackingScope} from './map-scope.js';
+import {EXHIBITS_MATERIAL,EXHIBITS_QUESTION} from './exhibits.js';
+/** §257.R: the most pages an exhibits reading opens, the focus's own first. */
+const EXHIBIT_READ_PAGES = 8;
 import {PREGENS_FOCUS,PREGENS_MATERIAL,PREGENS_QUESTION,pregensSettlement} from './pregens.js';
 import {anchorPage,cleanOutline,indexChapters,outlineChapters,pageInside,rangeMeets,readingBudget,readingWindow,transcriptRanges,transcriptWindowPages,wholeTranscript,wholeWindow,type Chapter,type PageRange,type ReadingWindow} from './chapters.js';
 const PURPOSES = ['index', 'skeleton', 'guidance', 'opening', 'detail', 'answer'];
@@ -649,6 +652,50 @@ export class Reading {
         if (reply.state === 'blocked') reply = await this.request({ ...read, retry: true });
         if (reply.state === 'unusable') return { state: 'unusable', focus };
         return { state: string(reply.state), focus, ...(truth(reply.job_id) ? { job_id: reply.job_id } : {}) };
+    }
+    /**
+     * §257.15: a legacy graph (read before exhibits existed) has a scene no exhibit is carried by. The first arrival at it queues one
+     * background `material: "exhibits"` detail read of that scene and never waits for it: the same focus is the same job, so
+     * a scene already queued, running or read (even read to nothing) queues no second one. A graph without a bound book queues nothing.
+     */
+    async queueSceneExhibits(graph: ModuleGraph, scene: Row): Promise<Row> {
+        const mid = graph.moduleId;
+        // The carriers an exhibits reading of the scene covers: the scene, the people and the handouts and objects the book places in it.
+        // A graph with exhibits on any of them was read for exhibits already; only one with none is legacy.
+        if (graph.materialOverride || Reading.exhibitCarriers(graph, scene).some(id => graph.exhibitsOf(id).length) || !await this.store.exists(mid)) return { state: 'none' };
+        const focus = readingFocus(graph, scene);
+        const reply = await this.request({ module_id: mid, purpose: 'detail', material: EXHIBITS_MATERIAL, focus, foreground: false });
+        return { state: string(reply.state), focus, ...(truth(reply.job_id) ? { job_id: reply.job_id } : {}) };
+    }
+    /** §257.15: the node ids of the carriers an exhibits reading of `scene` covers (the scene, its people, its objects and handouts). */
+    static exhibitCarriers(graph: ModuleGraph, scene: Row): string[] {
+        return [...new Set([string(scene.node_id), ...graph.scenePeople(scene).map(person => person.id), ...graph.sceneAssetNodes(scene).map(node => string(node.node_id))])];
+    }
+    /**
+     * §257.R: what an exhibits reading of `focus` is told already exists: `{exhibit_id, carrier, kind}` of every exhibit carried by
+     * the focus node, or by the people and the objects and handouts the book places in it. The reader does not write these again.
+     */
+    static existingExhibits(graph: ModuleGraph, focus: string): Row[] {
+        const target = graph.find(focus);
+        if (!target) return [];
+        const carriers = target.node_kind === 'scene' ? Reading.exhibitCarriers(graph, target) : [string(target.node_id)];
+        return carriers.flatMap(id => graph.exhibitsOf(id).map(item => ({ exhibit_id: string(item.exhibit_id), carrier: string(item.carrier), kind: string(item.kind) })));
+    }
+    /**
+     * §257.R: the pages an exhibits reading of `focus` opens: those the focus node cites and those of the nodes a claim links to it
+     * (the people present, the clues and handouts found there), at most `EXHIBIT_READ_PAGES` of them, the focus node's own first.
+     * Nothing is guessed from names: the graph's own references decide. A focus the graph does not hold has none, and the
+     * reader navigates from the focus itself.
+     */
+    private async exhibitPages(mid: string, focus: string, pageCount: number): Promise<number[]> {
+        const graph = await this.store.graph(mid), target = graph.find(focus);
+        if (!target) return [];
+        const raw = graph.raw, id = string(target.node_id), own = needMaterial(raw, id, mid).pages;
+        // Only the claims that touch the focus node itself: the others link unrelated nodes and would fill the cap with other places' pages.
+        const linked = array(raw.claims).filter(claim => row(claim).subject_id === id || row(row(claim).object).node_id === id)
+            .flatMap(claim => [row(claim).subject_id, row(row(claim).object).node_id]).filter((other): other is string => typeof other === 'string' && other !== id);
+        const near = [...new Set(linked)].flatMap(other => citedBoundPages(array(row(array(raw.nodes).find(node => row(node).node_id === other)).source_refs), mid));
+        return [...new Set([...own, ...near])].filter(page => page >= 1 && page <= pageCount).slice(0, EXHIBIT_READ_PAGES);
     }
     /** §107.1: the settled row of a map focus (published or unusable), if any. */
     static mapSettlement(meta: Row, focus: string): Row | undefined {
@@ -1504,12 +1551,15 @@ export class Reading {
             if (purpose === 'opening' && !truth(focus) && truth(meta.opening_choice))
                 focus = meta.opening_choice.start_scene;
             const material = params.material;
-            if (material !== undefined && material !== 'map' && material !== PREGENS_MATERIAL)
-                throw new RpcError('invalid_params', 'material must be map or pregens when supplied');
+            if (material !== undefined && material !== 'map' && material !== PREGENS_MATERIAL && material !== EXHIBITS_MATERIAL)
+                throw new RpcError('invalid_params', 'material must be map, pregens or exhibits when supplied');
             if (material !== undefined && purpose !== 'detail')
                 throw new RpcError('invalid_params', 'material is only supported for detail readings');
             // §207.3: the kernel names the book's pregens reading, so one book has one identity for it.
             if (material === PREGENS_MATERIAL) { focus = PREGENS_FOCUS; question = PREGENS_QUESTION; }
+            // §257.R: an exhibits reading is of one named focus; the kernel names its question, so the focus has one identity for it
+            // and a prepared focus is not mistaken for read (`materialReady` answers only questionless ordinary detail reads).
+            if (material === EXHIBITS_MATERIAL) question = EXHIBITS_QUESTION;
             if (typeof focus !== 'string' || typeof question !== 'string')
                 throw new RpcError('invalid_params', 'focus and question must be strings');
             if (purpose === 'detail' && !focus.trim())
@@ -1614,7 +1664,9 @@ export class Reading {
                 const matching=mapCandidates.filter(candidate=>[candidate.focus,candidate.name].some(value=>Reading.meet(identity(value),wanted)));
                 if(matching.length)mapCandidates=matching;
             }
-            const pages:number[]=visualIdentity?[visualIdentity.page]:mapScope?mapScope.pages:visualAsset?[visualAsset.page]:sourceUnit?sourceUnitPages(sourceUnit):material==='map'?[...new Set([
+            // §257.R: an exhibits reading opens the pages its focus and the things the book links to it already cite (carrier scoping).
+            const exhibitPages:number[]=material===EXHIBITS_MATERIAL?await this.exhibitPages(mid,focus,source.page_count):[];
+            const pages:number[]=material===EXHIBITS_MATERIAL?exhibitPages:visualIdentity?[visualIdentity.page]:mapScope?mapScope.pages:visualAsset?[visualAsset.page]:sourceUnit?sourceUnitPages(sourceUnit):material==='map'?[...new Set([
                 ...mapCandidates.flatMap(candidate=>array(candidate.pages).map(number)),
                 ...array(reading.visual_candidates).filter(candidate=>candidate.kind==='map'||candidate.kind==='uncertain').map(candidate=>candidate.page)])]
                 .filter(page=>page>=1&&page<=source.page_count).sort((a,b)=>a-b):[];
@@ -1671,7 +1723,7 @@ export class Reading {
                 const identity = await this.focusIdentity(mid), wanted = identity(focus);
                 // §22.4.3 (SL-36): one live consultation per focus; a second question on a running focus attaches to it.
                 // A consultation of another context generation can never publish (§22.4.1): it is no reading to attach to.
-                settling = queue.find(job => job.state === 'running' && attachesReadingFocus(job) && sameReadingFocusDomain({purpose}, job) && Reading.meet(identity(job.focus), wanted)
+                settling = queue.find(job => job.state === 'running' && attachesReadingFocus(job) && sameReadingFocusDomain({purpose}, job) && (job.material !== EXHIBITS_MATERIAL || material === EXHIBITS_MATERIAL) && Reading.meet(identity(job.focus), wanted)
                     && (job.purpose !== 'answer' || equal(job.context_generation, meta.generation ?? 0)));
             }
             if (settling) {
@@ -1872,7 +1924,8 @@ export class Reading {
                 // generation (`resumeUnder`, below).
                 const blocking = truth(job.foreground);
                 // §22.2.1: the request's consultation and publication domains also govern claims.
-                const conflict = active.find(other => sameReadingFocusDomain(job, other)
+                // §257.15: a running background exhibits read writes exhibits only; it never holds another read of its focus.
+                const conflict = active.find(other => sameReadingFocusDomain(job, other) && !(other.material === EXHIBITS_MATERIAL && job.material !== EXHIBITS_MATERIAL)
                     && Reading.meet(identity(other.focus), identity(job.focus)));
                 if (conflict) { defer({job_id: job.job_id, reason: 'focus_busy', by_job: conflict.job_id}); continue; }
                 // §22.4.6: a blocking read takes any free slot; a background read never takes the last one.
@@ -1988,7 +2041,7 @@ export class Reading {
                     // §192.2: a job with pages meets the published nodes on its own pages first, ahead of the cast and the index.
                     const roster = scopePages.length ? packetRoster(known, scopePages, survivors) : null;
                     const packet: Row = { ...(roster ? { roster } : {}), ...visibleJob, ...identityTask, ...(needTask ? { source_need: needTask } : {}), ...(carried.length ? { carried_needs: carried } : {}),
-                        ...(castNames.length ? { cast_names: castNames } : {}),...(meta.source_reference?{reference_stream:true}:{}),...(meta.source==='pdf'&&['guidance','opening','detail','answer'].includes(job.purpose)?{review_policy:MODULE_LOGIC_REVIEW}:{}), module_id: mid, source, concurrency: READING_SLOTS, index: job.purpose === 'index' ? [] : await this.store.sections(mid), known_nodes: scoped.nodes, known_claims: scoped.claims, vocabulary: scopedVocabulary(wholeVocabulary, job), coverage_domains: [...array(contract.graph.coverage_domains)],
+                        ...(castNames.length ? { cast_names: castNames } : {}),...(job.material===EXHIBITS_MATERIAL?{existing_exhibits:Reading.existingExhibits(new ModuleGraph(mid,graph,'',{}),string(job.focus))}:{}),...(meta.source_reference?{reference_stream:true}:{}),...(meta.source==='pdf'&&['guidance','opening','detail','answer'].includes(job.purpose)?{review_policy:MODULE_LOGIC_REVIEW}:{}), module_id: mid, source, concurrency: READING_SLOTS, index: job.purpose === 'index' ? [] : await this.store.sections(mid), known_nodes: scoped.nodes, known_claims: scoped.claims, vocabulary: scopedVocabulary(wholeVocabulary, job), coverage_domains: [...array(contract.graph.coverage_domains)],
                         scope: { pages: scopePages, window: scopeView, known_nodes: scoped.nodes.length, known_claims: scoped.claims.length, packet_bytes: 0 } };
                     // The packet's compact JSON size with this field still zero: what an author is handed, before the host adds its own.
                     packet.scope.packet_bytes = Buffer.byteLength(pythonJsonDumps(packet));
@@ -2132,7 +2185,7 @@ export class Reading {
                 this.owned();await this.store.writeModule(meta);await this.store.writeQueue(mid,queue);await this.release(mid,job.job_id);
                 return result;
             }
-            let guidance: Row | null = null, publicFields:Row|undefined, opening: Row | null = null, publicationGraph:Row|undefined, travel: Row | null = null;
+            let guidance: Row | null = null, publicFields:Row|undefined, opening: Row | null = null, publicationGraph:Row|undefined, travel: Row | null = null, exhibitRefusals: Row[] = [];
             if (job.purpose === 'index')
                 await this.finishIndex(mid, meta, job, draft, new Set(array(observations.full_pages)));
             else if (job.purpose === 'answer') {
@@ -2221,6 +2274,8 @@ export class Reading {
                 recordDistinct(meta, array(filled.nodes), array(landing?.nodes), identitySource(meta), string(job.job_id), number(meta.generation) + 1, path => reviewReasons.get(path), standsFor);
                 const retranscribed: Row[] = [];
                 const graph = assembleVisual(landing, withoutDistinctFrom(filled), meta, contract, retranscribed);
+                // §257.2: refused exhibits are recorded, not published; the rest of the shard is.
+                exhibitRefusals = array(filled.exhibit_refusals).map(item => ({ ...clone(item), job_id: job.job_id, generation: number(meta.generation) + 1 }));
                 if(job.purpose==='detail'&&truth(job.question)){
                     const view=new ModuleGraph(mid,graph,'',row(contract.graph.actor_dossier)),target=view.find(string(job.focus));
                     // §192.3: the read of a thing resolves the same question on every node of it (a need on a copy is the survivor's).
@@ -2354,6 +2409,10 @@ export class Reading {
                 }
             }
             const result: Row = { state: truth(meta.opening_ready) ? 'ready' : meta.reading.state, generation: meta.generation ?? 0, opening_ready: meta.opening_ready ?? false };
+            if (exhibitRefusals.length) {
+                result.exhibit_refusals = exhibitRefusals;
+                meta.reading.exhibit_refusals = [...array(meta.reading.exhibit_refusals), ...exhibitRefusals].slice(-200);
+            }
             if (travel)
                 result.travel = travel;
             if (job.purpose === 'guidance') {
@@ -2669,7 +2728,7 @@ export class Reading {
             reject('guidance must name an authored entrance');
         if (guidance.guide) {
             const actors = new Set(array(graph.nodes).filter(node => node.node_kind === 'npc' && normalize(node.name) === normalize(guidance.guide)).map(node => node.node_id));
-            if (!array(graph.claims).some(claim => actors.has(claim.subject_id) && claim.predicate === 'present-in' && row(claim.object).node_id === chosen))
+            if (!array(graph.claims).some(claim => actors.has(claim.subject_id) && claim.predicate === 'present-in' && row(row(claim).object).node_id === chosen))
                 reject('the guidance person must be present at the selected opening');
         }
         return guidance;

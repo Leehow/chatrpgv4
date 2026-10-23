@@ -66,7 +66,7 @@ const UNREAD = 'scene-mae-collins-room', LANDLADY = 'npc-ida-brooks';
 
 function opening() {
   const nodes = [
-    node('scene-harbor-bar', 'scene', 'Harbor Bar', 'A smoky bar on the dock.', {is_entrance: true}),
+    node('scene-harbor-bar', 'scene', 'Harbor Bar', 'A smoky bar on the dock.', {is_entrance: true, description: 'A smoky bar on the dock.'}),
     node('scene-robert-taylor-home', 'scene', 'Taylor\'s house', 'A narrow house up the hill.', {is_final: true}, 2),
     node(UNREAD, 'scene', 'The room upstairs', 'A rented room above the bar.'),
     node(LANDLADY, 'npc', 'Ida Brooks', LANDLADY_LOOKS, {appearance: LANDLADY_LOOKS}),

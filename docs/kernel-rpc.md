@@ -51671,3 +51671,321 @@ secret, hint, lead, suggestion of what to do, or menu.
 - Actor: the player reads it apart from the story: PipiCOC draws it as a table note captioned by the `transcript`
   surface's `table_note` word; the live driver lists it as a notice. Telemetry: `lane: "delivery"`, `reason: "table_note"`.
 Tests: `tests/extension/author-material-voice.test.mjs`, `Electron/packages/ui/src/table-note.test.tsx`.
+
+## 257. Module exhibits: what the investigators perceive reaches the sole author (owner 2026-10-22)
+
+Spec: `docs/specs/module-exhibits.md`. The module graph was shaped for a Keeper who sees every secret: first sight fell back
+to a scene summary or a biography, a revealed clue reached the author as `{name, summary}`, and a person's authored lie or
+voice could not be selected. An **exhibit** is one piece of player-perceivable book material (read-aloud and handouts
+verbatim, the rest a faithful close paraphrase) tied to a carrier node, with the Keeper's interpretation on a separate
+Keeper-only side. It is not the reading pipeline's "source unit" (a range of book pages). This section is the graph
+contract; later tickets append the reader, catalog, packet, settlement and author sections below as §257.N.
+
+### 257.1 Shape
+
+A shard gains an optional top-level `exhibits` array (`SHARD_KEYS`); every row (`kernel-ts/modules/exhibits.ts`):
+
+```
+{exhibit_id: "exhibit-<kebab>",
+ kind: "description" | "appearance" | "document" | "perception" | "testimony" | "voice",
+ carrier: <node_id of the scene, person, creature, object or handout>,
+ channel: "sight" | "text" | "speech" | "sound" | "touch" | "smell",
+ owners?: [<npc node_id>],                                   // required for testimony and voice, forbidden otherwise
+ stance?: "fact" | "belief" | "rumor" | "lie" | "deflection", // testimony only; absent means fact
+ teaches?: [<clue node_id | claim_id of a knows/believes/asserts claim>],   // Keeper and kernel only
+ keeper_note?: <one English line>,                            // Keeper only
+ label: <one English Keeper line: what it is>,                // Keeper only
+ surface: {text, language, verbatim},                         // people as {{who:<node_id>}}
+ source_refs: [{page, box?}]}                                 // required, non-empty; stored like every node's refs
+```
+
+- Where they live. The accepted graph (`module-graph.json`) carries `exhibits` as a top-level array beside `nodes` and
+  `claims`, keyed by `exhibit_id`; a later accepted exhibit of the same id replaces the earlier one. Absent on graphs read
+  before this change. Read API: `ModuleGraph.exhibits` (all rows) and `ModuleGraph.exhibitsOf(carrierId)`.
+- Writer: the opening and detail reader (`module.read.finish`), through the draft check. Reader: later tickets' catalog,
+  first-sight and author projections, always through the API above. No exhibit field is written by play.
+- `surface.text` is at most `EXHIBIT_SURFACE_BYTES` (4096) UTF-8 bytes. `{{who:<node_id>}}` is the only way a surface names
+  a person; the host resolves it later (not part of this section).
+
+### 257.2 The checker and its reasons
+
+`checkExhibits` runs inside `checkDraft` (so also the offline `coc-read-check`) after the record laws, against the
+graph the draft would publish into (known nodes and claims overlaid by the draft's). It never throws: an exhibit that
+fails any law is **dropped with its reasons** and the rest of the shard is accepted and published. The drop is recorded
+as `{exhibit_id, path: "/exhibits/<i>", rule, rules[], message}` in `filled.exhibit_refusals`, in the
+`module.read.finish` result (`exhibit_refusals`, with `job_id` and `generation`) and in `module.json`
+`reading.exhibit_refusals` (last 200). Stable reasons (`rule`; wording is not contract):
+
+| Reason | Refused when |
+| --- | --- |
+| `exhibit_shape`, `exhibit_id`, `exhibit_kind`, `exhibit_channel`, `exhibit_label`, `exhibit_stance`, `exhibit_surface` | the row is not an exhibit of 257.1 (unknown key, id not unique `exhibit-...`, closed values, empty label, `stance` on a kind other than testimony, malformed surface) |
+| `exhibit_carrier_unknown` | `carrier` is no node of the graph or the draft |
+| `exhibit_owner_unknown` | an owner is no `npc` node |
+| `exhibit_owners_wrong_kind` | `owners` on a kind other than testimony or voice |
+| `exhibit_owners_missing` | testimony or voice without owners (an owner-less voice is a `perception` on `sound`) |
+| `exhibit_owner_unlinked` | a testimony owner has no `knows`, `believes` or `asserts` relation (as claim subject, `known_by_ids` or `asserted_by_ids`) to the carrier or to something the exhibit teaches |
+| `exhibit_teaches_target` | `teaches` names anything but a `clue` node or a knowledge claim's `claim_id` |
+| `exhibit_source_refs` | `source_refs` missing, empty, outside the PDF or on a page this reader did not view |
+| `exhibit_surface_oversize` | surface text over the byte cap |
+| `exhibit_name_in_surface` | the `name` or an `alias` of any `npc` node of the graph occurs literally in a non-verbatim surface text (a verbatim handout, sign or read-aloud shows names as printed) after `{{who:...}}` references are removed: exact, case-sensitive substring of the graph's own identity fields; no list, pattern or semantic judgement |
+| `exhibit_who_unknown` | a `{{who:<id>}}` names no `npc` node |
+| `exhibit_who_malformed` | a `{{` or `}}` remains in the surface after the well-formed `{{who:<id>}}` tokens are removed (`{{ who:x }}`, `{{who:x}`): a structural check, so a broken token never reaches the author raw |
+
+Whether a surface leaks a Keeper secret is **not** decided here (Agents.md: no semantic classification by lists or
+patterns); that is the independent review's player-safety item (ticket 02).
+
+### 257.3 v4 and v5
+
+`VISUAL_CONTRACT_ID` is `coc.module-graph-shard.v5`; `ACCEPTED_VISUAL_CONTRACT_IDS` is v4 and v5. A v4 shard is accepted
+exactly as before (no `exhibits`, graph unchanged, no `exhibits` key written). `exhibits` is a v5 key: a v4 shard carrying
+it is refused whole (`exhibits_contract`), as is a non-array `exhibits` (`not_an_array`) and a visual-scan or map-scope
+job that writes any (`visual_scan_bounds`, map-scope bounds). A missing `contract_id` means v5. The reader vocabulary
+(`shard_contract_id`, `shard_keys`) now names v5 and `exhibits`; the unknown-contract refusal text is unchanged and its
+`allowed` lists both ids. Graphs published before this change simply have no `exhibits`; every reader treats that as
+empty.
+
+### 257.4 The author boundary
+
+Exhibits have a Keeper side and an author side, and the line is structural:
+
+- Keeper and kernel only: `teaches`, `keeper_note`, `label` (and `owners`/`carrier` ids as references).
+- The sole author may receive only the surface: `{kind, channel, carrier?: the table's public label (257.6; omitted when the table has none), surface, stance}`, with
+  `{{who:}}` resolved by the host and verbatim and lie/deflection authority lines added later (tickets 03-06).
+  `teaches`, `keeper_note` and `label` never reach the author, in any projection, whatever the prompt says.
+
+This ticket adds the data and its gate only; no projection reads exhibits yet. Test:
+`tests/extension/module-exhibits-contract.test.mjs` (real `module.read.finish`, accepted graph read back, each reason, v4
+unchanged).
+
+### 257.5 First sight reads player-facing material only (amends §168.5)
+
+§168.5's `first_sight` words for a place and a person no longer fall back to the Keeper's fields. For a scene (placeholder
+number; the ticket-05 slice): the scene's `description` exhibits (surfaces joined with a newline, `{{who:...}}` tokens left
+as written for the host's resolver), else the hand-authored `properties.description`, else the scene is not owed a
+description. For a person: their `appearance` exhibits, else the hand-authored `properties.appearance` (§199.4), else the
+person is carried `undescribed` (§203.5), which the §254.6 grant already covers. The scene `summary` and the person
+`biography` are never read (the biography fallback of §168.5 and §199.4 and the summary fallback are removed). A graph read
+before exhibits keeps working: its hand-authored properties still count, everything else is undescribed until a
+background read adds exhibits. `placeDescribed` / `personDescribed` also feed the `check` lane's book words
+(`table.first_sight` excerpts are located in them) and `public_scene.description`, so all three share one source.
+Kept looks (§255) are a separate section the capsule carries beside `first_sight` and are never derived from the book's
+words, so for the same subject they continue to win; an exhibit does not replace a kept look. `personAppearance` (the
+epithet lane, §199.4) is unchanged. Tests: `tests/extension/first-sight-kernel.test.mjs`, `first-sight-step.test.mjs`.
+
+### 257.6 The exhibit read
+
+`table.look {focus: "exhibits", _context_read: true}` is the host's read of the exhibits the table may reveal now. It is refused
+(`invalid_params`) without `_context_read`, so a model-called `look` never sees it; it is deliberately not a capsule section,
+because the capsule is sent to the Keeper whole and a surface must not be. Result:
+`{scene, exhibits: [{exhibit_id, kind, channel, scope, carrier: {id, node_kind, display_name, public_label?}, stance?, label, clue?, teaches?,
+clue_states?, surface: {text, language, verbatim}}]}` (`kernel-ts/read/exhibits.ts`).
+
+- Kinds read: `document` and `perception` only (`REVEALABLE_EXHIBIT_KINDS`). Description, appearance and voice are used
+  automatically by later tickets; testimony joins in ticket 04. Nothing else is issued.
+- Scope (`scope`, in rank order scene, person, handout, object): the carrier is the active scene (any node of its group), a
+  person present (`npcsPresent`), a handout or object the scene depicts or holds (`sceneAssetNodes`), a handout in
+  `world.handouts_shown`, or an object an investigator holds: an instance in `world.objects.instances` owned by an investigator whose
+  `source_object {module_id, node_id}` is this book's node (exact identity, §180.19; an instance's name, even the book's own, holds nothing).
+  Any other carrier is simply absent from the result. `carrier.display_name` is the Keeper catalog's label: the scene label, a person's
+  current name-or-epithet, a node's display name.
+- `carrier.public_label` is what the author may be told, and only what the table itself has: the scene label; a person through the
+  `{{who:}}` path (the name once told, else the epithet); a creature by the name the table gave it (`person_labels`); a held object by its
+  own instance name; a handout by its name only once shown. For any other carrier it is absent, and the author's `carrier` is omitted
+  (a book name of a creature, an unshown handout or an unheld object is Keeper-side).
+- `clue` is the Keeper's summary over the clue nodes the exhibit `teaches`: `{state: "open" | "needs" | "discovered", check?: {skill,
+  difficulty?}}` (`needs` is an undiscovered clue the book finds by a named-skill check, `clueCheck`); `teaches` holds the clue
+  handles and `clue_states` their per-clue state. A knowledge-claim target teaches nothing here (no effect is compiled for it).
+- `surface.text` has every `{{who:<node_id>}}` resolved by the kernel: the person's name when the table has been told it, otherwise
+  the table's word for them (the same `display_name` `present[]` shows, §176/§103). An unresolvable reference reads `someone`.
+- The row is Keeper-side. `teaches`, `keeper_note` and `label` never leave the host's catalog code; `keeper_note` is not in the read at all.
+
+### 257.7 The catalog and the packet
+
+`DecisionContent.prepare(..., exhibits)` (the 8th argument; the hybrid engine reads `table.look focus=exhibits` beside the capsule,
+and a kernel or graph without it issues none) issues `exhibit_N` for each row, aliased by `exhibit_id` so a reference survives
+unchanged scope like `fact_N`. `decision_materials.exhibits` lists `{ref, kind, channel, carrier, label, stance?, clue?}` with
+`clue` one of `open`, `discovered` or `needs <skill> (<difficulty>)`; the surface is never in it. They share the catalog's byte
+budget and are capped at 48; the overflow is counted in `coverage.exhibits: {issued, omitted}` (present only when the kernel
+returned exhibits). `ExistingCommunicationFact` gains `{exhibit_ref}`. The per-turn schema binds it: in `reveal` to the issued
+document and perception references (`DecisionBindings.revealExhibits`), in `interactions[].content` to
+`DecisionBindings.speechExhibits`, which is empty until ticket 04 (the unissued branch is pruned like any empty enum).
+
+### 257.8 Settlement
+
+Before anything is written, a packet whose `reveal` names an exhibit re-reads `table.look focus=exhibits` and
+`DecisionContent.settleExhibits` settles it:
+
+1. An exhibit no longer issued is refused (`invalid_params`, `details.reason: "exhibit_unissued"`); one whose carrier is no longer
+   in scope is refused naming the exhibit and the carrier (`exhibit_carrier_absent`) and the repair says to leave it out of
+   `reveal`. Both are `transaction_state: "uncommitted"`: the whole packet is refused.
+2. Each undiscovered clue an exhibit teaches becomes the clue's ordinary `{kind: "clue", clue, via_exhibit: <exhibit_id>}` effect, placed
+   ahead of the packet's other effects in the same atomic `apply`, so the clue's own validation applies (`check_first`). `via_exhibit`
+   lets the clue be obtained though the book files it under another place (a document on a held or shown handout, a testimony about
+   another place): `stageClue` accepts an out-of-scene clue only when the kernel itself finds that exhibit in scope now
+   (`exhibitTeaches`, the 257.6 scope rule over the current world) and teaching that clue; the host's word is not the proof, and any
+   other out-of-scene clue is still refused `not_here`. The check, if any, is not waived. A clue
+   already discovered gets no effect, so revealing an exhibit again never rediscovers it; two exhibits teaching one clue yield one effect.
+3. When the clue's validation refuses (a missing check), the whole packet is refused with the clue's refusal and an added line
+   naming the exhibit (`Exhibit exhibit_N teaches this clue ...`, `fix` naming `{exhibit_ref:"exhibit_N"}` to be left out of `reveal`, or
+   of `interactions content` for testimony); nothing the packet carried (time, movement) lands.
+
+### 257.9 The author's input
+
+A revealed exhibit is one `selected_materials` row of the decision context:
+`{kind: "exhibit", exhibit: {kind, channel, carrier?, surface, stance?}, authority}`. `carrier` is the table's public label (257.6) and absent without one; `surface` the
+resolved text; `teaches`, `keeper_note`, `label` and the exhibit id are not in it. `authority` is, for a verbatim surface, "Render
+faithfully in the play language; do not summarize."; for a `lie` or `deflection` stance (ticket 04) "What this speaker says, in their
+terms; not world truth. Render as their speech; do not correct or expose it in narration."; otherwise "Perceivable book material;
+render it in the play language without adding what it does not show."
+
+### 257.10 Packet guidance
+
+`TURN_PACKET_GUIDANCE` says `reveal` also selects `{exhibit_ref}`, that the catalog lists carrier, label and clue state but never the
+text, and that when an exhibit exists for what is found the Keeper reveals the exhibit and does not apply the clue it teaches (the
+packet is refused with the missing check named otherwise). `apply clue` stays valid for compatibility.
+
+### 257.11 Telemetry
+
+The `run` record `decision_material_catalog` carries `coverage.exhibits` and `exhibits_issued: [ref]`. Each turn that issued or
+selected an exhibit writes `{lane: "decision-content", event: "exhibits", turn, run, issued, omitted, selected, refused, author_bytes}`
+(`author_bytes` is the UTF-8 size of the exhibit rows handed to the author); a refused selection writes
+`{event: "exhibit_refused", ..., refused: [{ref, reason}]}` with `reason` one of `unissued`, `carrier_absent` or the clue's own
+refusal reason (`check_first`, `not_here`). `exhibit_refused` is written only when the packet selected an exhibit or an exhibit
+taught the refused clue; any other refused apply is not logged as an exhibit refusal.
+
+Test: `tests/extension/exhibit-reveal.test.mjs` (a real kernel over a content root whose Haunting starter carries exhibits, the
+controlled Keeper's `reveal`, the real settlement and the real author `task.json`).
+
+### 257.12 The reader extracts exhibits in its existing reads
+
+The opening and detail reads write exhibits for the nodes they make ready, in the same read and from the pages already in
+view (no extra pass; `skeleton` writes none). The instructions (`content/setup/visual-reader/read.md`, section "Exhibits",
+plus a paragraph each in `opening.md` and `detail.md`) no longer forbid a person's words, manner or read-aloud; they define
+the six kinds and the fields of 257.1 and carry the rules the sandbox probe showed were needed:
+
+- Player-safety law: a surface states only what the investigator perceives or is told; Keeper interpretation goes in
+  `keeper_note` and `teaches`. A secret appears only as testimony of an owner who would say it.
+- Names: a paraphrased surface names a person only as `{{who:<node_id>}}`; a verbatim surface keeps the printed words.
+- Carrier scoping: an exhibit belongs to the node whose pages it cites; a prologue's or a neighbour's material is not the
+  place's.
+- Owners: an owner-less voice is a `perception` on `sound`; owners only on `testimony`/`voice`, each a person.
+- `teaches` names a clue or a knowledge claim only, never a structural relation.
+- Voice surfaces include the book's sample lines, quoted as printed.
+
+Prompt bytes of every opening, detail and verify read changed, so reading caches keyed on instruction bytes are invalidated
+(expected).
+
+### 257.13 `material: "exhibits"`
+
+`module.read.request {purpose: "detail", material: "exhibits", focus}` is a valid detail read (`material` is `map`,
+`pregens` or `exhibits`; `focus` is required). The kernel names the question (`EXHIBITS_QUESTION`) so a focus has one
+identity for its exhibits reading and a focus prepared without exhibits is still read; the job's key includes the material,
+so it never collides with the ordinary detail read of the same focus. Its `pages` are the pages the graph already cites for
+the focus node and for the nodes linked to it by a claim whose subject or object is the focus node itself (claims between other
+nodes add nothing), in graph order and at most 8, the focus's own first; a focus the graph does not hold has none. The claim packet
+carries `existing_exhibits: [{exhibit_id, carrier, kind}]`, the exhibits already in the graph for the focus and the people, handouts
+and objects placed in it, and the reader does not write those again. At publication a new `exhibit_id` whose `(carrier, kind,
+surface.text)` equals an existing exhibit's is not added (the same id still replaces). The reader receives `exhibits.md` after `detail.md`. The draft check refuses a draft of this material that writes any
+`nodes`, `claims` or `ready_nodes` (`exhibits_scope`); an empty `exhibits` array is the answer "none printed", published as a
+settled material row (`material: "exhibits"`, `node_ids: []`), after which the same request answers `ready`. Budget stage:
+`detail` (unchanged).
+
+### 257.14 Review: a player-safety verdict per exhibit
+
+Every exhibit that passed 257.2 is owed one review pointer, `/exhibits/<i>`, `i` being its position in the draft the reviewer
+reads (`required_review`; a checker-refused exhibit is owed none). `review.md` states the item: the surface is `supported`
+when it faithfully states what the page lets an investigator perceive and states no Keeper-only proposition (unless that is
+exactly what the exhibit teaches and its owner would say it); `teaches`, `keeper_note` and `label` are not judged as surface
+text. The host reviews exhibits as records (`recordRoot` knows the `exhibits` collection), with the carrier and owners as
+connected context.
+
+The verdict never refuses the shard (`exhibitReviewPath`, `module-review-policy`: an exhibit finding is not a blocking
+finding; the host's `gateRefusal` is false for it, so it asks no repair round). `checkReview` drops an exhibit that is not
+`supported`, or that a negative row or a `missing` item names, with rule `exhibit_player_safety` and the reviewer's reason;
+an exhibit the review gave no verdict is dropped as `exhibit_unreviewed` (fail closed). Drops are appended to the same
+`filled.exhibit_refusals` the checker's refusals use, so they reach the `module.read.finish` result (`exhibit_refusals`) and
+`module.json` `reading.exhibit_refusals` with `{exhibit_id, path, rule, rules, message, job_id, generation}`. Dropped means not
+in the graph; the rest of the shard publishes.
+
+Test: `tests/extension/module-exhibits-reader.test.mjs`.
+
+### 257.15 Legacy graphs get exhibits in the background
+
+A graph read before exhibits existed has scenes that no exhibit names as its carrier. The first `apply` whose move makes such
+a scene the party's current scene (a move receipt that is not a rename, to a scene other than the one it left) queues exactly one
+background read through `contributions.queueSceneExhibits` -> `Reading.queueSceneExhibits(graph, scene)`:
+`module.read.request {purpose: "detail", material: "exhibits", focus: <the scene's reading focus>, foreground: false}` (257.13).
+Nothing is queued when the scene, or any person (`scenePeople`), handout or object (`sceneAssetNodes`) placed in it, already has an exhibit (`graph.exhibitsOf`), when the graph has no bound book, or when the
+table still follows the shared library (as for the arrival map, 107.1). The job identity is the scene's focus, so re-entering while
+the read is queued, running or done (including done to "none printed") queues no second job. The turn never waits: the answer
+(`queued`, `reading`, `ready`, `blocked`) is ignored, a kernel error while queueing is appended to `telemetry.jsonl` as
+`exhibits-unavailable` and does not refuse the move, and clue disclosure keeps its present fact until the read lands. When it
+publishes, the accepted graph carries the scene's exhibits and the next catalog refresh sees them (`ModuleGraph.exhibits`).
+The same call is made when a table is opened (`table.open`, in the write layer next to `queueAdjacentReading`): the scene the
+party stands in, whether it is a campaign's opening scene or a resumed campaign's current scene, is queued its read when it has
+no exhibits. The job identity dedups every later open and move, and a kernel error there is logged (`exhibits-unavailable`)
+and never refuses the open.
+
+The read is the least urgent background work: a queued background `material: "exhibits"` job sorts after every other queued job at claim
+(`workPriority` 6, `reading-policy.ts`), so it never goes ahead of a read another flow asked for. A foreground exhibits read
+(`lookup source prepare`, 257.18) keeps foreground priority. A running background exhibits read writes exhibits only, so it never
+makes another read of its focus `focus_busy` and never absorbs one as an attached request.
+
+Tests: `tests/extension/ts-kernel-modules.test.mjs` (the read and its dedup), `tests/extension/legacy-scene-exhibits.test.mjs`
+(`table.open` on a bound book queues the opening scene's read; `table.apply` move queues the arrival scene's; re-entry queues none).
+
+### 257.16 Voice reaches the author
+
+Voice exhibits are the one exhibit kind that reaches the author without a catalog or a selection: they ride with the
+person. `npcView` (the capsule's `table.look focus=npc`) carries `voice`, an array of the surface texts of the graph's
+`voice` exhibits whose `owners` hold the person, in graph order (`voiceSurfaces`, `kernel-ts/read/capsule.ts`); absent
+when there are none. Only `surface.text` is carried: `label`, `keeper_note`, `teaches`, ids and sources never are.
+`decisionPerson` (`runtime/decision-content.ts`) projects it as `speech_style`, the surfaces joined by a newline;
+`{{who:<node_id>}}` tokens are resolved by the kernel before `voice` leaves the view (§257.17). When a
+person has no voice exhibit, `speech_style` is the derived profile `expression` as before, and absent when neither
+exists. narration-craft 2.6.1 and zh-optimize 1.4.1 speak of `speech_style` instead of voice cards and masks. Tests:
+`tests/extension/module-exhibits-contract.test.mjs` (the `§257.16` cases) and `tests/extension/decision-only-v4.test.mjs`.
+
+### 257.17 Testimony, lies and deflections
+
+Testimony joins the exhibit read (`REVEALABLE_EXHIBIT_KINDS` gains `testimony`). A testimony exhibit is in scope when an owner is present
+(`npcsPresent`); its carrier may be elsewhere, because a person can tell of a place. The row adds `owners: [<handle>]` (the owners present) and
+`stance` (`fact` when the graph gives none); scope is `person`.
+
+- **Catalog.** `DecisionContent` maps each owner handle to the `npc_N` the capsule issues (`present[].id` to `ref`) and lists
+  `{ref, kind: "testimony", channel, carrier, label, owners: ["npc_N"], stance, clue?}`. A testimony none of whose owners has an issued
+  reference is not issued. `DecisionBindings.speechExhibits` is the issued testimony; `revealExhibits` stays document and perception.
+- **Binding.** `interactions[].content: [{exhibit_ref}]` selects testimony. The per-turn schema admits only the issued testimony references;
+  the owner rule is the host's, not the schema's, so the repair can name the owners. Settlement (`settleExhibits(reveal, current, interactions)`)
+  refuses before anything is written: a non-owner actor (`exhibit_not_owner`, naming each owner as `npc_N (display)`), testimony in `reveal`
+  (`exhibit_testimony_revealed`), a document or perception in a person's content (`exhibit_not_owner`, "select it in reveal"), and a testimony
+  whose owners have left (`exhibit_carrier_absent`, "none of its speakers is here").
+- **Clues.** A testimony that teaches a clue compiles the clue's ordinary `{kind:"clue"}` effect under §257.8: one discovery, ahead of the
+  packet's other effects, the clue's own check applies, and a refusal names the exhibit.
+- **Author input.** The speaker's claim replaces the placeholder inside that interaction's `claims`:
+  `{kind: "exhibit", exhibit: {kind: "testimony", channel, surface, stance}, authority}`. `authority` is, for `lie` and `deflection`, "What this
+  speaker says, in their terms; not world truth. Render as their speech; do not correct or expose it in narration."; for `fact`, `belief` and
+  `rumor`, "What this speaker says, in their terms." The claim has no carrier, `teaches`, `keeper_note`, `label` or exhibit id. The same rows feed
+  `decision-content` telemetry (`selected`, `author_bytes` counts only `selected_materials`).
+- **`{{who:<node_id>}}` everywhere the author reads book words.** `kernel-ts/read/who.ts` is the one resolver (the name once told, else the
+  table's word; `someone` for a non-person). It now also runs over first-sight `described` (place and people, in the capsule and
+  `table.first_sight.view`), the scene's `public_scene.description`, and a voice's surfaces (so `speech_style`). The check lane's book
+  words (`table.first_sight`) are located in every wording the text may have been shown in (as now, with each token the name, with each token
+  the table's word), so a name told between the capsule and the check cannot hide an excerpt.
+
+Tests: `tests/extension/exhibit-reveal.test.mjs` (the `§257.17` cases).
+
+### 257.18 Mid-play lookups can become exhibits
+
+`lookup {kind: "source", source_mode: "prepare", material: "exhibits", query: <focus>}` is the Keeper's way to make book
+material disclosable mid-play. It is the same detail read as 257.13 (`purpose: "detail"`, `material: "exhibits"`, `focus` =
+`query`), reached through the existing source-preparation path: no place shortcut (`reference`) is taken, the consultation key
+carries the material, and `runtime/jev/source-preparation.ts` accepts `material` `map` or `exhibits`. A missing `question` is
+filled in; the kernel names the question itself (257.13), so a focus has one identity. Chosen over "prepare always also reads
+exhibits" because that would add a second job to every prepare; the Keeper asks when the focus (an object, handout, scene or
+person) is wanted for its exhibits. When the read publishes, the next catalog refresh issues the new document and perception
+exhibits whose carrier is in scope (257.6). `source_mode: "answer"` is unchanged and Keeper-only: its text reaches the Keeper's
+tool result and never the author input. The tool description says both.
+
+Tests: `tests/extension/source-answer.test.mjs` (prepare with `material: exhibits` reaches `ensure` as the exhibits detail read),
+`tests/extension/exhibit-reveal.test.mjs` (a source answer's text is absent from the author's `task.json`).

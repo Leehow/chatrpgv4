@@ -35,7 +35,8 @@ import {openIntents, shownIntentRef} from '../npc/intents.js';
 import {deferredNpcContext} from './deferred-context.js';
 import {allReceipts, coercionPressures} from '../resolve/coercion.js';
 import { capsuleOwed } from "../owed/index.js";
-import { FIRST_SIGHT_BUDGET, firstSightLedger, firstSightSection, fitFirstSight } from "../first-sight/index.js";
+import { whoResolver } from "./who.js";
+import { FIRST_SIGHT_BUDGET, placeDescribed, firstSightLedger, firstSightSection, fitFirstSight } from "../first-sight/index.js";
 import { KEPT_LOOKS_BUDGET, keptLooksSection } from "../first-sight/looks.js";
 import { historicalSetting } from './historical-setting.js';
 import { HEAD_ESTABLISH } from "./establish.js";
@@ -320,6 +321,7 @@ export function unrecordedPeople(graph: ModuleGraph, world: Row, scene: Row, rec
 }
 /** Exact public history at this scene; never an authored private scene description. */
 export function publicSceneMaterial(campaign:CampaignSnapshot,graph:ModuleGraph,world:Row):Row {
+    const who=whoResolver(graph,world,row(campaign.jsonFiles.get('npc-journal.json')),campaign.records);
     const records=committedOnLine(campaign).records.filter(record=>number(record.turn)<number(campaign.turn.turn)
         &&stillWhereItClosed(graph,world,record)
         &&!array(record.receipts).some(receipt=>row(receipt).kind==='move'&&row(receipt).from!==row(receipt).to)
@@ -328,8 +330,8 @@ export function publicSceneMaterial(campaign:CampaignSnapshot,graph:ModuleGraph,
     const entries=records.slice(0,3).map(record=>({turn:record.turn,text:record.rendered_text.slice(0,2000),
         ...(record.rendered_text.length>2000?{truncated:true}:{})}));
     while(entries.length&&jsonSize(entries)>7800)entries.pop();
-    const authored=row(graph.scene(world.active_scene).properties).description;
-    const description=typeof authored==='string'?authored.trim():'';
+    // §257.5: the scene's description exhibits, else its hand-authored description -- the same player-facing source as first sight.
+    const description=who(placeDescribed(graph,graph.scene(world.active_scene))??'');
     return {authority:'Current source scenery and previously delivered public history; no population or transaction authority.',
         ...(description?{description}:{}),entries:entries.reverse(),omitted:records.length-entries.length};
 }
@@ -573,7 +575,8 @@ export async function buildCapsule(campaign: CampaignSnapshot, module: LoadedMod
         scene = graph.scene(world.active_scene),
         present = npcsPresent(graph, world, scene);
     // §168.5: what the book describes of the place and the people here that the player has not yet been shown.
-    const firstSight = firstSightSection(graph, world, scene, campaign.jsonFiles.get("first-sight.json"));
+    const who = whoResolver(graph, world, row(campaign.jsonFiles.get('npc-journal.json')), campaign.records);
+    const firstSight = firstSightSection(graph, world, scene, campaign.jsonFiles.get("first-sight.json"), who);
     // §255: what earlier replies showed of how this place and the people here look.
     const keptLooks = keptLooksSection(graph, world, scene, firstSightLedger(campaign.jsonFiles.get("first-sight.json")).looks);
     const dg = await DirectorGraph.load(context),

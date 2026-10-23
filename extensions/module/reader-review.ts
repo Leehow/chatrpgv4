@@ -10,7 +10,7 @@ import {mapReviewPreviews,reviewedMapNodes} from './map-review-preview.ts';
 import { obligationReviewPaths } from "../../kernel-ts/modules/obligation-review.ts";
 import { shapeReviewPaths } from "../../kernel-ts/modules/shape-review.ts";
 import { answerReviewShapeError } from "../../kernel-ts/modules/answer-review-shape.ts";
-import { PERSON_STATEMENTS, REVIEW_VERDICTS, classificationMatcher, personStatementPath, sheetReviewPath, statementReviewPath } from "../../kernel-ts/modules/review-verdicts.ts";
+import { PERSON_STATEMENTS, REVIEW_VERDICTS, exhibitReviewPath, classificationMatcher, personStatementPath, sheetReviewPath, statementReviewPath } from "../../kernel-ts/modules/review-verdicts.ts";
 import { sheetReviewPaths } from "../../kernel-ts/modules/sheet-review.ts";
 import { pregenInventoryPath } from '../../kernel-ts/modules/pregens-material.ts';
 import {checkedCharacterProfile, characterProfilePath} from '../../kernel-ts/modules/character-profile-shape.ts';
@@ -46,12 +46,12 @@ function numeric(value: any, path: string): string[] {
  * A draft pointer's record root, spelled canonically (`/nodes/3`), and the rest of the pointer below it.
  * Anything that is not under a node or a claim (`/coverage`, `/interaction_scene`, `/source_needs`) has none.
  */
-export function recordRoot(path: unknown): { root: string; collection: 'nodes' | 'claims'; index: number; rest: string } | undefined {
-	const match = typeof path === 'string' ? /^\/(nodes|claims)\/(\d+)(\/.*)?$/.exec(path) : null;
+export function recordRoot(path: unknown): { root: string; collection: 'nodes' | 'claims' | 'exhibits'; index: number; rest: string } | undefined {
+	const match = typeof path === 'string' ? /^\/(nodes|claims|exhibits)\/(\d+)(\/.*)?$/.exec(path) : null;
 	if (!match) return undefined;
 	const index = Number(match[2]);
 	if (!Number.isSafeInteger(index)) return undefined;
-	return { root: `/${match[1]}/${index}`, collection: match[1] as 'nodes' | 'claims', index, rest: match[3] ?? '' };
+	return { root: `/${match[1]}/${index}`, collection: match[1] as 'nodes' | 'claims' | 'exhibits', index, rest: match[3] ?? '' };
 }
 
 /** Contract §187.8.1: how many distinct cited pages and records one reviewer takes (`reading_review`, data). */
@@ -70,8 +70,10 @@ export function reviewUnits(draft: Row, requiredPaths: string[] = [], budget?: P
 /** Every pointer a review must answer, grouped under the record (or the non-record key) that owns it. */
 function reviewGroups(draft: Row, requiredPaths: string[], logicReview: boolean): Map<string, Set<string>> {
 	const groups = new Map<string, Set<string>>();
-	for (const collection of ["nodes", "claims"]) for (const [i, row] of (draft[collection] ?? []).entries()) {
+	for (const collection of ["nodes", "claims", "exhibits"]) for (const [i, row] of (draft[collection] ?? []).entries()) {
 		const path = `/${collection}/${i}`;
+		// Contract §257.R: only an exhibit the draft check accepted is owed a player-safety verdict (`required_review` names it).
+		if (collection === "exhibits" && !requiredPaths.includes(path)) continue;
 		const pointers = new Set([path, ...(collection === "nodes" && !logicReview ? numeric(Object.fromEntries(
 			Object.entries(row.properties ?? {}).filter(([k]) => k !== "image_sources")), path + "/properties") : [])]);
         if (collection === 'nodes' && row.node_kind === 'npc' && checkedCharacterProfile(row.properties?.character_profile)) pointers.add(path + '/properties/character_profile');
@@ -261,7 +263,7 @@ export function carriedReviewUnits(draft: Row, requiredPaths: string[] = [], bud
 export function gateRefusal(task: Row, draft?: Row): (row: Row, path: string) => boolean {
 	const classifies = classificationMatcher(task?.vocabulary?.classification_fields?.node);
 	// §199.2: `draft` says which pointers are a person's statements; without it only §192.1's distinct_from is one.
-	return (row, path) => !characterProfilePath(path) && moduleReviewOutcome(row,task??{},{asWritten:statementReviewPath(draft,path)||pregenInventoryPath(task??{},path),classification:classifies(path)})==='refused';
+	return (row, path) => !characterProfilePath(path) && !exhibitReviewPath(path) && moduleReviewOutcome(row,task??{},{asWritten:statementReviewPath(draft,path)||pregenInventoryPath(task??{},path),classification:classifies(path)})==='refused';
 }
 
 /**
@@ -284,7 +286,7 @@ export type CoverageCarry = { review: Row; pages: number[]; carried_from: { roun
 const reviewRowPaths = (row: Row): unknown[] => Array.isArray(row?.paths) ? row.paths : [row?.path];
 /** A record's identity, not its position (§186.4): a node's id; a claim's id, or its subject, predicate and object. */
 function recordIdentity(collection: string, record: Row): string {
-	return canonical(collection === 'nodes' ? ['node', record?.node_id ?? record ?? null]
+	return canonical(collection === 'exhibits' ? ['exhibit', record?.exhibit_id ?? record ?? null] : collection === 'nodes' ? ['node', record?.node_id ?? record ?? null]
 		: ['claim', typeof record?.claim_id === 'string' ? record.claim_id : [record?.subject_id ?? null, record?.predicate ?? null, record?.object ?? null]]);
 }
 
@@ -531,10 +533,10 @@ export function detailReviewInput(task: Row, draft: Row, paths: string[]): Row {
 	const coverage = paths.includes('/coverage');
 	const roots = coverage
 		? ['nodes', 'claims'].flatMap(collection => (draft[collection] ?? []).map((_row: Row, index: number) => `/${collection}/${index}`))
-		: [...new Set(paths.map(path => path.match(/^\/(nodes|claims)\/[^/]+(?=\/|$)/)?.[0] ?? path))];
+		: [...new Set(paths.map(path => path.match(/^\/(nodes|claims|exhibits)\/[^/]+(?=\/|$)/)?.[0] ?? path))];
 	const records = Object.fromEntries(roots.filter(path => path !== '/coverage').map(path => [path, pointerValue(draft, path)]));
 	// §192.1: the published nodes a drafted node declares itself distinct from are connected context, so the reviewer sees both.
-	const ids = (record: Row) => [record?.node_id, record?.subject_id, record?.object?.node_id, ...(Array.isArray(record?.distinct_from) ? record.distinct_from : [])]
+	const ids = (record: Row) => [record?.node_id, record?.subject_id, record?.object?.node_id, record?.carrier, ...(Array.isArray(record?.owners) ? record.owners : []), ...(Array.isArray(record?.distinct_from) ? record.distinct_from : [])]
 		.filter((id): id is string => typeof id === 'string');
 	const assignedIds = new Set(Object.values(records).flatMap(record => ids(record as Row)));
 	const connected = (claim: Row) => ids(claim).some(id => assignedIds.has(id));

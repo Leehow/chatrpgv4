@@ -5,7 +5,7 @@
  * station; the Keeper's prose gave none of the book's station and no first-sight check ran after it.
  *
  * The engine's step (`firstSightStep`) over stub reads, and the kernel's `table.first_sight.view` in process: the rulebook
- * Haunting's introduction leads on to the Hall of Records, given a description, and Knott, given a biography.
+ * Haunting's introduction leads on to the Hall of Records, given a description, and Knott, given an appearance (§257.5: never a biography).
  */
 import assert from 'node:assert/strict';
 import {after, test} from 'node:test';
@@ -75,7 +75,7 @@ const graphPath = join(content, 'starters/sight-fixture/module-graph.json'), gra
 graph.module_id = 'sight-fixture';
 for (const node of graph.nodes) {
   if (node.node_id === 'scene-hall-of-records') { node.properties = {...node.properties, description: HALL}; node.visibility = 'player-safe'; }
-  if (node.node_id === 'npc-steven-knott') { node.properties = {...node.properties, biography: KNOTT}; node.visibility = 'player-safe'; }
+  if (node.node_id === 'npc-steven-knott') { node.properties = {...node.properties, appearance: KNOTT}; node.visibility = 'player-safe'; }
 }
 graph.relations.push({relation_id: 'rel-knott-present-in-hall', relation_kind: 'present-in', from_node_id: 'npc-steven-knott', to_node_id: 'scene-hall-of-records', claim_id: null, properties: {}});
 await writeFile(graphPath, JSON.stringify(graph));

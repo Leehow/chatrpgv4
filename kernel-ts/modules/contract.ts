@@ -4,8 +4,11 @@ import type { KernelContext } from '../context.js';
 import { array, row, sorted, string, truth, type Row } from '../read/values.js';
 import { RuleTables } from '../rules/tables.js';
 import { mechanicsRules, type MechanicsRules } from './mechanics-shape.js';
-export const VISUAL_CONTRACT_ID = 'coc.module-graph-shard.v4';
-export const SHARD_KEYS = ['contract_id', 'nodes', 'claims', 'node_refs', 'coverage', 'dependencies', 'critical', 'ready_nodes', 'interaction_scene', 'source_needs'];
+export const VISUAL_CONTRACT_ID = 'coc.module-graph-shard.v5';
+/** §257.3: v4 shards stay accepted unchanged; only v5 may carry `exhibits`. */
+export const LEGACY_VISUAL_CONTRACT_ID = 'coc.module-graph-shard.v4';
+export const ACCEPTED_VISUAL_CONTRACT_IDS: readonly string[] = [LEGACY_VISUAL_CONTRACT_ID, VISUAL_CONTRACT_ID];
+export const SHARD_KEYS = ['contract_id', 'nodes', 'claims', 'node_refs', 'coverage', 'dependencies', 'critical', 'ready_nodes', 'interaction_scene', 'source_needs', 'exhibits'];
 export const SHARD_REFERENCE_FIELDS = ['node_refs','ready_nodes'] as const;
 /** `distinct_from` (§192.1) is a reading-time answer to `duplicate_of_published`; publication keeps it in `reading.identity`, not on the node. */
 export const NODE_KEYS = ['node_id', 'node_kind', 'name', 'aliases', 'summary', 'properties', 'visibility', 'source_refs', 'distinct_from'];

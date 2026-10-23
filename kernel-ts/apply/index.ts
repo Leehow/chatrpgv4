@@ -104,6 +104,7 @@ export interface ApplyContributions {
     readonly requireMaterial?: (graph: ModuleGraph, names: any[], gate?: MaterialGate) => Promise<TextLanding[] | void>;
     /** §107.1: queue the arrived scene's map reading in the background; never refuses the move. */
     readonly queueArrivalMap?: (graph: ModuleGraph, scene: Row) => Promise<Row>;
+    readonly queueSceneExhibits?: (graph: ModuleGraph, scene: Row) => Promise<Row>;
     readonly materialReady?: (moduleId: string, name: string) => Promise<boolean>;
     readonly queueAdjacentReading?: (graph: ModuleGraph, scene: Row) => Promise<string[]>;
     readonly asset?: (moduleId:string,name:string)=>Promise<Row|null>;
@@ -465,6 +466,17 @@ export function createApplyHandlers(kernel: KernelContext, writer: ReturnType<ty
                     }
                     if (arrivalMap && ['queued', 'reading'].includes(string(arrivalMap.state)))
                         staged.map_arrivals_pending = [...new Set([...array(staged.map_arrivals_pending).filter(value => typeof value === 'string'), graph.handle(arrived)])];
+                }
+            }
+            // §257.15: a legacy scene without exhibits is read for them in the background; a failure to queue never stops the move.
+            if (contributions.queueSceneExhibits && receipts.some(receipt => receipt.kind === 'move' && !receipt.renamed)) {
+                const arrived = graph.scene(string(staged.active_scene));
+                if (graph.handle(arrived) !== graph.handle(graph.scene(string(transaction.world.active_scene)))) {
+                    try { await contributions.queueSceneExhibits(graph, arrived); }
+                    catch (error) {
+                        if (!(error instanceof RpcError)) throw error;
+                        await appendJsonl(join(campaign.directory, 'telemetry.jsonl'), { at: new Date().toISOString().replace(/\.\d{3}Z$/, 'Z'), lane: 'reading', event: 'exhibits-unavailable', turn: number(turn.turn), scene: graph.handle(arrived), detail: error.message });
+                    }
                 }
             }
             // §22.4.7: the scenes this batch entered on their index text; the party's place passes the gate while its record is read.

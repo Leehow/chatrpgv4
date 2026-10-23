@@ -6,7 +6,7 @@ import {settledAdmissionEvidence,settledTimeEvidence} from './settled-admission.
 import {placeOperation,placeParameterRefusal,normalizePlaceTarget,normalizePlaceArrayArguments} from './place-operation.ts';
 import {immediatelyPrecedingUnfinished} from './admission.ts';
 import {createPlaceCallEvidence} from '../../runtime/place-call-evidence.ts';
-import {DecisionContent,decisionPerson,bindCreatedDecisionPerson} from '../../runtime/decision-content.ts';
+import {DecisionContent,ExhibitRefusal,decisionPerson,bindCreatedDecisionPerson} from '../../runtime/decision-content.ts';
 import {Errors as argumentErrors} from 'typebox/value';
 import {SourceConsultations} from '../module/source-consultations.ts';
 import {CASH_CONSENT_POLICY} from "./admission.ts";
@@ -5900,8 +5900,21 @@ export default function (pi: ExtensionAPI, host: {capabilities?:RuntimeCapabilit
 			}));
 			const materialOwner=packetContent(state);materialOwner.assertCurrent(before);
             materialOwner.addEntities(newcomers.map(row=>row.slot));
+            // §257.8: a revealed exhibit settles against the kernel's current scope before anything is written. A clue it teaches
+            // joins the same atomic apply as the clue's ordinary discovery effect, ahead of the packet's movement.
+            let exhibits:ReturnType<DecisionContent['settleExhibits']>|undefined;
+            if((packet.reveal??[]).some(row=>'exhibit_ref'in row)||(packet.interactions??[]).some(row=>'content'in row&&(row.content??[]).some(content=>'exhibit_ref'in content))){
+                const scope=await state.kernel.call<Record<string,any>>('table.look',{campaign:state.campaign,focus:'exhibits',_context_read:true});
+                try{exhibits=materialOwner.settleExhibits(packet.reveal??[],Array.isArray(scope.exhibits)?scope.exhibits:[],compiled.responses);}
+                catch(error){
+                    if(!(error instanceof ExhibitRefusal))throw error;
+                    await record({lane:'decision-content',event:'exhibit_refused',turn:state.turn,run:reply.run,...materialOwner.exhibitIssue(),refused:[{ref:error.ref,reason:error.reason}]});
+                    throw new KernelError({code:'invalid_params',message:error.message,details:{reason:`exhibit_${error.reason}`,exhibit:error.ref,transaction_state:'uncommitted'}});
+                }
+                compiled.effects.unshift(...exhibits.effects);
+            }
             let hydrated:ReturnType<DecisionContent['hydrate']>;
-            try{hydrated=materialOwner.hydrate(compiled.responses,packet.reveal??[]);}catch(error){throw new KernelError({code:'invalid_params',message:error instanceof Error?error.message:String(error),details:{reason:'decision_material_binding',transaction_state:'uncommitted'}});}
+            try{hydrated=materialOwner.hydrate(compiled.responses,packet.reveal??[]);if(exhibits){hydrated.materials=materialOwner.authorMaterials(hydrated.materials,exhibits.authors);hydrated.responses=materialOwner.authorClaims(hydrated.responses,exhibits.authors);}}catch(error){throw new KernelError({code:'invalid_params',message:error instanceof Error?error.message:String(error),details:{reason:'decision_material_binding',transaction_state:'uncommitted'}});}
             if(compiled.event)for(const relation of compiled.event.relationships){
                 const match=/^investigator_([1-9][0-9]*)$/.exec(relation.toward);
                 if(match){const person=state.party[Number(match[1])-1];if(!person)throw new KernelError({code:'invalid_params',message:'Unissued relationship recipient',details:{transaction_state:'uncommitted'}});relation.toward=person.name;}
@@ -5920,7 +5933,15 @@ export default function (pi: ExtensionAPI, host: {capabilities?:RuntimeCapabilit
 					params,reply.signal,undefined,'explicit',ctx,undefined,undefined,compiledDecisionAuthority);
 				await record({lane:'turn-packet-prototype',turn:state.turn,run:reply.run,effects:compiled.effects,
 					ok:!settled.details.coc_error,jev_extra_calls:0});
-				if(settled.details.coc_error)throw new KernelError(settled.details.coc_error as ConstructorParameters<typeof KernelError>[0]);
+				if(settled.details.coc_error){
+					const refusal=settled.details.coc_error as ConstructorParameters<typeof KernelError>[0],taughtBy=exhibits?.taughtBy.get(String((refusal.details as Record<string,unknown>|undefined)?.clue??''));
+					// Only a refusal of a packet that selected exhibits is an exhibit refusal; any other refused apply is not logged as one.
+					if(exhibits?.selected.length||taughtBy)await record({lane:'decision-content',event:'exhibit_refused',turn:state.turn,run:reply.run,...materialOwner.exhibitIssue(),selected:exhibits?.selected??[],
+						refused:taughtBy?[{ref:taughtBy,reason:String((refusal.details as Record<string,unknown>|undefined)?.reason??refusal.code)}]:[]});
+					// The clue's own refusal names its check; an exhibit that taught it is named too, so one repair removes the selection.
+					throw new KernelError(taughtBy?{...refusal,message:`Exhibit ${taughtBy} teaches this clue and cannot be revealed yet: ${refusal.message}`,
+						fix:`Leave {exhibit_ref:"${taughtBy}"} out of ${materialOwner.exhibitIsTestimony(taughtBy)?'interactions content':'reveal'} until the clue's check is met; ${refusal.fix??''}`.trim()}:refusal);
+				}
 				operationResult=turnPacketResult(settled.details);
 			}
 			const current=await state.kernel.call<Record<string,any>>('table.capsule',{campaign:state.campaign,_context_read:true});
@@ -5956,6 +5977,9 @@ export default function (pi: ExtensionAPI, host: {capabilities?:RuntimeCapabilit
 				recent_public:decisionRecentPublic(current.recent,state.delivered)};
             // §254.3: what an establishing reply owes is delivery contract; how to write it is the package's author section.
             // §256.1: the correction is the table note's; the story and its people do not make it.
+            // §257.11: what was issued, selected and given to the author, in the turn's decision-content telemetry.
+            if(exhibits||materialOwner.exhibitIssue().issued.length)await record({lane:'decision-content',event:'exhibits',turn:state.turn,run:reply.run,...materialOwner.exhibitIssue(),
+                selected:exhibits?.selected??[],refused:[],author_bytes:Buffer.byteLength(JSON.stringify(hydrated.materials.filter(row=>row.kind==='exhibit')),'utf8')});
             if(packet.ooc)decision.table_note=packet.ooc;
             if(current.mods?.establish)decision.establish={why:[...(current.mods.establish.why??[])],owes:(current.mods.establish.owes??[]).map((owe:Record<string,any>)=>({...owe}))};
             if(packet.routine){
@@ -6542,10 +6566,14 @@ export default function (pi: ExtensionAPI, host: {capabilities?:RuntimeCapabilit
 						fix: "reopen the table with its module reading extension available", details: { reason: "reading_failed" } });
 					const askedAt = state.scene?.handle, askedTurn = state.turn, askedScope = state.sourceAnswerScope ? {...state.sourceAnswerScope} : undefined;
 					const mapPreparation = !answerOnly && params.material === 'map';
+					// §257.18: material exhibits is the same detail read the kernel names itself (257.13); no place shortcut.
+					const exhibitsPreparation = !answerOnly && params.material === 'exhibits';
 					const sourceQuestion = mapPreparation && (typeof params.question !== 'string' || !params.question.trim())
-						? `Prepare source-backed map images and independently revealable regions for ${String(params.query)}.` : params.question ?? '';
+						? `Prepare source-backed map images and independently revealable regions for ${String(params.query)}.`
+						: exhibitsPreparation && (typeof params.question !== 'string' || !params.question.trim())
+							? `Extract the printed exhibits (documents, perceptions, testimony) carried by ${String(params.query)}.` : params.question ?? '';
 					const sourceRead = { purpose: answerOnly ? "answer" : "detail", focus: params.query, question: sourceQuestion,
-						...(mapPreparation ? {material:'map'} : {}) };
+						...(mapPreparation ? {material:'map'} : exhibitsPreparation ? {material:'exhibits'} : {}) };
 					let memoEnvelope = false;
 					const sourceOwner=JSON.stringify([readingModule,fromStep?.run??`turn:${askedTurn}`]);
 					const waiting=answerOnly&&params.retry!==true?pendingAnswers.pendingFor(state.campaign,{scene:askedAt,turn:askedTurn,
@@ -6574,7 +6602,7 @@ export default function (pi: ExtensionAPI, host: {capabilities?:RuntimeCapabilit
 						const response = await sourceConsultations.lookup({campaign: state.campaign, moduleId: readingModule,
                             ...askedScope, focus: String(params.query), question: String(sourceQuestion),
                             mode: answerOnly ? 'answer' : 'prepare', retry: params.retry === true,
-                            ...(mapPreparation ? {material:'map' as const} : {}),
+                            ...(mapPreparation ? {material:'map' as const} : exhibitsPreparation ? {material:'exhibits' as const} : {}),
                             allowanceMs: sourceAnswerAllowanceMs(), signal,
                             binding: async workSignal => {
                                 workSignal.throwIfAborted();
@@ -6594,7 +6622,7 @@ export default function (pi: ExtensionAPI, host: {capabilities?:RuntimeCapabilit
                                     cache_only: true, foreground: false});
                                 return cached.state === 'ready' ? cached : undefined;
                             },
-                            reference: (workSignal, priority) => mapPreparation ? Promise.resolve(undefined) : reading?.reference?.(readingModule!,
+                            reference: (workSignal, priority) => mapPreparation || exhibitsPreparation ? Promise.resolve(undefined) : reading?.reference?.(readingModule!,
                                 {...sourceRead, campaign: state.campaign, ...(!answerOnly ? {materialize_place: true} : {})}, workSignal, priority) ?? Promise.resolve(undefined),
                             fallback: (workSignal, options) => answerOnly && nativeSource
                                 ? nativeSource({moduleId: readingModule!, campaign: state.campaign, toolCallId, question: String(params.question)}, workSignal)
@@ -7650,9 +7678,9 @@ export default function (pi: ExtensionAPI, host: {capabilities?:RuntimeCapabilit
 				moduleId: readingModule,
 				call: bridgeCall(kernel),
 				materialSources:(turn:number)=>finalOutput.inventory(campaign,turn),
-                decisionMaterials:(capsule:Record<string,any>,people:Record<string,any>[],prepared:Record<string,any>[]=[] )=>{
+                decisionMaterials:(capsule:Record<string,any>,people:Record<string,any>[],prepared:Record<string,any>[]=[],exhibits:Record<string,any>[]=[] )=>{
                     if(!table||!turnPacketPrototype)return undefined;
-                    return packetContent(table).prepare(packetNpcScope(table),capsule,people,finalOutput.decisionSources(table.campaign,table.turn,capsule),table.party.map(person=>person.name),packetNpcReferences(table).current(packetNpcScope(table)),prepared);
+                    return packetContent(table).prepare(packetNpcScope(table),capsule,people,finalOutput.decisionSources(table.campaign,table.turn,capsule),table.party.map(person=>person.name),packetNpcReferences(table).current(packetNpcScope(table)),prepared,exhibits);
                 },
                 playerContext:()=>({investigators:table?.party.map(person=>person.name)??[],
                     previousPublic:table?decisionRecentPublic(table.recent,table.delivered):[]}),

@@ -47,7 +47,8 @@ test('the opening shows the landlord as the book describes him, before his name 
     const first = (await t.play(null)).capsule;
     const knott = (first.first_sight?.people ?? []).find(person => person.name === 'Steven Knott');
     assert.ok(knott, JSON.stringify(first.first_sight));
-    assert.equal(knott.described, node('npc-steven-knott').properties.biography);
+    assert.equal(knott.described, undefined, '§257.5: a biography is never first sight');
+    assert.equal(knott.undescribed, true);
 });
 
 test("the Globe's first sight carries the book's offices and both of its people", async () => {
@@ -57,7 +58,7 @@ test("the Globe's first sight carries the book's offices and both of its people"
     assert.equal(capsule.where.scene, 'newspaper-morgue');
     assert.equal(capsule.first_sight.place.described, node('scene-newspaper-morgue').properties.description);
     assert.deepEqual(capsule.first_sight.people.map(person => [person.name, person.described]).sort(),
-        [['Arty Wilmot', node('npc-arty-wilmot').properties.biography], ['Ruth Blake', node('npc-ruth-blake').properties.biography]]);
+        [['Arty Wilmot', undefined], ['Ruth Blake', undefined]], '§257.5: no appearance, so both are undescribed (the biography stays the Keeper\'s)');
     // The morgue the book shows only once Arty yields rides the scene's notes, not the arrival.
     assert.ok(capsule.where.keeper_notes.some(note => note.startsWith('The morgue, once Arty yields')));
     assert.ok(!capsule.first_sight.place.described.includes('boiler'));

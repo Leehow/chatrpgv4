@@ -24,6 +24,7 @@ import {reunionView} from '../npc/reunion.js';
 import {cardAction,cardTactic} from '../combat/standing.js';
 import {mechRow} from './mech-line.js';
 import { MASK_KEY } from '../voice/fields.js';
+import { whoResolver } from './who.js';
 import { weaknessChain, type ChainReads } from "./weaknesses.js";
 import { containers, placesWithin, personNamedLocations, roadMinutes } from "./places.js";
 import {personAppearance} from '../first-sight/index.js';
@@ -1028,6 +1029,11 @@ export function presentSection(graph: ModuleGraph, world: Row, scene: Row, ledge
         ...present.filter(node => !graph.isPerson(node)).map(node => creatureEntry(graph, world, node, ledger, options.chain)),
     ];
 }
+/** §257.16: the surfaces of the voice exhibits this person owns, in graph order; surface text only (never label, keeper_note or teaches). */
+export function voiceSurfaces(graph: ModuleGraph, node: Row): string[] {
+    return graph.exhibits.filter(item => item.kind === "voice" && array(item.owners).includes(node.node_id))
+        .flatMap(item => typeof row(item.surface).text === "string" && string(row(item.surface).text).trim() ? [string(row(item.surface).text)] : []);
+}
 export function npcView(graph: ModuleGraph, world: Row, node: Row, ledger: Row = {}, journal: Row = {}, records: Row[] = [], memory:Row[] = [], scope:Row = {}, combat: Row | null = null, dispositions: Row | null = null, reads: ChainReads = {}): Row {
     const now = npcState(graph,world,node) || truth(row(ledger[node.node_id]).dead) ? null : currentNpcMood(graph,world,node,ledger,array(scope.current_receipts));
     const variation = npcVariation(graph,world,node,now);
@@ -1093,6 +1099,9 @@ export function npcView(graph: ModuleGraph, world: Row, node: Row, ledger: Row =
     // table reads the rest in the fight itself. `combat` is the saved fight, so a Keeper's hold shows only in its round.
     // With the disposition table, a person without a disposition also carries what one is inferred from.
     Object.assign(view, cardAction(graph, world, node, combat, dispositions));
+    // §257.17: a voice's `{{who:}}` tokens are resolved here, before the author's speech_style is joined from them.
+    const resolveWho=whoResolver(graph,world,journal,records),voice=voiceSurfaces(graph,node).map(resolveWho);
+    if(voice.length)view.voice=voice;
     const appearance=personAppearance(graph,node);
     if(appearance)view.public_appearance=appearance;
     const portrayal=npcPublicRendering(graph,node,records,{...scope,scene:row(world.npc_presence)[handle]});

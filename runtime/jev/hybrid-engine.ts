@@ -118,7 +118,7 @@ export interface KernelBridge {
   record?: (row: Record<string, unknown>) => void;
   playerContext?:()=>{investigators:string[];previousPublic:Array<{turn:number|string;player?:string|null;keeper:string;truncated?:boolean}>};
   timeBands?:()=>Promise<import('./band-shadow-domain.ts').TimeBandRow[]>;
-  decisionMaterials?:(capsule:Row,people:Row[],prepared?:Row[])=>Row|undefined;
+  decisionMaterials?:(capsule:Row,people:Row[],prepared?:Row[],exhibits?:Row[])=>Row|undefined;
 }
 /** The kernel extension's turn-close port (`coc:turn-close`, contract §135.11). */
 export interface TurnClosePort {
@@ -597,8 +597,12 @@ export function createHybridEngine(options: HybridEngineOptions): {runDriver: Se
             if(passages.length)api?.events.emit('coc:carried-text',{campaign:bridge.campaign,turn:scope.turn,run:context.runId,passages});
           }
           const preparedOperations=continuous?.materials(capsule);
-          const decisionMaterials=turnPacketPrototype?bridge.decisionMaterials?.(capsule,[...array(capsule.present),...people],array(preparedOperations?.candidates)):undefined;
-          if(decisionMaterials)record({lane:'run',event:'decision_material_catalog',run:context.runId,step:stepId,coverage:decisionMaterials.coverage,bytes:Buffer.byteLength(JSON.stringify(decisionMaterials),'utf8')});
+          // §257.6: the exhibits in scope, read beside the capsule (never inside it: the Keeper is sent the capsule whole). A kernel
+          // without the read, or a graph without exhibits, issues none.
+          const exhibitRows=turnPacketPrototype?await (async()=>{try{return array(object(await bridge.call!('table.look',{campaign:bridge.campaign,focus:'exhibits',_context_read:true})).exhibits);}catch{return[];}})():[];
+          const decisionMaterials=turnPacketPrototype?bridge.decisionMaterials?.(capsule,[...array(capsule.present),...people],array(preparedOperations?.candidates),exhibitRows):undefined;
+          if(decisionMaterials)record({lane:'run',event:'decision_material_catalog',run:context.runId,step:stepId,coverage:decisionMaterials.coverage,bytes:Buffer.byteLength(JSON.stringify(decisionMaterials),'utf8'),
+            ...(array(decisionMaterials.exhibits).length?{exhibits_issued:array(decisionMaterials.exhibits).map(entry=>entry.ref)}:{})});
           if(preparedOperations)record({lane:'run',event:'prepared_material_reuse',run:context.runId,step:stepId,
             candidates:array(preparedOperations.candidates).length,coverage:preparedOperations.coverage,bytes:Buffer.byteLength(JSON.stringify(preparedOperations),'utf8')});
           messages.push({role:'custom',customType:CLERK_TYPE,display:false,timestamp:Date.now(),

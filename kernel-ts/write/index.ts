@@ -152,6 +152,7 @@ export interface WriteContributions {
     openingReady?(moduleId: string, focus?: string, campaign?: string): Promise<boolean>;
     sourceGraphPath?(moduleId: string, campaign?: string): Promise<string>;
     queueAdjacentReading?(graph: ModuleGraph, scene: Row): Promise<string[]>;
+    queueSceneExhibits?(graph: ModuleGraph, scene: Row): Promise<Row>;
     requestReading?(params: Row): Promise<Row>;
     queueAheadReading?(params: Row): Promise<Row>;
     /** §107.1: the module asset reader the late first-arrival card composes its layers from. */
@@ -1035,6 +1036,14 @@ export function createWriteRuntime(context: KernelContext, contributions: WriteC
         }
         if (contributions.queueAdjacentReading)
             await contributions.queueAdjacentReading(module.graph, module.graph.scene(snapshot.world.active_scene));
+        // §257.15: the scene the table opens or resumes in is read for exhibits too, when it has none; never a reason to refuse the open.
+        if (contributions.queueSceneExhibits) {
+            try { await contributions.queueSceneExhibits(module.graph, module.graph.scene(snapshot.world.active_scene)); }
+            catch (error) {
+                if (!(error instanceof RpcError)) throw error;
+                await appendJsonl(campaign.path('telemetry.jsonl'), { lane: 'reading', event: 'exhibits-unavailable', detail: error.message });
+            }
+        }
         if (!await context.snapshots.pathExists(campaign.path('npc-ledger.json')))
             await rebuildNpcLedger(campaign, module.graph);
         const [checkpoint, checkpointRebuilt] = await syncCheckpoint(campaign, tableSnapshot(snapshot, module.graph), activeName(snapshot.meta));
