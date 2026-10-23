@@ -309,4 +309,6 @@ test('§258.11 the Keeper sees open offers and deals as facts and marks them by 
  const compiled=compileTurnPacket(packet);
  assert.deepEqual(compiled.agreements,[{proposal:'fact_3',status:'accepted'}]);assert.deepEqual(compiled.effects,[]);
  assert.throws(()=>turnPacket(JSON.stringify({version:4,commands:[{kind:'agreement',proposal:'fact_3',status:'maybe'}]})));
+ // live P2b: the schema every turn is actually checked against (not just the static one) declares the agreement command.
+ for(const journeySettled of [false,true])assert.deepEqual(turnPacket(JSON.stringify(packet),turnPacketParameterSchema(journeySettled)),packet,'agreement is declared in the live per-turn schema');
 });

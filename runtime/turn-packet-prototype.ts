@@ -242,8 +242,8 @@ export function turnPacketParameterSchema(journeySettled=false,timeBands?:readon
         relation:PlaceEffect.anyOf[0].properties.relation,additions:PlaceEffect.anyOf[0].properties.additions};
     const arrivedLocal=[Type.Object({...arrivedFields,at:atom(240)},{additionalProperties:false}),
         Type.Object({...arrivedFields,spot:Type.String({...PlaceEffect.anyOf[0].properties.spot})},{additionalProperties:false})];
-    if(journeySettled)schema.properties.commands=Type.Array(Type.Union([...(locations?arrivedLocal:[]),...local,issuedNpc,walkOn,scene,relationship]),{maxItems:12,...stationary});
-    else schema.properties.commands=Type.Union([Type.Array(Type.Union([...issuedMoves,...journey,boundedTime,...local,issuedNpc,walkOn,scene,relationship]),{maxItems:16,...stationary})]);
+    if(journeySettled)schema.properties.commands=Type.Array(Type.Union([...(locations?arrivedLocal:[]),...local,issuedNpc,walkOn,scene,relationship,agreement]),{maxItems:12,...stationary});
+    else schema.properties.commands=Type.Union([Type.Array(Type.Union([...issuedMoves,...journey,boundedTime,...local,issuedNpc,walkOn,scene,relationship,agreement]),{maxItems:16,...stationary})]);
     if(sceneRequired)schema.required=[...new Set([...(schema.required??[]),'commands'])];
     return locations&&ownerView?locationCommandOwner(schema as TSchema):schema as TSchema;
 }
