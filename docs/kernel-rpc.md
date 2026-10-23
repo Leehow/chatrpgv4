@@ -52058,3 +52058,73 @@ Attitude toward a party is five levels `hostile | unfriendly | neutral | friendl
 and a separate control state (charmed, possessed, coerced). Not implemented in P0.
 
 Tests: `tests/extension/npc-communication.test.mjs`, `tests/extension/dialogue-continuity-contract.test.mjs`.
+
+## 260. NPC portrayal: beats, attention and the bearing grant (owner 2026-10-23; draft, amends §254.2, §254.6)
+
+Spec: `docs/specs/npc-portrayal.md`. Research: `docs/research/npc-portrayal-lotm-20261023.md`. The owner's direction: the
+Keeper only states a person's condition and gives a very short line of what they do; a package lets the sole author turn
+that into concrete, vivid behavior, inventing detail for literary effect, rich where the reader's attention is and brief
+elsewhere. Status: draft; nothing below is implemented.
+
+### 260.1 Beat
+
+Every `Interaction` branch gains `beat?: string` (trimmed, 1-120 characters). It is what the person visibly does this
+moment, written by the Keeper as direction. It never states words (content does), and never a move between places, a
+handover, an attack, a cost or another state change (outcomes and tools do). The host stores it with the hydrated
+response, passes it to the author and records it in the turn record; it judges no meaning. A `silent` response with a
+beat is nonverbal behavior; without one it is silence.
+
+### 260.2 Attention
+
+After settlement the host computes, for each person in `decision_context.scene.presence.people`:
+- `tier`: `focus` when the person's disposition, mood, condition or trust/fear/pressure changed this input, when a
+  settled check or outcome of the investigator's action targets them, or when it is their first meeting and they respond;
+  else `engaged` when they have a selected response or a beat; else `background`. At most two people are `focus`;
+  beyond that, those whose response is addressed to an investigator, then those whose disposition changed, keep it, in
+  presence order; the rest are `engaged`.
+- `first_meeting: true` when no earlier delivery showed them (§168.5 shown, §255 look absent).
+- `changed`: the names of the fields that changed this input, from the closed list `disposition`, `mood`, `condition`,
+  `trust`, `fear`, `pressure`, `control`.
+
+Tiers are craft hints only; they decide no fact.
+
+### 260.3 Bearing projection
+
+`presence.people[].bearing = {tier, first_meeting?, changed?, toward_party?, mood?, condition?, felt?}`:
+- `toward_party`: the disposition shown toward the investigators (§258 `public` when set, else the disposition). Before
+  §258 P1 it maps today's directed affinity: `hostile` -> `hostile`, `guarded` -> `unfriendly`, `neutral` -> `neutral`,
+  `friendly` -> `friendly`.
+- `felt`: `{trust?, fear?, pressure?}` 0-5, only those §258 state does not mark hidden; omitted before P1.
+- `mood`, `condition`: the current public mood text and condition, when present.
+
+The beat stays on the response. Concealed state never enters the projection.
+
+### 260.4 Grant `bearing` (amends §254.6)
+
+`AUTHOR_GRANT_LIMITS.bearing`: For a person in presence.people, you may invent their expression, gaze, posture,
+gesture, voice quality, pace and pauses, their handling of what they already hold or of fixed things within reach, and
+one recurring habit, to show their supplied bearing and beat. It moves no one into, out of or across the scene, hands
+nothing over, makes nothing appear, harms or touches no one with any effect, adds no words beyond their selected
+response, and decides nothing. It reveals no concealed feeling, lie or knowledge unless their beat shows it or a check
+settled in this input saw through it. It never contradicts a kept look and changes no state.
+
+### 260.5 Settled fact `people` (amends §254.2)
+
+`people` holds when `presence.people` is non-empty after settlement. It is read from the author's input only.
+
+### 260.6 Author instruction
+
+`DECISION_AUTHOR_INSTRUCTION`: "A response with mode nonverbal indicates silence only. It supplies no physical action."
+becomes "A response with mode nonverbal is silence; its beat, if any, is what the person visibly does, never a state
+change." "Choose wording and small expressive gestures, not additional plot facts." becomes "Choose wording and, within
+a granted bearing, behavior; never additional plot facts." Edited in place.
+
+### 260.7 Package `npc-portrayal`
+
+Capability `npc.bearing.v1` (the beat, the projection, the fact and the grant). The package (1.0.0, default enabled)
+ships one resident Keeper section on beats and one author section (`slot: bearing`, `on: ["people"]`,
+`grants: ["bearing"]`). Any byte change is a version bump.
+
+### 260.8 Telemetry
+
+`lane: "author-craft"` adds `bearing: [{ref, tier, first_meeting?, changed?, beat?: true}]`.
