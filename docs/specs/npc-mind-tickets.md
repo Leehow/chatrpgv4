@@ -1,125 +1,98 @@
-# NPC mind: tickets
+# NPC mind, P0: tickets
 
-Spec: `docs/specs/npc-mind.md`. Contract: `docs/kernel-rpc.md` §258.
+Spec: `docs/specs/npc-mind.md`. Contract: `docs/kernel-rpc.md` §258. Design: `docs/research/npc-schema-v3-20261023.md`.
 
-Task graph: 00 first (sandbox; its result may change 05/06). Then 01; then 02, 03 in parallel; 04 after 02; 05 after
-02 and 03; 06 after 05; 07 after 02, 03, 04; 08 last.
+Task graph: 01 and 02 first, in parallel; 03 after 02; 04 after 02; 05 after 03 and 04; 06 after 05; 07 last.
 
-## 00: Sandbox: does a callback mark stop the author repeating?
+## 01: Sandbox: the author renders refer/restate without repeating
 
-**What to build:** an `experiments/npc-mind/` probe that takes the recorded author tasks from the Blood Road run
-(`expression-writes/*/task.json`), adds `told_ref` callbacks and `people[].told_you` by hand from the turn records,
-swaps the "history cannot cancel it" sentence for the callback rule, and reruns the author with MiniMax (A = recorded
-input, B = marked input).
+**What to build:** run `experiments/npc-mind/callback-probe.mjs` on the owner's Mac (MiniMax) over the recorded Blood
+Road author tasks: A = recorded, B = told items as `refer` with count, the "history cannot cancel it" sentence replaced.
 
 **Blocked by:** None.
 
-**Status:** ready-for-agent after owner approval
+**Status:** ready-for-agent
 
-- [ ] A/B over the 6 tasks that repeated "九点二十" / "中午十二点"; count same-speaker shared runs ≥ 12 chars (`repeatedLines` rule).
-- [ ] B keeps every selected claim perceptible (the player still gets an answer) and adds no fact.
-- [ ] Notes in project files `npc-redesign/probe-results/`.
+- [ ] Same-speaker shared runs ≥ 12 chars counted per arm; B keeps every selected claim perceptible and adds no fact.
+- [ ] Result notes in project files `npc-redesign/probe-results/`; wording of the author rule adjusted if B fails.
 
-## 01: Talk ledger (tracer bullet)
+## 02: Communication events (tracer bullet)
 
-**What to build:** §258 in `docs/kernel-rpc.md`; post-publication writer that turns hydrated `interactions` + committed
-`speech[]` into `talk.jsonl` rows with prop keys, `to`, `heard_by`, `delivery`; rebuild from `turns/*.json`.
+**What to build:** §258 in `docs/kernel-rpc.md`; host mints one unit per selected response and passes
+`_delivery_evidence.selections`; the say token accepts `{{say:npc_N|Uk}}`; the commit stores
+`record.communication` (selected, expressed status per unit, received by addressed/present); `rebuildCommunication`
+folds `told` from turn records.
 
-**Blocked by:** None (after 00 reports).
+**Blocked by:** None.
 
-**Status:** draft
+**Status:** ready-for-agent
 
-- [ ] A delivered answer writes one row per interaction; an interaction with no say span writes `delivery:none`.
-- [ ] `heard_by` equals presence at publication; an NPC-to-NPC exchange records both.
-- [ ] Rebuilding from turn records reproduces the same rows; a reload keeps them.
-- [ ] Prop keys: same graph claim / exhibit / normalized constructor → same key.
+- [ ] A delivered answer stores one selection, an `attested` expression and its receptions; a response whose unit has no say span stores `missing`.
+- [ ] Unknown unit ids are protocol errors and create nothing; truncated/malformed/empty are recorded as such.
+- [ ] Old say tokens without a unit still resolve speakers as before.
+- [ ] Rebuild from turn records reproduces the folds; replay is idempotent; another worldline/loop has its own counts.
 
-## 02: Told marks in the Keeper catalog
+## 03: Content identity and told marks in the catalog
 
-**What to build:** fold `told[(speaker, prop, listener)]`; every catalog row issued to an actor carries
-`told:{to,times,last_turn}`; §257.17 in-memory `said` replaced by the fold.
-
-**Blocked by:** 01.
-
-**Status:** draft
-
-- [ ] Turn-2 catalog in the Blood Road fixture marks Russ's pickup offer `told.times:1` for investigator_1.
-- [ ] Testimony `said` survives a host restart.
-- [ ] Catalog byte budget test: ≤ 400 extra bytes per present person.
-
-## 03: Commitments with a backing talk row
-
-**What to build:** commitment fold (`offered → open → kept|broken|withdrawn`) from talk rows, `player_acceptance` and
-kernel receipts; due/overdue from the clock; `npcCommitments` issues only the promisor's own; memory promise
-candidates without a talk row are not issued as content.
-
-**Blocked by:** 01.
-
-**Status:** draft
-
-- [ ] Fixture: Russ holds one `offered` commitment; Nate and Steve hold none of their own.
-- [ ] A purchase receipt matching an open `service_at` closes it `kept`.
-- [ ] An open commitment past `due` shows `overdue` in the Keeper card.
-
-## 04: Held knowledge and overhearing
-
-**What to build:** knowledge entries seeded from graph claims, testimony owners and `would_lie_about`, with `tier`;
-talk rows add `told/overheard` entries with attribution; heard-only props are issued as `heard`, selectable only in
-`report`, and reach the author attributed.
+**What to build:** every catalog row issued to an actor carries `content_id` and `told` per recipient
+(`new/refer/unverified/last_turn`); ≤ 6 told rows per present person; §257.17 `said` derived from the fold.
 
 **Blocked by:** 02.
 
-**Status:** draft
+**Status:** ready-for-agent
 
-- [ ] A bystander selecting another person's prop in `answer` is refused naming `report`; in `report` the author claim reads as attributed speech.
-- [ ] A lie told to the investigators and repeated by them to another NPC keeps `source: lie` in that NPC's entry.
+- [ ] Same graph claim / exhibit / memory id / constructor → same `content_id` across turns; different kinds never collide.
+- [ ] After a delivered answer, the next catalog marks that row `told.new:1` for that investigator; testimony `said` survives a restart.
+- [ ] An unverified delivery shows `unverified:1` and the planned turn.
 
-## 05: Keeper packet: `told_ref`, conversion, `nothing_more`
+## 04: Honest decisions and commitment origins
 
-**What to build:** content kind `{told_ref}`; host converts a repeated fresh selection to `told_ref`; `knowledge_status`
-gains `nothing_more`; v4 Keeper instruction edited in place (repeat rule, bystander rule).
+**What to build:** `knowledge_status:nothing_more`; `service_at.items` refuses people; Keeper instruction lines for
+"offer needs something offered"; Proposal from an attested offer, Commitment on acceptance, settled by kernel
+receipts; `npcCommitments` returns only the obligor's; memory promises without an origin are quarantined from catalogs.
 
-**Blocked by:** 02, 03.
+**Blocked by:** 02.
 
-**Status:** draft
+**Status:** ready-for-agent
 
-- [ ] Selecting a told prop as fresh content settles as `told_ref` and the next capsule notes it once.
-- [ ] `answer` with only `knowledge_status:nothing_more` is valid.
-- [ ] Opening turn fixture: no `service_at` is needed to make an `offer` valid when the book gives none (offer may be omitted).
+- [ ] `answer` with only `nothing_more` is valid; `service_at` naming investigator_1 as an item is refused with a repair.
+- [ ] Blood Road fixture: Nate's and Steve's catalogs carry no commitment row of Russ's; no row comes from mem:t0-6 / mem:t2-2.
+- [ ] An accepted offer becomes a Commitment with obligor, beneficiary and origin event; a matching purchase receipt settles it.
 
-## 06: Author: callbacks, `told_you`, commitments
+## 05: Strategy on selected content
 
-**What to build:** `callback` claim rendering; `people[].told_you` and `people[].commitments`; replace "history cannot
-cancel it" with the callback rule and escalation by `times`.
+**What to build:** content items accept `strategy`; host defaults a told item to `refer`; `update` requires another
+new item; the next capsule notes a defaulted refer once; hydrated claims carry strategy and count to the author.
+
+**Blocked by:** 03, 04.
+
+**Status:** ready-for-agent
+
+- [ ] Reselecting a told item without strategy settles as refer and records `refer` in the fold.
+- [ ] `restate` and `clarify` are honoured; `update` without a new item is refused naming the missing item.
+
+## 06: Author rendering
+
+**What to build:** replace the "history cannot cancel it" sentence with the strategy rule (from ticket 01's result);
+render refer/restate/clarify/update; author instructed to tag each response's speech with its unit.
 
 **Blocked by:** 05.
 
-**Status:** draft
+**Status:** ready-for-agent
 
-- [ ] Author input for a repeated question has a `callback` claim and no full restatement of the earlier claim.
-- [ ] Instruction test: the old sentence is gone; no new appended reminder section.
+- [ ] Instruction test: the old sentence is gone; no appended section.
+- [ ] Author input for a repeated ask carries the strategy and count, not a second full claim.
 
-## 07: NPC sheet read model
+## 07: Live acceptance
 
-**What to build:** `npc.sheet` RPC (identity/parameters, state, agenda, attitude per target, knowledge with told marks,
-commitments, last three lines); `table.capsule present[]` and author `people[]` become slices of it.
-
-**Blocked by:** 02, 03, 04.
-
-**Status:** draft
-
-- [ ] Existing capsule/author tests pass with the slices; `toward_party` (audit N3) is filled from attitude per target.
-
-## 08: Live acceptance
-
-**What to build:** on the owner's Mac, MiniMax for all lanes, Blood Road PDF: Esso (ask the same three questions twice
-each, A → diner → A, reload, ask again).
+**What to build:** owner's Mac, MiniMax on every lane, Blood Road PDF from an empty home: Esso station, ask the same
+three questions twice each, ask once "再说一遍", go to the diner and back, reload, ask again.
 
 **Blocked by:** all.
 
-**Status:** draft
+**Status:** ready-for-agent
 
-- [ ] Zero same-speaker shared runs ≥ 12 chars across the run (`repeated_line` warnings = 0).
-- [ ] No bystander states another person's commitment as their own.
-- [ ] No appointment, price or promise without a backing talk row.
-- [ ] After reload, told marks and commitments are unchanged.
+- [ ] No Proposal or Commitment without an origin event; no invented appointment at the opening.
+- [ ] No bystander states another person's offer as their own.
+- [ ] Repeats come as refer unless the player asked for a repeat; zero same-speaker shared runs ≥ 12 chars outside restate.
+- [ ] After reload, told folds and commitments unchanged; full test suite green or failures listed against base.
