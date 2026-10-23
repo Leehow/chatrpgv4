@@ -68,7 +68,7 @@ test('directed relationship commands settle once and reach the sole author as cu
  assert.deepEqual(table.extensionErrors,[]);
  const author=table.telemetry().filter(row=>row.lane==='isolated-expression'&&row.event==='written');assert.equal(author.length,1);
  const task=JSON.parse(readFileSync(join(author[0].attempt,'task.json'),'utf8'));
- assert.ok(task.decision_context.people.find(person=>person.ref===ref).relationships.some(row=>row.toward==='investigator_1'&&row.affinity==='friendly'));
+ assert.ok(task.decision_context.people.find(person=>person.ref===ref).relationships.some(row=>row.toward==='investigator_1'&&row.public==='friendly'));
  assert.equal(table.telemetry().filter(row=>row.lane==='turn-packet-prototype'&&row.ok===true).length,1);
  assert.equal(batches.filter(batch=>batch.family==='continuous-action-admission').length,0);
 });

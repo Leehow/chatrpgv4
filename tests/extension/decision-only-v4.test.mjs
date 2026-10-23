@@ -167,7 +167,7 @@ test('created people bind nested claim references without rewriting exact origin
 test('the newest canonical directed attitude wins over older relationship evidence',()=>{
  const cast=[{ref:'investigator_1',name:'Investigator',display_name:'Investigator'}];
  const person=decisionPerson({ref:'npc_1',display_name:'The clerk',relationships:['friendly','hostile'].map(affinity=>({toward:'Investigator',evidence:[{statement:JSON.stringify({kind:'directed_relationship',affinity}),authority:'canonical_event'}]}))},cast);
- assert.deepEqual(person.relationships,[{toward:'investigator_1',affinity:'friendly'}]);
+ assert.deepEqual(person.relationships,[{toward:'investigator_1',public:'friendly'}]);
 });
 test('prepared place and operation references share one issuance vocabulary with the provider',()=>{
  const owner=new DecisionContent();owner.prepare('c:1',{...capsule,where:{...capsule.where,places:[{name:'Marathon Cafe',line:'A known cafe.'}]}},[],[],['Investigator'],[],[{operation:{effects:[{kind:'move',to:'Clinic'}]}}]);

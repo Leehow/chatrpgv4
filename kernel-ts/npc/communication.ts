@@ -110,3 +110,20 @@ export function promiseHasOrigin(records:Row[],actor:string|undefined,turn:unkno
     if(!record)return true;
     return !!actor&&array(row(record.communication).events).some(event=>event.actor===actor&&event.status==='attested');
 }
+
+/**
+ * §258.8: what others said in this person's hearing -- attested items whose event lists them as `heard` -- newest first,
+ * one row per item, at most `TOLD_ROWS`. The words stay the speaker's: a reader issues them as attributed hearsay.
+ */
+export function heardView(records:Row[],listener:string,scope:Row,turn?:number):Row[] {
+    const heard=new Map<string,Row>();
+    for(const record of scoped(records,scope,turn))for(const event of array(row(record.communication).events)){
+        if(event.status!=='attested'||!array(event.heard).includes(listener))continue;
+        for(const item of array(event.items)){
+            if(!item.gist)continue;
+            heard.delete(item.content_id);
+            heard.set(item.content_id,{content_id:item.content_id,said_by:event.actor,to:array(event.to),gist:item.gist,turn:number(record.turn)});
+        }
+    }
+    return [...heard.values()].reverse().slice(0,TOLD_ROWS);
+}
