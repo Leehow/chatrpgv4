@@ -52,6 +52,7 @@ type SourcePage = Awaited<ReturnType<typeof import("../extensions/module/source.
 type SourceSearch = Awaited<ReturnType<typeof import('../extensions/module/source.ts').sourceSearch>>;
 type SourceText = Awaited<ReturnType<typeof import('../extensions/module/source.ts').sourceText>>;
 type SourceLines = Awaited<ReturnType<typeof import('../extensions/module/source.ts').sourceLines>>;
+type SourceBlocks = Awaited<ReturnType<typeof import('../extensions/module/source.ts').sourceBlocks>>;
 type SourceWindow = Awaited<ReturnType<typeof import('../extensions/module/source.ts').sourceWindow>>;
 
 /** Captured deployment inputs are visible only to the host's fixed capability adapters. */
@@ -75,6 +76,8 @@ export interface RuntimeCapabilities {
 	sourceSearch?(context: RuntimeContext, request: RuntimeSourceSearch, signal: AbortSignal): Promise<SourceSearch>;
 	sourceText?(context: RuntimeContext, request: RuntimeSourceText, signal: AbortSignal): Promise<SourceText>;
 	sourceLines?(context: RuntimeContext, request: RuntimeSourceLines, signal: AbortSignal): Promise<SourceLines>;
+	/** Contract §262.2: the pages' layout blocks. */
+	sourceBlocks?(context: RuntimeContext, request: RuntimeSourceLines, signal: AbortSignal): Promise<SourceBlocks>;
 	/** §191.7: the source worker reads the owner's page-transcript store (home and seeds) and the native text. */
 	sourcePageText?(context: RuntimeContext, request: RuntimeSourcePageText, signal: AbortSignal): Promise<SourcePageTextResult>;
 	sourceWindow?(context: RuntimeContext, request: RuntimeSourceWindow, signal: AbortSignal): Promise<SourceWindow>;
@@ -101,6 +104,8 @@ export interface HostRuntime {
 	sourceText(request: RuntimeSourceText, signal?: AbortSignal): Promise<SourceText>;
 	/** Contract §191.1: the native text of pages as their non-empty lines, for page transcripts. */
 	sourceLines(request: RuntimeSourceLines, signal?: AbortSignal): Promise<SourceLines>;
+	/** Contract §262.2: the pages' layout blocks (geometry only), at most 32 pages a request. */
+	sourceBlocks(request: RuntimeSourceLines, signal?: AbortSignal): Promise<SourceBlocks>;
 	/**
 	 * Contract §191.7: pages' text in a layer -- `preferred` reads a stored page transcript where one exists and the native
 	 * text elsewhere, `native` reads native text only. Never waits for a transcript.
@@ -275,6 +280,7 @@ export function createRuntime(binding: RuntimeBinding, host: RuntimeHostOptions 
 		sourceSearch: (request, cancellation) => operation('sourceSearch', capabilities.sourceSearch && (s => capabilities.sourceSearch!(context, request, s)), cancellation),
 		sourceText: (request, cancellation) => operation('sourceText', capabilities.sourceText && (s => capabilities.sourceText!(context, request, s)), cancellation),
 		sourceLines: (request, cancellation) => operation('sourceLines', capabilities.sourceLines && (s => capabilities.sourceLines!(context, request, s)), cancellation),
+		sourceBlocks: (request, cancellation) => operation('sourceBlocks', capabilities.sourceBlocks && (s => capabilities.sourceBlocks!(context, request, s)), cancellation),
 		sourcePageText: (request, cancellation) => operation('sourcePageText', capabilities.sourcePageText && (s => capabilities.sourcePageText!(context, request, s)), cancellation),
 		sourceWindow: (request, cancellation) => operation('sourceWindow', capabilities.sourceWindow && (s => capabilities.sourceWindow!(context, request, s)), cancellation),
 		close,

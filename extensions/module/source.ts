@@ -6,6 +6,7 @@ import { createRequire } from "node:module";
 import { getDocument, version } from "pdfjs-dist/legacy/build/pdf.mjs";
 import { createCanvas, loadImage, type Canvas, type SKRSContext2D } from "@napi-rs/canvas";
 import { nativeLines } from "./page-transcript.ts";
+import { layoutBlocks, SOURCE_LAYOUT_VERSION, type SourceBlocksPage } from "./source-blocks.ts";
 import type { TranscriptReader } from "./transcript-store.ts";
 
 const require = createRequire(import.meta.url);
@@ -233,6 +234,32 @@ export async function sourceText(pdf: string, options: SourceTextOptions, signal
 		if (detached) void detached.catch(() => undefined).then(source.close).catch(() => undefined);
 		else await source.close();
 	}
+}
+
+/**
+ * Contract §262.2: the pages' layout blocks, from the same PDF.js text items as the native text. Geometry only; the same
+ * document and layout version give the same block ids.
+ */
+export async function sourceBlocks(pdf: string, options: SourceTextOptions, signal?: AbortSignal): Promise<{
+	file_sha256: string;
+	layout_version: string;
+	page_count: number;
+	pages: SourceBlocksPage[];
+}> {
+	const native = await sourceText(pdf, options, signal);
+	const path = resolve(pdf), source = await openPdf(path);
+	try {
+		const pages: SourceBlocksPage[] = [];
+		for (const row of native.snapshots) {
+			if (signal?.aborted) throw sourceTextCancelled();
+			const page = await source.document.getPage(row.page), viewport = page.getViewport({ scale: 1 });
+			const content = await page.getTextContent();
+			const items = content.items.flatMap(item => "str" in item ? [{ text: item.str, x: item.transform[4], y: viewport.height - item.transform[5],
+				width: item.width, height: item.height || Math.hypot(item.transform[2], item.transform[3]), font: item.fontName }] : []);
+			pages.push(layoutBlocks(row.page, items, viewport.width));
+		}
+		return { file_sha256: native.file_sha256, layout_version: `${SOURCE_LAYOUT_VERSION}:${sourceTextVersion}`, page_count: native.page_count, pages };
+	} finally { await source.close(); }
 }
 
 /** §191.1: one page's native lines, the unit a page-transcript layout places. */
