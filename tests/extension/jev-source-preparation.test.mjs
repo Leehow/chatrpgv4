@@ -81,6 +81,11 @@ async function visualFixture(){
  await call('campaign.create',{id:'card-source',module:'the-haunting',pregen:'thomas-hayes',play_language:'en'});
  const saved=await call('investigator.save',{campaign:'card-source'});await call('campaign.create',{id:'c1',module:mid,play_language:'en'});
  await call('investigator.load',{campaign:'c1',library_id:saved.library_id});await call('setup.complete',{campaign:'c1'});await call('table.open',{campaign:'c1'});
+ // §257.15: the scene the table opens in is read for exhibits first among background reads; it is read here to nothing printed, so the
+ // contracts below start from a queue holding only their own reads.
+ job=await call('module.read.claim',{campaign:'c1',module_id:mid,owner:'contract-source-owner'});assert.equal(job.material,'exhibits');await observed(job);
+ await write(join(job.work_dir,'draft.json'),{nodes:[],claims:[],exhibits:[],node_refs:[],coverage:{},dependencies:[],critical:[],ready_nodes:[]});
+ await write(join(job.work_dir,'review.json'),{checked:[],missing:[]});await finish(job,'c1');
  await call('table.narrate',{campaign:'c1',call_id:'t0-c1',text:'The harbor waits.'});await call('table.player_input',{campaign:'c1',text:'I read the tower inscription.'});
  return {home,kernel,runtime,call,mid,observed,finish};
 }

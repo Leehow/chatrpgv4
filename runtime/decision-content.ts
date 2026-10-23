@@ -121,9 +121,11 @@ export class DecisionContent {
  private places=new Set<string>();
  private entityLabels=new Map<string,string>();
  private exhibitRows=new Map<string,Row>();private handleRefs=new Map<string,string>();private activeExhibits=new Set<string>();private exhibitOrdinal=0;private exhibitsOmitted=0;private exhibitsGiven=false;
+ /** §257.17: testimony already said at this table, by exhibit id, per play line (campaign, worldline, loop); outlives the turn scope. */
+ private said=new Map<string,Set<string>>();private line='';
  private reads=new Map<string,Row>();private told=new Map<string,Map<string,Row>>();private sourceRevision:unknown;private bytes=0;private omitted=0;private previous=new Set<string>();
  assertCurrent(capsule:Row):void {if(this.sourceRevision!==undefined&&this.sourceRevision!==(capsule._context?.task_source_revision??capsule._context?.source_revision))throw Error('Prepared communication source revision changed');}
- forScope(scope:string):void {if(scope!==this.scope){this.scope=scope;this.active.clear();this.entities.clear();this.people.clear();this.places.clear();this.listenerAliases.clear();this.entityLabels.clear();this.reads.clear();this.facts.clear();this.exhibitRows.clear();this.activeExhibits.clear();this.handleRefs.clear();}}
+ forScope(scope:string,line?:string):void {if(line!==undefined)this.line=line;else if(scope!==this.scope)this.line=scope;if(scope!==this.scope){this.scope=scope;this.active.clear();this.entities.clear();this.people.clear();this.places.clear();this.listenerAliases.clear();this.entityLabels.clear();this.reads.clear();this.facts.clear();this.exhibitRows.clear();this.activeExhibits.clear();this.handleRefs.clear();}}
  observePerson(value:Row):void {if(isNpcReference(value.ref))this.reads.set(value.ref,structuredClone(value));}
  prepare(scope:string,capsule:Row,people:Row[],sources:Row[]=[],investigators:string[]=[],issuedPeople:string[]=[],prepared:Row[]=[],exhibits:Row[]=[]):Row {
   this.forScope(scope);this.active.clear();this.activeExhibits.clear();this.exhibitsOmitted=0;this.exhibitsGiven=exhibits.length>0;this.entities.clear();this.people.clear();this.places.clear();this.listenerAliases.clear();this.entityLabels.clear();this.bytes=0;this.omitted=0;this.sourceRevision=capsule._context?.task_source_revision??capsule._context?.source_revision;
@@ -273,12 +275,19 @@ export class DecisionContent {
   const state=item.clue?.state,check=item.clue?.check,needs=typeof check?.skill==='string'?`${check.skill}${check.difficulty?` (${check.difficulty})`:''}`:undefined;
   const catalog:Row={ref:'',kind:item.kind,channel:item.channel,carrier:item.carrier?.display_name,label:item.label,
    ...(owners?{owners}:{}),...(typeof item.stance==='string'?{stance:item.stance}:{}),
-   ...(typeof state==='string'?{clue:state==='needs'&&needs?`needs ${needs}`:state}:{})};
+   ...(typeof state==='string'?{clue:state==='needs'&&needs?`needs ${needs}`:state}:{}),...(item.kind==='testimony'&&this.said.get(this.line)?.has(item.exhibit_id)?{said:true}:{})};
   const cost=Buffer.byteLength(JSON.stringify(catalog))+160;
   if(this.activeExhibits.size>=48||this.bytes+cost>32768){this.exhibitsOmitted++;return;}
   if(!ref){if(this.aliases.size>=2048)this.aliases.delete(this.aliases.keys().next().value!);ref=`exhibit_${++this.exhibitOrdinal}`;this.aliases.set(identity,ref);}
   catalog.ref=ref;this.bytes+=cost;
   this.exhibitRows.set(ref,{exhibit_id:item.exhibit_id,kind:item.kind,label:item.label,carrier:item.carrier?.display_name,...(owners?{owners}:{}),catalog});this.activeExhibits.add(ref);
+ }
+ /** §257.17: record the testimony a settled packet had its owners say, so a later catalog marks it `said`. */
+ markSaid(selected:string[]):void {
+  const ids=selected.flatMap(ref=>{const issued=this.exhibitRows.get(ref);return issued?.kind==='testimony'?[String(issued.exhibit_id)]:[];});
+  if(!ids.length)return;
+  let said=this.said.get(this.line);if(!said){said=new Set();this.said.set(this.line,said);}
+  for(const id of ids)said.add(id);
  }
  /** Whether the issued exhibit is testimony, which is said in an interaction's content and never revealed. */
  exhibitIsTestimony(ref:string):boolean {return this.exhibitRows.get(ref)?.kind==='testimony';}

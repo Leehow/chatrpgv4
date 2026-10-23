@@ -7,11 +7,15 @@ import{array,row,string,number,normalize,type Row}from'../read/values.js';
 import{ModuleStore}from'./store.js';
 import{inside,resolvedPath}from'./paths.js';
 import{assembleVisual,applyOpeningChoice,resolveStartScene}from'./visual.js';
-import{validateReferencePacket,referenceEntryExcerpt,SOURCE_REFERENCE_PROTOCOL}from'./reference-contract.js';
+import{validateReferencePacket,referenceEntryExcerpt,SOURCE_REFERENCE_PROTOCOL,PAGE_TEXT_POLICY}from'./reference-contract.js';
 import{validatePublicGuidance}from'./public-guidance.js';
 import{validSourceLanguage}from'./contract.js';
 import{nowIso}from'../write/store.js';
 const fail=(message:string):never=>{throw new RpcError('invalid_params',message)};
+/** §261.3: the most original text a page-text opening's anchor holds. */
+const HANDOFF_CHARS=24000;
+/** The accepted guidance's own bound on each field (`extensions/module/character-guidance.ts`), the handoff's lead included. */
+const GUIDANCE_FIELD_CHARS=4000;
 export async function publishReferenceContext(store:ModuleStore,meta:Row,params:Row):Promise<Row>{
  const mid=string(meta.id),root=await resolvedPath(store.moduleDir(mid)),work=await resolvedPath(string(params.work_dir));
  if(!inside(await resolvedPath(join(root,'work')),work))fail('Reference work must belong to the bound source');
@@ -20,9 +24,18 @@ export async function publishReferenceContext(store:ModuleStore,meta:Row,params:
  for(const file of [packetPath,receiptPath,textPath,join(work,'task.json')])if(!inside(work,await resolvedPath(file)))fail('Reference artifact escaped its host task');
  const receipt=row(await store.context.snapshots.readJson(receiptPath)),packet=validateReferencePacket(JSON.parse(await readFile(packetPath,'utf8')),number(meta.page_count),string(meta.file_sha256));
  if(receipt.protocol!==SOURCE_REFERENCE_PROTOCOL||receipt.kind!=='guidance'||receipt.source_sha256!==meta.file_sha256||receipt.packet_sha256!==await sha256File(packetPath)||receipt.text_sha256!==await sha256File(textPath)||receipt.task_sha256!==await sha256File(join(work,'task.json')))fail('Reference receipt does not match the final artifacts');
- if(receipt.checks_policy!=='material-issues-v1')fail('Unknown source guidance check policy');
- for(const key of ['wrong_orientation','card_restriction','advice_omission','warning_omission','plot_disclosure','causal_conflict'])if(row(row(receipt.checks)[key]).status!=='answered'||number(row(row(receipt.checks)[key]).noul)>=.8)fail('Public source guidance contains an unresolved material issue');
+ // §261.3: a guide written from the opening's and setup pages' text (`page-text-v1`) carries no independent checks; its
+ // opening pages are named per entry and must be pages the packet holds.
+ const pageText=receipt.checks_policy===PAGE_TEXT_POLICY;
+ if(!pageText&&receipt.checks_policy!=='material-issues-v1')fail('Unknown source guidance check policy');
+ if(!pageText)for(const key of ['wrong_orientation','card_restriction','advice_omission','warning_omission','plot_disclosure','causal_conflict'])if(row(row(receipt.checks)[key]).status!=='answered'||number(row(row(receipt.checks)[key]).noul)>=.8)fail('Public source guidance contains an unresolved material issue');
  const text=await readFile(textPath,'utf8');if(!text.trim()||text.length>4000||!packet.entries.length)fail('Reference guidance is incomplete');
+ const openingPages=(entry:{id:string;page:number}):number[]=>{
+  const pages=pageText?row(receipt.opening_pages)[entry.id]:undefined;
+  if(!Array.isArray(pages))return [entry.page];
+  if(!pages.length||pages[0]!==entry.page||pages.some(page=>!packet.excerpts.some(span=>span.page===page)))fail('Opening pages are not held by the reference packet');
+  return pages as number[];
+ };
  const publicFields=validatePublicGuidance(receipt.public_fields,number(meta.page_count));
  for(const field of Object.values(publicFields))if(field.status==='value'&&!text.includes(field.text))fail('Public fields must be views of the same final guide');
  const previous=await store.readGraph(mid),contract=await store.contract();
@@ -37,10 +50,14 @@ export async function publishReferenceContext(store:ModuleStore,meta:Row,params:
  const entryIds=entries.map(entry=>bindings[entry.id].node_id);
  const nodes:Row[]=previous?[]:[{node_id:`module-${mid}`,node_kind:'module',name:meta.title,visibility:'keeper-only',properties:{entry_scene_ids:entryIds,
   ...(entries.length===1&&entries[0].era_text?{era:entries[0].era_text}:{})},source_refs:[{page:entries[0].page}]}];
+ // §261.3: a page-text opening's own words are every page of the opening, its first page's excerpt first.
+ const openingText=(entry:typeof entries[number]):string=>{const span=referenceEntryExcerpt(packet,entry);
+  const spans=[...(span?[span]:[]),...openingPages(entry).slice(1).flatMap(page=>packet.excerpts.filter(other=>other.page===page&&other!==span).slice(0,1))];
+  return spans.map(other=>`[Original physical page ${other.page}]\n${other.text}`).join('\n\n').slice(0,HANDOFF_CHARS);};
  for(const entry of entries){const excerpt=referenceEntryExcerpt(packet,entry);
   if(array(previous?.nodes).some(node=>node.node_id===bindings[entry.id].node_id))continue;
-  nodes.push({node_id:entry.id,node_kind:'scene',name:entry.name,summary:excerpt?.text??'',visibility:'keeper-only',source_refs:[{page:entry.page}],
-   properties:{is_entrance:true,source_reference_anchor:true,...(entry.era_text?{investigator_setup:{era:entry.era_text}}:{})}});}
+  nodes.push({node_id:entry.id,node_kind:'scene',name:entry.name,summary:pageText?openingText(entry):excerpt?.text??'',visibility:'keeper-only',source_refs:openingPages(entry).map(page=>({page})),
+   properties:{is_entrance:true,source_reference_anchor:true,...(pageText?{opening_pages_text:true}:{}),...(entry.era_text?{investigator_setup:{era:entry.era_text}}:{})}});}
  const graph=assembleVisual(previous,{nodes,claims:[],node_refs:[],ready_nodes:[],critical:[],required_review:[],coverage:{},dependencies:[],review_policy:'module-logic-v1'},meta,contract);
  const requested=string(params.start_scene??''),priorChoice=string(row(meta.opening_choice).start_scene??'');
  const chosen=requested?resolveStartScene(graph,requested,contract):entryIds.includes(priorChoice)?priorChoice:entries.length===1?entryIds[0]:null;
@@ -58,8 +75,12 @@ export async function publishReferenceContext(store:ModuleStore,meta:Row,params:
  await store.writeGraph(meta,graph);
  let guidance:Row|undefined;
  if(chosen){const entry=entries.find(entry=>bindings[entry.id].node_id===chosen)??fail('Selected opening has no original reference');
-  const span=referenceEntryExcerpt(packet,entry),excerpts=span?`[Original physical page ${span.page}]\n${span.text}`:'';
-  guidance={opening:text,advice:text,scene:bindings[entry.id].name,guide:'',handoff:'Use the bound original source as reference while graph fragments arrive. Original context (private):\n'+excerpts};
+  const excerpts=openingText(entry);
+  // §261.3: the pages are the scene the table stands in, so the Keeper is told to play it from them rather than build another.
+  const lead=pageText?`The table opens in ${bindings[entry.id].name}. The original pages below are this scene: its place, the people met here and what the investigators are read aloud. Play it from them first: describe and answer from their text, keep the people and things they name, and do not create another scene for a place they describe. Graph fragments arrive later and bind to this scene. Every turn here carries these pages whole as opening_pages. Original pages (private):\n`
+   :'Use the bound original source as reference while graph fragments arrive. Original context (private):\n';
+  // The handoff is one guidance field: it carries the opening's first words, and the whole pages ride every turn's capsule.
+  guidance={opening:text,advice:text,scene:bindings[entry.id].name,guide:'',handoff:(lead+excerpts).slice(0,GUIDANCE_FIELD_CHARS)};
   const folder=join(root,'character-guidance',params.guidance_key);
   await writeJsonAtomic(join(folder,'accepted.json'),{fingerprint:params.guidance_key,approved:true,guidance,source_sha256:meta.file_sha256,source_reference:meta.source_reference,at:nowIso()});
   await writeJsonAtomic(join(folder,'public.json'),{fingerprint:params.guidance_key,approved:true,fields:publicFields,source_sha256:meta.file_sha256});

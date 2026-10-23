@@ -88,14 +88,25 @@ async function fixture(t,{answer=true}={}){
   const {_context,...capsule}=view,source={home,sourceInfo:({pdf:path})=>api.sourceInfo(path),sourceText:({pdf:path,...options},signal)=>api.sourceText(path,options,signal)};
   // §195.1: a reading that publishes to the campaign's book during play (a new generation), about something the prescreen
   // never supplied.
+  // §257.15: the scene the table opened in is read for exhibits first among background reads; read it to nothing printed
+  // before a test claims its own job (done on demand: the read publishes a generation, which retires earlier checked answers).
+  const drainExhibits=async()=>{
+    const job=await call('module.read.claim',{campaign:'c1',module_id:mid,owner:'exhibits-fixture'});assert.equal(job.material,'exhibits');
+    await Promise.all([save(join(job.work_dir,'observations.json'),{file_sha256:job.source.file_sha256,read_pages:[1],full_pages:[1],review_pages:[1]}),
+      save(join(job.work_dir,'draft.json'),{nodes:[],claims:[],exhibits:[],node_refs:[],coverage:{},dependencies:[],critical:[],ready_nodes:[]}),
+      save(join(job.work_dir,'review.json'),{checked:[],missing:[]})]);
+    await call('module.read.finish',{campaign:'c1',module_id:mid,job_id:job.job_id,lease:job.lease,outcome:'completed',
+      draft_path:join(job.work_dir,'draft.json'),review_path:join(job.work_dir,'review.json')});
+  };
   const publishUnrelated=async()=>{
+    await drainExhibits();
     await call('module.read.request',{campaign:'c1',module_id:mid,purpose:'detail',focus:'Dock',question:'Who keeps the dock at night?'});
     const job=await call('module.read.claim',{campaign:'c1',module_id:mid,owner:'publish-fixture'});
     return finish(job,{nodes:[{node_id:'npc-watchman',node_kind:'npc',name:'Watchman',summary:'An authored night watchman.',properties:{},source_refs:refs}],
       claims:[{subject_id:'npc-watchman',predicate:'present-in',object:{node_id:'scene-dock'},truth_status:'authored-fact',source_refs:refs}],
       node_refs:['scene-dock'],coverage:{},dependencies:[],critical:[],ready_nodes:['npc-watchman']},'c1');
   };
-  return{home,mid,call,finish,opened,input,capsule,binding:_context,source,acceptAnswer,publishUnrelated,fileSha:sha(bytes)};
+  return{home,mid,call,finish,drainExhibits,opened,input,capsule,binding:_context,source,acceptAnswer,publishUnrelated,fileSha:sha(bytes)};
 }
 
 /** `onFirst` runs once, before answering the first request `trigger` accepts (by default the first request of all). */
@@ -263,6 +274,7 @@ test('a bound PDF accepts an ordinary off-book place, person and clue without a 
 
 test('late source actors have conditional initial-presence options without overwriting recorded locations',async t=>{
  const f=await fixture(t),params={campaign:'c1',module_id:f.mid};
+ await f.drainExhibits();
  await f.call('module.read.request',{...params,purpose:'detail',focus:'Dock',question:'Prepare the newly read dock occupant'});
  const job=await f.call('module.read.claim',{...params,owner:'presence-fixture'});
  await f.finish(job,{nodes:[{node_id:'npc-mae',node_kind:'npc',name:'Mae',summary:'An authored dock occupant.',properties:{},source_refs:[{page:1}]}],claims:[{subject_id:'npc-mae',predicate:'present-in',object:{node_id:'scene-dock'},truth_status:'authored-fact',source_refs:[{page:1}]}],node_refs:['scene-dock'],coverage:{},dependencies:[],critical:[],ready_nodes:['npc-mae']},'c1');

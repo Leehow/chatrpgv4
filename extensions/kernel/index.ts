@@ -2686,10 +2686,14 @@ export default function (pi: ExtensionAPI, host: {capabilities?:RuntimeCapabilit
     const compiledDecisionAuthority=Symbol('compiled-decision');
     function packetContent(state:TableState):DecisionContent {
         let content=contentReferences.get(state);if(!content){content=new DecisionContent();contentReferences.set(state,content);}
-        content.forScope(packetNpcScope(state));return content;
+        content.forScope(packetNpcScope(state),packetLine(state));return content;
     }
     function packetNpcScope(state:TableState):string {
         return JSON.stringify([state.campaign,state.sourceAnswerScope?.worldline??state.documentWorldline??'main',state.sourceAnswerScope?.loop??0,state.turn]);
+    }
+    /** The play line a turn scope belongs to: the same campaign, worldline and loop, across turns. */
+    function packetLine(state:TableState):string {
+        return JSON.stringify([state.campaign,state.sourceAnswerScope?.worldline??state.documentWorldline??'main',state.sourceAnswerScope?.loop??0]);
     }
     function packetNpcReferences(state:TableState):NpcReferences {
         let refs=npcReferences.get(state);if(!refs){refs=new NpcReferences();npcReferences.set(state,refs);}return refs;
@@ -5900,7 +5904,15 @@ export default function (pi: ExtensionAPI, host: {capabilities?:RuntimeCapabilit
                 if(person.ref!==actor||typeof person.display_name!=='string'||typeof person.name_known!=='boolean')throw Error('The NPC reference projection is unavailable');
 				return decisionPerson(person,[...(before.present??[]),...(before.npc_references?.people??[]),...state.party.map((person,index)=>({ref:`investigator_${index+1}`,name:person.name,display_name:person.name}))]);
 			}));
-			const materialOwner=packetContent(state);materialOwner.assertCurrent(before);
+			const materialOwner=packetContent(state);
+            // A graph generation that lands while the Keeper writes (a background read) retires the catalog it wrote from: the
+            // packet is refused before anything is written, and the next step is prepared from the new generation.
+            try{materialOwner.assertCurrent(before);}
+            catch(error){
+                await record({lane:'decision-content',event:'source_revision_changed',turn:state.turn,run:reply.run});
+                throw new KernelError({code:'invalid_params',message:'The book material changed while this packet was written; nothing was recorded. Write the packet again from the refreshed decision materials.',
+                    details:{reason:'decision_material_revision',transaction_state:'uncommitted'}});
+            }
             materialOwner.addEntities(newcomers.map(row=>row.slot));
             // §257.8: a revealed exhibit settles against the kernel's current scope before anything is written. A clue it teaches
             // joins the same atomic apply as the clue's ordinary discovery effect, ahead of the packet's movement.
@@ -5946,6 +5958,8 @@ export default function (pi: ExtensionAPI, host: {capabilities?:RuntimeCapabilit
 				}
 				operationResult=turnPacketResult(settled.details);
 			}
+            // §257.17: testimony said in a settled packet is marked `said` in later catalogs of this play line.
+            if(exhibits)materialOwner.markSaid(exhibits.selected);
 			const current=await state.kernel.call<Record<string,any>>('table.capsule',{campaign:state.campaign,_context_read:true});
             observationIdentities=[...(current.npc_references?.people??[]),...(current.present??[])];
             if(typeof current.where?.scene==='string'&&current.where.scene!==before.where?.scene)arrivedAt=current.where.scene;

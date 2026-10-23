@@ -121,6 +121,17 @@ async function writeCopy(h, node) {
 	await store.writeModule(meta);
 }
 
+/** §257.15: the scene the table opened in is read for exhibits ahead of other background reads; read it to nothing printed. */
+async function drainExhibits(h) {
+	const job = await h.raw('module.read.claim', {module_id: h.mid, owner: 'test-host', campaign: CAMPAIGN});
+	assert.equal(job.material, 'exhibits');
+	await writeFile(join(job.work_dir, 'observations.json'), JSON.stringify({file_sha256: h.sha, read_pages: [1, 2, 3], full_pages: [1, 2, 3], review_pages: [1, 2, 3]}));
+	await writeFile(join(job.work_dir, 'draft.json'), JSON.stringify({nodes: [], claims: [], exhibits: [], node_refs: [], coverage: {}, dependencies: [], critical: [], ready_nodes: []}));
+	await writeFile(join(job.work_dir, 'review.json'), JSON.stringify({checked: [], missing: []}));
+	await h.raw('module.read.finish', {module_id: h.mid, campaign: CAMPAIGN, job_id: job.job_id, lease: job.lease, outcome: 'completed',
+		draft_path: join(job.work_dir, 'draft.json'), review_path: join(job.work_dir, 'review.json')});
+}
+
 /** The handles of these nodes as the campaign's loaded graph gives them (a copy is listed once by lookup since §192.3). */
 async function handlesOf(h, ids) {
 	const graph = (await api.loadCampaignModule(h.context, h.mid, await h.world(), CAMPAIGN)).graph;
@@ -848,6 +859,7 @@ test('§188.1 with §188.2: a copy\'s own word never shields that person\'s name
 test('§188.2: a name two copies of one person carry resolves to that person, on the node the roster names them by', async t => {
 	const h = await harbor(t);
 	await readCast(h);
+	await drainExhibits(h);
 	// Two later readings in the campaign's fork each write the lamp keeper, under ids that are no slug of his name.
 	// The first is a reading; the second is written as a reading before §192.1 wrote it (no `distinct_from`, no verdict).
 	await h.read('detail', {nodes: [{node_id: 'npc-silas-keeper', node_kind: 'npc', name: 'Silas Marsh', source_refs: [{page: 2}], summary: 'He trims the lamp.'}],
@@ -867,6 +879,7 @@ test('§188.2: a name two copies of one person carry resolves to that person, on
 test('§192.3 (lead ruling 2026-10-07): a reviewed distinct_from beats the cast fold; two people of one name stay two (roster, resolve, told)', async t => {
 	const h = await harbor(t);
 	await readCast(h);
+	await drainExhibits(h);
 	// The page reader drafted a second Old Mae and its reviewer supported that she is someone else (§192.1): the verdict is
 	// recorded `different`, and the cast row both nodes answer both ways no longer makes them one.
 	await h.read('detail', {nodes: [{node_id: 'npc-old-mae-nets', node_kind: 'npc', name: 'Old Mae', source_refs: [{page: 3}],

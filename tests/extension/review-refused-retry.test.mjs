@@ -91,6 +91,15 @@ function harbor(workspace) {
 	ok(workspace, [["campaign.create", { id: CAMPAIGN, module: mid, play_language: "en" }],
 		["investigator.load", { campaign: CAMPAIGN, library_id: saved.library_id }], ["setup.complete", { campaign: CAMPAIGN }],
 		["table.open", { campaign: CAMPAIGN }], ["table.narrate", { campaign: CAMPAIGN, call_id: "t0-c1", text: "The harbor is quiet." }]]);
+	// §257.15: the scene the table opens in is read for exhibits first among background reads; it is read here to nothing printed,
+	// so the retries below are the only reads in the queue.
+	const [exhibits] = ok(workspace, [["module.read.claim", { campaign: CAMPAIGN, module_id: mid, owner: "test-host" }]]);
+	assert.equal(exhibits.material, "exhibits");
+	save(join(exhibits.work_dir, "observations.json"), { file_sha256: exhibits.source.file_sha256, read_pages: [1, 2, 3], full_pages: [1, 2, 3], review_pages: [1, 2, 3] });
+	save(join(exhibits.work_dir, "draft.json"), { nodes: [], claims: [], exhibits: [], node_refs: [], coverage: {}, dependencies: [], critical: [], ready_nodes: [] });
+	save(join(exhibits.work_dir, "review.json"), { checked: [], missing: [] });
+	ok(workspace, [["module.read.finish", { campaign: CAMPAIGN, module_id: mid, job_id: exhibits.job_id, lease: exhibits.lease, outcome: "completed",
+		draft_path: join(exhibits.work_dir, "draft.json"), review_path: join(exhibits.work_dir, "review.json") }]]);
 	return mid;
 }
 const REFUSED = [{ path: "/nodes/0/summary", verdict: "unsupported", reason: "page 2 says the stair winds up to a lamp room, not a bell" },
@@ -134,8 +143,7 @@ test("§22.3.3 on the emitted kernel: a refused detail read is read once more in
 	// Refused again: settled, and nothing more is queued.
 	const again = fail(second, refusal());
 	assert.equal(again.requeued, undefined, "read once more, not twice");
-	// §257.15: opening the table also queues the background exhibits read of its scene; it is not a retry of this read.
-	assert.equal(queue().filter((job) => job.state === "queued" && job.material !== "exhibits").length, 0);
+	assert.equal(queue().filter((job) => job.state === "queued").length, 0);
 	const settled = meta().reading.materials.filter((row) => row.status === "unusable");
 	assert.deepEqual(settled.map((row) => [row.focus, row.purpose, row.job_id, row.material]), [["tower", "detail", retry.job_id, undefined]]);
 	assert.match(settled[0].reason, /lamp room/);

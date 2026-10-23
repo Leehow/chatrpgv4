@@ -50,6 +50,16 @@ function read(workspace, job, draft, paths, extra = {}) {
 		draft_path: join(job.work_dir, "draft.json"), review_path: join(job.work_dir, "review.json"), ...extra }]])[0];
 }
 
+/** §257.15: a scene's exhibits read is queued ahead of other background reads; read it to nothing printed. */
+function drainExhibits(workspace, job) {
+	assert.equal(job.material, "exhibits");
+	save(join(job.work_dir, "observations.json"), { file_sha256: job.source.file_sha256, read_pages: [1, 2], full_pages: [1, 2], review_pages: [1, 2] });
+	save(join(job.work_dir, "draft.json"), { nodes: [], claims: [], exhibits: [], node_refs: [], coverage: {}, dependencies: [], critical: [], ready_nodes: [] });
+	save(join(job.work_dir, "review.json"), { checked: [], missing: [] });
+	rpc(workspace, [["module.read.finish", { module_id: job.module_id, job_id: job.job_id, lease: job.lease, outcome: "completed", campaign: CAMPAIGN,
+		draft_path: join(job.work_dir, "draft.json"), review_path: join(job.work_dir, "review.json") }]]);
+}
+
 /** A read PDF, a table that walked into the Tower while its map was unread, and the map the reader published after. */
 function towerWithALateMap(published) {
 	return (workspace) => {
@@ -76,8 +86,9 @@ function towerWithALateMap(published) {
 		rpc(workspace, [["campaign.create", { id: CAMPAIGN, module: mid, play_language: "zh-Hans" }],
 			["investigator.load", { campaign: CAMPAIGN, library_id: saved.library_id }], ["setup.complete", { campaign: CAMPAIGN }],
 			["table.open", { campaign: CAMPAIGN }], ["table.narrate", { campaign: CAMPAIGN, call_id: "t0-c1", text: "港口静静的。" }],
-			["table.player_input", { campaign: CAMPAIGN, text: "我去塔那边。" }],
-			["module.read.request", { module_id: mid, campaign: CAMPAIGN, purpose: "detail", focus: "Tower" }]]);
+			["table.player_input", { campaign: CAMPAIGN, text: "我去塔那边。" }]]);
+		drainExhibits(workspace, claim(CAMPAIGN));
+		rpc(workspace, [["module.read.request", { module_id: mid, campaign: CAMPAIGN, purpose: "detail", focus: "Tower" }]]);
 		read(workspace, claim(CAMPAIGN), { nodes: [{ node_id: "scene-tower", node_kind: "scene", name: "Tower", source_refs: TOWER,
 			summary: "An old tower beyond the harbor.", properties: { is_final: true } }], claims: [], node_refs: [], coverage: {}, dependencies: [], critical: [],
 			ready_nodes: ["scene-tower"] }, ["/nodes/0", "/coverage"], { campaign: CAMPAIGN });
@@ -85,6 +96,7 @@ function towerWithALateMap(published) {
 			["table.narrate", { campaign: CAMPAIGN, call_id: "t1-c2", text: "塔门半掩着。" }]]);
 		assert.equal(moved.world.active_scene, handleOf(workspace, "Tower"), "the move landed with the Tower's text while its map was unread");
 		if (!published) return;
+		drainExhibits(workspace, claim(CAMPAIGN));
 		const job = claim(CAMPAIGN);
 		assert.equal(job.material, "map");
 		const plate = join(job.work_dir, "tower-plate.png");
