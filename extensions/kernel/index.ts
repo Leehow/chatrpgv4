@@ -5985,7 +5985,7 @@ export default function (pi: ExtensionAPI, host: {capabilities?:RuntimeCapabilit
                 if(index>=0)people[index]=projected;
             }
             selections=hydrated.responses.flatMap((response,index)=>response.act==='silent'||!isNpcReference(response.actor)?[]
-                :[{actor:response.actor,act:response.act,to:response.to??[],items:hydrated.units[index]??[]}]);
+                :[{actor:response.actor,act:response.act,to:response.to??[],items:hydrated.units[index]??[],...('channel' in response&&response.channel?{channel:response.channel}:{})}]);
             // The single author renders the settled scene; departure targets are still owed, not checked against this prose.
             state.firstSight.take(state.turn);
             const sightView=firstSightView(state,current,state.turn) as Record<string,any>,sight=sightView.first_sight??{};

@@ -52103,6 +52103,24 @@ dropped (`hybrid-engine`, `keeper-preparation`).
 
 Tests: `tests/extension/npc-communication.test.mjs` (§258.7, §258.8).
 
+### 258.9 What the investigators said, and asides (P2)
+
+The publication commit adds one event for the player's words this input (`turn.player_text`, trimmed, at most 160 characters):
+`{seq: -1, id: "t<turn>:p", actor: investigator_N, act: "player_input", to, heard, status: "attested", items: [{content_id:
+"p:<24hex>", strategy: "new", kind: "player_input", gist}]}`. The speaker is the one investigator the selected people answered (at a
+one-investigator table, `investigator_1`); with several investigators and no single one answered, no event is recorded. `to` is
+the people whose selection answered that investigator; everyone else present `heard` it. No selection, no record, so no event.
+The words are the player's as written, an attempt or claim, never verified truth.
+`table.look focus:npc` adds `party_said`: such items whose event addresses or was heard by this person, newest first, at most 6,
+`{content_id, said_by: investigator_N, to_me?: true, gist, turn}`. The catalog issues each as a fact of kind `party_said` to
+that person, with the authority "What <name> said or did to this person / in this person's hearing, as the player wrote it;
+this person knows it was said, and it is <name>'s claim, not verified truth." Investigator events are never `heard` rows.
+An interaction (other than `silent`) may carry `channel: "speech" | "aside"`; omitted is `speech`. A selection said as `aside`
+records `channel: "aside"` and `heard: []`: only `to` receive it. The author receives the response's `channel`; the instruction
+says an aside is said low or privately, so only its `to` hear it.
+
+Tests: `tests/extension/npc-communication.test.mjs` (§258.9).
+
 ## 260. NPC portrayal: beats, attention and the bearing grant (owner 2026-10-23; amends §254.2, §254.6)
 
 Spec: `docs/specs/npc-portrayal.md`. Research: `docs/research/npc-portrayal-lotm-20261023.md`. The owner's direction: the

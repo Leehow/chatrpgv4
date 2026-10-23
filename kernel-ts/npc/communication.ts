@@ -4,6 +4,7 @@
  * publication, and the turn record keeps the result as `communication`. Nothing else stores it: every count is read back
  * from the turn records, so a rollback, a replay or a rebuilt campaign reads the same counts.
  */
+import {createHash} from 'node:crypto';
 import type {ModuleGraph} from '../read/module-graph.js';
 import {array,number,row,string,type Row} from '../read/values.js';
 import {isNpcReference,npcReference} from './references.js';
@@ -12,6 +13,9 @@ export const STRATEGIES=['new','refer','restate','clarify','update'] as const;
 export type Strategy=typeof STRATEGIES[number];
 const CONTENT_ID=/^[a-z]:[A-Za-z0-9_.:-]{1,120}$/;
 const LISTENER=/^(npc_[1-9][0-9]*|investigator_[1-9][0-9]*)$/;
+const INVESTIGATOR=/^investigator_[1-9][0-9]*$/;
+/** §258.9: how a selection reaches people. `aside` is said so only its addressed listeners hear it. */
+export const CHANNELS=['speech','aside'] as const;
 /** At most this many told rows per person reach the Keeper (§258.4). */
 export const TOLD_ROWS=6;
 
@@ -28,7 +32,8 @@ export function selectionsOf(evidence:Row):Row[] {
                 ...(typeof value.kind==='string'?{kind:value.kind.slice(0,40)}:{}),
                 ...(typeof value.gist==='string'&&value.gist.trim()?{gist:[...value.gist.trim()].slice(0,120).join('')}:{})}];
         });
-        return [{seq:index,actor:selection.actor,act:selection.act.slice(0,24),to,items}];
+        return [{seq:index,actor:selection.actor,act:selection.act.slice(0,24),to,items,
+            ...(CHANNELS.includes(selection.channel)&&selection.channel!=='speech'?{channel:selection.channel}:{})}];
     });
 }
 
@@ -37,7 +42,7 @@ export function selectionsOf(evidence:Row):Row[] {
  * its speaker, otherwise `missing`: the author did not give that person words, so nothing was told. Addressed listeners are
  * the selection's `to`; everyone else present at publication, investigators included, `heard` it.
  */
-export function communicationRecord(graph:ModuleGraph,world:Row,party:Row[],scope:Row,turn:number,evidence:Row,speech:Row[],present:Row[]):Row|undefined {
+export function communicationRecord(graph:ModuleGraph,world:Row,party:Row[],scope:Row,turn:number,evidence:Row,speech:Row[],present:Row[],playerText?:unknown):Row|undefined {
     const selections=selectionsOf(evidence);
     if(!selections.length)return undefined;
     const investigator=(name:unknown)=>{const at=party.findIndex(sheet=>sheet.name===name||sheet.id===name);return at>=0?`investigator_${at+1}`:undefined;};
@@ -55,8 +60,26 @@ export function communicationRecord(graph:ModuleGraph,world:Row,party:Row[],scop
     const here=[...present.map(node=>npcReference(graph,world,node)).filter((ref):ref is string=>!!ref),...party.map((_sheet,index)=>`investigator_${index+1}`)];
     const events=selections.map(selection=>({...selection,id:`t${turn}:${selection.seq}`,
         status:spoke.has(selection.actor)?'attested':'missing',
-        heard:here.filter(ref=>ref!==selection.actor&&!selection.to.includes(ref))}));
-    return {version:1,scope:{worldline:string(scope.worldline||'main'),loop:number(scope.loop)},turn,events};
+        heard:selection.channel==='aside'?[]:here.filter(ref=>ref!==selection.actor&&!selection.to.includes(ref))}));
+    const said=partyEvent(turn,party,here,selections,playerText);
+    return {version:1,scope:{worldline:string(scope.worldline||'main'),loop:number(scope.loop)},turn,events:said?[said,...events]:events};
+}
+
+/**
+ * §258.9: what the investigator said this input, as the player wrote it. The speaker is the one investigator the selected
+ * people answered (the only one at a one-investigator table); its addressees are the people who answered them, and everyone
+ * else present heard it. The words are the player's own, so the event is attested; it is the investigator's claim, not truth.
+ */
+function partyEvent(turn:number,party:Row[],here:string[],selections:Row[],playerText:unknown):Row|undefined {
+    const text=typeof playerText==='string'?[...playerText.trim()].slice(0,160).join(''):'';
+    if(!text)return undefined;
+    const answered=[...new Set(selections.flatMap(selection=>array(selection.to).filter(ref=>INVESTIGATOR.test(ref))))];
+    const actor=answered.length===1?answered[0]:party.length===1?'investigator_1':undefined;
+    if(!actor)return undefined;
+    const to=[...new Set(selections.filter(selection=>array(selection.to).includes(actor)).map(selection=>selection.actor as string))];
+    const content_id=`p:${createHash('sha256').update(JSON.stringify([actor,turn,text])).digest('hex').slice(0,24)}`;
+    return {seq:-1,id:`t${turn}:p`,actor,act:'player_input',to,status:'attested',
+        heard:here.filter(ref=>ref!==actor&&!to.includes(ref)),items:[{content_id,strategy:'new',kind:'player_input',gist:text}]};
 }
 
 /** The records of this worldline and loop before `turn`, oldest first; a later turn a rewind left behind is not read. */
@@ -122,7 +145,8 @@ export function promiseHasOrigin(records:Row[],actor:string|undefined,turn:unkno
 export function heardView(records:Row[],listener:string,scope:Row,turn?:number):Row[] {
     const heard=new Map<string,Row>(),own=new Set<string>();
     for(const record of scoped(records,scope,turn))for(const event of array(row(record.communication).events)){
-        if(event.status!=='attested')continue;
+        // §258.9: what an investigator said is read by partySaidView, as their claim.
+        if(event.status!=='attested'||INVESTIGATOR.test(string(event.actor)))continue;
         // What this person said themself is never hearsay to them, even when someone else repeats it later.
         if(event.actor===listener){for(const item of array(event.items))own.add(item.content_id);continue;}
         if(!array(event.heard).includes(listener))continue;
@@ -135,4 +159,20 @@ export function heardView(records:Row[],listener:string,scope:Row,turn?:number):
         }
     }
     return [...heard.values()].filter(row=>!own.has(row.content_id)).reverse().slice(0,TOLD_ROWS);
+}
+
+/**
+ * §258.9: what the investigators said to this person or in their hearing, newest first, at most `TOLD_ROWS`. `to_me` marks
+ * words addressed to this person. These are the investigator's claims as the player wrote them, never verified truth.
+ */
+export function partySaidView(records:Row[],listener:string,scope:Row,turn?:number):Row[] {
+    const said:Row[]=[];
+    for(const record of scoped(records,scope,turn))for(const event of array(row(record.communication).events)){
+        if(event.status!=='attested'||!INVESTIGATOR.test(string(event.actor)))continue;
+        const toMe=array(event.to).includes(listener);
+        if(!toMe&&!array(event.heard).includes(listener))continue;
+        for(const item of array(event.items))if(item.gist)
+            said.push({content_id:item.content_id,said_by:event.actor,...(toMe?{to_me:true}:{}),gist:item.gist,turn:number(record.turn)});
+    }
+    return said.reverse().slice(0,TOLD_ROWS);
 }

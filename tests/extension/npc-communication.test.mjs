@@ -165,3 +165,31 @@ test('a bystander who says, as their own new item, what they heard is given it a
  assert.equal(hydrated.units[0][0].content_id,russId);assert.equal(hydrated.units[0][0].kind,'heard');
  assert.equal(hydrated.responses[0].claims[0].heard_from,'Russ');assert.match(hydrated.responses[0].claims[0].authority,/attribute it to Russ/);
 });
+
+const {partySaidView}=await importSource('kernel-ts/npc/communication.ts');
+
+test('§258.9 what the investigator said is recorded to the people who answered and heard by the rest, and reaches them as the investigator claim',()=>{
+ const said=(turn,text)=>({turn,communication:communicationRecord(graph,world,party,scope,turn,{selections:[offer('n:abc')]},russSays,[{node_id:'russ'},{node_id:'nate'}],text)});
+ const records=[said(1,'我们是来查水源的。'),said(2,'  ')];
+ const [event,answer]=records[0].communication.events;
+ assert.equal(event.actor,'investigator_1');assert.equal(event.status,'attested');assert.deepEqual(event.to,['npc_1']);assert.deepEqual(event.heard,['npc_2']);
+ assert.equal(answer.actor,'npc_1');assert.equal(records[1].communication.events.length,1,'no words, no event');
+ assert.deepEqual(partySaidView(records,'npc_1',scope).map(({said_by,to_me,gist,turn})=>({said_by,to_me,gist,turn})),[{said_by:'investigator_1',to_me:true,gist:'我们是来查水源的。',turn:1}]);
+ assert.equal(partySaidView(records,'npc_2',scope)[0].to_me,undefined,'Nate only heard it');
+ assert.deepEqual(heardView(records,'npc_2',scope).map(row=>row.said_by),['npc_1'],'investigator words are not hearsay rows');
+ assert.deepEqual(toldView(records,'npc_1',scope).map(row=>row.content_id),['n:abc']);
+ const owner=new DecisionContent();
+ const fact=owner.prepare('c:1',capsule,[{...russ(),party_said:partySaidView(records,'npc_1',scope)}],[],['Ada']).facts.find(row=>row.kind==='party_said');
+ assert.equal(fact.actor,'npc_1');assert.equal(fact.value.statement,'我们是来查水源的。');assert.match(fact.value.authority,/not verified truth/);
+ assert.equal(owner.hydrate([{actor:'npc_1',to:['investigator_1'],act:'answer',content:[{fact_ref:fact.ref}]}]).units[0][0].content_id,event.items[0].content_id);
+});
+
+test('§258.9 an aside reaches only its addressees',()=>{
+ const aside={...offer('n:abc'),channel:'aside'};
+ assert.equal(selectionsOf({selections:[aside]})[0].channel,'aside');
+ assert.equal(selectionsOf({selections:[{...aside,channel:'telepathy'}]})[0].channel,undefined);
+ const {communication}=record(1,[aside],russSays);
+ assert.deepEqual(communication.events[0].heard,[]);
+ assert.deepEqual(heardView([{turn:1,communication}],'npc_2',scope),[]);
+ assert.deepEqual(turnPacket(JSON.stringify({version:4,interactions:[{actor:'npc_1',to:['investigator_1'],act:'greet',channel:'aside'}]})).interactions[0].channel,'aside');
+});

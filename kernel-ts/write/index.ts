@@ -1394,11 +1394,12 @@ export function createWriteRuntime(context: KernelContext, contributions: WriteC
         return record ? { establish: record } : {};
     }
     function communicated(snapshot:CampaignSnapshot,module:LoadedModule,turn:number,evidence:unknown,speech:Row[]):Row|undefined {
+        // §258.9: the player's words this input are what the investigator said.
         if (evidence === undefined) return undefined;
         let present: Row[] = [];
         try { present = npcsPresent(module.graph, snapshot.world, module.graph.scene(snapshot.world.active_scene)); }
         catch (error) { if (!(error instanceof RpcError)) throw error; }
-        return communicationRecord(module.graph, snapshot.world, snapshot.party, eventScope(snapshot.meta), turn, row(evidence), speech, present);
+        return communicationRecord(module.graph, snapshot.world, snapshot.party, eventScope(snapshot.meta), turn, row(evidence), speech, present, snapshot.turn.player_text);
     }
     async function validateFinalEvidence(params:Row,snapshot:CampaignSnapshot,module:LoadedModule):Promise<void> {
 		if (params._delivery_evidence !== undefined) {

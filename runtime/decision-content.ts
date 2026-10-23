@@ -27,11 +27,13 @@ export const CommunicationContent=Type.Union([ExistingCommunicationFact,closed({
 const actor=Type.String({pattern:"^(npc_[1-9][0-9]*|new_[1-4])$",maxLength:32});
 const to=Type.Array(ref,{minItems:1,maxItems:16,uniqueItems:true});
 /** §260.2: what the person visibly does this moment, as direction for the author; never a settled change. */
+/** §258.9: `aside` is said so only `to` hear it; omitted, everyone present hears. */
+const channel=Type.Optional(StringEnum(['speech','aside']));
 const beat=Type.Optional(Type.String({minLength:1,maxLength:120,pattern:'\\S',description:'What they visibly do now; behavior only, never words or a settled change'}));
 export const Interaction=Type.Union([
  closed({actor,act:Type.Literal('silent'),to:Type.Optional(to),beat}),
- closed({actor,to,act:StringEnum(['greet','refuse','acknowledge']),content:Type.Optional(Type.Array(CommunicationContent,{minItems:1,maxItems:8})),beat}),
- closed({actor,to,act:StringEnum(['answer','ask','offer','clarify','report','warn']),content:Type.Array(CommunicationContent,{minItems:1,maxItems:8}),beat})
+ closed({actor,to,act:StringEnum(['greet','refuse','acknowledge']),content:Type.Optional(Type.Array(CommunicationContent,{minItems:1,maxItems:8})),channel,beat}),
+ closed({actor,to,act:StringEnum(['answer','ask','offer','clarify','report','warn']),content:Type.Array(CommunicationContent,{minItems:1,maxItems:8}),channel,beat})
 ]);
 export type InteractionDecision=Static<typeof Interaction>;
 export type HydratedInteraction=InteractionDecision&{claims?:Row[]};
@@ -238,6 +240,12 @@ export class DecisionContent {
     this.issue('fact',{said_by:by,statement:item.gist,turn:item.turn,content_id:item.content_id,
      authority:`What ${by} said in this person's hearing; attribute it to ${by}, it is not this person's own knowledge or promise.`},person.ref,'heard');
    }
+   // §258.9: what the investigators said to this person or in their hearing: their claim, never verified truth.
+   for(const item of rows(person.party_said))if(typeof item.gist==='string'&&typeof item.content_id==='string'){
+    const by=typeof item.said_by==='string'?this.entityLabels.get(item.said_by)??item.said_by:'the investigator';
+    this.issue('fact',{said_by:by,statement:item.gist,turn:item.turn,content_id:item.content_id,...(item.to_me?{to_me:true}:{}),
+     authority:`What ${by} said or did ${item.to_me?'to this person':'in this person\'s hearing'}, as the player wrote it; this person knows it was said, and it is ${by}'s claim, not verified truth.`},person.ref,'party_said');
+   }
    for(const document of rows(person.observed_documents))if(typeof document.writing==='string'&&document.writing.trim())
     this.issue('fact',document,person.ref,'observed_document');
    for(const intent of [...rows(person.ledger?.intents),...rows(person.tried)]){
@@ -280,7 +288,7 @@ export class DecisionContent {
   */
  private contentOf(evidence:string,value:unknown,actor:string|undefined):string {
   const turn=(value as Row)?.turn;
-  if(evidence==='heard'&&typeof (value as Row)?.content_id==='string')return (value as Row).content_id;
+  if((evidence==='heard'||evidence==='party_said')&&typeof (value as Row)?.content_id==='string')return (value as Row).content_id;
   if(actor&&['public_speech_history','recent_speech'].includes(evidence)&&Number.isSafeInteger(turn)){
    const rows=[...this.told.get(actor)?.values()??[]].filter(row=>Array.isArray(row.turns)&&row.turns.includes(turn));
    if(rows.length===1)return rows[0].content_id;
