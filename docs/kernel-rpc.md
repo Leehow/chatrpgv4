@@ -52389,7 +52389,10 @@ share a section while they stay under the bound. It starts at a prefetch wake or
 Under lean reading an `answer` job's task carries `skeleton_digest` (the skeleton's Keeper-truth, condition and
 cross-reference lines with names and pages, no book text, under about 5K tokens, plus entity names and pages) so the
 reader opens the listed pages before searching, and is told to answer that the book does not say it when those pages and
-at most two searches do not show it. Its reader is bounded to 10 requests. Its review is unchanged.
+at most two searches do not show it. Its reader is bounded to 10 requests. Its review is unchanged. A source answer that
+failed under lean reading is not read again for the same campaign, module and focus by that host: the next request for it
+is refused at once (`reading_failed`) with the earlier failure, so a lookup the provider refuses (for example a content
+filter on the pages it opens) does not spend another reading every turn.
 
 ### 262.7 The skeleton as a reference book's navigation index
 

@@ -454,6 +454,8 @@ export class ReadingService implements ReadingBridge {
 			this.dispose({ handOff: true });
 		}, deadline).unref();
 	}
+	/** §262.6: source answers that failed under lean reading, by campaign, module and focus, with the failure. */
+	private failedAnswers = new Map<string, string>();
 	/** §262.5: the documents whose skeleton this host started, by file hash. */
 	private skeletons = new Map<string, Promise<void>>();
 	/** §262.5: under lean reading, build the bound document's skeleton once in the background; never awaited by play. */
@@ -959,6 +961,8 @@ export class ReadingService implements ReadingBridge {
 	async ensure(mid: string, params: Row, signal?: AbortSignal, options:ReadingOptions={}): Promise<Row> {
 		if (signal?.aborted || this.stopped) throw error("reading_failed", "reading was cancelled", "retry the reading when ready");
 		const campaign = this.campaign(params);
+		const failedAnswer = params.purpose === "answer" ? this.failedAnswers.get(JSON.stringify([campaign, mid, String(params.focus ?? "")])) : undefined;
+		if (failedAnswer !== undefined) throw error("reading_failed", `the book lookup for ${String(params.focus ?? "")} already failed on this table (${failedAnswer}); it is not read again`, "play on from what is known, or look up a narrower focus");
 		if (params._task_prepare && !options.providerBudget) throw error('source_preparation_budget_missing', 'Owned source preparation requires its original provider budget', 'Retry through the pending operation owner');
 		const key = JSON.stringify([campaign, mid, params.purpose, params.opening_scope??'', params.material ?? "", params.focus ?? "", params.question ?? "", params.guidance_key ?? "", canonical(params._task_prepare ?? null)]);
 		let request = this.requests.get(key);
@@ -2148,6 +2152,9 @@ export class ReadingService implements ReadingBridge {
 			}
 			// Completed jobs replay here; failed attempts release their claim and preserve all artifacts.
 			const outcome = this.jobOutcome(key, signal.aborted, detail);
+			// §262.6: under lean reading a source answer that failed is not read again for the same focus by this host.
+			if (process.env.PI_COC_LEAN_READING === "1" && job.purpose === "answer" && outcome.outcome === "failed")
+				this.failedAnswers.set(JSON.stringify([campaign, job.module_id, String(job.focus ?? "")]), String(outcome.detail ?? "").slice(0, 300));
 			const finished = await this.call("module.read.finish", { module_id: job.module_id, job_id: job.job_id, lease: job.lease,
 				...outcome, ...(outcome.outcome === "failed" && refusal ? { refusal } : {}) }, campaign).catch(() => undefined);
 			// The stream goes on past a failed ask of the read-ahead's own; on a short book the last one may be what completes it (§182.2).
