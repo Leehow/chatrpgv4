@@ -1,0 +1,27 @@
+{
+  "id": "npc-portrayal",
+  "version": "1.0.0",
+  "game_api": "pipicoc.game.v1",
+  "state_version": 1,
+  "author": "PipiCOC",
+  "name": "NPC Portrayal",
+  "description": "People you can picture. The Keeper gives a person's state and a few words of what they do; the sole author turns it into concrete behavior, spending detail where the moment's attention is: the person the moment is about drawn so you can see them, people who do not matter right now in a line. Behavior never changes what the rules settled, and nothing a person hides shows unless your investigator saw through it.",
+  "default_enabled": true,
+  "requires": [
+    "mods.package-files.v1",
+    "instructions.sections.v1",
+    "instructions.sections.author.v1",
+    "npc.bearing.v1"
+  ],
+  "package_files": [
+    "agent.md",
+    "sections.json"
+  ],
+  "dependencies": {},
+  "conflicts": [],
+  "settings": {},
+  "contributes": {
+    "instructions": "agent.md",
+    "sections": "sections.json"
+  }
+}

@@ -142,6 +142,14 @@ The old natural-npc and npc-voice packages are dead under v4.
   (Blood Road Esso station; a high-pressure scene from another module). A loss of C to B, or any hard violation, is
   fixed in the package (version bump) or reported to the owner; the default stays on unless the owner says otherwise.
 
+## Implementation notes (2026-10-23)
+
+- Settled checks carry no person reference today (`settled_results.checks` names labels), so a check targeting a person
+  does not yet make them `focus`; their response or a public outcome usually does. Revisit if live play shows the gap.
+- `focus` responses are every non-silent act except `greet` and `acknowledge`; those and a silent response are `engaged`.
+- Mood and condition reach the author as before through `decision_context.people` (`now`, `state`); `bearing` carries
+  `tier`, `needs_introduction` and directed `toward` only. `needs_introduction` is this turn's first-sight people.
+
 ## Out of Scope
 
 - §258 P1/P2 themselves (attitude storage, hidden marks, channels, audience); this reads them when present.

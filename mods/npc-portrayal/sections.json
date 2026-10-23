@@ -1,0 +1,4 @@
+{"schema_version": 1, "sections": [
+  {"heading": "Beats", "kind": "resident"},
+  {"heading": "People in motion", "kind": "author", "slot": "bearing", "on": ["people"], "grants": ["bearing"]}
+]}

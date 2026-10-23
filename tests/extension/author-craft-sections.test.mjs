@@ -68,9 +68,9 @@ const reader=texts=>async keys=>({sections:keys.map(key=>({key,mod:key.split('@'
 test('settled facts come from what settled, not from what the packet asked',()=>{
  const spoken={responses:[{mode:'speech_only'}],scene:{}};
  assert.deepEqual(authorFacts({capsule:{mods:{}},decision:{responses:[{mode:'nonverbal'}],scene:{}},outcomes:[]}),
-  {always:true,speech:false,establish:false,opening:false,place:false,routine:false});
+  {always:true,speech:false,establish:false,opening:false,place:false,routine:false,people:false});
  const facts=authorFacts({capsule:{mods:{establish:{why:['opening']}}},decision:spoken,outcomes:[{kind:'place',action:'observe',status:'unchanged'}],routine:{acts:['eat']}});
- assert.deepEqual(facts,{always:true,speech:true,establish:true,opening:true,place:true,routine:true});
+ assert.deepEqual(facts,{always:true,speech:true,establish:true,opening:true,place:true,routine:true,people:false});
  // A move the kernel left unchanged is neither an arrival nor a place change; nothing is read from the packet.
  assert.deepEqual(['establish','place'].map(fact=>authorFacts({capsule:{mods:{}},decision:spoken,outcomes:[{kind:'move',to:'Library',status:'unchanged'}]})[fact]),[false,false]);
  assert.equal(authorFacts({capsule:{mods:{}},decision:spoken,outcomes:[{kind:'move',to:'Library',status:'changed'}]}).place,true);

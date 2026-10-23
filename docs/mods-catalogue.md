@@ -184,6 +184,14 @@ Keeper Context was removed on 2026-10-07. Workspace preferences and guidance bel
 
 **Reads.** The capsule's scene, clues and secrets; `lookup` only when relevance is unclear. **Writes.** One `time` command; the packet's `routine` element (no world state).
 
+## 13. NPC Portrayal (`npc-portrayal` 1.0.0, default on; added 2026-10-23)
+
+**What it is.** People you can picture (contract §260). The Keeper gives a person's state and, when it matters, a few words of what they visibly do (`beat` on an interaction); the sole author turns it into concrete behavior, spending detail by the attention tier the host computes from public settled data (focus, engaged, background).
+
+**Contributes.** `instructions` with one resident section (*Beats*, 0.4 KB) and one author section (*People in motion*, slot `bearing`, sent on `people`, granting the core's bounded `bearing` improvisation). Requires `npc.bearing.v1`.
+
+**Reads.** Nothing beyond the author's input. **Writes.** Nothing; beats ride the packet.
+
 ## What the index sees
 
 Of the ten packages, seven contribute Keeper instructions; their full texts total 55 KB and their briefs 4.9–5.0 KB, the ceiling. By section:

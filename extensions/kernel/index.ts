@@ -1,5 +1,6 @@
 import {adviseLocationReference} from './location-reference.ts';
 import {authorCraft,authorFacts} from './author-craft.ts';
+import {npcBearing,attachBearing} from '../../runtime/npc-bearing.ts';
 import {sourceLocationContext} from './source-location-context.ts';
 import {routineSummary,routineRefusal,routineCharge} from './routine-summary.ts';
 import {settledAdmissionEvidence,settledTimeEvidence} from './settled-admission.ts';
@@ -5991,11 +5992,15 @@ export default function (pi: ExtensionAPI, host: {capabilities?:RuntimeCapabilit
                 await record({lane:'routine-summary',turn:state.turn,run:reply.run,acts:packet.routine.acts?.length??0,ambient:packet.routine.ambient?.length??0,
                     time_charges:compiled.effects.filter(effect=>effect.kind==='time').length,earlier_time:earlierTime});
             }
+            // §260.3: each person the investigators perceive gets a tier and an introduction mark from public settled data.
+            const presence=(decision.scene as Record<string,any>).presence?.people??[];
+            const bearing=attachBearing(presence,npcBearing({presence,responses:hydrated.responses,outcomes:operationResult.outcomes,
+                relationshipChanges:compiled.event?.relationships,people,firstSight:(decision.scene as Record<string,any>).first_sight?.people}),hydrated.responses);
             // §254.3: the author sections of active packages whose settled facts hold, read version-locked.
             const facts=authorFacts({capsule:current,decision,outcomes:operationResult.outcomes,routine:packet.routine});
             const chosen=await authorCraft(current,facts,keys=>state.kernel.call('mods.sections',{campaign:state.campaign,keys}));
             craft=chosen.text;
-            await record({lane:'author-craft',turn:state.turn,run:reply.run,facts:Object.keys(facts).filter(key=>facts[key as keyof typeof facts]),...chosen.record});
+            await record({lane:'author-craft',turn:state.turn,run:reply.run,facts:Object.keys(facts).filter(key=>facts[key as keyof typeof facts]),...chosen.record,...(bearing.length?{bearing}:{})});
 		}
         const failedAttempts=heldActs.get(state)?.uncommittedFailures();
         if(heldActs.get(state)?.basis&&(!decision||failedAttempts===undefined)){

@@ -26,10 +26,12 @@ export const ExistingCommunicationFact=Type.Union([closed({fact_ref:ref,strategy
 export const CommunicationContent=Type.Union([ExistingCommunicationFact,closed({new:NewCommunicationFact,strategy})]);
 const actor=Type.String({pattern:"^(npc_[1-9][0-9]*|new_[1-4])$",maxLength:32});
 const to=Type.Array(ref,{minItems:1,maxItems:16,uniqueItems:true});
+/** §260.2: what the person visibly does this moment, as direction for the author; never a settled change. */
+const beat=Type.Optional(Type.String({minLength:1,maxLength:120,pattern:'\\S',description:'What they visibly do now; behavior only, never words or a settled change'}));
 export const Interaction=Type.Union([
- closed({actor,act:Type.Literal('silent'),to:Type.Optional(to)}),
- closed({actor,to,act:StringEnum(['greet','refuse','acknowledge']),content:Type.Optional(Type.Array(CommunicationContent,{minItems:1,maxItems:8}))}),
- closed({actor,to,act:StringEnum(['answer','ask','offer','clarify','report','warn']),content:Type.Array(CommunicationContent,{minItems:1,maxItems:8})})
+ closed({actor,act:Type.Literal('silent'),to:Type.Optional(to),beat}),
+ closed({actor,to,act:StringEnum(['greet','refuse','acknowledge']),content:Type.Optional(Type.Array(CommunicationContent,{minItems:1,maxItems:8})),beat}),
+ closed({actor,to,act:StringEnum(['answer','ask','offer','clarify','report','warn']),content:Type.Array(CommunicationContent,{minItems:1,maxItems:8}),beat})
 ]);
 export type InteractionDecision=Static<typeof Interaction>;
 export type HydratedInteraction=InteractionDecision&{claims?:Row[]};

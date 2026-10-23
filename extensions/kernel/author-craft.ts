@@ -2,7 +2,7 @@
 type Row=Record<string,any>;
 /** §254.3: UTF-8 bytes of section text one turn's craft may carry. */
 export const AUTHOR_CRAFT_BYTES=32768;
-export type AuthorFact='always'|'speech'|'establish'|'opening'|'place'|'routine';
+export type AuthorFact='always'|'speech'|'establish'|'opening'|'place'|'routine'|'people';
 export type AuthorFacts=Partial<Record<AuthorFact,boolean>>;
 const FRAME='Writing craft from the table\'s active packages follows. It shapes how the supplied context is written: wording, '
  +'rhythm, portrayal and description. It never adds, removes or changes a fact, person, event, clue, outcome, name or '
@@ -18,7 +18,16 @@ export const AUTHOR_GRANT_LIMITS:Record<string,string>={
  appearance:'For a present person the source leaves undescribed (first_sight marks them undescribed, or no appearance is '
   +'supplied), you may give looks, build, apparent age, dress, posture and what their hands are doing, fitting the place, the '
   +'period and their supplied role. It gives them no identity, name, history, knowledge, motive or relationship; once '
-  +'delivered it is the look the table keeps.'};
+  +'delivered it is the look the table keeps.',
+ // §260.4: micro-presentation only; the settled facts stay the packet's and the kernel's.
+ bearing:'For a person in presence.people you may invent micro-presentation that shows their public presentation (bearing) '
+  +'and beat: expression, gaze, small shifts of posture, gesture, voice quality, pace and untimed pauses, and their handling '
+  +'of things already in the supplied context (what they hold, their kept look, the place\'s fittings) without changing '
+  +'those things\' state or position. It does not move them, change where they stand relative to anything or anyone in a '
+  +'way that matters to play, touch anyone, pass a signal or message, measure time, imply consent, a commitment or a '
+  +'result, or add words beyond their selected response. It reveals no concealed feeling, lie, motive or knowledge beyond '
+  +'what the investigator already knows or a check settled in this input establishes, and only what that establishes; an '
+  +'investigator\'s impression of someone stays uncertain. It never contradicts a kept look and changes no state.'};
 
 /** §254.2: read after settlement only. A move the kernel left unchanged carries no establish item on the capsule. */
 export function authorFacts(input:{capsule:Row;decision:Row;outcomes:readonly Row[];routine?:unknown}):Record<AuthorFact,boolean> {
@@ -30,7 +39,9 @@ export function authorFacts(input:{capsule:Row;decision:Row;outcomes:readonly Ro
   opening:Array.isArray(establish?.why)&&establish.why.includes('opening'),
   // A settled place outcome (a look, a step within the place) or a move that changed where the party is.
   place:input.outcomes.some(outcome=>outcome.kind==='place'||outcome.kind==='move'&&outcome.status==='changed')||input.decision.scene?.first_sight?.place!=null,
-  routine:input.routine!=null};
+  routine:input.routine!=null,
+  // §260.6: someone the investigators can perceive is present after settlement.
+  people:Array.isArray(input.decision.scene?.presence?.people)&&input.decision.scene.presence.people.length>0};
 }
 
 /** §254.3: kept sections in load order, one per slot (the later package wins), capped, read version-locked. */

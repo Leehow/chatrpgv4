@@ -21,9 +21,11 @@ export const DISCOVERY_CAPABILITY = "instructions.discovery.v1";
 /** §254: sections written for the sole author, chosen by the host from the settled turn. */
 export const AUTHOR_SECTIONS_CAPABILITY = "instructions.sections.author.v1";
 /** §254.2: the settled facts an author section's `on` may name; the host evaluates them. */
-export const AUTHOR_FACTS: readonly string[] = ["always", "speech", "establish", "opening", "place", "routine"];
+export const AUTHOR_FACTS: readonly string[] = ["always", "speech", "establish", "opening", "place", "routine", "people"];
 /** §254.6: the bounded improvisation an author section may grant; the core defines each one's limits. */
-export const AUTHOR_GRANTS: readonly string[] = ["surface_detail", "appearance"];
+export const AUTHOR_GRANTS: readonly string[] = ["surface_detail", "appearance", "bearing"];
+/** §260.8: the people fact and the bearing grant belong to packages that declare NPC portrayal. */
+export const NPC_BEARING_CAPABILITY = "npc.bearing.v1";
 const SLOT_ID = /^[a-z][a-z0-9_-]{0,31}$/;
 /** The UTF-8 bytes of package instructions every request may carry: full rows and indexed rows' text (§248.1). The
  *  kernel does not cut against it; the shipped packages are held to it by test. */
@@ -143,6 +145,8 @@ export function parseSections(manifest: Row, raw: unknown, markdown: string): Se
             if (!Array.isArray(grants) || (has("grants") && !grants.length) || new Set(grants).size !== grants.length
                 || grants.some(grant => typeof grant !== "string" || !AUTHOR_GRANTS.includes(grant)))
                 refuse(manifest, `section ${at}: grants must be a non-empty list without repeats of ${AUTHOR_GRANTS.join(", ")}`, { entry: at, grants: entry.grants ?? null });
+            if ((on.includes("people") || grants.includes("bearing")) && !array(manifest.requires).includes(NPC_BEARING_CAPABILITY))
+                refuse(manifest, `section ${at}: the people fact and the bearing grant require ${NPC_BEARING_CAPABILITY}`, { entry: at });
             const body = heading === null ? preamble : parts.find(part => part.heading === heading)!.body;
             result.push({ heading, kind, topics: [], gates: [], triggers: [], topic_threshold: 0.5, slot: entry.slot, on: [...on as string[]],
                 ...(grants.length ? { grants: [...grants as string[]] } : {}),
