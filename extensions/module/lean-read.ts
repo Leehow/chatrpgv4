@@ -276,8 +276,9 @@ export async function runLeanDetail(context: LeanContext): Promise<LeanResult> {
 	const focusNodes = new Set((Array.isArray(task.known_nodes) ? task.known_nodes : []).map((node: Row) => node.node_id));
 	// A node pruned whole is kept when the verifier named no field and the node is already published: its fields stay as read.
 	const effective = pruned.filter(row => !(row.path.startsWith("/nodes/") && !row.fields?.length && focusNodes.has(draft.nodes?.[Number(row.path.split("/")[2])]?.node_id)));
-	const removed = pruneDraft(draft, effective);
-	if (typeof job.focus === "string" && (draft.nodes ?? []).length === 0) throw new Error(`lean review removed every node of ${job.focus}`);
+	const nodesBefore = (draft.nodes ?? []).length, removed = pruneDraft(draft, effective);
+	// An exhibits reading writes no nodes; only a draft whose every node was pruned is refused.
+	if (nodesBefore > 0 && (draft.nodes ?? []).length === 0) throw new Error(`lean review removed every node of ${job.focus ?? "this reading"}`);
 	await writeFile(join(cwd, "draft.json"), JSON.stringify(draft) + "\n");
 	const rechecked = await runtime.check({ kind: "source-draft", packet: join(cwd, "task.json"), draft: join(cwd, "draft.json") }, signal);
 	if (!rechecked.ok) throw new Error(`lean review left a draft the check refuses: ${JSON.stringify(rechecked.error ?? rechecked).slice(0, 2000)}`);
