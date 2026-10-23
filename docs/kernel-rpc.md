@@ -52001,3 +52001,54 @@ tool result and never the author input. The tool description says both.
 
 Tests: `tests/extension/source-answer.test.mjs` (prepare with `material: exhibits` reaches `ensure` as the exhibits detail read),
 `tests/extension/exhibit-reveal.test.mjs` (a source answer's text is absent from the author's `task.json`).
+
+## 258 Page opening: a table opens on the opening's pages
+
+A bound PDF's opening is found and its setup guide written from the book's text layer alone, so the table opens on the
+opening's original pages while the graph is read in the background. It is the host-owned source-reference fast path (§122) without
+the checked decision service: the same packet, the same `module.reference.publish`, a different check policy.
+
+### 258.1 When it runs
+
+`ReadingService.prepareBook` for `purpose: "guidance"` tries, in order: the checked source reference (only with
+`runtime.sourceReferences`, as before), then the page opening (`pageGuidance`), then the ordinary foreground guidance read.
+The page opening is on whenever the service has a host runtime, unless the host environment sets `PI_COC_PAGE_OPEN=off`; a starter window (`source.window`) never
+takes it. Any failure other than a cancellation or `needs_choice` is recorded (`lane: "page-open"`, `event: "fallback"`,
+`reason`) and the ordinary read follows, so a book without a usable text layer opens exactly as before.
+
+### 258.2 Two text-only reader calls (`extensions/module/page-open.ts`)
+
+Both are `runtime.runTask({kind: "reader"})` children with their own system prompt, tools `read,write`, no page images and
+no review; each reads `task.json` and writes `answer.json` in its own step directory (`locate`, `guide`) under the module's
+`work/page-open-<uuid>/`.
+
+- **locate**: the bookmarks (two levels, `{name, page}`) and each page's first three non-empty native lines (80 characters
+  each, until 24 KB) give `{openings: [{name, pages}], setup_pages}`. The host keeps at most 4 openings of at most 4 pages
+  and 6 setup pages, each a page of the book with text; a book with no line of text, or no opening left, fails.
+- **guide**: the native text of the setup and opening pages (one excerpt per page, whole up to 12000 characters) and
+  `play_language` give the four public setup fields (`era`, `starting_place`, `public_premise`, `creation_advice`; text at
+  most 950 characters and the pages it rests on) and `era_text`, copied from one page. The guide text is the non-empty
+  fields joined by blank lines, so each public field is a view of it by construction.
+
+The host writes the packet (`source-reference-v1`: excerpts per page; `fields.opening` the openings' first pages, `era`
+the page holding `era_text` when found, the others the setup pages; one entry per opening, `scene-source-entry-N`, on its
+first page), `reference-guidance.txt`, `task.json` and the receipt
+`{protocol, kind: "guidance", source_sha256, task_sha256, packet_sha256, text_sha256, checks_policy: "page-text-v1",
+public_fields, opening_pages: {<entry id>: [pages]}}`. Telemetry: one `page-open` row per call and one `complete` row.
+
+### 258.3 Publication (`kernel-ts/modules/reference.ts`)
+
+`publishReferenceContext` accepts `checks_policy: "page-text-v1"` without the six material-issue checks; the guide carries
+no independent check. `opening_pages` (page-text receipts only) must start at the entry's page and name pages the packet
+holds, or the publication is refused ("Opening pages are not held by the reference packet"). The anchor scene cites every
+opening page (`source_refs`), and the Keeper handoff in the accepted guidance carries each opening page's text, the entry's
+own excerpt first, at most 24000 characters. Everything else is the checked reference's context (§122): the anchor is keeper-only, the
+table may open on it (`referenceReady`), and the graph that lands later binds to it by name or page.
+
+### 258.4 Opening the table
+
+The targeted `start_scene` preparation (setup completion and the opening overlap) answers `opening_ready` at once from a
+ready reference when either `runtime.sourceReferences` is set or the page opening is on, and queues the read-ahead as
+the checked reference does. At `table.open` the anchor scene has book pages, so its exhibits read is queued as the current scene's (§257.15).
+
+Tests: `tests/extension/page-open.test.mjs`.
