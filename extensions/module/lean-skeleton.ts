@@ -244,6 +244,12 @@ export async function skeletonDigest(home: string, sha: string): Promise<Row | u
 
 /** §262.7: the skeleton's entities as navigation index rows: name, aliases and their pages as 0-based ranges. */
 export function skeletonIndexRows(skeleton: Row): Row[] {
+	// §262.10: each image-only page is a row of its own, so an arrival can find the map pages beside its scene.
+	const images = (skeleton?.image_only ?? []).filter((page: unknown) => Number.isSafeInteger(page) && Number(page) >= 1)
+		.map((page: number) => ({ name: `Image-only page ${page}`, entities: [], pages: [[page - 1, page - 1]], image_only: true }));
+	return [...entityIndexRows(skeleton), ...images];
+}
+function entityIndexRows(skeleton: Row): Row[] {
 	return (skeleton?.entities ?? []).flatMap((entity: Row) => {
 		// The pages carrying most of the entity's blocks come first: a page that only names it in passing weighs one block.
 		const weight = new Map<number, number>();

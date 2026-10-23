@@ -466,3 +466,10 @@ test('§262.7: a reference book takes the skeleton\'s names as its navigation in
 	await save(join(b.dir(), 'sections.json'), [{name: 'Index row', pages: [[3, 4]]}]);
 	assert.equal((await b.call('module.skeleton.index', {file_sha256: b.sha, rows})).library, 'kept', 'an index the book already has is never replaced');
 });
+
+test('§262.10: an image-only skeleton row keeps its flag in the reference book\'s index', async () => {
+	const b = await book('skeleton-image-row', 120, {bookmarks: BOOKMARKS});
+	await b.call('module.skeleton.index', {file_sha256: b.sha, rows: [{name: 'Image-only page 18', entities: [], pages: [[17, 17]], image_only: true}, {name: 'Russ', pages: [[16, 16]], image_only: 'yes'}]});
+	assert.deepEqual(JSON.parse(await readFile(join(b.dir(), 'sections.json'), 'utf8')),
+		[{name: 'Image-only page 18', pages: [[17, 17]], entities: [], source: 'skeleton', image_only: true}, {name: 'Russ', pages: [[16, 16]], entities: [], source: 'skeleton'}]);
+});

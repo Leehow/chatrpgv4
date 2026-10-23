@@ -551,7 +551,7 @@ export class Reading {
                     && Number(range[0]) <= Number(range[1])).slice(0, 6);
                 if (!name || !pages.length) return [];
                 const entities = array(value.entities).filter((alias: unknown): alias is string => typeof alias === 'string' && !!alias.trim()).map(alias => alias.trim().slice(0, 200)).slice(0, 12);
-                return [{ name, pages, entities, source: 'skeleton' }];
+                return [{ name, pages, entities, source: 'skeleton', ...(value.image_only === true ? { image_only: true } : {}) }];
             });
             if (equal(existing, rows)) return { state: 'unchanged', rows: rows.length };
             this.owned();
@@ -654,7 +654,16 @@ export class Reading {
      */
     async queueArrivalMap(graph: ModuleGraph, scene: Row): Promise<Row> {
         if (mapsDepictingScene(graph, scene).length || graph.materialOverride) return { state: 'none' };
-        const candidates = array(row(scene.properties).map_candidates);
+        let candidates = array(row(scene.properties).map_candidates);
+        // §262.10: under lean reading no contact sheet nominated maps; the image-only pages the skeleton found within two pages
+        // of the scene's own pages are its candidate map pages (geometry and page order only).
+        if (!candidates.length && leanReading() && await this.store.exists(graph.moduleId)) {
+            const own = citedBoundPages(array(scene.source_refs), graph.moduleId);
+            const images = (await this.store.indexRows(graph.moduleId)).filter(entry => entry.source === 'skeleton' && entry.image_only === true)
+                .flatMap(entry => array(entry.pages).flatMap(range => Array.isArray(range) ? [number(range[0]) + 1] : []));
+            const near = [...new Set(images)].filter(page => own.some(at => Math.abs(at - page) <= 2)).sort((a, b) => a - b).slice(0, 3);
+            if (near.length) candidates = [{ name: '', pages: near }];
+        }
         // §185.12: the scene by its book handle in a name-free campaign; the caller tells the campaign its handle.
         const focus = readingFocus(graph, scene), names = candidates.map(candidate => string(row(candidate).name)).filter(Boolean);
         const pages = [...new Set(candidates.flatMap(candidate => array(row(candidate).pages).filter(integer).map(number)))].filter(page => page > 0).sort((a, b) => a - b);

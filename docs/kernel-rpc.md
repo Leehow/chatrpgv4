@@ -52414,6 +52414,14 @@ skeleton rows that name one of them, then the host's text search for the focus; 
 characters of the preferred page text (§191.7). With none found the answer says so and the Keeper plays on. The §262.6
 bounded answer reader remains for a host that is not lean. Telemetry `{lane: "reading", event: "lean_answer", pages}`.
 
+### 262.10 Maps on arrival under lean reading
+
+Lean reading asks no contact sheet, so no scene carries `map_candidates`. The skeleton's image-only pages are index rows of
+their own (`Image-only page N`, `image_only: true`, §262.7). On a move's arrival (§107.1 `queueArrivalMap`) at a scene with
+no candidates, the image-only pages within two pages of the scene's own cited pages (at most three) are its candidate
+map pages, and the existing `material: "map"` reading is asked for them in the background, as before. Page order only;
+whether a page is a map is the map reader's to say.
+
 ### 262.8 The cast from the skeleton
 
 Under lean reading the host builds the skeleton before it claims the cast (§177.2), and fills each cast range from the
