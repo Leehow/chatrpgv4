@@ -157,3 +157,11 @@ test('the opening pages reach the Keeper as passages it can hand the author, nam
   assert.ok(radio&&radio.ref.startsWith('source_'),'issued as a source');
   assert.equal(owner.resolve({source_ref:radio.ref}).value.text.includes('Coyote Mike'),true);
 });
+
+test('a bounded live test stops reading at PI_COC_READ_DEADLINE_MS',async t=>{
+  const rows=[];process.env.PI_COC_READ_DEADLINE_MS='20';
+  const service=new ReadingService({home:evidence,model:()=>({id:'fixture/model'}),record:row=>rows.push(row),progress(){},async call(method){throw new Error(method);}});
+  delete process.env.PI_COC_READ_DEADLINE_MS;t.after(()=>service.close());
+  await new Promise(resolve=>setTimeout(resolve,60));
+  assert.ok(rows.some(row=>row.event==='deadline_stop'&&row.deadline_ms===20));
+});

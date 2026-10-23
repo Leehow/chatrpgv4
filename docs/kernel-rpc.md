@@ -52271,4 +52271,8 @@ issued under an earlier source revision is refused before anything is written (`
 "decision_material_revision"`, `transaction_state: "uncommitted"`, telemetry `decision-content` / `source_revision_changed`);
 the Keeper's next step is prepared from the new generation and writes the packet again, instead of the turn ending.
 
+A bounded live test sets `PI_COC_READ_DEADLINE_MS`: that long after the reading service starts it records
+`{lane: "reading", event: "deadline_stop"}` and stops as at a worker's exit (claimed readings handed off, nothing more
+claimed), so a test that leaves its table running does not keep reading the whole book.
+
 Tests: `tests/extension/page-open.test.mjs`.
