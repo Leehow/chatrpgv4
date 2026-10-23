@@ -89,3 +89,22 @@ test('nothing_more is an answer, and a service never serves a person',()=>{
  assert.ok(Errors(turnPacketParameterSchema(false,undefined,undefined,false,owner.bindings()),{version:4,interactions:[{actor:'npc_1',to:['investigator_1'],act:'offer',content:[{new:invented}]}]}).length>0);
  assert.throws(()=>owner.resolve({new:invented},'npc_1'),/never a person/);
 });
+
+test('a reworded earlier answer carries the identity of the item that turn delivered, and one row stands for it',()=>{
+ const words=(turn,statement)=>({statement,turn,authority:'conversation_report',attribution:{kind:'speech',speaker:{kind:'npc',name:'Russ'}}});
+ const person={ref:'npc_1',display_name:'Russ',recent_speech:[words(2,'Last Stop, straight down the road.'),words(3,'The Last Stop. Follow this road.')],
+  told:[{content_id:'m:aaaa',to:{investigator_1:{new:1,refer:1}},last_turn:3,turns:[2,3]}]};
+ const owner=new DecisionContent(),catalog=owner.prepare('c:1',capsule,[person],[],['Ada']);
+ const rows=catalog.facts.filter(row=>row.actor==='npc_1'&&['recent_speech','public_speech_history'].includes(row.kind));
+ assert.equal(rows.length,1,'the second wording is the same item');
+ assert.deepEqual(rows[0].told,{to:{investigator_1:2},last_turn:3});
+ const {units}=owner.hydrate([{actor:'npc_1',to:['investigator_1'],act:'answer',content:[{fact_ref:rows[0].ref}]}]);
+ assert.equal(units[0][0].content_id,'m:aaaa');assert.equal(units[0][0].strategy,'refer');assert.equal(units[0][0].told_times,2);
+});
+
+test('an exhibit said as refer keeps its telling when the author claim replaces the placeholder',()=>{
+ const owner=new DecisionContent();
+ const claims=owner.authorClaims([{actor:'npc_1',act:'answer',claims:[{kind:'exhibit',ref:'exhibit_1',telling:{strategy:'refer',times:1}}]}],
+  new Map([['exhibit_1',{kind:'exhibit',exhibit:{kind:'testimony',surface:'Marathon has better food.'}}]]));
+ assert.deepEqual(claims[0].claims[0].telling,{strategy:'refer',times:1});
+});

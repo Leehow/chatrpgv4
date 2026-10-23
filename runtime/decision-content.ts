@@ -91,7 +91,7 @@ export function decisionCharacter(person:Row):Row {
 }
 /** An exhibit selection the host refuses whole; the message is the repair the Keeper reads. */
 export class ExhibitRefusal extends Error {reason:'unissued'|'carrier_absent'|'not_owner'|'testimony_revealed';ref:string;constructor(message:string,reason:'unissued'|'carrier_absent'|'not_owner'|'testimony_revealed',ref:string){super(message);this.reason=reason;this.ref=ref;}}
-interface Fact {ref:string;actor?:string;kind:string;availability:'current'|'supplemental';value:unknown;revision:string;told?:Row}
+interface Fact {ref:string;actor?:string;kind:string;availability:'current'|'supplemental';value:unknown;revision:string;told?:Row;content:string}
 /** §258.3: one selected item as the host records it: a stable content identity and how it is said. Host-only. */
 export interface TellingUnit {content_id:string;kind:string;strategy:typeof TELLING[number];gist?:string;told_times?:number}
 const counted=(counts:Row)=>TELLING.reduce((sum,key)=>sum+(Number(counts?.[key])||0),0);
@@ -193,7 +193,7 @@ export class DecisionContent {
   for(const entry of rows(capsule.public_scene?.entries))if(typeof entry.text==='string'&&entry.text.trim())
    this.issue('fact',{turn:entry.turn,text:entry.text,...(entry.truncated?{truncated:true}:{})},undefined,'public_scene_history');
   const reused=[...this.active].filter(ref=>this.previous.has(ref)).length;this.previous=new Set(this.active);
-  return {coverage:{issued:this.active.size,reused_refs:reused,omitted:this.omitted,byte_limit:32768,...(this.exhibitsGiven?{exhibits:{issued:this.activeExhibits.size,omitted:this.exhibitsOmitted}}:{})},facts:[...this.active].map(key=>{const {revision,...fact}=this.facts.get(key)!;return fact;}),entities:[...this.entities],
+  return {coverage:{issued:this.active.size,reused_refs:reused,omitted:this.omitted,byte_limit:32768,...(this.exhibitsGiven?{exhibits:{issued:this.activeExhibits.size,omitted:this.exhibitsOmitted}}:{})},facts:[...this.active].map(key=>{const {revision,content:_content,...fact}=this.facts.get(key)!;return fact;}),entities:[...this.entities],
    ...([...this.active].some(key=>this.facts.get(key)?.told)?{telling:'A fact marked told was already said by its actor to the listeners named (times, last turn). Select it again only when it serves this exchange, with strategy: refer (brief back-reference, the default), restate (the player asked to hear it again), clarify (explain what was misunderstood) or update (only beside a new item). told earlier means it was said before the counts began.'}:{}),
    ...(this.activeExhibits.size?{exhibits:[...this.activeExhibits].map(ref=>this.exhibitRows.get(ref)!.catalog)}:{}),
    authority:'Exact prepared content references only. Actor-scoped facts belong to that actor; a report, belief or plan is not world truth. A selection is not a transaction or proof of delivery.'};
@@ -204,9 +204,24 @@ export class DecisionContent {
   const cost=Buffer.byteLength(JSON.stringify(value))+320;
   if(this.active.size>=256||cost>16000||this.bytes+cost>32768){this.omitted++;return;}
   if(!ref){if(this.aliases.size>=2048)this.aliases.delete(this.aliases.keys().next().value!);ref=`${kind}_${++this.ordinal}`;this.aliases.set(identity,ref);}
+  const content=this.contentOf(evidence,value,actor);
+  // §258.3: one row per content for a person; a second wording of the same told answer is not a second item.
+  if(actor&&[...this.active].some(key=>this.facts.get(key)?.actor===actor&&this.facts.get(key)?.content===content))return;
   this.bytes+=cost;
-  const told=actor?this.toldMark(actor,factContentId(evidence,value,actor),evidence,value):undefined;
-  this.facts.set(ref,{ref,...(actor?{actor}:{}),kind:evidence,availability,value:structuredClone(value),...(told?{told}:{}),revision:identity});this.active.add(ref);
+  const told=actor?this.toldMark(actor,content,evidence,value):undefined;
+  this.facts.set(ref,{ref,...(actor?{actor}:{}),kind:evidence,availability,value:structuredClone(value),...(told?{told}:{}),revision:identity,content});this.active.add(ref);
+ }
+ /**
+  * §258.3: a person's own earlier words are the content that turn's selection gave them: when exactly one told row of theirs
+  * was delivered at the words' turn, the words carry that row's identity, so a reworded answer counts as the same item.
+  */
+ private contentOf(evidence:string,value:unknown,actor:string|undefined):string {
+  const turn=(value as Row)?.turn;
+  if(actor&&['public_speech_history','recent_speech'].includes(evidence)&&Number.isSafeInteger(turn)){
+   const rows=[...this.told.get(actor)?.values()??[]].filter(row=>Array.isArray(row.turns)&&row.turns.includes(turn));
+   if(rows.length===1)return rows[0].content_id;
+  }
+  return factContentId(evidence,value,actor);
  }
  /** §258.4: the compact told mark a catalog row carries: per listener how often, and when last. */
  private toldMark(actor:string,content:string,evidence:string,value:unknown):Row|undefined {
@@ -236,7 +251,7 @@ export class DecisionContent {
   else if(content.exhibit_ref){const issued=this.exhibitRows.get(content.exhibit_ref);if(!issued)return undefined;id=contentId('x',issued.exhibit_id);kind='exhibit';gist=gistOf(issued.label);}
   else{
    const fact=this.facts.get(content.fact_ref??content.source_ref);if(!fact)return undefined;
-   id=content.source_ref?contentId('s',(fact.value as Row)?.name??fact.revision):factContentId(fact.kind,fact.value,fact.actor);
+   id=content.source_ref?contentId('s',(fact.value as Row)?.name??fact.revision):fact.content;
    kind=fact.kind;gist=gistOf(fact.value);marked=fact.told;
   }
   const row=this.told.get(actor)?.get(id),listeners=to.length?to:[...this.people].filter(ref=>ref.startsWith('investigator_'));
@@ -313,7 +328,8 @@ export class DecisionContent {
  }
  /** Replace each speaker-claim placeholder with the author's claim for that exhibit. */
  authorClaims(responses:HydratedInteraction[],authors:Map<string,Row>):HydratedInteraction[] {
-  return responses.map(response=>response.claims?{...response,claims:response.claims.map(claim=>claim.kind==='exhibit'&&typeof claim.ref==='string'?authors.get(claim.ref)??(()=>{throw Error('An exhibit selection reached the author unsettled');})():claim)}:response);
+  return responses.map(response=>response.claims?{...response,claims:response.claims.map(claim=>claim.kind==='exhibit'&&typeof claim.ref==='string'
+   ?{...authors.get(claim.ref)??(()=>{throw Error('An exhibit selection reached the author unsettled');})(),...(claim.telling?{telling:claim.telling}:{})}:claim)}:response);
  }
  /** Replace the selection placeholders with what the author may see, in the Keeper's order. */
  authorMaterials(materials:Row[],authors:Map<string,Row>):Row[] {

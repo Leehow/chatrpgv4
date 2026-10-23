@@ -77,6 +77,7 @@ export function toldView(records:Row[],actor:string,scope:Row,turn?:number):Row[
             const entry=told.get(item.content_id)??{content_id:item.content_id,...(item.kind?{kind:item.kind}:{}),to:{} as Row};
             if(item.gist)entry.gist=item.gist;
             entry.last_turn=number(record.turn);
+            if(event.status==='attested')entry.turns=[...new Set([...array(entry.turns),number(record.turn)])].slice(-8);
             const listeners=event.status==='attested'?[...array(event.to),...array(event.heard)]:array(event.to);
             for(const listener of listeners){
                 const counts=entry.to[listener]??={};
