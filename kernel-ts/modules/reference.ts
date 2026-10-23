@@ -73,7 +73,10 @@ export async function publishReferenceContext(store:ModuleStore,meta:Row,params:
   // §258.3: a page-text opening hands the Keeper every page of the opening, its first page's excerpt first.
   const spans=[...(span?[span]:[]),...openingPages(entry).slice(1).flatMap(page=>packet.excerpts.filter(other=>other.page===page&&other!==span).slice(0,1))];
   const excerpts=spans.map(other=>`[Original physical page ${other.page}]\n${other.text}`).join('\n\n').slice(0,HANDOFF_CHARS);
-  guidance={opening:text,advice:text,scene:bindings[entry.id].name,guide:'',handoff:'Use the bound original source as reference while graph fragments arrive. Original context (private):\n'+excerpts};
+  // §258.3: the pages are the scene the table stands in, so the Keeper is told to play it from them rather than build another.
+  const lead=pageText?`The table opens in ${bindings[entry.id].name}. The original pages below are this scene: its place, the people met here and what the investigators are read aloud. Play it from them first: describe and answer from their text, keep the people and things they name, and do not create another scene for a place they describe. Graph fragments arrive later and bind to this scene. Original pages (private):\n`
+   :'Use the bound original source as reference while graph fragments arrive. Original context (private):\n';
+  guidance={opening:text,advice:text,scene:bindings[entry.id].name,guide:'',handoff:lead+excerpts};
   const folder=join(root,'character-guidance',params.guidance_key);
   await writeJsonAtomic(join(folder,'accepted.json'),{fingerprint:params.guidance_key,approved:true,guidance,source_sha256:meta.file_sha256,source_reference:meta.source_reference,at:nowIso()});
   await writeJsonAtomic(join(folder,'public.json'),{fingerprint:params.guidance_key,approved:true,fields:publicFields,source_sha256:meta.file_sha256});

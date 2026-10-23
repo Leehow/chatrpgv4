@@ -908,8 +908,11 @@ export function createWriteRuntime(context: KernelContext, contributions: WriteC
         const guidance = required(params, 'guidance_key', true);
         if (guidance) {
             const accepted = row(moduleMeta.character_guidance)[guidance];
-            if (!accepted || accepted.play_language !== language)
+            if (!accepted)
                 throw new RpcError('invalid_params', 'the requested character guidance has not been accepted');
+            // A guide accepted in another play language is a different guide: say which, so the caller passes that one.
+            if (accepted.play_language !== language)
+                throw new RpcError('invalid_params', `the accepted character guidance is for play_language ${repr(accepted.play_language)}, not ${repr(language)}; create the campaign with play_language ${repr(accepted.play_language)}`);
             if (chosen && graph && graph.handle(graph.scene(chosen)) !== graph.handle(graph.scene(accepted.scene)))
                 throw new RpcError('invalid_params', 'the selected scene does not match the accepted guidance');
             chosen = accepted.scene;

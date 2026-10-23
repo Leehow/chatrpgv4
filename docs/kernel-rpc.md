@@ -52002,7 +52002,7 @@ tool result and never the author input. The tool description says both.
 Tests: `tests/extension/source-answer.test.mjs` (prepare with `material: exhibits` reaches `ensure` as the exhibits detail read),
 `tests/extension/exhibit-reveal.test.mjs` (a source answer's text is absent from the author's `task.json`).
 
-## 258 Page opening: a table opens on the opening's pages
+## 258. Page opening: a table opens on the opening's pages
 
 A bound PDF's opening is found and its setup guide written from the book's text layer alone, so the table opens on the
 opening's original pages while the graph is read in the background. It is the host-owned source-reference fast path (§122) without
@@ -52022,8 +52022,8 @@ Both are `runtime.runTask({kind: "reader"})` children with their own system prom
 no review; each reads `task.json` and writes `answer.json` in its own step directory (`locate`, `guide`) under the module's
 `work/page-open-<uuid>/`.
 
-- **locate**: the bookmarks (two levels, `{name, page}`) and each page's first three non-empty native lines (80 characters
-  each, until 24 KB) give `{openings: [{name, pages}], setup_pages}`. The host keeps at most 4 openings of at most 4 pages
+- **locate**: the bookmarks (two levels, `{name, page}`) and each page's first six non-empty native lines (80 characters
+  each, until 48 KB) give `{openings: [{name, pages}], setup_pages}`. The host keeps at most 4 openings of at most 5 pages
   and 6 setup pages, each a page of the book with text; a book with no line of text, or no opening left, fails.
 - **guide**: the native text of the setup and opening pages (one excerpt per page, whole up to 12000 characters) and
   `play_language` give the four public setup fields (`era`, `starting_place`, `public_premise`, `creation_advice`; text at
@@ -52042,7 +52042,8 @@ public_fields, opening_pages: {<entry id>: [pages]}}`. Telemetry: one `page-open
 no independent check. `opening_pages` (page-text receipts only) must start at the entry's page and name pages the packet
 holds, or the publication is refused ("Opening pages are not held by the reference packet"). The anchor scene cites every
 opening page (`source_refs`), and the Keeper handoff in the accepted guidance carries each opening page's text, the entry's
-own excerpt first, at most 24000 characters. Everything else is the checked reference's context (§122): the anchor is keeper-only, the
+own excerpt first, at most 24000 characters, under a lead that tells the Keeper these pages are the scene the table stands
+in: play it from them, keep the people and things they name, and create no other scene for a place they describe. Everything else is the checked reference's context (§122): the anchor is keeper-only, the
 table may open on it (`referenceReady`), and the graph that lands later binds to it by name or page.
 
 ### 258.4 Opening the table

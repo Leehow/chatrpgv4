@@ -85,6 +85,7 @@ test('the kernel installs a page-text opening: the anchor scene cites every open
   const handoff=published.guidance.handoff;
   for(const page of [16,17,20])assert.ok(handoff.includes(`[Original physical page ${page}]`),`page ${page} in the handoff`);
   assert.ok(handoff.includes('the owner hides a shotgun'),'the Keeper reads the whole page, Keeper notes included');
+  assert.ok(handoff.startsWith('The table opens in Prologue.')&&handoff.includes('do not create another scene'),'the Keeper is told to play the scene from its pages');
   assert.ok(!published.guidance.opening.includes('shotgun'),'the public guide does not');
 });
 

@@ -16,26 +16,26 @@ import{SourceReferenceFailure,type ReferenceResult}from'./source-reference.ts';
 type Row=Record<string,any>;
 const digest=(bytes:string|Buffer)=>createHash('sha256').update(bytes).digest('hex');
 /** The pages one opening may span, the setup pages one guide may read, and the openings one book may offer. */
-const OPENING_PAGES=4,SETUP_PAGES=6,OPENINGS=4;
+const OPENING_PAGES=5,SETUP_PAGES=6,OPENINGS=4;
 /** A page's text kept for a reader call and as one excerpt (the packet's own bound). */
 const PAGE_CHARS=12000;
 /** The table of contents a locate call reads: bookmarks plus each page's first lines. */
-const HEAD_LINES=3,HEAD_CHARS=80,TOC_BYTES=24000;
+const HEAD_LINES=6,HEAD_CHARS=80,TOC_BYTES=48000;
 const FIELD_CHARS=950;
 /** The most pages one source text request may name. */
 const TEXT_BATCH=32;
 
 const LOCATE_INSTRUCTION=`You find where play begins in a tabletop roleplaying scenario book, from its table of contents.
 task.json holds the book's bookmarks (title and page) and the first lines of every page. Decide:
-- openings: the scene or scenes where the investigators' play begins (a prologue, an arrival, a briefing), each with its name as the book prints it and the pages that hold it: the page where it starts and the pages that describe that place, its people and what the players are read aloud there (at most ${OPENING_PAGES} pages, in reading order). A book with alternative starts lists each; most books have one.
-- setup_pages: the pages a group needs before play to make investigators: the premise, era and setting, how the investigators are involved, advice or requirements for their creation (at most ${SETUP_PAGES} pages).
+- openings: the scene or scenes where the investigators' play begins (a prologue, an arrival, a briefing), each with its name as the book prints it and the pages that hold it: the page where it starts and every page that describes that first place, the people met there (their descriptions often continue on a later page, after a map or a sidebar) and what the players are read aloud there (at most ${OPENING_PAGES} pages, in reading order; leave out pages that are only a map or picture). A book with alternative starts lists each; most books have one.
+- setup_pages: the pages a group needs before play to make investigators: the premise, era and setting, how the investigators are involved, advice or requirements for their creation, and content warnings (at most ${SETUP_PAGES} pages). Never a page of Keeper information: the hidden background, the truth behind events, the antagonists' plans.
 Use only page numbers that appear in task.json. Write answer.json with the write tool, exactly:
 {"openings":[{"name":"...","pages":[16,17,20]}],"setup_pages":[5,6,7]}
 Then stop.`;
 
 const GUIDE_INSTRUCTION=`You prepare the public setup guide of a tabletop roleplaying scenario, before the players make their investigators.
 task.json holds the original text of the book's setup pages and of the opening's pages, page by page, in the book's language, and play_language.
-Write in play_language. Write only what the players may know before play: the era, where the investigators start, the premise as it is presented to them, and advice for making investigators (skills, occupations, requirements the book states). Never reveal Keeper-only information: no secret, culprit, monster, twist, hidden motive or what the investigators will discover. When the book marks a part as Keeper information, leave it out.
+Write in play_language. Write only what the players may know before play: the era, where the investigators start, the premise as it is presented to them, and advice for making investigators (skills, occupations, requirements the book states). Never reveal Keeper-only information: no secret, culprit, monster, Mythos being or creature name, twist, hidden motive, threat to come, or what the investigators will discover; describe the situation the way the players first meet it. When the book marks a part as Keeper information, or a hook only works by naming what is hidden, leave it out. State facts as the book gives them.
 Write answer.json with the write tool, exactly:
 {"era":{"text":"...","pages":[7]},"starting_place":{"text":"...","pages":[16]},"public_premise":{"text":"...","pages":[6]},"creation_advice":{"text":"...","pages":[7]},"era_text":"..."}
 Each text is at most ${FIELD_CHARS} characters; leave one empty ("" with pages []) when the book does not say it. pages are the task.json pages the text rests on. era_text is the era copied exactly, character for character, from one setup or opening page (for example a year or a decade), or "" when none is printed.
