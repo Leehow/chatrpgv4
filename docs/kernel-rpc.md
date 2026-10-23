@@ -52109,8 +52109,8 @@ an investigator's impression stays uncertain. It never contradicts a kept look a
 ### 260.5 Public presentation
 
 `presence.people[].bearing = {tier, needs_introduction?, toward?: [{ref, disposition}], mood?, condition?}`:
-`toward` is the directed public disposition toward each investigator (§258 `public` when set, else the disposition,
-omitted when marked hidden); before §258 P1 it maps today's directed affinity `hostile -> hostile`,
+`toward` is the directed shown disposition toward each investigator, read from `decisionPerson().relationships[].public`
+(§258 P1: public if set, else the disposition, else neutral when hidden); before §258 P1 it maps today's directed affinity `hostile -> hostile`,
 `guarded -> unfriendly`, `neutral -> neutral`, `friendly -> friendly`. `mood` only when public; `condition` when
 visible. No numbers. Perception channels other than shared presence (audio only, telephone, letters) and per-observer
 projection wait for §258 P2; until then a person outside presence gets no bearing.
