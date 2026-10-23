@@ -1259,7 +1259,8 @@ export class Reading {
                 await ask({purpose:'detail',focus:unit.section,source_unit:unit,question:unitQuestion(meta,unit),
                     ...(work.some(job=>job.state==='cancelled'&&sourceUnitKey(job.source_unit as SourceUnit)===sourceUnitKey(unit))?{retry:true}:{})});
             await this.queueNeedReads(mid,graph,ask,window);
-            await queueVisual();
+            // §262.1: lean reading asks no background contact sheets or visual assets; a map is read when play needs it.
+            if(!leanReading())await queueVisual();
             return {queued:[...new Set(queued)],reference_context:true,graph_complete:false,...await outcome(),...recovery};
         }
         if(!leanReading()&&reading.opening_scope==='first_interaction'&&truth(reading.index_complete)&&Object.values(row(meta.prepared_openings)).some(value=>truth(row(value).opening_ready))){

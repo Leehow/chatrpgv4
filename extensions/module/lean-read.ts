@@ -13,7 +13,7 @@ import { roughTokens, type SourceBlock, type SourceBlocksPage } from "./source-b
 type Row = Record<string, any>;
 
 /** The bounds of the first lean experiment (spec "Budgets"). */
-export const LEAN_BOUNDS = { readerRequests: 6, sourceTokens: 12000, crossTokens: 3000, verifyRequests: 3, verifyBatch: 12, verifyTokens: 6000 } as const;
+export const LEAN_BOUNDS = { readerRequests: 10, sourceTokens: 12000, crossTokens: 3000, verifyRequests: 3, verifyBatch: 12, verifyTokens: 6000 } as const;
 /** Claim predicates whose error changes play (knowledge, rules, where a clue is found, beliefs and lies): a closed contract list. */
 export const RISK_PREDICATES = new Set(["knows", "believes", "asserts", "hides", "uses-rule", "discoverable-at", "triggers", "enables", "threatens", "reveals"]);
 /** Node kinds whose prose carries conditions, attributions or secrets: a closed contract list. */
@@ -216,7 +216,8 @@ export async function runLeanDetail(context: LeanContext): Promise<LeanResult> {
 	record({ lane: "reading", phase: "lean-read", module_id: job.module_id, job_id: job.job_id, purpose: job.purpose, focus: job.focus ?? "",
 		model: model.id, thinking: model.thinking, ms: run.ms, ok: run.ok, ...(run.usage ? { usage: run.usage } : {}),
 		inlined_blocks: input.source_blocks.length, cross_references: input.cross_references?.length ?? 0, ...(run.refusal ? { refusal: run.refusal.reason } : {}) });
-	if (!run.ok && (run.refusal || run.providerError)) throw new Error(run.refusal ? `the lean reader's provider refused (${run.refusal.reason}: ${run.refusal.code})` : run.providerError ?? "the lean reader's provider failed");
+	// A budget refusal stops the reading; a run that ended otherwise (its request bound, a dropped stream) leaves its draft to the host's check.
+	if (!run.ok && run.refusal) throw new Error(`the lean reader's provider refused (${run.refusal.reason}: ${run.refusal.code})`);
 	const viewed = new Set<number>();
 	try {
 		const delivered = await successfulImageDeliveries(eventLog + ".images.jsonl", { file_sha256: job.source.file_sha256, cache: join(cache, "pages") });

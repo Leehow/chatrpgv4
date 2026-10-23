@@ -33,6 +33,15 @@ export function skeletonSections(pageCount: number, bookmarks: unknown, tokensOf
 		.map(mark => [mark.page, mark] as const)).values()];
 	if (!marks.length || marks[0].page > 1) marks.unshift({ name: "Front", page: 1 });
 	const out: SkeletonSection[] = [];
+	// Neighbouring bookmarks share one section while it stays under the bound; a call's fixed prompt is paid once.
+	const tokens = (first: number, last: number) => { let sum = 0; for (let page = first; page <= last; page++) sum += tokensOfPage(page); return sum; };
+	const merged: Array<{ name: string; page: number }> = [];
+	marks.forEach((mark, i) => {
+		const end = (marks[i + 1]?.page ?? pageCount + 1) - 1, open = merged.at(-1);
+		if (open && tokens(open.page, end) <= SKELETON_BOUNDS.sectionTokens) return;
+		merged.push(mark);
+	});
+	marks.splice(0, marks.length, ...merged);
 	marks.forEach((mark, i) => {
 		const end = (marks[i + 1]?.page ?? pageCount + 1) - 1;
 		let first = mark.page, spent = 0;
@@ -152,8 +161,16 @@ export async function buildSkeleton(context: SkeletonContext): Promise<Row> {
 		if (!sectionBlocks.length) { results.push({ section, status: "indexed", answer: { mentions: [], cross_references: [], conditional_events: [], keeper_truth: [] } }); continue; }
 		const dir = join(context.home, "source-skeletons", `${source.file_sha256}-work`, `section-${index + 1}`);
 		await mkdir(dir, { recursive: true });
-		const task = { section, blocks: sectionBlocks };
-		await writeFile(join(dir, "task.json"), JSON.stringify(task) + "\n");
+		const task = { section, blocks: sectionBlocks }, taskText = JSON.stringify(task) + "\n";
+		// A section answered for this exact task by an earlier host is kept.
+		try {
+			if (await readFile(join(dir, "task.json"), "utf8") === taskText) {
+				const kept = sectionAnswer(JSON.parse(await readFile(join(dir, "skeleton.json"), "utf8")), new Set(sectionBlocks.map(block => block.id)));
+				results.push({ section, status: "indexed", answer: kept });
+				continue;
+			}
+		} catch { /* not answered yet */ }
+		await writeFile(join(dir, "task.json"), taskText);
 		const run = await runtime.runTask({ kind: "reader", request: { ...context.shared, cwd: dir, model: context.model.id, thinking: context.model.thinking,
 			systemPrompt: await readFile(join(runtime.contentRoot, "setup", "lean-skeleton.md"), "utf8"), tools: "read,write",
 			maxRequests: SKELETON_BOUNDS.requests, eventLog: join(dir, "events.jsonl"),

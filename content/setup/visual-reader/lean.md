@@ -7,10 +7,12 @@ column's last block), `roster` lists the published nodes on these pages (id, kin
 their own pages and text. task.json holds the same task plus the full published records; read it only when you must
 see an existing node's or claim's full record.
 
-You have at most six model requests. Work in this order:
+You have at most ten model requests. Work in this order:
 
 1. View all of `pages` with one pdf call, to see layout, maps, pictures and boxed Keeper text.
-2. Write the whole draft.json with one write.
+2. Write the whole draft.json with one write, with every top-level field the check requires (`nodes`, `claims`,
+   `exhibits`, `node_refs`, `ready_nodes`, `coverage`, `dependencies`, `critical`, `source_needs`), empty arrays where
+   there is nothing.
 3. Call submit_reading. If it refuses, repair exactly what it names with edit and call submit_reading again.
 
 Read the blocks as the book's text. A Keeper box belongs to the entry it is printed under; a block marked `continues`
