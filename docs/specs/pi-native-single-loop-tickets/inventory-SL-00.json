@@ -2531,6 +2531,30 @@
       "role": "driver",
       "trace": "One frozen decision context -> one tool-free Pi author request -> direct text_delta delivery",
       "note": "Mutually exclusive with the ExpressionBrief compatibility task. The host pins the selected author profile, exposes no tools and allows one provider request. No semantic judge, file envelope or whole-draft regeneration."
+    },
+    {
+      "file": "extensions/module/lean-read.ts",
+      "symbol": "runLeanDetail",
+      "kind": "reader-task",
+      "callee": "runtime.runTask",
+      "count": 2,
+      "owner": "Lean module reading (§262.3-§262.4)",
+      "path": "app-play-gated",
+      "role": "driver",
+      "trace": "reading telemetry rows phase lean-read and lean-verify",
+      "note": "Under PI_COC_LEAN_READING=1 a detail reading runs one bounded reader child (at most 10 requests, inlined layout blocks) and one bounded verifier child per batch of at most 12 high-risk records (read,write, at most 3 requests). The existing publication gate publishes; no Keeper loop, no campaign mutation."
+    },
+    {
+      "file": "extensions/module/lean-skeleton.ts",
+      "symbol": "buildSkeleton",
+      "kind": "reader-task",
+      "callee": "runtime.runTask",
+      "count": 1,
+      "owner": "Lean module reading skeleton (§262.5)",
+      "path": "app-play-gated",
+      "role": "driver",
+      "trace": "reading telemetry rows phase skeleton, event skeleton_built",
+      "note": "Under PI_COC_LEAN_READING=1, once per document in the background, one bounded reader child per bookmark section (read,write, at most 4 requests) writes names, cross references, conditions and Keeper truth; the host merges them into reader input and navigation index rows, never graph material."
     }
   ]
 }

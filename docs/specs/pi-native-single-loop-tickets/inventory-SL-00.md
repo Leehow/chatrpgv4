@@ -591,3 +591,5 @@ It forwards actual text deltas; it has no file/tool artifact or quality-review l
 The inventoried `writeIsolatedExpression` task remains the mutually exclusive
 ExpressionBrief compatibility branch. This registers the actual call introduced
 by the direct SSE correction, not an additional foreground inference round.
+
+`extensions/module/lean-read.ts#runLeanDetail` and `extensions/module/lean-skeleton.ts#buildSkeleton` call the existing `runtime.runTask` reader owner only under `PI_COC_LEAN_READING=1` (§262): a detail reading is one bounded reader child over inlined layout blocks plus one bounded verifier child per batch of high-risk records, and the skeleton is one bounded reader child per bookmark section, built once per document in the background. Publication stays with the existing gate; the skeleton is reader input and navigation index rows only. No Keeper loop is added and no source text mutates campaign state.
