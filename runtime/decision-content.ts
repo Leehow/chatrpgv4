@@ -27,8 +27,8 @@ export const CommunicationContent=Type.Union([ExistingCommunicationFact,closed({
 const actor=Type.String({pattern:"^(npc_[1-9][0-9]*|new_[1-4])$",maxLength:32});
 const to=Type.Array(ref,{minItems:1,maxItems:16,uniqueItems:true});
 /** §260.2: what the person visibly does this moment, as direction for the author; never a settled change. */
-/** §258.9: `aside` is said so only `to` hear it; omitted, everyone present hears. */
-const channel=Type.Optional(StringEnum(['speech','aside']));
+/** §258.9-§258.10: `aside` is said so only `to` hear it; `phone` and `letter` reach `to` from wherever the speaker is. Omitted, everyone present hears. */
+const channel=Type.Optional(StringEnum(['speech','aside','phone','letter']));
 const beat=Type.Optional(Type.String({minLength:1,maxLength:120,pattern:'\\S',description:'What they visibly do now; behavior only, never words or a settled change'}));
 export const Interaction=Type.Union([
  closed({actor,act:Type.Literal('silent'),to:Type.Optional(to),beat}),
@@ -227,6 +227,15 @@ export class DecisionContent {
    this.issue('fact',document,undefined,'current_document','current');
   for(const person of cast){
    if(!isNpcReference(person.ref))continue;
+   // §258.11: this person's open offers and accepted deals, or a deal owed to them, before their other words claim the same content.
+   for(const deal of rows(person.deals))if(typeof deal.content_id==='string'&&typeof deal.by==='string'){
+    const own=deal.by===person.ref,by=this.entityLabels.get(deal.by)??deal.by,parties=rows(deal.with??deal.to).map(ref=>this.entityLabels.get(ref as unknown as string)??ref);
+    this.issue('fact',{statement:deal.gist??'(offer)',by,to:parties,status:deal.status,made_turn:deal.made_turn,content_id:deal.content_id,
+     authority:deal.status==='open'
+      ?`An offer ${own?'this person':by} made to ${parties.join(', ')}; still open, nothing is agreed until it is accepted.`
+      :`A deal: ${own?'this person':by} owes it to ${parties.join(', ')} since it was accepted; it is ${own?'their own':by+'\'s'} obligation until kept or broken.`},
+     person.ref,deal.status==='open'?'proposal':'commitment');
+   }
    for(const field of MATERIAL_FIELDS){
     const values=Array.isArray(person[field])?person[field]:[];
     for(const value of values){const content=typeof value==='string'?value:typeof value?.statement==='string'||field==='knows'&&typeof value?.summary==='string'?value:undefined;
@@ -288,7 +297,7 @@ export class DecisionContent {
   */
  private contentOf(evidence:string,value:unknown,actor:string|undefined):string {
   const turn=(value as Row)?.turn;
-  if((evidence==='heard'||evidence==='party_said')&&typeof (value as Row)?.content_id==='string')return (value as Row).content_id;
+  if(['heard','party_said','proposal','commitment'].includes(evidence)&&typeof (value as Row)?.content_id==='string')return (value as Row).content_id;
   if(actor&&['public_speech_history','recent_speech'].includes(evidence)&&Number.isSafeInteger(turn)){
    const rows=[...this.told.get(actor)?.values()??[]].filter(row=>Array.isArray(row.turns)&&row.turns.includes(turn));
    if(rows.length===1)return rows[0].content_id;
@@ -424,6 +433,18 @@ export class DecisionContent {
  private listenerAlias(value:string,ref:string):void {
   const key=value.normalize('NFKC').trim().toLowerCase(),prior=this.listenerAliases.get(key);
   this.listenerAliases.set(key,prior!==undefined&&prior!==ref?null:ref);
+ }
+ /**
+  * §258.11: an agreement mark names an issued proposal or commitment fact; the host turns it into the deal's content and maker.
+  * A proposal can be accepted, declined or withdrawn; a commitment kept, broken or withdrawn.
+  */
+ agreement(mark:{proposal:string;status:string;with?:string[]}):Row {
+  const fact=this.facts.get(mark.proposal);
+  if(!fact||!this.active.has(mark.proposal)||!['proposal','commitment'].includes(fact.kind)||!fact.actor)
+   throw Error(`agreement ${mark.proposal} is not an issued proposal or commitment fact; name one of kind proposal or commitment`);
+  const allowed=fact.kind==='proposal'?['accepted','declined','withdrawn']:['kept','broken','withdrawn'];
+  if(!allowed.includes(mark.status))throw Error(`agreement ${mark.proposal} is a ${fact.kind}: its status is one of ${allowed.join(', ')}`);
+  return {content_id:fact.content,by:fact.actor,status:mark.status,...(mark.with?.length?{with:[...mark.with]}:{})};
  }
  resolve(content:unknown,actor?:string):Row {
   if(!content||typeof content!=='object'||Array.isArray(content))throw Error('Invalid communication content');

@@ -14,8 +14,15 @@ export type Strategy=typeof STRATEGIES[number];
 const CONTENT_ID=/^[a-z]:[A-Za-z0-9_.:-]{1,120}$/;
 const LISTENER=/^(npc_[1-9][0-9]*|investigator_[1-9][0-9]*)$/;
 const INVESTIGATOR=/^investigator_[1-9][0-9]*$/;
-/** §258.9: how a selection reaches people. `aside` is said so only its addressed listeners hear it. */
-export const CHANNELS=['speech','aside'] as const;
+/**
+ * §258.9-§258.10: how a selection reaches people. `aside` is said so only its addressed listeners hear it; `phone` and
+ * `letter` reach only `to` from wherever the speaker is, so nobody present overhears the speaker's side.
+ */
+export const CHANNELS=['speech','aside','phone','letter'] as const;
+const PRIVATE=new Set(['aside','phone','letter']);
+/** §258.11: what becomes of an offer, and of the deal it makes. */
+export const AGREEMENT_STATUSES=['accepted','declined','withdrawn','kept','broken'] as const;
+const NEXT:Record<string,string[]>={open:['accepted','declined','withdrawn'],accepted:['kept','broken','withdrawn']};
 /** At most this many told rows per person reach the Keeper (§258.4). */
 export const TOLD_ROWS=6;
 
@@ -43,8 +50,8 @@ export function selectionsOf(evidence:Row):Row[] {
  * the selection's `to`; everyone else present at publication, investigators included, `heard` it.
  */
 export function communicationRecord(graph:ModuleGraph,world:Row,party:Row[],scope:Row,turn:number,evidence:Row,speech:Row[],present:Row[],playerText?:unknown):Row|undefined {
-    const selections=selectionsOf(evidence);
-    if(!selections.length)return undefined;
+    const selections=selectionsOf(evidence),agreements=agreementsOf(evidence);
+    if(!selections.length&&!agreements.length)return undefined;
     const investigator=(name:unknown)=>{const at=party.findIndex(sheet=>sheet.name===name||sheet.id===name);return at>=0?`investigator_${at+1}`:undefined;};
     const refOf=(who:Row):string|undefined=>{
         if(typeof who.investigator==='string')return investigator(who.investigator);
@@ -60,9 +67,24 @@ export function communicationRecord(graph:ModuleGraph,world:Row,party:Row[],scop
     const here=[...present.map(node=>npcReference(graph,world,node)).filter((ref):ref is string=>!!ref),...party.map((_sheet,index)=>`investigator_${index+1}`)];
     const events=selections.map(selection=>({...selection,id:`t${turn}:${selection.seq}`,
         status:spoke.has(selection.actor)?'attested':'missing',
-        heard:selection.channel==='aside'?[]:here.filter(ref=>ref!==selection.actor&&!selection.to.includes(ref))}));
+        heard:PRIVATE.has(selection.channel)?[]:here.filter(ref=>ref!==selection.actor&&!selection.to.includes(ref))}));
     const said=partyEvent(turn,party,here,selections,playerText);
-    return {version:1,scope:{worldline:string(scope.worldline||'main'),loop:number(scope.loop)},turn,events:said?[said,...events]:events};
+    return {version:1,scope:{worldline:string(scope.worldline||'main'),loop:number(scope.loop)},turn,events:said?[said,...events]:events,
+        ...(agreements.length?{agreements}:{})};
+}
+
+/**
+ * §258.11: the Keeper's agreement marks, as the host resolved them from issued proposal and commitment facts: the offer's
+ * content, its maker and what became of it. Anything malformed is dropped.
+ */
+export function agreementsOf(evidence:Row):Row[] {
+    return array(evidence.agreements).slice(0,8).flatMap(value=>{
+        const mark=row(value);
+        if(typeof mark.content_id!=='string'||!CONTENT_ID.test(mark.content_id)||!isNpcReference(mark.by)
+            ||!AGREEMENT_STATUSES.includes(mark.status))return [];
+        const by=array(mark.with).filter(ref=>typeof ref==='string'&&LISTENER.test(ref)).slice(0,8);
+        return [{content_id:mark.content_id,by:mark.by,status:mark.status,...(by.length?{with:by}:{})}];
+    });
 }
 
 /**
@@ -78,11 +100,13 @@ function partyEvent(turn:number,party:Row[],here:string[],selections:Row[],playe
     if(!actor)return undefined;
     const to=[...new Set(selections.filter(selection=>array(selection.to).includes(actor)).map(selection=>selection.actor as string))];
     const content_id=`p:${createHash('sha256').update(JSON.stringify([actor,turn,text])).digest('hex').slice(0,24)}`;
-    // A reply said low to the investigator means the investigator spoke low: nobody else heard the question either.
+    // A reply said low to the investigator means the investigator spoke low: nobody else heard the question either. A letter
+    // answers a letter. On the telephone the investigator's own side is still heard by those around them.
     const answering=selections.filter(selection=>array(selection.to).includes(actor));
-    const aside=answering.length>0&&answering.every(selection=>selection.channel==='aside');
-    return {seq:-1,id:`t${turn}:p`,actor,act:'player_input',to,status:'attested',...(aside?{channel:'aside'}:{}),
-        heard:aside?[]:here.filter(ref=>ref!==actor&&!to.includes(ref)),items:[{content_id,strategy:'new',kind:'player_input',gist:text}]};
+    const channel=answering.length&&answering.every(selection=>selection.channel===answering[0].channel)?answering[0].channel:undefined;
+    const quiet=channel==='aside'||channel==='letter';
+    return {seq:-1,id:`t${turn}:p`,actor,act:'player_input',to,status:'attested',...(channel&&channel!=='speech'?{channel}:{}),
+        heard:quiet?[]:here.filter(ref=>ref!==actor&&!to.includes(ref)),items:[{content_id,strategy:'new',kind:'player_input',gist:text}]};
 }
 
 /** The records of this worldline and loop before `turn`, oldest first; a later turn a rewind left behind is not read. */
@@ -180,4 +204,35 @@ export function partySaidView(records:Row[],listener:string,scope:Row,turn?:numb
             said.push({content_id:item.content_id,said_by:event.actor,...(toMe?{to_me:true}:{}),gist:item.gist,turn:number(record.turn)});
     }
     return said.reverse().slice(0,TOLD_ROWS);
+}
+
+/**
+ * §258.11: offers and the deals they make, folded from the turn records. An attested `offer` item is a proposal by its
+ * speaker to its addressees; the Keeper's marks settle it: `accepted` makes it a commitment of the speaker (the obligor) to
+ * the accepters, `declined` and `withdrawn` close it, `kept` and `broken` settle the commitment. The newest mark wins. Rows
+ * are this person's own (`by` is them) or owed to them (they are among `to`), newest first, open ones only unless `all`.
+ */
+export function agreementView(records:Row[],person:string,scope:Row,turn?:number,all=false):Row[] {
+    const deals=new Map<string,Row>();
+    for(const record of scoped(records,scope,turn)){
+        const communication=row(record.communication);
+        for(const event of array(communication.events)){
+            if(event.act!=='offer'||event.status!=='attested'||!isNpcReference(event.actor))continue;
+            for(const item of array(event.items)){
+                const key=`${event.actor} ${item.content_id}`;
+                if(deals.has(key))continue;
+                deals.set(key,{content_id:item.content_id,by:event.actor,to:array(event.to),...(item.gist?{gist:item.gist}:{}),
+                    made_turn:number(record.turn),status:'open'});
+            }
+        }
+        for(const mark of array(communication.agreements)){
+            const deal=deals.get(`${mark.by} ${mark.content_id}`);
+            if(!deal)continue;
+            if(!NEXT[string(deal.status)]?.includes(mark.status))continue;
+            if(mark.status==='accepted')deal.with=array(mark.with).length?array(mark.with):deal.to;
+            deal.status=mark.status;deal.since_turn=number(record.turn);
+        }
+    }
+    return [...deals.values()].filter(deal=>(deal.by===person||array(deal.with??deal.to).includes(person))
+        &&(all||deal.status==='open'||deal.status==='accepted')).reverse().slice(0,TOLD_ROWS);
 }

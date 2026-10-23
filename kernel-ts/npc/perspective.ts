@@ -42,8 +42,8 @@ export function npcRecentSpeech(graph:ModuleGraph,node:Row,records:Row[],scope:R
     const handle=graph.handle(node),name=graph.displayName(node);
     return records.filter(record=>Boolean(record.commit)&&current(record,scope)).sort((a,b)=>number(a.turn)-number(b.turn))
         .flatMap(record=>{
-            // §258.9: a turn this person spoke only as an aside is marked with who received it, so no reader treats it as public.
-            const aside=ref?array(row(record.communication).events).filter(event=>event.actor===ref&&event.channel==='aside'):[];
+            // §258.9-§258.10: a turn this person spoke only privately (aside, phone, letter) is marked with who received it, so no reader treats it as public.
+            const aside=ref?array(row(record.communication).events).filter(event=>event.actor===ref&&['aside','phone','letter'].includes(event.channel)):[];
             const to=[...new Set(aside.flatMap(event=>array(event.to)))];
             return array(record.speech).filter(line=>row(line.who).npc===handle&&typeof line.text==='string').map(line=>({
                 statement:line.text,turn:record.turn,authority:'conversation_report',attribution:{kind:'speech',speaker:{kind:'npc',name}},
