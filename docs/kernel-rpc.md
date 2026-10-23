@@ -52026,12 +52026,14 @@ Nothing else stores communication: every count is read back from the turn record
 
 `content_id` is `<kind letter>:<24 hex>` from an explicit key per source kind, so two kinds never collide: `m:` a memory or report id, `e:` an
 event material, `c:` a discovered clue name, `x:` an exhibit id, `s:` a source name, `n:` a new constructor with its actor, `h:` otherwise
-the actor and the row's text. `result_ref` content has none.
+the actor and the row's text. A person's own earlier words (`public_speech_history`, `recent_speech`) take the identity of the one told row
+whose `turns` holds the words' turn, so a reworded answer is the same item; a person's catalog keeps one row per content. `result_ref`
+content has none.
 
 ### 258.4 Told marks and telling strategies
 
 - `table.look focus:npc` adds `told`: this person's told rows for the current worldline and loop, before the current turn, newest first, at
-  most 6: `{content_id, kind?, gist?, last_turn, to: {<listener>: {new?, refer?, restate?, clarify?, update?, unverified?, addressed?, last_turn}}}`.
+  most 6: `{content_id, kind?, gist?, last_turn, turns (attested, last 8), to: {<listener>: {new?, refer?, restate?, clarify?, update?, unverified?, addressed?, last_turn}}}`.
   Attested deliveries count for addressed and heard listeners; a `missing` one adds `unverified` for the addressed only.
 - `DecisionContent.prepare` marks each catalog fact issued to that person: `told: {to: {investigator_1: 2}, last_turn}` (an unverified-only
   listener shows `{unverified: n}`). The person's own earlier words (`public_speech_history`, `recent_speech`) and own promises
@@ -52040,7 +52042,7 @@ the actor and the row's text. `result_ref` content has none.
   (or one marked `earlier`) is settled as `refer`, otherwise `new`; no refusal and no extra Keeper round. `update` needs another `new` item in
   the same response, else the packet is refused with that repair.
 - The author's claim carries `telling: {strategy, times?}` when the strategy is not `new`; an `existing_account_response` carries
-  `telling: {strategy: "refer", times}`, and own earlier words selected as `restate` or `clarify` stay a claim.
+  `telling: {strategy: "refer", times}` (an exhibit claim keeps its `telling` when the surface replaces the placeholder), and own earlier words selected as `restate` or `clarify` stay a claim.
 - `DECISION_AUTHOR_INSTRUCTION` no longer says a repeated answer must be rendered because "history cannot cancel it"; it says how each
   strategy is said and never to reuse a sentence from `recent_public`.
 
