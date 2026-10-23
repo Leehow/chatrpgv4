@@ -34,7 +34,7 @@ function lineFont(line: Line): string {
 
 const sha = (text: string) => createHash("sha256").update(text, "utf8").digest("hex");
 /** Characters that close a sentence; a column ending on one of these is not continued by the next column. */
-const CLOSERS = new Set(["。", ".", "!", "?", "！", "？", "」", "”", "\"", ":", "：", ")", "）"]);
+const CLOSERS = new Set([".", "!", "?", ":", ")", "\"", "\u3002", "\u300d", "\u201d", "\u300f"]);
 
 /** The x of the page's column gutter, or null for a single-column page: the least covered x in the middle band. */
 export function columnGutter(items: LayoutItem[], width: number): number | null {
@@ -102,7 +102,7 @@ export function layoutBlocks(page: number, items: LayoutItem[], width: number): 
 	const indexed = groups.map((lines, index) => ({ lines, index }));
 	const before = indexed.filter(entry => entry.lines[0].column === 0).at(-1), after = indexed.find(entry => entry.lines[0].column === 1);
 	if (before && after) {
-		const closed = CLOSERS.has(blocks[before.index].text.trimEnd().at(-1) ?? "");
+		const closed = CLOSERS.has((blocks[before.index].text.trimEnd().at(-1) ?? "").normalize("NFKC"));
 		const end = before.lines.at(-1)!, start = after.lines[0];
 		if (!closed && lineFont(end) === lineFont(start) && Math.abs(end.height - start.height) <= Math.max(1, end.height * 0.12))
 			blocks[after.index].continues = blocks[before.index].id;

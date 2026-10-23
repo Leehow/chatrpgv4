@@ -10,7 +10,9 @@ import { join } from "node:path";
 export type ReaderPrompt = { phase: "index" | "read" | "verify"; purpose?: string; guidance?: boolean; answer?: boolean;
 	visual?: "scan" | "asset" | "scope"; reference?: "guidance" | "lookup";
 	/** §207.3: a detail reading's material; `pregens` and `exhibits` add their own file to the reading author's phase files. */
-	material?: string };
+	material?: string;
+	/** §262.3: a lean detail reading; adds `lean.md` after the purpose's files and never selects the native source reader. */
+	lean?: boolean };
 
 export const VISUAL_READER_DIR = "visual-reader";
 /** The reading purposes with a phase file of their own under `visual-reader/`. */
@@ -26,6 +28,10 @@ export function visualReaderFiles(phase: ReaderPrompt["phase"], purpose?: string
 	const own = purpose && READ_PURPOSES.includes(purpose) ? [purpose] : READ_PURPOSES;
 	return ["read.md", ...own.map(name => `${name}.md`), ...(material && READ_MATERIALS.includes(material) ? [`${material}.md`] : []), "common.md"];
 }
+/** §262.3: the files of a lean detail reading: the reading author's files, then the lean bounds. */
+export function leanReaderFiles(material?: string): string[] {
+	return [...visualReaderFiles("read", "detail", material).filter(name => name !== "common.md"), "lean.md", "common.md"];
+}
 
 /** The instruction text of one reader child. */
 export async function readerInstructionText(contentRoot: string, prompt: ReaderPrompt): Promise<string> {
@@ -39,7 +45,8 @@ export async function readerInstructionText(contentRoot: string, prompt: ReaderP
 		const [common, own] = await Promise.all([readFile(join(setup, VISUAL_READER_DIR, "common.md"), "utf8"), readFile(join(setup, single), "utf8")]);
 		return common.split('\n## Source access\n')[0] + '\n\n' + own;
 	}
-	const parts = await Promise.all(visualReaderFiles(phase, prompt.purpose, prompt.material).map(async name => {
+	const files = prompt.lean && phase === "read" ? leanReaderFiles(prompt.material) : visualReaderFiles(phase, prompt.purpose, prompt.material);
+	const parts = await Promise.all(files.map(async name => {
 		const text = await readFile(join(setup, VISUAL_READER_DIR, name), "utf8");
 		return phase === 'index' && name === 'common.md' ? text.split('\n## Module reference policy: logic and campaign continuity\n')[0] : text;
 	}));

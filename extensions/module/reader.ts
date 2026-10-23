@@ -136,7 +136,7 @@ export interface ReaderOutcome {
 
 /** A missing Jev credential keeps the existing tool-enabled Pi source reader. */
 export function nativeSourceReaderEnabled(request: Pick<ReaderRequest,"source"|"prompt"|"submission">, env:NodeJS.ProcessEnv):boolean {
-	return !!request.source && (!!request.prompt?.reference || request.prompt?.answer === true || request.prompt?.guidance === true ||
+	return !!request.source && request.prompt?.lean !== true && (!!request.prompt?.reference || request.prompt?.answer === true || request.prompt?.guidance === true ||
 		request.submission===true&&['read','verify'].includes(request.prompt?.phase??'')) && !!readJevApiKey(env);
 }
 

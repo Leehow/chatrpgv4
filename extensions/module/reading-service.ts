@@ -27,6 +27,8 @@ import type {PublicationTravel, TravelFill} from './travel-fill.ts';
 import type {ClaimSupportCheck, ClaimSupportRequest} from './claim-support.ts';
 import {runSourceReference,SourceReferenceFailure} from './source-reference.ts';
 import {runPageOpen} from './page-open.ts';
+import {leanEligible, runLeanDetail} from './lean-read.ts';
+import {buildSkeleton, leanCrossReferences} from './lean-skeleton.ts';
 import {acceptedGuidance,acceptedPublicGuidance} from './character-guidance.ts';
 import {validateReferencePacket} from '../../kernel-ts/modules/reference-contract.ts';
 import {readNeedReceipt,type NeedReceipt} from '../../runtime/jev/source-need-reads.ts';
@@ -451,6 +453,25 @@ export class ReadingService implements ReadingBridge {
 			this.note({ lane: "reading", event: "deadline_stop", deadline_ms: deadline, running: this.controllers.size });
 			this.dispose({ handOff: true });
 		}, deadline).unref();
+	}
+	/** §262.5: the documents whose skeleton this host started, by file hash. */
+	private skeletons = new Map<string, Promise<void>>();
+	/** §262.5: under lean reading, build the bound document's skeleton once in the background; never awaited by play. */
+	private leanSkeleton(mid: string, campaign: string | undefined): void {
+		if (process.env.PI_COC_LEAN_READING !== "1" || this.stopped || !this.deps.runtime) return;
+		const started = (async () => {
+			const source = await this.call("module.source.snapshot", { module_id: mid }, campaign);
+			if (source.window || this.skeletons.has(source.file_sha256)) return;
+			const controller = new AbortController(), key = `skeleton:${source.file_sha256}`;
+			this.controllers.set(key, controller);
+			this.skeletons.set(source.file_sha256, buildSkeleton({ runtime: this.runtime(), moduleId: mid, home: this.deps.home,
+				cache: join(dirname(source.pdf), "cache"), source: { path: source.pdf, file_sha256: source.file_sha256, page_count: source.page_count },
+				model: this.deps.model(), signal: controller.signal, record: row => this.deps.record({ ...row, campaign }),
+				shared: { priority: "background" }, mayContinue: () => !this.stopped && !this.capReached(mid, campaign) })
+				.then(() => undefined, error => { this.note({ lane: "reading", event: "skeleton_failed", module_id: mid, campaign, detail: String(error).slice(0, 500) }); })
+				.finally(() => this.controllers.delete(key)));
+		})();
+		started.catch(error => this.note({ lane: "reading", event: "skeleton_failed", module_id: mid, campaign, detail: String(error).slice(0, 500) }));
 	}
 	/** §262.1: reading spend per module this host recorded (input, cache read and output of every child). */
 	private spent = new Map<string, number>();
@@ -1007,6 +1028,7 @@ export class ReadingService implements ReadingBridge {
 	 */
 	private async readAhead(params: Row, campaign: string | undefined): Promise<Row | undefined> {
 		if (typeof params.module_id === "string" && this.capReached(params.module_id, campaign)) return undefined;
+		if (typeof params.module_id === "string") this.leanSkeleton(params.module_id, campaign);
 		const result = await this.call("module.read.ahead", params, campaign);
 		if (result?.window && typeof result.window === "object" && !Array.isArray(result.window)) {
 			const { transcript, ...window } = result.window as Row;
@@ -1584,6 +1606,33 @@ export class ReadingService implements ReadingBridge {
 		let identityHeld: string | undefined;
 		try {
 			if (!model.vision) throw error("vision_required", "the reader has no image input", "select a model that supports images");
+			// §262.3–§262.4: a lean detail reading is one bounded reader and the host's lean review, then the existing gate.
+			if (leanEligible(job)) {
+				try {
+					const lean = await runLeanDetail({ runtime: this.runtime(), job, cwd, cache: dirname(cache), model, signal,
+						record: row => { tallyReadingRow(accounting, row); this.deps.record({ ...row, campaign }); },
+						shared: { providerBudget, ...(readingLease ? { readingLease } : {}), beforeProviderRequest: s => this.waitForPriority(job, key, s, campaign),
+							priority: () => job.foreground === false ? "background" : "foreground", onEvent: childActivity },
+						crossReferences: await leanCrossReferences(job, this.deps.home).catch(() => []) });
+					const draft = JSON.parse(await readFile(lean.draftPath, "utf8")), assets = [];
+					validateMapRegions(draft);
+					for (const node of publishableAssetNodes(draft, job.purpose)) {
+						if (typeof node.node_id !== "string" || !/^[a-z][a-z0-9-]{0,159}$/.test(node.node_id)) throw new Error("asset identifiers must be semantic kebab names");
+						assets.push({ node_id: node.node_id, ...await sourceAsset(job.source.path, cache, publicationImageSources(draft, node), join(cwd, "assets", `${node.node_id}.png`)) });
+					}
+					const published = await this.call("module.read.finish", { module_id: job.module_id, job_id: job.job_id, lease: job.lease, author_model: model.id,
+						outcome: "completed", draft_path: lean.draftPath, review_path: lean.reviewPath, assets }, campaign);
+					this.recordLibrarySync(published, { module_id: job.module_id, campaign, job_id: job.job_id });
+					await this.readAhead({ module_id: job.module_id, ...(job.focus ? { focus: job.focus } : {}) }, campaign).catch(() => undefined);
+				} catch (failure) {
+					if (isKernelError(failure) && failure.details?.reason === 'source_context_changed') throw failure;
+					detail = isKernelError(failure) ? failure.toToolText() : String(failure instanceof Error ? failure.message : failure);
+					refusal = isKernelError(failure) ? { message: failure.message,
+						...Object.fromEntries(["path", "rule", "reason"].filter(name => typeof failure.details?.[name] === "string").map(name => [name, failure.details![name]])) } : undefined;
+					await writeFile(join(cwd, "findings.json"), JSON.stringify({ error: detail, lean: true }) + "\n").catch(() => undefined);
+				}
+				return;
+			}
 			// Reader/check/review failures keep the existing two rounds. One opening semantic rejection
 			// from publication can add only its own source-grounded repair round.
 			let lastRound = 2, finishRepairUsed = false;
