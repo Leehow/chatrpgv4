@@ -441,7 +441,7 @@ export class ReadingService implements ReadingBridge {
 		const beat = (row: Row) => { if (row && row.job_id) this.beat(JSON.stringify([row.campaign, row.module_id, row.job_id])); };
 		this.note = row => deps.record(row);
 		this.deps = { ...deps,
-			record: row => { beat(row); deps.record(row); },
+			record: row => { beat(row); this.spend(row); deps.record(row); },
 			progress: row => { beat(row); deps.progress(row); } };
 		// A bounded live test (`PI_COC_READ_DEADLINE_MS`): past it this host reads nothing more, so a test that forgets to stop
 		// its table cannot keep reading the whole book; claimed readings are handed off as at a worker's exit.
@@ -451,6 +451,25 @@ export class ReadingService implements ReadingBridge {
 			this.note({ lane: "reading", event: "deadline_stop", deadline_ms: deadline, running: this.controllers.size });
 			this.dispose({ handOff: true });
 		}, deadline).unref();
+	}
+	/** §262.1: reading spend per module this host recorded (input, cache read and output of every child). */
+	private spent = new Map<string, number>();
+	private capped = new Set<string>();
+	private spend(row: Row): void {
+		const usage = row?.usage, mid = row?.module_id;
+		if (!usage || typeof mid !== "string") return;
+		const tokens = (Number(usage.inputTokens) || 0) + (Number(usage.outputTokens) || 0);
+		if (tokens > 0) this.spent.set(mid, (this.spent.get(mid) ?? 0) + tokens);
+	}
+	/** §262.1: whether this module's recorded reading spend reached `PI_COC_READING_CAP_TOKENS`; recorded once. */
+	private capReached(mid: string, campaign: string | undefined): boolean {
+		const cap = Number(process.env.PI_COC_READING_CAP_TOKENS);
+		if (!Number.isFinite(cap) || cap <= 0 || (this.spent.get(mid) ?? 0) < cap) return false;
+		if (!this.capped.has(mid)) {
+			this.capped.add(mid);
+			this.note({ lane: "reading", event: "reading_cap", module_id: mid, campaign, spent: this.spent.get(mid), cap });
+		}
+		return true;
 	}
 	private campaign(params: Row): string | undefined {
 		// null explicitly selects the library, even when this service is bound to a campaign.
@@ -987,6 +1006,7 @@ export class ReadingService implements ReadingBridge {
 	 * (§191.6, background, never awaited) after every read-ahead, with one `window` row when they change.
 	 */
 	private async readAhead(params: Row, campaign: string | undefined): Promise<Row | undefined> {
+		if (typeof params.module_id === "string" && this.capReached(params.module_id, campaign)) return undefined;
 		const result = await this.call("module.read.ahead", params, campaign);
 		if (result?.window && typeof result.window === "object" && !Array.isArray(result.window)) {
 			const { transcript, ...window } = result.window as Row;
@@ -1287,6 +1307,11 @@ export class ReadingService implements ReadingBridge {
 							break;
 						}
 						this.blockedClaims.delete(scope);
+						// §262.1: past the reading cap a background job is handed back cancelled; a foreground one still runs.
+						if (job.foreground !== true && this.capReached(mid, campaign)) {
+							await this.call("module.read.finish", { module_id: mid, job_id: job.job_id, lease: job.lease, outcome: "cancelled", detail: "reading_cap" }, campaign).catch(() => undefined);
+							continue;
+						}
 						capacity = Math.max(1, Number(job.concurrency) || 1);
 						const key = JSON.stringify([campaign, mid, job.job_id]);
 						const controller = new AbortController();

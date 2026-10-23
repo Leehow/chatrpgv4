@@ -16,3 +16,5 @@ function workPriority(job: Job): number {
 export const readingPriority = (job: Job): number => job.foreground === true ? 0 : workPriority(job);
 export const compareReadingPriority = (left: Job, right: Job): number =>
     readingPriority(left) - readingPriority(right) || workPriority(left) - workPriority(right);
+/** §262.1: lean reading streams no source units; material is read when play asks for it. */
+export const leanReading = (env: NodeJS.ProcessEnv = process.env): boolean => env.PI_COC_LEAN_READING === '1';

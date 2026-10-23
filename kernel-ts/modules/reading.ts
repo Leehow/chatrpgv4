@@ -1,4 +1,4 @@
-import {attachesReadingFocus, sameReadingFocusDomain, compareReadingPriority} from './reading-policy.js';
+import {attachesReadingFocus, sameReadingFocusDomain, compareReadingPriority, leanReading} from './reading-policy.js';
 /** One persisted source queue; native descriptor leases own publication attempts. */
 import { createHash, randomUUID } from 'node:crypto';
 import { copyFile, mkdir, readFile, rename, stat } from 'node:fs/promises';
@@ -1254,14 +1254,15 @@ export class Reading {
             // §182.3: the units that meet the window, those from the anchor on first.
             const units=referenceSourceUnits(pageCount).filter(unit=>rangeMeets(window,unit.first,unit.last)).sort((a,b)=>Number(a.last<first)-Number(b.last<first)||a.first-b.first);
             // A unit whose every job was cancelled (a host that stopped) is read again, as the indexed stream below does.
-            for(const unit of units.filter(unit=>!seen.has(sourceUnitKey(unit))).slice(0,Math.max(0,2-active)))
+            // §262.1: lean reading asks no source unit; play asks for its material.
+            if(!leanReading())for(const unit of units.filter(unit=>!seen.has(sourceUnitKey(unit))).slice(0,Math.max(0,2-active)))
                 await ask({purpose:'detail',focus:unit.section,source_unit:unit,question:unitQuestion(meta,unit),
                     ...(work.some(job=>job.state==='cancelled'&&sourceUnitKey(job.source_unit as SourceUnit)===sourceUnitKey(unit))?{retry:true}:{})});
             await this.queueNeedReads(mid,graph,ask,window);
             await queueVisual();
             return {queued:[...new Set(queued)],reference_context:true,graph_complete:false,...await outcome(),...recovery};
         }
-        if(reading.opening_scope==='first_interaction'&&truth(reading.index_complete)&&Object.values(row(meta.prepared_openings)).some(value=>truth(row(value).opening_ready))){
+        if(!leanReading()&&reading.opening_scope==='first_interaction'&&truth(reading.index_complete)&&Object.values(row(meta.prepared_openings)).some(value=>truth(row(value).opening_ready))){
             const queue=ownAsks(await this.store.queue(mid)),work=queue.filter(job=>job.source_unit);
             if(work.filter(job=>['queued','running'].includes(job.state)).length<2){
                 let anchorNode=truth(params.focus)?graph.find(string(params.focus)):null;
@@ -1921,6 +1922,9 @@ export class Reading {
                     stale.purpose === 'detail' && !truth(stale.question) && await this.materialReady(mid, stale.focus))) {
                     Object.assign(stale, { state: 'completed', finished_at: nowIso(), reused_generation: meta.generation ?? 0, result: { state: 'ready', generation: meta.generation ?? 0, opening_ready: truth(meta.opening_ready) } });
                 }
+                // §262.1: a source unit queued before lean reading was on is not read in the background.
+                if (stale.state === 'queued' && isJsonObject(stale.source_unit) && !truth(stale.foreground) && leanReading())
+                    Object.assign(stale, { state: 'cancelled', detail: 'lean_reading', finished_at: nowIso() });
                 // §182.4: a background index queued before this book stopped reading its index in the background is not read;
                 // a foreground request for it is.
                 if (stale.state === 'queued' && stale.purpose === 'index' && !truth(stale.foreground) && !indexInBackground)

@@ -435,3 +435,21 @@ test('§182.1 host: a table opening on a book without an outline hands the PDF\'
 	await failing.reading.backfillOutline('book-1');
 	assert.deepEqual(failedRows.map(row => [row.event, row.state, row.detail]), [['outline_backfill', 'failed', 'the PDF cannot be opened']], 'a failure is one row and nothing else');
 });
+
+test('§262.1: under lean reading a reference book streams no source unit, and units queued before it are cancelled at claim', async () => {
+	const b = await book('lean-stream', 120, {bookmarks: BOOKMARKS});
+	await b.ahead({focus: 'Harbor'});
+	assert.deepEqual(await b.units(), [41, 43], 'without lean the read-ahead asks the window\'s first two units');
+	const before = process.env.PI_COC_LEAN_READING;
+	process.env.PI_COC_LEAN_READING = '1';
+	try {
+		const job = await b.call('module.read.claim', {owner: 'test-host'});
+		assert.equal(job.source_unit, undefined, 'a queued source unit is not started under lean reading');
+		const units = (await b.queue()).filter(row => row.source_unit);
+		assert.deepEqual(units.map(row => [row.state, row.detail]), [['cancelled', 'lean_reading'], ['cancelled', 'lean_reading']]);
+		await b.ahead({focus: 'Harbor'});
+		assert.equal((await b.queue()).filter(row => row.source_unit && row.state === 'queued').length, 0, 'the read-ahead asks no new unit');
+	} finally {
+		if (before === undefined) delete process.env.PI_COC_LEAN_READING; else process.env.PI_COC_LEAN_READING = before;
+	}
+});
