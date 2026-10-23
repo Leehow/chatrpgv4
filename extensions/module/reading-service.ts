@@ -28,7 +28,7 @@ import type {ClaimSupportCheck, ClaimSupportRequest} from './claim-support.ts';
 import {runSourceReference,SourceReferenceFailure} from './source-reference.ts';
 import {runPageOpen} from './page-open.ts';
 import {leanEligible, runLeanDetail} from './lean-read.ts';
-import {buildSkeleton, castDraftFromSkeleton, leanCrossReferences, samePrimaryLanguage, skeletonDigest, skeletonIndexRows, skeletonPath, LEAN_ANSWER_ASK, LEAN_ANSWER_REQUESTS} from './lean-skeleton.ts';
+import {answerPages, buildSkeleton, castDraftFromSkeleton, leanCrossReferences, samePrimaryLanguage, skeletonDigest, skeletonIndexRows, skeletonPath, LEAN_ANSWER_ASK, LEAN_ANSWER_REQUESTS} from './lean-skeleton.ts';
 import {acceptedGuidance,acceptedPublicGuidance} from './character-guidance.ts';
 import {validateReferencePacket} from '../../kernel-ts/modules/reference-contract.ts';
 import {readNeedReceipt,type NeedReceipt} from '../../runtime/jev/source-need-reads.ts';
@@ -654,6 +654,8 @@ export class ReadingService implements ReadingBridge {
 		return {...published,source_reference:true};
 	}
 	async reference(mid:string,params:Row,signal?:AbortSignal,priority?:import('./reader.ts').ReaderPriority):Promise<Row|undefined>{
+		// §262.9: under lean reading a source answer is the book's own pages, sliced by the host; no reader runs.
+		if(process.env.PI_COC_LEAN_READING==='1'&&params.purpose==='answer'&&!params.materialize_place)return this.leanAnswer(mid,params,signal);
 		if(!this.deps.runtime?.sourceReferences)return;
 		const campaign=this.campaign(params);
 		if(params.materialize_place)await this.readAhead({module_id:mid,focus:params.focus||''},campaign);
@@ -925,6 +927,35 @@ export class ReadingService implements ReadingBridge {
 				catch (error) { record({ event: 'failed', stage: 'release', message: error instanceof Error ? error.message : String(error) }); }
 			}
 		}
+	}
+
+	/**
+	 * §262.9: a source answer as original pages: the skeleton's pages for the names the focus and question print, then the
+	 * host's text search for the focus; at most four pages, each cut to its first 3500 characters. Nothing found is an
+	 * answer too: the Keeper plays on from what is known.
+	 */
+	private async leanAnswer(mid: string, params: Row, signal?: AbortSignal): Promise<Row> {
+		const campaign = this.campaign(params), focus = String(params.focus ?? ""), question = String(params.question ?? "");
+		const snapshot = await this.call("module.source.snapshot", { module_id: mid }, campaign);
+		let pages: number[] = [];
+		try { pages = answerPages(JSON.parse(await readFile(skeletonPath(this.deps.home, snapshot.file_sha256), "utf8")), `${focus}\n${question}`); }
+		catch { /* no skeleton yet: the text search alone */ }
+		if (pages.length < 4 && focus.trim()) {
+			try {
+				const found = await this.runtime().sourceSearch({ pdf: snapshot.pdf, query: focus.trim().slice(0, 256), limit: 8 } as any, signal);
+				for (const hit of (found as Row)?.matches ?? []) if (Number.isSafeInteger(hit?.page) && !pages.includes(hit.page) && pages.length < 4) pages.push(hit.page);
+			} catch { /* a search the source refuses leaves the skeleton's pages */ }
+		}
+		pages.sort((a, b) => a - b);
+		const texts = pages.length ? await this.sourcePages(mid, pages, { ...(campaign === undefined ? { campaign: null } : { campaign }) }, signal) : [];
+		const excerpts = texts.filter(row => row.text.trim()).map(row => { const text = row.text.slice(0, 3500); return { id: `page-${row.page}`, page: row.page, start: 0, end: text.length, text }; });
+		this.note({ lane: "reading", event: "lean_answer", module_id: mid, campaign, focus, pages: excerpts.map(row => row.page) });
+		return { state: "ready", source_answer: { status: "excerpts", authority: "original-source-excerpts", prepared: false, source_sha256: snapshot.file_sha256,
+			answer: excerpts.length ? excerpts.map(span => `[Original physical page ${span.page}]\n${span.text}`).join("\n\n")
+				: `The book's index and text search found no page for ${focus}. Play on from published material and established table facts.`,
+			excerpts, source_refs: excerpts.map(span => ({ source_id: "pdf:" + mid, pdf_index: span.page - 1 })),
+			coverage: { partial: true, visual: "unassessed", unavailable_pages: [] },
+			note: "Exact original pages the host sliced for this focus (its skeleton index and a text search), not a generated answer. Read them for what was asked; a page may hold Keeper-only material. Do not infer whole-book absence or overwrite table canon." } };
 	}
 
 	/** §262.8: the cast from the skeleton, or undefined when lean reading cannot build it (the cast reader then runs). */

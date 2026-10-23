@@ -281,3 +281,20 @@ export function castDraftFromSkeleton(skeleton: Row, range: { first: number; las
 	}
 	return { people: people.slice(0, 200) };
 }
+
+/**
+ * §262.9: the pages a lean source answer slices for the Keeper: every skeleton entity whose name or alias the focus or the
+ * question prints (normalised spelling) gives its index pages, then the skeleton rows that name one of them give theirs.
+ * Name matching only; what the Keeper asked is never classified.
+ */
+export function answerPages(skeleton: Row, asked: string, limit = 4): number[] {
+	const key = normalName(asked), out: number[] = [];
+	const add = (page: unknown) => { if (Number.isSafeInteger(page) && Number(page) >= 1 && !out.includes(Number(page)) && out.length < limit) out.push(Number(page)); };
+	const named = (skeleton?.entities ?? []).filter((entity: Row) => [entity.name, ...(entity.aliases ?? [])]
+		.some((name: unknown) => typeof name === "string" && [...normalName(name)].length >= 2 && key.includes(normalName(name))));
+	for (const row of skeletonIndexRows({ entities: named })) for (const [first, last] of row.pages) for (let page = first; page <= last; page++) add(page + 1);
+	const names = new Set(named.flatMap((entity: Row) => [entity.name, ...(entity.aliases ?? [])].map((name: string) => normalName(name))));
+	for (const list of LISTS) for (const row of skeleton?.[list] ?? [])
+		if ((row.names ?? []).some((name: string) => names.has(normalName(name)))) for (const page of row.pages ?? []) add(page);
+	return out;
+}

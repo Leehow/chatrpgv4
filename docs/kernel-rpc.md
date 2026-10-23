@@ -52403,6 +52403,15 @@ source: "skeleton"}`. A book whose index has any row of another source keeps it 
 is `written` or `unchanged`. The material gate then knows the skeleton's names (§22.4.7): a person or place play names
 lands on its pages' text or asks its lean detail read.
 
+### 262.9 Lean source answers are the book's pages
+
+Under lean reading `lookup kind=source source_mode=answer` runs no reader: the host answers with original pages
+(`authority: "original-source-excerpts"`, the §148 reference envelope). The pages are, in order, the index pages (§262.7)
+of every skeleton entity whose name or alias the focus or question prints (normalised spelling), then the pages of the
+skeleton rows that name one of them, then the host's text search for the focus; at most four pages, each its first 3500
+characters of the preferred page text (§191.7). With none found the answer says so and the Keeper plays on. The §262.6
+bounded answer reader remains for a host that is not lean. Telemetry `{lane: "reading", event: "lean_answer", pages}`.
+
 ### 262.8 The cast from the skeleton
 
 Under lean reading the host builds the skeleton before it claims the cast (§177.2), and fills each cast range from the

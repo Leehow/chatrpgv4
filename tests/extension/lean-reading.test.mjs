@@ -153,3 +153,12 @@ test('§262.8: a cast range draft lists the skeleton\'s people printed on the ra
  assert.equal(lean.samePrimaryLanguage('zh-Hans','en'),false);
  assert.equal(lean.samePrimaryLanguage(undefined,'en'),false);
 });
+
+test('§262.9: a lean answer slices the index pages of the names the question prints, then the rows naming them', ()=>{
+ const skeleton={entities:[{name:'Last Stop',aliases:['Last Stop Bar'],pages:[3,27,28],blocks:['b27-1','b27-2','b28-0','b3-0']},
+  {name:'Seth',aliases:[],pages:[36],blocks:['b36-0']}],
+  keeper_truth:[{names:['Last Stop'],summary:'x',pages:[13]}],conditional_events:[{names:['Seth'],pages:[76]}],cross_references:[]};
+ assert.deepEqual(lean.answerPages(skeleton,'Who runs the  last stop bar?\nand her name'),[3,27,28,13]);
+ assert.deepEqual(lean.answerPages(skeleton,'nothing named here'),[]);
+ assert.deepEqual(lean.answerPages(skeleton,'Seth and the Last Stop',3),[3,27,28]);
+});
