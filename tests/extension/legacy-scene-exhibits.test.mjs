@@ -62,3 +62,19 @@ test('the scene the table opens in is queued one background exhibits read, and a
   await f.call('table.apply',{campaign:'c1',call_id:'t1-c2',effects:[{kind:'move',to:'pier'}]});
   assert.deepEqual(await exhibitsJobs(f),[],'re-entering a scene already queued queues no second read');
 });
+
+test('the exhibits read of the scene the table is in is claimed first; the scene left behind falls back to the least urgent', async t=>{
+  const f=await fixture(t);
+  await f.call('table.narrate',{campaign:'c1',call_id:'t0-c1',text:'The opening.'});
+  await f.call('table.player_input',{campaign:'c1',text:'I walk to the lighthouse.'});
+  await f.call('table.apply',{campaign:'c1',call_id:'t1-c1',effects:[{kind:'move',to:'lighthouse'}]});
+  const order=[];
+  for(;;){
+    const job=await f.call('module.read.claim',{campaign:'c1',module_id:f.mid,owner:'legacy-exhibits'}).catch(()=>null);
+    if(!job||!job.job_id||order.some(value=>value.job_id===job.job_id))break;
+    order.push(job);
+  }
+  const labels=order.map(job=>job.material==='exhibits'?`exhibits:${job.focus}`:String(job.purpose));
+  assert.equal(labels[0],'exhibits:lighthouse',`the current scene's exhibits read goes first: ${labels.join(', ')}`);
+  assert.equal(labels.at(-1),'exhibits:pier',`the scene left behind goes last: ${labels.join(', ')}`);
+});

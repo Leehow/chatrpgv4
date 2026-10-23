@@ -51926,13 +51926,19 @@ party stands in, whether it is a campaign's opening scene or a resumed campaign'
 no exhibits. The job identity dedups every later open and move, and a kernel error there is logged (`exhibits-unavailable`)
 and never refuses the open.
 
-The read is the least urgent background work: a queued background `material: "exhibits"` job sorts after every other queued job at claim
-(`workPriority` 6, `reading-policy.ts`), so it never goes ahead of a read another flow asked for. A foreground exhibits read
+The read of the scene the party is in is the first background work after an opening: `queueSceneExhibits` requests with
+`current_scene: true`, the job carries `current_scene: true` (`workPriority` 1.5, `reading-policy.ts`), and the same request
+clears the marker from every other queued or running exhibits job, so only the latest arrival's read is current. The host's
+priority wait (`reading-service.ts`) uses the same rank, so the current scene's read does not yield to older detail, index or
+source-unit reads. Any other background `material: "exhibits"` job (a scene the party has left) is the least urgent background
+work: it sorts after every other queued job at claim (`workPriority` 6), so it never goes ahead of a read another flow asked for.
+A review retry does not carry the marker (it is not one of the job markers) and runs at 6. A foreground exhibits read
 (`lookup source prepare`, 257.18) keeps foreground priority. A running background exhibits read writes exhibits only, so it never
 makes another read of its focus `focus_busy` and never absorbs one as an attached request.
 
 Tests: `tests/extension/ts-kernel-modules.test.mjs` (the read and its dedup), `tests/extension/legacy-scene-exhibits.test.mjs`
-(`table.open` on a bound book queues the opening scene's read; `table.apply` move queues the arrival scene's; re-entry queues none).
+(`table.open` on a bound book queues the opening scene's read; `table.apply` move queues the arrival scene's; re-entry queues none;
+the current scene's read is claimed first and the scene left behind last).
 
 ### 257.16 Voice reaches the author
 
@@ -51953,13 +51959,18 @@ Testimony joins the exhibit read (`REVEALABLE_EXHIBIT_KINDS` gains `testimony`).
 `stance` (`fact` when the graph gives none); scope is `person`.
 
 - **Catalog.** `DecisionContent` maps each owner handle to the `npc_N` the capsule issues (`present[].id` to `ref`) and lists
-  `{ref, kind: "testimony", channel, carrier, label, owners: ["npc_N"], stance, clue?}`. A testimony none of whose owners has an issued
+  `{ref, kind: "testimony", channel, carrier, label, owners: ["npc_N"], stance, clue?, said?}`. A testimony none of whose owners has an issued
   reference is not issued. `DecisionBindings.speechExhibits` is the issued testimony; `revealExhibits` stays document and perception.
 - **Binding.** `interactions[].content: [{exhibit_ref}]` selects testimony. The per-turn schema admits only the issued testimony references;
   the owner rule is the host's, not the schema's, so the repair can name the owners. Settlement (`settleExhibits(reveal, current, interactions)`)
   refuses before anything is written: a non-owner actor (`exhibit_not_owner`, naming each owner as `npc_N (display)`), testimony in `reveal`
   (`exhibit_testimony_revealed`), a document or perception in a person's content (`exhibit_not_owner`, "select it in reveal"), and a testimony
   whose owners have left (`exhibit_carrier_absent`, "none of its speakers is here").
+- **Said once.** After a packet that selected a testimony settles, `DecisionContent.markSaid` records its exhibit id for the play line
+  (campaign, worldline and loop; `forScope(scope, line)`), and every later catalog row of that testimony carries `said: true`. The record
+  lives in the table's process only: a restarted table issues it unmarked. Packet guidance: select a testimony only when the exchange is
+  about what its label says, never as a stock reply to another question, and do not select one marked `said` again; the owner refers back
+  to it or adds something new in their own words. Selecting it again is not refused.
 - **Clues.** A testimony that teaches a clue compiles the clue's ordinary `{kind:"clue"}` effect under §257.8: one discovery, ahead of the
   packet's other effects, the clue's own check applies, and a refusal names the exhibit.
 - **Author input.** The speaker's claim replaces the placeholder inside that interaction's `claims`:

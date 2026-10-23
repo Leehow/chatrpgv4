@@ -264,6 +264,8 @@ test('an owner says a lie: the clue it teaches is discovered once and the author
   const text=JSON.stringify(authorTask(table));
   for(const hidden of ['KEEPER_NOTE','LABEL exhibit','teaches','exhibit_id','knott-commission'])assert.ok(!text.includes(hidden),hidden);
   assert.equal(seen[1].exhibits.find(entry=>entry.label==='LABEL exhibit-knott-says').clue,'discovered');
+  assert.equal(seen[0].exhibits.find(entry=>entry.label==='LABEL exhibit-knott-says').said,undefined,'unsaid testimony carries no mark');
+  assert.equal(seen[1].exhibits.find(entry=>entry.label==='LABEL exhibit-knott-says').said,true,'the next turn\'s catalog marks it said');
   assert.equal(clueReceipts(table,2).length,0,'saying it again discovers nothing twice');
   const row=table.telemetry().find(entry=>entry.lane==='decision-content'&&entry.event==='exhibits');
   assert.deepEqual(row.selected,[refOfIssued(seen[0],'exhibit-knott-says')]);
@@ -305,6 +307,21 @@ test('a non-owner is refused with the owners named; testimony in reveal is refus
   const claims=owner.authorClaims(owner.hydrate([{actor:'npc_1',to:['investigator_1'],act:'answer',content:[{exhibit_ref:'exhibit_1'}]}]).responses,settled.authors)[0].claims;
   assert.deepEqual(claims,[{kind:'exhibit',exhibit:{kind:'testimony',channel:'speech',surface:'Surface t',stance:'deflection'},
     authority:'What this speaker says, in their terms; not world truth. Render as their speech; do not correct or expose it in narration.'}]);
+});
+
+test('said testimony is marked across turn scopes of one play line, not on another line; documents are never marked',()=>{
+  const owner=new DecisionContent();
+  const clerk=row('t',{kind:'testimony',channel:'speech',scope:'person',stance:'deflection',owners:['the-clerk']});
+  const issue=(scope,line)=>{owner.forScope(scope,line);return owner.prepare(scope,capsule,[],[],['Investigator'],[],[],[clerk,row('d')]).exhibits;};
+  const first=issue('c:1','c');
+  assert.equal(first.find(entry=>entry.kind==='testimony').said,undefined);
+  owner.markSaid(owner.settleExhibits([{exhibit_ref:first.find(entry=>entry.kind==='document').ref}],[clerk,row('d')],[{actor:'npc_1',content:[{exhibit_ref:first.find(entry=>entry.kind==='testimony').ref}]}]).selected);
+  const later=issue('c:2','c');
+  assert.equal(later.find(entry=>entry.kind==='testimony').said,true);
+  assert.equal(later.find(entry=>entry.kind!=='testimony').said,undefined,'a document read again is not marked');
+  assert.equal(issue('c:3','other-line').find(entry=>entry.kind==='testimony').said,undefined,'another worldline or loop starts unmarked');
+  assert.match(TURN_PACKET_GUIDANCE,/said:true/);
+  assert.match(TURN_PACKET_GUIDANCE,/only when the exchange is about what its label says/);
 });
 
 // ---- §257.17: {{who:}} in first sight and in speech_style ----

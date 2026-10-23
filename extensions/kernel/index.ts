@@ -2686,10 +2686,14 @@ export default function (pi: ExtensionAPI, host: {capabilities?:RuntimeCapabilit
     const compiledDecisionAuthority=Symbol('compiled-decision');
     function packetContent(state:TableState):DecisionContent {
         let content=contentReferences.get(state);if(!content){content=new DecisionContent();contentReferences.set(state,content);}
-        content.forScope(packetNpcScope(state));return content;
+        content.forScope(packetNpcScope(state),packetLine(state));return content;
     }
     function packetNpcScope(state:TableState):string {
         return JSON.stringify([state.campaign,state.sourceAnswerScope?.worldline??state.documentWorldline??'main',state.sourceAnswerScope?.loop??0,state.turn]);
+    }
+    /** The play line a turn scope belongs to: the same campaign, worldline and loop, across turns. */
+    function packetLine(state:TableState):string {
+        return JSON.stringify([state.campaign,state.sourceAnswerScope?.worldline??state.documentWorldline??'main',state.sourceAnswerScope?.loop??0]);
     }
     function packetNpcReferences(state:TableState):NpcReferences {
         let refs=npcReferences.get(state);if(!refs){refs=new NpcReferences();npcReferences.set(state,refs);}return refs;
@@ -5944,6 +5948,8 @@ export default function (pi: ExtensionAPI, host: {capabilities?:RuntimeCapabilit
 				}
 				operationResult=turnPacketResult(settled.details);
 			}
+            // §257.17: testimony said in a settled packet is marked `said` in later catalogs of this play line.
+            if(exhibits)materialOwner.markSaid(exhibits.selected);
 			const current=await state.kernel.call<Record<string,any>>('table.capsule',{campaign:state.campaign,_context_read:true});
             observationIdentities=[...(current.npc_references?.people??[]),...(current.present??[])];
             if(typeof current.where?.scene==='string'&&current.where.scene!==before.where?.scene)arrivedAt=current.where.scene;
