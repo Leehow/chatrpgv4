@@ -12,7 +12,7 @@ import {fauxAssistantMessage,fauxToolCall} from "@earendil-works/pi-ai";
 import {openTable} from "./harness.mjs";
 
 const ROOT=resolve(import.meta.dirname,"../..");
-const SECTIONED=["enhanced-locations","narration-craft","natural-npc","enhanced-items","keeper-pacing","story-thread","historical-reference","hostile-creatures","quick-settlement","zh-optimize"];
+const SECTIONED=["enhanced-locations","narration-craft","natural-npc","enhanced-items","keeper-pacing","story-thread","historical-reference","hostile-creatures","quick-settlement","zh-optimize","npc-portrayal"];
 /** A locations provider or a package with a reference section is indexed at any budget (§242, §247.4). */
 const temporary=await mkdtemp(join(tmpdir(),"mod-section-index-"));
 await symlink(join(ROOT,"node_modules"),join(temporary,"node_modules"),"dir");
