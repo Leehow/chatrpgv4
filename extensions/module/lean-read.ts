@@ -59,7 +59,7 @@ const blockRow = (block: SourceBlock) => ({ id: block.id, page: block.page, text
  * the source bound (later pages are named in `more_pages`), and the cross references up to theirs.
  */
 export function leanInput(task: Row, blocks: Map<number, SourceBlocksPage>, crossReferences: Row[] = []): Row {
-	const { known_nodes, known_claims, roster: _roster, commands: _commands, ...rest } = task;
+	const { known_nodes, known_claims, roster: _roster, commands: _commands, index: _index, ...rest } = task;
 	const roster = (Array.isArray(known_nodes) ? known_nodes : []).map((node: Row) => ({ node_id: node.node_id, node_kind: node.node_kind, name: node.name,
 		...(Array.isArray(node.aliases) && node.aliases.length ? { aliases: node.aliases } : {}) }));
 	const source_blocks: Row[] = [], more_pages: number[] = [], image_pages: number[] = [];

@@ -28,7 +28,7 @@ import type {ClaimSupportCheck, ClaimSupportRequest} from './claim-support.ts';
 import {runSourceReference,SourceReferenceFailure} from './source-reference.ts';
 import {runPageOpen} from './page-open.ts';
 import {leanEligible, runLeanDetail} from './lean-read.ts';
-import {buildSkeleton, leanCrossReferences, skeletonDigest, LEAN_ANSWER_REQUESTS} from './lean-skeleton.ts';
+import {buildSkeleton, leanCrossReferences, skeletonDigest, skeletonIndexRows, LEAN_ANSWER_REQUESTS} from './lean-skeleton.ts';
 import {acceptedGuidance,acceptedPublicGuidance} from './character-guidance.ts';
 import {validateReferencePacket} from '../../kernel-ts/modules/reference-contract.ts';
 import {readNeedReceipt,type NeedReceipt} from '../../runtime/jev/source-need-reads.ts';
@@ -468,7 +468,11 @@ export class ReadingService implements ReadingBridge {
 				cache: join(dirname(source.pdf), "cache"), source: { path: source.pdf, file_sha256: source.file_sha256, page_count: source.page_count },
 				model: this.deps.model(), signal: controller.signal, record: row => this.deps.record({ ...row, campaign }),
 				shared: { priority: "background" }, mayContinue: () => !this.stopped && !this.capReached(mid, campaign) })
-				.then(() => undefined, error => { this.note({ lane: "reading", event: "skeleton_failed", module_id: mid, campaign, detail: String(error).slice(0, 500) }); })
+				// §262.7: the skeleton's names become the reference book's navigation index (the library and this campaign's fork).
+				.then(async skeleton => {
+					const indexed = await this.call("module.skeleton.index", { module_id: mid, file_sha256: source.file_sha256, rows: skeletonIndexRows(skeleton) }, campaign);
+					this.note({ lane: "reading", event: "skeleton_index", module_id: mid, campaign, library: indexed?.library, fork: indexed?.campaign });
+				}, error => { this.note({ lane: "reading", event: "skeleton_failed", module_id: mid, campaign, detail: String(error).slice(0, 500) }); })
 				.finally(() => this.controllers.delete(key)));
 		})();
 		started.catch(error => this.note({ lane: "reading", event: "skeleton_failed", module_id: mid, campaign, detail: String(error).slice(0, 500) }));

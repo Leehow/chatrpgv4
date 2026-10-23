@@ -453,3 +453,16 @@ test('§262.1: under lean reading a reference book streams no source unit, and u
 		if (before === undefined) delete process.env.PI_COC_LEAN_READING; else process.env.PI_COC_LEAN_READING = before;
 	}
 });
+
+test('§262.7: a reference book takes the skeleton\'s names as its navigation index; the library and an existing fork are written, other index rows are kept', async () => {
+	const b = await book('skeleton-index', 120, {bookmarks: BOOKMARKS});
+	const rows = [{name: 'Russ Williams', entities: ['Russ'], pages: [[12, 12], [16, 19]]}, {name: '', pages: [[1, 1]]}, {name: 'Far', pages: [[500, 501]]}];
+	await assert.rejects(b.call('module.skeleton.index', {file_sha256: 'f'.repeat(64), rows}), /another source/);
+	const written = await b.call('module.skeleton.index', {file_sha256: b.sha, rows});
+	assert.deepEqual(written, {module_id: b.mid, library: 'written'});
+	assert.deepEqual(JSON.parse(await readFile(join(b.dir(), 'sections.json'), 'utf8')),
+		[{name: 'Russ Williams', pages: [[12, 12], [16, 19]], entities: ['Russ'], source: 'skeleton'}], 'blank names and out-of-book pages are dropped');
+	assert.equal((await b.call('module.skeleton.index', {file_sha256: b.sha, rows})).library, 'unchanged');
+	await save(join(b.dir(), 'sections.json'), [{name: 'Index row', pages: [[3, 4]]}]);
+	assert.equal((await b.call('module.skeleton.index', {file_sha256: b.sha, rows})).library, 'kept', 'an index the book already has is never replaced');
+});

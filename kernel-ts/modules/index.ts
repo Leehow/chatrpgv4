@@ -30,6 +30,7 @@ function handlersFor(store: ModuleStore, reading: Reading): HandlerGroup {
         'module.source.bind': params => reading.bind(params),
         'module.source.upgrade': params => sourceUpgrade(store,params),
         'module.source.outline': params => reading.writeOutline(params),
+        'module.skeleton.index': params => reading.writeSkeletonIndex(params),
         'module.source.answer.peek': params => reading.peekAnswer(params),
         'module.source.materials.snapshot': params => reading.materialSnapshot(params),
         'module.reference.materialize': params => reading.publishReferencePlace(params),
@@ -201,6 +202,14 @@ export function createModuleRuntime(context: KernelContext) {
             result.campaign = await scopedModuleRoot(context, campaign, id) !== null ? await write(scopedRuntime(campaign)) : 'no_fork';
         return result;
     };
+    /** §262.7: like the outline, the skeleton index is source navigation: the library and an existing fork; it never forks. */
+    const skeletonIndex = async (params: Row): Promise<Row> => {
+        const id = required(params, 'module_id'), campaign = params.campaign, result: Row = { module_id: id, library: 'missing' };
+        if (await library.store.exists(id)) result.library = string(row(await library.handlers['module.skeleton.index'](params)).state);
+        if (campaign !== undefined)
+            result.campaign = await scopedModuleRoot(context, campaign, id) !== null ? string(row(await scopedRuntime(campaign).handlers['module.skeleton.index'](params)).state) : 'no_fork';
+        return result;
+    };
     const dispatch = async (method: string, params: Row): Promise<Row> => {
         if(method==='module.source.upgrade') {
             const id=required(params,'module_id'); let target=await owner(params.campaign,id);
@@ -214,6 +223,7 @@ export function createModuleRuntime(context: KernelContext) {
         }
         if (method === 'module.read.ahead') return ahead(params, true);
         if (method === 'module.source.outline') return outline(params);
+        if (method === 'module.skeleton.index') return skeletonIndex(params);
         if (libraryOnly.has(method) || params.campaign === undefined || typeof params.module_id !== 'string')
             return library.handlers[method](params);
         const id = required(params, 'module_id'), campaign = params.campaign;

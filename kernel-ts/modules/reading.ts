@@ -530,6 +530,35 @@ export class Reading {
             return { state: 'written', entries: outline.length };
         });
     }
+    /**
+     * §262.7: a reference book's skeleton entities as its navigation index rows (`source: "skeleton"`), so the material
+     * gate's index (§22.4.7) knows the names the skeleton found and their pages. A book with any other index row keeps it.
+     */
+    async writeSkeletonIndex(params: Row): Promise<Row> {
+        const mid = validateModuleId(params.module_id);
+        if (typeof params.file_sha256 !== 'string' || !Array.isArray(params.rows))
+            throw new RpcError('invalid_params', 'module.skeleton.index needs module_id, the bound file_sha256 and rows');
+        return this.mutex(mid, async () => {
+            const meta = await this.store.module(mid), source = row(meta.source_document), count = number(source.page_count);
+            if (source.file_sha256 !== params.file_sha256)
+                throw new RpcError('invalid_params', 'this skeleton belongs to another source than the one bound to this module', { details: { reason: 'source_mismatch' } });
+            if (!meta.source_reference) return { state: 'not_reference' };
+            const existing = await this.store.indexRows(mid, meta);
+            if (existing.some(entry => entry.source !== 'skeleton')) return { state: 'kept', rows: existing.length };
+            const rows = params.rows.slice(0, 400).flatMap((entry: unknown): Row[] => {
+                const value = row(entry), name = typeof value.name === 'string' ? value.name.trim().slice(0, 200) : '';
+                const pages = array(value.pages).filter((range: unknown) => Array.isArray(range) && range.length === 2 && range.every(page => integer(page) && Number(page) >= 0 && Number(page) < count)
+                    && Number(range[0]) <= Number(range[1])).slice(0, 6);
+                if (!name || !pages.length) return [];
+                const entities = array(value.entities).filter((alias: unknown): alias is string => typeof alias === 'string' && !!alias.trim()).map(alias => alias.trim().slice(0, 200)).slice(0, 12);
+                return [{ name, pages, entities, source: 'skeleton' }];
+            });
+            if (equal(existing, rows)) return { state: 'unchanged', rows: rows.length };
+            this.owned();
+            await this.store.writeSections(mid, rows);
+            return { state: 'written', rows: rows.length };
+        });
+    }
     async source(meta: Row): Promise<Row> {
         const source = meta.source_document;
         const missing = (message: string): never => { throw new RpcError('needs', message, { fix: 'bind the matching original PDF with module.source.bind', details: { reason: 'needs_source' } }); };

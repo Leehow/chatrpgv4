@@ -212,3 +212,13 @@ export async function skeletonDigest(home: string, sha: string): Promise<Row | u
 	const people = (skeleton.entities ?? []).slice(0, 200).map((entity: Row) => ({ name: entity.name, pages: entity.pages }));
 	return rows.length || people.length ? { note: "Where the book discusses these people and events (navigation only, not evidence): open the listed pages first, search only for what it does not place.", rows, entities: people } : undefined;
 }
+
+/** §262.7: the skeleton's entities as navigation index rows: name, aliases and their pages as 0-based ranges. */
+export function skeletonIndexRows(skeleton: Row): Row[] {
+	return (skeleton?.entities ?? []).flatMap((entity: Row) => {
+		const pages: number[] = [...new Set<number>((entity.pages ?? []).filter((page: unknown) => Number.isSafeInteger(page) && Number(page) >= 1))].sort((a, b) => a - b);
+		const ranges: number[][] = [];
+		for (const page of pages) { const last = ranges.at(-1); if (last && page - 1 === last[1] + 1) last[1] = page - 1; else ranges.push([page - 1, page - 1]); }
+		return ranges.length && typeof entity.name === "string" ? [{ name: entity.name, entities: entity.aliases ?? [], pages: ranges.slice(0, 6) }] : [];
+	});
+}
