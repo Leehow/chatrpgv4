@@ -52077,7 +52077,7 @@ refusal, recipient set or outcome is never reversed by how it is performed.
 ### 260.2 Beat
 
 Every `Interaction` branch gains `beat?: string` (trimmed, 1-120 characters): observable behavior of the person this
-moment, as direction. Never words, a move, a handover, blocking a way, a signal to another person, an attack, a cost or
+moment, as direction; free text by owner decision 2026-10-23. Never words, a move, a handover, blocking a way, a signal to another person, an attack, a cost or
 another settled change. Stored with the hydrated response, passed to the author, recorded in the turn record; the host
 judges no meaning. A `silent` response with a beat is nonverbal behavior; without one it is silence. A beat never
 changes a tier.
@@ -52129,7 +52129,7 @@ commitment, consent, message, belief or result." The two-layer rule of §260.1 i
 
 ### 260.8 Package and telemetry
 
-Capability `npc.bearing.v1` (beat, projection, fact, grant). Package `npc-portrayal` 1.0.0, `default_enabled: false`
-until acceptance: one resident Keeper section on beats, one author section (`slot: bearing`, `on: ["people"]`,
+Capability `npc.bearing.v1` (beat, projection, fact, grant). Package `npc-portrayal` 1.0.0, `default_enabled: true`
+(owner 2026-10-23): one resident Keeper section on beats, one author section (`slot: bearing`, `on: ["people"]`,
 `grants: ["bearing"]`). Byte changes bump the version. `lane: "author-craft"` adds
 `bearing: [{ref, tier, needs_introduction?, beat?: true}]`.

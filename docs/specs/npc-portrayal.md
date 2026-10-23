@@ -1,6 +1,6 @@
 # NPC portrayal: the Keeper says what a person does, the author makes it seen
 
-Status: draft r2 (design only; revised after the web-ChatGPT review of 2026-10-23; awaiting owner decisions)
+Status: draft r2 (design only; revised after the web-ChatGPT review of 2026-10-23; owner decisions recorded 2026-10-23)
 
 Contract: `docs/kernel-rpc.md` §260 (draft). Builds on §254 (author craft sections and grants), §255 (kept looks),
 §168.5 (first-sight shown marks) and §258 (NPC mind). Research: `docs/research/npc-portrayal-lotm-20261023.md`.
@@ -36,7 +36,7 @@ The old natural-npc and npc-voice packages are dead under v4.
 2. **The Keeper writes a beat** (owner's design: KP gives the person's state and a very short line of what they do).
    One short clause of observable behavior on any response, including `silent`. It is portrayal direction; anything
    with consequence (a move, a handover, blocking a way, a signal to someone, an attack, a cost) must be a settled
-   action, never a beat. Free text is kept (see Owner decision 1).
+   action, never a beat. Free text (owner decision 1).
 3. **The host marks attention from observable events only.** Each person the investigators can perceive gets `tier`
    (`focus`, `engaged`, `background`) and `needs_introduction`, computed from what the player's turn was about and
    what settled publicly. Hidden state never feeds the computation: changing only hidden values leaves the author's
@@ -49,8 +49,8 @@ The old natural-npc and npc-voice packages are dead under v4.
    (allowed, uncertain, never a conclusion), and revealed facts (only what a settled check or the observer's revealed
    knowledge establishes, across turns).
 7. **A new package, NPC Portrayal (写实人物).** Author section (`slot: bearing`, `on: ["people"]`, `grants:
-   ["bearing"]`) teaching selection principles from the research; a short Keeper section on beats. First release is
-   off by default; it turns on after the A/B/C acceptance (Owner decision 2).
+   ["bearing"]`) teaching selection principles from the research; a short Keeper section on beats. Enabled by default
+   from the first release (owner decision 2).
 
 ## User Stories
 
@@ -109,7 +109,7 @@ The old natural-npc and npc-voice packages are dead under v4.
   contradicts a kept look.
 - **Settled fact `people`** joins §254.2: `presence.people` is non-empty after settlement.
 - **Author instruction** edits in place (§260.6), plus the two-layer invariant and the nonverbal-semantics rule.
-- **Package.** `mods/npc-portrayal/` 1.0.0, `default_enabled: false` for the first release; requires
+- **Package.** `mods/npc-portrayal/` 1.0.0, `default_enabled: true` (owner decision 2); requires
   `instructions.sections.v1`, `instructions.sections.author.v1`, `npc.bearing.v1`. Author text is the revised
   Appendix A (target well under 4 KB); Keeper text Appendix B (≤ 600 bytes). English, original wording, no novel text,
   no numeric quotas.
@@ -139,8 +139,8 @@ The old natural-npc and npc-voice packages are dead under v4.
   Hard violations counted separately: an unsettled result, a leaked secret, impossible sense access, an overridden
   player choice, a reversed or dropped communication, drift from a kept look. TTFT and token counts paired.
 4. **Continuous live play** on the owner's Mac with the real driver, one natural input per turn, retained seed
-  (Blood Road Esso station; a high-pressure scene from another module). The package turns default-on only when C beats
-  B without hard violations.
+  (Blood Road Esso station; a high-pressure scene from another module). A loss of C to B, or any hard violation, is
+  fixed in the package (version bump) or reported to the owner; the default stays on unless the owner says otherwise.
 
 ## Out of Scope
 
@@ -149,14 +149,12 @@ The old natural-npc and npc-voice packages are dead under v4.
 - Habit persistence; per-NPC voice masks; a second writing lane; speech wording (narration-craft, zh-optimize).
 - Any code check of prose wording.
 
-## Owner decisions
+## Owner decisions (2026-10-23)
 
-1. **Beat shape.** Free text (the owner's original design; vivid, flexible; boundary held by instructions and the
-   two-layer invariant) vs. a small enumerated cue (`delivery` quality, `microgesture`, `prop` with a validated ref;
-   ChatGPT's recommendation; host-enforceable, less expressive). Recommendation: free text, because the invariant already
-   makes prose non-authoritative for interactive facts and a gesture enum would flatten the vividness the owner asked
-   for; switch to typed cues only if live play shows beats smuggling outcomes.
-2. **Default.** Off until A/B/C passes (recommended), or on from the first release.
+1. **Beat shape: free text.** ChatGPT recommended a small enumerated cue (host-enforceable, less expressive); the owner
+   chose free text. The boundary is held by the schema description, the Keeper section and the two-layer invariant.
+   If live play shows beats smuggling outcomes, report it with the turns; do not switch shape without the owner.
+2. **Default: on** from the first release (ChatGPT recommended off until acceptance).
 
 ## Appendix A: author section "People in motion" (draft r2, English package text)
 

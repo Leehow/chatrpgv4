@@ -39,7 +39,7 @@ instruction edits and the §260.1 invariant stated once in the author instructio
 - [ ] A section granting `bearing` gets the limits text once after the frame; unknown grants are refused at install.
 - [ ] `people` holds with someone in presence after settlement, not on a turn alone.
 
-## 04: The NPC Portrayal package (default off)
+## 04: The NPC Portrayal package (default on)
 
 **What to build:** `mods/npc-portrayal/` 1.0.0 with spec Appendices A and B as revised by review.
 
@@ -47,7 +47,7 @@ instruction edits and the §260.1 invariant stated once in the author instructio
 
 **Status:** draft
 
-- [ ] Installs disabled by default; author text well under 4 KB, Keeper text ≤ 600 bytes; system-language guard passes.
+- [ ] Installs enabled by default; author text well under 4 KB, Keeper text ≤ 600 bytes; system-language guard passes.
 - [ ] The assembled author prompt for a people turn carries narration-craft's people slot and this bearing slot without two competing first-meeting rules.
 
 ## 05: Frozen-input A/B/C
@@ -61,10 +61,10 @@ and hard-violation counts.
 
 - [ ] Wins, losses, ties and violations reported as found; all outputs and parameters retained.
 
-## 06: Continuous live play and the default
+## 06: Continuous live play
 
-**What to build:** real-driver play on the owner's Mac, retained seed, one natural input per turn; the package turns
-default-on (version bump) only if C beats B without hard violations.
+**What to build:** real-driver play on the owner's Mac, retained seed, one natural input per turn; losses or hard
+violations are fixed in the package (version bump) or reported to the owner.
 
 **Blocked by:** 05.
 
