@@ -1,73 +1,71 @@
 # NPC portrayal: tickets
 
-Spec: `docs/specs/npc-portrayal.md`. Contract: `docs/kernel-rpc.md` §260 (draft).
+Spec: `docs/specs/npc-portrayal.md` (draft r2). Contract: `docs/kernel-rpc.md` §260 (draft r2).
 
-## 01: The Keeper can give a person a beat
+## 01: Two layers of fact and the beat
 
-**What to build:** `beat` on every interaction branch; hydrated, carried to the author input and the turn record; a
-silent response with a beat is nonverbal behavior. Author instruction sentences of §260.6 edited in place.
+**What to build:** `beat` on every interaction branch, hydrated into the author input and turn record; the §260.7
+instruction edits and the §260.1 invariant stated once in the author instruction.
 
 **Blocked by:** None (can start immediately).
 
 **Status:** draft
 
-- [ ] The packet accepts a beat on silent, greet/refuse/acknowledge and answer-type responses; over 120 characters is refused.
-- [ ] The author input and the turn record carry the beat; a response without one is unchanged.
-- [ ] The two instruction sentences are replaced, not appended to.
+- [ ] The packet accepts a beat on every branch; over 120 characters is refused; without a beat nothing changes.
+- [ ] The two instruction sentences are replaced in place; the invariant and the nonverbal-semantics rule appear once.
 
-## 02: The host marks attention and projects bearing
+## 02: Attention, introduction and public presentation
 
-**What to build:** the pure tier function (§260.2) and the bearing projection (§260.3) on `presence.people`, reading
-today's affinity and §258 P1 fields when present; telemetry of §260.8.
+**What to build:** the pure tier function (§260.3) and `bearing` projection (§260.5) on `presence.people`, telemetry
+(§260.8).
 
 **Blocked by:** 01.
 
 **Status:** draft
 
-- [ ] Addressed speaker, changed disposition, targeted check and first meeting each make `focus`; a third qualifier is `engaged`.
-- [ ] A present person with no response and no beat is `background`; first meeting reads §255 looks and §168.5 shown marks.
-- [ ] Hidden fear never reaches `felt`; before P1 `felt` is absent and affinity maps by the closed table.
+- [ ] Addressed, targeted, an NPC answering another NPC in view, and a public outcome each make `focus`; responses otherwise `engaged`; the rest `background`; no cap.
+- [ ] Changing only hidden trust/fear/pressure/control/private disposition leaves the author input byte-identical.
+- [ ] `needs_introduction` follows §168.5 shown marks and ignores this turn's looks write-back.
+- [ ] `toward` is directed per investigator; affinity maps by the closed table before §258 P1; no numbers reach the author.
 
 ## 03: The bearing grant and the people fact
 
-**What to build:** `bearing` in `AUTHOR_GRANT_LIMITS`, `people` in the settled facts, `npc.bearing.v1` capability;
-package validation accepts them.
+**What to build:** `bearing` in `AUTHOR_GRANT_LIMITS` (§260.4), `people` in settled facts, capability `npc.bearing.v1`.
 
 **Blocked by:** None.
 
 **Status:** draft
 
-- [ ] A section granting `bearing` gets the §260.4 text once after the frame; an unknown grant is refused at install.
-- [ ] `people` holds with a seen person present after settlement and not on a turn alone.
+- [ ] A section granting `bearing` gets the limits text once after the frame; unknown grants are refused at install.
+- [ ] `people` holds with someone in presence after settlement, not on a turn alone.
 
-## 04: The NPC Portrayal package
+## 04: The NPC Portrayal package (default off)
 
-**What to build:** `mods/npc-portrayal/` 1.0.0 with the Keeper "Beats" section and the author "People in motion"
-section (spec appendices, revised after review), English, original examples.
+**What to build:** `mods/npc-portrayal/` 1.0.0 with spec Appendices A and B as revised by review.
 
 **Blocked by:** 01, 02, 03.
 
 **Status:** draft
 
-- [ ] Installs default-enabled; author text ≤ 6 KB, Keeper text ≤ 600 bytes; system-language guard passes.
-- [ ] A turn with people sends the section and grant; a turn alone does not; narration-craft's people slot still arrives.
+- [ ] Installs disabled by default; author text well under 4 KB, Keeper text ≤ 600 bytes; system-language guard passes.
+- [ ] The assembled author prompt for a people turn carries narration-craft's people slot and this bearing slot without two competing first-meeting rules.
 
-## 05: Live A/B on the owner's Mac
+## 05: Frozen-input A/B/C
 
-**What to build:** same retained seed, package off vs on, MiniMax 3.1 every lane, real driver, one natural input per
-turn; blind read of focus picture, background brevity, invented state changes and leaked concealment.
+**What to build:** twelve settled inputs (spec Testing 2), three MiniMax generations each, conditions A/B/C, blind read
+and hard-violation counts.
 
 **Blocked by:** 04.
 
 **Status:** draft
 
-- [ ] Report wins, ties and losses as found; retain all evidence.
+- [ ] Wins, losses, ties and violations reported as found; all outputs and parameters retained.
 
-## 06 (later): Habits are kept
+## 06: Continuous live play and the default
 
-**What to build:** §255 ledger `manner` for people (a recurring habit the prose showed), passed to the author as
-`presence.people[].manner`.
+**What to build:** real-driver play on the owner's Mac, retained seed, one natural input per turn; the package turns
+default-on (version bump) only if C beats B without hard violations.
 
-**Blocked by:** 05 showing habits drift.
+**Blocked by:** 05.
 
 **Status:** draft
