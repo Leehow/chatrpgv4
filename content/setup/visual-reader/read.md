@@ -142,6 +142,7 @@ Kinds:
 - `description`: what a place looks, sounds and smells like on arrival, the eye's path, including authored read-aloud.
 - `appearance`: how a person or creature looks, dresses and behaves when first met. Nothing they hide, no crime, no later reveal, no backstory the investigators cannot see.
 - `document`: the text of a handout, letter, sign or page as the investigators can read it.
+  Readable words are always their own `document`: a sign, notice, label, scrawled note or poster the investigators could read at a place is a separate exhibit carried by that place or by the object bearing it, even when a description mentions it. The description says the sign is there; the document holds its words. A player who looks closer then has the printed words to read.
 - `perception`: something found by searching or noticing, written as what is perceived, never as what it means.
 - `testimony`: something a person will say when asked or prompted, in their terms. A lie or a deflection the book gives is testimony with that stance, written as the person would put it and never corrected in the surface. `owners` names the people who would say it.
 - `voice`: how a person speaks (register, habits). Include the book's sample lines of their speech in the surface, quoted as the page prints them, so the author has a line to show and not only a description. `owners` names the speaker.
