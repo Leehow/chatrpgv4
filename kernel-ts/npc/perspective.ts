@@ -72,13 +72,15 @@ export function npcPublicRendering(graph:ModuleGraph,node:Row,records:Row[],scop
         authority:'Past public rendering only; not current action, presence, physical state or selected response content'};
 }
 /**
- * A person's own promises: the obligor is the promise's subject. §258.5: a knower who only heard it holds no commitment, and
- * a promise from a turn whose communication shows the obligor voiced nothing has no origin and is not issued.
+ * The promises a person holds: their own (the obligor is the promise's subject) and those made to them that they heard (they
+ * are an entity and a knower), which stay attributed to their maker. §258.5: a bystander who only heard it holds nothing, and
+ * a person's own promise from a turn whose communication shows them voicing nothing has no origin and is not issued.
  */
 export function npcCommitments(graph:ModuleGraph,node:Row,memory:Row[],scope:Row={},origin?:{records:Row[];ref?:string}):Row[]{
-    const names=namesOf(graph,node);
-    return memory.filter(value=>current(value,scope)&&value.kind==='promise'&&names.has(normalize(string(value.subject)))
-        &&(!origin||promiseHasOrigin(origin.records,origin.ref,value.valid_from_turn??value.turn,scope)))
+    const names=namesOf(graph,node),named=(values:unknown)=>array(values).some(name=>names.has(normalize(string(name))));
+    return memory.filter(value=>current(value,scope)&&value.kind==='promise'&&(names.has(normalize(string(value.subject)))
+        ?!origin||promiseHasOrigin(origin.records,origin.ref,value.valid_from_turn??value.turn,scope)
+        :named(value.entities)&&named(value.knowers)))
         .sort((a,b)=>number(b.valid_from_turn??b.turn)-number(a.valid_from_turn??a.turn))
         .map(value=>({subject:value.subject,entities:array(value.entities),...report(value)}));
 }

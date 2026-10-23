@@ -52060,7 +52060,8 @@ content has none.
 
 ### 258.5 Commitments have an obligor and an origin
 
-`npcCommitments` returns only promises whose subject is this person; a knower who only heard a promise holds no commitment. A promise from a
+`npcCommitments` returns promises whose subject is this person, and promises made to them (they are an entity and a knower), which keep
+their maker as `subject`; a bystander who only heard a promise holds nothing. A person's own promise from a
 turn whose record has `communication` is issued only when the obligor's own selection there was `attested`; a turn recorded before §258
 has none to judge by, and its promises stand. Proposal, acceptance and agreement records are P1.
 
