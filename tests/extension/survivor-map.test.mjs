@@ -364,6 +364,14 @@ test('§192.3: the lanes skip a copy; a copy\'s need asks about the survivor; tw
 	// Source needs: the copy's need rides on Old Mae, focused on her.
 	const view = await h.call('table.look', {focus: 'npc', name: 'Old Mae'});
 	assert.deepEqual(view.source_needs?.map(need => [need.focus, need.question]), [[await h.handle('npc-mae'), 'What does Old Mae say about the cellar?']]);
+	// §257.15: the opening scene's exhibits read comes first among background reads; it is read to nothing printed.
+	const scene = await h.raw('module.read.claim', {module_id: h.mid, campaign: CAMPAIGN, owner: 'test-host'});
+	assert.equal(scene.material, 'exhibits');
+	await writeFile(join(scene.work_dir, 'observations.json'), JSON.stringify({file_sha256: scene.source.file_sha256, read_pages: [1, 2, 3], full_pages: [1, 2, 3], review_pages: [1, 2, 3]}));
+	await writeFile(join(scene.work_dir, 'draft.json'), JSON.stringify({nodes: [], claims: [], exhibits: [], node_refs: [], coverage: {}, dependencies: [], critical: [], ready_nodes: []}));
+	await writeFile(join(scene.work_dir, 'review.json'), JSON.stringify({checked: [], missing: []}));
+	await h.raw('module.read.finish', {module_id: h.mid, campaign: CAMPAIGN, job_id: scene.job_id, lease: scene.lease, outcome: 'completed',
+		draft_path: join(scene.work_dir, 'draft.json'), review_path: join(scene.work_dir, 'review.json')});
 	// Focus identity: a detail reading of the copy is running; a request about Old Mae attaches to it.
 	const first = await h.raw('module.read.request', {module_id: h.mid, campaign: CAMPAIGN, purpose: 'detail', focus: 'npc-mae-copy', question: 'What does she say about Jonah?'});
 	const claimed = await h.raw('module.read.claim', {module_id: h.mid, campaign: CAMPAIGN, owner: 'test-host'});

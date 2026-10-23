@@ -663,8 +663,10 @@ export class Reading {
         // The carriers an exhibits reading of the scene covers: the scene, the people and the handouts and objects the book places in it.
         // A graph with exhibits on any of them was read for exhibits already; only one with none is legacy.
         if (graph.materialOverride || Reading.exhibitCarriers(graph, scene).some(id => graph.exhibitsOf(id).length) || !await this.store.exists(mid)) return { state: 'none' };
+        // A place the book does not have (an off-book scene the table made up) has no page to read exhibits from.
+        if (!citedBoundPages(array(scene.source_refs), mid).length) return { state: 'none' };
         const focus = readingFocus(graph, scene);
-        const reply = await this.request({ module_id: mid, purpose: 'detail', material: EXHIBITS_MATERIAL, focus, foreground: false });
+        const reply = await this.request({ module_id: mid, purpose: 'detail', material: EXHIBITS_MATERIAL, focus, foreground: false, current_scene: true });
         return { state: string(reply.state), focus, ...(truth(reply.job_id) ? { job_id: reply.job_id } : {}) };
     }
     /** §257.15: the node ids of the carriers an exhibits reading of `scene` covers (the scene, its people, its objects and handouts). */
@@ -1703,6 +1705,18 @@ export class Reading {
                 return { ...result, state: 'ready' };
             // §184.5: a merge the library refused is not one of its own readings of this key.
             const queue = await this.store.queue(mid), existing = [...queue].reverse().find(job => job.key === key && !refusedMerge(job));
+            // §257.15: the exhibits read of the scene the table is in goes ahead of other background reads; arriving elsewhere
+            // hands that place to the new scene's read, and the one left behind falls back to the least urgent work.
+            const currentScene = material === EXHIBITS_MATERIAL && params.current_scene === true;
+            if (currentScene) {
+                let moved = false;
+                for (const job of queue) {
+                    if (job.material !== EXHIBITS_MATERIAL || !['queued', 'running'].includes(job.state)) continue;
+                    const current = job.key === key;
+                    if (truth(job.current_scene) !== current) { if (current) job.current_scene = true; else delete job.current_scene; moved = true; }
+                }
+                if (moved) await this.store.writeQueue(mid, queue);
+            }
             // §22.4.6.1 addendum (SL-55): the same question asked again while its job is parked or still reading under an older
             // generation attaches to that job; it is claimed (or finishes) under the current generation, so no second reading.
             if (purpose === 'answer' && !preparation && !(existing && ['queued', 'running'].includes(existing.state))) {
@@ -1790,6 +1804,7 @@ export class Reading {
             if(mapScope)job.map_scope={node:mapScope.node};
             if(material==='map')job.visual_hints=array(reading.visual_candidates).filter(candidate=>pages.includes(candidate.page));
             job.class_at = job.at;
+            if (currentScene) job.current_scene = true;
             if(preparation)job.task_preparation=clone(preparation);
             if (purpose === 'answer') job.context_generation = meta.generation ?? 0;
             // The repair extends the reading it repairs: the reader starts from that draft, not from nothing.

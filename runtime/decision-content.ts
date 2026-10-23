@@ -105,6 +105,26 @@ const gistOf=(value:unknown):string|undefined=>{
 };
 const sorted=(value:unknown):unknown=>Array.isArray(value)?value.map(sorted):value&&typeof value==='object'
  ?Object.fromEntries(Object.keys(value).sort().map(key=>[key,sorted((value as Row)[key])])):value;
+/** §261.3: the most characters of one opening passage; a passage ends at a line that closes a sentence once it is this long. */
+const OPENING_PASSAGE_CHARS=900;
+/**
+ * §261.3: `capsule.opening_pages` (`[Original physical page N]` headed text) as passages named by page and order: whole lines,
+ * a passage closed at the first sentence end past half the bound, or at the bound.
+ */
+export function openingPassages(value:unknown):Array<{name:string;text:string}> {
+ const text=typeof (value as Row)?.text==='string'?(value as Row).text as string:'';
+ const out:Array<{name:string;text:string}>=[];let page=0,part=0,lines:string[]=[];
+ const close=()=>{const body=lines.join('\n').trim();if(body&&page)out.push({name:`Original page ${page}, passage ${++part}`,text:body});lines=[];};
+ for(const line of text.split('\n')){
+  const heading=/^\[Original physical page ([0-9]+)\]$/.exec(line.trim());
+  if(heading){close();page=Number(heading[1]);part=0;continue;}
+  lines.push(line);
+  const size=lines.join('\n').length;
+  if(size>=OPENING_PASSAGE_CHARS||size>=OPENING_PASSAGE_CHARS/2&&/[.!?。！？]["'”’)]?$/.test(line.trim()))close();
+ }
+ close();
+ return out;
+}
 /** §258.3: a content identity, explicit per source kind so two kinds never collide. */
 const contentId=(prefix:string,key:unknown)=>`${prefix}:${createHash('sha256').update(JSON.stringify(sorted(key))).digest('hex').slice(0,24)}`;
 function factContentId(evidence:string,value:unknown,actor:string|undefined):string {
@@ -123,9 +143,11 @@ export class DecisionContent {
  private places=new Set<string>();
  private entityLabels=new Map<string,string>();
  private exhibitRows=new Map<string,Row>();private handleRefs=new Map<string,string>();private activeExhibits=new Set<string>();private exhibitOrdinal=0;private exhibitsOmitted=0;private exhibitsGiven=false;
+ /** §257.17: testimony already said at this table, by exhibit id, per play line (campaign, worldline, loop); outlives the turn scope. */
+ private said=new Map<string,Set<string>>();private line='';
  private reads=new Map<string,Row>();private told=new Map<string,Map<string,Row>>();private sourceRevision:unknown;private bytes=0;private omitted=0;private previous=new Set<string>();
  assertCurrent(capsule:Row):void {if(this.sourceRevision!==undefined&&this.sourceRevision!==(capsule._context?.task_source_revision??capsule._context?.source_revision))throw Error('Prepared communication source revision changed');}
- forScope(scope:string):void {if(scope!==this.scope){this.scope=scope;this.active.clear();this.entities.clear();this.people.clear();this.places.clear();this.listenerAliases.clear();this.entityLabels.clear();this.reads.clear();this.facts.clear();this.exhibitRows.clear();this.activeExhibits.clear();this.handleRefs.clear();}}
+ forScope(scope:string,line?:string):void {if(line!==undefined)this.line=line;else if(scope!==this.scope)this.line=scope;if(scope!==this.scope){this.scope=scope;this.active.clear();this.entities.clear();this.people.clear();this.places.clear();this.listenerAliases.clear();this.entityLabels.clear();this.reads.clear();this.facts.clear();this.exhibitRows.clear();this.activeExhibits.clear();this.handleRefs.clear();}}
  observePerson(value:Row):void {if(isNpcReference(value.ref))this.reads.set(value.ref,structuredClone(value));}
  prepare(scope:string,capsule:Row,people:Row[],sources:Row[]=[],investigators:string[]=[],issuedPeople:string[]=[],prepared:Row[]=[],exhibits:Row[]=[]):Row {
   this.forScope(scope);this.active.clear();this.activeExhibits.clear();this.exhibitsOmitted=0;this.exhibitsGiven=exhibits.length>0;this.entities.clear();this.people.clear();this.places.clear();this.listenerAliases.clear();this.entityLabels.clear();this.bytes=0;this.omitted=0;this.sourceRevision=capsule._context?.task_source_revision??capsule._context?.source_revision;
@@ -192,6 +214,8 @@ export class DecisionContent {
   for(const item of exhibits)this.issueExhibit(item);
   for(const material of rows(capsule.outcome?.public_materials))if(material.visibility==='player')this.issue('fact',material,undefined,'canonical_material','current');
   for(const source of sources)if(typeof source.text==='string'&&source.text.trim())this.issue('source',{name:source.name,text:source.text,authority:source.authority??'reference_only'},undefined,'reference_only');
+  // §261.3: the opening's own pages, in passages the Keeper can hand the author as the book's words for what is perceived here.
+  for(const passage of openingPassages(capsule.opening_pages))this.issue('source',{...passage,authority:'reference_only'},undefined,'reference_only');
   for(const entry of rows(capsule.public_scene?.entries))if(typeof entry.text==='string'&&entry.text.trim())
    this.issue('fact',{turn:entry.turn,text:entry.text,...(entry.truncated?{truncated:true}:{})},undefined,'public_scene_history');
   const reused=[...this.active].filter(ref=>this.previous.has(ref)).length;this.previous=new Set(this.active);
@@ -275,12 +299,19 @@ export class DecisionContent {
   const state=item.clue?.state,check=item.clue?.check,needs=typeof check?.skill==='string'?`${check.skill}${check.difficulty?` (${check.difficulty})`:''}`:undefined;
   const catalog:Row={ref:'',kind:item.kind,channel:item.channel,carrier:item.carrier?.display_name,label:item.label,
    ...(owners?{owners}:{}),...(typeof item.stance==='string'?{stance:item.stance}:{}),
-   ...(typeof state==='string'?{clue:state==='needs'&&needs?`needs ${needs}`:state}:{})};
+   ...(typeof state==='string'?{clue:state==='needs'&&needs?`needs ${needs}`:state}:{}),...(item.kind==='testimony'&&this.said.get(this.line)?.has(item.exhibit_id)?{said:true}:{})};
   const cost=Buffer.byteLength(JSON.stringify(catalog))+160;
   if(this.activeExhibits.size>=48||this.bytes+cost>32768){this.exhibitsOmitted++;return;}
   if(!ref){if(this.aliases.size>=2048)this.aliases.delete(this.aliases.keys().next().value!);ref=`exhibit_${++this.exhibitOrdinal}`;this.aliases.set(identity,ref);}
   catalog.ref=ref;this.bytes+=cost;
   this.exhibitRows.set(ref,{exhibit_id:item.exhibit_id,kind:item.kind,label:item.label,carrier:item.carrier?.display_name,...(owners?{owners}:{}),catalog});this.activeExhibits.add(ref);
+ }
+ /** §257.17: record the testimony a settled packet had its owners say, so a later catalog marks it `said`. */
+ markSaid(selected:string[]):void {
+  const ids=selected.flatMap(ref=>{const issued=this.exhibitRows.get(ref);return issued?.kind==='testimony'?[String(issued.exhibit_id)]:[];});
+  if(!ids.length)return;
+  let said=this.said.get(this.line);if(!said){said=new Set();this.said.set(this.line,said);}
+  for(const id of ids)said.add(id);
  }
  /** Whether the issued exhibit is testimony, which is said in an interaction's content and never revealed. */
  exhibitIsTestimony(ref:string):boolean {return this.exhibitRows.get(ref)?.kind==='testimony';}

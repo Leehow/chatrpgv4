@@ -30,6 +30,7 @@ import { unrecordedTime } from "./time-reading.js";
 import { playLanguageOf } from "./languages.js";
 import { RpcError } from "../errors.js";
 import { array, row, number, string, truth, chars, clone, normalize, type Row } from "./values.js";
+import { containers } from "./places.js";
 import { currentHandle, type ModuleGraph } from "./module-graph.js";
 import {openIntents, shownIntentRef} from '../npc/intents.js';
 import {deferredNpcContext} from './deferred-context.js';
@@ -136,6 +137,12 @@ export const HEAD_FIRST_SIGHT = " first_sight is the player's first sight of the
 /** Contract §255: said only on a capsule that carries `kept_looks`. */
 export const HEAD_KEPT_LOOKS = " kept_looks is how earlier replies showed this place and the people here, in their own words, and the " +
     "pronoun they used for each person: keep to it; add detail, never contradict it.";
+/** Contract §261.3: the most characters of a page-text opening's pages a capsule carries. */
+export const OPENING_PAGES_CHARS = 16000;
+/** Contract §261.3: said only on a capsule that carries `opening_pages`. */
+export const HEAD_OPENING_PAGES = " opening_pages is the book's own text of the opening the party is in (private): what the investigators " +
+    "see, hear or ask about here -- a sign, the radio, a price -- is answered from it first, before any lookup, and never invented over it. " +
+    "Its passages are issued as sources in decision_materials: select the passage that holds what is perceived, so the author writes from the book's words.";
 export const BUDGETS: Readonly<Record<string, number>> = Object.freeze({
     where: 4096,
     present: 3072,
@@ -767,6 +774,15 @@ export async function buildCapsule(campaign: CampaignSnapshot, module: LoadedMod
         sections.known_places = named.rows;
         if (named.omitted) sections.known_places_omitted = named.omitted;
     }
+    // §261.3: in a page-text opening, or a place the table established inside it, the opening's pages ride beside the
+    // sections under their own cap, every turn: `where` cuts a summary to its budget, and the place's signs, radio and
+    // people are on those pages.
+    {
+        const here = graph.scene(world.active_scene),
+            opening = [here, ...containers(graph, here)].find(place => row(place.properties).opening_pages_text === true);
+        if (opening && typeof opening.summary === "string" && opening.summary)
+            sections.opening_pages = { scene: graph.handle(opening), text: chars(opening.summary, OPENING_PAGES_CHARS) };
+    }
     for (const [name, budget] of Object.entries(SLICE2_BUDGETS))
         if (fitBudget(sections[name], budget, "last"))
             truncated.push(name);
@@ -782,6 +798,8 @@ export async function buildCapsule(campaign: CampaignSnapshot, module: LoadedMod
         head += HEAD_FIRST_SIGHT;
     if (sections.kept_looks)
         head += HEAD_KEPT_LOOKS;
+    if (sections.opening_pages)
+        head += HEAD_OPENING_PAGES;
     // The book's own navigation (spec thin-book-play B): what the book holds and what is still unread, so a
     // thin graph is never mistaken for the book saying no. Names and pages only; the reading is asked for by name.
     if (truth(module.meta.reading_version)) {
