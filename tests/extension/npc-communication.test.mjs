@@ -285,12 +285,20 @@ test('§258.11 an attested offer is a proposal, an accepted mark makes it the sp
  assert.deepEqual(agreementsOf({agreements:[{content_id:'n:abc',by:'Russ',status:'accepted'},{content_id:'n:abc',by:'npc_1',status:'maybe'}]}),[]);
 });
 
+test('§258.11 only a service or a visit makes a deal: an exhibit line or an input request inside an offer proposes nothing',()=>{
+ const mixed={actor:'npc_1',act:'offer',to:['investigator_1'],items:[{content_id:'n:svc',strategy:'new',kind:'new:service_at',gist:'tyre repair'},
+  {content_id:'x:ex',strategy:'new',kind:'exhibit',gist:'stock spiel'},{content_id:'n:in',strategy:'new',kind:'new:input_requirements',gist:'quantity'}]};
+ const records=[record(1,[mixed],russSays)];
+ assert.deepEqual(agreementView(records,'npc_1',scope).map(row=>row.content_id),['n:svc']);
+});
+
 test('§258.11 the Keeper sees open offers and deals as facts and marks them by fact_ref; the mark resolves to the deal',()=>{
  const owner=new DecisionContent();
  const deals=[{content_id:'n:abc',by:'npc_1',to:['investigator_1'],gist:'coffee at 09:20',made_turn:1,status:'open'}];
  const facts=owner.prepare('c:1',capsule,[{...russ(),deals}],[],['Ada']).facts;
  const proposal=facts.find(row=>row.kind==='proposal');
  assert.equal(proposal.actor,'npc_1');assert.match(proposal.value.authority,/still open, nothing is agreed/);
+ assert.equal(proposal.value.to.length,1,'the offer names who it was made to');assert.doesNotMatch(proposal.value.authority,/made to ;/);
  assert.deepEqual(owner.agreement({proposal:proposal.ref,status:'accepted'}),{content_id:'n:abc',by:'npc_1',status:'accepted'});
  assert.throws(()=>owner.agreement({proposal:proposal.ref,status:'kept'}),/proposal: its status is one of accepted, declined, withdrawn/);
  assert.throws(()=>owner.agreement({proposal:'fact_999',status:'accepted'}),/not an issued proposal or commitment fact/);

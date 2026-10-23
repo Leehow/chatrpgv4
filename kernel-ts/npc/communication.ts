@@ -20,6 +20,8 @@ const INVESTIGATOR=/^investigator_[1-9][0-9]*$/;
  */
 export const CHANNELS=['speech','aside','phone','letter'] as const;
 const PRIVATE=new Set(['aside','phone','letter']);
+/** §258.11: the claim kinds an offer can make a deal of. */
+const DEAL_KINDS=['new:service_at','new:planned_visit'];
 /** §258.11: what becomes of an offer, and of the deal it makes. */
 export const AGREEMENT_STATUSES=['accepted','declined','withdrawn','kept','broken'] as const;
 const NEXT:Record<string,string[]>={open:['accepted','declined','withdrawn'],accepted:['kept','broken','withdrawn']};
@@ -219,6 +221,8 @@ export function agreementView(records:Row[],person:string,scope:Row,turn?:number
         for(const event of array(communication.events)){
             if(event.act!=='offer'||event.status!=='attested'||!isNpcReference(event.actor))continue;
             for(const item of array(event.items)){
+                // A deal is a service or a visit; an exhibit line, an input request or a stock answer inside an offer is not one.
+                if(!DEAL_KINDS.includes(item.kind))continue;
                 const key=`${event.actor} ${item.content_id}`;
                 if(deals.has(key))continue;
                 deals.set(key,{content_id:item.content_id,by:event.actor,to:array(event.to),...(item.gist?{gist:item.gist}:{}),

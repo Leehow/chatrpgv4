@@ -229,7 +229,7 @@ export class DecisionContent {
    if(!isNpcReference(person.ref))continue;
    // §258.11: this person's open offers and accepted deals, or a deal owed to them, before their other words claim the same content.
    for(const deal of rows(person.deals))if(typeof deal.content_id==='string'&&typeof deal.by==='string'){
-    const own=deal.by===person.ref,by=this.entityLabels.get(deal.by)??deal.by,parties=rows(deal.with??deal.to).map(ref=>this.entityLabels.get(ref as unknown as string)??ref);
+    const own=deal.by===person.ref,by=this.entityLabels.get(deal.by)??deal.by,parties=(Array.isArray(deal.with??deal.to)?(deal.with??deal.to) as unknown[]:[]).filter((ref):ref is string=>typeof ref==='string').map(ref=>this.entityLabels.get(ref)??ref);
     this.issue('fact',{statement:deal.gist??'(offer)',by,to:parties,status:deal.status,made_turn:deal.made_turn,content_id:deal.content_id,
      authority:deal.status==='open'
       ?`An offer ${own?'this person':by} made to ${parties.join(', ')}; still open, nothing is agreed until it is accepted.`
