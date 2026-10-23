@@ -21,7 +21,7 @@ const OPENING_PAGES=5,SETUP_PAGES=6,OPENINGS=4;
 /** A page's text kept for a reader call and as one excerpt (the packet's own bound). */
 const PAGE_CHARS=12000;
 /** The table of contents a locate call reads: bookmarks plus each page's first lines. */
-const HEAD_LINES=6,HEAD_CHARS=80,TOC_BYTES=40000;
+const HEAD_LINES=6,HEAD_CHARS=80,TOC_BYTES=40000,GUIDE_INLINE_BYTES=40000;
 const FIELD_CHARS=950;
 /** The most pages one source text request may name. */
 const TEXT_BATCH=32;
@@ -53,6 +53,11 @@ Then stop.`;
 export type PageOpenInput={runtime:HostRuntime;source:{pdf:string;file_sha256:string;page_count:number};moduleId:string;language:string;
  focus?:string;providerBudget?:TaskProviderBudget;model:{id:string;thinking?:string};signal?:AbortSignal;record?:(row:Row)=>void};
 
+/** Pages cut so the guide's whole task stays inlined: each page at most an equal share of the bound, in UTF-8 bytes. */
+function inlinePages(spans:Array<{page:number;text:string}>):Array<{page:number;text:string}>{
+ const share=Math.floor(GUIDE_INLINE_BYTES/Math.max(1,spans.length));
+ return spans.map(span=>{let text=span.text;while(Buffer.byteLength(text)>share)text=text.slice(0,Math.floor(text.length*0.9));return{page:span.page,text};});
+}
 /** One text-only reader call: `task` is written as task.json, the child writes answer.json; the parsed answer, or a failure. */
 async function ask(input:PageOpenInput,cwd:string,step:string,instruction:string,task:Row):Promise<Row>{
  const dir=join(cwd,step);await mkdir(dir,{recursive:true});
@@ -120,7 +125,8 @@ export async function runPageOpen(input:PageOpenInput):Promise<ReferenceResult>{
  const pagesRead=[...new Set([...setup,...openings.flatMap(opening=>opening.pages)])].sort((a,b)=>a-b);
  const excerpts:ReferenceExcerpt[]=pagesRead.map((page,index)=>{const body=text.get(page)!.slice(0,PAGE_CHARS);return {id:`page-${index+1}`,page,start:0,end:body.length,text:body};});
  const spanOf=(page:number)=>excerpts.find(span=>span.page===page)!;
- const guided=await ask(input,cwd,'guide',GUIDE_INSTRUCTION,{play_language:input.language,pages:excerpts.map(span=>({page:span.page,text:span.text}))});
+ // The guide's pages share the inline bound: a book with many openings hands each page a shorter cut of its text.
+ const guided=await ask(input,cwd,'guide',GUIDE_INSTRUCTION,{play_language:input.language,pages:inlinePages(excerpts)});
  // §261.2: the draft is checked once more for what players may not know, by a call that sees only the draft.
  const draft=Object.fromEntries(PUBLIC_GUIDANCE_FIELDS.map(field=>[field,typeof guided[field]?.text==='string'?guided[field].text.trim():'']));
  let reviewed:Row|undefined;
