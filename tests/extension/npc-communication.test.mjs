@@ -142,3 +142,26 @@ test('§258.8 a bystander hears attested lines and gets them as attributed hears
  const {units}=owner.hydrate([{actor:'npc_2',to:['investigator_1'],act:'report',content:[{fact_ref:fact.ref}]}]);
  assert.equal(units[0][0].content_id,'n:abc');
 });
+
+test('live P1 findings: author say tokens attest without resolved speech; heard keeps the first speaker and never the listener own words',()=>{
+ const viaTokens=communicationRecord(graph,world,party,scope,4,{selections:[offer('n:abc')],artifact_text:'He wipes his hands. {{say:npc_1}}"Coffee is on."{{/say}}'},[],[{node_id:'russ'},{node_id:'nate'}]);
+ assert.equal(viaTokens.events[0].status,'attested');
+ const empty=communicationRecord(graph,world,party,scope,4,{selections:[offer('n:abc')],artifact_text:'{{say:npc_1}}{{/say}}'},[],[]);
+ assert.equal(empty.events[0].status,'missing');
+ const nateSays=[{who:{npc:'nate',name:'Nate'},text:'Like he said.'}];
+ const records=[record(1,[offer('n:abc')],russSays),record(2,[{actor:'npc_2',act:'report',to:['investigator_1'],items:[{content_id:'n:abc',strategy:'new',gist:'coffee at 09:20'}]}],nateSays)];
+ assert.deepEqual(heardView(records,'npc_1',scope),[],'Russ does not overhear his own words when Nate repeats them');
+ const third={...world,npc_references:{version:1,next:4,by_node:{russ:'npc_1',nate:'npc_2',steve:'npc_3'}}};
+ const both=[1,2].map(turn=>({turn,communication:communicationRecord(graph,third,party,scope,turn,{selections:[turn===1?offer('n:abc'):records[1].communication.events[0]]},turn===1?russSays:nateSays,[{node_id:'russ'},{node_id:'nate'},{node_id:'steve'}])}));
+ assert.equal(heardView(both,'npc_3',scope)[0].said_by,'npc_1','Steve heard it first from Russ');
+});
+
+test('a bystander who says, as their own new item, what they heard is given it as hearsay',()=>{
+ const value={predicate:'directions',to:'Esso',retrace:true};
+ const owner=new DecisionContent(),cast={...capsule,present:[...capsule.present,{ref:'npc_2',id:'nate',name:'Nate',display_name:'Nate'}]};
+ const russId=(()=>{const probe=new DecisionContent();probe.prepare('c:1',capsule,[russ()],[],['Ada']);return probe.hydrate([{actor:'npc_1',to:['investigator_1'],act:'answer',content:[{new:value}]}]).units[0][0].content_id;})();
+ owner.prepare('c:1',cast,[russ(),{ref:'npc_2',display_name:'Nate',heard:[{content_id:russId,said_by:'npc_1',gist:'back the way you came',turn:1}]}],[],['Ada']);
+ const hydrated=owner.hydrate([{actor:'npc_2',to:['investigator_1'],act:'answer',content:[{new:value}]}]);
+ assert.equal(hydrated.units[0][0].content_id,russId);assert.equal(hydrated.units[0][0].kind,'heard');
+ assert.equal(hydrated.responses[0].claims[0].heard_from,'Russ');assert.match(hydrated.responses[0].claims[0].authority,/attribute it to Russ/);
+});

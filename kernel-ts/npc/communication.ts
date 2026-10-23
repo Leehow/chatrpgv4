@@ -48,6 +48,10 @@ export function communicationRecord(graph:ModuleGraph,world:Row,party:Row[],scop
         return node?npcReference(graph,world,node):undefined;
     };
     const spoke=new Set(speech.flatMap(line=>string(row(line).text).trim()?[refOf(row(row(line).who))]:[]).filter(Boolean));
+    // The author's own say tokens name the speaker by reference; a span with words attests it even when the committed
+    // speech resolved no line (live P1 run, turn 4: three people spoke and `speech` came back empty).
+    for(const match of string(evidence.artifact_text).matchAll(/\{\{say:(npc_[1-9][0-9]*)\}\}([\s\S]*?)(?=\{\{\/say\}\}|\{\{say:|\n[ \t]*\n|$)/g))
+        if(match[2].replace(/\{\{[^{}]*\}\}/g,'').trim())spoke.add(match[1]);
     const here=[...present.map(node=>npcReference(graph,world,node)).filter((ref):ref is string=>!!ref),...party.map((_sheet,index)=>`investigator_${index+1}`)];
     const events=selections.map(selection=>({...selection,id:`t${turn}:${selection.seq}`,
         status:spoke.has(selection.actor)?'attested':'missing',
@@ -116,14 +120,19 @@ export function promiseHasOrigin(records:Row[],actor:string|undefined,turn:unkno
  * one row per item, at most `TOLD_ROWS`. The words stay the speaker's: a reader issues them as attributed hearsay.
  */
 export function heardView(records:Row[],listener:string,scope:Row,turn?:number):Row[] {
-    const heard=new Map<string,Row>();
+    const heard=new Map<string,Row>(),own=new Set<string>();
     for(const record of scoped(records,scope,turn))for(const event of array(row(record.communication).events)){
-        if(event.status!=='attested'||!array(event.heard).includes(listener))continue;
+        if(event.status!=='attested')continue;
+        // What this person said themself is never hearsay to them, even when someone else repeats it later.
+        if(event.actor===listener){for(const item of array(event.items))own.add(item.content_id);continue;}
+        if(!array(event.heard).includes(listener))continue;
         for(const item of array(event.items)){
             if(!item.gist)continue;
+            // The first speaker keeps the words; a later repeat only refreshes when it was heard.
+            const first=heard.get(item.content_id);
             heard.delete(item.content_id);
-            heard.set(item.content_id,{content_id:item.content_id,said_by:event.actor,to:array(event.to),gist:item.gist,turn:number(record.turn)});
+            heard.set(item.content_id,{content_id:item.content_id,said_by:first?.said_by??event.actor,to:first?.to??array(event.to),gist:item.gist,turn:number(record.turn)});
         }
     }
-    return [...heard.values()].reverse().slice(0,TOLD_ROWS);
+    return [...heard.values()].filter(row=>!own.has(row.content_id)).reverse().slice(0,TOLD_ROWS);
 }

@@ -1,5 +1,6 @@
 /** Run-local native reads shared by independent judgment and Keeper projection. */
 import {isNpcReference} from '../npc-references.ts';
+import {attitudeRows} from '../decision-content.ts';
 
 type Row=Record<string,any>;
 const object=(value:unknown):Row=>value&&typeof value==='object'&&!Array.isArray(value)?value as Row:{};
@@ -57,8 +58,9 @@ export class KeeperPreparation {
         assertCurrent();
         if(full.ref&&person.ref&&full.ref!==person.ref)throw Error('keeper_preparation_actor_changed');
         const voice=array(capsule.voices).find(voice=>voice.name===person.name)??{};
-        // Only exact duplicate fields already supplied by the capsule are omitted.
-        return {...Object.fromEntries(Object.entries(full).filter(([field,value])=>field==='name'||field==='ref'
+        // Only exact duplicate fields already supplied by the capsule are omitted. §258.7: the attitude is parsed first.
+        const attitude=attitudeRows(full.relationships);
+        return {...(attitude.length?{attitude}:{}),...Object.fromEntries(Object.entries(full).filter(([field,value])=>field==='name'||field==='ref'
           ||full.name!==person.name||![person,voice].some(supplied=>Object.hasOwn(supplied,field)&&JSON.stringify(supplied[field])===JSON.stringify(value)))),
           ...(isNpcReference(person.ref)?{ref:person.ref}:{})};
       }catch{

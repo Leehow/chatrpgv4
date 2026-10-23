@@ -123,7 +123,7 @@ export function decisionCharacter(person:Row):Row {
 export class ExhibitRefusal extends Error {reason:'unissued'|'carrier_absent'|'not_owner'|'testimony_revealed';ref:string;constructor(message:string,reason:'unissued'|'carrier_absent'|'not_owner'|'testimony_revealed',ref:string){super(message);this.reason=reason;this.ref=ref;}}
 interface Fact {ref:string;actor?:string;kind:string;availability:'current'|'supplemental';value:unknown;revision:string;told?:Row;content:string}
 /** §258.3: one selected item as the host records it: a stable content identity and how it is said. Host-only. */
-export interface TellingUnit {content_id:string;kind:string;strategy:typeof TELLING[number];gist?:string;told_times?:number}
+export interface TellingUnit {content_id:string;kind:string;strategy:typeof TELLING[number];gist?:string;told_times?:number;heard_from?:string}
 const counted=(counts:Row)=>TELLING.reduce((sum,key)=>sum+(Number(counts?.[key])||0),0);
 const gistOf=(value:unknown):string|undefined=>{
  const row=value&&typeof value==='object'?value as Row:{};
@@ -151,7 +151,7 @@ export class DecisionContent {
  private places=new Set<string>();
  private entityLabels=new Map<string,string>();
  private exhibitRows=new Map<string,Row>();private handleRefs=new Map<string,string>();private activeExhibits=new Set<string>();private exhibitOrdinal=0;private exhibitsOmitted=0;private exhibitsGiven=false;
- private reads=new Map<string,Row>();private told=new Map<string,Map<string,Row>>();private sourceRevision:unknown;private bytes=0;private omitted=0;private previous=new Set<string>();
+ private reads=new Map<string,Row>();private told=new Map<string,Map<string,Row>>();private heard=new Map<string,Row[]>();private sourceRevision:unknown;private bytes=0;private omitted=0;private previous=new Set<string>();
  assertCurrent(capsule:Row):void {if(this.sourceRevision!==undefined&&this.sourceRevision!==(capsule._context?.task_source_revision??capsule._context?.source_revision))throw Error('Prepared communication source revision changed');}
  forScope(scope:string):void {if(scope!==this.scope){this.scope=scope;this.active.clear();this.entities.clear();this.people.clear();this.places.clear();this.listenerAliases.clear();this.entityLabels.clear();this.reads.clear();this.facts.clear();this.exhibitRows.clear();this.activeExhibits.clear();this.handleRefs.clear();}}
  observePerson(value:Row):void {if(isNpcReference(value.ref))this.reads.set(value.ref,structuredClone(value));}
@@ -165,7 +165,7 @@ export class DecisionContent {
   for(const ref of issuedPeople)if(isNpcReference(ref)){this.entities.add(ref);this.people.add(ref);}
   const cast=[...rows(capsule.npc_references?.people),...rows(capsule.present),...people,...this.reads.values()];
   // §258.4: what each present person already told whom, from their read; it marks the rows issued to them.
-  this.told.clear();
+  this.told.clear();this.heard.clear();
   for(const person of cast)if(isNpcReference(person.ref)&&Array.isArray(person.told)&&!this.told.has(person.ref))
    this.told.set(person.ref,new Map(rows(person.told).filter(item=>typeof item.content_id==='string').map(item=>[item.content_id,item])));
   const publicAliases=new Map<string,Set<string>>();
@@ -208,6 +208,7 @@ export class DecisionContent {
     }
    }
    // §258.8: what others said in this person's hearing, as attributed hearsay that is never their own knowledge or promise.
+   if(rows(person.heard).length&&!this.heard.has(person.ref))this.heard.set(person.ref,rows(person.heard));
    for(const item of rows(person.heard))if(typeof item.gist==='string'&&typeof item.content_id==='string'){
     const by=typeof item.said_by==='string'?this.entityLabels.get(item.said_by)??item.said_by:'someone';
     this.issue('fact',{said_by:by,statement:item.gist,turn:item.turn,content_id:item.content_id,
@@ -284,7 +285,12 @@ export class DecisionContent {
  private unit(content:Row,actor:string,to:string[]):TellingUnit|undefined {
   let id:string,kind:string,gist:string|undefined,marked:Row|undefined;
   if(content.result_ref)return undefined;
-  if(content.new){id=contentId('n',{actor,value:content.new});kind=`new:${content.new.predicate}`;gist=gistOf(content.new);}
+  if(content.new){
+   id=contentId('n',{actor,value:content.new});kind=`new:${content.new.predicate}`;gist=gistOf(content.new);
+   // §258.8: the same constructor someone else said in this person's hearing is hearsay, not their own new item.
+   const heard=(this.heard.get(actor)??[]).find(row=>typeof row.said_by==='string'&&contentId('n',{actor:row.said_by,value:content.new})===row.content_id);
+   if(heard)return {content_id:heard.content_id,kind:'heard',strategy:content.strategy??'new',...(gist?{gist}:{}),heard_from:heard.said_by};
+  }
   else if(content.exhibit_ref){const issued=this.exhibitRows.get(content.exhibit_ref);if(!issued)return undefined;id=contentId('x',issued.exhibit_id);kind='exhibit';gist=gistOf(issued.label);}
   else{
    const fact=this.facts.get(content.fact_ref??content.source_ref);if(!fact)return undefined;
@@ -426,7 +432,9 @@ export class DecisionContent {
    units.push(told.filter((item):item is TellingUnit=>!!item));
    return {...response,...(to?{to}:{}),...('content'in response?{claims:claims.map((claim,index)=>{
     const item=told[index];
-    return item&&item.strategy!=='new'?{...claim,telling:{strategy:item.strategy,...(item.told_times?{times:item.told_times}:{})}}:claim;
+    const by=item?.heard_from?this.entityLabels.get(item.heard_from)??item.heard_from:undefined;
+    const attributed=by?{...claim,heard_from:by,authority:`What ${by} said in this person's hearing; attribute it to ${by}, it is not this person's own knowledge or promise.`}:claim;
+    return item&&item.strategy!=='new'?{...attributed,telling:{strategy:item.strategy,...(item.told_times?{times:item.told_times}:{})}}:attributed;
    })}:{})};
   });
   return {responses,materials:reveal.map(content=>this.resolve(content)),units};

@@ -52082,5 +52082,11 @@ before the current turn, newest first, one row per item, at most 6: `{content_id
 each as a fact of kind `heard` to that person, `{said_by: display name, statement: gist, turn, content_id, authority: "What <name>
 said in this person's hearing; attribute it to <name>, it is not this person's own knowledge or promise."}`; its content identity is
 the original item's, so a bystander's repeat is told-marked like any other.
+A row keeps its first speaker when someone else repeats the item later, and a person's own items are never their hearsay. A new
+constructor a person selects that equals one they heard (the same value under the original speaker) settles as that heard item:
+the unit takes the heard `content_id` and `kind: "heard"`, and the author's claim carries `heard_from` and the attribution authority.
+Attestation (§258.2) also reads the author's own `{{say:npc_N}}` spans in `artifact_text`: a span with words attests its speaker
+even when the committed speech resolved no line. The Keeper's people block carries `attitude` parsed before capsule duplicates are
+dropped (`hybrid-engine`, `keeper-preparation`).
 
 Tests: `tests/extension/npc-communication.test.mjs` (§258.7, §258.8).
