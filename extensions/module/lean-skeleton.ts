@@ -191,3 +191,24 @@ export async function buildSkeleton(context: SkeletonContext): Promise<Row> {
 		failed: results.filter(row => row.status === "failed").length, entities: merged.entities.length });
 	return merged;
 }
+
+/** §262.6: the request bound of a source answer's reader under lean reading. */
+export const LEAN_ANSWER_REQUESTS = 12;
+
+/**
+ * §262.6: the skeleton as a source answer's map of the book: every Keeper-truth, condition and cross-reference line
+ * with its names and pages (no book text), Keeper truth first, under about 5K tokens.
+ */
+export async function skeletonDigest(home: string, sha: string): Promise<Row | undefined> {
+	const skeleton = JSON.parse(await readFile(skeletonPath(home, sha), "utf8"));
+	const rows: Row[] = [];
+	let spent = 0;
+	for (const list of ["keeper_truth", "conditional_events", "cross_references"] as const) for (const row of skeleton[list] ?? []) {
+		const line = { kind: list, names: row.names, summary: row.summary, pages: row.pages };
+		const cost = Math.ceil(Buffer.byteLength(JSON.stringify(line)) / 3);
+		if (spent + cost > 5000) break;
+		spent += cost; rows.push(line);
+	}
+	const people = (skeleton.entities ?? []).slice(0, 200).map((entity: Row) => ({ name: entity.name, pages: entity.pages }));
+	return rows.length || people.length ? { note: "Where the book discusses these people and events (navigation only, not evidence): open the listed pages first, search only for what it does not place.", rows, entities: people } : undefined;
+}
