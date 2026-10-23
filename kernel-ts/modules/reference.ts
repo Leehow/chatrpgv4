@@ -12,7 +12,7 @@ import{validatePublicGuidance}from'./public-guidance.js';
 import{validSourceLanguage}from'./contract.js';
 import{nowIso}from'../write/store.js';
 const fail=(message:string):never=>{throw new RpcError('invalid_params',message)};
-/** §258.3: the most original text a page-text opening's anchor holds. */
+/** §261.3: the most original text a page-text opening's anchor holds. */
 const HANDOFF_CHARS=24000;
 /** The accepted guidance's own bound on each field (`extensions/module/character-guidance.ts`), the handoff's lead included. */
 const GUIDANCE_FIELD_CHARS=4000;
@@ -24,7 +24,7 @@ export async function publishReferenceContext(store:ModuleStore,meta:Row,params:
  for(const file of [packetPath,receiptPath,textPath,join(work,'task.json')])if(!inside(work,await resolvedPath(file)))fail('Reference artifact escaped its host task');
  const receipt=row(await store.context.snapshots.readJson(receiptPath)),packet=validateReferencePacket(JSON.parse(await readFile(packetPath,'utf8')),number(meta.page_count),string(meta.file_sha256));
  if(receipt.protocol!==SOURCE_REFERENCE_PROTOCOL||receipt.kind!=='guidance'||receipt.source_sha256!==meta.file_sha256||receipt.packet_sha256!==await sha256File(packetPath)||receipt.text_sha256!==await sha256File(textPath)||receipt.task_sha256!==await sha256File(join(work,'task.json')))fail('Reference receipt does not match the final artifacts');
- // §258.3: a guide written from the opening's and setup pages' text (`page-text-v1`) carries no independent checks; its
+ // §261.3: a guide written from the opening's and setup pages' text (`page-text-v1`) carries no independent checks; its
  // opening pages are named per entry and must be pages the packet holds.
  const pageText=receipt.checks_policy===PAGE_TEXT_POLICY;
  if(!pageText&&receipt.checks_policy!=='material-issues-v1')fail('Unknown source guidance check policy');
@@ -50,7 +50,7 @@ export async function publishReferenceContext(store:ModuleStore,meta:Row,params:
  const entryIds=entries.map(entry=>bindings[entry.id].node_id);
  const nodes:Row[]=previous?[]:[{node_id:`module-${mid}`,node_kind:'module',name:meta.title,visibility:'keeper-only',properties:{entry_scene_ids:entryIds,
   ...(entries.length===1&&entries[0].era_text?{era:entries[0].era_text}:{})},source_refs:[{page:entries[0].page}]}];
- // §258.3: a page-text opening's own words are every page of the opening, its first page's excerpt first.
+ // §261.3: a page-text opening's own words are every page of the opening, its first page's excerpt first.
  const openingText=(entry:typeof entries[number]):string=>{const span=referenceEntryExcerpt(packet,entry);
   const spans=[...(span?[span]:[]),...openingPages(entry).slice(1).flatMap(page=>packet.excerpts.filter(other=>other.page===page&&other!==span).slice(0,1))];
   return spans.map(other=>`[Original physical page ${other.page}]\n${other.text}`).join('\n\n').slice(0,HANDOFF_CHARS);};
@@ -76,7 +76,7 @@ export async function publishReferenceContext(store:ModuleStore,meta:Row,params:
  let guidance:Row|undefined;
  if(chosen){const entry=entries.find(entry=>bindings[entry.id].node_id===chosen)??fail('Selected opening has no original reference');
   const excerpts=openingText(entry);
-  // §258.3: the pages are the scene the table stands in, so the Keeper is told to play it from them rather than build another.
+  // §261.3: the pages are the scene the table stands in, so the Keeper is told to play it from them rather than build another.
   const lead=pageText?`The table opens in ${bindings[entry.id].name}. The original pages below are this scene: its place, the people met here and what the investigators are read aloud. Play it from them first: describe and answer from their text, keep the people and things they name, and do not create another scene for a place they describe. Graph fragments arrive later and bind to this scene. Every turn here carries these pages whole as opening_pages. Original pages (private):\n`
    :'Use the bound original source as reference while graph fragments arrive. Original context (private):\n';
   // The handoff is one guidance field: it carries the opening's first words, and the whole pages ride every turn's capsule.

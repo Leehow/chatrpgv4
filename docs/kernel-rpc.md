@@ -52002,13 +52002,13 @@ tool result and never the author input. The tool description says both.
 Tests: `tests/extension/source-answer.test.mjs` (prepare with `material: exhibits` reaches `ensure` as the exhibits detail read),
 `tests/extension/exhibit-reveal.test.mjs` (a source answer's text is absent from the author's `task.json`).
 
-## 258. Page opening: a table opens on the opening's pages
+## 261. Page opening: a table opens on the opening's pages
 
 A bound PDF's opening is found and its setup guide written from the book's text layer alone, so the table opens on the
 opening's original pages while the graph is read in the background. It is the host-owned source-reference fast path (§122) without
 the checked decision service: the same packet, the same `module.reference.publish`, a different check policy.
 
-### 258.1 When it runs
+### 261.1 When it runs
 
 `ReadingService.prepareBook` for `purpose: "guidance"` tries, in order: the checked source reference (only with
 `runtime.sourceReferences`, as before), then the page opening (`pageGuidance`), then the ordinary foreground guidance read.
@@ -52016,7 +52016,7 @@ The page opening is on whenever the service has a host runtime, unless the host 
 takes it. Any failure other than a cancellation or `needs_choice` is recorded (`lane: "page-open"`, `event: "fallback"`,
 `reason`) and the ordinary read follows, so a book without a usable text layer opens exactly as before.
 
-### 258.2 Three text-only reader calls (`extensions/module/page-open.ts`)
+### 261.2 Three text-only reader calls (`extensions/module/page-open.ts`)
 
 Each is a `runtime.runTask({kind: "reader"})` child with its own system prompt, tools `read,write` and no page images; each
 reads `task.json` and writes `answer.json` in its own step directory (`locate`, `guide`, `review`) under the module's
@@ -52044,7 +52044,7 @@ first page), `reference-guidance.txt`, `task.json` and the receipt
 `{protocol, kind: "guidance", source_sha256, task_sha256, packet_sha256, text_sha256, checks_policy: "page-text-v1",
 public_fields, opening_pages: {<entry id>: [pages]}}`. Telemetry: one `page-open` row per call and one `complete` row.
 
-### 258.3 Publication (`kernel-ts/modules/reference.ts`)
+### 261.3 Publication (`kernel-ts/modules/reference.ts`)
 
 `publishReferenceContext` accepts `checks_policy: "page-text-v1"` without the six material-issue checks; the guide carries
 no independent check. `opening_pages` (page-text receipts only) must start at the entry's page and name pages the packet
@@ -52062,7 +52062,7 @@ text}` (at most 16000 characters; it displaces no budgeted section), and the cap
 investigators see, hear or ask about there from it before any lookup. A module lookup that returns the anchor carries it
 as the turn's book text under its first page, and a refused name found in its text points at all of its pages.
 
-### 258.4 Opening the table
+### 261.4 Opening the table
 
 The targeted `start_scene` preparation (setup completion and the opening overlap) answers `opening_ready` at once from a
 ready reference when either `runtime.sourceReferences` is set or the page opening is on, and queues the read-ahead as

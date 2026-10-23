@@ -1,5 +1,5 @@
 /**
- * Contract §258: an opening found and guided from a PDF's text layer alone, installed through the real kernel's
+ * Contract §261: an opening found and guided from a PDF's text layer alone, installed through the real kernel's
  * `module.reference.publish`. The reader child is a fixture writing answer.json; nothing here asserts model wording.
  */
 import assert from 'node:assert/strict';

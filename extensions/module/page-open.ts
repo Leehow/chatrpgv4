@@ -1,5 +1,5 @@
 /**
- * §258: a bound PDF's opening found from its text layer alone, so a table can open on the opening's pages while the
+ * §261: a bound PDF's opening found from its text layer alone, so a table can open on the opening's pages while the
  * graph is read in the background. Three text-only reader calls (no page images): one finds the opening's pages and the
  * setup pages from the bookmarks and each page's first lines; one writes the public setup guide from those pages' text;
  * one checks that guide, seeing only the guide, for what players may not know. The host builds the same source-reference packet and receipt `module.reference.publish` installs, under the
@@ -76,7 +76,7 @@ const pageList=(value:unknown,count:number,max:number):number[]=>
  Array.isArray(value)?[...new Set(value.filter((page):page is number=>Number.isSafeInteger(page)&&page>=1&&page<=count))].slice(0,max):[];
 
 /**
- * §258.2: find the opening and write the guide. The result's files are the ones `module.reference.publish` reads:
+ * §261.2: find the opening and write the guide. The result's files are the ones `module.reference.publish` reads:
  * task.json, source-reference.json, reference-guidance.txt and source-reference-complete.json in `workDir`.
  */
 export async function runPageOpen(input:PageOpenInput):Promise<ReferenceResult>{
@@ -99,7 +99,7 @@ export async function runPageOpen(input:PageOpenInput):Promise<ReferenceResult>{
  }
  if(!heads.some(head=>head.lines.length))throw new SourceReferenceFailure('page_open_no_text_layer',false,true);
  const located=await ask(input,cwd,'locate',LOCATE_INSTRUCTION,{page_count:count,bookmarks:marks,pages:heads,...(input.focus?{preferred_opening:input.focus}:{})});
- // §258.2: an opening's people often continue after a map; the first text page past image-only pages that follow the
+ // §261.2: an opening's people often continue after a map; the first text page past image-only pages that follow the
  // opening is kept with it, unless a chapter (a top-level bookmark) starts there.
  const chapters=new Set(Array.isArray(info.bookmarks)?info.bookmarks.flatMap((mark:Row)=>Number.isSafeInteger(mark?.page)?[mark.page as number]:[]):[]);
  const bridged=(pages:number[]):number[]=>{
@@ -115,12 +115,12 @@ export async function runPageOpen(input:PageOpenInput):Promise<ReferenceResult>{
   return name&&pages.length?[{name,pages:bridged(pages)}]:[];});
  if(!openings.length)throw new SourceReferenceFailure('page_open_no_opening',true);
  const setup=pageList(located.setup_pages,count,SETUP_PAGES).filter(page=>text.get(page)?.trim());
- // §258.2: each page read is one excerpt, whole up to the packet's bound.
+ // §261.2: each page read is one excerpt, whole up to the packet's bound.
  const pagesRead=[...new Set([...setup,...openings.flatMap(opening=>opening.pages)])].sort((a,b)=>a-b);
  const excerpts:ReferenceExcerpt[]=pagesRead.map((page,index)=>{const body=text.get(page)!.slice(0,PAGE_CHARS);return {id:`page-${index+1}`,page,start:0,end:body.length,text:body};});
  const spanOf=(page:number)=>excerpts.find(span=>span.page===page)!;
  const guided=await ask(input,cwd,'guide',GUIDE_INSTRUCTION,{play_language:input.language,pages:excerpts.map(span=>({page:span.page,text:span.text}))});
- // §258.2: the draft is checked once more for what players may not know, by a call that sees only the draft.
+ // §261.2: the draft is checked once more for what players may not know, by a call that sees only the draft.
  const draft=Object.fromEntries(PUBLIC_GUIDANCE_FIELDS.map(field=>[field,typeof guided[field]?.text==='string'?guided[field].text.trim():'']));
  let reviewed:Row|undefined;
  try{reviewed=await ask(input,cwd,'review',REVIEW_INSTRUCTION,{play_language:input.language,fields:draft});}
@@ -147,7 +147,7 @@ export async function runPageOpen(input:PageOpenInput):Promise<ReferenceResult>{
  await writeFile(join(cwd,'task.json'),taskBytes);await writeFile(join(cwd,'source-reference.json'),packetBytes);await writeFile(join(cwd,'reference-guidance.txt'),guide);
  const receipt={protocol:SOURCE_REFERENCE_PROTOCOL,kind:'guidance',source_sha256:source.file_sha256,task_sha256:digest(taskBytes),packet_sha256:digest(packetBytes),
   text_sha256:digest(guide),checks_policy:PAGE_TEXT_POLICY,public_fields:publicFields,
-  // §258.3: every page of each opening, so the Keeper's handoff carries the whole opening and not only its first page.
+  // §261.3: every page of each opening, so the Keeper's handoff carries the whole opening and not only its first page.
   opening_pages:Object.fromEntries(openings.map((row,index)=>[`scene-source-entry-${index+1}`,row.pages]))};
  await writeFile(join(cwd,'source-reference-complete.json'),JSON.stringify(receipt));
  const ms=Date.now()-began;input.record?.({lane:'page-open',event:'complete',module_id:input.moduleId,ms,openings:openings.map(row=>({name:row.name,pages:row.pages})),setup_pages:setup});

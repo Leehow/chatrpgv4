@@ -2172,7 +2172,7 @@
       "kind": "reader-task",
       "callee": "runtime.runTask",
       "count": 1,
-      "owner": "Page opening (§258)",
+      "owner": "Page opening (§261)",
       "path": "app-play-gated",
       "role": "driver",
       "trace": "page-open telemetry rows (locate, guide)",

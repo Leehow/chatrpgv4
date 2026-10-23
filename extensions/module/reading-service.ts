@@ -576,10 +576,10 @@ export class ReadingService implements ReadingBridge {
 			details:{...published.opening?.choice,introduction:published.introduction,source_reference:true}});
 		return {...published,source_reference:true};
 	}
-	/** §258.1: whether a PDF's guidance may be written from its pages' text when no checked source reference is available. */
+	/** §261.1: whether a PDF's guidance may be written from its pages' text when no checked source reference is available. */
 	private pageOpen():boolean{return this.deps.runtime!==undefined&&process.env.PI_COC_PAGE_OPEN!=='off';}
 	/**
-	 * §258.2: the opening found and the guide written from the book's text layer alone (two text-only reader calls), installed
+	 * §261.2: the opening found and the guide written from the book's text layer alone (two text-only reader calls), installed
 	 * through `module.reference.publish` like a checked source reference. Undefined when it is off or the source is a window.
 	 */
 	private async pageGuidance(mid:string,params:Row,signal:AbortSignal|undefined,options:ReadingOptions):Promise<Row|undefined>{
@@ -681,7 +681,7 @@ export class ReadingService implements ReadingBridge {
 						fix:'Retry guidance after checking the source reader and decision service',details:{reason}});
 				}
 			}
-			// §258.2: without a checked source reference, the opening's pages are found and guided from the text layer; a book
+			// §261.2: without a checked source reference, the opening's pages are found and guided from the text layer; a book
 			// that has none, or a page opening that fails, is read as before.
 			try{const paged=await this.pageGuidance(mid,params,signal,options);if(paged)return {...paged,module_id:mid};}
 			catch(failure){
@@ -692,7 +692,7 @@ export class ReadingService implements ReadingBridge {
 			return {...result, module_id:mid};
 		}
 		if (params.start_scene && params.targeted === true) {
-			// §258.4: a page-text opening is a source reference too: the table opens on it while the graph is read behind it.
+			// §261.4: a page-text opening is a source reference too: the table opens on it while the graph is read behind it.
 			if(this.deps.runtime?.sourceReferences||this.pageOpen()){const reference=await this.call('module.reference.status',{module_id:mid,focus:params.start_scene},campaign);
 				if(reference.ready){void this.readAhead({module_id:mid,focus:params.start_scene},campaign).then(()=>{this.wakes.set(JSON.stringify([campaign,mid]),'reference-ready');return this.pump(mid,campaign);}).catch(()=>undefined);
 					return {ok:true,module_id:mid,opening_ready:true,readiness:'source-reference',graph_complete:false};}}

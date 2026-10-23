@@ -481,7 +481,7 @@ export function sourceNameReadFix(graph: ModuleGraph, name: string): string | nu
             || !normalize(node.summary).replace(/\s+/gu, '').includes(key)) continue;
         const pages = [...new Set(array(node.source_refs).filter(ref => row(ref).source_id === `pdf:${graph.moduleId}`
             && Number.isInteger(row(ref).pdf_index) && Number(row(ref).pdf_index) >= 0).map(ref => Number(row(ref).pdf_index) + 1))];
-        // §258.3: a page-text opening's anchor cites every page of the opening.
+        // §261.3: a page-text opening's anchor cites every page of the opening.
         if (!pages.length || pages.length > 1 && row(node.properties).opening_pages_text !== true) continue;
         const query = graph.handle(node), found = graph.search(query, 64).filter(value => value.node_kind === 'scene');
         if (found.length !== 1 || found[0] !== node) continue;

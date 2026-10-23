@@ -1,6 +1,6 @@
 /** Host-owned exact original-text references; no PDF parsing occurs in the kernel. */
 export const SOURCE_REFERENCE_PROTOCOL='source-reference-v1';
-/** §258.3: the guide policy of an opening found and guided from page text alone, without independent checks. */
+/** §261.3: the guide policy of an opening found and guided from page text alone, without independent checks. */
 export const PAGE_TEXT_POLICY='page-text-v1';
 export const REFERENCE_FIELDS=['era','place','premise','advice','warnings','opening'] as const;
 export type ReferenceField=typeof REFERENCE_FIELDS[number];

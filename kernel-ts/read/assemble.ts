@@ -137,9 +137,9 @@ export const HEAD_FIRST_SIGHT = " first_sight is the player's first sight of the
 /** Contract §255: said only on a capsule that carries `kept_looks`. */
 export const HEAD_KEPT_LOOKS = " kept_looks is how earlier replies showed this place and the people here, in their own words, and the " +
     "pronoun they used for each person: keep to it; add detail, never contradict it.";
-/** Contract §258.3: the most characters of a page-text opening's pages a capsule carries. */
+/** Contract §261.3: the most characters of a page-text opening's pages a capsule carries. */
 export const OPENING_PAGES_CHARS = 16000;
-/** Contract §258.3: said only on a capsule that carries `opening_pages`. */
+/** Contract §261.3: said only on a capsule that carries `opening_pages`. */
 export const HEAD_OPENING_PAGES = " opening_pages is the book's own text of the opening the party is in (private): what the investigators " +
     "see, hear or ask about here -- a sign, the radio, a person -- is answered from it first, before any lookup, and never invented over it.";
 export const BUDGETS: Readonly<Record<string, number>> = Object.freeze({
@@ -773,7 +773,7 @@ export async function buildCapsule(campaign: CampaignSnapshot, module: LoadedMod
         sections.known_places = named.rows;
         if (named.omitted) sections.known_places_omitted = named.omitted;
     }
-    // §258.3: in a page-text opening, or a place the table established inside it, the opening's pages ride beside the
+    // §261.3: in a page-text opening, or a place the table established inside it, the opening's pages ride beside the
     // sections under their own cap, every turn: `where` cuts a summary to its budget, and the place's signs, radio and
     // people are on those pages.
     {
