@@ -38,8 +38,19 @@ export async function map_jobs(kernel:any,mid:any){
 return (await (async()=>{const __rows:any[]=[];for(const job of pyIterable((await pyInvoke(queue,[kernel,mid],{})))){if(pyBool(pyEqual((await pyMethod(job,"get",["material"],{})),"map"))){__rows.push(job);}}return __rows;})());
 }
 Object.defineProperty(map_jobs,"__pySignature",{value:[{"name":"kernel","rest":false,"varargs":false},{"name":"mid","rest":false,"varargs":false}]});
+/** §257.15: the table's current-scene exhibits read is claimed ahead of other reads; read it to nothing printed first. */
+async function claimPastExhibits(kernel:any,mid:any):Promise<any>{
+ for(;;){
+  const job=await pyMethod(kernel,"ok",["module.read.claim",{module_id:mid,campaign:"c1",owner:"test-host"}],{});
+  if(job?.material!=="exhibits")return job;
+  await pyInvoke(observed,[job],{});
+  await pyInvoke(write,[pyDivide(await pyInvoke(Path,[job.work_dir],{}),"draft.json"),{nodes:[],claims:[],exhibits:[],node_refs:[],coverage:{},dependencies:[],critical:[],ready_nodes:[]}],{});
+  await pyInvoke(write,[pyDivide(await pyInvoke(Path,[job.work_dir],{}),"review.json"),{checked:[],missing:[]}],{});
+  await pyInvoke(finish,[kernel,job],{campaign:"c1"});
+ }
+}
 export async function c1_claim(kernel:any,mid:any){
-return (await pyMethod(kernel,"ok",["module.read.claim",({["module_id"]:mid,["campaign"]:"c1",["owner"]:"test-host"})],{}));
+return claimPastExhibits(kernel,mid);
 }
 Object.defineProperty(c1_claim,"__pySignature",{value:[{"name":"kernel","rest":false,"varargs":false},{"name":"mid","rest":false,"varargs":false}]});
 export async function book_at_the_dock(kernel:any,tmp_path:any){

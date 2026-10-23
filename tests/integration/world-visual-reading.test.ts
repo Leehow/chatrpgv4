@@ -25,6 +25,17 @@ const __file__=new URL('../../tests/kernel/test_visual_reading.py',import.meta.u
 
 
 
+/** §257.15: the table's current-scene exhibits read is claimed ahead of other reads; read it to nothing printed first. */
+async function claimPastExhibits(kernel:any,mid:any):Promise<any>{
+ for(;;){
+  const job=await pyMethod(kernel,"ok",["module.read.claim",{module_id:mid,campaign:"c1",owner:"test-host"}],{});
+  if(job?.material!=="exhibits")return job;
+  await pyInvoke(observed,[job],{});
+  await pyInvoke(write,[pyDivide(await pyInvoke(Path,[job.work_dir],{}),"draft.json"),{nodes:[],claims:[],exhibits:[],node_refs:[],coverage:{},dependencies:[],critical:[],ready_nodes:[]}],{});
+  await pyInvoke(write,[pyDivide(await pyInvoke(Path,[job.work_dir],{}),"review.json"),{checked:[],missing:[]}],{});
+  await pyInvoke(finish,[kernel,job],{campaign:"c1"});
+ }
+}
 export async function test_a_reader_cannot_publish_an_arbitrary_local_file_as_a_handout(){
 let draft:any;
 draft=({["nodes"]:[({["node_id"]:"handout-letter",["node_kind"]:"handout",["name"]:"Letter",["visibility"]:"revealable",["source_refs"]:[({["page"]:1})],["properties"]:({["asset_ref"]:"/unrelated/private.png"})})],["claims"]:[],["node_refs"]:[],["coverage"]:({}),["critical"]:[],["dependencies"]:[],["ready_nodes"]:["handout-letter"]});
@@ -344,7 +355,7 @@ await assert.rejects(()=>preflightTable.apply({campaign:"c1",call_id:"t1-c1",eff
 for(let draw=0;draw<64;draw++)assert.equal(preflightRng.getrandbits(32),preflightBefore.getrandbits(32),"Unread source clue preflight must not consume the actual native RNG");
 for(const file of Object.keys(preflightFiles))assert.deepEqual(await pyMethod(pyDivide(directory,file),"read_bytes",[],{}),preflightFiles[file],"Unread source clue preflight must leave every state byte unchanged");
 (await pyInvoke(request,[kernel,mid,"detail"],{"focus":"Tower","campaign":"c1"}));
-job=(await pyMethod(kernel,"ok",["module.read.claim",({["module_id"]:mid,["campaign"]:"c1",["owner"]:"test-host"})],{}));
+job=await claimPastExhibits(kernel,mid);
 (await pyInvoke(observed,[job],{}));
 (await pyInvoke(write,[pyDivide((await pyInvoke(Path,[pyAt(job,"work_dir")],{})),"draft.json"),({["nodes"]:[({["node_id"]:"scene-tower",["node_kind"]:"scene",["name"]:"Tower",["source_refs"]:[({["page"]:2})],["summary"]:"The tower's upper room holds a ledger.",["properties"]:({["is_final"]:true,["facts"]:["The upper room contains a ledger."]})})],["claims"]:[],["node_refs"]:[],["coverage"]:({}),["dependencies"]:[],["critical"]:[],["ready_nodes"]:["scene-tower"]})],{}));
 (await pyInvoke(write,[pyDivide((await pyInvoke(Path,[pyAt(job,"work_dir")],{})),"review.json"),({["checked"]:[({["paths"]:["/nodes/0","/coverage"],["verdict"]:"supported",["source_refs"]:[({["page"]:2})]})],["missing"]:[]})],{}));
