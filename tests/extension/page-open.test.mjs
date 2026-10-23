@@ -14,6 +14,7 @@ import {build} from 'esbuild';
 import {playtestScratch} from './playtest-scratch.mjs';
 import {runPageOpen} from '../../extensions/module/page-open.ts';
 import {ReadingService} from '../../extensions/module/reading-service.ts';
+import {DecisionContent,openingPassages} from '../../runtime/decision-content.ts';
 
 const ROOT=resolve(import.meta.dirname,'../..'),evidence=playtestScratch('page-open','direct-');
 await build({stdin:{contents:[['modules/index',['createModuleRuntime']],['context',['createKernelContext']],['locks',['createAdvisoryLocks']]]
@@ -142,4 +143,17 @@ test('with page opening on and no checked reference, guidance is published from 
   const prepared=await service.prepare({module_id:f.mid,purpose:'guidance',guidance_key:'b'.repeat(64),play_language:'en'});
   assert.equal(prepared.setup_ready,true);assert.equal(prepared.source_reference,true);
   assert.ok(!calls.includes('module.read.request'));
+});
+
+test('the opening pages reach the Keeper as passages it can hand the author, named by page',()=>{
+  const long=Array.from({length:30},(_,index)=>`Line ${index} of the station text runs on for a while here.`).join('\n');
+  const text=`[Original physical page 16]\nThe road runs straight.\nThe radio plays: Coyote Mike on KBLR.\n\n[Original physical page 17]\n${long}`;
+  const passages=openingPassages({scene:'Prologue',text});
+  assert.deepEqual(passages[0],{name:'Original page 16, passage 1',text:'The road runs straight.\nThe radio plays: Coyote Mike on KBLR.'});
+  assert.ok(passages.length>2&&passages.slice(1).every((passage,index)=>passage.name===`Original page 17, passage ${index+1}`&&passage.text.length<=900+80));
+  assert.equal(passages.slice(1).map(passage=>passage.text).join('\n'),long,'whole lines, nothing dropped');
+  const owner=new DecisionContent(),issued=owner.prepare('c:1',{opening_pages:{scene:'Prologue',text}},[],[],['Investigator']);
+  const radio=issued.facts.find(fact=>fact.value?.name==='Original page 16, passage 1');
+  assert.ok(radio&&radio.ref.startsWith('source_'),'issued as a source');
+  assert.equal(owner.resolve({source_ref:radio.ref}).value.text.includes('Coyote Mike'),true);
 });

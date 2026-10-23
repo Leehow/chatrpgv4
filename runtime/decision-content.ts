@@ -103,6 +103,26 @@ const gistOf=(value:unknown):string|undefined=>{
 };
 const sorted=(value:unknown):unknown=>Array.isArray(value)?value.map(sorted):value&&typeof value==='object'
  ?Object.fromEntries(Object.keys(value).sort().map(key=>[key,sorted((value as Row)[key])])):value;
+/** §261.3: the most characters of one opening passage; a passage ends at a line that closes a sentence once it is this long. */
+const OPENING_PASSAGE_CHARS=900;
+/**
+ * §261.3: `capsule.opening_pages` (`[Original physical page N]` headed text) as passages named by page and order: whole lines,
+ * a passage closed at the first sentence end past half the bound, or at the bound.
+ */
+export function openingPassages(value:unknown):Array<{name:string;text:string}> {
+ const text=typeof (value as Row)?.text==='string'?(value as Row).text as string:'';
+ const out:Array<{name:string;text:string}>=[];let page=0,part=0,lines:string[]=[];
+ const close=()=>{const body=lines.join('\n').trim();if(body&&page)out.push({name:`Original page ${page}, passage ${++part}`,text:body});lines=[];};
+ for(const line of text.split('\n')){
+  const heading=/^\[Original physical page ([0-9]+)\]$/.exec(line.trim());
+  if(heading){close();page=Number(heading[1]);part=0;continue;}
+  lines.push(line);
+  const size=lines.join('\n').length;
+  if(size>=OPENING_PASSAGE_CHARS||size>=OPENING_PASSAGE_CHARS/2&&/[.!?。！？]["'”’)]?$/.test(line.trim()))close();
+ }
+ close();
+ return out;
+}
 /** §258.3: a content identity, explicit per source kind so two kinds never collide. */
 const contentId=(prefix:string,key:unknown)=>`${prefix}:${createHash('sha256').update(JSON.stringify(sorted(key))).digest('hex').slice(0,24)}`;
 function factContentId(evidence:string,value:unknown,actor:string|undefined):string {
@@ -192,6 +212,8 @@ export class DecisionContent {
   for(const item of exhibits)this.issueExhibit(item);
   for(const material of rows(capsule.outcome?.public_materials))if(material.visibility==='player')this.issue('fact',material,undefined,'canonical_material','current');
   for(const source of sources)if(typeof source.text==='string'&&source.text.trim())this.issue('source',{name:source.name,text:source.text,authority:source.authority??'reference_only'},undefined,'reference_only');
+  // §261.3: the opening's own pages, in passages the Keeper can hand the author as the book's words for what is perceived here.
+  for(const passage of openingPassages(capsule.opening_pages))this.issue('source',{...passage,authority:'reference_only'},undefined,'reference_only');
   for(const entry of rows(capsule.public_scene?.entries))if(typeof entry.text==='string'&&entry.text.trim())
    this.issue('fact',{turn:entry.turn,text:entry.text,...(entry.truncated?{truncated:true}:{})},undefined,'public_scene_history');
   const reused=[...this.active].filter(ref=>this.previous.has(ref)).length;this.previous=new Set(this.active);

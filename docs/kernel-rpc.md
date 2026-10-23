@@ -52128,7 +52128,11 @@ table may open on it (`referenceReady`), and the graph that lands later binds to
 The handoff is read once, at the opening. On every later turn whose active scene is that anchor or lies in it (a place the
 table established within it), the capsule carries the anchor's text beside the sections as `opening_pages: {scene,
 text}` (at most 16000 characters; it displaces no budgeted section), and the capsule head says to answer what the
-investigators see, hear or ask about there from it before any lookup. A module lookup that returns the anchor carries it
+investigators see, hear or ask about there from it before any lookup. The same text reaches the Keeper's decision materials
+as sources (`runtime/decision-content.ts` `openingPassages`): whole lines in passages of at most about 900 characters,
+closed at a sentence end past half of that, named `Original page N, passage K`, after the turn's looked-up sources and
+under the catalog's byte bound. Selecting one (`source_ref`, in reveal or an interaction's content) hands the author the
+book's words for a radio, a sign or a price instead of the author inventing them. A module lookup that returns the anchor carries it
 as the turn's book text under its first page, and a refused name found in its text points at all of its pages.
 
 ### 261.4 Opening the table

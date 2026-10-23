@@ -141,7 +141,8 @@ export const HEAD_KEPT_LOOKS = " kept_looks is how earlier replies showed this p
 export const OPENING_PAGES_CHARS = 16000;
 /** Contract §261.3: said only on a capsule that carries `opening_pages`. */
 export const HEAD_OPENING_PAGES = " opening_pages is the book's own text of the opening the party is in (private): what the investigators " +
-    "see, hear or ask about here -- a sign, the radio, a person -- is answered from it first, before any lookup, and never invented over it.";
+    "see, hear or ask about here -- a sign, the radio, a price -- is answered from it first, before any lookup, and never invented over it. " +
+    "Its passages are issued as sources in decision_materials: select the passage that holds what is perceived, so the author writes from the book's words.";
 export const BUDGETS: Readonly<Record<string, number>> = Object.freeze({
     where: 4096,
     present: 3072,
