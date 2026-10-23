@@ -51915,7 +51915,8 @@ A graph read before exhibits existed has scenes that no exhibit names as its car
 a scene the party's current scene (a move receipt that is not a rename, to a scene other than the one it left) queues exactly one
 background read through `contributions.queueSceneExhibits` -> `Reading.queueSceneExhibits(graph, scene)`:
 `module.read.request {purpose: "detail", material: "exhibits", focus: <the scene's reading focus>, foreground: false}` (257.13).
-Nothing is queued when the scene, or any person (`scenePeople`), handout or object (`sceneAssetNodes`) placed in it, already has an exhibit (`graph.exhibitsOf`), when the graph has no bound book, or when the
+Nothing is queued for a scene the book does not have (no `source_refs` citing a page of the bound book: an off-book place the table
+established in play), since there is no page to read its exhibits from. Nothing is queued when the scene, or any person (`scenePeople`), handout or object (`sceneAssetNodes`) placed in it, already has an exhibit (`graph.exhibitsOf`), when the graph has no bound book, or when the
 table still follows the shared library (as for the arrival map, 107.1). The job identity is the scene's focus, so re-entering while
 the read is queued, running or done (including done to "none printed") queues no second job. The turn never waits: the answer
 (`queued`, `reading`, `ready`, `blocked`) is ignored, a kernel error while queueing is appended to `telemetry.jsonl` as
@@ -51938,7 +51939,7 @@ makes another read of its focus `focus_busy` and never absorbs one as an attache
 
 Tests: `tests/extension/ts-kernel-modules.test.mjs` (the read and its dedup), `tests/extension/legacy-scene-exhibits.test.mjs`
 (`table.open` on a bound book queues the opening scene's read; `table.apply` move queues the arrival scene's; re-entry queues none;
-the current scene's read is claimed first and the scene left behind last).
+the current scene's read is claimed first and the scene left behind last; an off-book place is never read).
 
 ### 257.16 Voice reaches the author
 

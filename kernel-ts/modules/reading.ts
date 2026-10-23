@@ -663,6 +663,8 @@ export class Reading {
         // The carriers an exhibits reading of the scene covers: the scene, the people and the handouts and objects the book places in it.
         // A graph with exhibits on any of them was read for exhibits already; only one with none is legacy.
         if (graph.materialOverride || Reading.exhibitCarriers(graph, scene).some(id => graph.exhibitsOf(id).length) || !await this.store.exists(mid)) return { state: 'none' };
+        // A place the book does not have (an off-book scene the table made up) has no page to read exhibits from.
+        if (!citedBoundPages(array(scene.source_refs), mid).length) return { state: 'none' };
         const focus = readingFocus(graph, scene);
         const reply = await this.request({ module_id: mid, purpose: 'detail', material: EXHIBITS_MATERIAL, focus, foreground: false, current_scene: true });
         return { state: string(reply.state), focus, ...(truth(reply.job_id) ? { job_id: reply.job_id } : {}) };
