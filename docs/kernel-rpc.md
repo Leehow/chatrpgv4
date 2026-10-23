@@ -52309,6 +52309,8 @@ tokens per 111-page book (two-page units, unbounded reader loops, a resent ~65KB
 person-state double reads, repair rounds). Lean reading keeps the graph contract, the publication gate, every material
 entry point and every play-time consumer, and replaces what runs behind them. It is on when the host and its kernel
 are started with `PI_COC_LEAN_READING=1` (both read it from their environment; the kernel inherits the host's).
+`runtime/launch.ts` (`piLaunch`, every source and packaged start) sets it to `1` unless the environment already sets it (owner 2026-10-23: lean is the default);
+`PI_COC_LEAN_READING=0` runs the earlier background reading. Tests that start the host directly set it themselves.
 
 ### 262.1 No background stream
 

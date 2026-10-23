@@ -57,6 +57,8 @@ const FOREGROUND_RETRY = {maxRetries: 8, baseDelayMs: 2_000, maxAgentDelayMs: 60
 
 export async function piLaunch(input: string[], options: RuntimeHostOptions = {}) {
   const env = {...(options.env ?? process.env)};
+  // Contract §262 (owner 2026-10-23): lean module reading is the default; PI_COC_LEAN_READING=0 runs the earlier reading.
+  env.PI_COC_LEAN_READING ??= '1';
   const root = options.resourceRoot ?? resourceRootFrom(import.meta.url, env);
   const compiled = options.layout === 'compiled' || env.PI_COC_LAYOUT === 'compiled' || existsSync(join(root, 'deployment.json'));
   if (compiled && (!env.PI_COC_HOME || !env.PI_CODING_AGENT_DIR))
