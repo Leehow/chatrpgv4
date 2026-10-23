@@ -666,6 +666,7 @@ export class ReadingService implements ReadingBridge {
 		if (this.stopped) return Promise.resolve();
 		const campaign = this.deps.campaign?.();
 		this.deps.record({lane:'reading',event:'prefetch_wake',module_id:moduleId,campaign,reason});
+		this.leanSkeleton(moduleId, campaign);
 		// §190.1: a table opening (or its reader arriving after it) reads the window once, so the window's places are asked
 		// at the open rather than after the first background reading finishes; the read-ahead's own change check starts them.
 		if ((reason === 'table-open' || reason === 'reader-ready') && campaign !== undefined && this.deps.runtime?.sourceReferences)

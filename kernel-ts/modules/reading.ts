@@ -1924,7 +1924,7 @@ export class Reading {
                     Object.assign(stale, { state: 'completed', finished_at: nowIso(), reused_generation: meta.generation ?? 0, result: { state: 'ready', generation: meta.generation ?? 0, opening_ready: truth(meta.opening_ready) } });
                 }
                 // §262.1: a source unit queued before lean reading was on is not read in the background.
-                if (stale.state === 'queued' && isJsonObject(stale.source_unit) && !truth(stale.foreground) && leanReading())
+                if (stale.state === 'queued' && (isJsonObject(stale.source_unit) || isJsonObject(stale.visual_asset) || isJsonObject(stale.visual_scan)) && !truth(stale.foreground) && leanReading())
                     Object.assign(stale, { state: 'cancelled', detail: 'lean_reading', finished_at: nowIso() });
                 // §182.4: a background index queued before this book stopped reading its index in the background is not read;
                 // a foreground request for it is.
