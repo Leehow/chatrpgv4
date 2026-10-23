@@ -51921,7 +51921,7 @@
           "counterpart": {
             "file": "tests/integration/world-fast-guidance.test.ts",
             "name": "test_guidance_opens_setup_but_not_world_or_play_and_preserves_confirmation",
-            "sha256": "136d59bf907465b80467a7d0e16bad9346c61dd52f3cfc8c754d59d089aa149a"
+            "sha256": "644e6ed93ab05148561a4609e56916491565b0ecac9091d2d9c1c48a961ad87a"
           },
           "review": "statement-by-statement",
           "validation": {
@@ -52015,7 +52015,7 @@
           "counterpart": {
             "file": "tests/integration/world-fast-guidance.test.ts",
             "name": "test_the_start_scene_seats_its_own_cast_before_any_other_scene_claims_them",
-            "sha256": "136d59bf907465b80467a7d0e16bad9346c61dd52f3cfc8c754d59d089aa149a"
+            "sha256": "644e6ed93ab05148561a4609e56916491565b0ecac9091d2d9c1c48a961ad87a"
           },
           "review": "statement-by-statement",
           "validation": {
@@ -52109,7 +52109,7 @@
           "counterpart": {
             "file": "tests/integration/world-fast-guidance.test.ts",
             "name": "test_review_binds_both_files_and_requires_source_support",
-            "sha256": "136d59bf907465b80467a7d0e16bad9346c61dd52f3cfc8c754d59d089aa149a"
+            "sha256": "644e6ed93ab05148561a4609e56916491565b0ecac9091d2d9c1c48a961ad87a"
           },
           "review": "statement-by-statement",
           "validation": {
@@ -52195,7 +52195,7 @@
           "counterpart": {
             "file": "tests/integration/world-fast-guidance.test.ts",
             "name": "test_campaign_cannot_pin_an_unaccepted_or_different_language_guidance",
-            "sha256": "136d59bf907465b80467a7d0e16bad9346c61dd52f3cfc8c754d59d089aa149a"
+            "sha256": "644e6ed93ab05148561a4609e56916491565b0ecac9091d2d9c1c48a961ad87a"
           },
           "review": "statement-by-statement",
           "validation": {
@@ -52281,7 +52281,7 @@
           "counterpart": {
             "file": "tests/integration/world-fast-guidance.test.ts",
             "name": "test_explicit_opening_does_not_reuse_another_prepared_scene",
-            "sha256": "136d59bf907465b80467a7d0e16bad9346c61dd52f3cfc8c754d59d089aa149a"
+            "sha256": "644e6ed93ab05148561a4609e56916491565b0ecac9091d2d9c1c48a961ad87a"
           },
           "review": "statement-by-statement",
           "validation": {
@@ -52367,7 +52367,7 @@
           "counterpart": {
             "file": "tests/integration/world-fast-guidance.test.ts",
             "name": "test_ambiguous_guidance_publishes_choices_without_authorizing_character_creation",
-            "sha256": "136d59bf907465b80467a7d0e16bad9346c61dd52f3cfc8c754d59d089aa149a"
+            "sha256": "644e6ed93ab05148561a4609e56916491565b0ecac9091d2d9c1c48a961ad87a"
           },
           "review": "statement-by-statement",
           "validation": {
@@ -52461,7 +52461,7 @@
           "counterpart": {
             "file": "tests/integration/world-fast-guidance.test.ts",
             "name": "test_authored_era_prose_uses_the_rulebook_default_without_losing_the_setting",
-            "sha256": "136d59bf907465b80467a7d0e16bad9346c61dd52f3cfc8c754d59d089aa149a"
+            "sha256": "644e6ed93ab05148561a4609e56916491565b0ecac9091d2d9c1c48a961ad87a"
           },
           "review": "statement-by-statement",
           "validation": {
@@ -52587,7 +52587,7 @@
           "counterpart": {
             "file": "tests/integration/world-fast-guidance.test.ts",
             "name": "test_an_opening_published_ready_stays_ready_under_a_later_rule",
-            "sha256": "136d59bf907465b80467a7d0e16bad9346c61dd52f3cfc8c754d59d089aa149a"
+            "sha256": "644e6ed93ab05148561a4609e56916491565b0ecac9091d2d9c1c48a961ad87a"
           },
           "review": "statement-by-statement",
           "validation": {
@@ -69166,7 +69166,7 @@
           "counterpart": {
             "file": "tests/integration/world-map-arrival.test.ts",
             "name": "test_the_move_lands_and_the_map_published_later_arrives_on_the_next_turn_once",
-            "sha256": "76ead3434d02a296e61a6075437c3132f7bf88166de89b2efa12e5dde72a77f1"
+            "sha256": "3381934d5ad600dc7c7ade4d276b37d3c1a0bd6e6d67865c5c2bf5521d4ae197"
           },
           "review": "statement-by-statement",
           "validation": {
@@ -69284,7 +69284,7 @@
           "counterpart": {
             "file": "tests/integration/world-map-arrival.test.ts",
             "name": "test_a_refused_map_review_settles_the_focus_and_the_next_arrival_reads_nothing",
-            "sha256": "76ead3434d02a296e61a6075437c3132f7bf88166de89b2efa12e5dde72a77f1"
+            "sha256": "3381934d5ad600dc7c7ade4d276b37d3c1a0bd6e6d67865c5c2bf5521d4ae197"
           },
           "review": "statement-by-statement",
           "validation": {
@@ -150442,7 +150442,7 @@
           "counterpart": {
             "file": "tests/integration/world-visual-reading.test.ts",
             "name": "test_a_reader_cannot_publish_an_arbitrary_local_file_as_a_handout",
-            "sha256": "e1022f5d47d256c63c48171d3bf5022b0dfcec8241f60613146c090ba81c7e66"
+            "sha256": "9c6d77fd5312f10e99c41e70088ef6d586215f2778be100f65f2f6ce95db362f"
           },
           "review": "statement-by-statement",
           "validation": {
@@ -150524,7 +150524,7 @@
           "counterpart": {
             "file": "tests/integration/world-visual-reading.test.ts",
             "name": "test_retired_source_commands_are_not_registered",
-            "sha256": "e1022f5d47d256c63c48171d3bf5022b0dfcec8241f60613146c090ba81c7e66"
+            "sha256": "9c6d77fd5312f10e99c41e70088ef6d586215f2778be100f65f2f6ce95db362f"
           },
           "review": "statement-by-statement",
           "validation": {
@@ -150614,7 +150614,7 @@
           "counterpart": {
             "file": "tests/integration/world-visual-reading.test.ts",
             "name": "test_binding_checks_bytes_and_reuses_the_exact_source",
-            "sha256": "e1022f5d47d256c63c48171d3bf5022b0dfcec8241f60613146c090ba81c7e66"
+            "sha256": "9c6d77fd5312f10e99c41e70088ef6d586215f2778be100f65f2f6ce95db362f"
           },
           "review": "statement-by-statement",
           "validation": {
@@ -150700,7 +150700,7 @@
           "counterpart": {
             "file": "tests/integration/world-visual-reading.test.ts",
             "name": "test_indexing_requires_actual_full_page_observation",
-            "sha256": "e1022f5d47d256c63c48171d3bf5022b0dfcec8241f60613146c090ba81c7e66"
+            "sha256": "9c6d77fd5312f10e99c41e70088ef6d586215f2778be100f65f2f6ce95db362f"
           },
           "review": "statement-by-statement",
           "validation": {
@@ -150807,7 +150807,7 @@
           "counterpart": {
             "file": "tests/integration/world-visual-reading.test.ts",
             "name": "test_index_publication_recovers_without_exposing_or_duplicating_partial_rows",
-            "sha256": "e1022f5d47d256c63c48171d3bf5022b0dfcec8241f60613146c090ba81c7e66"
+            "sha256": "9c6d77fd5312f10e99c41e70088ef6d586215f2778be100f65f2f6ce95db362f"
           },
           "review": "statement-by-statement",
           "validation": {
@@ -150911,7 +150911,7 @@
           "counterpart": {
             "file": "tests/integration/world-visual-reading.test.ts",
             "name": "test_module_review_requires_scope_without_repeated_numeric_transcription",
-            "sha256": "e1022f5d47d256c63c48171d3bf5022b0dfcec8241f60613146c090ba81c7e66"
+            "sha256": "9c6d77fd5312f10e99c41e70088ef6d586215f2778be100f65f2f6ce95db362f"
           },
           "review": "statement-by-statement",
           "validation": {
@@ -151010,7 +151010,7 @@
           "counterpart": {
             "file": "tests/integration/world-visual-reading.test.ts",
             "name": "test_ready_material_cache_cannot_hide_changed_published_graph_bytes",
-            "sha256": "e1022f5d47d256c63c48171d3bf5022b0dfcec8241f60613146c090ba81c7e66"
+            "sha256": "9c6d77fd5312f10e99c41e70088ef6d586215f2778be100f65f2f6ce95db362f"
           },
           "review": "statement-by-statement",
           "validation": {
@@ -151104,7 +151104,7 @@
           "counterpart": {
             "file": "tests/integration/world-visual-reading.test.ts",
             "name": "test_existing_material_does_not_swallow_a_new_question",
-            "sha256": "e1022f5d47d256c63c48171d3bf5022b0dfcec8241f60613146c090ba81c7e66"
+            "sha256": "9c6d77fd5312f10e99c41e70088ef6d586215f2778be100f65f2f6ce95db362f"
           },
           "review": "statement-by-statement",
           "validation": {
@@ -151198,7 +151198,7 @@
           "counterpart": {
             "file": "tests/integration/world-visual-reading.test.ts",
             "name": "test_queued_preparation_reuses_material_published_by_an_earlier_job",
-            "sha256": "e1022f5d47d256c63c48171d3bf5022b0dfcec8241f60613146c090ba81c7e66"
+            "sha256": "9c6d77fd5312f10e99c41e70088ef6d586215f2778be100f65f2f6ce95db362f"
           },
           "review": "statement-by-statement",
           "validation": {
@@ -151292,7 +151292,7 @@
           "counterpart": {
             "file": "tests/integration/world-visual-reading.test.ts",
             "name": "test_a_prepared_summary_is_mapped_without_silently_replacing_campaign_values",
-            "sha256": "e1022f5d47d256c63c48171d3bf5022b0dfcec8241f60613146c090ba81c7e66"
+            "sha256": "9c6d77fd5312f10e99c41e70088ef6d586215f2778be100f65f2f6ce95db362f"
           },
           "review": "statement-by-statement",
           "validation": {
@@ -151382,7 +151382,7 @@
           "counterpart": {
             "file": "tests/integration/world-visual-reading.test.ts",
             "name": "test_further_reading_reuses_an_existing_claim_identity_and_reason",
-            "sha256": "e1022f5d47d256c63c48171d3bf5022b0dfcec8241f60613146c090ba81c7e66"
+            "sha256": "9c6d77fd5312f10e99c41e70088ef6d586215f2778be100f65f2f6ce95db362f"
           },
           "review": "statement-by-statement",
           "validation": {
@@ -151484,7 +151484,7 @@
           "counterpart": {
             "file": "tests/integration/world-visual-reading.test.ts",
             "name": "test_published_material_remains_usable_without_the_original_pdf",
-            "sha256": "e1022f5d47d256c63c48171d3bf5022b0dfcec8241f60613146c090ba81c7e66"
+            "sha256": "9c6d77fd5312f10e99c41e70088ef6d586215f2778be100f65f2f6ce95db362f"
           },
           "review": "statement-by-statement",
           "validation": {
@@ -151578,7 +151578,7 @@
           "counterpart": {
             "file": "tests/integration/world-visual-reading.test.ts",
             "name": "test_distinct_regions_on_the_same_page_keep_their_own_assets_across_publications",
-            "sha256": "e1022f5d47d256c63c48171d3bf5022b0dfcec8241f60613146c090ba81c7e66"
+            "sha256": "9c6d77fd5312f10e99c41e70088ef6d586215f2778be100f65f2f6ce95db362f"
           },
           "review": "statement-by-statement",
           "validation": {
@@ -151668,7 +151668,7 @@
           "counterpart": {
             "file": "tests/integration/world-visual-reading.test.ts",
             "name": "test_two_kernel_sessions_cannot_claim_the_same_job",
-            "sha256": "e1022f5d47d256c63c48171d3bf5022b0dfcec8241f60613146c090ba81c7e66"
+            "sha256": "9c6d77fd5312f10e99c41e70088ef6d586215f2778be100f65f2f6ce95db362f"
           },
           "review": "statement-by-statement",
           "validation": {
@@ -151795,7 +151795,7 @@
           "counterpart": {
             "file": "tests/integration/world-visual-reading.test.ts",
             "name": "test_material_preflight_precedes_the_whole_effect_batch_and_rng",
-            "sha256": "e1022f5d47d256c63c48171d3bf5022b0dfcec8241f60613146c090ba81c7e66"
+            "sha256": "9c6d77fd5312f10e99c41e70088ef6d586215f2778be100f65f2f6ce95db362f"
           },
           "review": "statement-by-statement",
           "validation": {
@@ -151881,7 +151881,7 @@
           "counterpart": {
             "file": "tests/integration/world-visual-reading.test.ts",
             "name": "test_a_reference_alone_cannot_promote_a_thin_node_to_ready",
-            "sha256": "e1022f5d47d256c63c48171d3bf5022b0dfcec8241f60613146c090ba81c7e66"
+            "sha256": "9c6d77fd5312f10e99c41e70088ef6d586215f2778be100f65f2f6ce95db362f"
           },
           "review": "statement-by-statement",
           "validation": {
@@ -151967,7 +151967,7 @@
           "counterpart": {
             "file": "tests/integration/world-visual-reading.test.ts",
             "name": "test_registration_does_not_overwrite_an_interrupted_source_copy",
-            "sha256": "e1022f5d47d256c63c48171d3bf5022b0dfcec8241f60613146c090ba81c7e66"
+            "sha256": "9c6d77fd5312f10e99c41e70088ef6d586215f2778be100f65f2f6ce95db362f"
           },
           "review": "statement-by-statement",
           "validation": {
@@ -152049,7 +152049,7 @@
           "counterpart": {
             "file": "tests/integration/world-visual-reading.test.ts",
             "name": "test_grouped_review_still_names_every_required_numeric_field",
-            "sha256": "e1022f5d47d256c63c48171d3bf5022b0dfcec8241f60613146c090ba81c7e66"
+            "sha256": "9c6d77fd5312f10e99c41e70088ef6d586215f2778be100f65f2f6ce95db362f"
           },
           "review": "statement-by-statement",
           "validation": {
@@ -152147,7 +152147,7 @@
           "counterpart": {
             "file": "tests/integration/world-visual-reading.test.ts",
             "name": "test_kernel_crash_reclaims_a_new_attempt_and_rejects_the_old_lease",
-            "sha256": "e1022f5d47d256c63c48171d3bf5022b0dfcec8241f60613146c090ba81c7e66"
+            "sha256": "9c6d77fd5312f10e99c41e70088ef6d586215f2778be100f65f2f6ce95db362f"
           },
           "review": "statement-by-statement",
           "validation": {
@@ -152233,7 +152233,7 @@
           "counterpart": {
             "file": "tests/integration/world-visual-reading.test.ts",
             "name": "test_replaying_a_completed_job_does_not_release_another_active_job",
-            "sha256": "e1022f5d47d256c63c48171d3bf5022b0dfcec8241f60613146c090ba81c7e66"
+            "sha256": "9c6d77fd5312f10e99c41e70088ef6d586215f2778be100f65f2f6ce95db362f"
           },
           "review": "statement-by-statement",
           "validation": {
@@ -152319,7 +152319,7 @@
           "counterpart": {
             "file": "tests/integration/world-visual-reading.test.ts",
             "name": "test_an_authored_ending_relation_is_not_a_movement_exit",
-            "sha256": "e1022f5d47d256c63c48171d3bf5022b0dfcec8241f60613146c090ba81c7e66"
+            "sha256": "9c6d77fd5312f10e99c41e70088ef6d586215f2778be100f65f2f6ce95db362f"
           },
           "review": "statement-by-statement",
           "validation": {
@@ -152405,7 +152405,7 @@
           "counterpart": {
             "file": "tests/integration/world-visual-reading.test.ts",
             "name": "test_attaching_original_source_keeps_legacy_material_usable",
-            "sha256": "e1022f5d47d256c63c48171d3bf5022b0dfcec8241f60613146c090ba81c7e66"
+            "sha256": "9c6d77fd5312f10e99c41e70088ef6d586215f2778be100f65f2f6ce95db362f"
           },
           "review": "statement-by-statement",
           "validation": {
@@ -152487,7 +152487,7 @@
           "counterpart": {
             "file": "tests/integration/world-visual-reading.test.ts",
             "name": "test_rebinding_identical_source_repairs_a_missing_original",
-            "sha256": "e1022f5d47d256c63c48171d3bf5022b0dfcec8241f60613146c090ba81c7e66"
+            "sha256": "9c6d77fd5312f10e99c41e70088ef6d586215f2778be100f65f2f6ce95db362f"
           },
           "review": "statement-by-statement",
           "validation": {
@@ -152577,7 +152577,7 @@
           "counterpart": {
             "file": "tests/integration/world-visual-reading.test.ts",
             "name": "test_rebinding_the_matching_original_preserves_corrupted_bytes_and_the_published_graph",
-            "sha256": "e1022f5d47d256c63c48171d3bf5022b0dfcec8241f60613146c090ba81c7e66"
+            "sha256": "9c6d77fd5312f10e99c41e70088ef6d586215f2778be100f65f2f6ce95db362f"
           },
           "review": "statement-by-statement",
           "validation": {
@@ -152667,7 +152667,7 @@
           "counterpart": {
             "file": "tests/integration/world-visual-reading.test.ts",
             "name": "test_ready_npc_question_publishes_new_fields_without_recopying_the_dossier",
-            "sha256": "e1022f5d47d256c63c48171d3bf5022b0dfcec8241f60613146c090ba81c7e66"
+            "sha256": "9c6d77fd5312f10e99c41e70088ef6d586215f2778be100f65f2f6ce95db362f"
           },
           "review": "statement-by-statement",
           "validation": {
@@ -152765,7 +152765,7 @@
           "counterpart": {
             "file": "tests/integration/world-visual-reading.test.ts",
             "name": "test_reviewed_skeleton_exposes_choices_without_authorizing_play",
-            "sha256": "e1022f5d47d256c63c48171d3bf5022b0dfcec8241f60613146c090ba81c7e66"
+            "sha256": "9c6d77fd5312f10e99c41e70088ef6d586215f2778be100f65f2f6ce95db362f"
           },
           "review": "statement-by-statement",
           "validation": {
@@ -152859,7 +152859,7 @@
           "counterpart": {
             "file": "tests/integration/world-visual-reading.test.ts",
             "name": "test_skeleton_cannot_publish_material_readiness",
-            "sha256": "e1022f5d47d256c63c48171d3bf5022b0dfcec8241f60613146c090ba81c7e66"
+            "sha256": "9c6d77fd5312f10e99c41e70088ef6d586215f2778be100f65f2f6ce95db362f"
           },
           "review": "statement-by-statement",
           "validation": {
@@ -152949,7 +152949,7 @@
           "counterpart": {
             "file": "tests/integration/world-visual-reading.test.ts",
             "name": "test_empty_skeleton_cannot_publish_a_generated_module_as_authored_structure",
-            "sha256": "e1022f5d47d256c63c48171d3bf5022b0dfcec8241f60613146c090ba81c7e66"
+            "sha256": "9c6d77fd5312f10e99c41e70088ef6d586215f2778be100f65f2f6ce95db362f"
           },
           "review": "statement-by-statement",
           "validation": {
@@ -153047,7 +153047,7 @@
           "counterpart": {
             "file": "tests/integration/world-visual-reading.test.ts",
             "name": "test_unrelated_detail_cannot_unlock_an_unprepared_skeleton_opening",
-            "sha256": "e1022f5d47d256c63c48171d3bf5022b0dfcec8241f60613146c090ba81c7e66"
+            "sha256": "9c6d77fd5312f10e99c41e70088ef6d586215f2778be100f65f2f6ce95db362f"
           },
           "review": "statement-by-statement",
           "validation": {
@@ -153151,7 +153151,7 @@
           "counterpart": {
             "file": "tests/integration/world-visual-reading.test.ts",
             "name": "test_later_npc_reading_adds_textual_dossier_facts_without_replacing_old_ones",
-            "sha256": "e1022f5d47d256c63c48171d3bf5022b0dfcec8241f60613146c090ba81c7e66"
+            "sha256": "9c6d77fd5312f10e99c41e70088ef6d586215f2778be100f65f2f6ce95db362f"
           },
           "review": "statement-by-statement",
           "validation": {
@@ -153243,7 +153243,7 @@
           "counterpart": {
             "file": "tests/integration/world-visual-reading.test.ts",
             "name": "test_an_index_refusal_names_the_sections_without_a_reference_and_the_repair_lands",
-            "sha256": "e1022f5d47d256c63c48171d3bf5022b0dfcec8241f60613146c090ba81c7e66"
+            "sha256": "9c6d77fd5312f10e99c41e70088ef6d586215f2778be100f65f2f6ce95db362f"
           },
           "review": "statement-by-statement",
           "validation": {
@@ -153333,7 +153333,7 @@
           "counterpart": {
             "file": "tests/integration/world-visual-reading.test.ts",
             "name": "test_read_ahead_follows_authored_exits_not_index_page_order",
-            "sha256": "e1022f5d47d256c63c48171d3bf5022b0dfcec8241f60613146c090ba81c7e66"
+            "sha256": "9c6d77fd5312f10e99c41e70088ef6d586215f2778be100f65f2f6ce95db362f"
           },
           "review": "statement-by-statement",
           "validation": {
