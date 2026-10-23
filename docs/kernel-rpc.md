@@ -52067,4 +52067,9 @@ The targeted `start_scene` preparation (setup completion and the opening overlap
 ready reference when either `runtime.sourceReferences` is set or the page opening is on, and queues the read-ahead as
 the checked reference does. At `table.open` the anchor scene has book pages, so its exhibits read is queued as the current scene's (§257.15).
 
+Background reads keep publishing graph generations while the table plays. A turn packet whose decision materials were
+issued under an earlier source revision is refused before anything is written (`invalid_params`, `reason:
+"decision_material_revision"`, `transaction_state: "uncommitted"`, telemetry `decision-content` / `source_revision_changed`);
+the Keeper's next step is prepared from the new generation and writes the packet again, instead of the turn ending.
+
 Tests: `tests/extension/page-open.test.mjs`.

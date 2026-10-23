@@ -5902,7 +5902,15 @@ export default function (pi: ExtensionAPI, host: {capabilities?:RuntimeCapabilit
                 if(person.ref!==actor||typeof person.display_name!=='string'||typeof person.name_known!=='boolean')throw Error('The NPC reference projection is unavailable');
 				return decisionPerson(person,[...(before.present??[]),...(before.npc_references?.people??[]),...state.party.map((person,index)=>({ref:`investigator_${index+1}`,name:person.name,display_name:person.name}))]);
 			}));
-			const materialOwner=packetContent(state);materialOwner.assertCurrent(before);
+			const materialOwner=packetContent(state);
+            // A graph generation that lands while the Keeper writes (a background read) retires the catalog it wrote from: the
+            // packet is refused before anything is written, and the next step is prepared from the new generation.
+            try{materialOwner.assertCurrent(before);}
+            catch(error){
+                await record({lane:'decision-content',event:'source_revision_changed',turn:state.turn,run:reply.run});
+                throw new KernelError({code:'invalid_params',message:'The book material changed while this packet was written; nothing was recorded. Write the packet again from the refreshed decision materials.',
+                    details:{reason:'decision_material_revision',transaction_state:'uncommitted'}});
+            }
             materialOwner.addEntities(newcomers.map(row=>row.slot));
             // §257.8: a revealed exhibit settles against the kernel's current scope before anything is written. A clue it teaches
             // joins the same atomic apply as the clue's ordinary discovery effect, ahead of the packet's movement.
