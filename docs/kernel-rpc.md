@@ -52178,18 +52178,29 @@ Found by playing Blood Road in the packaged PipiCOC app (MiniMax, 14 turns); tes
   `table.first_sight {unconfirmed}`; each counts a try on the ledger (`unconfirmed`), and at `FIRST_SIGHT_TRIES_MAX` (3)
   the item is shown. A judged item clears its count. With the kept-look rule above, a person or place is no longer written
   out from scratch every turn.
-- **A service paid in advance is an accepted deal** (amends §258.11). Root cause of the empty deal ledger: deals came only
-  from an `offer` carrying `new:service_at`/`new:planned_visit`, while the Keeper prices a service with `cash` and has the
-  seller set out with an NPC intent or a keeper note, so no proposal ever existed for an `agreement` mark to name. A `cash`
-  purchase whose seller (named on the receipt by handle, name or label, else the one person the same apply call acted on) in
-  the same turn set out on an intention (`npc` receipt, outcome `attempted`), or whose apply call opened a note of the
-  arrangement, is recorded as `communication.paid`: that person's accepted commitment to the buyer, tied to the intention or
-  the note. `communication.settled_intents` records an intention's `done`/`failed`/`abandoned` outcome and a closed note,
-  which settle the deal `kept`/`broken`/`withdrawn` (a closed note: `kept`); the Keeper's `agreement` mark still settles it.
+- **Why the deal ledger stayed empty** (amends §258.11). Deals came only from an `offer` carrying `new:service_at` or
+  `new:planned_visit`, while the Keeper prices a service with `cash` and tracks the work with an NPC intent or a keeper note,
+  and it rarely writes an `agreement` mark in its packet. So no proposal existed for a mark to name. Fixed by §258.13.
 - **Why the telephone request delivered nothing.** The Keeper had no instruction for a book person who is elsewhere, so it
   brought the bar's owner on stage as a `walk_on`; the newcomer name check refused it, the turn's output failed on that
   refusal, and the player got no reply. The refusal's fix and the Keeper guidance now name the route (their own npc ref,
   `channel: phone`); the re-test delivered the call.
+
+### 258.13 Deal marks read back after delivery (owner 2026-10-24)
+
+The owner's direction: marks are recognised by a background task after the final text, written back, like kept looks
+(§255). After every delivery the host calls `table.deals.job {campaign, turn}` -> `{turn, prose, player_text?, people:
+[{ref, name}], deals: [{content_id, by, by_name, status: open|accepted, gist?, made_turn}], paid: [{receipt, with?, what, amount,
+currency?}]}` (or empty `deals` and `paid`): the open proposals and accepted commitments of the people of the scene the
+turn ended in, their own, and the turn's paid `cash` purchases not yet recorded as a deal. The deal lane (`runtime/jev/
+deal-marks.ts`, Jev typed choices, `jev-1.13.0`) asks for each deal what the reply and the player's words did to it (open:
+accepted, declined, withdrawn, unchanged; accepted: kept, broken, withdrawn, unchanged) and for each purchase whether what it
+paid for is still owed after the reply and which person present owes it. An answer below confidence 0.75 records nothing.
+`table.deals {campaign, turn, marks: [{content_id, by, status}], paid: [{receipt, by}]}` -> `{turn, marks, paid, dropped}`
+checks each against the job (a known deal moved one allowed step; a purchase of that turn owed by a person present) and
+appends them to that turn's `communication.agreements` (`by_lane: true`) and `communication.paid`; `agreementView` reads a
+paid deal as that person's accepted commitment to the buyer. The Keeper's own `agreement` command is unchanged. Nothing waits
+for the lane; a failure records nothing and a later reply can still settle the deal. Tests: `tests/extension/deal-marks.test.mjs`.
 
 ## 260. NPC portrayal: beats, attention and the bearing grant (owner 2026-10-23; amends §254.2, §254.6)
 

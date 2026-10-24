@@ -1400,7 +1400,7 @@ export function createWriteRuntime(context: KernelContext, contributions: WriteC
         let present: Row[] = [];
         try { present = npcsPresent(module.graph, snapshot.world, module.graph.scene(snapshot.world.active_scene)); }
         catch (error) { if (!(error instanceof RpcError)) throw error; }
-        return communicationRecord(module.graph, snapshot.world, snapshot.party, eventScope(snapshot.meta), turn, row(evidence), speech, present, snapshot.turn.player_text, array(snapshot.turn.receipts).map(row),
+        return communicationRecord(module.graph, snapshot.world, snapshot.party, eventScope(snapshot.meta), turn, row(evidence), speech, present, snapshot.turn.player_text,
             { seed: turnSeed(snapshot.meta, turn), listen: node => {
                 const value = row(npcProfileOf(module.graph, snapshot.world, module.graph.handle(node))?.skills).Listen;
                 return Number.isInteger(value) ? Number(value) : LISTEN_BASE; } });

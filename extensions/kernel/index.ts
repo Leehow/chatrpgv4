@@ -92,6 +92,7 @@ import { disableStepThinking, isFirstStepOfTurn, STEP_READS } from "./first-step
 import { currentPromptHead } from "./prompt-checkpoint.ts";
 import { deliveryProse, isSpeechOnlyDraft, learnSpeechMarks, proseCharCount, sayableName, type SpeechMarks, surroundingSentences, unwrappedPassages, unwrappedQuotes, wrapPassages, wrappedOrdinals } from "./unwrapped-speech.ts";
 import { createDecisionAdapter, jevFailureTelemetry } from "../../runtime/jev/decision-adapter.ts";
+import { DEAL_MARKS_DECISION_FAMILY, decideDeals, type DealJobInput } from "../../runtime/jev/deal-marks.ts";
 import { FORCED_CHOICE_CUE_MIN, FORCED_CHOICE_OUTCOME_MAX, type ForcedChoiceCueReview, type ForcedPlayerChoice } from "../../runtime/jev/forced-resolution.ts";
 import { BAND_TABLES, askBand, bandNeeds, dossierOf, pinWhy, recoveryNote, weaponProfilesOf, type BandNeeds, type ShadowQuestion } from "./band-recovery.ts";
 import { speechRoster, type RosterPerson } from "./speech-roster.ts";
@@ -4697,6 +4698,7 @@ export default function (pi: ExtensionAPI, host: {capabilities?:RuntimeCapabilit
 		const earlier = state.lastDeliveredProse;
 		if (prose) state.lastDeliveredProse = prose;
 		if (prose) afterDeliveryLooks(state, turn);
+		if (prose) afterDeliveryDeals(state, turn);
 		const items = state.firstSight.take(turn);
 		if (!items.length || !prose) return;
 		const kernel = state.kernel, campaign = state.campaign, signal = state.lanes.signal;
@@ -4741,6 +4743,35 @@ export default function (pi: ExtensionAPI, host: {capabilities?:RuntimeCapabilit
 				await kernel.call("table.looks", { campaign, turn, items: result.items });
 			} catch (error) {
 				await record({ lane: "first-sight", event: "looks_recorded", ok: false, turn, reason: "kernel_refused",
+					code: isKernelError(error) ? error.code : "internal", detail: (error instanceof Error ? error.message : String(error)).slice(0, 200) });
+			}
+		})().catch(() => undefined), 0);
+		timer.unref?.();
+	}
+
+	/**
+	 * Contract §258.13: after every delivery, ask the kernel which deals of the people there are still open and what was paid
+	 * this turn; when anything, the deal lane answers from the delivered reply and `table.deals` writes the marks back. Nothing
+	 * waits for it; a failure or a low-confidence answer records nothing, and the deal stays for a later reply to settle.
+	 */
+	function afterDeliveryDeals(state: TableState, turn: number): void {
+		const kernel = state.kernel, campaign = state.campaign, signal = state.lanes.signal;
+		const timer = setTimeout(() => void (async () => {
+			if (signal.aborted) return;
+			let job: Record<string, unknown>;
+			try { job = await kernel.call("table.deals.job", { campaign, turn }) as Record<string, unknown>; }
+			catch { return; }
+			const deals = Array.isArray(job?.deals) ? job.deals : [], paid = Array.isArray(job?.paid) ? job.paid : [];
+			if ((!deals.length && !paid.length) || typeof job.prose !== "string" || signal.aborted) return;
+			const result = await decideDeals({ ...(job as unknown as DealJobInput), campaign, turn },
+				createDecisionAdapter({ env: { ...process.env }, enabled: true, maxConcurrency: 1,
+					retryPolicies: { [DEAL_MARKS_DECISION_FAMILY]: { maxRetries: 0, backoffInitialMs: 0, backoffMaxMs: 0, attemptTimeoutMs: 4000 } } }), signal);
+			await record({ lane: "deals", event: "decided", turn, ok: result.ok, ms: result.ms,
+				...(result.ok ? { marks: result.marks.length, paid: result.paid.length, blockers: result.blockers } : { reason: result.reason, detail: result.detail.slice(0, 200) }) });
+			if (!result.ok || (!result.marks.length && !result.paid.length) || signal.aborted) return;
+			try { await kernel.call("table.deals", { campaign, turn, marks: result.marks, paid: result.paid }); }
+			catch (error) {
+				await record({ lane: "deals", event: "recorded", ok: false, turn, reason: "kernel_refused",
 					code: isKernelError(error) ? error.code : "internal", detail: (error instanceof Error ? error.message : String(error)).slice(0, 200) });
 			}
 		})().catch(() => undefined), 0);

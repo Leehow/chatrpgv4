@@ -1,0 +1,84 @@
+/**
+ * Contract §258.13: what became of deals, read back from the delivered reply in the background (the owner, 2026-10-24:
+ * "最终文字输出之后用一个后台任务识别回写，就跟描述那个一样"). The Keeper rarely marks an agreement in its packet, and a
+ * service it prices with `cash` never became a proposal at all, so the deal ledger stayed empty. After a delivery the host
+ * asks `table.deals.job` what is still open for the people of the scene and what was paid that turn, the deal lane answers
+ * from the reply, and `table.deals` writes the marks onto that turn's `communication`, where `agreementView` reads them.
+ *
+ * Nothing here reads prose for meaning: which deal the reply settled, and whether a paid thing is still owed, is the lane's
+ * answer; the kernel checks references, transitions and that a paid receipt is that turn's own purchase.
+ */
+import { RpcError } from '../errors.js';
+import type { ModuleGraph } from '../read/module-graph.js';
+import { array, number, row, string, type Row } from '../read/values.js';
+import { agreementView, DEAL_NEXT } from './communication.js';
+import { isNpcReference, npcReference } from './references.js';
+
+/** Marks and paid deals one submission may write. */
+export const DEAL_MARKS_MAX = 16;
+/** Deals and purchases one job names. */
+const JOB_DEALS_MAX = 12, JOB_PAID_MAX = 8;
+
+export interface DealPerson { ref: string; name: string }
+export interface DealJob { deals: Row[]; paid: Row[]; people: DealPerson[] }
+
+/** The paid purchases a turn's receipts hold: a `cash` purchase with a positive amount. */
+function purchases(record: Row): Row[] {
+    return array(record.receipts).map(row).filter(receipt => receipt.kind === 'cash' && receipt.category === 'purchase'
+        && number(receipt.purchase_amount) > 0 && typeof receipt.id === 'string');
+}
+const what = (receipt: Row): string => {
+    const lines = array(receipt.items).map(item => string(row(item).name)).filter(Boolean).join(', ');
+    return [...(typeof receipt.why === 'string' && receipt.why.trim() ? receipt.why.trim() : lines)].slice(0, 160).join('');
+};
+
+/**
+ * What the lane is asked about one delivered turn: the open proposals and accepted commitments of the people present (their
+ * own, newest first), and that turn's paid purchases not yet recorded as a deal. `people` are the candidates a paid deal's
+ * seller is chosen from, by the word the table calls them.
+ */
+export function dealJob(graph: ModuleGraph, world: Row, present: Row[], records: Row[], record: Row, scope: Row, name: (node: Row) => string): DealJob {
+    const turn = number(record.turn), people: DealPerson[] = [];
+    for (const node of present) {
+        const ref = npcReference(graph, world, node);
+        if (ref && !people.some(person => person.ref === ref)) people.push({ ref, name: name(node) });
+    }
+    const label = new Map(people.map(person => [person.ref, person.name]));
+    const deals = people.flatMap(person => agreementView(records, person.ref, scope, turn + 1).filter(deal => deal.by === person.ref)
+        .map(deal => ({ content_id: deal.content_id, by: deal.by, by_name: label.get(deal.by) ?? deal.by, status: deal.status,
+            ...(deal.gist ? { gist: deal.gist } : {}), made_turn: deal.made_turn }))).slice(0, JOB_DEALS_MAX);
+    const recorded = new Set(array(row(record.communication).paid).map(deal => string(row(deal).receipt)));
+    const paid = purchases(record).filter(receipt => !recorded.has(string(receipt.id))).map(receipt => ({ receipt: receipt.id,
+        ...(typeof (receipt.with_label ?? receipt.with) === 'string' ? { with: receipt.with_label ?? receipt.with } : {}), what: what(receipt),
+        amount: number(receipt.purchase_amount), ...(typeof receipt.currency === 'string' ? { currency: receipt.currency } : {}) })).slice(0, JOB_PAID_MAX);
+    return { deals, paid, people };
+}
+
+/**
+ * `table.deals`'s marks and paid deals, checked against the job: a mark names a deal of the job by content and maker and moves
+ * it one allowed step (open: accepted, declined, withdrawn; accepted: kept, broken, withdrawn); a paid deal names one of the
+ * turn's purchases and a person present as the one who owes it. Anything else is dropped with a reason.
+ */
+export function checkDealMarks(job: DealJob, params: Row, record: Row, investigator: string): { marks: Row[]; paid: Row[]; dropped: Row[] } {
+    const marksIn = array(params.marks), paidIn = array(params.paid);
+    if (marksIn.length + paidIn.length > DEAL_MARKS_MAX)
+        throw new RpcError('invalid_params', `at most ${DEAL_MARKS_MAX} marks and paid deals in one call`, { fix: 'send only what the reply settled' });
+    const marks: Row[] = [], paid: Row[] = [], dropped: Row[] = [];
+    for (const [index, value] of marksIn.entries()) {
+        const mark = row(value), deal = job.deals.find(entry => entry.content_id === mark.content_id && entry.by === mark.by);
+        if (!deal) { dropped.push({ index, reason: 'unknown_deal' }); continue; }
+        if (!DEAL_NEXT[string(deal.status)]?.includes(string(mark.status))) { dropped.push({ index, reason: 'not_a_next_status', status: mark.status }); continue; }
+        if (marks.some(entry => entry.content_id === deal.content_id && entry.by === deal.by)) { dropped.push({ index, reason: 'duplicate' }); continue; }
+        marks.push({ content_id: deal.content_id, by: deal.by, status: mark.status, ...(mark.status === 'accepted' ? { with: [investigator] } : {}), by_lane: true });
+    }
+    const receipts = new Map(purchases(record).map(receipt => [string(receipt.id), receipt]));
+    for (const [index, value] of paidIn.entries()) {
+        const entry = row(value), receipt = receipts.get(string(entry.receipt)), job_row = job.paid.find(item => item.receipt === entry.receipt);
+        if (!receipt || !job_row) { dropped.push({ index: marksIn.length + index, reason: 'unknown_receipt' }); continue; }
+        if (!isNpcReference(entry.by) || !job.people.some(person => person.ref === entry.by)) { dropped.push({ index: marksIn.length + index, reason: 'not_present' }); continue; }
+        if (paid.some(item => item.receipt === entry.receipt)) { dropped.push({ index: marksIn.length + index, reason: 'duplicate' }); continue; }
+        paid.push({ receipt: receipt.id, content_id: `c:${string(receipt.id).replace(/[^A-Za-z0-9_.:-]/g, '-').slice(0, 118)}`, by: entry.by,
+            to: [investigator], ...(job_row.what ? { gist: job_row.what } : {}) });
+    }
+    return { marks, paid, dropped };
+}

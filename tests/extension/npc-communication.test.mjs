@@ -338,7 +338,7 @@ test('owner 2026-10-24: whether someone present catches a whisper is their own L
  const {overhearRoll,LISTEN_BASE}=await importSource('kernel-ts/npc/communication.ts');
  const whisper=[{actor:'npc_1',act:'answer',to:['investigator_1'],items:[],channel:'aside'}];
  const text='{{say:npc_1}}“今晚八点。”{{/say}}',here=[{node_id:'russ'},{node_id:'nate'}];
- const at=listen=>communicationRecord(graph,world,party,scope,6,{selections:whisper,artifact_text:text},[],here,'我压低声音问他今晚在哪儿见。',[],{seed:'s',listen:()=>listen});
+ const at=listen=>communicationRecord(graph,world,party,scope,6,{selections:whisper,artifact_text:text},[],here,'我压低声音问他今晚在哪儿见。',{seed:'s',listen:()=>listen});
  const sure=at(100),deaf=at(0);
  const roll=sure.events.find(e=>e.actor==='npc_1').overhear_rolls[0];
  assert.deepEqual([roll.ref,roll.skill,roll.difficulty,roll.target],['npc_2','Listen','hard',50],'the bystander, at Hard: half their Listen');
@@ -352,42 +352,9 @@ test('owner 2026-10-24: whether someone present catches a whisper is their own L
  const rolls=Array.from({length:200},(_,i)=>overhearRoll('seed',i,0,'npc_2',60));
  assert.ok(rolls.every(r=>r.passed===(r.roll===1||r.roll<=30)));
  assert.ok(rolls.some(r=>r.passed)&&rolls.some(r=>!r.passed),'it is a roll, not a rule');
- assert.equal(communicationRecord(graph,world,party,scope,6,{selections:[{...whisper[0],channel:undefined}],artifact_text:text},[],here,'你好',[],{seed:'s',listen:()=>100}).events.find(e=>e.actor==='npc_1').overhear_rolls,undefined,'only an aside is rolled for');
+ assert.equal(communicationRecord(graph,world,party,scope,6,{selections:[{...whisper[0],channel:undefined}],artifact_text:text},[],here,'你好',{seed:'s',listen:()=>100}).events.find(e=>e.actor==='npc_1').overhear_rolls,undefined,'only an aside is rolled for');
  assert.match(TURN_PACKET_GUIDANCE,/whether someone present catches it is their Listen roll, which the host makes itself for everyone present not spoken to; do not roll it/);
 });
-test('app play-test: a service paid for while its seller sets out to do it is the seller\'s accepted commitment, kept when the intention is done',()=>{
- // PipiCOC app, Blood Road (2026-10-23): the owner was paid twenty dollars and set out to fix the radiator, but the deal ledger
- // stayed empty: the price went through cash and the work through an NPC intent, and neither made a proposal to mark.
- const intent='intent:russ:abc';
- const receipts=[{id:'cash:t8-c2',kind:'cash',category:'purchase',purchase_amount:20,with:'russ',subject_label:'Ada',why:'换散热器水管',items:[{name:'水管'}]},
-  {id:'npc:russ-t8',kind:'npc',handle:'russ',intent:{ref:intent,outcome:'attempted'}}];
- const paid=communicationRecord(graph,world,party,scope,8,{selections:[]},[],[{node_id:'russ'},{node_id:'nate'}],undefined,receipts);
- assert.equal(paid.paid.length,1);assert.equal(paid.paid[0].by,'npc_1');assert.deepEqual(paid.paid[0].to,['investigator_1']);assert.equal(paid.paid[0].intent,intent);
- const records=[{turn:8,communication:paid,receipts}];
- const [deal]=dealsOf(records,'npc_1',scope,9);
- assert.equal(deal.status,'accepted');assert.equal(deal.paid,true);assert.equal(deal.gist,'换散热器水管');
- assert.equal(dealsOf(records,'npc_2',scope,9).length,0,'a bystander owes nothing and is owed nothing');
- const later=communicationRecord(graph,world,party,scope,9,{selections:[]},[],[{node_id:'russ'}],undefined,[{kind:'npc',handle:'russ',intent:{ref:intent,outcome:'done'}}]);
- assert.deepEqual(later.settled_intents,[{ref:intent,outcome:'done'}]);
- const done=[...records,{turn:9,communication:later}];
- assert.equal(dealsOf(done,'npc_1',scope,10).length,0,'done: kept, no longer open');
- assert.equal(dealsOf(done,'npc_1',scope,10,true)[0].status,'kept');
- const byLabel=communicationRecord(graph,world,party,scope,8,{selections:[]},[],[{node_id:'russ'}],undefined,
-  [{...receipts[0],with:'加油站老板',with_label:'加油站老板'},{...receipts[1],label:'加油站老板'}]);
- assert.equal(byLabel.paid[0].by,'npc_1','a seller written by role still finds the person who set out');
- // The tyres (app re-test): paid now, picked up this evening, held by a note the same call opened; the seller written by role.
- const tyres=[{id:'cash:t4-c1',kind:'cash',call_id:'t4-c1',category:'purchase',purchase_amount:145,with:'加油站老板',with_label:'加油站老板',subject_label:'Ada',why:'四条新轮胎'},
-  {kind:'npc',call_id:'t4-c1',handle:'russ',name:'Russ',mood:{text:'收了钱'}},{kind:'note',call_id:'t4-c1',name:'傍晚取车',status:'open'}];
- const noted=communicationRecord(graph,world,party,scope,4,{selections:[]},[],[{node_id:'russ'}],undefined,tyres);
- assert.deepEqual([noted.paid[0].by,noted.paid[0].note],['npc_1','傍晚取车']);
- const closed=communicationRecord(graph,world,party,scope,7,{selections:[]},[],[{node_id:'russ'}],undefined,[{kind:'note',name:'傍晚取车',status:'closed',closes:'傍晚取车'}]);
- const tyreDeals=[{turn:4,communication:noted},{turn:7,communication:closed}];
- assert.equal(dealsOf(tyreDeals.slice(0,1),'npc_1',scope,5)[0].status,'accepted');
- assert.equal(dealsOf(tyreDeals,'npc_1',scope,8,true)[0].status,'kept','closing the note of the arrangement keeps it');
- const noIntent=communicationRecord(graph,world,party,scope,8,{selections:[]},[],[{node_id:'russ'}],undefined,[receipts[0]]);
- assert.equal(noIntent,undefined,'a purchase handed over at once, with nobody setting out to do anything, makes no deal');
-});
-
 test('app play-test: "never seen this boy" has a topic: what the investigator just asked about',async()=>{
  const {DecisionContent,ASKED_TOPIC}=await import('../../runtime/decision-content.ts');
  assert.equal(ASKED_TOPIC,'player_input');
