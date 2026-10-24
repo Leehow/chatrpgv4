@@ -52864,7 +52864,9 @@ or an earlier ceremony now default and report instead: an activity's, a defence'
 missing `why`, an improvised clue's missing `how` and a document operation's missing `why` are recorded as not given;
 the turn-0 limits on scene and npc activity are gone with §264.22's gate; a person-to-person object move with no
 handover said is `given` (`adjusted` `handover: given_by_default`); a ground beside an offer that moves nothing is
-dropped and reported (`offer_moves_nothing`). Contradictions with world state, malformed input, rules the rulebook
+dropped and reported (`offer_moves_nothing`). A scene assessed `empty` beside people registered there means nobody else is: the people stay and the
+receipt reports `crowd: registered_people_stay` (the opening had been refused for calling Knott's office empty with
+Knott in it). Contradictions with world state, malformed input, rules the rulebook
 gates (a clue's required check) and money (§265's owner) are unchanged.
 
 ## 265. Shopping: the outlet's stock, price and order time are the program's (owner 2026-10-24)

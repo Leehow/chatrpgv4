@@ -41,21 +41,20 @@ export function stageSceneActivity(context:ApplyContext,effect:Row):StagedEffect
     if(typeof effect.name!=='string'||!effect.name.trim())throw new RpcError('invalid_params','A scene activity needs its existing name or here');
     const scene=context.graph.scene(effect.name==='here'?context.world.active_scene:effect.name),handle=context.graph.handle(scene);
     const previous=row(row(context.world.scene_activity)[handle]),next=record(context,effect,false,handle,previous);
+    let adjusted:Row|null=null;
     if(effect._population===true){
         const people=npcsPresent(context.graph,context.world,scene).filter(node=>context.graph.isPerson(node));
         // §250.6: an empty assessment beside a seated registered person contradicts the cast; a populated one with nobody
         // registered is an unnamed crowd, which registration never has to list.
         // live el-v2-20261022h T14: back at Knott's office at night the Keeper called it empty, and the refusal never said
         // who was still registered there, so the Keeper had to guess.
-        if(next.crowd==='empty'&&people.length){
-            const present=people.map(node=>npcReference(context.graph,context.world,node)??context.graph.handle(node));
-            throw new RpcError('invalid_params','Population assessment conflicts with registered presence; explicitly move departed people away before an empty assessment, or assess the people who are here',{
-                fix:`Registered here now: ${present.join(', ')} (details.present). If they have left, move each one away first (an npc line with to "away" or where they went) before the empty assessment; if they are here, assess the people who are here.`,
-                details:{present}});
-        }
+        // §264.24: "empty" beside people registered here says nobody else is: the registered people stay, and the receipt says
+        // so (live 2026-10-24: the opening was refused for calling Knott's office empty with Knott in it).
+        if(next.crowd==='empty'&&people.length)
+            adjusted={field:'crowd',reason:'registered_people_stay',present:people.map(node=>npcReference(context.graph,context.world,node)??context.graph.handle(node))};
     }
     (context.world.scene_activity??={})[handle]=next;
-    const receipt={id:effectId(context,'scene',handle),kind:'scene',call_id:context.callId,scene:handle,activity:clone(next),previous:clone(previous),why:effect.why,visibility:'keeper',at:nowIso()};
+    const receipt={id:effectId(context,'scene',handle),kind:'scene',call_id:context.callId,scene:handle,activity:clone(next),previous:clone(previous),why:effect.why,visibility:'keeper',at:nowIso(),...(adjusted?{adjusted:[adjusted]}:{})};
     return {receipt,event:{type:'scene-activity-changed',data:{scene:handle,activity:clone(next),why:effect.why}}};
 }
 export function stageNpcActivity(context:ApplyContext,effect:Row,node:Row):StagedEffect {

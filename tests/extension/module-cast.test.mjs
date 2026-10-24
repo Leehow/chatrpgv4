@@ -913,26 +913,29 @@ test('§192.3 (lead ruling 2026-10-07): a reviewed distinct_from beats the cast 
 	assert.notEqual(api.untoldBlock(graph, world, journal, graph.nodes.get('npc-old-mae-nets')), null, 'telling one tells nobody else');
 });
 
-test('§266.7: at the opening someone the cast prints on the opening scene\'s pages lands on that text and is seated; someone printed elsewhere is not', async t => {
+test('§266.7: at the opening someone the cast prints on the opening scene\'s pages lands on that text and is seated (§264.22: the opening refuses nobody for being printed elsewhere)', async t => {
 	// The opening scene cites page 3 too, as a lean opening cites every page of the opening.
 	const h = await harbor(t, {narrate: false, dock: [{page: 1}, {page: 3}]});
 	await readCast(h);
+	let ordinal = 0;
 	const seat = async (name, sentence, page) => {
+		const call_id = `t0-c${++ordinal}`;
 		const effects = [{kind: 'npc', name, to: 'here', why: 'The book places them in the opening scene as play starts.'}];
-		const held = await h.attempt('table.apply', {call_id: 't0-c1', effects});
+		const held = await h.attempt('table.apply', {call_id, effects});
 		assert.equal(held.error?.details?.reason, 'material_pending', `${name}: ${held.error?.message}`);
-		return h.attempt('table.apply', {call_id: 't0-c1', effects, _land_on_text: [{key: held.error.details.person.key, passage: {scene: null, page, label: null, sentence}}]});
+		return h.attempt('table.apply', {call_id, effects, _land_on_text: [{key: held.error.details.person.key, passage: {scene: null, page, label: null, sentence}}]});
 	};
 	const capsule = await h.call('table.capsule');
 	assert.deepEqual(capsule.opening_cast, [{name: 'Jonah', pages: [3]}], 'the Keeper is told whom the opening\'s pages print');
 	assert.match(capsule.head ?? JSON.stringify(capsule), /opening_cast lists people/);
 	const silas = await seat('Silas Marsh', 'Its keeper, Silas Marsh, trims the lamp.', 2);
-	assert.equal(silas.error?.details?.reason, 'opening_seat', 'page 2 is not the opening\'s page');
+	// §264.22: the opening is judged like any turn, so someone the book prints elsewhere may arrive in it too.
+	assert.notEqual(silas.error?.details?.reason, 'opening_seat', 'no opening-only refusal');
 	const jonah = await seat('Jonah', "Mae's boy Jonah drowned there last spring.", 3);
 	assert.equal(jonah.ok, true, JSON.stringify([jonah.error?.message, jonah.error?.details]));
 	const world = await h.world();
 	assert.ok(world.table_people.some(row => row.name === 'Jonah'), 'landed on the book\'s text');
-	assert.equal(Object.keys(world.npc_presence ?? {}).length, 1, 'and seated here');
+	assert.equal(Object.keys(world.npc_presence ?? {}).length, 2, 'both seated here');
 	assert.equal((await h.call('table.open')).turn.state, 'awaiting_player', 'a seat leaves the opening owed');
 	assert.equal((await h.call('table.capsule')).opening_cast, undefined, 'a seated person is no longer listed');
 });

@@ -474,9 +474,10 @@ test('clue parameter corrections reuse the same player-action decision and relea
  // §249: the wait is the Keeper's own judgment; the map reveal is the reviewed player action held across the corrections.
  const clock={kind:'time',minutes:1,why:'Read the posted notice.'},note=reveal('Office hours: nine to noon.');
  const clue={kind:'clue',clue:'A new posted notice',establish:{summary:'A posted office-hours notice.',how:'read it'}};
+ // §264.24: a missing how no longer refuses; the third attempt is refused for naming a clue after a person instead.
  const attempts=[{effects:[clock,note,clue]},
   {effects:[clock,note,{...clue,establish:{summary:'The selected hours notice.',how:'read it'}}]},
-  {effects:[clock,note,{...clue,establish:{summary:'The selected hours notice.'}}]},
+  {effects:[clock,note,{...clue,clue:'Steven Knott',establish:{summary:'The selected hours notice.'},how:'The investigator reads it on the door.'}]},
   {effects:[clock,note,{...clue,establish:{summary:'The selected hours notice.'},how:'The investigator reads it on the door.'}]}];
  const table=await openTable({legacyDeliveryFixtures:false,realKernel:true,prepareWorkspace:opened,env,runDriver:engine.runDriver,
   extraExtensions:[{name:'engine',factory:engine.extension}],responses:[...attempts.map(args=>()=>{requests++;return fauxAssistantMessage([rawToolCall('apply',args)],{stopReason:'toolUse'});}),
