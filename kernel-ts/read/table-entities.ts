@@ -31,7 +31,7 @@ export function establishedWithin(graph: ModuleGraph, value: unknown): Row | nul
     const node = typeof value === 'string' && value.trim() ? graph.find(value.trim(), ['scene', 'location']) : null;
     if (!node || !isPlace(graph, node))
         throw new RpcError('invalid_params', 'establish.within must name a place: a book scene or location, or a place this table established', {
-            fix: 'name the place the new one lies inside, null when it lies in no place the table has, or leave within out to place it where the party stands',
+            fix: 'name the place the new one lies inside, null when it lies in no place the table has, or leave within out to let the journey place it (§264.14)',
             details: {reason: 'within_not_a_place', field: 'establish.within', within: typeof value === 'string' ? value : null}
         });
     return node;

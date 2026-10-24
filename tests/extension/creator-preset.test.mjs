@@ -34,9 +34,9 @@ const OLD_VERSION = join(root, 'tests/fixtures/mods/enhanced-items-v122');
 // (681d03dd...), 1.3.1 since non-weapon gear waits until the fiction uses it (1404ca86...), 1.3.2 since its instruction is
 // sectioned and its brief retired (§183), 1.3.4 since "Documents on carriers" is resident and carries the physical
 // document operations (§179.3a), 1.3.5 since it requires `weapons.improvised.v1` and reads `outcome.improvised` (§224.7),
-// 1.4.0 adds acquired image carriers; 1.4.2 adds host-owned references (§234.1).
+// 1.4.0 adds acquired image carriers; 1.4.2 adds host-owned references (§234.1); 1.4.4 is the current release (§264.13).
 const DIGEST_122 = '7714ce10e86032ebf427e45c63e61d38a4dabb8f75dabb2d6182f7d3638f54af';
-const DIGEST_142 = 'a45b604cb6152dcc5836d6f2cbca6304e35371aa20e57f863991c6e28217de57';
+const DIGEST_144 = '0d32c1bd2b29d2d3060e8f4ed8f28fdbcf192ffde6f58e6ba649df30e9b22e5b';
 const DECLARATION = 'I snatch the carving knife off the cellar shelf and go for Knott.';
 const KNIFE = {name: 'Cellar knife', category: 'weapon', description: 'A long carving knife with a chipped blade, left on the cellar shelf.'};
 // The rulebook's medium knife as the definition's parameters, the way the engine reads its row.
@@ -274,11 +274,11 @@ test('an action usage is offered the object as the thing and gated on its parame
 test('both package versions load at their digests, and a campaign locked to 1.2.2 is offered nothing', async t => {
   const fresh = await kernel(t);
   const current = await fresh.lock();
-  assert.equal(current.version, '1.4.2');
-  assert.equal(current.digest, DIGEST_142);
+  assert.equal(current.version, '1.4.4');
+  assert.equal(current.digest, DIGEST_144);
   const old = await kernel(t, {version: '1.2.2'});
   const listed = (await old.call('mods.list', {})).mods.filter(mod => mod.id === 'enhanced-items').map(mod => [mod.version, mod.compatible]);
-  assert.deepEqual(listed, [['1.2.2', true], ['1.4.2', true]]);
+  assert.deepEqual(listed, [['1.2.2', true], ['1.4.4', true]]);
   const locked = await old.lock();
   assert.equal(locked.version, '1.2.2');
   assert.equal(locked.digest, DIGEST_122);

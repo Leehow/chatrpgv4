@@ -52166,27 +52166,41 @@ Found by playing Blood Road in the packaged PipiCOC app (MiniMax, 14 turns); tes
   confidence left the person owed every turn and the prose described them from scratch each time.
   `tests/extension/kept-looks-kernel.test.mjs`.
 
-- **Overhearing a whisper is a check** (owner 2026-10-24; amends §258.9). An aside interaction may carry `overheard_by`
-  (npc refs present): people the Keeper rolled Listen for this turn (`resolve` with that person as actor). The commit keeps
-  only those with a passed `Listen` roll receipt this turn; they join the aside's `heard` (and the whisper it answered),
-  recorded as `overheard`; a name without a passed roll is recorded as `overheard_unchecked` and hears nothing.
+- **Overhearing a whisper is a Listen roll the commit makes** (owner 2026-10-24; amends §258.9). For every aside, the
+  narrate/ask commit rolls each person present who was not spoken to: Listen at Hard (half their profile's Listen, else the
+  base 20), a d100 drawn from the turn seed, the aside and the listener, so a replay rolls the same and no other die moves.
+  A pass hears the aside and the whisper it answered (`overheard`); every roll is kept on the event as `overhear_rolls`.
+  The Keeper does not roll it: a first version asked the Keeper to roll and name who passed, and live it skipped the roll
+  because the bystanders had no registered numbers.
 - **A first sight the check cannot judge stops being owed** (amends §168.5). Root cause of the eleven-turn re-introduction:
   the Jev check records nothing below its confidence floor, so an item it never confirms stayed owed, and §260.3 marked the
   person `needs_introduction` every turn. The host now sends the items it carried but the check did not judge as
   `table.first_sight {unconfirmed}`; each counts a try on the ledger (`unconfirmed`), and at `FIRST_SIGHT_TRIES_MAX` (3)
   the item is shown. A judged item clears its count. With the kept-look rule above, a person or place is no longer written
   out from scratch every turn.
-- **A service paid in advance is an accepted deal** (amends §258.11). Root cause of the empty deal ledger: deals came only
-  from an `offer` carrying `new:service_at`/`new:planned_visit`, while the Keeper prices a service with `cash` and has the
-  seller set out with an NPC intent, so no proposal ever existed for an `agreement` mark to name. A `cash` purchase settled
-  with a person who in the same turn set out on an intention (`npc` receipt, outcome `attempted`) is recorded as
-  `communication.paid`: that person's accepted commitment to the buyer, tied to the intention. `communication.settled_intents`
-  records an intention's `done`/`failed`/`abandoned` outcome, which settles the deal `kept`/`broken`/`withdrawn`; the
-  Keeper's `agreement` mark still settles it too.
+- **Why the deal ledger stayed empty** (amends §258.11). Deals came only from an `offer` carrying `new:service_at` or
+  `new:planned_visit`, while the Keeper prices a service with `cash` and tracks the work with an NPC intent or a keeper note,
+  and it rarely writes an `agreement` mark in its packet. So no proposal existed for a mark to name. Fixed by §258.13.
 - **Why the telephone request delivered nothing.** The Keeper had no instruction for a book person who is elsewhere, so it
   brought the bar's owner on stage as a `walk_on`; the newcomer name check refused it, the turn's output failed on that
   refusal, and the player got no reply. The refusal's fix and the Keeper guidance now name the route (their own npc ref,
   `channel: phone`); the re-test delivered the call.
+
+### 258.13 Deal marks read back after delivery (owner 2026-10-24)
+
+The owner's direction: marks are recognised by a background task after the final text, written back, like kept looks
+(§255). After every delivery the host calls `table.deals.job {campaign, turn}` -> `{turn, prose, player_text?, people:
+[{ref, name}], deals: [{content_id, by, by_name, status: open|accepted, gist?, made_turn}], paid: [{receipt, with?, what, amount,
+currency?}]}` (or empty `deals` and `paid`): the open proposals and accepted commitments of the people of the scene the
+turn ended in, their own, and the turn's paid `cash` purchases not yet recorded as a deal. The deal lane (`runtime/jev/
+deal-marks.ts`, Jev typed choices, `jev-1.13.0`) asks for each deal what the reply and the player's words did to it (open:
+accepted, declined, withdrawn, unchanged; accepted: kept, broken, withdrawn, unchanged) and for each purchase whether what it
+paid for is still owed after the reply and which person present owes it. An answer below confidence 0.75 records nothing.
+`table.deals {campaign, turn, marks: [{content_id, by, status}], paid: [{receipt, by}]}` -> `{turn, marks, paid, dropped}`
+checks each against the job (a known deal moved one allowed step; a purchase of that turn owed by a person present) and
+appends them to that turn's `communication.agreements` (`by_lane: true`) and `communication.paid`; `agreementView` reads a
+paid deal as that person's accepted commitment to the buyer. The Keeper's own `agreement` command is unchanged. Nothing waits
+for the lane; a failure records nothing and a later reply can still settle the deal. Tests: `tests/extension/deal-marks.test.mjs`.
 
 ## 260. NPC portrayal: beats, attention and the bearing grant (owner 2026-10-23; amends §254.2, §254.6)
 
@@ -52669,9 +52683,10 @@ way around each of them on every call that touched it. Each is closed at the slo
 `knowledge_status` was the only constructor for "I have not seen that boy", and its `topic` had to be an issued reference.
 The thing a player most often asks after (the missing person on the investigator's own card, a rumour) has none, so the
 Keeper wrote `topic: npc_27` (the speaker himself) after deliberating whether `unknown` meant the investigator's knowledge
-or the speaker's. `topic` now also takes `{label}` (at most 80 characters, the shape `service_at` items already take): a
-noun naming the subject, never a statement about it, so it adds no text box (§260's decision-only rule stands). `status` is
-documented as the speaker's own knowledge. The output instruction no longer tells an owner to answer "in their own
+or the speaker's. *Amended at the merge with the mainline's `player_input` topic (same day):* `topic` takes
+`player_input`, what the investigator just asked about, when nothing issued names it; the `{label}` form this section first
+added is withdrawn so there is one way to say it. `status` is documented as the speaker's own knowledge. The output
+instruction no longer tells an owner to answer "in their own
 words" beside the rule that forbids words: it answers with other content.
 
 ### 264.2 A carried row is registered only when a mechanic needs it
@@ -52762,6 +52777,14 @@ proposal fact, and the Keeper had marked the offer's terms instead.
 `input_requirements.fields` adds `authorization` (written permission or a word from someone with standing) and
 `proof_of_identity`. A gatekeeper refusing until the investigator brings the landlord's note had no closed field for it,
 and the Keeper argued for a turn between `knowledge_status withheld` and stretching `purpose`.
+
+### 264.14 The journey places a new place
+
+Omitted, `establish.within` was always the active scene, so a taxi ride to a newspaper office across town minted the
+office inside the room the party left, and the Keeper weighed `within` against the town it had no place for. §204.3's
+default now reads the move's own `travel_band`: `adjacent` or no band, the active scene (as before); `local_travel`, the
+first place the active scene lies directly inside, else none; `long_travel`, none. An explicit `within`, `null`
+included, and the placement lane's outcome are unchanged.
 
 ## 265. Shopping: the outlet's stock, price and order time are the program's (owner 2026-10-24)
 

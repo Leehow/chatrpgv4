@@ -1320,6 +1320,10 @@ function handle(method, params) {
 		case "table.looks.job":
 			return { ok: true, result: lookTargets.length && deliveredText.has(params.turn)
 				? { turn: params.turn, prose: deliveredText.get(params.turn), targets: structuredClone(lookTargets) } : { turn: params.turn, targets: [] } };
+		case "table.deals.job":
+			return { ok: true, result: { turn: params.turn, deals: [], paid: [] } };
+		case "table.deals":
+			return { ok: true, result: { turn: params.turn, marks: params.marks ?? [], paid: params.paid ?? [], dropped: [] } };
 		case "table.looks":
 			lookTargets = [];
 			return { ok: true, result: { turn: params.turn, kept: (params.items ?? []).map(({ kind, id }) => ({ kind, id })), dropped: [] } };

@@ -61,6 +61,19 @@ test('houses and rooms carry containment; sibling travel is one move without a d
   assert(lookup.entities[0].inside.length >= 2);
 });
 
+test('§264.14: omitted within, the journey places the new place: local_travel beside the active one, long_travel in none', async t => {
+  const game = await table(t);
+  const farm = await game.mint('Farmland', null), house = await game.mint('First house');
+  const shop = await game.move('Village shop', {summary: 'The village shop.'}, {via: 'Down the lane.', travel_band: 'local_travel'});
+  let capsule = await game.call('table.capsule');
+  assert.equal(capsule.where.within?.name, farm, 'a local ride lands beside the house, in the farm that holds it, not inside the house');
+  assert.notEqual(capsule.where.within?.name, house);
+  await game.move('Distant city', {summary: 'A city two days away.'}, {via: 'The train.', travel_band: 'long_travel'});
+  capsule = await game.call('table.capsule');
+  assert.equal(capsule.where.within ?? null, null, 'a long journey lies in no place the table has');
+  assert.ok(shop.receipts.length);
+});
+
 test('enclosing rule scope is deduplicated and never inherits neighboring rules or automatic rewards', () => {
   const nodes = [
     {node_id:'scene-child',node_kind:'scene',name:'Child room'},

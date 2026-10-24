@@ -4,7 +4,7 @@ import {Type} from 'typebox';
 const nonblank=(description:string)=>Type.String({minLength:1,pattern:'\\S',description});
 export const ClueEstablishment=Type.Object({summary:nonblank('New evidence discovered here, consistent with established causes and the holder knowledge; include how it was obtained. Existing authored clues use their names without establish. This is a campaign fact, not a source quotation.')},{additionalProperties:false});
 export const PlaceEstablishment=Type.Object({summary:nonblank('Brief description of a new campaign place; preserve known causes and access conditions. This adds a place rather than replacing a registered source place.'),
-    within:Type.Optional(Type.Union([nonblank('The containing registered place; omitted uses the current scene, null establishes no containing place'),Type.Null()]))},{additionalProperties:false});
+    within:Type.Optional(Type.Union([nonblank('The containing registered place, only when you know it; usually leave it out: the journey places the new place (adjacent or no journey: inside where the party stands; local_travel: beside it, in the place that holds it; long_travel: in no place). null establishes no containing place'),Type.Null()]))},{additionalProperties:false});
 export const REUNION_LINE_FIELDS=['background','reports','open_threads'] as const;
 export const REUNION_MAX_LINES=4,REUNION_MAX_CHARACTERS=600;
 const lines=()=>Type.Optional(Type.Array(Type.String({minLength:1,maxLength:REUNION_MAX_CHARACTERS,pattern:'\\S'}),{maxItems:REUNION_MAX_LINES}));

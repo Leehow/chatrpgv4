@@ -32,6 +32,8 @@ import {establishItem, establishProvider, establishReviewOwners, HEAD_ESTABLISH}
 import {historicalSetting} from '../read/historical-setting.js';
 import {npcsPresent} from '../read/capsule.js';
 import {bindPlace} from '../read/place-bindings.js';
+import {checkDealMarks, dealJob} from '../npc/deal-marks.js';
+import {eventScope} from '../turn-events.js';
 /** The verifier's finding kinds, `play_language_mismatch` among them: the kernel makes no language refusal of its own (contract section 23). */
 const FINDINGS = ['reveal', 'uncommitted_state', 'player_agency', 'play_language_mismatch', 'unmarked_speech', 'investigator_identity_mismatch'];
 /**
@@ -260,6 +262,46 @@ async function looksSubmit(context: KernelContext, loaded: Parameters<typeof del
         ...(dropped.length ? { dropped } : {}) });
     return { turn, kept, dropped };
 }
+/**
+ * Contract §258.13: the deal check of a delivered turn, its two ends. The job names the open deals of the people of the scene
+ * the turn ended in and the turn's paid purchases beside its delivered text; the submission writes the lane's marks onto
+ * that turn's `communication`.
+ */
+async function deliveredDeals(loaded: { campaign: CampaignWriter; snapshot: CampaignSnapshot; module: { graph: ModuleGraph } }, turn: Row[string]) {
+    const { campaign, snapshot, module } = loaded, graph = module.graph;
+    if (!integer(turn) || number(turn) < 0)
+        throw new RpcError('invalid_params', 'params.turn must be a committed turn number');
+    const record = await campaign.readTurnRecord(number(turn));
+    if (!record || !['narrate', 'ask'].includes(string(record.closed_by)) || !proseOf(record.rendered_text))
+        throw new RpcError('invalid_params', `turn ${turn} has no delivered text for a deal check`, { details: { turn: number(turn) } });
+    let present: Row[] = [];
+    for (const name of [string(row(row(record.world).scene).name), string(snapshot.world.active_scene)])
+        try { present = npcsPresent(graph, snapshot.world, graph.scene(name)); break; } catch { /* the next name */ }
+    const scope = eventScope(snapshot.meta);
+    const job = dealJob(graph, snapshot.world, present, await snapshot.turnRecords(), record, scope,
+        node => tableWord(snapshot.world, graph.handle(node)) || graph.displayName(node));
+    return { record, prose: proseOf(record.rendered_text), job, scope };
+}
+async function dealsJob(loaded: Parameters<typeof deliveredDeals>[0], params: Row): Promise<Row> {
+    const { record, prose, job } = await deliveredDeals(loaded, params.turn);
+    if (!job.deals.length && !job.paid.length) return { turn: number(params.turn), deals: [], paid: [] };
+    return { turn: number(params.turn), prose, ...(typeof record.player_text === 'string' ? { player_text: record.player_text } : {}), ...job };
+}
+async function dealsSubmit(loaded: Parameters<typeof deliveredDeals>[0], params: Row): Promise<Row> {
+    const { campaign } = loaded, turn = number(params.turn);
+    const { record, job, scope } = await deliveredDeals(loaded, params.turn);
+    const { marks, paid, dropped } = checkDealMarks(job, params, record, 'investigator_1');
+    if (marks.length || paid.length) {
+        const communication = row(record.communication);
+        record.communication = { version: 1, scope: { worldline: string(scope.worldline || 'main'), loop: number(scope.loop) }, turn, events: [],
+            ...communication, ...(marks.length ? { agreements: [...array(communication.agreements), ...marks] } : {}),
+            ...(paid.length ? { paid: [...array(communication.paid), ...paid] } : {}) };
+        await campaign.writeTurnRecord(record);
+    }
+    await campaign.telemetry({ lane: 'deals', event: 'recorded', turn, asked: job.deals.length + job.paid.length, marks: marks.length, paid: paid.length,
+        ...(dropped.length ? { dropped } : {}) });
+    return { turn, marks, paid, dropped };
+}
 export function createMemoryHandlers(context: KernelContext, writer: ReturnType<typeof createWriteRuntime>): HandlerGroup {
     const evidence = createMemoryEvidenceOwner(context, params => writer.campaign(params));
     async function load(params: Row) {
@@ -304,6 +346,9 @@ export function createMemoryHandlers(context: KernelContext, writer: ReturnType<
         // Contract §255: the look check of a delivered turn.
         'table.looks.job': async (params) => looksJob(await load(params), params),
         'table.looks': async (params) => looksSubmit(context, await load(params), params),
+        // Contract §258.13: the deal check of a delivered turn.
+        'table.deals.job': async (params) => dealsJob(await load(params), params),
+        'table.deals': async (params) => dealsSubmit(await load(params), params),
         // Contract §190.2: the places a delivered text may leave the party at, and the owed move the host's read names.
         'table.owe.options': async (params) => {
             const loaded = await load(params);

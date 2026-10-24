@@ -93,7 +93,7 @@ test('a queued image definition places its item immediately and lands on that sa
 
 test('player reference collection is routed to the host control instead of fictional definition generation',async()=>{
  const manifest=JSON.parse(await readFile(join(root,'mods/enhanced-items/mod.json'),'utf8'));
- assert.equal(manifest.version,'1.4.2');assert.ok(manifest.requires.includes('objects.image-references.v1'));
+ assert.equal(manifest.version,'1.4.4');assert.ok(manifest.requires.includes('objects.image-references.v1'));
  const agent=await readFile(join(root,'mods/enhanced-items/agent.md'),'utf8');
  const creator=await readFile(join(root,'mods/enhanced-items/creator.md'),'utf8');
  assert.ok(agent.includes('do not use define/object for UI collection'));

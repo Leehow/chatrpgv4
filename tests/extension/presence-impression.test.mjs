@@ -84,7 +84,7 @@ test('§224.3: the opening rolls nothing; the start scene\'s person is offered a
   const input = await call('table.player_input', {text: 'I go on.'});
   assert.deepEqual(impressions((await read('turn.json')).receipts), [], 'a turn start rolls nothing either');
   assert.deepEqual(offered(input.capsule), ['steven-knott']);
-  assert.match(input.capsule.mods.pending_contacts[0].when, /matters this turn/);
+  assert.match(input.capsule.mods.pending_contacts[0].when, /something they would not give just anyone/);
   assert.deepEqual(input.capsule.mods.relationships, []);
 });
 
@@ -149,7 +149,7 @@ test('a contact check pends beside the presence one, and neither is rolled by th
 test('a package that declares a presence check must require checks.presence.v1', async () => {
   const files = new Map([['mod.json', await readFile(join(root, 'mods/natural-npc/mod.json'))]]);
   for (const name of JSON.parse(files.get('mod.json').toString('utf8')).package_files) files.set(name, await readFile(join(root, 'mods/natural-npc', name)));
-  assert.equal(api.manifestFrom(files).version, '1.7.1');
+  assert.equal(api.manifestFrom(files).version, '1.7.3');
   const manifest = JSON.parse(files.get('mod.json').toString('utf8'));
   manifest.requires = manifest.requires.filter(value => value !== 'checks.presence.v1');
   files.set('mod.json', Buffer.from(JSON.stringify(manifest)));
