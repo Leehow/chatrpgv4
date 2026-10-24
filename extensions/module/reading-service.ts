@@ -479,12 +479,14 @@ export class ReadingService implements ReadingBridge {
 			this.skeletons.set(source.file_sha256, buildSkeleton({ runtime: this.runtime(), moduleId: mid, home: this.deps.home,
 				cache: join(dirname(source.pdf), "cache"), source: { path: source.pdf, file_sha256: source.file_sha256, page_count: source.page_count },
 				model: this.deps.model(), signal: controller.signal, record: row => this.deps.record({ ...row, campaign }),
-				shared: { priority: "background" }, mayContinue: () => !this.stopped && !this.capReached(mid, campaign) })
+				shared: { priority: "background" }, mayContinue: () => !this.stopped && !this.capReached(mid, campaign),
+				onPartial: partial => this.releasePartial(mid, campaign, source, partial, controller.signal) })
 				// §263.3: sections that failed are asked once more (answered sections are kept), so one refusal does not leave the book incomplete.
 				.then(skeleton => skeleton?.complete === false && !controller.signal.aborted && !this.stopped ? buildSkeleton({ runtime: this.runtime(), moduleId: mid, home: this.deps.home,
 					cache: join(dirname(source.pdf), "cache"), source: { path: source.pdf, file_sha256: source.file_sha256, page_count: source.page_count },
 					model: this.deps.model(), signal: controller.signal, record: row => this.deps.record({ ...row, campaign, retry: true }),
-					shared: { priority: "background" }, mayContinue: () => !this.stopped && !this.capReached(mid, campaign) }) : skeleton)
+					shared: { priority: "background" }, mayContinue: () => !this.stopped && !this.capReached(mid, campaign),
+				onPartial: partial => this.releasePartial(mid, campaign, source, partial, controller.signal) }) : skeleton)
 				// §262.7: the skeleton's names become the reference book's navigation index (the library and this campaign's fork).
 				.then(async skeleton => {
 					const indexed = await this.call("module.skeleton.index", { module_id: mid, file_sha256: source.file_sha256, rows: skeletonIndexRows(skeleton) }, campaign);
@@ -588,12 +590,15 @@ export class ReadingService implements ReadingBridge {
 		const book = this.books.get(mid);
 		if (!book) return [];
 		try {
-			const releaseFile = releasePath(this.deps.home, book.sha), skeletonFile = skeletonPath(this.deps.home, book.sha);
+			const releaseFile = releasePath(this.deps.home, book.sha);
 			const blocksFile = join(book.cache, `blocks-${book.sha}.json`);
-			const stamp = [releaseFile, skeletonFile, blocksFile].map(file => statSync(file).mtimeMs).join(":");
+			// §266.8: the merged skeleton, else the partial one, gives the passages their printed forms.
+			const skeleton = this.pointerIndex(mid);
+			if (!skeleton) return [];
+			const stamp = [...[releaseFile, blocksFile].map(file => statSync(file).mtimeMs), this.indexCache.get(mid)?.stamp ?? ""].join(":");
 			let cached = this.bookCache.get(mid);
 			if (!cached || cached.stamp !== stamp) {
-				const release = JSON.parse(readFileSync(releaseFile, "utf8")), skeleton = JSON.parse(readFileSync(skeletonFile, "utf8"));
+				const release = JSON.parse(readFileSync(releaseFile, "utf8"));
 				const stored = JSON.parse(readFileSync(blocksFile, "utf8"));
 				const blocks = new Map<string, { id: string; text: string }>();
 				for (const page of Object.values(stored.pages ?? {}) as Row[]) for (const block of page.blocks ?? []) blocks.set(block.id, { id: block.id, text: block.text });
@@ -636,8 +641,32 @@ export class ReadingService implements ReadingBridge {
 		} catch { return []; }
 	}
 	private planCache = new Map<string, { stamp: string; skeleton: Row; blocks?: Map<string, { id: string; text: string }> }>();
+	/** §266.8: the release pass on a partial skeleton, one at a time per document; the latest partial waits behind a running pass. */
+	private partialRelease = new Map<string, { running: boolean; next?: Row }>();
+	private releasePartial(mid: string, campaign: string | undefined, source: Row, partial: Row, signal: AbortSignal): void {
+		const key = source.file_sha256, state = this.partialRelease.get(key) ?? { running: false };
+		this.partialRelease.set(key, state);
+		if (state.running) { state.next = partial; return; }
+		state.running = true;
+		void (async () => {
+			let current: Row | undefined = partial;
+			while (current && !signal.aborted && !this.stopped) {
+				state.next = undefined;
+				await this.releaseCheck(mid, campaign, source, current, signal);
+				current = state.next;
+			}
+			state.running = false;
+		})();
+	}
 	/** §263.4: check the skeleton's release candidates; never awaited by play, failures recorded. */
-	private async releaseCheck(mid: string, campaign: string | undefined, source: Row, skeleton: Row, signal: AbortSignal): Promise<void> {
+	/** §266.8: release passes of one document run one after another, so a partial pass never overwrites the merged one. */
+	private releaseChain = new Map<string, Promise<void>>();
+	private releaseCheck(mid: string, campaign: string | undefined, source: Row, skeleton: Row, signal: AbortSignal): Promise<void> {
+		const key = source.file_sha256, run = (this.releaseChain.get(key) ?? Promise.resolve()).then(() => this.releasePass(mid, campaign, source, skeleton, signal));
+		this.releaseChain.set(key, run.catch(() => undefined));
+		return run;
+	}
+	private async releasePass(mid: string, campaign: string | undefined, source: Row, skeleton: Row, signal: AbortSignal): Promise<void> {
 		if (skeleton?.version !== SKELETON_VERSION || !(skeleton?.release_candidates ?? []).length) return;
 		try {
 			const pages = Array.from({ length: source.page_count }, (_, i) => i + 1);
@@ -647,7 +676,7 @@ export class ReadingService implements ReadingBridge {
 			const release = await checkReleases({ runtime: this.runtime(), moduleId: mid, home: this.deps.home, sha: source.file_sha256, skeleton, blocks,
 				model: this.deps.model(), signal, record: row => this.deps.record({ ...row, campaign }), shared: { priority: "background" },
 				mayContinue: () => !this.stopped && !this.capReached(mid, campaign) });
-			this.note({ lane: "reading", event: "release_ready", module_id: mid, campaign, rows: release.rows.length,
+			this.note({ lane: "reading", event: "release_ready", module_id: mid, campaign, ...(skeleton.partial === true ? { partial: true } : {}), rows: release.rows.length,
 				approved: release.rows.filter((row: Row) => row.status === "approved").length, complete: release.complete });
 		} catch (error) { this.note({ lane: "reading", event: "release_failed", module_id: mid, campaign, detail: String(error).slice(0, 500) }); }
 	}

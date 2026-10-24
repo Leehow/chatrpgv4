@@ -230,6 +230,8 @@ export interface SkeletonContext {
 	shared?: Partial<ReaderRequest>;
 	/** Whether another section may start (the reading cap, a stopped host). */
 	mayContinue?: () => boolean;
+	/** §266.8: told each time the partial skeleton is written. */
+	onPartial?: (partial: Row) => void;
 }
 
 /** §262.5: build the skeleton once; an existing complete skeleton for this document is kept. */
@@ -332,6 +334,7 @@ export async function buildSkeleton(context: SkeletonContext): Promise<Row> {
 		const temp = `${partialFile}.${process.pid}.tmp`;
 		await writeFile(temp, JSON.stringify(partial));
 		await rename(temp, partialFile);
+		context.onPartial?.(partial);
 	}).catch(() => undefined); };
 	let next = 0;
 	await Promise.all(Array.from({ length: Math.min(SKELETON_BOUNDS.concurrency, sections.length) }, async () => {

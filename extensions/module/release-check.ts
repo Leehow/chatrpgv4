@@ -54,6 +54,16 @@ export function rankedFacts(skeleton: Row, candidate: Row, text: string, section
 	return facts.map(fact => ({ fact, rank: rank(fact) })).filter(row => row.rank < 3).sort((a, b) => a.rank - b.rank);
 }
 
+/** §266.1: whether a page lies in an indexed section of the skeleton and is not blocked. */
+const pageIndexed = (skeleton: Row, page: number): boolean => !(skeleton?.blocked_pages ?? []).includes(page)
+	&& (skeleton?.sections ?? []).some((section: Row) => section.status === "indexed" && page >= section.first && page <= section.last);
+
+/** §266.8: the digest of the facts naming a candidate's people or on its pages: the ones its verdict depends on. */
+function factsKey(skeleton: Row, candidate: Row, text: string, sectionOf: (page: number) => number): string {
+	const ids = rankedFacts(skeleton, candidate, text, sectionOf).filter(row => row.rank < 2).map(row => [row.fact.id, row.fact.summary]).sort();
+	return createHash("sha256").update(JSON.stringify(ids)).digest("hex").slice(0, 16);
+}
+
 export interface ReleaseContext {
 	runtime: Pick<HostRuntime, "runTask" | "contentRoot">;
 	moduleId: string;
@@ -86,23 +96,34 @@ export async function checkReleases(context: ReleaseContext): Promise<Row> {
 	try { kept = JSON.parse(await readFile(file, "utf8")); } catch { /* none yet */ }
 	const revoked = new Set<string>(Array.isArray(kept.revoked) ? kept.revoked : []);
 	const previous = new Map<string, Row>((kept.version === RELEASE_VERSION && kept.prompt === promptSha ? kept.rows ?? [] : []).map((row: Row) => [row.key, row]));
-	// §263.4: a book is complete for a candidate when every section was read and no blocked page prints its entity's name.
-	const blockedText = normalName((skeleton?.blocked_pages ?? []).flatMap((page: number) => [...blocks.values()].filter(block => blockPage(block.id) === page).map(block => block.text)).join(""));
 	const formsOf = (name: string) => { const entity = (skeleton?.entities ?? []).find((row: Row) => normalName(row.name) === normalName(name));
 		return [name, ...(entity?.aliases ?? [])].map((form: string) => normalName(String(form))).filter(form => [...form].length >= 2); };
-	const completeFor = (candidate: Row) => skeleton?.complete === true && !formsOf(candidate.entity).some(form => blockedText.includes(form));
+	// §266.8: the index is complete for a candidate when every page that prints its entity's name (the host's own text, by
+	// spelling) lies in an indexed section and is not blocked: every fact naming it has then been read, whatever else is not.
+	const pageText = new Map<number, string>();
+	for (const block of blocks.values()) { const page = blockPage(block.id); pageText.set(page, (pageText.get(page) ?? "") + normalName(block.text)); }
+	const completeFor = (candidate: Row) => {
+		const forms = formsOf(candidate.entity);
+		return [...pageText].every(([page, text]) => !forms.some(form => text.includes(form)) || pageIndexed(skeleton, page)) && pageIndexed(skeleton, candidate.page);
+	};
 	const complete = skeleton?.complete === true;
+	// §266.8: on a partial index only candidates already complete are asked; the others wait for the sections they need.
+	const partial = skeleton?.partial === true;
 	const order = [...blocks.keys()];
 	const sections: Row[] = skeleton?.sections ?? [];
 	const sectionOf = (page: number) => sections.findIndex(section => page >= section.first && page <= section.last);
 	const first = new Set(context.firstPages ?? []);
 	const candidates: Row[] = (skeleton?.release_candidates ?? []).filter((row: Row) => sliceRef(row.ref, sha, SOURCE_LAYOUT_VERSION, blocks) !== undefined);
 	const rows = new Map<string, Row>();
+	// A partial pass keeps every row it does not ask again; the merged index's pass decides the rest.
+	if (partial) for (const [key, old] of previous) rows.set(key, old);
 	const todo: Row[] = [];
 	for (const candidate of candidates) {
-		const old = previous.get(candidate.key);
-		// A verdict that relied on no facts stays valid while its facts version is unchanged; a kept verdict is re-derived for completeness.
-		if (old && old.facts_version === version && old.facts_omitted !== true && old.verdict) { rows.set(candidate.key, { ...old, status: revoked.has(old.key) ? "restricted" : releaseStatus(old.verdict, old.kind, completeFor(candidate), old.facts_omitted === true) }); continue; }
+		const old = previous.get(candidate.key), key = factsKey(skeleton, candidate, sliceRef(candidate.ref, sha, SOURCE_LAYOUT_VERSION, blocks)!, sectionOf);
+		// §266.8: a verdict stays valid while the facts naming its people or on its pages are the same ones; it is re-derived for completeness.
+		if (old && (old.facts_key === key || old.facts_key === undefined && old.facts_version === version) && old.facts_omitted !== true && old.verdict) {
+			rows.set(candidate.key, { ...old, facts_key: key, status: revoked.has(old.key) ? "restricted" : releaseStatus(old.verdict, old.kind, completeFor(candidate), old.facts_omitted === true) }); continue; }
+		if (partial && !completeFor(candidate) && candidate.kind !== "read_aloud" && candidate.kind !== "handout") continue;
 		todo.push(candidate);
 	}
 	todo.sort((a, b) => Number(!first.has(a.page)) - Number(!first.has(b.page)) || a.page - b.page);
@@ -150,7 +171,7 @@ export async function checkReleases(context: ReleaseContext): Promise<Row> {
 			rows.set(row.key, { key: row.key, ref: row.ref, entity: row.entity, kind: row.kind, page: row.page, verdict: verdict ?? null,
 				reason: typeof answer?.reason === "string" ? answer.reason.slice(0, 300) : call.json ? "no verdict" : "checker failed",
 				facts: Array.isArray(answer?.facts) ? answer!.facts.filter((id: unknown) => typeof id === "string" && facts.has(id as string)) : [],
-				facts_version: version, facts_omitted: short.has(i), status });
+				facts_version: version, facts_key: factsKey(skeleton, row, sliceRef(row.ref, sha, SOURCE_LAYOUT_VERSION, blocks)!, sectionOf), facts_omitted: short.has(i), status });
 		}
 		context.record({ lane: "reading", event: "release_check", module_id: context.moduleId, batch: index + 1, candidates: batch.length,
 			approved, candidate, restricted, ms: call.outcome.ms, ok: call.outcome.ok, ...(call.outcome.usage ? { usage: call.outcome.usage } : {}) });
