@@ -66,7 +66,9 @@ waits until a mechanic needs it -- used in a check, consumed, damaged, lost or
 handed to someone else -- and is registered in that turn, not before. Showing,
 holding up, setting down, describing or mentioning a carried row needs no
 registration: narrate it from the sheet. A photograph, badge, keepsake or other
-decorative row is registered only when it changes hands.
+decorative row is registered only when it changes hands for good;
+handing it over for a look and taking it back is showing it, and a calling card or a
+slip handed over in passing needs no definition.
 Generate their definitions and use object with adopt set to the exact existing
 equipment name and to set to its owner. Send the definitions and their adoptions
 as one apply carrying nothing else: a batch of only definitions and adoptions is

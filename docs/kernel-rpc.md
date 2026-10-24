@@ -52485,7 +52485,7 @@ words" beside the rule that forbids words: it answers with other content.
 
 ### 264.2 A carried row is registered only when a mechanic needs it
 
-`enhanced-items` 1.4.3: showing, setting down, describing or mentioning a sheet row needs no registration; a decorative row
+`enhanced-items` 1.4.4: showing, handing over for a look and taking back, setting down, describing or mentioning a sheet row needs no registration; a decorative row
 is registered when it changes hands. The refusals that remain point at the fix first: a missing definition names the
 `define` that creates it (the accepted names follow only as an alternative, where before they led and sent a photograph's
 adoption to a van's definition), and placing an owned row names the `adopt` form or no registration at all.
@@ -52565,3 +52565,9 @@ the next request and any speaker may select it. The output guidance now names th
 `agreement` naming a fact that is not an issued proposal or commitment now lists the issued ones, or says that none is
 issued and the command should go: a commission accepted in conversation was never offered as a service, so it has no
 proposal fact, and the Keeper had marked the offer's terms instead.
+
+### 264.13 What the speaker needs before they will do it
+
+`input_requirements.fields` adds `authorization` (written permission or a word from someone with standing) and
+`proof_of_identity`. A gatekeeper refusing until the investigator brings the landlord's note had no closed field for it,
+and the Keeper argued for a turn between `knowledge_status withheld` and stretching `purpose`.

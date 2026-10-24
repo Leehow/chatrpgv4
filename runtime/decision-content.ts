@@ -22,7 +22,7 @@ export const NewCommunicationFact=Type.Union([
  // asks after, a rumour) is a short noun label, as service_at items are; it names the subject, never says anything about it.
  closed({predicate:Type.Literal('knowledge_status'),topic:Type.Union([ref,category],{description:'What the speaker is asked about: an issued reference, or {label} naming a subject nobody here has a reference for'}),
   status:StringEnum(['unknown','uncertain','withheld','nothing_more'],{description:"The speaker's own knowledge of the topic: unknown (knows nothing of it), uncertain (unsure), withheld (knows but will not say), nothing_more (has said all they know)"})}),
- closed({predicate:Type.Literal('input_requirements'),topic:ref,fields:Type.Array(StringEnum(['subject_name','person_name','location','time_range','record_type','purpose','quantity','budget']),{minItems:1,maxItems:8,uniqueItems:true})})
+ closed({predicate:Type.Literal('input_requirements'),topic:ref,fields:Type.Array(StringEnum(['subject_name','person_name','location','time_range','record_type','purpose','quantity','budget','authorization','proof_of_identity'],{description:'What the speaker needs from the investigator before they will do it; authorization is written permission or a word from someone with standing (an employer, an official), proof_of_identity is papers showing who the investigator is'}),{minItems:1,maxItems:8,uniqueItems:true})})
 ]);
 /** §258.4: how a selected item is said to a listener who was already told it; omitted, a told item is said as `refer`. */
 export const TELLING=['new','refer','restate','clarify','update'] as const;
