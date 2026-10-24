@@ -52917,4 +52917,10 @@ the material gate lands them on the book's text first (§177.6, §22.4.7.1, page
 person's `to`, not yet placed. Pages only: whether one is there as play starts stays the seat's judgement (the Keeper's).
 `opening_people` is unchanged: the host's Jev judge seats graph people only, since its seat does not pass the landing.
 
+While the opening is owed the capsule carries `opening_cast`: those people not yet landed at this table (no `table_people`
+entry with their `cast_id`), at most 12, `{name, pages}` with `name` their first printed form, and the head says to
+seat whoever of them is there with `apply npc {name, to: here}` under that name, never as a `walk_on` newcomer under a
+description (Blood Road table C, 2026-10-24: refused the book's names as walk_on labels, the Keeper brought in "the gas
+station owner", "the beer-drinking retired trucker" and "the silent navy veteran" as three newcomers).
+
 Tests: `tests/extension/page-mode.test.mjs`.

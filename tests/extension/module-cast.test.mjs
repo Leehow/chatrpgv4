@@ -923,6 +923,9 @@ test('§266.7: at the opening someone the cast prints on the opening scene\'s pa
 		assert.equal(held.error?.details?.reason, 'material_pending', `${name}: ${held.error?.message}`);
 		return h.attempt('table.apply', {call_id: 't0-c1', effects, _land_on_text: [{key: held.error.details.person.key, passage: {scene: null, page, label: null, sentence}}]});
 	};
+	const capsule = await h.call('table.capsule');
+	assert.deepEqual(capsule.opening_cast, [{name: 'Jonah', pages: [3]}], 'the Keeper is told whom the opening\'s pages print');
+	assert.match(capsule.head ?? JSON.stringify(capsule), /opening_cast lists people/);
 	const silas = await seat('Silas Marsh', 'Its keeper, Silas Marsh, trims the lamp.', 2);
 	assert.equal(silas.error?.details?.reason, 'opening_seat', 'page 2 is not the opening\'s page');
 	const jonah = await seat('Jonah', "Mae's boy Jonah drowned there last spring.", 3);
@@ -931,4 +934,5 @@ test('§266.7: at the opening someone the cast prints on the opening scene\'s pa
 	assert.ok(world.table_people.some(row => row.name === 'Jonah'), 'landed on the book\'s text');
 	assert.equal(Object.keys(world.npc_presence ?? {}).length, 1, 'and seated here');
 	assert.equal((await h.call('table.open')).turn.state, 'awaiting_player', 'a seat leaves the opening owed');
+	assert.equal((await h.call('table.capsule')).opening_cast, undefined, 'a seated person is no longer listed');
 });

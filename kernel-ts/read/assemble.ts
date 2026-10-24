@@ -31,6 +31,7 @@ import { playLanguageOf } from "./languages.js";
 import { RpcError } from "../errors.js";
 import { array, row, number, string, truth, chars, clone, normalize, type Row } from "./values.js";
 import { containers } from "./places.js";
+import { openingCast } from "./cast.js";
 import { currentHandle, type ModuleGraph } from "./module-graph.js";
 import {openIntents, shownIntentRef} from '../npc/intents.js';
 import {deferredNpcContext} from './deferred-context.js';
@@ -143,6 +144,10 @@ export const OPENING_PAGES_CHARS = 16000;
 export const HEAD_OPENING_PAGES = " opening_pages is the book's own text of the opening the party is in (private): what the investigators " +
     "see, hear or ask about here -- a sign, the radio, a price -- is answered from it first, before any lookup, and never invented over it. " +
     "Its passages are issued as sources in decision_materials: select the passage that holds what is perceived, so the author writes from the book's words.";
+/** §266.7: said only on a capsule that carries `opening_cast`. */
+export const HEAD_OPENING_CAST = " opening_cast lists people the book prints on the opening's own pages whom no reading has written up yet: " +
+    "whoever of them is there as play starts is seated with apply npc {name, to: here} under that name (it lands on the book's text), " +
+    "never brought in as a walk_on newcomer under a description of them.";
 export const BUDGETS: Readonly<Record<string, number>> = Object.freeze({
     where: 4096,
     present: 3072,
@@ -782,6 +787,13 @@ export async function buildCapsule(campaign: CampaignSnapshot, module: LoadedMod
             opening = [here, ...containers(graph, here)].find(place => row(place.properties).opening_pages_text === true);
         if (opening && typeof opening.summary === "string" && opening.summary)
             sections.opening_pages = { scene: graph.handle(opening), text: chars(opening.summary, OPENING_PAGES_CHARS) };
+        // §266.7: while the opening is owed, the unread people the cast prints on its pages, by the name a seat takes.
+        if (number(turn.turn) === 0 && turn.state === "awaiting_player") {
+            const landed = new Set(array(world.table_people).map(person => string(row(person).cast_id)).filter(Boolean));
+            const cast = openingCast(graph, here).filter(person => !landed.has(person.id)).slice(0, 12).map(person => ({ name: person.printed[0] ?? person.names[0], pages: person.pages.slice(0, 6) }))
+                .filter(person => typeof person.name === "string" && person.name);
+            if (cast.length) sections.opening_cast = cast;
+        }
     }
     for (const [name, budget] of Object.entries(SLICE2_BUDGETS))
         if (fitBudget(sections[name], budget, "last"))
@@ -800,6 +812,8 @@ export async function buildCapsule(campaign: CampaignSnapshot, module: LoadedMod
         head += HEAD_KEPT_LOOKS;
     if (sections.opening_pages)
         head += HEAD_OPENING_PAGES;
+    if (sections.opening_cast)
+        head += HEAD_OPENING_CAST;
     // The book's own navigation (spec thin-book-play B): what the book holds and what is still unread, so a
     // thin graph is never mistaken for the book saying no. Names and pages only; the reading is asked for by name.
     if (truth(module.meta.reading_version)) {
