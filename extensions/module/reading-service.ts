@@ -28,7 +28,7 @@ import type {ClaimSupportCheck, ClaimSupportRequest} from './claim-support.ts';
 import {runSourceReference,SourceReferenceFailure} from './source-reference.ts';
 import {runPageOpen} from './page-open.ts';
 import {leanEligible, runLeanDetail, sourceBlocksFor} from './lean-read.ts';
-import {approvedPassages, checkReleases, passagesInScope, plansInScope, releasePath, withForms} from './release-check.ts';
+import {approvedPassages, checkReleases, evidenceInScope, passagesInScope, plansInScope, releasePath, withForms} from './release-check.ts';
 import {readFileSync, statSync} from 'node:fs';
 import {SKELETON_VERSION} from './lean-skeleton.ts';
 import {LEAN_MAP_REQUESTS, answerPages, buildSkeleton, castPlayNames, castDraftFromSkeleton, leanCrossReferences, samePrimaryLanguage, skeletonDigest, skeletonIndexRows, skeletonPath, LEAN_ANSWER_ASK, LEAN_ANSWER_REQUESTS} from './lean-skeleton.ts';
@@ -534,11 +534,23 @@ export class ReadingService implements ReadingBridge {
 		try {
 			const file = skeletonPath(this.deps.home, book.sha), stamp = String(statSync(file).mtimeMs);
 			let cached = this.planCache.get(mid);
-			if (!cached || cached.stamp !== stamp) { cached = { stamp, skeleton: JSON.parse(readFileSync(file, "utf8")) }; this.planCache.set(mid, cached); }
-			return plansInScope(cached.skeleton, capsule);
+			if (!cached || cached.stamp !== stamp) {
+				let blocks: Map<string, { id: string; text: string }> | undefined;
+				try {
+					const stored = JSON.parse(readFileSync(join(book.cache, `blocks-${book.sha}.json`), "utf8"));
+					blocks = new Map();
+					for (const page of Object.values(stored.pages ?? {}) as Row[]) for (const block of page.blocks ?? []) blocks.set(block.id, { id: block.id, text: block.text });
+				} catch { /* no block cache yet */ }
+				cached = { stamp, skeleton: JSON.parse(readFileSync(file, "utf8")), blocks };
+				this.planCache.set(mid, cached);
+			}
+			const plans = plansInScope(cached.skeleton, capsule);
+			// §263.10: the bounded evidence window rides with the plans as Keeper-only rows.
+			const evidence = cached.blocks ? evidenceInScope(cached.skeleton, cached.blocks, capsule) : [];
+			return [...plans, ...evidence.map(row => ({ kind: "evidence", ...row }))];
 		} catch { return []; }
 	}
-	private planCache = new Map<string, { stamp: string; skeleton: Row }>();
+	private planCache = new Map<string, { stamp: string; skeleton: Row; blocks?: Map<string, { id: string; text: string }> }>();
 	/** §263.4: check the skeleton's release candidates; never awaited by play, failures recorded. */
 	private async releaseCheck(mid: string, campaign: string | undefined, source: Row, skeleton: Row, signal: AbortSignal): Promise<void> {
 		if (skeleton?.version !== SKELETON_VERSION || !(skeleton?.release_candidates ?? []).length) return;

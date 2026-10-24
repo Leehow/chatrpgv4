@@ -219,8 +219,45 @@ export function plansInScope(skeleton: Row, capsule: Row, limit = 16): Row[] {
 		if (list.some(key => here.has(key)) || (entity.pages ?? []).some((page: number) => opening.has(page))) for (const key of list) forms.add(key);
 	}
 	const named = (row: Row) => (row.names ?? []).some((name: string) => forms.has(normalName(String(name))));
+	// Rows naming who is here (a present person or the scene, with their aliases) come before rows of the opening's other entities.
+	const nearForms = new Set<string>();
+	for (const entity of skeleton?.entities ?? []) {
+		const list = [entity.name, ...(entity.aliases ?? [])].map((name: string) => normalName(String(name))).filter(key => [...key].length >= 2);
+		if (list.some(key => here.has(key))) for (const key of list) nearForms.add(key);
+	}
+	const near = (row: Row) => (row.names ?? []).some((name: string) => nearForms.has(normalName(String(name))));
 	const out: Row[] = [];
 	for (const [kind, list] of [["protected", skeleton?.protected_facts], ["keeper_truth", skeleton?.keeper_truth], ["condition", skeleton?.conditional_events]] as const)
-		for (const row of list ?? []) if (named(row) && !out.some(item => item.summary === row.summary)) out.push({ kind, names: row.names, summary: row.summary, pages: row.pages, ...(row.reveal ? { reveal: row.reveal } : {}) });
-	return out.slice(0, limit);
+		for (const row of list ?? []) if (named(row) && !out.some(item => item.summary === row.summary)) out.push({ kind, names: row.names, summary: row.summary, pages: row.pages, ...(row.reveal ? { reveal: row.reveal } : {}), near: near(row) });
+	return out.sort((a, b) => Number(b.near) - Number(a.near)).slice(0, limit).map(({ near: _near, ...row }) => row);
+}
+
+/**
+ * §263.10: the Keeper's bounded evidence window: for each person present, then the active scene, the text of their
+ * blocks the pointer index marked plan, motivation or condition, outside the opening's own pages (already in the capsule),
+ * in reading order, at most about `budget` tokens. Keeper-only; sliced from the host's blocks.
+ */
+export function evidenceInScope(skeleton: Row, blocks: Map<string, BlockText>, capsule: Row, budget = 1500): Row[] {
+	const keys = (...values: unknown[]) => values.filter((value): value is string => typeof value === "string" && !!value.trim()).map(normalName).filter(key => [...key].length >= 2);
+	const people = (Array.isArray(capsule?.present) ? capsule.present : []).map((person: Row) => new Set(keys(person?.display_name, person?.name)));
+	const scene = new Set(keys(capsule?.where?.display_name, capsule?.where?.scene, capsule?.where?.name));
+	const opening = openingPages(capsule?.opening_pages);
+	const entityOf = (set: Set<string>) => (skeleton?.entities ?? []).find((entity: Row) => [entity.name, ...(entity.aliases ?? [])].some((name: string) => set.has(normalName(String(name)))));
+	const out: Row[] = [];
+	const seen = new Set<string>();
+	let spent = 0;
+	for (const set of [...people, scene]) {
+		const entity = entityOf(set);
+		if (!entity) continue;
+		for (const item of entity.evidence ?? []) {
+			if (!["plan", "motivation", "condition"].includes(item.use) || seen.has(item.block) || opening.has(blockPage(item.block))) continue;
+			const text = blocks.get(item.block)?.text;
+			if (!text) continue;
+			const cost = roughTokens(text);
+			if (spent + cost > budget) continue;
+			seen.add(item.block); spent += cost;
+			out.push({ about: entity.name, use: item.use, page: blockPage(item.block), text });
+		}
+	}
+	return out;
 }

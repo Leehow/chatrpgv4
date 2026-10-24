@@ -52588,7 +52588,7 @@ The decision materials carry `book_truth: {authority, rows}` when the pointer in
 skeleton's protected facts, Keeper-truth and condition rows whose names (normalised spelling) are the active scene, a person
 present, or an entity printed on the opening's pages; protected facts first, at most 16, each `{kind, names, summary,
 pages, reveal?}`. It is Keeper reading material only: it is no `fact_N`/`source_N`, cannot be selected, and the author input
-never carries it. It is rebuilt every turn from the skeleton, so a plan written on another page (Blood Road p13: Russ is
+never carries it. Rows naming a person present or the scene come first. The same section also carries `{kind: "evidence", about, use, page, text}` rows: the bounded evidence window, the text of the blocks the index marked `plan`, `motivation` or `condition` for each person present and the scene, outside the opening's pages, at most about 1.5K tokens, sliced by the host. It is rebuilt every turn from the skeleton, so a plan written on another page (Blood Road p13: Russ is
 told to stall the repair) is in front of the Keeper at the place it constrains without a lookup.
 
 ### 263.11 No page-transcript reader under pointer reading (amends §191.6)

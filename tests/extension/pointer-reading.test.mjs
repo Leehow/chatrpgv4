@@ -150,3 +150,12 @@ test('§263.4: a page no call would read holds back only the looks of people it 
  const release=await api.checkReleases({runtime,moduleId:'m',home,sha:DOC,skeleton,blocks,model:{id:'test/model'},signal:new AbortController().signal,record:()=>{}});
  assert.deepEqual(release.rows.map(row=>[row.entity,row.status]).sort(),[['Dr Brenner','candidate'],['Russ','approved']]);
 });
+
+test('§263.10: the Keeper\'s evidence window carries a present person\'s plan blocks from other pages',()=>{
+ const skeleton=merged();
+ skeleton.entities.find(entity=>entity.name==='Russ').evidence.push({block:'b20-1-c',use:'plan'});
+ const blocks=new Map(Object.entries(texts).map(([id,text])=>[id,{id,text}]));
+ const rows=api.evidenceInScope(skeleton,blocks,{where:{display_name:'Esso'},present:[{display_name:'Russ'}]});
+ assert.deepEqual(rows.map(row=>[row.about,row.use,row.page]),[['Russ','plan',20]]);
+ assert.deepEqual(api.evidenceInScope(skeleton,blocks,{where:{display_name:'Esso'},present:[{display_name:'Russ'}],opening_pages:{text:'[Original physical page 20]\nx'}}),[],'the opening\'s own pages are already in the capsule');
+});
