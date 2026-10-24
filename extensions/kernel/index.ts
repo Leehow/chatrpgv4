@@ -8770,7 +8770,10 @@ export default function (pi: ExtensionAPI, host: {capabilities?:RuntimeCapabilit
 			&& Array.isArray(input.effects) && input.effects.length > 0 && input.effects.every((e:any) => e?.kind === "clock");
         const openingInformation = state.openingPending && state.state === "awaiting_player" && name === "apply"
             && Array.isArray(input.effects) && input.effects.length > 0
-            && input.effects.every((effect:any) => openingInformationShape(effect) || effect?.kind === 'clock');
+            && input.effects.every((effect:any) => openingInformationShape(effect) || effect?.kind === 'clock'
+                // §263.6: a seated person's activity, the shape the kernel's opening accepts (`openingActivityShape`,
+                // kernel-ts/apply/activity.ts) and the capsule asks for; refused here, it cost a whole opening batch.
+                || effect?.kind === 'npc' && effect.activity != null && Object.keys(effect).every(key => ['kind','name','activity','why'].includes(key)));
 		const openingModShape = state.openingPending && state.state === "awaiting_player" && (
 			(name === "resolve" && typeof (input.action as any)?.decision === "string") ||
 			(name === "apply" && Array.isArray(input.effects) && input.effects.length > 0 && input.effects.every((e:any) => ["define","object","ability","clock"].includes(e?.kind))));
@@ -8786,7 +8789,7 @@ export default function (pi: ExtensionAPI, host: {capabilities?:RuntimeCapabilit
 				? "the Mod layer has not announced itself yet, so this opening Mod call cannot be judged: retry the same call; the opening's Mod checks become available as soon as it does"
 				// Only the opening reaches this line (§86). The generic "use only look, lookup and recall" had the installed App's
 				// Keeper (Blood Road, 2026-10-02) try to pin the book's start hour twice, 20 s of round trips before the prose.
-				: `the turn state is ${state.state} and this is the table's opening: narrate, the active final-delivery surface, ask, apply clue, person name/address registration, a present person's npc mood, apply clock and the opening's Mod definitions are accepted; investigator actions wait for player input. Record ordinary disclosures with apply clue, then ${finalDeliveryAction()}`;
+				: `the turn state is ${state.state} and this is the table's opening: narrate, the active final-delivery surface, ask, apply clue, person name/address registration, a present person's npc mood or activity, apply clock and the opening's Mod definitions are accepted; investigator actions wait for player input. Record ordinary disclosures with apply clue, then ${finalDeliveryAction()}`;
 			await record({ tool: name, started_at: new Date().toISOString(), ok: false, code: "turn_state", reason, ...(bridgePending ? { cause: "mods_bridge_pending" } : {}) });
 			// A refusal the host issued is still a refusal (§67). Without this the
 			// Keeper could be told "wait for the player" forever inside its own turn.

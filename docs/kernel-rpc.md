@@ -52512,3 +52512,17 @@ the decision open, and the Keeper argued it for each new speaker, reversing itse
 the way. Requiring one of them made the Keeper guess compass bearings across a city it had no map of ("southwest, roughly,
 for Roxbury"), and weigh whether a wrong heading would mislead the author. A received payment needs no `category` either
 (the tool description says so; the kernel already settled it as a transfer).
+
+### 263.6 The opening door admits what the opening kernel accepts
+
+The host's opening gate (`extensions/kernel/index.ts`) refused a batch holding `npc {name, activity}` although the
+kernel's opening accepts exactly that shape (`openingActivityShape`) and the capsule asks for present people's activity
+to be assessed; the refusal named the admitted kinds but not the one that failed, and the whole batch (a name, two clues)
+went again. The gate now admits that shape.
+
+### 263.7 Optional commands say when they are owed
+
+The output guidance now says that talk, a greeting or a glance needs no `time` command, that a `relationship` command
+records a change this turn's events caused (never a standing attitude or a first-impression result the kernel already
+holds), and that an omitted `strategy` is the host's `refer`. The capsule's pending-contact `when` carries §263.4's rule.
+Each was weighed on most calls of the 2026-10-24 table, with the Keeper adding and dropping the same command within a turn.

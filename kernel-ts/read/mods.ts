@@ -935,7 +935,7 @@ export function contactRows(graph: ModuleGraph, world: Row, party: Row[], active
                         handle: graph.handle(npc),
                         decision: name,
                         when: check.trigger === "presence"
-                            ? "only when this person's first impression of the investigator matters this turn, not merely because they share the scene"
+                            ? "the first time the investigator asks this person for something their attitude could change (a favour, information they could keep back, a deal, help, trust); never for a greeting, a routine exchange or merely sharing the scene"
                             : "first meaningful contact, not merely appearing in this list",
                         rule: { trigger: check.trigger, scope: check.scope, reusable: check.reusable }
                     });
