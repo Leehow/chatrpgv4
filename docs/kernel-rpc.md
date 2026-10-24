@@ -52200,7 +52200,13 @@ paid for is still owed after the reply and which person present owes it. An answ
 checks each against the job (a known deal moved one allowed step; a purchase of that turn owed by a person present) and
 appends them to that turn's `communication.agreements` (`by_lane: true`) and `communication.paid`; `agreementView` reads a
 paid deal as that person's accepted commitment to the buyer. The Keeper's own `agreement` command is unchanged. Nothing waits
-for the lane; a failure records nothing and a later reply can still settle the deal. Tests: `tests/extension/deal-marks.test.mjs`.
+for the lane; a failure records nothing and a later reply can still settle the deal.
+
+The same job lists the turn's lines said aloud that a bystander heard (`spoken: [{event, speaker, to, said}]`), and the lane asks
+whether the reply has each said low (aside, aloud, unclear). `table.deals {asides: [event id]}` rewrites those events as asides:
+each person who had heard it rolls Listen as in §258.12, and only a pass keeps hearing it (`overhear_rolls`, `aside_by_lane`).
+This catches a whisper the Keeper did not mark (app smoke 2026-10-24: the owner behind the counter was recorded hearing it).
+Tests: `tests/extension/deal-marks.test.mjs`.
 
 ## 260. NPC portrayal: beats, attention and the bearing grant (owner 2026-10-23; amends §254.2, §254.6)
 

@@ -4768,15 +4768,15 @@ export default function (pi: ExtensionAPI, host: {capabilities?:RuntimeCapabilit
 			let job: Record<string, unknown>;
 			try { job = await kernel.call("table.deals.job", { campaign, turn }) as Record<string, unknown>; }
 			catch { return; }
-			const deals = Array.isArray(job?.deals) ? job.deals : [], paid = Array.isArray(job?.paid) ? job.paid : [];
-			if ((!deals.length && !paid.length) || typeof job.prose !== "string" || signal.aborted) return;
+			const deals = Array.isArray(job?.deals) ? job.deals : [], paid = Array.isArray(job?.paid) ? job.paid : [], spoken = Array.isArray(job?.spoken) ? job.spoken : [];
+			if ((!deals.length && !paid.length && !spoken.length) || typeof job.prose !== "string" || signal.aborted) return;
 			const result = await decideDeals({ ...(job as unknown as DealJobInput), campaign, turn },
 				createDecisionAdapter({ env: { ...process.env }, enabled: true, maxConcurrency: 1,
 					retryPolicies: { [DEAL_MARKS_DECISION_FAMILY]: { maxRetries: 0, backoffInitialMs: 0, backoffMaxMs: 0, attemptTimeoutMs: 4000 } } }), signal);
 			await record({ lane: "deals", event: "decided", turn, ok: result.ok, ms: result.ms,
-				...(result.ok ? { marks: result.marks.length, paid: result.paid.length, blockers: result.blockers } : { reason: result.reason, detail: result.detail.slice(0, 200) }) });
-			if (!result.ok || (!result.marks.length && !result.paid.length) || signal.aborted) return;
-			try { await kernel.call("table.deals", { campaign, turn, marks: result.marks, paid: result.paid }); }
+				...(result.ok ? { marks: result.marks.length, paid: result.paid.length, asides: result.asides.length, blockers: result.blockers } : { reason: result.reason, detail: result.detail.slice(0, 200) }) });
+			if (!result.ok || (!result.marks.length && !result.paid.length && !result.asides.length) || signal.aborted) return;
+			try { await kernel.call("table.deals", { campaign, turn, marks: result.marks, paid: result.paid, asides: result.asides }); }
 			catch (error) {
 				await record({ lane: "deals", event: "recorded", ok: false, turn, reason: "kernel_refused",
 					code: isKernelError(error) ? error.code : "internal", detail: (error instanceof Error ? error.message : String(error)).slice(0, 200) });

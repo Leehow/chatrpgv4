@@ -20,7 +20,9 @@ export const DEAL_MARKS_MAX = 16;
 const JOB_DEALS_MAX = 12, JOB_PAID_MAX = 8;
 
 export interface DealPerson { ref: string; name: string }
-export interface DealJob { deals: Row[]; paid: Row[]; people: DealPerson[] }
+export interface DealJob { deals: Row[]; paid: Row[]; people: DealPerson[]; spoken: Row[] }
+/** Spoken events one job names for the aside question. */
+const JOB_SPOKEN_MAX = 12;
 
 /**
  * The paid purchases a turn's receipts hold: a `cash` purchase with a positive amount that was settled. A quote is an offer,
@@ -40,7 +42,8 @@ const what = (receipt: Row): string => {
  * own, newest first), and that turn's paid purchases not yet recorded as a deal. `people` are the candidates a paid deal's
  * seller is chosen from, by the word the table calls them.
  */
-export function dealJob(graph: ModuleGraph, world: Row, present: Row[], records: Row[], record: Row, scope: Row, name: (node: Row) => string): DealJob {
+export function dealJob(graph: ModuleGraph, world: Row, present: Row[], records: Row[], record: Row, scope: Row, name: (node: Row) => string,
+    refName: (ref: string) => string = ref => ref): DealJob {
     const turn = number(record.turn), people: DealPerson[] = [];
     for (const node of present) {
         const ref = npcReference(graph, world, node);
@@ -54,7 +57,29 @@ export function dealJob(graph: ModuleGraph, world: Row, present: Row[], records:
     const paid = purchases(record).filter(receipt => !recorded.has(string(receipt.id))).map(receipt => ({ receipt: receipt.id,
         ...(typeof (receipt.with_label ?? receipt.with) === 'string' ? { with: receipt.with_label ?? receipt.with } : {}), what: what(receipt),
         amount: number(receipt.purchase_amount), ...(typeof receipt.currency === 'string' ? { currency: receipt.currency } : {}) })).slice(0, JOB_PAID_MAX);
-    return { deals, paid, people };
+    // The turn's lines said aloud (no channel), with who said them to whom: the lane asks whether the reply has them said low.
+    const spoken = array(row(record.communication).events).map(row).filter(event => !event.channel && event.status === 'attested' && typeof event.id === 'string'
+        && array(event.heard).some(ref => isNpcReference(ref))).map(event => ({ event: event.id, speaker: label.get(string(event.actor)) ?? refName(string(event.actor)),
+        to: array(event.to).map(ref => label.get(string(ref)) ?? refName(string(ref))),
+        said: [...array(event.items).map(item => string(row(item).gist)).filter(Boolean).join(' ')].slice(0, 200).join('') })).slice(0, JOB_SPOKEN_MAX);
+    return { deals, paid, people, spoken };
+}
+
+/**
+ * The lane found these lines said low: each becomes an aside. Who overhears is each bystander's own Listen roll (§258.12),
+ * made here for the people who heard it aloud before; only a pass keeps hearing it. Returns the rewritten events.
+ */
+export function applyAsides(communication: Row, asides: string[], roll: (seq: number, ref: string) => Row): Row[] {
+    const changed: Row[] = [];
+    communication.events = array(communication.events).map(row).map(event => {
+        if (!asides.includes(string(event.id)) || event.channel) return event;
+        const rolls = array(event.heard).filter(ref => isNpcReference(ref)).map(ref => roll(number(event.seq), string(ref)));
+        const heard = rolls.filter(item => item.passed).map(item => item.ref);
+        const next = { ...event, channel: 'aside', heard, ...(heard.length ? { overheard: heard } : {}), ...(rolls.length ? { overhear_rolls: rolls } : {}), aside_by_lane: true };
+        changed.push(next);
+        return next;
+    });
+    return changed;
 }
 
 /**
@@ -62,8 +87,9 @@ export function dealJob(graph: ModuleGraph, world: Row, present: Row[], records:
  * it one allowed step (open: accepted, declined, withdrawn; accepted: kept, broken, withdrawn); a paid deal names one of the
  * turn's purchases and a person present as the one who owes it. Anything else is dropped with a reason.
  */
-export function checkDealMarks(job: DealJob, params: Row, record: Row, investigator: string): { marks: Row[]; paid: Row[]; dropped: Row[] } {
+export function checkDealMarks(job: DealJob, params: Row, record: Row, investigator: string): { marks: Row[]; paid: Row[]; asides: string[]; dropped: Row[] } {
     const marksIn = array(params.marks), paidIn = array(params.paid);
+    const asides = [...new Set(array(params.asides).filter(id => typeof id === 'string' && job.spoken.some(entry => entry.event === id)) as string[])];
     if (marksIn.length + paidIn.length > DEAL_MARKS_MAX)
         throw new RpcError('invalid_params', `at most ${DEAL_MARKS_MAX} marks and paid deals in one call`, { fix: 'send only what the reply settled' });
     const marks: Row[] = [], paid: Row[] = [], dropped: Row[] = [];
@@ -83,5 +109,5 @@ export function checkDealMarks(job: DealJob, params: Row, record: Row, investiga
         paid.push({ receipt: receipt.id, content_id: `c:${string(receipt.id).replace(/[^A-Za-z0-9_.:-]/g, '-').slice(0, 118)}`, by: entry.by,
             to: [investigator], ...(job_row.what ? { gist: job_row.what } : {}) });
     }
-    return { marks, paid, dropped };
+    return { marks, paid, asides, dropped };
 }
