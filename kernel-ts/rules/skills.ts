@@ -114,9 +114,6 @@ export class SkillResolver {
             for (const label of array(characteristicLabels[abbr]))
                 this.addAlias(label, abbr);
         }
-        // §264.28: the rulebook's named characteristic rolls (Keeper Rulebook pp. 88, 199-200) are those characteristics.
-        for (const [roll, abbr] of RULEBOOK_ROLLS)
-            this.addAlias(roll, abbr);
         for (const [key, names] of this.aliases)
             if (names.size === 1)
                 this.unique.set(key, [...names][0]);
@@ -210,7 +207,10 @@ export class SkillResolver {
     }
     resolveExplicit(text: string): string | null {
         const key = normalizeText(text);
-        return this.unique.get(key) ?? this.canonicalNames().find(name => normalizeText(name) === key) ?? this.specialization(text)?.canonical ?? this.nestedMemberOnSheet(text);
+        // §264.28: the rulebook's named characteristic rolls (Keeper Rulebook pp. 88, 199-200) are those characteristics,
+        // read only as an explicit skill, so text search and offered options are unchanged.
+        const roll = RULEBOOK_ROLLS.find(([name]) => normalizeText(name) === key)?.[1];
+        return this.unique.get(key) ?? roll ?? this.canonicalNames().find(name => normalizeText(name) === key) ?? this.specialization(text)?.canonical ?? this.nestedMemberOnSheet(text);
     }
     /** §52.6: a nested group's member (`Language (Other: Latin)`, or `Language (Other) (Latin)`) read against the
      *  card's short row for it (`Language (Latin)`). The group is a declared group key that carries a parenthesis;
