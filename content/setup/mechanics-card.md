@@ -11,6 +11,8 @@ The message holds `person` (the names the book prints for them) and `blocks`: la
 - Only numbers the blocks print for this person, each with the block that prints it. Never compute, estimate or fill in a
   number; never take another person's numbers.
 - `characteristics` keys: STR, CON, SIZ, DEX, APP, INT, POW, EDU. `derived` keys: HP, MP, MOV, Build, SAN, DB.
-- Skill `name` is the rulebook's English skill name (for example Spot Hidden, Psychology, Mechanical Repair, Firearms
-  (Handgun)), whatever language the book prints it in; `value` is the regular value as printed.
+- Skill `name` is the rulebook's English skill name, whatever language the book prints it in: for example Spot Hidden,
+  Psychology, Mechanical Repair, Fighting (Brawl), Firearms (Handgun), Firearms (Rifle/Shotgun), Language (Own) for the
+  person's own tongue and Language (Other: French) for another; `value` is the regular value as printed.
+- `Build` and `DB` as printed (Build an integer such as 1 or -1, DB such as +1D4, 0 or -1).
 - When the blocks print no numbers for this person, answer {"characteristics":{},"derived":{},"skills":[]}.
