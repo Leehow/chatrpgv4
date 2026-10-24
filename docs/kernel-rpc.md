@@ -52550,3 +52550,18 @@ receipt (`adjusted: [{field: "from", reason: "unregistered_giver", giver}]`) and
 with no second person; before, `from` had to resolve to a registered owner, so the Keeper registered the vendor first and
 then weighed whether `apply npc walk_on` or the packet's `walk_on` slot could be named by the object, which runs earlier.
 An existing instance's transfer and an adoption still need a resolvable `from`.
+
+### 264.11 What a person knows beyond the issued facts goes through apply clue
+
+The packet carries only issued facts and constructors, so a fact the book gives a person but no issued fact holds (the
+landlord knows the mother is in the same sanitarium) had no way into speech. The Keeper encoded it as
+`knowledge_status {topic: {label: "the mother"}, status: "uncertain"}` and hoped the author would say it. The existing path
+is `apply clue {clue: <new name>, establish: {summary}, from: <that person>, how}`: the discovered clue is issued as a fact on
+the next request and any speaker may select it. The output guidance now names that path and forbids carrying a fact in
+`knowledge_status`, a label or a beat.
+
+### 264.12 An agreement refusal lists the marks that exist
+
+`agreement` naming a fact that is not an issued proposal or commitment now lists the issued ones, or says that none is
+issued and the command should go: a commission accepted in conversation was never offered as a service, so it has no
+proposal fact, and the Keeper had marked the offer's terms instead.

@@ -452,7 +452,10 @@ export class DecisionContent {
  agreement(mark:{proposal:string;status:string;with?:string[]}):Row {
   const fact=this.facts.get(mark.proposal);
   if(!fact||!this.active.has(mark.proposal)||!['proposal','commitment'].includes(fact.kind)||!fact.actor)
-   throw Error(`agreement ${mark.proposal} is not an issued proposal or commitment fact; name one of kind proposal or commitment`);
+  {const open=[...this.active].filter(ref=>['proposal','commitment'].includes(this.facts.get(ref)?.kind??''));
+   // §264.12: say which marks exist; with none, an accepted deal nobody offered as a service needs no mark.
+   throw Error(`agreement ${mark.proposal} is not an issued proposal or commitment fact; `+(open.length?`name one of: ${open.join(', ')}`
+    :'none is issued this turn, so drop the agreement command: a deal accepted in conversation is recorded by its own effects (a flag, cash, an object), not by a mark'));}
   const allowed=fact.kind==='proposal'?['accepted','declined','withdrawn']:['kept','broken','withdrawn'];
   if(!allowed.includes(mark.status))throw Error(`agreement ${mark.proposal} is a ${fact.kind}: its status is one of ${allowed.join(', ')}`);
   return {content_id:fact.content,by:fact.actor,status:mark.status,...(mark.with?.length?{with:[...mark.with]}:{})};
