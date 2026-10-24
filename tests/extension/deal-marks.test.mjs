@@ -17,14 +17,14 @@ const present=[{node_id:'russ'},{node_id:'nate'}];
 const offer={turn:1,communication:communicationRecord(graph,world,[{name:'Ada'}],scope,1,{selections:[{actor:'npc_1',act:'offer',to:['investigator_1'],
  items:[{content_id:'n:fuel',strategy:'new',kind:'new:service_at',gist:'加满油'}]}],artifact_text:'{{say:npc_1}}“加满？”{{/say}}'},[],present)};
 const tyres={id:'cash:t4-c1',kind:'cash',category:'purchase',purchase_amount:145,with:'加油站老板',with_label:'加油站老板',why:'四条新轮胎',currency:'USD'};
-const record={turn:4,closed_by:'narrate',receipts:[tyres,{id:'cash:t4-c2',kind:'cash',category:'transfer',purchase_amount:0}]};
+const record={turn:4,closed_by:'narrate',receipts:[{...tyres,id:'cash:t4-c0',settlement:'quote'},tyres,{id:'cash:t4-c2',kind:'cash',category:'transfer',purchase_amount:0}]};
 const name=node=>({russ:'加油站老板',nate:'卡车司机'})[node.node_id];
 
 test('the job names the open deals of the people there and the turn\'s paid purchases, by the words the table uses',()=>{
  const job=dealJob(graph,world,present,[offer],record,scope,name);
  assert.deepEqual(job.people,[{ref:'npc_1',name:'加油站老板'},{ref:'npc_2',name:'卡车司机'}]);
  assert.deepEqual(job.deals.map(deal=>[deal.content_id,deal.by,deal.by_name,deal.status]),[['n:fuel','npc_1','加油站老板','open']]);
- assert.deepEqual(job.paid,[{receipt:'cash:t4-c1',with:'加油站老板',what:'四条新轮胎',amount:145,currency:'USD'}],'a transfer is not a purchase');
+ assert.deepEqual(job.paid,[{receipt:'cash:t4-c1',with:'加油站老板',what:'四条新轮胎',amount:145,currency:'USD'}],'a quote and a transfer are not paid purchases');
 });
 
 test('a submission moves a deal one allowed step and records a paid deal owed by a person present; anything else is dropped',()=>{

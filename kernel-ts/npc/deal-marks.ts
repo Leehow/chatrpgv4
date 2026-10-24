@@ -22,10 +22,13 @@ const JOB_DEALS_MAX = 12, JOB_PAID_MAX = 8;
 export interface DealPerson { ref: string; name: string }
 export interface DealJob { deals: Row[]; paid: Row[]; people: DealPerson[] }
 
-/** The paid purchases a turn's receipts hold: a `cash` purchase with a positive amount. */
+/**
+ * The paid purchases a turn's receipts hold: a `cash` purchase with a positive amount that was settled. A quote is an offer,
+ * not a payment, and a cancelled bill paid nothing (app re-test: the tyres' quote and their payment became two deals).
+ */
 function purchases(record: Row): Row[] {
     return array(record.receipts).map(row).filter(receipt => receipt.kind === 'cash' && receipt.category === 'purchase'
-        && number(receipt.purchase_amount) > 0 && typeof receipt.id === 'string');
+        && number(receipt.purchase_amount) > 0 && typeof receipt.id === 'string' && !['quote', 'cancelled'].includes(string(receipt.settlement)));
 }
 const what = (receipt: Row): string => {
     const lines = array(receipt.items).map(item => string(row(item).name)).filter(Boolean).join(', ');
