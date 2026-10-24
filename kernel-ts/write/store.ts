@@ -207,7 +207,7 @@ export function createTurnTransaction(campaign: CampaignWriter, world: Row, turn
             const opening = options.allowOpening && number(turn.turn) === 0 && turn.state === 'awaiting_player';
             if (!['open', 'acting'].includes(turn.state) && !opening)
                 throw turnStateError(turn, method, number(turn.turn) === 0 && turn.state === 'awaiting_player'
-                    ? 'the opening is not published yet and this line is not an opening preparation: publish the opening with output carrying only scene, place establish/observe/feature/relate and opening preparations; anything else waits for the player\'s first input'
+                    ? 'the opening is not published yet and this line is not an opening preparation: publish the opening with output carrying only scene, place establish/observe/feature/relate and opening preparations; anything else waits for the player\'s first input: the opening stays in its scene, and what the prologue or the book comes to next is the player\'s first turn (§264.19)'
                     : 'wait for player_input to open a turn');
             return {
                 kind: 'new',

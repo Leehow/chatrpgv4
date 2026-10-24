@@ -204,3 +204,14 @@ test('§264.17: a new thing a person not on the table hands over and the investi
 	assert.equal(placed.owner.kind, 'investigator', 'the buyer holds it');
 	assert.equal(placed.offer, undefined, 'and no offer stands open');
 });
+
+test('§264.18: offer "made" beside a handover of given, with no offer standing, is the transfer it describes', async t => {
+	const game = await room(t);
+	await game.apply([{kind: 'object', name: 'Study chair', from: game.sheet.name, to: 'Steven Knott', offer: 'made', handover: 'given',
+		why: 'she hands the chair over'}]);
+	const moved = await instance(game, 'Study chair');
+	assert.equal(moved.owner.id, 'steven-knott', 'the chair changed hands');
+	assert.equal(moved.offer, undefined, 'and no offer is left standing');
+	const receipt = (await game.call('table.status')).receipts.filter(row => row.kind === 'item' || row.kind === 'definition').at(-1);
+	assert.ok((receipt.adjusted ?? []).some(entry => entry.reason === 'handover_is_a_transfer'), JSON.stringify(receipt));
+});

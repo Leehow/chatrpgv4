@@ -52815,6 +52815,22 @@ quantity is the row's quantity, any other quantity one row), with its own `item`
 and hands the goods over when it is settled. Services, meals and fares leave it out. The Keeper had defined and placed
 a flashlight and batteries after paying for them, refused twice on the way. `shopping` 1.0.1.
 
+### 264.18 An offer made with a handover is the transfer
+
+`object` with `offer: "made"` and `handover: "given"` or `"taken"`, while no offer stands between them, says the thing
+changed hands: the kernel lands the direct transfer and reports `adjusted` `{field: "offer", reason:
+"handover_is_a_transfer"}`, as §250.14 already did for `"accepted"`. Handing over the house keys had been refused as
+an offer that "stands on no ground".
+
+### 264.19 The opening stays in its scene
+
+Blood Road from a fresh setup (2026-10-24): the setup handoff names the gas station and its owner nine times, and the
+opening Keeper spent ten minutes and eight refusals trying to move there, walk the owner on, seat him and roll, all of
+which the opening refuses. The opening instruction now says so up front: the opening shows the opening scene only, and
+a place or person the prologue, its handoff or the book comes to next waits for the player's first action (move,
+walk_on, npc and resolve belong to that turn). The extension's opening refusal, the kernel's turn-state refusal and the
+opening npc refusal carry the same sentence. Nothing the opening admits changes.
+
 ## 265. Shopping: the outlet's stock, price and order time are the program's (owner 2026-10-24)
 
 The owner's report: a MiniMax Keeper's long deliberations were mostly about whether a shop had the goods and what they cost. Those answers moved to the kernel; the Keeper picks parameters. Purchase guidance that lived in other packages moved with them, so the problem has one home. Amends §58 ("the kernel does not price anything itself") for goods bought at an outlet while this package is active; every other cash path is unchanged.
