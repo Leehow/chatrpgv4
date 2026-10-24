@@ -100,12 +100,15 @@ function partyEvent(turn:number,party:Row[],here:string[],selections:Row[],playe
     const answered=[...new Set(selections.flatMap(selection=>array(selection.to).filter(ref=>INVESTIGATOR.test(ref))))];
     const actor=answered.length===1?answered[0]:party.length===1?'investigator_1':undefined;
     if(!actor)return undefined;
-    const to=[...new Set(selections.filter(selection=>array(selection.to).includes(actor)).map(selection=>selection.actor as string))];
     const content_id=`p:${createHash('sha256').update(JSON.stringify([actor,turn,text])).digest('hex').slice(0,24)}`;
-    // A reply said low to the investigator means the investigator spoke low: nobody else heard the question either. A letter
-    // answers a letter. On the telephone the investigator's own side is still heard by those around them.
+    // A reply said low to the investigator means the investigator spoke low: nobody else heard the question either, and its
+    // addressees are only the people who answered low (PipiCOC app, Blood Road 2026-10-23: a bystander who also spoke up was
+    // counted an addressee of the whisper and later quoted it). A letter answers a letter. On the telephone the investigator's
+    // own side is still heard by those around them.
     const answering=selections.filter(selection=>array(selection.to).includes(actor));
-    const channel=answering.length&&answering.every(selection=>selection.channel===answering[0].channel)?answering[0].channel:undefined;
+    const low=answering.filter(selection=>selection.channel==='aside');
+    const channel=low.length?'aside':answering.length&&answering.every(selection=>selection.channel===answering[0].channel)?answering[0].channel:undefined;
+    const to=[...new Set((low.length?low:answering).map(selection=>selection.actor as string))];
     const quiet=channel==='aside'||channel==='letter';
     return {seq:-1,id:`t${turn}:p`,actor,act:'player_input',to,status:'attested',...(channel&&channel!=='speech'?{channel}:{}),
         heard:quiet?[]:here.filter(ref=>ref!==actor&&!to.includes(ref)),items:[{content_id,strategy:'new',kind:'player_input',gist:text}]};

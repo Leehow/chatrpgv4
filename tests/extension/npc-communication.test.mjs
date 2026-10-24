@@ -312,3 +312,24 @@ test('§258.11 the Keeper sees open offers and deals as facts and marks them by 
  // live P2b: the schema every turn is actually checked against (not just the static one) declares the agreement command.
  for(const journeySettled of [false,true])assert.deepEqual(turnPacket(JSON.stringify(packet),turnPacketParameterSchema(journeySettled)),packet,'agreement is declared in the live per-turn schema');
 });
+
+test('app re-test: a whisper answered low by its addressee stays theirs when a bystander also speaks up, and the Keeper is told the others did not hear it',()=>{
+ // PipiCOC app, Blood Road (2026-10-23): the veteran was whispered to, the trucker answered aloud, and the trucker was counted
+ // an addressee of the whisper; next turn he quoted it word for word.
+ const rec=communicationRecord(graph,world,party,scope,5,{selections:[
+  {actor:'npc_1',act:'refuse',to:['investigator_1'],items:[],channel:'aside'},
+  {actor:'npc_2',act:'answer',to:['investigator_1'],items:[]}],
+  artifact_text:'{{say:npc_1}}“我不去酒吧。”{{/say}}{{say:npc_2}}“还是最后一站。”{{/say}}'},[],[{node_id:'russ'},{node_id:'nate'}],'我弯下腰，用只有他能听见的声音说：今晚我请你喝一杯。');
+ const asked=rec.events.find(e=>e.act==='player_input');
+ assert.equal(asked.channel,'aside');assert.deepEqual(asked.to,['npc_1']);assert.deepEqual(asked.heard,[]);
+ assert.deepEqual(rec.events.find(e=>e.actor==='npc_1').heard,[]);
+ assert.match(TURN_PACKET_GUIDANCE,/when the investigator speaks low or privately to someone \(a whisper, a word aside\), that person answers with channel aside, and nobody else responds to those words/);
+});
+
+test('app re-test: a bystander passes on an overheard offer as the other person\'s words, and an own earlier line is attributed by the name the player knows',()=>{
+ // PipiCOC app, Blood Road (2026-10-23): the trucker repeated the owner's repair quote as "你点头，我就动手", and his own
+ // earlier line came back as "内特·帕特森说过" although the investigator never learned his name.
+ assert.match(DECISION_AUTHOR_INSTRUCTION,/A claim of kind heard is another person's words that the speaker overheard: they pass it on as that person's words, reported in their own voice/);
+ assert.match(DECISION_AUTHOR_INSTRUCTION,/never spoken in the first person as their own offer, promise or knowledge/);
+ assert.match(TURN_PACKET_GUIDANCE,/a person of the book who is elsewhere speaks on the telephone under their own npc ref \(find it with lookup\), never as a walk_on/);
+});

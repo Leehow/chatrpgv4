@@ -188,7 +188,7 @@ export { refKey };
 
 /**
  * §263.5: a printed form names one of the table's names when they are equal, or when one contains the other and the
- * shorter has at least three characters ("最后一站" in "最后一站食宿酒吧"). Spelling only.
+ * shorter has at least three characters ("Last Stop" in "Last Stop Diner"). Spelling only.
  */
 export const sameName = (form: string, set: Set<string>): boolean => set.has(form) || [...set].some(key => {
 	const [short, long] = [...form].length <= [...key].length ? [form, key] : [key, form];

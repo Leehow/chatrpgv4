@@ -52146,6 +52146,26 @@ promises (§258.5) stay as they are.
 
 Tests: `tests/extension/npc-communication.test.mjs` (§258.10, §258.11).
 
+### 258.12 Fixes from the first app play-test (2026-10-23)
+
+Found by playing Blood Road in the packaged PipiCOC app (MiniMax, 14 turns); tests in the files named.
+
+- **A whisper stays the addressee's** (amends §258.9). When any person answers the investigator with `channel: "aside"`,
+  the investigator's words are an aside too, addressed only to the people who answered low; a bystander who also spoke up
+  is no longer an addressee and hears nothing. The Keeper is told that a person whispered to answers aside and nobody else
+  responds to those words. `tests/extension/npc-communication.test.mjs`.
+- **A book person elsewhere speaks under their own ref** (amends §258.10, §177.3). The walk_on name refusal's fix and the
+  Keeper guidance say that someone of the book who is not here talks by telephone or letter under the npc ref lookup returns,
+  never as a walk_on. `tests/extension/module-cast.test.mjs`.
+- **Overheard words stay the other person's** (amends §258.8). The author is told a `heard` claim is passed on as that
+  person's words in reported speech, never as the speaker's own offer, promise or knowledge. A person's own earlier line
+  (`public_speech_history`) is attributed by their projected display name, not the book name of someone not yet named to the
+  investigator. `tests/extension/dialogue-continuity-contract.test.mjs`.
+- **A kept look ends a first sight** (amends §168.5, §255, §260.3). A person or place with a kept look (§255 excerpts) is no
+  longer carried in `first_sight` and so is no longer `needs_introduction`; before, a check lane that never reached its
+  confidence left the person owed every turn and the prose described them from scratch each time.
+  `tests/extension/kept-looks-kernel.test.mjs`.
+
 ## 260. NPC portrayal: beats, attention and the bearing grant (owner 2026-10-23; amends §254.2, §254.6)
 
 Spec: `docs/specs/npc-portrayal.md`. Research: `docs/research/npc-portrayal-lotm-20261023.md`. The owner's direction: the

@@ -124,11 +124,14 @@ export function firstSightSection(graph: ModuleGraph, world: Row, scene: Row, st
         return open ? { id, name, missing: array(open.missing).filter(value => typeof value === 'string' && value !== '') } : { id, name, described };
     };
     const section: Row = {}, place = placeDescribed(graph, scene);  // §257.17: `resolve` runs over `{{who:}}` before the Keeper or the author sees the words
-    if (place && !ledger.shown.places.includes(graph.handle(scene)))
+    // A kept look (§255) is delivered prose that showed this person or place, so they are no longer a first sight; the
+    // check lane's own `shown` can stay unconfirmed for every turn while the prose describes them again each time.
+    const looked = (shelf: 'people' | 'places', id: string): boolean => (ledger.looks[shelf][id]?.excerpts.length ?? 0) > 0;
+    if (place && !ledger.shown.places.includes(graph.handle(scene)) && !looked('places', graph.handle(scene)))
         section.place = item('place', scene, sceneLabel(graph, world, scene), resolve(place));
     // §203.5: a person the book gives no words is still seen; they are carried `undescribed`, and the Keeper gives them a look.
     const people = npcsPresent(graph, world, scene)
-        .filter(node => seenPerson(node) && !ledger.shown.people.includes(graph.handle(node)))
+        .filter(node => seenPerson(node) && !ledger.shown.people.includes(graph.handle(node)) && !looked('people', graph.handle(node)))
         .map(node => {
             const described = personDescribed(graph, node);
             return described ? item('person', node, graph.displayName(node), resolve(described))

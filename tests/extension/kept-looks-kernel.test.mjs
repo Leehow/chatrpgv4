@@ -143,3 +143,18 @@ test('an if fork at an earlier commit carries that turn\'s kept looks with the l
   const carried = await game.read('first-sight.json');
   assert.deepEqual([carried.looks.people['liu-guizhi'].excerpts, carried.looks.people['liu-guizhi'].pronoun], [[LOOK], 'she']);
 });
+
+test('a kept look ends a first sight: a person or place the prose already described is not introduced again', async t => {
+  // PipiCOC app, Blood Road (2026-10-23): the check lane never confirmed the veteran shown, so for eleven turns he was owed
+  // and needs_introduction, and every reply described him from scratch, though his look had been kept on turn 2.
+  const game = await table(t);
+  await game.call('table.narrate', {call_id: game.next(0), text: PROSE});
+  const before = (await game.call('table.capsule')).first_sight;
+  assert.ok(before.place && find(before.people, 'liu-guizhi'), 'owed before any look is kept');
+  await game.call('table.looks', {turn: 0, items: [{kind: 'place', id: 'sanyi-teahouse', excerpts: [ROOM_ADDED]},
+    {kind: 'person', id: 'liu-guizhi', excerpts: [LOOK], pronoun: 'she'}]});
+  const after = (await game.call('table.player_input', {text: '我找个空位坐下。'})).capsule.first_sight;
+  assert.equal(after.place, undefined, 'the place has a kept look');
+  assert.equal(find(after.people, 'liu-guizhi'), undefined, 'she has a kept look');
+  assert.ok(find(after.people, 'wang-tiezhu'), 'a person with no kept look is still owed');
+});
