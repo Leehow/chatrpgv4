@@ -52906,4 +52906,15 @@ by number or section; `contents` is the contents at most 40 rows, one `p<first>-
 - Under lean reading the cast reader (§177) never runs: with no skeleton the cast answers `{state: "unavailable", reason:
   "page_mode"}` (`lean_cast_deferred`) and a later table open asks again.
 
+### 266.7 The opening's people the cast prints on its pages (amends §198.3)
+
+Under lean reading the opening's graph is its one anchor scene (§261): no reader has written the people the opening's
+pages show, so §198.2 places nobody there, the opening seat refuses everyone and the Keeper can only narrate them as
+scenery (Blood Road table A, 2026-10-24: Russ, Nate and Steve at the Esso station on pages 17 and 20, the anchor citing
+pages 16, 17 and 20). At the opening, an `npc` seat-shaped effect (§198.3) also lands when it names an unread cast person
+(§177.1) whose cast pages include a page the active opening scene cites (`openingCast`, `kernel-ts/read/cast.ts`):
+the material gate lands them on the book's text first (§177.6, §22.4.7.1, page mode §266.6), and the seat is that table
+person's `to`, not yet placed. Pages only: whether one is there as play starts stays the seat's judgement (the Keeper's).
+`opening_people` is unchanged: the host's Jev judge seats graph people only, since its seat does not pass the landing.
+
 Tests: `tests/extension/page-mode.test.mjs`.

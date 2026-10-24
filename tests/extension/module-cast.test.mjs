@@ -59,7 +59,7 @@ async function kernel(t, seed) {
 }
 
 /** A bound PDF read as far as its opening: the graph has the Dock, the Tower and Old Mae; the index lists Silas Marsh. */
-async function harbor(t) {
+async function harbor(t, {narrate = true, dock = REFS} = {}) {
 	const k = await kernel(t, 'module-cast');
 	const pdf = join(k.home, 'harbor.pdf');
 	await writeFile(pdf, `%PDF-1.7\n% ${PAGES.join(' | ')}\n%%EOF\n`);
@@ -79,7 +79,7 @@ async function harbor(t) {
 	await read('index', {title: 'The Harbor', language: 'en', sections: [{name: 'Harbor and tower', pages: [[1, 3]], source_refs: [{page: 1}],
 		entities: ['Dock', 'Tower', 'Silas Marsh']}]}, []);
 	await read('opening', {nodes: [
-		{node_id: 'scene-dock', node_kind: 'scene', name: 'Dock', source_refs: REFS, properties: {is_entrance: true}},
+		{node_id: 'scene-dock', node_kind: 'scene', name: 'Dock', source_refs: dock, properties: {is_entrance: true}},
 		{node_id: 'scene-tower', node_kind: 'scene', name: 'Tower', source_refs: [{page: 2}], summary: 'An old tower beyond the harbor.'},
 		{node_id: 'npc-old-mae', node_kind: 'npc', name: 'Old Mae', source_refs: REFS, summary: 'A net mender on the dock.',
 			// §199.5: the lane words a graph person from what an investigator meets of them.
@@ -92,7 +92,7 @@ async function harbor(t) {
 	await k.raw('investigator.load', {campaign: CAMPAIGN, library_id: saved.library_id});
 	await k.raw('setup.complete', {campaign: CAMPAIGN});
 	await k.raw('table.open', {campaign: CAMPAIGN});
-	await k.raw('table.narrate', {campaign: CAMPAIGN, call_id: 't0-c1', text: 'The harbor is quiet.'});
+	if (narrate) await k.raw('table.narrate', {campaign: CAMPAIGN, call_id: 't0-c1', text: 'The harbor is quiet.'});
 	const call = (method, params = {}) => k.raw(method, {campaign: CAMPAIGN, ...params});
 	const attempt = (method, params = {}) => k.attempt(method, {campaign: CAMPAIGN, ...params});
 	const world = async () => JSON.parse(await readFile(join(k.home, '.coc', 'campaigns', CAMPAIGN, 'world.json'), 'utf8'));
@@ -911,4 +911,24 @@ test('§192.3 (lead ruling 2026-10-07): a reviewed distinct_from beats the cast 
 	const world = await h.world(), journal = {entries: {'npc-old-mae': {named_at: 1}}};
 	assert.equal(api.untoldBlock(graph, world, journal, graph.nodes.get('npc-old-mae')), null);
 	assert.notEqual(api.untoldBlock(graph, world, journal, graph.nodes.get('npc-old-mae-nets')), null, 'telling one tells nobody else');
+});
+
+test('§266.7: at the opening someone the cast prints on the opening scene\'s pages lands on that text and is seated; someone printed elsewhere is not', async t => {
+	// The opening scene cites page 3 too, as a lean opening cites every page of the opening.
+	const h = await harbor(t, {narrate: false, dock: [{page: 1}, {page: 3}]});
+	await readCast(h);
+	const seat = async (name, sentence, page) => {
+		const effects = [{kind: 'npc', name, to: 'here', why: 'The book places them in the opening scene as play starts.'}];
+		const held = await h.attempt('table.apply', {call_id: 't0-c1', effects});
+		assert.equal(held.error?.details?.reason, 'material_pending', `${name}: ${held.error?.message}`);
+		return h.attempt('table.apply', {call_id: 't0-c1', effects, _land_on_text: [{key: held.error.details.person.key, passage: {scene: null, page, label: null, sentence}}]});
+	};
+	const silas = await seat('Silas Marsh', 'Its keeper, Silas Marsh, trims the lamp.', 2);
+	assert.equal(silas.error?.details?.reason, 'opening_seat', 'page 2 is not the opening\'s page');
+	const jonah = await seat('Jonah', "Mae's boy Jonah drowned there last spring.", 3);
+	assert.equal(jonah.ok, true, JSON.stringify([jonah.error?.message, jonah.error?.details]));
+	const world = await h.world();
+	assert.ok(world.table_people.some(row => row.name === 'Jonah'), 'landed on the book\'s text');
+	assert.equal(Object.keys(world.npc_presence ?? {}).length, 1, 'and seated here');
+	assert.equal((await h.call('table.open')).turn.state, 'awaiting_player', 'a seat leaves the opening owed');
 });
