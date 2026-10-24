@@ -52831,6 +52831,12 @@ a place or person the prologue, its handoff or the book comes to next waits for 
 walk_on, npc and resolve belong to that turn). The extension's opening refusal, the kernel's turn-state refusal and the
 opening npc refusal carry the same sentence. Nothing the opening admits changes.
 
+### 264.20 A present person the table calls by a word has been met
+
+An obligation's `meet` step is met when the person is present in its scene and the table has a word for them: a
+registered `person_labels` label, as before, or the untold word they are shown by (`person_epithets`). The Keeper was
+refused a Persuade on the Globe's door-keeper, present and shown by that word, until it re-registered him by `person`.
+
 ## 265. Shopping: the outlet's stock, price and order time are the program's (owner 2026-10-24)
 
 The owner's report: a MiniMax Keeper's long deliberations were mostly about whether a shop had the goods and what they cost. Those answers moved to the kernel; the Keeper picks parameters. Purchase guidance that lived in other packages moved with them, so the problem has one home. Amends §58 ("the kernel does not price anything itself") for goods bought at an outlet while this package is active; every other cash path is unchanged.

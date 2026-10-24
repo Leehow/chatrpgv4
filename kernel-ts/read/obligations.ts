@@ -71,7 +71,10 @@ export function meetingMet(graph: ModuleGraph, world: Row, node: Row, npcId: any
     if (!person || !scene)
         return false;
     const handle = graph.handle(person);
-    return row(world.npc_presence)[handle] === graph.handle(scene) && Object.keys(row(row(world.person_labels)[handle])).length > 0;
+    // §264.20: the table's word for them counts too -- the untold label a present person is shown by (the door-keeper) is the
+    // table naming them, and the Keeper was refused a Persuade on Arty Wilmot until it re-registered him by `person`.
+    const named = Object.keys(row(row(world.person_labels)[handle])).length > 0 || Boolean(text(row(row(world.person_epithets)[handle]).word));
+    return row(world.npc_presence)[handle] === graph.handle(scene) && named;
 }
 const flagSet = (world: Row, flag: string): boolean => Boolean(flag) && conditionStatus({ kind: "flag_set", flag_id: flag }, world) === true;
 /** Whether the last receipt that wrote the obligation's flag is a Keeper's `apply flag` with a reason. */
