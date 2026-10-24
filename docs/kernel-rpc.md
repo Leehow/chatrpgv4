@@ -52166,10 +52166,12 @@ Found by playing Blood Road in the packaged PipiCOC app (MiniMax, 14 turns); tes
   confidence left the person owed every turn and the prose described them from scratch each time.
   `tests/extension/kept-looks-kernel.test.mjs`.
 
-- **Overhearing a whisper is a check** (owner 2026-10-24; amends §258.9). An aside interaction may carry `overheard_by`
-  (npc refs present): people the Keeper rolled Listen for this turn (`resolve` with that person as actor). The commit keeps
-  only those with a passed `Listen` roll receipt this turn; they join the aside's `heard` (and the whisper it answered),
-  recorded as `overheard`; a name without a passed roll is recorded as `overheard_unchecked` and hears nothing.
+- **Overhearing a whisper is a Listen roll the commit makes** (owner 2026-10-24; amends §258.9). For every aside, the
+  narrate/ask commit rolls each person present who was not spoken to: Listen at Hard (half their profile's Listen, else the
+  base 20), a d100 drawn from the turn seed, the aside and the listener, so a replay rolls the same and no other die moves.
+  A pass hears the aside and the whisper it answered (`overheard`); every roll is kept on the event as `overhear_rolls`.
+  The Keeper does not roll it: a first version asked the Keeper to roll and name who passed, and live it skipped the roll
+  because the bystanders had no registered numbers.
 - **A first sight the check cannot judge stops being owed** (amends §168.5). Root cause of the eleven-turn re-introduction:
   the Jev check records nothing below its confidence floor, so an item it never confirms stayed owed, and §260.3 marked the
   person `needs_introduction` every turn. The host now sends the items it carried but the check did not judge as

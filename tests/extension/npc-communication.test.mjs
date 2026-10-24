@@ -334,27 +334,27 @@ test('app re-test: a bystander passes on an overheard offer as the other person\
  assert.match(TURN_PACKET_GUIDANCE,/a person of the book who is elsewhere speaks on the telephone under their own npc ref \(find it with lookup\), never as a walk_on/);
 });
 
-test('owner 2026-10-24: whether someone present catches a whisper is their own Listen roll; a name without a passed roll hears nothing',()=>{
- const whisper=[{actor:'npc_1',act:'answer',to:['investigator_1'],items:[],channel:'aside',overheard_by:['npc_2']}];
- const text='{{say:npc_1}}“今晚八点。”{{/say}}';
- const listen=passed=>({kind:'roll',actor:'nate',actor_is_investigator:false,skill:'Listen',passed});
- const caught=communicationRecord(graph,world,party,scope,6,{selections:whisper,artifact_text:text},[],[{node_id:'russ'},{node_id:'nate'}],'我压低声音问他今晚在哪儿见。',[listen(true)]);
- assert.deepEqual(caught.events.find(e=>e.actor==='npc_1').heard,['npc_2'],'Nate passed Listen: he heard the answer');
- assert.deepEqual(caught.events.find(e=>e.actor==='npc_1').overheard,['npc_2']);
- const asked=caught.events.find(e=>e.act==='player_input');
- assert.equal(asked.channel,'aside');assert.deepEqual(asked.heard,['npc_2'],'and the whisper it answered');
- for(const receipts of [[],[listen(false)]]){
-  const missed=communicationRecord(graph,world,party,scope,6,{selections:whisper,artifact_text:text},[],[{node_id:'russ'},{node_id:'nate'}],'我压低声音问他今晚在哪儿见。',receipts);
-  const answer=missed.events.find(e=>e.actor==='npc_1');
-  assert.deepEqual(answer.heard,[]);assert.deepEqual(answer.overheard_unchecked,['npc_2'],'named without a passed roll: recorded, not heard');
-  assert.deepEqual(missed.events.find(e=>e.act==='player_input').heard,[]);
- }
- assert.match(TURN_PACKET_GUIDANCE,/whether someone present catches a whisper is a check: roll their Listen \(resolve with that person as actor\) and name those who passed in overheard_by/);
- assert.match(DECISION_AUTHOR_INSTRUCTION,/and any people in its overheard_by, who caught it by listening/);
- assert.deepEqual(selectionsOf({selections:whisper})[0].overheard_by,['npc_2']);
- assert.equal(selectionsOf({selections:[{...whisper[0],channel:undefined}]})[0].overheard_by,undefined,'only an aside can be overheard');
+test('owner 2026-10-24: whether someone present catches a whisper is their own Listen roll, made by the commit, not the Keeper',async()=>{
+ const {overhearRoll,LISTEN_BASE}=await importSource('kernel-ts/npc/communication.ts');
+ const whisper=[{actor:'npc_1',act:'answer',to:['investigator_1'],items:[],channel:'aside'}];
+ const text='{{say:npc_1}}“今晚八点。”{{/say}}',here=[{node_id:'russ'},{node_id:'nate'}];
+ const at=listen=>communicationRecord(graph,world,party,scope,6,{selections:whisper,artifact_text:text},[],here,'我压低声音问他今晚在哪儿见。',[],{seed:'s',listen:()=>listen});
+ const sure=at(100),deaf=at(0);
+ const roll=sure.events.find(e=>e.actor==='npc_1').overhear_rolls[0];
+ assert.deepEqual([roll.ref,roll.skill,roll.difficulty,roll.target],['npc_2','Listen','hard',50],'the bystander, at Hard: half their Listen');
+ assert.equal(roll.roll,overhearRoll('s',6,0,'npc_2',100).roll,'drawn from the turn seed: a replay rolls the same');
+ const passed=roll.passed;
+ assert.deepEqual(sure.events.find(e=>e.actor==='npc_1').heard,passed?['npc_2']:[]);
+ assert.deepEqual(sure.events.find(e=>e.act==='player_input').heard,passed?['npc_2']:[],'whoever caught the answer caught the whisper it answered');
+ const missed=deaf.events.find(e=>e.actor==='npc_1');
+ assert.equal(missed.overhear_rolls[0].target,0);assert.deepEqual(missed.heard,missed.overhear_rolls[0].roll===1?['npc_2']:[]);
+ assert.equal(LISTEN_BASE,20,'a person nobody gave a Listen value rolls the base chance');
+ const rolls=Array.from({length:200},(_,i)=>overhearRoll('seed',i,0,'npc_2',60));
+ assert.ok(rolls.every(r=>r.passed===(r.roll===1||r.roll<=30)));
+ assert.ok(rolls.some(r=>r.passed)&&rolls.some(r=>!r.passed),'it is a roll, not a rule');
+ assert.equal(communicationRecord(graph,world,party,scope,6,{selections:[{...whisper[0],channel:undefined}],artifact_text:text},[],here,'你好',[],{seed:'s',listen:()=>100}).events.find(e=>e.actor==='npc_1').overhear_rolls,undefined,'only an aside is rolled for');
+ assert.match(TURN_PACKET_GUIDANCE,/whether someone present catches it is their Listen roll, which the host makes itself for everyone present not spoken to; do not roll it/);
 });
-
 test('app play-test: a service paid for while its seller sets out to do it is the seller\'s accepted commitment, kept when the intention is done',()=>{
  // PipiCOC app, Blood Road (2026-10-23): the owner was paid twenty dollars and set out to fix the radiator, but the deal ledger
  // stayed empty: the price went through cash and the work through an NPC intent, and neither made a proposal to mark.
@@ -374,4 +374,15 @@ test('app play-test: a service paid for while its seller sets out to do it is th
  assert.equal(dealsOf(done,'npc_1',scope,10,true)[0].status,'kept');
  const noIntent=communicationRecord(graph,world,party,scope,8,{selections:[]},[],[{node_id:'russ'}],undefined,[receipts[0]]);
  assert.equal(noIntent,undefined,'a purchase handed over at once, with nobody setting out to do anything, makes no deal');
+});
+
+test('app play-test: "never seen this boy" has a topic: what the investigator just asked about',async()=>{
+ const {DecisionContent,ASKED_TOPIC}=await import('../../runtime/decision-content.ts');
+ assert.equal(ASKED_TOPIC,'player_input');
+ const owner=new DecisionContent();
+ owner.prepare('c:3',{where:{scene:'Esso'},present:[{ref:'npc_1',display_name:'Owner'}]},[],[],['Ada']);
+ const [response]=owner.hydrate([{actor:'npc_1',to:['investigator_1'],act:'answer',content:[{new:{predicate:'knowledge_status',topic:'player_input',status:'unknown'}}]}]).responses;
+ assert.equal(response.claims[0].value.topic,'player_input');
+ assert.deepEqual(response.claims[0].entities,[{ref:'player_input',display_name:'what the investigator just asked about (player_input)'}]);
+ assert.match(TURN_PACKET_GUIDANCE,/A topic may be player_input: what the investigator just asked about/);
 });

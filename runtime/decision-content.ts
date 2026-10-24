@@ -29,19 +29,19 @@ const to=Type.Array(ref,{minItems:1,maxItems:16,uniqueItems:true});
 /** §260.2: what the person visibly does this moment, as direction for the author; never a settled change. */
 /** §258.9-§258.10: `aside` is said so only `to` hear it; `phone` and `letter` reach `to` from wherever the speaker is. Omitted, everyone present hears. */
 const channel=Type.Optional(StringEnum(['speech','aside','phone','letter']));
-/** Who caught an aside: people present the Keeper rolled Listen for this turn and who passed; the kernel keeps only those passes. */
-const overheard_by=Type.Optional(Type.Array(Type.String({pattern:'^npc_[1-9][0-9]*$',maxLength:32}),{minItems:1,maxItems:8,uniqueItems:true,description:'With channel aside: people present who caught the words, each after their own passed Listen roll this turn; nobody else heard'}));
 const beat=Type.Optional(Type.String({minLength:1,maxLength:120,pattern:'\\S',description:'What they visibly do now; behavior only, never words or a settled change'}));
 export const Interaction=Type.Union([
  closed({actor,act:Type.Literal('silent'),to:Type.Optional(to),beat}),
- closed({actor,to,act:StringEnum(['greet','refuse','acknowledge']),content:Type.Optional(Type.Array(CommunicationContent,{minItems:1,maxItems:8})),channel,overheard_by,beat}),
- closed({actor,to,act:StringEnum(['answer','ask','offer','clarify','report','warn']),content:Type.Array(CommunicationContent,{minItems:1,maxItems:8}),channel,overheard_by,beat})
+ closed({actor,to,act:StringEnum(['greet','refuse','acknowledge']),content:Type.Optional(Type.Array(CommunicationContent,{minItems:1,maxItems:8})),channel,beat}),
+ closed({actor,to,act:StringEnum(['answer','ask','offer','clarify','report','warn']),content:Type.Array(CommunicationContent,{minItems:1,maxItems:8}),channel,beat})
 ]);
 export type InteractionDecision=Static<typeof Interaction>;
 export type HydratedInteraction=InteractionDecision&{claims?:Row[]};
 export interface DecisionBindings {entities:string[];people:string[];places:string[];facts:string[];sources:string[];narrationFacts?:string[];factActors?:Record<string,string>;
  /** §257.7: issued exhibit references, and the subsets a reveal and a person's speech may select. */
  exhibits?:string[];revealExhibits?:string[];speechExhibits?:string[]}
+/** The knowledge_status / input_requirements topic that means what the investigator just asked about. */
+export const ASKED_TOPIC='player_input';
 /** Prepared schemas and execution use the same issued reference vocabulary. */
 export function bindCommunicationParameters(schema:TSchema,bindings:DecisionBindings,narration=false):TSchema {
  const result=structuredClone(schema) as Row;
@@ -51,7 +51,10 @@ export function bindCommunicationParameters(schema:TSchema,bindings:DecisionBind
  const visit=(value:unknown)=>{
   if(!value||typeof value!=='object')return;
   if(Array.isArray(value)){value.forEach(visit);return;}const row=value as Row,p=row.properties;
-  if(p?.predicate){for(const key of ['provider','topic'])if(p[key])p[key]=selection(bindings.entities,true);
+  if(p?.predicate){if(p.provider)p.provider=selection(bindings.entities,true);
+   // A topic may also be what the investigator just asked about, which the book need not have (app, 2026-10-24: the Keeper
+   // spent thousands of characters finding a way to say "never seen this boy" about a missing son the player invented).
+   if(p.topic)p.topic=Type.String({enum:[...new Set([...bindings.entities,'new_1','new_2','new_3','new_4',ASKED_TOPIC])]});
    if(p.actor)p.actor=selection(bindings.people,true);
    if(p.to)p.to=selection(bindings.places);
    // §258.5: what a service serves is a thing, never a person.
@@ -462,13 +465,14 @@ export class DecisionContent {
    if(typeof fact.actor==='string'&&!this.people.has(fact.actor)&&!/^new_[1-4]$/.test(fact.actor))throw Error('A communication subject must select an issued person reference');
    if(typeof fact.to==='string'&&!this.places.has(fact.to))throw Error('A communication destination must select an issued place reference');
    for(const place of fact.via??[])if(!this.places.has(place))throw Error('A communication waypoint must select an issued place reference');
-   for(const key of ['provider','actor','to','topic'])if(typeof fact[key]==='string'&&!this.entities.has(fact[key]))throw Error(`New communication content ${key} must select an issued entity reference`);
+   for(const key of ['provider','actor','to','topic'])if(typeof fact[key]==='string'&&!this.entities.has(fact[key])&&!(key==='topic'&&fact[key]===ASKED_TOPIC))throw Error(`New communication content ${key} must select an issued entity reference`);
    for(const item of [...fact.items??[],...fact.via??[]])if(typeof item==='string'&&!this.entities.has(item))throw Error('New communication content uses an unissued item or waypoint reference');
    // §258.5: a service serves things; a person named as an item is an invented appointment.
    if(fact.predicate==='service_at'&&(fact.items??[]).some((item:unknown)=>typeof item==='string'&&(this.people.has(item)||/^new_[1-4]$/.test(item))))
     throw Error('service_at items are what is served, never a person; with nothing to offer, use greet or acknowledge, or answer with knowledge_status nothing_more');
    const refs=[fact.provider,fact.actor,fact.to,fact.topic,...fact.items??[],...fact.via??[]].filter((value):value is string=>typeof value==='string');
-   return {kind:'proposed_claim',value:structuredClone(fact),entities:[...new Set(refs)].flatMap(ref=>this.entityLabels.has(ref)?[{ref,display_name:this.entityLabels.get(ref)}]:[]),authority:'Communication content only; not a receipt, truth, order or completed action'};
+   return {kind:'proposed_claim',value:structuredClone(fact),entities:[...new Set(refs)].flatMap(ref=>this.entityLabels.has(ref)?[{ref,display_name:this.entityLabels.get(ref)}]
+     :ref===ASKED_TOPIC?[{ref,display_name:'what the investigator just asked about (player_input)'}]:[]),authority:'Communication content only; not a receipt, truth, order or completed action'};
   }
   if(selected.exhibit_ref!==undefined){
    const issued=this.exhibitRows.get(selected.exhibit_ref);

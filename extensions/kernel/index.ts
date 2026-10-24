@@ -5994,7 +5994,7 @@ export default function (pi: ExtensionAPI, host: {capabilities?:RuntimeCapabilit
             try{agreements=(compiled.agreements??[]).map(mark=>materialOwner.agreement(mark));}
             catch(error){throw new KernelError({code:'invalid_params',message:error instanceof Error?error.message:String(error),details:{reason:'decision_material_binding',transaction_state:'uncommitted'}});}
             selections=hydrated.responses.flatMap((response,index)=>response.act==='silent'||!isNpcReference(response.actor)?[]
-                :[{actor:response.actor,act:response.act,to:response.to??[],items:hydrated.units[index]??[],...('channel' in response&&response.channel?{channel:response.channel}:{}),...('overheard_by' in response&&Array.isArray(response.overheard_by)&&response.overheard_by.length?{overheard_by:[...response.overheard_by]}:{})}]);
+                :[{actor:response.actor,act:response.act,to:response.to??[],items:hydrated.units[index]??[],...('channel' in response&&response.channel?{channel:response.channel}:{})}]);
             // The single author renders the settled scene; departure targets are still owed, not checked against this prose.
             state.firstSight.take(state.turn);
             const sightView=firstSightView(state,current,state.turn) as Record<string,any>,sight=sightView.first_sight??{};

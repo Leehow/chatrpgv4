@@ -41,10 +41,8 @@ export function selectionsOf(evidence:Row):Row[] {
                 ...(typeof value.kind==='string'?{kind:value.kind.slice(0,40)}:{}),
                 ...(typeof value.gist==='string'&&value.gist.trim()?{gist:[...value.gist.trim()].slice(0,120).join('')}:{})}];
         });
-        const overheard=selection.channel==='aside'?array(selection.overheard_by).filter(isNpcReference).slice(0,8):[];
         return [{seq:index,actor:selection.actor,act:selection.act.slice(0,24),to,items,
-            ...(CHANNELS.includes(selection.channel)&&selection.channel!=='speech'?{channel:selection.channel}:{}),
-            ...(overheard.length?{overheard_by:overheard}:{})}];
+            ...(CHANNELS.includes(selection.channel)&&selection.channel!=='speech'?{channel:selection.channel}:{})}];
     });
 }
 
@@ -53,7 +51,20 @@ export function selectionsOf(evidence:Row):Row[] {
  * its speaker, otherwise `missing`: the author did not give that person words, so nothing was told. Addressed listeners are
  * the selection's `to`; everyone else present at publication, investigators included, `heard` it.
  */
-export function communicationRecord(graph:ModuleGraph,world:Row,party:Row[],scope:Row,turn:number,evidence:Row,speech:Row[],present:Row[],playerText?:unknown,receipts:Row[]=[]):Row|undefined {
+/** How the commit rolls a bystander's Listen against an aside: the turn's seed, and the person's Listen value. */
+export interface Overhearing {seed:string;listen:(node:Row)=>number}
+/** Listen when nobody has given a person a value: the rulebook's base chance. */
+export const LISTEN_BASE=20;
+/**
+ * One bystander's Listen against an aside, at Hard (a low voice a few steps off): a d100 drawn from the turn's seed, the
+ * aside and the listener, so a replay rolls the same and no other die of the turn moves.
+ */
+export function overhearRoll(seed:string,turn:number,seq:number,ref:string,value:number):Row {
+    const roll=1+createHash('sha256').update(JSON.stringify([seed,turn,seq,ref,'overhear'])).digest().readUInt32BE(0)%100;
+    const target=Math.floor(Math.max(0,Math.min(100,value))/2);
+    return {ref,skill:'Listen',difficulty:'hard',value,target,roll,passed:roll===1||roll<=target};
+}
+export function communicationRecord(graph:ModuleGraph,world:Row,party:Row[],scope:Row,turn:number,evidence:Row,speech:Row[],present:Row[],playerText?:unknown,receipts:Row[]=[],overhearing?:Overhearing):Row|undefined {
     const selections=selectionsOf(evidence),agreements=agreementsOf(evidence);
     const investigator=(name:unknown)=>{const at=party.findIndex(sheet=>sheet.name===name||sheet.id===name);return at>=0?`investigator_${at+1}`:undefined;};
     const paid=paidDeals(graph,world,turn,receipts,investigator);
@@ -73,19 +84,19 @@ export function communicationRecord(graph:ModuleGraph,world:Row,party:Row[],scop
     for(const match of string(evidence.artifact_text).matchAll(/\{\{say:(npc_[1-9][0-9]*)\}\}([\s\S]*?)(?=\{\{\/say\}\}|\{\{say:|\n[ \t]*\n|$)/g))
         if(match[2].replace(/\{\{[^{}]*\}\}/g,'').trim())spoke.add(match[1]);
     const here=[...present.map(node=>npcReference(graph,world,node)).filter((ref):ref is string=>!!ref),...party.map((_sheet,index)=>`investigator_${index+1}`)];
-    // An aside is overheard only by someone present who passed their own Listen roll this turn and whom the Keeper named;
-    // a name with no such roll hears nothing (the owner, 2026-10-24: whether those around learn it is a check).
-    const listened=new Set(receipts.flatMap(receipt=>{
-        if(receipt.kind!=='roll'||receipt.passed!==true||receipt.actor_is_investigator!==false||receipt.skill!=='Listen'||typeof receipt.actor!=='string')return [];
-        const node=graph.find(receipt.actor,['npc']);const ref=node?npcReference(graph,world,node):undefined;return ref?[ref]:[];
-    }));
-    const caught=(selection:Row):string[]=>array(selection.overheard_by).filter(ref=>listened.has(ref)&&here.includes(ref)&&ref!==selection.actor&&!array(selection.to).includes(ref));
+    // Whether someone present catches an aside is their own Listen roll, which the commit makes for every person present
+    // who was not spoken to (the owner, 2026-10-24); the Keeper does not roll it. Only a pass hears it.
+    const nodes=new Map(present.flatMap(node=>{const ref=npcReference(graph,world,node);return ref?[[ref,node] as const]:[];}));
+    const rolls=new Map<number,Row[]>();
+    for(const selection of selections)if(selection.channel==='aside'&&overhearing)
+        rolls.set(selection.seq,[...nodes].filter(([ref])=>ref!==selection.actor&&!selection.to.includes(ref))
+            .map(([ref,node])=>overhearRoll(overhearing.seed,turn,selection.seq,ref,overhearing.listen(node))));
+    const caught=(selection:Row):string[]=>(rolls.get(selection.seq)??[]).filter(roll=>roll.passed).map(roll=>roll.ref);
     const events=selections.map(selection=>{
-        const {overheard_by:named,...rest}=selection,heardBy=selection.channel==='aside'?caught(selection):[];
-        const unchecked=array(named).filter(ref=>!heardBy.includes(ref));
-        return {...rest,id:`t${turn}:${selection.seq}`,status:spoke.has(selection.actor)?'attested':'missing',
+        const heardBy=selection.channel==='aside'?caught(selection):[],rolled=rolls.get(selection.seq)??[];
+        return {...selection,id:`t${turn}:${selection.seq}`,status:spoke.has(selection.actor)?'attested':'missing',
             heard:selection.channel==='aside'?heardBy:PRIVATE.has(selection.channel)?[]:here.filter(ref=>ref!==selection.actor&&!selection.to.includes(ref)),
-            ...(heardBy.length?{overheard:heardBy}:{}),...(unchecked.length?{overheard_unchecked:unchecked}:{})};
+            ...(heardBy.length?{overheard:heardBy}:{}),...(rolled.length?{overhear_rolls:rolled}:{})};
     });
     const said=partyEvent(turn,party,here,selections,playerText,caught);
     return {version:1,scope:{worldline:string(scope.worldline||'main'),loop:number(scope.loop)},turn,events:said?[said,...events]:events,
@@ -147,7 +158,7 @@ function partyEvent(turn:number,party:Row[],here:string[],selections:Row[],playe
     const channel=low.length?'aside':answering.length&&answering.every(selection=>selection.channel===answering[0].channel)?answering[0].channel:undefined;
     const to=[...new Set((low.length?low:answering).map(selection=>selection.actor as string))];
     const quiet=channel==='aside'||channel==='letter';
-    // Whoever caught the low answer by their own Listen caught the whisper it answered.
+    // Whoever caught the low answer by their Listen caught the whisper it answered.
     const overheard=channel==='aside'?[...new Set(low.flatMap(caught))].filter(ref=>!to.includes(ref)):[];
     return {seq:-1,id:`t${turn}:p`,actor,act:'player_input',to,status:'attested',...(channel&&channel!=='speech'?{channel}:{}),
         heard:quiet?overheard:here.filter(ref=>ref!==actor&&!to.includes(ref)),...(overheard.length?{overheard}:{}),items:[{content_id,strategy:'new',kind:'player_input',gist:text}]};
