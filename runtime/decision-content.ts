@@ -239,7 +239,12 @@ export class DecisionContent {
    for(const field of MATERIAL_FIELDS){
     const values=Array.isArray(person[field])?person[field]:[];
     for(const value of values){const content=typeof value==='string'?value:typeof value?.statement==='string'||field==='knows'&&typeof value?.summary==='string'?value:undefined;
-     if(content!==undefined)this.issue('fact',content,person.ref,ownPublicSpeech(content,person,field)?'public_speech_history':field);
+     if(content===undefined)continue;
+     const own=ownPublicSpeech(content,person,field);
+     // The person's own earlier line is attributed by the name the player knows them by: the book name of someone not yet
+     // named to the investigator reached the prose as "内特·帕特森说过" (PipiCOC app, Blood Road 2026-10-23).
+     const shown=own&&typeof person.display_name==='string'?{...content,attribution:{...content.attribution,speaker:{...content.attribution.speaker,name:person.display_name}}}:content;
+     this.issue('fact',shown,person.ref,own?'public_speech_history':field);
     }
    }
    // §258.8: what others said in this person's hearing, as attributed hearsay that is never their own knowledge or promise.

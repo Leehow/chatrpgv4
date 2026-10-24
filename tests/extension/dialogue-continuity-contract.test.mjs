@@ -17,6 +17,7 @@ test('own attributed public reports share historical identity across material fi
  assert.equal(catalog.facts.filter(row=>row.kind==='public_speech_history').length,1);
  assert.equal(catalog.facts.filter(row=>row.kind==='knowledge_reports').length,3);
  const ref=catalog.facts.find(row=>row.kind==='public_speech_history').ref;
+ assert.equal(catalog.facts.find(row=>row.kind==='public_speech_history').value.attribution.speaker.name,'Clerk','an own line is attributed by the name the player knows, not the book name');
  const packet=turnPacket(JSON.stringify({version:4,interactions:[{actor:'npc_1',to:['investigator_1'],act:'answer',content:[{fact_ref:ref}]}]}));
  assert.equal(owner.hydrate(packet.interactions).responses[0].claims[0].kind,'public_speech_history');
  assert.throws(()=>owner.hydrate([{actor:'npc_2',to:['investigator_1'],act:'answer',content:[{fact_ref:ref}]}]),/another actor/);

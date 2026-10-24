@@ -342,6 +342,9 @@ test('§177.14: the notes rendering is a name to hide and to refuse, never a for
 	const roster = api.untoldRoster(graph, world, {}, []);
 	assert.deepEqual(roster.filter(row => row.name === 'Lars').map(row => row.shown), ['油布口袋的加油站老板'], 'the request renames the notes rendering');
 	assert.match(api.newcomerRefusal(graph, world, 'Lars from the garage')?.message ?? '', /name/i, 'a newcomer may not take it');
+	// PipiCOC app (2026-10-23): asked to telephone the bar, the Keeper brought its owner in as a walk_on, was refused, and the turn
+	// delivered nothing; the fix says how a book person elsewhere speaks.
+	assert.match(api.newcomerRefusal(graph, world, 'Lars from the garage')?.fix ?? '', /elsewhere and speaks by telephone or letter, leave walk_on out and give their interaction under the npc ref lookup returns for them, with channel phone or letter/);
 });
 
 test('§177.5: a word that carries a name learned later is withdrawn; a word given while unread does not follow the person into the graph', async () => {
