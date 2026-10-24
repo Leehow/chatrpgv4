@@ -53104,4 +53104,13 @@ landed them; `look focus=npc`, a clue's `from` and `apply person` refused them `
   mention of them (`landFromCast`: `establishPerson` with that sentence as the passage and the row's `cast_id`), and
   the write goes on. A word naming no single unread person keeps the refusal.
 
+### 266.14 A one-character name only the index knows (amends §22.4.7.1, §11.5.4)
+
+*Cursed Be the City* (2026-10-24): the hunting band's people are 班, 娃, 塔卡…; the cast keeps no row for a name of one
+character, and §11.5.4's passage comparison needs two, so a seat on 班 was refused `material_pending` three times with
+nothing the host could land on. For a person in a seat whom only the index names (no graph node, no cast row, an index
+row's name or entity), the gate accepts a passage whose sentence holds a name of one character, and its refusal says
+`person.indexed: true`; the host then lands them on the first sentence of their index pages that holds the name
+(sentence stops of any script). Everywhere else a name still needs two characters.
+
 Tests: `tests/extension/page-mode.test.mjs`.

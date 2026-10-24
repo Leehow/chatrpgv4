@@ -945,8 +945,11 @@ export class Reading {
                 if (settled && !pages.length) continue;
                 const spelled = node ? [graph.displayName(node), string(node.name), ...array(node.aliases)] : unread ? unread.names : [name];
                 const personNames = [...new Set(spelled.filter(value => typeof value === 'string' && value.trim()).map(value => value.trim()))].slice(0, PERSON_NAMES);
+                // §266.14: a person only the index names may be one character long (班, 娃): a sentence on their index pages that
+                // holds that character is their passage; anywhere else a name needs two.
+                const indexedOnly = node === null && !unread && indexed.has(normalize(name));
                 if (gate.land?.has(name)) {
-                    const passage = Reading.passageNaming(gate.land.get(name), personNames);
+                    const passage = Reading.passageNaming(gate.land.get(name), personNames, indexedOnly ? 1 : 2);
                     if (node ? pages.length || passage : passage) {
                         landed.push({ kind: 'person', name, focus, pages, person: node ? graph.displayName(node) : name, book: !!node, passage, ...(unread ? { cast: unread.id } : {}) });
                         continue;
@@ -955,7 +958,7 @@ export class Reading {
                 throw new RpcError('needs', `the source material for ${repr(focus)} is not prepared`, {
                     fix: 'read the required material before retrying this unchanged action',
                     details: { reason: 'material_pending', read: { purpose: 'detail', focus },
-                        person: { key: name, name: node ? graph.displayName(node) : name, names: personNames, book: !!node },
+                        person: { key: name, name: node ? graph.displayName(node) : name, names: personNames, book: !!node, ...(indexedOnly ? { indexed: true } : {}) },
                         ...(pages.length ? { index: { pages } } : {}) },
                 });
             }
@@ -982,10 +985,10 @@ export class Reading {
      * §22.4.7.1: the host's passage, when its sentence holds one of the person's names under §11.5.4's comparison; else
      * null (absent, malformed, or a sentence that holds none of them).
      */
-    private static passageNaming(value: Row | null | undefined, names: string[]): Row | null {
+    private static passageNaming(value: Row | null | undefined, names: string[], shortest = 2): Row | null {
         if (!isJsonObject(value) || typeof value.sentence !== 'string') return null;
         const sentence = passageKey(value.sentence);
-        if (!names.some(name => { const key = passageKey(name); return [...key].length >= 2 && sentence.includes(key); })) return null;
+        if (!names.some(name => { const key = passageKey(name); return [...key].length >= shortest && sentence.includes(key); })) return null;
         return { scene: typeof value.scene === 'string' && value.scene ? value.scene : null, page: integer(value.page) ? value.page : null,
             label: typeof value.label === 'string' && value.label ? value.label : null, sentence: value.sentence.trim() };
     }

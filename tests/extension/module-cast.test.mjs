@@ -60,7 +60,7 @@ async function kernel(t, seed) {
 }
 
 /** A bound PDF read as far as its opening: the graph has the Dock, the Tower and Old Mae; the index lists Silas Marsh. */
-async function harbor(t, {narrate = true, dock = REFS} = {}) {
+async function harbor(t, {narrate = true, dock = REFS, entities = []} = {}) {
 	const k = await kernel(t, 'module-cast');
 	const pdf = join(k.home, 'harbor.pdf');
 	await writeFile(pdf, `%PDF-1.7\n% ${PAGES.join(' | ')}\n%%EOF\n`);
@@ -78,7 +78,7 @@ async function harbor(t, {narrate = true, dock = REFS} = {}) {
 			draft_path: join(job.work_dir, 'draft.json'), review_path: join(job.work_dir, 'review.json')});
 	};
 	await read('index', {title: 'The Harbor', language: 'en', sections: [{name: 'Harbor and tower', pages: [[1, 3]], source_refs: [{page: 1}],
-		entities: ['Dock', 'Tower', 'Silas Marsh']}]}, []);
+		entities: ['Dock', 'Tower', 'Silas Marsh', ...entities]}]}, []);
 	await read('opening', {nodes: [
 		{node_id: 'scene-dock', node_kind: 'scene', name: 'Dock', source_refs: dock, properties: {is_entrance: true}},
 		{node_id: 'scene-tower', node_kind: 'scene', name: 'Tower', source_refs: [{page: 2}], summary: 'An old tower beyond the harbor.'},
@@ -971,4 +971,17 @@ test('§266.13: someone the cast names and this table has not met is read as unr
 	assert.equal(named.ok, true, JSON.stringify(named.error?.message));
 	const entry = (await h.world()).table_people.find(row => row.name === 'Jonah');
 	assert.ok(entry?.cast_id && entry.from_passage?.page === 3, 'landed on the cast\'s first mention, with the row it came from');
+});
+
+test('§266.14: a person only the index names, by one character, lands on a sentence of their index pages that holds it', async t => {
+	const h = await harbor(t, {entities: ['K']});
+	await h.call('table.player_input', {text: 'I look for the keeper.'});
+	const effects = [{kind: 'npc', name: 'K', to: 'here', why: 'the keeper comes down'}];
+	const held = await h.attempt('table.apply', {call_id: 't1-c1', effects});
+	assert.equal(held.error?.details?.reason, 'material_pending');
+	assert.equal(held.error.details.person.indexed, true);
+	const landed = await h.attempt('table.apply', {call_id: 't1-c1', effects, _land_on_text: [{key: held.error.details.person.key,
+		passage: {scene: null, page: 2, label: null, sentence: 'Its keeper, Silas Marsh, trims the lamp.'}}]});
+	assert.equal(landed.ok, true, JSON.stringify(landed.error?.message));
+	assert.ok((await h.world()).table_people.some(row => row.name === 'K'));
 });
