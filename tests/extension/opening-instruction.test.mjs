@@ -87,3 +87,13 @@ test('every form of the opening says the investigator is addressed as you', () =
     openingInstruction({playLanguage: 'en'})])
     assert.ok(text.includes('addressing the investigator as you'), text.slice(0, 200));
 });
+
+test('§264.19: the opening stays in its scene; what the prologue comes to next is the player\'s first turn (Blood Road 2026-10-24: eight refusals reaching the station owner)', () => {
+  for (const prologue of [undefined, {opening: 'The heat shimmers.', handoff: 'Next comes the station.', guide: ''}]) {
+    const text = openingInstruction({prologue, playLanguage: 'zh'});
+    assert.match(text, /the opening shows the opening scene only/);
+    assert.match(text, /move, walk_on, npc and resolve belong to that turn/);
+  }
+  const source = readFileSync(new URL('../../extensions/kernel/index.ts', import.meta.url), 'utf8');
+  assert.match(source, /the opening stays in the opening scene/, 'the opening refusal says the same');
+});

@@ -342,7 +342,7 @@ function refuseUnlessOpeningSeat(context:ApplyContext,node:Row,established:false
     }
     const word=tableWord(world,graph.handle(node))||graph.displayName(node);
     throw new RpcError('invalid_params',`at the opening an npc effect only records a present person's mood or seats someone the book places in the opening scene whom nobody has placed yet; ${word} is not that`,{
-        fix:'leave this effect out of the opening; once the player has spoken, apply npc as on any turn',
+        fix:'leave this effect out of the opening: the opening stays in its scene, and someone the book places elsewhere is met when the player goes there (§264.19); once the player has spoken, apply npc as on any turn',
         details:{field:'npc',reason:'opening_seat',name:word,...(established?{established}:{}),placed,unplaced,there}});
 }
 export async function stageNpc(context:ApplyContext,effect:Row):Promise<StagedEffect>{

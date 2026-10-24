@@ -135,6 +135,13 @@ export async function stageModEffect(context: ApplyContext, original: Row, sheet
             effect = transfer;
             repairs.push({field: 'offer', reason: 'no_open_offer_direct_transfer'});
         }
+        // §264.18: "made" with a handover of given or taken says the thing changed hands; with no offer standing that is the
+        // direct transfer too (live 2026-10-24: the house keys refused as an offer that "stands on no ground").
+        else if (effect.offer === 'made' && !openOffer(prior) && (effect.handover === 'given' || effect.handover === 'taken')) {
+            const {offer: _made, ...transfer} = effect;
+            effect = transfer;
+            repairs.push({field: 'offer', reason: 'handover_is_a_transfer'});
+        }
         const disposition = validateDisposition(effect, prior, source, owner, names);
         const ground = validateHandover(effect, source, owner, receiptsOf(context.turn), disposition, names, repairs);
         const repaired = <T extends {receipt: Row}>(staged: T): T => {
