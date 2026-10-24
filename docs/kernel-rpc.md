@@ -52762,3 +52762,31 @@ proposal fact, and the Keeper had marked the offer's terms instead.
 `input_requirements.fields` adds `authorization` (written permission or a word from someone with standing) and
 `proof_of_identity`. A gatekeeper refusing until the investigator brings the landlord's note had no closed field for it,
 and the Keeper argued for a turn between `knowledge_status withheld` and stretching `purpose`.
+
+## 265. Shopping: the outlet's stock, price and order time are the program's (owner 2026-10-24)
+
+The owner's report: a MiniMax Keeper's long deliberations were mostly about whether a shop had the goods and what they cost. Those answers moved to the kernel; the Keeper picks parameters. Purchase guidance that lived in other packages moved with them, so the problem has one home. Amends §58 ("the kernel does not price anything itself") for goods bought at an outlet while this package is active; every other cash path is unchanged.
+
+### 265.1 Capability
+
+`shopping.stock.v1`. While an active package requires it, `table.lookup kind=shop` and the cash field `shop` are served; otherwise both are refused (`not_implemented` and `invalid_params`). Shopping 1.0.0 (`mods/shopping`, default on) is the first provider.
+
+### 265.2 `lookup kind=shop`
+
+Parameters: `query` (the goods, in English as a price list names them) and `shop {outlet, trade, settlement, rarity?, grade?}`, closed enums: trade `stocks | sideline | unlikely`, settlement `city | town | village`, rarity `everyday | uncommon | rare` (default everyday), grade `cheap | standard | fine` (default standard). It searches the printed item records (`equipment.json`, filtered to the module's era when the declaration names 1920s or modern) and returns `goods[]`, one row per candidate, and `as_named`, the goods under the query's own words with no printed record. Each row: `name, price_id, unit_price (decimal string or absent), available, in_stock (null: a per-unit service with no shelf), order {days, ready_day} | null, note?` and `line`, the priced line to copy into cash items. Nothing is written.
+
+### 265.3 Stock
+
+Seeded by `[module id, outlet (normalised), goods key, game week]` (the goods key is the `price_id`, else `name:<normalised name>`); the same question in the same game week answers the same. Availability percent by trade then rarity: stocks 95/70/30, sideline 60/30/8, unlikely 10/3/0, less 10 in a town and 25 in a village. On the shelf: everyday 2D6, uncommon 1D4, rare 1, halved in a village (at least 1), less what `world.shop_ledger` records sold at that outlet this week. Order time in days: everyday 1D3, uncommon 1D6+2, rare 2D6+5, ×1.5 in a town and ×2 in a village, rounded up; none at an `unlikely` outlet or for a per-unit service. A record whose price kind is `unlisted` is never on a shelf and cannot be ordered.
+
+### 265.4 Price
+
+From the printed record: `fixed` and `per_unit` their amount; `minimum` the amount, doubled at grade fine; `range` min, midpoint or max by grade cheap, standard, fine; `formula` its dice × multiplier + addend, rolled once per outlet and record (not per week). Cents, as a decimal string. Goods with no record carry no kernel price: the Keeper estimates it.
+
+### 265.5 Cash lines with `shop`
+
+A cash effect (apply, or `narrate.quotes`) may carry the same `shop` object, plus `order: true`; a priced line may carry `price_id`, which priced lines now keep. Before any money moves each line is checked: a line with a record must use the outlet's `unit_price` (else `invalid_params`, `details.unit_price`); without `order`, the goods must be available and the quantity at most `in_stock` (else `needs`, `details.reason: out_of_stock` with `in_stock` and `order`); with `order`, the outlet must be able to order them (else `needs`, `not_orderable`) and the quote or receipt keeps `ready_day`, the latest of its lines. Settling a saved order before its ready day is `needs`, `order_not_ready`. A settled sale off the shelf adds its quantities to `world.shop_ledger.outlets[<outlet>].sold` for the week. Quote and receipt keep `shop` (and `ready_day`). A bargained price is the seller's quote, without `shop`.
+
+### 265.6 Packages
+
+Shopping 1.0.0 sections: `Buying at an outlet` (new; topics money and new_thing, before a cash apply), `Services beyond routine` (moved unchanged from Quick Settlement 1.2.1, which becomes 1.3.0), `Prices without a printed record` and `A disputed price` (moved unchanged from Historical Reference 1.3.0, the first renamed from `Prices`; Historical Reference becomes 1.4.0).

@@ -138,5 +138,6 @@ test('a failed non-routine expense receives the shipped service-order section wi
     const body=(await readFile(join(path,'agent.md'),'utf8')).split('## Services beyond routine')[1].split('\n## ')[0].trim();
     assert(body.length>100&&delivered.text.includes(body),'the delivered text is the shipped section');
     assert.equal(detail.package_sections.some(section=>section.package==='enhanced-locations'),false);
-    assert.equal(reads.length,1,'the resident and author sections are not reloaded for this expense');
+    const cashSections=instruction.sections.filter(section=>section.kind==='situational'&&section.triggers?.includes('before_apply:cash')).map(section=>section.key);
+    assert.deepEqual([...reads].sort(),cashSections.sort(),'only the sections a cash apply triggers are read for this expense');
 });
