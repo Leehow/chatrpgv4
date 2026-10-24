@@ -243,3 +243,31 @@ test('first sight: an exhibit, else the hand-authored property, else nothing; th
   assert.equal(api.personDescribed(graph, npc('npc-z')), null, 'a biography alone is undescribed');
   assert.equal(api.personDescribed(graph, npc('npc-b')), null, 'a voice exhibit is not an appearance');
 });
+
+test('an item the check carried but could not judge counts a try, and after three it is no longer owed', async t => {
+  // PipiCOC app, Blood Road (2026-10-23): the lane's answers for the station and the veteran stayed below confidence, a
+  // below-confidence answer recorded nothing, and both were owed (needs_introduction) and written out again for eleven turns.
+  const game = await table(t);
+  for (let turn = 0; turn < api.FIRST_SIGHT_TRIES_MAX; turn++) {
+    if (turn) await game.call('table.player_input', {text: '我看了看四周。'});
+    await game.call('table.narrate', {call_id: game.next(turn), text: '雨还在下。'});
+    const before = (await game.call('table.capsule')).first_sight;
+    assert.ok(before?.place, `turn ${turn}: still owed`);
+    const result = await game.call('table.first_sight', {turn, items: [], unconfirmed: [{kind: 'place', id: 'sanyi-teahouse'}]});
+    assert.deepEqual(result.retired, turn === api.FIRST_SIGHT_TRIES_MAX - 1 ? [{kind: 'place', id: 'sanyi-teahouse'}] : []);
+  }
+  const after = (await game.call('table.player_input', {text: '我坐下。'})).capsule.first_sight;
+  assert.equal(after?.place, undefined, 'three unjudged checks: the place is not carried again');
+  assert.ok(after?.people?.length, 'people never sent as unconfirmed are still owed');
+  const ledger = await game.read('first-sight.json');
+  assert.ok(ledger.shown.places.includes('sanyi-teahouse'));
+  assert.equal(ledger.unconfirmed, undefined, 'a retired item leaves no count behind');
+});
+
+test('a judged item clears its unconfirmed count', () => {
+  const at = '2026-10-23T00:00:00Z';
+  let {ledger} = api.applyUnconfirmed(api.firstSightLedger({}), [{kind: 'person', id: 'steve'}]);
+  assert.deepEqual(ledger.unconfirmed, {'person:steve': 1});
+  ledger = api.applyFirstSight(ledger, 1, [{kind: 'person', id: 'steve', missing: ['海军纹身']}], at);
+  assert.deepEqual(ledger.unconfirmed, {});
+});

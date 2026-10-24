@@ -657,7 +657,8 @@ export class Reading {
         let candidates = array(row(scene.properties).map_candidates);
         // §262.10: under lean reading no contact sheet nominated maps; the image-only pages the skeleton found within two pages
         // of the scene's own pages are its candidate map pages (geometry and page order only).
-        if (!candidates.length && leanReading() && await this.store.exists(graph.moduleId)) {
+        // §263.9: pointer reading asks no arrival map unless the host opts in; a map is read when the Keeper or the look asks for it.
+        if (!candidates.length && leanReading() && process.env.PI_COC_ARRIVAL_MAPS === '1' && await this.store.exists(graph.moduleId)) {
             const own = citedBoundPages(array(scene.source_refs), graph.moduleId);
             const images = (await this.store.indexRows(graph.moduleId)).filter(entry => entry.source === 'skeleton' && entry.image_only === true)
                 .flatMap(entry => array(entry.pages).flatMap(range => Array.isArray(range) ? [number(range[0]) + 1] : []));

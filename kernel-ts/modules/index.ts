@@ -1,3 +1,4 @@
+import { leanReading } from './reading-policy.js';
 /** Static source API and its single owner-local publication lifetime. */
 import type { KernelContext } from '../context.js';
 import { join } from 'node:path';
@@ -311,6 +312,8 @@ export function createModuleRuntime(context: KernelContext) {
         // §257.15: the same rule for a legacy scene's exhibits.
         queueSceneExhibits: async (graph: ModuleGraph, scene: Row): Promise<Row> => {
             if (graph.sourceCampaign === undefined) return { state: 'none' };
+            // §263.12: under pointer reading released book words replace the scene's exhibits read; it is asked only on opt-in.
+            if (leanReading() && process.env.PI_COC_SCENE_EXHIBITS !== '1') return { state: 'none' };
             return await (await owner(graph.sourceCampaign, graph.moduleId)).reading.queueSceneExhibits(graph, scene);
         },
         // §107.1: like the adjacent prefetch, a table that still follows the shared library queues nothing there.

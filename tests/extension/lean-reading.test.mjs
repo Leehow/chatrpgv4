@@ -83,7 +83,8 @@ test('§262.4: verdicts are read per known ref once, with a closed verdict',()=>
 });
 
 test('§262.5: sections start at bookmarks and split at a page when a section passes the token bound',()=>{
- const sections=lean.skeletonSections(10,[{name:'Intro',page:1,children:[]},{name:'Town',page:4,children:[{name:'Inn',page:6}]}],page=>page===7?11000:3000);
+ const sections=lean.skeletonSections(10,[{name:'Intro',page:1,children:[]},{name:'Town',page:4,children:[{name:'Inn',page:6}]}],page=>page===7?5500:1500);
+ // §263.3: the bound is about 6K tokens per section.
  assert.deepEqual(sections.map(row=>[row.name,row.first,row.last]),[['Intro',1,3],['Town',4,5],['Inn',6,6],['Inn',7,7],['Inn',8,10]]);
  assert.deepEqual(lean.skeletonSections(3,[],()=>1).map(row=>[row.first,row.last]),[[1,3]]);
 });
@@ -91,7 +92,7 @@ test('§262.5: sections start at bookmarks and split at a page when a section pa
 test('§262.5: a section answer keeps only its own block ids and named rows',()=>{
  const answer=lean.sectionAnswer({mentions:[{name:' Russ ',aliases:['Russell'],kind:'npc',blocks:['b13-1','bogus']}],
   keeper_truth:[{names:['Russ'],summary:'stall the repair',blocks:['b13-1']},{names:[],summary:'nameless',blocks:['b13-1']},{names:['X'],summary:'no blocks',blocks:['bogus']}]},new Set(['b13-1']));
- assert.deepEqual(answer.mentions,[{name:'Russ',aliases:['Russell'],kind:'npc',blocks:['b13-1']}]);
+ assert.deepEqual(answer.mentions,[{name:'Russ',aliases:['Russell'],kind:'npc',blocks:['b13-1'],evidence:[]}],'§263.3: a mention carries its evidence uses, empty when none');
  assert.deepEqual(answer.keeper_truth,[{names:['Russ'],summary:'stall the repair',blocks:['b13-1']}]);
  assert.deepEqual(answer.cross_references,[]);
 });

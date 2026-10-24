@@ -20,7 +20,7 @@ import {referencedJob, referencedSource, submitReferenced} from './referenced.js
 import {createMemoryEvidenceOwner} from './evidence.js';
 import {closeSatisfied, mergeOwed, owedNames, projectOwed, resolveOwedEquipment, readOwed, writeOwed} from '../owed/index.js';
 import {whoResolver,whoVariants} from '../read/who.js';
-import {applyFirstSight, checkFirstSightItems, FIRST_SIGHT_BUDGET, firstSightSection, fitFirstSight, readFirstSight, seenPerson, turnFirstSight, writeFirstSight} from '../first-sight/index.js';
+import {applyFirstSight, applyUnconfirmed, checkFirstSightItems, FIRST_SIGHT_BUDGET, FIRST_SIGHT_ITEMS_MAX, FIRST_SIGHT_KINDS, firstSightSection, fitFirstSight, readFirstSight, seenPerson, turnFirstSight, writeFirstSight} from '../first-sight/index.js';
 import {applyLooks, checkLookItems, lookTargets, turnLooks} from '../first-sight/looks.js';
 import {tableWord} from '../read/person-words.js';
 import {sceneLabel} from '../read/capsule.js';
@@ -198,17 +198,27 @@ async function firstSight(context: KernelContext, loaded: { campaign: CampaignWr
     const record = await campaign.readTurnRecord(number(turn));
     if (!record || !['narrate', 'ask'].includes(string(record.closed_by)))
         throw new RpcError('invalid_params', `turn ${turn} has no delivery record for a first-sight check`, { details: { turn } });
-    const { results, dropped } = checkFirstSightItems(module.graph, params.items, await whoVariantsOf(loaded.snapshot, module.graph)), at = nowIso();
+    // Items the check carried but could not judge come as `unconfirmed`; a call may hold only those.
+    const unjudged = Array.isArray(params.unconfirmed) ? params.unconfirmed.slice(0, FIRST_SIGHT_ITEMS_MAX).map(row)
+        .filter(item => FIRST_SIGHT_KINDS.includes(string(item.kind)) && typeof item.id === 'string' && item.id.trim() !== '')
+        .map(item => ({ kind: string(item.kind), id: string(item.id).trim() })) : [];
+    const { results, dropped } = Array.isArray(params.items) && !params.items.length && unjudged.length ? { results: [], dropped: [] }
+        : checkFirstSightItems(module.graph, params.items, await whoVariantsOf(loaded.snapshot, module.graph)), at = nowIso();
+    let retired: Row[] = [];
+    if (results.length || unjudged.length) {
+        let ledger = applyFirstSight(await readFirstSight(context, campaign.id), number(turn), results, at);
+        ({ ledger, retired } = applyUnconfirmed(ledger, unjudged.filter(item => !results.some(result => result.kind === item.kind && result.id === item.id))));
+        await writeFirstSight(context, campaign.id, ledger);
+    }
     if (results.length) {
-        await writeFirstSight(context, campaign.id, applyFirstSight(await readFirstSight(context, campaign.id), number(turn), results, at));
         record.first_sight = turnFirstSight(record.first_sight, results, at);
         await campaign.writeTurnRecord(record);
     }
     const shown = results.filter(result => !result.missing.length).map(result => ({ kind: result.kind, id: result.id }));
     const open = results.filter(result => result.missing.length).map(result => ({ kind: result.kind, id: result.id, missing: result.missing }));
     await campaign.telemetry({ lane: 'first-sight', event: 'recorded', turn: number(turn), shown: shown.length, open: open.length,
-        ...(dropped.length ? { dropped } : {}) });
-    return { turn: number(turn), shown, open, dropped };
+        ...(dropped.length ? { dropped } : {}), ...(unjudged.length ? { unconfirmed: unjudged.length, retired: retired.length } : {}) });
+    return { turn: number(turn), shown, open, dropped, ...(unjudged.length ? { retired } : {}) };
 }
 /**
  * Contract §255: a delivered turn's look check, its two ends. The job names what the scene the turn ended in still wants
