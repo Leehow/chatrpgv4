@@ -52498,3 +52498,17 @@ kernel used to refuse the omission with `needs`, and the Keeper weighed fuel, a 
 and purchase on each payment although, below the Spending Level, both settle the same way.
 The default never debits cash: where settling as purchase would take money from the purse (the day's purchases pass the
 Spending Level), the omission is still refused with `needs` on `category`, the one case where the choice changes the result.
+
+### 263.4 The first impression says when it is due
+
+`natural-npc` 1.7.2: the roll is due the first time the investigator asks a person for something their attitude could
+change (a favour, information they could keep back, a deal, help or trust); a greeting, a routine exchange, a person whose
+role already sets their manner, or an authored reaction needs none. "Decide whether the initial impression matters" left
+the decision open, and the Keeper argued it for each new speaker, reversing itself within one opening.
+
+### 263.5 Directions need no invented bearing
+
+`directions` with `to` alone says where a place is; `heading`, `via` or `retrace: true` ride only when the speaker gives
+the way. Requiring one of them made the Keeper guess compass bearings across a city it had no map of ("southwest, roughly,
+for Roxbury"), and weigh whether a wrong heading would mislead the author. A received payment needs no `category` either
+(the tool description says so; the kernel already settled it as a transfer).

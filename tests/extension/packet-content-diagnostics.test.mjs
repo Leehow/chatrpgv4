@@ -13,9 +13,10 @@ test('a content constructor reports its own constraint, not every union branch (
  assert.doesNotThrow(()=>turnPacket(JSON.stringify(answer([{new:{predicate:'input_requirements',topic:'Inn',fields:['subject_name']}}])),schema));
 });
 test('a constructor with required alternatives stays one variant: directions are accepted and judged on their own fields',()=>{
- for(const route of [{via:['Inn']},{heading:'north'},{retrace:true}])
+ // §263.5: `to` alone says where the place is; a route is optional.
+ for(const route of [{},{via:['Inn']},{heading:'north'},{retrace:true}])
   assert.doesNotThrow(()=>turnPacket(JSON.stringify(answer([{new:{predicate:'directions',to:'Inn',...route}}])),schema),JSON.stringify(route));
- assert.throws(()=>turnPacket(JSON.stringify(answer([{new:{predicate:'directions',to:'Inn'}}])),schema),
+ assert.throws(()=>turnPacket(JSON.stringify(answer([{new:{predicate:'directions',to:'Inn',heading:'uphill'}}])),schema),
   error=>/content\/0\/new/.test(error.message)&&!/predicate: must be one of/.test(error.message));
 });
 test('a command with a place action and no kind is a place command (live el-v2-20261021b T19)',()=>{
