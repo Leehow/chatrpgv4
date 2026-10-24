@@ -52799,3 +52799,10 @@ constructor `{new:{predicate:"meaning",meaning}}` carries at most 60 characters 
 ("claims he never saw the boy"); quotation marks are refused so it cannot carry dialogue. It is communication content
 like every other constructor: the author writes the words, and no world fact, knowledge or relationship follows from it.
 Constructors that fit (directions, knowledge_status, service_at …) still come first. The other v4 bans stand.
+
+### 264.16 A page shown to be read whole is one effect
+
+`object.document` `{action:"show",reader,read:true}` records the reader's full reading as it is shown (access `shown`,
+scope `full`), and showing opens the page. A landlord showing two leases had taken an open, a show and two observes.
+Without `read` a show records no reading, and a part is still a show followed by an observe with its quote.
+`enhanced-items` 1.4.5.

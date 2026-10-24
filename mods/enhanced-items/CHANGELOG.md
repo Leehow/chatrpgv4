@@ -1,3 +1,6 @@
+## 1.4.5
+- A page shown to be read whole is one effect: document show with `read: true` records the reading too, and showing opens it (2026-10-24 table: a landlord showing two leases took an open, a show and two observes). A part is still show, then observe with its quote.
+
 ## 1.4.4
 - A decorative row changes hands only for good: handing it over for a look and taking it back is showing it, and a calling card or a slip handed over in passing needs no definition (2026-10-24 table: a business card handed to a doorman and returned took a define and an object).
 

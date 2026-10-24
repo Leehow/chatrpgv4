@@ -44,7 +44,9 @@ export async function physicalDocumentAction(context:ApplyContext,item:Row,effec
     }
     if(action==='open')own.open=true;
     else if(action==='close'){own.open=false;own.shown_to=[];}
-    else if(action==='show'){own.open=true;own.shown_to=[...new Set([...array(own.shown_to),readerId])];}
+    else if(action==='show'){own.open=true;own.shown_to=[...new Set([...array(own.shown_to),readerId])];
+        // §264.16: a page shown to be read whole is read as it is shown (live 2026-10-24: open, show and two observes for two leases).
+        if(operation.read===true)observed=observeWriting(world,item,readerId,{access:'shown',turn:number(turn.turn),worldline:(await campaign.readCampaign()).active_worldline??null});}
     else if(action==='observe'){
         const access=operation.access,id=readerId;
         if(!['held','shown','glimpse'].includes(access))throw new RpcError('invalid_params','Document observation access is held, shown or glimpse');
