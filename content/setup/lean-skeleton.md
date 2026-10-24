@@ -33,7 +33,9 @@ book spells them:
 - `protected_facts`: every proposition players must not learn early: a person's true identity or allegiance, a plan
   against the investigators, a hidden cause, how the story ends, what a monster really is. One line each, with the blocks
   that state it. When in doubt, list it.
-- `release_candidates`: words an investigator may perceive exactly as printed: read-aloud text, a handout's or sign's
+- `release_candidates`: only from text written for the table at play time (boxed read-aloud, handouts, signs, and the
+  description of what investigators see when they arrive somewhere or meet someone); never from background, history,
+  Keeper advice or a section about what is really going on. Words an investigator may perceive exactly as printed: read-aloud text, a handout's or sign's
   text, and a person's or place's outward look. Give the block; when only part of the block is safe to show (the outward
   look, not the Keeper's comment beside it), give that part as `quote`, copied exactly from the block. Never propose a
   block or quote that states or hints at a protected fact, a Keeper note, a motive, a plan or game advice. Leave it out
