@@ -1,3 +1,6 @@
+## 1.0.1
+- Goods the buyer takes away are marked `carried` on their priced line, and the settled purchase puts them in the inventory (§264.17; 2026-10-24 table: a flashlight and batteries bought at a hardware store took two refused applies of define and object).
+
 # Shopping
 
 ## 1.0.0

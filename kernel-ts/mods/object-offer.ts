@@ -132,6 +132,9 @@ export function validateDisposition(effect: Row, prior: Row | null, source: Row 
         if (Object.hasOwn(effect, key) && effect[key] != null)
             throw new RpcError('invalid_params', `an offer changes nothing about the thing itself, so it carries no ${key}`,
                 {fix: `apply the ${key} on its own call`, details: {field: `object.${key}`}});
+    // §264.17: a new thing a person not on the table hands over and the investigator takes (a shop clerk's goods) is a first
+    // placement whose giver rides on the receipt; there was no standing offer to close, so there is nothing to refuse.
+    if (!prior && !source && disposition === 'accepted') return null;
     if (!betweenPeople(source, owner))
         throw new RpcError('invalid_params', 'an offer has two people in it: whoever holds it out, and whoever it is held out to',
             {fix: 'name the holder in from and the person it is held out to in to', details: {field: 'object.offer', from: source ? said(names, 'from', source) : null, to: said(names, 'to', owner)}});

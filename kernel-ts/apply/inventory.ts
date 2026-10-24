@@ -254,3 +254,20 @@ export async function stageCash(context:CashContext,effect:Row,staged:Map<string
 export async function commitInventorySheets(context:ApplyContext,staged:Map<string,Row>):Promise<void>{
     for(const [id,sheet] of staged){const current=(await context.campaign.party()).find(value=>string(value.id)===id);if(!current)continue;for(const key of ['equipment','weapons','finance','cash'])if(Object.hasOwn(sheet,key))current[key]=sheet[key];await context.campaign.writeSheet(current);}
 }
+
+/**
+ * §264.17: goods a settled purchase marks `carried` go to the buyer as equipment rows in the same batch, so a flashlight
+ * bought at the counter needs no define and object of its own (live 2026-10-24: two refused applies registering one).
+ * A fractional quantity (a pound of nails) is one row.
+ */
+export async function stageCarriedGoods(context:ApplyContext,effect:Row,receipt:Row,staged:Map<string,Row>,catalog:()=>Promise<Map<string,Row>>):Promise<StagedEffect[]>{
+    if(receipt.settlement==='quote'||(effect.mode??'settle')!=='settle')return [];
+    const lines=array(receipt.items).filter(line=>line.carried===true);
+    const out:StagedEffect[]=[];
+    for(const line of lines){
+        const quantity=Number(line.quantity);
+        out.push(await stageItem(context,{kind:'item',name:string(line.name),quantity:Number.isInteger(quantity)&&quantity>0?quantity:1,
+            to:receipt.subject,...(typeof effect.with==='string'&&effect.with.trim()?{from:effect.with}:{}),why:effect.why},staged,catalog));
+    }
+    return out;
+}

@@ -45,7 +45,7 @@ import {calledPerson,personNode,sceneLabel} from '../read/capsule.js';
 import {castPersonNamed, newcomerRefusal} from '../read/cast.js';
 import {passageOf} from '../read/table-people.js';
 import {presentArrivalMaps,revealMap} from '../read/maps.js';
-import {stageItem,stageCash,commitInventorySheets} from './inventory.js';
+import {stageItem,stageCash,stageCarriedGoods,commitInventorySheets} from './inventory.js';
 import type {createWorldlineRuntime} from '../worldline/index.js';
 import type {createModRuntime} from '../mods/index.js';
 import type {CampaignWriter} from '../write/store.js';
@@ -288,7 +288,7 @@ export function createApplyHandlers(kernel: KernelContext, writer: ReturnType<ty
                         events.push({ ...result.event, receipt: result.receipts.at(-1)?.id });
                         continue;
                     }
-                    let receipt: Row, event: DomainEvent|null;
+                    let receipt: Row, event: DomainEvent|null, carried: Awaited<ReturnType<typeof stageCarriedGoods>> = [];
                     if (kind === 'adaptation') {
                         if (!contributions.adaptation) throw new RpcError('not_implemented', 'Adaptation acceptance is unavailable');
                         ({receipt, event} = await contributions.adaptation(context, effect) as {receipt: Row; event: DomainEvent});
@@ -336,7 +336,12 @@ export function createApplyHandlers(kernel: KernelContext, writer: ReturnType<ty
                     else if(kind==='item')({receipt,event}=await stageItem(context,effect,stagedSheets,()=>{
                         if(!contributions.weaponCatalog)throw new RpcError('not_implemented','The weapon catalog contribution is unavailable');return contributions.weaponCatalog(graph);
                     }) as {receipt:Row;event:DomainEvent});
-                    else if(kind==='cash')({receipt,event}=await stageCash(context,effect,stagedSheets) as {receipt:Row;event:DomainEvent});
+                    else if(kind==='cash'){
+                        ({receipt,event}=await stageCash(context,effect,stagedSheets) as {receipt:Row;event:DomainEvent});
+                        carried=await stageCarriedGoods(context,effect,receipt,stagedSheets,()=>{
+                            if(!contributions.weaponCatalog)throw new RpcError('not_implemented','The weapon catalog contribution is unavailable');return contributions.weaponCatalog(graph);
+                        });
+                    }
                     else if(kind==='threat')({receipt,event}=stageThreat(context,effect) as {receipt:Row;event:DomainEvent});
                     else if(kind==='flag')({receipt,event}=stageFlag(context,effect) as {receipt:Row;event:DomainEvent});
                     else if(kind==='note')({receipt,event}=await stageNote(context,effect,stagedNotes) as {receipt:Row;event:DomainEvent});
@@ -369,12 +374,16 @@ export function createApplyHandlers(kernel: KernelContext, writer: ReturnType<ty
                     if (effect.intent_ref != null && !isJsonObject(receipt.intent))
                         receipt.intent = await effectIntent(context, effect, `effects[${index}]`);
                     receipts.push(receipt);
-                    effectReceipts.set(index,[receipt]);
+                    effectReceipts.set(index,[receipt,...carried.map(goods=>goods.receipt)]);
                     ids.push(string(receipt.id));
                     taken.add(string(receipt.id));
                     // A pacing tick has no canonical event (12.1 is closed at twenty-four kinds); its receipt carries it.
                     if (event)
                         events.push({ ...event, receipt: receipt.id });
+                    for (const goods of carried) {
+                        receipts.push(goods.receipt);ids.push(string(goods.receipt.id));taken.add(string(goods.receipt.id));
+                        if (goods.event) events.push({ ...goods.event, receipt: goods.receipt.id });
+                    }
                     if (receipt.kind === 'move' && number(receipt.minutes) > 0) {
                         events.push({ type: 'time-advanced', data: { minutes: receipt.minutes, why: 'travel', clock: clone(staged.clock) }, receipt: receipt.id });
                     }

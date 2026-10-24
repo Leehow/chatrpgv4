@@ -195,3 +195,12 @@ test('§88: an offer that was never made cannot be closed', async t => {
 	assert.equal(error.details.field, 'object.offer');
 	assert.equal((await instance(game, 'Study chair')).owner.id, game.sheet.id);
 });
+
+test('§264.17: a new thing a person not on the table hands over and the investigator accepts is placed, not refused', async t => {
+	const game = await room(t);
+	await game.apply([{kind: 'object', name: 'Spare chair', definition: 'Chair frame', from: 'The furniture clerk', to: game.sheet.name,
+		offer: 'accepted', handover: 'given', why: 'the clerk carries it out to the car'}]);
+	const placed = await instance(game, 'Spare chair');
+	assert.equal(placed.owner.kind, 'investigator', 'the buyer holds it');
+	assert.equal(placed.offer, undefined, 'and no offer stands open');
+});

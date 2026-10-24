@@ -52807,6 +52807,14 @@ scope `full`), and showing opens the page. A landlord showing two leases had tak
 Without `read` a show records no reading, and a part is still a show followed by an observe with its quote.
 `enhanced-items` 1.4.5.
 
+### 264.17 Goods carried away from a purchase are the purchase's
+
+A priced line may carry `carried: true`. When the cash effect settles a purchase (not a quote), each carried line is
+added to the buyer's equipment as a legacy item row in the same batch (`from` is the cash `with`; an integral
+quantity is the row's quantity, any other quantity one row), with its own `item` receipt. A saved quote keeps the mark
+and hands the goods over when it is settled. Services, meals and fares leave it out. The Keeper had defined and placed
+a flashlight and batteries after paying for them, refused twice on the way. `shopping` 1.0.1.
+
 ## 265. Shopping: the outlet's stock, price and order time are the program's (owner 2026-10-24)
 
 The owner's report: a MiniMax Keeper's long deliberations were mostly about whether a shop had the goods and what they cost. Those answers moved to the kernel; the Keeper picks parameters. Purchase guidance that lived in other packages moved with them, so the problem has one home. Amends §58 ("the kernel does not price anything itself") for goods bought at an outlet while this package is active; every other cash path is unchanged.

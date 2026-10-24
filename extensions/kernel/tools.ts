@@ -441,7 +441,8 @@ const AbilityEffect = Type.Object({
 /** One unit price, with a precise decimal spelling for provider tool generation. Numbers remain a compatibility input. */
 const UnitPrice=Type.String({pattern:'^[0-9]+(?:\\.[0-9]+)?(?:[eE][+-]?[0-9]+)?$',minLength:1,maxLength:100,
     description:'Use an exact decimal STRING in the purse currency, e.g. "0.55" for fifty-five cents, never "0" for a covered purchase. This is the actual merchandise unit price, not the cash debit. Supply this price once; speech references the bill'});
-const PricedLine=Type.Object({name:Type.String(),quantity:Type.Number({exclusiveMinimum:0}),unit_price:UnitPrice,price_id:Type.Optional(Type.String({description:"with shop: the printed record this line is, as lookup kind=shop returned it"}))});
+const PricedLine=Type.Object({name:Type.String(),quantity:Type.Number({exclusiveMinimum:0}),unit_price:UnitPrice,price_id:Type.Optional(Type.String({description:"with shop: the printed record this line is, as lookup kind=shop returned it"})),
+    carried:Type.Optional(Type.Literal(true,{description:"goods the buyer takes away: a settled purchase puts them in their inventory, with no define or object; leave it out for services, meals and fares"}))});
 /** Contract §265: the Keeper's parameters for an outlet; the kernel answers stock, price and order time from them. */
 const ShopTerms=Type.Optional(Type.Object({
     outlet:Type.String({maxLength:200,description:"the shop or stall, by the name you call it"}),

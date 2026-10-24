@@ -23,7 +23,7 @@ export function purchaseItems(value:unknown):{items:Row[];total:Decimal} {
         const quantity=cashDecimal(given.quantity),price=typeof given.unit_price==='string'?decimalSpelling(given.unit_price):cashDecimal(given.unit_price);
         if(!quantity||quantity.coefficient<=0n||!price||price.coefficient<0n)throw new RpcError('invalid_params','A priced line needs a positive finite quantity and a nonnegative finite unit_price',{details:{item:index}});
         const amount=multiplyCash(quantity,price);total=addCash(total,amount);
-        return {name:given.name.trim(),quantity:given.quantity,unit_price:given.unit_price,...(typeof given.price_id==='string'&&given.price_id.trim()?{price_id:given.price_id.trim()}:{}),amount:storedCash(amount)};
+        return {name:given.name.trim(),quantity:given.quantity,unit_price:given.unit_price,...(typeof given.price_id==='string'&&given.price_id.trim()?{price_id:given.price_id.trim()}:{}),...(given.carried===true?{carried:true}:{}),amount:storedCash(amount)};
     });
     if(total.coefficient<=0n)throw new RpcError('invalid_params','A priced purchase must have a positive total',{
         fix:'Correct the actual merchandise unit_price in items. Coverage can make the actual cash debit zero; it does not make the merchandise price zero. Preserve the chosen service, and do not ask the player again to fix a technical price error.',
