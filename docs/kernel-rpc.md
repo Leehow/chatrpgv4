@@ -52180,11 +52180,12 @@ Found by playing Blood Road in the packaged PipiCOC app (MiniMax, 14 turns); tes
   out from scratch every turn.
 - **A service paid in advance is an accepted deal** (amends §258.11). Root cause of the empty deal ledger: deals came only
   from an `offer` carrying `new:service_at`/`new:planned_visit`, while the Keeper prices a service with `cash` and has the
-  seller set out with an NPC intent, so no proposal ever existed for an `agreement` mark to name. A `cash` purchase settled
-  with a person who in the same turn set out on an intention (`npc` receipt, outcome `attempted`) is recorded as
-  `communication.paid`: that person's accepted commitment to the buyer, tied to the intention. `communication.settled_intents`
-  records an intention's `done`/`failed`/`abandoned` outcome, which settles the deal `kept`/`broken`/`withdrawn`; the
-  Keeper's `agreement` mark still settles it too.
+  seller set out with an NPC intent or a keeper note, so no proposal ever existed for an `agreement` mark to name. A `cash`
+  purchase whose seller (named on the receipt by handle, name or label, else the one person the same apply call acted on) in
+  the same turn set out on an intention (`npc` receipt, outcome `attempted`), or whose apply call opened a note of the
+  arrangement, is recorded as `communication.paid`: that person's accepted commitment to the buyer, tied to the intention or
+  the note. `communication.settled_intents` records an intention's `done`/`failed`/`abandoned` outcome and a closed note,
+  which settle the deal `kept`/`broken`/`withdrawn` (a closed note: `kept`); the Keeper's `agreement` mark still settles it.
 - **Why the telephone request delivered nothing.** The Keeper had no instruction for a book person who is elsewhere, so it
   brought the bar's owner on stage as a `walk_on`; the newcomer name check refused it, the turn's output failed on that
   refusal, and the player got no reply. The refusal's fix and the Keeper guidance now name the route (their own npc ref,

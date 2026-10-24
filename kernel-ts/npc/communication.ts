@@ -68,8 +68,9 @@ export function communicationRecord(graph:ModuleGraph,world:Row,party:Row[],scop
     const selections=selectionsOf(evidence),agreements=agreementsOf(evidence);
     const investigator=(name:unknown)=>{const at=party.findIndex(sheet=>sheet.name===name||sheet.id===name);return at>=0?`investigator_${at+1}`:undefined;};
     const paid=paidDeals(graph,world,turn,receipts,investigator);
-    // An intention's outcome this turn, so a deal paid for in advance (paidDeals) settles from the records alone.
-    const settled=receipts.flatMap(receipt=>{const intent=row(receipt.intent);
+    // An intention's outcome, or a closed note, this turn: a deal paid for in advance (paidDeals) settles from the records alone.
+    const settled=receipts.flatMap((receipt):Row[]=>{const intent=row(receipt.intent);
+        if(receipt.kind==='note'&&receipt.status==='closed'&&typeof receipt.closes==='string')return [{note:receipt.closes,outcome:'done'}];
         return receipt.kind==='npc'&&typeof intent.ref==='string'&&['done','failed','abandoned'].includes(string(intent.outcome))?[{ref:intent.ref,outcome:string(intent.outcome)}]:[];}).slice(0,8);
     if(!selections.length&&!agreements.length&&!paid.length&&!settled.length)return undefined;
     const refOf=(who:Row):string|undefined=>{
@@ -110,19 +111,29 @@ export function communicationRecord(graph:ModuleGraph,world:Row,party:Row[],scop
  * who, in the same turn, set out on an intention is that person's accepted commitment to the buyer, tied to the intention.
  */
 function paidDeals(graph:ModuleGraph,world:Row,turn:number,receipts:Row[],investigator:(name:unknown)=>string|undefined):Row[] {
-    // The seller is named on the cash receipt by handle, or by the name or role the Keeper wrote (app re-test: "加油站老板").
-    const started=new Map<string,{intent:string;handle:string}>();
-    for(const receipt of receipts)if(receipt.kind==='npc'&&row(receipt.intent).outcome==='attempted'&&typeof receipt.handle==='string'&&typeof row(receipt.intent).ref==='string')
-        for(const key of [receipt.handle,receipt.name,receipt.label])if(typeof key==='string'&&key)started.set(key,{intent:row(receipt.intent).ref as string,handle:receipt.handle as string});
+    const people=receipts.filter(receipt=>receipt.kind==='npc'&&typeof receipt.handle==='string');
+    // The seller: the person the cash receipt names (handle, name or label); else the one person the same apply call acted
+    // on (app re-test: the receipt said only "加油站老板", the role the Keeper wrote).
+    const sellerOf=(receipt:Row):string|undefined=>{
+        const named=people.find(person=>[receipt.with,receipt.with_label].some(key=>typeof key==='string'&&key&&[person.handle,person.name,person.label].includes(key)));
+        if(named)return named.handle;
+        const same=[...new Set(people.filter(person=>person.call_id===receipt.call_id).map(person=>person.handle as string))];
+        if(same.length===1)return same[0];
+        const found=typeof receipt.with==='string'?graph.find(receipt.with,['npc']):null;
+        return found&&graph.handle(found)===receipt.with?receipt.with:undefined;
+    };
     return receipts.flatMap(receipt=>{
         if(receipt.kind!=='cash'||receipt.category!=='purchase'||!(number(receipt.purchase_amount)>0))return [];
-        const seller=[receipt.with,receipt.with_label].map(key=>typeof key==='string'?started.get(key):undefined).find(Boolean);
-        const intent=seller?.intent,node=seller?graph.find(seller.handle,['npc']):null,by=node?npcReference(graph,world,node):undefined;
-        if(!intent||!by)return [];
+        const handle=sellerOf(receipt),node=handle?graph.find(handle,['npc']):null,by=node?npcReference(graph,world,node):undefined;
+        if(!handle||!by)return [];
+        // Still to be done: the seller set out on an intention this turn, or the same call opened a note of the arrangement.
+        const intent=people.map(person=>row(person.intent)).find(value=>value.outcome==='attempted'&&typeof value.ref==='string'&&people.some(person=>person.handle===handle&&row(person.intent).ref===value.ref))?.ref;
+        const note=receipts.find(other=>other.kind==='note'&&other.status==='open'&&other.call_id===receipt.call_id&&typeof other.name==='string')?.name;
+        if(!intent&&!note)return [];
         const lines=array(receipt.items).map(item=>string(row(item).name)).filter(Boolean).join(', ');
         const gist=[...(typeof receipt.why==='string'&&receipt.why.trim()?receipt.why.trim():lines)].slice(0,120).join('');
         return [{content_id:`c:${createHash('sha256').update(JSON.stringify([turn,receipt.id])).digest('hex').slice(0,24)}`,by,
-            to:[investigator(receipt.subject_label)??'investigator_1'],...(gist?{gist}:{}),intent}];
+            to:[investigator(receipt.subject_label)??'investigator_1'],...(gist?{gist}:{}),...(intent?{intent}:{}),...(note?{note}:{})}];
     }).slice(0,8);
 }
 
@@ -290,12 +301,14 @@ export function agreementView(records:Row[],person:string,scope:Row,turn?:number
             const key=`${deal.by} ${deal.content_id}`;
             if(!isNpcReference(deal.by)||typeof deal.content_id!=='string'||deals.has(key))continue;
             deals.set(key,{content_id:deal.content_id,by:deal.by,to:array(deal.to),with:array(deal.to),...(deal.gist?{gist:deal.gist}:{}),
-                made_turn:number(record.turn),status:'accepted',since_turn:number(record.turn),paid:true,...(typeof deal.intent==='string'?{intent:deal.intent}:{})});
+                made_turn:number(record.turn),status:'accepted',since_turn:number(record.turn),paid:true,...(typeof deal.intent==='string'?{intent:deal.intent}:{}),
+                ...(typeof deal.note==='string'?{note:deal.note}:{})});
         }
         for(const intent of array(communication.settled_intents)){
             const done=({done:'kept',failed:'broken',abandoned:'withdrawn'} as Record<string,string>)[string(row(intent).outcome)];
             if(!done)continue;
-            for(const deal of deals.values())if(deal.intent===row(intent).ref&&deal.status==='accepted'){deal.status=done;deal.since_turn=number(record.turn);}
+            for(const deal of deals.values())if(deal.status==='accepted'&&(row(intent).ref!==undefined&&deal.intent===row(intent).ref||row(intent).note!==undefined&&deal.note===row(intent).note))
+                {deal.status=done;deal.since_turn=number(record.turn);}
         }
         for(const mark of array(communication.agreements)){
             const deal=deals.get(`${mark.by} ${mark.content_id}`);

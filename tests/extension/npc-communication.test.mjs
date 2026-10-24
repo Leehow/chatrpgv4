@@ -8,7 +8,7 @@ import {DECISION_AUTHOR_INSTRUCTION} from '../../runtime/isolated-expression.ts'
 import {importSource} from '../integration/support.ts';
 const {communicationRecord,toldView,promiseHasOrigin,selectionsOf,agreementView:dealsOf}=await importSource('kernel-ts/npc/communication.ts');
 
-const graph={find:handle=>({node_id:handle})};
+const graph={find:handle=>({node_id:handle}),handle:node=>node.node_id};
 const world={npc_references:{version:1,next:3,by_node:{russ:'npc_1',nate:'npc_2'}}};
 const party=[{name:'Ada'}];
 const scope={worldline:'main',loop:0};
@@ -375,6 +375,15 @@ test('app play-test: a service paid for while its seller sets out to do it is th
  const byLabel=communicationRecord(graph,world,party,scope,8,{selections:[]},[],[{node_id:'russ'}],undefined,
   [{...receipts[0],with:'加油站老板',with_label:'加油站老板'},{...receipts[1],label:'加油站老板'}]);
  assert.equal(byLabel.paid[0].by,'npc_1','a seller written by role still finds the person who set out');
+ // The tyres (app re-test): paid now, picked up this evening, held by a note the same call opened; the seller written by role.
+ const tyres=[{id:'cash:t4-c1',kind:'cash',call_id:'t4-c1',category:'purchase',purchase_amount:145,with:'加油站老板',with_label:'加油站老板',subject_label:'Ada',why:'四条新轮胎'},
+  {kind:'npc',call_id:'t4-c1',handle:'russ',name:'Russ',mood:{text:'收了钱'}},{kind:'note',call_id:'t4-c1',name:'傍晚取车',status:'open'}];
+ const noted=communicationRecord(graph,world,party,scope,4,{selections:[]},[],[{node_id:'russ'}],undefined,tyres);
+ assert.deepEqual([noted.paid[0].by,noted.paid[0].note],['npc_1','傍晚取车']);
+ const closed=communicationRecord(graph,world,party,scope,7,{selections:[]},[],[{node_id:'russ'}],undefined,[{kind:'note',name:'傍晚取车',status:'closed',closes:'傍晚取车'}]);
+ const tyreDeals=[{turn:4,communication:noted},{turn:7,communication:closed}];
+ assert.equal(dealsOf(tyreDeals.slice(0,1),'npc_1',scope,5)[0].status,'accepted');
+ assert.equal(dealsOf(tyreDeals,'npc_1',scope,8,true)[0].status,'kept','closing the note of the arrangement keeps it');
  const noIntent=communicationRecord(graph,world,party,scope,8,{selections:[]},[],[{node_id:'russ'}],undefined,[receipts[0]]);
  assert.equal(noIntent,undefined,'a purchase handed over at once, with nobody setting out to do anything, makes no deal');
 });
