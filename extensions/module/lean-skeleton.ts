@@ -419,7 +419,9 @@ export async function singleCall(runtime: Pick<HostRuntime, "runTask">, options:
 	brief: string; signal: AbortSignal; shared?: Partial<ReaderRequest>; timeoutMs?: number }): Promise<{ outcome: import("./reader.ts").ReaderOutcome; text: string; json?: Row }> {
 	let text = "";
 	const textOf = (message: Row) => (Array.isArray(message?.content) ? message.content : []).filter((part: Row) => part?.type === "text").map((part: Row) => String(part.text ?? "")).join("");
-	const outcome = await runtime.runTask({ kind: "reader", request: { ...options.shared, cwd: options.cwd, model: options.model.id, thinking: options.model.thinking,
+	// §263.13: a pointer call writes ids and short lines; its reasoning level is its own (`PI_COC_POINTER_THINKING`, default low).
+	const thinking = process.env.PI_COC_POINTER_THINKING || "low";
+	const outcome = await runtime.runTask({ kind: "reader", request: { ...options.shared, cwd: options.cwd, model: options.model.id, thinking,
 		systemPrompt: options.systemPrompt, tools: "", maxRequests: 1, timeoutMs: options.timeoutMs ?? 300000, eventLog: join(options.cwd, "events.jsonl"), brief: options.brief,
 		onEvent: (event: Row) => { if (event.type === "message_end" && event.message?.role === "assistant") { const value = textOf(event.message); if (value) text = value; } } } as ReaderRequest }, options.signal);
 	await writeFile(join(options.cwd, "reply.txt"), text).catch(() => undefined);

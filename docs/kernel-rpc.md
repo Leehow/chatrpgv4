@@ -52596,3 +52596,17 @@ Under lean reading the host asks no §191 page transcript (neither a read window
 reader wanted now) unless `PI_COC_TRANSCRIPTS=1`: the §262.2 blocks already give the reading order the pointer index and
 the release check cite, and each transcript was a model call per page. A page's preferred text falls back to its native
 text as before when no transcript exists.
+
+### 263.12 No scene exhibits read under pointer reading (amends §257.15)
+
+Under lean reading `table.open` and an arrival queue no `material: "exhibits"` read unless `PI_COC_SCENE_EXHIBITS=1`:
+the scene's released book words (§263.5) are what the author is handed for what is perceived there, and the exhibits read was
+a full detail reader per scene (Blood Road's opening anchor: about 130K tokens). Exhibits already in a graph keep working;
+`lookup source prepare material: "exhibits"` still asks one on the Keeper's request.
+
+### 263.13 Reasoning level of pointer calls
+
+The pointer index's sections, the release check's batches and the cast's play-language names run at
+`PI_COC_POINTER_THINKING` (default `low`) whatever the table's level: their answers are ids, closed words and short lines,
+and at the table's level the model's reasoning filled the output bound (Blood Road, medium: 8 of 34 calls stopped at 8192
+output tokens).
