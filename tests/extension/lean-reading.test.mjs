@@ -83,7 +83,8 @@ test('§262.4: verdicts are read per known ref once, with a closed verdict',()=>
 });
 
 test('§262.5: sections start at bookmarks and split at a page when a section passes the token bound',()=>{
- const sections=lean.skeletonSections(10,[{name:'Intro',page:1,children:[]},{name:'Town',page:4,children:[{name:'Inn',page:6}]}],page=>page===7?11000:3000);
+ const sections=lean.skeletonSections(10,[{name:'Intro',page:1,children:[]},{name:'Town',page:4,children:[{name:'Inn',page:6}]}],page=>page===7?5500:1500);
+ // §263.3: the bound is about 6K tokens per section.
  assert.deepEqual(sections.map(row=>[row.name,row.first,row.last]),[['Intro',1,3],['Town',4,5],['Inn',6,6],['Inn',7,7],['Inn',8,10]]);
  assert.deepEqual(lean.skeletonSections(3,[],()=>1).map(row=>[row.first,row.last]),[[1,3]]);
 });

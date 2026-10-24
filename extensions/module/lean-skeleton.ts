@@ -14,7 +14,7 @@ import { roughTokens, SOURCE_LAYOUT_VERSION, type SourceBlocksPage } from "./sou
 import { blockPage, refFromQuote, refKey, type SourceRef } from "./source-refs.ts";
 
 type Row = Record<string, any>;
-export const SKELETON_BOUNDS = { sectionTokens: 12000, requests: 1, concurrency: 3 } as const;
+export const SKELETON_BOUNDS = { sectionTokens: 6000, requests: 1, concurrency: 4 } as const;
 /** The merged skeleton's shape; a kept skeleton of another version is merged again from its kept section answers. */
 export const SKELETON_VERSION = 4;
 const LISTS = ["cross_references", "conditional_events", "keeper_truth"] as const;
@@ -269,10 +269,28 @@ export async function buildSkeleton(context: SkeletonContext): Promise<Row> {
 			brief: `Section: ${JSON.stringify(section)}\nBlocks:\n${JSON.stringify(sectionBlocks)}\n\nAnswer with the JSON object now.` });
 		context.record({ lane: "reading", phase: "skeleton", module_id: context.moduleId, section: section.name, first: section.first, last: section.last,
 			ms: call.outcome.ms, ok: call.outcome.ok, ...(call.outcome.usage ? { usage: call.outcome.usage } : {}), ...(call.outcome.refusal ? { refusal: call.outcome.refusal } : {}) });
-		const parsed = call.json;
-		if (!parsed) { results[index] = { section, status: "failed", ...(call.outcome.usage ? { usage: call.outcome.usage } : {}) }; return; }
+		let parsed = call.json;
+		let usage = call.outcome.usage;
+		// §263.3: an answer that did not fit one reply is asked once more as two halves of the section's blocks.
+		if (!parsed && sectionBlocks.length > 1) {
+			const halves = [sectionBlocks.slice(0, Math.ceil(sectionBlocks.length / 2)), sectionBlocks.slice(Math.ceil(sectionBlocks.length / 2))];
+			const parts: Row[] = [];
+			for (const [i, half] of halves.entries()) {
+				const sub = join(dir, `half-${i + 1}`);
+				await mkdir(sub, { recursive: true });
+				const again = await singleCall(runtime, { cwd: sub, model: context.model, systemPrompt, signal, shared: context.shared,
+					brief: `Section: ${JSON.stringify(section)}\nBlocks:\n${JSON.stringify(half)}\n\nAnswer with the JSON object now.` });
+				context.record({ lane: "reading", phase: "skeleton", module_id: context.moduleId, section: section.name, half: i + 1, ms: again.outcome.ms, ok: again.outcome.ok,
+					...(again.outcome.usage ? { usage: again.outcome.usage } : {}) });
+				if (again.json) parts.push(again.json);
+			}
+			if (parts.length === 2) parsed = Object.fromEntries(["mentions", "cross_references", "conditional_events", "keeper_truth", "protected_facts", "release_candidates", "continuations"]
+				.map(key => [key, parts.flatMap(part => Array.isArray(part[key]) ? part[key] : [])]).concat([["language", parts[0]!.language]]));
+			usage = undefined;
+		}
+		if (!parsed) { results[index] = { section, status: "failed", ...(usage ? { usage } : {}) }; return; }
 		await writeFile(join(dir, "skeleton.json"), JSON.stringify(parsed));
-		results[index] = { section, status: "indexed", answer: groundMentions(sectionAnswer(parsed, ids), sectionBlocks), ...(call.outcome.usage ? { usage: call.outcome.usage } : {}) };
+		results[index] = { section, status: "indexed", answer: groundMentions(sectionAnswer(parsed, ids), sectionBlocks), ...(usage ? { usage } : {}) };
 	};
 	let next = 0;
 	await Promise.all(Array.from({ length: Math.min(SKELETON_BOUNDS.concurrency, sections.length) }, async () => {

@@ -41,4 +41,6 @@ book spells them:
 - `continuations`: pairs of blocks where the second carries on the first's text across a page or an image-only page
   (for example a person's description that resumes after two map pages). Only when the text clearly runs on.
 
-Keep every line short. A section with nothing for a list leaves it empty.
+Write every `hint`, `summary` and `reveal` in English, under 20 words, even when the book is in another language;
+names stay as the book prints them. Keep the answer compact: it must fit in one reply. A section with nothing for a list
+leaves it empty.

@@ -52493,6 +52493,8 @@ The §262.5 section readers also write, for their section only and with block id
   out (`reveal`, one short line).
 - `continuations` (263.2).
 
+Each section is one tool-free call (`singleCall`, at most one request) over at most about 6K tokens of blocks, four at a time; an answer that does not parse (it did not fit one reply) is asked once more as two halves of the section's blocks, and the halves' lists are joined. Summaries, hints and reveals are English.
+
 `keeper_truth` and `conditional_events` are unchanged. The host keeps an entry only when its blocks are the section's,
 a candidate only when its quote makes a ref, and merges into `skeleton.json` (`version: 4`): `release_candidates` with
 `ref` (263.1), `entity` (the merged entity's name) and `kind`; `protected_facts` with `id` (`pf-<first 12 hex of the digest
