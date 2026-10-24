@@ -52792,6 +52792,14 @@ default now reads the move's own `travel_band`: `adjacent` or no band, the activ
 first place the active scene lies directly inside, else none; `long_travel`, none. An explicit `within`, `null`
 included, and the placement lane's outcome are unchanged.
 
+### 264.15 A short reported meaning (owner 2026-10-24; amends the decision-only v4 contract)
+
+The owner approved, on the table-protocol proposal, that a person may say what no registered constructor says. A new
+constructor `{new:{predicate:"meaning",meaning}}` carries at most 60 characters (`MEANING_MAX`) of reported meaning
+("claims he never saw the boy"); quotation marks are refused so it cannot carry dialogue. It is communication content
+like every other constructor: the author writes the words, and no world fact, knowledge or relationship follows from it.
+Constructors that fit (directions, knowledge_status, service_at …) still come first. The other v4 bans stand.
+
 ## 265. Shopping: the outlet's stock, price and order time are the program's (owner 2026-10-24)
 
 The owner's report: a MiniMax Keeper's long deliberations were mostly about whether a shop had the goods and what they cost. Those answers moved to the kernel; the Keeper picks parameters. Purchase guidance that lived in other packages moved with them, so the problem has one home. Amends §58 ("the kernel does not price anything itself") for goods bought at an outlet while this package is active; every other cash path is unchanged.
