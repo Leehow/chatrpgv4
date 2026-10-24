@@ -29,11 +29,13 @@ const to=Type.Array(ref,{minItems:1,maxItems:16,uniqueItems:true});
 /** §260.2: what the person visibly does this moment, as direction for the author; never a settled change. */
 /** §258.9-§258.10: `aside` is said so only `to` hear it; `phone` and `letter` reach `to` from wherever the speaker is. Omitted, everyone present hears. */
 const channel=Type.Optional(StringEnum(['speech','aside','phone','letter']));
+/** Who caught an aside: people present the Keeper rolled Listen for this turn and who passed; the kernel keeps only those passes. */
+const overheard_by=Type.Optional(Type.Array(Type.String({pattern:'^npc_[1-9][0-9]*$',maxLength:32}),{minItems:1,maxItems:8,uniqueItems:true,description:'With channel aside: people present who caught the words, each after their own passed Listen roll this turn; nobody else heard'}));
 const beat=Type.Optional(Type.String({minLength:1,maxLength:120,pattern:'\\S',description:'What they visibly do now; behavior only, never words or a settled change'}));
 export const Interaction=Type.Union([
  closed({actor,act:Type.Literal('silent'),to:Type.Optional(to),beat}),
- closed({actor,to,act:StringEnum(['greet','refuse','acknowledge']),content:Type.Optional(Type.Array(CommunicationContent,{minItems:1,maxItems:8})),channel,beat}),
- closed({actor,to,act:StringEnum(['answer','ask','offer','clarify','report','warn']),content:Type.Array(CommunicationContent,{minItems:1,maxItems:8}),channel,beat})
+ closed({actor,to,act:StringEnum(['greet','refuse','acknowledge']),content:Type.Optional(Type.Array(CommunicationContent,{minItems:1,maxItems:8})),channel,overheard_by,beat}),
+ closed({actor,to,act:StringEnum(['answer','ask','offer','clarify','report','warn']),content:Type.Array(CommunicationContent,{minItems:1,maxItems:8}),channel,overheard_by,beat})
 ]);
 export type InteractionDecision=Static<typeof Interaction>;
 export type HydratedInteraction=InteractionDecision&{claims?:Row[]};

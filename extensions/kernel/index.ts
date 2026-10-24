@@ -4703,10 +4703,16 @@ export default function (pi: ExtensionAPI, host: {capabilities?:RuntimeCapabilit
 		state.firstSight.start(turn, items, async () => {
 			if (signal.aborted) return;
 			const result = await firstSightLane.check({ turn, prose, ...(earlier ? { earlier } : {}), items }, signal);
-			if (!result.ok || !result.items.length || signal.aborted) return;
+			if (!result.ok || signal.aborted) return;
+			// What the check carried but could not judge counts a try on the kernel's ledger, so an item the lane never
+			// confirms stops being owed instead of being written out again every turn.
+			const judged = new Set(result.items.map((item) => `${item.kind}:${item.id}`));
+			const unconfirmed = items.filter((item) => !judged.has(`${item.kind}:${item.id}`)).map((item) => ({ kind: item.kind, id: item.id }));
+			if (!result.items.length && !unconfirmed.length) return;
 			try {
 				await kernel.call("table.first_sight", { campaign, turn,
-					items: result.items.map((item) => ({ id: item.id, kind: item.kind, missing: item.missing })) });
+					items: result.items.map((item) => ({ id: item.id, kind: item.kind, missing: item.missing })),
+					...(unconfirmed.length ? { unconfirmed } : {}) });
 			} catch (error) {
 				await record({ lane: "first-sight", event: "recorded", ok: false, turn, reason: "kernel_refused",
 					code: isKernelError(error) ? error.code : "internal", detail: (error instanceof Error ? error.message : String(error)).slice(0, 200) });
@@ -5988,7 +5994,7 @@ export default function (pi: ExtensionAPI, host: {capabilities?:RuntimeCapabilit
             try{agreements=(compiled.agreements??[]).map(mark=>materialOwner.agreement(mark));}
             catch(error){throw new KernelError({code:'invalid_params',message:error instanceof Error?error.message:String(error),details:{reason:'decision_material_binding',transaction_state:'uncommitted'}});}
             selections=hydrated.responses.flatMap((response,index)=>response.act==='silent'||!isNpcReference(response.actor)?[]
-                :[{actor:response.actor,act:response.act,to:response.to??[],items:hydrated.units[index]??[],...('channel' in response&&response.channel?{channel:response.channel}:{})}]);
+                :[{actor:response.actor,act:response.act,to:response.to??[],items:hydrated.units[index]??[],...('channel' in response&&response.channel?{channel:response.channel}:{}),...('overheard_by' in response&&Array.isArray(response.overheard_by)&&response.overheard_by.length?{overheard_by:[...response.overheard_by]}:{})}]);
             // The single author renders the settled scene; departure targets are still owed, not checked against this prose.
             state.firstSight.take(state.turn);
             const sightView=firstSightView(state,current,state.turn) as Record<string,any>,sight=sightView.first_sight??{};

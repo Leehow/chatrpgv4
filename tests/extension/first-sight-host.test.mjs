@@ -59,7 +59,9 @@ test("the opening's first sight is checked after delivery, in the background, an
 	const [recorded] = await waitFor(() => calls(table, "table.first_sight").length && calls(table, "table.first_sight"), { label: "table.first_sight" });
 	assert.deepEqual(recorded.params, { campaign: "test-camp", turn: 0, items: [
 		{ id: "fs-esso-station", kind: "place", missing: ["两台旧加油机仍可用", "香烟贩卖机手写“故障”"] },
-		{ id: "fs-lars", kind: "person", missing: [] }] });
+		{ id: "fs-lars", kind: "person", missing: [] }],
+		// The person the check could not judge counts a try, so a lane that never confirms them stops owing them (app, 2026-10-23).
+		unconfirmed: [{ kind: "person", id: "fs-nate" }] });
 	const row = await waitFor(() => table.telemetry().find((entry) => entry.lane === "first-sight" && entry.ok === true), { label: "lane row" });
 	assert.deepEqual([row.turn, row.items, row.shown, row.missing, row.unanchored, row.model], [0, 3, 1, 1, 1, "firstsight/f1"]);
 });
