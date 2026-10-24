@@ -36,10 +36,6 @@ test('an active location provider has one party-movement constructor while base 
  assert.equal(Errors(active,observation).length,0);
 });
 
-test('a required current scene assessment reports its constructor rather than an opaque contains error',()=>{
- assert.throws(()=>turnPacket(JSON.stringify({version:4,commands:[]}),turnPacketParameterSchema(false,undefined,undefined,true)),error=>{
-  assert.match(error.message,/kind.*scene.*service.*crowd/);
-  assert.ok(error.fields.some(field=>field.includes('scene')));
-  return true;
- });
+test('§264.29: an unassessed current scene is not demanded; an empty packet is accepted',()=>{
+ assert.doesNotThrow(()=>turnPacket(JSON.stringify({version:4,commands:[]}),turnPacketParameterSchema(false,undefined,undefined,true)));
 });

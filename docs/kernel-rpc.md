@@ -52918,6 +52918,12 @@ refusal, since what is missing depends on the action; a creature keeps the catal
 dice of its own ignores declared bonus or penalty dice (`adjusted` `decision_rolls_no_dice`); a social modifier without
 a reason is recorded as "(no reason given)".
 
+### 264.29 A scene assessment is never demanded
+
+The output schema no longer requires a `scene` command when the current scene is unassessed or its assessment has
+expired; left out, it is recorded as unknown, as §250.1 already did for an arrival. A whole packet at a new farmhouse had
+been refused for it (Cold Harvest, 2026-10-24).
+
 ## 265. Shopping: the outlet's stock, price and order time are the program's (owner 2026-10-24)
 
 The owner's report: a MiniMax Keeper's long deliberations were mostly about whether a shop had the goods and what they cost. Those answers moved to the kernel; the Keeper picks parameters. Purchase guidance that lived in other packages moved with them, so the problem has one home. Amends §58 ("the kernel does not price anything itself") for goods bought at an outlet while this package is active; every other cash path is unchanged.

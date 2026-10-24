@@ -239,8 +239,9 @@ export function turnPacketParameterSchema(journeySettled=false,timeBands?:readon
         ...(group.via?{via:atom()}:{}),...(group.bands?{travel_band:StringEnum(group.bands)}:{})},{additionalProperties:false}));
     const issuedNpc=Type.Object({...npc.properties,to:StringEnum(turnPacketNpcDestinations(moveChoices))},{additionalProperties:false});
     const boundedTime=timeBands?.length?Type.Object({...time.properties,band:Type.Optional(StringEnum([...timeBands]))},timeOptions):time;
-    const assessment={contains:scene,minContains:1};
-    const stationary=sceneRequired?assessment:{};
+    // §264.29: an unassessed scene is recorded as unknown when the packet leaves it out (the guidance always said so); the
+    // schema no longer demands the assessment, which refused a whole packet at a new farmhouse (Cold Harvest, 2026-10-24).
+    const stationary={};
     const local=locations?placeStationary.map(command=>command.properties.action.const==='observe'?Type.Omit(command,['relations'],{additionalProperties:false}):command):[],journey=locations?[placeMove]:[];
     const arrivedFields={kind:Type.Literal('place'),action:Type.Literal('move'),to:Type.Literal('here'),
         relation:PlaceEffect.anyOf[0].properties.relation,additions:PlaceEffect.anyOf[0].properties.additions};
@@ -248,7 +249,6 @@ export function turnPacketParameterSchema(journeySettled=false,timeBands?:readon
         Type.Object({...arrivedFields,spot:Type.String({...PlaceEffect.anyOf[0].properties.spot})},{additionalProperties:false})];
     if(journeySettled)schema.properties.commands=Type.Array(Type.Union([...(locations?arrivedLocal:[]),...local,issuedNpc,walkOn,scene,relationship,agreement]),{maxItems:12,...stationary});
     else schema.properties.commands=Type.Union([Type.Array(Type.Union([...issuedMoves,...journey,boundedTime,...local,issuedNpc,walkOn,scene,relationship,agreement]),{maxItems:16,...stationary})]);
-    if(sceneRequired)schema.required=[...new Set([...(schema.required??[]),'commands'])];
     return locations&&ownerView?locationCommandOwner(schema as TSchema):schema as TSchema;
 }
 /** Install the current execution contract after either supported provider conversion. */

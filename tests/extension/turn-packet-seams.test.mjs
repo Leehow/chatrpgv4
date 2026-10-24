@@ -19,7 +19,7 @@ test('explicit selected minutes survive every native entrance without selecting 
  assert.doesNotThrow(()=>turnPacket(JSON.stringify({...packet,commands:[travel,command]})),'§250: time beside a move is always additional');
 });
 
-test('issued output schema declares movement and stale-scene assessment before generation',()=>{
+test('issued output schema declares movement; a scene assessment is never demanded (§264.29)',()=>{
  const payload={tools:[{name:'output',input_schema:TURN_PACKET_PARAMETERS}]};
  const choices=[{kind:'move',to:'Library',via:'Main Street'}];
  const schema=(required)=>turnPacketParameterSchema(false,[],choices,required);
@@ -28,7 +28,7 @@ test('issued output schema declares movement and stale-scene assessment before g
  assert.equal(Errors(schema(false),packet([movement])).length,0,'§250: an unassessed arrival is valid and recorded as unknown');
  assert.equal(Errors(schema(false),packet([movement,assessment])).length,0);
  assert.equal(Errors(schema(false),packet([])).length,0,'valid stationary scene needs no new assessment');
- assert.ok(Errors(schema(true),packet([])).length,'stale stationary scene requires assessment');
+ assert.equal(Errors(schema(true),packet([])).length,0,'§264.29: a stale stationary scene left unassessed is recorded as unknown, not refused');
  assert.equal(Errors(schema(true),packet([assessment])).length,0);
  assert.equal(payload.tools[0].input_schema,TURN_PACKET_PARAMETERS,'never mutate the static tool declaration');
 });
