@@ -31,7 +31,8 @@ import {leanEligible, runLeanDetail, sourceBlocksFor} from './lean-read.ts';
 import {approvedPassages, checkReleases, evidenceInScope, passagesInScope, plansInScope, releasePath, withForms} from './release-check.ts';
 import {readFileSync, statSync} from 'node:fs';
 import {SKELETON_VERSION} from './lean-skeleton.ts';
-import {LEAN_MAP_REQUESTS, answerPages, buildSkeleton, castPlayNames, castDraftFromSkeleton, leanCrossReferences, samePrimaryLanguage, skeletonDigest, skeletonIndexRows, skeletonPath, LEAN_ANSWER_ASK, LEAN_ANSWER_REQUESTS} from './lean-skeleton.ts';
+import {BOOK_PAGES_NOTE, PAGE_BOUNDS, bookContents, contentsLines, firstLines, focusInPageMode, inPageMode, requestedPages, type ContentsRow} from './page-mode.ts';
+import {LEAN_MAP_REQUESTS, partialSkeletonPath, answerPages, buildSkeleton, castPlayNames, castDraftFromSkeleton, leanCrossReferences, samePrimaryLanguage, skeletonDigest, skeletonIndexRows, skeletonPath, LEAN_ANSWER_ASK, LEAN_ANSWER_REQUESTS} from './lean-skeleton.ts';
 import {acceptedGuidance,acceptedPublicGuidance} from './character-guidance.ts';
 import {validateReferencePacket} from '../../kernel-ts/modules/reference-contract.ts';
 import {readNeedReceipt,type NeedReceipt} from '../../runtime/jev/source-need-reads.ts';
@@ -470,6 +471,8 @@ export class ReadingService implements ReadingBridge {
 			const source = await this.call("module.source.snapshot", { module_id: mid }, campaign);
 			if (source.window) return;
 			this.books.set(mid, { sha: source.file_sha256, cache: join(dirname(source.pdf), "cache") });
+			// §266.3: the book's contents, from its bookmarks or its pages' first lines; built once per document.
+			if (!this.contents.has(source.file_sha256)) this.contents.set(source.file_sha256, this.buildContents(source).catch(() => []));
 			if (this.skeletons.has(source.file_sha256)) return this.skeletons.get(source.file_sha256);
 			const controller = new AbortController(), key = `skeleton:${source.file_sha256}`;
 			this.controllers.set(key, controller);
@@ -499,6 +502,83 @@ export class ReadingService implements ReadingBridge {
 	/** §263.5: the bound books this host indexed, by module: the document hash and its block cache. */
 	private books = new Map<string, { sha: string; cache: string }>();
 	private bookCache = new Map<string, { stamp: string; rows: Row[] }>();
+	/** §266.3: the contents of the documents this host indexed, by file hash. */
+	private contents = new Map<string, Promise<ContentsRow[]>>();
+	private contentsReady = new Map<string, ContentsRow[]>();
+	private async buildContents(source: Row): Promise<ContentsRow[]> {
+		const cache = join(dirname(source.pdf), "cache");
+		const info = await this.runtime().sourceInfo({ pdf: source.pdf, cache: join(cache, "pages") });
+		let stored: Row | undefined;
+		const marks = Array.isArray(info?.bookmarks) ? info.bookmarks : [];
+		const rows = bookContents(marks, source.page_count, page => firstLines(stored)(page));
+		if (rows.length) { this.contentsReady.set(source.file_sha256, rows); return rows; }
+		// No bookmarks: the pages' first lines, from the block cache (asking the source worker for the pages it lacks).
+		const pages = Array.from({ length: source.page_count }, (_, i) => i + 1);
+		const byPage = await sourceBlocksFor(this.runtime(), { path: source.pdf, file_sha256: source.file_sha256 }, pages, cache);
+		stored = { pages: Object.fromEntries([...byPage].map(([page, row]) => [page, row])) };
+		const lined = bookContents([], source.page_count, page => firstLines(stored)(page));
+		this.contentsReady.set(source.file_sha256, lined);
+		return lined;
+	}
+	/** §266.3: a module's contents (built when it is not yet). */
+	async bookContentsOf(mid: string, campaign: string | undefined): Promise<ContentsRow[]> {
+		const source = await this.call("module.source.snapshot", { module_id: mid }, campaign);
+		if (!this.contents.has(source.file_sha256)) this.contents.set(source.file_sha256, this.buildContents(source).catch(() => []));
+		return this.contents.get(source.file_sha256)!;
+	}
+	private indexCache = new Map<string, { stamp: string; skeleton: Row }>();
+	/** §266.1–§266.2: a module's pointer index as play reads it: the merged skeleton, else the partial one; undefined when neither. */
+	private pointerIndex(mid: string | undefined): Row | undefined {
+		if (process.env.PI_COC_LEAN_READING !== "1" || !mid) return undefined;
+		const book = this.books.get(mid);
+		if (!book) return undefined;
+		for (const file of [skeletonPath(this.deps.home, book.sha), partialSkeletonPath(this.deps.home, book.sha)]) {
+			try {
+				const stamp = `${file}:${statSync(file).mtimeMs}`, cached = this.indexCache.get(mid);
+				if (cached?.stamp === stamp) return cached.skeleton;
+				const skeleton = JSON.parse(readFileSync(file, "utf8"));
+				this.indexCache.set(mid, { stamp, skeleton });
+				return skeleton;
+			} catch { /* not written yet */ }
+		}
+		return undefined;
+	}
+	/** §266.1: whether pages (or, with no pages, a focus) of a module are in page mode; false when lean reading is off. */
+	pageMode(mid: string | undefined, query: { pages?: number[]; focus?: string }): boolean {
+		if (process.env.PI_COC_LEAN_READING !== "1" || !mid) return false;
+		const skeleton = this.pointerIndex(mid);
+		if (query.pages?.length) return inPageMode(skeleton, query.pages);
+		return typeof query.focus === "string" && query.focus.trim() ? focusInPageMode(skeleton, query.focus) : inPageMode(skeleton, []);
+	}
+	/**
+	 * §266.4: the book's pages the Keeper turns: named pages, a contents section's pages, the lean answer for a query, or the
+	 * contents. Keeper-only; the host cuts every word from the book's own text.
+	 */
+	async bookPages(mid: string, params: Row, signal?: AbortSignal): Promise<Row> {
+		const campaign = this.campaign(params);
+		const snapshot = await this.call("module.source.snapshot", { module_id: mid }, campaign);
+		const contents = await this.bookContentsOf(mid, campaign);
+		const { pages, section } = requestedPages(contents, params, snapshot.page_count);
+		if (!pages.length && typeof params.focus === "string" && params.focus.trim() && params.section === undefined && params.pages === undefined)
+			return this.leanAnswer(mid, params, signal);
+		if (!pages.length) {
+			this.note({ lane: "reading", event: "book_pages", module_id: mid, campaign, pages: [], contents: contents.length });
+			const asked = typeof params.section === "string" ? `No contents row matches ${params.section}. ` : "";
+			return { state: "ready", source_answer: { status: "contents", authority: "original-source-excerpts", prepared: false, source_sha256: snapshot.file_sha256,
+				answer: `${asked}The book's contents (physical pages):\n${contentsLines(contents, PAGE_BOUNDS.contents).join("\n")}`,
+				contents: contents.slice(0, PAGE_BOUNDS.contents), excerpts: [], source_refs: [], coverage: { partial: true, visual: "unassessed", unavailable_pages: [] },
+				note: "The host's contents of the book (its bookmarks, or each page's first line), not a generated answer. Turn pages with pages or section." } };
+		}
+		const texts = await this.sourcePages(mid, pages, { ...(campaign === undefined ? { campaign: null } : { campaign }) }, signal);
+		const excerpts = texts.filter(row => row.text.trim()).map(row => { const text = row.text.slice(0, PAGE_BOUNDS.chars); return { id: `page-${row.page}`, page: row.page, start: 0, end: text.length, text }; });
+		this.note({ lane: "reading", event: "book_pages", module_id: mid, campaign, pages: excerpts.map(row => row.page), ...(section ? { section: section.name } : {}) });
+		return { state: "ready", source_answer: { status: "excerpts", authority: "original-source-excerpts", prepared: false, source_sha256: snapshot.file_sha256,
+			// The pages' text rides once, in excerpts, unpaged: a turned page is read whole.
+			answer: excerpts.length ? `Original physical pages ${excerpts.map(span => span.page).join(", ")} are in excerpts, in page order.` : `Pages ${pages.join(", ")} carry no text (image-only pages).`,
+			excerpts, source_refs: excerpts.map(span => ({ source_id: "pdf:" + mid, pdf_index: span.page - 1 })),
+			coverage: { partial: true, visual: "unassessed", unavailable_pages: pages.filter(page => !excerpts.some(span => span.page === page)) },
+			note: "Exact original pages the host cut from the book, not a generated answer. A page may hold Keeper-only material. Do not infer whole-book absence or overwrite table canon." } };
+	}
 	/**
 	 * §263.5: the approved book passages of a module in scope for this capsule, sliced from the host's blocks. Read
 	 * synchronously from the release file (re-read when it changes); an unindexed book has none.
@@ -532,7 +612,12 @@ export class ReadingService implements ReadingBridge {
 		const book = this.books.get(mid);
 		if (!book) return [];
 		try {
-			const file = skeletonPath(this.deps.home, book.sha), stamp = String(statSync(file).mtimeMs);
+			const skeleton = this.pointerIndex(mid);
+			// §266.5: while the index does not cover the whole book, the Keeper is told to turn the pages it lacks.
+			const pagesRow = skeleton?.complete === true ? [] : [{ kind: "book_pages", note: BOOK_PAGES_NOTE,
+				contents: contentsLines(this.contentsReady.get(book.sha) ?? [], PAGE_BOUNDS.noteContents) }];
+			if (!skeleton) return pagesRow;
+			const stamp = this.indexCache.get(mid)?.stamp ?? "";
 			let cached = this.planCache.get(mid);
 			if (!cached || cached.stamp !== stamp) {
 				let blocks: Map<string, { id: string; text: string }> | undefined;
@@ -541,13 +626,13 @@ export class ReadingService implements ReadingBridge {
 					blocks = new Map();
 					for (const page of Object.values(stored.pages ?? {}) as Row[]) for (const block of page.blocks ?? []) blocks.set(block.id, { id: block.id, text: block.text });
 				} catch { /* no block cache yet */ }
-				cached = { stamp, skeleton: JSON.parse(readFileSync(file, "utf8")), blocks };
+				cached = { stamp, skeleton, blocks };
 				this.planCache.set(mid, cached);
 			}
 			const plans = plansInScope(cached.skeleton, capsule);
 			// §263.10: the bounded evidence window rides with the plans as Keeper-only rows.
 			const evidence = cached.blocks ? evidenceInScope(cached.skeleton, cached.blocks, capsule) : [];
-			return [...plans, ...evidence.map(row => ({ kind: "evidence", ...row }))];
+			return [...plans, ...evidence.map(row => ({ kind: "evidence", ...row })), ...pagesRow];
 		} catch { return []; }
 	}
 	private planCache = new Map<string, { stamp: string; skeleton: Row; blocks?: Map<string, { id: string; text: string }> }>();
@@ -968,6 +1053,8 @@ export class ReadingService implements ReadingBridge {
 			const lean = await this.leanCast(mid, campaign, owned, ranges, record, signal).catch(error => {
 				record({ event: 'lean_cast_unavailable', message: error instanceof Error ? error.message : String(error) }); return undefined; });
 			if (lean) return lean;
+			// §266.6: under lean reading the cast reader never runs; with no skeleton the cast waits for a later table open.
+			if (process.env.PI_COC_LEAN_READING === "1") { record({ event: 'lean_cast_deferred', ms: Date.now() - started }); return { state: 'unavailable', reason: 'page_mode' }; }
 			const systemPrompt = await readFile(join(this.runtime().contentRoot, 'setup', 'module-cast.md'), 'utf8');
 			const model = this.deps.model();
 			let result: Row = { state: 'partial' };
@@ -1037,9 +1124,12 @@ export class ReadingService implements ReadingBridge {
 		const texts = pages.length ? await this.sourcePages(mid, pages, { ...(campaign === undefined ? { campaign: null } : { campaign }) }, signal) : [];
 		const excerpts = texts.filter(row => row.text.trim()).map(row => { const text = row.text.slice(0, 3500); return { id: `page-${row.page}`, page: row.page, start: 0, end: text.length, text }; });
 		this.note({ lane: "reading", event: "lean_answer", module_id: mid, campaign, focus, pages: excerpts.map(row => row.page) });
+		// §266.4: nothing found answers the book's contents, so the Keeper can turn the pages it means.
+		const contents = excerpts.length ? [] : await this.bookContentsOf(mid, campaign).catch(() => [] as ContentsRow[]);
 		return { state: "ready", source_answer: { status: "excerpts", authority: "original-source-excerpts", prepared: false, source_sha256: snapshot.file_sha256,
 			answer: excerpts.length ? excerpts.map(span => `[Original physical page ${span.page}]\n${span.text}`).join("\n\n")
-				: `The book's index and text search found no page for ${focus}. Play on from published material and established table facts.`,
+				: `The book's index and text search found no page for ${focus}. Play on from published material and established table facts`
+					+ (contents.length ? `, or turn the pages you mean with lookup kind=source source_mode=pages. The book's contents (physical pages):\n${contentsLines(contents, PAGE_BOUNDS.answerContents).join("\n")}` : "."),
 			excerpts, source_refs: excerpts.map(span => ({ source_id: "pdf:" + mid, pdf_index: span.page - 1 })),
 			coverage: { partial: true, visual: "unassessed", unavailable_pages: [] },
 			note: "Exact original pages the host sliced for this focus (its skeleton index and a text search), not a generated answer. Read them for what was asked; a page may hold Keeper-only material. Do not infer whole-book absence or overwrite table canon." } };
@@ -1504,6 +1594,12 @@ export class ReadingService implements ReadingBridge {
 							break;
 						}
 						this.blockedClaims.delete(scope);
+						// §266.6: a lean detail reading of pages the pointer index does not cover is handed back: the Keeper turns those pages.
+						if (leanEligible(job) && this.pageMode(mid, { pages: Array.isArray(job.pages) ? job.pages : [] })) {
+							this.note({ lane: "reading", event: "page_mode_skip", module_id: mid, campaign, job_id: job.job_id, focus: job.focus ?? "", pages: job.pages ?? [], foreground: job.foreground === true });
+							await this.call("module.read.finish", { module_id: mid, job_id: job.job_id, lease: job.lease, outcome: "cancelled", detail: "page_mode" }, campaign).catch(() => undefined);
+							continue;
+						}
 						// §262.1: past the reading cap a background job is handed back cancelled; a foreground one still runs.
 						if (job.foreground !== true && this.capReached(mid, campaign)) {
 							await this.call("module.read.finish", { module_id: mid, job_id: job.job_id, lease: job.lease, outcome: "cancelled", detail: "reading_cap" }, campaign).catch(() => undefined);

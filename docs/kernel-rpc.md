@@ -52864,3 +52864,68 @@ A cash effect (apply, or `narrate.quotes`) may carry the same `shop` object, plu
 ### 265.6 Packages
 
 Shopping 1.0.0 sections: `Buying at an outlet` (new; topics money and new_thing, before a cash apply), `Services beyond routine` (moved unchanged from Quick Settlement 1.2.1, which becomes 1.3.0), `Prices without a printed record` and `A disputed price` (moved unchanged from Historical Reference 1.3.0, the first renamed from `Prices`; Historical Reference becomes 1.4.0).
+
+## 266. Page mode: the Keeper turns the book's pages where the pointer index does not reach (owner 2026-10-24; amends §262, §263)
+
+Owner thread 2026-10-24: reading on demand has two modes. Where the pointer index (§263.3) covers a page, play reads the
+index (released words, book truth, evidence window). Where it does not -- the index is still being built, a section of it
+failed, a page was refused -- the Keeper turns the book's pages itself: the host cuts the pages it names from the book's
+own text, and no model reads the book for it. A table opens without waiting for the index, the index takes over section by
+section as it lands, and a broken section costs only that section. Page mode never opens a reader session: a reader
+re-reading pages on demand is the loop §263 removed. Everything here runs under lean reading (§262) only.
+
+### 266.1 Which mode a page is in
+
+A page is *indexed* when the document's merged skeleton (§262.5), or failing that its partial skeleton (266.2), lists a
+section that covers it with `status: "indexed"` and does not list the page in `blocked_pages`. Any other page is in page
+mode, and so is every page of a book whose skeleton this host has not started. A set of pages is in page mode when one of
+them is; an empty set is in page mode while the skeleton is not `complete`. A focus (a scene's or a person's name) takes the
+pages `answerPages` gives it from the skeleton; a focus the skeleton does not name is in page mode while the skeleton is
+not `complete`.
+
+### 266.2 The partial skeleton
+
+`buildSkeleton` writes `<home>/source-skeletons/<sha>-partial.json` after each section it finishes: the §262.5 merge of the
+sections finished so far (`partial: true`, `complete: false`, the other sections absent). The merged skeleton supersedes it.
+The book truth and evidence window (§263.10) read the merged skeleton, else the partial one, so the sections that landed
+are in front of the Keeper before the whole book is indexed. Released words (§263.5) still wait for the release check,
+which runs on the merged skeleton.
+
+### 266.3 The book's contents
+
+The host's contents of a document: the PDF's bookmarks two levels deep (`{name, first, last}`, `last` the page before the
+next start) when there are at least two; otherwise one row per text page, `{name, first, last}` with `name` the first
+80 characters of the page's first layout block (§262.2). Rows are in page order. No model writes them.
+
+### 266.4 `lookup kind=source source_mode=pages`
+
+Turns pages. Parameters: `pages` (physical page numbers, at most 3), or `section` (a contents row's name, matched by
+normalised spelling, equal or containing, the first match), or neither. With pages or a section the host answers the
+§262.9 envelope (`authority: "original-source-excerpts"`) with those pages (a section's first three), each its first
+4000 characters of preferred page text, once, in `excerpts` and unpaged (§193.2 paging does not apply: a turned page is
+read whole); with neither, `query` falls back to the §262.9 lean answer, and with no query it
+answers the contents (`contents: [{name, first, last}]`, at most 120 rows). `query` is optional in this mode. Keeper-only:
+excerpts are carried like a lean answer's and never reach the author. Telemetry `{lane: "reading", event: "book_pages",
+pages, section?}`. A §262.9 lean answer that found no page answers the contents (at most 60 rows) with it.
+
+A `lookup kind=source` that prepares (no `source_mode` or `prepare`, no `material`) whose focus is in page mode answers as
+`source_mode: pages` with that focus as `query` instead of queuing a reading.
+
+### 266.5 The Keeper is told it is turning pages
+
+While the skeleton is not `complete`, the §263.10 `book_truth` rows end with one `{kind: "book_pages", note, contents}` row:
+the note says the book's index does not cover everything yet and that `lookup kind=source source_mode=pages` turns pages
+by number or section; `contents` is the contents at most 40 rows, one `p<first>-<last> <name>` line each. The section exists even when no other row does.
+
+### 266.6 No reader in page mode
+
+- A lean detail job (§262.3) whose pages are in page mode is handed back at claim `cancelled` with detail `page_mode`,
+  background or foreground (`{lane: "reading", event: "page_mode_skip", job_id, focus, pages}`). The kernel's queue is
+  unchanged: the same material asked once the index covers it reads as before.
+- A move or a check that lands on the book's text (§22.4.7, §22.4.7.1) for a focus in page mode queues no reading: the pages
+  are carried, the note says they are the book's text and that no further record will land, and the scene reading settles
+  `unavailable` with reason `page_mode`.
+- Under lean reading the cast reader (§177) never runs: with no skeleton the cast answers `{state: "unavailable", reason:
+  "page_mode"}` (`lean_cast_deferred`) and a later table open asks again.
+
+Tests: `tests/extension/page-mode.test.mjs`.

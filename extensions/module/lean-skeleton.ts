@@ -25,7 +25,7 @@ export type SkeletonSection = { name: string; first: number; last: number };
 export const normalName = (name: string): string => name.normalize("NFKC").toLowerCase().replace(/[\s\u00b7\u30fb\u2027\u2022.]/g, "");
 
 /** Bookmarks flattened to their start pages, two levels deep. */
-function starts(bookmarks: unknown, depth = 0): Array<{ name: string; page: number }> {
+export function starts(bookmarks: unknown, depth = 0): Array<{ name: string; page: number }> {
 	if (!Array.isArray(bookmarks) || depth > 1) return [];
 	return bookmarks.flatMap((row: Row) => [...(typeof row?.name === "string" && Number.isSafeInteger(row.page) ? [{ name: row.name.trim(), page: row.page as number }] : []),
 		...starts(row?.children, depth + 1)]);
@@ -208,6 +208,8 @@ export function crossReferencesFor(skeleton: Row, pages: number[]): Row[] {
 
 /** §262.5: where a document's skeleton lives: the owner's home, by the document's hash, shared by the library and its forks. */
 export const skeletonPath = (home: string, sha: string): string => join(home, "source-skeletons", `${sha}.json`);
+/** §266.2: the skeleton of the sections finished so far, superseded by the merged skeleton. */
+export const partialSkeletonPath = (home: string, sha: string): string => join(home, "source-skeletons", `${sha}-partial.json`);
 
 /** §262.3: the cross references of a claimed lean job, from its document's skeleton. */
 export async function leanCrossReferences(job: Row, home: string): Promise<Row[]> {
@@ -319,10 +321,23 @@ export async function buildSkeleton(context: SkeletonContext): Promise<Row> {
 		results[index] = { section, status: "indexed", answer: groundMentions(sectionAnswer(parsed, ids), sectionBlocks), ...(usage ? { usage } : {}),
 			...(blockedPages?.length ? { blocked_pages: blockedPages } : {}) };
 	};
+	// §266.2: the sections finished so far, merged after each one, so play reads them before the whole book is indexed.
+	const partialFile = partialSkeletonPath(context.home, source.file_sha256);
+	let partialWrites = Promise.resolve();
+	const writePartial = () => { partialWrites = partialWrites.then(async () => {
+		const done = results.filter(row => row?.status === "indexed");
+		if (!done.length) return;
+		const partial = { ...mergeSkeleton(done, id => pageOfBlock.get(id) ?? 0, [...blocks].filter(([, row]) => row.image_only).map(([page]) => page), id => textOfBlock.get(id), source.file_sha256),
+			source_sha256: source.file_sha256, partial: true, complete: false };
+		const temp = `${partialFile}.${process.pid}.tmp`;
+		await writeFile(temp, JSON.stringify(partial));
+		await rename(temp, partialFile);
+	}).catch(() => undefined); };
 	let next = 0;
 	await Promise.all(Array.from({ length: Math.min(SKELETON_BOUNDS.concurrency, sections.length) }, async () => {
-		while (next < sections.length) { const index = next++; await one(index, sections[index]!); }
+		while (next < sections.length) { const index = next++; await one(index, sections[index]!); writePartial(); }
 	}));
+	await partialWrites;
 	const merged: Row = { ...mergeSkeleton(results, id => pageOfBlock.get(id) ?? 0, [...blocks].filter(([, row]) => row.image_only).map(([page]) => page), id => textOfBlock.get(id), source.file_sha256),
 		source_sha256: source.file_sha256 };
 	const temp = `${file}.${process.pid}.tmp`;

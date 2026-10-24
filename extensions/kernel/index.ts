@@ -151,6 +151,7 @@ import { PlaceBindings } from "./place-binding.ts";
 import { PendingAnswers, landedFirstAnswer, memoAnswer, pendingAnswer, pendingPrepare, sourceAnswerAllowanceMs, type SourceAnswerScope } from "./source-answers.ts";
 import {sourceAnswerPage} from '../../runtime/jev/source-answer-pages.ts';
 import { PERSON_TEXT_NOTE, SceneReadings, SCENE_TEXT_NOTE } from "./scene-readings.ts";
+import { PAGE_MODE_TEXT_NOTE } from "../module/page-mode.ts";
 import { bookText, CarriedText, findPassage } from "./carried-text.ts";
 import { speechPass } from "../../kernel-ts/write/speech-pass.ts";
 import {
@@ -1705,7 +1706,11 @@ export default function (pi: ExtensionAPI, host: {capabilities?:RuntimeCapabilit
 		reference?(moduleId:string,params:Record<string,unknown>,signal?:AbortSignal,priority?:unknown):Promise<any>;
 		reading?(moduleId: string, params: Record<string, unknown>): boolean;
 		/** §22.4.7 (SL-47): the native text of pages of the module's bound document. */
-		sourcePages?(moduleId: string, pages: number[], params?: Record<string, unknown>, signal?: AbortSignal): Promise<Array<{page: number; pdf_label?: string; text: string}>> } | undefined;
+		sourcePages?(moduleId: string, pages: number[], params?: Record<string, unknown>, signal?: AbortSignal): Promise<Array<{page: number; pdf_label?: string; text: string}>>;
+		/** §266.1: whether pages, or a focus, are outside the pointer index (page mode). */
+		pageMode?(moduleId: string | undefined, query: {pages?: number[]; focus?: string}): boolean;
+		/** §266.4: the book's pages the Keeper turns, cut by the host. */
+		bookPages?(moduleId: string, params: Record<string, unknown>, signal?: AbortSignal): Promise<any> } | undefined;
 	let readingModule: string | undefined;
 	let nativeSource: ((request: {moduleId: string; campaign: string; toolCallId: string; question: string}, signal?: AbortSignal) => Promise<Record<string, any>>) | undefined;
 	pi.events.on('coc:native-source-consult', value => { nativeSource = typeof value === 'function' ? value as typeof nativeSource : undefined; });
@@ -5465,8 +5470,11 @@ export default function (pi: ExtensionAPI, host: {capabilities?:RuntimeCapabilit
 		try { result = (await invoke()) ?? {}; }
 		finally { effects![index as number] = target; }
 		// The scene's reading, blocking and waited on by nobody: the call returns at once, the record lands later.
+		// §266.6: pages the pointer index does not cover queue no reading; their text is all the Keeper gets.
+		const pageMode = reading.pageMode?.(readingModule, { pages }) === true;
 		let settled: Promise<any>;
-		try {
+		if (pageMode) settled = Promise.resolve({ state: "page_mode" });
+		else try {
 			const reply = await reading.ensure(readingModule, { ...read, foreground: true }, undefined, { allowanceMs: 0, blocking: true });
 			settled = reply?.state === "pending" && reply.settled ? reply.settled : Promise.resolve(reply);
 		} catch (error) { settled = Promise.reject(error); }
@@ -5477,9 +5485,9 @@ export default function (pi: ExtensionAPI, host: {capabilities?:RuntimeCapabilit
 		// §11.5.4: on the legacy engine these pages ride this very result, so they are carried now.
 		if (!drivenEngine) carriedText.note(state.campaign, state.turn, carriedPages.map((page) => ({ scene: focus, page: page.page, label: page.pdf_label ?? null, text: page.text })));
 		void record({ lane: "reading", event: "scene_text", turn: state.turn, scene: focus, pages: texts.map((page) => page.page),
-			bytes: Buffer.byteLength(JSON.stringify(carriedPages), "utf8"), ...landingLayer(texts) });
+			bytes: Buffer.byteLength(JSON.stringify(carriedPages), "utf8"), ...landingLayer(texts), ...(pageMode ? { page_mode: true } : {}) });
 		const landed = Array.isArray(result.scene_text) ? result.scene_text as Array<Record<string, unknown>> : [{ scene: focus, pages }];
-		return { ...result, scene_text: landed.map((entry) => ({ ...entry, note: SCENE_TEXT_NOTE,
+		return { ...result, scene_text: landed.map((entry) => ({ ...entry, note: pageMode ? PAGE_MODE_TEXT_NOTE : SCENE_TEXT_NOTE,
 			// On the hybrid engine the pages ride the next note once; the legacy engine has no note, so they ride here.
 			...(!drivenEngine && entry.scene === focus ? { text: carriedPages } : {}) })) };
 	}
@@ -5517,8 +5525,11 @@ export default function (pi: ExtensionAPI, host: {capabilities?:RuntimeCapabilit
 		try { result = (await invoke()) ?? {}; }
 		finally { if(previousLand===undefined)delete payload._land_on_text;else payload._land_on_text=previousLand; }
 		// The person's reading, blocking and waited on by nobody: the call returns at once, the record lands later.
+		// §266.6: a person the pointer index does not cover queues no reading.
+		const pageMode = reading.pageMode?.(readingModule, pages.length ? { pages } : { focus: name }) === true;
 		let settled: Promise<any>;
-		try {
+		if (pageMode) settled = Promise.resolve({ state: "page_mode" });
+		else try {
 			const reply = await reading.ensure(readingModule, { ...read, foreground: true }, undefined, { allowanceMs: 0, blocking: true });
 			settled = reply?.state === "pending" && reply.settled ? reply.settled : Promise.resolve(reply);
 		} catch (error) { settled = Promise.reject(error); }
@@ -5528,9 +5539,9 @@ export default function (pi: ExtensionAPI, host: {capabilities?:RuntimeCapabilit
 		sceneReadings.register(state.campaign, focus, carried, state.turn, settled, name);
 		if (!drivenEngine && carried.length) carriedText.note(state.campaign, state.turn, carried.map((page) => ({ scene: null, page: page.page, label: page.pdf_label ?? null, text: page.text })));
 		void record({ lane: "reading", event: "person_text", turn: state.turn, person: name, focus, pages: (carried.length ? carried : []).map((page) => page.page),
-			source: carried.length ? "index" : "carried", ...(indexed.length ? landingLayer(indexed) : {}) });
+			source: carried.length ? "index" : "carried", ...(indexed.length ? landingLayer(indexed) : {}), ...(pageMode ? { page_mode: true } : {}) });
 		const landed = Array.isArray(result.person_text) ? result.person_text as Array<Record<string, unknown>> : [{ person: name, focus, pages }];
-		return { ...result, person_text: landed.map((entry) => ({ ...entry, note: PERSON_TEXT_NOTE,
+		return { ...result, person_text: landed.map((entry) => ({ ...entry, note: pageMode ? PAGE_MODE_TEXT_NOTE : PERSON_TEXT_NOTE,
 			// On the hybrid engine the pages ride the next note once; the legacy engine has no note, so they ride here.
 			...(!drivenEngine && entry.focus === focus && carried.length ? { text: carried } : {}) })) };
 	}
@@ -6616,12 +6627,33 @@ export default function (pi: ExtensionAPI, host: {capabilities?:RuntimeCapabilit
 				const filters = Object.fromEntries(['line', 'turns', 'about', 'kinds', 'include_superseded'].filter(key => params[key] !== undefined).map(key => [key, params[key]]));
 				memoryAnswer = await memorySearch({campaign: state.campaign, toolCallId, query: String(params.query), filters}, signal);
 			}
-			if (spec.name === 'lookup' && params.source_mode !== undefined && (params.kind !== 'source' || !['answer', 'prepare'].includes(String(params.source_mode))))
-				throw new KernelError({code:'invalid_params', message:'source_mode is answer or prepare, and only applies to source lookup'});
+			if (spec.name === 'lookup' && params.source_mode !== undefined && (params.kind !== 'source' || !['answer', 'prepare', 'pages'].includes(String(params.source_mode))))
+				throw new KernelError({code:'invalid_params', message:'source_mode is answer, prepare or pages, and only applies to source lookup'});
+			if (spec.name === 'lookup' && (params.pages !== undefined || params.section !== undefined) && params.source_mode !== 'pages')
+				throw new KernelError({code:'invalid_params', message:'pages and section only apply to lookup kind=source source_mode=pages'});
 			if (spec.name === 'lookup' && params.answer_part !== undefined && (params.kind !== 'source' || params.source_mode !== 'answer'
 				|| !Number.isSafeInteger(params.answer_part) || Number(params.answer_part) < 0 || params.retry === true))
 				throw new KernelError({code:'invalid_params', message:'answer_part is a nonnegative cached source-answer part and cannot be combined with retry'});
-			if (spec.name === "lookup" && params.kind === "source") {
+			// §266.4: the Keeper turns the book's pages; the host cuts them from the book's own text and no model reads.
+			// §266.4: a preparation whose focus the pointer index does not cover turns that focus's pages instead of queuing a reading.
+			const turnsPages = spec.name === "lookup" && params.kind === "source" && !!readingModule && typeof reading?.bookPages === "function"
+				&& (params.source_mode === 'pages' || params.source_mode !== 'answer' && params.material === undefined && params.answer_part === undefined
+					&& !!asString(params.query)?.trim() && reading.pageMode?.(readingModule, { focus: String(params.query) }) === true);
+			if (spec.name === "lookup" && params.kind === "source" && params.source_mode === 'pages' && !turnsPages)
+				throw new KernelError({ code: "needs", message: "turning the book's pages needs the module reading service and an original document",
+					fix: "play on from the capsule and published material", details: { reason: "reading_failed" } });
+			if (turnsPages) {
+				dispatcher.requireCapability(toolCallId, 'lookup.source.answer');
+				const turned = await reading!.bookPages!(readingModule!, { campaign: state.campaign, ...(Array.isArray(params.pages) ? { pages: params.pages } : {}),
+					...(typeof params.section === 'string' ? { section: params.section } : {}), ...(asString(params.query)?.trim() ? { focus: String(params.query), question: String(params.question ?? '') } : {}) }, signal);
+				sourceAnswer = turned.source_answer;
+				const turnedExcerpts: unknown = turned.source_answer?.excerpts;
+				if (Array.isArray(turnedExcerpts)) carriedText.note(state.campaign, state.turn, turnedExcerpts.map((span: Record<string, any>) => ({
+					scene: state.scene?.handle ?? null, page: span.page, label: null, text: span.text })));
+				if (params.source_mode !== 'pages') void record({ lane: 'reading', event: 'prepare_as_pages', turn: state.turn, focus: String(params.query) });
+				delete payload.source_mode; delete payload.pages; delete payload.section;
+			}
+			else if (spec.name === "lookup" && params.kind === "source") {
 				const answerOnly = params.source_mode === 'answer';
 				if (answerOnly && !asString(params.question)?.trim()) throw new KernelError({code:'invalid_params', message:'A source answer needs a nonempty question'});
 				if (!asString(params.query)?.trim()) throw new KernelError({
