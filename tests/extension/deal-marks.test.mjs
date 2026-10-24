@@ -7,7 +7,7 @@ import {test} from 'node:test';
 import assert from 'node:assert/strict';
 import {importSource} from '../integration/support.ts';
 import {dealQuestions,decideDeals,DEAL_MARK_CONFIDENCE} from '../../runtime/jev/deal-marks.ts';
-const {dealJob,checkDealMarks}=await importSource('kernel-ts/npc/deal-marks.ts');
+const {dealJob,checkDealMarks,applyAsides}=await importSource('kernel-ts/npc/deal-marks.ts');
 const {communicationRecord,agreementView}=await importSource('kernel-ts/npc/communication.ts');
 
 const graph={find:handle=>({node_id:handle}),handle:node=>node.node_id};
@@ -64,4 +64,24 @@ test('the lane asks typed choices only, records nothing below its confidence flo
 test('the Keeper is told the host records what became of a deal, so its agreement command is optional',async()=>{
  const {TURN_PACKET_GUIDANCE}=await import('../../runtime/turn-packet-prototype.ts');
  assert.match(TURN_PACKET_GUIDANCE,/after delivery the host reads from the reply what was accepted, declined, kept or broken and records it, so an \{kind:"agreement",proposal:fact_ref,status\} command is optional/);
+});
+
+test('a line the reply has said low becomes an aside after delivery; only a bystander who passes their own Listen still heard it',async()=>{
+ // App smoke (2026-10-24): the Keeper did not mark the whisper aside, so the owner behind the counter was recorded as hearing
+ // it. The deal lane now also asks, for each line said aloud with a bystander, whether the reply has it said low.
+ const said=communicationRecord(graph,world,[{name:'Ada'}],scope,6,{selections:[{actor:'npc_2',act:'answer',to:['investigator_1'],items:[{content_id:'n:x',strategy:'new',gist:'八点见'}]}],
+  artifact_text:'{{say:npc_2}}“行，八点。”{{/say}}'},[],present,'我低声对他说：今晚八点。');
+ const turnRecord={turn:6,closed_by:'narrate',receipts:[],communication:said};
+ const job=dealJob(graph,world,present,[turnRecord],turnRecord,scope,name,ref=>ref==='investigator_1'?'Ada':ref);
+ assert.deepEqual(job.spoken.map(row=>[row.event,row.speaker,row.to]),[['t6:p','Ada',['卡车司机']],['t6:0','卡车司机',['Ada']]]);
+ const {asides}=checkDealMarks(job,{asides:['t6:p','t6:0','t9:nope']},turnRecord,'investigator_1');
+ assert.deepEqual(asides,['t6:p','t6:0']);
+ const communication=structuredClone(said);
+ const changed=applyAsides(communication,asides,(seq,ref)=>({ref,skill:'Listen',roll:seq<0?5:90,target:25,passed:seq<0}));
+ assert.deepEqual(changed.map(event=>[event.id,event.channel,event.heard]),[['t6:p','aside',['npc_1']],['t6:0','aside',[]]],
+  'the owner passed Listen on the whisper and failed on the answer');
+ const port={decide:async()=>({status:'complete',answers:{'voice-1':{status:'answered',type:'choice',choice:'aside',confidence:.9},
+  'voice-2':{status:'answered',type:'choice',choice:'aloud',confidence:.9}}})};
+ const lane=await decideDeals({campaign:'c',turn:6,prose:'你压低声音……',deals:[],paid:[],people:job.people,spoken:job.spoken},port,new AbortController().signal);
+ assert.deepEqual(lane.asides,['t6:p']);
 });

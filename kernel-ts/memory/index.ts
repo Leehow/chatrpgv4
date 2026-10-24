@@ -32,7 +32,11 @@ import {establishItem, establishProvider, establishReviewOwners, HEAD_ESTABLISH}
 import {historicalSetting} from '../read/historical-setting.js';
 import {npcsPresent} from '../read/capsule.js';
 import {bindPlace} from '../read/place-bindings.js';
-import {checkDealMarks, dealJob} from '../npc/deal-marks.js';
+import {applyAsides, checkDealMarks, dealJob} from '../npc/deal-marks.js';
+import {LISTEN_BASE, overhearRoll} from '../npc/communication.js';
+import {npcReference} from '../npc/references.js';
+import {npcProfileOf} from '../resolve/context.js';
+import {turnSeed} from '../write/index.js';
 import {eventScope} from '../turn-events.js';
 /** The verifier's finding kinds, `play_language_mismatch` among them: the kernel makes no language refusal of its own (contract section 23). */
 const FINDINGS = ['reveal', 'uncommitted_state', 'player_agency', 'play_language_mismatch', 'unmarked_speech', 'investigator_identity_mismatch'];
@@ -278,29 +282,38 @@ async function deliveredDeals(loaded: { campaign: CampaignWriter; snapshot: Camp
     for (const name of [string(row(row(record.world).scene).name), string(snapshot.world.active_scene)])
         try { present = npcsPresent(graph, snapshot.world, graph.scene(name)); break; } catch { /* the next name */ }
     const scope = eventScope(snapshot.meta);
+    const party = await campaign.party();
     const job = dealJob(graph, snapshot.world, present, await snapshot.turnRecords(), record, scope,
-        node => tableWord(snapshot.world, graph.handle(node)) || graph.displayName(node));
-    return { record, prose: proseOf(record.rendered_text), job, scope };
+        node => tableWord(snapshot.world, graph.handle(node)) || graph.displayName(node),
+        ref => /^investigator_[1-9][0-9]*$/.test(ref) ? string(row(party[Number(ref.slice(13)) - 1]).name) || ref : ref);
+    const nodes = new Map(present.flatMap(node => { const ref = npcReference(graph, snapshot.world, node); return ref ? [[ref, node] as const] : []; }));
+    const listen = (ref: string): number => {
+        const node = nodes.get(ref), value = node ? row(npcProfileOf(graph, snapshot.world, graph.handle(node))?.skills).Listen : undefined;
+        return Number.isInteger(value) ? Number(value) : LISTEN_BASE;
+    };
+    return { record, prose: proseOf(record.rendered_text), job, scope, seed: turnSeed(snapshot.meta, number(record.turn)), listen };
 }
 async function dealsJob(loaded: Parameters<typeof deliveredDeals>[0], params: Row): Promise<Row> {
     const { record, prose, job } = await deliveredDeals(loaded, params.turn);
-    if (!job.deals.length && !job.paid.length) return { turn: number(params.turn), deals: [], paid: [] };
+    if (!job.deals.length && !job.paid.length && !job.spoken.length) return { turn: number(params.turn), deals: [], paid: [], spoken: [] };
     return { turn: number(params.turn), prose, ...(typeof record.player_text === 'string' ? { player_text: record.player_text } : {}), ...job };
 }
 async function dealsSubmit(loaded: Parameters<typeof deliveredDeals>[0], params: Row): Promise<Row> {
     const { campaign } = loaded, turn = number(params.turn);
-    const { record, job, scope } = await deliveredDeals(loaded, params.turn);
-    const { marks, paid, dropped } = checkDealMarks(job, params, record, 'investigator_1');
-    if (marks.length || paid.length) {
+    const { record, job, scope, seed, listen } = await deliveredDeals(loaded, params.turn);
+    const { marks, paid, asides, dropped } = checkDealMarks(job, params, record, 'investigator_1');
+    let quiet: Row[] = [];
+    if (marks.length || paid.length || asides.length) {
         const communication = row(record.communication);
+        if (asides.length) quiet = applyAsides(communication, asides, (seq, ref) => overhearRoll(seed, turn, seq, ref, listen(ref)));
         record.communication = { version: 1, scope: { worldline: string(scope.worldline || 'main'), loop: number(scope.loop) }, turn, events: [],
             ...communication, ...(marks.length ? { agreements: [...array(communication.agreements), ...marks] } : {}),
             ...(paid.length ? { paid: [...array(communication.paid), ...paid] } : {}) };
         await campaign.writeTurnRecord(record);
     }
-    await campaign.telemetry({ lane: 'deals', event: 'recorded', turn, asked: job.deals.length + job.paid.length, marks: marks.length, paid: paid.length,
-        ...(dropped.length ? { dropped } : {}) });
-    return { turn, marks, paid, dropped };
+    await campaign.telemetry({ lane: 'deals', event: 'recorded', turn, asked: job.deals.length + job.paid.length + job.spoken.length, marks: marks.length, paid: paid.length,
+        asides: quiet.length, ...(dropped.length ? { dropped } : {}) });
+    return { turn, marks, paid, asides: quiet.map(event => ({ event: event.id, heard: event.heard })), dropped };
 }
 export function createMemoryHandlers(context: KernelContext, writer: ReturnType<typeof createWriteRuntime>): HandlerGroup {
     const evidence = createMemoryEvidenceOwner(context, params => writer.campaign(params));
