@@ -48,6 +48,9 @@ test('an outlet answers the same stock and printed price every time it is asked 
   assert.deepEqual(again.row,row);
   assert.ok(answer.as_named&&answer.note);
   assert.deepEqual(row.line,{name:SUIT,quantity:1,unit_price:'17.95',price_id:row.price_id});
+  const named=await game.call('lookup',{kind:'shop',query:'flashlight | electric torch',shop:outfitter});
+  assert.ok(named.goods.some(goods=>goods.name==='Electric Torch'),'each name the Keeper gives is searched');
+  assert.equal(named.as_named.name,'flashlight');
 });
 
 test('a sale is checked against the shelf, takes stock off it and refuses another price',async t=>{
@@ -58,7 +61,8 @@ test('a sale is checked against the shelf, takes stock off it and refuses anothe
   }
   await assert.rejects(game.call('apply',{call_id:'t1-c1',effects:[buy({...row.line,unit_price:'12.00'},outfitter)]}),e=>e.code==='invalid_params'&&e.details.unit_price==='17.95');
   await assert.rejects(game.call('apply',{call_id:'t1-c1',effects:[buy({...row.line,quantity:row.in_stock+1},outfitter)]}),e=>e.code==='needs'&&e.details.reason==='out_of_stock'&&e.details.in_stock===row.in_stock);
-  await game.call('apply',{call_id:'t1-c1',effects:[buy(row.line,outfitter)]});
+  // A line beside it with no printed record carries the Keeper's own price (§265.4).
+  await game.call('apply',{call_id:'t1-c1',effects:[{...buy(row.line,outfitter),items:[row.line,{name:'collar studs',quantity:1,unit_price:'0.10'}]}]});
   const after=(await suitRow(game)).row;
   assert.equal(after.in_stock,row.in_stock-1);
   assert.equal((await game.world()).shop_ledger.outlets["hollis men's outfitters"].sold[row.price_id],1);

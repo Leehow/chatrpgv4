@@ -134,15 +134,20 @@ export async function shopLookup(kernel:KernelContext,graph:ModuleGraph,world:Ro
     if(!await shoppingActive(kernel,world))
         throw new RpcError('not_implemented','lookup kind=shop needs the Shopping package enabled',{fix:'Price goods from lookup kind=catalog and your own judgment of the outlet.'});
     const query=params.query;
-    if(typeof query!=='string'||!query.trim())throw new RpcError('invalid_params','kind shop needs query: the goods asked for, in English, as the price list would name them');
+    if(typeof query!=='string'||!query.trim())throw new RpcError('invalid_params','kind shop needs query: one kind of goods, in English, as a period price list would name it; alternatives separated by |');
     const shop=shopParams(params.shop),era=moduleEra(graph);
-    const found=await catalogOf(kernel).search(query.trim(),{kinds:['item'],limit:params.limit??5,...(era?{era}:{})});
-    if(!found.ok)throw new RpcError('invalid_params',string(row(found.error).detail||'bad goods query'),{details:row(found.error)});
-    const goods=array(found.candidates).map(candidate=>{
+    // The Keeper may name the goods several ways ("electric torch | flashlight"); each name is searched and the rows merged.
+    const names=query.split('|').map(name=>name.trim()).filter(Boolean).slice(0,4),seen=new Set<string>(),candidates:Row[]=[];
+    for(const name of names){
+        const found=await catalogOf(kernel).search(name,{kinds:['item'],limit:params.limit??5,...(era?{era}:{})});
+        if(!found.ok)throw new RpcError('invalid_params',string(row(found.error).detail||'bad goods query'),{details:row(found.error)});
+        for(const candidate of array(found.candidates))if(!seen.has(string(candidate.entity_id))){seen.add(string(candidate.entity_id));candidates.push(candidate);}
+    }
+    const goods=candidates.slice(0,8).map(candidate=>{
         const offer=shopOffer(graph,world,shop,candidate,string(candidate.name));
         return {...offer,source_display:row(row(candidate.params).price).source_display??null,category:candidate.category??null,line:lineOf(offer)};
     });
-    const asked=shopOffer(graph,world,shop,null,query.trim());
+    const asked=shopOffer(graph,world,shop,null,names[0]??query.trim());
     return {query,outlet:shop.outlet,day:shopDay(graph,world),goods,as_named:{...asked,line:lineOf(asked)},note:ANSWER};
 }
 
@@ -163,7 +168,7 @@ export async function shopTerms(kernel:KernelContext,graph:ModuleGraph,world:Row
     }
     const sold:Array<[string,number]>=[];let ready=0;
     for(const [index,line] of effect.items.entries()){
-        const lineName=string(row(line).name).trim(),priceId=string(row(line).price_id).trim();
+        const given=row(line),lineName=typeof given.name==='string'?given.name.trim():'',priceId=typeof given.price_id==='string'?given.price_id.trim():'';
         const record=priceId?await itemRecord(kernel,priceId):null;
         if(priceId&&!record)throw new RpcError('invalid_params',`The price list has no record ${JSON.stringify(priceId)}`,{fix:'Use a price_id lookup kind=shop returned, or drop price_id for goods the book does not print.',details:{field:`items[${index}].price_id`}});
         const offer=shopOffer(graph,world,shop,record,lineName);
