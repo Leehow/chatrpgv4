@@ -195,6 +195,11 @@ export function createResolveRuntime(kernel: KernelContext, writer: ResolveWrite
             const graph = module.graph;
             let action: any = params.action;
             const contributed = isJsonObject(action) && (await activeMods(kernel, transaction.world)).some(mod => array(mod.contributes.checks).some(check => check.name === action.decision));
+            // §264.27: the opening rolls nothing; a roll the book calls for at the start is noted and settled on the first turn.
+            if (number(transaction.turn.turn) === 0)
+                throw new RpcError('turn_state', 'the opening is told, not played: nothing is rolled before the player speaks', {
+                    fix: 'tell the opening up to the moment the investigator must choose; a roll the book calls for at the start goes in a note named "due at start" (what, who, why), settled first on the player\'s first turn',
+                    details: { reason: 'opening_told', refused: ['resolve'] } });
             const start = await transaction.beginWrite('table.resolve', params, {
                 allowOpening: contributed
             });

@@ -81,12 +81,19 @@ test('opening disclosure and mood land together, preserve the opening and surviv
   assert.equal(input.turn, 1);
 });
 
-test('§264.22: the opening judges a disclosure beside a move and a mechanical NPC change like any turn', async t => {
+test('§264.27: the opening is told, not played: a move beside a disclosure is named, and the rest goes again without it', async t => {
   const {client, world} = await opened(t);
-  const moved = await client.call('table.apply', {campaign, call_id: 't0-c1', effects: [
-    {kind: 'clue', clue: 'knott-commission'}, {kind: 'move', to: 'corbitt-house', via: 'They drive over together.'}]});
-  assert.ok(moved.receipts.some(id => id.startsWith('move:')), 'the move the opening holds lands');
-  assert.equal(JSON.parse(await world()).active_scene, 'corbitt-house');
+  const before = await world();
+  const error = await refusal(client.call('table.apply', {campaign, call_id: 't0-c1', effects: [
+    {kind: 'clue', clue: 'knott-commission'}, {kind: 'move', to: 'corbitt-house', via: 'They drive over together.'}]}));
+  assert.equal(error.details.reason, 'opening_told');
+  assert.deepEqual(error.details.refused, ['effects[1] (move)']);
+  assert.equal(await world(), before, 'nothing landed');
+  const told = await client.call('table.apply', {campaign, call_id: 't0-c1', effects: [{kind: 'clue', clue: 'knott-commission'},
+    {kind: 'note', name: 'due at start', text: 'Before the player acts: a Spot Hidden for the investigator to notice the watcher.'}]});
+  assert.ok(told.receipts.some(id => id.startsWith('clue:')), 'the disclosure and the note land');
+  const rolled = await refusal(client.call('table.resolve', {campaign, call_id: 't0-c2', action: {intent: 'investigate', skill: 'Spot Hidden', goal: 'notice the watcher', method: 'look around'}}));
+  assert.equal(rolled.details.reason, 'opening_told', 'the opening rolls nothing');
 });
 
 test('opening information retains clue location validation and atomic rollback', async t => {

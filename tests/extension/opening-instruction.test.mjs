@@ -87,11 +87,11 @@ test('every form of the opening says the investigator is addressed as you', () =
     assert.ok(text.includes('addressing the investigator as you'), text.slice(0, 200));
 });
 
-test('§264.22: the opening plays what the book\'s opening holds through the ordinary tools and chooses nothing for the investigator', () => {
+test('§264.27: the opening is told, not played, and a roll it calls for is due at the start of the first turn', () => {
   for (const prologue of [undefined, {opening: 'The heat shimmers.', handoff: 'Next comes the station.', guide: ''}]) {
     const text = openingInstruction({prologue, playLanguage: 'zh'});
-    assert.match(text, /including an arrival, the people there and any roll it calls for/);
-    assert.match(text, /choose nothing for them/);
+    assert.match(text, /The opening is told, not played/);
+    assert.match(text, /goes in a note named "due at start"/);
     assert.doesNotMatch(text, /Do not call resolve before the first player turn/);
   }
 });

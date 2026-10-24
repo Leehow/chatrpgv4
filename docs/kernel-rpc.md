@@ -52890,6 +52890,23 @@ When every content item of an interaction is valid, the interaction is checked a
 names, so an unissued actor or an over-long beat is named. The packet-wide union had reported "act must be silent"
 twice and the turn ended with nothing delivered.
 
+### 264.27 The opening is told, not played (owner 2026-10-24; amends §264.22)
+
+A survey of 72 module openings in the owner's library (34 Chinese single scenarios, 38 English campaign chapters and the
+bundled starters): 21 briefings, 24 arrivals, 12 letters or news, 6 social scenes, 3 that open on danger, 2 dreams, 4
+other; 54 assume the investigators already in place; about half prescribe something at the start (a Sanity roll at a
+sight, a few forced or optional skill rolls, standing modifiers, clocks), and only about 4 a fight or chase in the first
+scene, nearly always after a chance to notice it. On A Hard Road to Travel the Keeper, with §264.22's single sentence,
+played the whole ambush chase for the investigator inside the opening for twenty minutes.
+
+The opening sets the scene and hands over: who and what is there and what they do, what is seen and said, a document
+handed over, the clock and any countdown, standing modifiers as scene state; it stops at the moment the investigator
+must choose, before danger lands. The kernel refuses, at turn 0, every `resolve` and the apply kinds `move`, `cash`,
+`damage`, `ending`, `fork`, `merge` and `threat`, naming every such line of the batch at once (`details.reason:
+opening_told`, `details.refused`). A roll the book calls for at the start goes in a note named "due at start" (what, who,
+why) and is settled first on the player's first turn. Presence, seats, walk-ons, moods, activities, scene assessment,
+place observation and features, clues, people's names, clocks, time and the creator's definitions stay open.
+
 ## 265. Shopping: the outlet's stock, price and order time are the program's (owner 2026-10-24)
 
 The owner's report: a MiniMax Keeper's long deliberations were mostly about whether a shop had the goods and what they cost. Those answers moved to the kernel; the Keeper picks parameters. Purchase guidance that lived in other packages moved with them, so the problem has one home. Amends §58 ("the kernel does not price anything itself") for goods bought at an outlet while this package is active; every other cash path is unchanged.

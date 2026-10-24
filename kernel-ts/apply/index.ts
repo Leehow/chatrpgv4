@@ -110,6 +110,8 @@ export interface ApplyContributions {
     readonly asset?: (moduleId:string,name:string)=>Promise<Row|null>;
     readonly weaponCatalog?: (graph:ModuleGraph)=>Promise<Map<string,Row>>;
 }
+/** §264.27: the effects the opening does not write; they happen on turns the player plays. */
+const OPENING_PLAYED: ReadonlySet<string> = new Set(['move', 'cash', 'damage', 'ending', 'fork', 'merge', 'threat']);
 /** §253.1: a place command that registers the opening scene without moving the investigator. */
 const openingPlaceShape = (effect: Row): boolean => string(effect.kind) === 'place' && ['establish', 'observe', 'feature', 'relate'].includes(string(effect.action));
 function atIndex(error: RpcError, index: number): RpcError {
@@ -128,6 +130,15 @@ export function createApplyHandlers(kernel: KernelContext, writer: ReturnType<ty
             // it is one: a person the book places in the opening scene whom nobody has placed yet).
             const opening = Array.isArray(effects) && effects.length > 0 && effects.every(effect => isJsonObject(effect)
                 && (['define', 'object', 'ability', 'usage', 'clock','scene'].includes(string(effect.kind)) || openingPlaceShape(effect) || openingSeatShape(effect) || openingActivityShape(effect) || openingInformationShape(effect)));
+            // §264.27 (owner 2026-10-24): the opening is told, not played. It sets the scene -- who and what is there, what is seen
+            // and said, a document handed over, the clock -- and stops where the investigator would choose. Rolls, sessions, the
+            // investigator's journey, money, harm and endings belong to the turns the player plays; all such lines are named at once.
+            if (number(turn.turn) === 0 && Array.isArray(effects)) {
+                const played = effects.flatMap((effect, index) => isJsonObject(effect) && OPENING_PLAYED.has(string(effect.kind)) ? [`effects[${index}] (${string(effect.kind)})`] : []);
+                if (played.length) throw new RpcError('turn_state', `the opening is told, not played: ${played.join(', ')} ${played.length > 1 ? 'are' : 'is'} for the player's turns`, {
+                    fix: 'send the rest of the batch without them. Tell the opening up to the moment the investigator must choose; a roll the book calls for at the start goes in a note named "due at start" (what, who, why), settled first on the player\'s first turn',
+                    details: { reason: 'opening_told', refused: played } });
+            }
             const started = await transaction.beginWrite('table.apply', callParams, { allowOpening: opening });
             if (started.kind === 'replay')
                 return started.result;
