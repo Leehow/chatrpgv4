@@ -477,6 +477,11 @@ export class ReadingService implements ReadingBridge {
 				cache: join(dirname(source.pdf), "cache"), source: { path: source.pdf, file_sha256: source.file_sha256, page_count: source.page_count },
 				model: this.deps.model(), signal: controller.signal, record: row => this.deps.record({ ...row, campaign }),
 				shared: { priority: "background" }, mayContinue: () => !this.stopped && !this.capReached(mid, campaign) })
+				// §263.3: sections that failed are asked once more (answered sections are kept), so one refusal does not leave the book incomplete.
+				.then(skeleton => skeleton?.complete === false && !controller.signal.aborted && !this.stopped ? buildSkeleton({ runtime: this.runtime(), moduleId: mid, home: this.deps.home,
+					cache: join(dirname(source.pdf), "cache"), source: { path: source.pdf, file_sha256: source.file_sha256, page_count: source.page_count },
+					model: this.deps.model(), signal: controller.signal, record: row => this.deps.record({ ...row, campaign, retry: true }),
+					shared: { priority: "background" }, mayContinue: () => !this.stopped && !this.capReached(mid, campaign) }) : skeleton)
 				// §262.7: the skeleton's names become the reference book's navigation index (the library and this campaign's fork).
 				.then(async skeleton => {
 					const indexed = await this.call("module.skeleton.index", { module_id: mid, file_sha256: source.file_sha256, rows: skeletonIndexRows(skeleton) }, campaign);

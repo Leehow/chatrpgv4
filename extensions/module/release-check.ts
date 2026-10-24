@@ -96,11 +96,11 @@ export async function checkReleases(context: ReleaseContext): Promise<Row> {
 		todo.push(candidate);
 	}
 	todo.sort((a, b) => Number(!first.has(a.page)) - Number(!first.has(b.page)) || a.page - b.page);
-	// Batches group one entity's candidates, at most 12 and about 6K tokens of evidence each.
+	// Batches group one section's candidates (so they share its facts), at most 12 and about 6K tokens of evidence each.
 	const batches: Row[][] = [];
-	const byEntity = new Map<string, Row[]>();
-	for (const candidate of todo) { const list = byEntity.get(candidate.entity) ?? []; list.push(candidate); byEntity.set(candidate.entity, list); }
-	for (const list of byEntity.values()) for (let i = 0; i < list.length; i += RELEASE_BOUNDS.candidates) batches.push(list.slice(i, i + RELEASE_BOUNDS.candidates));
+	const bySection = new Map<number, Row[]>();
+	for (const candidate of todo) { const at = sectionOf(candidate.page), list = bySection.get(at) ?? []; list.push(candidate); bySection.set(at, list); }
+	for (const list of bySection.values()) for (let i = 0; i < list.length; i += RELEASE_BOUNDS.candidates) batches.push(list.slice(i, i + RELEASE_BOUNDS.candidates));
 	const dirRoot = join(context.home, "source-skeletons", `${sha}-release-work`);
 	await mkdir(dirRoot, { recursive: true });
 	const one = async (index: number, batch: Row[]) => {

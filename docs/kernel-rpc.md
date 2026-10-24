@@ -52493,7 +52493,7 @@ The §262.5 section readers also write, for their section only and with block id
   out (`reveal`, one short line).
 - `continuations` (263.2).
 
-Each section is one tool-free call (`singleCall`, at most one request) over at most about 6K tokens of blocks, four at a time; an answer that does not parse (it did not fit one reply) is asked once more as two halves of the section's blocks, and the halves' lists are joined. Summaries, hints and reveals are English.
+A skeleton left incomplete is built once more at once (answered sections are kept). Each section is one tool-free call (`singleCall`, at most one request) over at most about 6K tokens of blocks, four at a time; an answer that does not parse (it did not fit one reply) is asked once more as two halves of the section's blocks, and the halves' lists are joined. Summaries, hints and reveals are English.
 
 `keeper_truth` and `conditional_events` are unchanged. The host keeps an entry only when its blocks are the section's,
 a candidate only when its quote makes a ref, and merges into `skeleton.json` (`version: 4`): `release_candidates` with
@@ -52506,7 +52506,7 @@ and no protected fact; nothing is inferred absent from it (`not_found_in_scope` 
 ### 263.4 The release check
 
 `extensions/module/release-check.ts`. After the skeleton is merged, the host checks its release candidates in batches
-grouped by entity (at most 12 candidates and about 6K tokens of evidence per batch), in reading order, opening's pages
+grouped by section (at most 12 candidates and about 6K tokens of evidence per batch), in reading order, opening's pages
 first. Each batch is one bounded checker child (`runTask {kind: "reader"}`, tools `read,write`, `maxRequests: 3`,
 content `setup/release-check.md`), handed inline: each candidate's text (sliced by the host), its local context (the
 candidate's block and its neighbours), and the protected facts relevant to it. Relevant protected facts are found by the
