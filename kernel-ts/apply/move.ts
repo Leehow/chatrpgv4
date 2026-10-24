@@ -9,7 +9,7 @@ import { advanceClock } from './clock.js';
 import type { TravelRows } from '../owed/index.js';
 import { establishTableEntity, establishedWithin, validateEstablishment } from '../read/table-entities.js';
 import { isAmbiguity, recordOf, type ModuleGraph } from '../read/module-graph.js';
-import { aroundExit, bookRoadMinutes, personPlaces, placeRelation, returnRoute, roadKey, tableRoad } from '../read/places.js';
+import { aroundExit, bookRoadMinutes, parentsOf, personPlaces, placeRelation, returnRoute, roadKey, tableRoad } from '../read/places.js';
 import {clearLocationPosition,locationPolicyApplies} from '../read/locations.js';
 /** The options producer and transaction use the same structural route requirement. */
 export function moveAccess(graph:ModuleGraph,world:Row,current:Row,destination:Row,established=false,containmentIsRoute?:boolean) {
@@ -51,7 +51,9 @@ export function stageMove(context: ApplyContext, effect: Row, travelRows?: Trave
             person = named;
         } else if (summary !== undefined) {
             if (graph.find(to)) throw new RpcError('invalid_params', 'This name already identifies another entity');
-            const lies = within === undefined ? current : within;
+            // §264.14: omitted, the journey says where the mint lies -- a ride across town is not inside the room the party left.
+            const lies = within !== undefined ? within : effect.travel_band === 'long_travel' ? null
+                : effect.travel_band === 'local_travel' ? parentsOf(graph, current)[0] ?? null : current;
             destination = establishTableEntity(graph, world, turn, 'scene', to, summary, undefined, {from, ...(lies ? {within: graph.handle(lies)} : {})});
             established = true;
         } else {

@@ -52762,3 +52762,11 @@ proposal fact, and the Keeper had marked the offer's terms instead.
 `input_requirements.fields` adds `authorization` (written permission or a word from someone with standing) and
 `proof_of_identity`. A gatekeeper refusing until the investigator brings the landlord's note had no closed field for it,
 and the Keeper argued for a turn between `knowledge_status withheld` and stretching `purpose`.
+
+### 264.14 The journey places a new place
+
+Omitted, `establish.within` was always the active scene, so a taxi ride to a newspaper office across town minted the
+office inside the room the party left, and the Keeper weighed `within` against the town it had no place for. §204.3's
+default now reads the move's own `travel_band`: `adjacent` or no band, the active scene (as before); `local_travel`, the
+first place the active scene lies directly inside, else none; `long_travel`, none. An explicit `within`, `null`
+included, and the placement lane's outcome are unchanged.

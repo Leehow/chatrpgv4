@@ -124,5 +124,6 @@ test('app play-test: the cash card settles the two questions the Keeper spent it
     // player offered counts as the seller's quote and whether fuel or a repair is living or purchase.
     const source = await readFile(join(root, 'extensions/kernel/tools.ts'), 'utf8');
     assert.match(source, /a price the player offers and the seller accepts is that seller's quote/);
-    assert.match(source, /purchase is additional daily spending, including vehicle fuel, repairs, paid services/);
+    assert.match(source, /Omit for anything bought or paid for: goods, vehicle fuel, repairs, a call, paid services/);
+    assert.match(source, /an omitted category on a payment is purchase, additional daily spending/);
 });
