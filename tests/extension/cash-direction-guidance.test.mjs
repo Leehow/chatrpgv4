@@ -118,3 +118,11 @@ test('the actual single Keeper receives purse direction guidance and records bot
     assert.deepEqual(table.extensionErrors,[]);
     t.diagnostic('Scripted replies prove production guidance delivery, canonical record transport and cash arithmetic; live semantic judgement is assessed separately.');
 });
+
+test('app play-test: the cash card settles the two questions the Keeper spent its longest thinking on', async () => {
+    // PipiCOC app, Blood Road (2026-10-24): over a third of every Keeper thinking past 1k tokens weighed whether a price the
+    // player offered counts as the seller's quote and whether fuel or a repair is living or purchase.
+    const source = await readFile(join(root, 'extensions/kernel/tools.ts'), 'utf8');
+    assert.match(source, /a price the player offers and the seller accepts is that seller's quote/);
+    assert.match(source, /purchase is additional daily spending, including vehicle fuel, repairs, paid services/);
+});
