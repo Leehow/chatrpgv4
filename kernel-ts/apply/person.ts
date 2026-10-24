@@ -23,7 +23,7 @@ import { normalize, repr, row, string, type Row } from '../read/values.js';
 import { nowIso, required } from '../write/store.js';
 import type { ApplyContext } from './index.js';
 import { passageOf } from '../read/table-people.js';
-import { establishPerson, leanOrigin } from './entities.js';
+import { establishPerson, landFromCast, leanOrigin } from './entities.js';
 
 /** §40.1's name text, for the same reason: this word is written into spoken lines and say tokens. */
 export const LABEL_LIMIT = 60;
@@ -64,6 +64,9 @@ async function personOf(context: ApplyContext, who: any, effect: Row = {}): Prom
         const node = establishPerson(context, who, typeof effect.why === 'string' && effect.why.trim() ? effect.why.trim() : leanOrigin(context, passage), passage);
         return { id: context.graph.handle(node), name: context.graph.displayName(node), is_investigator: false, established: 'passage', from_passage: passage };
     }
+    // §266.13: someone the book's cast names lands on its first mention of them before they are given a table name.
+    const landed = landFromCast(context, who);
+    if (landed) return { id: context.graph.handle(landed), name: context.graph.displayName(landed), is_investigator: false, established: 'passage', from_passage: row(row(landed.properties).from_passage) };
     throw new RpcError('unknown_entity', `${repr(who)} is nobody at this table`, {
         fix: 'name an investigator of the party or an NPC this table has; someone the book never had is established first by apply npc under that name with walk_on: true, and goes through lookup kind adaptation only when they must persist as a source-connected figure',
         details: { field: 'person.who', who },

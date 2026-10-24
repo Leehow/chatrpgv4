@@ -53109,4 +53109,24 @@ or, with none, the opening's first page alone (`{lane: "page-open", event: "guid
 covers what those pages hold (fields with nothing behind them are `unavailable`), and the opening still stands on all its
 pages for the Keeper. When that call fails too, the first failure stands and the fallback is as before.
 
+### 266.13 Someone the cast names, before the table meets them (amends §177.6, §87.8)
+
+*They Did Not Think It Too Many*, table H turn 1 (2026-10-24): 13 minutes and a 51K-character Keeper deliberation. With no
+detail reading (266.10) the book's people the table has not met are unread cast rows, and only a seat (`apply npc`)
+landed them; `look focus=npc`, a clue's `from` and `apply person` refused them `unknown_entity` five times. Now:
+- `look focus=npc name=<a word naming one unread cast person>` answers `{name, material: "unread", at_table: false,
+  original_pages, first_mention?, note}` (the note says a write by that name lands them, and pages turn with §266.4).
+- A clue's `from` and `apply person`'s `who` naming one unread cast person land them first on the cast's first
+  mention of them (`landFromCast`: `establishPerson` with that sentence as the passage and the row's `cast_id`), and
+  the write goes on. A word naming no single unread person keeps the refusal.
+
+### 266.14 A one-character name only the index knows (amends §22.4.7.1, §11.5.4)
+
+*Cursed Be the City* (2026-10-24): the hunting band's people are 班, 娃, 塔卡…; the cast keeps no row for a name of one
+character, and §11.5.4's passage comparison needs two, so a seat on 班 was refused `material_pending` three times with
+nothing the host could land on. For a person in a seat whom only the index names (no graph node, no cast row, an index
+row's name or entity), the gate accepts a passage whose sentence holds a name of one character, and its refusal says
+`person.indexed: true`; the host then lands them on the first sentence of their index pages that holds the name
+(sentence stops of any script). Everywhere else a name still needs two characters.
+
 Tests: `tests/extension/page-mode.test.mjs`.

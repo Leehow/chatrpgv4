@@ -5518,6 +5518,13 @@ export default function (pi: ExtensionAPI, host: {capabilities?:RuntimeCapabilit
 			catch (error) { void record({ lane: "reading", event: "person_text_unavailable", turn: state.turn, person: name, detail: error instanceof Error ? error.message : String(error) }); }
 			passage = lookup(texts.map((page) => ({ scene: null, page: page.page, label: page.pdf_label ?? null, text: page.text })));
 		}
+		// §266.14: a person only the index names, by a name of one character, lands on the first sentence of their index pages
+		// that holds it (the kernel accepts that only for such a person).
+		if (!passage && person.indexed === true && texts.length) {
+			const stops = /(?<=[\u3002\uff01\uff1f.!?])\s*/u;
+			for (const page of texts) { const sentence = page.text.split(stops).find(part => names.some(spelled => part.replace(/\s+/gu, "").includes(spelled.replace(/\s+/gu, ""))));
+				if (sentence?.trim()) { passage = { scene: null, page: page.page, label: page.pdf_label ?? null, sentence: sentence.trim().slice(0, 600) } as never; break; } }
+		}
 		// An index-only name lands only on a sentence that holds it; a book person on their index pages' text as well.
 		if (!passage && !(person.book === true && texts.length)) {
 			void record({ lane: "reading", event: "person_text_unavailable", turn: state.turn, person: name, detail: "the book's text at hand does not name them" });
