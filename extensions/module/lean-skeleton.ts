@@ -119,7 +119,7 @@ export function groundMentions(answer: Row, blocks: Array<{ id: string; text: st
  * §262.5: merge the sections' answers. Names are matched by normalised spelling and aliases; every row keeps its blocks
  * and pages; a cross reference whose names match no mention keeps `resolved: false`.
  */
-export function mergeSkeleton(sections: Array<{ section: SkeletonSection; status: "indexed" | "failed"; answer?: Row; usage?: Row }>, pageOf: (id: string) => number,
+export function mergeSkeleton(sections: Array<{ section: SkeletonSection; status: "indexed" | "failed"; answer?: Row; usage?: Row; blocked_pages?: number[] }>, pageOf: (id: string) => number,
 	imageOnly: number[], blockText: (id: string) => string | undefined = () => undefined, doc = ""): Row {
 	const entities: Row[] = [], byName = new Map<string, Row>();
 	for (const { answer } of sections) for (const mention of answer?.mentions ?? []) {
@@ -152,7 +152,9 @@ export function mergeSkeleton(sections: Array<{ section: SkeletonSection; status
 	const language = [...tags].sort((a, b) => b[1] - a[1])[0]?.[0];
 	return { version: SKELETON_VERSION, ...(language ? { language } : {}), entities, ...rows, ...pointers, image_only: imageOnly,
 		complete: sections.length > 0 && sections.every(row => row.status === "indexed"),
-		sections: sections.map(({ section, status, usage, answer }) => ({ ...section, status, ...(usage ? { usage } : {}),
+		// §263.3: pages no call would read (a provider refusal page by page); their names decide which releases wait (§263.4).
+		blocked_pages: [...new Set(sections.flatMap(row => (row as Row).blocked_pages ?? []))].sort((a, b) => a - b),
+		sections: sections.map(({ section, status, usage, answer, blocked_pages }) => ({ ...section, status, ...(usage ? { usage } : {}), ...(blocked_pages?.length ? { blocked_pages } : {}),
 			...(status === "indexed" ? { coverage: { cited: new Set([...(answer?.mentions ?? []).flatMap((m: Row) => m.blocks), ...(answer?.protected_facts ?? []).flatMap((f: Row) => f.blocks)]).size } } : {}) })) };
 }
 
@@ -243,7 +245,7 @@ export async function buildSkeleton(context: SkeletonContext): Promise<Row> {
 	const sections = skeletonSections(source.page_count, info.bookmarks, page => (blocks.get(page)?.blocks ?? []).reduce((sum, block) => sum + roughTokens(block.text), 0));
 	const pageOfBlock = new Map<string, number>(), textOfBlock = new Map<string, string>();
 	for (const [page, row] of blocks) for (const block of row.blocks) { pageOfBlock.set(block.id, page); textOfBlock.set(block.id, block.text); }
-	const results: Array<{ section: SkeletonSection; status: "indexed" | "failed"; answer?: Row; usage?: Row }> = new Array(sections.length);
+	const results: Array<{ section: SkeletonSection; status: "indexed" | "failed"; answer?: Row; usage?: Row; blocked_pages?: number[] }> = new Array(sections.length);
 	const systemPrompt = await readFile(join(runtime.contentRoot, "setup", "lean-skeleton.md"), "utf8");
 	const promptSha = createHash("sha256").update(systemPrompt).digest("hex").slice(0, 16);
 	const one = async (index: number, section: SkeletonSection) => {
@@ -293,9 +295,29 @@ export async function buildSkeleton(context: SkeletonContext): Promise<Row> {
 				.map(key => [key, parts.flatMap(part => Array.isArray(part[key]) ? part[key] : [])]).concat([["language", parts[0]!.language]]));
 			usage = undefined;
 		}
+		// §263.3: still nothing: page by page, so a provider refusal of one page (a content filter) blocks only that page.
+		let blockedPages: number[] | undefined;
+		if (!parsed && section.last > section.first) {
+			const parts: Row[] = [];
+			blockedPages = [];
+			for (let page = section.first; page <= section.last; page++) {
+				const own = sectionBlocks.filter(block => block.page === page);
+				if (!own.length) continue;
+				const sub = join(dir, `page-${page}`);
+				await mkdir(sub, { recursive: true });
+				const again = await singleCall(runtime, { cwd: sub, model: context.model, systemPrompt, signal, shared: context.shared,
+					brief: `Section: ${JSON.stringify(section)}\nBlocks:\n${JSON.stringify(shown(own))}\n\nAnswer with the JSON object now.` });
+				context.record({ lane: "reading", phase: "skeleton", module_id: context.moduleId, section: section.name, page, ms: again.outcome.ms, ok: again.outcome.ok,
+					...(again.outcome.usage ? { usage: again.outcome.usage } : {}) });
+				if (again.json) parts.push(longIds(again.json, long)); else blockedPages.push(page);
+			}
+			if (parts.length) parsed = Object.fromEntries(["mentions", "cross_references", "conditional_events", "keeper_truth", "protected_facts", "release_candidates", "continuations"]
+				.map(key => [key, parts.flatMap(part => Array.isArray(part[key]) ? part[key] : [])]).concat([["language", parts[0]!.language]]));
+		}
 		if (!parsed) { results[index] = { section, status: "failed", ...(usage ? { usage } : {}) }; return; }
 		await writeFile(join(dir, "skeleton.json"), JSON.stringify(parsed));
-		results[index] = { section, status: "indexed", answer: groundMentions(sectionAnswer(parsed, ids), sectionBlocks), ...(usage ? { usage } : {}) };
+		results[index] = { section, status: "indexed", answer: groundMentions(sectionAnswer(parsed, ids), sectionBlocks), ...(usage ? { usage } : {}),
+			...(blockedPages?.length ? { blocked_pages: blockedPages } : {}) };
 	};
 	let next = 0;
 	await Promise.all(Array.from({ length: Math.min(SKELETON_BOUNDS.concurrency, sections.length) }, async () => {

@@ -141,3 +141,12 @@ test('§263.3: local ids in a section answer map back to the book\'s block ids',
  assert.equal(out.release_candidates[0].block,'b17-1-a');
  assert.deepEqual(out.continuations,[['b17-1-a','b20-0-b']]);
 });
+
+test('§263.4: a page no call would read holds back only the looks of people it names',async()=>{
+ const home=join(temp,'blocked-'+Date.now());await mkdir(join(home,'source-skeletons'),{recursive:true});
+ const skeleton={...merged(),blocked_pages:[96]};
+ const blocks=new Map([...Object.entries(texts).map(([id,text])=>[id,{id,text}]),['b96-0-z',{id:'b96-0-z',text:'Dr Brenner STR 60 CON 70'}]]);
+ const runtime=fakeRuntime(input=>({verdicts:input.candidates.map(candidate=>({id:candidate.id,verdict:'safe',reason:'x',facts:[]}))}),resolve(import.meta.dirname,'../../content'));
+ const release=await api.checkReleases({runtime,moduleId:'m',home,sha:DOC,skeleton,blocks,model:{id:'test/model'},signal:new AbortController().signal,record:()=>{}});
+ assert.deepEqual(release.rows.map(row=>[row.entity,row.status]).sort(),[['Dr Brenner','candidate'],['Russ','approved']]);
+});

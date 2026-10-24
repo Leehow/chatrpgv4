@@ -52499,7 +52499,7 @@ A skeleton left incomplete is built once more at once (answered sections are kep
 a candidate only when its quote makes a ref, and merges into `skeleton.json` (`version: 4`): `release_candidates` with
 `ref` (263.1), `entity` (the merged entity's name) and `kind`; `protected_facts` with `id` (`pf-<first 12 hex of the digest
 of summary and blocks>`), `names`, `risk`, `summary`, `blocks`, `pages`, `reveal?`; per section `coverage: {blocks,
-cited}`. A section that failed (a provider refusal, a malformed answer) is `status: "failed"` and contributes no candidate
+cited}`. A section whose answer still does not parse after the halves is asked page by page; pages no call would read (a provider's content filter) are the skeleton's `blocked_pages`, and the section is indexed from the rest. A section that failed (a provider refusal, a malformed answer) is `status: "failed"` and contributes no candidate
 and no protected fact; nothing is inferred absent from it (`not_found_in_scope` is the strongest a reader may say).
 `complete` is true when every section is `indexed`.
 
@@ -52518,7 +52518,8 @@ answers per candidate `safe`, `unsafe` or `uncertain` with a one-line reason nam
 Certificates are stored in `<home>/source-skeletons/<sha>-release.json`: `{version, prompt, facts_version, rows: [{key,
 ref, entity, kind, verdict, reason, facts, status}]}`. `status` is the static release:
 
-- `approved` when the verdict is `safe` and either the kind is `read_aloud` or `handout`, or the skeleton is `complete`;
+- `approved` when the verdict is `safe` and either the kind is `read_aloud` or `handout`, or the skeleton is `complete` and
+  no `blocked_pages` page prints the entity's name or an alias (normalised spelling);
 - `candidate` when the verdict is `safe` but the skeleton is not complete (a `description` or `appearance` drawn from
   Keeper prose waits for the whole book's protected facts) or facts were omitted for it;
 - `restricted` otherwise (`unsafe`, `uncertain`, no verdict).

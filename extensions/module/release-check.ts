@@ -81,6 +81,11 @@ export async function checkReleases(context: ReleaseContext): Promise<Row> {
 	try { kept = JSON.parse(await readFile(file, "utf8")); } catch { /* none yet */ }
 	const revoked = new Set<string>(Array.isArray(kept.revoked) ? kept.revoked : []);
 	const previous = new Map<string, Row>((kept.version === RELEASE_VERSION && kept.prompt === promptSha ? kept.rows ?? [] : []).map((row: Row) => [row.key, row]));
+	// §263.4: a book is complete for a candidate when every section was read and no blocked page prints its entity's name.
+	const blockedText = normalName((skeleton?.blocked_pages ?? []).flatMap((page: number) => [...blocks.values()].filter(block => blockPage(block.id) === page).map(block => block.text)).join(""));
+	const formsOf = (name: string) => { const entity = (skeleton?.entities ?? []).find((row: Row) => normalName(row.name) === normalName(name));
+		return [name, ...(entity?.aliases ?? [])].map((form: string) => normalName(String(form))).filter(form => [...form].length >= 2); };
+	const completeFor = (candidate: Row) => skeleton?.complete === true && !formsOf(candidate.entity).some(form => blockedText.includes(form));
 	const complete = skeleton?.complete === true;
 	const order = [...blocks.keys()];
 	const sections: Row[] = skeleton?.sections ?? [];
@@ -92,7 +97,7 @@ export async function checkReleases(context: ReleaseContext): Promise<Row> {
 	for (const candidate of candidates) {
 		const old = previous.get(candidate.key);
 		// A verdict that relied on no facts stays valid while its facts version is unchanged; a kept verdict is re-derived for completeness.
-		if (old && old.facts_version === version) { rows.set(candidate.key, { ...old, status: revoked.has(old.key) ? "restricted" : releaseStatus(old.verdict, old.kind, complete, old.facts_omitted === true) }); continue; }
+		if (old && old.facts_version === version) { rows.set(candidate.key, { ...old, status: revoked.has(old.key) ? "restricted" : releaseStatus(old.verdict, old.kind, completeFor(candidate), old.facts_omitted === true) }); continue; }
 		todo.push(candidate);
 	}
 	todo.sort((a, b) => Number(!first.has(a.page)) - Number(!first.has(b.page)) || a.page - b.page);
@@ -131,7 +136,7 @@ export async function checkReleases(context: ReleaseContext): Promise<Row> {
 		for (const [i, row] of batch.entries()) {
 			const answer = verdicts.get(`c${i + 1}`);
 			const verdict = ["safe", "unsafe", "uncertain"].includes(answer?.verdict) ? answer!.verdict : undefined;
-			const status = revoked.has(row.key) ? "restricted" : releaseStatus(verdict, row.kind, complete, omitted);
+			const status = revoked.has(row.key) ? "restricted" : releaseStatus(verdict, row.kind, completeFor(row), omitted);
 			if (status === "approved") approved++; else if (status === "candidate") candidate++; else restricted++;
 			rows.set(row.key, { key: row.key, ref: row.ref, entity: row.entity, kind: row.kind, page: row.page, verdict: verdict ?? null,
 				reason: typeof answer?.reason === "string" ? answer.reason.slice(0, 300) : call.json ? "no verdict" : "checker failed",
