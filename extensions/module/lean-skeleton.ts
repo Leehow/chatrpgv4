@@ -14,7 +14,7 @@ import { roughTokens, SOURCE_LAYOUT_VERSION, type SourceBlocksPage } from "./sou
 import { blockPage, refFromQuote, refKey, type SourceRef } from "./source-refs.ts";
 
 type Row = Record<string, any>;
-export const SKELETON_BOUNDS = { sectionTokens: 6000, requests: 1, concurrency: 4 } as const;
+export const SKELETON_BOUNDS = { sectionTokens: 6000, requests: 1, concurrency: 8 } as const;
 /** The merged skeleton's shape; a kept skeleton of another version is merged again from its kept section answers. */
 export const SKELETON_VERSION = 4;
 const LISTS = ["cross_references", "conditional_events", "keeper_truth"] as const;

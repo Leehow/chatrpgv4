@@ -14,7 +14,7 @@ import { roughTokens, SOURCE_LAYOUT_VERSION } from "./source-blocks.ts";
 
 type Row = Record<string, any>;
 export const RELEASE_VERSION = 1;
-export const RELEASE_BOUNDS = { candidates: 12, evidenceTokens: 6000, concurrency: 3 } as const;
+export const RELEASE_BOUNDS = { candidates: 12, evidenceTokens: 6000, concurrency: 6 } as const;
 export type ReleaseStatus = "approved" | "candidate" | "restricted";
 
 export const releasePath = (home: string, sha: string): string => join(home, "source-skeletons", `${sha}-release.json`);
