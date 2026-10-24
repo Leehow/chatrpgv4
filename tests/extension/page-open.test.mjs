@@ -85,6 +85,17 @@ test('an opening whose people continue after its maps keeps that page, and a mis
   assert.ok(result.text.includes('serpent folk'),'without a review the draft stands');
 });
 
+test('§266.12: a guide the provider refuses is asked once more with the setup pages alone, and the opening still stands on its pages',async t=>{
+  const f=await bound(t),runs=[],host=runtime({locate:ANSWERS.locate,'guide-narrow':{creation_advice:{text:'Bring a car; Drive Auto 55% is required.',pages:[6]}},review:task=>task.fields},runs);runtime.sha=f.sha;
+  const rows=[];
+  const result=await runPageOpen({runtime:host,source:{pdf:f.pdf,file_sha256:f.sha,page_count:PAGES},moduleId:f.mid,language:'en',model:{id:'fixture/model'},record:row=>rows.push(row)});
+  assert.deepEqual(runs.map(run=>run.step),['locate','guide','guide-narrow','review']);
+  assert.deepEqual(runs[2].task.pages.map(row=>row.page),[6],'the setup page only');
+  assert.ok(rows.some(row=>row.event==='guide_narrowed'));
+  assert.deepEqual(result.receipt.opening_pages,{'scene-source-entry-1':[16,17,20]},'the opening keeps every page');
+  assert.equal(result.receipt.public_fields.public_premise.status,'unavailable');
+});
+
 test('the kernel installs a page-text opening: the anchor scene cites every opening page and the Keeper handoff carries them',async t=>{
   const f=await bound(t),host=runtime(ANSWERS);runtime.sha=f.sha;
   const result=await runPageOpen({runtime:host,source:{pdf:f.pdf,file_sha256:f.sha,page_count:PAGES},moduleId:f.mid,language:'en',model:{id:'fixture/model'}});

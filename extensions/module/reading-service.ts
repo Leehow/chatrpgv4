@@ -31,7 +31,9 @@ import {leanEligible, runLeanDetail, sourceBlocksFor} from './lean-read.ts';
 import {approvedPassages, checkReleases, evidenceInScope, passagesInScope, plansInScope, releasePath, withForms} from './release-check.ts';
 import {readFileSync, statSync} from 'node:fs';
 import {SKELETON_VERSION} from './lean-skeleton.ts';
+import {cardBlocks, checkedCard} from './mechanics-card.ts';
 import {BOOK_PAGES_NOTE, PAGE_BOUNDS, bookContents, contentsLines, firstLines, focusInPageMode, inPageMode, requestedPages, type ContentsRow} from './page-mode.ts';
+import {singleCall, normalName} from './lean-skeleton.ts';
 import {LEAN_MAP_REQUESTS, partialSkeletonPath, answerPages, buildSkeleton, castPlayNames, castDraftFromSkeleton, leanCrossReferences, samePrimaryLanguage, skeletonDigest, skeletonIndexRows, skeletonPath, LEAN_ANSWER_ASK, LEAN_ANSWER_REQUESTS} from './lean-skeleton.ts';
 import {acceptedGuidance,acceptedPublicGuidance} from './character-guidance.ts';
 import {validateReferencePacket} from '../../kernel-ts/modules/reference-contract.ts';
@@ -459,6 +461,41 @@ export class ReadingService implements ReadingBridge {
 			this.note({ lane: "reading", event: "deadline_stop", deadline_ms: deadline, running: this.controllers.size });
 			this.dispose({ handOff: true });
 		}, deadline).unref();
+		// §263.8: a table nobody plays stops background reading; the next activity resumes it.
+		const idleMs = this.idleMs();
+		if (idleMs > 0) this.idleTimer = setInterval(() => this.checkIdle(), Math.max(1000, Math.min(60000, Math.floor(idleMs / 4)))).unref?.() ?? null;
+	}
+	/** §263.8: `PI_COC_READ_IDLE_MS` (default 20 minutes; 0 never stops). */
+	private idleMs(): number {
+		const value = Number(process.env.PI_COC_READ_IDLE_MS ?? 1200000);
+		return Number.isFinite(value) && value > 0 ? value : 0;
+	}
+	private idleTimer: unknown = null;
+	private lastActive = Date.now();
+	/** §263.8: true while background reading is stopped for want of a player. */
+	private idle = false;
+	/** §263.8: a table opened, a turn committed, a book prepared: background reading may go on (and resumes when stopped). */
+	private active(reason: string): void {
+		this.lastActive = Date.now();
+		if (!this.idle) return;
+		this.idle = false;
+		this.note({ lane: "reading", event: "idle_resume", reason });
+	}
+	/** §263.8: past the idle bound, background work stops: running background readings are handed back, builds aborted. */
+	checkIdle(now = Date.now()): boolean {
+		if (this.stopped || this.idle || this.idleMs() <= 0 || now - this.lastActive < this.idleMs()) return this.idle;
+		this.idle = true;
+		let running = 0;
+		for (const [key, controller] of this.controllers) {
+			const job = this.jobs.get(key);
+			if (job?.foreground === true) continue;
+			if (job) this.handedOff.add(key);
+			controller.abort(); running++;
+		}
+		// Kept sections and certificates are reused when the build starts again.
+		this.skeletons.clear(); this.partialRelease.clear();
+		this.note({ lane: "reading", event: "idle_stop", idle_ms: now - this.lastActive, running });
+		return true;
 	}
 	/** §262.6: source answers that failed under lean reading, by campaign, module and focus, with the failure. */
 	private failedAnswers = new Map<string, string>();
@@ -466,7 +503,7 @@ export class ReadingService implements ReadingBridge {
 	private skeletons = new Map<string, Promise<void>>();
 	/** §262.5: under lean reading, build the bound document's skeleton once in the background; never awaited by play. */
 	private leanSkeleton(mid: string, campaign: string | undefined): Promise<void> {
-		if (process.env.PI_COC_LEAN_READING !== "1" || this.stopped || !this.deps.runtime) return Promise.resolve();
+		if (process.env.PI_COC_LEAN_READING !== "1" || this.stopped || this.idle || !this.deps.runtime) return Promise.resolve();
 		const started = (async () => {
 			const source = await this.call("module.source.snapshot", { module_id: mid }, campaign);
 			if (source.window) return;
@@ -648,6 +685,54 @@ export class ReadingService implements ReadingBridge {
 		} catch { return []; }
 	}
 	private planCache = new Map<string, { stamp: string; skeleton: Row; blocks?: Map<string, { id: string; text: string }> }>();
+	/** §266.11: the people a card was asked for, by document and names, in this host. */
+	private cardsAsked = new Set<string>();
+	/**
+	 * §266.11: the book's numbers for a person met at the table: one tool-free call over the numeric blocks on the pages that
+	 * print their names, each number kept only when its cited block prints it, kept by the kernel beside the cast. Background;
+	 * once per document and person in this host; never awaited by play.
+	 */
+	async mechanicsCard(mid: string, params: { campaign?: string; names: string[] }): Promise<Row> {
+		if (process.env.PI_COC_LEAN_READING !== "1" || this.stopped || this.idle || !this.deps.runtime) return { state: "off" };
+		const book = this.books.get(mid), names = [...new Set(params.names.filter(name => typeof name === "string" && name.trim()))];
+		if (!book || !names.length) return { state: "unavailable" };
+		const key = JSON.stringify([book.sha, names.map(normalName).sort()]);
+		if (this.cardsAsked.has(key)) return { state: "asked" };
+		this.cardsAsked.add(key);
+		const campaign = params.campaign ?? this.deps.campaign?.();
+		try {
+			const stored = JSON.parse(await readFile(join(book.cache, `blocks-${book.sha}.json`), "utf8"));
+			const all: Array<{ id: string; page: number; text: string }> = [];
+			for (const page of Object.values(stored.pages ?? {}) as Row[]) for (const block of page.blocks ?? []) all.push({ id: block.id, page: block.page, text: block.text });
+			const skeleton = this.pointerIndex(mid), wanted = new Set(names.map(normalName));
+			const entity = (skeleton?.entities ?? []).find((row: Row) => [row.name, ...(row.aliases ?? [])].some((name: string) => wanted.has(normalName(String(name)))));
+			const forms = [...new Set([...names, ...(entity ? [entity.name, ...(entity.aliases ?? [])] : [])])];
+			const picked = cardBlocks(all, forms, entity?.blocks ?? []);
+			if (!picked.length) { this.note({ lane: "reading", event: "mechanics_card", module_id: mid, campaign, names, state: "no_numbers" }); return { state: "no_numbers" }; }
+			const short = new Map(picked.map((block, i) => [`k${i + 1}`, block]));
+			const cwd = join(this.deps.home, "source-skeletons", `${book.sha}-cards`, createHash("sha256").update(key).digest("hex").slice(0, 16));
+			await mkdir(cwd, { recursive: true });
+			const systemPrompt = await readFile(join(this.runtime().contentRoot, "setup", "mechanics-card.md"), "utf8");
+			const controller = new AbortController(), handle = `card:${key}`;
+			this.controllers.set(handle, controller);
+			try {
+				const call = await singleCall(this.runtime(), { cwd, model: this.deps.model(), systemPrompt, signal: controller.signal, shared: { priority: "background" },
+					brief: `person: ${JSON.stringify(forms.slice(0, 8))}\nblocks:\n${JSON.stringify([...short].map(([id, block]) => ({ id, page: block.page, text: block.text })))}\n\nAnswer with the JSON object now.`, timeoutMs: 120000 });
+				const card = checkedCard(call.json, short);
+				this.deps.record({ lane: "reading", phase: "mechanics_card", module_id: mid, campaign, names, ms: call.outcome.ms, ok: call.outcome.ok,
+					...(call.outcome.usage ? { usage: call.outcome.usage } : {}), dropped: card.dropped.length });
+				if (!card.pages.length) { this.note({ lane: "reading", event: "mechanics_card", module_id: mid, campaign, names, state: "none_printed" }); return { state: "none_printed" }; }
+				const kept = await this.call("cast.card", { module_id: mid, names, profile: card.profile, pages: card.pages }, campaign);
+				this.note({ lane: "reading", event: "mechanics_card", module_id: mid, campaign, names, state: kept?.state, pages: card.pages,
+					numbers: Object.keys(card.profile.characteristics).length + Object.keys(card.profile.derived).length + Object.keys(card.profile.skills).length,
+					dropped: [...card.dropped, ...(Array.isArray(kept?.dropped) ? kept.dropped : [])] });
+				return kept ?? { state: "written" };
+			} finally { this.controllers.delete(handle); }
+		} catch (error) {
+			this.note({ lane: "reading", event: "mechanics_card", module_id: mid, campaign, names, state: "failed", detail: String(error instanceof Error ? error.message : error).slice(0, 300) });
+			return { state: "failed" };
+		}
+	}
 	/** §266.8: the release pass on a partial skeleton, one at a time per document; the latest partial waits behind a running pass. */
 	private partialRelease = new Map<string, { running: boolean; next?: Row }>();
 	private releasePartial(mid: string, campaign: string | undefined, source: Row, partial: Row, signal: AbortSignal): void {
@@ -737,6 +822,7 @@ export class ReadingService implements ReadingBridge {
 	 */
 	dispose(options: {handOff?: boolean} = {}) {
 		this.stopped = true;
+		if (this.idleTimer) clearInterval(this.idleTimer as ReturnType<typeof setInterval>);
 		this.lanes.abort();
 		this.stopSweep();
         this.blockedClaims.clear();
@@ -882,6 +968,7 @@ export class ReadingService implements ReadingBridge {
 	}
 	prefetch(moduleId: string, reason = 'requested'): Promise<void> {
 		if (this.stopped) return Promise.resolve();
+		if (reason !== 'scene-queued') this.active(reason);
 		const campaign = this.deps.campaign?.();
 		this.deps.record({lane:'reading',event:'prefetch_wake',module_id:moduleId,campaign,reason});
 		this.leanSkeleton(moduleId, campaign);
@@ -900,6 +987,7 @@ export class ReadingService implements ReadingBridge {
 	 * opening. The kernel answers no job for an authored module or a book that has its cast.
 	 */
 	async prepare(params: Row, signal?: AbortSignal, options: ReadingOptions = {}): Promise<Row> {
+		this.active('prepare');
 		const result = await this.prepareBook(params, signal, options);
 		const mid = typeof result?.module_id === 'string' ? result.module_id : typeof params.module_id === 'string' ? params.module_id : undefined;
 		// Binding returns before any read (the guidance or opening preparation that follows asks); the cast is queued after
@@ -1614,6 +1702,8 @@ export class ReadingService implements ReadingBridge {
 					const wake = new Promise<void>(resolve => this.pumpWakes.set(scope, () => {wakeRequested = true; resolve();}));
 					// §22.4.6: past its own capacity the pump claims only to place a blocking read one of its requests waits on.
 					while ((active.size < capacity || this.blockingWaiting(mid, campaign) !== undefined) && !this.stopped) {
+						// §263.8: an idle table claims only for a reading someone waits on.
+						if (this.idle && this.blockingWaiting(mid, campaign) === undefined) break;
 						const job = await this.bindBeforeClaim(mid, campaign, () => this.call("module.read.claim", { module_id: mid, owner: `host-${process.pid}`, diagnostics: true }, campaign));
 						// A wake does not choose a job; the claim does. The row that names the job names the wake it answered,
 						// and a wake that found nothing queued says so instead of leaving no trace (#65).

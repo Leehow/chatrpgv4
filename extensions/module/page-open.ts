@@ -126,7 +126,18 @@ export async function runPageOpen(input:PageOpenInput):Promise<ReferenceResult>{
  const excerpts:ReferenceExcerpt[]=pagesRead.map((page,index)=>{const body=text.get(page)!.slice(0,PAGE_CHARS);return {id:`page-${index+1}`,page,start:0,end:body.length,text:body};});
  const spanOf=(page:number)=>excerpts.find(span=>span.page===page)!;
  // The guide's pages share the inline bound: a book with many openings hands each page a shorter cut of its text.
- const guided=await ask(input,cwd,'guide',GUIDE_INSTRUCTION,{play_language:input.language,pages:inlinePages(excerpts)});
+ let guided:Row;
+ try{guided=await ask(input,cwd,'guide',GUIDE_INSTRUCTION,{play_language:input.language,pages:inlinePages(excerpts)});}
+ catch(error){
+  // §266.12: a provider that refuses the opening's pages (a content filter on their words) is asked once more with the
+  // setup pages alone, else the opening's first page alone: the guide then says less, and the table still opens on the pages.
+  if(input.signal?.aborted)throw error;
+  const fewer=setup.length?excerpts.filter(span=>setup.includes(span.page)):excerpts.filter(span=>span.page===openings[0]!.pages[0]);
+  input.record?.({lane:'page-open',event:'guide_narrowed',module_id:input.moduleId,pages:fewer.map(span=>span.page),detail:error instanceof Error?error.message:String(error)});
+  if(!fewer.length||fewer.length===excerpts.length)throw error;
+  try{guided=await ask(input,cwd,'guide-narrow',GUIDE_INSTRUCTION,{play_language:input.language,pages:inlinePages(fewer)});}
+  catch(again){if(input.signal?.aborted)throw again;throw error;}
+ }
  // §261.2: the draft is checked once more for what players may not know, by a call that sees only the draft.
  const draft=Object.fromEntries(PUBLIC_GUIDANCE_FIELDS.map(field=>[field,typeof guided[field]?.text==='string'?guided[field].text.trim():'']));
  let reviewed:Row|undefined;

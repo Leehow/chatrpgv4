@@ -52635,6 +52635,14 @@ setup session running; when the last one closes the service stops claiming backg
 "idle_stop"}`) and resumes at the next open. Finished sections and certificates are kept, so a resumed index does not
 read them again. Tokens spent by a cancelled request are still recorded.
 
+*As built (2026-10-24, §266):* a reading host is one table's process, so "the last table closed" is its shutdown, which
+already disposes the service. What still read on was a table left open with nobody playing. The service now counts a
+table open, a reader arriving, a committed turn and a book being prepared as activity (`prefetch` wakes other than
+`scene-queued`, and `prepare`); past `PI_COC_READ_IDLE_MS` (default 20 minutes, 0 never stops) with none it stops
+(`{lane: "reading", event: "idle_stop", idle_ms, running}`): background readings running are handed back as at a
+worker's exit, the skeleton build and release passes are aborted, and the pump claims only for a reading someone waits on.
+The next activity resumes (`idle_resume`) and the build starts again on its kept sections.
+
 Tests: `tests/extension/pointer-reading.test.mjs`.
 
 ### 263.9 Cast and maps under pointer reading (amends §262.8, §262.10)
@@ -52975,6 +52983,9 @@ by number or section; `contents` is the contents at most 40 rows, one `p<first>-
 
 ### 266.7 The opening's people the cast prints on its pages (amends §198.3)
 
+*Since §264.22 the opening refuses no seat; what stands of this section is the capsule's `opening_cast` below, which tells
+the Keeper whom the opening's pages print and to seat them under their names rather than as described newcomers.*
+
 Under lean reading the opening's graph is its one anchor scene (§261): no reader has written the people the opening's
 pages show, so §198.2 places nobody there, the opening seat refuses everyone and the Keeper can only narrate them as
 scenery (Blood Road table A, 2026-10-24: Russ, Nate and Steve at the Esso station on pages 17 and 20, the anchor citing
@@ -53032,5 +53043,36 @@ Keeper the pages are the book's own text and no record will land, and a `lookup 
 `material` turns pages as 266.4 does. Maps, exhibits asked by name, opening and guidance readings are unchanged.
 `PI_COC_DETAIL_READS=1` restores the readings. Mechanics a reader used to write (a person's skills, a gate's numbers)
 are the Keeper's `apply npc` pins and rule defaults until mechanics cards exist (design W08).
+
+### 266.11 Mechanics cards (design W08; amends §147.8, §177.1)
+
+With no detail reading (266.10) a book person met at the table is a table person landed on the book's text, with no
+numbers: their own rolls fell to the rulebook base chance and an opposed check against them was refused. When a person
+who is not a graph person lands (§22.4.7.1) under lean reading, the host asks one tool-free call in the background
+(`content/setup/mechanics-card.md`, `PI_COC_POINTER_THINKING`): the blocks on the pages that print one of their names
+and hold at least three numbers, their own evidence blocks first, about 6K tokens (`cardBlocks`), with short ids; the
+answer gives characteristics, derived values and skills (the rulebook's English skill names), each with the block that
+prints it. The host keeps a number only when its block prints it as a number of its own (`checkedCard`), once per document
+and person in this host, and sends `cast.card {module_id, campaign?, cast_id | names, profile, pages}` (host-only): the
+kernel finds the cast row (by id, or the one row a printed form names), keeps characteristics STR..EDU 1-200, derived
+HP/MP/MOV/Build/SAN and a DB the table resolves, and skills 1-100 whose names resolve in the ruleset (the rest are named in
+`dropped`), as `{profile_kind: "actor", authority: "book_card", ..., pages}` in `cast-cards.json` beside the cast that
+serves the book (the campaign's copy, else the library's). A card kept is kept. `npcProfileOf` reads a table person's
+card (by their `cast_id`) under what the table pinned and what a graph profile states; an NPC's own roll
+(`SettleContext.actorSkillValue`) now also reads the profile the table holds, so an archetype pin (§147.8) or a card is
+seen there too. Telemetry `{lane: "reading", phase: "mechanics_card"}` (the call) and `event: "mechanics_card"`
+(`state`, `numbers`, `dropped`). A book's gates (Steve listens seriously only on a Hard success without ironclad
+evidence) stay `book_truth` rows: the Keeper sets the difficulty, as with any check.
+
+Tests: `tests/extension/page-mode.test.mjs`, `tests/extension/module-cast.test.mjs`.
+
+### 266.12 A guide the provider refuses (amends §261.2)
+
+*They Did Not Think It Too Many* (2026-10-24): MiniMax refused the page-open guide call on the opening's input
+(`500 input new_sensitive (1026)`), the fallback guidance reader was refused the same way, and setup could not prepare
+the book. When the guide call leaves no answer, `runPageOpen` asks it once more with fewer pages: the setup pages alone,
+or, with none, the opening's first page alone (`{lane: "page-open", event: "guide_narrowed", pages}`). The guide then
+covers what those pages hold (fields with nothing behind them are `unavailable`), and the opening still stands on all its
+pages for the Keeper. When that call fails too, the first failure stands and the fallback is as before.
 
 Tests: `tests/extension/page-mode.test.mjs`.

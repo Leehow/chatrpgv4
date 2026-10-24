@@ -314,6 +314,8 @@ export class ModuleGraph {
     castStore?: Row | null;
     /** Contract §194.5: the public-figure verdicts on `castStore`'s rows (`readCastPublic`, installed by `loadModule`); read by `bookCast`. */
     castPublic?: { readonly public: ReadonlySet<string>; readonly pending: number };
+    /** Contract §266.11: `cast-cards.json` of the directory serving the cast (`loadModule`); read by `castCardOf`. */
+    castCards?: Row | null;
     /**
      * Contract §185.13: every name the investigators at this table are registered under (each sheet's name and id), installed
      * by the campaign loader (`loadCampaignModule`); read by `knownNamePieces`. Empty for a graph no campaign serves.
