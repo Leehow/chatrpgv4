@@ -30,10 +30,13 @@ const to=Type.Array(ref,{minItems:1,maxItems:16,uniqueItems:true});
 /** §258.9-§258.10: `aside` is said so only `to` hear it; `phone` and `letter` reach `to` from wherever the speaker is. Omitted, everyone present hears. */
 const channel=Type.Optional(StringEnum(['speech','aside','phone','letter']));
 const beat=Type.Optional(Type.String({minLength:1,maxLength:120,pattern:'\\S',description:'What they visibly do now; behavior only, never words or a settled change'}));
+/** §263.6: how the speaker outwardly says it this turn; the Keeper's decision from the person and the moment, never derived from a stance. */
+export const DELIVERY=['casual','guarded','evasive','confident','hesitant','irritated','matter_of_fact'] as const;
+const delivery=Type.Optional(StringEnum([...DELIVERY]));
 export const Interaction=Type.Union([
  closed({actor,act:Type.Literal('silent'),to:Type.Optional(to),beat}),
- closed({actor,to,act:StringEnum(['greet','refuse','acknowledge']),content:Type.Optional(Type.Array(CommunicationContent,{minItems:1,maxItems:8})),channel,beat}),
- closed({actor,to,act:StringEnum(['answer','ask','offer','clarify','report','warn']),content:Type.Array(CommunicationContent,{minItems:1,maxItems:8}),channel,beat})
+ closed({actor,to,act:StringEnum(['greet','refuse','acknowledge']),content:Type.Optional(Type.Array(CommunicationContent,{minItems:1,maxItems:8})),channel,beat,delivery}),
+ closed({actor,to,act:StringEnum(['answer','ask','offer','clarify','report','warn']),content:Type.Array(CommunicationContent,{minItems:1,maxItems:8}),channel,beat,delivery})
 ]);
 export type InteractionDecision=Static<typeof Interaction>;
 export type HydratedInteraction=InteractionDecision&{claims?:Row[]};
@@ -142,6 +145,12 @@ const gistOf=(value:unknown):string|undefined=>{
 };
 const sorted=(value:unknown):unknown=>Array.isArray(value)?value.map(sorted):value&&typeof value==='object'
  ?Object.fromEntries(Object.keys(value).sort().map(key=>[key,sorted((value as Row)[key])])):value;
+/** §263.6: what the author is told about released book words. */
+/** §263.5: the host's name key for matching table names to the pointer index's printed forms (spelling only). */
+const bookKey=(value:unknown):string=>typeof value==='string'?value.normalize('NFKC').toLowerCase().replace(/[\s\u00b7\u30fb\u2027\u2022.]/g,''):'';
+/** §263.6: a testimony's authority line, whatever the book's stance. */
+export const TESTIMONY_AUTHORITY='What this speaker says, in their terms; render it as their speech and do not judge or correct it in narration.';
+export const BOOK_WORDS_AUTHORITY='The book\'s own words for what the investigators perceive; render them faithfully in the play language, do not summarize or add to them.';
 /** §261.3: the most characters of one opening passage; a passage ends at a line that closes a sentence once it is this long. */
 const OPENING_PASSAGE_CHARS=900;
 /**
@@ -182,11 +191,13 @@ export class DecisionContent {
  private exhibitRows=new Map<string,Row>();private handleRefs=new Map<string,string>();private activeExhibits=new Set<string>();private exhibitOrdinal=0;private exhibitsOmitted=0;private exhibitsGiven=false;
   /** §257.17: testimony already said at this table, by exhibit id, per play line (campaign, worldline, loop); outlives the turn scope. */
   private said=new Map<string,Set<string>>();private line='';
+ /** §263.5: released looks owed this turn, handed to the author without a selection. */
+ private autoBook:string[]=[];private placesShown=new Set<string>();private pendingPlaces:string[]=[];private bookMeta=new Map<string,{kind:string;forms:string[]}>();
  private reads=new Map<string,Row>();private told=new Map<string,Map<string,Row>>();private heard=new Map<string,Row[]>();private sourceRevision:unknown;private bytes=0;private omitted=0;private previous=new Set<string>();
  assertCurrent(capsule:Row):void {if(this.sourceRevision!==undefined&&this.sourceRevision!==(capsule._context?.task_source_revision??capsule._context?.source_revision))throw Error('Prepared communication source revision changed');}
  forScope(scope:string,line?:string):void {if(line!==undefined)this.line=line;else if(scope!==this.scope)this.line=scope;if(scope!==this.scope){this.scope=scope;this.active.clear();this.entities.clear();this.people.clear();this.places.clear();this.listenerAliases.clear();this.entityLabels.clear();this.reads.clear();this.facts.clear();this.exhibitRows.clear();this.activeExhibits.clear();this.handleRefs.clear();}}
  observePerson(value:Row):void {if(isNpcReference(value.ref))this.reads.set(value.ref,structuredClone(value));}
- prepare(scope:string,capsule:Row,people:Row[],sources:Row[]=[],investigators:string[]=[],issuedPeople:string[]=[],prepared:Row[]=[],exhibits:Row[]=[]):Row {
+ prepare(scope:string,capsule:Row,people:Row[],sources:Row[]=[],investigators:string[]=[],issuedPeople:string[]=[],prepared:Row[]=[],exhibits:Row[]=[],book?:Row[],plans:Row[]=[]):Row {
   this.forScope(scope);this.active.clear();this.activeExhibits.clear();this.exhibitsOmitted=0;this.exhibitsGiven=exhibits.length>0;this.entities.clear();this.people.clear();this.places.clear();this.listenerAliases.clear();this.entityLabels.clear();this.bytes=0;this.omitted=0;this.sourceRevision=capsule._context?.task_source_revision??capsule._context?.source_revision;
   for(const [i,name] of investigators.entries()){
    const ref=`investigator_${i+1}`;this.entities.add(ref);this.people.add(ref);this.listenerAlias(name,ref);this.entityLabels.set(ref,name);
@@ -278,14 +289,36 @@ export class DecisionContent {
   for(const item of exhibits)this.issueExhibit(item);
   for(const material of rows(capsule.outcome?.public_materials))if(material.visibility==='player')this.issue('fact',material,undefined,'canonical_material','current');
   for(const source of sources)if(typeof source.text==='string'&&source.text.trim())this.issue('source',{name:source.name,text:source.text,authority:source.authority??'reference_only'},undefined,'reference_only');
+  // §263.5: under pointer reading only released book words are selectable; the opening's pages stay Keeper context.
+  this.autoBook=[];this.pendingPlaces=[];this.bookMeta.clear();
+  if(book){
+   // §263.5: a person owed first sight with no book words of their own gets their released look without a selection.
+   const owed=new Set(rows(capsule.first_sight?.people).filter(item=>item.undescribed===true).map(item=>bookKey(item.name)).filter(Boolean));
+   for(const person of rows(capsule.present))if(rows(capsule.first_sight?.people).some(item=>item.undescribed===true&&[person.id,person.ref,person.name].includes(item.id)))
+    for(const key of [person.display_name,person.name])if(typeof key==='string')owed.add(bookKey(key));
+   for(const passage of book){
+    this.issue('source',{name:`Book p${passage.page}: ${passage.kind} of ${passage.entity}`,text:passage.text,authority:BOOK_WORDS_AUTHORITY},undefined,'book_words');
+    const ref=this.aliases.get(digest({kind:'source',value:{name:`Book p${passage.page}: ${passage.kind} of ${passage.entity}`,text:passage.text,authority:BOOK_WORDS_AUTHORITY},actor:undefined,evidence:'book_words'}));
+    const forms:string[]=Array.isArray(passage.forms)?passage.forms:[bookKey(passage.entity)];
+    if(ref)this.bookMeta.set(ref,{kind:passage.kind,forms});
+    if(ref&&this.active.has(ref)&&passage.kind==='appearance'&&forms.some(form=>owed.has(form)))this.autoBook.push(ref);
+    // §263.5: the first turn a place's own released description is in scope at this table, it is handed over too.
+    const place=String(capsule.where?.scene??capsule.where?.display_name??'');
+    if(ref&&this.active.has(ref)&&passage.kind==='description'&&place&&!this.placesShown.has(`${place}\u0000${ref}`)&&forms.some(form=>bookKey(capsule.where?.display_name).includes(form)||form.includes(bookKey(capsule.where?.display_name))&&bookKey(capsule.where?.display_name).length>=3)){
+     this.autoBook.push(ref);this.pendingPlaces.push(`${place}\u0000${ref}`);
+    }
+   }
+  }
   // §261.3: the opening's own pages, in passages the Keeper can hand the author as the book's words for what is perceived here.
-  for(const passage of openingPassages(capsule.opening_pages))this.issue('source',{...passage,authority:'reference_only'},undefined,'reference_only');
+  else for(const passage of openingPassages(capsule.opening_pages))this.issue('source',{...passage,authority:'reference_only'},undefined,'reference_only');
   for(const entry of rows(capsule.public_scene?.entries))if(typeof entry.text==='string'&&entry.text.trim())
    this.issue('fact',{turn:entry.turn,text:entry.text,...(entry.truncated?{truncated:true}:{})},undefined,'public_scene_history');
   const reused=[...this.active].filter(ref=>this.previous.has(ref)).length;this.previous=new Set(this.active);
   return {coverage:{issued:this.active.size,reused_refs:reused,omitted:this.omitted,byte_limit:32768,...(this.exhibitsGiven?{exhibits:{issued:this.activeExhibits.size,omitted:this.exhibitsOmitted}}:{})},facts:[...this.active].map(key=>{const {revision,content:_content,...fact}=this.facts.get(key)!;return fact;}),entities:[...this.entities],
    ...([...this.active].some(key=>this.facts.get(key)?.told)?{telling:'A fact marked told was already said by its actor to the listeners named (times, last turn). Select it again only when it serves this exchange, with strategy: refer (brief back-reference, the default), restate (the player asked to hear it again), clarify (explain what was misunderstood) or update (only beside a new item). told earlier means it was said before the counts began.'}:{}),
    ...(this.activeExhibits.size?{exhibits:[...this.activeExhibits].map(ref=>this.exhibitRows.get(ref)!.catalog)}:{}),
+   // §263.10: the book's standing Keeper truth for who and what is here; reading only, never selectable for the author.
+   ...(plans.length?{book_truth:{authority:'Keeper-only: what the book has already decided about the people and place here (plans, conditions, secrets, and evidence rows quoting the book), with pages. A plan or condition about a person present is what that person does now unless play has already changed it: their answers and offers follow it (a stall stays a stall). Never hand these rows to the author or say them before the book lets them out.',rows:structuredClone(plans)}}:{}),
    authority:'Exact prepared content references only. Actor-scoped facts belong to that actor; a report, belief or plan is not world truth. A selection is not a transaction or proof of delivery.'};
  }
  private issue(kind:'fact'|'source',value:unknown,actor:string|undefined,evidence:string,availability:'current'|'supplemental'='supplemental'):void {
@@ -410,14 +443,12 @@ export class DecisionContent {
    const surface=now.surface??{};
    if(now.kind==='testimony'){
     // The speaker's claim: what is said, how it is held, never what it teaches or where the book keeps it.
-    const stance=typeof now.stance==='string'?now.stance:'fact',unreliable=['lie','deflection'].includes(stance);
-    authors.set(ref,{kind:'exhibit',exhibit:{kind:'testimony',channel:now.channel,surface:surface.text,stance},
-     authority:unreliable?'What this speaker says, in their terms; not world truth. Render as their speech; do not correct or expose it in narration.':'What this speaker says, in their terms.'});
+    // §263.6: no stance reaches the author; how it is said is the Keeper's `delivery`, never the truth of what is said.
+    authors.set(ref,{kind:'exhibit',exhibit:{kind:'testimony',channel:now.channel,surface:surface.text},authority:TESTIMONY_AUTHORITY});
     continue;
    }
-   authors.set(ref,{kind:'exhibit',exhibit:{kind:now.kind,channel:now.channel,...(typeof now.carrier?.public_label==='string'?{carrier:now.carrier.public_label}:{}),surface:surface.text,...(typeof now.stance==='string'?{stance:now.stance}:{})},
-    authority:['lie','deflection'].includes(now.stance)?'What this speaker says, in their terms; not world truth. Render as their speech; do not correct or expose it in narration.'
-     :surface.verbatim===true?'Render faithfully in the play language; do not summarize.':'Perceivable book material; render it in the play language without adding what it does not show.'});
+   authors.set(ref,{kind:'exhibit',exhibit:{kind:now.kind,channel:now.channel,...(typeof now.carrier?.public_label==='string'?{carrier:now.carrier.public_label}:{}),surface:surface.text},
+    authority:surface.verbatim===true?'Render faithfully in the play language; do not summarize.':'Perceivable book material; render it in the play language without adding what it does not show.'});
   }
   return {effects,selected,authors,taughtBy};
  }
@@ -487,7 +518,16 @@ export class DecisionContent {
   if(actor&&fact.kind==='public_scene_history')throw Error('Prior public scene text is narration context, not an actor knowledge grant');
   const {revision,...hydrated}=fact;return structuredClone(hydrated);
  }
- hydrate(interactions:InteractionDecision[],reveal:unknown[]=[]):{responses:HydratedInteraction[];materials:Row[];units:TellingUnit[][]} {
+ hydrate(interactions:InteractionDecision[],reveal:unknown[]=[],destinations:string[]=[]):{responses:HydratedInteraction[];materials:Row[];units:TellingUnit[][]} {
+  // §263.5: a move this packet makes hands over the destination's released description the first time, like an arrival.
+  for(const destination of destinations){
+   const label=bookKey(this.entityLabels.get(destination)??destination);
+   if([...label].length<2)continue;
+   for(const [ref,meta] of this.bookMeta)if(['description','read_aloud'].includes(meta.kind)&&this.active.has(ref)&&!this.autoBook.includes(ref)
+    &&!this.placesShown.has(`${destination}\u0000${ref}`)&&meta.forms.some(form=>form===label||[...form].length>=3&&label.includes(form)||[...label].length>=3&&form.includes(label))){
+    this.autoBook.push(ref);this.pendingPlaces.push(`${destination}\u0000${ref}`);
+   }
+  }
   const units:TellingUnit[][]=[];
   const responses=interactions.map(response=>{
    const to=response.to?.map(listener=>{
@@ -510,7 +550,10 @@ export class DecisionContent {
     return item&&item.strategy!=='new'?{...attributed,telling:{strategy:item.strategy,...(item.told_times?{times:item.told_times}:{})}}:attributed;
    })}:{})};
   });
-  return {responses,materials:reveal.map(content=>this.resolve(content)),units};
+  const selected=new Set(reveal.map(content=>(content as Row)?.source_ref).filter(Boolean));
+  const auto=this.autoBook.filter(ref=>!selected.has(ref)&&this.active.has(ref)).map(ref=>this.resolve({source_ref:ref}));
+  for(const key of this.pendingPlaces.splice(0))this.placesShown.add(key);
+  return {responses,materials:[...reveal.map(content=>this.resolve(content)),...auto],units};
  }
 }
 

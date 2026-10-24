@@ -5966,7 +5966,7 @@ export default function (pi: ExtensionAPI, host: {capabilities?:RuntimeCapabilit
                 compiled.effects.unshift(...exhibits.effects);
             }
             let hydrated:ReturnType<DecisionContent['hydrate']>;
-            try{hydrated=materialOwner.hydrate(compiled.responses,packet.reveal??[]);if(exhibits){hydrated.materials=materialOwner.authorMaterials(hydrated.materials,exhibits.authors);hydrated.responses=materialOwner.authorClaims(hydrated.responses,exhibits.authors);}}catch(error){throw new KernelError({code:'invalid_params',message:error instanceof Error?error.message:String(error),details:{reason:'decision_material_binding',transaction_state:'uncommitted'}});}
+            try{hydrated=materialOwner.hydrate(compiled.responses,packet.reveal??[],(compiled.effects??[]).flatMap((effect:Record<string,any>)=>effect?.kind==='move'&&typeof effect.to==='string'&&effect.to!=='here'?[effect.to]:effect?.kind==='place'&&effect.action==='move'&&typeof effect.to==='string'&&effect.to!=='here'?[effect.to,...(typeof effect.name==='string'?[effect.name]:[])]:[]));if(exhibits){hydrated.materials=materialOwner.authorMaterials(hydrated.materials,exhibits.authors);hydrated.responses=materialOwner.authorClaims(hydrated.responses,exhibits.authors);}}catch(error){throw new KernelError({code:'invalid_params',message:error instanceof Error?error.message:String(error),details:{reason:'decision_material_binding',transaction_state:'uncommitted'}});}
             if(compiled.event)for(const relation of compiled.event.relationships){
                 const match=/^investigator_([1-9][0-9]*)$/.exec(relation.toward);
                 if(match){const person=state.party[Number(match[1])-1];if(!person)throw new KernelError({code:'invalid_params',message:'Unissued relationship recipient',details:{transaction_state:'uncommitted'}});relation.toward=person.name;}
@@ -7743,7 +7743,7 @@ export default function (pi: ExtensionAPI, host: {capabilities?:RuntimeCapabilit
 				materialSources:(turn:number)=>finalOutput.inventory(campaign,turn),
                 decisionMaterials:(capsule:Record<string,any>,people:Record<string,any>[],prepared:Record<string,any>[]=[],exhibits:Record<string,any>[]=[] )=>{
                     if(!table||!turnPacketPrototype)return undefined;
-                    return packetContent(table).prepare(packetNpcScope(table),capsule,people,finalOutput.decisionSources(table.campaign,table.turn,capsule),table.party.map(person=>person.name),packetNpcReferences(table).current(packetNpcScope(table)),prepared,exhibits);
+                    return packetContent(table).prepare(packetNpcScope(table),capsule,people,finalOutput.decisionSources(table.campaign,table.turn,capsule),table.party.map(person=>person.name),packetNpcReferences(table).current(packetNpcScope(table)),prepared,exhibits,process.env.PI_COC_LEAN_READING==='1'?(reading?.bookPassages?.(readingModule,capsule)??[]):undefined,process.env.PI_COC_LEAN_READING==='1'?(reading?.bookPlans?.(readingModule,capsule)??[]):[]);
                 },
                 playerContext:()=>({investigators:table?.party.map(person=>person.name)??[],
                     previousPublic:table?decisionRecentPublic(table.recent,table.delivered):[]}),
