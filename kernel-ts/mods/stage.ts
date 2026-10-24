@@ -168,7 +168,9 @@ export async function stageModEffect(context: ApplyContext, original: Row, sheet
         if (!prior && !Object.hasOwn(effect, 'adopt') && owner.kind === 'investigator') {
             const sheet = sheets ? await stagedSheet(context, sheets, owner.name) : selectActor(await campaign.party() as Row[], owner.name);
             if (array(sheet.equipment).some(item => typeof item === 'string' ? item === name : isJsonObject(item) && item.name === name))
-                throw new RpcError('invalid_params', 'This equipment is already owned; use object.adopt to enrich it instead of awarding another copy');
+                throw new RpcError('invalid_params', 'This equipment is already owned; use object.adopt to enrich it instead of awarding another copy',
+                    {fix:`Keep its define in this batch and send this effect as {kind:"object", name, adopt:${repr(name)}, definition:<the defined name>, to:${repr(owner.name)}}. A sheet row the fiction only shows or mentions needs no registration: drop both effects.`,
+                     details:{field:'object.adopt',reason:'equipment_already_owned',adopt:name}});
         }
         if (Object.hasOwn(effect, 'adopt')) {
             if (typeof effect.adopt !== 'string' || !effect.adopt.trim() || prior || source || owner.kind !== 'investigator' || !sheets)

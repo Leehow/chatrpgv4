@@ -120,11 +120,13 @@ export function moveObject(world: Row, name: string, definitionName: string | nu
     // only queued so far belong in that list: they are real registrations it must not duplicate.
     if (!template) {
         const known = [...values(data.definitions).map(value => string(value.name)), ...queuedRegistrations(world).map(entry => string(entry.name))];
-        const offer = known.length ? `set definition to one of: ${known.slice(-8).join(', ')}` : 'define it in this same batch';
-        throw new RpcError('invalid_params', `No accepted definition named ${repr(definitionName || name)}`,
-            {details:{reason:'object_definition_required',name,definition:definitionName??name,available_definitions:known.slice(-8)},fix: definitionName === null
-                ? `this placement omitted definition, so the instance name was looked up instead; ${offer}`
-                : `${offer}, or define that name in this same batch`});
+        // §263.2: the usual miss is a thing never defined, so the first fix is the define that makes it one; the accepted names
+        // follow only as the alternative. Offered first, they sent a Keeper adopting a photo to the definition of a van.
+        const missing = definitionName || name;
+        const defineFirst = `put {kind:"define", name:${repr(missing)}, category, description} before this effect in the same batch and set definition to ${repr(missing)} here`;
+        throw new RpcError('invalid_params', `No accepted definition named ${repr(missing)}`,
+            {details:{reason:'object_definition_required',name,definition:definitionName??name,available_definitions:known.slice(-8)},
+             fix: `${defineFirst}${known.length ? `; or, if it is one of these accepted things, set definition to it: ${known.slice(-8).join(', ')}` : ''}`});
     }
     if (template.category === 'spell') throw new RpcError('invalid_params', 'Place an item/weapon from an accepted definition; spells are knowledge');
     if (template.category === 'weapon' && !equal(quantity, 1)) throw new RpcError('invalid_params', 'Each weapon has one instance and its own ammunition');

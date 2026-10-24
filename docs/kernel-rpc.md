@@ -52465,3 +52465,36 @@ task carries the digest of its instructions, so changed instructions read it aga
 pages (§262.7) are the pages that print the entity.
 
 Tests: `tests/extension/lean-reading.test.mjs`, `tests/extension/source-blocks.test.mjs`, `tests/extension/read-window.test.mjs` (the `§262` cases).
+
+## 263. Keeper protocol slots the Keeper had to argue its way around (owner 2026-10-24)
+
+App play test 2026-10-23 (Blood Road, `minimax-cn/MiniMax-M3.1-Flash-Preview` / medium, Keeper only): 79 reasoning
+blocks over 1,000 characters in 14 turns (about 1.2 million characters) and 31 in the 8-turn retest (about 225,000). Read
+block by block, they deliberate the protocol, not the story. Three slots had no honest answer, so the Keeper reasoned its
+way around each of them on every call that touched it. Each is closed at the slot, not with more guidance.
+
+### 263.1 What a person does not know has a topic
+
+`knowledge_status` was the only constructor for "I have not seen that boy", and its `topic` had to be an issued reference.
+The thing a player most often asks after (the missing person on the investigator's own card, a rumour) has none, so the
+Keeper wrote `topic: npc_27` (the speaker himself) after deliberating whether `unknown` meant the investigator's knowledge
+or the speaker's. `topic` now also takes `{label}` (at most 80 characters, the shape `service_at` items already take): a
+noun naming the subject, never a statement about it, so it adds no text box (§260's decision-only rule stands). `status` is
+documented as the speaker's own knowledge. The output instruction no longer tells an owner to answer "in their own
+words" beside the rule that forbids words: it answers with other content.
+
+### 263.2 A carried row is registered only when a mechanic needs it
+
+`enhanced-items` 1.4.3: showing, setting down, describing or mentioning a sheet row needs no registration; a decorative row
+is registered when it changes hands. The refusals that remain point at the fix first: a missing definition names the
+`define` that creates it (the accepted names follow only as an alternative, where before they led and sent a photograph's
+adoption to a van's definition), and placing an owned row names the `adopt` form or no registration at all.
+
+### 263.3 A payment's category defaults to purchase
+
+`cash` with a negative delta and no `category` is `purchase`: additional daily spending counted against the Spending Level.
+`living` (the investigator's own ordinary meals, lodging or local fares) and `transfer` are set only when they apply. The
+kernel used to refuse the omission with `needs`, and the Keeper weighed fuel, a repair and a telephone call between living
+and purchase on each payment although, below the Spending Level, both settle the same way.
+The default never debits cash: where settling as purchase would take money from the purse (the day's purchases pass the
+Spending Level), the omission is still refused with `needs` on `category`, the one case where the choice changes the result.

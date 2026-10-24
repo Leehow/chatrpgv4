@@ -72,8 +72,7 @@ export function bindCashQuote(context:Pick<ApplyContext,'world'|'graph'>,given:R
     return {effect:{...clone(quote),...given,delta:storedCash(delta),items:clone(quote.items),why:given.why??quote.why},quote};
 }
 export function expenseCategory(effect:Row,negative:boolean):string {
-    const value=effect.owed?'transfer':effect.category??(effect.source==='found'?'transfer':effect.settlement==='spending_level'?'purchase':negative?null:'transfer');
-    if(value===null)throw new RpcError('needs','A purchase needs its expense category before settlement',{fix:'Set category living for ordinary food, accommodation or incidental travel within the investigator living standard, purchase for additional spending, or transfer for actual non-purchase cash movement. The kernel chooses coverage and the debit.',details:{field:'category',options:['living','purchase','transfer']}});
+    const value=effect.owed?'transfer':effect.category??(effect.source==='found'?'transfer':effect.settlement==='spending_level'?'purchase':negative?'purchase':'transfer');
     if(!['living','purchase','transfer'].includes(value))throw new RpcError('invalid_params','category must be living, purchase or transfer');
     if(!negative&&value!=='transfer')throw new RpcError('invalid_params','Money received is a cash transfer, not an expense');
     if(effect.owed&&(effect.mode==='quote'||effect.quote!==undefined||effect.items!==undefined||effect.category&&effect.category!=='transfer'))throw new RpcError('invalid_params','Owed cash lands the exact delivered transfer, not a quotation or covered purchase');

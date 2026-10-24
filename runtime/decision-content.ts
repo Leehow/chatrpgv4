@@ -16,7 +16,10 @@ export const NewCommunicationFact=Type.Union([
   heading:Type.Optional(StringEnum(['north','northeast','east','southeast','south','southwest','west','northwest','left','right','straight'])),
   via:Type.Optional(Type.Array(ref,{minItems:1,maxItems:8})),retrace:Type.Optional(Type.Literal(true))},
   {additionalProperties:false,anyOf:[{required:['heading']},{required:['via']},{required:['retrace']}]}),
- closed({predicate:Type.Literal('knowledge_status'),topic:ref,status:StringEnum(['unknown','uncertain','withheld','nothing_more'])}),
+ // §263.1: what the speaker knows about the topic. A topic nobody here has a reference for (the missing boy the investigator
+ // asks after, a rumour) is a short noun label, as service_at items are; it names the subject, never says anything about it.
+ closed({predicate:Type.Literal('knowledge_status'),topic:Type.Union([ref,category],{description:'What the speaker is asked about: an issued reference, or {label} naming a subject nobody here has a reference for'}),
+  status:StringEnum(['unknown','uncertain','withheld','nothing_more'],{description:"The speaker's own knowledge of the topic: unknown (knows nothing of it), uncertain (unsure), withheld (knows but will not say), nothing_more (has said all they know)"})}),
  closed({predicate:Type.Literal('input_requirements'),topic:ref,fields:Type.Array(StringEnum(['subject_name','person_name','location','time_range','record_type','purpose','quantity','budget']),{minItems:1,maxItems:8,uniqueItems:true})})
 ]);
 /** §258.4: how a selected item is said to a listener who was already told it; omitted, a told item is said as `refer`. */
@@ -49,7 +52,8 @@ export function bindCommunicationParameters(schema:TSchema,bindings:DecisionBind
  const visit=(value:unknown)=>{
   if(!value||typeof value!=='object')return;
   if(Array.isArray(value)){value.forEach(visit);return;}const row=value as Row,p=row.properties;
-  if(p?.predicate){for(const key of ['provider','topic'])if(p[key])p[key]=selection(bindings.entities,true);
+  if(p?.predicate){if(p.provider)p.provider=selection(bindings.entities,true);
+   if(p.topic)p.topic=p.predicate?.const==='knowledge_status'?Type.Union([selection(bindings.entities,true),category],{description:p.topic.description}):selection(bindings.entities,true);
    if(p.actor)p.actor=selection(bindings.people,true);
    if(p.to)p.to=selection(bindings.places);
    // §258.5: what a service serves is a thing, never a person.
