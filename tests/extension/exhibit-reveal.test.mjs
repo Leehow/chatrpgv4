@@ -322,7 +322,7 @@ test('said testimony is marked across turn scopes of one play line, not on anoth
   assert.equal(later.find(entry=>entry.kind!=='testimony').said,undefined,'a document read again is not marked');
   assert.equal(issue('c:3','other-line').find(entry=>entry.kind==='testimony').said,undefined,'another worldline or loop starts unmarked');
   assert.match(TURN_PACKET_GUIDANCE,/said:true/);
-  assert.match(TURN_PACKET_GUIDANCE,/only when the exchange is about what its label says/);
+  assert.match(TURN_PACKET_GUIDANCE,/only when the exchange is about its label/);
 });
 
 // ---- §257.17: {{who:}} in first sight and in speech_style ----

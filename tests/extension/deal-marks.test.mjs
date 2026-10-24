@@ -63,7 +63,7 @@ test('the lane asks typed choices only, records nothing below its confidence flo
 
 test('the Keeper is told the host records what became of a deal, so its agreement command is optional',async()=>{
  const {TURN_PACKET_GUIDANCE}=await import('../../runtime/turn-packet-prototype.ts');
- assert.match(TURN_PACKET_GUIDANCE,/after delivery the host reads from the reply what was accepted, declined, kept or broken and records it, so an \{kind:"agreement",proposal:fact_ref,status\} command is optional/);
+ assert.match(TURN_PACKET_GUIDANCE,/the host records what was accepted, declined, kept or broken from the reply, so \{kind:"agreement",proposal:fact_ref,status\} is optional/);
 });
 
 test('a line the reply has said low becomes an aside after delivery; only a bystander who passes their own Listen still heard it',async()=>{

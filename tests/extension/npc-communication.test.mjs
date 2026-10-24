@@ -207,7 +207,7 @@ test('§258.9 an aside reaches only its addressees',()=>{
 });
 
 test('live P1 re-run: the Keeper is told disposition follows the exchange, and the author wraps every spoken line and rewords a told claim', () => {
- assert.match(TURN_PACKET_GUIDANCE,/disposition is the standing attitude and follows what the exchange did to it: a threat or insult toward this person moves it to unfriendly or hostile/);
+ assert.match(TURN_PACKET_GUIDANCE,/disposition is the standing attitude after the exchange \(a threat or insult moves it to unfriendly or hostile/);
  assert.match(TURN_PACKET_GUIDANCE,/when they hide the change, public is what they show instead/);
  assert.match(DECISION_AUTHOR_INSTRUCTION,/Every quoted line any person speaks, a greeting or acknowledgement with no claim included, sits inside its own say token/);
  assert.match(DECISION_AUTHOR_INSTRUCTION,/never a bare quote/);
@@ -334,7 +334,7 @@ test('app re-test: a whisper answered low by its addressee stays theirs when a b
  const asked=rec.events.find(e=>e.act==='player_input');
  assert.equal(asked.channel,'aside');assert.deepEqual(asked.to,['npc_1']);assert.deepEqual(asked.heard,[]);
  assert.deepEqual(rec.events.find(e=>e.actor==='npc_1').heard,[]);
- assert.match(TURN_PACKET_GUIDANCE,/when the investigator speaks low or privately to someone \(a whisper, a word aside\), that person answers with channel aside, and nobody else responds to those words/);
+ assert.match(TURN_PACKET_GUIDANCE,/channel aside is heard only by the addressee, who answers with channel aside; others react only to what they could see/);
 });
 
 test('app re-test: a bystander passes on an overheard offer as the other person\'s words, and an own earlier line is attributed by the name the player knows',()=>{
@@ -342,7 +342,7 @@ test('app re-test: a bystander passes on an overheard offer as the other person\
  // earlier line came back as "内特·帕特森说过" although the investigator never learned his name.
  assert.match(DECISION_AUTHOR_INSTRUCTION,/A claim of kind heard is another person's words that the speaker overheard: they pass it on as that person's words, reported in their own voice/);
  assert.match(DECISION_AUTHOR_INSTRUCTION,/never spoken in the first person as their own offer, promise or knowledge/);
- assert.match(TURN_PACKET_GUIDANCE,/a person of the book who is elsewhere speaks on the telephone under their own npc ref \(find it with lookup\), never as a walk_on/);
+ assert.match(TURN_PACKET_GUIDANCE,/a book person who is elsewhere speaks by telephone under their own npc ref \(find it with lookup\), never as a walk_on/);
 });
 
 test('owner 2026-10-24: whether someone present catches a whisper is their own Listen roll, made by the commit, not the Keeper',async()=>{
@@ -364,7 +364,7 @@ test('owner 2026-10-24: whether someone present catches a whisper is their own L
  assert.ok(rolls.every(r=>r.passed===(r.roll===1||r.roll<=30)));
  assert.ok(rolls.some(r=>r.passed)&&rolls.some(r=>!r.passed),'it is a roll, not a rule');
  assert.equal(communicationRecord(graph,world,party,scope,6,{selections:[{...whisper[0],channel:undefined}],artifact_text:text},[],here,'你好',{seed:'s',listen:()=>100}).events.find(e=>e.actor==='npc_1').overhear_rolls,undefined,'only an aside is rolled for');
- assert.match(TURN_PACKET_GUIDANCE,/whether someone present catches it is their Listen roll, which the host makes itself for everyone present not spoken to; do not roll it/);
+ assert.match(TURN_PACKET_GUIDANCE,/the Listen roll is the host's/);
 });
 test('app play-test: "never seen this boy" has a topic: what the investigator just asked about',async()=>{
  const {DecisionContent,ASKED_TOPIC}=await import('../../runtime/decision-content.ts');
@@ -374,5 +374,5 @@ test('app play-test: "never seen this boy" has a topic: what the investigator ju
  const [response]=owner.hydrate([{actor:'npc_1',to:['investigator_1'],act:'answer',content:[{new:{predicate:'knowledge_status',topic:'player_input',status:'unknown'}}]}]).responses;
  assert.equal(response.claims[0].value.topic,'player_input');
  assert.deepEqual(response.claims[0].entities,[{ref:'player_input',display_name:'what the investigator just asked about (player_input)'}]);
- assert.match(TURN_PACKET_GUIDANCE,/or player_input: what the investigator just asked about/);
+ assert.match(TURN_PACKET_GUIDANCE,/or player_input for what was just asked/);
 });

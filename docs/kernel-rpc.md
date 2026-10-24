@@ -52847,6 +52847,15 @@ passes every write except a Mod call before the Mod layer has announced itself. 
 and §86's closed-turn door is unchanged. The instruction says to play what the opening holds through the ordinary tools,
 stop where the investigator would choose, and choose nothing for them. §198.3's Jev seating still runs before the opening.
 
+### 264.23 The output guidance is principles and syntax (owner 2026-10-24)
+
+`TURN_PACKET_GUIDANCE` went from about 11,100 to 5,600 characters. Sentences that restated the schema, described what
+the host already does (rolls, receipts, travel time, deal marks) or forbade in advance what the kernel would refuse
+anyway were dropped; five principles stand in for the prohibitions: record only what this turn changed; speech and
+beats carry meaning and behavior, state changes are commands; a person says what they know, from issued material; a
+claim, offer, direction or plan is not truth or movement; rolls, receipts, time costs and deal marks are the host's.
+Every constructor and syntax example is kept.
+
 ## 265. Shopping: the outlet's stock, price and order time are the program's (owner 2026-10-24)
 
 The owner's report: a MiniMax Keeper's long deliberations were mostly about whether a shop had the goods and what they cost. Those answers moved to the kernel; the Keeper picks parameters. Purchase guidance that lived in other packages moved with them, so the problem has one home. Amends §58 ("the kernel does not price anything itself") for goods bought at an outlet while this package is active; every other cash path is unchanged.
