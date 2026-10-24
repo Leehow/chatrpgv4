@@ -146,6 +146,10 @@ function contentDiagnostic(parameters:TSchema,raw:unknown):Error|undefined {
     if(Errors(constructor,item.new).length)return parameterError(`${label}/new`,constructor,item.new);
    }else if(Errors(variant,item).length)return parameterError(label,variant,item);
   }
+  // §264.26: with every content item valid, the interaction's own act variant names its real fault (an unissued actor, a
+  // long beat); the whole packet's union reported the silent variant instead (live 2026-10-24: "act must be silent" twice,
+  // and the turn ended undelivered).
+  if(schema&&Errors(schema,row).length)return parameterError(`interactions[${index}]`,schema,row);
  }
 }
 export function responseDecision(value:unknown,slots:readonly string[]=[]):ResponseDecision {

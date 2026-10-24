@@ -52869,6 +52869,19 @@ receipt reports `crowd: registered_people_stay` (the opening had been refused fo
 Knott in it). Contradictions with world state, malformed input, rules the rulebook
 gates (a clue's required check) and money (§265's owner) are unchanged.
 
+### 264.25 A description is not a book name in text without word boundaries
+
+A walk_on label is refused as a book person's name when it contains one of their full names, or, for a Latin piece of a
+name, contains the piece at word boundaries (as before). In text without word boundaries a piece counts only as the
+whole label: a Chinese "maid in a pale blue dress" had been refused for sharing two characters with someone's name
+(Master Wu's Marriage, 2026-10-24).
+
+### 264.26 An interaction's fault is reported from its own act
+
+When every content item of an interaction is valid, the interaction is checked against the variant its own `act`
+names, so an unissued actor or an over-long beat is named. The packet-wide union had reported "act must be silent"
+twice and the turn ended with nothing delivered.
+
 ## 265. Shopping: the outlet's stock, price and order time are the program's (owner 2026-10-24)
 
 The owner's report: a MiniMax Keeper's long deliberations were mostly about whether a shop had the goods and what they cost. Those answers moved to the kernel; the Keeper picks parameters. Purchase guidance that lived in other packages moved with them, so the problem has one home. Amends §58 ("the kernel does not price anything itself") for goods bought at an outlet while this package is active; every other cash path is unchanged.

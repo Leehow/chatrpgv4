@@ -215,3 +215,10 @@ test('a procedural answer can select required information without writing the an
  assert.equal(packet.commands,undefined);assert.equal(claim.executed,undefined);
  for(const fields of [['Please tell me the address and approximate year.'],['location','location']])assert.throws(()=>turnPacket(JSON.stringify({...packet,interactions:[{...packet.interactions[0],content:[{new:{...packet.interactions[0].content[0].new,fields}}]}]})));
 });
+
+test('§264.26 an interaction whose content is valid but whose actor is unissued is told about the actor, not the silent variant',()=>{
+ const owner=new DecisionContent();owner.prepare('c:1',capsule,[],[],['Investigator']);
+ const bound=turnPacketParameterSchema(false,undefined,undefined,false,owner.bindings());
+ const wire={version:4,interactions:[{actor:'npc_99',to:['investigator_1'],act:'ask',content:[{new:{predicate:'meaning',meaning:'asks why you came round the back'}}],beat:'stands under the eaves',delivery:'casual'}]};
+ assert.throws(()=>turnPacket(JSON.stringify(wire),bound),error=>/interactions\[0\]\/actor/.test(error.message)&&!/must be equal to constant/.test(error.message),'the actor is named');
+});
