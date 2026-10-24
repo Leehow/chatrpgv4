@@ -122,7 +122,7 @@ test('§228.3 a Keeper write before any prepared request of the input still gets
 });
 
 test('a failed non-routine expense receives the shipped service-order section without a location call',async()=>{
-    const path=join(root,'mods/quick-settlement');
+    const path=join(root,'mods/shopping');
     const manifest=JSON.parse(await readFile(join(path,'mod.json'),'utf8'));
     const sections=api.parseSections(manifest,JSON.parse(await readFile(join(path,'sections.json'),'utf8')),await readFile(join(path,'agent.md'),'utf8'));
     const instruction={mod:manifest.id,version:manifest.version,form:'indexed',index_contract_version:2,instruction:'Core.',

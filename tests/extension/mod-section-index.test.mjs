@@ -12,7 +12,7 @@ import {fauxAssistantMessage,fauxToolCall} from "@earendil-works/pi-ai";
 import {openTable} from "./harness.mjs";
 
 const ROOT=resolve(import.meta.dirname,"../..");
-const SECTIONED=["enhanced-locations","narration-craft","natural-npc","enhanced-items","keeper-pacing","story-thread","historical-reference","hostile-creatures","quick-settlement","zh-optimize","npc-portrayal"];
+const SECTIONED=["enhanced-locations","narration-craft","natural-npc","enhanced-items","keeper-pacing","story-thread","historical-reference","hostile-creatures","quick-settlement","zh-optimize","npc-portrayal","shopping"];
 /** A locations provider or a package with a reference section is indexed at any budget (§242, §247.4). */
 const temporary=await mkdtemp(join(tmpdir(),"mod-section-index-"));
 await symlink(join(ROOT,"node_modules"),join(temporary,"node_modules"),"dir");
@@ -183,14 +183,14 @@ test("mods.sections returns the text of active sections by key, and refuses an u
 	budget(t,1);
 	await call("table.open");
 	const rows=byId((await call("table.player_input",{text:"I ask about the price of a room."})).capsule);
-	const prices=rows.get("historical-reference").sections.find(section=>section.heading==="Prices");
+	const prices=rows.get("shopping").sections.find(section=>section.heading==="Prices without a printed record");
 	const read=await call("mods.sections",{keys:[prices.key]});
-	const agent=await shipped("historical-reference","agent.md");
+	const agent=await shipped("shopping","agent.md");
 	assert.equal(read.sections[0].key,prices.key);
-	assert.equal(read.sections[0].text,`## Prices\n\n${agent.split("## Prices\n\n")[1].split("\n\n## ")[0].trim()}`);
+	assert.equal(read.sections[0].text,`## Prices without a printed record\n\n${agent.split("## Prices without a printed record\n\n")[1].split("\n\n## ")[0].trim()}`);
 	assert.equal(Buffer.byteLength(read.sections[0].text,"utf8"),prices.bytes);
-	await assert.rejects(call("mods.sections",{keys:[prices.key,"historical-reference@0.0.1#4"]}),
-		error=>error.code==="invalid_params"&&error.details.keys.includes("historical-reference@0.0.1#4"));
+	await assert.rejects(call("mods.sections",{keys:[prices.key,"shopping@0.0.1#4"]}),
+		error=>error.code==="invalid_params"&&error.details.keys.includes("shopping@0.0.1#4"));
 	await assert.rejects(call("mods.sections",{keys:[]}),error=>error.code==="invalid_params");
 });
 
@@ -349,7 +349,7 @@ test("over the budget the Keeper's actual requests carry resident text in the br
 	}
 	const named=first.sections.map(row=>`${row.package}: ${row.section}`);
 	assert.ok(named.includes("natural-npc: What the asker is after"),named.join(" | "));
-	assert.ok(!named.includes("historical-reference: Prices"),"money scored low and no cash call yet");
+	assert.ok(!named.includes("shopping: Prices without a printed record"),"money scored low and no cash call yet");
 	const asker=await shipped("natural-npc","agent.md");
 	assert.ok(asker.includes(first.sections.find(row=>row.section==="What the asker is after").text.split("\n\n").slice(1).join("\n\n")),"the package's own words");
 
@@ -360,7 +360,7 @@ test("over the budget the Keeper's actual requests carry resident text in the br
 	assert.equal(brief.find(row=>row.mod==="zh-optimize").form,"indexed","§254: its speech guidance is an author section");
 
 	const second=sectionsOf(requests[1]);
-	assert.ok(second.sections.some(row=>row.package==="historical-reference"&&row.section==="Prices"),"the cash call this turn loads the price section for the next request");
+	assert.ok(second.sections.some(row=>row.package==="shopping"&&row.section==="Prices without a printed record"),"the cash call this turn loads the price section for the next request");
 	const rows=table.telemetry().filter(row=>row.lane==="mod-sections");
 	assert.equal(rows.find(row=>row.event==="topics").scores.asks_question,.92);
 	assert.ok(rows.some(row=>row.event==="selected"&&row.keys.some(key=>key.why.includes("call:before_apply:cash"))));
@@ -376,7 +376,7 @@ test("with Jev unavailable every section whose gates hold and that names a topic
 	const sent=sectionsOf(requests[0]);
 	assert.ok(sent);
 	const named=sent.sections.map(row=>`${row.package}: ${row.section}`).concat((sent.omitted??[]).map(row=>`${row.package}: ${row.section}`));
-	for(const section of ["historical-reference: Prices","natural-npc: What the asker is after","keeper-pacing: Close calls"])
+	for(const section of ["shopping: Prices without a printed record","natural-npc: What the asker is after","keeper-pacing: Close calls"])
 		assert.ok(named.includes(section),`${section} in ${named.join(" | ")}`);
 	const rows=table.telemetry().filter(row=>row.lane==="mod-sections");
 	assert.ok(rows.some(row=>row.event==="fallback"&&row.reason==="unconfigured"));

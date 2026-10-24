@@ -1,5 +1,9 @@
 # Quick Settlement
 
+## 1.3.0
+
+- `Services beyond routine` moved, unchanged, to the Shopping package 1.0.0 (contract §265.6), so every purchase rule has one home.
+
 ## 1.2.1
 
 Routine names small goods and fares (a newspaper, cigarettes, a cab on the way): no item, cash, new place or walk_on for the seller or driver, and the small thing becomes an item only when a later mechanic needs it. A MiniMax Keeper on 2026-10-24 spent eleven calls and over 50,000 characters of reasoning on a newspaper, a pack of cigarettes and a taxi: it established a newsstand, registered its vendor, defined and placed both goods and settled three payments (contract §264.10).

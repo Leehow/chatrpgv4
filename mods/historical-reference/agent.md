@@ -12,10 +12,3 @@ historical_setting and the current scene carry authored era, place and backgroun
 
 Integrate one or two useful details into things the investigator sees, handles, hears or smells, or into NPC speech and manner. Do not turn ordinary play into a historical report or announce sources unless the player asks. Unknown facts remain unknown.
 
-## Prices
-
-Establish a plausible period/region scale from representative prices or wages, preserving the source's currency, year and quantity/time unit. Keep that scale and delivered quotations in the ordinary campaign history. Estimate other prices during narration; a new object is not a reason to search. A weekly or annual wage is not an hourly wage without source support. Adapt compatible scales to fictional economies without inventing fixed exchange rates. Purchase arithmetic and Spending Level remain the kernel's.
-
-## A disputed price
-
-Only a concrete player challenge to a delivered quotation calls for targeted price checking. Asking a price or bargaining alone is not a challenge. For fictional goods, check the analogue or estimate, not a nonexistent historical retail price. Missing evidence leaves an estimate uncertain.
