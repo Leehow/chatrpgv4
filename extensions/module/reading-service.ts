@@ -668,6 +668,8 @@ export class ReadingService implements ReadingBridge {
 	}
 	private async releasePass(mid: string, campaign: string | undefined, source: Row, skeleton: Row, signal: AbortSignal): Promise<void> {
 		if (skeleton?.version !== SKELETON_VERSION || !(skeleton?.release_candidates ?? []).length) return;
+		// §266.8: once the merged skeleton is written, a partial pass still queued has nothing to add.
+		if (skeleton.partial === true) { try { statSync(skeletonPath(this.deps.home, source.file_sha256)); return; } catch { /* still partial */ } }
 		try {
 			const pages = Array.from({ length: source.page_count }, (_, i) => i + 1);
 			const byPage = await sourceBlocksFor(this.runtime(), { path: source.pdf, file_sha256: source.file_sha256 }, pages, join(dirname(source.pdf), "cache"), signal);

@@ -204,9 +204,11 @@ test('§266.8: on a partial index a look is checked once every page printing its
  // Brenner is printed on page 30 too, in a section still being read; Russ only on indexed pages.
  const blocks=new Map(Object.entries({...texts,'b30-0-e':'Brenner keeps the ledger.'}).map(([id,text])=>[id,{id,text}]));
  const whole=merged();
+ const none=await api.checkReleases({runtime,moduleId:'m',home,sha:DOC,skeleton:{...whole,partial:true,complete:false},blocks,model:{id:'test/model'},signal:new AbortController().signal,record:()=>{}});
+ assert.deepEqual([asked,none.rows],[[],[]],'a partial pass with less than a batch ready waits');
  const partial={...whole,partial:true,complete:false,sections:[...whole.sections,{name:'B',first:22,last:40,status:'failed'}]};
  delete partial.sections[1].status;
- const first=await api.checkReleases({runtime,moduleId:'m',home,sha:DOC,skeleton:partial,blocks,model:{id:'test/model'},signal:new AbortController().signal,record:()=>{}});
+ const first=await api.checkReleases({runtime,moduleId:'m',home,sha:DOC,skeleton:partial,blocks,minBatch:1,model:{id:'test/model'},signal:new AbortController().signal,record:()=>{}});
  assert.deepEqual(asked,['Russ'],'Brenner waits for page 30');
  assert.deepEqual(first.rows.map(row=>[row.entity,row.status]),[['Russ','approved']],'every page printing Russ is indexed: his look is out before the book is');
  const done={...whole,sections:[...whole.sections,{name:'B',first:22,last:40,status:'indexed'}]};

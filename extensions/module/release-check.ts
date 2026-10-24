@@ -78,6 +78,8 @@ export interface ReleaseContext {
 	record: (row: Row) => void;
 	shared?: Partial<ReaderRequest>;
 	mayContinue?: () => boolean;
+	/** §266.8: the fewest ready candidates a partial pass asks about (default one full batch). */
+	minBatch?: number;
 }
 
 /** §263.4: the context of a candidate for the checker: its block and the blocks either side, in reading order. */
@@ -104,7 +106,9 @@ export async function checkReleases(context: ReleaseContext): Promise<Row> {
 	for (const block of blocks.values()) { const page = blockPage(block.id); pageText.set(page, (pageText.get(page) ?? "") + normalName(block.text)); }
 	const completeFor = (candidate: Row) => {
 		const forms = formsOf(candidate.entity);
-		return [...pageText].every(([page, text]) => !forms.some(form => text.includes(form)) || pageIndexed(skeleton, page)) && pageIndexed(skeleton, candidate.page);
+		// Its own page and the pages either side too, so the facts printed beside it are read as well.
+		return [...pageText].every(([page, text]) => !forms.some(form => text.includes(form)) || pageIndexed(skeleton, page))
+			&& [candidate.page - 1, candidate.page, candidate.page + 1].every(page => !pageText.has(page) || pageIndexed(skeleton, page));
 	};
 	const complete = skeleton?.complete === true;
 	// §266.8: on a partial index only candidates already complete are asked; the others wait for the sections they need.
@@ -126,6 +130,8 @@ export async function checkReleases(context: ReleaseContext): Promise<Row> {
 		if (partial && !completeFor(candidate) && candidate.kind !== "read_aloud" && candidate.kind !== "handout") continue;
 		todo.push(candidate);
 	}
+	// §266.8: a partial pass waits until a full batch is ready, so the checker's fixed prompt is paid for many candidates at once.
+	if (partial && todo.length < (context.minBatch ?? RELEASE_BOUNDS.candidates)) return kept.version === RELEASE_VERSION ? kept : { version: RELEASE_VERSION, prompt: promptSha, facts_version: version, complete: false, revoked: [...revoked], rows: [] };
 	todo.sort((a, b) => Number(!first.has(a.page)) - Number(!first.has(b.page)) || a.page - b.page);
 	// Batches group one section's candidates (so they share its facts), at most 12 and about 6K tokens of evidence each.
 	const batches: Row[][] = [];

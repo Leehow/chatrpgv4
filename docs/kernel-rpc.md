@@ -52951,9 +52951,11 @@ The release check no longer waits for the merged skeleton. Each time the partial
 runs on it (one pass at a time per document; the latest partial waits behind a running pass; passes and the merged pass run
 in order, so a partial pass never overwrites the merged one). A candidate is *complete* when every page whose host text
 prints one of its entity's forms (normalised spelling over the layout blocks) lies in an indexed section and is not blocked,
-and its own page is indexed: every protected fact that names it has then been read, whatever the unread sections hold. On a
-partial skeleton only complete candidates and read-aloud or handout candidates are asked; the others wait, and rows the
-pass does not ask are kept. `releaseStatus` approves a description or appearance when it is complete (replacing "the whole
+and its own page and the pages either side are indexed: every protected fact that names it or is printed beside it has
+then been read, whatever the unread sections hold. On a partial skeleton only complete candidates and read-aloud or
+handout candidates are asked, and only once at least one batch of them (12) is ready; the others wait, and rows the pass
+does not ask are kept. A partial pass still queued when the merged skeleton exists does nothing (first live run: 95 checker
+calls and 218K input tokens against 35 and 121K for one merged pass, from small batches and re-checks). `releaseStatus` approves a description or appearance when it is complete (replacing "the whole
 book was indexed"). Each row keeps `facts_key`, the digest of the facts naming its people or on its pages (rank 0 and 1);
 a later pass reuses the verdict while that key is the same. The catalog (263.5) reads the release file with the merged
 skeleton, else the partial one. Telemetry `release_ready` carries `partial: true` for a partial pass.
