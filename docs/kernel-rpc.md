@@ -52501,7 +52501,7 @@ Spending Level), the omission is still refused with `needs` on `category`, the o
 
 ### 263.4 The first impression says when it is due
 
-`natural-npc` 1.7.2: the roll is due the first time the investigator asks a person for something their attitude could
+`natural-npc` 1.7.3: the roll is due the first time the investigator asks a person for something their attitude could
 would not give just anyone who asked (a favour, a secret, a deal, help or trust); a greeting, a routine exchange, a
 question their role or own interest already answers, or an authored reaction needs none. "Decide whether the initial impression matters" left
 the decision open, and the Keeper argued it for each new speaker, reversing itself within one opening.
