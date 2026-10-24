@@ -52532,3 +52532,11 @@ Each was weighed on most calls of the 2026-10-24 table, with the Keeper adding a
 An `apply {kind: "scene"}` that lands this turn clears the packet's scene requirement (`packetSceneRequired`), which
 otherwise stayed at its default until the next capsule: the 2026-10-24 opening assessed the office through apply and the
 next `output` was refused for lacking the same assessment.
+
+### 263.9 Opening refusals name what to drop, in the delivery form the table uses
+
+An opening batch refused at the host door now names the effects that are not the opening's (`effects[3] (handout)`) and
+says to resend the rest unchanged, instead of listing the admitted kinds only. Every closing instruction that names the
+final delivery (`finalDeliveryAction`) says "submit the output packet" under the decision packet; it said "return a
+private expression brief beginning with {{compose}}", and the Keeper spent part of an opening deciding which of the two
+forms the table wanted.

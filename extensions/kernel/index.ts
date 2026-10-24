@@ -39,6 +39,13 @@ import {publicDialogue,type PublicDialogueLine} from '../../shared/public-dialog
 import {documentEditInput} from '../../runtime/document-edit-input.ts';
 import {DocumentReadCoverage} from './document-read-coverage.ts';
 import {openingInformationShape} from '../../runtime/opening-information.ts';
+/** §263.9: the opening refusal names the effects that are not the opening's, so the rest of the batch goes again unchanged. */
+const openingRefusedEffects=(tool:string,input:any):string=>{
+	if(tool!=='apply'||!Array.isArray(input?.effects))return '';
+	const refused=input.effects.flatMap((effect:any,index:number)=>openingInformationShape(effect)||['clock','define','object','ability'].includes(effect?.kind)
+		||effect?.kind==='npc'&&effect.activity!=null&&Object.keys(effect).every(key=>['kind','name','activity','why'].includes(key))?[]:[`effects[${index}] (${effect?.kind??'no kind'})`]);
+	return refused.length?` Not accepted here: ${refused.join(', ')}; send the batch again without ${refused.length>1?'them':'it'}, and bring ${refused.length>1?'them':'it'} after the player's first input.`:'';
+};
 import {writingDigest,canonicalWritingResult,matchWritingResult,completesRefusedAddition,type WritingMatch,type WritingCompletion} from '../../runtime/jev/document-completion.ts';
 import {RefusedDocumentOutcome, REFUSED_DOCUMENT_OUTCOME_FAMILY, REFUSED_DOCUMENT_OUTCOME_REASON, documentOutcomeDigest, type DocumentOutcomeVerdict} from '../../runtime/jev/refused-document-outcome.ts';
 import {HeldActOutcome, heldOperationKey, heldRecoveryOperationKey, HELD_ACT_OUTCOME_FAMILY, HELD_ACT_OUTCOME_REASON, receiptLine} from '../../runtime/jev/held-act-outcome.ts';
@@ -8796,7 +8803,7 @@ export default function (pi: ExtensionAPI, host: {capabilities?:RuntimeCapabilit
 				? "the Mod layer has not announced itself yet, so this opening Mod call cannot be judged: retry the same call; the opening's Mod checks become available as soon as it does"
 				// Only the opening reaches this line (§86). The generic "use only look, lookup and recall" had the installed App's
 				// Keeper (Blood Road, 2026-10-02) try to pin the book's start hour twice, 20 s of round trips before the prose.
-				: `the turn state is ${state.state} and this is the table's opening: narrate, the active final-delivery surface, ask, apply clue, person name/address registration, a present person's npc mood or activity, apply clock and the opening's Mod definitions are accepted; investigator actions wait for player input. Record ordinary disclosures with apply clue, then ${finalDeliveryAction()}`;
+				: `the turn state is ${state.state} and this is the table's opening: narrate, the active final-delivery surface, ask, apply clue, person name/address registration, a present person's npc mood or activity, apply clock and the opening's Mod definitions are accepted; investigator actions wait for player input.${openingRefusedEffects(name, input)} Record ordinary disclosures with apply clue, then ${finalDeliveryAction()}`;
 			await record({ tool: name, started_at: new Date().toISOString(), ok: false, code: "turn_state", reason, ...(bridgePending ? { cause: "mods_bridge_pending" } : {}) });
 			// A refusal the host issued is still a refusal (§67). Without this the
 			// Keeper could be told "wait for the player" forever inside its own turn.
