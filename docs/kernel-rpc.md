@@ -52904,7 +52904,8 @@ handed over, the clock and any countdown, standing modifiers as scene state; it 
 must choose, before danger lands. The kernel refuses, at turn 0, every `resolve` and the apply kinds `move`, `cash`,
 `damage`, `ending`, `fork`, `merge` and `threat`, naming every such line of the batch at once (`details.reason:
 opening_told`, `details.refused`). A roll the book calls for at the start goes in a note named "due at start" (what, who,
-why) and is settled first on the player's first turn. Presence, seats, walk-ons, moods, activities, scene assessment,
+why and the moment that sets it off) and is settled on the player's first turn when that moment comes, in the light of
+what the player does (an investigator who throws himself down is not first made to roll to notice). Presence, seats, walk-ons, moods, activities, scene assessment,
 place observation and features, clues, people's names, clocks, time and the creator's definitions stay open.
 
 ## 265. Shopping: the outlet's stock, price and order time are the program's (owner 2026-10-24)

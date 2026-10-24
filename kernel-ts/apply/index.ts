@@ -136,7 +136,7 @@ export function createApplyHandlers(kernel: KernelContext, writer: ReturnType<ty
             if (number(turn.turn) === 0 && Array.isArray(effects)) {
                 const played = effects.flatMap((effect, index) => isJsonObject(effect) && OPENING_PLAYED.has(string(effect.kind)) ? [`effects[${index}] (${string(effect.kind)})`] : []);
                 if (played.length) throw new RpcError('turn_state', `the opening is told, not played: ${played.join(', ')} ${played.length > 1 ? 'are' : 'is'} for the player's turns`, {
-                    fix: 'send the rest of the batch without them. Tell the opening up to the moment the investigator must choose; a roll the book calls for at the start goes in a note named "due at start" (what, who, why), settled first on the player\'s first turn',
+                    fix: 'send the rest of the batch without them. Tell the opening up to the moment the investigator must choose; a roll the book calls for at the start goes in a note named "due at start" (what, who, why and the moment that sets it off), settled on the player\'s first turn when that moment comes',
                     details: { reason: 'opening_told', refused: played } });
             }
             const started = await transaction.beginWrite('table.apply', callParams, { allowOpening: opening });
