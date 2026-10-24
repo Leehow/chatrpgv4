@@ -52425,7 +52425,9 @@ bounded answer reader remains for a host that is not lean. Telemetry `{lane: "re
 Lean reading asks no contact sheet, so no scene carries `map_candidates`. The skeleton's image-only pages are index rows of
 their own (`Image-only page N`, `image_only: true`, §262.7). On a move's arrival (§107.1 `queueArrivalMap`) at a scene with
 no candidates, the image-only pages within two pages of the scene's own cited pages (at most three) are its candidate
-map pages, and the existing `material: "map"` reading is asked for them in the background, as before. Page order only;
+map pages, and the existing `material: "map"` reading is asked for them in the background, as before. Its reader is
+bounded to 14 requests; its vision review is unchanged (a map may hold what players must not see). Measured on Blood
+Road p18–19: about 1–1.3M tokens for one completed map reading. Page order only;
 whether a page is a map is the map reader's to say.
 
 ### 262.8 The cast from the skeleton

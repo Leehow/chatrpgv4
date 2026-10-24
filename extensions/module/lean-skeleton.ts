@@ -221,6 +221,8 @@ export async function buildSkeleton(context: SkeletonContext): Promise<Row> {
 
 /** §262.6: the request bound of a source answer's reader under lean reading. */
 export const LEAN_ANSWER_REQUESTS = 10;
+/** §262.10: the request bound of an arrival's map reading under lean reading (its vision review is unchanged). */
+export const LEAN_MAP_REQUESTS = 14;
 /** §262.6: what a lean source answer is told about the skeleton digest and when to stop. */
 export const LEAN_ANSWER_ASK = "task.skeleton_digest maps where the book discusses people, places and events (navigation only, not evidence). Open the pages it lists for what you are asked first. When those pages and at most two searches do not show it, answer that the book does not say it; do not keep searching page after page.";
 

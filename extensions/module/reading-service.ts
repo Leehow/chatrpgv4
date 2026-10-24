@@ -28,7 +28,7 @@ import type {ClaimSupportCheck, ClaimSupportRequest} from './claim-support.ts';
 import {runSourceReference,SourceReferenceFailure} from './source-reference.ts';
 import {runPageOpen} from './page-open.ts';
 import {leanEligible, runLeanDetail} from './lean-read.ts';
-import {answerPages, buildSkeleton, castDraftFromSkeleton, leanCrossReferences, samePrimaryLanguage, skeletonDigest, skeletonIndexRows, skeletonPath, LEAN_ANSWER_ASK, LEAN_ANSWER_REQUESTS} from './lean-skeleton.ts';
+import {LEAN_MAP_REQUESTS, answerPages, buildSkeleton, castDraftFromSkeleton, leanCrossReferences, samePrimaryLanguage, skeletonDigest, skeletonIndexRows, skeletonPath, LEAN_ANSWER_ASK, LEAN_ANSWER_REQUESTS} from './lean-skeleton.ts';
 import {acceptedGuidance,acceptedPublicGuidance} from './character-guidance.ts';
 import {validateReferencePacket} from '../../kernel-ts/modules/reference-contract.ts';
 import {readNeedReceipt,type NeedReceipt} from '../../runtime/jev/source-need-reads.ts';
@@ -1573,6 +1573,7 @@ export class ReadingService implements ReadingBridge {
 		}
 		// §262.6: under lean reading a source answer starts from the skeleton's map of the book, and its reader is bounded.
 		const leanAnswer = process.env.PI_COC_LEAN_READING === "1" && job.purpose === "answer";
+		const leanMap = process.env.PI_COC_LEAN_READING === "1" && job.material === "map";
 		if (leanAnswer) { const digest = await skeletonDigest(this.deps.home, job.source.file_sha256).catch(() => undefined); if (digest) task.skeleton_digest = digest; }
 		await writeFile(join(cwd, "task.json"), readerTaskText(task));
 		const observations: Row = { file_sha256: job.source.file_sha256, read_pages: [], full_pages: [], review_pages: [] };
@@ -1885,7 +1886,8 @@ export class ReadingService implements ReadingBridge {
 						const sourceRunStartedAt=Date.now();
 						publicProgress('searching');
 						const run = await this.runtime().runTask({ kind: "reader", request: { providerBudget, ...(readingLease ? { readingLease } : {}), cwd, model: model.id, thinking: model.thinking,
-							...(job.visual_scan?{maxRequests:3}:leanAnswer?{maxRequests:LEAN_ANSWER_REQUESTS}:{}),
+							// §262.10: under lean reading an arrival's map reading is bounded too.
+							...(job.visual_scan?{maxRequests:3}:leanAnswer?{maxRequests:LEAN_ANSWER_REQUESTS}:leanMap?{maxRequests:LEAN_MAP_REQUESTS}:{}),
 							beforeProviderRequest:signal=>this.waitForPriority(job,key,signal,campaign),
 							...(readingImages ? {imageHistory:readingImages} : {}),
 							...(phase==='read'&&task.visual_previews?.length?{attachments:task.visual_previews.flatMap((preview:Row)=>[preview.file,...(preview.comparison_file?[preview.comparison_file]:[])])}:{}),
