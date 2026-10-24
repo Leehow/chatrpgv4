@@ -53031,4 +53031,13 @@ evidence) stay `book_truth` rows: the Keeper sets the difficulty, as with any ch
 
 Tests: `tests/extension/page-mode.test.mjs`, `tests/extension/module-cast.test.mjs`.
 
+### 266.12 A guide the provider refuses (amends §261.2)
+
+*They Did Not Think It Too Many* (2026-10-24): MiniMax refused the page-open guide call on the opening's input
+(`500 input new_sensitive (1026)`), the fallback guidance reader was refused the same way, and setup could not prepare
+the book. When the guide call leaves no answer, `runPageOpen` asks it once more with fewer pages: the setup pages alone,
+or, with none, the opening's first page alone (`{lane: "page-open", event: "guide_narrowed", pages}`). The guide then
+covers what those pages hold (fields with nothing behind them are `unavailable`), and the opening still stands on all its
+pages for the Keeper. When that call fails too, the first failure stands and the fallback is as before.
+
 Tests: `tests/extension/page-mode.test.mjs`.
