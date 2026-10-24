@@ -52796,7 +52796,7 @@ included, and the placement lane's outcome are unchanged.
 
 The owner approved, on the table-protocol proposal, that a person may say what no registered constructor says. A new
 constructor `{new:{predicate:"meaning",meaning}}` carries at most 60 characters (`MEANING_MAX`) of reported meaning
-("claims he never saw the boy"); quotation marks are refused so it cannot carry dialogue. It is communication content
+("claims he never saw the boy"). *Amended the same day:* quotation marks are allowed; refusing them refused a bar's quoted name and cost a 262-second turn, and the cap already keeps it from being a speech. It is communication content
 like every other constructor: the author writes the words, and no world fact, knowledge or relationship follows from it.
 Constructors that fit (directions, knowledge_status, service_at …) still come first. The other v4 bans stand.
 

@@ -117,7 +117,7 @@ test('typed offers and future visits remain communication content rather than ef
  for(const fields of [{text:'Complete dialogue.'},{predicate:'statement',text:'Complete dialogue.'}])assert.throws(()=>turnPacket(JSON.stringify({...wire,interactions:[{...wire.interactions[0],content:[{new:{...content.new,...fields}}]}]})));
  assert.throws(()=>owner.hydrate([{...wire.interactions[0],to:['investigator_99']}]),/audience/);
 });
-test('§264.15 a short reported meaning is said content, capped and never quoted dialogue',()=>{
+test('§264.15 a short reported meaning is said content, capped at MEANING_MAX characters',()=>{
  const owner=new DecisionContent();owner.prepare('c:1',capsule,[],[],['Investigator']);
  const wire=meaning=>({version:4,interactions:[{actor:'npc_1',to:['investigator_1'],act:'answer',content:[{new:{predicate:'meaning',meaning}}]}]});
  const parsed=turnPacket(JSON.stringify(wire('claims he never saw the boy'))),[response]=owner.hydrate(parsed.interactions).responses;
@@ -127,7 +127,8 @@ test('§264.15 a short reported meaning is said content, capped and never quoted
  const bound=turnPacketParameterSchema(false,undefined,undefined,false,owner.bindings());
  assert.equal(Errors(bound,wire('claims he never saw the boy')).length,0,'the bound schema the Keeper is given carries it');
  assert.ok(Errors(bound,wire('x'.repeat(MEANING_MAX+1))).length>0);
- for(const meaning of ['x'.repeat(MEANING_MAX+1),'"I never saw him."','他说「没见过」','   '])assert.throws(()=>turnPacket(JSON.stringify(wire(meaning))),meaning);
+ for(const meaning of ['x'.repeat(MEANING_MAX+1),'   '])assert.throws(()=>turnPacket(JSON.stringify(wire(meaning))),meaning);
+ assert.equal(turnPacket(JSON.stringify(wire('recommends the bar called "Last Stop" for a room'))).interactions.length,1,'a quoted name is a name, not dialogue (live 2026-10-24: refused, 262 s)');
  assert.match(TURN_PACKET_GUIDANCE,new RegExp(`at most ${MEANING_MAX} characters of reported meaning`));
 });
 test('character state and directed relationships come from a narrow host projection',()=>{
