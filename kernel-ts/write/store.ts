@@ -204,10 +204,11 @@ export function createTurnTransaction(campaign: CampaignWriter, world: Row, turn
                         fix: 'keep the ending intact; use explicit development:end-session or pending development:settle-ending with intent montage, then narrate',
                     });
             }
-            const opening = options.allowOpening && number(turn.turn) === 0 && turn.state === 'awaiting_player';
+            // §264.22: every write is the opening's while it is owed; it is judged like any turn's.
+            const opening = number(turn.turn) === 0 && turn.state === 'awaiting_player';
             if (!['open', 'acting'].includes(turn.state) && !opening)
                 throw turnStateError(turn, method, number(turn.turn) === 0 && turn.state === 'awaiting_player'
-                    ? 'the opening is not published yet and this line is not an opening preparation: publish the opening with output carrying only scene, place establish/observe/feature/relate and opening preparations; anything else waits for the player\'s first input: the opening stays in its scene, and what the prologue or the book comes to next is the player\'s first turn (§264.19)'
+                    ? 'the opening is not published yet and this line is not an opening preparation: publish the opening with output carrying only scene, place establish/observe/feature/relate and opening preparations; anything else waits for the player\'s first input'
                     : 'wait for player_input to open a turn');
             return {
                 kind: 'new',

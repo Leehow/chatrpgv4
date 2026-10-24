@@ -336,7 +336,7 @@ function refuseUnlessOpeningSeat(context:ApplyContext,node:Row,established:false
     if(established===false&&openingSeatShape(effect)&&there&&placed&&unplaced)return;
     const word=tableWord(world,graph.handle(node))||graph.displayName(node);
     throw new RpcError('invalid_params',`at the opening an npc effect only records a present person's mood or seats someone the book places in the opening scene whom nobody has placed yet; ${word} is not that`,{
-        fix:'leave this effect out of the opening: the opening stays in its scene, and someone the book places elsewhere is met when the player goes there (§264.19); once the player has spoken, apply npc as on any turn',
+        fix:'leave this effect out of the opening; once the player has spoken, apply npc as on any turn',
         details:{field:'npc',reason:'opening_seat',name:word,...(established?{established}:{}),placed,unplaced,there}});
 }
 export async function stageNpc(context:ApplyContext,effect:Row):Promise<StagedEffect>{
@@ -355,7 +355,6 @@ export async function stageNpc(context:ApplyContext,effect:Row):Promise<StagedEf
         walkOnRead={walk_on_read:{read_as:arrives?'arrival':'person',person:walkedOn}};
     }
     const walked=(value:StagedEffect):StagedEffect=>{if(walkedOn!==undefined)Object.assign(value.receipt,walkOnRead);return value;};
-    if(number(context.turn.turn)===0&&context.turn.state==='awaiting_player')refuseUnlessOpeningSeat(context,node,established,effect);
     // A declaration that pins nothing (`true`, or an entry that prints no stat block) is part of the walk-on, as walk_on
     // is, and stands beside any variant. A catalog block is a pin, as an archetype is, and stands only where one does.
     if(declared&&!declared.block){const {creature:_declared,...rest}=effect;effect=rest;}

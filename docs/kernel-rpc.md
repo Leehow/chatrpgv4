@@ -52837,6 +52837,16 @@ An obligation's `meet` step is met when the person is present in its scene and t
 registered `person_labels` label, as before, or the untold word they are shown by (`person_epithets`). The Keeper was
 refused a Persuade on the Globe's door-keeper, present and shown by that word, until it re-registered him by `person`.
 
+### 264.22 The opening is judged like any turn (owner 2026-10-24; supersedes §264.19, amends §86 and §198.3)
+
+The owner ruled that the opening gate guarded nothing that had happened: it refused what the book's opening holds (an
+arrival, the people there, a roll it calls for) for coming before the player spoke. While the opening is owed (turn 0,
+`awaiting_player`) every write is accepted by the turn state and judged by the same rules as any turn: the kernel's
+`beginWrite` no longer needs `allowOpening`, the npc opening-seat refusal is gone, and the extension's opening door
+passes every write except a Mod call before the Mod layer has announced itself. The opening narrate still closes turn 0,
+and §86's closed-turn door is unchanged. The instruction says to play what the opening holds through the ordinary tools,
+stop where the investigator would choose, and choose nothing for them. §198.3's Jev seating still runs before the opening.
+
 ## 265. Shopping: the outlet's stock, price and order time are the program's (owner 2026-10-24)
 
 The owner's report: a MiniMax Keeper's long deliberations were mostly about whether a shop had the goods and what they cost. Those answers moved to the kernel; the Keeper picks parameters. Purchase guidance that lived in other packages moved with them, so the problem has one home. Amends §58 ("the kernel does not price anything itself") for goods bought at an outlet while this package is active; every other cash path is unchanged.

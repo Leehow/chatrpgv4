@@ -68,28 +68,20 @@ test('§198.2/§198.3: the anchor opening lists the people of the openings it di
 	assert.deepEqual(presentNames(capsule.present ?? capsule.capsule?.present ?? []), [CAPTAIN], 'the capsule: the captain, and not the visitor nobody seated');
 });
 
-test('§198.3: the opening admits a seat and nothing else, and a seat only of someone the book places there whom nobody has placed', async t => {
+test('§264.22: the opening judges npc writes like any turn: a stance, a seat elsewhere and a newcomer land', async t => {
 	const g = await table(t, 'opening-gate');
 	const open = await g.call('table.open'), captain = handleOf(open, CAPTAIN);
-	const stance = await g.attempt('table.apply', {call_id: 't0-c1', effects: [{kind: 'npc', name: captain, stance: 'wary', why: 'x'}]});
-	assert.equal(stance.error?.code, 'turn_state', 'an npc change that is no seat keeps the opening\'s refusal');
-	const mixed = await g.attempt('table.apply', {call_id: 't0-c1', effects: [{kind: 'npc', name: captain, to: 'here', why: SEAT_WHY}, {kind: 'npc', name: captain, stance: 'wary', why: 'x'}]});
-	assert.equal(mixed.error?.code, 'turn_state', 'a seat does not carry a change beside it');
-	for (const [effect, why] of [
-		[{kind: 'npc', name: FARMER, to: 'here', why: 'x'}, 'the book places the farmer at the house, not in the opening'],
-		[{kind: 'npc', name: captain, to: HOUSE, why: 'x'}, 'a seat is in the opening scene'],
-		[{kind: 'npc', name: 'the porter', to: 'here', walk_on: true, why: 'x'}, 'nobody is established at the opening'],
-	]) {
-		const refused = await g.attempt('table.apply', {call_id: 't0-c1', effects: [effect]});
-		assert.equal(refused.error?.details?.reason, 'opening_seat', `${why}: ${refused.error?.message}`);
-	}
-	assert.deepEqual((await g.world()).npc_presence, {}, 'nothing landed');
-	assert.equal((await g.world()).table_people, undefined, 'and nobody was established');
-	await g.call('table.apply', {call_id: 't0-c1', effects: [{kind: 'npc', name: captain, to: 'here', walk_on: true, why: SEAT_WHY}]});
-	const twice = await g.attempt('table.apply', {call_id: 't0-c2', effects: [{kind: 'npc', name: captain, to: 'here', why: SEAT_WHY}]});
-	assert.equal(twice.error?.details?.reason, 'opening_seat', 'someone placed is not seated again');
+	const stance = await g.attempt('table.apply', {call_id: 't0-c1', effects: [{kind: 'npc', name: captain, to: 'here', why: SEAT_WHY}, {kind: 'npc', name: captain, stance: 'wary', why: 'he sizes them up'}]});
+	assert.equal(stance.ok, true, `a seat beside a stance lands at the opening: ${stance.error?.message}`);
+	const farmer = await g.attempt('table.apply', {call_id: 't0-c2', effects: [{kind: 'npc', name: FARMER, to: 'here', why: 'the book\'s opening brings him in'}]});
+	assert.equal(farmer.ok, true, `someone the book places elsewhere can arrive in the opening: ${farmer.error?.message}`);
+	const porter = await g.attempt('table.apply', {call_id: 't0-c3', effects: [{kind: 'npc', name: 'the porter', to: 'here', walk_on: true, why: 'he carries the bags in'}]});
+	assert.equal(porter.ok, true, `a newcomer walks on at the opening: ${porter.error?.message}`);
+	const presence = (await g.world()).npc_presence;
+	assert.equal(Object.keys(presence).length, 3, JSON.stringify(presence));
+	await g.call('table.narrate', {call_id: 't0-c4', text: 'The captain, the farmer and a porter are in the room.'});
 	const state = await g.call('table.open');
-	assert.equal(state.turn.state, 'awaiting_player', 'the opening is still owed after a seat');
+	assert.equal(state.opening_needed, false, 'the narrate closes the opening as before');
 });
 
 test('§198.2: a place holds the people of the scenes that happen there, and the anchor offers the people of the openings it stands for', async t => {

@@ -8866,13 +8866,17 @@ export default function (pi: ExtensionAPI, host: {capabilities?:RuntimeCapabilit
 		// still owed: a write that is not the opening's own is refused, the reads named below really are
 		// available, and narrate and ask really are the doors (§67, §70). The sentence must stay true of
 		// that turn -- it is the only place it ever was.
-		if (!openingNarrate && !openingMod && !openingInformation && CLOSED_STATES.has(state.state)) {
+		// §264.22 (owner 2026-10-24): the opening is judged like any turn -- what the book's opening holds (an arrival, the people
+		// there, a roll it calls for) is written and judged, not refused for coming before the player spoke. Only a Mod call
+		// before the Mod layer has announced itself still waits.
+		const openingWrite = state.openingPending && state.state === "awaiting_player" && !(openingModShape && !mods);
+		if (!openingNarrate && !openingMod && !openingInformation && !openingWrite && CLOSED_STATES.has(state.state)) {
 			const bridgePending = openingModShape && !mods;
 			const reason = bridgePending
 				? "the Mod layer has not announced itself yet, so this opening Mod call cannot be judged: retry the same call; the opening's Mod checks become available as soon as it does"
 				// Only the opening reaches this line (§86). The generic "use only look, lookup and recall" had the installed App's
 				// Keeper (Blood Road, 2026-10-02) try to pin the book's start hour twice, 20 s of round trips before the prose.
-				: `the turn state is ${state.state} and this is the table's opening: narrate, the active final-delivery surface, ask, apply clue, person name/address registration, a present person's npc mood or activity, apply clock and the opening's Mod definitions are accepted; investigator actions wait for player input. §264.19: the opening stays in the opening scene; a place, a person or a roll the prologue or the book comes to next (the station ahead, its owner) is the player's first turn, so end the opening where the investigator can act.${openingRefusedEffects(name, input)} Record ordinary disclosures with apply clue, then ${finalDeliveryAction()}`;
+				: `the turn state is ${state.state} and this is the table's opening: narrate, the active final-delivery surface, ask, apply clue, person name/address registration, a present person's npc mood or activity, apply clock and the opening's Mod definitions are accepted; investigator actions wait for player input.${openingRefusedEffects(name, input)} Record ordinary disclosures with apply clue, then ${finalDeliveryAction()}`;
 			await record({ tool: name, started_at: new Date().toISOString(), ok: false, code: "turn_state", reason, ...(bridgePending ? { cause: "mods_bridge_pending" } : {}) });
 			// A refusal the host issued is still a refusal (§67). Without this the
 			// Keeper could be told "wait for the player" forever inside its own turn.

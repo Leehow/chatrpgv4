@@ -71,11 +71,10 @@ test('the opening is told the party as it is: a book written for a group is not 
   assert.ok(source.includes('party: Array.isArray(open.investigators)'), 'the kernel extension passes table.open\'s investigators');
 });
 
-test('the opening may pin an opening datetime the book left open (§23), and nothing else changes the scene', () => {
+test('the opening may pin an opening datetime the book left open (§23)', () => {
   // The kernel accepts a clock pin at the opening and the capsule's where.clock.pin asks for it; a fresh Blood Road table
   // (2026-10-02) had it refused twice by the host before the prose, and a line here said the clock must not move.
   for (const text of [openingInstruction({prologue, playLanguage: 'zh-Hans'}), openingInstruction({playLanguage: 'en', modContext: {}})]) {
-    assert.ok(text.includes('the scene stays as the table opened it'), text);
     assert.ok(/apply clock/.test(text), text);
     assert.equal(text.includes('the clock and the scene stay as the table opened them'), false);
   }
@@ -88,12 +87,11 @@ test('every form of the opening says the investigator is addressed as you', () =
     assert.ok(text.includes('addressing the investigator as you'), text.slice(0, 200));
 });
 
-test('§264.19: the opening stays in its scene; what the prologue comes to next is the player\'s first turn (Blood Road 2026-10-24: eight refusals reaching the station owner)', () => {
+test('§264.22: the opening plays what the book\'s opening holds through the ordinary tools and chooses nothing for the investigator', () => {
   for (const prologue of [undefined, {opening: 'The heat shimmers.', handoff: 'Next comes the station.', guide: ''}]) {
     const text = openingInstruction({prologue, playLanguage: 'zh'});
-    assert.match(text, /the opening shows the opening scene only/);
-    assert.match(text, /move, walk_on, npc and resolve belong to that turn/);
+    assert.match(text, /including an arrival, the people there and any roll it calls for/);
+    assert.match(text, /choose nothing for them/);
+    assert.doesNotMatch(text, /Do not call resolve before the first player turn/);
   }
-  const source = readFileSync(new URL('../../extensions/kernel/index.ts', import.meta.url), 'utf8');
-  assert.match(source, /the opening stays in the opening scene/, 'the opening refusal says the same');
 });
