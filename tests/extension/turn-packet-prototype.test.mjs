@@ -679,8 +679,9 @@ test('earlier direct NPC settlement reaches final author without repeating the c
 for(const mode of ['repair','repeat','unrelated'])test('native staged parameter recovery preserves the transaction boundary: '+mode,async t=>{
  const batches=[];let requests=0;
  const engine=createHybridEngine({env,decision:{decide:async batch=>{batches.push(batch);return answer(batch,.99);}}});
- // §250.6: an empty assessment beside a person who walked on in the same packet is the contradiction the kernel refuses.
- const bad={...brief,commands:[movement,{kind:'walk_on',slot:'new_1',label:'a late reader',reason:'A reader lingers at the desk.'},{kind:'scene',service:'closed',crowd:'empty'}]};
+ // A walk_on under a name the book gives one of its people is a contradiction the kernel refuses after the move is staged
+ // (§264.24 made an empty assessment beside a walk-on land, so it no longer serves).
+ const bad={...brief,commands:[movement,{kind:'walk_on',slot:'new_1',label:'Steven Knott',reason:'He lingers at the desk.'},{kind:'scene',service:'closed',crowd:'quiet'}]};
  // The unrelated packet stays in the unassessed office, so it carries that scene's own assessment.
  const second=mode==='repeat'?bad:mode==='unrelated'?{...brief,commands:[{kind:'scene',service:'open',crowd:'quiet'}]}:{...brief,commands:[movement,{kind:'scene',service:'closed',crowd:'empty'}]};
  const table=await openTable({legacyDeliveryFixtures:false,realKernel:true,prepareWorkspace:opened,env,runDriver:engine.runDriver,
