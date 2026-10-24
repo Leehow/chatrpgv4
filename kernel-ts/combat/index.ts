@@ -123,7 +123,7 @@ export function createCombatResolveContribution(): FixedFamilyBinding {
                     }
                     else {
                         handle = context.graph.handle(targets.npc);
-                        const profile = context.npcProfile(handle);
+                        const profile = await context.defaultNpcProfile(handle, targets.npc);
                         if (profile === null)
                             throw new RpcError('needs', `${context.graph.displayName(targets.npc)} has no stat block in the module`, {
                                 fix: 'pin a stat block first: apply npc with archetype (one of details.needs.options, chosen from who this person is — ordinary_adult, capable_adult or dangerous_actor), then resolve again; when the module has a book that prints their numbers, read them with lookup kind=source instead. Or resolve it as an uncontested attempt against someone who cannot fight back. Nothing without a receipt has happened: do not narrate a blow as landed',

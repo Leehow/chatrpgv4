@@ -192,6 +192,8 @@ export class ResolvePipeline {
      * ordinary check; `folded` says it was. Any other decision rolls on the Keeper's own action and counts as nothing.
      */
     fold: { skill: string; modifiers: [number, number, string, string | null]; declared: Row } | null = null;
+    /** §264.28: inputs the pipeline set aside instead of refusing, reported on the result. */
+    readonly adjusted: Row[] = [];
     folded = false;
     constructor(readonly context: SettleContext, readonly resolver: SkillResolver, readonly modifiers: [
         number,
@@ -830,17 +832,10 @@ export class ResolvePipeline {
         if (!BASIC_DECISIONS.has(ref) && !family)
             unsupportedDecision(runtime, ref);
         const [declaredBonus, declaredPenalty] = this.modifiers;
+        // §264.28: a decision that rolls no dice of its own ignores declared bonus or penalty dice and says so; it had refused
+        // a chase move for them (A Hard Road to Travel, 2026-10-24).
         if ((declaredBonus || declaredPenalty) && !MODIFIER_CARRIERS.has(ref))
-            throw new RpcError('invalid_params', `${semanticName(ref)} does not roll with bonus or penalty dice`, {
-                fix: MODIFIER_INSTEAD[ref] ?? `resolve this action without action.modifiers.bonus_dice and action.modifiers.penalty_dice; ${semanticName(ref)} settles on its own terms. Everything else in the action stays as it is`,
-                details: {
-                    decision: semanticName(ref),
-                    declared: {
-                        bonus_dice: declaredBonus,
-                        penalty_dice: declaredPenalty
-                    }
-                }
-            });
+            this.adjusted.push({field: 'modifiers', reason: 'decision_rolls_no_dice', decision: semanticName(ref), ignored: {bonus_dice: declaredBonus, penalty_dice: declaredPenalty}});
         const bound = family ? await family.slots(ref, context, {npc, investigator: context.sheetById(this.action.target)}) : null;
         const [semantic, extras] = bound ? [bound.semantic, bound.extras] : await this.slots(ref, npc);
         const selected: Row = {

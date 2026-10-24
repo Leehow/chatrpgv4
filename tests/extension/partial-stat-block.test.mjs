@@ -204,11 +204,9 @@ test('CK-F2: a fight against a person whose block lacks characteristics is refus
   assert.deepEqual(error.details.needs, {field: 'archetype', options: ARCHETYPES.map(entry => entry.archetype_id)},
     'the field the host\'s band recovery answers (§138.6)');
   assert.match(error.fix, /^complete the block first with apply npc \{name: "Old warden", archetype: <one of details\.needs\.options, chosen from who this person is>/);
-  // The no-stat-block refusal's list of who can be fought counts only a block that lacks nothing.
-  const none = await refusal(game.resolve(fight(PORTER)));
-  assert.match(none.message, /has no stat block/);
-  assert.deepEqual(none.details.needs.fightable, ['cellar-rats', 'coal-carter', 'yard-mule'],
-    'the hound and the warden have a block, but no fight can be built on it; a fight never reads MOV');
+  // §264.28: a person with no block at all is pinned ordinary_adult by default and the fight goes on; the result says so.
+  const none = await game.resolve(fight(PORTER));
+  assert.ok((none.adjusted ?? []).some(row => row.reason === 'default_stat_block' && row.archetype === 'ordinary_adult'), JSON.stringify(none.adjusted));
 });
 
 // ---------------------------------------------------------------------------------------------------
@@ -469,4 +467,14 @@ test('JEV-OPEN-05: an NPC pursuit missing only MOV resumes the original foot act
  assert.ok(receipts.some(receipt=>receipt.kind==='session'&&String(receipt.id).startsWith('session:chase-start')),JSON.stringify(receipts));
  assert.ok(receipts.some(receipt=>receipt.intent?.ref===retained.held.ref&&receipt.intent.generated));
  assert.deepEqual((await game.saved('chase.json')).participants.map(p=>p.actor_id).sort(),['coal-carter','thomas-hayes'],'only the original pursuer and quarry enter the NPC-owned chase');
+});
+
+test('§264.28: the rulebook\'s Idea and Know rolls are INT and EDU checks', async t => {
+  const game = await table(t);
+  for (const [skill, characteristic] of [['Idea', 'INT'], ['Know', 'EDU'], ['灵感', 'INT']]) {
+    const result = await game.resolve({intent: 'investigate', skill, goal: 'put the pieces together', method: 'think it through'});
+    const roll = (await game.receipts()).filter(row => row.kind === 'roll').at(-1);
+    assert.ok(result && roll, skill);
+    assert.match(JSON.stringify(roll), new RegExp(characteristic), `${skill} rolls ${characteristic}`);
+  }
 });

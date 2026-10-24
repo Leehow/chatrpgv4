@@ -52908,6 +52908,16 @@ why and the moment that sets it off) and is settled on the player's first turn w
 what the player does (an investigator who throws himself down is not first made to roll to notice). Presence, seats, walk-ons, moods, activities, scene assessment,
 place observation and features, clues, people's names, clocks, time and the creator's definitions stay open.
 
+### 264.28 Combat and chase: what the kernel fills in instead of refusing (owner 2026-10-24)
+
+From a classification of about 150 refusals in combat, chase and resolve (36 demanding a step in advance), the ones a
+live table hit on A Hard Road to Travel: the rulebook's Idea and Know rolls (and the Chinese edition's names) are INT and
+EDU checks; a person a fight or a chase needs numbers for, whom the book gives no block at all, is pinned
+`ordinary_adult` and the result's `adjusted` says `default_stat_block` (a printed block that lacks something keeps its
+refusal, since what is missing depends on the action; a creature keeps the catalog route); a decision that rolls no
+dice of its own ignores declared bonus or penalty dice (`adjusted` `decision_rolls_no_dice`); a social modifier without
+a reason is recorded as "(no reason given)".
+
 ## 265. Shopping: the outlet's stock, price and order time are the program's (owner 2026-10-24)
 
 The owner's report: a MiniMax Keeper's long deliberations were mostly about whether a shop had the goods and what they cost. Those answers moved to the kernel; the Keeper picks parameters. Purchase guidance that lived in other packages moved with them, so the problem has one home. Amends §58 ("the kernel does not price anything itself") for goods bought at an outlet while this package is active; every other cash path is unchanged.

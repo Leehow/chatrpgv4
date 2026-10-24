@@ -96,6 +96,8 @@ export function specializationIdentity(groups: Row, tableSkills: Row, text: stri
     }
     return null;
 }
+/** §264.28: the rulebook's names for characteristic rolls, in its English and the Chinese edition's words. */
+const RULEBOOK_ROLLS: ReadonlyArray<readonly [string, string]> = [['Idea', 'INT'], ['Idea roll', 'INT'], ['\u7075\u611f', 'INT'], ['Know', 'EDU'], ['Know roll', 'EDU'], ['\u77e5\u8bc6', 'EDU']];
 export class SkillResolver {
     readonly sheetSkills: Row;
     readonly aliases = new Map<string, Set<string>>();
@@ -112,6 +114,9 @@ export class SkillResolver {
             for (const label of array(characteristicLabels[abbr]))
                 this.addAlias(label, abbr);
         }
+        // §264.28: the rulebook's named characteristic rolls (Keeper Rulebook pp. 88, 199-200) are those characteristics.
+        for (const [roll, abbr] of RULEBOOK_ROLLS)
+            this.addAlias(roll, abbr);
         for (const [key, names] of this.aliases)
             if (names.size === 1)
                 this.unique.set(key, [...names][0]);

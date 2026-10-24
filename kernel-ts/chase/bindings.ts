@@ -167,7 +167,7 @@ export function chaseRoles(context: SettleContext): ChaseRoles {
  */
 export async function quarryParticipant(context: SettleContext, handle: string, node: Row): Promise<Row> {
     const name = context.graph.displayName(node);
-    const profile = context.npcProfile(handle);
+    const profile = await context.defaultNpcProfile(handle, node);
     if (!profile)
         throw new RpcError('needs', `${name} has no stat block: a chase of ${name} reads their MOV, CON and DEX`, {
             fix: 'pin a stat block first: apply npc with archetype (one of details.needs.options, chosen from who this person is), then resolve again; when the module has a book that prints their numbers, read them with lookup kind=source instead. Or narrate the pursuit without dice: nothing without a receipt has happened',

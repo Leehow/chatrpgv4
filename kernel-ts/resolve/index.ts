@@ -70,8 +70,9 @@ function modifiers(input: any, arithmetic: CheckArithmetic, intent: unknown = nu
     // one without its reason is a number nobody can read, so it is refused by name; elsewhere the reason is
     // recorded when given. Either way it travels on the roll receipt as modifier_reason.
     const moved = number(bonus) > 0 || number(penalty) > 0 || string(difficulty) !== 'regular';
+    // §264.28: the reason travels on the receipt when given; a social modifier without one is recorded as not given.
     if (moved && intent === 'social' && reason === null)
-        throw new RpcError('needs', 'a modifier on a social attempt needs modifiers.reason: one clause of what in the player\'s words earned it', {details: {field: 'modifiers.reason'}});
+        return [number(bonus), number(penalty), string(difficulty), '(no reason given)'];
     return [number(bonus), number(penalty), string(difficulty), reason === null ? null : string(reason).trim()];
 }
 function bindChoice(turn: Row, action: Row, callId: string): Row | null {
@@ -420,6 +421,7 @@ export function createResolveRuntime(kernel: KernelContext, writer: ResolveWrite
                 return noneResult(settled.note);
             const level = row(settled.outcome).level, pushed = truth(row(settled.outcome).pushed) || truth(action.push);
             const { result, events } = resolveResult(context, settled);
+            if (pipeline.adjusted.length || context.defaulted.length) result.adjusted = [...array(result.adjusted), ...pipeline.adjusted, ...context.defaulted];
             // §136.21: what the level reached states, bound and handed back; nothing of it is applied.
             if (ruleClaim)
                 settleRule({ graph, claim: ruleClaim, outcome: row(settled.outcome), receipts: context.receipts, result, pushed, pushable: level === 'failure' && !pushed && action.luck == null });
@@ -455,6 +457,8 @@ export function createResolveRuntime(kernel: KernelContext, writer: ResolveWrite
                 if (roll && pressure) result.coercion = roll.coercion = coercionStamp(pressure, pressureDifficulty, roll.passed === true);
                 if (roll && spent) roll.coercion_spent = string(spent.id);
             }
+            // §264.28: a stat block pinned by default is the table's from here on, like one the Keeper pinned.
+            if (context.defaulted.some(row => row.reason === 'default_stat_block')) await transaction.campaign.writeWorld(transaction.world);
             await transaction.commitResolve({
                 callId: start.callId,
                 params,

@@ -15,6 +15,7 @@ import { caseFold } from '../rules/casefold.js';
 import { nowIso } from '../write/store.js';
 import {weaponRows} from '../mods/projection.js';
 import { engineWeapon } from '../combat/profiles.js';
+import { rollArchetypeProfile } from '../apply/archetype.js';
 import {prepareMagicFacts,augmentMagicFacts,provisionalMagicSemantic,type PreparedMagicFacts} from '../magic/facts.js';
 import { incapacitatedBy } from '../healing/conditions.js';
 import { personLabel } from '../read/capsule.js';
@@ -154,6 +155,23 @@ export class SettleContext {
     }
     npcNode(handle: string): Row | null { return this.graph.actor(handle); }
     npcProfile(handle: string): Row | null { return npcProfileOf(this.graph, this.world, handle); }
+    /** §264.28: what this settlement filled in instead of refusing, reported on the result. */
+    readonly defaulted: Row[] = [];
+    /**
+     * §264.28: a person a fight or chase needs numbers for, whom the book gives no block at all, is pinned the rulebook's
+     * ordinary_adult archetype, and the result says so; the Keeper can still pin another archetype. It had refused with "pin a stat block first" (A Hard Road to Travel).
+     */
+    async defaultNpcProfile(handle: string, node: Row): Promise<Row | null> {
+        const existing = this.npcProfile(handle);
+        // A creature is completed from the rules catalog, never from a person's archetype; its refusal names that route.
+        if (!this.graph.isPerson(node)) return existing;
+        // A printed block that lacks something keeps its own refusal: what is missing depends on what the action reads.
+        if (existing || isJsonObject(this.graph.mechanicsOf(node).profile)) return existing;
+        const profile = await rollArchetypeProfile(this.kernel, 'ordinary_adult', 'no stat block in the book; pinned by default', this.turnNumber, null);
+        (this.world.npc_profiles ??= {})[handle] = profile;
+        this.defaulted.push({ field: 'npc.archetype', reason: 'default_stat_block', npc: handle, archetype: 'ordinary_adult' });
+        return this.npcProfile(handle);
+    }
     npcSkillLabels(ref: string): string[] {
         const parts = ref.split(':');
         const profile = parts.length >= 2 ? this.npcProfile(parts[1]) : null;
