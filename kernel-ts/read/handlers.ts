@@ -536,7 +536,17 @@ export function readHandlers(context: KernelContext, contributions: ReadContribu
                 }
                 catch { /* A derived cache that cannot be read says nothing about what the player was told. */
                 }
-                const node = beingNode(graph, world, required(params, "name"));
+                let node: Row;
+                try { node = beingNode(graph, world, required(params, "name")); }
+                catch (error) {
+                    // §266.13: someone the book's cast names whom this table has not met: what the book prints of them and how
+                    // they come in, instead of a refusal the Keeper argues with.
+                    const unread = castPersonNamed(graph, world, string(params.name));
+                    if (!unread) throw error;
+                    return { name: string(params.name), material: "unread", at_table: false, original_pages: unread.pages.slice(0, 8),
+                        ...(unread.first ? { first_mention: unread.first } : {}),
+                        note: "The book names this person and this table has not met them yet. Write to them by this name as any write does (apply npc {name, to}, a clue's from, apply person): the write lands them on the book's first mention of them. Read more of them with lookup kind=source source_mode=pages on these pages." };
+                }
                 // §180.9: the chain reads the investigators and what spells they know.
                 await campaign.preload("people");
                 if (!graph.isPerson(node))

@@ -959,3 +959,16 @@ test('§266.11: a mechanics card is kept beside the cast; a landed person\'s pro
 	const profile = api.npcProfileOf(graph, world, 'Jonah');
 	assert.deepEqual([profile?.authority, profile?.skills, profile?.characteristics, profile?.derived], ['book_card', {'Spot Hidden': 45}, {STR: 50}, {HP: 9}]);
 });
+
+test('§266.13: someone the cast names and this table has not met is read as unread, and a person write lands them on the first mention', async t => {
+	const h = await harbor(t);
+	await readCast(h);
+	await h.call('table.player_input', {text: 'I ask about the drowned boy.'});
+	const view = await h.call('table.look', {focus: 'npc', name: 'Jonah'});
+	assert.deepEqual([view.material, view.at_table, view.original_pages], ['unread', false, [3]]);
+	assert.match(view.first_mention?.sentence ?? '', /Jonah drowned/);
+	const named = await h.attempt('table.apply', {call_id: 't1-c1', effects: [{kind: 'person', who: 'Jonah', name: 'the pale boy', why: 'the fisherfolk call him so'}]});
+	assert.equal(named.ok, true, JSON.stringify(named.error?.message));
+	const entry = (await h.world()).table_people.find(row => row.name === 'Jonah');
+	assert.ok(entry?.cast_id && entry.from_passage?.page === 3, 'landed on the cast\'s first mention, with the row it came from');
+});

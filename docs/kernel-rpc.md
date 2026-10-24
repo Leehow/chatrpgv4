@@ -53093,4 +53093,15 @@ or, with none, the opening's first page alone (`{lane: "page-open", event: "guid
 covers what those pages hold (fields with nothing behind them are `unavailable`), and the opening still stands on all its
 pages for the Keeper. When that call fails too, the first failure stands and the fallback is as before.
 
+### 266.13 Someone the cast names, before the table meets them (amends §177.6, §87.8)
+
+*They Did Not Think It Too Many*, table H turn 1 (2026-10-24): 13 minutes and a 51K-character Keeper deliberation. With no
+detail reading (266.10) the book's people the table has not met are unread cast rows, and only a seat (`apply npc`)
+landed them; `look focus=npc`, a clue's `from` and `apply person` refused them `unknown_entity` five times. Now:
+- `look focus=npc name=<a word naming one unread cast person>` answers `{name, material: "unread", at_table: false,
+  original_pages, first_mention?, note}` (the note says a write by that name lands them, and pages turn with §266.4).
+- A clue's `from` and `apply person`'s `who` naming one unread cast person land them first on the cast's first
+  mention of them (`landFromCast`: `establishPerson` with that sentence as the passage and the row's `cast_id`), and
+  the write goes on. A word naming no single unread person keeps the refusal.
+
 Tests: `tests/extension/page-mode.test.mjs`.

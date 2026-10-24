@@ -10,7 +10,7 @@ import {npcNode,npcsPresent,personLabel,personNode,personRecord,sceneLabel,unpla
 import {unsupported} from '../read/handlers.js';
 import {exhibitTeaches} from '../read/exhibits.js';
 import {passageOf,tablePersonId} from '../read/table-people.js';
-import {openingCast,sourceNameReadFix} from '../read/cast.js';
+import {castPersonNamed,openingCast,sourceNameReadFix} from '../read/cast.js';
 import {array,entries,integer,normalize,number,repr,row,sorted,string,truth,type Row} from '../read/values.js';
 import {stanceTable} from '../write/contributions.js';
 import {required,nowIso} from '../write/store.js';
@@ -113,7 +113,11 @@ export async function stageClue(context:ApplyContext,effect:Row,told=false):Prom
         }
     }
     let source:string|null=null;
-    if(typeof effect.from==='string'&&effect.from.trim())source=graph.handle(npcNode(graph,world,effect.from));
+    if(typeof effect.from==='string'&&effect.from.trim()){
+        // §266.13: a source the book's cast names and this table has not met yet lands on the book's first mention.
+        let node:Row;try{node=npcNode(graph,world,effect.from);}catch(error){const landed=landFromCast(context,effect.from.trim());if(!landed)throw error;node=landed;}
+        source=graph.handle(node);
+    }
     else {
         const present=new Set(npcsPresent(graph,world,scene).map(node=>graph.handle(node)));
         const holders=new Set((graph.incoming.get(node.node_id)||[]).filter(rel=>['held-by','delivered-by'].includes(rel.relation_kind)).map(rel=>graph.nodes.get(rel.from_node_id)).filter(node=>node?.node_kind==='npc').map(node=>graph.handle(node!)));
@@ -272,6 +276,17 @@ export function establishPerson(context:Pick<ApplyContext,'graph'|'world'|'turn'
     if(!people.some(person=>normalize(string(row(person).name))===normalize(trimmed)&&!row(person).replaced_by))
         people.push({name:trimmed,turn:context.turn.turn,why,established_at:nowIso(),...(passage?{from_passage:passage}:{}),...(cast?{cast_id:cast}:{})});
     return node;
+}
+/**
+ * §266.13: someone the book's cast names, not yet at this table, named by a write that is not a seat (a clue's source, a
+ * person's table name): they land on the cast's first mention of them, as a seat lands on the host's passage (§177.6), and
+ * the write goes on. Null when the word names no single unread cast person or the cast kept no first mention.
+ */
+export function landFromCast(context:Pick<ApplyContext,'graph'|'world'|'turn'>,word:string):Row|null{
+    const person=castPersonNamed(context.graph,context.world,word);
+    if(!person?.first||!person.castIds.length&&!person.id.startsWith('cast-'))return null;
+    const passage={scene:null,page:person.first.page,label:null,sentence:person.first.sentence};
+    return establishPerson(context,word,'the book names them; they land on its first mention of them',passage,person.castIds[0]??person.id);
 }
 /** What a receipt says about where a person came from: nothing for the book's, `table` for §87's, `passage` for §11.5.4's.
  *  §11.5.6 (SL-62): `resolved_from` rides beside it -- the name the Keeper wrote, when the host resolved it to this
