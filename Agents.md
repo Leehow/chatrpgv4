@@ -35,7 +35,7 @@ PipiCOC 界面现已复制到本分支 `Electron/`，经 `pipicoc/rpc` 启动当
 | 工作 | 必读 |
 | --- | --- |
 | 扩展与内核之间的一切（方法、收据、回合状态机、胶囊、resolve 流水线、提交链、Director、模组车道、世界线、系统语言与机制投影） | `docs/kernel-rpc.md`。**改契约先于改代码**；每个切片的实现决定记在对应的「内核的决定」小节。 |
-| PDF 阅读、构图、按需补读或旧解析链路退役 | `docs/specs/visual-pdf-reader.md`、`docs/kernel-rpc.md` §22 与 GitHub #34。视觉实现与旧路径退役已接线；最后验证状态见规格实施记录；保留全部证据，Electron 留后。 |
+| PDF 阅读、构图、按需补读或旧解析链路退役 | **先读 `docs/design/module-parser.md`（历次策略、反复出现的坑、原则；改完更新它）**；`docs/specs/visual-pdf-reader.md`、`docs/kernel-rpc.md` §22 与 GitHub #34。视觉实现与旧路径退役已接线；最后验证状态见规格实施记录；保留全部证据，Electron 留后。 |
 | 对 Pi 的依赖、绕法、升版 | `docs/pi-host-contract.md`。不 fork、不打补丁。 |
 | 运行时、编译入口、独立打包或 Python 对照 | `docs/kernel-rpc.md` §27、`docs/specs/runtime-consolidation-tickets.md`；先看实现与验收状态，编译通过不等于独立包验收完成。 |
 | 架构规格与切片票 | GitHub issue #12（规格）、#13–#18（切片，已关）、#19–#22（真桌缺口，已关）、#26（切片 7：系统语言英文、机制 JSON）、#23（切片 8：世界线，契约 §15，代码已做完，§15.8 的真桌验收未跑）、#25（`apply npc`，留后）。用 `gh`。 |

@@ -2,6 +2,8 @@
 
 先完整阅读并遵守根目录 [Agents.md](Agents.md)；它是本项目唯一的完整规则源，本文件只强调最容易走错的重构边界。
 
+**改模组解析（PDF 读取、索引、查书、释放、cast、地图等任何读书通道）之前，先读 [docs/design/module-parser.md](docs/design/module-parser.md)，改完更新它。**
+
 **Python 内核已退役，当前生产内核只维护 `kernel-ts/`。** 旧 Python 文件找不到是预期状态：按当前 RPC 契约定位 TS 实现，不能去历史 Git、旧分支或旧 worktree 把 Python 找回来继续修改，也不能恢复 Python 后端。
 
 
