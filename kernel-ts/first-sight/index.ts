@@ -35,13 +35,19 @@ export const FIRST_SIGHT_KINDS: readonly string[] = Object.freeze(['place', 'per
 export const FIRST_SIGHT_ITEMS_MAX = 32, FIRST_SIGHT_MISSING_MAX = 24;
 /** An excerpt longer than this is no single detail. */
 export const FIRST_SIGHT_EXCERPT_CHARS = 800;
+/**
+ * Checked deliveries that could not judge an item before it stops being owed. The check lane records nothing when its
+ * answer is below confidence, so an item it never confirms was owed every turn: on the app's Blood Road table
+ * (2026-10-23) the Esso station and the veteran were carried for eleven turns and written out from scratch each time.
+ */
+export const FIRST_SIGHT_TRIES_MAX = 3;
 /** Open rows kept; the oldest give way past it. */
 const OPEN_KEPT = 64;
 /** A cut description keeps at least this many characters. */
 const DESCRIBED_FLOOR = 40;
 
 /** §255: `looks` rides the same ledger, so it is committed and carried by a fork exactly as `shown` and `open` are. */
-export interface FirstSightLedger { shown: { places: string[]; people: string[] }; open: Row[]; looks: KeptLooks }
+export interface FirstSightLedger { shown: { places: string[]; people: string[] }; open: Row[]; looks: KeptLooks; unconfirmed: Record<string, number> }
 /** One checked item as the kernel keeps it: its graph handle and the book's words the prose did not show. */
 export interface FirstSightResult { kind: string; id: string; missing: string[] }
 
@@ -56,7 +62,9 @@ export function firstSightLedger(value: unknown): FirstSightLedger {
         shown: { places: handles(shown.places), people: handles(shown.people) },
         open: array(stored.open).map(row).filter(entry => FIRST_SIGHT_KINDS.includes(text(entry.kind)) && text(entry.id) !== ''
             && array(entry.missing).some(item => typeof item === 'string' && item !== '')),
-        looks: keptLooks(stored.looks)
+        looks: keptLooks(stored.looks),
+        unconfirmed: Object.fromEntries(Object.entries(row(stored.unconfirmed)).filter(([key, count]) => /^(place|person):./.test(key)
+            && Number.isSafeInteger(count) && number(count) > 0)) as Record<string, number>
     };
 }
 function ledgerPath(context: KernelContext, campaign: string): string {
@@ -70,7 +78,8 @@ export async function readFirstSight(context: KernelContext, campaign: string): 
 }
 export async function writeFirstSight(context: KernelContext, campaign: string, ledger: FirstSightLedger): Promise<void> {
     await writeJsonAtomic(ledgerPath(context, campaign), { shown: ledger.shown, open: ledger.open,
-        ...(emptyLooks(ledger.looks) ? {} : { looks: ledger.looks as unknown as Row }) });
+        ...(emptyLooks(ledger.looks) ? {} : { looks: ledger.looks as unknown as Row }),
+        ...(Object.keys(ledger.unconfirmed).length ? { unconfirmed: ledger.unconfirmed } : {}) });
 }
 
 /**
@@ -257,7 +266,29 @@ export function applyFirstSight(ledger: FirstSightLedger, turn: number, results:
         }
         open = [...open.filter(entry => !same(entry)), { kind: result.kind, id: result.id, missing: [...result.missing], turn, at }];
     }
-    return { shown, open: open.slice(-OPEN_KEPT), looks: ledger.looks };
+    const unconfirmed = Object.fromEntries(Object.entries(ledger.unconfirmed).filter(([key]) => !results.some(result => `${result.kind}:${result.id}` === key)));
+    return { shown, open: open.slice(-OPEN_KEPT), looks: ledger.looks, unconfirmed };
+}
+
+/**
+ * Items a checked delivery carried that the check could not judge: each counts a try, and at FIRST_SIGHT_TRIES_MAX the
+ * item is shown, since the prose was checked that many times while it was owed. A judged item's count is cleared by
+ * applyFirstSight.
+ */
+export function applyUnconfirmed(ledger: FirstSightLedger, items: readonly { kind: string; id: string }[]): { ledger: FirstSightLedger; retired: Row[] } {
+    const shown = { places: [...ledger.shown.places], people: [...ledger.shown.people] }, unconfirmed = { ...ledger.unconfirmed };
+    let open = [...ledger.open];
+    const retired: Row[] = [];
+    for (const item of items) {
+        if (shown[shelf(item.kind)].includes(item.id)) continue;
+        const key = `${item.kind}:${item.id}`, count = (unconfirmed[key] ?? 0) + 1;
+        if (count < FIRST_SIGHT_TRIES_MAX) { unconfirmed[key] = count; continue; }
+        delete unconfirmed[key];
+        shown[shelf(item.kind)].push(item.id);
+        open = open.filter(entry => !(entry.kind === item.kind && entry.id === item.id));
+        retired.push({ kind: item.kind, id: item.id });
+    }
+    return { ledger: { ...ledger, shown, open, unconfirmed }, retired };
 }
 
 /** What a delivered turn's checks recorded, for its own record: one row per item, the latest call's answer kept. */

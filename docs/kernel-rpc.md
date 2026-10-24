@@ -52166,6 +52166,28 @@ Found by playing Blood Road in the packaged PipiCOC app (MiniMax, 14 turns); tes
   confidence left the person owed every turn and the prose described them from scratch each time.
   `tests/extension/kept-looks-kernel.test.mjs`.
 
+- **Overhearing a whisper is a check** (owner 2026-10-24; amends §258.9). An aside interaction may carry `overheard_by`
+  (npc refs present): people the Keeper rolled Listen for this turn (`resolve` with that person as actor). The commit keeps
+  only those with a passed `Listen` roll receipt this turn; they join the aside's `heard` (and the whisper it answered),
+  recorded as `overheard`; a name without a passed roll is recorded as `overheard_unchecked` and hears nothing.
+- **A first sight the check cannot judge stops being owed** (amends §168.5). Root cause of the eleven-turn re-introduction:
+  the Jev check records nothing below its confidence floor, so an item it never confirms stayed owed, and §260.3 marked the
+  person `needs_introduction` every turn. The host now sends the items it carried but the check did not judge as
+  `table.first_sight {unconfirmed}`; each counts a try on the ledger (`unconfirmed`), and at `FIRST_SIGHT_TRIES_MAX` (3)
+  the item is shown. A judged item clears its count. With the kept-look rule above, a person or place is no longer written
+  out from scratch every turn.
+- **A service paid in advance is an accepted deal** (amends §258.11). Root cause of the empty deal ledger: deals came only
+  from an `offer` carrying `new:service_at`/`new:planned_visit`, while the Keeper prices a service with `cash` and has the
+  seller set out with an NPC intent, so no proposal ever existed for an `agreement` mark to name. A `cash` purchase settled
+  with a person who in the same turn set out on an intention (`npc` receipt, outcome `attempted`) is recorded as
+  `communication.paid`: that person's accepted commitment to the buyer, tied to the intention. `communication.settled_intents`
+  records an intention's `done`/`failed`/`abandoned` outcome, which settles the deal `kept`/`broken`/`withdrawn`; the
+  Keeper's `agreement` mark still settles it too.
+- **Why the telephone request delivered nothing.** The Keeper had no instruction for a book person who is elsewhere, so it
+  brought the bar's owner on stage as a `walk_on`; the newcomer name check refused it, the turn's output failed on that
+  refusal, and the player got no reply. The refusal's fix and the Keeper guidance now name the route (their own npc ref,
+  `channel: phone`); the re-test delivered the call.
+
 ## 260. NPC portrayal: beats, attention and the bearing grant (owner 2026-10-23; amends §254.2, §254.6)
 
 Spec: `docs/specs/npc-portrayal.md`. Research: `docs/research/npc-portrayal-lotm-20261023.md`. The owner's direction: the

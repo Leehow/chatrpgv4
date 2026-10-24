@@ -41,8 +41,10 @@ export function selectionsOf(evidence:Row):Row[] {
                 ...(typeof value.kind==='string'?{kind:value.kind.slice(0,40)}:{}),
                 ...(typeof value.gist==='string'&&value.gist.trim()?{gist:[...value.gist.trim()].slice(0,120).join('')}:{})}];
         });
+        const overheard=selection.channel==='aside'?array(selection.overheard_by).filter(isNpcReference).slice(0,8):[];
         return [{seq:index,actor:selection.actor,act:selection.act.slice(0,24),to,items,
-            ...(CHANNELS.includes(selection.channel)&&selection.channel!=='speech'?{channel:selection.channel}:{})}];
+            ...(CHANNELS.includes(selection.channel)&&selection.channel!=='speech'?{channel:selection.channel}:{}),
+            ...(overheard.length?{overheard_by:overheard}:{})}];
     });
 }
 
@@ -51,10 +53,14 @@ export function selectionsOf(evidence:Row):Row[] {
  * its speaker, otherwise `missing`: the author did not give that person words, so nothing was told. Addressed listeners are
  * the selection's `to`; everyone else present at publication, investigators included, `heard` it.
  */
-export function communicationRecord(graph:ModuleGraph,world:Row,party:Row[],scope:Row,turn:number,evidence:Row,speech:Row[],present:Row[],playerText?:unknown):Row|undefined {
+export function communicationRecord(graph:ModuleGraph,world:Row,party:Row[],scope:Row,turn:number,evidence:Row,speech:Row[],present:Row[],playerText?:unknown,receipts:Row[]=[]):Row|undefined {
     const selections=selectionsOf(evidence),agreements=agreementsOf(evidence);
-    if(!selections.length&&!agreements.length)return undefined;
     const investigator=(name:unknown)=>{const at=party.findIndex(sheet=>sheet.name===name||sheet.id===name);return at>=0?`investigator_${at+1}`:undefined;};
+    const paid=paidDeals(graph,world,turn,receipts,investigator);
+    // An intention's outcome this turn, so a deal paid for in advance (paidDeals) settles from the records alone.
+    const settled=receipts.flatMap(receipt=>{const intent=row(receipt.intent);
+        return receipt.kind==='npc'&&typeof intent.ref==='string'&&['done','failed','abandoned'].includes(string(intent.outcome))?[{ref:intent.ref,outcome:string(intent.outcome)}]:[];}).slice(0,8);
+    if(!selections.length&&!agreements.length&&!paid.length&&!settled.length)return undefined;
     const refOf=(who:Row):string|undefined=>{
         if(typeof who.investigator==='string')return investigator(who.investigator);
         if(typeof who.npc!=='string')return undefined;
@@ -67,12 +73,43 @@ export function communicationRecord(graph:ModuleGraph,world:Row,party:Row[],scop
     for(const match of string(evidence.artifact_text).matchAll(/\{\{say:(npc_[1-9][0-9]*)\}\}([\s\S]*?)(?=\{\{\/say\}\}|\{\{say:|\n[ \t]*\n|$)/g))
         if(match[2].replace(/\{\{[^{}]*\}\}/g,'').trim())spoke.add(match[1]);
     const here=[...present.map(node=>npcReference(graph,world,node)).filter((ref):ref is string=>!!ref),...party.map((_sheet,index)=>`investigator_${index+1}`)];
-    const events=selections.map(selection=>({...selection,id:`t${turn}:${selection.seq}`,
-        status:spoke.has(selection.actor)?'attested':'missing',
-        heard:PRIVATE.has(selection.channel)?[]:here.filter(ref=>ref!==selection.actor&&!selection.to.includes(ref))}));
-    const said=partyEvent(turn,party,here,selections,playerText);
+    // An aside is overheard only by someone present who passed their own Listen roll this turn and whom the Keeper named;
+    // a name with no such roll hears nothing (the owner, 2026-10-24: whether those around learn it is a check).
+    const listened=new Set(receipts.flatMap(receipt=>{
+        if(receipt.kind!=='roll'||receipt.passed!==true||receipt.actor_is_investigator!==false||receipt.skill!=='Listen'||typeof receipt.actor!=='string')return [];
+        const node=graph.find(receipt.actor,['npc']);const ref=node?npcReference(graph,world,node):undefined;return ref?[ref]:[];
+    }));
+    const caught=(selection:Row):string[]=>array(selection.overheard_by).filter(ref=>listened.has(ref)&&here.includes(ref)&&ref!==selection.actor&&!array(selection.to).includes(ref));
+    const events=selections.map(selection=>{
+        const {overheard_by:named,...rest}=selection,heardBy=selection.channel==='aside'?caught(selection):[];
+        const unchecked=array(named).filter(ref=>!heardBy.includes(ref));
+        return {...rest,id:`t${turn}:${selection.seq}`,status:spoke.has(selection.actor)?'attested':'missing',
+            heard:selection.channel==='aside'?heardBy:PRIVATE.has(selection.channel)?[]:here.filter(ref=>ref!==selection.actor&&!selection.to.includes(ref)),
+            ...(heardBy.length?{overheard:heardBy}:{}),...(unchecked.length?{overheard_unchecked:unchecked}:{})};
+    });
+    const said=partyEvent(turn,party,here,selections,playerText,caught);
     return {version:1,scope:{worldline:string(scope.worldline||'main'),loop:number(scope.loop)},turn,events:said?[said,...events]:events,
-        ...(agreements.length?{agreements}:{})};
+        ...(agreements.length?{agreements}:{}),...(paid.length?{paid}:{}),...(settled.length?{settled_intents:settled}:{})};
+}
+
+/**
+ * §258.11 (app play-test 2026-10-23): a service paid for in advance is a deal already accepted. The Keeper prices a service
+ * with `cash` and has the seller set out to do it with an NPC intent; neither ever made a proposal, so no agreement mark
+ * had anything to name and the deal ledger stayed empty while the owner was owed a repair. A purchase settled with a person
+ * who, in the same turn, set out on an intention is that person's accepted commitment to the buyer, tied to the intention.
+ */
+function paidDeals(graph:ModuleGraph,world:Row,turn:number,receipts:Row[],investigator:(name:unknown)=>string|undefined):Row[] {
+    const started=new Map(receipts.filter(receipt=>receipt.kind==='npc'&&row(receipt.intent).outcome==='attempted'&&typeof receipt.handle==='string'
+        &&typeof row(receipt.intent).ref==='string').map(receipt=>[receipt.handle as string,row(receipt.intent).ref as string]));
+    return receipts.flatMap(receipt=>{
+        if(receipt.kind!=='cash'||receipt.category!=='purchase'||!(number(receipt.purchase_amount)>0)||typeof receipt.with!=='string')return [];
+        const intent=started.get(receipt.with),node=intent?graph.find(receipt.with,['npc']):null,by=node?npcReference(graph,world,node):undefined;
+        if(!intent||!by)return [];
+        const lines=array(receipt.items).map(item=>string(row(item).name)).filter(Boolean).join(', ');
+        const gist=[...(typeof receipt.why==='string'&&receipt.why.trim()?receipt.why.trim():lines)].slice(0,120).join('');
+        return [{content_id:`c:${createHash('sha256').update(JSON.stringify([turn,receipt.id])).digest('hex').slice(0,24)}`,by,
+            to:[investigator(receipt.subject_label)??'investigator_1'],...(gist?{gist}:{}),intent}];
+    }).slice(0,8);
 }
 
 /**
@@ -94,7 +131,7 @@ export function agreementsOf(evidence:Row):Row[] {
  * people answered (the only one at a one-investigator table); its addressees are the people who answered them, and everyone
  * else present heard it. The words are the player's own, so the event is attested; it is the investigator's claim, not truth.
  */
-function partyEvent(turn:number,party:Row[],here:string[],selections:Row[],playerText:unknown):Row|undefined {
+function partyEvent(turn:number,party:Row[],here:string[],selections:Row[],playerText:unknown,caught:(selection:Row)=>string[]=()=>[]):Row|undefined {
     const text=typeof playerText==='string'?[...playerText.trim()].slice(0,160).join(''):'';
     if(!text)return undefined;
     const answered=[...new Set(selections.flatMap(selection=>array(selection.to).filter(ref=>INVESTIGATOR.test(ref))))];
@@ -110,8 +147,10 @@ function partyEvent(turn:number,party:Row[],here:string[],selections:Row[],playe
     const channel=low.length?'aside':answering.length&&answering.every(selection=>selection.channel===answering[0].channel)?answering[0].channel:undefined;
     const to=[...new Set((low.length?low:answering).map(selection=>selection.actor as string))];
     const quiet=channel==='aside'||channel==='letter';
+    // Whoever caught the low answer by their own Listen caught the whisper it answered.
+    const overheard=channel==='aside'?[...new Set(low.flatMap(caught))].filter(ref=>!to.includes(ref)):[];
     return {seq:-1,id:`t${turn}:p`,actor,act:'player_input',to,status:'attested',...(channel&&channel!=='speech'?{channel}:{}),
-        heard:quiet?[]:here.filter(ref=>ref!==actor&&!to.includes(ref)),items:[{content_id,strategy:'new',kind:'player_input',gist:text}]};
+        heard:quiet?overheard:here.filter(ref=>ref!==actor&&!to.includes(ref)),...(overheard.length?{overheard}:{}),items:[{content_id,strategy:'new',kind:'player_input',gist:text}]};
 }
 
 /** The records of this worldline and loop before `turn`, oldest first; a later turn a rewind left behind is not read. */
@@ -231,6 +270,18 @@ export function agreementView(records:Row[],person:string,scope:Row,turn?:number
                 deals.set(key,{content_id:item.content_id,by:event.actor,to:array(event.to),...(item.gist?{gist:item.gist}:{}),
                     made_turn:number(record.turn),status:'open'});
             }
+        }
+        // A deal paid in advance starts accepted (see paidDeals); its intention's own outcome settles it.
+        for(const deal of array(communication.paid)){
+            const key=`${deal.by} ${deal.content_id}`;
+            if(!isNpcReference(deal.by)||typeof deal.content_id!=='string'||deals.has(key))continue;
+            deals.set(key,{content_id:deal.content_id,by:deal.by,to:array(deal.to),with:array(deal.to),...(deal.gist?{gist:deal.gist}:{}),
+                made_turn:number(record.turn),status:'accepted',since_turn:number(record.turn),paid:true,...(typeof deal.intent==='string'?{intent:deal.intent}:{})});
+        }
+        for(const intent of array(communication.settled_intents)){
+            const done=({done:'kept',failed:'broken',abandoned:'withdrawn'} as Record<string,string>)[string(row(intent).outcome)];
+            if(!done)continue;
+            for(const deal of deals.values())if(deal.intent===row(intent).ref&&deal.status==='accepted'){deal.status=done;deal.since_turn=number(record.turn);}
         }
         for(const mark of array(communication.agreements)){
             const deal=deals.get(`${mark.by} ${mark.content_id}`);
