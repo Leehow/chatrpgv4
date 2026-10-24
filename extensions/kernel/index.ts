@@ -151,7 +151,7 @@ import { PlaceBindings } from "./place-binding.ts";
 import { PendingAnswers, landedFirstAnswer, memoAnswer, pendingAnswer, pendingPrepare, sourceAnswerAllowanceMs, type SourceAnswerScope } from "./source-answers.ts";
 import {sourceAnswerPage} from '../../runtime/jev/source-answer-pages.ts';
 import { PERSON_TEXT_NOTE, SceneReadings, SCENE_TEXT_NOTE } from "./scene-readings.ts";
-import { PAGE_MODE_TEXT_NOTE } from "../module/page-mode.ts";
+import { PAGE_MODE_TEXT_NOTE, POINTER_TEXT_NOTE } from "../module/page-mode.ts";
 import { bookText, CarriedText, findPassage } from "./carried-text.ts";
 import { speechPass } from "../../kernel-ts/write/speech-pass.ts";
 import {
@@ -1709,6 +1709,8 @@ export default function (pi: ExtensionAPI, host: {capabilities?:RuntimeCapabilit
 		sourcePages?(moduleId: string, pages: number[], params?: Record<string, unknown>, signal?: AbortSignal): Promise<Array<{page: number; pdf_label?: string; text: string}>>;
 		/** §266.1: whether pages, or a focus, are outside the pointer index (page mode). */
 		pageMode?(moduleId: string | undefined, query: {pages?: number[]; focus?: string}): boolean;
+		/** §266.10: whether a detail reading may be asked (never under lean reading unless PI_COC_DETAIL_READS=1). */
+		detailReads?(moduleId: string | undefined): boolean;
 		/** §266.4: the book's pages the Keeper turns, cut by the host. */
 		bookPages?(moduleId: string, params: Record<string, unknown>, signal?: AbortSignal): Promise<any> } | undefined;
 	let readingModule: string | undefined;
@@ -5471,9 +5473,9 @@ export default function (pi: ExtensionAPI, host: {capabilities?:RuntimeCapabilit
 		finally { effects![index as number] = target; }
 		// The scene's reading, blocking and waited on by nobody: the call returns at once, the record lands later.
 		// §266.6: pages the pointer index does not cover queue no reading; their text is all the Keeper gets.
-		const pageMode = reading.pageMode?.(readingModule, { pages }) === true;
+		const pageMode = reading.pageMode?.(readingModule, { pages }) === true, noReading = pageMode || reading.detailReads?.(readingModule) === false;
 		let settled: Promise<any>;
-		if (pageMode) settled = Promise.resolve({ state: "page_mode" });
+		if (noReading) settled = Promise.resolve({ state: pageMode ? "page_mode" : "pointer_reading" });
 		else try {
 			const reply = await reading.ensure(readingModule, { ...read, foreground: true }, undefined, { allowanceMs: 0, blocking: true });
 			settled = reply?.state === "pending" && reply.settled ? reply.settled : Promise.resolve(reply);
@@ -5485,9 +5487,9 @@ export default function (pi: ExtensionAPI, host: {capabilities?:RuntimeCapabilit
 		// §11.5.4: on the legacy engine these pages ride this very result, so they are carried now.
 		if (!drivenEngine) carriedText.note(state.campaign, state.turn, carriedPages.map((page) => ({ scene: focus, page: page.page, label: page.pdf_label ?? null, text: page.text })));
 		void record({ lane: "reading", event: "scene_text", turn: state.turn, scene: focus, pages: texts.map((page) => page.page),
-			bytes: Buffer.byteLength(JSON.stringify(carriedPages), "utf8"), ...landingLayer(texts), ...(pageMode ? { page_mode: true } : {}) });
+			bytes: Buffer.byteLength(JSON.stringify(carriedPages), "utf8"), ...landingLayer(texts), ...(pageMode ? { page_mode: true } : noReading ? { pointer_reading: true } : {}) });
 		const landed = Array.isArray(result.scene_text) ? result.scene_text as Array<Record<string, unknown>> : [{ scene: focus, pages }];
-		return { ...result, scene_text: landed.map((entry) => ({ ...entry, note: pageMode ? PAGE_MODE_TEXT_NOTE : SCENE_TEXT_NOTE,
+		return { ...result, scene_text: landed.map((entry) => ({ ...entry, note: pageMode ? PAGE_MODE_TEXT_NOTE : noReading ? POINTER_TEXT_NOTE : SCENE_TEXT_NOTE,
 			// On the hybrid engine the pages ride the next note once; the legacy engine has no note, so they ride here.
 			...(!drivenEngine && entry.scene === focus ? { text: carriedPages } : {}) })) };
 	}
@@ -5526,9 +5528,9 @@ export default function (pi: ExtensionAPI, host: {capabilities?:RuntimeCapabilit
 		finally { if(previousLand===undefined)delete payload._land_on_text;else payload._land_on_text=previousLand; }
 		// The person's reading, blocking and waited on by nobody: the call returns at once, the record lands later.
 		// §266.6: a person the pointer index does not cover queues no reading.
-		const pageMode = reading.pageMode?.(readingModule, pages.length ? { pages } : { focus: name }) === true;
+		const pageMode = reading.pageMode?.(readingModule, pages.length ? { pages } : { focus: name }) === true, noReading = pageMode || reading.detailReads?.(readingModule) === false;
 		let settled: Promise<any>;
-		if (pageMode) settled = Promise.resolve({ state: "page_mode" });
+		if (noReading) settled = Promise.resolve({ state: pageMode ? "page_mode" : "pointer_reading" });
 		else try {
 			const reply = await reading.ensure(readingModule, { ...read, foreground: true }, undefined, { allowanceMs: 0, blocking: true });
 			settled = reply?.state === "pending" && reply.settled ? reply.settled : Promise.resolve(reply);
@@ -5539,9 +5541,9 @@ export default function (pi: ExtensionAPI, host: {capabilities?:RuntimeCapabilit
 		sceneReadings.register(state.campaign, focus, carried, state.turn, settled, name);
 		if (!drivenEngine && carried.length) carriedText.note(state.campaign, state.turn, carried.map((page) => ({ scene: null, page: page.page, label: page.pdf_label ?? null, text: page.text })));
 		void record({ lane: "reading", event: "person_text", turn: state.turn, person: name, focus, pages: (carried.length ? carried : []).map((page) => page.page),
-			source: carried.length ? "index" : "carried", ...(indexed.length ? landingLayer(indexed) : {}), ...(pageMode ? { page_mode: true } : {}) });
+			source: carried.length ? "index" : "carried", ...(indexed.length ? landingLayer(indexed) : {}), ...(pageMode ? { page_mode: true } : noReading ? { pointer_reading: true } : {}) });
 		const landed = Array.isArray(result.person_text) ? result.person_text as Array<Record<string, unknown>> : [{ person: name, focus, pages }];
-		return { ...result, person_text: landed.map((entry) => ({ ...entry, note: pageMode ? PAGE_MODE_TEXT_NOTE : PERSON_TEXT_NOTE,
+		return { ...result, person_text: landed.map((entry) => ({ ...entry, note: pageMode ? PAGE_MODE_TEXT_NOTE : noReading ? POINTER_TEXT_NOTE : PERSON_TEXT_NOTE,
 			// On the hybrid engine the pages ride the next note once; the legacy engine has no note, so they ride here.
 			...(!drivenEngine && entry.focus === focus && carried.length ? { text: carried } : {}) })) };
 	}
@@ -6638,7 +6640,7 @@ export default function (pi: ExtensionAPI, host: {capabilities?:RuntimeCapabilit
 			// §266.4: a preparation whose focus the pointer index does not cover turns that focus's pages instead of queuing a reading.
 			const turnsPages = spec.name === "lookup" && params.kind === "source" && !!readingModule && typeof reading?.bookPages === "function"
 				&& (params.source_mode === 'pages' || params.source_mode !== 'answer' && params.material === undefined && params.answer_part === undefined
-					&& !!asString(params.query)?.trim() && reading.pageMode?.(readingModule, { focus: String(params.query) }) === true);
+					&& !!asString(params.query)?.trim() && (reading.pageMode?.(readingModule, { focus: String(params.query) }) === true || reading.detailReads?.(readingModule) === false));
 			if (spec.name === "lookup" && params.kind === "source" && params.source_mode === 'pages' && !turnsPages)
 				throw new KernelError({ code: "needs", message: "turning the book's pages needs the module reading service and an original document",
 					fix: "play on from the capsule and published material", details: { reason: "reading_failed" } });

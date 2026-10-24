@@ -545,6 +545,13 @@ export class ReadingService implements ReadingBridge {
 		}
 		return undefined;
 	}
+	/**
+	 * §266.10: whether a detail reading may be asked for this material. Under lean reading none is, in page mode or not: the
+	 * Keeper plays from the book's pages and the pointer index. `PI_COC_DETAIL_READS=1` brings them back.
+	 */
+	detailReads(mid: string | undefined): boolean {
+		return process.env.PI_COC_LEAN_READING !== "1" || !mid || process.env.PI_COC_DETAIL_READS === "1";
+	}
 	/** §266.1: whether pages (or, with no pages, a focus) of a module are in page mode; false when lean reading is off. */
 	pageMode(mid: string | undefined, query: { pages?: number[]; focus?: string }): boolean {
 		if (process.env.PI_COC_LEAN_READING !== "1" || !mid) return false;
@@ -1626,9 +1633,11 @@ export class ReadingService implements ReadingBridge {
 						}
 						this.blockedClaims.delete(scope);
 						// §266.6: a lean detail reading of pages the pointer index does not cover is handed back: the Keeper turns those pages.
-						if (leanEligible(job) && this.pageMode(mid, { pages: Array.isArray(job.pages) ? job.pages : [] })) {
-							this.note({ lane: "reading", event: "page_mode_skip", module_id: mid, campaign, job_id: job.job_id, focus: job.focus ?? "", pages: job.pages ?? [], foreground: job.foreground === true });
-							await this.call("module.read.finish", { module_id: mid, job_id: job.job_id, lease: job.lease, outcome: "cancelled", detail: "page_mode" }, campaign).catch(() => undefined);
+						// §266.10: and under pointer reading every lean detail reading is handed back, covered pages or not.
+						if (leanEligible(job) && !this.detailReads(mid)) {
+							const detail = this.pageMode(mid, { pages: Array.isArray(job.pages) ? job.pages : [] }) ? "page_mode" : "pointer_reading";
+							this.note({ lane: "reading", event: "page_mode_skip", module_id: mid, campaign, job_id: job.job_id, focus: job.focus ?? "", pages: job.pages ?? [], foreground: job.foreground === true, detail });
+							await this.call("module.read.finish", { module_id: mid, job_id: job.job_id, lease: job.lease, outcome: "cancelled", detail }, campaign).catch(() => undefined);
 							continue;
 						}
 						// §262.1: past the reading cap a background job is handed back cancelled; a foreground one still runs.

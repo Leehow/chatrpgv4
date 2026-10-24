@@ -52975,4 +52975,17 @@ first, then arrangements, then the rest, then options. The evidence window (263.
 another column with the end of that block's last sentence (after its last full stop, at most 200 characters), so a plan
 whose subject is in the previous column is read whole. Changing the index prompt re-reads every section once.
 
+### 266.10 No detail reading under pointer reading (amends §262.3, §262.7, §22.4.7, §22.4.7.1)
+
+Where the index covers the pages, play still queued lean detail readings (Blood Road table A, 2026-10-24: one for the Esso
+station the opening established, three blocking ones for the people who landed there). They were the reader re-reading
+pages to write graph records whose only use in play was the material gate's "prepared" bookkeeping: the landing already
+carries the book's pages, `book_truth` and the evidence window carry the plans, and a landed person is a table person.
+Under lean reading no lean detail reading is asked any more, covered pages or not: the claim hands it back `cancelled`
+with detail `pointer_reading` (`page_mode` where 266.1 says page mode), a landing (266.6) queues none and tells the
+Keeper the pages are the book's own text and no record will land, and a `lookup kind=source` preparation with no
+`material` turns pages as 266.4 does. Maps, exhibits asked by name, opening and guidance readings are unchanged.
+`PI_COC_DETAIL_READS=1` restores the readings. Mechanics a reader used to write (a person's skills, a gate's numbers)
+are the Keeper's `apply npc` pins and rule defaults until mechanics cards exist (design W08).
+
 Tests: `tests/extension/page-mode.test.mjs`.
