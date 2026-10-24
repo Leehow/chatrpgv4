@@ -26,7 +26,7 @@ export const NewCommunicationFact=Type.Union([
   status:StringEnum(['unknown','uncertain','withheld','nothing_more'],{description:"The speaker's own knowledge of the topic: unknown (knows nothing of it), uncertain (unsure), withheld (knows but will not say), nothing_more (has said all they know)"})}),
  // §264.15 (owner 2026-10-24): what the person means when no constructor above says it, in a few words of reported meaning,
  // never their words. It is said, not true: no world fact, knowledge or relationship follows from it.
- closed({predicate:Type.Literal('meaning'),meaning:Type.String({minLength:1,maxLength:MEANING_MAX,pattern:'^[^"“”「」『』]*\\S[^"“”「」『』]*$',
+ closed({predicate:Type.Literal('meaning'),meaning:Type.String({minLength:1,maxLength:MEANING_MAX,pattern:'^[^"\\u201c\\u201d\\u300c\\u300d\\u300e\\u300f]*\\S[^"\\u201c\\u201d\\u300c\\u300d\\u300e\\u300f]*$',
   description:`What this person means, when no other constructor says it: at most ${MEANING_MAX} characters of reported meaning (claims he never saw the boy), never quoted dialogue`})}),
  closed({predicate:Type.Literal('input_requirements'),topic:ref,fields:Type.Array(StringEnum(['subject_name','person_name','location','time_range','record_type','purpose','quantity','budget','authorization','proof_of_identity'],{description:'What the speaker needs from the investigator before they will do it; authorization is written permission or a word from someone with standing (an employer, an official), proof_of_identity is papers showing who the investigator is'}),{minItems:1,maxItems:8,uniqueItems:true})})
 ]);
