@@ -1,7 +1,7 @@
 /** Reproduced recovery seams; these are native component tests, not gameplay. */
 import {test} from 'node:test';
 import assert from 'node:assert/strict';
-import {importSource,kernel,openTurn,campaignDir,readJson} from './support.ts';
+import {importSource,kernel,openTurn,campaignDir,readJson,prepared} from './support.ts';
 import {join} from 'node:path';
 
 const {ModJobs}=await importSource('kernel-ts/mods/jobs.ts');
@@ -67,4 +67,18 @@ test('first document acquisition explains the missing accepted definition',async
     assert.equal(error.details.reason,'object_definition_required');
     assert.match(error.fix,/define/);
     assert.match(error.fix,/same.*batch/);
+});
+
+test('§264.10 a first placement handed over by someone nobody registered keeps the giver as a label',async t=>{
+    const k=await kernel(t);await openTurn(k,'I buy the morning paper from the corner stand.');
+    const draft={name:'Morning paper',category:'item',description:"Today's edition, folded twice.",
+        basis:'Fixture text, not an authored scenario claim.',parameters:{charges:null,effects:[]},player_view:{description:'A newspaper.',fields:[]}};
+    const result=await k.table('apply',{call_id:'t1-c1',effects:[await prepared(k,draft),
+        {kind:'object',name:'Morning paper',definition:'Morning paper',to:'Thomas Hayes',from:'the newsstand vendor',handover:'given'}]});
+    const placed=result.outcomes.find((row:any)=>row.name==='Morning paper');
+    assert.equal(placed.status,'changed');assert.equal(placed.from,null);
+    assert.deepEqual(placed.adjusted,['from: unregistered_giver','handover: no_second_person'],'the giver rides on the receipt as a label');
+    const unknown=await k.err('table.apply',{campaign:'c1',call_id:'t1-c2',effects:[
+        {kind:'object',name:'Morning paper',to:'Thomas Hayes',from:'somebody unknown',handover:'given'}]});
+    assert.equal(unknown.code,'unknown_entity','an existing instance still needs its actual owner');
 });

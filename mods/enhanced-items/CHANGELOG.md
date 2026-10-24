@@ -1,3 +1,9 @@
+## 1.4.4
+- A decorative row changes hands only for good: handing it over for a look and taking it back is showing it, and a calling card or a slip handed over in passing needs no definition (2026-10-24 table: a business card handed to a doorman and returned took a define and an object).
+
+## 1.4.3
+- "Registering carried equipment": a carried row waits until a mechanic needs it (a check, consumption, damage, loss or a change of hands). Showing, setting down, describing or mentioning it needs no registration, and a decorative row (a photograph, a badge, a keepsake) is registered only when it changes hands. App play test 2026-10-23 (Blood Road, MiniMax): the Keeper spent three refused applies and about 32,000 characters of reasoning registering the missing boy's photograph the player only laid on a counter. 1.4.3 was a local test version, folded into 1.4.4.
+
 ## 1.4.2
 - Explicit collection of already revealed player reference images uses a session-bound host control and asynchronous campaign sidecar. References appear in Maps or Images, retain frozen source pixels, and remain read-only without creating physical paper or advancing fiction. Requires `objects.image-references.v1`.
 

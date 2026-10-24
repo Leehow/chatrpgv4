@@ -1,3 +1,7 @@
+## 1.7.3
+
+"First impression" says when the roll is due (the first time the investigator asks this person for something they would not give just anyone) instead of asking the Keeper to decide whether it matters. A MiniMax Keeper deliberated that question at length for every new speaker and reversed its own decision within one turn (2026-10-24, contract §264.4). 1.7.2 was a local test draft of the same rule, never released.
+
 ## 1.7.1
 
 Keep incidental speakers on the existing person-establishment path before dialogue. Portrayal dice remain private initialization, separate from NPC actions, played relationships and story facts; resident guidance stays compact.

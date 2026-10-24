@@ -1,5 +1,9 @@
 # Quick Settlement
 
+## 1.2.1
+
+Routine names small goods and fares (a newspaper, cigarettes, a cab on the way): no item, cash, new place or walk_on for the seller or driver, and the small thing becomes an item only when a later mechanic needs it. A MiniMax Keeper on 2026-10-24 spent eleven calls and over 50,000 characters of reasoning on a newspaper, a pack of cigarettes and a taxi: it established a newsstand, registered its vendor, defined and placed both goods and settled three payments (contract §264.10).
+
 ## 1.2.0
 
 - `Routine summary for the author` is an author section (contract §254, slot `routine`, sent on `routine`): the host's author-craft resolver sends it, replacing the routine-only route. Requires `instructions.sections.author.v1` instead of `instructions.sections.reference.v1`. Text unchanged.

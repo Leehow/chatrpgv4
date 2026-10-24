@@ -208,6 +208,10 @@ export async function stageCash(context:CashContext,effect:Row,staged:Map<string
     }
     const covered=category==='transfer'?{delta:decimalDelta,fields:{},ledger:undefined}:expenditure(context,finance,category,purchase);
     const effectiveDelta=covered.delta;
+    // §264.3: an omitted category settles as purchase only while that costs no cash. Where the choice would debit the purse,
+    // living would not, and the omission is asked rather than guessed: an unclassified payment never silently debits cash.
+    if(effect.category===undefined&&category==='purchase'&&!effect.owed&&effect.settlement!=='spending_level'&&effectiveDelta.coefficient<0n)
+        throw new RpcError('needs','A payment above the Spending Level needs its expense category',{fix:'Set category living if this is the investigator\'s own ordinary meal, lodging or local fare within their living standard, otherwise purchase; the kernel then debits the cash the category requires.',details:{field:'category',options:['living','purchase'],cash_debit:storedCash({coefficient:-effectiveDelta.coefficient,exponent:effectiveDelta.exponent})}});
     if(effect._cash_debit_limit!==undefined){
         const limit=cashDecimal(effect._cash_debit_limit),debit={coefficient:-effectiveDelta.coefficient,exponent:effectiveDelta.exponent};
         if(!limit||limit.coefficient<0n)throw new RpcError('invalid_params','The admitted cash debit limit is invalid');

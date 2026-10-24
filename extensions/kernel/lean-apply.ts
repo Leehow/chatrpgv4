@@ -25,6 +25,9 @@ import {TURN_PACKET_PARAMETERS,TURN_PACKET_ROUTINE_PARAMETERS,TURN_PACKET_GUIDAN
 export const LEAN_APPLY_ENV = "PI_COC_LEAN_APPLY";
 
 export function finalDeliveryAction(env:Readonly<Record<string,string|undefined>>=process.env):string {
+  // §264.9: under the decision packet the delivery is the output packet; naming {{compose}} there sent the Keeper looking
+  // for which of two delivery forms the table wanted.
+  if(env.PI_COC_TURN_PACKET_PROTOTYPE==='1')return 'submit the output packet';
   if(env.PI_COC_ISOLATED_OUTPUT==='1')return 'return a private expression brief beginning with {{compose}}';
   return env.PI_COC_LOOP_ENGINE==='hybrid-v1'?'return your public response beginning with {{public}}':'select output';
 }

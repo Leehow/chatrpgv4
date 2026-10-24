@@ -91,6 +91,17 @@ test('nothing_more is an answer, and a service never serves a person',()=>{
  assert.throws(()=>owner.resolve({new:invented},'npc_1'),/never a person/);
 });
 
+test('§264.1 the speaker\'s own knowledge of what the investigator asked; the guidance asks for no words the packet cannot carry',()=>{
+ const owner=new DecisionContent();owner.prepare('c:1',capsule,[russ()],[],['Ada']);
+ const schema=turnPacketParameterSchema(false,undefined,undefined,false,owner.bindings());
+ const answer=topic=>({version:4,interactions:[{actor:'npc_1',to:['investigator_1'],act:'answer',content:[{new:{predicate:'knowledge_status',topic,status:'unknown'}}]}]});
+ assert.equal(Errors(schema,answer('player_input')).length,0,'a subject nobody here has a reference for is what the investigator asked');
+ assert.equal(Errors(schema,answer('npc_1')).length,0,'an issued reference still works');
+ assert.ok(Errors(schema,answer({label:'the missing boy'})).length>0,'there is one way to name it, not two');
+ assert.match(TURN_PACKET_GUIDANCE,/speaker\\?'s own knowledge/);
+ assert.doesNotMatch(TURN_PACKET_GUIDANCE,/in their own words/,'the guidance never asks for words the packet cannot carry');
+});
+
 test('a reworded earlier answer carries the identity of the item that turn delivered, and one row stands for it',()=>{
  const words=(turn,statement)=>({statement,turn,authority:'conversation_report',attribution:{kind:'speech',speaker:{kind:'npc',name:'Russ'}}});
  const person={ref:'npc_1',display_name:'Russ',recent_speech:[words(2,'Last Stop, straight down the road.'),words(3,'The Last Stop. Follow this road.')],
@@ -363,5 +374,5 @@ test('app play-test: "never seen this boy" has a topic: what the investigator ju
  const [response]=owner.hydrate([{actor:'npc_1',to:['investigator_1'],act:'answer',content:[{new:{predicate:'knowledge_status',topic:'player_input',status:'unknown'}}]}]).responses;
  assert.equal(response.claims[0].value.topic,'player_input');
  assert.deepEqual(response.claims[0].entities,[{ref:'player_input',display_name:'what the investigator just asked about (player_input)'}]);
- assert.match(TURN_PACKET_GUIDANCE,/A topic may be player_input: what the investigator just asked about/);
+ assert.match(TURN_PACKET_GUIDANCE,/or player_input: what the investigator just asked about/);
 });

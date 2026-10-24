@@ -8,6 +8,8 @@ const ref=Type.String({minLength:1,maxLength:96});
 const closed=<T extends Record<string,TSchema>>(fields:T)=>Type.Object(fields,{additionalProperties:false});
 const when=closed({day_offset:Type.Integer({minimum:0,maximum:365}),hour:Type.Integer({minimum:0,maximum:23}),minute:Type.Integer({minimum:0,maximum:59})});
 const category=closed({label:Type.String({minLength:1,maxLength:80})});
+/** §264.15: the longest reported meaning a speaker's line may carry. */
+export const MEANING_MAX=60;
 export const NewCommunicationFact=Type.Union([
  closed({predicate:Type.Literal('service_at'),provider:ref,items:Type.Array(Type.Union([ref,category]),{minItems:1,maxItems:8,uniqueItems:true}),when,fulfillment:StringEnum(['dine_in','takeaway'])}),
  closed({predicate:Type.Literal('planned_visit'),actor:ref,to:ref,when}),
@@ -15,9 +17,18 @@ export const NewCommunicationFact=Type.Union([
  Type.Object({predicate:Type.Literal('directions'),to:ref,
   heading:Type.Optional(StringEnum(['north','northeast','east','southeast','south','southwest','west','northwest','left','right','straight'])),
   via:Type.Optional(Type.Array(ref,{minItems:1,maxItems:8})),retrace:Type.Optional(Type.Literal(true))},
-  {additionalProperties:false,anyOf:[{required:['heading']},{required:['via']},{required:['retrace']}]}),
- closed({predicate:Type.Literal('knowledge_status'),topic:ref,status:StringEnum(['unknown','uncertain','withheld','nothing_more'])}),
- closed({predicate:Type.Literal('input_requirements'),topic:ref,fields:Type.Array(StringEnum(['subject_name','person_name','location','time_range','record_type','purpose','quantity','budget']),{minItems:1,maxItems:8,uniqueItems:true})})
+  // §264.5: `to` alone says where the place is; a route rides only when the speaker gives one. Requiring a heading made the
+  // Keeper invent compass bearings for "the sanitarium in Roxbury".
+  {additionalProperties:false,description:'to alone says where the place is; add heading, via or retrace:true only when the speaker gives the way, never a guessed bearing'}),
+ // §264.1: what the speaker knows about the topic. A topic nobody here has a reference for (the missing boy the investigator
+ // asks after) is player_input, what they were just asked about; it names the subject, never says anything about it.
+ closed({predicate:Type.Literal('knowledge_status'),topic:ref,
+  status:StringEnum(['unknown','uncertain','withheld','nothing_more'],{description:"The speaker's own knowledge of the topic: unknown (knows nothing of it), uncertain (unsure), withheld (knows but will not say), nothing_more (has said all they know)"})}),
+ // §264.15 (owner 2026-10-24): what the person means when no constructor above says it, in a few words of reported meaning,
+ // never their words. It is said, not true: no world fact, knowledge or relationship follows from it.
+ closed({predicate:Type.Literal('meaning'),meaning:Type.String({minLength:1,maxLength:MEANING_MAX,pattern:'^[^"“”「」『』]*\\S[^"“”「」『』]*$',
+  description:`What this person means, when no other constructor says it: at most ${MEANING_MAX} characters of reported meaning (claims he never saw the boy), never quoted dialogue`})}),
+ closed({predicate:Type.Literal('input_requirements'),topic:ref,fields:Type.Array(StringEnum(['subject_name','person_name','location','time_range','record_type','purpose','quantity','budget','authorization','proof_of_identity'],{description:'What the speaker needs from the investigator before they will do it; authorization is written permission or a word from someone with standing (an employer, an official), proof_of_identity is papers showing who the investigator is'}),{minItems:1,maxItems:8,uniqueItems:true})})
 ]);
 /** §258.4: how a selected item is said to a listener who was already told it; omitted, a told item is said as `refer`. */
 export const TELLING=['new','refer','restate','clarify','update'] as const;
@@ -139,7 +150,7 @@ export interface TellingUnit {content_id:string;kind:string;strategy:typeof TELL
 const counted=(counts:Row)=>TELLING.reduce((sum,key)=>sum+(Number(counts?.[key])||0),0);
 const gistOf=(value:unknown):string|undefined=>{
  const row=value&&typeof value==='object'?value as Row:{};
- const text=typeof value==='string'?value:[row.statement,row.summary,row.text,row.writing,row.label].find(item=>typeof item==='string'&&item.trim());
+ const text=typeof value==='string'?value:[row.statement,row.summary,row.text,row.writing,row.label,row.meaning].find(item=>typeof item==='string'&&item.trim());
  const chosen=typeof text==='string'?text:value&&typeof value==='object'?JSON.stringify(value):undefined;
  return chosen?[...chosen.trim()].slice(0,120).join(''):undefined;
 };
@@ -482,7 +493,10 @@ export class DecisionContent {
  agreement(mark:{proposal:string;status:string;with?:string[]}):Row {
   const fact=this.facts.get(mark.proposal);
   if(!fact||!this.active.has(mark.proposal)||!['proposal','commitment'].includes(fact.kind)||!fact.actor)
-   throw Error(`agreement ${mark.proposal} is not an issued proposal or commitment fact; name one of kind proposal or commitment`);
+  {const open=[...this.active].filter(ref=>['proposal','commitment'].includes(this.facts.get(ref)?.kind??''));
+   // §264.12: say which marks exist; with none, an accepted deal nobody offered as a service needs no mark.
+   throw Error(`agreement ${mark.proposal} is not an issued proposal or commitment fact; `+(open.length?`name one of: ${open.join(', ')}`
+    :'none is issued this turn, so drop the agreement command: a deal accepted in conversation is recorded by its own effects (a flag, cash, an object), not by a mark'));}
   const allowed=fact.kind==='proposal'?['accepted','declined','withdrawn']:['kept','broken','withdrawn'];
   if(!allowed.includes(mark.status))throw Error(`agreement ${mark.proposal} is a ${fact.kind}: its status is one of ${allowed.join(', ')}`);
   return {content_id:fact.content,by:fact.actor,status:mark.status,...(mark.with?.length?{with:[...mark.with]}:{})};

@@ -107,8 +107,19 @@ export async function stageModEffect(context: ApplyContext, original: Row, sheet
     if (kind === 'object') {
         const name = effect.name;
         if (typeof name !== 'string' || !name.trim()) throw new RpcError('invalid_params', 'Object needs a name');
-        const owner = await objectOwner(campaign, graph, world, effect.to), source = truth(effect.from) ? await objectOwner(campaign, graph, world, effect.from) : null;
+        const owner = await objectOwner(campaign, graph, world, effect.to);
         const prior = objectInstance(world, name), identity = Object.hasOwn(effect, 'source_object') ? sourceObjectIdentity(graph, effect.source_object) : null;
+        // §264.10: a first placement handed over by someone nobody registered (the newsstand vendor, a cab driver) keeps
+        // that giver as a label on the receipt; nobody is registered only so that they can hand a thing over.
+        const unregisteredGiver: Row[] = [];
+        let source: Row | null = null;
+        if (truth(effect.from)) {
+            try { source = await objectOwner(campaign, graph, world, effect.from); }
+            catch (error) {
+                if (!(error instanceof RpcError) || error.code !== 'unknown_entity' || prior || Object.hasOwn(effect, 'adopt')) throw error;
+                unregisteredGiver.push({field: 'from', reason: 'unregistered_giver', giver: string(effect.from)});
+            }
+        }
         let adopted: any = null;
         // Contract §88. Where it stands, and what it stands on. `validateDisposition` settles which of the
         // three offer positions this call is (and refuses a plain move that would walk past an offer still
@@ -116,7 +127,7 @@ export async function stageModEffect(context: ApplyContext, original: Row, sheet
         // on, and a ground of "check" resolves against the rolls this turn has already committed -- a roll
         // minted by the call in flight is not among them, so the write cannot precede its own decision.
         const names = {from: source ? ownerLabel(world, source) : '', to: ownerLabel(world, owner)};
-        const repairs: Row[] = [];
+        const repairs: Row[] = [...unregisteredGiver];
         // §250.14: "accepted" with no offer standing, carrying its handover between two people, is the direct transfer it
         // describes (live el-v2-20261021f T2: three refusals to hand over the house keys). An offer that stands is untouched.
         if (effect.offer === 'accepted' && !openOffer(prior) && source && typeof effect.handover === 'string' && effect.handover.trim()) {
@@ -168,7 +179,9 @@ export async function stageModEffect(context: ApplyContext, original: Row, sheet
         if (!prior && !Object.hasOwn(effect, 'adopt') && owner.kind === 'investigator') {
             const sheet = sheets ? await stagedSheet(context, sheets, owner.name) : selectActor(await campaign.party() as Row[], owner.name);
             if (array(sheet.equipment).some(item => typeof item === 'string' ? item === name : isJsonObject(item) && item.name === name))
-                throw new RpcError('invalid_params', 'This equipment is already owned; use object.adopt to enrich it instead of awarding another copy');
+                throw new RpcError('invalid_params', 'This equipment is already owned; use object.adopt to enrich it instead of awarding another copy',
+                    {fix:`Keep its define in this batch and send this effect as {kind:"object", name, adopt:${repr(name)}, definition:<the defined name>, to:${repr(owner.name)}}. A sheet row the fiction only shows or mentions needs no registration: drop both effects.`,
+                     details:{field:'object.adopt',reason:'equipment_already_owned',adopt:name}});
         }
         if (Object.hasOwn(effect, 'adopt')) {
             if (typeof effect.adopt !== 'string' || !effect.adopt.trim() || prior || source || owner.kind !== 'investigator' || !sheets)

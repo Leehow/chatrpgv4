@@ -39,6 +39,13 @@ import {publicDialogue,type PublicDialogueLine} from '../../shared/public-dialog
 import {documentEditInput} from '../../runtime/document-edit-input.ts';
 import {DocumentReadCoverage} from './document-read-coverage.ts';
 import {openingInformationShape} from '../../runtime/opening-information.ts';
+/** §264.9: the opening refusal names the effects that are not the opening's, so the rest of the batch goes again unchanged. */
+const openingRefusedEffects=(tool:string,input:any):string=>{
+	if(tool!=='apply'||!Array.isArray(input?.effects))return '';
+	const refused=input.effects.flatMap((effect:any,index:number)=>openingInformationShape(effect)||['clock','define','object','ability'].includes(effect?.kind)
+		||effect?.kind==='npc'&&effect.activity!=null&&Object.keys(effect).every(key=>['kind','name','activity','why'].includes(key))?[]:[`effects[${index}] (${effect?.kind??'no kind'})`]);
+	return refused.length?` Not accepted here: ${refused.join(', ')}; send the batch again without ${refused.length>1?'them':'it'}, and bring ${refused.length>1?'them':'it'} after the player's first input.`:'';
+};
 import {writingDigest,canonicalWritingResult,matchWritingResult,completesRefusedAddition,type WritingMatch,type WritingCompletion} from '../../runtime/jev/document-completion.ts';
 import {RefusedDocumentOutcome, REFUSED_DOCUMENT_OUTCOME_FAMILY, REFUSED_DOCUMENT_OUTCOME_REASON, documentOutcomeDigest, type DocumentOutcomeVerdict} from '../../runtime/jev/refused-document-outcome.ts';
 import {HeldActOutcome, heldOperationKey, heldRecoveryOperationKey, HELD_ACT_OUTCOME_FAMILY, HELD_ACT_OUTCOME_REASON, receiptLine} from '../../runtime/jev/held-act-outcome.ts';
@@ -4766,15 +4773,15 @@ export default function (pi: ExtensionAPI, host: {capabilities?:RuntimeCapabilit
 			let job: Record<string, unknown>;
 			try { job = await kernel.call("table.deals.job", { campaign, turn }) as Record<string, unknown>; }
 			catch { return; }
-			const deals = Array.isArray(job?.deals) ? job.deals : [], paid = Array.isArray(job?.paid) ? job.paid : [];
-			if ((!deals.length && !paid.length) || typeof job.prose !== "string" || signal.aborted) return;
+			const deals = Array.isArray(job?.deals) ? job.deals : [], paid = Array.isArray(job?.paid) ? job.paid : [], spoken = Array.isArray(job?.spoken) ? job.spoken : [];
+			if ((!deals.length && !paid.length && !spoken.length) || typeof job.prose !== "string" || signal.aborted) return;
 			const result = await decideDeals({ ...(job as unknown as DealJobInput), campaign, turn },
 				createDecisionAdapter({ env: { ...process.env }, enabled: true, maxConcurrency: 1,
 					retryPolicies: { [DEAL_MARKS_DECISION_FAMILY]: { maxRetries: 0, backoffInitialMs: 0, backoffMaxMs: 0, attemptTimeoutMs: 4000 } } }), signal);
 			await record({ lane: "deals", event: "decided", turn, ok: result.ok, ms: result.ms,
-				...(result.ok ? { marks: result.marks.length, paid: result.paid.length, blockers: result.blockers } : { reason: result.reason, detail: result.detail.slice(0, 200) }) });
-			if (!result.ok || (!result.marks.length && !result.paid.length) || signal.aborted) return;
-			try { await kernel.call("table.deals", { campaign, turn, marks: result.marks, paid: result.paid }); }
+				...(result.ok ? { marks: result.marks.length, paid: result.paid.length, asides: result.asides.length, blockers: result.blockers } : { reason: result.reason, detail: result.detail.slice(0, 200) }) });
+			if (!result.ok || (!result.marks.length && !result.paid.length && !result.asides.length) || signal.aborted) return;
+			try { await kernel.call("table.deals", { campaign, turn, marks: result.marks, paid: result.paid, asides: result.asides }); }
 			catch (error) {
 				await record({ lane: "deals", event: "recorded", ok: false, turn, reason: "kernel_refused",
 					code: isKernelError(error) ? error.code : "internal", detail: (error instanceof Error ? error.message : String(error)).slice(0, 200) });
@@ -8510,6 +8517,13 @@ export default function (pi: ExtensionAPI, host: {capabilities?:RuntimeCapabilit
 		if (table) table.roundTrips += 1;
 	});
 
+	// §264.8: a scene assessed through apply this turn is assessed; the packet does not ask for it a second time.
+	pi.on('tool_result', (event: any) => {
+		if (!table || event.toolName !== 'apply' || event.isError) return;
+		const effects = (event.input as Record<string, unknown>)?.effects;
+		if (Array.isArray(effects) && effects.some((effect: any) => effect?.kind === 'scene')) table.packetSceneRequired = false;
+	});
+
 	pi.on('tool_call', (event, ctx) => {
 		// §175.1: a Keeper call that is not a read is this turn's writing; the steps after it can run without thinking. The
 		// host's own operations (the clerk's move before the first call) raise the same event and are not the Keeper's.
@@ -8839,7 +8853,10 @@ export default function (pi: ExtensionAPI, host: {capabilities?:RuntimeCapabilit
 			&& Array.isArray(input.effects) && input.effects.length > 0 && input.effects.every((e:any) => e?.kind === "clock");
         const openingInformation = state.openingPending && state.state === "awaiting_player" && name === "apply"
             && Array.isArray(input.effects) && input.effects.length > 0
-            && input.effects.every((effect:any) => openingInformationShape(effect) || effect?.kind === 'clock');
+            && input.effects.every((effect:any) => openingInformationShape(effect) || effect?.kind === 'clock'
+                // §264.6: a seated person's activity, the shape the kernel's opening accepts (`openingActivityShape`,
+                // kernel-ts/apply/activity.ts) and the capsule asks for; refused here, it cost a whole opening batch.
+                || effect?.kind === 'npc' && effect.activity != null && Object.keys(effect).every(key => ['kind','name','activity','why'].includes(key)));
 		const openingModShape = state.openingPending && state.state === "awaiting_player" && (
 			(name === "resolve" && typeof (input.action as any)?.decision === "string") ||
 			(name === "apply" && Array.isArray(input.effects) && input.effects.length > 0 && input.effects.every((e:any) => ["define","object","ability","clock"].includes(e?.kind))));
@@ -8855,7 +8872,7 @@ export default function (pi: ExtensionAPI, host: {capabilities?:RuntimeCapabilit
 				? "the Mod layer has not announced itself yet, so this opening Mod call cannot be judged: retry the same call; the opening's Mod checks become available as soon as it does"
 				// Only the opening reaches this line (§86). The generic "use only look, lookup and recall" had the installed App's
 				// Keeper (Blood Road, 2026-10-02) try to pin the book's start hour twice, 20 s of round trips before the prose.
-				: `the turn state is ${state.state} and this is the table's opening: narrate, the active final-delivery surface, ask, apply clue, person name/address registration, a present person's npc mood, apply clock and the opening's Mod definitions are accepted; investigator actions wait for player input. Record ordinary disclosures with apply clue, then ${finalDeliveryAction()}`;
+				: `the turn state is ${state.state} and this is the table's opening: narrate, the active final-delivery surface, ask, apply clue, person name/address registration, a present person's npc mood or activity, apply clock and the opening's Mod definitions are accepted; investigator actions wait for player input.${openingRefusedEffects(name, input)} Record ordinary disclosures with apply clue, then ${finalDeliveryAction()}`;
 			await record({ tool: name, started_at: new Date().toISOString(), ok: false, code: "turn_state", reason, ...(bridgePending ? { cause: "mods_bridge_pending" } : {}) });
 			// A refusal the host issued is still a refusal (§67). Without this the
 			// Keeper could be told "wait for the player" forever inside its own turn.

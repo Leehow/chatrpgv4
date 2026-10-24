@@ -52200,7 +52200,13 @@ paid for is still owed after the reply and which person present owes it. An answ
 checks each against the job (a known deal moved one allowed step; a purchase of that turn owed by a person present) and
 appends them to that turn's `communication.agreements` (`by_lane: true`) and `communication.paid`; `agreementView` reads a
 paid deal as that person's accepted commitment to the buyer. The Keeper's own `agreement` command is unchanged. Nothing waits
-for the lane; a failure records nothing and a later reply can still settle the deal. Tests: `tests/extension/deal-marks.test.mjs`.
+for the lane; a failure records nothing and a later reply can still settle the deal.
+
+The same job lists the turn's lines said aloud that a bystander heard (`spoken: [{event, speaker, to, said}]`), and the lane asks
+whether the reply has each said low (aside, aloud, unclear). `table.deals {asides: [event id]}` rewrites those events as asides:
+each person who had heard it rolls Listen as in §258.12, and only a pass keeps hearing it (`overhear_rolls`, `aside_by_lane`).
+This catches a whisper the Keeper did not mark (app smoke 2026-10-24: the owner behind the counter was recorded hearing it).
+Tests: `tests/extension/deal-marks.test.mjs`.
 
 ## 260. NPC portrayal: beats, attention and the bearing grant (owner 2026-10-23; amends §254.2, §254.6)
 
@@ -52670,6 +52676,129 @@ The pointer index's sections, the release check's batches and the cast's play-la
 `PI_COC_POINTER_THINKING` (default `low`) whatever the table's level: their answers are ids, closed words and short lines,
 and at the table's level the model's reasoning filled the output bound (Blood Road, medium: 8 of 34 calls stopped at 8192
 output tokens).
+
+## 264. Keeper protocol slots the Keeper had to argue its way around (owner 2026-10-24)
+
+App play test 2026-10-23 (Blood Road, `minimax-cn/MiniMax-M3.1-Flash-Preview` / medium, Keeper only): 79 reasoning
+blocks over 1,000 characters in 14 turns (about 1.2 million characters) and 31 in the 8-turn retest (about 225,000). Read
+block by block, they deliberate the protocol, not the story. Three slots had no honest answer, so the Keeper reasoned its
+way around each of them on every call that touched it. Each is closed at the slot, not with more guidance.
+
+### 264.1 What a person does not know has a topic
+
+`knowledge_status` was the only constructor for "I have not seen that boy", and its `topic` had to be an issued reference.
+The thing a player most often asks after (the missing person on the investigator's own card, a rumour) has none, so the
+Keeper wrote `topic: npc_27` (the speaker himself) after deliberating whether `unknown` meant the investigator's knowledge
+or the speaker's. *Amended at the merge with the mainline's `player_input` topic (same day):* `topic` takes
+`player_input`, what the investigator just asked about, when nothing issued names it; the `{label}` form this section first
+added is withdrawn so there is one way to say it. `status` is documented as the speaker's own knowledge. The output
+instruction no longer tells an owner to answer "in their own
+words" beside the rule that forbids words: it answers with other content.
+
+### 264.2 A carried row is registered only when a mechanic needs it
+
+`enhanced-items` 1.4.4: showing, handing over for a look and taking back, setting down, describing or mentioning a sheet row needs no registration; a decorative row
+is registered when it changes hands. The refusals that remain point at the fix first: a missing definition names the
+`define` that creates it (the accepted names follow only as an alternative, where before they led and sent a photograph's
+adoption to a van's definition), and placing an owned row names the `adopt` form or no registration at all.
+
+### 264.3 A payment's category defaults to purchase
+
+`cash` with a negative delta and no `category` is `purchase`: additional daily spending counted against the Spending Level.
+`living` (the investigator's own ordinary meals, lodging or local fares) and `transfer` are set only when they apply. The
+kernel used to refuse the omission with `needs`, and the Keeper weighed fuel, a repair and a telephone call between living
+and purchase on each payment although, below the Spending Level, both settle the same way.
+The default never debits cash: where settling as purchase would take money from the purse (the day's purchases pass the
+Spending Level), the omission is still refused with `needs` on `category`, the one case where the choice changes the result.
+
+### 264.4 The first impression says when it is due
+
+`natural-npc` 1.7.3: the roll is due the first time the investigator asks a person for something they would not give
+just anyone who asked (a favour, a secret, a deal, help or trust); a greeting, a routine exchange, a question their role
+or own interest already answers, or an authored reaction needs none. "Decide whether the initial impression matters" left
+the decision open, and the Keeper argued it for each new speaker, reversing itself within one opening.
+
+### 264.5 Directions need no invented bearing
+
+`directions` with `to` alone says where a place is; `heading`, `via` or `retrace: true` ride only when the speaker gives
+the way. Requiring one of them made the Keeper guess compass bearings across a city it had no map of ("southwest, roughly,
+for Roxbury"), and weigh whether a wrong heading would mislead the author. A received payment needs no `category` either
+(the tool description says so; the kernel already settled it as a transfer).
+
+### 264.6 The opening door admits what the opening kernel accepts
+
+The host's opening gate (`extensions/kernel/index.ts`) refused a batch holding `npc {name, activity}` although the
+kernel's opening accepts exactly that shape (`openingActivityShape`) and the capsule asks for present people's activity
+to be assessed; the refusal named the admitted kinds but not the one that failed, and the whole batch (a name, two clues)
+went again. The gate now admits that shape.
+
+### 264.7 Optional commands say when they are owed
+
+The output guidance now says that talk, a greeting or a glance needs no `time` command, that a `relationship` command
+records a change this turn's events caused (never a standing attitude or a first-impression result the kernel already
+holds), and that an omitted `strategy` is the host's `refer`. The capsule's pending-contact `when` carries §264.4's rule.
+Each was weighed on most calls of the 2026-10-24 table, with the Keeper adding and dropping the same command within a turn.
+
+### 264.8 A scene assessed by apply is assessed
+
+An `apply {kind: "scene"}` that lands this turn clears the packet's scene requirement (`packetSceneRequired`), which
+otherwise stayed at its default until the next capsule: the 2026-10-24 opening assessed the office through apply and the
+next `output` was refused for lacking the same assessment.
+
+### 264.9 Opening refusals name what to drop, in the delivery form the table uses
+
+An opening batch refused at the host door now names the effects that are not the opening's (`effects[3] (handout)`) and
+says to resend the rest unchanged, instead of listing the admitted kinds only. Every closing instruction that names the
+final delivery (`finalDeliveryAction`) says "submit the output packet" under the decision packet; it said "return a
+private expression brief beginning with {{compose}}", and the Keeper spent part of an opening deciding which of the two
+forms the table wanted.
+
+### 264.10 Small purchases are routine, and an unregistered giver is a label
+
+`quick-settlement` 1.2.1 lists small goods and fares among routine acts: no item, cash, quote, new place or `walk_on` for
+the seller or driver, and the small thing becomes an item only when a later mechanic needs it. Where the Keeper does place
+an object handed over by someone nobody registered, `object.from` that names no one keeps that giver as a label on the
+receipt (`adjusted: [{field: "from", reason: "unregistered_giver", giver}]`) and the handover ground drops as for any move
+with no second person; before, `from` had to resolve to a registered owner, so the Keeper registered the vendor first and
+then weighed whether `apply npc walk_on` or the packet's `walk_on` slot could be named by the object, which runs earlier.
+An existing instance's transfer and an adoption still need a resolvable `from`.
+
+### 264.11 What a person knows beyond the issued facts goes through apply clue
+
+The packet carries only issued facts and constructors, so a fact the book gives a person but no issued fact holds (the
+landlord knows the mother is in the same sanitarium) had no way into speech. The Keeper encoded it as
+`knowledge_status {topic: {label: "the mother"}, status: "uncertain"}` and hoped the author would say it. The existing path
+is `apply clue {clue: <new name>, establish: {summary}, from: <that person>, how}`: the discovered clue is issued as a fact on
+the next request and any speaker may select it. The output guidance now names that path and forbids carrying a fact in
+`knowledge_status`, a label or a beat.
+
+### 264.12 An agreement refusal lists the marks that exist
+
+`agreement` naming a fact that is not an issued proposal or commitment now lists the issued ones, or says that none is
+issued and the command should go: a commission accepted in conversation was never offered as a service, so it has no
+proposal fact, and the Keeper had marked the offer's terms instead.
+
+### 264.13 What the speaker needs before they will do it
+
+`input_requirements.fields` adds `authorization` (written permission or a word from someone with standing) and
+`proof_of_identity`. A gatekeeper refusing until the investigator brings the landlord's note had no closed field for it,
+and the Keeper argued for a turn between `knowledge_status withheld` and stretching `purpose`.
+
+### 264.14 The journey places a new place
+
+Omitted, `establish.within` was always the active scene, so a taxi ride to a newspaper office across town minted the
+office inside the room the party left, and the Keeper weighed `within` against the town it had no place for. §204.3's
+default now reads the move's own `travel_band`: `adjacent` or no band, the active scene (as before); `local_travel`, the
+first place the active scene lies directly inside, else none; `long_travel`, none. An explicit `within`, `null`
+included, and the placement lane's outcome are unchanged.
+
+### 264.15 A short reported meaning (owner 2026-10-24; amends the decision-only v4 contract)
+
+The owner approved, on the table-protocol proposal, that a person may say what no registered constructor says. A new
+constructor `{new:{predicate:"meaning",meaning}}` carries at most 60 characters (`MEANING_MAX`) of reported meaning
+("claims he never saw the boy"); quotation marks are refused so it cannot carry dialogue. It is communication content
+like every other constructor: the author writes the words, and no world fact, knowledge or relationship follows from it.
+Constructors that fit (directions, knowledge_status, service_at …) still come first. The other v4 bans stand.
 
 ## 266. Page mode: the Keeper turns the book's pages where the pointer index does not reach (owner 2026-10-24; amends §262, §263)
 
