@@ -184,3 +184,14 @@ test('§263.5: a place\'s released description is handed over the first turn it 
  content.prepare('a',capsule,[],[],[],[],[],[],book);
  assert.equal(content.hydrate([],[]).materials.length,0,'not again');
 });
+
+test('§263.5: a move hands over the destination\'s released description, once',()=>{
+ const capsule={where:{scene:'bar',display_name:'Last Stop',exits:[{to:'place_1',display_name:'Blood of the Lamb Church'}]},present:[]};
+ const rows=api.passagesInScope([{page:33,kind:'description',entity:'Blood of the Lamb Church',forms:['bloodofthelambchurch'],text:'White paint peels from the boards.'}],capsule);
+ assert.equal(rows.length,1,'a place one move away is in scope');
+ const content=new api.DecisionContent();
+ content.prepare('a',capsule,[],[],[],[],[],[],rows);
+ assert.equal(content.hydrate([],[],[]).materials.length,0,'no move, nothing handed over');
+ content.prepare('a',capsule,[],[],[],[],[],[],rows);
+ assert.deepEqual(content.hydrate([],[],['place_1']).materials.map(row=>row.value.text),['White paint peels from the boards.']);
+});

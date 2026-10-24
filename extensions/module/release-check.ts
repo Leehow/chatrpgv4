@@ -210,10 +210,13 @@ export function passagesInScope(passages: Row[], capsule: Row): Row[] {
 		.flatMap((item: Row) => keys(item?.name, item?.display_name, item?.title)));
 	const opening = openingPages(capsule?.opening_pages);
 	const named = (row: Row, set: Set<string>) => (row.forms ?? [normalName(row.entity)]).some((form: string) => sameName(form, set));
+	// The places one move away (exits, routes back, known places): their description and read-aloud, for an arrival this turn.
+	const around = new Set([capsule?.where?.exits, capsule?.where?.back, capsule?.where?.places, capsule?.known_places, capsule?.exits]
+		.flatMap(list => Array.isArray(list) ? list : []).flatMap((row: Row) => keys(row?.display_name, row?.name, row?.to)));
 	return passages.filter(row => {
 		if (row.kind === "appearance") return named(row, people);
 		if (row.kind === "handout") return named(row, held);
-		return named(row, scene) || opening.has(row.page);
+		return named(row, scene) || opening.has(row.page) || named(row, around);
 	});
 }
 

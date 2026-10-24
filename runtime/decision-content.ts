@@ -187,7 +187,7 @@ export class DecisionContent {
   /** §257.17: testimony already said at this table, by exhibit id, per play line (campaign, worldline, loop); outlives the turn scope. */
   private said=new Map<string,Set<string>>();private line='';
  /** §263.5: released looks owed this turn, handed to the author without a selection. */
- private autoBook:string[]=[];private placesShown=new Set<string>();private pendingPlaces:string[]=[];
+ private autoBook:string[]=[];private placesShown=new Set<string>();private pendingPlaces:string[]=[];private bookMeta=new Map<string,{kind:string;forms:string[]}>();
  private reads=new Map<string,Row>();private told=new Map<string,Map<string,Row>>();private heard=new Map<string,Row[]>();private sourceRevision:unknown;private bytes=0;private omitted=0;private previous=new Set<string>();
  assertCurrent(capsule:Row):void {if(this.sourceRevision!==undefined&&this.sourceRevision!==(capsule._context?.task_source_revision??capsule._context?.source_revision))throw Error('Prepared communication source revision changed');}
  forScope(scope:string,line?:string):void {if(line!==undefined)this.line=line;else if(scope!==this.scope)this.line=scope;if(scope!==this.scope){this.scope=scope;this.active.clear();this.entities.clear();this.people.clear();this.places.clear();this.listenerAliases.clear();this.entityLabels.clear();this.reads.clear();this.facts.clear();this.exhibitRows.clear();this.activeExhibits.clear();this.handleRefs.clear();}}
@@ -280,7 +280,7 @@ export class DecisionContent {
   for(const material of rows(capsule.outcome?.public_materials))if(material.visibility==='player')this.issue('fact',material,undefined,'canonical_material','current');
   for(const source of sources)if(typeof source.text==='string'&&source.text.trim())this.issue('source',{name:source.name,text:source.text,authority:source.authority??'reference_only'},undefined,'reference_only');
   // §263.5: under pointer reading only released book words are selectable; the opening's pages stay Keeper context.
-  this.autoBook=[];this.pendingPlaces=[];
+  this.autoBook=[];this.pendingPlaces=[];this.bookMeta.clear();
   if(book){
    // §263.5: a person owed first sight with no book words of their own gets their released look without a selection.
    const owed=new Set(rows(capsule.first_sight?.people).filter(item=>item.undescribed===true).map(item=>bookKey(item.name)).filter(Boolean));
@@ -290,6 +290,7 @@ export class DecisionContent {
     this.issue('source',{name:`Book p${passage.page}: ${passage.kind} of ${passage.entity}`,text:passage.text,authority:BOOK_WORDS_AUTHORITY},undefined,'book_words');
     const ref=this.aliases.get(digest({kind:'source',value:{name:`Book p${passage.page}: ${passage.kind} of ${passage.entity}`,text:passage.text,authority:BOOK_WORDS_AUTHORITY},actor:undefined,evidence:'book_words'}));
     const forms:string[]=Array.isArray(passage.forms)?passage.forms:[bookKey(passage.entity)];
+    if(ref)this.bookMeta.set(ref,{kind:passage.kind,forms});
     if(ref&&this.active.has(ref)&&passage.kind==='appearance'&&forms.some(form=>owed.has(form)))this.autoBook.push(ref);
     // §263.5: the first turn a place's own released description is in scope at this table, it is handed over too.
     const place=String(capsule.where?.scene??capsule.where?.display_name??'');
@@ -506,7 +507,16 @@ export class DecisionContent {
   if(actor&&fact.kind==='public_scene_history')throw Error('Prior public scene text is narration context, not an actor knowledge grant');
   const {revision,...hydrated}=fact;return structuredClone(hydrated);
  }
- hydrate(interactions:InteractionDecision[],reveal:unknown[]=[]):{responses:HydratedInteraction[];materials:Row[];units:TellingUnit[][]} {
+ hydrate(interactions:InteractionDecision[],reveal:unknown[]=[],destinations:string[]=[]):{responses:HydratedInteraction[];materials:Row[];units:TellingUnit[][]} {
+  // §263.5: a move this packet makes hands over the destination's released description the first time, like an arrival.
+  for(const destination of destinations){
+   const label=bookKey(this.entityLabels.get(destination)??destination);
+   if([...label].length<2)continue;
+   for(const [ref,meta] of this.bookMeta)if(['description','read_aloud'].includes(meta.kind)&&this.active.has(ref)&&!this.autoBook.includes(ref)
+    &&!this.placesShown.has(`${destination}\u0000${ref}`)&&meta.forms.some(form=>form===label||[...form].length>=3&&label.includes(form)||[...label].length>=3&&form.includes(label))){
+    this.autoBook.push(ref);this.pendingPlaces.push(`${destination}\u0000${ref}`);
+   }
+  }
   const units:TellingUnit[][]=[];
   const responses=interactions.map(response=>{
    const to=response.to?.map(listener=>{
