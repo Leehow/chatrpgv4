@@ -15,7 +15,7 @@ import {effectId,type StagedEffect} from './bookkeeping.js';
 import {addCash,cashDecimal,cashStorage,cashText,compareCash} from './cash.js';
 import {bindCashQuote,cashCounterparty,expenseCategory,expenditure,purchaseItems,storedCash} from './purchases.js';
 import {decimalSpelling} from '../../shared/cash-decimal.js';
-import {recordSale,shopTerms} from '../shopping/index.js';
+import {recordSale,shopDefaults,shopTerms} from '../shopping/index.js';
 import type {ApplyContext} from './index.js';
 export type CashContext=Pick<ApplyContext,'kernel'|'world'|'graph'|'turn'|'callId'|'ordinal'|'mint'> & {campaign:{party():Promise<readonly Row[]>}};
 type Int=number|bigint;
@@ -167,6 +167,7 @@ export async function stageCash(context:CashContext,effect:Row,staged:Map<string
     if(requested!==undefined&&requested!=='cash'&&requested!=='spending_level')throw new RpcError('invalid_params','settlement must be cash or spending_level');
     const sheet=await stagedSheet(context,staged,effect.subject),id=string(sheet.id),subject=string(sheet.name||sheet.id);
     const bound=bindCashQuote(context,effect,id);effect=bound.effect;
+    effect=shopDefaults(effect);
     // §265.5: goods bought at an outlet are checked against what the outlet has this week before any money moves.
     const shop=effect.shop!==undefined&&mode!=='cancel'?await shopTerms(context.kernel,context.graph,context.world,effect,mode):null;
     const priced=effect.items!==undefined?purchaseItems(effect.items):null;

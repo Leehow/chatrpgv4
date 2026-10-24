@@ -34,7 +34,8 @@ const suitRow=async(game,shop=outfitter)=>{
   const answer=await game.call('lookup',{kind:'shop',query:SUIT,shop});
   return {answer,row:answer.goods.find(row=>row.name===SUIT)};
 };
-const buy=(line,shop,extra={})=>({kind:'cash',category:'purchase',source:'quote',with:'the clerk',why:'A new suit',items:[line],shop,...extra});
+// §265.5: with shop the Keeper gives no source, seller or category.
+const buy=(line,shop,extra={})=>({kind:'cash',why:'A new suit',items:[line],shop,...extra});
 
 test('the shipped package is default on and requires the kernel stock capability',()=>{
   assert.equal(manifest.default_enabled,true);
@@ -55,14 +56,13 @@ test('an outlet answers the same stock and printed price every time it is asked 
 
 test('a sale is checked against the shelf, takes stock off it and refuses another price',async t=>{
   const game=await table(t),{row}=await suitRow(game);
-  if(!row.available){
-    await assert.rejects(game.call('apply',{call_id:'t1-c1',effects:[buy(row.line,outfitter)]}),e=>e.code==='needs'&&e.details.reason==='out_of_stock');
-    return;
-  }
+  assert.ok(row.available,'the seeded week has suits on this outfitter\'s shelf');
   await assert.rejects(game.call('apply',{call_id:'t1-c1',effects:[buy({...row.line,unit_price:'12.00'},outfitter)]}),e=>e.code==='invalid_params'&&e.details.unit_price==='17.95');
   await assert.rejects(game.call('apply',{call_id:'t1-c1',effects:[buy({...row.line,quantity:row.in_stock+1},outfitter)]}),e=>e.code==='needs'&&e.details.reason==='out_of_stock'&&e.details.in_stock===row.in_stock);
   // A line beside it with no printed record carries the Keeper's own price (§265.4).
   await game.call('apply',{call_id:'t1-c1',effects:[{...buy(row.line,outfitter),items:[row.line,{name:'collar studs',quantity:1,unit_price:'0.10'}]}]});
+  const receipt=(await game.call('status')).receipts.find(r=>r.kind==='cash'&&r.shop);
+  assert.deepEqual([receipt.source,receipt.with_label,receipt.category],['quote',outfitter.outlet,'purchase']);
   const after=(await suitRow(game)).row;
   assert.equal(after.in_stock,row.in_stock-1);
   assert.equal((await game.world()).shop_ledger.outlets["hollis men's outfitters"].sold[row.price_id],1);

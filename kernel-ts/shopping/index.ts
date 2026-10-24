@@ -192,6 +192,17 @@ export async function shopTerms(kernel:KernelContext,graph:ModuleGraph,world:Row
     }
     return {fields:{shop:effect.shop,...(shop.order?{ready_day:ready}:{})},sold:mode==='quote'?[]:sold};
 }
+/**
+ * §265.5: goods bought at an outlet need no source, seller or category from the Keeper. The outlet's answer is the price,
+ * so the amount is that seller's quote (a printed record keeps its own price_id on its line); a counter sale is a purchase.
+ */
+export function shopDefaults(effect:Row):Row {
+    if(!isJsonObject(effect.shop)||effect.source==='found'||effect.owed)return effect;
+    const outlet=typeof effect.shop.outlet==='string'?effect.shop.outlet.trim():'';
+    const printed=effect.source==='price'&&typeof effect.price_id==='string'&&effect.price_id.trim();
+    return {...effect,...(printed?{}:{source:'quote',with:typeof effect.with==='string'&&effect.with.trim()?effect.with:outlet}),
+        ...(effect.category===undefined&&effect.mode!=='cancel'?{category:'purchase'}:{})};
+}
 /** §265.5: what a settled sale took off the shelf this week. */
 export function recordSale(graph:ModuleGraph,world:Row,effect:Row,sold:Array<[string,number]>):void {
     if(!sold.length)return;
