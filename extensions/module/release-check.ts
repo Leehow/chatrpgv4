@@ -196,3 +196,26 @@ export function withForms(passages: Row[], skeleton: Row): Row[] {
 	}
 	return passages.map(row => ({ ...row, forms: forms.get(normalName(row.entity)) ?? [normalName(row.entity)] }));
 }
+
+/**
+ * §263.10: the skeleton's Keeper lines that name the active scene, a person present or an entity of the opening's pages
+ * (normalised spelling), protected facts first, at most 16 lines. Keeper-only material: the Keeper reads it, the author
+ * never receives it.
+ */
+export function plansInScope(skeleton: Row, capsule: Row, limit = 16): Row[] {
+	const keys = (...values: unknown[]) => values.filter((value): value is string => typeof value === "string" && !!value.trim()).map(normalName).filter(key => [...key].length >= 2);
+	const here = new Set([...keys(capsule?.where?.display_name, capsule?.where?.scene, capsule?.where?.name),
+		...(Array.isArray(capsule?.present) ? capsule.present : []).flatMap((person: Row) => keys(person?.display_name, person?.name))]);
+	const opening = openingPages(capsule?.opening_pages);
+	// An entity of the table here: its printed forms, when any form is a name the table uses or it lives on the opening's pages.
+	const forms = new Set<string>();
+	for (const entity of skeleton?.entities ?? []) {
+		const list = [entity.name, ...(entity.aliases ?? [])].map((name: string) => normalName(String(name))).filter(key => [...key].length >= 2);
+		if (list.some(key => here.has(key)) || (entity.pages ?? []).some((page: number) => opening.has(page))) for (const key of list) forms.add(key);
+	}
+	const named = (row: Row) => (row.names ?? []).some((name: string) => forms.has(normalName(String(name))));
+	const out: Row[] = [];
+	for (const [kind, list] of [["protected", skeleton?.protected_facts], ["keeper_truth", skeleton?.keeper_truth], ["condition", skeleton?.conditional_events]] as const)
+		for (const row of list ?? []) if (named(row) && !out.some(item => item.summary === row.summary)) out.push({ kind, names: row.names, summary: row.summary, pages: row.pages, ...(row.reveal ? { reveal: row.reveal } : {}) });
+	return out.slice(0, limit);
+}

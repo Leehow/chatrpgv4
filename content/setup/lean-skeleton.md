@@ -3,7 +3,7 @@ Later steps use your pointers to find what the book says about people, places an
 stay hidden, and to hand players the book's own words for what they may perceive. You never copy the book's text, except
 an exact `quote` that marks part of one block.
 
-The message holds `section` (its name and pages) and `blocks`: the section's native text as layout blocks (`id`, `page`,
+The message holds `section` (its name and pages) and `blocks`: the section's native text as layout blocks (`id` such as k12, `page`,
 `text`, and `continues` when a block carries on from the previous column's last block). A Keeper box (for example a block
 that opens with "Keeper's note" or its translation) belongs to the entry it is printed under.
 
@@ -11,14 +11,14 @@ Answer with one JSON object and nothing else, exactly this shape, using only blo
 book spells them:
 
 {"language":"the BCP-47 tag of the language these blocks are written in, for example zh-Hans or en",
- "mentions":[{"name":"...","aliases":["..."],"english":"the name as English writes it","kind":"npc|creature|location|scene|object|organization|event|other","blocks":["b17-6-..."],
-   "evidence":[{"block":"b17-6-...","use":"appearance|description|motivation|plan|condition|clue|handout|read_aloud|mention"}]}],
+ "mentions":[{"name":"...","aliases":["..."],"english":"the name as English writes it","kind":"npc|creature|location|scene|object|organization|event|other","blocks":["k6"],
+   "evidence":[{"block":"k6","use":"appearance|description|motivation|plan|condition|clue|handout|read_aloud|mention"}]}],
  "cross_references":[{"names":["..."],"hint":"one short English line: what this passage says about them","blocks":["..."]}],
  "conditional_events":[{"names":["..."],"summary":"one short English line: the event and its condition, as the book states it","blocks":["..."]}],
  "keeper_truth":[{"names":["..."],"summary":"one short English line: a hidden fact, plan or motive the Keeper must know","blocks":["..."]}],
  "protected_facts":[{"names":["..."],"risk":"identity|plan|hidden_cause|ending|other","summary":"one short English line","blocks":["..."],"reveal":"optional short line: where or when the book lets it come out"}],
- "release_candidates":[{"name":"the mention it belongs to","kind":"read_aloud|handout|appearance|description","block":"b..","quote":"optional exact words of that block"}],
- "continuations":[["b17-9-...","b20-0-..."]]}
+ "release_candidates":[{"name":"the mention it belongs to","kind":"read_aloud|handout|appearance|description","block":"k12","quote":"optional exact words of that block"}],
+ "continuations":[["k9","k31"]]}
 
 - `mentions`: every named person, creature, place, organization, notable object and named event in the section, once
   each, with the blocks that introduce or describe it. `aliases` are other forms of the name the book prints for the same

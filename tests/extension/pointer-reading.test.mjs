@@ -122,3 +122,22 @@ test('§263.5–263.6: book words replace the opening passages; the author hears
  const variants=api.Interaction.anyOf??[];
  assert.ok(variants.some(variant=>variant.properties?.delivery),'an interaction may carry delivery');
 });
+
+test('§263.10: the book\'s plans about who is here reach the Keeper as reading only (T03)',()=>{
+ const skeleton=merged();
+ const plans=api.plansInScope(skeleton,{where:{display_name:'Esso'},present:[{display_name:'Russ'}]});
+ assert.deepEqual(plans.map(row=>[row.kind,row.summary]),[['protected','Russ was told to stall the repair']]);
+ assert.deepEqual(api.plansInScope(skeleton,{where:{display_name:'Church'},present:[]}),[],'nothing of an absent person');
+ const materials=new api.DecisionContent().prepare('p',{where:{scene:'esso',display_name:'Esso'}},[],[],[],[],[],[],[],plans);
+ assert.equal(materials.book_truth.rows.length,1);
+ assert.ok(!materials.facts.some(fact=>JSON.stringify(fact).includes('stall')),'never a selectable fact');
+});
+
+test('§263.3: local ids in a section answer map back to the book\'s block ids',()=>{
+ const long=new Map([['k1','b17-1-a'],['k2','b20-0-b']]);
+ const out=api.longIds({mentions:[{name:'Russ',blocks:['k1'],evidence:[{block:'k2',use:'appearance'}]}],release_candidates:[{name:'Russ',kind:'appearance',block:'k1'}],continuations:[['k1','k2']],language:'en'},long);
+ assert.deepEqual(out.mentions[0].blocks,['b17-1-a']);
+ assert.equal(out.mentions[0].evidence[0].block,'b20-0-b');
+ assert.equal(out.release_candidates[0].block,'b17-1-a');
+ assert.deepEqual(out.continuations,[['b17-1-a','b20-0-b']]);
+});

@@ -28,7 +28,7 @@ import type {ClaimSupportCheck, ClaimSupportRequest} from './claim-support.ts';
 import {runSourceReference,SourceReferenceFailure} from './source-reference.ts';
 import {runPageOpen} from './page-open.ts';
 import {leanEligible, runLeanDetail, sourceBlocksFor} from './lean-read.ts';
-import {approvedPassages, checkReleases, passagesInScope, releasePath, withForms} from './release-check.ts';
+import {approvedPassages, checkReleases, passagesInScope, plansInScope, releasePath, withForms} from './release-check.ts';
 import {readFileSync, statSync} from 'node:fs';
 import {SKELETON_VERSION} from './lean-skeleton.ts';
 import {LEAN_MAP_REQUESTS, answerPages, buildSkeleton, castPlayNames, castDraftFromSkeleton, leanCrossReferences, samePrimaryLanguage, skeletonDigest, skeletonIndexRows, skeletonPath, LEAN_ANSWER_ASK, LEAN_ANSWER_REQUESTS} from './lean-skeleton.ts';
@@ -66,6 +66,8 @@ export interface SourcePageText {page: number; pdf_label?: string; text: string;
 type Row = Record<string, any>;
 type Call = (method: string, params: Row) => Promise<any>;
 /** A complete supported review missing issued pointers needs review repair, not source re-authoring. */
+/** §263.11: under pointer reading the layout blocks are the reading order; no page-transcript reader runs unless opted in. */
+const pointerNoTranscripts=():boolean=>process.env.PI_COC_LEAN_READING==='1'&&process.env.PI_COC_TRANSCRIPTS!=='1';
 export function omittedReviewOnly(required:unknown,review:Row,guidance=false):boolean{
 	if(!Array.isArray(required)||!Array.isArray(review?.checked)||!Array.isArray(review?.missing)||review.missing.length||
 		review.checked.some((row:Row)=>row.verdict!=='supported')||
@@ -516,6 +518,22 @@ export class ReadingService implements ReadingBridge {
 			return passagesInScope(cached.rows, capsule);
 		} catch { return []; }
 	}
+	/**
+	 * §263.10: the Keeper's standing book truth for this scene: the skeleton's protected facts, Keeper truth and conditions
+	 * that name the scene, a person present or the opening, as short English lines with pages. Keeper-only; never selectable.
+	 */
+	bookPlans(mid: string | undefined, capsule: Row): Row[] {
+		if (process.env.PI_COC_LEAN_READING !== "1" || !mid) return [];
+		const book = this.books.get(mid);
+		if (!book) return [];
+		try {
+			const file = skeletonPath(this.deps.home, book.sha), stamp = String(statSync(file).mtimeMs);
+			let cached = this.planCache.get(mid);
+			if (!cached || cached.stamp !== stamp) { cached = { stamp, skeleton: JSON.parse(readFileSync(file, "utf8")) }; this.planCache.set(mid, cached); }
+			return plansInScope(cached.skeleton, capsule);
+		} catch { return []; }
+	}
+	private planCache = new Map<string, { stamp: string; skeleton: Row }>();
 	/** §263.4: check the skeleton's release candidates; never awaited by play, failures recorded. */
 	private async releaseCheck(mid: string, campaign: string | undefined, source: Row, skeleton: Row, signal: AbortSignal): Promise<void> {
 		if (skeleton?.version !== SKELETON_VERSION || !(skeleton?.release_candidates ?? []).length) return;
@@ -867,7 +885,7 @@ export class ReadingService implements ReadingBridge {
 	 */
 	wantTranscripts(request: {pdf: string; file_sha256: string; pages: number[]}): void {
 		const transcripts = this.deps.transcripts;
-		if (!transcripts || this.stopped || !request.pages.length) return;
+		if (!transcripts || this.stopped || !request.pages.length || pointerNoTranscripts()) return;
 		void Promise.resolve().then(() => transcripts.ensure({ ...request, priority: "foreground" })).catch(() => undefined);
 	}
 
@@ -1199,7 +1217,7 @@ export class ReadingService implements ReadingBridge {
 	 */
 	private transcribeWindow(mid: string, campaign: string | undefined, ranges: unknown): void {
 		const transcripts = this.deps.transcripts;
-		if (!transcripts || this.stopped || !Array.isArray(ranges)) return;
+		if (!transcripts || this.stopped || !Array.isArray(ranges) || pointerNoTranscripts()) return;
 		const valid = ranges.filter((range): range is [number, number] => Array.isArray(range) && range.length === 2
 			&& Number.isSafeInteger(range[0]) && Number.isSafeInteger(range[1]) && range[0] >= 1 && range[0] <= range[1]);
 		const pages = [...new Set(valid.flatMap(([first, last]) => Array.from({ length: last - first + 1 }, (_, index) => first + index)))];

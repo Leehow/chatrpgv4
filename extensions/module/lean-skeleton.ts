@@ -265,8 +265,12 @@ export async function buildSkeleton(context: SkeletonContext): Promise<Row> {
 		} catch { /* not answered yet */ }
 		await writeFile(join(dir, "task.json"), taskText);
 		// §263.3: one call; the answer is pointers, closed words and short lines (Agents.md single-call criterion).
+		// Short local ids in the call (k1, k2, ...): the answer repeats ids many times, so their length is most of its cost.
+		const short = new Map(sectionBlocks.map((block, i) => [block.id, `k${i + 1}`])), long = new Map([...short].map(([id, key]) => [key, id]));
+		const shown = (list: Row[]) => list.map(block => ({ ...block, id: short.get(block.id), ...(block.continues ? { continues: short.get(block.continues) ?? block.continues } : {}) }));
 		const call = await singleCall(runtime, { cwd: dir, model: context.model, systemPrompt, signal, shared: context.shared,
-			brief: `Section: ${JSON.stringify(section)}\nBlocks:\n${JSON.stringify(sectionBlocks)}\n\nAnswer with the JSON object now.` });
+			brief: `Section: ${JSON.stringify(section)}\nBlocks:\n${JSON.stringify(shown(sectionBlocks))}\n\nAnswer with the JSON object now.` });
+		if (call.json) call.json = longIds(call.json, long);
 		context.record({ lane: "reading", phase: "skeleton", module_id: context.moduleId, section: section.name, first: section.first, last: section.last,
 			ms: call.outcome.ms, ok: call.outcome.ok, ...(call.outcome.usage ? { usage: call.outcome.usage } : {}), ...(call.outcome.refusal ? { refusal: call.outcome.refusal } : {}) });
 		let parsed = call.json;
@@ -279,7 +283,8 @@ export async function buildSkeleton(context: SkeletonContext): Promise<Row> {
 				const sub = join(dir, `half-${i + 1}`);
 				await mkdir(sub, { recursive: true });
 				const again = await singleCall(runtime, { cwd: sub, model: context.model, systemPrompt, signal, shared: context.shared,
-					brief: `Section: ${JSON.stringify(section)}\nBlocks:\n${JSON.stringify(half)}\n\nAnswer with the JSON object now.` });
+					brief: `Section: ${JSON.stringify(section)}\nBlocks:\n${JSON.stringify(shown(half))}\n\nAnswer with the JSON object now.` });
+				if (again.json) again.json = longIds(again.json, long);
 				context.record({ lane: "reading", phase: "skeleton", module_id: context.moduleId, section: section.name, half: i + 1, ms: again.outcome.ms, ok: again.outcome.ok,
 					...(again.outcome.usage ? { usage: again.outcome.usage } : {}) });
 				if (again.json) parts.push(again.json);
@@ -439,4 +444,15 @@ export async function castPlayNames(runtime: Pick<HostRuntime, "runTask">, names
 		if (play.length) map.set(row.book, play);
 	}
 	return { map, ...(call.outcome.usage ? { usage: call.outcome.usage } : {}) };
+}
+
+/** §263.3: a section answer's local block ids (`k<n>`) back to the book's block ids; other strings are left as written. */
+export function longIds(answer: Row, long: Map<string, string>): Row {
+	const map = (value: unknown): unknown => typeof value === "string" ? long.get(value) ?? value : Array.isArray(value) ? value.map(map) : value;
+	const out: Row = { ...answer };
+	for (const key of ["mentions", "cross_references", "conditional_events", "keeper_truth", "protected_facts", "release_candidates"]) if (Array.isArray(out[key]))
+		out[key] = out[key].map((row: Row) => !row || typeof row !== "object" ? row : { ...row, ...(row.blocks ? { blocks: map(row.blocks) } : {}), ...(row.block ? { block: map(row.block) } : {}),
+			...(Array.isArray(row.evidence) ? { evidence: row.evidence.map((item: Row) => item && typeof item === "object" ? { ...item, block: map(item.block) } : item) } : {}) });
+	if (Array.isArray(out.continuations)) out.continuations = out.continuations.map(map);
+	return out;
 }

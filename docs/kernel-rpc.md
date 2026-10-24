@@ -52580,3 +52580,19 @@ Tests: `tests/extension/pointer-reading.test.mjs`.
 - An arrival no longer asks a map reading of the image-only pages beside its scene unless the host sets
   `PI_COC_ARRIVAL_MAPS=1`. A map is read when the look or the Keeper asks for it (§107 `material_pending`,
   `lookup source prepare material: map`), as before.
+
+### 263.10 The book's standing truth reaches the Keeper (the scene working set's book part)
+
+The decision materials carry `book_truth: {authority, rows}` when the pointer index has lines for what is here: the
+skeleton's protected facts, Keeper-truth and condition rows whose names (normalised spelling) are the active scene, a person
+present, or an entity printed on the opening's pages; protected facts first, at most 16, each `{kind, names, summary,
+pages, reveal?}`. It is Keeper reading material only: it is no `fact_N`/`source_N`, cannot be selected, and the author input
+never carries it. It is rebuilt every turn from the skeleton, so a plan written on another page (Blood Road p13: Russ is
+told to stall the repair) is in front of the Keeper at the place it constrains without a lookup.
+
+### 263.11 No page-transcript reader under pointer reading (amends §191.6)
+
+Under lean reading the host asks no §191 page transcript (neither a read window's background pages nor the pages a
+reader wanted now) unless `PI_COC_TRANSCRIPTS=1`: the §262.2 blocks already give the reading order the pointer index and
+the release check cite, and each transcript was a model call per page. A page's preferred text falls back to its native
+text as before when no transcript exists.

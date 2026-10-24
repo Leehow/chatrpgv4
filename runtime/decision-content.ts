@@ -188,7 +188,7 @@ export class DecisionContent {
  assertCurrent(capsule:Row):void {if(this.sourceRevision!==undefined&&this.sourceRevision!==(capsule._context?.task_source_revision??capsule._context?.source_revision))throw Error('Prepared communication source revision changed');}
  forScope(scope:string,line?:string):void {if(line!==undefined)this.line=line;else if(scope!==this.scope)this.line=scope;if(scope!==this.scope){this.scope=scope;this.active.clear();this.entities.clear();this.people.clear();this.places.clear();this.listenerAliases.clear();this.entityLabels.clear();this.reads.clear();this.facts.clear();this.exhibitRows.clear();this.activeExhibits.clear();this.handleRefs.clear();}}
  observePerson(value:Row):void {if(isNpcReference(value.ref))this.reads.set(value.ref,structuredClone(value));}
- prepare(scope:string,capsule:Row,people:Row[],sources:Row[]=[],investigators:string[]=[],issuedPeople:string[]=[],prepared:Row[]=[],exhibits:Row[]=[],book?:Row[]):Row {
+ prepare(scope:string,capsule:Row,people:Row[],sources:Row[]=[],investigators:string[]=[],issuedPeople:string[]=[],prepared:Row[]=[],exhibits:Row[]=[],book?:Row[],plans:Row[]=[]):Row {
   this.forScope(scope);this.active.clear();this.activeExhibits.clear();this.exhibitsOmitted=0;this.exhibitsGiven=exhibits.length>0;this.entities.clear();this.people.clear();this.places.clear();this.listenerAliases.clear();this.entityLabels.clear();this.bytes=0;this.omitted=0;this.sourceRevision=capsule._context?.task_source_revision??capsule._context?.source_revision;
   for(const [i,name] of investigators.entries()){
    const ref=`investigator_${i+1}`;this.entities.add(ref);this.people.add(ref);this.listenerAlias(name,ref);this.entityLabels.set(ref,name);
@@ -285,6 +285,8 @@ export class DecisionContent {
   return {coverage:{issued:this.active.size,reused_refs:reused,omitted:this.omitted,byte_limit:32768,...(this.exhibitsGiven?{exhibits:{issued:this.activeExhibits.size,omitted:this.exhibitsOmitted}}:{})},facts:[...this.active].map(key=>{const {revision,content:_content,...fact}=this.facts.get(key)!;return fact;}),entities:[...this.entities],
    ...([...this.active].some(key=>this.facts.get(key)?.told)?{telling:'A fact marked told was already said by its actor to the listeners named (times, last turn). Select it again only when it serves this exchange, with strategy: refer (brief back-reference, the default), restate (the player asked to hear it again), clarify (explain what was misunderstood) or update (only beside a new item). told earlier means it was said before the counts began.'}:{}),
    ...(this.activeExhibits.size?{exhibits:[...this.activeExhibits].map(ref=>this.exhibitRows.get(ref)!.catalog)}:{}),
+   // §263.10: the book's standing Keeper truth for who and what is here; reading only, never selectable for the author.
+   ...(plans.length?{book_truth:{authority:'Keeper-only: what the book has already decided about the people and place here (plans, conditions, secrets), with pages. Play it; never hand it to the author or say it before the book lets it out.',rows:structuredClone(plans)}}:{}),
    authority:'Exact prepared content references only. Actor-scoped facts belong to that actor; a report, belief or plan is not world truth. A selection is not a transaction or proof of delivery.'};
  }
  private issue(kind:'fact'|'source',value:unknown,actor:string|undefined,evidence:string,availability:'current'|'supplemental'='supplemental'):void {
