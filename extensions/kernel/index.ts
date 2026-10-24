@@ -7706,7 +7706,7 @@ export default function (pi: ExtensionAPI, host: {capabilities?:RuntimeCapabilit
 				materialSources:(turn:number)=>finalOutput.inventory(campaign,turn),
                 decisionMaterials:(capsule:Record<string,any>,people:Record<string,any>[],prepared:Record<string,any>[]=[],exhibits:Record<string,any>[]=[] )=>{
                     if(!table||!turnPacketPrototype)return undefined;
-                    return packetContent(table).prepare(packetNpcScope(table),capsule,people,finalOutput.decisionSources(table.campaign,table.turn,capsule),table.party.map(person=>person.name),packetNpcReferences(table).current(packetNpcScope(table)),prepared,exhibits);
+                    return packetContent(table).prepare(packetNpcScope(table),capsule,people,finalOutput.decisionSources(table.campaign,table.turn,capsule),table.party.map(person=>person.name),packetNpcReferences(table).current(packetNpcScope(table)),prepared,exhibits,process.env.PI_COC_LEAN_READING==='1'?(reading?.bookPassages?.(readingModule,capsule)??[]):undefined);
                 },
                 playerContext:()=>({investigators:table?.party.map(person=>person.name)??[],
                     previousPublic:table?decisionRecentPublic(table.recent,table.delivered):[]}),

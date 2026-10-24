@@ -52445,3 +52445,136 @@ task carries the digest of its instructions, so changed instructions read it aga
 pages (§262.7) are the pages that print the entity.
 
 Tests: `tests/extension/lean-reading.test.mjs`, `tests/extension/source-blocks.test.mjs`, `tests/extension/read-window.test.mjs` (the `§262` cases).
+
+## 263. Pointer reading: the host owns the book's words, models give pointers (owner 2026-10-24)
+
+Spec: `docs/specs/pointer-module-reading.md` (design v2.1, two external review rounds). Owner thread 2026-10-23/24: module
+reading kept swinging between a thick graph (the model copies the book into nodes: tens of millions of tokens) and a thin
+skeleton (every content need re-reads pages with a reader: 150–550K tokens and minutes each, or the Keeper invents). The
+root cause: finding, understanding and permitting disclosure of book content were one step, and content could only be
+re-told by a model. Under this section the book's words are only ever cut by the host from its own blocks (§262.2); models
+write pointers, short Keeper lines and verdicts; and original text reaches the author only through a release check plus
+the turn's settlement. It runs under lean reading (§262); nothing here changes a host started with `PI_COC_LEAN_READING=0`.
+
+### 263.1 SourceRef
+
+`extensions/module/source-refs.ts`. A pointer into the book: `{doc: <file_sha256>, layout: <layout_version>, spans:
+[{block, start, end}], sha256}`. `start`/`end` are UTF-8 byte offsets into the block's `text` (the §262.2 text, which is the
+normalised text every reader saw); the whole block is `{block, start: 0, end: <bytes>}`. `sha256` is the digest of the
+spans' texts joined by `\n`. `sliceRef(blocks, ref)` returns the text or `undefined` when a block is missing, an offset falls
+outside its text or inside a multi-byte character, or the digest differs: a ref never points at other words than it was
+made for, and a ref of another document or layout version is void. Models never write offsets: a reader cites a block id
+and, for part of a block, an exact `quote` of its text; `refFromQuote(block, quote)` finds the quote in the block (exact
+substring after collapsing whitespace on both sides, first and only occurrence; a quote that occurs twice or not at all
+makes no ref). A ref is identified by its `sha256` plus its spans (`refKey`); two refs with equal text at different
+places are different refs and never share a release.
+
+### 263.2 Evidence units
+
+A block is the smallest unit a reader cites. `continues` (§262.2) joins a column's last block to the next column's first
+block on the same page. A continuation across pages or across image-only pages (Blood Road p17 to p20) is not inferred by
+geometry: the index reader may propose `continuations: [[from_block, to_block]]`, which the host keeps only when both blocks
+exist in the section and `from` precedes `to` in reading order. A continuation is evidence for attribution (the second
+block belongs to the first block's entity); the host never joins blocks into new text and never adds connecting words.
+
+### 263.3 The pointer index (skeleton version 4)
+
+The §262.5 section readers also write, for their section only and with block ids they were given:
+
+- `mentions[].evidence`: `[{block, use}]`, `use` one of `appearance`, `description`, `motivation`, `plan`, `condition`,
+  `clue`, `handout`, `read_aloud`, `mention` (closed). Blocks listed in `mentions[].blocks` without a use are `mention`.
+- `release_candidates`: `[{name, kind, block, quote?}]`, `kind` one of `read_aloud`, `handout`, `appearance`,
+  `description`: words the reader judges an investigator may perceive as printed (a boxed read-aloud, a handout's text, a
+  sign, a person's or place's outward look). `name` is the mention it belongs to; `quote` restricts it to part of the block
+  (263.1). A block that mixes a Keeper secret with outward look is cited only by a quote of the outward part, or not at all.
+- `protected_facts`: `[{names, risk, summary, blocks, reveal?}]`, `risk` one of `identity`, `plan`, `hidden_cause`,
+  `ending`, `other` (closed): a proposition players must not learn early, one short English Keeper line (`summary`, at most
+  300 characters, never the book's text), with the blocks that state it and, when the book says, where or when it may come
+  out (`reveal`, one short line).
+- `continuations` (263.2).
+
+`keeper_truth` and `conditional_events` are unchanged. The host keeps an entry only when its blocks are the section's,
+a candidate only when its quote makes a ref, and merges into `skeleton.json` (`version: 4`): `release_candidates` with
+`ref` (263.1), `entity` (the merged entity's name) and `kind`; `protected_facts` with `id` (`pf-<first 12 hex of the digest
+of summary and blocks>`), `names`, `risk`, `summary`, `blocks`, `pages`, `reveal?`; per section `coverage: {blocks,
+cited}`. A section that failed (a provider refusal, a malformed answer) is `status: "failed"` and contributes no candidate
+and no protected fact; nothing is inferred absent from it (`not_found_in_scope` is the strongest a reader may say).
+`complete` is true when every section is `indexed`.
+
+### 263.4 The release check
+
+`extensions/module/release-check.ts`. After the skeleton is merged, the host checks its release candidates in batches
+grouped by entity (at most 12 candidates and about 6K tokens of evidence per batch), in reading order, opening's pages
+first. Each batch is one bounded checker child (`runTask {kind: "reader"}`, tools `read,write`, `maxRequests: 3`,
+content `setup/release-check.md`), handed inline: each candidate's text (sliced by the host), its local context (the
+candidate's block and its neighbours), and the protected facts relevant to it. Relevant protected facts are found by the
+host without judging meaning: facts naming the candidate's entity or any skeleton entity whose name or alias the candidate's
+text prints (normalised spelling), facts whose blocks are on the candidate's page or an adjacent page, then any other fact
+of the same section, until the evidence bound; the batch says when facts were left out (`facts_omitted`). The checker
+answers per candidate `safe`, `unsafe` or `uncertain` with a one-line reason naming the protected fact ids it relied on.
+
+Certificates are stored in `<home>/source-skeletons/<sha>-release.json`: `{version, prompt, facts_version, rows: [{key,
+ref, entity, kind, verdict, reason, facts, status}]}`. `status` is the static release:
+
+- `approved` when the verdict is `safe` and either the kind is `read_aloud` or `handout`, or the skeleton is `complete`;
+- `candidate` when the verdict is `safe` but the skeleton is not complete (a `description` or `appearance` drawn from
+  Keeper prose waits for the whole book's protected facts) or facts were omitted for it;
+- `restricted` otherwise (`unsafe`, `uncertain`, no verdict).
+
+A row is reused while its `key`, the facts version (digest of all protected facts) and the prompt digest are unchanged;
+a changed skeleton re-checks only rows whose facts version changed. `revoked: [key]` in the same file (owner-written)
+restricts a row whatever its verdict. Telemetry: `{lane: "reading", event: "release_check", module_id, batch, candidates,
+approved, candidate, restricted, usage}`.
+
+### 263.5 Book passages in the decision catalog (amends §261.3)
+
+`DecisionContent.prepare` takes `book` (a 9th argument): approved release rows in scope this turn, each `{name, text,
+kind, entity}` with `text` sliced by the host now (a ref that no longer slices is skipped). In scope means: `read_aloud` and
+`description` rows whose entity names the active scene, a place containing it, or the opening anchor (normalised spelling
+of display names and aliases); `appearance` rows whose entity names a person present; `handout` rows whose entity names a
+handout shown to the table or held by an investigator. They are issued as `source` facts with `authority: "book_words"`
+and the name `Book p<page>: <kind> of <entity>`; selecting one (`source_ref`, in `reveal` or an interaction's content)
+hands the author the book's words. This is the turn's permit: an approved row out of scope is not issued, a restricted or
+revoked row is never issued, and the catalog is rebuilt every turn.
+
+Under lean reading the §261.3 opening passages are no longer issued as selectable sources: the opening's pages stay in the
+capsule (`opening_pages`, Keeper-only) and only their approved release rows reach the catalog. A host without a release
+file for the book issues no book passages; the author writes from settled public facts and the first-sight grant.
+
+### 263.6 The author's projection (amends §257.9, §257.17)
+
+A book passage reaches the author as `{kind: "source", text, authority}` with authority "The book's own words for what
+the investigators perceive; render them faithfully in the play language, do not summarize or add to them.".
+Testimony stance no longer reaches the author as truth: for every stance the author's claim is
+`{kind: "exhibit", exhibit: {kind: "testimony", channel, surface}, authority: "What this speaker says, in their terms;
+render it as their speech and do not judge or correct it in narration."}`. An interaction may carry `delivery`, one of
+`casual`, `guarded`, `evasive`, `confident`, `hesitant`, `irritated`, `matter_of_fact` (closed): the Keeper's decision of
+how the speaker outwardly says it this turn, passed to the author beside the interaction. The Keeper decides it from the
+person, the relation and the moment; nothing maps a stance or a belief to it.
+
+### 263.7 Mechanics reads without pages (amends §262.3)
+
+A lean detail read whose focus the pointer index names gets, in place of page images, the evidence closure of the focus:
+the focus entity's evidence blocks, the blocks of every protected fact, condition and Keeper-truth row naming it, and the
+evidence blocks of entities those rows name, at most about 15K tokens, in reading order. Its task says the blocks are the
+whole of what to read and the pdf tool is for an image-only page only. `maxRequests` is 6. Its output, check and lean review
+are §262.3–262.4 unchanged.
+
+### 263.8 Reading needs a listener
+
+Background reading (skeleton, release check, background detail reads) runs only while the host has a table open or a
+setup session running; when the last one closes the service stops claiming background work (`{lane: "reading", event:
+"idle_stop"}`) and resumes at the next open. Finished sections and certificates are kept, so a resumed index does not
+read them again. Tokens spent by a cancelled request are still recorded.
+
+Tests: `tests/extension/pointer-reading.test.mjs`.
+
+### 263.9 Cast and maps under pointer reading (amends §262.8, §262.10)
+
+- A book in another language than the table's no longer falls back to the cast reader. The host asks one tool-free
+  call for the play-language forms of the skeleton's people (names only, no page text; `{names: [{book, play}]}`), keeps
+  the answer per document and play language for the host's life, and fills the cast ranges from the skeleton with those
+  forms (`lean_cast_play_names`). A person the call gave no form is left out of the draft; `cast.submit` judges the rest.
+- An arrival no longer asks a map reading of the image-only pages beside its scene unless the host sets
+  `PI_COC_ARRIVAL_MAPS=1`. A map is read when the look or the Keeper asks for it (§107 `material_pending`,
+  `lookup source prepare material: map`), as before.

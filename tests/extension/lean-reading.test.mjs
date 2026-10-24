@@ -91,7 +91,7 @@ test('§262.5: sections start at bookmarks and split at a page when a section pa
 test('§262.5: a section answer keeps only its own block ids and named rows',()=>{
  const answer=lean.sectionAnswer({mentions:[{name:' Russ ',aliases:['Russell'],kind:'npc',blocks:['b13-1','bogus']}],
   keeper_truth:[{names:['Russ'],summary:'stall the repair',blocks:['b13-1']},{names:[],summary:'nameless',blocks:['b13-1']},{names:['X'],summary:'no blocks',blocks:['bogus']}]},new Set(['b13-1']));
- assert.deepEqual(answer.mentions,[{name:'Russ',aliases:['Russell'],kind:'npc',blocks:['b13-1']}]);
+ assert.deepEqual(answer.mentions,[{name:'Russ',aliases:['Russell'],kind:'npc',blocks:['b13-1'],evidence:[]}],'§263.3: a mention carries its evidence uses, empty when none');
  assert.deepEqual(answer.keeper_truth,[{names:['Russ'],summary:'stall the repair',blocks:['b13-1']}]);
  assert.deepEqual(answer.cross_references,[]);
 });

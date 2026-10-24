@@ -27,8 +27,11 @@ import type {PublicationTravel, TravelFill} from './travel-fill.ts';
 import type {ClaimSupportCheck, ClaimSupportRequest} from './claim-support.ts';
 import {runSourceReference,SourceReferenceFailure} from './source-reference.ts';
 import {runPageOpen} from './page-open.ts';
-import {leanEligible, runLeanDetail} from './lean-read.ts';
-import {LEAN_MAP_REQUESTS, answerPages, buildSkeleton, castDraftFromSkeleton, leanCrossReferences, samePrimaryLanguage, skeletonDigest, skeletonIndexRows, skeletonPath, LEAN_ANSWER_ASK, LEAN_ANSWER_REQUESTS} from './lean-skeleton.ts';
+import {leanEligible, runLeanDetail, sourceBlocksFor} from './lean-read.ts';
+import {approvedPassages, checkReleases, passagesInScope, releasePath, withForms} from './release-check.ts';
+import {readFileSync, statSync} from 'node:fs';
+import {SKELETON_VERSION} from './lean-skeleton.ts';
+import {LEAN_MAP_REQUESTS, answerPages, buildSkeleton, castPlayNames, castDraftFromSkeleton, leanCrossReferences, samePrimaryLanguage, skeletonDigest, skeletonIndexRows, skeletonPath, LEAN_ANSWER_ASK, LEAN_ANSWER_REQUESTS} from './lean-skeleton.ts';
 import {acceptedGuidance,acceptedPublicGuidance} from './character-guidance.ts';
 import {validateReferencePacket} from '../../kernel-ts/modules/reference-contract.ts';
 import {readNeedReceipt,type NeedReceipt} from '../../runtime/jev/source-need-reads.ts';
@@ -464,6 +467,7 @@ export class ReadingService implements ReadingBridge {
 		const started = (async () => {
 			const source = await this.call("module.source.snapshot", { module_id: mid }, campaign);
 			if (source.window) return;
+			this.books.set(mid, { sha: source.file_sha256, cache: join(dirname(source.pdf), "cache") });
 			if (this.skeletons.has(source.file_sha256)) return this.skeletons.get(source.file_sha256);
 			const controller = new AbortController(), key = `skeleton:${source.file_sha256}`;
 			this.controllers.set(key, controller);
@@ -475,11 +479,57 @@ export class ReadingService implements ReadingBridge {
 				.then(async skeleton => {
 					const indexed = await this.call("module.skeleton.index", { module_id: mid, file_sha256: source.file_sha256, rows: skeletonIndexRows(skeleton) }, campaign);
 					this.note({ lane: "reading", event: "skeleton_index", module_id: mid, campaign, library: indexed?.library, fork: indexed?.campaign });
+					// §263.4: the pointer index's release candidates are checked once the skeleton is merged.
+					await this.releaseCheck(mid, campaign, source, skeleton, controller.signal);
 				}, error => { this.note({ lane: "reading", event: "skeleton_failed", module_id: mid, campaign, detail: String(error).slice(0, 500) }); })
 				.finally(() => this.controllers.delete(key)));
 			return this.skeletons.get(source.file_sha256);
 		})();
 		return started.catch(error => this.note({ lane: "reading", event: "skeleton_failed", module_id: mid, campaign, detail: String(error).slice(0, 500) }));
+	}
+	/** §263: play-language forms of a book's people, by document and play language. */
+	private castForms = new Map<string, Map<string, string[]>>();
+	/** §263.5: the bound books this host indexed, by module: the document hash and its block cache. */
+	private books = new Map<string, { sha: string; cache: string }>();
+	private bookCache = new Map<string, { stamp: string; rows: Row[] }>();
+	/**
+	 * §263.5: the approved book passages of a module in scope for this capsule, sliced from the host's blocks. Read
+	 * synchronously from the release file (re-read when it changes); an unindexed book has none.
+	 */
+	bookPassages(mid: string | undefined, capsule: Row): Row[] {
+		if (process.env.PI_COC_LEAN_READING !== "1" || !mid) return [];
+		const book = this.books.get(mid);
+		if (!book) return [];
+		try {
+			const releaseFile = releasePath(this.deps.home, book.sha), skeletonFile = skeletonPath(this.deps.home, book.sha);
+			const blocksFile = join(book.cache, `blocks-${book.sha}.json`);
+			const stamp = [releaseFile, skeletonFile, blocksFile].map(file => statSync(file).mtimeMs).join(":");
+			let cached = this.bookCache.get(mid);
+			if (!cached || cached.stamp !== stamp) {
+				const release = JSON.parse(readFileSync(releaseFile, "utf8")), skeleton = JSON.parse(readFileSync(skeletonFile, "utf8"));
+				const stored = JSON.parse(readFileSync(blocksFile, "utf8"));
+				const blocks = new Map<string, { id: string; text: string }>();
+				for (const page of Object.values(stored.pages ?? {}) as Row[]) for (const block of page.blocks ?? []) blocks.set(block.id, { id: block.id, text: block.text });
+				cached = { stamp, rows: withForms(approvedPassages(release, book.sha, blocks), skeleton) };
+				this.bookCache.set(mid, cached);
+			}
+			return passagesInScope(cached.rows, capsule);
+		} catch { return []; }
+	}
+	/** §263.4: check the skeleton's release candidates; never awaited by play, failures recorded. */
+	private async releaseCheck(mid: string, campaign: string | undefined, source: Row, skeleton: Row, signal: AbortSignal): Promise<void> {
+		if (skeleton?.version !== SKELETON_VERSION || !(skeleton?.release_candidates ?? []).length) return;
+		try {
+			const pages = Array.from({ length: source.page_count }, (_, i) => i + 1);
+			const byPage = await sourceBlocksFor(this.runtime(), { path: source.pdf, file_sha256: source.file_sha256 }, pages, join(dirname(source.pdf), "cache"), signal);
+			const blocks = new Map<string, { id: string; text: string }>();
+			for (const [, row] of byPage) for (const block of row.blocks) blocks.set(block.id, { id: block.id, text: block.text });
+			const release = await checkReleases({ runtime: this.runtime(), moduleId: mid, home: this.deps.home, sha: source.file_sha256, skeleton, blocks,
+				model: this.deps.model(), signal, record: row => this.deps.record({ ...row, campaign }), shared: { priority: "background" },
+				mayContinue: () => !this.stopped && !this.capReached(mid, campaign) });
+			this.note({ lane: "reading", event: "release_ready", module_id: mid, campaign, rows: release.rows.length,
+				approved: release.rows.filter((row: Row) => row.status === "approved").length, complete: release.complete });
+		} catch (error) { this.note({ lane: "reading", event: "release_failed", module_id: mid, campaign, detail: String(error).slice(0, 500) }); }
 	}
 	/** §262.1: reading spend per module this host recorded (input, cache read and output of every child). */
 	private spent = new Map<string, number>();
@@ -970,13 +1020,26 @@ export class ReadingService implements ReadingBridge {
 			signal.throwIfAborted();
 			const place = await this.call('cast.range', { ...owned, index: range.index }, campaign);
 			const task = JSON.parse(await readFile(join(place.cwd, 'task.json'), 'utf8'));
-			if (!samePrimaryLanguage(skeleton.language, task.play_language)) { record({ event: 'lean_cast_language', skeleton: skeleton.language ?? null, play: task.play_language }); return undefined; }
+			// §263: another language than the table's gets play forms from one names-only call, never the cast reader.
+			let playOf: ((name: string) => string[] | undefined) | undefined;
+			if (!samePrimaryLanguage(skeleton.language, task.play_language)) {
+				const names = [...new Set((skeleton.entities ?? []).filter((entity: Row) => (entity.kinds ?? []).some((kind: string) => kind === 'npc' || kind === 'creature'))
+					.flatMap((entity: Row) => [entity.name, ...(entity.aliases ?? [])]).filter((name: unknown) => typeof name === 'string'))] as string[];
+				let forms = this.castForms.get(`${source.file_sha256}:${task.play_language}`);
+				if (!forms) {
+					const named = await castPlayNames(this.runtime(), names.slice(0, 300), task.play_language, { cwd: join(place.cwd, 'play-names'), model: this.deps.model(), signal, shared: { priority: 'background' } });
+					record({ event: 'lean_cast_play_names', skeleton: skeleton.language ?? null, play: task.play_language, names: names.length, mapped: named.map.size, ...(named.usage ? { usage: named.usage } : {}) });
+					forms = named.map; this.castForms.set(`${source.file_sha256}:${task.play_language}`, forms);
+				}
+				const known = forms;
+				playOf = name => known.get(name);
+			}
 			const text = new Map<number, string>();
 			for (const name of await readdir(join(place.cwd, 'pages')).catch(() => [] as string[])) {
 				const page = Number(/^page-(\d+)\.txt$/.exec(name)?.[1]);
 				if (Number.isSafeInteger(page)) text.set(page, await readFile(join(place.cwd, 'pages', name), 'utf8'));
 			}
-			await writeFile(join(place.cwd, 'draft.json'), JSON.stringify(castDraftFromSkeleton(skeleton, { first: place.first, last: place.last }, page => text.get(page) ?? '')) + '\n');
+			await writeFile(join(place.cwd, 'draft.json'), JSON.stringify(castDraftFromSkeleton(skeleton, { first: place.first, last: place.last }, page => text.get(page) ?? '', playOf)) + '\n');
 			const submitted = await this.call('cast.submit', { ...owned, index: range.index }, campaign);
 			record({ event: submitted.state === 'complete' ? 'published' : 'range', lean: true, range: range.index, people: submitted.people, accepted: submitted.accepted,
 				refused: Array.isArray(submitted.refused) ? submitted.refused.length : 0 });

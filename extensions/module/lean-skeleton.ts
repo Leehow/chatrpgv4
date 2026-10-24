@@ -10,12 +10,13 @@ import { join } from "node:path";
 import type { HostRuntime } from "../../runtime/host.ts";
 import { readerInput, type ReaderRequest } from "./reader.ts";
 import { sourceBlocksFor } from "./lean-read.ts";
-import { roughTokens, type SourceBlocksPage } from "./source-blocks.ts";
+import { roughTokens, SOURCE_LAYOUT_VERSION, type SourceBlocksPage } from "./source-blocks.ts";
+import { blockPage, refFromQuote, refKey, type SourceRef } from "./source-refs.ts";
 
 type Row = Record<string, any>;
-export const SKELETON_BOUNDS = { sectionTokens: 12000, requests: 4 } as const;
+export const SKELETON_BOUNDS = { sectionTokens: 12000, requests: 1, concurrency: 3 } as const;
 /** The merged skeleton's shape; a kept skeleton of another version is merged again from its kept section answers. */
-export const SKELETON_VERSION = 3;
+export const SKELETON_VERSION = 4;
 const LISTS = ["cross_references", "conditional_events", "keeper_truth"] as const;
 
 export type SkeletonSection = { name: string; first: number; last: number };
@@ -67,11 +68,37 @@ export function sectionAnswer(answer: unknown, ids: Set<string>): Row {
 		...(typeof row.language === "string" && /^[A-Za-z]{2,3}(-[A-Za-z0-9]{2,8})*$/.test(row.language.trim()) ? { language: row.language.trim() } : {}),
 		mentions: (Array.isArray(row.mentions) ? row.mentions : []).flatMap((mention: Row) => typeof mention?.name === "string" && mention.name.trim()
 			? [{ name: mention.name.trim(), aliases: names(mention.aliases), kind: typeof mention.kind === "string" ? mention.kind : "other", blocks: keep(mention.blocks),
+				evidence: (Array.isArray(mention.evidence) ? mention.evidence : []).flatMap((item: Row) => typeof item?.block === "string" && ids.has(item.block)
+					? [{ block: item.block, use: EVIDENCE_USES.includes(item.use) ? item.use : "mention" }] : []),
 				...(typeof mention.english === "string" && mention.english.trim() ? { english: mention.english.trim().slice(0, 200) } : {}) }] : []),
 		...Object.fromEntries(LISTS.map(list => [list, (Array.isArray(row[list]) ? row[list] : []).flatMap((entry: Row) => {
 			const blocks = keep(entry?.blocks), text = String(entry?.hint ?? entry?.summary ?? "").trim().slice(0, 300);
 			return blocks.length && names(entry?.names).length ? [{ names: names(entry.names), summary: text, blocks }] : [];
-		})])) };
+		})])),
+		...pointerLists(row, ids, names) };
+}
+
+/** §263.3: the closed words of the pointer index. */
+export const EVIDENCE_USES = ["appearance", "description", "motivation", "plan", "condition", "clue", "handout", "read_aloud", "mention"] as const;
+export const RELEASE_KINDS = ["read_aloud", "handout", "appearance", "description"] as const;
+export const PROTECTED_RISKS = ["identity", "plan", "hidden_cause", "ending", "other"] as const;
+
+/** §263.3: a section answer's protected facts, release candidates and continuations, keeping only this section's blocks. */
+function pointerLists(row: Row, ids: Set<string>, names: (value: unknown) => string[]): Row {
+	const line = (value: unknown, limit: number) => typeof value === "string" ? value.trim().slice(0, limit) : "";
+	const protectedFacts = (Array.isArray(row.protected_facts) ? row.protected_facts : []).flatMap((fact: Row) => {
+		const blocks = Array.isArray(fact?.blocks) ? fact.blocks.filter((id: unknown): id is string => typeof id === "string" && ids.has(id)) : [];
+		const summary = line(fact?.summary, 300);
+		if (!blocks.length || !summary) return [];
+		const risk = PROTECTED_RISKS.includes(fact.risk) ? fact.risk : "other", reveal = line(fact?.reveal, 200);
+		return [{ names: names(fact.names), risk, summary, blocks, ...(reveal ? { reveal } : {}) }];
+	});
+	const releaseCandidates = (Array.isArray(row.release_candidates) ? row.release_candidates : []).flatMap((candidate: Row) =>
+		typeof candidate?.block === "string" && ids.has(candidate.block) && RELEASE_KINDS.includes(candidate.kind) && line(candidate.name, 120)
+			? [{ name: line(candidate.name, 120), kind: candidate.kind, block: candidate.block, ...(line(candidate.quote, 4000) ? { quote: line(candidate.quote, 4000) } : {}) }] : []);
+	const continuations = (Array.isArray(row.continuations) ? row.continuations : []).flatMap((pair: unknown) =>
+		Array.isArray(pair) && pair.length === 2 && pair.every(id => typeof id === "string" && ids.has(id)) && pair[0] !== pair[1] ? [[pair[0], pair[1]]] : []);
+	return { protected_facts: protectedFacts, release_candidates: releaseCandidates, continuations };
 }
 
 /**
@@ -93,19 +120,28 @@ export function groundMentions(answer: Row, blocks: Array<{ id: string; text: st
  * and pages; a cross reference whose names match no mention keeps `resolved: false`.
  */
 export function mergeSkeleton(sections: Array<{ section: SkeletonSection; status: "indexed" | "failed"; answer?: Row; usage?: Row }>, pageOf: (id: string) => number,
-	imageOnly: number[], blockText: (id: string) => string | undefined = () => undefined): Row {
+	imageOnly: number[], blockText: (id: string) => string | undefined = () => undefined, doc = ""): Row {
 	const entities: Row[] = [], byName = new Map<string, Row>();
 	for (const { answer } of sections) for (const mention of answer?.mentions ?? []) {
 		const keys = [mention.name, ...mention.aliases].map(normalName).filter(Boolean);
 		let entity = keys.map(key => byName.get(key)).find(Boolean);
-		if (!entity) { entity = { name: mention.name, aliases: [], kinds: [], blocks: [], english: [] }; entities.push(entity); }
+		if (!entity) { entity = { name: mention.name, aliases: [], kinds: [], blocks: [], english: [], evidence: [] }; entities.push(entity); }
+		for (const item of mention.evidence ?? []) if (!entity.evidence.some((row: Row) => row.block === item.block)) entity.evidence.push(item);
 		if (mention.english && !entity.english.includes(mention.english)) entity.english.push(mention.english);
 		for (const name of [mention.name, ...mention.aliases]) if (name !== entity.name && !entity.aliases.includes(name)) entity.aliases.push(name);
 		if (!entity.kinds.includes(mention.kind)) entity.kinds.push(mention.kind);
 		for (const id of mention.blocks) if (!entity.blocks.includes(id)) entity.blocks.push(id);
 		for (const key of keys) byName.set(key, entity);
 	}
+	// §263.2: a block that carries on another block's text belongs to the entities the first block belongs to.
+	for (const { answer } of sections) for (const [from, to] of answer?.continuations ?? []) for (const entity of entities) {
+		if (!entity.blocks.includes(from) || entity.blocks.includes(to)) continue;
+		entity.blocks.push(to);
+		const use = entity.evidence.find((row: Row) => row.block === from)?.use ?? "mention";
+		entity.evidence.push({ block: to, use, continued_from: from });
+	}
 	for (const entity of entities) entity.pages = [...new Set<number>(entity.blocks.map(pageOf))].sort((a, b) => a - b);
+	const pointers = mergePointers(sections, entities, byName, pageOf, blockText, doc);
 	const rows = Object.fromEntries(LISTS.map(list => [list, sections.flatMap(({ answer }) => (answer?.[list] ?? []).map((entry: Row) => ({
 		...entry, pages: [...new Set<number>(entry.blocks.map(pageOf))].sort((a, b) => a - b),
 		text: entry.blocks.map(blockText).filter(Boolean).join("\n").slice(0, 900),
@@ -114,8 +150,32 @@ export function mergeSkeleton(sections: Array<{ section: SkeletonSection; status
 	const tags = new Map<string, number>();
 	for (const { answer } of sections) if (answer?.language) tags.set(answer.language, (tags.get(answer.language) ?? 0) + 1);
 	const language = [...tags].sort((a, b) => b[1] - a[1])[0]?.[0];
-	return { version: SKELETON_VERSION, ...(language ? { language } : {}), entities, ...rows, image_only: imageOnly,
-		sections: sections.map(({ section, status, usage }) => ({ ...section, status, ...(usage ? { usage } : {}) })) };
+	return { version: SKELETON_VERSION, ...(language ? { language } : {}), entities, ...rows, ...pointers, image_only: imageOnly,
+		complete: sections.length > 0 && sections.every(row => row.status === "indexed"),
+		sections: sections.map(({ section, status, usage, answer }) => ({ ...section, status, ...(usage ? { usage } : {}),
+			...(status === "indexed" ? { coverage: { cited: new Set([...(answer?.mentions ?? []).flatMap((m: Row) => m.blocks), ...(answer?.protected_facts ?? []).flatMap((f: Row) => f.blocks)]).size } } : {}) })) };
+}
+
+/** §263.3: protected facts with stable ids and pages; release candidates as refs the host can slice. */
+function mergePointers(sections: Array<{ answer?: Row }>, entities: Row[], byName: Map<string, Row>, pageOf: (id: string) => number,
+	blockText: (id: string) => string | undefined, doc: string): Row {
+	const facts = new Map<string, Row>();
+	for (const { answer } of sections) for (const fact of answer?.protected_facts ?? []) {
+		const id = `pf-${createHash("sha256").update(JSON.stringify([fact.summary, fact.blocks])).digest("hex").slice(0, 12)}`;
+		if (!facts.has(id)) facts.set(id, { id, ...fact, pages: [...new Set<number>(fact.blocks.map(pageOf))].sort((a, b) => a - b) });
+	}
+	const candidates = new Map<string, Row>();
+	for (const { answer } of sections) for (const candidate of answer?.release_candidates ?? []) {
+		const text = blockText(candidate.block);
+		if (text === undefined) continue;
+		const ref: SourceRef | undefined = refFromQuote(doc, SOURCE_LAYOUT_VERSION, { id: candidate.block, text }, candidate.quote);
+		if (!ref) continue;
+		const entity = byName.get(normalName(candidate.name))?.name ?? candidate.name;
+		const key = refKey(ref);
+		if (!candidates.has(key)) candidates.set(key, { key, ref, entity, kind: candidate.kind, page: blockPage(candidate.block), ...(candidate.quote ? { quoted: true } : {}) });
+	}
+	void entities;
+	return { protected_facts: [...facts.values()], release_candidates: [...candidates.values()] };
 }
 
 /**
@@ -128,6 +188,12 @@ export function crossReferencesFor(skeleton: Row, pages: number[]): Row[] {
 		for (const name of [entity.name, ...(entity.aliases ?? [])]) names.add(normalName(name));
 	if (!names.size) return [];
 	const out: Row[] = [];
+	// §263.7: protected facts naming an entity of these pages travel with the Keeper truth they are.
+	for (const fact of skeleton?.protected_facts ?? []) {
+		if ((fact.pages ?? []).every((page: number) => here.has(page))) continue;
+		if (!(fact.names ?? []).some((name: string) => names.has(normalName(name)))) continue;
+		out.push({ kind: "keeper_truth", names: fact.names, summary: fact.summary, pages: fact.pages, protected: true });
+	}
 	for (const list of LISTS) for (const row of skeleton?.[list] ?? []) {
 		if ((row.pages ?? []).every((page: number) => here.has(page))) continue;
 		if (!(row.names ?? []).some((name: string) => names.has(normalName(name)))) continue;
@@ -177,39 +243,42 @@ export async function buildSkeleton(context: SkeletonContext): Promise<Row> {
 	const sections = skeletonSections(source.page_count, info.bookmarks, page => (blocks.get(page)?.blocks ?? []).reduce((sum, block) => sum + roughTokens(block.text), 0));
 	const pageOfBlock = new Map<string, number>(), textOfBlock = new Map<string, string>();
 	for (const [page, row] of blocks) for (const block of row.blocks) { pageOfBlock.set(block.id, page); textOfBlock.set(block.id, block.text); }
-	const results: Array<{ section: SkeletonSection; status: "indexed" | "failed"; answer?: Row; usage?: Row }> = [];
+	const results: Array<{ section: SkeletonSection; status: "indexed" | "failed"; answer?: Row; usage?: Row }> = new Array(sections.length);
 	const systemPrompt = await readFile(join(runtime.contentRoot, "setup", "lean-skeleton.md"), "utf8");
 	const promptSha = createHash("sha256").update(systemPrompt).digest("hex").slice(0, 16);
-	for (const [index, section] of sections.entries()) {
-		if (signal.aborted || context.mayContinue?.() === false) { results.push({ section, status: "failed" }); continue; }
+	const one = async (index: number, section: SkeletonSection) => {
+		if (signal.aborted || context.mayContinue?.() === false) { results[index] = { section, status: "failed" }; return; }
 		const sectionBlocks = pages.filter(page => page >= section.first && page <= section.last)
 			.flatMap(page => blocks.get(page)?.blocks ?? []).map(block => ({ id: block.id, page: block.page, text: block.text, ...(block.continues ? { continues: block.continues } : {}) }));
-		if (!sectionBlocks.length) { results.push({ section, status: "indexed", answer: { mentions: [], cross_references: [], conditional_events: [], keeper_truth: [] } }); continue; }
+		if (!sectionBlocks.length) { results[index] = { section, status: "indexed", answer: { mentions: [], cross_references: [], conditional_events: [], keeper_truth: [], protected_facts: [], release_candidates: [], continuations: [] } }; return; }
 		const dir = join(context.home, "source-skeletons", `${source.file_sha256}-work`, `section-${index + 1}`);
 		await mkdir(dir, { recursive: true });
+		const ids = new Set(sectionBlocks.map(block => block.id));
 		// The instructions' digest is part of the task, so a changed prompt reads the section again.
 		const task = { section, prompt: promptSha, blocks: sectionBlocks }, taskText = JSON.stringify(task) + "\n";
 		// A section answered for this exact task by an earlier host is kept.
 		try {
 			if (await readFile(join(dir, "task.json"), "utf8") === taskText) {
-				const kept = groundMentions(sectionAnswer(JSON.parse(await readFile(join(dir, "skeleton.json"), "utf8")), new Set(sectionBlocks.map(block => block.id))), sectionBlocks);
-				results.push({ section, status: "indexed", answer: kept });
-				continue;
+				results[index] = { section, status: "indexed", answer: groundMentions(sectionAnswer(JSON.parse(await readFile(join(dir, "skeleton.json"), "utf8")), ids), sectionBlocks) };
+				return;
 			}
 		} catch { /* not answered yet */ }
 		await writeFile(join(dir, "task.json"), taskText);
-		const run = await runtime.runTask({ kind: "reader", request: { ...context.shared, cwd: dir, model: context.model.id, thinking: context.model.thinking,
-			systemPrompt, tools: "read,write",
-			maxRequests: SKELETON_BOUNDS.requests, eventLog: join(dir, "events.jsonl"),
-			brief: `${readerInput({ task })} Write skeleton.json as instructed.` } as ReaderRequest }, signal);
+		// §263.3: one call; the answer is pointers, closed words and short lines (Agents.md single-call criterion).
+		const call = await singleCall(runtime, { cwd: dir, model: context.model, systemPrompt, signal, shared: context.shared,
+			brief: `Section: ${JSON.stringify(section)}\nBlocks:\n${JSON.stringify(sectionBlocks)}\n\nAnswer with the JSON object now.` });
 		context.record({ lane: "reading", phase: "skeleton", module_id: context.moduleId, section: section.name, first: section.first, last: section.last,
-			ms: run.ms, ok: run.ok, ...(run.usage ? { usage: run.usage } : {}) });
-		try {
-			const answer = groundMentions(sectionAnswer(JSON.parse(await readFile(join(dir, "skeleton.json"), "utf8")), new Set(sectionBlocks.map(block => block.id))), sectionBlocks);
-			results.push({ section, status: "indexed", answer, ...(run.usage ? { usage: run.usage } : {}) });
-		} catch { results.push({ section, status: "failed", ...(run.usage ? { usage: run.usage } : {}) }); }
-	}
-	const merged: Row = { ...mergeSkeleton(results, id => pageOfBlock.get(id) ?? 0, [...blocks].filter(([, row]) => row.image_only).map(([page]) => page), id => textOfBlock.get(id)),
+			ms: call.outcome.ms, ok: call.outcome.ok, ...(call.outcome.usage ? { usage: call.outcome.usage } : {}), ...(call.outcome.refusal ? { refusal: call.outcome.refusal } : {}) });
+		const parsed = call.json;
+		if (!parsed) { results[index] = { section, status: "failed", ...(call.outcome.usage ? { usage: call.outcome.usage } : {}) }; return; }
+		await writeFile(join(dir, "skeleton.json"), JSON.stringify(parsed));
+		results[index] = { section, status: "indexed", answer: groundMentions(sectionAnswer(parsed, ids), sectionBlocks), ...(call.outcome.usage ? { usage: call.outcome.usage } : {}) };
+	};
+	let next = 0;
+	await Promise.all(Array.from({ length: Math.min(SKELETON_BOUNDS.concurrency, sections.length) }, async () => {
+		while (next < sections.length) { const index = next++; await one(index, sections[index]!); }
+	}));
+	const merged: Row = { ...mergeSkeleton(results, id => pageOfBlock.get(id) ?? 0, [...blocks].filter(([, row]) => row.image_only).map(([page]) => page), id => textOfBlock.get(id), source.file_sha256),
 		source_sha256: source.file_sha256 };
 	const temp = `${file}.${process.pid}.tmp`;
 	await writeFile(temp, JSON.stringify(merged));
@@ -276,7 +345,7 @@ export const samePrimaryLanguage = (left: unknown, right: unknown): boolean => t
  * that a cited page's text prints (normalised spelling), the same forms as the play language (only when the book is in the
  * play language), and its English forms as notes. The kernel's own check (`cast.submit`) still judges every row.
  */
-export function castDraftFromSkeleton(skeleton: Row, range: { first: number; last: number }, pageText: (page: number) => string): Row {
+export function castDraftFromSkeleton(skeleton: Row, range: { first: number; last: number }, pageText: (page: number) => string, playOf?: (name: string) => string[] | undefined): Row {
 	const people: Row[] = [];
 	for (const entity of skeleton?.entities ?? []) {
 		if (!(entity.kinds ?? []).some((kind: string) => kind === "npc" || kind === "creature")) continue;
@@ -287,7 +356,9 @@ export function castDraftFromSkeleton(skeleton: Row, range: { first: number; las
 		if (!book.length) continue;
 		const cited = pages.filter((page, i) => book.some((name: string) => texts[i]!.includes(normalName(name))));
 		const notes = (entity.english ?? []).filter((name: string) => [...normalName(name)].length >= 2);
-		people.push({ book: [...new Set(book)].slice(0, 6), play: [...new Set(book)].slice(0, 6), notes: notes.length ? notes.slice(0, 4) : [...new Set(book)].slice(0, 2), pages: cited });
+		const play = playOf ? [...new Set(book.flatMap((name: string) => playOf(name) ?? []))] : [...new Set(book)];
+		if (!play.length) continue;
+		people.push({ book: [...new Set(book)].slice(0, 6), play: play.slice(0, 6), notes: notes.length ? notes.slice(0, 4) : [...new Set(book)].slice(0, 2), pages: cited });
 	}
 	return { people: people.slice(0, 200) };
 }
@@ -307,4 +378,47 @@ export function answerPages(skeleton: Row, asked: string, limit = 4): number[] {
 	for (const list of LISTS) for (const row of skeleton?.[list] ?? [])
 		if ((row.names ?? []).some((name: string) => names.has(normalName(name)))) for (const page of row.pages ?? []) add(page);
 	return out;
+}
+
+/** The first JSON object in a model's reply text. */
+export function replyJson(text: string): Row | undefined {
+	const start = text.indexOf("{"), end = text.lastIndexOf("}");
+	if (start < 0 || end <= start) return undefined;
+	try { const value = JSON.parse(text.slice(start, end + 1)); return value && typeof value === "object" && !Array.isArray(value) ? value : undefined; }
+	catch { return undefined; }
+}
+
+/**
+ * §263: one tool-free provider call through the host's task runner (the handout reading's shape): the whole input in the
+ * brief, the reply text captured from the child's final assistant message.
+ */
+export async function singleCall(runtime: Pick<HostRuntime, "runTask">, options: { cwd: string; model: { id: string; thinking?: string }; systemPrompt: string;
+	brief: string; signal: AbortSignal; shared?: Partial<ReaderRequest>; timeoutMs?: number }): Promise<{ outcome: import("./reader.ts").ReaderOutcome; text: string; json?: Row }> {
+	let text = "";
+	const textOf = (message: Row) => (Array.isArray(message?.content) ? message.content : []).filter((part: Row) => part?.type === "text").map((part: Row) => String(part.text ?? "")).join("");
+	const outcome = await runtime.runTask({ kind: "reader", request: { ...options.shared, cwd: options.cwd, model: options.model.id, thinking: options.model.thinking,
+		systemPrompt: options.systemPrompt, tools: "", maxRequests: 1, timeoutMs: options.timeoutMs ?? 300000, eventLog: join(options.cwd, "events.jsonl"), brief: options.brief,
+		onEvent: (event: Row) => { if (event.type === "message_end" && event.message?.role === "assistant") { const value = textOf(event.message); if (value) text = value; } } } as ReaderRequest }, options.signal);
+	await writeFile(join(options.cwd, "reply.txt"), text).catch(() => undefined);
+	const json = replyJson(text);
+	return { outcome, text, ...(json ? { json } : {}) };
+}
+
+/** §263: what the cast name call is told; its answer is names only. */
+const CAST_NAMES_PROMPT = "You give the names of people in a tabletop roleplaying scenario as a table playing in another language would write them. Answer with one JSON object and nothing else: {\"names\":[{\"book\":\"the name exactly as given\",\"play\":[\"how the play language writes it\"]}]}. Transliterate personal names the way that language conventionally writes foreign names; translate a descriptive epithet. One entry per given name, no others.";
+
+/**
+ * §262.8 amended by §263: a book in another language than the table's gets its people's play-language forms from one
+ * tool-free call over the names alone (no page text), instead of the cast reader.
+ */
+export async function castPlayNames(runtime: Pick<HostRuntime, "runTask">, names: string[], playLanguage: string, options: { cwd: string; model: { id: string; thinking?: string }; signal: AbortSignal; shared?: Partial<ReaderRequest> }): Promise<{ map: Map<string, string[]>; usage?: Row }> {
+	await mkdir(options.cwd, { recursive: true });
+	const call = await singleCall(runtime, { ...options, systemPrompt: CAST_NAMES_PROMPT, brief: `Play language: ${playLanguage}\nNames:\n${JSON.stringify(names)}\n\nAnswer with the JSON object now.`, timeoutMs: 180000 });
+	const map = new Map<string, string[]>();
+	for (const row of Array.isArray(call.json?.names) ? call.json!.names : []) {
+		if (typeof row?.book !== "string" || !names.includes(row.book)) continue;
+		const play = (Array.isArray(row.play) ? row.play : []).filter((name: unknown): name is string => typeof name === "string" && !!name.trim()).map((name: string) => name.trim().slice(0, 80)).slice(0, 4);
+		if (play.length) map.set(row.book, play);
+	}
+	return { map, ...(call.outcome.usage ? { usage: call.outcome.usage } : {}) };
 }
