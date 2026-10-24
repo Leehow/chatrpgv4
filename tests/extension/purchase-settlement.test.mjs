@@ -49,7 +49,7 @@ test('an unaffordable atomic replacement rolls back its cancellation and retains
 test('an unclassified purchase never silently debits cash',async t=>{
   const game=await table(t),before=(await game.sheet()).finance.cash.amount;
   const unclassified=amount=>{const {category,...effect}=spend(amount);return effect;};
-  // §263.3: below the Spending Level an omitted category settles as purchase, costing no cash either way.
+  // §264.3: below the Spending Level an omitted category settles as purchase, costing no cash either way.
   await game.call('apply',{call_id:'t1-c1',effects:[unclassified(3)]});
   const settled=(await game.receipts()).find(r=>r.kind==='cash');
   assert.equal(settled.category,'purchase');assert.equal(settled.settlement,'spending_level');

@@ -52466,14 +52466,14 @@ pages (§262.7) are the pages that print the entity.
 
 Tests: `tests/extension/lean-reading.test.mjs`, `tests/extension/source-blocks.test.mjs`, `tests/extension/read-window.test.mjs` (the `§262` cases).
 
-## 263. Keeper protocol slots the Keeper had to argue its way around (owner 2026-10-24)
+## 264. Keeper protocol slots the Keeper had to argue its way around (owner 2026-10-24)
 
 App play test 2026-10-23 (Blood Road, `minimax-cn/MiniMax-M3.1-Flash-Preview` / medium, Keeper only): 79 reasoning
 blocks over 1,000 characters in 14 turns (about 1.2 million characters) and 31 in the 8-turn retest (about 225,000). Read
 block by block, they deliberate the protocol, not the story. Three slots had no honest answer, so the Keeper reasoned its
 way around each of them on every call that touched it. Each is closed at the slot, not with more guidance.
 
-### 263.1 What a person does not know has a topic
+### 264.1 What a person does not know has a topic
 
 `knowledge_status` was the only constructor for "I have not seen that boy", and its `topic` had to be an issued reference.
 The thing a player most often asks after (the missing person on the investigator's own card, a rumour) has none, so the
@@ -52483,14 +52483,14 @@ noun naming the subject, never a statement about it, so it adds no text box (§2
 documented as the speaker's own knowledge. The output instruction no longer tells an owner to answer "in their own
 words" beside the rule that forbids words: it answers with other content.
 
-### 263.2 A carried row is registered only when a mechanic needs it
+### 264.2 A carried row is registered only when a mechanic needs it
 
 `enhanced-items` 1.4.3: showing, setting down, describing or mentioning a sheet row needs no registration; a decorative row
 is registered when it changes hands. The refusals that remain point at the fix first: a missing definition names the
 `define` that creates it (the accepted names follow only as an alternative, where before they led and sent a photograph's
 adoption to a van's definition), and placing an owned row names the `adopt` form or no registration at all.
 
-### 263.3 A payment's category defaults to purchase
+### 264.3 A payment's category defaults to purchase
 
 `cash` with a negative delta and no `category` is `purchase`: additional daily spending counted against the Spending Level.
 `living` (the investigator's own ordinary meals, lodging or local fares) and `transfer` are set only when they apply. The
@@ -52499,41 +52499,41 @@ and purchase on each payment although, below the Spending Level, both settle the
 The default never debits cash: where settling as purchase would take money from the purse (the day's purchases pass the
 Spending Level), the omission is still refused with `needs` on `category`, the one case where the choice changes the result.
 
-### 263.4 The first impression says when it is due
+### 264.4 The first impression says when it is due
 
 `natural-npc` 1.7.3: the roll is due the first time the investigator asks a person for something they would not give
 just anyone who asked (a favour, a secret, a deal, help or trust); a greeting, a routine exchange, a question their role
 or own interest already answers, or an authored reaction needs none. "Decide whether the initial impression matters" left
 the decision open, and the Keeper argued it for each new speaker, reversing itself within one opening.
 
-### 263.5 Directions need no invented bearing
+### 264.5 Directions need no invented bearing
 
 `directions` with `to` alone says where a place is; `heading`, `via` or `retrace: true` ride only when the speaker gives
 the way. Requiring one of them made the Keeper guess compass bearings across a city it had no map of ("southwest, roughly,
 for Roxbury"), and weigh whether a wrong heading would mislead the author. A received payment needs no `category` either
 (the tool description says so; the kernel already settled it as a transfer).
 
-### 263.6 The opening door admits what the opening kernel accepts
+### 264.6 The opening door admits what the opening kernel accepts
 
 The host's opening gate (`extensions/kernel/index.ts`) refused a batch holding `npc {name, activity}` although the
 kernel's opening accepts exactly that shape (`openingActivityShape`) and the capsule asks for present people's activity
 to be assessed; the refusal named the admitted kinds but not the one that failed, and the whole batch (a name, two clues)
 went again. The gate now admits that shape.
 
-### 263.7 Optional commands say when they are owed
+### 264.7 Optional commands say when they are owed
 
 The output guidance now says that talk, a greeting or a glance needs no `time` command, that a `relationship` command
 records a change this turn's events caused (never a standing attitude or a first-impression result the kernel already
-holds), and that an omitted `strategy` is the host's `refer`. The capsule's pending-contact `when` carries §263.4's rule.
+holds), and that an omitted `strategy` is the host's `refer`. The capsule's pending-contact `when` carries §264.4's rule.
 Each was weighed on most calls of the 2026-10-24 table, with the Keeper adding and dropping the same command within a turn.
 
-### 263.8 A scene assessed by apply is assessed
+### 264.8 A scene assessed by apply is assessed
 
 An `apply {kind: "scene"}` that lands this turn clears the packet's scene requirement (`packetSceneRequired`), which
 otherwise stayed at its default until the next capsule: the 2026-10-24 opening assessed the office through apply and the
 next `output` was refused for lacking the same assessment.
 
-### 263.9 Opening refusals name what to drop, in the delivery form the table uses
+### 264.9 Opening refusals name what to drop, in the delivery form the table uses
 
 An opening batch refused at the host door now names the effects that are not the opening's (`effects[3] (handout)`) and
 says to resend the rest unchanged, instead of listing the admitted kinds only. Every closing instruction that names the

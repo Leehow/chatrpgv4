@@ -15,10 +15,10 @@ export const NewCommunicationFact=Type.Union([
  Type.Object({predicate:Type.Literal('directions'),to:ref,
   heading:Type.Optional(StringEnum(['north','northeast','east','southeast','south','southwest','west','northwest','left','right','straight'])),
   via:Type.Optional(Type.Array(ref,{minItems:1,maxItems:8})),retrace:Type.Optional(Type.Literal(true))},
-  // §263.5: `to` alone says where the place is; a route rides only when the speaker gives one. Requiring a heading made the
+  // §264.5: `to` alone says where the place is; a route rides only when the speaker gives one. Requiring a heading made the
   // Keeper invent compass bearings for "the sanitarium in Roxbury".
   {additionalProperties:false,description:'to alone says where the place is; add heading, via or retrace:true only when the speaker gives the way, never a guessed bearing'}),
- // §263.1: what the speaker knows about the topic. A topic nobody here has a reference for (the missing boy the investigator
+ // §264.1: what the speaker knows about the topic. A topic nobody here has a reference for (the missing boy the investigator
  // asks after, a rumour) is a short noun label, as service_at items are; it names the subject, never says anything about it.
  closed({predicate:Type.Literal('knowledge_status'),topic:Type.Union([ref,category],{description:'What the speaker is asked about: an issued reference, or {label} naming a subject nobody here has a reference for'}),
   status:StringEnum(['unknown','uncertain','withheld','nothing_more'],{description:"The speaker's own knowledge of the topic: unknown (knows nothing of it), uncertain (unsure), withheld (knows but will not say), nothing_more (has said all they know)"})}),

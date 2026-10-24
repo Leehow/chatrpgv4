@@ -149,7 +149,7 @@ test('a substantive answer cannot reach the author without selected communicatio
  const owner=new DecisionContent();owner.prepare('c:1',capsule,[],[],['Investigator']);
  const claim=owner.hydrate(packet.interactions).responses[0].claims[0];
  assert.equal(claim.value.predicate,'directions');assert.equal(claim.value.retrace,true);assert.equal(packet.commands,undefined);
- // §263.5: a destination alone is where the place is, not a missing route.
+ // §264.5: a destination alone is where the place is, not a missing route.
  assert.equal(turnPacket(JSON.stringify({...packet,interactions:[{...packet.interactions[0],content:[{new:{predicate:'directions',to:'Library'}}]}]})).interactions[0].content[0].new.to,'Library');
 });
 test('audience aliases bind only actual people, never an issued place',()=>{

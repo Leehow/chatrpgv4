@@ -91,7 +91,7 @@ test('nothing_more is an answer, and a service never serves a person',()=>{
  assert.throws(()=>owner.resolve({new:invented},'npc_1'),/never a person/);
 });
 
-test('§263.1 what the speaker does not know about an unreferenced subject is a knowledge_status with a label topic',()=>{
+test('§264.1 what the speaker does not know about an unreferenced subject is a knowledge_status with a label topic',()=>{
  const owner=new DecisionContent();owner.prepare('c:1',capsule,[russ()],[],['Ada']);
  const schema=turnPacketParameterSchema(false,undefined,undefined,false,owner.bindings());
  const answer=topic=>({version:4,interactions:[{actor:'npc_1',to:['investigator_1'],act:'answer',content:[{new:{predicate:'knowledge_status',topic,status:'unknown'}}]}]});

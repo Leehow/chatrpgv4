@@ -39,7 +39,7 @@ import {publicDialogue,type PublicDialogueLine} from '../../shared/public-dialog
 import {documentEditInput} from '../../runtime/document-edit-input.ts';
 import {DocumentReadCoverage} from './document-read-coverage.ts';
 import {openingInformationShape} from '../../runtime/opening-information.ts';
-/** §263.9: the opening refusal names the effects that are not the opening's, so the rest of the batch goes again unchanged. */
+/** §264.9: the opening refusal names the effects that are not the opening's, so the rest of the batch goes again unchanged. */
 const openingRefusedEffects=(tool:string,input:any):string=>{
 	if(tool!=='apply'||!Array.isArray(input?.effects))return '';
 	const refused=input.effects.flatMap((effect:any,index:number)=>openingInformationShape(effect)||['clock','define','object','ability'].includes(effect?.kind)
@@ -8448,7 +8448,7 @@ export default function (pi: ExtensionAPI, host: {capabilities?:RuntimeCapabilit
 		if (table) table.roundTrips += 1;
 	});
 
-	// §263.8: a scene assessed through apply this turn is assessed; the packet does not ask for it a second time.
+	// §264.8: a scene assessed through apply this turn is assessed; the packet does not ask for it a second time.
 	pi.on('tool_result', (event: any) => {
 		if (!table || event.toolName !== 'apply' || event.isError) return;
 		const effects = (event.input as Record<string, unknown>)?.effects;
@@ -8785,7 +8785,7 @@ export default function (pi: ExtensionAPI, host: {capabilities?:RuntimeCapabilit
         const openingInformation = state.openingPending && state.state === "awaiting_player" && name === "apply"
             && Array.isArray(input.effects) && input.effects.length > 0
             && input.effects.every((effect:any) => openingInformationShape(effect) || effect?.kind === 'clock'
-                // §263.6: a seated person's activity, the shape the kernel's opening accepts (`openingActivityShape`,
+                // §264.6: a seated person's activity, the shape the kernel's opening accepts (`openingActivityShape`,
                 // kernel-ts/apply/activity.ts) and the capsule asks for; refused here, it cost a whole opening batch.
                 || effect?.kind === 'npc' && effect.activity != null && Object.keys(effect).every(key => ['kind','name','activity','why'].includes(key)));
 		const openingModShape = state.openingPending && state.state === "awaiting_player" && (

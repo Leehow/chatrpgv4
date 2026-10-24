@@ -120,7 +120,7 @@ export function moveObject(world: Row, name: string, definitionName: string | nu
     // only queued so far belong in that list: they are real registrations it must not duplicate.
     if (!template) {
         const known = [...values(data.definitions).map(value => string(value.name)), ...queuedRegistrations(world).map(entry => string(entry.name))];
-        // §263.2: the usual miss is a thing never defined, so the first fix is the define that makes it one; the accepted names
+        // §264.2: the usual miss is a thing never defined, so the first fix is the define that makes it one; the accepted names
         // follow only as the alternative. Offered first, they sent a Keeper adopting a photo to the definition of a van.
         const missing = definitionName || name;
         const defineFirst = `put {kind:"define", name:${repr(missing)}, category, description} before this effect in the same batch and set definition to ${repr(missing)} here`;

@@ -13,7 +13,7 @@ test('a content constructor reports its own constraint, not every union branch (
  assert.doesNotThrow(()=>turnPacket(JSON.stringify(answer([{new:{predicate:'input_requirements',topic:'Inn',fields:['subject_name']}}])),schema));
 });
 test('a constructor with required alternatives stays one variant: directions are accepted and judged on their own fields',()=>{
- // §263.5: `to` alone says where the place is; a route is optional.
+ // §264.5: `to` alone says where the place is; a route is optional.
  for(const route of [{},{via:['Inn']},{heading:'north'},{retrace:true}])
   assert.doesNotThrow(()=>turnPacket(JSON.stringify(answer([{new:{predicate:'directions',to:'Inn',...route}}])),schema),JSON.stringify(route));
  assert.throws(()=>turnPacket(JSON.stringify(answer([{new:{predicate:'directions',to:'Inn',heading:'uphill'}}])),schema),
