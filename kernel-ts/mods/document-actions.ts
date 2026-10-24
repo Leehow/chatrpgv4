@@ -22,7 +22,6 @@ export async function physicalDocumentAction(context:ApplyContext,item:Row,effec
     if(item.document?.image&&!['open','close','show'].includes(action))
         throw new RpcError('invalid_params','Image documents cannot be edited or read as a textual passage');
     if(!item.document)throw new RpcError('needs','Initialize the physical document before using its reading surface');
-    if(!string(effect.why).trim())throw new RpcError('invalid_params','A physical document operation needs its actual causal why');
     const own=surface(world,item),root=rootObjectOwner(world,item),here=npcsPresent(graph,world,graph.scene(world.active_scene));
     let observed:Row|undefined,reader:Row|undefined,writingResult:Row|undefined,readerId='',readerName='',investigator=false;
     if(['show','observe'].includes(action)){

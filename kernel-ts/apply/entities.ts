@@ -65,7 +65,6 @@ export async function stageClue(context:ApplyContext,effect:Row,told=false):Prom
     catch(error){
         if(!(error instanceof RpcError)||error.code!=='unknown_entity'||isAmbiguity(error)||summary===undefined)throw error;
         if(graph.find(name))throw new RpcError('invalid_params','This name already identifies another entity');
-        if(!how?.trim())throw new RpcError('invalid_params','An improvised clue requires how it was obtained');
         node=establishTableEntity(graph,world,context.turn,'clue',name,summary,graph.handle(active));established=true;
     }
     // §250.10: an establish beside the book's own clue name obtains that clue; the book's content stands and the receipt says so.
@@ -315,36 +314,6 @@ const STANDALONE_VARIANTS:readonly string[]=Object.freeze(['activity','mood','in
 const OPENING_SEAT_KEYS:readonly string[]=Object.freeze(['kind','name','to','why','walk_on','_new_person']);
 /** §198.3: an npc effect shaped as an opening seat; whether it is one is `refuseUnlessOpeningSeat`'s to say. */
 export const openingSeatShape=(effect:Row):boolean=>effect.kind==='npc'&&Object.keys(effect).every(key=>OPENING_SEAT_KEYS.includes(key));
-/**
- * Contract §198.3: at the opening (turn 0, before it is narrated) an npc effect only seats a person the book places in the
- * opening scene (§198.2) whom nobody has placed yet, there: the write a reference book's deferred seat (§149.1) waits for
- * once a judge has read the source. Anything else is refused and nothing lands.
- */
-function refuseUnlessOpeningSeat(context:ApplyContext,node:Row,established:false|'table'|'passage',effect:Row):void{
-    const {graph,world}=context,active=graph.scene(string(world.active_scene));
-    const to=typeof effect.to==='string'?effect.to.trim():'';
-    let target:Row|null=null;
-    if(to==='here')target=active;else if(to)try{target=graph.scene(to);}catch{target=null;}
-    const there=!!target&&graph.survivorId(string(target.node_id))===graph.survivorId(string(active.node_id));
-    const self=graph.survivorId(string(node.node_id));
-    if(established==='table'&&effect._new_person===true&&effect.walk_on===true&&there&&openingSeatShape(effect))return;
-    if(established===false&&openingInformationShape(effect)
-        &&npcsPresent(graph,world,active).some(person=>graph.survivorId(string(person.node_id))===self))return;
-    const placed=graph.sceneNpcIds(active).includes(self);
-    const unplaced=unplacedPeople(graph,world,active).some(person=>graph.survivorId(string(person.node.node_id))===self);
-    if(established===false&&openingActivityShape(effect)&&row(world.npc_presence)[graph.handle(node)]===graph.handle(active)&&!row(world.npc_activity)[graph.handle(node)])return;
-    if(established===false&&openingSeatShape(effect)&&there&&placed&&unplaced)return;
-    // §266.7: someone the book prints on the opening's pages whom lean reading has not read lands on that text and is seated.
-    // The gate's landing registers them before this effect runs, so they are this table's person by now (`established` false).
-    if(established!=='table'&&openingSeatShape(effect)&&there&&graph.isTablePerson(node)&&!Object.hasOwn(row(world.npc_presence),graph.handle(node))){
-        const words=new Set([string(effect.name),string(node.name),graph.displayName(node)].map(normalize).filter(Boolean));
-        if(openingCast(graph,active).some(person=>person.names.some(name=>words.has(normalize(name)))))return;
-    }
-    const word=tableWord(world,graph.handle(node))||graph.displayName(node);
-    throw new RpcError('invalid_params',`at the opening an npc effect only records a present person's mood or seats someone the book places in the opening scene whom nobody has placed yet; ${word} is not that`,{
-        fix:'leave this effect out of the opening; once the player has spoken, apply npc as on any turn',
-        details:{field:'npc',reason:'opening_seat',name:word,...(established?{established}:{}),placed,unplaced,there}});
-}
 export async function stageNpc(context:ApplyContext,effect:Row):Promise<StagedEffect>{
     const {graph,world}=context;
     const why=typeof effect.why==='string'&&effect.why.trim()?effect.why:null;
@@ -446,7 +415,6 @@ export async function stageNpc(context:ApplyContext,effect:Row):Promise<StagedEf
         const combined=['to','stance','dead','skill','archetype','creature','conditions','action','disposition'].filter(key=>effect[key]!=null);
         if(combined.length)throw new RpcError('invalid_params','npc.defense is its own state-changing effect',{fix:'put the standing defence and the other npc change in two effects in the same atomic batch',details:{field:'npc.defense',conflicts:combined}});
         if(typeof effect.defense!=='string'||!DEFENSE_WORDS.includes(effect.defense))unsupported('npc.defense',effect.defense,[...DEFENSE_WORDS],`npc.defense ${repr(effect.defense)} is not a defence`);
-        if(!why)throw new RpcError('invalid_params','npc.defense needs a why',{fix:'say in one sentence what in the fiction changed how this person defends',details:{field:'npc.why'}});
         const tactics=world.npc_defense??={},previous=typeof row(tactics[handle]).defense==='string'?row(tactics[handle]).defense:null;
         tactics[handle]={defense:effect.defense,why,turn:number(context.turn.turn)};
         const receipt={id:effectId(context,'npc',handle),kind:'npc',call_id:context.callId,npc:node.node_id,handle,name:graph.displayName(node),label:personLabel(world,handle,graph.displayName(node)),defense:effect.defense,previous,...establishedOf(established,fromPassage,resolvedFrom),why,visibility:'keeper',at:nowIso()};
@@ -461,7 +429,6 @@ export async function stageNpc(context:ApplyContext,effect:Row):Promise<StagedEf
         if(combined.length)throw new RpcError('invalid_params',`npc.${field} is its own state-changing effect`,{fix:`put the ${field} and the other npc change in two effects in the same atomic batch`,details:{field:`npc.${field}`,conflicts:combined}});
         const word=effect[field];
         if(typeof word!=='string'||!words.includes(word))unsupported(`npc.${field}`,word,[...words],`npc.${field} ${repr(word)} is not one of the closed words`);
-        if(!why)throw new RpcError('invalid_params',`npc.${field} needs a why`,{fix:field==='action'?'say in one sentence what in the fiction makes this person attack, or hold back this round':'say in one sentence what about this person makes them fight that way',details:{field:'npc.why'}});
         const written=field==='action'?world.npc_action??={}:world.npc_disposition??={};
         const previous=typeof row(written[handle])[field]==='string'?row(written[handle])[field]:null;
         let scope:Row={};

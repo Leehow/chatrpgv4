@@ -105,12 +105,12 @@ test('§88: a handover that cites a roll which passed carries the move, and the 
 	assert.equal(card.check, passed.call_id, 'and the roll that ground named, so the turn can be read back');
 });
 
-test('§88: a person-to-person move states its ground; with no second person a ground is dropped and reported (§250.4)', async t => {
+test('§88/§264.24: a person-to-person move with no ground said is given; with no second person a ground is dropped and reported (§250.4)', async t => {
 	const game = await room(t);
-	const missing = await refusal(game.apply([{kind: 'object', name: 'Study chair',
-		from: game.sheet.name, to: 'Steven Knott'}]));
-	assert.ok(missing, 'moving a thing from one person to another needs its ground');
-	assert.deepEqual(missing.details.supported, ['given', 'taken', 'check']);
+	const handed = await game.apply([{kind: 'object', name: 'Study chair', from: game.sheet.name, to: 'Steven Knott'}]);
+	assert.equal((await instance(game, 'Study chair')).owner.id, 'steven-knott', 'the move lands');
+	assert.deepEqual(handed.outcomes.find(row => row.kind === 'item').adjusted, ['handover: given_by_default'], 'and the default is reported');
+	await game.apply([{kind: 'object', name: 'Study chair', from: 'Steven Knott', to: game.sheet.name, handover: 'given'}]);
 
 	// The 52 of 78 receipts that are not person to person keep their existing shape untouched: a place is nobody.
 	// §250.4 (live el-v2-20261021a T8): a ground there has nothing to describe, so the move lands without it and the
@@ -171,17 +171,11 @@ test('§88: a declined offer leaves the paper where the prose said it was, and t
 	assert.equal((await instance(game, 'Study chair')).owner.id, 'steven-knott');
 });
 
-test('§88: an accepted offer needs its ground, and closes with the move', async t => {
+test('§88: an accepted offer closes with the move, given when no ground is said (§264.24)', async t => {
 	const game = await room(t);
 	await game.apply([{kind: 'object', name: 'Study chair', from: game.sheet.name, to: 'Steven Knott', offer: 'made'}]);
-	const groundless = await refusal(game.apply([{kind: 'object', name: 'Study chair',
-		from: game.sheet.name, to: 'Steven Knott', offer: 'accepted'}]));
-	assert.ok(groundless, 'taking an offer is still a handover and still states what it stands on');
-	assert.equal(groundless.details.field, 'object.handover');
-	assert.equal((await instance(game, 'Study chair')).owner.id, game.sheet.id, 'and the refused call moved nothing');
-
-	await game.apply([{kind: 'object', name: 'Study chair', from: game.sheet.name, to: 'Steven Knott',
-		offer: 'accepted', handover: 'given'}]);
+	// §264.24: an accepted offer with no ground said is a willing handover.
+	await game.apply([{kind: 'object', name: 'Study chair', from: game.sheet.name, to: 'Steven Knott', offer: 'accepted'}]);
 	const taken = await instance(game, 'Study chair');
 	assert.equal(taken.owner.id, 'steven-knott', 'he took it');
 	assert.equal(taken.offer, undefined, 'and the offer is closed by the taking');

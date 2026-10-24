@@ -25,7 +25,8 @@ function validate(value:unknown,npc:boolean):Row {
 }
 function record(context:ApplyContext,effect:Row,npc:boolean,scene:string|null,previous:Row):Row {
     const value=validate(effect.activity,npc);
-    if(typeof effect.why!=='string'||!effect.why.trim())throw new RpcError('invalid_params','An activity change requires why');
+    // §264.24: a reason is recorded when given; its absence refuses nothing.
+    if(typeof effect.why!=='string'||!effect.why.trim())effect={...effect,why:'(no reason given)'};
     // §227.1: an observed or established record guards only while it still applies at the staged clock -- the same
     // applicability the capsule reports (`activityView`). Once the reader asks for review, a later inferred account of now
     // describes another time; the old record stays in the receipt's `previous`.
@@ -39,7 +40,6 @@ function record(context:ApplyContext,effect:Row,npc:boolean,scene:string|null,pr
 export function stageSceneActivity(context:ApplyContext,effect:Row):StagedEffect {
     if(typeof effect.name!=='string'||!effect.name.trim())throw new RpcError('invalid_params','A scene activity needs its existing name or here');
     const scene=context.graph.scene(effect.name==='here'?context.world.active_scene:effect.name),handle=context.graph.handle(scene);
-    if(number(context.turn.turn)===0&&handle!==context.world.active_scene)throw new RpcError('invalid_params','Opening context can only describe the active scene');
     const previous=row(row(context.world.scene_activity)[handle]),next=record(context,effect,false,handle,previous);
     if(effect._population===true){
         const people=npcsPresent(context.graph,context.world,scene).filter(node=>context.graph.isPerson(node));
@@ -63,7 +63,6 @@ export function stageNpcActivity(context:ApplyContext,effect:Row,node:Row):Stage
     const conflicts=['to','stance','dead','skill','archetype','creature','conditions','defense','action','disposition','mood','intends','outcome','intent_ref','intent_outcome','spend_turn','reunion','_draws','_produces'].filter(key=>effect[key]!=null);
     if(conflicts.length)throw new RpcError('invalid_params','npc.activity is its own effect',{fix:'Write activity and other changes as separate effects in the same atomic batch',details:{conflicts}});
     const place=row(context.world.npc_presence)[handle],scene=typeof place==='string'?place:null;
-    if(number(context.turn.turn)===0&&(scene!==context.world.active_scene||Object.keys(previous).length))throw new RpcError('invalid_params','Opening activity can only initialize a person already seated here');
     const next=record(context,effect,true,scene,previous);
     (context.world.npc_activity??={})[handle]=next;
     const receipt={id:effectId(context,'npc',handle),kind:'npc',call_id:context.callId,npc:node.node_id,handle,name:context.graph.displayName(node),activity:clone(next),previous:clone(previous),why:effect.why,visibility:'keeper',at:nowIso()};

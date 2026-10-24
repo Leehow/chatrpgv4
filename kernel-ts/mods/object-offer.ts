@@ -67,23 +67,19 @@ const said = (names: Names | null, side: 'from' | 'to', owner: Row): string => n
 export function validateHandover(effect: Row, source: Row | null, owner: Row, turnReceipts: Row[], disposition: string | null = null, names: Names | null = null, repairs: Row[] | null = null): Row | null {
     const ground = effect.handover, cited = effect.check;
     if (disposition === 'made' || disposition === 'declined') {
-        if (ground !== undefined || cited !== undefined)
-            throw new RpcError('invalid_params', `offer ${JSON.stringify(disposition)} moves nothing, so it stands on no ground`,
-                {fix: 'drop handover and check; the ground belongs on the offer "accepted" that closes this, if a roll decides it',
-                 details: {field: 'object.handover', offer: disposition}});
+        // §264.24: a ground beside an offer that moves nothing describes nothing; it is dropped and reported, not refused.
+        if ((ground !== undefined || cited !== undefined) && repairs) repairs.push({field: 'handover', reason: 'offer_moves_nothing'});
         return null;
     }
     if (!betweenPeople(source, owner)) {
         // §250.4: with no second person a ground has nothing to describe; the staging caller drops it and reports the repair.
-        if ((ground !== undefined || cited !== undefined) && repairs) {
-            repairs.push({field: 'handover', reason: 'no_second_person'});
-            return null;
-        }
-        if (ground !== undefined || cited !== undefined)
-            throw new RpcError('invalid_params', 'handover states how one person parted with a thing and another took it; this move has no second person in it',
-                {fix: 'drop handover and check: a place, a container, and an award with no named giver need no ground',
-                 details: {field: 'object.handover', from: source ? said(names, 'from', source) : null, to: said(names, 'to', owner)}});
+        if ((ground !== undefined || cited !== undefined) && repairs) repairs.push({field: 'handover', reason: 'no_second_person'});
         return null;
+    }
+    // §264.24: a person-to-person move with no ground said is a willing handover; a roll that decided it is still cited.
+    if (ground === undefined && cited === undefined) {
+        repairs?.push({field: 'handover', reason: 'given_by_default'});
+        return {handover: 'given'};
     }
     if (typeof ground !== 'string' || !(GROUNDS as readonly string[]).includes(ground))
         throw new RpcError('invalid_params', `moving ${string(effect.name)} from ${said(names, 'from', source!)} to ${said(names, 'to', owner)} needs its ground; ${JSON.stringify(ground ?? null)} is not one of ${GROUNDS.join(', ')}`,

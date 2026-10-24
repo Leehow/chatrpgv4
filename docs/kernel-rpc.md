@@ -52856,6 +52856,17 @@ beats carry meaning and behavior, state changes are commands; a person says what
 claim, offer, direction or plan is not truth or movement; rolls, receipts, time costs and deal marks are the host's.
 Every constructor and syntax example is kept.
 
+### 264.24 Refusals that demanded proof in advance (owner 2026-10-24)
+
+From a classification of the 289 refusals in apply, mods and obligation staging (64 contradictions, 115 malformed, 35
+demanding a step or proof in advance, 75 batch-shape and identity guards), the ones that only demanded a justification
+or an earlier ceremony now default and report instead: an activity's, a defence's, an npc action's or disposition's
+missing `why`, an improvised clue's missing `how` and a document operation's missing `why` are recorded as not given;
+the turn-0 limits on scene and npc activity are gone with §264.22's gate; a person-to-person object move with no
+handover said is `given` (`adjusted` `handover: given_by_default`); a ground beside an offer that moves nothing is
+dropped and reported (`offer_moves_nothing`). Contradictions with world state, malformed input, rules the rulebook
+gates (a clue's required check) and money (§265's owner) are unchanged.
+
 ## 265. Shopping: the outlet's stock, price and order time are the program's (owner 2026-10-24)
 
 The owner's report: a MiniMax Keeper's long deliberations were mostly about whether a shop had the goods and what they cost. Those answers moved to the kernel; the Keeper picks parameters. Purchase guidance that lived in other packages moved with them, so the problem has one home. Amends §58 ("the kernel does not price anything itself") for goods bought at an outlet while this package is active; every other cash path is unchanged.
