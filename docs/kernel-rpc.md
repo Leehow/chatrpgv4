@@ -52537,7 +52537,7 @@ kind, entity}` with `text` sliced by the host now (a ref that no longer slices i
 of display names and aliases); `appearance` rows whose entity names a person present; `handout` rows whose entity names a
 handout shown to the table or held by an investigator. They are issued as `source` facts with `authority: "book_words"`
 and the name `Book p<page>: <kind> of <entity>`; selecting one (`source_ref`, in `reveal` or an interaction's content)
-hands the author the book's words. This is the turn's permit: an approved row out of scope is not issued, a restricted or
+hands the author the book's words. A person the capsule's `first_sight` owes a look and carries `undescribed` (the graph gives them no words) is handed their issued `appearance` row in the author's selected materials without a selection, matched by display name against the row's printed forms; anything else reaches the author only when selected. This is the turn's permit: an approved row out of scope is not issued, a restricted or
 revoked row is never issued, and the catalog is rebuilt every turn.
 
 Under lean reading the §261.3 opening passages are no longer issued as selectable sources: the opening's pages stay in the

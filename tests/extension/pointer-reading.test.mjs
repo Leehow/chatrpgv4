@@ -159,3 +159,11 @@ test('§263.10: the Keeper\'s evidence window carries a present person\'s plan b
  assert.deepEqual(rows.map(row=>[row.about,row.use,row.page]),[['Russ','plan',20]]);
  assert.deepEqual(api.evidenceInScope(skeleton,blocks,{where:{display_name:'Esso'},present:[{display_name:'Russ'}],opening_pages:{text:'[Original physical page 20]\nx'}}),[],'the opening\'s own pages are already in the capsule');
 });
+
+test('§263.5: a person owed first sight with no words of their own is handed their released look without a selection',()=>{
+ const content=new api.DecisionContent();
+ const capsule={where:{scene:'esso',display_name:'Esso'},present:[{ref:'npc_1',id:'russ',name:'Russ',display_name:'Russ'}],first_sight:{people:[{id:'russ',name:'Russ',undescribed:true}]}};
+ content.prepare('a',capsule,[],[],[],[],[],[],[{page:17,kind:'appearance',entity:'Russ',forms:['russ'],text:'Russ is tall and thin.'},{page:17,kind:'description',entity:'Esso',forms:['esso'],text:'A faded sign.'}]);
+ const {materials}=content.hydrate([],[]);
+ assert.deepEqual(materials.map(row=>row.value?.text),['Russ is tall and thin.']);
+});
