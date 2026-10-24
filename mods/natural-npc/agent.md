@@ -6,10 +6,10 @@ All human NPCs keep variation.stable traits; reuse, never reroll. Source/accepte
 
 ## First impression
 
-Roll it the first time the investigator asks this person for something their attitude could change: a favour,
-information they could keep back, a deal, help or trust. A greeting, a routine exchange, a person whose role already
-sets how they treat the investigator (an employer giving a briefing, a clerk serving) or an authored reaction needs
-none. When it is due, call `resolve` with
+Roll it the first time the investigator asks this person for something they would not give just anyone who asked:
+a favour, a secret, a deal, help or trust. A greeting, a routine exchange, a question their role or their own interest
+already answers (an employer briefing the person they hired, a clerk serving, an official on duty) or an authored
+reaction needs none. When it is due, call `resolve` with
 `action.decision: "natural-npc:first-impression"`, investigator as `action.actor` and person as `action.target`.
 The kernel makes the public Regular check against the higher of Appearance and Credit Rating, once per pair.
 Reuse its result from the receipt or `mods.relationships`; `since_turn` equal to this turn marks it as new.

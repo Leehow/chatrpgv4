@@ -52502,8 +52502,8 @@ Spending Level), the omission is still refused with `needs` on `category`, the o
 ### 263.4 The first impression says when it is due
 
 `natural-npc` 1.7.2: the roll is due the first time the investigator asks a person for something their attitude could
-change (a favour, information they could keep back, a deal, help or trust); a greeting, a routine exchange, a person whose
-role already sets their manner, or an authored reaction needs none. "Decide whether the initial impression matters" left
+would not give just anyone who asked (a favour, a secret, a deal, help or trust); a greeting, a routine exchange, a
+question their role or own interest already answers, or an authored reaction needs none. "Decide whether the initial impression matters" left
 the decision open, and the Keeper argued it for each new speaker, reversing itself within one opening.
 
 ### 263.5 Directions need no invented bearing
