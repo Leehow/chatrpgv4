@@ -20,13 +20,15 @@ test('native tool restrictions match the current request while actual messages r
  assert.notDeepEqual(a.prefixes,b.prefixes,'cache reuse is measured, not assumed unchanged');
 });
 
-test('the exact native schema still declares retired references, wrong routes and missing assessment invalid',()=>{
+test('the exact native schema still declares retired references and wrong routes invalid; a missing assessment is accepted',()=>{
  const schema=turnPacketParameterSchema(false,['brief'],[{kind:'move',to:'place_1',travel_minutes:30}],true,bindings(1));
  const packet={version:4,commands:[{kind:'move',to:'place_1'},{kind:'scene',service:'open',crowd:'quiet'}],interactions:[{actor:'npc_1',to:['investigator_1'],act:'answer',content:[{fact_ref:'fact_1'}]}]};
  assert.equal(Errors(schema,packet).length,0);
- for(const change of [p=>p.interactions[0].content[0].fact_ref='fact_2',p=>p.interactions[0].actor='npc_2',p=>p.commands[0].to='place_2',p=>p.commands[0].via='invented',p=>p.commands.pop()]){
+ for(const change of [p=>p.interactions[0].content[0].fact_ref='fact_2',p=>p.interactions[0].actor='npc_2',p=>p.commands[0].to='place_2',p=>p.commands[0].via='invented']){
   const altered=structuredClone(packet);change(altered);assert.ok(Errors(schema,altered).length);
  }
+ // §264.29: leaving the scene assessment out is accepted (recorded as unknown).
+ { const unassessed=structuredClone(packet);unassessed.commands.pop();assert.equal(Errors(schema,unassessed).length,0); }
  const settled=turnPacketParameterSchema(true,['brief'],[],false,bindings(1));
  assert.ok(Errors(settled,packet).length);
 });
