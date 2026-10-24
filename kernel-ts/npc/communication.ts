@@ -110,11 +110,14 @@ export function communicationRecord(graph:ModuleGraph,world:Row,party:Row[],scop
  * who, in the same turn, set out on an intention is that person's accepted commitment to the buyer, tied to the intention.
  */
 function paidDeals(graph:ModuleGraph,world:Row,turn:number,receipts:Row[],investigator:(name:unknown)=>string|undefined):Row[] {
-    const started=new Map(receipts.filter(receipt=>receipt.kind==='npc'&&row(receipt.intent).outcome==='attempted'&&typeof receipt.handle==='string'
-        &&typeof row(receipt.intent).ref==='string').map(receipt=>[receipt.handle as string,row(receipt.intent).ref as string]));
+    // The seller is named on the cash receipt by handle, or by the name or role the Keeper wrote (app re-test: "加油站老板").
+    const started=new Map<string,{intent:string;handle:string}>();
+    for(const receipt of receipts)if(receipt.kind==='npc'&&row(receipt.intent).outcome==='attempted'&&typeof receipt.handle==='string'&&typeof row(receipt.intent).ref==='string')
+        for(const key of [receipt.handle,receipt.name,receipt.label])if(typeof key==='string'&&key)started.set(key,{intent:row(receipt.intent).ref as string,handle:receipt.handle as string});
     return receipts.flatMap(receipt=>{
-        if(receipt.kind!=='cash'||receipt.category!=='purchase'||!(number(receipt.purchase_amount)>0)||typeof receipt.with!=='string')return [];
-        const intent=started.get(receipt.with),node=intent?graph.find(receipt.with,['npc']):null,by=node?npcReference(graph,world,node):undefined;
+        if(receipt.kind!=='cash'||receipt.category!=='purchase'||!(number(receipt.purchase_amount)>0))return [];
+        const seller=[receipt.with,receipt.with_label].map(key=>typeof key==='string'?started.get(key):undefined).find(Boolean);
+        const intent=seller?.intent,node=seller?graph.find(seller.handle,['npc']):null,by=node?npcReference(graph,world,node):undefined;
         if(!intent||!by)return [];
         const lines=array(receipt.items).map(item=>string(row(item).name)).filter(Boolean).join(', ');
         const gist=[...(typeof receipt.why==='string'&&receipt.why.trim()?receipt.why.trim():lines)].slice(0,120).join('');

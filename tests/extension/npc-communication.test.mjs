@@ -372,6 +372,9 @@ test('app play-test: a service paid for while its seller sets out to do it is th
  const done=[...records,{turn:9,communication:later}];
  assert.equal(dealsOf(done,'npc_1',scope,10).length,0,'done: kept, no longer open');
  assert.equal(dealsOf(done,'npc_1',scope,10,true)[0].status,'kept');
+ const byLabel=communicationRecord(graph,world,party,scope,8,{selections:[]},[],[{node_id:'russ'}],undefined,
+  [{...receipts[0],with:'加油站老板',with_label:'加油站老板'},{...receipts[1],label:'加油站老板'}]);
+ assert.equal(byLabel.paid[0].by,'npc_1','a seller written by role still finds the person who set out');
  const noIntent=communicationRecord(graph,world,party,scope,8,{selections:[]},[],[{node_id:'russ'}],undefined,[receipts[0]]);
  assert.equal(noIntent,undefined,'a purchase handed over at once, with nobody setting out to do anything, makes no deal');
 });
