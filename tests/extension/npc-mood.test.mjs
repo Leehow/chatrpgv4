@@ -459,3 +459,12 @@ test('every path that closes the schema accepts mood and still refuses an undecl
 	markNpcAct('apply', params, {clerk: 'npc_act', basis: {draw: {weapon: 'knife'}}});
 	assert.equal(params.effects[0]._draws, undefined);
 });
+
+test('§264.24: an activity without a why lands and its receipt carries the default reason (Blood Road 2026-10-24: an internal JSON error)', async t => {
+  const {client} = await opened(t);
+  const done = await client.call('table.apply', {campaign, call_id: 't0-c1', effects: [
+    {kind: 'npc', name: KNOTT, activity: {summary: 'Sits behind the desk with the papers squared.', basis: 'observed', wakefulness: 'awake'}}]});
+  assert.ok(done.receipts.length, JSON.stringify(done));
+  const receipt = (await client.call('table.status', {campaign})).receipts.find(row => done.receipts.includes(row.id));
+  assert.equal(receipt.why, '(no reason given)');
+});

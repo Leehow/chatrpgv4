@@ -23,10 +23,10 @@ function validate(value:unknown,npc:boolean):Row {
     if(result.review_after_minutes!=null&&(!integer(result.review_after_minutes)||number(result.review_after_minutes)<=0||!Number.isSafeInteger(result.review_after_minutes)))throw new RpcError('invalid_params','activity.review_after_minutes must be a positive safe integer');
     return result;
 }
+/** §264.24: a reason is recorded when given; its absence refuses nothing, and every receipt carries one. */
+const withWhy=(effect:Row):Row=>typeof effect.why==='string'&&effect.why.trim()?effect:{...effect,why:'(no reason given)'};
 function record(context:ApplyContext,effect:Row,npc:boolean,scene:string|null,previous:Row):Row {
     const value=validate(effect.activity,npc);
-    // §264.24: a reason is recorded when given; its absence refuses nothing.
-    if(typeof effect.why!=='string'||!effect.why.trim())effect={...effect,why:'(no reason given)'};
     // §227.1: an observed or established record guards only while it still applies at the staged clock -- the same
     // applicability the capsule reports (`activityView`). Once the reader asks for review, a later inferred account of now
     // describes another time; the old record stays in the receipt's `previous`.
@@ -38,6 +38,7 @@ function record(context:ApplyContext,effect:Row,npc:boolean,scene:string|null,pr
         ...(value.review_after_minutes!=null?{review_at_minutes:number(clock.minutes)+value.review_after_minutes}:{})};
 }
 export function stageSceneActivity(context:ApplyContext,effect:Row):StagedEffect {
+    effect=withWhy(effect);
     if(typeof effect.name!=='string'||!effect.name.trim())throw new RpcError('invalid_params','A scene activity needs its existing name or here');
     const scene=context.graph.scene(effect.name==='here'?context.world.active_scene:effect.name),handle=context.graph.handle(scene);
     const previous=row(row(context.world.scene_activity)[handle]),next=record(context,effect,false,handle,previous);
@@ -58,6 +59,7 @@ export function stageSceneActivity(context:ApplyContext,effect:Row):StagedEffect
     return {receipt,event:{type:'scene-activity-changed',data:{scene:handle,activity:clone(next),why:effect.why}}};
 }
 export function stageNpcActivity(context:ApplyContext,effect:Row,node:Row):StagedEffect {
+    effect=withWhy(effect);
     const handle=context.graph.handle(node),previous=row(row(context.world.npc_activity)[handle]);
     const conflicts=['to','stance','dead','skill','archetype','creature','conditions','defense','action','disposition','mood','intends','outcome','intent_ref','intent_outcome','spend_turn','reunion','_draws','_produces'].filter(key=>effect[key]!=null);
     if(conflicts.length)throw new RpcError('invalid_params','npc.activity is its own effect',{fix:'Write activity and other changes as separate effects in the same atomic batch',details:{conflicts}});
