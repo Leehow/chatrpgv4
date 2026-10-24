@@ -73,7 +73,9 @@ export function sectionAnswer(answer: unknown, ids: Set<string>): Row {
 				...(typeof mention.english === "string" && mention.english.trim() ? { english: mention.english.trim().slice(0, 200) } : {}) }] : []),
 		...Object.fromEntries(LISTS.map(list => [list, (Array.isArray(row[list]) ? row[list] : []).flatMap((entry: Row) => {
 			const blocks = keep(entry?.blocks), text = String(entry?.hint ?? entry?.summary ?? "").trim().slice(0, 300);
-			return blocks.length && names(entry?.names).length ? [{ names: names(entry.names), summary: text, blocks }] : [];
+			// §266.9: what a plan row is to play: the book's default, an alternative the Keeper may take, a trigger, or a fact.
+			const type = PLAN_TYPES.includes(entry?.type) ? entry.type : undefined;
+			return blocks.length && names(entry?.names).length ? [{ names: names(entry.names), summary: text, blocks, ...(type && list !== "cross_references" ? { type } : {}) }] : [];
 		})])),
 		...pointerLists(row, ids, names) };
 }
@@ -82,6 +84,8 @@ export function sectionAnswer(answer: unknown, ids: Set<string>): Row {
 export const EVIDENCE_USES = ["appearance", "description", "motivation", "plan", "condition", "clue", "handout", "read_aloud", "mention"] as const;
 export const RELEASE_KINDS = ["read_aloud", "handout", "appearance", "description"] as const;
 export const PROTECTED_RISKS = ["identity", "plan", "hidden_cause", "ending", "other"] as const;
+/** §266.9: arrangement (what happens unless play changes it), option (an alternative the Keeper may choose instead), trigger (happens when a condition is met), fact. */
+export const PLAN_TYPES: readonly string[] = ["arrangement", "option", "trigger", "fact"];
 
 /** §263.3: a section answer's protected facts, release candidates and continuations, keeping only this section's blocks. */
 function pointerLists(row: Row, ids: Set<string>, names: (value: unknown) => string[]): Row {
@@ -230,6 +234,8 @@ export interface SkeletonContext {
 	shared?: Partial<ReaderRequest>;
 	/** Whether another section may start (the reading cap, a stopped host). */
 	mayContinue?: () => boolean;
+	/** §266.8: told each time the partial skeleton is written. */
+	onPartial?: (partial: Row) => void;
 }
 
 /** §262.5: build the skeleton once; an existing complete skeleton for this document is kept. */
@@ -332,6 +338,7 @@ export async function buildSkeleton(context: SkeletonContext): Promise<Row> {
 		const temp = `${partialFile}.${process.pid}.tmp`;
 		await writeFile(temp, JSON.stringify(partial));
 		await rename(temp, partialFile);
+		context.onPartial?.(partial);
 	}).catch(() => undefined); };
 	let next = 0;
 	await Promise.all(Array.from({ length: Math.min(SKELETON_BOUNDS.concurrency, sections.length) }, async () => {

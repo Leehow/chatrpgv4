@@ -52938,4 +52938,64 @@ by number or section; `contents` is the contents at most 40 rows, one `p<first>-
 - Under lean reading the cast reader (§177) never runs: with no skeleton the cast answers `{state: "unavailable", reason:
   "page_mode"}` (`lean_cast_deferred`) and a later table open asks again.
 
+### 266.7 The opening's people the cast prints on its pages (amends §198.3)
+
+Under lean reading the opening's graph is its one anchor scene (§261): no reader has written the people the opening's
+pages show, so §198.2 places nobody there, the opening seat refuses everyone and the Keeper can only narrate them as
+scenery (Blood Road table A, 2026-10-24: Russ, Nate and Steve at the Esso station on pages 17 and 20, the anchor citing
+pages 16, 17 and 20). At the opening, an `npc` seat-shaped effect (§198.3) also lands when it names an unread cast person
+(§177.1) whose cast pages include a page the active opening scene cites (`openingCast`, `kernel-ts/read/cast.ts`):
+the material gate lands them on the book's text first (§177.6, §22.4.7.1, page mode §266.6), and the seat is that table
+person's `to`, not yet placed. Pages only: whether one is there as play starts stays the seat's judgement (the Keeper's).
+`opening_people` is unchanged: the host's Jev judge seats graph people only, since its seat does not pass the landing.
+
+While the opening is owed the capsule carries `opening_cast`: those people not yet landed at this table (no `table_people`
+entry with their `cast_id`), at most 12, `{name, pages}` with `name` their first printed form, and the head says to
+seat whoever of them is there with `apply npc {name, to: here}` under that name, never as a `walk_on` newcomer under a
+description (Blood Road table C, 2026-10-24: refused the book's names as walk_on labels, the Keeper brought in "the gas
+station owner", "the beer-drinking retired trucker" and "the silent navy veteran" as three newcomers).
+
+### 266.8 Released words person by person (amends §263.4, §263.5)
+
+The release check no longer waits for the merged skeleton. Each time the partial skeleton is written (266.2) a release pass
+runs on it (one pass at a time per document; the latest partial waits behind a running pass; passes and the merged pass run
+in order, so a partial pass never overwrites the merged one). A candidate is *complete* when every page whose host text
+prints one of its entity's forms (normalised spelling over the layout blocks) lies in an indexed section and is not blocked,
+and its own page and the pages either side are indexed: every protected fact that names it or is printed beside it has
+then been read, whatever the unread sections hold. On a partial skeleton only complete candidates and read-aloud or
+handout candidates are asked, and only once at least one batch of them (12) is ready; the others wait, and rows the pass
+does not ask are kept. A partial pass still queued when the merged skeleton exists does nothing (first live run: 95 checker
+calls and 218K input tokens against 35 and 121K for one merged pass, from small batches and re-checks). `releaseStatus` approves a description or appearance when it is complete (replacing "the whole
+book was indexed"). Each row keeps `facts_key`, the digest of the facts naming its people or on its pages (rank 0 and 1);
+a later pass reuses the verdict while that key is the same. The catalog (263.5) reads the release file with the merged
+skeleton, else the partial one. Telemetry `release_ready` carries `partial: true` for a partial pass.
+
+Tests: `tests/extension/pointer-reading.test.mjs`.
+
+### 266.9 The book's default and its options (amends §263.3, §263.10)
+
+Blood Road p13 prints a default and an alternative in one block: the pastor has Russ lie that the car's parts must be
+ordered from out of town; "if the Keeper prefers a shorter scenario", Russ fixes the car within an hour. One index of the
+book listed only the alternative, and `book_truth` gave the Keeper both as plain conditions, so either was "the book".
+Every `conditional_events` and `keeper_truth` row now carries `type` (closed: `arrangement`, `option`, `trigger`,
+`fact`; dropped when the answer gives another word): an arrangement is what the book has someone do by default as play
+runs, an option an alternative it offers the Keeper instead. The index is told to list both when a passage gives both, and
+never to leave out an arrangement aimed at the investigators. `book_truth` rows carry `type` and sort who is here
+first, then arrangements, then the rest, then options. The evidence window (263.10) starts a block that `continues`
+another column with the end of that block's last sentence (after its last full stop, at most 200 characters), so a plan
+whose subject is in the previous column is read whole. Changing the index prompt re-reads every section once.
+
+### 266.10 No detail reading under pointer reading (amends §262.3, §262.7, §22.4.7, §22.4.7.1)
+
+Where the index covers the pages, play still queued lean detail readings (Blood Road table A, 2026-10-24: one for the Esso
+station the opening established, three blocking ones for the people who landed there). They were the reader re-reading
+pages to write graph records whose only use in play was the material gate's "prepared" bookkeeping: the landing already
+carries the book's pages, `book_truth` and the evidence window carry the plans, and a landed person is a table person.
+Under lean reading no lean detail reading is asked any more, covered pages or not: the claim hands it back `cancelled`
+with detail `pointer_reading` (`page_mode` where 266.1 says page mode), a landing (266.6) queues none and tells the
+Keeper the pages are the book's own text and no record will land, and a `lookup kind=source` preparation with no
+`material` turns pages as 266.4 does. Maps, exhibits asked by name, opening and guidance readings are unchanged.
+`PI_COC_DETAIL_READS=1` restores the readings. Mechanics a reader used to write (a person's skills, a gate's numbers)
+are the Keeper's `apply npc` pins and rule defaults until mechanics cards exist (design W08).
+
 Tests: `tests/extension/page-mode.test.mjs`.

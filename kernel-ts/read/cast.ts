@@ -438,6 +438,16 @@ export function printedNames(graph: ModuleGraph, person: CastPerson): string[] {
 export const unreadCast = (graph: ModuleGraph): CastPerson[] => bookCast(graph).filter(person => !person.node);
 
 /**
+ * §266.7: the unread people whose cast pages include a page the opening scene cites -- the book prints them on the
+ * opening's own pages, and lean reading has no graph person for them yet. Pages only; whether one is there as play
+ * starts is the seat's judgement, not this list's.
+ */
+export function openingCast(graph: ModuleGraph, scene: Row): CastPerson[] {
+    const pages = new Set([...pagesOf(graph, scene), ...array(scene.source_refs).filter(ref => integer(ref?.page) && Number(ref.page) >= 1).map(ref => number(ref.page))]);
+    return pages.size ? unreadCast(graph).filter(person => !person.public && person.pages.some(page => pages.has(page))) : [];
+}
+
+/**
  * Whether a committed delivery showed one of an unread person's names (the test `toldTurn` makes for a graph person). §188.1:
  * an occurrence inside an investigator's registered name or another person's word at this table (the history's guard) is not
  * this person's name: the investigator "Daniel White" in the prose tells no unread "Daniel".

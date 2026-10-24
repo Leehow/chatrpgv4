@@ -10,7 +10,7 @@ import {npcNode,npcsPresent,personLabel,personNode,personRecord,sceneLabel,unpla
 import {unsupported} from '../read/handlers.js';
 import {exhibitTeaches} from '../read/exhibits.js';
 import {passageOf,tablePersonId} from '../read/table-people.js';
-import {sourceNameReadFix} from '../read/cast.js';
+import {openingCast,sourceNameReadFix} from '../read/cast.js';
 import {array,entries,integer,normalize,number,repr,row,sorted,string,truth,type Row} from '../read/values.js';
 import {stanceTable} from '../write/contributions.js';
 import {required,nowIso} from '../write/store.js';
@@ -334,6 +334,12 @@ function refuseUnlessOpeningSeat(context:ApplyContext,node:Row,established:false
     const unplaced=unplacedPeople(graph,world,active).some(person=>graph.survivorId(string(person.node.node_id))===self);
     if(established===false&&openingActivityShape(effect)&&row(world.npc_presence)[graph.handle(node)]===graph.handle(active)&&!row(world.npc_activity)[graph.handle(node)])return;
     if(established===false&&openingSeatShape(effect)&&there&&placed&&unplaced)return;
+    // §266.7: someone the book prints on the opening's pages whom lean reading has not read lands on that text and is seated.
+    // The gate's landing registers them before this effect runs, so they are this table's person by now (`established` false).
+    if(established!=='table'&&openingSeatShape(effect)&&there&&graph.isTablePerson(node)&&!Object.hasOwn(row(world.npc_presence),graph.handle(node))){
+        const words=new Set([string(effect.name),string(node.name),graph.displayName(node)].map(normalize).filter(Boolean));
+        if(openingCast(graph,active).some(person=>person.names.some(name=>words.has(normalize(name)))))return;
+    }
     const word=tableWord(world,graph.handle(node))||graph.displayName(node);
     throw new RpcError('invalid_params',`at the opening an npc effect only records a present person's mood or seats someone the book places in the opening scene whom nobody has placed yet; ${word} is not that`,{
         fix:'leave this effect out of the opening; once the player has spoken, apply npc as on any turn',

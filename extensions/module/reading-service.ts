@@ -479,12 +479,14 @@ export class ReadingService implements ReadingBridge {
 			this.skeletons.set(source.file_sha256, buildSkeleton({ runtime: this.runtime(), moduleId: mid, home: this.deps.home,
 				cache: join(dirname(source.pdf), "cache"), source: { path: source.pdf, file_sha256: source.file_sha256, page_count: source.page_count },
 				model: this.deps.model(), signal: controller.signal, record: row => this.deps.record({ ...row, campaign }),
-				shared: { priority: "background" }, mayContinue: () => !this.stopped && !this.capReached(mid, campaign) })
+				shared: { priority: "background" }, mayContinue: () => !this.stopped && !this.capReached(mid, campaign),
+				onPartial: partial => this.releasePartial(mid, campaign, source, partial, controller.signal) })
 				// §263.3: sections that failed are asked once more (answered sections are kept), so one refusal does not leave the book incomplete.
 				.then(skeleton => skeleton?.complete === false && !controller.signal.aborted && !this.stopped ? buildSkeleton({ runtime: this.runtime(), moduleId: mid, home: this.deps.home,
 					cache: join(dirname(source.pdf), "cache"), source: { path: source.pdf, file_sha256: source.file_sha256, page_count: source.page_count },
 					model: this.deps.model(), signal: controller.signal, record: row => this.deps.record({ ...row, campaign, retry: true }),
-					shared: { priority: "background" }, mayContinue: () => !this.stopped && !this.capReached(mid, campaign) }) : skeleton)
+					shared: { priority: "background" }, mayContinue: () => !this.stopped && !this.capReached(mid, campaign),
+				onPartial: partial => this.releasePartial(mid, campaign, source, partial, controller.signal) }) : skeleton)
 				// §262.7: the skeleton's names become the reference book's navigation index (the library and this campaign's fork).
 				.then(async skeleton => {
 					const indexed = await this.call("module.skeleton.index", { module_id: mid, file_sha256: source.file_sha256, rows: skeletonIndexRows(skeleton) }, campaign);
@@ -543,6 +545,13 @@ export class ReadingService implements ReadingBridge {
 		}
 		return undefined;
 	}
+	/**
+	 * §266.10: whether a detail reading may be asked for this material. Under lean reading none is, in page mode or not: the
+	 * Keeper plays from the book's pages and the pointer index. `PI_COC_DETAIL_READS=1` brings them back.
+	 */
+	detailReads(mid: string | undefined): boolean {
+		return process.env.PI_COC_LEAN_READING !== "1" || !mid || process.env.PI_COC_DETAIL_READS === "1";
+	}
 	/** §266.1: whether pages (or, with no pages, a focus) of a module are in page mode; false when lean reading is off. */
 	pageMode(mid: string | undefined, query: { pages?: number[]; focus?: string }): boolean {
 		if (process.env.PI_COC_LEAN_READING !== "1" || !mid) return false;
@@ -588,12 +597,15 @@ export class ReadingService implements ReadingBridge {
 		const book = this.books.get(mid);
 		if (!book) return [];
 		try {
-			const releaseFile = releasePath(this.deps.home, book.sha), skeletonFile = skeletonPath(this.deps.home, book.sha);
+			const releaseFile = releasePath(this.deps.home, book.sha);
 			const blocksFile = join(book.cache, `blocks-${book.sha}.json`);
-			const stamp = [releaseFile, skeletonFile, blocksFile].map(file => statSync(file).mtimeMs).join(":");
+			// §266.8: the merged skeleton, else the partial one, gives the passages their printed forms.
+			const skeleton = this.pointerIndex(mid);
+			if (!skeleton) return [];
+			const stamp = [...[releaseFile, blocksFile].map(file => statSync(file).mtimeMs), this.indexCache.get(mid)?.stamp ?? ""].join(":");
 			let cached = this.bookCache.get(mid);
 			if (!cached || cached.stamp !== stamp) {
-				const release = JSON.parse(readFileSync(releaseFile, "utf8")), skeleton = JSON.parse(readFileSync(skeletonFile, "utf8"));
+				const release = JSON.parse(readFileSync(releaseFile, "utf8"));
 				const stored = JSON.parse(readFileSync(blocksFile, "utf8"));
 				const blocks = new Map<string, { id: string; text: string }>();
 				for (const page of Object.values(stored.pages ?? {}) as Row[]) for (const block of page.blocks ?? []) blocks.set(block.id, { id: block.id, text: block.text });
@@ -624,7 +636,7 @@ export class ReadingService implements ReadingBridge {
 				try {
 					const stored = JSON.parse(readFileSync(join(book.cache, `blocks-${book.sha}.json`), "utf8"));
 					blocks = new Map();
-					for (const page of Object.values(stored.pages ?? {}) as Row[]) for (const block of page.blocks ?? []) blocks.set(block.id, { id: block.id, text: block.text });
+					for (const page of Object.values(stored.pages ?? {}) as Row[]) for (const block of page.blocks ?? []) blocks.set(block.id, { id: block.id, text: block.text, ...(block.continues ? { continues: block.continues } : {}) });
 				} catch { /* no block cache yet */ }
 				cached = { stamp, skeleton, blocks };
 				this.planCache.set(mid, cached);
@@ -636,9 +648,35 @@ export class ReadingService implements ReadingBridge {
 		} catch { return []; }
 	}
 	private planCache = new Map<string, { stamp: string; skeleton: Row; blocks?: Map<string, { id: string; text: string }> }>();
+	/** §266.8: the release pass on a partial skeleton, one at a time per document; the latest partial waits behind a running pass. */
+	private partialRelease = new Map<string, { running: boolean; next?: Row }>();
+	private releasePartial(mid: string, campaign: string | undefined, source: Row, partial: Row, signal: AbortSignal): void {
+		const key = source.file_sha256, state = this.partialRelease.get(key) ?? { running: false };
+		this.partialRelease.set(key, state);
+		if (state.running) { state.next = partial; return; }
+		state.running = true;
+		void (async () => {
+			let current: Row | undefined = partial;
+			while (current && !signal.aborted && !this.stopped) {
+				state.next = undefined;
+				await this.releaseCheck(mid, campaign, source, current, signal);
+				current = state.next;
+			}
+			state.running = false;
+		})();
+	}
 	/** §263.4: check the skeleton's release candidates; never awaited by play, failures recorded. */
-	private async releaseCheck(mid: string, campaign: string | undefined, source: Row, skeleton: Row, signal: AbortSignal): Promise<void> {
+	/** §266.8: release passes of one document run one after another, so a partial pass never overwrites the merged one. */
+	private releaseChain = new Map<string, Promise<void>>();
+	private releaseCheck(mid: string, campaign: string | undefined, source: Row, skeleton: Row, signal: AbortSignal): Promise<void> {
+		const key = source.file_sha256, run = (this.releaseChain.get(key) ?? Promise.resolve()).then(() => this.releasePass(mid, campaign, source, skeleton, signal));
+		this.releaseChain.set(key, run.catch(() => undefined));
+		return run;
+	}
+	private async releasePass(mid: string, campaign: string | undefined, source: Row, skeleton: Row, signal: AbortSignal): Promise<void> {
 		if (skeleton?.version !== SKELETON_VERSION || !(skeleton?.release_candidates ?? []).length) return;
+		// §266.8: once the merged skeleton is written, a partial pass still queued has nothing to add.
+		if (skeleton.partial === true) { try { statSync(skeletonPath(this.deps.home, source.file_sha256)); return; } catch { /* still partial */ } }
 		try {
 			const pages = Array.from({ length: source.page_count }, (_, i) => i + 1);
 			const byPage = await sourceBlocksFor(this.runtime(), { path: source.pdf, file_sha256: source.file_sha256 }, pages, join(dirname(source.pdf), "cache"), signal);
@@ -647,7 +685,7 @@ export class ReadingService implements ReadingBridge {
 			const release = await checkReleases({ runtime: this.runtime(), moduleId: mid, home: this.deps.home, sha: source.file_sha256, skeleton, blocks,
 				model: this.deps.model(), signal, record: row => this.deps.record({ ...row, campaign }), shared: { priority: "background" },
 				mayContinue: () => !this.stopped && !this.capReached(mid, campaign) });
-			this.note({ lane: "reading", event: "release_ready", module_id: mid, campaign, rows: release.rows.length,
+			this.note({ lane: "reading", event: "release_ready", module_id: mid, campaign, ...(skeleton.partial === true ? { partial: true } : {}), rows: release.rows.length,
 				approved: release.rows.filter((row: Row) => row.status === "approved").length, complete: release.complete });
 		} catch (error) { this.note({ lane: "reading", event: "release_failed", module_id: mid, campaign, detail: String(error).slice(0, 500) }); }
 	}
@@ -1595,9 +1633,11 @@ export class ReadingService implements ReadingBridge {
 						}
 						this.blockedClaims.delete(scope);
 						// §266.6: a lean detail reading of pages the pointer index does not cover is handed back: the Keeper turns those pages.
-						if (leanEligible(job) && this.pageMode(mid, { pages: Array.isArray(job.pages) ? job.pages : [] })) {
-							this.note({ lane: "reading", event: "page_mode_skip", module_id: mid, campaign, job_id: job.job_id, focus: job.focus ?? "", pages: job.pages ?? [], foreground: job.foreground === true });
-							await this.call("module.read.finish", { module_id: mid, job_id: job.job_id, lease: job.lease, outcome: "cancelled", detail: "page_mode" }, campaign).catch(() => undefined);
+						// §266.10: and under pointer reading every lean detail reading is handed back, covered pages or not.
+						if (leanEligible(job) && !this.detailReads(mid)) {
+							const detail = this.pageMode(mid, { pages: Array.isArray(job.pages) ? job.pages : [] }) ? "page_mode" : "pointer_reading";
+							this.note({ lane: "reading", event: "page_mode_skip", module_id: mid, campaign, job_id: job.job_id, focus: job.focus ?? "", pages: job.pages ?? [], foreground: job.foreground === true, detail });
+							await this.call("module.read.finish", { module_id: mid, job_id: job.job_id, lease: job.lease, outcome: "cancelled", detail }, campaign).catch(() => undefined);
 							continue;
 						}
 						// §262.1: past the reading cap a background job is handed back cancelled; a foreground one still runs.

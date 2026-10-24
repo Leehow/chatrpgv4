@@ -128,3 +128,19 @@ test('§266.6: a lean detail reading of pages the index does not cover is handed
  assert.deepEqual(finish?.[1],{module_id:'blood-road',job_id:'read-1',lease:'L',outcome:'cancelled',detail:'page_mode',campaign:'c1'});
  assert.equal(notes.find(row=>row.event==='page_mode_skip')?.foreground,true);
 }));
+
+test('§266.10: under pointer reading a lean detail reading of indexed pages is handed back too, unless PI_COC_DETAIL_READS=1',async()=>lean(async()=>{
+ const root=playtestScratch('page-mode','pointer-'),calls=[],notes=[],reading=await service(root,{calls,notes});
+ await mkdir(join(root,'source-skeletons'),{recursive:true});
+ await writeFile(api.skeletonPath(root,SHA),JSON.stringify({complete:true,sections:[{name:'All',first:1,last:12,status:'indexed'}],entities:[]}));
+ let claims=0;const call=reading.deps.call;
+ reading.deps.call=async(method,params)=>{
+  if(method==='module.read.claim')return ++claims===1?{job_id:'read-2',lease:'L',purpose:'detail',focus:'Diner',pages:[5],module_id:'blood-road'}:{};
+  return call(method,params);};
+ reading.deps.runtime={...reading.deps.runtime,runTask:async()=>{throw new Error('no reader under pointer reading');}};
+ assert.equal(reading.detailReads('blood-road'),false);
+ await reading.pump('blood-road','c1');
+ assert.equal(calls.find(([method])=>method==='module.read.finish')?.[1]?.detail,'pointer_reading');
+ process.env.PI_COC_DETAIL_READS='1';
+ try{assert.equal(reading.detailReads('blood-road'),true);}finally{delete process.env.PI_COC_DETAIL_READS;}
+}));

@@ -90,3 +90,7 @@ export const BOOK_PAGES_NOTE = "The book's index does not cover the whole book y
 /** §266.6: what the Keeper is told beside a landing's pages in page mode. */
 export const PAGE_MODE_TEXT_NOTE = "The book's index does not cover these pages yet, so they are carried as the book's own text and no reviewed record "
 	+ "of them will land. Play from these pages; for more of the book, turn its pages with lookup kind=source source_mode=pages.";
+
+/** §266.10: what the Keeper is told beside a landing's pages where the pointer index covers them. */
+export const POINTER_TEXT_NOTE = "These pages are the book's own text for this, carried once; no reader rewrites them into a record. Play from them, "
+	+ "with what book_truth says about the people and place here; for more of the book, turn its pages with lookup kind=source source_mode=pages.";
