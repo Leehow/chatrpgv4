@@ -515,7 +515,14 @@ export function newcomerRefusal(graph: ModuleGraph, world: Row, name: string): {
         // A piece the name writes with a period after it is written as an abbreviation (the "Mr" of "Mr. Dooley", the "Dr" of
         // "Dr. Brenner"), not as a name: read from the punctuation alone, as `namePieces` reads its pieces.
         const abbreviated = new Set(person.names.flatMap(full => [...full.matchAll(/([^\p{P}\s]+)\./gu)].map(match => normalize(match[1]!))));
-        const carried = namePieces(person.names).some(piece => !abbreviated.has(normalize(piece)) && occurs(said, normalize(piece)));
+        // §264.25: a full name inside a description is the person ("the station owner Lars Williams"). A piece of a name is
+        // found inside Latin text at word boundaries, as before; in text without word boundaries (Chinese) a piece counts only
+        // as the whole word, or every description sharing two characters with somebody's name is refused (live 2026-10-24:
+        // a maid in a pale blue dress, refused, and the turn ended with nothing delivered).
+        const bounded = (piece: string) => /[a-z]/i.test(piece);
+        const carried = person.names.some(full => occurs(said, normalize(full)))
+            || namePieces(person.names).some(piece => !abbreviated.has(normalize(piece))
+                && (bounded(piece) ? occurs(said, normalize(piece)) : normalize(piece) === said));
         const called = epithets(person).some(word => word && normalize(word) === said);
         if (!carried && !called) continue;
         return {

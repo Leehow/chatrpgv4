@@ -67,9 +67,9 @@ async function table(t) {
 		apply: (effects) => call("table.apply", { call_id: `t1-c${ordinal++}`, effects }),
 		world: async () => JSON.parse(await readFile(join(directory, "world.json"), "utf8")),
 		/** A later graph generation names the person (the scene's reviewed record landed), published through the module store. */
-		async publish(name) {
+		async publish(name, id = `npc-${name.toLowerCase().replaceAll(" ", "-")}`) {
 			const store = new api.ModuleStore(context), meta = await store.module("the-haunting"), graph = await store.readGraph("the-haunting");
-			graph.nodes.push({ node_id: `npc-${name.toLowerCase().replaceAll(" ", "-")}`, node_kind: "npc", name, visibility: "keeper-only", aliases: [],
+			graph.nodes.push({ node_id: id, node_kind: "npc", name, visibility: "keeper-only", aliases: [],
 				summary: "The day clerk.", evidence_span_ids: [], properties: {}, source_refs: [] });
 			await store.writeModule(await store.writeGraph(meta, graph));
 		},
@@ -462,4 +462,12 @@ test('source reread hints exclude ordinary prose, missing or multiple PDF pages,
   assert.match(api.sourceNameReadFix(graph(node),'Ada·Vale'),/physical page 17/);
   for(const entry of [{...node,properties:{}},{...node,source_refs:[]},{...node,source_refs:[...node.source_refs,{source_id:'pdf:book',pdf_index:17}]},{...node,source_refs:[{source_id:'pdf:other',pdf_index:16}]},{...node,summary:'Ada·North runs the counter.'},{...node,node_kind:'npc'}])
     assert.equal(api.sourceNameReadFix(graph(entry),'Ada·Vale'),null);
+});
+
+test('§264.25: in text without word boundaries a description sharing a piece of a book name is a newcomer; a full name inside still names the person',async t=>{
+  const game=await table(t);await game.publish('易·小蓝','npc-yi-xiaolan');
+  await game.apply([{kind:'npc',name:'穿小蓝布裙的侍女',to:'here',walk_on:true,why:'a maid brings tea'}]);
+  assert.ok((await game.world()).table_people.some(person=>person.name==='穿小蓝布裙的侍女'),'a description sharing two characters with a name is a newcomer');
+  const full=await refusal(game.apply([{kind:'npc',name:'掌柜易·小蓝',to:'here',walk_on:true}]));
+  assert.equal(full?.details?.reason,'book_name','a full name inside a description is that person');
 });
