@@ -165,5 +165,22 @@ test('§263.5: a person owed first sight with no words of their own is handed th
  const capsule={where:{scene:'esso',display_name:'Esso'},present:[{ref:'npc_1',id:'russ',name:'Russ',display_name:'Russ'}],first_sight:{people:[{id:'russ',name:'Russ',undescribed:true}]}};
  content.prepare('a',capsule,[],[],[],[],[],[],[{page:17,kind:'appearance',entity:'Russ',forms:['russ'],text:'Russ is tall and thin.'},{page:17,kind:'description',entity:'Esso',forms:['esso'],text:'A faded sign.'}]);
  const {materials}=content.hydrate([],[]);
- assert.deepEqual(materials.map(row=>row.value?.text),['Russ is tall and thin.']);
+ assert.deepEqual(materials.map(row=>row.value?.text),['Russ is tall and thin.','A faded sign.'],'the look, and the place\'s description the first time it is here');
+});
+
+test('§263.5: a scene the table names more fully still finds the book\'s place by spelling',()=>{
+ const rows=[{page:28,kind:'description',entity:'Last Stop',forms:['laststop'],text:'A jukebox and license plates.'}];
+ assert.equal(api.passagesInScope(rows,{where:{display_name:'Last Stop Diner'}}).length,1);
+ assert.equal(api.passagesInScope(rows,{where:{display_name:'Gas station'}}).length,0);
+ assert.equal(api.sameName('ab',new Set(['abc'])),false,'a two-character form is matched only exactly');
+});
+
+test('§263.5: a place\'s released description is handed over the first turn it is in scope, once',()=>{
+ const content=new api.DecisionContent();
+ const capsule={where:{scene:'last-stop',display_name:'Last Stop Diner'},present:[]};
+ const book=[{page:28,kind:'description',entity:'Last Stop',forms:['laststop'],text:'A jukebox and license plates.'}];
+ content.prepare('a',capsule,[],[],[],[],[],[],book);
+ assert.equal(content.hydrate([],[]).materials.length,1);
+ content.prepare('a',capsule,[],[],[],[],[],[],book);
+ assert.equal(content.hydrate([],[]).materials.length,0,'not again');
 });

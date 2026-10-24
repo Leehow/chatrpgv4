@@ -186,6 +186,15 @@ export function approvedPassages(release: Row, sha: string, blocks: Map<string, 
 
 export { refKey };
 
+/**
+ * §263.5: a printed form names one of the table's names when they are equal, or when one contains the other and the
+ * shorter has at least three characters ("最后一站" in "最后一站食宿酒吧"). Spelling only.
+ */
+export const sameName = (form: string, set: Set<string>): boolean => set.has(form) || [...set].some(key => {
+	const [short, long] = [...form].length <= [...key].length ? [form, key] : [key, form];
+	return [...short].length >= 3 && long.includes(short);
+});
+
 /** The pages an `opening_pages` text carries (`[Original physical page N]` headings). */
 const openingPages = (value: unknown): Set<number> => new Set([...String((value as Row)?.text ?? "").matchAll(/\[Original physical page ([0-9]+)\]/g)].map(match => Number(match[1])));
 
@@ -200,7 +209,7 @@ export function passagesInScope(passages: Row[], capsule: Row): Row[] {
 	const held = new Set([...(Array.isArray(capsule?.own?.documents) ? capsule.own.documents : []), ...(Array.isArray(capsule?.inventory) ? capsule.inventory : []), ...(Array.isArray(capsule?.handouts) ? capsule.handouts : [])]
 		.flatMap((item: Row) => keys(item?.name, item?.display_name, item?.title)));
 	const opening = openingPages(capsule?.opening_pages);
-	const named = (row: Row, set: Set<string>) => (row.forms ?? [normalName(row.entity)]).some((form: string) => set.has(form));
+	const named = (row: Row, set: Set<string>) => (row.forms ?? [normalName(row.entity)]).some((form: string) => sameName(form, set));
 	return passages.filter(row => {
 		if (row.kind === "appearance") return named(row, people);
 		if (row.kind === "handout") return named(row, held);
@@ -232,14 +241,14 @@ export function plansInScope(skeleton: Row, capsule: Row, limit = 16): Row[] {
 	const forms = new Set<string>();
 	for (const entity of skeleton?.entities ?? []) {
 		const list = [entity.name, ...(entity.aliases ?? [])].map((name: string) => normalName(String(name))).filter(key => [...key].length >= 2);
-		if (list.some(key => here.has(key)) || (entity.pages ?? []).some((page: number) => opening.has(page))) for (const key of list) forms.add(key);
+		if (list.some(key => sameName(key, here)) || (entity.pages ?? []).some((page: number) => opening.has(page))) for (const key of list) forms.add(key);
 	}
 	const named = (row: Row) => (row.names ?? []).some((name: string) => forms.has(normalName(String(name))));
 	// Rows naming who is here (a present person or the scene, with their aliases) come before rows of the opening's other entities.
 	const nearForms = new Set<string>();
 	for (const entity of skeleton?.entities ?? []) {
 		const list = [entity.name, ...(entity.aliases ?? [])].map((name: string) => normalName(String(name))).filter(key => [...key].length >= 2);
-		if (list.some(key => here.has(key))) for (const key of list) nearForms.add(key);
+		if (list.some(key => sameName(key, here))) for (const key of list) nearForms.add(key);
 	}
 	const near = (row: Row) => (row.names ?? []).some((name: string) => nearForms.has(normalName(String(name))));
 	const out: Row[] = [];
@@ -258,7 +267,7 @@ export function evidenceInScope(skeleton: Row, blocks: Map<string, BlockText>, c
 	const people = (Array.isArray(capsule?.present) ? capsule.present : []).map((person: Row) => new Set(keys(person?.display_name, person?.name)));
 	const scene = new Set(keys(capsule?.where?.display_name, capsule?.where?.scene, capsule?.where?.name));
 	const opening = openingPages(capsule?.opening_pages);
-	const entityOf = (set: Set<string>) => (skeleton?.entities ?? []).find((entity: Row) => [entity.name, ...(entity.aliases ?? [])].some((name: string) => set.has(normalName(String(name)))));
+	const entityOf = (set: Set<string>) => (skeleton?.entities ?? []).find((entity: Row) => [entity.name, ...(entity.aliases ?? [])].some((name: string) => set.size > 0 && sameName(normalName(String(name)), set)));
 	const out: Row[] = [];
 	const seen = new Set<string>();
 	let spent = 0;
