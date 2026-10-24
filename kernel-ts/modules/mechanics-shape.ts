@@ -76,8 +76,8 @@ const COMBAT_WORDS: ReadonlyArray<readonly [string, readonly string[]]> = [["def
 const TIME_UNITS = ["round", "minute", "hour", "day", "week"];
 const RESOURCES = ["mp", "pow", "san", "luck", "hp"];
 const PER = ["use", "round", "cast"];
-const CHARACTERISTICS = ["STR", "CON", "SIZ", "DEX", "APP", "INT", "POW", "EDU"];
-const DERIVED_INTEGERS = ["HP", "MP", "MOV", "Build", "SAN"];
+export const CHARACTERISTICS = ["STR", "CON", "SIZ", "DEX", "APP", "INT", "POW", "EDU"];
+export const DERIVED_INTEGERS = ["HP", "MP", "MOV", "Build", "SAN"];
 const ARMOR_RULES = ["degrades_1_per_damage"];
 const EFFECT_KINDS = ["damage", "sanity_loss", "time", "cost", "flag", "clock", "next_step", "book"];
 /** The graph contract's semantic id law, as §134.4 applies it to flags. */

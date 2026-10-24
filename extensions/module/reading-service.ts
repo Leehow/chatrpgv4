@@ -31,7 +31,9 @@ import {leanEligible, runLeanDetail, sourceBlocksFor} from './lean-read.ts';
 import {approvedPassages, checkReleases, evidenceInScope, passagesInScope, plansInScope, releasePath, withForms} from './release-check.ts';
 import {readFileSync, statSync} from 'node:fs';
 import {SKELETON_VERSION} from './lean-skeleton.ts';
+import {cardBlocks, checkedCard} from './mechanics-card.ts';
 import {BOOK_PAGES_NOTE, PAGE_BOUNDS, bookContents, contentsLines, firstLines, focusInPageMode, inPageMode, requestedPages, type ContentsRow} from './page-mode.ts';
+import {singleCall, normalName} from './lean-skeleton.ts';
 import {LEAN_MAP_REQUESTS, partialSkeletonPath, answerPages, buildSkeleton, castPlayNames, castDraftFromSkeleton, leanCrossReferences, samePrimaryLanguage, skeletonDigest, skeletonIndexRows, skeletonPath, LEAN_ANSWER_ASK, LEAN_ANSWER_REQUESTS} from './lean-skeleton.ts';
 import {acceptedGuidance,acceptedPublicGuidance} from './character-guidance.ts';
 import {validateReferencePacket} from '../../kernel-ts/modules/reference-contract.ts';
@@ -683,6 +685,54 @@ export class ReadingService implements ReadingBridge {
 		} catch { return []; }
 	}
 	private planCache = new Map<string, { stamp: string; skeleton: Row; blocks?: Map<string, { id: string; text: string }> }>();
+	/** §266.11: the people a card was asked for, by document and names, in this host. */
+	private cardsAsked = new Set<string>();
+	/**
+	 * §266.11: the book's numbers for a person met at the table: one tool-free call over the numeric blocks on the pages that
+	 * print their names, each number kept only when its cited block prints it, kept by the kernel beside the cast. Background;
+	 * once per document and person in this host; never awaited by play.
+	 */
+	async mechanicsCard(mid: string, params: { campaign?: string; names: string[] }): Promise<Row> {
+		if (process.env.PI_COC_LEAN_READING !== "1" || this.stopped || this.idle || !this.deps.runtime) return { state: "off" };
+		const book = this.books.get(mid), names = [...new Set(params.names.filter(name => typeof name === "string" && name.trim()))];
+		if (!book || !names.length) return { state: "unavailable" };
+		const key = JSON.stringify([book.sha, names.map(normalName).sort()]);
+		if (this.cardsAsked.has(key)) return { state: "asked" };
+		this.cardsAsked.add(key);
+		const campaign = params.campaign ?? this.deps.campaign?.();
+		try {
+			const stored = JSON.parse(await readFile(join(book.cache, `blocks-${book.sha}.json`), "utf8"));
+			const all: Array<{ id: string; page: number; text: string }> = [];
+			for (const page of Object.values(stored.pages ?? {}) as Row[]) for (const block of page.blocks ?? []) all.push({ id: block.id, page: block.page, text: block.text });
+			const skeleton = this.pointerIndex(mid), wanted = new Set(names.map(normalName));
+			const entity = (skeleton?.entities ?? []).find((row: Row) => [row.name, ...(row.aliases ?? [])].some((name: string) => wanted.has(normalName(String(name)))));
+			const forms = [...new Set([...names, ...(entity ? [entity.name, ...(entity.aliases ?? [])] : [])])];
+			const picked = cardBlocks(all, forms, entity?.blocks ?? []);
+			if (!picked.length) { this.note({ lane: "reading", event: "mechanics_card", module_id: mid, campaign, names, state: "no_numbers" }); return { state: "no_numbers" }; }
+			const short = new Map(picked.map((block, i) => [`k${i + 1}`, block]));
+			const cwd = join(this.deps.home, "source-skeletons", `${book.sha}-cards`, createHash("sha256").update(key).digest("hex").slice(0, 16));
+			await mkdir(cwd, { recursive: true });
+			const systemPrompt = await readFile(join(this.runtime().contentRoot, "setup", "mechanics-card.md"), "utf8");
+			const controller = new AbortController(), handle = `card:${key}`;
+			this.controllers.set(handle, controller);
+			try {
+				const call = await singleCall(this.runtime(), { cwd, model: this.deps.model(), systemPrompt, signal: controller.signal, shared: { priority: "background" },
+					brief: `person: ${JSON.stringify(forms.slice(0, 8))}\nblocks:\n${JSON.stringify([...short].map(([id, block]) => ({ id, page: block.page, text: block.text })))}\n\nAnswer with the JSON object now.`, timeoutMs: 120000 });
+				const card = checkedCard(call.json, short);
+				this.deps.record({ lane: "reading", phase: "mechanics_card", module_id: mid, campaign, names, ms: call.outcome.ms, ok: call.outcome.ok,
+					...(call.outcome.usage ? { usage: call.outcome.usage } : {}), dropped: card.dropped.length });
+				if (!card.pages.length) { this.note({ lane: "reading", event: "mechanics_card", module_id: mid, campaign, names, state: "none_printed" }); return { state: "none_printed" }; }
+				const kept = await this.call("cast.card", { module_id: mid, names, profile: card.profile, pages: card.pages }, campaign);
+				this.note({ lane: "reading", event: "mechanics_card", module_id: mid, campaign, names, state: kept?.state, pages: card.pages,
+					numbers: Object.keys(card.profile.characteristics).length + Object.keys(card.profile.derived).length + Object.keys(card.profile.skills).length,
+					dropped: [...card.dropped, ...(Array.isArray(kept?.dropped) ? kept.dropped : [])] });
+				return kept ?? { state: "written" };
+			} finally { this.controllers.delete(handle); }
+		} catch (error) {
+			this.note({ lane: "reading", event: "mechanics_card", module_id: mid, campaign, names, state: "failed", detail: String(error instanceof Error ? error.message : error).slice(0, 300) });
+			return { state: "failed" };
+		}
+	}
 	/** §266.8: the release pass on a partial skeleton, one at a time per document; the latest partial waits behind a running pass. */
 	private partialRelease = new Map<string, { running: boolean; next?: Row }>();
 	private releasePartial(mid: string, campaign: string | undefined, source: Row, partial: Row, signal: AbortSignal): void {

@@ -26,7 +26,9 @@ import { scopedModuleRoot } from '../modules/campaign-scope.js';
 import { validateModuleId } from '../modules/store.js';
 import { playsFromReading } from '../modules/bound-source.js';
 import { playLanguageOf } from '../read/languages.js';
-import { CAST_FILE, CAST_NEXT_FILE, CAST_SOURCE_FILE, CAST_VERSION, moduleSourceSha, storedCast } from '../read/cast.js';
+import { CAST_CARDS_FILE, CAST_FILE, CAST_NEXT_FILE, CAST_SOURCE_FILE, CAST_VERSION, moduleSourceSha, storedCast } from '../read/cast.js';
+import { CHARACTERISTICS, DERIVED_INTEGERS, damageBonusResolves, nameResolves } from '../modules/mechanics-shape.js';
+import { loadModuleContract } from '../modules/contract.js';
 import { passageKey } from '../read/table-people.js';
 import { array, integer, number, repr, row, string, type Row } from '../read/values.js';
 import { castPageFile, checkCastDraft, mergeCastRows, notesInUse, pageTexts, type CastRowStored } from './draft.js';
@@ -108,7 +110,45 @@ export function createCastRuntime(context: KernelContext): { handlers: HandlerGr
         if (!range) throw new RpcError('invalid_params', `range ${repr(params.index)} is not one of this book's`, { fix: 'use an index cast.job or cast.source listed' });
         return { pages, range, kept };
     }
+    /**
+     * §266.11: a mechanics card as the kernel keeps it: characteristics and derived values as integers in range, skills whose
+     * names resolve in the ruleset (others are dropped and named), the pages it came from. Nothing else is kept.
+     */
+    async function cardOf(params: Row, count: number): Promise<{ profile: Row; dropped: string[] }> {
+        const value = row(params.profile), dropped: string[] = [];
+        const rules = (await loadModuleContract(context)).rules;
+        const characteristics = Object.fromEntries(Object.entries(row(value.characteristics)).filter(([key, n]) => CHARACTERISTICS.includes(key) && integer(n) && Number(n) >= 1 && Number(n) <= 200 || (dropped.push(`characteristics.${key}`), false)));
+        const derived = Object.fromEntries(Object.entries(row(value.derived)).filter(([key, n]) => DERIVED_INTEGERS.includes(key) && integer(n) && Number(n) >= -2 && Number(n) <= 300
+            || key === 'DB' && rules !== undefined && damageBonusResolves(rules, n) || (dropped.push(`derived.${key}`), false)));
+        const skills = Object.fromEntries(Object.entries(row(value.skills)).filter(([name, n]) => integer(n) && Number(n) >= 1 && Number(n) <= 100
+            && (rules === undefined || nameResolves(rules, 'skills', name)) || (dropped.push(`skills.${name}`), false)));
+        const pages = array(params.pages).filter(page => integer(page) && Number(page) >= 1 && Number(page) <= count).map(Number).slice(0, 12);
+        if (!pages.length) throw new RpcError('invalid_params', 'a mechanics card names the pages it came from', { fix: 'pass pages: the physical pages of the cited blocks' });
+        if (!Object.keys(characteristics).length && !Object.keys(skills).length && !Object.keys(derived).length)
+            throw new RpcError('invalid_params', 'this card holds no number the kernel keeps', { details: { reason: 'card_empty', dropped } });
+        return { profile: { profile_kind: 'actor', characteristic_scale: 'percentile', authority: 'book_card', characteristics, derived, skills, pages }, dropped };
+    }
     const handlers: HandlerGroup = Object.freeze({
+        // §266.11: the host's mechanics card for one cast row, kept beside the cast (host-only; a card already kept is kept).
+        'cast.card': async (params): Promise<Row> => {
+            // The cards live beside the cast that serves the book: the campaign's own copy, else the shared library's (§177.2).
+            const scoped = await locate(params), own = await stored(scoped.dir, scoped.sha) ?? await inProgress(scoped.dir, scoped.sha);
+            const { dir, meta, sha } = own ? scoped : await locate({ module_id: params.module_id });
+            if (!sha) throw new RpcError('invalid_params', 'this module has no bound PDF', { fix: 'an authored module has its people\'s numbers in its graph' });
+            const served = await stored(dir, sha) ?? await inProgress(dir, sha);
+            // The row by its id, or by a form the book prints for it (whole name, by `passageKey`).
+            const asked = new Set(array(params.names).filter(name => typeof name === 'string').map(name => passageKey(name)).filter(Boolean));
+            const byName = array(served?.people).map(row).filter(person => array(person.book).some(name => asked.has(passageKey(name))));
+            const castId = typeof params.cast_id === 'string' && params.cast_id ? params.cast_id : byName.length === 1 ? string(byName[0]!.id) : '';
+            if (!array(served?.people).some(person => row(person).id === castId))
+                throw new RpcError('invalid_params', `${repr(castId)} is not a row of this book's cast`, { details: { reason: 'unknown_cast_row' } });
+            const file = join(dir, CAST_CARDS_FILE), kept = row(await readOptional(file));
+            const cards = kept.source_sha256 === sha ? row(kept.cards) : {};
+            if (cards[castId]) return { state: 'kept', cast_id: castId };
+            const { profile, dropped } = await cardOf(params, pageCount(meta));
+            await writeJsonAtomic(file, { source_sha256: sha, cards: { ...cards, [castId]: { profile, at: nowIso() } } });
+            return { state: 'written', cast_id: castId, ...(dropped.length ? { dropped } : {}) };
+        },
         'cast.job': async (params): Promise<Row> => {
             const { id, dir, meta, sha, campaign } = await locate(params);
             if (!Object.keys(meta).length) return { job_id: null, reason: 'no_module' };

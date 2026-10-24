@@ -19,7 +19,7 @@ import { standingTables, type StandingTables } from '../combat/standing.js';
 import { array, row, clone, normalize, stripPrefix, number, repr, type Row } from "./values.js";
 import { playsFromReading } from "../modules/bound-source.js";
 import type { ChainReads } from "./weaknesses.js";
-import { moduleSourceSha, readCastPublic, servedCast } from "./cast.js";
+import { CAST_CARDS_FILE, moduleSourceSha, readCastPublic, servedCast } from "./cast.js";
 import { installRenameUndo } from "./rename-undo.js";
 import { apartPairs } from "./survivors.js";
 import {publishedEventRecord} from '../turn-events.js';
@@ -288,6 +288,11 @@ export async function loadModule(context: KernelContext, id: string, campaign?: 
         graph.castStore = served?.table ?? null;
         // §194.5: the verdicts on its rows, from the directory that serves it, before anything reads the cast.
         if (served) graph.castPublic = await readCastPublic(context.snapshots, served.dir, served.table);
+        // §266.11: the mechanics cards kept beside it, for this very file.
+        if (served) try {
+            const cards = row(await context.snapshots.readJson(join(served.dir, CAST_CARDS_FILE)));
+            graph.castCards = cards.source_sha256 === moduleSourceSha(meta) ? cards : null;
+        } catch { graph.castCards = null; }
     }
     const material = (name: string) => {
         if (!registered || !playsFromReading(meta))

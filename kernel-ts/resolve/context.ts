@@ -18,6 +18,7 @@ import { engineWeapon } from '../combat/profiles.js';
 import {prepareMagicFacts,augmentMagicFacts,provisionalMagicSemantic,type PreparedMagicFacts} from '../magic/facts.js';
 import { incapacitatedBy } from '../healing/conditions.js';
 import { personLabel } from '../read/capsule.js';
+import { castCardOf } from '../read/cast.js';
 import { CheckArithmetic, SUCCESS_OUTCOMES, valueError } from './arithmetic.js';
 export interface ExecutionResult {
     data: Row;
@@ -47,7 +48,9 @@ export function npcProfileOf(graph: LoadedModule['graph'], world: Row, handle: s
         return null;
     // A later PDF supplement cannot replace numbers already established at the table (§147.8).
     const authored = graph.mechanicsOf(node).profile, pinnedProfile = row(world.npc_profiles)[handle];
-    const profile = isJsonObject(pinnedProfile) ? pinnedProfile : isJsonObject(authored) ? authored : null;
+    // §266.11: a book person who landed from a cast row has the book's mechanics card, under what the table pinned.
+    const card = isJsonObject(pinnedProfile) || isJsonObject(authored) ? null : castCardOf(graph, world, handle) ?? castCardOf(graph, world, string(node.name));
+    const profile = isJsonObject(pinnedProfile) ? pinnedProfile : isJsonObject(authored) ? authored : card;
     if (!isJsonObject(profile))
         return null;
     const resources = row(row(world.npc_resources)[handle]);
@@ -176,7 +179,13 @@ export class SettleContext {
             if (normalize(name) === wanted && (integer(pinned.value) || typeof pinned.value === 'boolean'))
                 return number(pinned.value);
         }
-        return this.graph.actorSkillValue(node, skill);
+        const book = this.graph.actorSkillValue(node, skill);
+        if (book !== null) return book;
+        // §266.11: then the profile the table holds for them -- an archetype pin or the book's mechanics card.
+        const profile = npcProfileOf(this.graph, this.world, this.graph.handle(node));
+        for (const kind of ['skills', 'characteristics'])
+            for (const [name, value] of entries(row(profile?.[kind]))) if (normalize(name) === wanted && integer(value)) return number(value);
+        return null;
     }
     presentNpcNames(): string[] {
         return entries(this.world.npc_presence).filter(([, at]) => at === this.activeScene).map(([handle]) => handle).sort();

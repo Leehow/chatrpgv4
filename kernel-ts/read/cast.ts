@@ -435,6 +435,16 @@ export function printedNames(graph: ModuleGraph, person: CastPerson): string[] {
 }
 
 /** The people of the cast the graph does not have yet (§177.1): named by the book, not yet reached by the reader. */
+/** §266.11: the book's mechanics cards, by cast row id, kept beside the cast that serves this book. */
+export const CAST_CARDS_FILE = 'cast-cards.json';
+/** §266.11: the card of a table person who landed from a cast row, as a stat block; null when there is none. */
+export function castCardOf(graph: ModuleGraph, world: Row, handle: string): Row | null {
+    const cards = row(row(graph.castCards).cards);
+    const entry = array(world.table_people).map(row).find(person => !person.replaced_by && typeof person.cast_id === 'string'
+        && [person.name, person.handle].some(word => typeof word === 'string' && !!word && (word === handle || normalize(word) === normalize(handle))));
+    const card = entry ? row(cards[string(entry.cast_id)]) : {};
+    return isJsonObject(card.profile) ? card.profile as Row : null;
+}
 export const unreadCast = (graph: ModuleGraph): CastPerson[] => bookCast(graph).filter(person => !person.node);
 
 /**

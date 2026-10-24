@@ -11,7 +11,7 @@ import {build} from 'esbuild';
 import {playtestScratch} from './playtest-scratch.mjs';
 const temp=playtestScratch('page-mode','suite-');
 await build({stdin:{contents:[`export * from './extensions/module/page-mode.ts';`,`export {mergeSkeleton,skeletonPath} from './extensions/module/lean-skeleton.ts';`,
- `export {ReadingService} from './extensions/module/reading-service.ts';`].join('\n'),
+ `export {ReadingService} from './extensions/module/reading-service.ts';`,`export {cardBlocks,checkedCard} from './extensions/module/mechanics-card.ts';`].join('\n'),
  resolveDir:resolve(import.meta.dirname,'../..'),sourcefile:'page-mode-api.ts',loader:'ts'},outfile:join(temp,'api.mjs'),bundle:true,platform:'node',format:'esm',
  packages:'external',logLevel:'silent'});
 const api=await import(pathToFileURL(join(temp,'api.mjs')).href);
@@ -161,3 +161,18 @@ test('§263.8: a table nobody plays stops background reading and hands back runn
  assert.equal(notes.filter(row=>row.event==='idle_resume').length,1,'a committed turn resumes reading');
  reading.dispose();
 }));
+
+test('§266.11: a card reads numeric blocks on the pages that print the person, and keeps a number only where its block prints it',()=>{
+ const blocks=[{id:'b17-1-a',page:17,text:'Russ Williams, gas station owner. STR 60 CON 55 SIZ 65 DEX 50 HP 12'},
+  {id:'b17-2-b',page:17,text:'The station smells of oil and old rubber.'},
+  {id:'b40-0-c',page:40,text:'Skills: Mechanical Repair 55%, Drive Auto 40%, Spot Hidden 30% (Russ)'},
+  {id:'b41-0-d',page:41,text:'Nate: STR 70 CON 60 SIZ 80'}];
+ const picked=api.cardBlocks(blocks,['Russ']);
+ assert.deepEqual(picked.map(block=>block.id),['b17-1-a','b40-0-c'],'numeric blocks on pages printing his name; not another page\'s numbers');
+ const short=new Map([['k1',blocks[0]],['k2',blocks[2]]]);
+ const card=api.checkedCard({characteristics:{STR:{value:60,block:'k1'},DEX:{value:5,block:'k1'},POW:{value:70,block:'k2'}},derived:{HP:{value:'12',block:'k1'}},
+  skills:[{name:'Mechanical Repair',value:55,block:'k2'},{name:'Drive Auto',value:45,block:'k2'},{name:'Spot Hidden',value:30,block:'k9'}]},short);
+ assert.deepEqual(card.profile,{characteristics:{STR:60},derived:{HP:12},skills:{'Mechanical Repair':55}});
+ assert.deepEqual(card.dropped.sort(),['characteristics.DEX','characteristics.POW','skills.Drive Auto','skills.Spot Hidden'],'5 is inside 50; 70 is not on its block; an unknown block is no block');
+ assert.deepEqual(card.pages,[17,40]);
+});

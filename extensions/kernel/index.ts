@@ -1709,6 +1709,8 @@ export default function (pi: ExtensionAPI, host: {capabilities?:RuntimeCapabilit
 		sourcePages?(moduleId: string, pages: number[], params?: Record<string, unknown>, signal?: AbortSignal): Promise<Array<{page: number; pdf_label?: string; text: string}>>;
 		/** §266.1: whether pages, or a focus, are outside the pointer index (page mode). */
 		pageMode?(moduleId: string | undefined, query: {pages?: number[]; focus?: string}): boolean;
+		/** §266.11: the book's numbers for a person met at the table, in the background. */
+		mechanicsCard?(moduleId: string, params: {campaign?: string; names: string[]}): Promise<unknown>;
 		/** §266.10: whether a detail reading may be asked (never under lean reading unless PI_COC_DETAIL_READS=1). */
 		detailReads?(moduleId: string | undefined): boolean;
 		/** §266.4: the book's pages the Keeper turns, cut by the host. */
@@ -5542,6 +5544,8 @@ export default function (pi: ExtensionAPI, host: {capabilities?:RuntimeCapabilit
 		if (!drivenEngine && carried.length) carriedText.note(state.campaign, state.turn, carried.map((page) => ({ scene: null, page: page.page, label: page.pdf_label ?? null, text: page.text })));
 		void record({ lane: "reading", event: "person_text", turn: state.turn, person: name, focus, pages: (carried.length ? carried : []).map((page) => page.page),
 			source: carried.length ? "index" : "carried", ...(indexed.length ? landingLayer(indexed) : {}), ...(pageMode ? { page_mode: true } : noReading ? { pointer_reading: true } : {}) });
+		// §266.11: a book person met at the table gets the numbers the book prints for them, in the background.
+		if (noReading && person.book !== true) void reading.mechanicsCard?.(readingModule, { campaign: state.campaign, names })?.catch(() => undefined);
 		const landed = Array.isArray(result.person_text) ? result.person_text as Array<Record<string, unknown>> : [{ person: name, focus, pages }];
 		return { ...result, person_text: landed.map((entry) => ({ ...entry, note: pageMode ? PAGE_MODE_TEXT_NOTE : noReading ? POINTER_TEXT_NOTE : PERSON_TEXT_NOTE,
 			// On the hybrid engine the pages ride the next note once; the legacy engine has no note, so they ride here.
