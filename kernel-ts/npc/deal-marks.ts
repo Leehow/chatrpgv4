@@ -1,6 +1,6 @@
 /**
- * Contract §258.13: what became of deals, read back from the delivered reply in the background (the owner, 2026-10-24:
- * "最终文字输出之后用一个后台任务识别回写，就跟描述那个一样"). The Keeper rarely marks an agreement in its packet, and a
+ * Contract §258.13: what became of deals, read back from the delivered reply in the background (the owner, 2026-10-24: a
+ * background task after the final text recognises the marks and writes them back, as kept looks do). The Keeper rarely marks an agreement in its packet, and a
  * service it prices with `cash` never became a proposal at all, so the deal ledger stayed empty. After a delivery the host
  * asks `table.deals.job` what is still open for the people of the scene and what was paid that turn, the deal lane answers
  * from the reply, and `table.deals` writes the marks onto that turn's `communication`, where `agreementView` reads them.

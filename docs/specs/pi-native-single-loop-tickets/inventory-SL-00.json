@@ -2509,6 +2509,18 @@
       "note": "One bounded typed batch after delivery: per sentence unit of the reply, whose look it shows or none; per person, the pronoun the reply uses or none. Uncertainty selects nothing. No generative fallback or prose rewrite; table.looks is the only write."
     },
     {
+      "file": "extensions/kernel/index.ts",
+      "symbol": "afterDeliveryDeals",
+      "kind": "jev-adapter",
+      "callee": "createDecisionAdapter",
+      "count": 1,
+      "owner": "Native background deal marks (contract 258.13)",
+      "path": "app-play-gated",
+      "role": "leaf",
+      "trace": "lane: deals, event: decided; section 258.13",
+      "note": "One bounded typed batch after delivery: per open offer or accepted deal of the people there, what the reply did to it; per purchase paid that turn, whether it is still owed and who owes it. Uncertainty records nothing. No generative fallback or prose rewrite; table.deals is the only write."
+    },
+    {
       "file": "extensions/memory/index.ts",
       "symbol": "runJob",
       "kind": "jev-adapter",
