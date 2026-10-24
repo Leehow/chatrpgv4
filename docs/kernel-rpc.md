@@ -52540,3 +52540,13 @@ says to resend the rest unchanged, instead of listing the admitted kinds only. E
 final delivery (`finalDeliveryAction`) says "submit the output packet" under the decision packet; it said "return a
 private expression brief beginning with {{compose}}", and the Keeper spent part of an opening deciding which of the two
 forms the table wanted.
+
+### 264.10 Small purchases are routine, and an unregistered giver is a label
+
+`quick-settlement` 1.2.1 lists small goods and fares among routine acts: no item, cash, quote, new place or `walk_on` for
+the seller or driver, and the small thing becomes an item only when a later mechanic needs it. Where the Keeper does place
+an object handed over by someone nobody registered, `object.from` that names no one keeps that giver as a label on the
+receipt (`adjusted: [{field: "from", reason: "unregistered_giver", giver}]`) and the handover ground drops as for any move
+with no second person; before, `from` had to resolve to a registered owner, so the Keeper registered the vendor first and
+then weighed whether `apply npc walk_on` or the packet's `walk_on` slot could be named by the object, which runs earlier.
+An existing instance's transfer and an adoption still need a resolvable `from`.
