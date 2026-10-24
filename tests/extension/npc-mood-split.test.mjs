@@ -189,14 +189,14 @@ test('native activity priority and malformed undertaking roll back the entire no
   assert.deepEqual((await client.table('status')).receipts,baseline);
 });
 
-test('normalization does not let an opening move a person away before player input',async t=>{
+test('§264.22: normalization at the opening is judged like any turn, never refused for coming before player input',async t=>{
   const client=await kernel(t);await createCampaign(client);await client.table('open');
   const path=join(campaignDir(client.workspace),'world.json'),before=readJson(path);
   for(const [ordinal,extra] of [[1,{activity:ordinary.activity,why:ordinary.why}],[2,{intends:ordinary.intends,outcome:'planned'}]]){
     const effects=[{kind:'npc',name:'Steven Knott',to:'away',...extra}];splitNpcMood(effects);
-    const refused=await client.call('table.apply',{campaign:'c1',call_id:`t0-c${ordinal}`,effects});
-    assert.equal(refused.ok,false);assert.ok(['invalid_params','turn_state'].includes(refused.error.code));
-    assert.deepEqual(readJson(path),before);
+    const response=await client.call('table.apply',{campaign:'c1',call_id:`t0-c${ordinal}`,effects});
+    // §264.22: the opening is judged like any turn; a refusal, if any, is the effect's own, never the opening's.
+    assert.notEqual(response.error?.code,'turn_state',JSON.stringify(response.error));
   }
 });
 

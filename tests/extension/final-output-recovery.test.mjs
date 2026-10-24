@@ -13,7 +13,7 @@ import {KernelError} from '../../extensions/kernel/client.ts';
 
 const plan = {version:1, materials:[{name:'cold room', text:'The room is cold.',kind:'description',visibility:'player',required:true}]};
 
-test('opening recovery names output and a checked plan still needs one explicit publication', async t => {
+test('an opening write is judged like any turn, and a checked plan still needs one explicit publication', async t => {
   const table = await openTable({legacyDeliveryFixtures:false,env:{FAKE_KERNEL_OPENING:'1',
     PI_COC_READER_CMD:JSON.stringify([process.execPath,join(resolve(import.meta.dirname,'../..'),'tests/extension/fixtures/final-output-writer.mjs')])},responses:[
     fauxAssistantMessage([fauxToolCall('apply',{effects:[{kind:'time',minutes:5}]})],{stopReason:'toolUse'}),
@@ -22,11 +22,9 @@ test('opening recovery names output and a checked plan still needs one explicit 
   ]});
   t.after(()=>table.dispose());
   await waitForIdle(table.session);
-  const refusal = table.session.messages.find(m=>m.role==='toolResult'&&m.toolName==='apply');
-  assert.ok(refusal?.isError);
-  const text=refusal.content.filter(c=>c.type==='text').map(c=>c.text).join('');
-  assert.match(text,/output/);
-  assert.doesNotMatch(text,/close with narrate/);
+  // §264.22: the opening no longer refuses an ordinary write, so the apply is judged like any turn's and is not a recovery.
+  const applied = table.session.messages.find(m=>m.role==='toolResult'&&m.toolName==='apply');
+  assert.doesNotMatch((applied?.content??[]).filter(c=>c.type==='text').map(c=>c.text).join(''),/this is the table's opening/);
   const calls=table.kernelRequests().map(r=>r.method);
   assert.ok(calls.includes('table.delivery.check'));
   assert.ok(calls.indexOf('table.delivery.check')<calls.indexOf('table.narrate'),JSON.stringify({calls,errors:table.session.messages.filter(m=>m.role==='toolResult'&&m.isError).map(m=>({tool:m.toolName,content:m.content}))}));

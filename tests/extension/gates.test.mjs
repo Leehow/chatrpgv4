@@ -260,7 +260,7 @@ test('opening NPC disclosure reaches the kernel before delivery without inventin
   assert.equal(toolResults(table.session, 'apply')[0]?.isError, false);
 });
 
-test("开桌回合：awaiting_player 拒写，但 narrate 放行", async (t) => {
+test("开桌回合：开场按普通回合判（§264.22），写调用到内核，narrate 关掉开场", async (t) => {
 	const table = await openTable({
 		env: { FAKE_KERNEL_OPENING: "1" },
 		responses: [
@@ -292,16 +292,14 @@ test("开桌回合：awaiting_player 拒写，但 narrate 放行", async (t) => 
 	const methods = table.kernelRequests().map((entry) => entry.method);
 	assert.ok(!methods.includes("table.player_input"), "宿主消息不是玩家输入，不进 player_input");
 	assert.ok(methods.includes("table.look"), "awaiting_player 期间读调用放行");
-	assert.ok(!methods.includes("table.resolve"), "awaiting_player 期间写调用被拒");
-
-	const [blocked] = toolResults(table.session, "resolve");
-	assert.ok(blocked);
-	assert.equal(blocked.isError, true);
-	assert.match(resultText(blocked), /awaiting_player/);
+	assert.ok(methods.includes("table.resolve"), "开场的检定照常交给内核判");
+	const [rolled] = toolResults(table.session, "resolve");
+	assert.ok(rolled);
+	assert.doesNotMatch(resultText(rolled), /this is the table's opening/, "宿主不再拦开场的写调用");
 
 	const narrate = table.kernelRequests().find((entry) => entry.method === "table.narrate");
 	assert.ok(narrate, "开桌的 narrate 应该放行");
-	assert.equal(narrate.params.call_id, "t0-c1", "开桌是第 0 回合");
+	assert.equal(narrate.params.call_id, "t0-c2", "开桌是第 0 回合，检定之后的第二个调用");
 
 	assert.ok(deliveryTexts(table.session).includes("一九二五年的波士顿，雨还没停。"));
 });
@@ -431,47 +429,6 @@ test("同类拒绝三次：第四次换了措辞也拦下，只剩 narrate 收�
 });
 
 /**
- * A refusal the host issued is still a refusal (contract §67).
- *
- * Real table, 2026-09-16, during character creation: the turn had never opened (`turn: 0`,
- * `awaiting_player`) and the Keeper kept calling `resolve`. The host's own pre-tool gate answered
- * `turn_state: wait for the player to speak` twenty-three times, every three seconds — fifteen
- * minutes for a one-line question. The budget counted only refusals that came back from the kernel
- * as a `coc_error`; a block the host returned itself never reached it, so those retries were free.
- */
-test("宿主自己发的 awaiting_player 拒绝也计入预算：第三次之后 resolve 关掉", async (t) => {
-	const attempt = (goal) => fauxAssistantMessage([fauxToolCall("resolve", { action: { intent: "investigate", goal, method: "用侦查看看" } })], { stopReason: "toolUse" });
-	const table = await openTable({
-		env: { FAKE_KERNEL_OPENING: "1" },
-		responses: [
-			attempt("先掷个骰"),
-			attempt("换个说法再掷"),
-			attempt("还是想掷"),
-			attempt("第四次想掷"),
-			fauxAssistantMessage([fauxToolCall("output", { text: "一九二五年的波士顿，雨还没停。" })], { stopReason: "toolUse" }),
-			fauxAssistantMessage("收尾"),
-		],
-	});
-	t.after(() => table.dispose());
-
-	await waitForIdle(table.session);
-
-	// Refused by the host, so none of them reached the kernel -- that was never the issue.
-	assert.ok(!table.kernelRequests().map((entry) => entry.method).includes("table.resolve"), "awaiting_player 期间写调用一次都不该到内核");
-	const texts = toolResults(table.session, "resolve").map(resultText);
-	assert.ok(texts.length >= 3, `至少拒了三次，实际 ${texts.length}`);
-	assert.match(texts[0], /awaiting_player/, "头两次是普通的 turn_state 拒绝");
-	assert.ok(texts.some((text) => /refused 3 times this turn for the same reason/.test(text)),
-		"第三次之后要说清同类已经耗尽，而不是原样再拒一次");
-	assert.ok(texts.some((text) => /close the turn with output/.test(text)), "拦下时要给出路");
-	const rows = table.telemetry().filter((row) => row.lane === "refusals" && row.reason === "class_limit");
-	assert.equal(rows.length, 1, "记一条同类耗尽");
-	assert.equal(rows[0].tool, "resolve");
-	// narrate still closes the opening: the budget never shuts the two verbs that end a turn.
-	assert.ok(table.kernelRequests().some((entry) => entry.method === "table.narrate"), "narrate 不受预算影响");
-});
-
-/**
  * A turn that never opened also has to end (contract §70).
  *
  * Real table, 2026-09-16: after the refusal budget was spent the Keeper kept calling. Every call was
@@ -482,7 +439,7 @@ test("宿主自己发的 awaiting_player 拒绝也计入预算：第三次之后
 test("预算耗尽后还在调用：第三次说得更硬，第六次切断这一轮", async (t) => {
 	const attempt = (goal) => fauxAssistantMessage([fauxToolCall("resolve", { action: { intent: "investigate", goal, method: "用侦查看看" } })], { stopReason: "toolUse" });
 	const table = await openTable({
-		env: { FAKE_KERNEL_OPENING: "1" },
+		env: { FAKE_KERNEL_OPENING: "1", FAKE_KERNEL_ERRORS: JSON.stringify({ "table.resolve": { code: "turn_state", message: "the turn is not open" } }) },
 		responses: Array.from({ length: 14 }, (_, i) => attempt(`第 ${i + 1} 次想掷`))
 			.concat([fauxAssistantMessage("收尾")]),
 	});

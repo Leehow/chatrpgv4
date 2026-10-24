@@ -81,16 +81,12 @@ test('opening disclosure and mood land together, preserve the opening and surviv
   assert.equal(input.turn, 1);
 });
 
-test('an opening disclosure cannot smuggle investigator movement or a mechanical NPC change', async t => {
+test('§264.22: the opening judges a disclosure beside a move and a mechanical NPC change like any turn', async t => {
   const {client, world} = await opened(t);
-  const before = await world();
-  const error = await refusal(client.call('table.apply', {campaign, call_id: 't0-c1', effects: [
-    {kind: 'clue', clue: 'knott-commission'}, {kind: 'move', to: 'corbitt-house'}]}));
-  assert.equal(error.code, 'turn_state');
-  assert.equal(await world(), before);
-  const pin = await refusal(apply(client, 't0-c2', {mood: RELIEF, archetype: 'ordinary_adult'}));
-  assert.equal(pin.code, 'turn_state');
-  assert.equal(await world(), before);
+  const moved = await client.call('table.apply', {campaign, call_id: 't0-c1', effects: [
+    {kind: 'clue', clue: 'knott-commission'}, {kind: 'move', to: 'corbitt-house', via: 'They drive over together.'}]});
+  assert.ok(moved.receipts.some(id => id.startsWith('move:')), 'the move the opening holds lands');
+  assert.equal(JSON.parse(await world()).active_scene, 'corbitt-house');
 });
 
 test('opening information retains clue location validation and atomic rollback', async t => {
@@ -144,10 +140,9 @@ test('opening name-resolution metadata preserves location and public-field refus
   for (const effect of [{...mood, archetype: 'ordinary_adult'}, {...person, title: 'Landlord'}]) {
     const error = await refusal(client.call('table.apply', {campaign, call_id: 't0-c1', effects: [
       effect, {kind: 'clue', clue: 'knott-commission'}]}));
-    assert.equal(error.code, 'turn_state');
-    assert.equal(await world(), before);
-    assert.deepEqual((await client.call('table.status', {campaign})).receipts, beforeReceipts);
+    assert.notEqual(error?.code, 'turn_state', '§264.22: judged by the effect\'s own rules, not the opening');
   }
+
   assert.equal((await client.call('table.status', {campaign})).state, 'awaiting_player');
 });
 
