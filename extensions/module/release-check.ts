@@ -36,6 +36,11 @@ export function releaseStatus(verdict: string | undefined, kind: string, complet
  * its section's facts.
  */
 export function relevantFacts(skeleton: Row, candidate: Row, text: string, sectionOf: (page: number) => number): Row[] {
+	return rankedFacts(skeleton, candidate, text, sectionOf).map(row => row.fact);
+}
+
+/** §263.4: the relevant facts with their rank: 0 names the candidate's people, 1 is on its page or the next, 2 shares its section. */
+export function rankedFacts(skeleton: Row, candidate: Row, text: string, sectionOf: (page: number) => number): Array<{ fact: Row; rank: number }> {
 	const printed = normalName(text), entityKey = normalName(candidate.entity ?? "");
 	const named = new Set<string>([entityKey]);
 	for (const entity of skeleton?.entities ?? []) {
@@ -46,7 +51,7 @@ export function relevantFacts(skeleton: Row, candidate: Row, text: string, secti
 	const rank = (fact: Row) => (fact.names ?? []).some((name: string) => named.has(normalName(name))) ? 0
 		: (fact.pages ?? []).some((page: number) => Math.abs(page - candidate.page) <= 1) ? 1
 			: (fact.pages ?? []).some((page: number) => sectionOf(page) === sectionOf(candidate.page)) ? 2 : 3;
-	return facts.map(fact => ({ fact, rank: rank(fact) })).filter(row => row.rank < 3).sort((a, b) => a.rank - b.rank).map(row => row.fact);
+	return facts.map(fact => ({ fact, rank: rank(fact) })).filter(row => row.rank < 3).sort((a, b) => a.rank - b.rank);
 }
 
 export interface ReleaseContext {
@@ -97,7 +102,7 @@ export async function checkReleases(context: ReleaseContext): Promise<Row> {
 	for (const candidate of candidates) {
 		const old = previous.get(candidate.key);
 		// A verdict that relied on no facts stays valid while its facts version is unchanged; a kept verdict is re-derived for completeness.
-		if (old && old.facts_version === version) { rows.set(candidate.key, { ...old, status: revoked.has(old.key) ? "restricted" : releaseStatus(old.verdict, old.kind, completeFor(candidate), old.facts_omitted === true) }); continue; }
+		if (old && old.facts_version === version && old.facts_omitted !== true && old.verdict) { rows.set(candidate.key, { ...old, status: revoked.has(old.key) ? "restricted" : releaseStatus(old.verdict, old.kind, completeFor(candidate), old.facts_omitted === true) }); continue; }
 		todo.push(candidate);
 	}
 	todo.sort((a, b) => Number(!first.has(a.page)) - Number(!first.has(b.page)) || a.page - b.page);
@@ -110,21 +115,23 @@ export async function checkReleases(context: ReleaseContext): Promise<Row> {
 	await mkdir(dirRoot, { recursive: true });
 	const one = async (index: number, batch: Row[]) => {
 		if (context.signal.aborted || context.mayContinue?.() === false) return;
-		const facts = new Map<string, Row>(), items: Row[] = [];
-		let spent = 0, omitted = false;
+		const facts = new Map<string, Row>(), items: Row[] = [], short = new Set<number>();
+		let spent = 0;
 		for (const [i, candidate] of batch.entries()) {
 			const text = sliceRef(candidate.ref, sha, SOURCE_LAYOUT_VERSION, blocks)!;
 			const item = { id: `c${i + 1}`, kind: candidate.kind, entity: candidate.entity, text, context: contextOf(candidate.ref, order, blocks) };
 			spent += roughTokens(item.text) + roughTokens(item.context);
 			items.push(item);
-			for (const fact of relevantFacts(skeleton, candidate, text, sectionOf)) {
+			// A candidate is short of facts when one naming its people or on its pages did not fit; section-wide facts are context only.
+			for (const { fact, rank } of rankedFacts(skeleton, candidate, text, sectionOf)) {
 				if (facts.has(fact.id)) continue;
 				const cost = roughTokens(fact.summary) + 10;
-				if (spent + cost > RELEASE_BOUNDS.evidenceTokens) { omitted = true; break; }
+				if (spent + cost > RELEASE_BOUNDS.evidenceTokens * (batch.length === 1 ? 1.5 : 1)) { if (rank < 2) short.add(i); continue; }
 				facts.set(fact.id, { id: fact.id, summary: fact.summary, ...(fact.reveal ? { reveal: fact.reveal } : {}) });
 				spent += cost;
 			}
 		}
+		const omitted = short.size > 0;
 		const dir = join(dirRoot, `batch-${index + 1}-${Date.now()}`);
 		await mkdir(dir, { recursive: true });
 		const input = { candidates: items, protected_facts: [...facts.values()], facts_omitted: omitted };
@@ -136,19 +143,28 @@ export async function checkReleases(context: ReleaseContext): Promise<Row> {
 		for (const [i, row] of batch.entries()) {
 			const answer = verdicts.get(`c${i + 1}`);
 			const verdict = ["safe", "unsafe", "uncertain"].includes(answer?.verdict) ? answer!.verdict : undefined;
-			const status = revoked.has(row.key) ? "restricted" : releaseStatus(verdict, row.kind, completeFor(row), omitted);
+			// A candidate that was short of facts in a shared batch is asked again on its own.
+			if (short.has(i) && batch.length > 1) { again.push(row); continue; }
+			const status = revoked.has(row.key) ? "restricted" : releaseStatus(verdict, row.kind, completeFor(row), short.has(i));
 			if (status === "approved") approved++; else if (status === "candidate") candidate++; else restricted++;
 			rows.set(row.key, { key: row.key, ref: row.ref, entity: row.entity, kind: row.kind, page: row.page, verdict: verdict ?? null,
 				reason: typeof answer?.reason === "string" ? answer.reason.slice(0, 300) : call.json ? "no verdict" : "checker failed",
 				facts: Array.isArray(answer?.facts) ? answer!.facts.filter((id: unknown) => typeof id === "string" && facts.has(id as string)) : [],
-				facts_version: version, facts_omitted: omitted, status });
+				facts_version: version, facts_omitted: short.has(i), status });
 		}
 		context.record({ lane: "reading", event: "release_check", module_id: context.moduleId, batch: index + 1, candidates: batch.length,
 			approved, candidate, restricted, ms: call.outcome.ms, ok: call.outcome.ok, ...(call.outcome.usage ? { usage: call.outcome.usage } : {}) });
 	};
+	const again: Row[] = [];
 	let next = 0;
 	await Promise.all(Array.from({ length: Math.min(RELEASE_BOUNDS.concurrency, batches.length) }, async () => {
 		while (next < batches.length) { const index = next++; await one(index, batches[index]!); }
+	}));
+	// §263.4: one more pass, each short candidate alone with its own facts.
+	const singles = again.splice(0).map(row => [row]);
+	let single = 0;
+	await Promise.all(Array.from({ length: Math.min(RELEASE_BOUNDS.concurrency, singles.length) }, async () => {
+		while (single < singles.length) { const index = single++; await one(batches.length + index, singles[index]!); }
 	}));
 	const out = { version: RELEASE_VERSION, prompt: promptSha, facts_version: version, complete, revoked: [...revoked],
 		rows: [...rows.values()].sort((a, b) => a.page - b.page) };

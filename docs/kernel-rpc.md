@@ -52521,7 +52521,10 @@ ref, entity, kind, verdict, reason, facts, status}]}`. `status` is the static re
 - `approved` when the verdict is `safe` and either the kind is `read_aloud` or `handout`, or the skeleton is `complete` and
   no `blocked_pages` page prints the entity's name or an alias (normalised spelling);
 - `candidate` when the verdict is `safe` but the skeleton is not complete (a `description` or `appearance` drawn from
-  Keeper prose waits for the whole book's protected facts) or facts were omitted for it;
+  Keeper prose waits for the whole book's protected facts) or facts were omitted for it. Only facts naming the candidate's
+  people or on its pages count as omitted (section-wide facts are context); a candidate short of them in a shared batch is
+  asked again alone, with half again the evidence bound, and a row short of facts or without a verdict is checked again
+  at the next release check;
 - `restricted` otherwise (`unsafe`, `uncertain`, no verdict).
 
 A row is reused while its `key`, the facts version (digest of all protected facts) and the prompt digest are unchanged;
