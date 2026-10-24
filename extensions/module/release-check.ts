@@ -283,8 +283,16 @@ export function plansInScope(skeleton: Row, capsule: Row, limit = 16): Row[] {
 	const near = (row: Row) => (row.names ?? []).some((name: string) => nearForms.has(normalName(String(name))));
 	const out: Row[] = [];
 	for (const [kind, list] of [["protected", skeleton?.protected_facts], ["keeper_truth", skeleton?.keeper_truth], ["condition", skeleton?.conditional_events]] as const)
-		for (const row of list ?? []) if (named(row) && !out.some(item => item.summary === row.summary)) out.push({ kind, names: row.names, summary: row.summary, pages: row.pages, ...(row.reveal ? { reveal: row.reveal } : {}), near: near(row) });
-	return out.sort((a, b) => Number(b.near) - Number(a.near)).slice(0, limit).map(({ near: _near, ...row }) => row);
+		for (const row of list ?? []) if (named(row) && !out.some(item => item.summary === row.summary)) out.push({ kind, names: row.names, summary: row.summary, pages: row.pages, ...(row.type ? { type: row.type } : {}), ...(row.reveal ? { reveal: row.reveal } : {}), near: near(row) });
+	// §266.9: who is here first; then the book's arrangements before its other rows, and an option after the arrangement it replaces.
+	const order = (row: Row) => row.type === "arrangement" ? 0 : row.type === "option" ? 2 : 1;
+	return out.sort((a, b) => Number(b.near) - Number(a.near) || order(a) - order(b)).slice(0, limit).map(({ near: _near, ...row }) => row);
+}
+
+/** §266.9: the end of a block's text from its last sentence stop (any script's full stop), at most 200 characters. */
+function lastSentence(text: string): string {
+	const tail = text.slice(-200), stop = Math.max(...["。", ".", "！", "!", "？", "?"].map(mark => tail.lastIndexOf(mark)));
+	return stop >= 0 && stop < tail.length - 1 ? tail.slice(stop + 1) : tail;
 }
 
 /**
@@ -306,8 +314,11 @@ export function evidenceInScope(skeleton: Row, blocks: Map<string, BlockText>, c
 		if (!entity) continue;
 		for (const item of entity.evidence ?? []) {
 			if (!["plan", "motivation", "condition"].includes(item.use) || seen.has(item.block) || opening.has(blockPage(item.block))) continue;
-			const text = blocks.get(item.block)?.text;
-			if (!text) continue;
+			const own = blocks.get(item.block)?.text;
+			if (!own) continue;
+			// §266.9: a block that carries on another column's sentence starts with that sentence's beginning.
+			const from = (blocks.get(item.block) as Row | undefined)?.continues, before = typeof from === "string" ? blocks.get(from)?.text : undefined;
+			const text = before && !seen.has(from) ? `…${lastSentence(before)}${own}` : own;
 			const cost = roughTokens(text);
 			if (spent + cost > budget) continue;
 			seen.add(item.block); spent += cost;

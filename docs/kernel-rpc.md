@@ -52962,4 +52962,17 @@ skeleton, else the partial one. Telemetry `release_ready` carries `partial: true
 
 Tests: `tests/extension/pointer-reading.test.mjs`.
 
+### 266.9 The book's default and its options (amends §263.3, §263.10)
+
+Blood Road p13 prints a default and an alternative in one block: the pastor has Russ lie that the car's parts must be
+ordered from out of town; "if the Keeper prefers a shorter scenario", Russ fixes the car within an hour. One index of the
+book listed only the alternative, and `book_truth` gave the Keeper both as plain conditions, so either was "the book".
+Every `conditional_events` and `keeper_truth` row now carries `type` (closed: `arrangement`, `option`, `trigger`,
+`fact`; dropped when the answer gives another word): an arrangement is what the book has someone do by default as play
+runs, an option an alternative it offers the Keeper instead. The index is told to list both when a passage gives both, and
+never to leave out an arrangement aimed at the investigators. `book_truth` rows carry `type` and sort who is here
+first, then arrangements, then the rest, then options. The evidence window (263.10) starts a block that `continues`
+another column with the end of that block's last sentence (after its last full stop, at most 200 characters), so a plan
+whose subject is in the previous column is read whole. Changing the index prompt re-reads every section once.
+
 Tests: `tests/extension/page-mode.test.mjs`.

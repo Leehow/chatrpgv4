@@ -216,3 +216,19 @@ test('§266.8: on a partial index a look is checked once every page printing its
  assert.deepEqual(asked,['Russ','Dr Brenner'],'the merged pass asks only Brenner: Russ\'s facts are unchanged');
  assert.deepEqual(second.rows.map(row=>[row.entity,row.status]).sort(),[['Dr Brenner','approved'],['Russ','approved']]);
 });
+
+test('§266.9: plan rows keep their type, the book\'s arrangement comes before its option, and a continued block starts with its sentence',()=>{
+ const local=new Set(['b13-1-a','b13-2-b','b17-1-c']);
+ const answer=api.sectionAnswer({mentions:[{name:'Russ',kind:'npc',blocks:['b17-1-c'],evidence:[{block:'b13-2-b',use:'plan'}]}],
+  conditional_events:[{names:['Russ'],type:'option',summary:'For a shorter scenario Russ fixes the car in an hour.',blocks:['b13-2-b']},
+   {names:['Russ'],type:'arrangement',summary:'Russ lies that parts must be ordered from out of town.',blocks:['b13-2-b']},
+   {names:['Russ'],type:'whatever',summary:'An odd word.',blocks:['b13-2-b']}]},local);
+ assert.deepEqual(answer.conditional_events.map(row=>row.type),['option','arrangement',undefined],'a word outside the closed list is dropped');
+ const skeleton=api.mergeSkeleton([{section:{name:'A',first:13,last:17},status:'indexed',answer}],id=>Number(/^b(\d+)-/.exec(id)[1]),[],()=>'',DOC);
+ const rows=api.plansInScope(skeleton,{where:{display_name:'Esso'},present:[{display_name:'Russ'}]});
+ assert.deepEqual(rows.map(row=>row.type),['arrangement',undefined,'option']);
+ const blocks=new Map([['b13-1-a',{id:'b13-1-a',text:'Background. The pastor wants to watch them, so he has some townsfolk'}],
+  ['b13-2-b',{id:'b13-2-b',text:'stop the PCs leaving. They persuade Russ to lie.',continues:'b13-1-a'}]]);
+ const window=api.evidenceInScope(skeleton,blocks,{where:{display_name:'Esso'},present:[{display_name:'Russ'}]});
+ assert.equal(window[0].text,'… The pastor wants to watch them, so he has some townsfolkstop the PCs leaving. They persuade Russ to lie.');
+});

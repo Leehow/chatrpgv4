@@ -14,8 +14,8 @@ book spells them:
  "mentions":[{"name":"...","aliases":["..."],"english":"the name as English writes it","kind":"npc|creature|location|scene|object|organization|event|other","blocks":["k6"],
    "evidence":[{"block":"k6","use":"appearance|description|motivation|plan|condition|clue|handout|read_aloud|mention"}]}],
  "cross_references":[{"names":["..."],"hint":"one short English line: what this passage says about them","blocks":["..."]}],
- "conditional_events":[{"names":["..."],"summary":"one short English line: the event and its condition, as the book states it","blocks":["..."]}],
- "keeper_truth":[{"names":["..."],"summary":"one short English line: a hidden fact, plan or motive the Keeper must know","blocks":["..."]}],
+ "conditional_events":[{"names":["..."],"type":"arrangement|option|trigger","summary":"one short English line: the event and its condition, as the book states it","blocks":["..."]}],
+ "keeper_truth":[{"names":["..."],"type":"arrangement|fact","summary":"one short English line: a hidden fact, plan or motive the Keeper must know","blocks":["..."]}],
  "protected_facts":[{"names":["..."],"risk":"identity|plan|hidden_cause|ending|other","summary":"one short English line","blocks":["..."],"reveal":"optional short line: where or when the book lets it come out"}],
  "release_candidates":[{"name":"the mention it belongs to","kind":"read_aloud|handout|appearance|description","block":"k12","quote":"optional exact words of that block"}],
  "continuations":[["k9","k31"]]}
@@ -30,6 +30,12 @@ book spells them:
 - `conditional_events`: things that happen when, if or unless something else is true, with the condition as the book
   states it. A Keeper option or alternative pacing is a conditional event, never a fact.
 - `keeper_truth`: hidden facts, plans and motives. A plan is a plan, not something that already happened.
+- `type` on every `conditional_events` and `keeper_truth` row: `arrangement` is what the book has someone do by default
+  as play runs (someone is told to delay, watch, lie to or lead the investigators); `option` is an alternative the book
+  offers the Keeper instead (a shorter version, another pacing); `trigger` happens when its condition is met; `fact` is a
+  hidden truth. When a passage gives a default and then an alternative, list both: the default as an `arrangement`, the
+  alternative as an `option`, each naming the people it concerns. An arrangement aimed at the investigators is never
+  left out because an option follows it.
 - `protected_facts`: every proposition players must not learn early: a person's true identity or allegiance, a plan
   against the investigators, a hidden cause, how the story ends, what a monster really is. One line each, with the blocks
   that state it. When in doubt, list it.

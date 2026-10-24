@@ -629,7 +629,7 @@ export class ReadingService implements ReadingBridge {
 				try {
 					const stored = JSON.parse(readFileSync(join(book.cache, `blocks-${book.sha}.json`), "utf8"));
 					blocks = new Map();
-					for (const page of Object.values(stored.pages ?? {}) as Row[]) for (const block of page.blocks ?? []) blocks.set(block.id, { id: block.id, text: block.text });
+					for (const page of Object.values(stored.pages ?? {}) as Row[]) for (const block of page.blocks ?? []) blocks.set(block.id, { id: block.id, text: block.text, ...(block.continues ? { continues: block.continues } : {}) });
 				} catch { /* no block cache yet */ }
 				cached = { stamp, skeleton, blocks };
 				this.planCache.set(mid, cached);
