@@ -2546,15 +2546,15 @@
     },
     {
       "file": "extensions/module/lean-skeleton.ts",
-      "symbol": "buildSkeleton",
+      "symbol": "singleCall",
       "kind": "reader-task",
       "callee": "runtime.runTask",
       "count": 1,
-      "owner": "Lean module reading skeleton (§262.5)",
+      "owner": "Pointer reading single calls (§262.5, §263.3, §263.4, §263.9)",
       "path": "app-play-gated",
       "role": "driver",
-      "trace": "reading telemetry rows phase skeleton, event skeleton_built",
-      "note": "Under PI_COC_LEAN_READING=1, once per document in the background, one bounded reader child per bookmark section (read,write, at most 4 requests) writes names, cross references, conditions and Keeper truth; the host merges them into reader input and navigation index rows, never graph material."
+      "trace": "reading telemetry rows phase skeleton, events skeleton_built, release_check, lean_cast_play_names",
+      "note": "Under PI_COC_LEAN_READING=1 the host's one tool-free provider call (tools empty, at most 1 request): a pointer-index section (block ids, closed words, short lines), a release-check batch (one verdict per candidate) and the cast's play-language names. No Keeper loop, no campaign mutation; the host merges and certifies."
     }
   ]
 }

@@ -259,8 +259,9 @@ test('an owner says a lie: the clue it teaches is discovered once and the author
   const response=authorTask(table).decision_context.responses.find(entry=>entry.actor==='npc_1');
   assert.ok(response,'the owner\'s response reached the author');
   assert.equal(response.claims.length,1);
-  assert.deepEqual(response.claims[0],{kind:'exhibit',exhibit:{kind:'testimony',channel:'speech',surface:'SURFACE exhibit-knott-says',stance:'lie'},
-    authority:'What this speaker says, in their terms; not world truth. Render as their speech; do not correct or expose it in narration.'});
+  // §263.6: the author never hears the stance; a lie and a fact carry the same speaker line.
+  assert.deepEqual(response.claims[0],{kind:'exhibit',exhibit:{kind:'testimony',channel:'speech',surface:'SURFACE exhibit-knott-says'},
+    authority:'What this speaker says, in their terms; render it as their speech and do not judge or correct it in narration.'});
   const text=JSON.stringify(authorTask(table));
   for(const hidden of ['KEEPER_NOTE','LABEL exhibit','teaches','exhibit_id','knott-commission'])assert.ok(!text.includes(hidden),hidden);
   assert.equal(seen[1].exhibits.find(entry=>entry.label==='LABEL exhibit-knott-says').clue,'discovered');
@@ -271,12 +272,12 @@ test('an owner says a lie: the clue it teaches is discovered once and the author
   assert.deepEqual(row.selected,[refOfIssued(seen[0],'exhibit-knott-says')]);
 });
 
-test('a fact testimony carries the plain speaker line; a deflection the lie line',async t=>{
+test('§263.6: a fact testimony and a deflection carry the same speaker line and no stance',async t=>{
   const exhibits=EXHIBITS().map(item=>item.exhibit_id==='exhibit-knott-says'?{...item,stance:'fact',teaches:undefined}:item);
   const {table}=await play(t,[says(['exhibit-knott-says'])],{options:{exhibits}});
   assert.deepEqual(errorsOf(table),[]);
   const claim=authorTask(table).decision_context.responses.find(entry=>entry.actor==='npc_1').claims[0];
-  assert.deepEqual([claim.exhibit.stance,claim.authority],['fact','What this speaker says, in their terms.']);
+  assert.deepEqual([claim.exhibit.stance,claim.authority],[undefined,'What this speaker says, in their terms; render it as their speech and do not judge or correct it in narration.']);
   assert.equal(clueReceipts(table).length,0,'a testimony teaching nothing discovers nothing');
 });
 
@@ -305,8 +306,8 @@ test('a non-owner is refused with the owners named; testimony in reveal is refus
   const settled=owner.settleExhibits([],[clerk],speak('npc_1'));
   assert.deepEqual(settled.effects,[{kind:'clue',clue:'clue-t',via_exhibit:'t'}]);
   const claims=owner.authorClaims(owner.hydrate([{actor:'npc_1',to:['investigator_1'],act:'answer',content:[{exhibit_ref:'exhibit_1'}]}]).responses,settled.authors)[0].claims;
-  assert.deepEqual(claims,[{kind:'exhibit',exhibit:{kind:'testimony',channel:'speech',surface:'Surface t',stance:'deflection'},
-    authority:'What this speaker says, in their terms; not world truth. Render as their speech; do not correct or expose it in narration.'}]);
+  assert.deepEqual(claims,[{kind:'exhibit',exhibit:{kind:'testimony',channel:'speech',surface:'Surface t'},
+    authority:'What this speaker says, in their terms; render it as their speech and do not judge or correct it in narration.'}]);
 });
 
 test('said testimony is marked across turn scopes of one play line, not on another line; documents are never marked',()=>{
