@@ -8441,6 +8441,13 @@ export default function (pi: ExtensionAPI, host: {capabilities?:RuntimeCapabilit
 		if (table) table.roundTrips += 1;
 	});
 
+	// §263.8: a scene assessed through apply this turn is assessed; the packet does not ask for it a second time.
+	pi.on('tool_result', (event: any) => {
+		if (!table || event.toolName !== 'apply' || event.isError) return;
+		const effects = (event.input as Record<string, unknown>)?.effects;
+		if (Array.isArray(effects) && effects.some((effect: any) => effect?.kind === 'scene')) table.packetSceneRequired = false;
+	});
+
 	pi.on('tool_call', (event, ctx) => {
 		// §175.1: a Keeper call that is not a read is this turn's writing; the steps after it can run without thinking. The
 		// host's own operations (the clerk's move before the first call) raise the same event and are not the Keeper's.

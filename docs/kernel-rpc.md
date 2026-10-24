@@ -52526,3 +52526,9 @@ The output guidance now says that talk, a greeting or a glance needs no `time` c
 records a change this turn's events caused (never a standing attitude or a first-impression result the kernel already
 holds), and that an omitted `strategy` is the host's `refer`. The capsule's pending-contact `when` carries §263.4's rule.
 Each was weighed on most calls of the 2026-10-24 table, with the Keeper adding and dropping the same command within a turn.
+
+### 263.8 A scene assessed by apply is assessed
+
+An `apply {kind: "scene"}` that lands this turn clears the packet's scene requirement (`packetSceneRequired`), which
+otherwise stayed at its default until the next capsule: the 2026-10-24 opening assessed the office through apply and the
+next `output` was refused for lacking the same assessment.
