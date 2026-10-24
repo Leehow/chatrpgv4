@@ -291,7 +291,7 @@ export function plansInScope(skeleton: Row, capsule: Row, limit = 16): Row[] {
 
 /** §266.9: the end of a block's text from its last sentence stop (any script's full stop), at most 200 characters. */
 function lastSentence(text: string): string {
-	const tail = text.slice(-200), stop = Math.max(...["。", ".", "！", "!", "？", "?"].map(mark => tail.lastIndexOf(mark)));
+	const tail = text.slice(-200), stop = Math.max(...["\u3002", ".", "\uff01", "!", "\uff1f", "?"].map(mark => tail.lastIndexOf(mark)));
 	return stop >= 0 && stop < tail.length - 1 ? tail.slice(stop + 1) : tail;
 }
 
