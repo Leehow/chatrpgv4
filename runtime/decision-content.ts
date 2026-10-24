@@ -237,8 +237,8 @@ export class DecisionContent {
     const own=deal.by===person.ref,by=this.entityLabels.get(deal.by)??deal.by,parties=(Array.isArray(deal.with??deal.to)?(deal.with??deal.to) as unknown[]:[]).filter((ref):ref is string=>typeof ref==='string').map(ref=>this.entityLabels.get(ref)??ref);
     this.issue('fact',{statement:deal.gist??'(offer)',by,to:parties,status:deal.status,made_turn:deal.made_turn,content_id:deal.content_id,
      authority:deal.status==='open'
-      ?`An offer ${own?'this person':by} made to ${parties.join(', ')}; still open, nothing is agreed until it is accepted. When the player's input accepts it, declines it, or the person takes it back, this turn's commands must include {kind:"agreement",proposal:<this fact's ref>,status:"accepted"|"declined"|"withdrawn"}; without that mark the deal does not exist.`
-      :`A deal: ${own?'this person':by} owes it to ${parties.join(', ')} since it was accepted; it is ${own?'their own':by+'\'s'} obligation until kept or broken. When it is carried out (the work done, the goods handed over, the money paid) or refused or left undone, this turn's commands must include {kind:"agreement",proposal:<this fact's ref>,status:"kept"|"broken"}.`},
+      ?`An offer ${own?'this person':by} made to ${parties.join(', ')}; still open, nothing is agreed until it is accepted. Play what happens to it; the host reads from the delivered reply whether it was accepted, declined or taken back and records it (§258.13). A {kind:"agreement",proposal:<this fact's ref>,status} command is optional.`
+      :`A deal: ${own?'this person':by} owes it to ${parties.join(', ')} since it was accepted; it is ${own?'their own':by+'\'s'} obligation until kept or broken. Play it honestly: the host reads from the delivered reply whether it was carried out or broken and records it (§258.13). A {kind:"agreement",proposal:<this fact's ref>,status} command is optional.`},
      person.ref,deal.status==='open'?'proposal':'commitment');
    }
    for(const field of MATERIAL_FIELDS){

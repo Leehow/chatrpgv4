@@ -60,3 +60,8 @@ test('the lane asks typed choices only, records nothing below its confidence flo
  const done=await decideDeals(input,port({'deal-1':['unchanged',.95],'paid-1':['done',.95],'seller-1':['person-1',.95]}),new AbortController().signal);
  assert.deepEqual([done.marks,done.paid],[[],[]],'handed over within the reply: no deal is owed');
 });
+
+test('the Keeper is told the host records what became of a deal, so its agreement command is optional',async()=>{
+ const {TURN_PACKET_GUIDANCE}=await import('../../runtime/turn-packet-prototype.ts');
+ assert.match(TURN_PACKET_GUIDANCE,/after delivery the host reads from the reply what was accepted, declined, kept or broken and records it, so an \{kind:"agreement",proposal:fact_ref,status\} command is optional/);
+});
