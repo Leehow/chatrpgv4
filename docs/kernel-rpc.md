@@ -52635,6 +52635,14 @@ setup session running; when the last one closes the service stops claiming backg
 "idle_stop"}`) and resumes at the next open. Finished sections and certificates are kept, so a resumed index does not
 read them again. Tokens spent by a cancelled request are still recorded.
 
+*As built (2026-10-24, §266):* a reading host is one table's process, so "the last table closed" is its shutdown, which
+already disposes the service. What still read on was a table left open with nobody playing. The service now counts a
+table open, a reader arriving, a committed turn and a book being prepared as activity (`prefetch` wakes other than
+`scene-queued`, and `prepare`); past `PI_COC_READ_IDLE_MS` (default 20 minutes, 0 never stops) with none it stops
+(`{lane: "reading", event: "idle_stop", idle_ms, running}`): background readings running are handed back as at a
+worker's exit, the skeleton build and release passes are aborted, and the pump claims only for a reading someone waits on.
+The next activity resumes (`idle_resume`) and the build starts again on its kept sections.
+
 Tests: `tests/extension/pointer-reading.test.mjs`.
 
 ### 263.9 Cast and maps under pointer reading (amends §262.8, §262.10)

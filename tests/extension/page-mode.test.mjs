@@ -144,3 +144,20 @@ test('§266.10: under pointer reading a lean detail reading of indexed pages is 
  process.env.PI_COC_DETAIL_READS='1';
  try{assert.equal(reading.detailReads('blood-road'),true);}finally{delete process.env.PI_COC_DETAIL_READS;}
 }));
+
+test('§263.8: a table nobody plays stops background reading and hands back running background readings; the next activity resumes it',async()=>lean(async()=>{
+ const root=playtestScratch('page-mode','idle-'),notes=[],reading=await service(root,{notes});
+ const background=new AbortController(),waited=new AbortController();
+ reading.controllers.set('bg',background);reading.jobs.set('bg',{job_id:'read-9',foreground:false});
+ reading.controllers.set('fg',waited);reading.jobs.set('fg',{job_id:'read-8',foreground:true});
+ assert.equal(reading.checkIdle(Date.now()),false,'not idle yet');
+ assert.equal(reading.checkIdle(Date.now()+20*60*1000+1),true);
+ assert.deepEqual([background.signal.aborted,waited.signal.aborted],[true,false],'a reading someone waits on goes on');
+ assert.ok(reading.handedOff.has('bg'),'handed back for the next owner, not failed');
+ assert.equal(notes.filter(row=>row.event==='idle_stop').length,1);
+ reading.controllers.clear();reading.jobs.clear();
+ reading.deps.call=async()=>({});
+ await reading.prefetch('blood-road','turn-committed').catch(()=>undefined);
+ assert.equal(notes.filter(row=>row.event==='idle_resume').length,1,'a committed turn resumes reading');
+ reading.dispose();
+}));

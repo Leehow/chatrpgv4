@@ -459,6 +459,41 @@ export class ReadingService implements ReadingBridge {
 			this.note({ lane: "reading", event: "deadline_stop", deadline_ms: deadline, running: this.controllers.size });
 			this.dispose({ handOff: true });
 		}, deadline).unref();
+		// §263.8: a table nobody plays stops background reading; the next activity resumes it.
+		const idleMs = this.idleMs();
+		if (idleMs > 0) this.idleTimer = setInterval(() => this.checkIdle(), Math.max(1000, Math.min(60000, Math.floor(idleMs / 4)))).unref?.() ?? null;
+	}
+	/** §263.8: `PI_COC_READ_IDLE_MS` (default 20 minutes; 0 never stops). */
+	private idleMs(): number {
+		const value = Number(process.env.PI_COC_READ_IDLE_MS ?? 1200000);
+		return Number.isFinite(value) && value > 0 ? value : 0;
+	}
+	private idleTimer: unknown = null;
+	private lastActive = Date.now();
+	/** §263.8: true while background reading is stopped for want of a player. */
+	private idle = false;
+	/** §263.8: a table opened, a turn committed, a book prepared: background reading may go on (and resumes when stopped). */
+	private active(reason: string): void {
+		this.lastActive = Date.now();
+		if (!this.idle) return;
+		this.idle = false;
+		this.note({ lane: "reading", event: "idle_resume", reason });
+	}
+	/** §263.8: past the idle bound, background work stops: running background readings are handed back, builds aborted. */
+	checkIdle(now = Date.now()): boolean {
+		if (this.stopped || this.idle || this.idleMs() <= 0 || now - this.lastActive < this.idleMs()) return this.idle;
+		this.idle = true;
+		let running = 0;
+		for (const [key, controller] of this.controllers) {
+			const job = this.jobs.get(key);
+			if (job?.foreground === true) continue;
+			if (job) this.handedOff.add(key);
+			controller.abort(); running++;
+		}
+		// Kept sections and certificates are reused when the build starts again.
+		this.skeletons.clear(); this.partialRelease.clear();
+		this.note({ lane: "reading", event: "idle_stop", idle_ms: now - this.lastActive, running });
+		return true;
 	}
 	/** §262.6: source answers that failed under lean reading, by campaign, module and focus, with the failure. */
 	private failedAnswers = new Map<string, string>();
@@ -466,7 +501,7 @@ export class ReadingService implements ReadingBridge {
 	private skeletons = new Map<string, Promise<void>>();
 	/** §262.5: under lean reading, build the bound document's skeleton once in the background; never awaited by play. */
 	private leanSkeleton(mid: string, campaign: string | undefined): Promise<void> {
-		if (process.env.PI_COC_LEAN_READING !== "1" || this.stopped || !this.deps.runtime) return Promise.resolve();
+		if (process.env.PI_COC_LEAN_READING !== "1" || this.stopped || this.idle || !this.deps.runtime) return Promise.resolve();
 		const started = (async () => {
 			const source = await this.call("module.source.snapshot", { module_id: mid }, campaign);
 			if (source.window) return;
@@ -737,6 +772,7 @@ export class ReadingService implements ReadingBridge {
 	 */
 	dispose(options: {handOff?: boolean} = {}) {
 		this.stopped = true;
+		if (this.idleTimer) clearInterval(this.idleTimer as ReturnType<typeof setInterval>);
 		this.lanes.abort();
 		this.stopSweep();
         this.blockedClaims.clear();
@@ -882,6 +918,7 @@ export class ReadingService implements ReadingBridge {
 	}
 	prefetch(moduleId: string, reason = 'requested'): Promise<void> {
 		if (this.stopped) return Promise.resolve();
+		if (reason !== 'scene-queued') this.active(reason);
 		const campaign = this.deps.campaign?.();
 		this.deps.record({lane:'reading',event:'prefetch_wake',module_id:moduleId,campaign,reason});
 		this.leanSkeleton(moduleId, campaign);
@@ -900,6 +937,7 @@ export class ReadingService implements ReadingBridge {
 	 * opening. The kernel answers no job for an authored module or a book that has its cast.
 	 */
 	async prepare(params: Row, signal?: AbortSignal, options: ReadingOptions = {}): Promise<Row> {
+		this.active('prepare');
 		const result = await this.prepareBook(params, signal, options);
 		const mid = typeof result?.module_id === 'string' ? result.module_id : typeof params.module_id === 'string' ? params.module_id : undefined;
 		// Binding returns before any read (the guidance or opening preparation that follows asks); the cast is queued after
@@ -1614,6 +1652,8 @@ export class ReadingService implements ReadingBridge {
 					const wake = new Promise<void>(resolve => this.pumpWakes.set(scope, () => {wakeRequested = true; resolve();}));
 					// §22.4.6: past its own capacity the pump claims only to place a blocking read one of its requests waits on.
 					while ((active.size < capacity || this.blockingWaiting(mid, campaign) !== undefined) && !this.stopped) {
+						// §263.8: an idle table claims only for a reading someone waits on.
+						if (this.idle && this.blockingWaiting(mid, campaign) === undefined) break;
 						const job = await this.bindBeforeClaim(mid, campaign, () => this.call("module.read.claim", { module_id: mid, owner: `host-${process.pid}`, diagnostics: true }, campaign));
 						// A wake does not choose a job; the claim does. The row that names the job names the wake it answered,
 						// and a wake that found nothing queued says so instead of leaving no trace (#65).
