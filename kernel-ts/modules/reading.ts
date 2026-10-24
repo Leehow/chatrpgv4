@@ -945,7 +945,7 @@ export class Reading {
                 if (settled && !pages.length) continue;
                 const spelled = node ? [graph.displayName(node), string(node.name), ...array(node.aliases)] : unread ? unread.names : [name];
                 const personNames = [...new Set(spelled.filter(value => typeof value === 'string' && value.trim()).map(value => value.trim()))].slice(0, PERSON_NAMES);
-                // §266.14: a person only the index names may be one character long (班, 娃): a sentence on their index pages that
+                // §266.14: a person only the index names may be one character long (Cursed Be the City): a sentence on their index pages that
                 // holds that character is their passage; anywhere else a name needs two.
                 const indexedOnly = node === null && !unread && indexed.has(normalize(name));
                 if (gate.land?.has(name)) {
