@@ -1,11 +1,11 @@
 {
   "id": "historical-reference",
-  "version": "1.3.0",
+  "version": "1.4.0",
   "game_api": "pipicoc.game.v1",
   "state_version": 1,
   "author": "PipiCOC",
   "name": "Historical Reference",
-  "description": "Optional historical setting and price references through the Keeper provider's native search.",
+  "description": "Optional historical setting references through the Keeper provider's native search. Price guidance lives in the Shopping package.",
   "default_enabled": true,
   "requires": [
     "context.historical-reference.v1",

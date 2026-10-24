@@ -277,3 +277,17 @@ test('priced lines with with and no price_id settle as a quote; without with the
   const {with:_with,...nobody}=lines;
   await assert.rejects(game.call('apply',{call_id:'t1-c2',effects:[nobody]}),e=>e.code==='invalid_params'&&/needs a source/.test(e.message));
 });
+
+test('§264.17 goods marked carried land in the buyer\'s inventory with the purchase; a meal and an unsettled quote do not',async t=>{
+  const game=await table(t);
+  await game.call('apply',{call_id:'t1-c1',effects:[{kind:'cash',with:'The hardware clerk',why:'A flashlight, batteries and a coffee',items:[
+    {name:'Flashlight',quantity:1,unit_price:'1.50',carried:true},{name:'Dry cell battery',quantity:6,unit_price:'0.05',carried:true},{name:'Coffee',quantity:1,unit_price:'0.05'}]}]});
+  const held=Object.fromEntries((await game.sheet()).equipment.filter(row=>row&&typeof row==='object').map(row=>[row.name,row.quantity??1]));
+  assert.equal(held.Flashlight,1);assert.equal(held['Dry cell battery'],6);assert.equal(held.Coffee,undefined,'what was not carried away is not equipment');
+  const items=(await game.call('status')).receipts.filter(r=>r.kind==='item'&&r.call_id==='t1-c1');
+  assert.deepEqual(items.map(r=>r.from),['The hardware clerk','The hardware clerk']);
+  await game.call('apply',{call_id:'t1-c2',effects:[{kind:'cash',mode:'quote',quote:'Lantern',category:'purchase',with:'The hardware clerk',items:[{name:'Lantern',quantity:1,unit_price:'2.00',carried:true}]}]});
+  assert.equal((await game.sheet()).equipment.some(row=>row?.name==='Lantern'),false,'a quote hands nothing over');
+  await game.call('apply',{call_id:'t1-c3',effects:[{kind:'cash',quote:'Lantern'}]});
+  assert.equal((await game.sheet()).equipment.some(row=>row?.name==='Lantern'),true,'settling the saved quote hands it over');
+});

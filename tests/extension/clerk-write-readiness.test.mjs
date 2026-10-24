@@ -122,7 +122,7 @@ test('§228.3 a Keeper write before any prepared request of the input still gets
 });
 
 test('a failed non-routine expense receives the shipped service-order section without a location call',async()=>{
-    const path=join(root,'mods/quick-settlement');
+    const path=join(root,'mods/shopping');
     const manifest=JSON.parse(await readFile(join(path,'mod.json'),'utf8'));
     const sections=api.parseSections(manifest,JSON.parse(await readFile(join(path,'sections.json'),'utf8')),await readFile(join(path,'agent.md'),'utf8'));
     const instruction={mod:manifest.id,version:manifest.version,form:'indexed',index_contract_version:2,instruction:'Core.',
@@ -138,5 +138,6 @@ test('a failed non-routine expense receives the shipped service-order section wi
     const body=(await readFile(join(path,'agent.md'),'utf8')).split('## Services beyond routine')[1].split('\n## ')[0].trim();
     assert(body.length>100&&delivered.text.includes(body),'the delivered text is the shipped section');
     assert.equal(detail.package_sections.some(section=>section.package==='enhanced-locations'),false);
-    assert.equal(reads.length,1,'the resident and author sections are not reloaded for this expense');
+    const cashSections=instruction.sections.filter(section=>section.kind==='situational'&&section.triggers?.includes('before_apply:cash')).map(section=>section.key);
+    assert.deepEqual([...reads].sort(),cashSections.sort(),'only the sections a cash apply triggers are read for this expense');
 });

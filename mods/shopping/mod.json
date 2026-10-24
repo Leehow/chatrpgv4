@@ -1,0 +1,32 @@
+{
+  "id": "shopping",
+  "version": "1.0.1",
+  "game_api": "pipicoc.game.v1",
+  "state_version": 1,
+  "author": "PipiCOC",
+  "name": {
+    "zh-Hans": "购物",
+    "en": "Shopping"
+  },
+  "description": {
+    "zh-Hans": "买东西时由程序回答店里有没有货、有几件、多少钱、订货要几天；KP 只挑商品对应的价目和店的类型。集中了购物、服务付款和定价的指引。",
+    "en": "When the investigator buys, the program answers whether the outlet has the goods, how many, at what price and how long an order takes; the Keeper only picks the printed record and the kind of outlet. Collects the guidance on purchases, paid services and prices."
+  },
+  "default_enabled": true,
+  "requires": [
+    "shopping.stock.v1",
+    "mods.package-files.v1",
+    "instructions.sections.v1"
+  ],
+  "package_files": [
+    "agent.md",
+    "sections.json"
+  ],
+  "dependencies": {},
+  "conflicts": [],
+  "settings": {},
+  "contributes": {
+    "instructions": "agent.md",
+    "sections": "sections.json"
+  }
+}

@@ -12,7 +12,7 @@ test('native reference retains authored setting and needs both useful detail and
 test('shipped reference has no external credential, library or historical lookup instruction',()=>{
  const manifest=JSON.parse(readFileSync('mods/historical-reference/mod.json','utf8'));
  assert.equal(manifest.host_settings,undefined);
- assert.equal(manifest.version,'1.3.0');
+ assert.equal(manifest.version,'1.4.0');
  const source=readFileSync('extensions/kernel/tools.ts','utf8');assert(!source.includes('"historical_reference"'));
  assert(!source.includes('reference_mode'));
  assert(!source.includes('reference_queries'));

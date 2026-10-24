@@ -15,6 +15,7 @@ import {effectId,type StagedEffect} from './bookkeeping.js';
 import {addCash,cashDecimal,cashStorage,cashText,compareCash} from './cash.js';
 import {bindCashQuote,cashCounterparty,expenseCategory,expenditure,purchaseItems,storedCash} from './purchases.js';
 import {decimalSpelling} from '../../shared/cash-decimal.js';
+import {recordSale,shopDefaults,shopTerms} from '../shopping/index.js';
 import type {ApplyContext} from './index.js';
 export type CashContext=Pick<ApplyContext,'kernel'|'world'|'graph'|'turn'|'callId'|'ordinal'|'mint'> & {campaign:{party():Promise<readonly Row[]>}};
 type Int=number|bigint;
@@ -166,6 +167,9 @@ export async function stageCash(context:CashContext,effect:Row,staged:Map<string
     if(requested!==undefined&&requested!=='cash'&&requested!=='spending_level')throw new RpcError('invalid_params','settlement must be cash or spending_level');
     const sheet=await stagedSheet(context,staged,effect.subject),id=string(sheet.id),subject=string(sheet.name||sheet.id);
     const bound=bindCashQuote(context,effect,id);effect=bound.effect;
+    effect=shopDefaults(effect);
+    // §265.5: goods bought at an outlet are checked against what the outlet has this week before any money moves.
+    const shop=effect.shop!==undefined&&mode!=='cancel'?await shopTerms(context.kernel,context.graph,context.world,effect,mode):null;
     const priced=effect.items!==undefined?purchaseItems(effect.items):null;
     if(priced){
         const wanted={coefficient:-priced.total.coefficient,exponent:priced.total.exponent},given=cashDecimal(effect.delta);
@@ -200,9 +204,9 @@ export async function stageCash(context:CashContext,effect:Row,staged:Map<string
         try{const preview=expenditure(context,finance,category,purchase);quoteFields={...preview.fields,cash_debit:storedCash({coefficient:-preview.delta.coefficient,exponent:preview.delta.exponent})};}
         catch(error){if(!(error instanceof RpcError)||error.code!=='needs')throw error;}
         const receipt={id:context.mint(`cash:t${context.turn.turn}-c${context.ordinal}`),kind:'cash',call_id:context.callId,resource:'cash',subject:id,subject_label:personLabel(context.world,id,subject),before,after:before,delta:0,
-            ...quoteFields,category,settlement:'quote',quote:name,...(effect.bill?{bill:effect.bill}:{}),purchase_amount:amount,items:priced.items,currency,with:otherId,with_label:otherLabel,...sourced,why,at:nowIso()};
+            ...quoteFields,category,settlement:'quote',quote:name,...(effect.bill?{bill:effect.bill}:{}),purchase_amount:amount,items:priced.items,currency,with:otherId,with_label:otherLabel,...sourced,...shop?.fields,why,at:nowIso()};
         const quotes=array(context.world.cash_quotes).filter(value=>value.subject!==id||normalize(string(value.name))!==normalize(name));
-        quotes.push({name,subject:id,category,purchase_amount:amount,items:priced.items,currency,with:withName,with_id:otherId,...(quoteFields.cash_debit!==undefined?{cash_debit:quoteFields.cash_debit}:{}),...sourced,why,settled:null,origin_turn:number(context.turn.turn)});
+        quotes.push({name,subject:id,category,purchase_amount:amount,items:priced.items,currency,with:withName,with_id:otherId,...(quoteFields.cash_debit!==undefined?{cash_debit:quoteFields.cash_debit}:{}),...sourced,...shop?.fields,why,settled:null,origin_turn:number(context.turn.turn)});
         context.world.cash_quotes=quotes;
         return {receipt,event:null};
     }
@@ -227,8 +231,9 @@ export async function stageCash(context:CashContext,effect:Row,staged:Map<string
     if(covered.ledger)finance.daily_spending=covered.ledger;
     cash.amount=after;sheet.finance=finance;sheet.cash=`${string(after)} ${currency}`;
     const receipt={id:context.mint(`cash:t${context.turn.turn}-c${context.ordinal}`),kind:'cash',call_id:context.callId,resource:'cash',subject:id,subject_label:personLabel(context.world,id,subject),before,after,delta:actualDelta,
-        ...covered.fields,...(effect.bill?{bill:effect.bill}:{}),...(priced?{items:priced.items}:{}),...(bound.quote?{quote:bound.quote.name}:{}),...(bound.repaired?{adjusted:[bound.repaired]}:{}),with:otherId,with_label:otherLabel,currency,...sourced,why,at:nowIso()};
+        ...covered.fields,...(effect.bill?{bill:effect.bill}:{}),...(priced?{items:priced.items}:{}),...(bound.quote?{quote:bound.quote.name}:{}),...(bound.repaired?{adjusted:[bound.repaired]}:{}),with:otherId,with_label:otherLabel,currency,...sourced,...shop?.fields,why,at:nowIso()};
     if(bound.quote)bound.quote.settled=receipt.id;
+    if(shop)recordSale(context.graph,context.world,effect,shop.sold);
     if(typeof effect._purchase_quote==='string'){
         const name=effect._purchase_quote,offer=array(context.world.cash_quotes).find(q=>q.subject===id&&normalize(string(q.name))===normalize(name));
         if(offer&&!offer.settled&&!offer.cancelled&&priced){
@@ -248,4 +253,21 @@ export async function stageCash(context:CashContext,effect:Row,staged:Map<string
 }
 export async function commitInventorySheets(context:ApplyContext,staged:Map<string,Row>):Promise<void>{
     for(const [id,sheet] of staged){const current=(await context.campaign.party()).find(value=>string(value.id)===id);if(!current)continue;for(const key of ['equipment','weapons','finance','cash'])if(Object.hasOwn(sheet,key))current[key]=sheet[key];await context.campaign.writeSheet(current);}
+}
+
+/**
+ * §264.17: goods a settled purchase marks `carried` go to the buyer as equipment rows in the same batch, so a flashlight
+ * bought at the counter needs no define and object of its own (live 2026-10-24: two refused applies registering one).
+ * A fractional quantity (a pound of nails) is one row.
+ */
+export async function stageCarriedGoods(context:ApplyContext,effect:Row,receipt:Row,staged:Map<string,Row>,catalog:()=>Promise<Map<string,Row>>):Promise<StagedEffect[]>{
+    if(receipt.settlement==='quote'||(effect.mode??'settle')!=='settle')return [];
+    const lines=array(receipt.items).filter(line=>line.carried===true);
+    const out:StagedEffect[]=[];
+    for(const line of lines){
+        const quantity=Number(line.quantity);
+        out.push(await stageItem(context,{kind:'item',name:string(line.name),quantity:Number.isInteger(quantity)&&quantity>0?quantity:1,
+            to:receipt.subject,...(typeof effect.with==='string'&&effect.with.trim()?{from:effect.with}:{}),why:effect.why},staged,catalog));
+    }
+    return out;
 }

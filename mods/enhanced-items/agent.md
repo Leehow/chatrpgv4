@@ -30,9 +30,10 @@ settle its body with document.requested_edit, method, actual implements, marks a
 legibility. Missing means or a consequential method choice leaves it unfinished.
 Prior readers retain their observations; never refill missing words from history.
 
-Reading surfaces and observed knowledge require receipts too. When the investigator
-shows a page to an NPC, apply two same-owner object effects: document:{action:"show",
-reader:<that person>}, then document:{action:"observe",reader:<that person>,
+Reading surfaces and observed knowledge require receipts too. When someone shows a
+page to another person, apply one same-owner object effect: document:{action:"show",
+reader:<that person>,read:true} when they read all of it (showing opens it); for only
+a part, show without read, then document:{action:"observe",reader:<that person>,
 access:"shown",quote:<the exact visible passage>}; each has its causal why.
 Capture only the exposed words when a hand hides another line. Never replace these
 operations with an NPC mood, a memory note or prose saying they looked. A hidden

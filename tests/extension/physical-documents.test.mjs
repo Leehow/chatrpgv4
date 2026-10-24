@@ -268,3 +268,15 @@ test('the investigator is a reader too, by name or sheet id, and an NPC still ha
   await game.apply([game.doc({action:'close'})]);
   await assert.rejects(game.apply([game.doc({action:'observe',reader:'Steven Knott',access:'shown'})]),/not open/,'an NPC still needs the writing shown');
 });
+test('§264.16: a page shown to be read whole is read as it is shown, in one effect; shown without read, nothing is read yet',async t=>{
+  const game=await paper(t);
+  await game.apply([game.doc({action:'append',text:'Lease: two tenants, both left early.'},'The investigator writes the selected note.')]);
+  await game.apply([game.doc({action:'show',reader:'Steven Knott'},'Hayes holds it up without letting him read.')]);
+  let receipts=(await game.call('table.status')).receipts.filter(receipt=>receipt.document_operation==='show');
+  assert.equal(receipts.at(-1).observed_writing,undefined,'shown without read records no reading');
+  await game.apply([game.doc({action:'close'})]);
+  await game.apply([game.doc({action:'show',reader:'Steven Knott',read:true},'Hayes pushes the page across for him to read.')]);
+  receipts=(await game.call('table.status')).receipts.filter(receipt=>receipt.document_operation==='show');
+  assert.match(receipts.at(-1).observed_writing,/both left early/);
+  assert.equal(receipts.at(-1).observation_scope,'full');
+});
