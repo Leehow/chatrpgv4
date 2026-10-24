@@ -90,6 +90,8 @@ MOD_CAPABILITIES.add(ROUTINE_SUMMARY_CAPABILITY);
 MOD_CAPABILITIES.add(LOCATION_POSITION_V2_CAPABILITY);
 MOD_CAPABILITIES.add(LOCATION_OBSERVATION_CAPABILITY);
 MOD_CAPABILITIES.add(LOCATION_OBSERVATION_V2_CAPABILITY);
+/** Contract §265.1: lookup kind=shop and cash `shop` answer stock, price and order time while a package requiring this is active. */
+MOD_CAPABILITIES.add('shopping.stock.v1');
 /** Contract 28.3 and §180.8: the two dossier spines a package may add words to, a person's and a creature's. */
 export const VOCABULARY_SPINES = ["actor_profile_keys", "creature_profile_keys"] as const;
 const invalid = (message: string): never => {

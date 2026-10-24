@@ -30,6 +30,7 @@ import { prepareNameHistory } from '../journal/name-history.js';
 import { incapacitatedBy } from "../healing/conditions.js";
 import { crossLineReader, remembersAcrossLoops } from "./worldline.js";
 import { mechanics } from "./mechanics.js";
+import { shopLookup } from "../shopping/index.js";
 import { publicSheet, objectLook, activeMods, effectiveMods } from "./mods.js";
 import { establishItem, establishProvider, HEAD_ESTABLISH } from "./establish.js";
 import {equipmentPreparation, equipmentPreparationRows} from '../mods/equipment.js';
@@ -39,7 +40,7 @@ import { knownMapViews, mapCatalog, mapView, type AssetReader } from './maps.js'
 import { BAND_FIELDS, bandRows } from "../rules/bands.js";
 import { array, row, entries, number, integer, truth, string, repr, normalize, clone, sorted, type Row } from "./values.js";
 const LOOK_FOCUS = ["knowledge", "clues", "exhibits", "investigator", "map", "npc", "object", "scene", "session", "time"];
-const LOOKUP_KINDS = ["catalog", "module", "rule", "secret", "continuity"];
+const LOOKUP_KINDS = ["catalog", "module", "rule", "secret", "continuity", "shop"];
 export type RuleLookup = (campaign: CampaignSnapshot, module: LoadedModule, params: Row) => Promise<KernelResult>;
 export interface ReadContributions {
     repairLegacyTrail?(campaign: CampaignSnapshot): Promise<void>;
@@ -675,6 +676,8 @@ export function readHandlers(context: KernelContext, contributions: ReadContribu
                     } : {})
                 };
             }
+            // §265.2: what an outlet has, at what price and how long an order takes, from the Keeper's parameters.
+            if (kind === "shop") return shopLookup(context, graph, world, params);
             if (kind === "rule" || kind === "catalog") {
                 const lookup = contributions.lookupRules;
                 if (!lookup)

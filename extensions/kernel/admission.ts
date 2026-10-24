@@ -502,7 +502,7 @@ const IDENTIFYING_FIELDS: readonly string[] = [
 	"to", "establish", "label", "travel_minutes", "travel_band", "via", "clue", "minutes", "band", "band_reach", "until", "stated", "beyond_travel", "delta",
 	"name", "regions", "region_labels", "level_labels", "subject", "from", "with", "quantity", "dice", "scope", "object",
 	"description", "category", "adopt", "condition", "weapon", "definition", "source_object", "document", "part", "offer", "handover", "check",
-	"settlement", "source", "price_id", "currency", "mode", "quote", "bill", "items", "intent_ref", "intent_outcome", "owed","activity",
+	"settlement", "source", "price_id", "currency", "mode", "quote", "bill", "items", "intent_ref", "intent_outcome", "owed","activity","shop",
 ];
 
 /**

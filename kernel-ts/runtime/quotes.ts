@@ -11,7 +11,7 @@ import {purchaseItems,expenditure,storedCash} from '../apply/purchases.js';
 import {mechanicsOf} from '../read/mechanics.js';
 import type {createWriteRuntime} from '../write/index.js';
 
-const FIELDS = ['quote','category','items','subject','with','source','price_id','currency','why'] as const;
+const FIELDS = ['quote','category','items','subject','with','source','price_id','currency','shop','why'] as const;
 export const quotationScope = (meta:Row):Row => ({line:activeName(meta), loop:number(activeLine(meta).loop)});
 const sameScope = (a:Row,b:Row):boolean => a.line===b.line && a.loop===b.loop;
 const deliveredRecord=(record:Row):boolean=>!!record.commit||record.closed_by==='ask'&&record.closed_how==='explicit';
