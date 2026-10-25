@@ -52985,6 +52985,12 @@ band), so a move with `travel_band` and `travel_minutes` was refused. It is decl
 without a band and any optional list sent empty (`additions:[]`) before validation, recorded as
 `place_array_transport_normalized` with `travel_minutes:no_band` / `<field>:empty`. Three refusals in one Dust to Dust game.
 
+### 264.40 A source answer names both of its fields in one refusal
+
+`lookup {kind:"source", source_mode:"answer"}` missing either `query` or `question` now refuses once with both named
+(query: the place or entity; question: what to answer). The two single-field refusals had the Keeper swap one field for
+the other four times in a row.
+
 ## 265. Shopping: the outlet's stock, price and order time are the program's (owner 2026-10-24)
 
 The owner's report: a MiniMax Keeper's long deliberations were mostly about whether a shop had the goods and what they cost. Those answers moved to the kernel; the Keeper picks parameters. Purchase guidance that lived in other packages moved with them, so the problem has one home. Amends §58 ("the kernel does not price anything itself") for goods bought at an outlet while this package is active; every other cash path is unchanged.

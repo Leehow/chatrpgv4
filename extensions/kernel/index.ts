@@ -6675,7 +6675,11 @@ export default function (pi: ExtensionAPI, host: {capabilities?:RuntimeCapabilit
 			}
 			else if (spec.name === "lookup" && params.kind === "source") {
 				const answerOnly = params.source_mode === 'answer';
-				if (answerOnly && !asString(params.question)?.trim()) throw new KernelError({code:'invalid_params', message:'A source answer needs a nonempty question'});
+				// §264.40: an answer needs both fields, and one refusal names both; one field at a time had the Keeper trade query
+				// for question and back four times (live 2026-10-25, Dust to Dust).
+				if (answerOnly && (!asString(params.question)?.trim() || !asString(params.query)?.trim())) throw new KernelError({code:'invalid_params',
+					message:'A source answer needs both query and question',
+					fix:'query names the place or entity the answer is about (a short name); question is what to answer about it, in full. Send both in one call.'});
 				if (!asString(params.query)?.trim()) throw new KernelError({
 					code: "invalid_params", message: "Source lookup needs a named query; question supplies additional scope",
 					fix: "pass the place or entity as query and describe the unresolved source question" });
