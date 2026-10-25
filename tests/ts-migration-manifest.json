@@ -104169,7 +104169,7 @@
           "counterpart": {
             "file": "tests/integration/world-offer-sources.test.ts",
             "name": "test_clock_target_survives_capsule_to_closed_turn",
-            "sha256": "60be5916ba7e09cac01081cfc73e7d322f8a11b608e7bded17663358731d6733"
+            "sha256": "fbf648b924789ddaa5c8311025a62bd67980a85fba0c81ac701966b33a20eff1"
           },
           "review": "statement-by-statement",
           "validation": {
@@ -104276,7 +104276,7 @@
           "counterpart": {
             "file": "tests/integration/world-offer-sources.test.ts",
             "name": "test_unanswered_continuations_have_one_base_projection",
-            "sha256": "60be5916ba7e09cac01081cfc73e7d322f8a11b608e7bded17663358731d6733"
+            "sha256": "fbf648b924789ddaa5c8311025a62bd67980a85fba0c81ac701966b33a20eff1"
           },
           "review": "statement-by-statement",
           "validation": {
@@ -104362,7 +104362,7 @@
           "counterpart": {
             "file": "tests/integration/world-offer-sources.test.ts",
             "name": "test_core_threat_projection_does_not_require_pacing",
-            "sha256": "60be5916ba7e09cac01081cfc73e7d322f8a11b608e7bded17663358731d6733"
+            "sha256": "fbf648b924789ddaa5c8311025a62bd67980a85fba0c81ac701966b33a20eff1"
           },
           "review": "statement-by-statement",
           "validation": {
