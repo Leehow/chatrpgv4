@@ -53523,3 +53523,13 @@ an issued reference is what the investigator just asked about (`player_input`, ย
 T2 two outputs were refused for the nested shape and the turn went untold.
 
 Tests: `tests/extension/turn-ir.test.mjs`.
+
+### 270.15 A refused final packet goes back to the Keeper
+
+The final segment's compiled apply is all-or-nothing, so when the kernel refuses it (`needs`, `invalid_params`,
+`unknown_entity`, `not_here`, `not_owned`) before any prose, the refusal returns to the Keeper under the packet-parameter
+budget instead of ending the turn. When earlier segments already settled, the carry (ยง270.3) is kept and the refusal
+says to resubmit only what follows the last rule action. In 1025h *Digging for a Dead God* T3 a paper shown out of a
+reader's reach ended the turn untold.
+
+Tests: `tests/extension/turn-ir-native.test.mjs`.

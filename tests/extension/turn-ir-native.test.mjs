@@ -87,3 +87,13 @@ test('a foreign field is dropped and the turn publishes; a broken action is refu
  assert.ok(table.telemetry().some(row=>row.event==='turn_ir_fields_dropped'));
  assert.equal(published(table),1);
 });
+
+test('a final packet the kernel refuses goes back to the Keeper, whose corrected output publishes',async t=>{
+ const table=await play(t,[
+  output([{op:'scene',service:'open',crowd:'quiet'},{op:'material',action:'show',item:'a letter nobody has',holder:'investigator_1',to:'investigator_1',access:'read_full',reason:'reads it'}]),
+  output([{op:'scene',service:'open',crowd:'quiet'}]),
+  fauxAssistantMessage('done')]);
+ const outputs=results(table);
+ assert.ok(outputs[0].details?.coc_error,'the first packet was refused');
+ assert.equal(published(table),1,'the corrected packet published in the same input');
+});

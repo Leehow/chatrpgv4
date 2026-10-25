@@ -6215,7 +6215,16 @@ export default function (pi: ExtensionAPI, host: {capabilities?:RuntimeCapabilit
 				if(final){
 					const merged={...packet,version:4,...(speech.interactions.length||packet.interactions?{interactions:[...speech.interactions,...(packet.interactions??[])]}:{}),
 						...(speech.reveal.length||packet.reveal?{reveal:[...speech.reveal,...(packet.reveal??[])]}:{}),...(ir.ooc?{ooc:ir.ooc}:{})} as unknown as TurnPacket;
-					return await submitTurnPacket(merged as unknown as Record<string,unknown>,signal,ctx,true);
+					const published=await submitTurnPacket(merged as unknown as Record<string,unknown>,signal,ctx,true);
+					// A refused final packet after settled segments keeps them: the correction resubmits only what follows the
+					// last rule action, with the carried speech, aliases and check results.
+					if(published.details?.coc_error&&!published.terminate&&settled.length){
+						state.irCarry={turn:submittedTurn,run:owner.runId,aliases:[...aliases],results:[...results],interactions:speech.interactions,reveal:speech.reveal};
+						const refusal={...(published.details.coc_error as Record<string,any>),committed_checks:settled,
+							next:'Everything up to the last rule action already settled; resubmit only the actions after it, corrected.'};
+						return {content:[{type:'text' as const,text:JSON.stringify(refusal)}],details:{coc_error:refusal},terminate:false};
+					}
+					return published;
 				}
 				speech.interactions.push(...(packet.interactions??[]));speech.reveal.push(...(packet.reveal??[]));
 				if(packet.commands?.length){
@@ -6289,6 +6298,13 @@ export default function (pi: ExtensionAPI, host: {capabilities?:RuntimeCapabilit
 			return{content:[{type:'text' as const,text:'The turn was published.'}],details:{published:true},terminate:true};
 		}catch(error){
 			rememberTurnFailure(state,'output',error);
+			// §270.15: a Turn IR packet's compiled apply is all-or-nothing, so a refusal of it before any prose committed nothing
+			// and goes back to the Keeper to correct (1025h Digging T3: a paper shown out of reach ended the turn untold).
+			if(fromTurnIr&&!reply.evidence&&!reply.stream&&isKernelError(error)&&['needs','invalid_params','unknown_entity','not_here','not_owned'].includes(error.code)
+                &&error.details?.reason!==HELD_ACT_OUTCOME_REASON){
+                const {retry,refusal}=refusePacketParameters(state,error,ctx,true);
+                return {content:[{type:'text' as const,text:JSON.stringify(refusal)}],details:{coc_error:refusal},terminate:!retry};
+            }
 			if(!reply.evidence&&!reply.stream&&isKernelError(error)&&error.code==='invalid_params'&&error.details?.transaction_state==='uncommitted'){
                 const {retry,refusal}=refusePacketParameters(state,error,ctx,true);
                 return {content:[{type:'text' as const,text:JSON.stringify(refusal)}],details:{coc_error:refusal},terminate:!retry};
