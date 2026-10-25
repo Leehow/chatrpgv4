@@ -53435,3 +53435,13 @@ for one not yet read; the newcomer slot refuses only a person this table itself 
 and T7 three of the book's people were refused as "a newcomer slot cannot select an existing person", T6 undelivered.
 
 Tests: `tests/integration/walk-on-book-person.test.ts`.
+
+### 270.5 A goal this input already failed is not rolled again under another check
+
+`resolve` (intent investigate, social or move, without `push` or `luck`) refuses `turn_state` with
+`details.reason: goal_already_failed` and the failed receipt when a roll of this input already failed the same `goal`
+(trimmed text) and the new action names another skill or another decision. The failure stands; a new attempt needs a
+different goal or the player's own push or Luck (§268.6). In 1025d *Dust to Dust* T6 a failed Spot Hidden was rolled
+again as a combined check for the same goal, method and stakes and came up an extreme success.
+
+Tests: `tests/integration/failed-goal-settled.test.ts`.

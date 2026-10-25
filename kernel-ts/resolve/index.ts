@@ -228,6 +228,22 @@ export function createResolveRuntime(kernel: KernelContext, writer: ResolveWrite
                     transaction.turn.pending_choice = null;
             }
             const intent = string(action.intent);
+            // §270.5: a goal this input already failed is settled; rolling it again under another decision or skill is a
+            // re-judgement, not a new attempt (1025d Dust to Dust T6: a failed Spot Hidden re-rolled as a combined check for
+            // the same goal, method and stakes). The player's own push or Luck is the way back (§268.6).
+            const goalText = string(action.goal).trim();
+            if (goalText && ['investigate', 'social', 'move'].includes(intent) && action.push !== true && action.luck == null) {
+                // Read against another check than the one that failed: another skill or another decision for the same goal.
+                const failed = array(transaction.turn.receipts).map(row).find(receipt => receipt.kind === 'roll' && receipt.passed === false
+                    && string(row(receipt.check).goal).trim() === goalText
+                    && (typeof action.skill === 'string' && action.skill.trim() !== '' && ![receipt.skill, receipt.skill_label, row(receipt.check).skill, row(receipt.check).characteristic]
+                        .some(name => typeof name === 'string' && normalize(name) === normalize(action.skill))
+                        || typeof action.decision === 'string' && action.decision.trim() !== '' && action.decision !== string(row(receipt.check).decision ?? receipt.decision ?? '')));
+                if (failed)
+                    throw new RpcError('turn_state', 'this goal already failed this input; the failure stands', {
+                        fix: 'tell the failure and what it costs; a new attempt needs a different goal or the player\'s own declared push or Luck',
+                        details: { reason: 'goal_already_failed', receipt: string(failed.id), goal: goalText } });
+            }
             // Contract §87.8: a person seat the table's own word fills is read as that person before anything reads it.
             if (!NONE_INTENTS.has(intent))
                 action = readCalledPeople(await transaction.campaign.party() as Row[], graph, transaction.world, action);
