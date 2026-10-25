@@ -112,7 +112,7 @@ function pressureRows(pacing: Row | null | undefined, pressures: Row[], obligati
         kind: "pressure", line: clip([string(p.kind || ""), string(p.name || p.summary || "")].filter(Boolean).join(": ")), from: "pressures"
     }));
     const continuations = obligations.filter(o => o.kind === "continuation").map(o => ({
-        kind: "pressure", line: clip([string(o.name), string(o.cue || "")].filter(Boolean).join(": ")), from: "obligations"
+        kind: "pressure", line: clip([string(o.name), string(o.cue || ""), "the player's option"].filter(Boolean).join(": ")), from: "obligations"
     }));
     return [...clocks, ...other, ...continuations];
 }

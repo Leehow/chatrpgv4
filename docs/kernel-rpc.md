@@ -53112,6 +53112,16 @@ as "apply has been refused 3 times".
 
 Tests: `tests/extension/gates.test.mjs`.
 
+### 268.6 A push or Luck left by last turn is the player's option
+
+The capsule's `continuation` obligation rows read `state: "optional: the player may take it up this turn; it lapses when
+they move on"` (was "left by last turn, unanswered"), and the Director's pressure row for one ends "the player's option".
+A failed roll's push or Luck spend is offered to the player; it is not owed, and the Keeper does not ask about it
+unprompted. In 1025c *Digging for a Dead God* T7 the Keeper asked it unprompted and was still weighing it as unanswered at
+T15.
+
+Tests: `tests/extension/offer-sources.test.mjs`, `tests/integration/world-capsule-nine.test.ts`.
+
 ## 265. Shopping: the outlet's stock, price and order time are the program's (owner 2026-10-24)
 
 The owner's report: a MiniMax Keeper's long deliberations were mostly about whether a shop had the goods and what they cost. Those answers moved to the kernel; the Keeper picks parameters. Purchase guidance that lived in other packages moved with them, so the problem has one home. Amends §58 ("the kernel does not price anything itself") for goods bought at an outlet while this package is active; every other cash path is unchanged.

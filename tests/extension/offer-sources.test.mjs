@@ -82,7 +82,7 @@ test('selected offers and the all-material ledger retain different scopes and na
 
 test('the Director selects a continuation from canonical obligations without a rule-pressure copy', () => {
   const obligations = continuationRows([{decision: 'pushed-roll', needs: ['push']}]);
-  assert.deepEqual(obligations, [{kind: 'continuation', name: 'pushed-roll', who: 'player', state: 'left by last turn, unanswered', cue: 'needs action.push'}]);
+  assert.deepEqual(obligations, [{kind: 'continuation', name: 'pushed-roll', who: 'player', state: 'optional: the player may take it up this turn; it lapses when they move on', cue: 'needs action.push'}]);
   const offer = directorOffer('PRESSURE', {present: [], where: {}, pressures: [], obligations});
   assert.equal(offer.length, 1);
   assert.equal(offer[0].kind, 'pressure');

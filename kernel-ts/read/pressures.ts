@@ -153,12 +153,16 @@ export function unansweredContinuations(previous: Row | null | undefined, receip
     }
     return result;
 }
+/**
+ * §268.6: a push or Luck left by last turn's failure is the player's option, never a debt. Read as "unanswered" it was
+ * asked about unprompted and carried as owed for turns (1025c Digging for a Dead God T7-T15).
+ */
 export function continuationRows(continuations: Row[]): Row[] {
     return continuations.map(value => ({
         kind: "continuation",
         name: value.decision,
         who: "player",
-        state: "left by last turn, unanswered",
+        state: "optional: the player may take it up this turn; it lapses when they move on",
         ...(array(value.needs).length ? { cue: `needs action.${value.needs.join("/")}` } : {})
     }));
 }
