@@ -810,6 +810,28 @@ test('a scene assessment supplement after a settled arrival contradicts an empty
  assert.equal(table.entries('coc-final-delivery').filter(row=>row.event==='end'&&row.status==='completed').length,1);
 });
 
+test('an empty assessment the registered presence contradicts before the packet is retired to unknown, never refused (§266.17)',async t=>{
+ // Strangers on the Train (2026-10-24): an output with no scene command was refused `needs` and the turn delivered nothing.
+ const engine=createHybridEngine({env,decision:{decide:async batch=>answer(batch,.99)}});
+ const prepare=async workspace=>{const k=new RpcClient(workspace);try{
+  await k.ok('table.open',{campaign:'test-camp'});
+  await k.ok('table.narrate',{campaign:'test-camp',call_id:'t0-c1',text:'Knott waits at his desk.'});
+  await k.ok('table.player_input',{campaign:'test-camp',text:'I look around the office.'});
+  await k.ok('table.apply',{campaign:'test-camp',call_id:'t1-c1',effects:compileTurnPacket({version:4,commands:[{kind:'scene',service:'open',crowd:'empty',review_after_minutes:30}]}).effects});
+  await k.ok('table.narrate',{campaign:'test-camp',call_id:'t1-c2',text:'The office is quiet.'});
+ }finally{await k.close();}};
+ const table=await openTable({legacyDeliveryFixtures:false,realKernel:true,prepareWorkspace:prepare,env,runDriver:engine.runDriver,
+  extraExtensions:[{name:'engine',factory:engine.extension}],responses:[
+   ()=>fauxAssistantMessage([rawToolCall('output',{version:4,commands:[{kind:'time',minutes:2,reason:'Wait the two minutes explicitly selected.'}]})],{stopReason:'toolUse'})]});
+ t.after(()=>table.dispose());
+ await table.session.prompt('I wait here for two minutes.');
+ assert.deepEqual(table.extensionErrors,[]);
+ assert.deepEqual(table.session.messages.filter(row=>row.role==='toolResult'&&row.details?.coc_error).map(row=>row.details.coc_error),[]);
+ const turn=JSON.parse(readFileSync(join(table.workspace,'.coc/campaigns/test-camp/turns/0002.json'),'utf8'));
+ assert.equal(turn.receipts.filter(row=>row.kind==='scene').length,1,'the contradicted assessment is replaced by an unknown one');
+ assert.equal(table.entries('coc-final-delivery').filter(row=>row.event==='end'&&row.status==='completed').length,1);
+});
+
 test('everyone leaving a populated scene needs no supplement: an unnamed crowd is not a contradiction (§250.6)',async t=>{
  let ref;const engine=createHybridEngine({env,decision:{decide:async batch=>answer(batch,.99)}});
  const prepare=async workspace=>{const k=new RpcClient(workspace);try{

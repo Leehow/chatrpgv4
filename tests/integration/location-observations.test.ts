@@ -77,6 +77,8 @@ test('the same incident survives viewpoint changes, real NPC departure, delivery
         {kind:'npc',name:'Man in coat',to:'away',why:'He leaves the street during the interval.'},observed]});
     const observation=result.outcomes.find((outcome:Row)=>outcome.action==='observe').observation;
     assert.equal(observation.people[0].ref,refs[0]);assert.equal(observation.observed_clock.minutes,world(k).clock.minutes);
+    // §266.16: a reading of when it was seen, never the counter since the table began, which the author took for a span.
+    assert.equal(observation.observed_clock.elapsed,undefined);assert.ok(observation.observed_clock.day_part);
     assert.equal(locations(k).situations[0].id,incident);assert.equal(locations(k).situations[0].participants.length,2);
     assert.equal(locations(k).situations[0].assessed_clock.minutes,world(k).clock.minutes);
     const capsule=await k.table('capsule');assert.equal(capsule.present.length,0);assert.equal(capsule.where.scene,'Inn room');

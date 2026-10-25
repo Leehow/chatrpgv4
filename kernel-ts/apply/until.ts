@@ -8,7 +8,7 @@
  * kernel, the clock's one authority, resolves the day and the minutes.
  */
 import { RpcError } from '../errors.js';
-import { clockSection, clockStart } from '../read/capsule.js';
+import { clockReading, clockSection, clockStart } from '../read/capsule.js';
 import { array, integer, number, repr, row, string, type Row } from '../read/values.js';
 import { landedMinutes } from '../read/time-reading.js';
 import type { ApplyContext } from './index.js';
@@ -19,8 +19,7 @@ const refuse = (reason: string, message: string, extra: { fix?: string; details?
 
 /** The clock as the capsule shows it, minus the elapsed counter: what a refusal names as "now". */
 function reading(context: ApplyContext): Row {
-    const { minutes: _minutes, elapsed: _elapsed, ...shown } = clockSection(context.graph, context.world);
-    return shown;
+    return clockReading(clockSection(context.graph, context.world));
 }
 
 /** `until` into `minutes` on a `time` effect; every effect without `until` passes through untouched. */

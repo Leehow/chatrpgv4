@@ -1,6 +1,6 @@
 /** Directed perception and last-seen projections; reads never advance the world. */
 import {isAmbiguity,type ModuleGraph} from './module-graph.js';
-import {clockSection,npcsPresent,npcReferenceView,untoldBlock,publicSceneLabel} from './capsule.js';
+import {clockReading,clockSection,npcsPresent,npcReferenceView,untoldBlock,publicSceneLabel} from './capsule.js';
 import {npcActivityView} from './temporal.js';
 import {locationStates,locationPlace,locationFeature,locationPosition,qualifiedLocationFeature} from './locations.js';
 import {array,clone,number,row,type Row} from './values.js';
@@ -79,10 +79,10 @@ export function publicObservation(graph:ModuleGraph,world:Row,value:Row):Row {
         return node&&graph.isPerson(node)?observationIdentity(graph,world,node):undefined;
     };
     return {from:point(row(value.from)),to:point(row(value.to)),sense:value.sense,access:value.access,scope:value.scope,
-        observed_clock:clone(row(value.observed_clock)),facts:clone(array(value.facts)),...(value.reason?{reason:value.reason}:{}),
+        observed_clock:clockReading(clone(row(value.observed_clock)),true),facts:clone(array(value.facts)),...(value.reason?{reason:value.reason}:{}),
         people:array(value.people).flatMap(person=>{const known=identity(person.id);return known?[known]:[];}),
         situations:array(value.situations).map(situation=>({name:situation.name,summary:situation.summary,status:situation.status,
-            assessed_clock:clone(row(situation.assessed_clock))})),
+            assessed_clock:clockReading(clone(row(situation.assessed_clock)),true)})),
         authority:'Committed observation only; remote people remain at its target, not in the observer scene.'};
 }
 /** Small current-viewpoint route index, never an automatic census of connected scenes. */

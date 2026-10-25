@@ -5947,11 +5947,12 @@ export default function (pi: ExtensionAPI, host: {capabilities?:RuntimeCapabilit
             const before=await state.kernel.call<Record<string,any>>('table.capsule',{campaign:state.campaign,_context_read:true});
             // §249: the Keeper judges whether its packet covers the player's spatial choices; no completion review refuses it.
             const newlyMoving=compiled.effects.some(effect=>effect.kind==='move'||effect.kind==='place'&&effect.action==='move'&&effect.to!=='here'&&effect.to!==before.where?.scene);
-            // §250: an arrival the Keeper did not assess is recorded as unassessed (unknown), never refused.
-            if(newlyMoving&&!compiled.effects.some(row=>row.kind==='scene'))compiled.effects.push({kind:'scene',name:'here',_population:true,
-                activity:{service:'unknown',crowd:'unknown',basis:'established',summary:'Service is unknown; crowd is unknown.',review_after_minutes:15},why:'The arrival was not assessed; service and population remain unknown.'});
-            // §250.6: a missing or expired assessment stays unknown; only one the registered presence contradicts needs a new one.
-            if(scenePopulationConflict(before)&&!compiled.effects.some(row=>row.kind==='scene'))throw new KernelError({code:'needs',message:'Assess scene service and population from the current place and clock with one scene command; missing registered names never means empty.'});
+            // §250: an arrival the Keeper did not assess is recorded as unassessed (unknown), never refused. §266.17: so is an
+            // assessment of an empty place the registered presence contradicts; the packet is never refused for it (§264.29).
+            const contradicted=!newlyMoving&&scenePopulationConflict(before);
+            if((newlyMoving||contradicted)&&!compiled.effects.some(row=>row.kind==='scene'))compiled.effects.push({kind:'scene',name:'here',_population:true,
+                activity:{service:'unknown',crowd:'unknown',basis:'established',summary:'Service is unknown; crowd is unknown.',review_after_minutes:15},
+                why:contradicted?'The empty assessment contradicts the registered presence; service and population are unknown.':'The arrival was not assessed; service and population remain unknown.'});
             packetNpcReferences(state).require(packetNpcScope(state),[...compiled.responses.flatMap(row=>[row.actor,...row.to??[]]).filter(isNpcReference),
                 ...compiled.effects.filter(row=>row.kind==='npc'&&!row.walk_on).map(row=>String(row.name)),
                 ...compiled.effects.filter(row=>row.kind==='place'&&row.action==='observe').flatMap(row=>[...row.people??[],...(row.situations??[]).flatMap((situation:Record<string,any>)=>situation.participants??[])]).filter(isNpcReference),

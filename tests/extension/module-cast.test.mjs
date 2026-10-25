@@ -348,6 +348,17 @@ test('§177.14: the notes rendering is a name to hide and to refuse, never a for
 	assert.match(api.newcomerRefusal(graph, world, 'Lars from the garage')?.fix ?? '', /elsewhere and speaks by telephone or letter, leave walk_on out and give their interaction under the npc ref lookup returns for them, with channel phone or letter/);
 });
 
+test('a newcomer described by a place is not refused for a name inside the place name (§266.15)', async () => {
+	// Cold Harvest (2026-10-24): the book mentions 列宁, the table drives to the tractor station 列宁斯基2号, and its welder
+	// as a walk_on was refused as carrying a book person's name; the turn delivered nothing.
+	const graph = new api.ModuleGraph('harvest', {nodes: [{node_id: 'npc-lenin', node_kind: 'npc', name: '列宁', source_refs: [{page: 9}]}], relations: []}, 'digest', {});
+	graph.castStore = {version: 4, source_sha256: 'x', state: 'complete', people: [{id: 'cast-eeeeeeeeee', book: ['列宁'], play: ['列宁'], notes: ['Lenin'], pages: [9]}]};
+	assert.match(api.newcomerRefusal(graph, {}, '列宁斯基2号的焊工')?.message ?? '', /carries a name/, 'without the place the name is read whole');
+	assert.equal(api.newcomerRefusal(graph, {}, '列宁斯基2号的焊工', ['列宁斯基2号']), null, 'the place word is read out of the description');
+	assert.match(api.newcomerRefusal(graph, {}, '列宁身边的卫兵', ['列宁斯基2号'])?.message ?? '', /carries a name/, 'the name outside a place is still his');
+	assert.match(api.newcomerRefusal(graph, {}, '列宁的卫兵', ['列宁'])?.message ?? '', /carries a name/, 'a place word that is somebody\'s name masks nothing');
+});
+
 test('§177.5: a word that carries a name learned later is withdrawn; a word given while unread does not follow the person into the graph', async () => {
 	const raw = {nodes: [{node_id: 'npc-old-mae', node_kind: 'npc', name: 'Old Mae', source_refs: [{page: 1}]},
 		{node_id: 'npc-jonah', node_kind: 'npc', name: 'Jonah', source_refs: [{page: 3}]}], relations: []};

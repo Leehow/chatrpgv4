@@ -387,6 +387,14 @@ export function clockStart(graph: ModuleGraph, clock?: Row): { at: Date | null; 
     // Midnight would have put the small hours in front of the player on turn one.
     return { at: null, minutes: DEFAULT_START_MINUTES };
 }
+/**
+ * §266.16: a clock read as a point in time, without the counter since the table began (`elapsed`, "24 h 0 min") a reader
+ * takes for how long something lasted. `minutes` stays only where `keep_minutes` asks, for arithmetic between readings.
+ */
+export function clockReading(clock: Row, keep_minutes = false): Row {
+    const { minutes, elapsed: _elapsed, ...shown } = clock;
+    return keep_minutes && minutes !== undefined ? { minutes, ...shown } : shown;
+}
 export function clockSection(graph: ModuleGraph, world: Row): Row {
     const minutes = Math.trunc(number(row(world.clock).minutes)),
         mod = (n: number, by: number) => (n % by + by) % by,

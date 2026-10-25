@@ -173,6 +173,8 @@ export class Daemon {
     first_step_thinking: boolean;
     expected_engine: string | null;
     setup_transport = false;
+    /** `--setup`: a launcher that wraps `bin/pi-coc setup` is a setup session too (its path alone is not `bin/pi-coc-setup`). */
+    setup = false;
     dir: string;
     log: DriverLog;
     events_path: string;
@@ -187,7 +189,7 @@ export class Daemon {
     player_view_command: string[] | null = null;
     server: Server | null = null;
     heartbeat: any;
-    constructor(run_id: string, campaign: string, launcher: string | null = null, model: string | null = null, thinking: string | null = null, first_step_thinking = false, expected_engine: string | null = null) { Object.assign(this, { run_id, campaign, thinking, first_step_thinking, expected_engine }); this.run_id = run_id; this.campaign = campaign; this.thinking = thinking; this.first_step_thinking = first_step_thinking; this.expected_engine = expected_engine; this.dir = run_dir(run_id); mkdirSync(this.dir, { recursive: true }); this.log = new DriverLog(join(this.dir, 'driver.log')); this.events_path = join(this.dir, 'events.jsonl'); this.daemon_json_path = join(this.dir, 'daemon.json'); this.heartbeat_path = join(this.dir, 'heartbeat.json'); this.socket_path = control_socket_path(run_id); }
+    constructor(run_id: string, campaign: string, launcher: string | null = null, model: string | null = null, thinking: string | null = null, first_step_thinking = false, expected_engine: string | null = null, setup = false) { Object.assign(this, { run_id, campaign, thinking, first_step_thinking, expected_engine, setup }); this.run_id = run_id; this.campaign = campaign; this.thinking = thinking; this.first_step_thinking = first_step_thinking; this.expected_engine = expected_engine; this.dir = run_dir(run_id); mkdirSync(this.dir, { recursive: true }); this.log = new DriverLog(join(this.dir, 'driver.log')); this.events_path = join(this.dir, 'events.jsonl'); this.daemon_json_path = join(this.dir, 'daemon.json'); this.heartbeat_path = join(this.dir, 'heartbeat.json'); this.socket_path = control_socket_path(run_id); }
     static async create(...args: ConstructorParameters<typeof Daemon>) { const d = new Daemon(...args); try {
         await d._start_pi(args[2] ?? null, args[1], args[3] ?? null);
         return d;
@@ -199,7 +201,7 @@ export class Daemon {
             await d.pi.terminate();
         throw error;
     } }
-    async _start_pi(launcher_arg: string | null, campaign: string, model: string | null) { checkTestWorkspaceBudget(coc_home(), this.dir); const launcher = resolve_launcher(launcher_arg); this.setup_transport = launcher === resolve(REPO_ROOT, 'bin/pi-coc-setup'); if (!existsSync(launcher))
+    async _start_pi(launcher_arg: string | null, campaign: string, model: string | null) { checkTestWorkspaceBudget(coc_home(), this.dir); const launcher = resolve_launcher(launcher_arg); this.setup_transport = this.setup || launcher === resolve(REPO_ROOT, 'bin/pi-coc-setup'); if (!existsSync(launcher))
         throw new DriverError('launcher not found: ' + launcher + ' (pass --launcher, set PI_COC_LAUNCHER, or wait for bin/pi-coc to exist)'); const entry = join(REPO_ROOT, 'build/kernel/rpc.mjs'); if (launcher === resolve(DEFAULT_LAUNCHER) && !existsSync(join(REPO_ROOT, 'deployment.json')) && existsSync(entry) && !process.env.PI_COC_KERNEL_CMD)
         this.player_view_command = [process.env.PI_COC_NODE_EXECUTABLE || process.execPath, entry, '--workspace', coc_home(), '--content', resolve(process.env.PI_COC_CONTENT_ROOT || join(REPO_ROOT, 'content'))]; const testThinking=model==='grok-build/grok-4.5'?'high':model==='codex-relay/gpt-6-luna'?'high':model===DEFAULT_MODEL?DEFAULT_THINKING:null; const args = ['--campaign', campaign, '--mode', 'rpc', '--no-session', '--thinking', testThinking||this.thinking || DEFAULT_THINKING]; if (model) {
         if (!model.includes('/'))
@@ -646,7 +648,8 @@ export async function cmd_start(args: Row) { const campaign = args.campaign; if 
 } mkdirSync(dir, { recursive: true }); const command = [fileURLToPath(import.meta.url), '_daemon', '--run', run, '--campaign', campaign]; for (const key of ['expect_engine', 'launcher', 'model', 'thinking'])
     if (args[key])
         command.push('--' + key.replaceAll('_', '-'), args[key]); if (args.first_step_thinking)
-    command.push('--first-step-thinking'); const env = { ...process.env }; for (const pair of args.env ?? []) {
+    command.push('--first-step-thinking'); if (args.setup)
+    command.push('--setup'); const env = { ...process.env }; for (const pair of args.env ?? []) {
     if (!pair.includes('=')) {
         console.error('error: --env expects KEY=VALUE, got ' + pair);
         return 1;
@@ -725,7 +728,7 @@ catch (e) {
 } }
 export function build_parser() { return { parse_args(argv: string[]) { const a: Row = { subcommand: argv[0], run: null, campaign: null, launcher: null, model: argv[0] === 'start' ? DEFAULT_MODEL : null, thinking: argv[0] === 'start' ? DEFAULT_THINKING : null, timeout: 300, tail: 60, first_step_thinking: false, no_default_run: false, pregen: null, module: 'the-haunting', play_language: 'zh', env: [] }; for (let i = 1; i < argv.length; i++) {
         const key = argv[i];
-        if (['--first-step-thinking', '--no-default-run'].includes(key))
+        if (['--first-step-thinking', '--no-default-run', '--setup'].includes(key))
             a[key.slice(2).replaceAll('-', '_')] = true;
         else if (key === '--env')
             a.env.push(argv[++i]);
@@ -742,13 +745,13 @@ export function build_parser() { return { parse_args(argv: string[]) { const a: 
         throw new DriverError('invalid thinking level'); return a; } }; }
 export async function main(argv = process.argv.slice(2)) {
  if(argv.includes('--help')||argv.includes('-h')){const command=argv[0],common='--run RUN';
- const lines:Row={start:'--campaign ID [--run RUN] [--seed-home PATH] [--model provider/modelId] [--thinking off|minimal|low|medium|high] [--launcher PATH] [--first-step-thinking] [--expect-engine legacy|hybrid-v1] [--pregen PREGEN] [--module MODULE] [--play-language TAG] [--no-default-run] [--env KEY=VALUE]',turn:'TEXT [--run RUN] [--timeout SECONDS]',stop:'[--run RUN]',log:'[--run RUN] [--tail N]',status:'[--run RUN]',_daemon:'--campaign ID --run RUN [--model provider/modelId] [--thinking LEVEL] [--launcher PATH] [--first-step-thinking] [--expect-engine legacy|hybrid-v1]'};
+ const lines:Row={start:'--campaign ID [--run RUN] [--seed-home PATH] [--model provider/modelId] [--thinking off|minimal|low|medium|high] [--launcher PATH] [--setup] [--first-step-thinking] [--expect-engine legacy|hybrid-v1] [--pregen PREGEN] [--module MODULE] [--play-language TAG] [--no-default-run] [--env KEY=VALUE]',turn:'TEXT [--run RUN] [--timeout SECONDS]',stop:'[--run RUN]',log:'[--run RUN] [--tail N]',status:'[--run RUN]',_daemon:'--campaign ID --run RUN [--model provider/modelId] [--thinking LEVEL] [--launcher PATH] [--first-step-thinking] [--expect-engine legacy|hybrid-v1]'};
  console.log(lines[command]?'usage: driver.ts '+command+' '+lines[command]:'usage: driver.ts {start,turn,stop,log,status} [arguments]');return 0;
  }
  try {
     const args = build_parser().parse_args(argv);
     if (args.subcommand === '_daemon') {
-        const d = await Daemon.create(args.run, args.campaign, args.launcher, args.model, args.thinking, args.first_step_thinking, args.expect_engine);
+        const d = await Daemon.create(args.run, args.campaign, args.launcher, args.model, args.thinking, args.first_step_thinking, args.expect_engine, args.setup === true);
         await d.serve_forever();
         return 0;
     }

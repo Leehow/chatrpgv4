@@ -53130,3 +53130,38 @@ row's name or entity), the gate accepts a passage whose sentence holds a name of
 (sentence stops of any script). Everywhere else a name still needs two characters.
 
 Tests: `tests/extension/page-mode.test.mjs`.
+
+### 266.15 A newcomer named by their place (amends §177.3, §264.25)
+
+*Cold Harvest* (2026-10-24): the cast holds a historical leader the book mentions, and the table's tractor station is named
+after him; the station's welder as a `walk_on` was refused `book_name`, the output packet ended the turn, and nothing was
+delivered. Before a newcomer's description is searched for the cast's full names and name pieces, every word of a known
+place (the table's registered places, the module's scene labels, and the places this call moves to or adds) is blanked out
+of it, unless that word is itself somebody's name. The table's word for a person is still compared with the whole
+description, and a name outside the place word is still refused. The refusal now says `transaction_state: uncommitted`:
+it is asked before anything is written, so an output packet refused for it is returned to the Keeper to send again.
+
+Tests: `tests/extension/module-cast.test.mjs`.
+
+### 266.16 The clock a reader sees is a time of day (amends §250, §262)
+
+*Cold Harvest* (2026-10-24): an observation's `observed_clock` carried `elapsed: "24 h 0 min"`, the counter since the table
+began; the author took it for an elapsed span of this turn, as its instruction says every elapsed span must be felt, and
+wrote a whole day passing. `clockReading` is the one projection that drops that counter: settled observations and their
+situations keep `minutes` for arithmetic but lose `elapsed`, and the author packet's `scene.clock` carries only `at`, `day`,
+`hh`, `mm` and `day_part`. The table view and the Keeper's capsule are unchanged.
+
+Tests: `tests/integration/location-observations.test.ts`.
+
+### 266.17 A contradicted empty assessment is retired, not demanded (amends §250.6, §264.29)
+
+*Strangers on the Train* (2026-10-24): the scene's current assessment said nobody was there while registered people were
+present; an output with no `scene` command was refused `needs` before any command ran, and the turn ended with its earlier
+History roll settled but never told. The packet now records the scene as unassessed (service and crowd unknown), as an
+unassessed arrival is, and proceeds. The post-settlement check that asks for a supplement when the packet's own commands
+create the contradiction is unchanged.
+
+The play driver takes `--setup` for a launcher that wraps `bin/pi-coc setup`, so its setup turns read their text as setup
+turns do (the same table's three setup turns were recorded undelivered with empty text).
+
+Tests: `tests/extension/turn-packet-prototype.test.mjs`, `tests/integration/play-driver-canonical-delivery.test.ts`.

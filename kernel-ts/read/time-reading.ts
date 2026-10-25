@@ -7,7 +7,7 @@
  * finding, which the next capsules keep in `unrecorded` until a `time` receipt lands (§145.4).
  */
 import { RpcError } from '../errors.js';
-import { DAY_PARTS } from './capsule.js';
+import { DAY_PARTS, clockReading } from './capsule.js';
 import { array, integer, number, numeric, row, string, type Row } from './values.js';
 
 const CUTS = ['later_today', 'next_day', 'days'];
@@ -77,7 +77,7 @@ export function timeGap(reading: TimeReading | null, receipts: readonly Row[], c
         return null;
     const suggested = suggest(reading, clock, landed);
     return { cut: reading.cut, ends_at: reading.ends_at, landed_minutes: landed, floor: reading.floor, day_part: dayPart,
-        clock: (({ minutes: _m, elapsed: _e, ...shown }) => shown)(clock), ...(suggested ? { suggest: suggested } : {}) };
+        clock: clockReading(clock), ...(suggested ? { suggest: suggested } : {}) };
 }
 
 function cutWords(cut: string): string {

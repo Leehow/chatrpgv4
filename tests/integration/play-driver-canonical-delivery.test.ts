@@ -263,6 +263,12 @@ test('the actual startup owner grants setup fallback only to the resolved canoni
       const daemon=await driver.Daemon.create(id,'fixture-private-transport',launcher);
       assert.equal(daemon.setup_transport,expected);
     }
+    // A wrapper launcher around `bin/pi-coc setup` says so with --setup (Cold Harvest 2026-10-24: three setup turns recorded as
+    // undelivered with empty final text while the setup questions reached the player).
+    const id='fixture-private-transport-'+randomUUID();created.push(driver.run_dir(id));
+    const wrapped=await driver.Daemon.create(id,'fixture-private-transport',join(driver.REPO_ROOT,'tests/play/fixtures/fake-pi-rpc.mjs'),null,null,false,null,true);
+    assert.equal(wrapped.setup_transport,true);
+    assert.equal(driver.build_parser().parse_args(['_daemon','--run','x','--campaign','y','--setup']).setup,true);
   }finally{
     driver.runtime.processFactory=originalFactory;
     if(originalEnv===undefined)delete process.env.PI_COC_LAUNCHER;else process.env.PI_COC_LAUNCHER=originalEnv;

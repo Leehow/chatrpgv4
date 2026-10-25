@@ -43,6 +43,7 @@ import type {MaterialGate,TextLanding} from '../modules/reading.js';
 import {stagePerson} from './person.js';
 import {calledPerson,personNode,sceneLabel} from '../read/capsule.js';
 import {castPersonNamed, newcomerRefusal} from '../read/cast.js';
+import {locationPlaces} from '../read/locations.js';
 import {passageOf} from '../read/table-people.js';
 import {presentArrivalMaps,revealMap} from '../read/maps.js';
 import {stageItem,stageCash,stageCarriedGoods,commitInventorySheets} from './inventory.js';
@@ -196,6 +197,12 @@ export function createApplyHandlers(kernel: KernelContext, writer: ReturnType<ty
             // not -- nor the word this table calls one of them. Asked before the material gate, which would otherwise read a
             // newcomer's borrowed name as the book's person waiting to be read. A word that is already one of this table's own
             // people is theirs (`personOfEffect`), and a book person's word keeps its own refusal there.
+            // §266.15: the places this table and this call name, so a newcomer described by their place is read without it.
+            const placeWords = [...locationPlaces(transaction.world).map(place => place.name),
+                ...graph.scenes().flatMap(node => sceneLabel(graph, transaction.world, node).split(' / ')),
+                ...effects.filter(isJsonObject).filter(effect => effect.kind === 'place' || effect.kind === 'move')
+                    .flatMap(effect => [effect.to, ...array(effect.additions).map(addition => row(addition).name)])]
+                .filter((word): word is string => typeof word === 'string');
             for (const [index, effect] of effects.entries()) {
                 if (!isJsonObject(effect) || effect.kind !== 'npc' || effect.walk_on !== true || typeof effect.name !== 'string') continue;
                 let existing: Row | null = null;
@@ -206,8 +213,9 @@ export function createApplyHandlers(kernel: KernelContext, writer: ReturnType<ty
                     effect.walk_on = false;
                     continue;
                 }
-                const refusal = newcomerRefusal(graph, transaction.world, effect.name);
-                if (refusal) throw atIndex(new RpcError('invalid_params', refusal.message, { fix: refusal.fix, details: { field: 'npc.name', reason: 'book_name', query: effect.name } }), index);
+                const refusal = newcomerRefusal(graph, transaction.world, effect.name, placeWords);
+                // §266.17: asked before anything is written, so the refusal says so and an output packet may be sent again.
+                if (refusal) throw atIndex(new RpcError('invalid_params', refusal.message, { fix: refusal.fix, details: { field: 'npc.name', reason: 'book_name', query: effect.name, transaction_state: 'uncommitted' } }), index);
             }
             // §22.4.7.1 (SL-56): an `npc` effect's name stands in a person's seat; the host may ask to land it on the book's text.
             const people = new Set(seated.flatMap((effect, index) => effect.kind === 'npc' ? [names[index]] : []));

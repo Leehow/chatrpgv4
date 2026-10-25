@@ -285,7 +285,8 @@ export function createFinalOutputOwner(deps: {runtime: () => HostRuntime | undef
     const packet:Row = {version: 1, play_language: playLanguage,
       constraints,
       player_text: capsule.turn?.player_text ?? '', materials: publicMaterials, required,
-      scene: {clock:fields(capsule.where?.clock,['minutes','elapsed','at','day','hh','mm','day_part'])},
+      // §266.16: the author reads the clock as a time of day; the counter since the table began is no span of this turn.
+      scene: {clock:fields(capsule.where?.clock,['at','day','hh','mm','day_part'])},
       people: (shown.capsule.present ?? []).map((p: Row) => ({name: p.name,
         ...(!p.personality&&p.variation?.stable?{speech_guidance:{...fields(p.variation.stable,['temperament','speech']),
           authority:'Compatible phrasing guidance only. Supplied utterance meaning and stance govern; add no facts, feelings, gestures or actions.'}}:{})})),

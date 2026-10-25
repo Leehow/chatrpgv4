@@ -515,9 +515,16 @@ export function sourceNameReadFix(graph: ModuleGraph, name: string): string | nu
  * the cast (§103.8's pieces), told or not, read or not. The refusal names nobody: for someone untold, saying whose name it is
  * would hand the Keeper the name (§103.8), and for someone told the Keeper already has it.
  */
-export function newcomerRefusal(graph: ModuleGraph, world: Row, name: string): { message: string; fix: string } | null {
+export function newcomerRefusal(graph: ModuleGraph, world: Row, name: string, places: readonly string[] = []): { message: string; fix: string } | null {
     const said = normalize(name);
     if (!said) return null;
+    // §266.15: a newcomer described by where they work ("the welder at <tractor station>") does not carry the name of a
+    // book person that a known place's name happens to hold (Cold Harvest: a historical leader's name begins a station's
+    // name). Every place word that is not itself somebody's name is blanked out of the description before the full names
+    // are sought in it; the table's word for a person is still compared with the whole description.
+    const personNames = new Set(bookCast(graph).flatMap(person => person.names.map(full => normalize(full))));
+    const unplaced = [...new Set(places.map(place => normalize(place)).filter(place => [...place].length > 1 && !personNames.has(place)))]
+        .sort((a, b) => b.length - a.length).reduce((text, place) => text.split(place).join(' '), said);
     // §188.2: a person the graph holds more than once has a word under each node's handle.
     const epithets = (person: CastPerson) => [person.id, ...person.nodes.map(node => graph.handle(node)), ...person.castIds]
         .map(id => text(row(row(world.person_epithets)[id]).word));
@@ -530,9 +537,9 @@ export function newcomerRefusal(graph: ModuleGraph, world: Row, name: string): {
         // as the whole word, or every description sharing two characters with somebody's name is refused (live 2026-10-24:
         // a maid in a pale blue dress, refused, and the turn ended with nothing delivered).
         const bounded = (piece: string) => /[a-z]/i.test(piece);
-        const carried = person.names.some(full => occurs(said, normalize(full)))
+        const carried = person.names.some(full => occurs(unplaced, normalize(full)))
             || namePieces(person.names).some(piece => !abbreviated.has(normalize(piece))
-                && (bounded(piece) ? occurs(said, normalize(piece)) : normalize(piece) === said));
+                && (bounded(piece) ? occurs(unplaced, normalize(piece)) : normalize(piece) === said));
         const called = epithets(person).some(word => word && normalize(word) === said);
         if (!carried && !called) continue;
         return {
