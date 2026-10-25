@@ -53093,6 +53093,25 @@ play, and two packets were refused for seating the book's Martin's Beach officer
 
 Tests: `tests/extension/module-cast.test.mjs`.
 
+### 268.4 A spot that names a place inside the destination is that place
+
+A place `move` whose `spot` names a place registered `within` the destination (including one this move's `additions`
+create) moves the party into that inner place instead, with `adjusted: spot_is_inner_place`; any other spot stays a spot.
+In 1025c *Dust to Dust* T15 a move to Martin's Beach "at" the sheriff's office that also added the office within it left
+the party at a spot of Martin's Beach while the officer was written into the office, so papers shown to him were refused
+as out of reach.
+
+Tests: `tests/integration/enhanced-locations.test.ts`.
+
+### 268.5 An apply refusal is owned by the kinds of effect it carried (amends §34.12)
+
+The host's three-strike class limit scopes an `apply` refusal by its effect kinds (`apply[object]`, `apply[place]`, ...),
+as §34.12 already did for admission refusals. Three refusals of a document shown out of reach shut further object writes
+for the turn, not the place move that brings reader and paper together; in 1025c *Dust to Dust* T15 that move was blocked
+as "apply has been refused 3 times".
+
+Tests: `tests/extension/gates.test.mjs`.
+
 ## 265. Shopping: the outlet's stock, price and order time are the program's (owner 2026-10-24)
 
 The owner's report: a MiniMax Keeper's long deliberations were mostly about whether a shop had the goods and what they cost. Those answers moved to the kernel; the Keeper picks parameters. Purchase guidance that lived in other packages moved with them, so the problem has one home. Amends §58 ("the kernel does not price anything itself") for goods bought at an outlet while this package is active; every other cash path is unchanged.

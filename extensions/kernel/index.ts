@@ -7552,7 +7552,10 @@ export default function (pi: ExtensionAPI, host: {capabilities?:RuntimeCapabilit
 			const inner = (details.coc_error as { details?: Record<string, unknown> }).details ?? {};
 			const needs = (inner.needs as { field?: unknown } | undefined)?.field;
 			const facet = [inner.turn_of, needs, inner.reason, inner.field].find((v) => typeof v === "string" && v) ?? String(details.coc_error.message ?? "");
-			const refusalOwner=singleKeeper&&tool==='apply'&&inner.reason==='action_admission_uncertain'?admissionRefusalScope(tool,event.input):tool;
+			// §268.5: an apply refusal is owned by the kinds of effect it carried, so a document shown out of reach three times
+			// shuts object writes, not the place move that would bring the reader and the paper together (1025c Dust to Dust T15).
+			const admission=inner.reason==='action_admission_uncertain';
+			const refusalOwner=tool==='apply'?admissionRefusalScope(tool,event.input):tool;
 			const cls = `${refusalOwner}\u0000${String(details.coc_error.code ?? "error")}\u0000${String(facet)}`;
 			// A strike is an attempt, not a call. Calls a Keeper issued in one message are answered
 			// after it wrote them, so the second and third of a batch are not it ignoring the first
@@ -7562,7 +7565,7 @@ export default function (pi: ExtensionAPI, host: {capabilities?:RuntimeCapabilit
 			const before = state.refusalsThisTurn;
 			const { count, tripped } = strikeRefusalClass(state, refusalOwner, cls, last, round);
 			if (tripped) await record({ lane: "refusals", turn: state.turn, tool, count, reason: "class_limit", last });
-			if (tripped && refusalOwner===tool && singleKeeper && ['apply','resolve'].includes(tool) && state.turn > 0
+			if (tripped && (refusalOwner===tool || !admission) && singleKeeper && ['apply','resolve'].includes(tool) && state.turn > 0
 				&& ['open','acting'].includes(state.state) && state.inputEnded?.turn !== state.turn) {
 				const turn=state.turn;
 				try {

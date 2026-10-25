@@ -149,7 +149,17 @@ export function stageLocation(context:ApplyContext,given:Row,active:readonly Row
                 details:{reason:'place_destination_unknown',field:'to',requested:effect.to,known_places:known}});
         }
     }
-    const to=graph.handle(destination);
+    let to=graph.handle(destination);
+    // §268.4: a spot that names a place registered inside the destination is that place. A move to Martin's Beach "at the
+    // sheriff's office" that also added the office within it stood the party at a spot while the officer was written into the
+    // office, and the papers shown to him were refused as out of reach three times (1025c Dust to Dust T15).
+    if(effect.action==='move'&&typeof effect.spot==='string'&&effect.at===undefined){
+        const child=locationPlaces(world).find(place=>place.within===to&&[String(place.label??""),String(place.name??"")].some(name=>normalize(name)===normalize(effect.spot)||normalize(name)===normalize(`${to} / ${effect.spot}`)));
+        if(child){
+            destination=locationPlace(graph,world,String(child.name));to=graph.handle(destination);
+            adjusted.push({field:'spot',reason:'spot_is_inner_place',place:to});effect={...effect,to};delete effect.spot;
+        }
+    }
     if(effect.action==='feature'){
         if(effect.state===undefined&&effect.passable===undefined){
             adjusted.push({field:'state',reason:'no_change'});

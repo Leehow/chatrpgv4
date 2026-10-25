@@ -389,6 +389,28 @@ test("一条消息里的三次同类拒绝只算一次：模型没看见回答�
  * of one class — tool, code, the field the kernel named — shuts that tool for the rest of the turn; only
  * narrate and ask remain, and the block says so.
  */
+/** §268.5: an apply refusal is owned by its effect kinds; the paper shut three times does not shut the place move. */
+test("文档三次够不着：再递文档被拦，换个地方走过去不被拦", async (t) => {
+	const show = (why) => fauxAssistantMessage([fauxToolCall("apply", { effects: [{ kind: "object", name: "公函", from: "周衡", to: "周衡", document: { action: "show", reader: "npc_5" }, why }] })], { stopReason: "toolUse" });
+	const table = await openTable({
+		env: { FAKE_KERNEL_ERRORS: JSON.stringify({ "table.apply": { code: "needs", message: "This document is not physically available to this reader here" } }) },
+		responses: [
+			show("递过去"), show("推到他面前"), show("摊开给他看"), show("再递一次"),
+			fauxAssistantMessage([fauxToolCall("apply", { effects: [{ kind: "place", action: "move", to: "治安官办公室" }] })], { stopReason: "toolUse" }),
+			fauxAssistantMessage([fauxToolCall("output", { text: "周衡把公函按在桌上，塔布勒却没有伸手去接，屋里只剩炉子噼啪作响，谁也没有先开口说话。" })], { stopReason: "toolUse" }),
+			fauxAssistantMessage("收尾"),
+		],
+	});
+	t.after(() => table.dispose());
+	await table.session.prompt("我把公函给他看");
+	await waitForIdle(table.session);
+	const results = toolResults(table.session, "apply");
+	assert.equal(results.length, 5);
+	assert.match(resultText(results[3]), /refused 3 times this turn for the same reason/, "第四次递文档被拦");
+	assert.doesNotMatch(resultText(results[4]), /refused 3 times this turn/, "走过去不算同一件事");
+	assert.equal(table.kernelRequests().filter((entry) => entry.method === "table.apply").length, 4, "三次递文档加一次移动到了内核");
+});
+
 test("同类拒绝三次：第四次换了措辞也拦下，只剩 narrate 收回合", async (t) => {
 	// SL-93：收尾的 narrate 正文长度要过新下限（这条测试跟长度本身无关，查的是同类拒绝预算）。
 	const attempt = (goal) => fauxAssistantMessage([fauxToolCall("resolve", { action: { intent: "combat", goal, method: "挥拳", target: "Steven Knott" } })], { stopReason: "toolUse" });

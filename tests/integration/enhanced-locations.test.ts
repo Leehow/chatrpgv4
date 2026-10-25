@@ -408,3 +408,15 @@ test('someone who goes along with the party keeps going along until sent elsewhe
     await k.table('apply',{call_id:'t1-c4',effects:[{kind:'place',action:'move',to:'Corner Cafe'}]});
     assert.equal(knott(),undefined,'sent away, he left the company');
 });
+
+test('a spot that names a place added inside the destination moves the party into that place (§268.4)',async t=>{
+    const k=await kernel(t);await openTurn(k,'I go to the inn and into room 203.');
+    await k.table('apply',{call_id:'t1-c1',effects:[{kind:'place',action:'move',to:'Inn',via:'Along the street',travel_band:'adjacent',additions:[hotel('Inn')]}]});
+    const move=await k.table('apply',{call_id:'t1-c2',effects:[{kind:'place',action:'move',to:'here',spot:'Room 203',additions:[room('Inn')]}]});
+    assert.equal(state(k).active_scene,'Inn / Room 203','the party stands in the inner place, not at a spot of its parent');
+    assert.equal(locations(k).position.spot,undefined);
+    assert.ok(array(move.outcomes[0].adjusted??[]).some((row:Row)=>row.reason==='spot_is_inner_place')||JSON.stringify(move).includes('spot_is_inner_place'));
+    await k.table('apply',{call_id:'t1-c3',effects:[{kind:'place',action:'move',to:'here',spot:'by the bed'}]});
+    assert.equal(locations(k).position.spot,'by the bed','an ordinary spot is still a spot');
+});
+const array=(value:any)=>Array.isArray(value)?value:[];
