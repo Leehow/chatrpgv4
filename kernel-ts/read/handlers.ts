@@ -645,7 +645,11 @@ export function readHandlers(context: KernelContext, contributions: ReadContribu
                 // §177.7: someone the book names whom the reader has not reached answers as such, by the word this table calls
                 // them, with the pages that name them, instead of not_found: a write naming them lands on those pages (§22.4.7.1).
                 const unread = !entities.length && (!expected || expected === 'npc') ? castPersonNamed(graph, world, query) : null;
-                if (unread) entities.push({ name: tableWord(world, unread.id) || unread.id, kind: 'npc', material: 'unread', original_pages: unread.pages,
+                // §268.3: the Keeper reads the book's name; the table's word for them rides beside it. Answering by the word alone
+                // (1025c Dust to Dust T13: "the chief with an Arkham badge" for the book's Martin's Beach officer) read as someone
+                // already in play, and two packets were refused for seating him as a newcomer.
+                const word = unread ? tableWord(world, unread.id) : '';
+                if (unread) entities.push({ name: unread.names[0] || word || unread.id, ...(word && word !== unread.names[0] ? { table_word: word } : {}), kind: 'npc', material: 'unread', original_pages: unread.pages,
                     note: 'The book names this person and their record is not read yet. A write that names them by this name lands on the book\'s text and their record is read.' });
                 // §204.5: a destination asked for by a person's name is where that person is, when one place says so.
                 if (!entities.length && expected === 'scene') {

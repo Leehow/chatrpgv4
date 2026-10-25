@@ -460,7 +460,9 @@ test('§177.6/§177.7: lookup finds a person by the table\'s word; an unread per
 	const mae = await h.call('table.lookup', {kind: 'module', query: 'the net mender'});
 	assert.equal(mae.entities[0]?.name, await handleOf(h, 'Old Mae'), 'the epithet finds her through the person junction');
 	const boy = await h.call('table.lookup', {kind: 'module', query: 'the drowned boy'});
-	assert.deepEqual([boy.entities[0]?.name, boy.entities[0]?.material, boy.entities[0]?.original_pages], ['the drowned boy', 'unread', [3]]);
+	assert.deepEqual([boy.entities[0]?.name, boy.entities[0]?.table_word, boy.entities[0]?.material, boy.entities[0]?.original_pages], ['Jonah', 'the drowned boy', 'unread', [3]], '§268.3: the book name, with the table word beside it');
+	const byName = await h.call('table.lookup', {kind: 'module', query: 'Jonah'});
+	assert.deepEqual([byName.entities[0]?.name, byName.entities[0]?.table_word], ['Jonah', 'the drowned boy'], 'asked by the book name, answered by it');
 	assert.equal(boy.status, undefined, 'not not_found');
 
 	const place = extra => h.attempt('table.apply', {call_id: 't1-c1', ...extra, effects: [{kind: 'npc', name: 'the drowned boy', to: 'here', why: 'the story calls him up'}]});

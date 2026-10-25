@@ -53084,6 +53084,15 @@ both Medicine and First Aid as "already used today" without a roll.
 
 Tests: `tests/integration/healing-new-wound.test.ts`.
 
+### 268.3 An unread person answers lookup by the book's name (amends §177.7)
+
+`table.lookup kind: module` answers someone the book names but the reader has not reached with `name` = the book's name
+and, when the table has a word for them that differs, `table_word` beside it. The word alone answered before: in 1025c
+*Dust to Dust* T13 "塔布勒" came back as "胸前佩着阿卡姆徽章的局长", which the Keeper read as the Arkham chief already in
+play, and two packets were refused for seating the book's Martin's Beach officer as a newcomer.
+
+Tests: `tests/extension/module-cast.test.mjs`.
+
 ## 265. Shopping: the outlet's stock, price and order time are the program's (owner 2026-10-24)
 
 The owner's report: a MiniMax Keeper's long deliberations were mostly about whether a shop had the goods and what they cost. Those answers moved to the kernel; the Keeper picks parameters. Purchase guidance that lived in other packages moved with them, so the problem has one home. Amends §58 ("the kernel does not price anything itself") for goods bought at an outlet while this package is active; every other cash path is unchanged.
