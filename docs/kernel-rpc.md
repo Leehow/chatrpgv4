@@ -53037,6 +53037,14 @@ prints their name; the host seats them as that person (§177.6, §264.32) and th
 newcomer refusal's fix says the same. In the slow 1025b turns the Keeper weighed walk_on, apply npc and a new slot for
 the book's people at length, and wrote titled labels ("阿萨·尼克尔森局长") the newcomer gate then refused.
 
+### 267.3 Arriving at a place seats the book people its pages print (owner 2026-10-25)
+
+A party move lands each unread person the cast prints on the destination's pages on their first mention (§266.13's
+`landFromCast`), at most twelve, without presence: they join the table's roster, so `npc_references` issues each a
+stable `npc_N` and the Keeper brings one on with `{kind:"npc", actor, to:"here"}` instead of deciding between walk_on,
+apply npc and a slot. The move receipt lists them in `cast_seated`. Their public name follows the roster as before (an
+untold person is shown to the player by epithet); numbers the book does not print are rolled when first needed (§264.28).
+
 ## 265. Shopping: the outlet's stock, price and order time are the program's (owner 2026-10-24)
 
 The owner's report: a MiniMax Keeper's long deliberations were mostly about whether a shop had the goods and what they cost. Those answers moved to the kernel; the Keeper picks parameters. Purchase guidance that lived in other packages moved with them, so the problem has one home. Amends §58 ("the kernel does not price anything itself") for goods bought at an outlet while this package is active; every other cash path is unchanged.

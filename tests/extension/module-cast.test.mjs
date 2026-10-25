@@ -1010,6 +1010,20 @@ test('§264.41: creature:false on a walk_on of a book person says what an omitte
 	assert.equal(answer.error?.details?.reason, 'material_pending', JSON.stringify([answer.error?.message, answer.error?.details]));
 });
 
+test('§267.3: arriving at a place seats the book people its pages print in the roster, with a reference, not present', async t => {
+	const h = await harbor(t);
+	await readCast(h);
+	await h.call('table.player_input', {text: 'I walk out to the tower.'});
+	const moved = await h.attempt('table.apply', {call_id: 't1-c1', effects: [{kind: 'move', to: 'Tower', why: 'They walk out to the tower.'}]});
+	assert.equal(moved.ok, true, JSON.stringify(moved.error?.message));
+	const world = await h.world();
+	const silas = world.table_people.find(row => row.name === 'Silas Marsh');
+	assert.ok(silas?.cast_id, JSON.stringify(world.table_people));
+	assert.ok(!Object.keys(world.npc_presence ?? {}).some(handle => handle.includes('silas')), 'seated in the roster, not brought on');
+	const capsule = await h.call('table.capsule');
+	assert.ok((capsule.npc_references?.people ?? []).some(person => /^npc_\d+$/.test(person.ref ?? '') && JSON.stringify(person).includes('Silas')), JSON.stringify(capsule.npc_references));
+});
+
 test('§266.14: a person only the index names, by one character, lands on a sentence of their index pages that holds it', async t => {
 	const h = await harbor(t, {entities: ['K']});
 	await h.call('table.player_input', {text: 'I look for the keeper.'});

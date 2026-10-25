@@ -11,6 +11,8 @@ import { establishTableEntity, establishedWithin, validateEstablishment } from '
 import { isAmbiguity, recordOf, type ModuleGraph } from '../read/module-graph.js';
 import { aroundExit, bookRoadMinutes, parentsOf, personPlaces, placeRelation, returnRoute, roadKey, tableRoad } from '../read/places.js';
 import {clearLocationPosition,locationPolicyApplies} from '../read/locations.js';
+import { openingCast } from '../read/cast.js';
+import { landFromCast } from './entities.js';
 /** The options producer and transaction use the same structural route requirement. */
 export function moveAccess(graph:ModuleGraph,world:Row,current:Row,destination:Row,established=false,containmentIsRoute?:boolean) {
     const target=graph.handle(destination),trail=array(world.scene_trail).map(string);
@@ -183,6 +185,10 @@ export function stageMove(context: ApplyContext, effect: Row, travelRows?: Trave
     }
     if (!array(world.visited_scenes ??= []).includes(target))
         world.visited_scenes.push(target);
+    // §267.3: the book's people printed on this place's pages are seated in the table's roster on arrival (not here, not
+    // told), so each has a stable reference the Keeper brings on by `to: here`; nothing reads prose and nothing is read.
+    const seated = seatPrintedCast(context, destination);
+    if (seated.length) receipt.cast_seated = seated;
     advanceClock(world, minutes);
     return { receipt, event: { type: 'scene-moved', data: { from, to: target, minutes, ...(company.length ? { with: company } : {}) } } };
 }
@@ -208,4 +214,18 @@ function entranceCompany(graph: ModuleGraph, world: Row, current: Row, destinati
         return [];
     const presence = row(world.npc_presence);
     return graph.sceneNpcIds(destination).map(id => graph.handle(graph.nodes.get(id)!)).filter(handle => presence[handle] === from);
+}
+
+/** §267.3: land each unread person the cast prints on `scene`'s pages on their first mention; returns their handles. */
+export function seatPrintedCast(context: ApplyContext, scene: Row): string[] {
+    const landed = new Set(array(context.world.table_people).map(person => string(row(person).cast_id)).filter(Boolean));
+    const out: string[] = [];
+    for (const person of openingCast(context.graph, scene).slice(0, 12)) {
+        if (landed.has(person.id) || person.castIds.some(id => landed.has(id))) continue;
+        const name = person.printed?.[0] ?? person.names[0];
+        if (typeof name !== 'string' || !name.trim()) continue;
+        try { const node = landFromCast(context, name); if (node) out.push(context.graph.handle(node)); }
+        catch { /* a name the junction refuses stays unseated; the Keeper's own write meets that refusal */ }
+    }
+    return out;
 }
