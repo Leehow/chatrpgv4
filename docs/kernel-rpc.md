@@ -53463,3 +53463,12 @@ a Dead God* T12 a refused Persuade held the turn after the corrected one succeed
 told.
 
 Tests: `tests/extension/held-act-outcome.test.mjs`.
+
+### 270.8 Where a Turn IR presence sends someone
+
+A Turn IR packet is not held to the v4 issued-destination guard: `presence leave` (and `enter` with `at`) names the
+place by name and the kernel resolves it, keeping an unregistered one as `adjusted`. Someone who entered earlier in the
+same segment and leaves in it has no ref yet; their arrival is written to where they go. In 1025f *Dust to Dust* T5
+two outputs were refused "NPC destination must select here, away or one exact issued place" and the turn went untold.
+
+Tests: `tests/extension/turn-ir-native.test.mjs`.

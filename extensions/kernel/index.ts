@@ -6270,7 +6270,9 @@ export default function (pi: ExtensionAPI, host: {capabilities?:RuntimeCapabilit
                 // `_object` commands the v4 schema does not declare.
                 const parsed=fromTurnIr?params as unknown as TurnPacket:turnPacket(JSON.stringify(params));
                 const choices=owner.prescreen?.choices?turnPacketMovementChoices(owner.prescreen.choices):undefined;
-                packet=choices?bindTurnPacketMoves(parsed,choices):requireTurnPacketNpcDestinations(parsed);
+                // §270.8: a Turn IR presence names where someone goes by place name; the kernel resolves it (an unregistered
+                // place is kept as adjusted), so the v4 issued-destination guard does not apply to it.
+                packet=fromTurnIr?parsed:choices?bindTurnPacketMoves(parsed,choices):requireTurnPacketNpcDestinations(parsed);
                 if((packet.commands??[]).some(row=>row.kind==='time'&&typeof row.band==='string')){
                     const bands=await packetTimeBandHandles(state);
                     if((packet.commands??[]).some(row=>row.kind==='time'&&typeof row.band==='string'&&!bands.includes(row.band)))throw Error('time.band must select one issued rule handle: '+bands.join(', '));

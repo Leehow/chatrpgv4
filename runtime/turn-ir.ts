@@ -130,7 +130,12 @@ export function toPacket(actions:TurnIrAction[],directory:TurnIrDirectory,aliase
     break;
    }
    case 'presence':{
-    if(action.action==='leave'){commands.push({kind:'npc',actor:person(action.who,i,'who'),to:action.at??'away',reason:action.reason});break;}
+    if(action.action==='leave'){
+     const actor=person(action.who,i,'who'),seated=commands.find(row=>row.kind==='walk_on'&&row.slot===actor);
+     // Someone who came in earlier in this same segment has no ref yet: their arrival takes them on to where they go.
+     if(seated){seated.to=action.at??'away';break;}
+     commands.push({kind:'npc',actor,to:action.at??'away',reason:action.reason});break;
+    }
     const known=action.who.startsWith('@')?'':person(action.who,i,'who',{newcomer:true});
     if(known&&!/^investigator_/.test(known)){commands.push({kind:'npc',actor:known,to:action.at??'here',reason:action.reason});break;}
     if(known)throw new TurnIrError(i,'an investigator does not enter by presence; use move',{field:'who'});

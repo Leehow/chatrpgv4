@@ -67,3 +67,12 @@ test('a newcomer seated before a barrier keeps their @alias into the next output
  assert.equal(published(table),1);
  assert.deepEqual(table.extensionErrors,[]);
 });
+
+test('a person sent to a named place by presence leave is not refused by the v4 destination guard',async t=>{
+ const table=await play(t,[
+  output([{op:'presence',who:'@porter',action:'enter',as:'porter',reason:'A porter comes in.'},{op:'presence',who:'@porter',action:'leave',at:'the train station',reason:'He heads off to the station.'},
+   {op:'scene',service:'open',crowd:'quiet'}]),
+  fauxAssistantMessage('done')]);
+ assert.ok(!results(table)[0].details?.coc_error,JSON.stringify(results(table)[0].details?.coc_error));
+ assert.equal(published(table),1);
+});
