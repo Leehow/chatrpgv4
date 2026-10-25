@@ -323,6 +323,14 @@ export class ResolvePipeline {
         const fled = this.fledTarget;
         if (fled && facts['chase.session.inactive'] === true && facts['chase.start.ready'] !== true && truth(this.context.npcProfile(fled.handle)))
             facts['chase.start.ready'] = true;
+        // §264.38: a person here whom the action targets counts though the book gave them no block; the chase binding pins
+        // them the rulebook's ordinary adult (§264.28), and the readiness fact had withheld the start before that default.
+        if (facts['chase.session.inactive'] === true && facts['chase.start.ready'] !== true && truth(this.action.target)) {
+            const node = this.context.graph.actor(this.action.target);
+            if (node && this.context.graph.isPerson(node)
+                && row(this.context.world.npc_presence)[this.context.graph.handle(node)] === this.context.world.active_scene)
+                facts['chase.start.ready'] = true;
+        }
         return facts;
     }
     private async withSanityOffer(refs: string[]): Promise<string[]> {
