@@ -152,6 +152,8 @@ export interface OperationGateway {
   dispatch(proposal: OperationProposal, context: HostOperationContext): Promise<ObservationPacket>;
   canParallelize?(calls: readonly {operation: string; params?: unknown}[]): boolean;
   publishRoutine?(run:string,signal:AbortSignal):Promise<{details:Record<string,any>}>;
+  /** §271: publish what this input settled when the Keeper's own delivery did not land. */
+  publishSettled?(run:string,signal:AbortSignal):Promise<{details:Record<string,any>}>;
 }
 
 export interface HybridEngineOptions {
@@ -404,7 +406,7 @@ export function createHybridEngine(options: HybridEngineOptions): {runDriver: Se
   const packetGuidance=turnPacketPrototype&&options.env.PI_COC_TURN_IR==='1'?TURN_IR_GUIDANCE:TURN_PACKET_GUIDANCE;
   let runSignal:AbortSignal|undefined,closed=false;
   const queries=new Set<AbortController>();
-  let steer:Row|undefined;
+  let steer:Row|undefined,settledFallback=false;
   const record=(row:Row)=>{try{(options.record??bridge?.record)?.(row);}catch{/* Telemetry is observational. */}};
   const decision=options.decision===undefined?(readJevApiKey(options.env)?createDecisionAdapter({env:options.env}):undefined):options.decision??undefined;
   const bindMemorySearch=()=>{
@@ -475,7 +477,7 @@ export function createHybridEngine(options: HybridEngineOptions): {runDriver: Se
     for(const query of queries)query.abort('new_keeper_input');
     runSignal=undefined;
     current={runId:context.runId,inputRevision:context.inputRevision,rawInput:context.rawInput};
-    steer=undefined;
+    steer=undefined;settledFallback=false;
     api?.events.emit('coc:keeper-run',current);
     const owner=current,bound=bridge,operations=gateway;
     const preparation=turnPacketPrototype&&bound?.call&&bound.campaign?new KeeperPreparation({input:context.rawInput,
@@ -492,7 +494,10 @@ export function createHybridEngine(options: HybridEngineOptions): {runDriver: Se
       ...(preparation?{prepareMaterials:(capsule:Row,signal:AbortSignal)=>preparation.warm(capsule,signal)}:{}),
       ...(packetPrescreen?{packet:true,timeBands:bound.timeBands,...bound.playerContext?.()}:{})}):undefined;
     const policy={name:'single-keeper',version:'1',initial:()=>null,reduce:()=>null,next:(view:any):any=>{
-      if(closer?.campaign===bridge?.campaign&&closer?.ended?.())return{kind:'finish',outcome:'undelivered',reason:'input_ended'};
+      // §271: a turn never ends silent while the host can still publish what settled; the fallback runs once per input.
+      const fallback=()=>turnPacketPrototype&&!settledFallback&&operations?.publishSettled
+        ?{kind:'operate' as const,proposals:[{origin:'policy' as const,operation:'settled_publish'}],reason:'publish_settled_fallback'}:undefined;
+      if(closer?.campaign===bridge?.campaign&&closer?.ended?.())return fallback()??{kind:'finish',outcome:'undelivered',reason:'input_ended'};
       if(view.pendingProposals.length)return{kind:'operate',proposals:view.pendingProposals,reason:'keeper_tools'};
       if(view.delivery==='accepted'||view.delivery==='awaiting_player')return{kind:'finish',outcome:view.delivery==='accepted'?'delivered':'awaiting_player',reason:'delivery_accepted'};
       if(continuous&&!continuous.prepared)return{kind:'operate',proposals:[{origin:'policy',operation:'continuous_prepare'}],reason:'current_turn_options'};
@@ -502,11 +507,13 @@ export function createHybridEngine(options: HybridEngineOptions): {runDriver: Se
         return{kind:'operate',proposals:[{origin:'policy',operation:'continuous_publish'}],reason:'publish_routine_travel'};
       const last=view.lastObservation;
       if(last?.kind==='infer'){
-        if(last.status!=='ok')return{kind:'finish',outcome:'failed',reason:'keeper_failed'};
+        if(last.status!=='ok')return fallback()??{kind:'finish',outcome:'failed',reason:'keeper_failed'};
         return{kind:'operate',proposals:[{origin:'policy',operation:'turn_close'}],reason:'publish_keeper_result'};
       }
       if(last?.outcomes?.some((outcome:any)=>outcome.artifact?.kind==='turn_close')&&!steer)
-        return{kind:'finish',outcome:'undelivered',reason:'no_delivery'};
+        return fallback()??{kind:'finish',outcome:'undelivered',reason:'no_delivery'};
+      if(last?.outcomes?.some((outcome:any)=>outcome.artifact?.kind==='settled_publication'))
+        return{kind:'finish',outcome:'undelivered',reason:'settled_fallback_failed'};
       return{kind:'infer',purpose:'adjudicate',reason:'keeper'};
     }};
     const ports:RunDriverPorts={
@@ -533,6 +540,13 @@ export function createHybridEngine(options: HybridEngineOptions): {runDriver: Se
         if(proposal.operation==='continuous_apply'&&continuous){
           const outcome=await continuous.execute(invocation.signal,invocation.stepId);
           return{status:outcome.status==='succeeded'?'ok':'refused',artifact:{kind:'continuous_turn',...outcome}};
+        }
+        if(proposal.operation==='settled_publish'&&operations?.publishSettled){
+          settledFallback=true;
+          const result=await operations.publishSettled(context.runId,invocation.signal).catch((error:unknown)=>({details:{published:false,error:String(error)}}));
+          record({lane:'run',event:'settled_fallback',run:context.runId,published:result.details.published===true});
+          return{status:result.details.published===true?'ok':'refused',
+            ...(result.details.published===true?{delivery:DELIVERY_VERBS.output}:{}),artifact:{kind:'settled_publication',published:result.details.published===true}};
         }
         if(proposal.operation==='continuous_publish'&&continuous&&operations?.publishRoutine){
           continuous.published=true;
