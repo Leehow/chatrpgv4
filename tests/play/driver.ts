@@ -43,6 +43,25 @@ catch (error: any) {
     throw error;
 } }
 export const append_jsonl = (path: any, obj: any) => appendFileSync(String(path), JSON.stringify(obj) + '\n');
+export const LONG_THINKING_TOKENS = 1000;
+// Each assistant step's thinking in [started_at, ended_at]: lengths for the turn record, and the
+// blocks over LONG_THINKING_TOKENS in full for the run's long-thinking notebook. Tokens are the
+// step's output usage shared out by character length, since usage does not split thinking out.
+export function turn_thinking(events_path: string | undefined, started_at: string, ended_at: string) { const stats: Row[] = [], long: Row[] = []; let lines: string[] = []; if (events_path) try {
+    lines = readFileSync(events_path, 'utf8').split('\n');
+}
+catch (error: any) {
+    if (error.code !== 'ENOENT')
+        throw error;
+} for (const line of lines) { let x: any; try {
+    x = JSON.parse(line);
+}
+catch {
+    continue;
+} const m = x?.message; if (x?.type !== 'message_end' || !(started_at <= x._recv_at && x._recv_at <= ended_at) || m?.role !== 'assistant' || !Array.isArray(m.content))
+    continue; const sizes = m.content.map((b: any) => b?.type === 'thinking' ? String(b.thinking || '').length : b?.type === 'text' ? String(b.text || '').length : JSON.stringify(b?.arguments ?? '').length), all = sizes.reduce((a: number, b: number) => a + b, 0), output = m.usage?.output; m.content.forEach((b: any, i: number) => { if (b?.type !== 'thinking')
+    return; const chars = sizes[i], tokens = typeof output === 'number' && all > 0 ? Math.round(output * chars / all) : Math.round(chars / 3), step = stats.length; stats.push({ step, chars, tokens, output_tokens: output ?? null, tools: m.content.filter((c: any) => c?.type === 'toolCall').map((c: any) => c.name ?? null) }); if (tokens > LONG_THINKING_TOKENS)
+    long.push({ step, chars, tokens, at: x._recv_at, thinking: b.thinking }); }); } return { stats, long }; }
 export function truncate_bytes(s: string, limit: number) { const bytes = Buffer.from(s); if (bytes.length <= limit)
     return s; const decoder = new TextDecoder('utf8', { fatal: false }); let end = limit; while (end > 0 && (bytes[end] & 0xc0) === 0x80)
     end--; return decoder.decode(bytes.subarray(0, end)) + '...[truncated]'; }
@@ -533,7 +552,8 @@ export class Daemon {
         player_view = await this._read_player_view(); const wall_seconds = rounded(time.monotonic() - started_mono), tools = records.map(t => ({ name: t.name ?? null, args: t.args ?? null, result_text: t.result_text || '', ms: t.ms ?? null, is_error: t.is_error || false })), summary: Row = { run_id: this.run_id, turn: n, player_text, final_text, tools, wall_seconds, settle_class, ...(options.timings ? { timings: { ...options.timings } } : {}), stop_reason, started_at, ended_at: now_iso() }; if(typeof options.input_observed==='boolean')summary.input_observed=options.input_observed; for (const key of ['startup_events','stale_settles', 'delivery', 'notices', 'reference_replies', 'setup_opening'])
         if (options[key])
             summary[key] = options[key]; if (player_view != null)
-        summary.player_view = player_view; write_json(join(this.dir, 'turn-' + n + '.json'), summary); this._write_heartbeat('running'); this.log.write(`turn ${n} settle_class=${settle_class} stop_reason=${stop_reason} wall=${wall_seconds}s tools=${JSON.stringify(tools.map(t => t.name))}`); return { ok: true, summary }; }
+        summary.player_view = player_view; const thinking = turn_thinking(this.events_path, started_at, summary.ended_at); summary.thinking_steps = thinking.stats; for (const block of thinking.long)
+            append_jsonl(join(this.dir, 'long-thinking.jsonl'), { run_id: this.run_id, turn: n, ...block }); write_json(join(this.dir, 'turn-' + n + '.json'), summary); this._write_heartbeat('running'); this.log.write(`turn ${n} settle_class=${settle_class} stop_reason=${stop_reason} wall=${wall_seconds}s tools=${JSON.stringify(tools.map(t => t.name))}`); return { ok: true, summary }; }
     async _read_player_view() { const began = time.monotonic(), deadline = began + 12, request: Row = { id: 'player-view', method: 'table.view', params: { campaign: this.campaign } }; for (const surface of ['full', 'clock']) {
         const remaining = deadline - time.monotonic();
         if (remaining <= 0)
