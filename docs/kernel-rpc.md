@@ -53000,8 +53000,8 @@ Dead God, 2026-10-25). Any falsy `creature` now reads as absent.
 ### 264.42 A skill with an unprinted gloss in brackets is the part the rulebook has
 
 `resolve` with `skill: "Listen (Perceive)"` refused as unknown (Digging for a Dead God, 2026-10-25). A name that does not
-resolve as written but has the form `A (B)` resolves to whichever one of A and B the rulebook has, when exactly one does;
-a printed specialization such as `Fighting (Brawl)` still resolves as written first.
+resolve as written but has the form `A (B)`, with no colon in B, resolves as A; a printed specialization such as
+`Fighting (Brawl)` still resolves as written first, and a group phrase such as `Lore (Other: Latin)` is no gloss.
 
 ### 264.43 An item's condition effect gives a condition; a remedy names none
 

@@ -171,13 +171,11 @@ export function actionSkills(action: Row, resolver: SkillResolver): string[] {
         if (typeof explicit !== 'string' || !explicit.trim())
             throw new RpcError('invalid_params', 'action.skill must be a non-empty string');
         let found = resolver.resolveExplicit(explicit);
-        // §264.42: a name with a gloss in brackets the rulebook does not print ("Listen (Perceive)") is the one of its two
-        // parts the rulebook has; a specialization the rulebook prints ("Fighting (Brawl)") resolved above as written.
-        const glossed = !found ? /^(.+?)\s*[(\uFF08]([^()\uFF08\uFF09]+)[)\uFF09]\s*$/u.exec(explicit.trim()) : null;
-        if (glossed) {
-            const parts = [...new Set([glossed[1]!, glossed[2]!].map(part => resolver.resolveExplicit(part.trim())).filter((value): value is string => !!value))];
-            if (parts.length === 1) found = parts[0]!;
-        }
+        // §264.42: a skill name followed by a bracketed gloss the rulebook does not print ("Listen (Perceive)") is that skill; a
+        // specialization the rulebook prints ("Fighting (Brawl)") resolved above as written, and a group phrase with a colon
+        // ("Lore (Other: Latin)") is no gloss.
+        const glossed = !found ? /^(.+?)\s*[(\uFF08]([^()\uFF08\uFF09:\uFF1A]+)[)\uFF09]\s*$/u.exec(explicit.trim()) : null;
+        if (glossed) found = resolver.resolveExplicit(glossed[1]!.trim());
         if (!found)
             // §264.44: the nearest names by spelling can all miss what the action is ("Athletics" had no Climb among six), so
             // the refusal also carries every skill on the actor's sheet with its value; which one fits is the Keeper's call.
