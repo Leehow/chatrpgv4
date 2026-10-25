@@ -972,7 +972,7 @@ test('each stop of a route carries its own population assessment, settled before
  const effects=compileTurnPacket(turnPacket(JSON.stringify(route))).effects.map(e=>e.kind==='scene'?`scene:${e.activity.crowd}`:e.kind==='npc'?`npc:${e.name}@${e.to}`:`${e.kind}:${e.action??''}:${e.to??''}`);
  assert.deepEqual(effects,['place:move:Station Hotel','npc:the day clerk@here','scene:quiet','place:move:corbitt-house-ground','place:observe:corbitt-house-ground','npc:a street sweeper@corbitt-house-ground','scene:quiet']);
  const twice={version:4,commands:[{kind:'place',action:'move',to:'Station Hotel',travel_band:'adjacent'},{kind:'scene',service:'open',crowd:'quiet'},{kind:'scene',service:'open',crowd:'empty'}]};
- assert.throws(()=>turnPacket(JSON.stringify(twice)),/Duplicate newcomer labels, scene or slot/,'two assessments of one stop are still a duplicate');
+ assert.throws(()=>turnPacket(JSON.stringify(twice)),/Two scene commands assess the same place/,'two assessments of one stop are still a duplicate');
  const one={version:4,commands:[{kind:'walk_on',slot:'new_1',label:'the clerk',reason:'Staffed.'},{kind:'scene',service:'open',crowd:'quiet'},{kind:'place',action:'observe',facts:['A counter.'],people:['new_1']}]};
  assert.deepEqual(compileTurnPacket(turnPacket(JSON.stringify(one))).effects.map(e=>e.kind),['npc','place','scene'],'a single stop still settles its assessment last');
 });

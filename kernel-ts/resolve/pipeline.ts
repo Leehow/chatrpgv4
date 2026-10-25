@@ -179,9 +179,11 @@ export function actionSkills(action: Row, resolver: SkillResolver): string[] {
             if (parts.length === 1) found = parts[0]!;
         }
         if (!found)
+            // §264.44: the nearest names by spelling can all miss what the action is ("Athletics" had no Climb among six), so
+            // the refusal also carries every skill on the actor's sheet with its value; which one fits is the Keeper's call.
             throw new RpcError('needs', `unknown skill or characteristic ${repr(explicit)}`, {
-                fix: 'set action.skill to one of details.needs.options',
-                details: {needs: {field: 'skill', options: resolver.optionsFor(explicit)}}
+                fix: 'set action.skill to the rulebook skill the action actually uses: one of details.needs.options, or any skill in details.needs.sheet',
+                details: {needs: {field: 'skill', options: resolver.optionsFor(explicit), sheet: {...resolver.sheetSkills}}}
             });
         return [found];
     }

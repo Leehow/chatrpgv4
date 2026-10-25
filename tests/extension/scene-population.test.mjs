@@ -15,7 +15,7 @@ test('scene assessment and a temporary role share the normal transaction, with a
  assert.equal(compiled.effects[0].kind,'npc');assert.equal(compiled.effects[0].walk_on,true);assert.equal(compiled.effects[0].to,'here');
  assert.equal(compiled.effects[1].kind,'scene');assert.equal(compiled.effects[1].activity.review_after_minutes,15);
  assert.throws(()=>turnPacket(JSON.stringify({...packet,commands:[{kind:'scene',service:'open',crowd:'quiet'}]})),/slot/);
- assert.throws(()=>turnPacket(JSON.stringify({...packet,commands:[...packet.commands,{kind:'walk_on',slot:'new_2',label:' THE DAY ATTENDANT ',reason:'A duplicate label.'}]})),/Duplicate newcomer labels/);
+ assert.throws(()=>turnPacket(JSON.stringify({...packet,commands:[...packet.commands,{kind:'walk_on',slot:'new_2',label:' THE DAY ATTENDANT ',reason:'A duplicate label.'}]})),/Two walk_on commands carry the same label/);
  assert.equal(compileTurnPacket({...packet,commands:[{kind:'scene',service:'open',crowd:'quiet',review_after_minutes:2}]}).effects[0].activity.review_after_minutes,2);
 });
 test('only a current coherent assessment qualifies for the warm travel path; an unnamed crowd is coherent (§250.13)',()=>{

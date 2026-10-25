@@ -53003,6 +53003,22 @@ Dead God, 2026-10-25). Any falsy `creature` now reads as absent.
 resolve as written but has the form `A (B)` resolves to whichever one of A and B the rulebook has, when exactly one does;
 a printed specialization such as `Fighting (Brawl)` still resolves as written first.
 
+### 264.43 An item's condition effect gives a condition; a remedy names none
+
+The item creator's guidance now says a `{kind:condition}` effect gives the target that condition and nothing removes
+one, so a medicine names no condition for what it treats (its rules roll does). A first-aid kit with quinine had been
+generated with condition 疟疾, and using it gave the patient malaria (Digging for a Dead God, 2026-10-25).
+
+### 264.44 An unknown skill refusal carries the actor's sheet
+
+Besides the six nearest names by spelling, `details.needs.sheet` lists every skill on the actor's sheet with its value,
+and the fix names it. "Athletics" for a climb had offered six names without Climb; the Keeper rolled Dodge.
+
+### 264.45 Duplicate newcomer labels, slots and stop assessments are three refusals
+
+The one sentence "Duplicate newcomer labels, scene or slot" is now three, each naming its cause and fix; the Keeper had
+removed people and rewritten crowds while the real cause, two scene commands at one stop, stayed.
+
 ## 265. Shopping: the outlet's stock, price and order time are the program's (owner 2026-10-24)
 
 The owner's report: a MiniMax Keeper's long deliberations were mostly about whether a shop had the goods and what they cost. Those answers moved to the kernel; the Keeper picks parameters. Purchase guidance that lived in other packages moved with them, so the problem has one home. Amends §58 ("the kernel does not price anything itself") for goods bought at an outlet while this package is active; every other cash path is unchanged.

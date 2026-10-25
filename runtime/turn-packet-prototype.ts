@@ -314,7 +314,11 @@ export function turnPacket(text:string,parameters?:TSchema):TurnPacket {
  const packet=raw as TurnPacket,commands=packet.commands??[],interactions=packet.interactions??[];
  const slots=commands.filter(a=>a.kind==='walk_on').map(a=>a.slot);
  const labels=commands.filter(a=>a.kind==='walk_on').map(a=>a.label.normalize('NFKC').trim().toLowerCase());
- if(new Set(labels).size!==labels.length||new Set(slots).size!==slots.length||sceneStops(commands).some(stop=>stop>1))throw Error('Duplicate newcomer labels, scene or slot');
+ // §264.45: each of the three says which it is and what to change; one sentence for all three had the Keeper delete people
+ // and rewrite crowds while the actual cause, two scene commands at one stop, stayed (live 2026-10-25, Dust to Dust T12).
+ if(new Set(labels).size!==labels.length)throw Error('Two walk_on commands carry the same label; give each newcomer its own label, or one walk_on for one person');
+ if(new Set(slots).size!==slots.length)throw Error('Two walk_on commands use the same slot; give each newcomer its own slot (new_1, new_2, ...)');
+ if(sceneStops(commands).some(stop=>stop>1))throw Error('Two scene commands assess the same place: keep one scene command per stop (one before the first move, one after each move)');
  interactions.forEach(value=>responseDecision(value,slots));
  for(const command of commands)if(command.kind==='place'&&command.action==='observe')
   for(const name of [...command.people??[],...(command.situations??[]).flatMap(situation=>situation.participants??[])])

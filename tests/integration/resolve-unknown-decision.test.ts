@@ -14,3 +14,8 @@ test('a skill with a gloss the rulebook does not print resolves to the part it h
   const result=await k.table('resolve',{call_id:'t1-c1',action:{intent:'investigate',skill:'Spot Hidden (Notice)',goal:'Find what is hidden in the desk',method:'search it',stakes:'Knott may notice'}});
   assert.equal(result.outcome?.skill,'Spot Hidden',JSON.stringify(result.outcome));
 });
+test('an unknown skill refusal carries the actor\'s whole sheet beside the nearest names (§264.44, live 2026-10-25)',async t=>{
+  const k=await seeded(t);await openTurn(k,'I climb the drainpipe.');
+  const e=await k.tableErr('resolve',{call_id:'t1-c1',action:{intent:'investigate',skill:'Athletics',goal:'Climb the drainpipe',method:'climb',stakes:'A fall'}});
+  assert.equal(e.code,'needs');assert.ok(Object.hasOwn(e.details.needs.sheet,'Climb'),JSON.stringify(e.details.needs));
+});

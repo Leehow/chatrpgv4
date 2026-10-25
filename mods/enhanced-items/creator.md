@@ -126,7 +126,10 @@ Spell parameters: cost_mp, cost_sanity (nonnegative integer or dice expression),
 cost_pow (optional), casting_time (description), effects (typed list below).
 Item parameters: charges (nonnegative integer or null), effects (typed list).
 Typed effects: {kind:hp|san|mp, amount:nonnegative integer or dice expression,
-direction:gain|loss} or {kind:condition, value:string}. Effects require an explicit
+direction:gain|loss} or {kind:condition, value:string}. A condition effect gives the
+target that condition; nothing removes one. A medicine, antidote or remedy names no
+condition: what it treats is settled by its rules roll (First Aid, Medicine), so write
+no condition effect for the illness it treats. Effects require an explicit
 target at use time. Duration, radius or a condition that needs an unavailable
 executor must not be advertised as implemented. Use only request.capabilities.
 
