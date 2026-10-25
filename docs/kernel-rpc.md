@@ -53019,6 +53019,17 @@ and the fix names it. "Athletics" for a climb had offered six names without Clim
 The one sentence "Duplicate newcomer labels, scene or slot" is now three, each naming its cause and fix; the Keeper had
 removed people and rewritten crowds while the real cause, two scene commands at one stop, stayed.
 
+## 267. An ordinary turn is one output call (owner 2026-10-25)
+
+### 267.1 Findings, moods and names are packet commands
+
+The output packet's `commands` carry `{kind:"clue", clue, how, summary?, from?}`, `{kind:"mood", actor, mood}` and
+`{kind:"name", actor, name}`, compiled to the existing `apply` clue, npc mood and person effects and settled in the same
+atomic apply as the route, after it (`compileTurnPacket`). `from` is an issued `npc_N`; an investigator reference means
+they found it themselves and is left out. The guidance says an ordinary turn needs no apply. Measured on the 1025b long
+runs: the Keeper spent 75-90% of each turn in its own reasoning, 15k-117k characters a turn, and made 81 apply calls in
+36 turns, mostly clues (36 effects), moods (26) and names (10) beside an output call that could carry them.
+
 ## 265. Shopping: the outlet's stock, price and order time are the program's (owner 2026-10-24)
 
 The owner's report: a MiniMax Keeper's long deliberations were mostly about whether a shop had the goods and what they cost. Those answers moved to the kernel; the Keeper picks parameters. Purchase guidance that lived in other packages moved with them, so the problem has one home. Amends §58 ("the kernel does not price anything itself") for goods bought at an outlet while this package is active; every other cash path is unchanged.

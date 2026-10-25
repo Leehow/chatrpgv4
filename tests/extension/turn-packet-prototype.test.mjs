@@ -990,3 +990,21 @@ test('a command written as a field of its own beside commands is that command, a
   assert.equal(kept.strayCommandRepairs,undefined,JSON.stringify(value));assert.deepEqual(kept.args.extra,value);
  }
 });
+
+test('an ordinary turn settles its finding, a mood and a name in one output packet, with no apply call (§267.1)',async t=>{
+ const engine=createHybridEngine({env,decision:{decide:async batch=>answer(batch,.99)}});
+ const table=await openTable({legacyDeliveryFixtures:false,realKernel:true,prepareWorkspace:opened,env,runDriver:engine.runDriver,
+  extraExtensions:[{name:'engine',factory:engine.extension}],responses:[
+   ()=>fauxAssistantMessage([rawToolCall('output',{version:4,commands:[{kind:'mood',actor:'npc_1',mood:'wary but willing'},{kind:'name',actor:'npc_1',name:'the man behind the desk'},
+    {kind:'clue',clue:'knott-commission',how:'Knott lays the contract on the desk',from:'npc_1'}]})],{stopReason:'toolUse'})]});
+ t.after(()=>table.dispose());
+ await table.session.prompt('I ask Knott what he wants of me.');
+ assert.deepEqual(table.extensionErrors,[]);
+ const errors=table.session.messages.filter(row=>row.role==='toolResult'&&row.details?.coc_error).map(row=>row.details.coc_error);
+ assert.deepEqual(errors,[]);
+ assert.equal(table.session.messages.filter(row=>row.role==='toolResult'&&row.toolName==='apply').length,0,'no apply call of the Keeper');
+ const turn=JSON.parse(readFileSync(join(table.workspace,'.coc/campaigns/test-camp/turns/0001.json'),'utf8'));
+ assert.ok(turn.receipts.some(row=>row.kind==='clue'&&row.clue==='knott-commission'),JSON.stringify(turn.receipts.map(row=>row.kind)));
+ assert.ok(turn.receipts.some(row=>row.kind==='npc'&&row.mood),JSON.stringify(turn.receipts.map(row=>row.kind)));
+ assert.ok(turn.receipts.some(row=>row.kind==='person'),JSON.stringify(turn.receipts.map(row=>row.kind)));
+});

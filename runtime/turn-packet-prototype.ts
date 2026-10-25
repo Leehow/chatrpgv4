@@ -37,13 +37,21 @@ const agreement=Type.Object({kind:Type.Literal('agreement'),proposal:Type.String
  status:StringEnum(['accepted','declined','withdrawn','kept','broken'],{description:'proposal: accepted, declined or withdrawn; commitment: kept, broken or withdrawn'}),
  with:Type.Optional(Type.Array(Type.String({pattern:'^investigator_[1-9][0-9]*$',maxLength:32}),{minItems:1,maxItems:8,uniqueItems:true,description:'Who accepted, when not every addressee did'}))},
  {additionalProperties:false});
+// §267.1: the ordinary bookkeeping of a turn rides in the same packet, so an ordinary turn is one output call (a finding,
+// what someone now feels, the name someone gives); apply stays for rarer mechanics.
+const clueCommand=Type.Object({kind:Type.Literal('clue'),clue:atom(120),
+ summary:Type.Optional(atom(600)),how:atom(240),
+ from:Type.Optional(Type.String({pattern:'^(npc_[1-9][0-9]*|investigator_[1-9][0-9]*)$',maxLength:32}))},{additionalProperties:false,
+ description:'What the investigators come by this turn. clue: the book clue\'s name as where.affordances or known.clues_here list it, or a new short name; summary: only for a clue the book does not have, what it states; how: how they came by it; from: the issued person who told them, omitted when they found it themselves.'});
+const moodCommand=Type.Object({kind:Type.Literal('mood'),actor,mood:atom(200)},{additionalProperties:false,description:'What an issued person feels right now, after this turn, in a short phrase.'});
+const nameCommand=Type.Object({kind:Type.Literal('name'),actor,name:atom(60)},{additionalProperties:false,description:'The name or epithet an issued person gives or is now known by at this table.'});
 const placeMove=Type.Object(PlaceEffect.anyOf[0].properties,{additionalProperties:false,description:(PlaceEffect.anyOf[0] as {description?:string}).description});
 const placeStationary=PlaceEffect.anyOf.slice(1);
-const commandSchemas=[move,placeMove,...placeStationary,npc,walkOn,scene,time,relationship,agreement];
+const commandSchemas=[move,placeMove,...placeStationary,npc,walkOn,scene,time,relationship,agreement,clueCommand,moodCommand,nameCommand];
 /** §250.4: field names the schema itself declares on some command; only these are ever named back in a refusal. */
 const COMMAND_FIELDS=new Set(commandSchemas.flatMap(schema=>Object.keys((schema as Record<string,any>).properties??{})));
 // §250: stops, waits and looks settle in their submitted order; a move counts its own travel, so time is always additional.
-const commands=Type.Union([Type.Array(Type.Union([move,placeMove,time,...placeStationary,npc,walkOn,scene,relationship,agreement]),{maxItems:16})]);
+const commands=Type.Union([Type.Array(Type.Union([move,placeMove,time,...placeStationary,npc,walkOn,scene,relationship,agreement,clueCommand,moodCommand,nameCommand]),{maxItems:16})]);
 /** Contract §247.3: a closed rendering selection for routine acts carried without per-act settlement; it writes nothing. */
 export const ROUTINE_SUMMARY=Type.Object({
  acts:Type.Optional(Type.Array(atom(120),{minItems:1,maxItems:8,description:'Every routine act of this input you did not settle individually (ordering, eating, drinking, sitting, glancing), as short public phrases; the author renders them as one summary. Omit when the input only looks at ambient things.'})),
@@ -247,8 +255,8 @@ export function turnPacketParameterSchema(journeySettled=false,timeBands?:readon
         relation:PlaceEffect.anyOf[0].properties.relation,additions:PlaceEffect.anyOf[0].properties.additions};
     const arrivedLocal=[Type.Object({...arrivedFields,at:atom(240)},{additionalProperties:false}),
         Type.Object({...arrivedFields,spot:Type.String({...PlaceEffect.anyOf[0].properties.spot})},{additionalProperties:false})];
-    if(journeySettled)schema.properties.commands=Type.Array(Type.Union([...(locations?arrivedLocal:[]),...local,issuedNpc,walkOn,scene,relationship,agreement]),{maxItems:12,...stationary});
-    else schema.properties.commands=Type.Union([Type.Array(Type.Union([...issuedMoves,...journey,boundedTime,...local,issuedNpc,walkOn,scene,relationship,agreement]),{maxItems:16,...stationary})]);
+    if(journeySettled)schema.properties.commands=Type.Array(Type.Union([...(locations?arrivedLocal:[]),...local,issuedNpc,walkOn,scene,relationship,agreement,clueCommand,moodCommand,nameCommand]),{maxItems:12,...stationary});
+    else schema.properties.commands=Type.Union([Type.Array(Type.Union([...issuedMoves,...journey,boundedTime,...local,issuedNpc,walkOn,scene,relationship,agreement,clueCommand,moodCommand,nameCommand]),{maxItems:16,...stationary})]);
     return locations&&ownerView?locationCommandOwner(schema as TSchema):schema as TSchema;
 }
 /** Install the current execution contract after either supported provider conversion. */
@@ -360,7 +368,7 @@ export function compileTurnPacket(packet:TurnPacket|BoundTurnPacket):{responses:
  const settleStop=()=>{for(const scene of stop){register(commands.slice(0,commands.indexOf(scene)).filter(a=>a.kind==='walk_on').map(a=>a.slot));ordered.push(scene);}stop=[];};
  for(const command of commands){
   if(command.kind==='scene'){stop.push(command);continue;}
-  if(['walk_on','relationship','agreement'].includes(command.kind))continue;
+  if(['walk_on','relationship','agreement','clue','mood','name'].includes(command.kind))continue;
   if(perStop&&departs(command)){
    // A newcomer written for here before the route leaves belongs to the stop it was written at, unless a later look names it.
    const at=commands.indexOf(command),later=new Set(commands.slice(at).flatMap(a=>a.kind==='place'&&a.action==='observe'?[...a.people??[],...(a.situations??[]).flatMap(situation=>situation.participants??[])]:[]));
@@ -371,12 +379,17 @@ export function compileTurnPacket(packet:TurnPacket|BoundTurnPacket):{responses:
   ordered.push(command);
  }
  register();ordered.push(...stop);
+ // §267.1: findings, moods and names settle after the route, where the turn ends, in the order written.
+ ordered.push(...commands.filter(a=>a.kind==='clue'||a.kind==='mood'||a.kind==='name'));
  const newcomers=new Map(commands.filter(a=>a.kind==='walk_on').map(a=>[a.slot,a.label]));
  const person=(name:string)=>newcomers.get(name)??name;
  return {responses:packet.interactions??[],...(agreements.length?{agreements}:{}),...(directed.length?{event:{name:'Directed relationship update',relationships:directed.map(row=>({actor:row.actor,toward:row.toward,statement:JSON.stringify(directedStatement(row))}))}}:{}),effects:[...definitions,...ordered.map(a=>a.kind==='move'?{kind:'move',to:a.to,...(a.via?{via:a.via}:{}),
   ...('travel_minutes'in a&&a.travel_minutes!==undefined?{travel_minutes:a.travel_minutes}:{}),...(a.travel_band?{travel_band:a.travel_band}:{})}
   :a.kind==='place'?a.action==='observe'?{...Object.fromEntries(Object.entries(a).filter(([key])=>key!=='additions')),...(a.people?{people:a.people.map(person)}:{}),...(a.situations?{situations:a.situations.map(situation=>({...situation,...(situation.participants?{participants:situation.participants.map(person)}:{})}))}:{})}:{...a}:a.kind==='npc'?{kind:'npc',name:a.actor,to:a.to,why:a.reason}:a.kind==='walk_on'?{kind:'npc',name:a.label,to:a.to??'here',walk_on:true,_new_person:true,why:a.reason}
   :a.kind==='scene'?{kind:'scene',name:'here',_population:true,activity:{service:a.service,crowd:a.crowd,basis:'established',summary:`Service is ${a.service}; crowd is ${a.crowd}.`,review_after_minutes:a.review_after_minutes??15},why:'Current place, clock and registered circumstances establish this population assessment.'}
+  :a.kind==='clue'?{kind:'clue',clue:a.clue,how:a.how,...(a.summary?{establish:{summary:a.summary}}:{}),...(a.from&&isNpcReference(a.from)?{from:a.from}:{})}
+  :a.kind==='mood'?{kind:'npc',name:a.actor,mood:a.mood,why:'What they feel after this turn.'}
+  :a.kind==='name'?{kind:'person',who:a.actor,name:a.name,why:'The fiction establishes this name.'}
   :a.kind==='time'?{kind:'time',...(a.minutes!==undefined?{minutes:a.minutes}:a.until!==undefined?{until:{...a.until}}:{band:a.band}),why:a.reason,...(a.beyond_travel===true?{beyond_travel:true}:{})}:(()=>{throw Error('Non-effect decision command reached the effect compiler');})())]};
 }
 /** Public result fields come from kernel outcomes, never from submitted commands. */
@@ -391,7 +404,7 @@ export function turnPacketResult(value:unknown):{player_actions_complete:true;np
 }
 export const TURN_PACKET_LOCATION_STEPS='Put the whole selected route in commands, in the order the player chose: kind:"place" action:"move" for each stop (a new place carries its minimal additions; inside the current place use to:"here" with at or a free-text spot, which takes no travel time), kind:"time" with minutes, until {time:"HH:MM"} or an issued band for each selected wait, and kind:"place" action:"observe" with short facts for what the investigator perceives. Several stops, waits and looks may share one packet; the kernel settles them in order and counts travel itself. Call the place tool first only when a roll must follow an arrival at another place. ';
 /** §264.23 (owner 2026-10-24): principles and syntax only; what the schema or the host enforces is not repeated here. */
-export const TURN_PACKET_GUIDANCE='Submit one output packet {version:4,commands?,interactions?,reveal?} after all place/apply/resolve tools; read their results first. Principles: (1) record only what this turn\'s events changed, never a standing state or a restatement; (2) speech and beats carry meaning and behavior, state changes are commands; (3) a person says only what they know, from issued facts, sources or exhibits, and what is told is not repeated unless asked; (4) a claim, offer, direction or plan is not truth or movement; (5) rolls, receipts, time costs and deal marks are the host\'s. '
+export const TURN_PACKET_GUIDANCE='Submit one output packet {version:4,commands?,interactions?,reveal?} after any resolve roll the turn needs; read its result first. An ordinary turn needs no apply: findings, moods and names are packet commands too: {kind:"clue",clue,how,summary? (only for a clue the book does not have),from? (issued person who told them)}, {kind:"mood",actor:"npc_N",mood}, {kind:"name",actor:"npc_N",name}; they settle after the route. Principles: (1) record only what this turn\'s events changed, never a standing state or a restatement; (2) speech and beats carry meaning and behavior, state changes are commands; (3) a person says only what they know, from issued facts, sources or exhibits, and what is told is not repeated unless asked; (4) a claim, offer, direction or plan is not truth or movement; (5) rolls, receipts, time costs and deal marks are the host\'s. '
  +'Route, in the player\'s order: kind:"place" action:"move" per stop (a new place carries its minimal additions; inside the current place to:"here" with at or a free-text spot, no travel); kind:"time" for each selected wait; kind:"place" action:"observe" with short facts of what is perceived. A remote inspection does not perform the journey: include its unsettled move first. Call the place tool alone first only when a roll must follow an arrival. Establish registers surroundings and moves nobody. Time is only for activity that takes real time: for a stated duration {kind:"time",minutes:whole minutes,reason}; to a clock time until {time:"HH:MM"}; for an unspecified independent activity cost an issued band by its rule meaning. Never time a move\'s travel. '
  +'Relationship: {kind:"relationship",actor:"issued npc_N",toward:"issued person reference",disposition:"hostile|unfriendly|neutral|friendly|ally",trust?:0-5,fear?:0-5,pressure?:0-5,public?:disposition shown if different,hidden?:["disposition"|"mood"],control?:"none|charmed|coerced|possessed|drugged|enthralled"}; send only changed fields. disposition is the standing attitude after the exchange (a threat or insult moves it to unfriendly or hostile, sincere apology or help toward neutral or friendly); when they hide the change, public is what they show instead; control is separate from feeling. '
  +'Scene: {kind:"scene",service:"open|closed|limited|unknown",crowd:"empty|quiet|active|crowded|unknown",review_after_minutes?:1..60}, one per stop after its move, from place, clock and circumstances (missing names never mean empty). quiet/active/crowded is an unnamed crowd: walk_on {kind:"walk_on",slot:"new_1",label:"public role appellation",reason} only for someone who acts, speaks or is singled out; walk_on goes before observations using its slot. '
