@@ -27,7 +27,7 @@ import {fixedToolView} from '../../shared/fixed-tool-view.ts';
 import {SAME_KEEPER_AFTER_RESULT_GUIDANCE} from '../../runtime/keeper-output-guidance.ts';
 import {scenePopulationRequired,scenePopulationConflict,sceneAssessmentExpiredDuringActivity} from '../../runtime/scene-population.ts';
 import {ExpressionPlanStream,writeIsolatedExpression,decisionScene,decisionClock,decisionRecentPublic,decisionResponseScope,decisionObservationScope} from '../../runtime/isolated-expression.ts';
-import {TURN_IR_PARAMETERS,TurnIrError,segments,applyConditions,toPacket,ruleAction,type TurnIr,type TurnIrAction,type TurnIrDirectory} from '../../runtime/turn-ir.ts';
+import {TURN_IR_PARAMETERS,TurnIrError,normalizeTurnIr,diagnoseTurnIr,segments,applyConditions,toPacket,ruleAction,type TurnIr,type TurnIrAction,type TurnIrDirectory} from '../../runtime/turn-ir.ts';
 import {turnPacket,bindTurnPacketMoves,turnPacketMovementChoices,requireTurnPacketNpcDestinations,isNewNpcSlot,normalizeTurnPacketArguments,compileTurnPacket,turnPacketResult,turnPacketParameterSchema,turnPacketProviderPayload,TurnPacketParameterError,type TurnPacket} from '../../runtime/turn-packet-prototype.ts';
 import {normalizeToolArgumentSyntax} from '../../runtime/tool-argument-syntax.ts';
 import {applyEffectKinds} from '../table/mod-sections.ts';
@@ -6201,7 +6201,7 @@ export default function (pi: ExtensionAPI, host: {capabilities?:RuntimeCapabilit
 			if(index>=0&&state.party[index])return {investigator:`investigator_${index+1}`,name:state.party[index].name};
 			const found=refs.lookup(scope,name);
 			return found.length===1?{ref:found[0]}:found.length>1?{ambiguous:found}:undefined;
-		}};
+		},name:ref=>refs.publicName(scope,ref)};
 		const actorName=(name:string)=>{const bound=directory.person(name);return bound&&'investigator' in bound?bound.name:bound&&'ref' in bound?bound.ref:aliases.get(name)??name;};
 		const settled:Record<string,unknown>[]=[],dropped:number[]=[];
 		try{
@@ -7554,6 +7554,14 @@ export default function (pi: ExtensionAPI, host: {capabilities?:RuntimeCapabilit
                     });
                     if(fields.length){embedded.args={...(embedded.args as Record<string,any>),effects} as typeof embedded.args;
                         void record({lane:'arguments',event:'person_reference_named',tool:'apply',fields});}
+                }
+                // §270.9: a Turn IR output keeps each action to its own op's fields and is refused by action, op and field.
+                if(turnIr()&&spec.name==='output'&&table){
+                    const cleaned=normalizeTurnIr(embedded.args);embedded.args=cleaned.value as typeof embedded.args;
+                    if(cleaned.dropped.length)void record({lane:'arguments',event:'turn_ir_fields_dropped',tool:spec.name,dropped:cleaned.dropped});
+                    const findings=diagnoseTurnIr(embedded.args);
+                    if(findings.length){const {refusal}=refusePacketParameters(table,new KernelError({code:'invalid_params',message:'Invalid Turn IR: '+findings.join('; '),
+                        fix:'Correct only the named actions; each op takes its own fields.',details:{reason:'turn_ir_parameters'}}));throw Error(new KernelError(refusal).toToolText());}
                 }
                 if(turnPacketPrototype&&!turnIr()&&spec.name==='output'&&table){
                     const bound=packetNpcReferences(table).bindActors(packetNpcScope(table),embedded.args);

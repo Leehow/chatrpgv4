@@ -53472,3 +53472,14 @@ same segment and leaves in it has no ref yet; their arrival is written to where 
 two outputs were refused "NPC destination must select here, away or one exact issued place" and the turn went untold.
 
 Tests: `tests/extension/turn-ir-native.test.mjs`.
+
+### 270.9 Each action keeps to its own fields
+
+Before the tool's own validation, a Turn IR `output` drops any field an action's op does not declare (recorded as
+`turn_ir_fields_dropped`; a move's `at` is its `spot`), then checks each action against its own op and refuses
+`turn_ir_parameters` naming the action index, op and field. `reason` is accepted on every action; `move` takes `spot`
+and `relation`; an investigator's `communicate` records nothing (their words are the player's); a material write names
+an issued person by their public name. In 1025g the union's validation refused 21 outputs with every branch's errors at
+once ("speaker: schema is false" for a reason field on communicate).
+
+Tests: `tests/extension/turn-ir.test.mjs`, `tests/extension/turn-ir-native.test.mjs`.

@@ -4,6 +4,7 @@
  * the kernel already settles; the Keeper never chooses between apply, walk_on, reveal or a content reference kind.
  */
 import {Type,type Static,type TSchema} from 'typebox';
+import {Errors} from 'typebox/value';
 import {StringEnum} from '@earendil-works/pi-ai';
 import {NewCommunicationFact,MEANING_MAX,DELIVERY,ASKED_TOPIC} from './decision-content.ts';
 import {DISPOSITIONS,CONTROLS,TABLE_NOTE} from './turn-packet-prototype.ts';
@@ -22,7 +23,8 @@ export const TURN_IR_GUIDANCE='Submit one output {version:5,actions:[...]} listi
  +'name: the book\'s printed name, the table\'s word for them, an investigator\'s name, or an @alias a presence enter introduced. '
  +'move: who goes where (inside names the known place a new one lies in). presence: someone enters or leaves; only enter brings a person here, '
  +'and as gives a newcomer\'s public appellation. communicate: speaker, to, act; says is issued fact_N/source_N/exhibit_N, {claim} for what they '
- +'mean (said, not true), or {knowledge} (unknown, uncertain, withheld, nothing_more); channel phone or letter reaches someone who is not here. '
+ +'mean (said, not true), or {knowledge} (unknown, uncertain, withheld, nothing_more); a {new} constructor takes issued references only, so a '
+ +'place or person without one is a {claim}; channel phone or letter reaches someone who is not here; an investigator\'s own words need no action. '
  +'perceive: what the investigators take in, as an issued reference, a clue by name, or {observe}. material: show, transfer, take, open or close '
  +'a thing; holder has it now; access says how much a reader takes in. time, relationship (only a real change), mood, learn_alias, scene. '
  +'rule: a check with its goal and stakes fixed before the roll, named by as. Everything before a rule action settles first, then the roll; an '
@@ -31,7 +33,8 @@ export const TURN_IR_GUIDANCE='Submit one output {version:5,actions:[...]} listi
  +'player\'s own declarations. Record only what this turn changed; you decide what is meant, the author writes the words.';
 
 export const TURN_IR_ACTIONS={
- move:closed({op:Type.Literal('move'),to:text(120,'Where they go: a known place\'s name, or a new place'),actors:Type.Optional(people),
+ move:closed({op:Type.Literal('move'),to:text(120,'Where they go: a known place\'s name, or a new place; here with spot to move within the current place'),actors:Type.Optional(people),
+  spot:Type.Optional(text(160,'A free-text spot inside the destination (by the window)')),relation:Type.Optional(text(60,'standing, sitting, ...')),reason:Type.Optional(text(160)),
   inside:Type.Optional(text(120,'For a new place: the known place it lies inside (a room in a building)')),via:Type.Optional(text(120)),
   band:Type.Optional(text(64,'An issued travel band, for a journey whose length the fiction gives')),when}),
  presence:closed({op:Type.Literal('presence'),who,action:StringEnum(['enter','leave']),
@@ -44,10 +47,10 @@ export const TURN_IR_ACTIONS={
    closed({knowledge:StringEnum(['unknown','uncertain','withheld','nothing_more']),topic:Type.Optional(text(96,'An issued reference; omitted, what the investigator just asked'))}),
    closed({new:NewCommunicationFact})]),{minItems:1,maxItems:8})),
   channel:Type.Optional(StringEnum(['in_person','aside','phone','letter'])),beat:Type.Optional(text(120,'What they visibly do; behavior only')),
-  delivery:Type.Optional(StringEnum([...DELIVERY])),when}),
+  delivery:Type.Optional(StringEnum([...DELIVERY])),reason:Type.Optional(text(160)),when}),
  perceive:closed({op:Type.Literal('perceive'),what:Type.Array(Type.Union([reference,
   closed({clue:text(120,'A book clue\'s name as where.affordances lists it, or a new short name'),how:text(240),summary:Type.Optional(text(600,'Only for a clue the book does not have')),from:Type.Optional(who)}),
-  closed({observe:text(240,'A short fact of what is perceived here')})]),{minItems:1,maxItems:8}),when}),
+  closed({observe:text(240,'A short fact of what is perceived here')})]),{minItems:1,maxItems:8}),reason:Type.Optional(text(160)),when}),
  material:closed({op:Type.Literal('material'),action:StringEnum(['show','transfer','take','open','close']),item:text(120,'The object or paper by name'),
   holder:text(80,'Who has it now (show, open, close, transfer: the giver)'),to:Type.Optional(who),
   access:Type.Optional(StringEnum(['glimpse','inspect','read_full'],{description:'show: how much the reader takes in; read_full reads it whole'})),
@@ -55,19 +58,54 @@ export const TURN_IR_ACTIONS={
  time:closed({op:Type.Literal('time'),minutes:Type.Optional(Type.Integer({minimum:1})),until:Type.Optional(Type.String({pattern:'^[0-9]{2}:[0-9]{2}$'})),
   band:Type.Optional(text(64)),reason:text(160),when}),
  relationship:closed({op:Type.Literal('relationship'),who,toward:who,disposition:Type.Optional(StringEnum([...DISPOSITIONS])),trust:level,fear:level,pressure:level,
-  control:Type.Optional(StringEnum([...CONTROLS])),when}),
+  control:Type.Optional(StringEnum([...CONTROLS])),reason:Type.Optional(text(160)),when}),
  rule:closed({op:Type.Literal('rule'),as:text(16),intent:Type.Optional(StringEnum(['investigate','social','move','combat','flee','cast'],{description:'The rule family; investigate by default'})),
   decision:Type.Optional(text(96,'An issued action.decision when one applies (a treatment, a combat move)')),actor:Type.Optional(who),skill:Type.Optional(text(64)),goal:text(200,'What success achieves, fixed before the roll'),
   stakes:text(200,'What failure costs, fixed before the roll'),method:Type.Optional(text(160)),target:Type.Optional(who),
-  difficulty:Type.Optional(StringEnum(['regular','hard','extreme'])),when}),
- mood:closed({op:Type.Literal('mood'),who,mood:text(200),when}),
- learn_alias:closed({op:Type.Literal('learn_alias'),who,alias:text(60),when}),
- scene:closed({op:Type.Literal('scene'),service:StringEnum(['open','closed','limited','unknown']),crowd:StringEnum(['empty','quiet','active','crowded','unknown']),when})
+  difficulty:Type.Optional(StringEnum(['regular','hard','extreme'])),reason:Type.Optional(text(160)),when}),
+ mood:closed({op:Type.Literal('mood'),who,mood:text(200),reason:Type.Optional(text(160)),when}),
+ learn_alias:closed({op:Type.Literal('learn_alias'),who,alias:text(60),reason:Type.Optional(text(160)),when}),
+ scene:closed({op:Type.Literal('scene'),service:StringEnum(['open','closed','limited','unknown']),crowd:StringEnum(['empty','quiet','active','crowded','unknown']),reason:Type.Optional(text(160)),when})
 };
 export const TURN_IR_PARAMETERS=closed({version:Type.Literal(5),actions:Type.Array(Type.Union(Object.values(TURN_IR_ACTIONS)),{minItems:1,maxItems:24}),ooc:Type.Optional(TABLE_NOTE)});
 export type TurnIr=Static<typeof TURN_IR_PARAMETERS>;
 export type TurnIrAction=TurnIr['actions'][number];
 
+/**
+ * §270.9: an action's fields as its own op declares them. A field another op (or the v4 packet) uses is dropped and
+ * reported, not refused (live 1025g: reason on communicate, at/spot/relation on move, additions on move); a move's `at`
+ * is its spot. Returns the cleaned list and what was dropped, by action index.
+ */
+export function normalizeTurnIr(value:unknown):{value:unknown;dropped:Array<{index:number;fields:string[]}>} {
+ if(!value||typeof value!=='object'||!Array.isArray((value as Row).actions))return {value,dropped:[]};
+ const dropped:Array<{index:number;fields:string[]}>=[];
+ const actions=(value as Row).actions.map((action:unknown,index:number)=>{
+  if(!action||typeof action!=='object'||Array.isArray(action))return action;
+  const row={...(action as Row)},schema=(TURN_IR_ACTIONS as Record<string,any>)[String(row.op)];
+  if(!schema)return row;
+  if(row.op==='move'&&typeof row.at==='string'&&row.spot===undefined){row.spot=row.at;delete row.at;}
+  const allowed=new Set(Object.keys(schema.properties)),extra=Object.keys(row).filter(key=>!allowed.has(key));
+  for(const key of extra)delete row[key];
+  if(extra.length)dropped.push({index,fields:extra});
+  return row;
+ });
+ return {value:{...(value as Row),actions},dropped};
+}
+/** §270.9: the first problems of each action against its own op's schema, named by index, op and field. */
+export function diagnoseTurnIr(value:unknown):string[] {
+ const findings:string[]=[];
+ if(!value||typeof value!=='object')return ['output must be an object {version:5,actions:[...]}'];
+ const row=value as Row;
+ if(row.version!==5)findings.push('version must be 5');
+ if(!Array.isArray(row.actions)||!row.actions.length)return [...findings,'actions must be a non-empty list'];
+ row.actions.forEach((action:unknown,index:number)=>{
+  const op=action&&typeof action==='object'?(action as Row).op:undefined,schema=(TURN_IR_ACTIONS as Record<string,any>)[String(op)];
+  if(!schema){findings.push(`actions[${index}].op must be one of ${Object.keys(TURN_IR_ACTIONS).join(', ')}`);return;}
+  for(const error of [...Errors(schema,action)].slice(0,3))
+   findings.push(`actions[${index}] (${op})${error.instancePath||''}: ${error.message}${error.keyword==='required'?' '+JSON.stringify((error.params as Row)?.requiredProperties??''):''}`);
+ });
+ return findings.slice(0,6);
+}
 /** A refusal naming the action it is about, what is wrong and how to fix it. */
 export class TurnIrError extends Error {
  readonly index:number;readonly details:Row;
@@ -75,7 +113,9 @@ export class TurnIrError extends Error {
 }
 /** What a name is at this table: an issued person, an investigator, several (ambiguous), or nobody known. */
 export type Binding={ref:string}|{investigator:string;name:string}|{ambiguous:string[]}|undefined;
-export interface TurnIrDirectory {person(name:string):Binding;}
+export interface TurnIrDirectory {person(name:string):Binding;
+ /** The one public name an issued npc_N carries, for writes that read names (object owners). */
+ name?(ref:string):string|undefined;}
 
 /** The rule barriers split the list: each segment is the actions up to and including one rule action. */
 export function segments(ir:TurnIr):TurnIrAction[][] {
@@ -107,7 +147,7 @@ export function ruleAction(action:Extract<TurnIrAction,{op:'rule'}>,bind:(name:s
 export function toPacket(actions:TurnIrAction[],directory:TurnIrDirectory,aliases:Map<string,string>,offset=0):Row {
  const commands:Row[]=[],interactions:Row[]=[],reveal:Row[]=[],investigators=new Map<string,string>();
  // An object write names an investigator by name (the kernel reads names and npc_N refs there, not investigator_N).
- const holderName=(ref:string)=>investigators.get(ref)??ref;
+ const holderName=(ref:string)=>investigators.get(ref)??(isNpcReference(ref)?directory.name?.(ref):undefined)??ref;
  const person=(name:string,i:number,field:string,options:{newcomer?:boolean}={}):string=>{
   if(aliases.has(name))return aliases.get(name)!;
   if(name.startsWith('@'))throw new TurnIrError(i,`${field} ${JSON.stringify(name)} is an @alias no earlier presence enter introduced`,{field});
@@ -126,7 +166,8 @@ export function toPacket(actions:TurnIrAction[],directory:TurnIrDirectory,aliase
    case 'move':{
     const company=(action.actors??[]).map(name=>person(name,i,'actors')).filter(ref=>!/^investigator_/.test(ref));
     commands.push({kind:'place',action:'move',to:action.to,...(action.via?{via:action.via}:{}),...(action.band?{travel_band:action.band}:{}),
-     ...(action.inside?{additions:[{name:action.to,within:action.inside}]}:{}),...(company.length?{with:company}:{})});
+     ...(action.inside?{additions:[{name:action.to,within:action.inside}]}:{}),...(company.length?{with:company}:{}),
+     ...(action.spot?{spot:action.spot}:{}),...(action.relation?{relation:action.relation}:{})});
     break;
    }
    case 'presence':{
@@ -149,7 +190,8 @@ export function toPacket(actions:TurnIrAction[],directory:TurnIrDirectory,aliase
    }
    case 'communicate':{
     const actor=person(action.speaker,i,'speaker');
-    if(/^investigator_/.test(actor))throw new TurnIrError(i,'investigators speak in the player\'s words, not in actions',{field:'speaker'});
+    // An investigator's own words are the player's; the author renders them from the input, so nothing is recorded here.
+    if(/^investigator_/.test(actor))break;
     const to=action.to.map(name=>person(name,i,'to'));
     if(action.act==='silent'){interactions.push({actor,act:'silent',to,...(action.beat?{beat:action.beat}:{})});break;}
     const content=(action.says??[]).map(item=>typeof item==='string'

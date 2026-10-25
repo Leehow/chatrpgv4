@@ -76,3 +76,14 @@ test('a person sent to a named place by presence leave is not refused by the v4 
  assert.ok(!results(table)[0].details?.coc_error,JSON.stringify(results(table)[0].details?.coc_error));
  assert.equal(published(table),1);
 });
+
+test('a foreign field is dropped and the turn publishes; a broken action is refused by index, op and field',async t=>{
+ const table=await play(t,[
+  output([{op:'material',action:'show',item:'letter',holder:'investigator_1'}]),
+  output([{op:'move',to:'here',at:'by the window',additions:[{name:'x'}]},{op:'scene',service:'open',crowd:'quiet',reason:'looks around'}]),
+  fauxAssistantMessage('done')]);
+ const first=results(table)[0];
+ assert.match(first.content[0].text,/actions\[0\] \(material\)/);
+ assert.ok(table.telemetry().some(row=>row.event==='turn_ir_fields_dropped'));
+ assert.equal(published(table),1);
+});

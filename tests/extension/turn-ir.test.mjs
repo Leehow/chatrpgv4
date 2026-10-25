@@ -46,7 +46,7 @@ test('what is said routes by its reference; claims and knowledge need no constru
  assert.deepEqual(out.interactions[0],{actor:'npc_3',to:['investigator_1'],act:'answer',channel:'phone',delivery:'guarded',content:[
   {fact_ref:'fact_2'},{source_ref:'source_4'},{exhibit_ref:'exhibit_1'},{new:{predicate:'knowledge_status',topic:'player_input',status:'withheld'}},
   {new:{predicate:'meaning',meaning:'上周就听说了'}}]});
- refusal([{op:'communicate',speaker:'周衡',to:['欧文·塔布勒'],act:'answer',says:['fact_1']}],/player's words/);
+ assert.equal(packet([{op:'communicate',speaker:'周衡',to:['欧文·塔布勒'],act:'answer',says:['fact_1']}]).interactions,undefined,'an investigator\'s words are the player\'s');
 });
 
 test('a perception routes a reference to reveal, a clue to a clue command, a sentence to an observation',()=>{
@@ -77,4 +77,15 @@ test('rule actions split the list; a conditioned action survives only the result
  assert.deepEqual([failed.kept.map(action=>action.op),failed.dropped],[['presence'],[2]]);
  assert.throws(()=>applyConditions(parts[1],new Map(),2),/no earlier rule action/);
  assert.deepEqual(ruleAction(actions[1],name=>name),{intent:'investigate',goal:'找到暗格',method:'找到暗格',skill:'Spot Hidden',stakes:'翻动声惊动管家'});
+});
+
+test('fields of another op are dropped and reported; a wrong field is named by action, op and path',async()=>{
+ const {normalizeTurnIr,diagnoseTurnIr}=await import('../../runtime/turn-ir.ts');
+ const {value,dropped}=normalizeTurnIr({version:5,actions:[{op:'move',to:'here',at:'by the window',additions:[{name:'x'}]},{op:'communicate',speaker:'a',to:['b'],act:'greet',reason:'hello',channel:'in_person'}]});
+ assert.deepEqual(value.actions[0],{op:'move',to:'here',spot:'by the window'});
+ assert.deepEqual(dropped,[{index:0,fields:['additions']}]);
+ assert.equal(value.actions[1].reason,'hello');
+ const findings=diagnoseTurnIr({version:5,actions:[{op:'material',action:'show',item:'letter',holder:'a'},{op:'fly'}]});
+ assert.match(findings[0],/^actions\[0\] \(material\)/);assert.match(findings.join('\n'),/reason/);
+ assert.match(findings.at(-1),/actions\[1\]\.op must be one of move/);
 });
