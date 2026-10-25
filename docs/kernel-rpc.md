@@ -52997,6 +52997,12 @@ The walk_on gate let a book person's exact name through to the source entrance o
 explicit `creature: false` sent it to the newcomer refusal instead ("哈比希特上尉" beside `creature:false`, Digging for a
 Dead God, 2026-10-25). Any falsy `creature` now reads as absent.
 
+### 264.42 A skill with an unprinted gloss in brackets is the part the rulebook has
+
+`resolve` with `skill: "Listen (Perceive)"` refused as unknown (Digging for a Dead God, 2026-10-25). A name that does not
+resolve as written but has the form `A (B)` resolves to whichever one of A and B the rulebook has, when exactly one does;
+a printed specialization such as `Fighting (Brawl)` still resolves as written first.
+
 ## 265. Shopping: the outlet's stock, price and order time are the program's (owner 2026-10-24)
 
 The owner's report: a MiniMax Keeper's long deliberations were mostly about whether a shop had the goods and what they cost. Those answers moved to the kernel; the Keeper picks parameters. Purchase guidance that lived in other packages moved with them, so the problem has one home. Amends §58 ("the kernel does not price anything itself") for goods bought at an outlet while this package is active; every other cash path is unchanged.

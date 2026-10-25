@@ -170,7 +170,14 @@ export function actionSkills(action: Row, resolver: SkillResolver): string[] {
     if (explicit != null) {
         if (typeof explicit !== 'string' || !explicit.trim())
             throw new RpcError('invalid_params', 'action.skill must be a non-empty string');
-        const found = resolver.resolveExplicit(explicit);
+        let found = resolver.resolveExplicit(explicit);
+        // §264.42: a name with a gloss in brackets the rulebook does not print ("Listen (Perceive)") is the one of its two
+        // parts the rulebook has; a specialization the rulebook prints ("Fighting (Brawl)") resolved above as written.
+        const glossed = !found ? /^(.+?)\s*[(（]([^()（）]+)[)）]\s*$/u.exec(explicit.trim()) : null;
+        if (glossed) {
+            const parts = [...new Set([glossed[1]!, glossed[2]!].map(part => resolver.resolveExplicit(part.trim())).filter((value): value is string => !!value))];
+            if (parts.length === 1) found = parts[0]!;
+        }
         if (!found)
             throw new RpcError('needs', `unknown skill or characteristic ${repr(explicit)}`, {
                 fix: 'set action.skill to one of details.needs.options',
