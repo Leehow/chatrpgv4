@@ -207,7 +207,10 @@ export function createApplyHandlers(kernel: KernelContext, writer: ReturnType<ty
                 if (!isJsonObject(effect) || effect.kind !== 'npc' || effect.walk_on !== true || typeof effect.name !== 'string') continue;
                 let existing: Row | null = null;
                 try { existing = personNode(graph, transaction.world, effect.name); } catch { existing = null; }
-                if (existing) continue;
+                // §270.4: a walk-on under the name of a person the book has (already read onto the graph) seats that person,
+                // as an unread one does below; the newcomer slot refuses only someone this table itself made (1025d Dust to
+                // Dust T4/T6/T7: three of the book's people refused as "a newcomer slot cannot select an existing person").
+                if (existing) { if (!graph.isTablePerson(existing)) { effect.walk_on = false; delete effect._new_person; } continue; }
                 // A host-vouched full source name or exact unread cast identity uses the existing source entrance.
                 // §264.41: `creature: false` says what an omitted creature says (live 2026-10-25: Captain Habicht refused as a
                 // newcomer carrying a book name, beside creature:false).

@@ -53426,3 +53426,12 @@ level, passed}], next}` without closing the turn; the next `output` of the same 
 results and held speech carried. Newcomers seated in an earlier segment are bound to their refs before the next.
 
 Tests: `tests/extension/turn-ir.test.mjs`, `tests/extension/turn-ir-native.test.mjs`.
+
+### 270.4 A walk-on under a book person's name seats them
+
+A `walk_on` npc effect (a v4 `walk_on` slot, or a Turn IR `presence enter` under a name nobody at the table carries)
+whose name is a person the book has, already read onto the graph, seats that person (`walk_on: false`), as §267.2 does
+for one not yet read; the newcomer slot refuses only a person this table itself made. In 1025d *Dust to Dust* T4, T6
+and T7 three of the book's people were refused as "a newcomer slot cannot select an existing person", T6 undelivered.
+
+Tests: `tests/integration/walk-on-book-person.test.ts`.
