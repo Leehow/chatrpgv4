@@ -52978,6 +52978,13 @@ Five packets had been refused for it.
 adult (§264.28); the readiness fact had withheld the start first, with a refusal that blamed a missing pursuer. Seventeen
 integration assertions that still expected §264.22–§264.29's old refusals were brought up to date with them.
 
+### 264.39 A place move keeps its banded minutes; an empty list and unbanded minutes are dropped
+
+The turn-packet place tool had stopped declaring `travel_minutes` (2026-10-20, before §250.5 bounded minutes by their
+band), so a move with `travel_band` and `travel_minutes` was refused. It is declared again; the host drops minutes sent
+without a band and any optional list sent empty (`additions:[]`) before validation, recorded as
+`place_array_transport_normalized` with `travel_minutes:no_band` / `<field>:empty`. Three refusals in one Dust to Dust game.
+
 ## 265. Shopping: the outlet's stock, price and order time are the program's (owner 2026-10-24)
 
 The owner's report: a MiniMax Keeper's long deliberations were mostly about whether a shop had the goods and what they cost. Those answers moved to the kernel; the Keeper picks parameters. Purchase guidance that lived in other packages moved with them, so the problem has one home. Amends §58 ("the kernel does not price anything itself") for goods bought at an outlet while this package is active; every other cash path is unchanged.

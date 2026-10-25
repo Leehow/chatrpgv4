@@ -1,3 +1,4 @@
+import {normalizePlaceArrayArguments} from '../../extensions/kernel/place-operation.ts';
 /** Actual native registration and provider projection must describe one write owner. */
 import assert from 'node:assert/strict';
 import {test} from 'node:test';
@@ -76,7 +77,9 @@ test('native place can commit a step before later mechanics with compact provide
   assert(!Check(place.parameters,{...write,action:'inspect'}),'a read declaration never accepts a state-changing payload');
  }
  assert(JSON.stringify(locationToolDeclarations(tools).find(row=>row.name==='place').parameters).length<JSON.stringify(tools.find(row=>row.name==='place').parameters).length/2,'full location fields remain demand-only provider context');
- assert(!Check(tools.find(row=>row.name==='place').parameters,{...write,travel_minutes:0}),'the native validator still prohibits invented travel arithmetic');
+ // §264.39: minutes travel with their band, which bounds them; minutes alone are dropped before validation.
+ assert(Check(tools.find(row=>row.name==='place').parameters,{...write,travel_band:'local_travel',travel_minutes:30}),'a banded journey keeps its own minutes');
+ assert.deepEqual(normalizePlaceArrayArguments({...write,travel_minutes:0,additions:[]}),{args:write,fields:['additions:empty','travel_minutes:no_band']});
  const kinds=tools.find(row=>row.name==='apply').parameters.properties.effects.items.anyOf.map(row=>row.properties.kind.const??row.properties.kind.enum?.[0]);
  assert(!kinds.includes('place'));assert(kinds.includes('move'),'issued owed moves and existing mixed atomic transactions retain their mechanical route');
  assert(Check(COC_TOOLS.find(row=>row.name==='place').parameters,{op:'submit',change:{action:'move',to:'Street'}}),'legacy canonical route remains available');

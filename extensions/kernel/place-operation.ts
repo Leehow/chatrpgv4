@@ -32,6 +32,15 @@ export function normalizePlaceArrayArguments(input:unknown):{args:unknown;fields
         if(!Number.isSafeInteger(number)||bounds.minimum!==undefined&&number<bounds.minimum||bounds.maximum!==undefined&&number>bounds.maximum)continue;
         args={...args,[field]:number};fields.push(`${field}:integer`);
     }
+    // §264.39: an optional list sent empty says nothing (additions:[] refused a plain move, live 2026-10-25 Dust to Dust), and
+    // a journey's minutes ride only with its travel_band, whose range bounds them; minutes alone are left to the road.
+    for(const [field,schema] of Object.entries(branch.properties))
+        if(schema.type==='array'&&!required.has(field)&&Array.isArray(args[field])&&!(args[field] as unknown[]).length){
+            const {[field]:_empty,...rest}=args;args=rest;fields.push(`${field}:empty`);
+        }
+    if(args.action==='move'&&args.travel_minutes!==undefined&&args.travel_band===undefined){
+        const {travel_minutes:_minutes,...rest}=args;args=rest;fields.push('travel_minutes:no_band');
+    }
     for(const [field,schema] of Object.entries(branch.properties)){
         if(schema.type!=='array'||typeof params[field]!=='string')continue;
         let decoded:unknown;

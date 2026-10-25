@@ -176,9 +176,8 @@ export function offeredTools(tools: readonly CocToolSpec[], env: Readonly<Record
       if(spec.name==='output')return {...spec,parameters:capabilities.routineSummary===true?TURN_PACKET_ROUTINE_PARAMETERS:TURN_PACKET_PARAMETERS,description:TURN_PACKET_GUIDANCE+' Arriving at another place also assesses its scene; an omitted assessment is recorded as unknown. Moves inside the current place need none.',promptSnippet:'Submit one private turn packet for settlement and final authoring'};
       if(spec.name==='place'){
         const parameters=cloneSchema(spec.parameters) as Record<string,any>;
-        for(const branch of parameters.anyOf??[])if(branch.properties?.op?.const==='submit')
-          for(const change of branch.properties.change.anyOf??[])if(change.properties?.action?.const==='move')delete change.properties.travel_minutes;
-        for(const branch of parameters.anyOf??[])if(branch.properties?.action?.const==='move')delete branch.properties.travel_minutes;
+        // §264.39: a move's travel_minutes stays declared beside travel_band (§250.5 bounds it by the band's range); the host drops
+        // minutes sent without a band (place-operation.ts), so no invented arithmetic reaches the kernel.
         return {...spec,parameters,description:'Read a place (inspect), or commit one location step before a roll that needs the arrival. Every other move, wait and look goes into output commands in order. Example: {action:"move",to:"here",spot:"by the window",relation:"standing"}.',
           promptSnippet:'Read a place, or commit an arrival a roll depends on.'};
       }
