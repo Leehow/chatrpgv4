@@ -97,3 +97,12 @@ test('a reference written as an object is the reference; a plain show writes not
  const out=packet([{op:'material',action:'show',item:'passport',holder:'周衡',to:'欧文·塔布勒',reason:'he holds it up'}]);
  assert.equal(out.commands,undefined);
 });
+
+test('a long answer splits into consecutive interactions; a textual duration is whole minutes',async()=>{
+ const {normalizeTurnIr}=await import('../../runtime/turn-ir.ts');
+ const says=Array.from({length:10},(_,i)=>`fact_${i+1}`);
+ const out=packet([{op:'communicate',speaker:'欧文·塔布勒',to:['周衡'],act:'answer',says,beat:'翻开簿子'}]);
+ assert.deepEqual(out.interactions.map(row=>[row.content.length,row.beat??null]),[[8,'翻开簿子'],[2,null]]);
+ const {value}=normalizeTurnIr({version:5,actions:[{op:'time',minutes:'5',reason:'wait'},{op:'time',minutes:0.4,band:'brief',reason:'x'}]});
+ assert.equal(value.actions[0].minutes,5);assert.equal(value.actions[1].minutes,undefined);
+});

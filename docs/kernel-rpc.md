@@ -53498,3 +53498,11 @@ A `says` or `what` item written as an object whose one key is an issued referenc
 be seen changes no state and the author tells it from the action; with `access` it is the document show it was.
 
 Tests: `tests/extension/turn-ir.test.mjs`.
+
+### 270.12 Durations and long answers
+
+A `time.minutes` written as text or with a fraction is rounded to whole minutes; below one minute it is dropped (the
+action keeps its band or `until`). `says` takes up to twelve items; past eight, the answer is the same act in
+consecutive v4 interactions. In 1025h two outputs of one turn were refused for `minutes` as text and the turn went untold.
+
+Tests: `tests/extension/turn-ir.test.mjs`.

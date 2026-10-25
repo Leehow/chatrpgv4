@@ -45,7 +45,7 @@ export const TURN_IR_ACTIONS={
   says:Type.Optional(Type.Array(Type.Union([reference,
    closed({claim:text(MEANING_MAX,`What they mean, at most ${MEANING_MAX} characters of reported meaning, never their words; said, not true`)}),
    closed({knowledge:StringEnum(['unknown','uncertain','withheld','nothing_more']),topic:Type.Optional(text(96,'An issued reference; omitted, what the investigator just asked'))}),
-   closed({new:NewCommunicationFact})]),{minItems:1,maxItems:8})),
+   closed({new:NewCommunicationFact})]),{minItems:1,maxItems:12})),
   channel:Type.Optional(StringEnum(['in_person','aside','phone','letter'])),beat:Type.Optional(text(120,'What they visibly do; behavior only')),
   delivery:Type.Optional(StringEnum([...DELIVERY])),reason:Type.Optional(text(160)),when}),
  perceive:closed({op:Type.Literal('perceive'),what:Type.Array(Type.Union([reference,
@@ -92,6 +92,8 @@ export function normalizeTurnIr(value:unknown):{value:unknown;dropped:Array<{ind
    return keys.length===1&&/^(fact|source|exhibit)_[1-9][0-9]*$/.test(keys[0])?keys[0]:item;
   };
   for(const key of ['says','what'])if(Array.isArray(row[key]))row[key]=row[key].map(reference);
+  // A duration written as text or with a fraction is whole minutes; none at all is no duration (live 1025h T9, T11).
+  if(row.op==='time'&&row.minutes!==undefined){const minutes=Math.round(Number(row.minutes));if(Number.isFinite(minutes)&&minutes>=1)row.minutes=minutes;else delete row.minutes;}
   const allowed=new Set(Object.keys(schema.properties)),extra=Object.keys(row).filter(key=>!allowed.has(key));
   for(const key of extra)delete row[key];
   if(extra.length)dropped.push({index,fields:extra});
@@ -208,8 +210,10 @@ export function toPacket(actions:TurnIrAction[],directory:TurnIrDirectory,aliase
      :'knowledge' in item?{new:{predicate:'knowledge_status',topic:item.topic??ASKED_TOPIC,status:item.knowledge}}:{new:item.new});
     if(!content.length&&!['greet','refuse','acknowledge'].includes(action.act))
      throw new TurnIrError(i,`${action.act} says something: give says (a reference, a claim or knowledge)`,{field:'says'});
-    interactions.push({actor,to,act:action.act,...(content.length?{content}:{}),
-     ...(action.channel&&action.channel!=='in_person'?{channel:action.channel}:{}),...(action.beat?{beat:action.beat}:{}),...(action.delivery?{delivery:action.delivery}:{})});
+    // The v4 interaction carries at most eight items; a longer answer is the same act in consecutive interactions.
+    const extras={...(action.channel&&action.channel!=='in_person'?{channel:action.channel}:{}),...(action.delivery?{delivery:action.delivery}:{})};
+    for(let at=0;at===0||at<content.length;at+=8)
+     interactions.push({actor,to,act:action.act,...(content.length?{content:content.slice(at,at+8)}:{}),...extras,...(at===0&&action.beat?{beat:action.beat}:{})});
     break;
    }
    case 'perceive':
