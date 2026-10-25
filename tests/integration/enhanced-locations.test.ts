@@ -378,3 +378,21 @@ test('someone sent to a place this table has not established is away, and the re
     assert.deepEqual([receipt.to,receipt.adjusted?.[0]?.reason,receipt.adjusted?.[0]?.given],['away','unregistered_place',"Knott's house on Elm Street"]);
     assert.equal(Object.keys(state(k).npc_presence??{}).some(key=>key.includes('knott')),false);
 });
+
+test('someone the book does not have is rolled the ordinary adult on entering play (§267.4)',async t=>{
+    const k=await kernel(t);await openTurn(k,'A dock worker walks over.');
+    await k.table('apply',{call_id:'t1-c1',effects:[{kind:'npc',name:'the dock worker',walk_on:true,to:'here',why:'He walks over from the crates.'}]});
+    const profiles=state(k).npc_profiles??{},entry=Object.entries(profiles).find(([handle])=>handle.includes('dock'));
+    assert.ok(entry,JSON.stringify(Object.keys(profiles)));
+    assert.equal((entry![1] as Row).archetype,'ordinary_adult');
+    const receipt=(await k.table('status')).receipts.filter((row:Row)=>row.kind==='npc').at(-1);
+    assert.ok((receipt.adjusted??[]).some((row:Row)=>row.reason==='rolled_on_entry'),JSON.stringify(receipt));
+});
+
+test('an archetype the Keeper names later replaces the roll a newcomer took on entry (§267.4)',async t=>{
+    const k=await kernel(t);await openTurn(k,'A dock worker walks over.');
+    await k.table('apply',{call_id:'t1-c1',effects:[{kind:'npc',name:'the dock worker',walk_on:true,to:'here',why:'He walks over from the crates.'}]});
+    await k.table('apply',{call_id:'t1-c2',effects:[{kind:'npc',name:'the dock worker',archetype:'capable_adult',why:'He has worked the docks for twenty years.'}]});
+    const entry=Object.entries(state(k).npc_profiles??{}).find(([handle])=>handle.includes('dock'));
+    assert.equal((entry![1] as Row).archetype,'capable_adult');
+});

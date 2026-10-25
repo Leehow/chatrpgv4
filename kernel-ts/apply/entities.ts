@@ -517,7 +517,8 @@ export async function stageNpc(context:ApplyContext,effect:Row):Promise<StagedEf
     if(archetype!=null){
         if(typeof archetype!=='string'||!archetype.trim())throw new RpcError('invalid_params','npc.archetype must name a rulebook NPC stat archetype',{fix:'one of details.options',details:{field:'npc.archetype',options:await archetypeIds(context.kernel)}});
         const existing=row(row(world.npc_profiles)[handle]);
-        if(truth(existing.archetype)){
+        // §267.4: the roll a newcomer took on entering play gives way to the archetype the Keeper names later, once.
+        if(truth(existing.archetype)&&existing.on_entry!==true){
             if(existing.archetype!==archetype.trim())throw new RpcError('invalid_params',`${graph.displayName(node)} already has a pinned ${string(existing.archetype)} profile from turn ${string(existing.pinned_turn)}`,{fix:'resolve against it; a pin is made once for the campaign',details:{field:'npc.archetype',actor:handle,archetype:existing.archetype,pinned_turn:existing.pinned_turn??null}});
             profile=structuredClone(existing);
         }else{
@@ -537,6 +538,13 @@ export async function stageNpc(context:ApplyContext,effect:Row):Promise<StagedEf
             details:{reason:'stat_block_exists',field:'npc.creature',name:graph.displayName(node),authority:isJsonObject(existing)?string(row(existing).authority||'table_pinned'):'source_authored',
                 ...(typeof row(existing).catalog==='string'?{catalog:row(existing).catalog}:{})}});
         profile=await rollCreatureProfile(context.kernel,declared,why,number(context.turn.turn),partial?own:null);
+    }
+    // §267.4 (owner 2026-10-25): someone the book does not have is complete the moment they enter: a person this call
+    // establishes with no archetype named is rolled the rulebook's ordinary adult now, beside the reference the roster gives.
+    let rolledOnEntry=false;
+    if(profile==null&&!declared&&established==='table'&&graph.isPerson(node)&&!isJsonObject(row(world.npc_profiles)[handle])&&!isJsonObject(graph.mechanicsOf(node).profile)){
+        profile={...await rollArchetypeProfile(context.kernel,'ordinary_adult','a newcomer the book does not have; rolled on entering play',number(context.turn.turn),null),on_entry:true};
+        rolledOnEntry=true;
     }
     // A creature this call declared is itself the change, with or without a block.
     const declaredHere=!!declared&&established==='table';
@@ -579,7 +587,7 @@ export async function stageNpc(context:ApplyContext,effect:Row):Promise<StagedEf
     // anything that folds receipts later (the ledger, a worldline rebuild, the KPI).
     const unchanged=to!=null&&established===false&&Object.keys(effect).every(key=>['kind','name','to','why'].includes(key))
         &&(moved==='away'?previous===undefined:previous===moved)&&!hadCopies;
-    const receipt={id:effectId(context,'npc',handle),kind:'npc',call_id:context.callId,npc:node.node_id,handle,name:graph.displayName(node),label:personLabel(world,handle,graph.displayName(node)),from:previous??null,to:moved,stance:stance??null,dead:dead??null,skill:pinned,...creatureNote,...(pinnedProfile?{profile:pinnedProfile}:{}),...establishedOf(established,fromPassage,resolvedFrom),...(unchanged?{unchanged:true}:{}),...(unplaced?{adjusted:[{field:'to',reason:'unregistered_place',given:unplaced}]}:{}),why,at:nowIso()};
+    const receipt={id:effectId(context,'npc',handle),kind:'npc',call_id:context.callId,npc:node.node_id,handle,name:graph.displayName(node),label:personLabel(world,handle,graph.displayName(node)),from:previous??null,to:moved,stance:stance??null,dead:dead??null,skill:pinned,...creatureNote,...(pinnedProfile?{profile:pinnedProfile}:{}),...establishedOf(established,fromPassage,resolvedFrom),...(unchanged?{unchanged:true}:{}),...(unplaced||rolledOnEntry?{adjusted:[...(unplaced?[{field:'to',reason:'unregistered_place',given:unplaced}]:[]),...(rolledOnEntry?[{field:'archetype',reason:'rolled_on_entry',archetype:'ordinary_adult'}]:[])]}:{}),why,at:nowIso()};
     if(unchanged)return {receipt,event:null};
     return walked({receipt,event:{type:'npc-changed',data:{npc:handle,to:moved,stance:stance??null,dead:dead??null,skill:pinned,...creatureNote,...(pinnedProfile?typeof profile!.catalog==='string'?{catalog:profile!.catalog}:{archetype:profile!.archetype}:{}),...establishedOf(established,fromPassage,resolvedFrom),why}}});
 }

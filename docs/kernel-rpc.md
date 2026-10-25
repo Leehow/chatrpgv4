@@ -53045,6 +53045,13 @@ stable `npc_N` and the Keeper brings one on with `{kind:"npc", actor, to:"here"}
 apply npc and a slot. The move receipt lists them in `cast_seated`. Their public name follows the roster as before (an
 untold person is shown to the player by epithet); numbers the book does not print are rolled when first needed (§264.28).
 
+### 267.4 Someone the book does not have is complete on entering play (owner 2026-10-25)
+
+An `apply npc` (or packet `walk_on`) that establishes a person the book does not have, with no archetype named, rolls
+them the rulebook's `ordinary_adult` at once (`on_entry: true` on the pinned profile; receipt `adjusted`
+`{field:"archetype", reason:"rolled_on_entry"}`), beside the reference the roster gives and the label they came in
+under. An archetype the Keeper names later replaces that roll once; any other pin is still made once.
+
 ## 265. Shopping: the outlet's stock, price and order time are the program's (owner 2026-10-24)
 
 The owner's report: a MiniMax Keeper's long deliberations were mostly about whether a shop had the goods and what they cost. Those answers moved to the kernel; the Keeper picks parameters. Purchase guidance that lived in other packages moved with them, so the problem has one home. Amends §58 ("the kernel does not price anything itself") for goods bought at an outlet while this package is active; every other cash path is unchanged.
