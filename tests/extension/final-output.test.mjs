@@ -13,7 +13,7 @@ const root = resolve(import.meta.dirname, '../..');
 function seedOpening(workspace, choice=false) {
   const input = [['table.open',{}], ['table.narrate',{call_id:'t0-c1',text:'You are in the office. Knott waits beside his desk.'}]];
   if(choice)input.push(['table.player_input',{text:'I consider whether to push the failed attempt.'}],
-    ['table.ask',{call_id:'t1-c1',kind:'mechanics',options:['accept','push'],text:'You pause before deciding.'}]);
+    ['table.ask',{call_id:'t1-c1',kind:'mechanics',options:['accept','flee'],text:'You pause before deciding.'}]);
   const result = spawnSync(process.execPath,[join(root,'build/kernel/rpc.mjs'),'--workspace',workspace,'--content',join(root,'content')],{
     cwd:root,encoding:'utf8',input:input.map(([method,params],id)=>JSON.stringify({id:String(id),method,params:{campaign:'test-camp',...params}})).join('\n')+'\n'});
   assert.equal(result.status,0,result.stderr);
@@ -139,7 +139,7 @@ test('apply-carried writing runs after the settled effects and publishes once', 
 test('ask can select the same writer without replacing its pending mechanical choice', async t => {
   const table=await openTable({legacyDeliveryFixtures:false,realKernel:true,prepareWorkspace:seedOpening,
     env:{PI_COC_READER_CMD:JSON.stringify([process.execPath,join(root,'tests/extension/fixtures/final-output-writer.mjs')])},
-    responses:[fauxAssistantMessage([fauxToolCall('output',{delivery:plan,choice:{kind:'mechanics',options:['accept','push']}})],{stopReason:'toolUse'})]});
+    responses:[fauxAssistantMessage([fauxToolCall('output',{delivery:plan,choice:{kind:'mechanics',options:['accept','flee']}})],{stopReason:'toolUse'})]});
   t.after(()=>table.dispose());
   await table.session.prompt('I pause before deciding whether to take the risk.');
   assert.deepEqual(table.extensionErrors,[]);
@@ -149,7 +149,7 @@ test('ask can select the same writer without replacing its pending mechanical ch
   assert.ok(record.delivery_evidence);
   const status=await table.runtimeBridges().at(-1).call('table.status',{campaign:'test-camp'});
   assert.equal(status.state,'asked');
-  assert.deepEqual(status.pending_choice.options,['accept','push']);
+  assert.deepEqual(status.pending_choice.options,['accept','flee']);
 });
 
 test('an OOC explanation preserves an already pending choice for the next player input', async t => {

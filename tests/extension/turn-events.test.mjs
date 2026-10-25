@@ -127,7 +127,7 @@ for(const phase of ['before_cursor','after_cursor'])test(`an ask interrupted ${p
   const source='event:t1:asked announcement/announcement';
   const event={name:'asked announcement',summary:'Knott prepares an announcement.',materials:[{name:'announcement',text:'The office is open.',kind:'speech',visibility:'player',speaker:npc,audience:['Thomas Hayes']}],
     knowledge:[{actor:'Thomas Hayes',statement:'Knott claimed the office is open.',mode:'heard',source:npc,state:'uncertain',material:'announcement'}]};
-  const choice={kind:'mechanics',options:['accept','push']},delivery={version:1,sources:[source],required:[source]};
+  const choice={kind:'mechanics',options:['accept','flee']},delivery={version:1,sources:[source],required:[source]};
   let table,interrupted;
   table=await openTable({legacyDeliveryFixtures:false,realKernel:true,
     env:{...eventWriterEnv,PI_COC_TEST_ASK_FAULT:'pending',PI_COC_TEST_ASK_FAULT_PHASE:phase,NODE_OPTIONS:`--import=${join(root,'tests/extension/fixtures/ask-write-fault.mjs')}`},

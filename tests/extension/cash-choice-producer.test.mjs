@@ -66,7 +66,7 @@ test('a held cash confirmation refuses missing and unrelated binds before produc
 
 test('unrelated mechanical options remain available beside an unpaid cash requirement',async t=>{
     const {client,params,path}=await quoted(t);
-    const result=await client.table('ask',{...params,call_id:'t1-c2',options:['push','spend_luck'],binds:'An independent roll'});
+    const result=await client.table('ask',{...params,call_id:'t1-c2',options:['flee','none'],binds:'An independent roll'});
     assert.equal(result.pending_choice.binds,'An independent roll');assert.equal(readJson(path).finance.cash.amount,20);
 });
 

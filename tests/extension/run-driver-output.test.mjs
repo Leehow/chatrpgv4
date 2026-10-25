@@ -1359,7 +1359,7 @@ test('speech occurrence resolution reuses prepared identities and bounds missing
 
 test('a direct mechanical choice remains pending across an OOC response',async t=>{
   const {table}=await directTable([
-    fauxAssistantMessage(JSON.stringify({version:1,record:{choice:{kind:'mechanics',options:['accept','push']}},text:'You pause before taking the risk.'})),
+    fauxAssistantMessage(JSON.stringify({version:1,record:{choice:{kind:'mechanics',options:['accept','flee']}},text:'You pause before taking the risk.'})),
     fauxAssistantMessage(JSON.stringify({version:1,record:{scope:'reference'},text:'This is a rules explanation, not another action.'}))]);
   t.after(()=>table.dispose());
   await table.session.prompt('I pause before taking the risk.');

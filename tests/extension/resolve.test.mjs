@@ -101,12 +101,12 @@ test('a failed automatic resolve is surfaced once and cannot be retried by later
 
 test('historical defense ask is refused while unrelated mechanics choices still reach ask',async t=>{
   const table=await openTable({responses:[call('ask',{kind:'mechanics',text:'Choose',options:['dodge','fight_back']}),
-    call('ask',{kind:'mechanics',text:'The search failed.',options:['push','accept']}),fauxAssistantMessage('Done')]});
+    call('ask',{kind:'mechanics',text:'The search failed.',options:['flee','accept']}),fauxAssistantMessage('Done')]});
   t.after(()=>table.dispose()); await table.session.prompt('Search the desk');
   const asks=requests(table,'table.ask'); assert.equal(asks.length,1);
-  assert.deepEqual(asks[0].params.options,['push','accept']);
+  assert.deepEqual(asks[0].params.options,['flee','accept']);
   assert.equal(table.entries('coc-choice').length,1);
-  assert.deepEqual(table.entries('coc-choice')[0].options,['push','accept']);
+  assert.deepEqual(table.entries('coc-choice')[0].options,['flee','accept']);
   assert.equal(requests(table,'table.resolve').length,0);
 });
 
