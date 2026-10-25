@@ -29,7 +29,9 @@ function noSkill(context: SettleContext, actor: any, skill: string): never {
     });
 }
 async function sessionFor(context: SettleContext): Promise<HealingSession> {
-    return HealingSession.load(context.arithmetic, context, context.subjectId, number(row(context.subject.derived).HP || 10), number(row(context.subject.characteristics).CON || 50), context.rng, context.subject.current_hp ?? null);
+    const session = await HealingSession.load(context.arithmetic, context, context.subjectId, number(row(context.subject.derived).HP || 10), number(row(context.subject.characteristics).CON || 50), context.rng, context.subject.current_hp ?? null);
+    session.scopeToNewestWound();
+    return session;
 }
 async function finishHealing(context: SettleContext, session: HealingSession, event: Row, rescuer: string | null, skill: string | null, extra: Array<[
     string,

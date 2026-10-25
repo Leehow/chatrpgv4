@@ -312,6 +312,17 @@ export class HealingSession {
         this.usageRecords[this.woundId] ??= {};
         this.usageRecords[this.woundId][this.dayId] = { first_aid_used: this.firstAidUsed, first_aid_push_used: this.firstAidPushUsed, medicine_used: this.medicineUsed };
     }
+    /**
+     * §268.2: treatment is counted per wound, so a live treatment is scoped to the newest active wound; a fresh wound
+     * starts with its own First Aid and Medicine. Usage kept under an older wound, or under the placeholder used before
+     * wounds reached the ledger, stays where it is.
+     */
+    scopeToNewestWound(): void {
+        const active = this.woundLedger.filter(item => item.status === 'active').map(item => string(item.wound_id)).filter(Boolean);
+        const newest = active[active.length - 1];
+        if (newest && newest !== this.woundId)
+            this.setUsageScope(newest, this.dayId);
+    }
     setUsageScope(woundId: string, dayId: string): void { this.storeUsageFlags(); this.woundId = woundId; this.dayId = dayId; this.loadUsageFlags(); }
     private usageSnapshot(): Row { this.storeUsageFlags(); return { active_wound_id: this.woundId, active_day_id: this.dayId, records: clone(this.usageRecords) }; }
     snapshot(): Row {
