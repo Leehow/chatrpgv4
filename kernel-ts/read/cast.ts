@@ -549,7 +549,7 @@ export function newcomerRefusal(graph: ModuleGraph, world: Row, name: string, pl
         if (!carried && !called) continue;
         return {
             message: `${JSON.stringify(name.trim())} ${called ? 'is the word this table already calls one of the book\'s people' : 'carries a name the book gives one of its people'}; walk_on brings in someone the book does not have`,
-            fix: sourceNameReadFix(graph, name) ?? 'if you mean someone already here, leave walk_on out and name them by the word present[] shows; if you mean one of the book\'s people who is elsewhere and speaks by telephone or letter, leave walk_on out and give their interaction under the npc ref lookup returns for them, with channel phone or letter; a newcomer needs a word that carries nobody\'s name -- what they look like or what they do',
+            fix: sourceNameReadFix(graph, name) ?? 'if you mean one of the book\'s people, write their name alone, exactly as the book prints it, and they are seated as that person; if you mean someone already here, leave walk_on out and name them by the word present[] shows; if you mean one of the book\'s people who is elsewhere and speaks by telephone or letter, leave walk_on out and give their interaction under the npc ref lookup returns for them, with channel phone or letter; a newcomer needs a word that carries nobody\'s name -- what they look like or what they do',
         };
     }
     return null;

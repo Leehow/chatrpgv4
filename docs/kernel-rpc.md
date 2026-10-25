@@ -53030,6 +53030,13 @@ they found it themselves and is left out. The guidance says an ordinary turn nee
 runs: the Keeper spent 75-90% of each turn in its own reasoning, 15k-117k characters a turn, and made 81 apply calls in
 36 turns, mostly clues (36 effects), moods (26) and names (10) beside an output call that could carry them.
 
+### 267.2 One of the book's people arrives by walk_on under their book name
+
+The packet guidance says a book person not yet at the table arrives by `walk_on` with the label exactly as the book
+prints their name; the host seats them as that person (§177.6, §264.32) and the packet's interactions use the slot. The
+newcomer refusal's fix says the same. In the slow 1025b turns the Keeper weighed walk_on, apply npc and a new slot for
+the book's people at length, and wrote titled labels ("阿萨·尼克尔森局长") the newcomer gate then refused.
+
 ## 265. Shopping: the outlet's stock, price and order time are the program's (owner 2026-10-24)
 
 The owner's report: a MiniMax Keeper's long deliberations were mostly about whether a shop had the goods and what they cost. Those answers moved to the kernel; the Keeper picks parameters. Purchase guidance that lived in other packages moved with them, so the problem has one home. Amends §58 ("the kernel does not price anything itself") for goods bought at an outlet while this package is active; every other cash path is unchanged.
