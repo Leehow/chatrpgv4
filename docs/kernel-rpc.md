@@ -53445,3 +53445,11 @@ different goal or the player's own push or Luck (§268.6). In 1025d *Dust to Dus
 again as a combined check for the same goal, method and stakes and came up an extreme success.
 
 Tests: `tests/integration/failed-goal-settled.test.ts`.
+
+### 270.6 An untold turn's rows read newest first (amends §69)
+
+`untold` rows list a stranded turn's receipts newest first, and their line says so, so the section budget drops the
+earliest receipts and keeps a later result. In 1025d *Dust to Dust* T7 the cut kept T6's failed Spot Hidden and
+dropped the extreme success after it, and the turn told only the failure.
+
+Tests: `tests/extension/untold-newest-first.test.mjs`.

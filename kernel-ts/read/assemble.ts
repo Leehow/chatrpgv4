@@ -376,11 +376,13 @@ export function untoldReceipts(records: Row[], turn: number): Row[] {
         .filter(record => record.closed_by === "stranded" && number(record.turn) > delivered)
         .sort((a, b) => number(a.turn) - number(b.turn))
         .flatMap(record => {
-            const rows = array(record.receipts).map(receipt => mechanicsOf(row(receipt))).filter((entry): entry is Row => entry !== null);
+            // §270.6: newest first, so a budget cut drops the earliest rows and a later result (a success after a failure)
+            // is the one kept (1025d Dust to Dust T7: the cut kept the failed Spot Hidden and dropped the success after it).
+            const rows = array(record.receipts).map(receipt => mechanicsOf(row(receipt))).filter((entry): entry is Row => entry !== null).reverse();
             return rows.length ? [{
                 turn: record.turn,
                 receipts: rows,
-                line: `turn ${record.turn} settled these and the player was never told; say what they found, and do not write as though it did not happen`
+                line: `turn ${record.turn} settled these (newest first) and the player was never told; say what they found, and do not write as though it did not happen`
             }] : [];
         });
 }
