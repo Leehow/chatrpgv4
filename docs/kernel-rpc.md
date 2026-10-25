@@ -53541,3 +53541,9 @@ A place move's `with` drops an investigator's name, `investigator_N` and `invest
 were refused for the investigator's own name and the turn went untold.
 
 Tests: `tests/extension/turn-ir-native.test.mjs`.
+
+### 270.17 A knowledge item is about what was just asked
+
+A Turn IR `{knowledge}` item always compiles to §264.1's `player_input` topic: the v4 topic slot takes only issued entity
+references, which the Keeper could not tell from its fact and source numbers (1025i *Digging for a Dead God* T1, two
+outputs refused "topic must select an issued entity reference").

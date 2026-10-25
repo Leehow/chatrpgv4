@@ -44,7 +44,7 @@ export const TURN_IR_ACTIONS={
   act:StringEnum(['answer','ask','offer','clarify','report','warn','greet','refuse','acknowledge','silent']),
   says:Type.Optional(Type.Array(Type.Union([reference,
    closed({claim:text(MEANING_MAX,`What they mean, at most ${MEANING_MAX} characters of reported meaning, never their words; said, not true`)}),
-   closed({knowledge:StringEnum(['unknown','uncertain','withheld','nothing_more']),topic:Type.Optional(text(96,'An issued reference; omitted, what the investigator just asked'))}),
+   closed({knowledge:StringEnum(['unknown','uncertain','withheld','nothing_more']),topic:Type.Optional(text(96,'Ignored: the topic is what the investigator just asked'))}),
    closed({new:NewCommunicationFact})]),{minItems:1,maxItems:12})),
   channel:Type.Optional(StringEnum(['in_person','aside','phone','letter'])),beat:Type.Optional(text(120,'What they visibly do; behavior only')),
   delivery:Type.Optional(StringEnum([...DELIVERY])),reason:Type.Optional(text(160)),when}),
@@ -210,8 +210,9 @@ export function toPacket(actions:TurnIrAction[],directory:TurnIrDirectory,aliase
     const content=(action.says??[]).map(item=>typeof item==='string'
      ?{[item.startsWith('fact_')?'fact_ref':item.startsWith('source_')?'source_ref':'exhibit_ref']:item}
      :'claim' in item?{new:{predicate:'meaning',meaning:item.claim}}
-     // A topic is an issued reference; a topic in words is what the investigator just asked about.
-     :'knowledge' in item?{new:{predicate:'knowledge_status',topic:item.topic&&/^[a-z]+_[1-9][0-9]*$/.test(item.topic)?item.topic:ASKED_TOPIC,status:item.knowledge}}:{new:item.new});
+     // The topic is what the investigator just asked about: the packet's topic slot takes only issued entity references,
+     // which the Keeper cannot tell apart from its fact and source numbers (live 1025i Digging T1, refused twice).
+     :'knowledge' in item?{new:{predicate:'knowledge_status',topic:ASKED_TOPIC,status:item.knowledge}}:{new:item.new});
     if(!content.length&&!['greet','refuse','acknowledge'].includes(action.act))
      throw new TurnIrError(i,`${action.act} says something: give says (a reference, a claim or knowledge)`,{field:'says'});
     // The v4 interaction carries at most eight items; a longer answer is the same act in consecutive interactions.
