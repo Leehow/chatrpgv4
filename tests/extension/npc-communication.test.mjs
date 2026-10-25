@@ -313,6 +313,8 @@ test('§258.11 the Keeper sees open offers and deals as facts and marks them by 
  assert.deepEqual(owner.agreement({proposal:proposal.ref,status:'accepted'}),{content_id:'n:abc',by:'npc_1',status:'accepted'});
  assert.throws(()=>owner.agreement({proposal:proposal.ref,status:'kept'}),/proposal: its status is one of accepted, declined, withdrawn/);
  assert.throws(()=>owner.agreement({proposal:'fact_999',status:'accepted'}),/not an issued proposal or commitment fact/);
+ // §264.37: the packet sets an unissued mark aside instead of refusing; this is what it asks.
+ assert.equal(owner.agreementIssued('fact_999'),false);assert.equal(owner.agreementIssued(proposal.ref),true);
  const commitment=new DecisionContent().prepare('c:1',capsule,[{...russ(),deals:[{...deals[0],status:'accepted',with:['investigator_1']}]}],[],['Ada']).facts.find(row=>row.kind==='commitment');
  assert.match(commitment.value.authority,/their own obligation until kept or broken/);
  const packet={version:4,commands:[{kind:'agreement',proposal:'fact_3',status:'accepted'}]};

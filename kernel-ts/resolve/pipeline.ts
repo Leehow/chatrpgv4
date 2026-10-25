@@ -345,15 +345,11 @@ export class ResolvePipeline {
             return [LUCK];
         if (action.decision != null) {
             const ref = fullDecisionRef(string(action.decision));
-            const nodes = this.context.observations.nodes;
-            if (nodes.get(ref)?.node_kind !== 'decision')
-                throw new RpcError('invalid_params', `unknown decision ${repr(action.decision)}`, {
-                    fix: 'use one of details.candidates',
-                    details: {
-                        candidates: [...nodes.values()].filter(node => node.node_kind === 'decision').map(node => semanticName(node.node_id)).sort()
-                    }
-                });
-            return [ref];
+            if (this.context.observations.nodes.get(ref)?.node_kind === 'decision')
+                return [ref];
+            // §264.33: a decision the rulebook does not have is set aside and the action routes by its intent and skill, as it
+            // would without one, and the result says so (live 2026-10-24: 'social:persuade' with skill Persuade, refused twice).
+            this.adjusted.push({field: 'decision', reason: 'unknown_decision', ignored: string(action.decision)});
         }
         let matches: string[] = [];
         try {

@@ -116,3 +116,9 @@ test('test_same_owner_damage_updates_instance_and_cannot_be_hidden_in_legacy_row
   const value=await k.table('look',{focus:'object',name:'My launcher'});assert.equal(value.instance.state.condition,'broken');assert.deepEqual(value.definition,before);const row=(await k.table('status')).mechanics.find((row:Row)=>row.item==='My launcher');
   assert.equal(row.kind,'change');assert.equal(row.before,'intact');assert.equal(row.after,'broken');assert.equal((await k.tableErr('apply',{call_id:'t1-c3',effects:[{kind:'item',name:'My launcher',quantity:-1}]})).code,'invalid_params');
 });
+test('a decision the rulebook lacks is set aside and the action routes by its intent and skill (§264.33, live 2026-10-24)',async t=>{
+  const k=await seeded(t);await openTurn(k,'I try to persuade Knott to let me into the archive.');
+  const result=await k.table('resolve',{call_id:'t1-c1',action:{intent:'social',decision:'social:persuade',skill:'Persuade',target:'Steven Knott',goal:'Be let into the archive',stakes:'He keeps the archive locked'}});
+  assert.ok((result.adjusted??[]).some((row:any)=>row.field==='decision'&&row.reason==='unknown_decision'&&row.ignored==='social:persuade'),JSON.stringify(result.adjusted));
+  assert.notEqual(result.decision,'social:persuade');
+});

@@ -783,7 +783,7 @@ test('an unassessed scene publishes without a scene command and renders its popu
  assert.equal(table.entries('coc-final-delivery').filter(row=>row.event==='end'&&row.status==='completed').length,1);
 });
 
-test('a scene assessment supplement after a settled arrival contradicts an empty scene uses a fresh call and retains every prior outcome (§250.6)',async t=>{
+test('an arrival into an empty-assessed scene settles in one call; the courier stays beside the empty assessment and no supplement is asked (§250.6, §264.30)',async t=>{
  const engine=createHybridEngine({env,decision:{decide:async batch=>answer(batch,.99)}});
  const prepare=async workspace=>{const k=new RpcClient(workspace);try{
   await k.ok('table.open',{campaign:'test-camp'});
@@ -795,18 +795,18 @@ test('a scene assessment supplement after a settled arrival contradicts an empty
  }finally{await k.close();}};
  const table=await openTable({legacyDeliveryFixtures:false,realKernel:true,prepareWorkspace:prepare,env,runDriver:engine.runDriver,
   extraExtensions:[{name:'engine',factory:engine.extension}],responses:[
-   ()=>fauxAssistantMessage([rawToolCall('output',{version:4,commands:[{kind:'walk_on',slot:'new_1',label:'a courier',reason:'A courier arrives with a parcel.'},{kind:'time',minutes:2,reason:'Wait the two minutes explicitly selected.'}]})],{stopReason:'toolUse'}),
-   ()=>fauxAssistantMessage([rawToolCall('output',{version:4,commands:[{kind:'scene',service:'open',crowd:'quiet',review_after_minutes:30}]})],{stopReason:'toolUse'})
+   ()=>fauxAssistantMessage([rawToolCall('output',{version:4,commands:[{kind:'walk_on',slot:'new_1',label:'a courier',reason:'A courier arrives with a parcel.'},{kind:'time',minutes:2,reason:'Wait the two minutes explicitly selected.'}]})],{stopReason:'toolUse'})
   ]});t.after(()=>table.dispose());
  await table.session.prompt('I wait here for two minutes.');
  assert.deepEqual(table.extensionErrors,[]);
  const errors=table.session.messages.filter(row=>row.role==='toolResult'&&row.details?.coc_error).map(row=>row.details.coc_error);
- assert.equal(errors.length,1,JSON.stringify(errors));assert.match(errors[0].message,/Scene population conflicts with current registered presence/);
+ assert.deepEqual(errors,[]);
+ assert.ok(table.telemetry().some(row=>row.lane==='scene-population'&&row.event==='assessment_retired'&&row.reason==='registered_people_stay'));
  const author=table.telemetry().find(row=>row.lane==='isolated-expression'&&row.event==='written');assert.ok(author,JSON.stringify(errors));
  const task=JSON.parse(readFileSync(join(author.attempt,'task.json'),'utf8'));
  assert.equal(task.result.outcomes.filter(row=>row.kind==='time').length,1);
  const turn=JSON.parse(readFileSync(join(table.workspace,'.coc/campaigns/test-camp/turns/0002.json'),'utf8'));
- assert.equal(turn.receipts.filter(row=>row.kind==='npc').length,1);assert.equal(turn.receipts.filter(row=>row.kind==='time').length,1);assert.equal(turn.receipts.filter(row=>row.kind==='scene').length,1);
+ assert.equal(turn.receipts.filter(row=>row.kind==='npc').length,1);assert.equal(turn.receipts.filter(row=>row.kind==='time').length,1);assert.equal(turn.receipts.filter(row=>row.kind==='scene').length,0);
  assert.equal(table.entries('coc-final-delivery').filter(row=>row.event==='end'&&row.status==='completed').length,1);
 });
 

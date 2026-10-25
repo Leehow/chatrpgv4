@@ -490,6 +490,11 @@ export class DecisionContent {
   * §258.11: an agreement mark names an issued proposal or commitment fact; the host turns it into the deal's content and maker.
   * A proposal can be accepted, declined or withdrawn; a commitment kept, broken or withdrawn.
   */
+ /** §264.37: whether an agreement mark names an issued proposal or commitment fact of this turn. */
+ agreementIssued(proposal:string):boolean {
+  const fact=this.facts.get(proposal);
+  return !!fact&&this.active.has(proposal)&&['proposal','commitment'].includes(fact.kind)&&!!fact.actor;
+ }
  agreement(mark:{proposal:string;status:string;with?:string[]}):Row {
   const fact=this.facts.get(mark.proposal);
   if(!fact||!this.active.has(mark.proposal)||!['proposal','commitment'].includes(fact.kind)||!fact.actor)

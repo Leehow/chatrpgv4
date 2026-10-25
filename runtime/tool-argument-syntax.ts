@@ -43,6 +43,10 @@ export function normalizeToolArgumentSyntax(schema:TSchema,input:unknown,options
   const shape=schema as Shape;
   const unchanged={args:value,repairs:0,integerRepairs:0};
   if(depth>32)return unchanged;
+  // §264.36: a lone XML text node ({$text:"..."}) where the schema declares a string is that string; MiniMax sent setup's
+  // weapons that way and the card was refused five times (live 2026-10-24).
+  if(shape.type==='string'&&object(value)&&Object.keys(value).length===1&&typeof value.$text==='string'&&Value.Check(schema,value.$text))
+   return {args:value.$text,repairs:0,integerRepairs:0,textRepairs:1};
   if(options.exactBooleans&&shape.type==='boolean'&&(value==='true'||value==='false')){
    const decoded=value==='true';
    if(Value.Check(schema,decoded))return {args:decoded,repairs:0,integerRepairs:0,booleanRepairs:1};

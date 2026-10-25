@@ -426,7 +426,8 @@ test('§177.3: a newcomer may not take or carry a name of anyone the book names,
 	for (const name of ['Jonah', 'old Jonah', "Mae's cousin", 'Silas Marsh', 'the lamp keeper']) {
 		const answer = await walkOn(name);
 		assert.equal(answer.ok, false, `${name} is refused`);
-		const exact = ['Jonah', 'Silas Marsh', 'the lamp keeper'].includes(name);
+		// §264.32: a word carrying one unread person's full name ("old Jonah") is that person, landed as the exact name is.
+		const exact = ['Jonah', 'old Jonah', 'Silas Marsh', 'the lamp keeper'].includes(name);
 		assert.equal(answer.error.details?.reason, exact ? 'material_pending' : 'book_name', `${name}: ${answer.error.message}`);
 		if (!exact) assert.ok(!/Silas Marsh|Old Mae|Jonah drowned/.test(answer.error.message.replace(JSON.stringify(name), '')), `the refusal names nobody: ${answer.error.message}`);
 	}
@@ -971,6 +972,23 @@ test('§266.13: someone the cast names and this table has not met is read as unr
 	assert.equal(named.ok, true, JSON.stringify(named.error?.message));
 	const entry = (await h.world()).table_people.find(row => row.name === 'Jonah');
 	assert.ok(entry?.cast_id && entry.from_passage?.page === 3, 'landed on the cast\'s first mention, with the row it came from');
+});
+
+test('§264.32: a word carrying one unread person\'s full name is that person; a seat lands them, a later walk_on is their arrival', async t => {
+	const h = await harbor(t);
+	await readCast(h);
+	await h.call('table.player_input', {text: 'I ask about the drowned boy.'});
+	const effects = [{kind: 'npc', name: 'Jonah Marsh', to: 'here', why: 'he stands in the cellar door'}];
+	const held = await h.attempt('table.apply', {call_id: 't1-c1', effects});
+	assert.equal(held.error?.details?.reason, 'material_pending', JSON.stringify([held.error?.message, held.error?.details]));
+	assert.deepEqual(held.error.details.person.names, ['Jonah']);
+	const landed = await h.attempt('table.apply', {call_id: 't1-c1', effects, _land_on_text: [{key: held.error.details.person.key,
+		passage: {scene: null, page: 3, label: null, sentence: "Mae's boy Jonah drowned there last spring."}}]});
+	assert.equal(landed.ok, true, JSON.stringify(landed.error?.message));
+	const walked = await h.attempt('table.apply', {call_id: 't1-c2', effects: [{...effects[0], walk_on: true}]});
+	assert.equal(walked.ok, true, JSON.stringify(walked.error?.message));
+	const people = (await h.world()).table_people;
+	assert.deepEqual(people.map(row => [row.name, !!row.cast_id]), [['Jonah Marsh', true]]);
 });
 
 test('§266.14: a person only the index names, by one character, lands on a sentence of their index pages that holds it', async t => {
