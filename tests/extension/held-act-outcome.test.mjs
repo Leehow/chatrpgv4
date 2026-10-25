@@ -139,6 +139,8 @@ test('native failure projection preserves refusals and excludes ambiguous execut
  // §270.7: a refused resolve committed nothing, whatever its refusal said; an unreadable outcome stays unknown.
  const refusedRoll=new HeldActOutcome();refusedRoll.hold(scope,{tool:'resolve',lines:['proposal'],cause:'unknown_entity'},true);
  assert.deepEqual(refusedRoll.uncommittedFailures(),[{tool:'resolve',status:'uncommitted',reason:'unknown_entity'}]);
+ const refusedPaper=new HeldActOutcome();refusedPaper.hold(scope,{tool:'apply',lines:['proposal'],cause:'needs'},true);
+ assert.deepEqual(refusedPaper.uncommittedFailures(),[{tool:'apply',status:'uncommitted',reason:'needs'}],'§270.13: a refused apply committed nothing');
  const lostRoll=new HeldActOutcome();lostRoll.hold(scope,{tool:'resolve',lines:['proposal'],cause:'transport'},true);assert.equal(lostRoll.uncommittedFailures(),undefined);
 });
 

@@ -53506,3 +53506,12 @@ action keeps its band or `until`). `says` takes up to twelve items; past eight, 
 consecutive v4 interactions. In 1025h two outputs of one turn were refused for `minutes` as text and the turn went untold.
 
 Tests: `tests/extension/turn-ir.test.mjs`.
+
+### 270.13 A refused apply holds nothing back either (extends §270.7)
+
+A refused `apply` is all-or-nothing like a resolve, so it counts as uncommitted for the held-act gate whatever its
+refusal says, except an unreadable outcome (§270.7's causes and `unknown_partial_write`) and `not_reachable` (a barrier
+the party could not pass, whose crossing the prose must not tell). In 1025h *Digging for a Dead God* T1 a document shown
+out of a reader's reach held the whole turn untold.
+
+Tests: `tests/extension/held-act-outcome.test.mjs`, `tests/extension/apply-recovery-native.test.mjs`.

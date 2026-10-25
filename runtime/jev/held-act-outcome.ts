@@ -49,7 +49,7 @@ export function receiptLine(receipt: Record<string, unknown>): string {
 }
 
 /** Causes that leave whether a write landed unknown; every other kernel refusal committed nothing. */
-const UNKNOWN_OUTCOMES=['operation_failed','commit_failed','timeout','aborted','revision_conflict','transport','partial_settlement'];
+const UNKNOWN_OUTCOMES=['operation_failed','commit_failed','timeout','aborted','revision_conflict','transport','partial_settlement','unknown_partial_write'];
 export class HeldActOutcome {
   basis?: HeldActBasis;
   revision = 0;
@@ -91,7 +91,10 @@ export class HeldActOutcome {
       // §270.7: a refused resolve is one kernel transaction that never committed, whatever its refusal said; only an outcome
       // the host could not read back stays unknown (1025d Digging T12: a refused Persuade held the turn after the corrected
       // one succeeded, and nine settled receipts were never told).
-      &&!(row.tool==='resolve'&&!UNKNOWN_OUTCOMES.includes(row.cause))))return;
+      &&!(row.tool==='resolve'&&!UNKNOWN_OUTCOMES.includes(row.cause))
+      // §270.13: an apply refusal is all-or-nothing too (a document out of a reader's reach, 1025h Digging T1); a barrier
+      // the party could not pass keeps the turn held, since its prose must not tell the crossing.
+      &&!(row.tool==='apply'&&!UNKNOWN_OUTCOMES.includes(row.cause)&&row.cause!=='not_reachable')))return;
     return this.basis.held.map(row=>({tool:row.tool,status:'uncommitted',reason:row.cause}));
   }
   issuedCorrection(): void { this.correctionIssued = true; }
