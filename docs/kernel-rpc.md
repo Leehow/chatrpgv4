@@ -53355,12 +53355,14 @@ as "apply has been refused 3 times".
 
 Tests: `tests/extension/gates.test.mjs`.
 
-### 268.6 A push or Luck left by last turn is the player's option
+### 268.6 Pushing a roll and spending Luck are the player's declarations (owner 2026-10-25; amends §15, §223.1)
 
-The capsule's `continuation` obligation rows read `state: "optional: the player may take it up this turn; it lapses when
-they move on"` (was "left by last turn, unanswered"), and the Director's pressure row for one ends "the player's option".
-A failed roll's push or Luck spend is offered to the player; it is not owed, and the Keeper does not ask about it
-unprompted. In 1025c *Digging for a Dead God* T7 the Keeper asked it unprompted and was still weighing it as unanswered at
-T15.
+The Keeper never offers or asks a push or a Luck spend. The capsule carries no `continuation` obligation for a failed
+roll, the Director offers none, and `ask kind: mechanics` takes only `accept`, `dodge`, `fight_back`, `none` and `flee`
+(`push` and `spend_luck` are refused as unknown options). A push (`push: true`, through the Pushed Roll Mod, §230) or a
+Luck spend (`luck`) is resolved only when the player declared it in their own words this turn. `resolve` results still
+list `continuations` as the rules' record of what a declaration could take. In 1025c *Digging for a Dead God* T7 the
+Keeper asked a push unprompted and was still weighing it as unanswered at T15.
 
-Tests: `tests/extension/offer-sources.test.mjs`, `tests/integration/world-capsule-nine.test.ts`.
+Tests: `tests/integration/world-capsule-nine.test.ts`, `tests/integration/push-luck-accept.test.ts`,
+`tests/integration/transactions.test.ts`, `tests/extension/packet-choice.test.mjs`.

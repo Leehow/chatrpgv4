@@ -173,12 +173,12 @@ if(process.argv[1]===import.meta.filename)for(const [index,row] of ([{}]).entrie
 export async function test_mechanics_choice_has_no_question_or_numbered_prose(kernel:any){
 let bad:any,asked:any;
 (await open_turn(kernel));
-bad=(await pyMethod(kernel,"table_err",["ask"],{"call_id":"t1-c1","kind":"mechanics","prompt":"怎么处理失败？","options":["push","accept"]}));
+bad=(await pyMethod(kernel,"table_err",["ask"],{"call_id":"t1-c1","kind":"mechanics","prompt":"怎么处理失败？","options":["flee","accept"]}));
 assert.ok(pyBool(pyEqual(pyAt(bad,"code"),"invalid_params")),"tests/kernel/test_transactions.py:203 assert bad[\"code\"] == \"invalid_params\"");
-asked=(await pyMethod(kernel,"table",["ask"],{"call_id":"t1-c1","kind":"mechanics","options":["push","spend_luck","accept"]}));
+asked=(await pyMethod(kernel,"table",["ask"],{"call_id":"t1-c1","kind":"mechanics","options":["flee","accept"]}));
 assert.ok(pyBool(pyEqual(pyAt(asked,"rendered_text"),"")),"tests/kernel/test_transactions.py:205 assert asked[\"rendered_text\"] == \"\"");
 assert.ok(pyBool(pyEqual(pyAt(pyAt(asked,"interaction"),"kind"),"mechanics")),"tests/kernel/test_transactions.py:206 assert asked[\"interaction\"][\"kind\"] == \"mechanics\"");
-assert.ok(pyBool(pyEqual(pyAt(pyAt(asked,"interaction"),"options"),["push","spend_luck","accept"])),"tests/kernel/test_transactions.py:207 assert asked[\"interaction\"][\"options\"] == [\"push\", \"spend_luck\", \"accept\"]");
+assert.ok(pyBool(pyEqual(pyAt(pyAt(asked,"interaction"),"options"),["flee","accept"])),"tests/kernel/test_transactions.py:207 assert asked[\"interaction\"][\"options\"] == [\"push\", \"spend_luck\", \"accept\"]");
 assert.ok(pyBool(!pyBool(pyAt(pyAt(asked,"interaction"),"prompt"))),"tests/kernel/test_transactions.py:208 assert not asked[\"interaction\"][\"prompt\"]");
 }
 if(process.argv[1]===import.meta.filename)for(const [index,row] of ([{}]).entries())test("test_mechanics_choice_has_no_question_or_numbered_prose"+(([{}]).length>1?' ['+index+']':''),async(t)=>{const temporary=temporaryPath(t);await test_mechanics_choice_has_no_question_or_numbered_prose(await kernel(t,{}));});

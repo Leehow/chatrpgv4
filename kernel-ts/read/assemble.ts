@@ -14,7 +14,7 @@ import {currentOwnedDocuments} from '../mods/document-visibility.js';
 import {requestedEditContext} from '../mods/document-requests.js';
 import { playedRecords, signals, directorSection } from "./director.js";
 import { EntityIndex, capsuleMemory, noteObligations, rulingsForCapsule, promiseObligations, withPromiseFulfillment, canonicalMemoryReceipts } from "./memory.js";
-import { clockPressures, threatPressures, unansweredContinuations, continuationRows, questObligations, choiceObligation, sessionObligation } from "./pressures.js";
+import { clockPressures, threatPressures, questObligations, choiceObligation, sessionObligation } from "./pressures.js";
 import { incapacitationClocks } from "./incapacitation.js";
 import { evidenceAcquired, evidenceDeliveryRecords } from "./continuity.js";
 import { worldlineSection, crossLineReader, loopObligation, worldlineSignals } from "./worldline.js";
@@ -622,8 +622,8 @@ export async function buildCapsule(campaign: CampaignSnapshot, module: LoadedMod
         where.clock.pin = "Use apply clock once to pin the opening local_datetime when the book gives no full date, keeping any declared start_time.";
     where.session = session;
     const [clocks, near] = clockPressures(situations, party, session, array(dg.threshold("pressure-clock-near-full-fraction"))),
-        previous = playedRecords(campaign.records, number(turn.turn))[0],
-        continuations = unansweredContinuations(previous, array(turn.receipts));
+        previous = playedRecords(campaign.records, number(turn.turn))[0];
+    // §268.6: a push or Luck left by last turn is the player's own declaration; the capsule does not offer it.
     const worldlines = await worldlineSection(campaign, graph, world, scene, present),
         across = await crossLineReader(campaign, graph, world, present);
     const presentNames = [...present.map(n => graph.displayName(n)), ...present.map(n => graph.handle(n))],
@@ -636,7 +636,7 @@ export async function buildCapsule(campaign: CampaignSnapshot, module: LoadedMod
         receipts: [...campaign.records.flatMap(record => array(record.receipts)), ...array(turn.receipts)],
         modChecks: active.flatMap(mod => array(mod.contributes.checks).map(check => ({ mod: string(mod.id), check })))
     }).map(capsuleRow) : [];
-    const obligations = [...choiceObligation(turn.pending_choice), ...sessionObligation(session), ...continuationRows(continuations), ...sceneRows, ...promiseObligations(memory), ...questObligations(graph, world), ...noteObligations(campaign.logs.get("notes.jsonl") ?? [], presentNames, here, new EntityIndex(graph, party, row(world.scene_labels), null, world)), ...loopObligation(worldlines), ...offerObligations(world)];
+    const obligations = [...choiceObligation(turn.pending_choice), ...sessionObligation(session), ...sceneRows, ...promiseObligations(memory), ...questObligations(graph, world), ...noteObligations(campaign.logs.get("notes.jsonl") ?? [], presentNames, here, new EntityIndex(graph, party, row(world.scene_labels), null, world)), ...loopObligation(worldlines), ...offerObligations(world)];
     const sig = signals({
         graph,
         world,

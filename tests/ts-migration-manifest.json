@@ -36582,7 +36582,7 @@
           "counterpart": {
             "file": "tests/integration/world-capsule-nine.test.ts",
             "name": "test_the_capsule_has_nine_sections_a_head_and_the_clock",
-            "sha256": "65514bdc5ee76948342bf74bd1fb849d6ee118c4e59642f362ccbd75e533929e"
+            "sha256": "d2a291ea183876f169b1a8128b83fd14e8579ac3af3a8d2ab039193942e57e11"
           },
           "review": "statement-by-statement",
           "validation": {
@@ -36664,7 +36664,7 @@
           "counterpart": {
             "file": "tests/integration/world-capsule-nine.test.ts",
             "name": "test_the_clock_and_elapsed_follow_the_world_minutes",
-            "sha256": "65514bdc5ee76948342bf74bd1fb849d6ee118c4e59642f362ccbd75e533929e"
+            "sha256": "d2a291ea183876f169b1a8128b83fd14e8579ac3af3a8d2ab039193942e57e11"
           },
           "review": "statement-by-statement",
           "validation": {
@@ -36750,7 +36750,7 @@
           "counterpart": {
             "file": "tests/integration/world-capsule-nine.test.ts",
             "name": "test_situations_ride_in_the_capsule_and_stay_in_look",
-            "sha256": "65514bdc5ee76948342bf74bd1fb849d6ee118c4e59642f362ccbd75e533929e"
+            "sha256": "d2a291ea183876f169b1a8128b83fd14e8579ac3af3a8d2ab039193942e57e11"
           },
           "review": "statement-by-statement",
           "validation": {
@@ -36844,7 +36844,7 @@
           "counterpart": {
             "file": "tests/integration/world-capsule-nine.test.ts",
             "name": "test_clock_pressure_from_the_wound_hour",
-            "sha256": "65514bdc5ee76948342bf74bd1fb849d6ee118c4e59642f362ccbd75e533929e"
+            "sha256": "d2a291ea183876f169b1a8128b83fd14e8579ac3af3a8d2ab039193942e57e11"
           },
           "review": "statement-by-statement",
           "validation": {
@@ -36930,7 +36930,7 @@
           "counterpart": {
             "file": "tests/integration/world-capsule-nine.test.ts",
             "name": "test_clock_pressure_from_the_dying_clock_is_always_near_full",
-            "sha256": "65514bdc5ee76948342bf74bd1fb849d6ee118c4e59642f362ccbd75e533929e"
+            "sha256": "d2a291ea183876f169b1a8128b83fd14e8579ac3af3a8d2ab039193942e57e11"
           },
           "review": "statement-by-statement",
           "validation": {
@@ -37024,7 +37024,7 @@
           "counterpart": {
             "file": "tests/integration/world-capsule-nine.test.ts",
             "name": "test_threat_pressure_when_a_danger_names_a_present_npc",
-            "sha256": "65514bdc5ee76948342bf74bd1fb849d6ee118c4e59642f362ccbd75e533929e"
+            "sha256": "d2a291ea183876f169b1a8128b83fd14e8579ac3af3a8d2ab039193942e57e11"
           },
           "review": "statement-by-statement",
           "validation": {
@@ -37126,7 +37126,7 @@
           "counterpart": {
             "file": "tests/integration/world-capsule-nine.test.ts",
             "name": "test_continuation_has_one_base_projection_until_answered",
-            "sha256": "65514bdc5ee76948342bf74bd1fb849d6ee118c4e59642f362ccbd75e533929e"
+            "sha256": "d2a291ea183876f169b1a8128b83fd14e8579ac3af3a8d2ab039193942e57e11"
           },
           "review": "statement-by-statement",
           "validation": {
@@ -37212,7 +37212,7 @@
           "counterpart": {
             "file": "tests/integration/world-capsule-nine.test.ts",
             "name": "test_choice_obligation_from_the_pending_ask",
-            "sha256": "65514bdc5ee76948342bf74bd1fb849d6ee118c4e59642f362ccbd75e533929e"
+            "sha256": "d2a291ea183876f169b1a8128b83fd14e8579ac3af3a8d2ab039193942e57e11"
           },
           "review": "statement-by-statement",
           "validation": {
@@ -37294,7 +37294,7 @@
           "counterpart": {
             "file": "tests/integration/world-capsule-nine.test.ts",
             "name": "test_session_obligation_from_a_live_combat",
-            "sha256": "65514bdc5ee76948342bf74bd1fb849d6ee118c4e59642f362ccbd75e533929e"
+            "sha256": "d2a291ea183876f169b1a8128b83fd14e8579ac3af3a8d2ab039193942e57e11"
           },
           "review": "statement-by-statement",
           "validation": {
@@ -37388,7 +37388,7 @@
           "counterpart": {
             "file": "tests/integration/world-capsule-nine.test.ts",
             "name": "test_quest_obligations_read_the_module_graph_and_the_discovered_clues",
-            "sha256": "65514bdc5ee76948342bf74bd1fb849d6ee118c4e59642f362ccbd75e533929e"
+            "sha256": "d2a291ea183876f169b1a8128b83fd14e8579ac3af3a8d2ab039193942e57e11"
           },
           "review": "statement-by-statement",
           "validation": {
@@ -37514,7 +37514,7 @@
           "counterpart": {
             "file": "tests/integration/world-capsule-nine.test.ts",
             "name": "test_the_style_provider_sends_every_directive_on_the_first_turn_and_the_beats_after",
-            "sha256": "65514bdc5ee76948342bf74bd1fb849d6ee118c4e59642f362ccbd75e533929e"
+            "sha256": "d2a291ea183876f169b1a8128b83fd14e8579ac3af3a8d2ab039193942e57e11"
           },
           "review": "statement-by-statement",
           "validation": {
@@ -37612,7 +37612,7 @@
           "counterpart": {
             "file": "tests/integration/world-capsule-nine.test.ts",
             "name": "test_without_a_provider_style_is_the_language_and_the_register",
-            "sha256": "65514bdc5ee76948342bf74bd1fb849d6ee118c4e59642f362ccbd75e533929e"
+            "sha256": "d2a291ea183876f169b1a8128b83fd14e8579ac3af3a8d2ab039193942e57e11"
           },
           "review": "statement-by-statement",
           "validation": {
@@ -37722,7 +37722,7 @@
           "counterpart": {
             "file": "tests/integration/world-capsule-nine.test.ts",
             "name": "test_a_legacy_narration_craft_lock_keeps_the_base_lines_it_was_played_with",
-            "sha256": "65514bdc5ee76948342bf74bd1fb849d6ee118c4e59642f362ccbd75e533929e"
+            "sha256": "d2a291ea183876f169b1a8128b83fd14e8579ac3af3a8d2ab039193942e57e11"
           },
           "review": "statement-by-statement",
           "validation": {
@@ -37808,7 +37808,7 @@
           "counterpart": {
             "file": "tests/integration/world-capsule-nine.test.ts",
             "name": "test_the_legacy_table_keeps_its_language_only_axis_to_that_language",
-            "sha256": "65514bdc5ee76948342bf74bd1fb849d6ee118c4e59642f362ccbd75e533929e"
+            "sha256": "d2a291ea183876f169b1a8128b83fd14e8579ac3af3a8d2ab039193942e57e11"
           },
           "review": "statement-by-statement",
           "validation": {
@@ -37918,7 +37918,7 @@
           "counterpart": {
             "file": "tests/integration/world-capsule-nine.test.ts",
             "name": "test_a_style_package_that_would_not_fit_is_refused_when_the_catalog_loads",
-            "sha256": "65514bdc5ee76948342bf74bd1fb849d6ee118c4e59642f362ccbd75e533929e"
+            "sha256": "d2a291ea183876f169b1a8128b83fd14e8579ac3af3a8d2ab039193942e57e11"
           },
           "review": "statement-by-statement",
           "validation": {
@@ -38024,7 +38024,7 @@
           "counterpart": {
             "file": "tests/integration/world-capsule-nine.test.ts",
             "name": "test_only_one_style_provider_is_enabled_at_a_time",
-            "sha256": "65514bdc5ee76948342bf74bd1fb849d6ee118c4e59642f362ccbd75e533929e"
+            "sha256": "d2a291ea183876f169b1a8128b83fd14e8579ac3af3a8d2ab039193942e57e11"
           },
           "review": "statement-by-statement",
           "validation": {
@@ -38114,7 +38114,7 @@
           "counterpart": {
             "file": "tests/integration/world-capsule-nine.test.ts",
             "name": "test_a_new_process_starts_over_with_the_full_directives",
-            "sha256": "65514bdc5ee76948342bf74bd1fb849d6ee118c4e59642f362ccbd75e533929e"
+            "sha256": "d2a291ea183876f169b1a8128b83fd14e8579ac3af3a8d2ab039193942e57e11"
           },
           "review": "statement-by-statement",
           "validation": {
@@ -38204,7 +38204,7 @@
           "counterpart": {
             "file": "tests/integration/world-capsule-nine.test.ts",
             "name": "test_register_is_a_campaign_setting_from_the_text_graph",
-            "sha256": "65514bdc5ee76948342bf74bd1fb849d6ee118c4e59642f362ccbd75e533929e"
+            "sha256": "d2a291ea183876f169b1a8128b83fd14e8579ac3af3a8d2ab039193942e57e11"
           },
           "review": "statement-by-statement",
           "validation": {
@@ -38298,7 +38298,7 @@
           "counterpart": {
             "file": "tests/integration/world-capsule-nine.test.ts",
             "name": "test_the_provider_lines_are_the_same_for_every_play_language",
-            "sha256": "65514bdc5ee76948342bf74bd1fb849d6ee118c4e59642f362ccbd75e533929e"
+            "sha256": "d2a291ea183876f169b1a8128b83fd14e8579ac3af3a8d2ab039193942e57e11"
           },
           "review": "statement-by-statement",
           "validation": {
@@ -38388,7 +38388,7 @@
           "counterpart": {
             "file": "tests/integration/world-capsule-nine.test.ts",
             "name": "test_the_memory_section_is_trimmed_from_its_tail_and_named_in_truncated",
-            "sha256": "65514bdc5ee76948342bf74bd1fb849d6ee118c4e59642f362ccbd75e533929e"
+            "sha256": "d2a291ea183876f169b1a8128b83fd14e8579ac3af3a8d2ab039193942e57e11"
           },
           "review": "statement-by-statement",
           "validation": {
@@ -38474,7 +38474,7 @@
           "counterpart": {
             "file": "tests/integration/world-capsule-nine.test.ts",
             "name": "test_the_capsule_stays_keeper_only",
-            "sha256": "65514bdc5ee76948342bf74bd1fb849d6ee118c4e59642f362ccbd75e533929e"
+            "sha256": "d2a291ea183876f169b1a8128b83fd14e8579ac3af3a8d2ab039193942e57e11"
           },
           "review": "statement-by-statement",
           "validation": {
@@ -146875,7 +146875,7 @@
           "counterpart": {
             "file": "tests/integration/transactions.test.ts",
             "name": "test_idempotent_replay_and_conflict",
-            "sha256": "76b3aeb0fd8293cb60b345c7c59e5e23ee4b208fc908b5f47a4795638decc640"
+            "sha256": "36f0eedd4b81a448353011bd3a347efc7f61775a27a81d47cc2e9c1376f20c64"
           },
           "review": "statement-by-statement",
           "validation": {
@@ -147007,7 +147007,7 @@
           "counterpart": {
             "file": "tests/integration/transactions.test.ts",
             "name": "test_turn_state_errors",
-            "sha256": "76b3aeb0fd8293cb60b345c7c59e5e23ee4b208fc908b5f47a4795638decc640"
+            "sha256": "36f0eedd4b81a448353011bd3a347efc7f61775a27a81d47cc2e9c1376f20c64"
           },
           "review": "statement-by-statement",
           "validation": {
@@ -147167,7 +147167,7 @@
           "counterpart": {
             "file": "tests/integration/transactions.test.ts",
             "name": "test_ask_closes_turn_and_pending_choice_carries_over",
-            "sha256": "76b3aeb0fd8293cb60b345c7c59e5e23ee4b208fc908b5f47a4795638decc640"
+            "sha256": "36f0eedd4b81a448353011bd3a347efc7f61775a27a81d47cc2e9c1376f20c64"
           },
           "review": "statement-by-statement",
           "validation": {
@@ -147291,7 +147291,7 @@
           "counterpart": {
             "file": "tests/integration/transactions.test.ts",
             "name": "test_pending_turn_survives_a_crash",
-            "sha256": "76b3aeb0fd8293cb60b345c7c59e5e23ee4b208fc908b5f47a4795638decc640"
+            "sha256": "36f0eedd4b81a448353011bd3a347efc7f61775a27a81d47cc2e9c1376f20c64"
           },
           "review": "statement-by-statement",
           "validation": {
@@ -147387,7 +147387,7 @@
           "counterpart": {
             "file": "tests/integration/transactions.test.ts",
             "name": "test_pending_turn_from_hand_edited_turn_json",
-            "sha256": "76b3aeb0fd8293cb60b345c7c59e5e23ee4b208fc908b5f47a4795638decc640"
+            "sha256": "36f0eedd4b81a448353011bd3a347efc7f61775a27a81d47cc2e9c1376f20c64"
           },
           "review": "statement-by-statement",
           "validation": {
@@ -147495,7 +147495,7 @@
           "counterpart": {
             "file": "tests/integration/transactions.test.ts",
             "name": "test_transport_errors_do_not_kill_the_kernel",
-            "sha256": "76b3aeb0fd8293cb60b345c7c59e5e23ee4b208fc908b5f47a4795638decc640"
+            "sha256": "36f0eedd4b81a448353011bd3a347efc7f61775a27a81d47cc2e9c1376f20c64"
           },
           "review": "statement-by-statement",
           "validation": {
@@ -147623,7 +147623,7 @@
           "counterpart": {
             "file": "tests/integration/transactions.test.ts",
             "name": "test_commit_failure_keeps_the_turn_open",
-            "sha256": "76b3aeb0fd8293cb60b345c7c59e5e23ee4b208fc908b5f47a4795638decc640"
+            "sha256": "36f0eedd4b81a448353011bd3a347efc7f61775a27a81d47cc2e9c1376f20c64"
           },
           "review": "statement-by-statement",
           "validation": {
@@ -147723,7 +147723,7 @@
           "counterpart": {
             "file": "tests/integration/transactions.test.ts",
             "name": "test_ask_keeps_story_mechanics_and_interaction_separate",
-            "sha256": "76b3aeb0fd8293cb60b345c7c59e5e23ee4b208fc908b5f47a4795638decc640"
+            "sha256": "36f0eedd4b81a448353011bd3a347efc7f61775a27a81d47cc2e9c1376f20c64"
           },
           "review": "statement-by-statement",
           "validation": {
@@ -147827,7 +147827,7 @@
           "counterpart": {
             "file": "tests/integration/transactions.test.ts",
             "name": "test_mechanics_choice_has_no_question_or_numbered_prose",
-            "sha256": "76b3aeb0fd8293cb60b345c7c59e5e23ee4b208fc908b5f47a4795638decc640"
+            "sha256": "36f0eedd4b81a448353011bd3a347efc7f61775a27a81d47cc2e9c1376f20c64"
           },
           "review": "statement-by-statement",
           "validation": {
