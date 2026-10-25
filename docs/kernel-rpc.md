@@ -53483,3 +53483,10 @@ an issued person by their public name. In 1025g the union's validation refused 2
 once ("speaker: schema is false" for a reason field on communicate).
 
 Tests: `tests/extension/turn-ir.test.mjs`, `tests/extension/turn-ir-native.test.mjs`.
+
+### 270.10 The other tools say Turn IR's split
+
+In a Turn IR session the `apply` description names it for rare mechanics the actions do not cover (damage, cash, clocks,
+notes, defining a new object) and lists what is an output action instead; `place` reads a place, and moves, waits and
+looks are output actions. In 1025g the Keeper sent a relationship through apply after the v4 description told it
+relationships were "output commands".

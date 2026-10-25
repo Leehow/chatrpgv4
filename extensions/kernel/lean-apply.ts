@@ -181,12 +181,17 @@ export function offeredTools(tools: readonly CocToolSpec[], env: Readonly<Record
         const parameters=cloneSchema(spec.parameters) as Record<string,any>;
         // §264.39: a move's travel_minutes stays declared beside travel_band (§250.5 bounds it by the band's range); the host drops
         // minutes sent without a band (place-operation.ts), so no invented arithmetic reaches the kernel.
+        // §270.10: a Turn IR session moves, waits and looks in output actions; a rule action already settles an arrival first.
+        if(env.PI_COC_TURN_IR==='1')return {...spec,parameters,description:'Read a place (inspect). Moves, waits and looks are output actions (move, time, perceive); a rule action after a move settles the arrival first.',
+          promptSnippet:'Read a place.'};
         return {...spec,parameters,description:'Read a place (inspect), or commit one location step before a roll that needs the arrival. Every other move, wait and look goes into output commands in order. Example: {action:"move",to:"here",spot:"by the window",relation:"standing"}.',
           promptSnippet:'Read a place, or commit an arrival a roll depends on.'};
       }
       if(spec.name==='apply'){
         const parameters=cloneSchema(spec.parameters) as Record<string,any>;
         parameters.properties.effects.items.anyOf=parameters.properties.effects.items.anyOf.filter((branch:any)=>variantKind(branch)!=='place');
+        if(env.PI_COC_TURN_IR==='1')return {...spec,parameters,description:'Apply rare canonical mechanics the output actions do not cover (damage, cash, clocks, notes, defining a new object). People arriving or leaving, moves, findings, moods, names, relationships, papers shown or handed over and speech are output actions, never apply.',
+          promptSnippet:'Rare mechanics only; ordinary play is output actions.'};
         return {...spec,parameters,description:spec.description+' Enhanced location actions use the separate place tool or remaining output.commands. The existing mechanical move effect remains available for issued owed recovery and mixed atomic transactions.'};
       }
       return spec;
