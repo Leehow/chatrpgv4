@@ -53533,3 +53533,11 @@ says to resubmit only what follows the last rule action. In 1025h *Digging for a
 reader's reach ended the turn untold.
 
 Tests: `tests/extension/turn-ir-native.test.mjs`.
+
+### 270.16 The party is not its own company
+
+A place move's `with` drops an investigator's name, `investigator_N` and `investigator` (the party always moves;
+`party_with_dropped`), instead of refusing them as nobody at the table. In 1025i *Dust to Dust* T3 three place calls
+were refused for the investigator's own name and the turn went untold.
+
+Tests: `tests/extension/turn-ir-native.test.mjs`.

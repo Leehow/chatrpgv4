@@ -97,3 +97,12 @@ test('a final packet the kernel refuses goes back to the Keeper, whose corrected
  assert.ok(outputs[0].details?.coc_error,'the first packet was refused');
  assert.equal(published(table),1,'the corrected packet published in the same input');
 });
+
+test('an investigator named in a place move\'s with is the party itself, not refused company',async t=>{
+ const table=await play(t,[
+  fauxAssistantMessage([fauxToolCall('place',{action:'move',to:'here',spot:'by the door',with:['investigator_1','investigator']})],{stopReason:'toolUse'}),
+  output([{op:'scene',service:'open',crowd:'quiet'}]),fauxAssistantMessage('done')]);
+ const place=table.session.messages.find(message=>message.role==='toolResult'&&message.toolName==='place');
+ assert.ok(!place.isError,place.content?.[0]?.text);
+ assert.ok(table.telemetry().some(row=>row.event==='party_with_dropped'));
+});

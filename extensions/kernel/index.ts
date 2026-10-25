@@ -7501,6 +7501,14 @@ export default function (pi: ExtensionAPI, host: {capabilities?:RuntimeCapabilit
                     if(transport.fields.length)void record({lane:'arguments',event:'place_array_transport_normalized',tool:'place',fields:transport.fields});
                 }
 				if(spec.name==='place'&&table)placeProtocol.prepare(args,table.turn);
+                // §270.16: the party always moves; an investigator named in with is the party itself, not company (1025i T3:
+                // three place calls refused for the investigator's own name, investigator and investigator_1 in with).
+                if(spec.name==='place'&&table&&args&&typeof args==='object'&&Array.isArray((args as Record<string,any>).with)){
+                    const party=new Set(table.party.flatMap((person,index)=>[person.name,`investigator_${index+1}`]).concat('investigator'));
+                    const kept=((args as Record<string,any>).with as unknown[]).filter(word=>!(typeof word==='string'&&party.has(word.trim())));
+                    if(kept.length!==(args as Record<string,any>).with.length){void record({lane:'arguments',event:'party_with_dropped',tool:'place'});
+                        if(kept.length)(args as Record<string,any>).with=kept;else delete (args as Record<string,any>).with;}
+                }
 				if(spec.name==='place'){const refusal=placeParameterRefusal(args);if(refusal)throw Error(refusal.toToolText());}
                 let targetArgs=args;
                 if(spec.name==='place')try{targetArgs=normalizePlaceTarget(args);}catch(error){if(isKernelError(error))throw new Error(error.toToolText());throw error;}
