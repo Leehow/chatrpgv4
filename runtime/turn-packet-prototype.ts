@@ -390,6 +390,8 @@ export function compileTurnPacket(packet:TurnPacket|BoundTurnPacket):{responses:
   :a.kind==='clue'?{kind:'clue',clue:a.clue,how:a.how,...(a.summary?{establish:{summary:a.summary}}:{}),...(a.from&&isNpcReference(a.from)?{from:a.from}:{})}
   :a.kind==='mood'?{kind:'npc',name:a.actor,mood:a.mood,why:'What they feel after this turn.'}
   :a.kind==='name'?{kind:'person',who:a.actor,name:a.name,why:'The fiction establishes this name.'}
+  // §270: a Turn IR material action, already an apply object effect, settles in the route's order.
+  :(a as Record<string,any>).kind==='_object'?{...(a as Record<string,any>).effect}
   :a.kind==='time'?{kind:'time',...(a.minutes!==undefined?{minutes:a.minutes}:a.until!==undefined?{until:{...a.until}}:{band:a.band}),why:a.reason,...(a.beyond_travel===true?{beyond_travel:true}:{})}:(()=>{throw Error('Non-effect decision command reached the effect compiler');})())]};
 }
 /** Public result fields come from kernel outcomes, never from submitted commands. */
