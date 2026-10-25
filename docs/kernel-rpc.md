@@ -53453,3 +53453,13 @@ earliest receipts and keeps a later result. In 1025d *Dust to Dust* T7 the cut k
 dropped the extreme success after it, and the turn told only the failure.
 
 Tests: `tests/extension/untold-newest-first.test.mjs`.
+
+### 270.7 A refused resolve holds nothing back from delivery
+
+`HeldActOutcome.uncommittedFailures` (§249.4) counts a refused `resolve` as uncommitted whatever its refusal reason,
+since a resolve is one kernel transaction that commits nothing when it refuses; only a cause that leaves the outcome
+unreadable (transport, timeout, partial settlement, a failed commit) keeps the turn's prose held. In 1025d *Digging for
+a Dead God* T12 a refused Persuade held the turn after the corrected one succeeded, and nine settled receipts were never
+told.
+
+Tests: `tests/extension/held-act-outcome.test.mjs`.

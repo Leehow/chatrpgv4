@@ -136,7 +136,10 @@ test('native failure projection preserves refusals and excludes ambiguous execut
  }
  const incomplete=new HeldActOutcome();incomplete.hold(scope,{tool:'apply',lines:['x'.repeat(12001)],cause:'action_not_authorized'},true);assert.equal(incomplete.uncommittedFailures(),undefined);
  const legacy=new HeldActOutcome();legacy.hold(scope,{tool:'apply',lines:['proposal'],cause:'action_not_authorized'});assert.equal(legacy.uncommittedFailures(),undefined);
- const otherTool=new HeldActOutcome();otherTool.hold(scope,{tool:'resolve',lines:['proposal'],cause:'unknown_entity'},true);assert.equal(otherTool.uncommittedFailures(),undefined);
+ // §270.7: a refused resolve committed nothing, whatever its refusal said; an unreadable outcome stays unknown.
+ const refusedRoll=new HeldActOutcome();refusedRoll.hold(scope,{tool:'resolve',lines:['proposal'],cause:'unknown_entity'},true);
+ assert.deepEqual(refusedRoll.uncommittedFailures(),[{tool:'resolve',status:'uncommitted',reason:'unknown_entity'}]);
+ const lostRoll=new HeldActOutcome();lostRoll.hold(scope,{tool:'resolve',lines:['proposal'],cause:'transport'},true);assert.equal(lostRoll.uncommittedFailures(),undefined);
 });
 
 test('argument completion tracks the complete ordered player action, not its bookkeeping envelope',()=>{

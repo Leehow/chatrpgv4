@@ -48,6 +48,8 @@ export function receiptLine(receipt: Record<string, unknown>): string {
   return clip(fields.join(' '));
 }
 
+/** Causes that leave whether a write landed unknown; every other kernel refusal committed nothing. */
+const UNKNOWN_OUTCOMES=['operation_failed','commit_failed','timeout','aborted','revision_conflict','transport','partial_settlement'];
 export class HeldActOutcome {
   basis?: HeldActBasis;
   revision = 0;
@@ -85,7 +87,11 @@ export class HeldActOutcome {
     const causes=['invalid_params','action_not_authorized','action_admission_uncertain','admission_unavailable','place_barrier'];
     if(this.basis.complete!==true||this.basis.held.some(row=>!causes.includes(row.cause)
       // §252.1: an apply clue refused as not discoverable here writes nothing either (live el-v2-20261021f T19, undelivered).
-      &&!(row.tool==='apply'&&['unknown_entity','not_here','preview_clock_unknown','chosen_covered_quote'].includes(row.cause))))return;
+      &&!(row.tool==='apply'&&['unknown_entity','not_here','preview_clock_unknown','chosen_covered_quote'].includes(row.cause))
+      // §270.7: a refused resolve is one kernel transaction that never committed, whatever its refusal said; only an outcome
+      // the host could not read back stays unknown (1025d Digging T12: a refused Persuade held the turn after the corrected
+      // one succeeded, and nine settled receipts were never told).
+      &&!(row.tool==='resolve'&&!UNKNOWN_OUTCOMES.includes(row.cause))))return;
     return this.basis.held.map(row=>({tool:row.tool,status:'uncommitted',reason:row.cause}));
   }
   issuedCorrection(): void { this.correctionIssued = true; }
