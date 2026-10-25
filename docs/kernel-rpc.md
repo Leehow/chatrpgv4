@@ -53556,3 +53556,10 @@ is an investigator records nothing: the investigator's attitude is the player's.
 "约翰·格林中士" was refused as nobody at the table three times, and a relationship from investigator_1 failed the event.
 
 Tests: `tests/extension/turn-ir.test.mjs`.
+
+### 270.19 A fact said by the wrong person is refused with its owner
+
+Before the final packet, the coordinator checks each selected `fact_N` against the person it belongs to (the catalog's
+`factActors`) and refuses `turn_ir_action` naming the fact, its owner and the speaker, so the correction moves it to the
+right speaker or says it as a claim. In 1025i *Digging for a Dead God* T11 the packet was refused twice as "This fact
+belongs to another actor perspective", with no owner named, and the turn went untold.

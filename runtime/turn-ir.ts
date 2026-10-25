@@ -122,7 +122,7 @@ export function diagnoseTurnIr(value:unknown):string[] {
 /** A refusal naming the action it is about, what is wrong and how to fix it. */
 export class TurnIrError extends Error {
  readonly index:number;readonly details:Row;
- constructor(index:number,message:string,details:Row={}){super(`actions[${index}]: ${message}`);this.name='TurnIrError';this.index=index;this.details=details;}
+ constructor(index:number,message:string,details:Row={}){super(index>=0?`actions[${index}]: ${message}`:message);this.name='TurnIrError';this.index=index;this.details=details;}
 }
 /** What a name is at this table: an issued person, an investigator, several (ambiguous), or nobody known. */
 export type Binding={ref:string}|{investigator:string;name:string}|{ambiguous:string[]}|undefined;

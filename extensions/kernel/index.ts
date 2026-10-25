@@ -6213,6 +6213,16 @@ export default function (pi: ExtensionAPI, host: {capabilities?:RuntimeCapabilit
 				const body=rule?kept.slice(0,-1):kept,final=index===parts.length-1&&!barrierLast;
 				const packet=toPacket(body,directory,aliases,offset);
 				if(final){
+					// §270.19: a fact said by someone other than the person it belongs to is refused here by name, with its owner, so
+					// the correction moves it to the right speaker (1025i Digging T11: "belongs to another actor perspective" twice).
+					const owners=packetContent(state).bindings().factActors??{};
+					for(const [index,row] of [...speech.interactions,...(packet.interactions??[])].entries()){
+						for(const item of Array.isArray((row as Record<string,any>).content)?(row as Record<string,any>).content:[]){
+							const ref=(item as Record<string,any>).fact_ref,owner=typeof ref==='string'?owners[ref]:undefined;
+							if(owner&&owner!==(row as Record<string,any>).actor)
+								throw new TurnIrError(-1,`${ref} is what ${refs.publicName(scope,owner)??owner} knows, not ${refs.publicName(scope,String((row as Record<string,any>).actor))??(row as Record<string,any>).actor}: put it in ${refs.publicName(scope,owner)??owner}'s communicate, or say it as a claim`,{field:'says',fact:ref,owner,interaction:index});
+						}
+					}
 					const merged={...packet,version:4,...(speech.interactions.length||packet.interactions?{interactions:[...speech.interactions,...(packet.interactions??[])]}:{}),
 						...(speech.reveal.length||packet.reveal?{reveal:[...speech.reveal,...(packet.reveal??[])]}:{}),...(ir.ooc?{ooc:ir.ooc}:{})} as unknown as TurnPacket;
 					const published=await submitTurnPacket(merged as unknown as Record<string,unknown>,signal,ctx,true);
