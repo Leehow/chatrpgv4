@@ -84,6 +84,14 @@ export function normalizeTurnIr(value:unknown):{value:unknown;dropped:Array<{ind
   const row={...(action as Row)},schema=(TURN_IR_ACTIONS as Record<string,any>)[String(row.op)];
   if(!schema)return row;
   if(row.op==='move'&&typeof row.at==='string'&&row.spot===undefined){row.spot=row.at;delete row.at;}
+  // A reference written as an object ({fact_5: ...} or v4's {fact_ref:"fact_5"}) is the reference itself (live 1025h).
+  const reference=(item:unknown)=>{
+   if(!item||typeof item!=='object'||Array.isArray(item))return item;
+   const keys=Object.keys(item as Row),ref=(item as Row).fact_ref??(item as Row).source_ref??(item as Row).exhibit_ref;
+   if(typeof ref==='string'&&/^(fact|source|exhibit)_[1-9][0-9]*$/.test(ref))return ref;
+   return keys.length===1&&/^(fact|source|exhibit)_[1-9][0-9]*$/.test(keys[0])?keys[0]:item;
+  };
+  for(const key of ['says','what'])if(Array.isArray(row[key]))row[key]=row[key].map(reference);
   const allowed=new Set(Object.keys(schema.properties)),extra=Object.keys(row).filter(key=>!allowed.has(key));
   for(const key of extra)delete row[key];
   if(extra.length)dropped.push({index,fields:extra});
@@ -214,14 +222,16 @@ export function toPacket(actions:TurnIrAction[],directory:TurnIrDirectory,aliase
     break;
    case 'material':{
     const holder=holderName(person(action.holder,i,'holder')),reader=action.to?holderName(person(action.to,i,'to')):undefined;
-    const effect:Row=action.action==='transfer'
+    const effect:Row|undefined=action.action==='transfer'
      ?{kind:'object',name:action.item,from:holder,to:reader??(()=>{throw new TurnIrError(i,'transfer names to',{field:'to'});})(),handover:'given',why:action.reason}
      :action.action==='take'?{kind:'object',name:action.item,from:holder,to:reader??holder,why:action.reason}
+     // A thing held up to be seen, not read, changes nothing: the author tells it from the action.
+     :action.action==='show'&&!action.access?undefined
      :action.action==='show'?{kind:'object',name:action.item,from:holder,to:holder,
       document:action.access==='glimpse'?{action:'observe',access:'glimpse',reader:reader??(()=>{throw new TurnIrError(i,'show names to',{field:'to'});})(),quote:action.quote??''}
        :{action:'show',reader:reader??(()=>{throw new TurnIrError(i,'show names to',{field:'to'});})(),...(action.access==='read_full'?{read:true}:{})},why:action.reason}
      :{kind:'object',name:action.item,from:holder,to:holder,document:{action:action.action},why:action.reason};
-    commands.push({kind:'_object',effect});
+    if(effect)commands.push({kind:'_object',effect});
     break;
    }
    case 'time':

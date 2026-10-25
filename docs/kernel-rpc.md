@@ -53490,3 +53490,11 @@ In a Turn IR session the `apply` description names it for rare mechanics the act
 notes, defining a new object) and lists what is an output action instead; `place` reads a place, and moves, waits and
 looks are output actions. In 1025g the Keeper sent a relationship through apply after the v4 description told it
 relationships were "output commands".
+
+### 270.11 References written as objects; a thing shown but not read
+
+A `says` or `what` item written as an object whose one key is an issued reference (`{fact_5: ...}`) or in v4's shape
+(`{fact_ref: "fact_5"}`) is read as that reference. A `material show` without `access` writes nothing: a thing held up to
+be seen changes no state and the author tells it from the action; with `access` it is the document show it was.
+
+Tests: `tests/extension/turn-ir.test.mjs`.

@@ -89,3 +89,11 @@ test('fields of another op are dropped and reported; a wrong field is named by a
  assert.match(findings[0],/^actions\[0\] \(material\)/);assert.match(findings.join('\n'),/reason/);
  assert.match(findings.at(-1),/actions\[1\]\.op must be one of move/);
 });
+
+test('a reference written as an object is the reference; a plain show writes nothing',async()=>{
+ const {normalizeTurnIr}=await import('../../runtime/turn-ir.ts');
+ const {value}=normalizeTurnIr({version:5,actions:[{op:'communicate',speaker:'x',to:['y'],act:'answer',says:[{fact_5:'the cart'},{fact_ref:'fact_2'},{claim:'no'}]},{op:'perceive',what:[{source_3:{}}]}]});
+ assert.deepEqual(value.actions[0].says,['fact_5','fact_2',{claim:'no'}]);assert.deepEqual(value.actions[1].what,['source_3']);
+ const out=packet([{op:'material',action:'show',item:'passport',holder:'周衡',to:'欧文·塔布勒',reason:'he holds it up'}]);
+ assert.equal(out.commands,undefined);
+});
