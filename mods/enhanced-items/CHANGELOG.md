@@ -1,3 +1,6 @@
+## 1.4.6
+- A condition effect gives the target that condition and nothing removes one, so a medicine, antidote or remedy names no condition for what it treats; its rules roll does (2026-10-25 table: a first-aid kit with quinine was generated with condition 疟疾, and using it gave the patient malaria).
+
 ## 1.4.5
 - A page shown to be read whole is one effect: document show with `read: true` records the reading too, and showing opens it (2026-10-24 table: a landlord showing two leases took an open, a show and two observes). A part is still show, then observe with its quote.
 

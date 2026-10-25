@@ -34,9 +34,9 @@ const OLD_VERSION = join(root, 'tests/fixtures/mods/enhanced-items-v122');
 // (681d03dd...), 1.3.1 since non-weapon gear waits until the fiction uses it (1404ca86...), 1.3.2 since its instruction is
 // sectioned and its brief retired (§183), 1.3.4 since "Documents on carriers" is resident and carries the physical
 // document operations (§179.3a), 1.3.5 since it requires `weapons.improvised.v1` and reads `outcome.improvised` (§224.7),
-// 1.4.0 adds acquired image carriers; 1.4.2 adds host-owned references (§234.1); 1.4.5 is the current release (§264.16).
+// 1.4.0 adds acquired image carriers; 1.4.2 adds host-owned references (§234.1); 1.4.5 shows a page read whole (§264.16); 1.4.6 is the current release (§264.43).
 const DIGEST_122 = '7714ce10e86032ebf427e45c63e61d38a4dabb8f75dabb2d6182f7d3638f54af';
-const DIGEST_145 = '3bedeb49baf465468bfe4a351164c5a63a1a41b1a73479eb5a3c608ae1a9188a';
+const DIGEST_146 = '5f05f884aaa83f40e11ec6db605267bfec42f128eef670c934babd59842cae29';
 const DECLARATION = 'I snatch the carving knife off the cellar shelf and go for Knott.';
 const KNIFE = {name: 'Cellar knife', category: 'weapon', description: 'A long carving knife with a chipped blade, left on the cellar shelf.'};
 // The rulebook's medium knife as the definition's parameters, the way the engine reads its row.
@@ -274,11 +274,11 @@ test('an action usage is offered the object as the thing and gated on its parame
 test('both package versions load at their digests, and a campaign locked to 1.2.2 is offered nothing', async t => {
   const fresh = await kernel(t);
   const current = await fresh.lock();
-  assert.equal(current.version, '1.4.5');
-  assert.equal(current.digest, DIGEST_145);
+  assert.equal(current.version, '1.4.6');
+  assert.equal(current.digest, DIGEST_146);
   const old = await kernel(t, {version: '1.2.2'});
   const listed = (await old.call('mods.list', {})).mods.filter(mod => mod.id === 'enhanced-items').map(mod => [mod.version, mod.compatible]);
-  assert.deepEqual(listed, [['1.2.2', true], ['1.4.5', true]]);
+  assert.deepEqual(listed, [['1.2.2', true], ['1.4.6', true]]);
   const locked = await old.lock();
   assert.equal(locked.version, '1.2.2');
   assert.equal(locked.digest, DIGEST_122);

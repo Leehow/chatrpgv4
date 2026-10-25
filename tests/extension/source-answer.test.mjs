@@ -59,7 +59,7 @@ test('source answer mode requires a question before starting any reader',async t
  ]});t.after(()=>table.dispose());let calls=0;
  table.emit('coc:reading-bridge',{async ensure(){calls++;return{state:'ready',source_answer:answer};}});
  await table.session.prompt('Clarify the source.');assert.equal(calls,0);
- assert.match(JSON.stringify(table.session.messages.filter(m=>m.role==='toolResult')),/nonempty question/);
+ assert.match(JSON.stringify(table.session.messages.filter(m=>m.role==='toolResult')),/needs both query and question/);
 });
 
 test('source answer timeout tells the Keeper to preserve answer mode on a later retry',async t=>{
