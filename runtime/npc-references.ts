@@ -63,7 +63,11 @@ export class NpcReferences {
  /** §270: the issued people a public name names: one ref, several (ambiguous), or none. A name binds only when unique. */
  lookup(scope:string,name:string):string[] {
   if(this.scope!==scope)return [];
-  return [...(this.publicNames.get(name.normalize('NFKC').trim().toLowerCase())??[])].filter(ref=>this.issued.has(ref));
+  const key=name.normalize('NFKC').trim().toLowerCase(),exact=[...(this.publicNames.get(key)??[])].filter(ref=>this.issued.has(ref));
+  if(exact.length)return exact;
+  // §270.18: a word that carries one issued person's whole public name is that person ("约翰·格林中士" for "约翰·格林"),
+  // as §264.32 reads a full name inside a newcomer's word; two such people stay ambiguous.
+  return [...new Set([...this.publicNames].filter(([public_])=>[...public_].length>=2&&key.includes(public_)).flatMap(([,refs])=>[...refs]))].filter(ref=>this.issued.has(ref));
  }
  require(scope:string,references:readonly string[]):void {
   if(references.some(ref=>!isNpcReference(ref)||this.scope!==scope||!this.issued.has(ref)))

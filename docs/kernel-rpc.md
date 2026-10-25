@@ -53547,3 +53547,12 @@ Tests: `tests/extension/turn-ir-native.test.mjs`.
 A Turn IR `{knowledge}` item always compiles to §264.1's `player_input` topic: the v4 topic slot takes only issued entity
 references, which the Keeper could not tell from its fact and source numbers (1025i *Digging for a Dead God* T1, two
 outputs refused "topic must select an issued entity reference").
+
+### 270.18 A name with a title; an investigator's attitude
+
+`NpcReferences.lookup` binds a word that carries one issued person's whole public name (two characters or more), as
+§264.32 reads a full name inside a newcomer's word; two such people stay ambiguous. A Turn IR `relationship` whose `who`
+is an investigator records nothing: the investigator's attitude is the player's. In 1025i *Digging for a Dead God* T9
+"约翰·格林中士" was refused as nobody at the table three times, and a relationship from investigator_1 failed the event.
+
+Tests: `tests/extension/turn-ir.test.mjs`.

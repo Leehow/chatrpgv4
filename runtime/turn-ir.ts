@@ -250,7 +250,10 @@ export function toPacket(actions:TurnIrAction[],directory:TurnIrDirectory,aliase
     const fields=Object.fromEntries(['disposition','trust','fear','pressure','control'].filter(key=>(action as Row)[key]!==undefined).map(key=>[key,(action as Row)[key]]));
     if(!Object.keys(fields).length)throw new TurnIrError(i,'a relationship action changes at least one field',{field:'disposition'});
     if(!('disposition' in fields)&&!('control' in fields))throw new TurnIrError(i,'a relationship change names the disposition after it (or a control)',{field:'disposition'});
-    commands.push({kind:'relationship',actor:person(action.who,i,'who'),toward:person(action.toward,i,'toward'),...fields});
+    const actor=person(action.who,i,'who');
+    // An investigator's own attitude is the player's to play; only a person's relationship is recorded.
+    if(/^investigator_/.test(actor))break;
+    commands.push({kind:'relationship',actor,toward:person(action.toward,i,'toward'),...fields});
     break;
    }
    case 'mood':commands.push({kind:'mood',actor:person(action.who,i,'who'),mood:action.mood});break;

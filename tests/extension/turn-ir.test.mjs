@@ -114,3 +114,11 @@ test('a knowledge item one level too deep is flattened; a topic in words is what
  const out=packet(value.actions);
  assert.deepEqual(out.interactions[0].content,[{new:{predicate:'knowledge_status',topic:'player_input',status:'withheld'}}]);
 });
+
+test('a word carrying one issued person\'s whole name binds them; an investigator\'s relationship records nothing',async()=>{
+ const {NpcReferences}=await import('../../runtime/npc-references.ts');
+ const refs=new NpcReferences();refs.observe('s',{present:[{ref:'npc_1',display_name:'约翰·格林'},{ref:'npc_2',display_name:'格林夫人'}]});
+ assert.deepEqual(refs.lookup('s','约翰·格林中士'),['npc_1']);assert.deepEqual(refs.lookup('s','中士'),[]);
+ const out=packet([{op:'relationship',who:'周衡',toward:'欧文·塔布勒',disposition:'friendly'}]);
+ assert.equal(out.commands,undefined);
+});
