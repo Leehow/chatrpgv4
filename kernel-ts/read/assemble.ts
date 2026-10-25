@@ -14,6 +14,8 @@ import {currentOwnedDocuments} from '../mods/document-visibility.js';
 import {requestedEditContext} from '../mods/document-requests.js';
 import { playedRecords, signals, directorSection } from "./director.js";
 import { EntityIndex, capsuleMemory, noteObligations, rulingsForCapsule, promiseObligations, withPromiseFulfillment, canonicalMemoryReceipts } from "./memory.js";
+import { checksThisTurn, CHECKS_SETTLED_LINE } from "./checks-this-turn.js";
+import { documentsInReach } from "./document-custody.js";
 import { clockPressures, threatPressures, questObligations, choiceObligation, sessionObligation } from "./pressures.js";
 import { incapacitationClocks } from "./incapacitation.js";
 import { evidenceAcquired, evidenceDeliveryRecords } from "./continuity.js";
@@ -674,8 +676,11 @@ export async function buildCapsule(campaign: CampaignSnapshot, module: LoadedMod
         outcome:graph.shownIds({...eventOutcome(array(turn.receipts),array(turn.disclosures)),
             history:[...semanticEvents].sort((a,b)=>number(row(a.scope).turn)-number(row(b.scope).turn)).slice(-4).map(event=>({ref:event.ref,name:event.name,summary:chars(event.summary??'',300),scope:event.scope,status:event.status})),
             coverage:{history_omitted:Math.max(0,semanticEvents.length-4),read:{what:'history',page:{section:'events'}}}}),
+        ...(checksThisTurn(turn.receipts).length ? { checks_this_turn: { rows: checksThisTurn(turn.receipts).slice(-8), note: CHECKS_SETTLED_LINE } } : {}),
         public_scene,
         public_inventory:publicInventory(party,world),
+        ...(documentsInReach(world, present.map(node => graph.handle(node))).length ? { documents_in_reach: { rows: documentsInReach(world, present.map(node => graph.handle(node))),
+            note: "A paper can be shown or handed over only where its holder and the reader both are; rows list who holds each now." } } : {}),
         historical_setting: await historicalSetting(campaign, module),
         // §168.5: before present, so the material for a first sight is read before the dossiers.
         ...(firstSight ? { first_sight: firstSight } : {}),

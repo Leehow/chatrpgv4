@@ -53366,3 +53366,28 @@ Keeper asked a push unprompted and was still weighing it as unanswered at T15.
 
 Tests: `tests/integration/world-capsule-nine.test.ts`, `tests/integration/push-luck-accept.test.ts`,
 `tests/integration/transactions.test.ts`, `tests/extension/packet-choice.test.mjs`.
+
+## 269. Settled reads the Keeper does not reconstruct (owner 2026-10-25)
+
+The comparison group of the Turn IR experiment (`docs/specs/turn-ir.md`): the v4 write protocol is unchanged and the
+Keeper is shown what it otherwise rebuilt in its reasoning.
+
+### 269.1 Checks this turn
+
+A `resolve` result that rolled carries `settled: {rows, note}`, one row per non-dice roll it made:
+`{id, actor, skill, goal?, stake?, level, passed, pushed?}` (`stake` is §268.1's `named_stake`). The capsule carries the
+same rows for every roll of the turn so far as `checks_this_turn` (last 8), with the note that each row is the rules'
+final result for its goal and a failed goal did not happen this input.
+
+### 269.2 Papers within reach
+
+The capsule's `documents_in_reach.rows` lists each document whose holder (resolved to the root of its containers) is an
+investigator, the current place, or a person present: `{name, holder, reach: investigator|here|present_person, open?,
+shown_to?}` (last 12), with the note that a paper is shown or handed over only where holder and reader both are.
+
+### 269.3 Who may say what
+
+The Keeper's decision catalog carries `speakable_by: {npc_N: [fact_N, ...]}`, the issued facts each person may select,
+beside the flat `facts` list.
+
+Tests: `tests/integration/capsule-settled-reads.test.ts`.

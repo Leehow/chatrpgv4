@@ -1,4 +1,5 @@
 /** Canonical settlement results, receipt markers, ruling matches and telemetry. */
+import { checksThisTurn, CHECKS_SETTLED_LINE } from '../read/checks-this-turn.js';
 import type { DomainEvent } from '../transactions.js';
 import { RuleGraph } from '../rules/graph.js';
 import { SLOT_TO_ACTION } from '../rules/planning.js';
@@ -290,6 +291,10 @@ export function resolveResult(context: SettleContext, settled: Row): {
     for (const key of ['decision_source', 'hints', 'warnings'])
         if (truth(settled[key]))
             result[key] = settled[key];
+    // §269.1: the roll this call settled, read once, beside the receipts it came from.
+    const checked = checksThisTurn(receipts);
+    if (checked.length)
+        result.settled = { rows: checked, note: CHECKS_SETTLED_LINE };
     const goal = typeof context.action.goal === 'string' ? context.action.goal : '';
     const method = typeof context.action.method === 'string' ? context.action.method : '';
     const events: DomainEvent[] = [];
