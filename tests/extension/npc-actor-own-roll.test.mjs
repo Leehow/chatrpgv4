@@ -101,22 +101,16 @@ test('an NPC actor with a pinned skill rolls it, Keeper-side, and never touches 
 	assert.equal(await game.investigatorRaw(), before);
 });
 
-test('an NPC actor with no pinned or authored skill rolls the skill\'s rulebook base chance instead of refusing', async (t) => {
+test('an NPC actor the book does not have rolls from the ordinary adult they were rolled on entering play (§267.4)', async (t) => {
 	const game = await table(t);
 	await place(game);
-	// Only Fighting (Brawl) is pinned; Spot Hidden is untouched, book or ledger.
+	// Only Fighting (Brawl) is pinned by the Keeper; Spot Hidden comes from the profile rolled when they entered play.
 	await game.apply({ kind: 'npc', name: GUARD, skill: { name: 'Fighting (Brawl)', value: 65 }, why: 'a rough sort' });
 
 	const result = await game.resolve({ intent: 'investigate', actor: GUARD, skill: 'Spot Hidden', goal: 'watch the yard' });
 	assert.equal(result.outcome.kind, 'check');
-	// Call of Cthulhu 7e's printed base chance for Spot Hidden is 25%: the same deterministic number an
-	// investigator's own unlisted skill already falls back to (`resolveTarget`'s `rulebook_base`).
-	assert.equal(result.outcome.target, 25);
-	assert.equal((await game.receipts()).find(receipt => receipt.id === result.receipt).check.target_source, 'rulebook_base');
-	const hint = result.hints.find(text => text.includes('canonical common-skill base'));
-	assert.ok(hint, 'the same Keeper is told this is a missing NPC skill fallback');
-	assert.match(hint, /apply npc\.skill/);
-	assert.doesNotMatch(hint, /\d|investigator sheet/);
+	assert.equal((await game.receipts()).find(receipt => receipt.id === result.receipt).check.target_source, 'npc');
+	assert.ok(!result.hints.some(text => text.includes('canonical common-skill base')), 'no missing-skill fallback for a complete person');
 });
 
 test('a derived social roll uses the NPC actor skill and keeper receipt rather than the investigator',async t=>{
@@ -238,15 +232,12 @@ test("an NPC actor's missing uncommon skill still asks, never rolling its printe
 	assert.equal(error.details?.actor, handle);
 });
 
-test("an NPC actor's bare characteristic, with no authored or pinned value, still asks instead of guessing", async (t) => {
+test("an NPC actor the book does not have rolls a characteristic from their entering-play profile (§267.4)", async (t) => {
 	const game = await table(t);
-	const handle = await place(game);
-	const error = await game.resolve({ intent: 'investigate', actor: GUARD, skill: 'STR', goal: 'force the door' })
-		.then(() => null, (thrown) => thrown);
-	assert.ok(error, 'a characteristic has no rulebook-wide default to fall back to');
-	assert.equal(error.code, 'needs');
-	assert.equal(error.details?.needs?.field, 'npc.skill');
-	assert.equal(error.details?.actor, handle);
+	await place(game);
+	const result = await game.resolve({ intent: 'investigate', actor: GUARD, skill: 'STR', goal: 'force the door' });
+	assert.equal(result.outcome.kind, 'check');
+	assert.ok(result.outcome.target > 0, 'a rolled STR, not a needs refusal');
 });
 
 test('an actor nobody at the table or in the book knows is refused, naming investigators and known people alike', async (t) => {

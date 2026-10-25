@@ -81,7 +81,7 @@ import { AUTHORED_MAP_WORDS, KEEPER_MAP_WORDS, mapCardTexts, type MapWordsOption
 import { aliasEffectKinds, argumentLimitRefusal, documentWriteRefusal, effectShapeRefusal, COC_TOOLS, COC_TOOL_NAMES, type CocToolSpec, WRITE_TOOLS } from "./tools.ts";
 import { unwrapArgumentMarkup } from "./tool-argument-markup.ts";
 import { finalDeliveryAction, leanApplyEnabled, offeredTools } from "./lean-apply.ts";
-import {admissionRefusalScope} from './refusal-scope.ts';
+import {admissionRefusalScope,refusedEffectScope,effectScopes} from './refusal-scope.ts';
 import { stripDialectPrefixes, omitEmptyEmbeddedArguments } from "./dialect-prefix.ts";
 import { decodeSerializedStrings } from "./encoded-string-argument.ts";
 import type {TaskProviderBudget} from '../../runtime/jev/provider-budget.ts';
@@ -7555,7 +7555,7 @@ export default function (pi: ExtensionAPI, host: {capabilities?:RuntimeCapabilit
 			// §268.5: an apply refusal is owned by the kinds of effect it carried, so a document shown out of reach three times
 			// shuts object writes, not the place move that would bring the reader and the paper together (1025c Dust to Dust T15).
 			const admission=inner.reason==='action_admission_uncertain';
-			const refusalOwner=tool==='apply'?admissionRefusalScope(tool,event.input):tool;
+			const refusalOwner=tool!=='apply'?tool:admission?admissionRefusalScope(tool,event.input):refusedEffectScope(tool,event.input,inner.index);
 			const cls = `${refusalOwner}\u0000${String(details.coc_error.code ?? "error")}\u0000${String(facet)}`;
 			// A strike is an attempt, not a call. Calls a Keeper issued in one message are answered
 			// after it wrote them, so the second and third of a batch are not it ignoring the first
@@ -8814,7 +8814,8 @@ export default function (pi: ExtensionAPI, host: {capabilities?:RuntimeCapabilit
 		// refusals the third is blocked here, with the last error read back to it.
 		state.callTools.set(event.toolCallId, name);
 		state.callRounds.set(event.toolCallId, hostRound ?? state.roundTrips);
-		const shut = state.exhausted.get(name)??state.exhausted.get(admissionRefusalScope(name,input));
+		const shut = state.exhausted.get(name)??state.exhausted.get(admissionRefusalScope(name,input))
+			??effectScopes(name,input).map(scope=>state.exhausted.get(scope)).find(Boolean);
 		if (shut) {
 			// §70: the same escalation §34.16 gives a closed turn, for a turn that never
 			// opened. The budget already told the Keeper to close with output; if it keeps

@@ -53019,109 +53019,6 @@ and the fix names it. "Athletics" for a climb had offered six names without Clim
 The one sentence "Duplicate newcomer labels, scene or slot" is now three, each naming its cause and fix; the Keeper had
 removed people and rewritten crowds while the real cause, two scene commands at one stop, stayed.
 
-## 267. An ordinary turn is one output call (owner 2026-10-25)
-
-### 267.1 Findings, moods and names are packet commands
-
-The output packet's `commands` carry `{kind:"clue", clue, how, summary?, from?}`, `{kind:"mood", actor, mood}` and
-`{kind:"name", actor, name}`, compiled to the existing `apply` clue, npc mood and person effects and settled in the same
-atomic apply as the route, after it (`compileTurnPacket`). `from` is an issued `npc_N`; an investigator reference means
-they found it themselves and is left out. The guidance says an ordinary turn needs no apply. Measured on the 1025b long
-runs: the Keeper spent 75-90% of each turn in its own reasoning, 15k-117k characters a turn, and made 81 apply calls in
-36 turns, mostly clues (36 effects), moods (26) and names (10) beside an output call that could carry them.
-
-### 267.2 One of the book's people arrives by walk_on under their book name
-
-The packet guidance says a book person not yet at the table arrives by `walk_on` with the label exactly as the book
-prints their name; the host seats them as that person (§177.6, §264.32) and the packet's interactions use the slot. The
-newcomer refusal's fix says the same. In the slow 1025b turns the Keeper weighed walk_on, apply npc and a new slot for
-the book's people at length, and wrote titled labels ("阿萨·尼克尔森局长") the newcomer gate then refused.
-
-### 267.3 Arriving at a place seats the book people its pages print (owner 2026-10-25)
-
-A party move lands each unread person the cast prints on the destination's pages on their first mention (§266.13's
-`landFromCast`), at most twelve, without presence: they join the table's roster, so `npc_references` issues each a
-stable `npc_N` and the Keeper brings one on with `{kind:"npc", actor, to:"here"}` instead of deciding between walk_on,
-apply npc and a slot. The move receipt lists them in `cast_seated`. Their public name follows the roster as before (an
-untold person is shown to the player by epithet); numbers the book does not print are rolled when first needed (§264.28).
-
-### 267.4 Someone the book does not have is complete on entering play (owner 2026-10-25)
-
-An `apply npc` (or packet `walk_on`) that establishes a person the book does not have, with no archetype named, rolls
-them the rulebook's `ordinary_adult` at once (`on_entry: true` on the pinned profile; receipt `adjusted`
-`{field:"archetype", reason:"rolled_on_entry"}`), beside the reference the roster gives and the label they came in
-under. An archetype the Keeper names later replaces that roll once; any other pin is still made once.
-
-### 267.5 Who goes along with the party keeps going along
-
-A place move takes `with: [npc_N | word]`: those people move with the party and join `world.party_company`. Every
-later party move carries each member who stands where the party leaves from (receipt `with`), until an npc write sends
-them anywhere but the party's place (`away` or another place), which takes them out of the company. In the 1025c Dust to
-Dust turns the Keeper spent a separate apply round (and up to 28k characters of reasoning) moving the same companion
-after every move.
-
-## 268. A failure is answered by the rules, not by an owed consequence (owner 2026-10-25)
-
-### 268.1 The Director offers a failed check's consequence only when its cost was named
-
-A roll receipt carries `named_stake` when the resolve action named its cost (`stakes`, trimmed) and the roll is the
-acting character's own. The Director's `consequence` offer row for a failed non-dice roll is drawn only from such a
-receipt, and its line names that cost ("... failed last turn; the stake named before the roll: <stake>"). A failed check
-with no named cost was answered by the failure itself in the delivered turn; the rules give it nothing more (a failed
-First Aid heals nothing and harms nothing), so no row calls it still owed. Amends §34.3 and turn-floor D2. In 1025c
-*The Restless Thirst* T6 the old row on a failed First Aid became an invented bleed-out clock, 4 HP of damage that turn
-and 2 more five turns later.
-
-Tests: `tests/extension/offer-sources.test.mjs`, `tests/integration/turn-floor.test.ts`.
-
-### 268.2 Treatment is counted per wound
-
-First Aid and Medicine usage is kept per wound and day (`healing_usage.records`). A live treatment is scoped to the
-newest active wound in the subject's `wound_ledger`, so a fresh wound can be treated again the same day, as the First Aid
-rule allows after further damage. Usage kept under an older wound, or under the `active-wound` placeholder from before the
-wound reached the ledger, stays where it was. In 1025c *The Restless Thirst* T12 two new wounds from T11 were refused
-both Medicine and First Aid as "already used today" without a roll.
-
-Tests: `tests/integration/healing-new-wound.test.ts`.
-
-### 268.3 An unread person answers lookup by the book's name (amends §177.7)
-
-`table.lookup kind: module` answers someone the book names but the reader has not reached with `name` = the book's name
-and, when the table has a word for them that differs, `table_word` beside it. The word alone answered before: in 1025c
-*Dust to Dust* T13 "塔布勒" came back as "胸前佩着阿卡姆徽章的局长", which the Keeper read as the Arkham chief already in
-play, and two packets were refused for seating the book's Martin's Beach officer as a newcomer.
-
-Tests: `tests/extension/module-cast.test.mjs`.
-
-### 268.4 A spot that names a place inside the destination is that place
-
-A place `move` whose `spot` names a place registered `within` the destination (including one this move's `additions`
-create) moves the party into that inner place instead, with `adjusted: spot_is_inner_place`; any other spot stays a spot.
-In 1025c *Dust to Dust* T15 a move to Martin's Beach "at" the sheriff's office that also added the office within it left
-the party at a spot of Martin's Beach while the officer was written into the office, so papers shown to him were refused
-as out of reach.
-
-Tests: `tests/integration/enhanced-locations.test.ts`.
-
-### 268.5 An apply refusal is owned by the kinds of effect it carried (amends §34.12)
-
-The host's three-strike class limit scopes an `apply` refusal by its effect kinds (`apply[object]`, `apply[place]`, ...),
-as §34.12 already did for admission refusals. Three refusals of a document shown out of reach shut further object writes
-for the turn, not the place move that brings reader and paper together; in 1025c *Dust to Dust* T15 that move was blocked
-as "apply has been refused 3 times".
-
-Tests: `tests/extension/gates.test.mjs`.
-
-### 268.6 A push or Luck left by last turn is the player's option
-
-The capsule's `continuation` obligation rows read `state: "optional: the player may take it up this turn; it lapses when
-they move on"` (was "left by last turn, unanswered"), and the Director's pressure row for one ends "the player's option".
-A failed roll's push or Luck spend is offered to the player; it is not owed, and the Keeper does not ask about it
-unprompted. In 1025c *Digging for a Dead God* T7 the Keeper asked it unprompted and was still weighing it as unanswered at
-T15.
-
-Tests: `tests/extension/offer-sources.test.mjs`, `tests/integration/world-capsule-nine.test.ts`.
-
 ## 265. Shopping: the outlet's stock, price and order time are the program's (owner 2026-10-24)
 
 The owner's report: a MiniMax Keeper's long deliberations were mostly about whether a shop had the goods and what they cost. Those answers moved to the kernel; the Keeper picks parameters. Purchase guidance that lived in other packages moved with them, so the problem has one home. Amends §58 ("the kernel does not price anything itself") for goods bought at an outlet while this package is active; every other cash path is unchanged.
@@ -53364,3 +53261,106 @@ The play driver takes `--setup` for a launcher that wraps `bin/pi-coc setup`, so
 turns do (the same table's three setup turns were recorded undelivered with empty text).
 
 Tests: `tests/extension/turn-packet-prototype.test.mjs`, `tests/integration/play-driver-canonical-delivery.test.ts`.
+
+## 267. An ordinary turn is one output call (owner 2026-10-25)
+
+### 267.1 Findings, moods and names are packet commands
+
+The output packet's `commands` carry `{kind:"clue", clue, how, summary?, from?}`, `{kind:"mood", actor, mood}` and
+`{kind:"name", actor, name}`, compiled to the existing `apply` clue, npc mood and person effects and settled in the same
+atomic apply as the route, after it (`compileTurnPacket`). `from` is an issued `npc_N`; an investigator reference means
+they found it themselves and is left out. The guidance says an ordinary turn needs no apply. Measured on the 1025b long
+runs: the Keeper spent 75-90% of each turn in its own reasoning, 15k-117k characters a turn, and made 81 apply calls in
+36 turns, mostly clues (36 effects), moods (26) and names (10) beside an output call that could carry them.
+
+### 267.2 One of the book's people arrives by walk_on under their book name
+
+The packet guidance says a book person not yet at the table arrives by `walk_on` with the label exactly as the book
+prints their name; the host seats them as that person (§177.6, §264.32) and the packet's interactions use the slot. The
+newcomer refusal's fix says the same. In the slow 1025b turns the Keeper weighed walk_on, apply npc and a new slot for
+the book's people at length, and wrote titled labels ("阿萨·尼克尔森局长") the newcomer gate then refused.
+
+### 267.3 Arriving at a place seats the book people its pages print (owner 2026-10-25)
+
+A party move lands each unread person the cast prints on the destination's pages on their first mention (§266.13's
+`landFromCast`), at most twelve, without presence: they join the table's roster, so `npc_references` issues each a
+stable `npc_N` and the Keeper brings one on with `{kind:"npc", actor, to:"here"}` instead of deciding between walk_on,
+apply npc and a slot. The move receipt lists them in `cast_seated`. Their public name follows the roster as before (an
+untold person is shown to the player by epithet); numbers the book does not print are rolled when first needed (§264.28).
+
+### 267.4 Someone the book does not have is complete on entering play (owner 2026-10-25)
+
+An `apply npc` (or packet `walk_on`) that establishes a person the book does not have, with no archetype named, rolls
+them the rulebook's `ordinary_adult` at once (`on_entry: true` on the pinned profile; receipt `adjusted`
+`{field:"archetype", reason:"rolled_on_entry"}`), beside the reference the roster gives and the label they came in
+under. An archetype the Keeper names later replaces that roll once; any other pin is still made once.
+
+### 267.5 Who goes along with the party keeps going along
+
+A place move takes `with: [npc_N | word]`: those people move with the party and join `world.party_company`. Every
+later party move carries each member who stands where the party leaves from (receipt `with`), until an npc write sends
+them anywhere but the party's place (`away` or another place), which takes them out of the company. In the 1025c Dust to
+Dust turns the Keeper spent a separate apply round (and up to 28k characters of reasoning) moving the same companion
+after every move.
+
+## 268. A failure is answered by the rules, not by an owed consequence (owner 2026-10-25)
+
+### 268.1 The Director offers a failed check's consequence only when its cost was named
+
+A roll receipt carries `named_stake` when the resolve action named its cost (`stakes`, trimmed) and the roll is the
+acting character's own. The Director's `consequence` offer row for a failed non-dice roll is drawn only from such a
+receipt, and its line names that cost ("... failed last turn; the stake named before the roll: <stake>"). A failed check
+with no named cost was answered by the failure itself in the delivered turn; the rules give it nothing more (a failed
+First Aid heals nothing and harms nothing), so no row calls it still owed. Amends §34.3 and turn-floor D2. In 1025c
+*The Restless Thirst* T6 the old row on a failed First Aid became an invented bleed-out clock, 4 HP of damage that turn
+and 2 more five turns later.
+
+Tests: `tests/extension/offer-sources.test.mjs`, `tests/integration/turn-floor.test.ts`.
+
+### 268.2 Treatment is counted per wound
+
+First Aid and Medicine usage is kept per wound and day (`healing_usage.records`). A live treatment is scoped to the
+newest active wound in the subject's `wound_ledger`, so a fresh wound can be treated again the same day, as the First Aid
+rule allows after further damage. Usage kept under an older wound, or under the `active-wound` placeholder from before the
+wound reached the ledger, stays where it was. In 1025c *The Restless Thirst* T12 two new wounds from T11 were refused
+both Medicine and First Aid as "already used today" without a roll.
+
+Tests: `tests/integration/healing-new-wound.test.ts`.
+
+### 268.3 An unread person answers lookup by the book's name (amends §177.7)
+
+`table.lookup kind: module` answers someone the book names but the reader has not reached with `name` = the book's name
+and, when the table has a word for them that differs, `table_word` beside it. The word alone answered before: in 1025c
+*Dust to Dust* T13 "塔布勒" came back as "胸前佩着阿卡姆徽章的局长", which the Keeper read as the Arkham chief already in
+play, and two packets were refused for seating the book's Martin's Beach officer as a newcomer.
+
+Tests: `tests/extension/module-cast.test.mjs`.
+
+### 268.4 A spot that names a place inside the destination is that place
+
+A place `move` whose `spot` names a place registered `within` the destination (including one this move's `additions`
+create) moves the party into that inner place instead, with `adjusted: spot_is_inner_place`; any other spot stays a spot.
+In 1025c *Dust to Dust* T15 a move to Martin's Beach "at" the sheriff's office that also added the office within it left
+the party at a spot of Martin's Beach while the officer was written into the office, so papers shown to him were refused
+as out of reach.
+
+Tests: `tests/integration/enhanced-locations.test.ts`.
+
+### 268.5 An apply refusal is owned by the kinds of effect it carried (amends §34.12)
+
+The host's three-strike class limit scopes an `apply` refusal by the kind of the effect the kernel refused (its `index`,
+else the first effect): `apply[object]`, `apply[place]`, ...; admission refusals keep §34.12's scope. Three refusals of a document shown out of reach shut further object writes
+for the turn, not the place move that brings reader and paper together; in 1025c *Dust to Dust* T15 that move was blocked
+as "apply has been refused 3 times".
+
+Tests: `tests/extension/gates.test.mjs`.
+
+### 268.6 A push or Luck left by last turn is the player's option
+
+The capsule's `continuation` obligation rows read `state: "optional: the player may take it up this turn; it lapses when
+they move on"` (was "left by last turn, unanswered"), and the Director's pressure row for one ends "the player's option".
+A failed roll's push or Luck spend is offered to the player; it is not owed, and the Keeper does not ask about it
+unprompted. In 1025c *Digging for a Dead God* T7 the Keeper asked it unprompted and was still weighing it as unanswered at
+T15.
+
+Tests: `tests/extension/offer-sources.test.mjs`, `tests/integration/world-capsule-nine.test.ts`.
