@@ -53052,6 +53052,14 @@ them the rulebook's `ordinary_adult` at once (`on_entry: true` on the pinned pro
 `{field:"archetype", reason:"rolled_on_entry"}`), beside the reference the roster gives and the label they came in
 under. An archetype the Keeper names later replaces that roll once; any other pin is still made once.
 
+### 267.5 Who goes along with the party keeps going along
+
+A place move takes `with: [npc_N | word]`: those people move with the party and join `world.party_company`. Every
+later party move carries each member who stands where the party leaves from (receipt `with`), until an npc write sends
+them anywhere but the party's place (`away` or another place), which takes them out of the company. In the 1025c Dust to
+Dust turns the Keeper spent a separate apply round (and up to 28k characters of reasoning) moving the same companion
+after every move.
+
 ## 265. Shopping: the outlet's stock, price and order time are the program's (owner 2026-10-24)
 
 The owner's report: a MiniMax Keeper's long deliberations were mostly about whether a shop had the goods and what they cost. Those answers moved to the kernel; the Keeper picks parameters. Purchase guidance that lived in other packages moved with them, so the problem has one home. Amends §58 ("the kernel does not price anything itself") for goods bought at an outlet while this package is active; every other cash path is unchanged.

@@ -396,3 +396,15 @@ test('an archetype the Keeper names later replaces the roll a newcomer took on e
     const entry=Object.entries(state(k).npc_profiles??{}).find(([handle])=>handle.includes('dock'));
     assert.equal((entry![1] as Row).archetype,'capable_adult');
 });
+
+test('someone who goes along with the party keeps going along until sent elsewhere (§267.5)',async t=>{
+    const k=await kernel(t);await openTurn(k,'I ask Knott to come with me to the corner cafe.');
+    await k.table('apply',{call_id:'t1-c1',effects:[{kind:'place',action:'move',to:'Corner Cafe',via:'A few doors down the street',travel_band:'adjacent',with:['Steven Knott'],additions:[hotel('Corner Cafe')]}]});
+    const knott=()=>Object.entries(state(k).npc_presence??{}).find(([handle])=>handle.includes('knott'))?.[1];
+    const cafe=state(k).active_scene;assert.equal(knott(),cafe);
+    await k.table('apply',{call_id:'t1-c2',effects:[{kind:'place',action:'move',to:'Bookshop',via:'Across the square',travel_band:'adjacent',additions:[hotel('Bookshop')]}]});
+    assert.equal(knott(),state(k).active_scene,'he came along again without being named');
+    await k.table('apply',{call_id:'t1-c3',effects:[{kind:'npc',name:'Steven Knott',to:'away',why:'He goes home.'}]});
+    await k.table('apply',{call_id:'t1-c4',effects:[{kind:'place',action:'move',to:'Corner Cafe'}]});
+    assert.equal(knott(),undefined,'sent away, he left the company');
+});

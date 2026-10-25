@@ -554,7 +554,7 @@ export async function stageNpc(context:ApplyContext,effect:Row):Promise<StagedEf
     const hadCopies=copies.some(copy=>Object.hasOwn(presence,graph.handle(copy)));
     if(to!=null){
         if(typeof to!=='string'||!to.trim())throw new RpcError('invalid_params',"npc.to must be a scene name, 'here' or 'away'",{fix:'a scene name on the graph, or here / away',details:{field:'npc.to',options:['here','away']}});
-        if(to.trim()==='away'){delete presence[handle];moved='away';}else{
+        if(to.trim()==='away'){delete presence[handle];moved='away';if(Array.isArray(world.party_company))world.party_company=world.party_company.filter((entry:unknown)=>entry!==handle);}else{
             try{moved=graph.handle(graph.scene(to.trim()==='here'?world.active_scene:to));}
             catch(error){
                 if(!(error instanceof RpcError))throw error;
@@ -565,6 +565,8 @@ export async function stageNpc(context:ApplyContext,effect:Row):Promise<StagedEf
                     retryable:error.retryable,next:error.next,details:{...error.details,field:'npc.to'}});
             }
             if(unplaced)delete presence[handle];else presence[handle]=moved;
+            // §267.5: sent anywhere but where the party stands, they leave its company.
+            if(moved!==world.active_scene&&Array.isArray(world.party_company))world.party_company=world.party_company.filter((entry:unknown)=>entry!==handle);
         }
         // §192.3: one entry per thing -- a copy's older entry would stand in again once this one went away.
         for(const copy of copies)delete presence[graph.handle(copy)];

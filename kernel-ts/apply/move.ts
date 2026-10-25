@@ -2,6 +2,7 @@
 import { RpcError } from '../errors.js';
 import type { DomainEvent } from '../transactions.js';
 import { personNode, sceneLabel } from '../read/capsule.js';
+import { referencedNpc } from '../npc/references.js';
 import { array, integer, number, repr, row, sorted, string, type Row } from '../read/values.js';
 import { nowIso, required } from '../write/store.js';
 import type { ApplyContext } from './index.js';
@@ -179,9 +180,13 @@ export function stageMove(context: ApplyContext, effect: Row, travelRows?: Trave
         world.ending.continued = true;
     // §168.3: the people the entrance seated walk on with the party when the book's playing order leads on.
     const company = established ? [] : entranceCompany(graph, world, current, destination);
-    if (company.length) {
-        for (const handle of company) (world.npc_presence ??= {})[handle] = target;
-        receipt.with = company;
+    // §267.5 (owner 2026-10-25): people who go along with the party keep going along. `with` names them on a move; each
+    // later party move carries every one of them who is still where the party left from, until a write sends them elsewhere.
+    const along = companions(context, effect, from);
+    const going = [...new Set([...company, ...along])];
+    if (going.length) {
+        for (const handle of going) (world.npc_presence ??= {})[handle] = target;
+        receipt.with = going;
     }
     if (!array(world.visited_scenes ??= []).includes(target))
         world.visited_scenes.push(target);
@@ -228,4 +233,19 @@ export function seatPrintedCast(context: ApplyContext, scene: Row): string[] {
         catch { /* a name the junction refuses stays unseated; the Keeper's own write meets that refusal */ }
     }
     return out;
+}
+
+/** §267.5: the party's company for this move: those `with` names, joined to the standing company, who stand where it leaves. */
+function companions(context: ApplyContext, effect: Row, from: string): string[] {
+    const { graph, world } = context, presence = row(world.npc_presence);
+    const named = array(effect.with).flatMap(word => {
+        if (typeof word !== 'string' || !word.trim()) return [];
+        let node: Row | null = null;
+        try { node = referencedNpc(graph, world, word) ?? personNode(graph, world, word); } catch { node = null; }
+        if (!node) throw new RpcError('unknown_entity', `nobody at this table is called ${repr(word)}`, { fix: 'name in with only people this table has, by their npc_N reference or the word present[] shows', details: { field: 'move.with', query: word } });
+        return [graph.handle(node)];
+    });
+    const company = [...new Set([...array(world.party_company).map(string), ...named])];
+    world.party_company = company;
+    return company.filter(handle => presence[handle] === from);
 }
