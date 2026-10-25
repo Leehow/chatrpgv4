@@ -53391,3 +53391,38 @@ The Keeper's decision catalog carries `speakable_by: {npc_N: [fact_N, ...]}`, th
 beside the flat `facts` list.
 
 Tests: `tests/integration/capsule-settled-reads.test.ts`.
+
+## 270. Turn IR: the Keeper's ordered actions, settled by the host (owner 2026-10-25)
+
+Design and the owner's three decisions: `docs/specs/turn-ir.md`. On when `PI_COC_TURN_IR=1` in a packet-mode session
+(`PI_COC_TURN_PACKET_PROTOTYPE=1`); otherwise the v4 packet is unchanged.
+
+### 270.1 The IR
+
+The `output` tool declares `TURN_IR_PARAMETERS` (`runtime/turn-ir.ts`): `{version: 5, actions, ooc?}`, at most 24
+actions in the order they happen, each one of `move`, `presence`, `communicate`, `perceive`, `material`, `time`,
+`relationship`, `rule`, `mood`, `learn_alias`, `scene`. People, places and things are written by name (the book's
+printed name, the table's word, an investigator's name) or by an `@alias` an earlier `presence enter` of the same input
+introduced; issued `npc_N` refs are also read. What is said or perceived names an issued `fact_N`, `source_N` or
+`exhibit_N` in one field and the host routes it by its prefix; `{claim}` is §264.15's reported meaning, `{knowledge}` is
+§264.1's knowledge status. The guidance (`TURN_IR_GUIDANCE`) replaces the v4 guidance everywhere it was installed.
+
+### 270.2 Binding
+
+A name binds when it is an investigator's name or `investigator_N`, or the public name of exactly one issued person
+(`NpcReferences.lookup`). Several issued people under one name are refused with `details.candidates`; a name nobody at
+the table carries is refused (`reason: turn_ir_action`, `action_index`) except in `presence enter`, where it is seated as
+the book's person when the book prints it (§267.2) and as a newcomer under its `as` appellation otherwise. Only `presence
+enter` brings someone here; a mention, a phone call or a letter does not.
+
+### 270.3 Segments and barriers
+
+A `rule` action ends a segment. The host settles each segment in order: its state actions compile to one `apply` (the
+v4 packet compiler, material as object effects in route order) that commits before the roll, then the rule action is one
+`resolve` with its goal and stakes fixed (§268.1). Actions after it may carry `when: {check, passed}` and are dropped
+when the result went the other way. What is said and revealed waits for the final segment, which is the ordinary v4
+packet with its author and publication. A list that ends at a rule action returns `{settled: [{as, goal, stake, skill,
+level, passed}], next}` without closing the turn; the next `output` of the same input continues with the aliases, check
+results and held speech carried. Newcomers seated in an earlier segment are bound to their refs before the next.
+
+Tests: `tests/extension/turn-ir.test.mjs`, `tests/extension/turn-ir-native.test.mjs`.

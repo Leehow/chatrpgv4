@@ -27,6 +27,7 @@ import {fixedToolView} from '../../shared/fixed-tool-view.ts';
 import {SAME_KEEPER_AFTER_RESULT_GUIDANCE} from '../../runtime/keeper-output-guidance.ts';
 import {scenePopulationRequired,scenePopulationConflict,sceneAssessmentExpiredDuringActivity} from '../../runtime/scene-population.ts';
 import {ExpressionPlanStream,writeIsolatedExpression,decisionScene,decisionClock,decisionRecentPublic,decisionResponseScope,decisionObservationScope} from '../../runtime/isolated-expression.ts';
+import {TURN_IR_PARAMETERS,TurnIrError,segments,applyConditions,toPacket,ruleAction,type TurnIr,type TurnIrAction,type TurnIrDirectory} from '../../runtime/turn-ir.ts';
 import {turnPacket,bindTurnPacketMoves,turnPacketMovementChoices,requireTurnPacketNpcDestinations,isNewNpcSlot,normalizeTurnPacketArguments,compileTurnPacket,turnPacketResult,turnPacketParameterSchema,turnPacketProviderPayload,TurnPacketParameterError,type TurnPacket} from '../../runtime/turn-packet-prototype.ts';
 import {normalizeToolArgumentSyntax} from '../../runtime/tool-argument-syntax.ts';
 import {applyEffectKinds} from '../table/mod-sections.ts';
@@ -537,6 +538,8 @@ interface TableState {
     packetRefusalRecovery?:{turn:number;run:string};
     /** §252: a mechanical choice the packet-mode Keeper staged with ask; it publishes with this turn's output prose. */
     packetChoice?:{turn:number;choice:Record<string,unknown>};
+    /** §270: what a Turn IR output that ended at a rule barrier carries into the next output of the same input. */
+    irCarry?:{turn:number;run:string;aliases:Array<[string,string]>;results:Array<[string,boolean]>;interactions:Record<string,unknown>[];reveal:Record<string,unknown>[]};
 	packetParameters?:{turn:number;run?:string;schema:ReturnType<typeof turnPacketParameterSchema>};
 	/** §168.5: `turn|item` pairs whose omission while their check ran is already on the telemetry line. */
 	firstSightOmitted: Set<string>;
@@ -6170,7 +6173,92 @@ export default function (pi: ExtensionAPI, host: {capabilities?:RuntimeCapabilit
         void record({lane:'arguments',event:'packet_parameters_refused',turn:state.turn,retry,repeated,distinct_failures:failures.size,limit,phase:beforeCommit?'before_commit':'before_execution',jev_calls:0});
         return {retry,refusal};
     }
-	async function submitTurnPacket(params:Record<string,unknown>,signal?:AbortSignal,ctx?:ExtensionContext){
+	/** §270: Turn IR is on for a packet-mode session that asks for it. */
+	function turnIr():boolean {return turnPacketPrototype&&process.env.PI_COC_TURN_IR==='1';}
+	/**
+	 * §270: the Turn IR coordinator. The actions are bound by name, split at their rule barriers and settled in order:
+	 * each segment's state changes commit through one apply, each rule action through one resolve, and what is said
+	 * waits for the final segment, which is the ordinary v4 packet with its author. A list that ends at a rule barrier
+	 * returns the settled check and carries the rest into the Keeper's next output.
+	 */
+	async function submitTurnIr(params:Record<string,unknown>,signal?:AbortSignal,ctx?:ExtensionContext){
+		const state=table,owner=keeperRun;
+		if(!state||!owner)throw new KernelError({code:'needs',message:'The active Keeper input is unavailable'});
+		const submittedTurn=state.turn;
+		const refuse=(error:unknown)=>{const {retry,refusal}=refusePacketParameters(state,error,ctx);
+			return {content:[{type:'text' as const,text:JSON.stringify(refusal)}],details:{coc_error:refusal},terminate:!retry};};
+		const invalid=[...argumentErrors(TURN_IR_PARAMETERS,params)].slice(0,4);
+		if(invalid.length)return refuse(new KernelError({code:'invalid_params',message:'Invalid Turn IR: '+invalid.map(error=>`${error.instancePath||'/'}: ${error.message}`).join('; '),
+			details:{reason:'turn_ir_parameters',fields:invalid.map(error=>error.instancePath)}}));
+		const ir=params as unknown as TurnIr;
+		const carried=state.irCarry?.turn===submittedTurn&&state.irCarry.run===owner.runId?state.irCarry:undefined;
+		state.irCarry=undefined;
+		const aliases=new Map(carried?.aliases??[]),results=new Map(carried?.results??[]);
+		const speech={interactions:[...carried?.interactions??[]],reveal:[...carried?.reveal??[]]};
+		const refs=packetNpcReferences(state),scope=packetNpcScope(state);
+		const directory:TurnIrDirectory={person:name=>{
+			const seat=/^investigator_([1-9][0-9]*)$/.exec(name),index=seat?Number(seat[1])-1:state.party.findIndex(person=>person.name===name);
+			if(index>=0&&state.party[index])return {investigator:`investigator_${index+1}`,name:state.party[index].name};
+			const found=refs.lookup(scope,name);
+			return found.length===1?{ref:found[0]}:found.length>1?{ambiguous:found}:undefined;
+		}};
+		const actorName=(name:string)=>{const bound=directory.person(name);return bound&&'investigator' in bound?bound.name:bound&&'ref' in bound?bound.ref:aliases.get(name)??name;};
+		const settled:Record<string,unknown>[]=[],dropped:number[]=[];
+		try{
+			const parts=segments(ir);let offset=0;
+			const barrierLast=parts.at(-1)?.at(-1)?.op==='rule';
+			for(const [index,part] of parts.entries()){
+				const condition=applyConditions(part,results,offset);dropped.push(...condition.dropped);
+				const kept=condition.kept,rule=kept.at(-1)?.op==='rule'?kept.at(-1) as Extract<TurnIrAction,{op:'rule'}>:undefined;
+				const body=rule?kept.slice(0,-1):kept,final=index===parts.length-1&&!barrierLast;
+				const packet=toPacket(body,directory,aliases,offset);
+				if(final){
+					const merged={...packet,version:4,...(speech.interactions.length||packet.interactions?{interactions:[...speech.interactions,...(packet.interactions??[])]}:{}),
+						...(speech.reveal.length||packet.reveal?{reveal:[...speech.reveal,...(packet.reveal??[])]}:{}),...(ir.ooc?{ooc:ir.ooc}:{})} as unknown as TurnPacket;
+					return await submitTurnPacket(merged as unknown as Record<string,unknown>,signal,ctx,true);
+				}
+				speech.interactions.push(...(packet.interactions??[]));speech.reveal.push(...(packet.reveal??[]));
+				if(packet.commands?.length){
+					const newcomers=packet.commands.filter((row:Record<string,any>)=>row.kind==='walk_on');
+					const compiled=compileTurnPacket({version:4,commands:packet.commands} as unknown as TurnPacket);
+					const toolCallId=`keeper:${owner.runId}:ir-segment:${submittedTurn}:${offset}`;
+					state.mintedCallIds.set(toolCallId,mintCallId(state));
+					const applied=await runTool(COC_TOOLS.find(tool=>tool.name==='apply')!,toolCallId,{effects:compiled.effects},signal,undefined,'explicit',ctx,undefined,undefined,compiledDecisionAuthority);
+					if(applied.details.coc_error)throw new KernelError({...(applied.details.coc_error as ConstructorParameters<typeof KernelError>[0]),
+						details:{...((applied.details.coc_error as Record<string,any>).details??{}),segment_offset:offset,committed_segments:settled.length}});
+					for(const newcomer of newcomers){
+						const person=await state.kernel.call<Record<string,any>>('table.look',{campaign:state.campaign,focus:'npc',name:newcomer.label,_context_read:true});
+						if(typeof person.ref!=='string')continue;
+						refs.observe(scope,person);
+						for(const [alias,slot] of aliases)if(slot===newcomer.slot)aliases.set(alias,person.ref);
+						for(const row of speech.interactions)for(const key of ['actor'])if((row as Record<string,any>)[key]===newcomer.slot)(row as Record<string,any>)[key]=person.ref;
+						for(const row of speech.interactions)if(Array.isArray((row as Record<string,any>).to))(row as Record<string,any>).to=(row as Record<string,any>).to.map((ref:string)=>ref===newcomer.slot?person.ref:ref);
+					}
+				}
+				if(rule){
+					const toolCallId=`keeper:${owner.runId}:ir-rule:${submittedTurn}:${offset+part.length-1}`;
+					state.mintedCallIds.set(toolCallId,mintCallId(state));
+					const rolled=await runTool(COC_TOOLS.find(tool=>tool.name==='resolve')!,toolCallId,{action:ruleAction(rule,actorName)},signal,undefined,'explicit',ctx);
+					if(rolled.details.coc_error)throw new KernelError({...(rolled.details.coc_error as ConstructorParameters<typeof KernelError>[0]),
+						details:{...((rolled.details.coc_error as Record<string,any>).details??{}),action_index:offset+part.length-1,committed_segments:settled.length}});
+					const outcome=(rolled.details as Record<string,any>).outcome??{};
+					results.set(rule.as,outcome.passed===true);
+					settled.push({as:rule.as,goal:rule.goal,stake:rule.stakes,...(outcome.skill?{skill:outcome.skill}:{}),...(outcome.level?{level:outcome.level}:{}),passed:outcome.passed===true});
+				}
+				offset+=part.length;
+			}
+			state.irCarry={turn:submittedTurn,run:owner.runId,aliases:[...aliases],results:[...results],interactions:speech.interactions,reveal:speech.reveal};
+			await record({lane:'turn-ir',event:'barrier_returned',turn:submittedTurn,run:owner.runId,checks:settled.length,dropped:dropped.length});
+			return {content:[{type:'text' as const,text:JSON.stringify({settled,...(dropped.length?{dropped_actions:dropped}:{}),
+				next:'These results are final. Submit the rest of this turn as another output {version:5,actions}; what was already said waits for it, and @aliases and check names stay valid.'})}],
+				details:{settled,dropped},terminate:false};
+		}catch(error){
+			if(error instanceof TurnIrError)return refuse(new KernelError({code:'invalid_params',message:error.message,details:{reason:'turn_ir_action',action_index:error.index,...error.details,committed_segments:settled.length}}));
+			throw error;
+		}
+	}
+
+	async function submitTurnPacket(params:Record<string,unknown>,signal?:AbortSignal,ctx?:ExtensionContext,fromTurnIr=false){
 		const state=table,owner=keeperRun;
 		if(!state||!owner)throw new KernelError({code:'needs',message:'The active Keeper input is unavailable'});
         const submittedTurn=state.turn;
@@ -6178,7 +6266,9 @@ export default function (pi: ExtensionAPI, host: {capabilities?:RuntimeCapabilit
 		try{
             let packet:TurnPacket;
             try{
-                const parsed=turnPacket(JSON.stringify(params));
+                // §270: a packet the Turn IR coordinator built is already checked against the IR schema; its material rides as
+                // `_object` commands the v4 schema does not declare.
+                const parsed=fromTurnIr?params as unknown as TurnPacket:turnPacket(JSON.stringify(params));
                 const choices=owner.prescreen?.choices?turnPacketMovementChoices(owner.prescreen.choices):undefined;
                 packet=choices?bindTurnPacketMoves(parsed,choices):requireTurnPacketNpcDestinations(parsed);
                 if((packet.commands??[]).some(row=>row.kind==='time'&&typeof row.band==='string')){
@@ -6254,7 +6344,7 @@ export default function (pi: ExtensionAPI, host: {capabilities?:RuntimeCapabilit
         const finalSelection=publicName==='output';
         if(singleKeeper&&turnPacketPrototype&&finalSelection&&!recoveredOutput){
             modelSteps.delete(toolCallId);
-            return submitTurnPacket(params,signal,ctx);
+            return turnIr()&&params.version===5?submitTurnIr(params,signal,ctx):submitTurnPacket(params,signal,ctx);
         }
         // §252: in the packet mode a mechanical choice publishes with the packet's prose, never alone (live el-v2-20261021e
         // T26: ask closed the turn before the output the Keeper planned, and the player got a roll and three buttons and
@@ -7400,7 +7490,8 @@ export default function (pi: ExtensionAPI, host: {capabilities?:RuntimeCapabilit
                 let supplied=spec.name==='apply'?normalizeApplyArguments(args):targetArgs;
                 if(spec.name==='apply'){const aliased=aliasEffectKinds(spec.name,spec.parameters,supplied);supplied=aliased.args as typeof supplied;
                     if(aliased.repairs.length)void record({lane:'arguments',event:'effect_kind_aliased',tool:spec.name,repairs:aliased.repairs});}
-				const normalized=turnPacketPrototype&&spec.name==='output'?normalizeTurnPacketArguments(supplied):normalizeToolArgumentSyntax(spec.parameters,supplied,{nativeValidation:true});
+				const normalized=turnPacketPrototype&&spec.name==='output'&&!turnIr()?normalizeTurnPacketArguments(supplied)
+                    :normalizeToolArgumentSyntax(turnIr()&&spec.name==='output'?TURN_IR_PARAMETERS:spec.parameters,supplied,{nativeValidation:true});
                 if(table&&(spec.name==='place'||normalized.args&&typeof normalized.args==='object'&&applyEffectKinds(spec.name,normalized.args as Record<string,unknown>).includes('place'))){
                     table.locationContextTurn=table.turn;
                     pi.events.emit('coc:location-demand',{campaign:table.campaign,turn:table.turn});
@@ -7462,7 +7553,7 @@ export default function (pi: ExtensionAPI, host: {capabilities?:RuntimeCapabilit
                     if(fields.length){embedded.args={...(embedded.args as Record<string,any>),effects} as typeof embedded.args;
                         void record({lane:'arguments',event:'person_reference_named',tool:'apply',fields});}
                 }
-                if(turnPacketPrototype&&spec.name==='output'&&table){
+                if(turnPacketPrototype&&!turnIr()&&spec.name==='output'&&table){
                     const bound=packetNpcReferences(table).bindActors(packetNpcScope(table),embedded.args);
                     embedded.args=bound.args as typeof embedded.args;
                     if(bound.repairs)void record({lane:'arguments',event:'public_actor_reference_normalized',tool:spec.name,repairs:bound.repairs});
@@ -9389,7 +9480,11 @@ export default function (pi: ExtensionAPI, host: {capabilities?:RuntimeCapabilit
 		// pi's runner replaces the payload with whatever a handler returns and leaves it alone on
 		// `undefined` (`emitBeforeProviderRequest`, vendor/pi/packages/coding-agent/src/core/extensions/runner.ts) --
 		// so the untouched cases below fall off the end of this handler on purpose.
-        if(turnPacketPrototype){
+        if(turnIr()){
+            if(table)table.packetParameters={turn:table.turn,run:keeperRun?.runId,schema:TURN_IR_PARAMETERS};
+            outgoing=turnPacketProviderPayload(outgoing,TURN_IR_PARAMETERS,table?.interactionScope!=='reference');
+        }
+        else if(turnPacketPrototype){
             const journeySettled=!!keeperRun?.routineResult?.outcomes.some(row=>row.kind==='move');
             if(table&&keeperRun&&!journeySettled&&table.interactionScope!=='reference'&&!table.packetTimeBands){
                 await packetTimeBandHandles(table);

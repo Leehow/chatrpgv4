@@ -17,6 +17,18 @@ const reference=Type.String({pattern:'^(fact|source|exhibit)_[1-9][0-9]*$',maxLe
 const when=Type.Optional(closed({check:text(16,'The as name of an earlier rule action in this list'),passed:Type.Boolean()},
  'This action happens only when that check passed (true) or failed (false); otherwise it is dropped'));
 const level=Type.Optional(Type.Integer({minimum:0,maximum:5}));
+/** §270: what the Keeper is told about Turn IR; principles and the shape, not what the schema already says. */
+export const TURN_IR_GUIDANCE='Submit one output {version:5,actions:[...]} listing what happens this turn in order. Name people, places and things by '
+ +'name: the book\'s printed name, the table\'s word for them, an investigator\'s name, or an @alias a presence enter introduced. '
+ +'move: who goes where (inside names the known place a new one lies in). presence: someone enters or leaves; only enter brings a person here, '
+ +'and as gives a newcomer\'s public appellation. communicate: speaker, to, act; says is issued fact_N/source_N/exhibit_N, {claim} for what they '
+ +'mean (said, not true), or {knowledge} (unknown, uncertain, withheld, nothing_more); channel phone or letter reaches someone who is not here. '
+ +'perceive: what the investigators take in, as an issued reference, a clue by name, or {observe}. material: show, transfer, take, open or close '
+ +'a thing; holder has it now; access says how much a reader takes in. time, relationship (only a real change), mood, learn_alias, scene. '
+ +'rule: a check with its goal and stakes fixed before the roll, named by as. Everything before a rule action settles first, then the roll; an '
+ +'action after it may carry when:{check,passed} and happens only on that result. End the list at a rule action when what follows needs its '
+ +'result read first: the result comes back and you submit the rest. A settled check is final; never re-judge it. Pushing and Luck are the '
+ +'player\'s own declarations. Record only what this turn changed; you decide what is meant, the author writes the words.';
 
 export const TURN_IR_ACTIONS={
  move:closed({op:Type.Literal('move'),to:text(120,'Where they go: a known place\'s name, or a new place'),actors:Type.Optional(people),
@@ -44,7 +56,8 @@ export const TURN_IR_ACTIONS={
   band:Type.Optional(text(64)),reason:text(160),when}),
  relationship:closed({op:Type.Literal('relationship'),who,toward:who,disposition:Type.Optional(StringEnum([...DISPOSITIONS])),trust:level,fear:level,pressure:level,
   control:Type.Optional(StringEnum([...CONTROLS])),when}),
- rule:closed({op:Type.Literal('rule'),as:text(16),actor:Type.Optional(who),skill:text(64),goal:text(200,'What success achieves, fixed before the roll'),
+ rule:closed({op:Type.Literal('rule'),as:text(16),intent:Type.Optional(StringEnum(['investigate','social','move','combat','flee','cast'],{description:'The rule family; investigate by default'})),
+  decision:Type.Optional(text(96,'An issued action.decision when one applies (a treatment, a combat move)')),actor:Type.Optional(who),skill:Type.Optional(text(64)),goal:text(200,'What success achieves, fixed before the roll'),
   stakes:text(200,'What failure costs, fixed before the roll'),method:Type.Optional(text(160)),target:Type.Optional(who),
   difficulty:Type.Optional(StringEnum(['regular','hard','extreme'])),when}),
  mood:closed({op:Type.Literal('mood'),who,mood:text(200),when}),
@@ -82,7 +95,7 @@ export function applyConditions(actions:TurnIrAction[],results:ReadonlyMap<strin
  return {kept,dropped};
 }
 export function ruleAction(action:Extract<TurnIrAction,{op:'rule'}>,bind:(name:string)=>string):Row {
- return {intent:'investigate',goal:action.goal,method:action.method??action.goal,skill:action.skill,stakes:action.stakes,
+ return {intent:action.intent??'investigate',...(action.decision?{decision:action.decision}:{}),goal:action.goal,method:action.method??action.goal,...(action.skill?{skill:action.skill}:{}),stakes:action.stakes,
   ...(action.actor?{actor:bind(action.actor)}:{}),...(action.target?{target:bind(action.target)}:{}),
   ...(action.difficulty&&action.difficulty!=='regular'?{modifiers:{difficulty:action.difficulty}}:{})};
 }

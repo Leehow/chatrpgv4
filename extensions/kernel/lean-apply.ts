@@ -16,6 +16,7 @@
  * carries `_lean`.
  */
 
+import {TURN_IR_PARAMETERS,TURN_IR_GUIDANCE} from '../../runtime/turn-ir.ts';
 import type { CocToolSpec } from "./tools.ts";
 import { SENTENCE_MAX } from "./tools.ts";
 import { readJevApiKey } from "../jev/agent/config.js";
@@ -173,6 +174,8 @@ export function offeredTools(tools: readonly CocToolSpec[], env: Readonly<Record
   }):tools;
     const declared=env.PI_COC_TURN_PACKET_PROTOTYPE==='1'?current.map(spec=>{
       // §247.3: only an active routine-summary package declares the routine element.
+      // §270: a Turn IR session declares the IR and its guidance instead of the v4 packet.
+      if(spec.name==='output'&&env.PI_COC_TURN_IR==='1')return {...spec,parameters:TURN_IR_PARAMETERS,description:TURN_IR_GUIDANCE};
       if(spec.name==='output')return {...spec,parameters:capabilities.routineSummary===true?TURN_PACKET_ROUTINE_PARAMETERS:TURN_PACKET_PARAMETERS,description:TURN_PACKET_GUIDANCE+' Arriving at another place also assesses its scene; an omitted assessment is recorded as unknown. Moves inside the current place need none.',promptSnippet:'Submit one private turn packet for settlement and final authoring'};
       if(spec.name==='place'){
         const parameters=cloneSchema(spec.parameters) as Record<string,any>;

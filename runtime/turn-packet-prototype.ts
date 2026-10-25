@@ -416,14 +416,14 @@ export const TURN_PACKET_GUIDANCE='Submit one output packet {version:4,commands?
  +'Reveal selects eligible non-actor facts or sources for narration. Book passages (source_N named Book p..) are the book\'s own words for what is perceived: reveal them. exhibits: {exhibit_ref:"issued exhibit_N"} is a document or perception read now; reveal the exhibit and do not apply the clue it teaches (the host runs that clue\'s check). A testimony exhibit (kind testimony) is its owner\'s speech: select it as {exhibit_ref} in that owner\'s interaction content, never in reveal, and only when the exchange is about its label; said:true means it was already said. '
  +'New claims use registered constructors; to alone says where a place is, and heading, known waypoints or retrace:true ride only when the speaker gives the way. Anything else they mean is {new:{predicate:"meaning",meaning:"<at most 60 characters of reported meaning, not their words>"}}, which is said, not true. Copy only an explicitly selected player duration into minutes. For pure OOC use {{reference}} without fictional writes. ';
 /** Install one coherent capability instruction; inherited prose/event jobs do not survive. */
-export function turnPacketSystemPrompt(source:string):string {
+export function turnPacketSystemPrompt(source:string,guidance=TURN_PACKET_GUIDANCE):string {
  const incompatible=['Before recording prospective speech,','Record new event semantics,','A new NPC promise to act later','An ordinary nonmechanical NPC act completed','When a previously planned action has now happened,'];
  let kept=source.split('\n\n').filter(paragraph=>!incompatible.some(prefix=>paragraph.startsWith(prefix))).join('\n\n');
  kept=kept.replace('Use apply for physical changes, resources, clues, time, position and explicit semantic records.',
   'Use apply for physical changes, resources, clues, time, position.');
  const start=kept.indexOf('Public response\n\n'),end=kept.indexOf('\n\nKeep hidden motives,',start);
- if(start>=0&&end>start)kept=kept.slice(0,start)+'Public response\n\n'+TURN_PACKET_GUIDANCE+kept.slice(end);
- else kept+='\n\n'+TURN_PACKET_GUIDANCE;
+ if(start>=0&&end>start)kept=kept.slice(0,start)+'Public response\n\n'+guidance+kept.slice(end);
+ else kept+='\n\n'+guidance;
  kept=kept.replace("You are the Keeper and content planner of this Call of Cthulhu 7th edition table. Understand the player's actual words, the current situation and each character's knowledge. Decide what happens, settle it through tools, then supply a private expression brief. A fresh isolated DeepSeek author chooses the final wording.", 'You are the Keeper decision agent of this Call of Cthulhu 7th edition table. Understand the player input, current situation and actor knowledge. Select actions and communication meaning; the sole author chooses complete wording.');
  return kept;
 }
