@@ -52991,6 +52991,12 @@ without a band and any optional list sent empty (`additions:[]`) before validati
 (query: the place or entity; question: what to answer). The two single-field refusals had the Keeper swap one field for
 the other four times in a row.
 
+### 264.41 `creature: false` on a walk_on is an omitted creature
+
+The walk_on gate let a book person's exact name through to the source entrance only when `creature` was absent; an
+explicit `creature: false` sent it to the newcomer refusal instead ("哈比希特上尉" beside `creature:false`, Digging for a
+Dead God, 2026-10-25). Any falsy `creature` now reads as absent.
+
 ## 265. Shopping: the outlet's stock, price and order time are the program's (owner 2026-10-24)
 
 The owner's report: a MiniMax Keeper's long deliberations were mostly about whether a shop had the goods and what they cost. Those answers moved to the kernel; the Keeper picks parameters. Purchase guidance that lived in other packages moved with them, so the problem has one home. Amends §58 ("the kernel does not price anything itself") for goods bought at an outlet while this package is active; every other cash path is unchanged.

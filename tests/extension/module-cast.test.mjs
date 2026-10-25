@@ -1002,6 +1002,14 @@ test('§264.32: a word carrying one unread person\'s full name is that person; a
 	assert.deepEqual(people.map(row => [row.name, !!row.cast_id]), [['Jonah Marsh', true]]);
 });
 
+test('§264.41: creature:false on a walk_on of a book person says what an omitted creature says', async t => {
+	const h = await harbor(t);
+	await readCast(h);
+	await h.call('table.player_input', {text: 'Someone comes down the pier.'});
+	const answer = await h.attempt('table.apply', {call_id: 't1-c1', effects: [{kind: 'npc', name: 'Jonah', to: 'here', walk_on: true, creature: false, why: 'he walks up'}]});
+	assert.equal(answer.error?.details?.reason, 'material_pending', JSON.stringify([answer.error?.message, answer.error?.details]));
+});
+
 test('§266.14: a person only the index names, by one character, lands on a sentence of their index pages that holds it', async t => {
 	const h = await harbor(t, {entities: ['K']});
 	await h.call('table.player_input', {text: 'I look for the keeper.'});

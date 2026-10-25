@@ -209,10 +209,13 @@ export function createApplyHandlers(kernel: KernelContext, writer: ReturnType<ty
                 try { existing = personNode(graph, transaction.world, effect.name); } catch { existing = null; }
                 if (existing) continue;
                 // A host-vouched full source name or exact unread cast identity uses the existing source entrance.
-                if (effect.creature == null && (passageOf(effect, effect.name) || castPersonNamed(graph, transaction.world, effect.name))) {
+                // §264.41: `creature: false` says what an omitted creature says (live 2026-10-25: Captain Habicht refused as a
+                // newcomer carrying a book name, beside creature:false).
+                if (!effect.creature && (passageOf(effect, effect.name) || castPersonNamed(graph, transaction.world, effect.name))) {
                     effect.walk_on = false;
                     continue;
                 }
+
                 const refusal = newcomerRefusal(graph, transaction.world, effect.name, placeWords);
                 // §266.17: asked before anything is written, so the refusal says so and an output packet may be sent again.
                 if (refusal) throw atIndex(new RpcError('invalid_params', refusal.message, { fix: refusal.fix, details: { field: 'npc.name', reason: 'book_name', query: effect.name, transaction_state: 'uncommitted' } }), index);
