@@ -637,7 +637,7 @@ test('actual NPC position outcomes distinguish change, no-op and idempotent repl
 test('a failed NPC placement rolls back the combined journey and its clock',async t=>{
  const client=await kernel(t);await openTurn(client);
  const before=await client.table('capsule');
- await client.tableErr('apply',{call_id:'t1-c1',effects:[movement,{kind:'npc',name:'Steven Knott',to:'An unregistered destination'}]});
+ await client.tableErr('apply',{call_id:'t1-c1',effects:[movement,{kind:'npc',name:'Steven Knott',to:'  '}]});
  const after=await client.table('capsule');assert.deepEqual(after.where,before.where);
 });
 

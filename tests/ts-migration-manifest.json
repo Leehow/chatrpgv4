@@ -114333,7 +114333,7 @@
     },
     {
       "source": "tests/kernel/test_rules_families.py",
-      "sha256": "40f5ddc8c422869c104bb6c4412be4e55539000d28b11bf465bf563a51cddbd3",
+      "sha256": "23c3c01bf0678a6932549cc3bfee06977c1c64bd86298d9d4d322a69bb2fce84",
       "parseErrors": [],
       "cases": [
         {
@@ -114414,7 +114414,7 @@
           "counterpart": {
             "file": "tests/integration/rules-families.test.ts",
             "name": "test_opposed_check_rolls_both_parties",
-            "sha256": "8d30a19286a1f6acfae6206eb815ba49861b26794098f22ab74a6baa2ab261a9"
+            "sha256": "910fbfb57358976b3407a23624447f1d7802e46da271a4ee23debf60860d3d35"
           },
           "review": "statement-by-statement",
           "validation": {
@@ -114497,7 +114497,7 @@
           "counterpart": {
             "file": "tests/integration/rules-families.test.ts",
             "name": "test_opposed_check_needs_an_authored_opponent_value",
-            "sha256": "8d30a19286a1f6acfae6206eb815ba49861b26794098f22ab74a6baa2ab261a9"
+            "sha256": "910fbfb57358976b3407a23624447f1d7802e46da271a4ee23debf60860d3d35"
           },
           "review": "statement-by-statement",
           "validation": {
@@ -114612,7 +114612,7 @@
           "counterpart": {
             "file": "tests/integration/rules-families.test.ts",
             "name": "test_combined_check_one_roll_many_targets",
-            "sha256": "8d30a19286a1f6acfae6206eb815ba49861b26794098f22ab74a6baa2ab261a9"
+            "sha256": "910fbfb57358976b3407a23624447f1d7802e46da271a4ee23debf60860d3d35"
           },
           "review": "statement-by-statement",
           "validation": {
@@ -114751,7 +114751,7 @@
           "counterpart": {
             "file": "tests/integration/rules-families.test.ts",
             "name": "test_investigate_on_npc_needs_choice_then_decision_picks",
-            "sha256": "8d30a19286a1f6acfae6206eb815ba49861b26794098f22ab74a6baa2ab261a9"
+            "sha256": "910fbfb57358976b3407a23624447f1d7802e46da271a4ee23debf60860d3d35"
           },
           "review": "statement-by-statement",
           "validation": {
@@ -114842,7 +114842,7 @@
           "counterpart": {
             "file": "tests/integration/rules-families.test.ts",
             "name": "test_unknown_decision_and_absent_target",
-            "sha256": "8d30a19286a1f6acfae6206eb815ba49861b26794098f22ab74a6baa2ab261a9"
+            "sha256": "910fbfb57358976b3407a23624447f1d7802e46da271a4ee23debf60860d3d35"
           },
           "review": "statement-by-statement",
           "validation": {
@@ -114981,7 +114981,7 @@
           "counterpart": {
             "file": "tests/integration/rules-families.test.ts",
             "name": "test_social_adjudication_against_arty",
-            "sha256": "8d30a19286a1f6acfae6206eb815ba49861b26794098f22ab74a6baa2ab261a9"
+            "sha256": "910fbfb57358976b3407a23624447f1d7802e46da271a4ee23debf60860d3d35"
           },
           "review": "statement-by-statement",
           "validation": {
@@ -115108,7 +115108,7 @@
           "counterpart": {
             "file": "tests/integration/rules-families.test.ts",
             "name": "test_push_executes_against_last_failure_and_refuses_a_second",
-            "sha256": "8d30a19286a1f6acfae6206eb815ba49861b26794098f22ab74a6baa2ab261a9"
+            "sha256": "910fbfb57358976b3407a23624447f1d7802e46da271a4ee23debf60860d3d35"
           },
           "review": "statement-by-statement",
           "validation": {
@@ -115211,7 +115211,7 @@
           "counterpart": {
             "file": "tests/integration/rules-families.test.ts",
             "name": "test_push_without_a_foreshadowed_consequence_is_legal",
-            "sha256": "8d30a19286a1f6acfae6206eb815ba49861b26794098f22ab74a6baa2ab261a9"
+            "sha256": "910fbfb57358976b3407a23624447f1d7802e46da271a4ee23debf60860d3d35"
           },
           "review": "statement-by-statement",
           "validation": {
@@ -115366,7 +115366,7 @@
           "counterpart": {
             "file": "tests/integration/rules-families.test.ts",
             "name": "test_luck_spend_and_insufficient_luck",
-            "sha256": "8d30a19286a1f6acfae6206eb815ba49861b26794098f22ab74a6baa2ab261a9"
+            "sha256": "910fbfb57358976b3407a23624447f1d7802e46da271a4ee23debf60860d3d35"
           },
           "review": "statement-by-statement",
           "validation": {
@@ -115513,7 +115513,7 @@
           "counterpart": {
             "file": "tests/integration/rules-families.test.ts",
             "name": "test_first_aid_on_a_wounded_investigator",
-            "sha256": "8d30a19286a1f6acfae6206eb815ba49861b26794098f22ab74a6baa2ab261a9"
+            "sha256": "910fbfb57358976b3407a23624447f1d7802e46da271a4ee23debf60860d3d35"
           },
           "review": "statement-by-statement",
           "validation": {
@@ -115608,7 +115608,7 @@
           "counterpart": {
             "file": "tests/integration/rules-families.test.ts",
             "name": "test_first_aid_can_rouse_an_unconscious_npc_without_an_injury_clock",
-            "sha256": "8d30a19286a1f6acfae6206eb815ba49861b26794098f22ab74a6baa2ab261a9"
+            "sha256": "910fbfb57358976b3407a23624447f1d7802e46da271a4ee23debf60860d3d35"
           },
           "review": "statement-by-statement",
           "validation": {
@@ -115719,7 +115719,7 @@
           "counterpart": {
             "file": "tests/integration/rules-families.test.ts",
             "name": "test_situations_show_the_dying_clock",
-            "sha256": "8d30a19286a1f6acfae6206eb815ba49861b26794098f22ab74a6baa2ab261a9"
+            "sha256": "910fbfb57358976b3407a23624447f1d7802e46da271a4ee23debf60860d3d35"
           },
           "review": "statement-by-statement",
           "validation": {
@@ -115822,7 +115822,7 @@
           "counterpart": {
             "file": "tests/integration/rules-families.test.ts",
             "name": "test_a_condition_change_lands_a_receipt_so_a_death_can_be_told",
-            "sha256": "8d30a19286a1f6acfae6206eb815ba49861b26794098f22ab74a6baa2ab261a9"
+            "sha256": "910fbfb57358976b3407a23624447f1d7802e46da271a4ee23debf60860d3d35"
           },
           "review": "statement-by-statement",
           "validation": {
@@ -115981,7 +115981,7 @@
           "counterpart": {
             "file": "tests/integration/rules-families.test.ts",
             "name": "test_magic_learn_then_cast_from_the_catalog",
-            "sha256": "8d30a19286a1f6acfae6206eb815ba49861b26794098f22ab74a6baa2ab261a9"
+            "sha256": "910fbfb57358976b3407a23624447f1d7802e46da271a4ee23debf60860d3d35"
           },
           "review": "statement-by-statement",
           "validation": {
@@ -116124,7 +116124,7 @@
           "counterpart": {
             "file": "tests/integration/rules-families.test.ts",
             "name": "test_development_end_session_and_settle_ending",
-            "sha256": "8d30a19286a1f6acfae6206eb815ba49861b26794098f22ab74a6baa2ab261a9"
+            "sha256": "910fbfb57358976b3407a23624447f1d7802e46da271a4ee23debf60860d3d35"
           },
           "review": "statement-by-statement",
           "validation": {
@@ -116259,7 +116259,7 @@
           "counterpart": {
             "file": "tests/integration/rules-families.test.ts",
             "name": "test_lookup_rule_and_catalog",
-            "sha256": "8d30a19286a1f6acfae6206eb815ba49861b26794098f22ab74a6baa2ab261a9"
+            "sha256": "910fbfb57358976b3407a23624447f1d7802e46da271a4ee23debf60860d3d35"
           },
           "review": "statement-by-statement",
           "validation": {
@@ -116366,7 +116366,7 @@
           "counterpart": {
             "file": "tests/integration/rules-families.test.ts",
             "name": "test_replay_and_needs_fixes",
-            "sha256": "8d30a19286a1f6acfae6206eb815ba49861b26794098f22ab74a6baa2ab261a9"
+            "sha256": "910fbfb57358976b3407a23624447f1d7802e46da271a4ee23debf60860d3d35"
           },
           "review": "statement-by-statement",
           "validation": {
