@@ -31,7 +31,8 @@ test('the current first-impression instructions let the Keeper choose a meaningf
   const key=row.sections.find((section:Row)=>section.heading==='First impression').key;
   const impression=(await k.ok('mods.sections',{campaign:CAMPAIGN,keys:[key]})).sections[0].text;
   assert.doesNotMatch(impression,/Never resolve\s+natural-npc:first-impression yourself/);
-  assert.match(impression,/Decide whether the initial impression matters to this approach/);
+  // The instruction now says when the roll is due (a favour, secret, deal, help or trust) instead of asking the Keeper to decide whether it matters.
+  assert.match(impression,/Roll it the first time the investigator asks this person for something/);
   assert.match(impression,/call `resolve` with\s+`action\.decision: "natural-npc:first-impression"`/);
   assert.match(impression,/Pending contacts are optional/);
   assert.match(impression,/greetings need no roll/);

@@ -200,24 +200,25 @@ test('§264.22: normalization at the opening is judged like any turn, never refu
   }
 });
 
-test('an unknown destination cannot isolate the normalized activity and undertaking from their position',async t=>{
+test('an invalid destination cannot isolate the normalized activity and undertaking from their position; an unregistered one is away (§264.34)',async t=>{
   const client=await kernel(t);await openTurn(client);
   const path=join(campaignDir(client.workspace),'world.json'),before=readJson(path);
-  const effects=[{...structuredClone(ordinary),to:'Missing fixture destination',intends:'Check a later appointment.'}];
+  const effects=[{...structuredClone(ordinary),to:'  ',intends:'Check a later appointment.'}];
   splitNpcMood(effects);
   const response=await client.call('table.apply',{campaign:'c1',call_id:'t1-c1',effects});
   assert.equal(response.ok,false,'the invalid placement still refuses its whole ordinary combination');
-  assert.equal(response.error.code,'unknown_entity');assert.equal(response.error.details.field,'npc.to');
-  assert.equal(response.error.retryable,false);assert.equal(response.error.next,'change_input');
-  assert.ok(response.error.fix.includes('details.candidates'));assert.ok(Array.isArray(response.error.details.candidates));
+  assert.equal(response.error.code,'invalid_params');assert.equal(response.error.details.field,'npc.to');
   assert.deepEqual(readJson(path),before);
-  const name='Cassius Fixture Porter',unsupported=[{...structuredClone(ordinary),name,to:'Missing fixture destination',
+  const name='Cassius Fixture Porter',unsupported=[{...structuredClone(ordinary),name,to:'  ',
     _passage:{scene:'commission-briefing',page:1,label:'fixture source',sentence:`${name} returns to his desk.`},_resolved_from:'another porter'}];
   splitNpcMood(unsupported);
   const invalid=await client.call('table.apply',{campaign:'c1',call_id:'t1-c2',effects:unsupported});
   assert.equal(invalid.ok,false);assert.deepEqual(readJson(path),before);
   const view=await client.call('table.look',{campaign:'c1',focus:'npc',name});
   assert.equal(view.ok,false,'a failed placement does not publish its staged person');
+  const leaving=[{...structuredClone(ordinary),to:'Missing fixture destination'}];splitNpcMood(leaving);
+  const away=await client.call('table.apply',{campaign:'c1',call_id:'t1-c3',effects:leaving});
+  assert.equal(away.ok,true,JSON.stringify(away.error));
 });
 
 test('a genuinely unknown person still isolates only their original person effect',async t=>{

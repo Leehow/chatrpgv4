@@ -175,7 +175,9 @@ export function effectShapeRefusal(tool: string, parameters: TSchema, args: unkn
 			const toolName = typeof kind === "string" && (COC_TOOL_NAMES as readonly string[]).includes(kind);
 			const prose = kind === "narrate"
 				? `Closing prose is material, not an effect: this apply's legacy narrate field only prepares/checks it after effects. Submit the finished material with narrate handoff:true. `
-				: toolName ? `${kind} is a tool of its own, not an effect of apply: call it separately. ` : "";
+				: toolName ? `${kind} is a tool of its own, not an effect of apply: call it separately. `
+				// §264.35: the output packet's own commands, which the Keeper had sent into apply (live 2026-10-24, three times).
+				: kind === "relationship" || kind === "agreement" ? `${kind} is a command of the output packet, not an effect of apply: send it in output's commands, and the rest of this apply without it. ` : "";
 			const semantic = kind === "event" || kind === "knowledge"
 				? 'Record the occurrence in top-level apply.event beside effects, not inside effects: event: {name: <occurrence name>, ...}. Acquired knowledge belongs in event.knowledge: [{actor: <registered person>, statement: <what was learned>, mode: "observed" | "heard" | "read" | "belief", state: "accurate" | "uncertain" | "distorted", ...}]. Keep the existing event schema and its source/material requirements; do not turn knowledge into a clue. '
 				: undefined;

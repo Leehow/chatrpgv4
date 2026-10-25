@@ -1592,7 +1592,7 @@ export default function (pi: ExtensionAPI, host: {capabilities?:RuntimeCapabilit
 	});
 	pi.events.on('coc:capsule',(value:any)=>{
         if(table&&value?.campaign===table.campaign&&value.turn===table.turn){
-            table.packetSceneRequired=scenePopulationConflict(value.capsule??{});
+            table.packetSceneRequired=false; // §264.30: the schema never demands an assessment
             table.packetRoutineSummary=!!value.capsule?.mods?.routine_summary;
             if(routineSummaryTool!==table.packetRoutineSummary){routineSummaryTool=table.packetRoutineSummary;refreshOutputTool?.();}
         }
@@ -5947,12 +5947,14 @@ export default function (pi: ExtensionAPI, host: {capabilities?:RuntimeCapabilit
             const before=await state.kernel.call<Record<string,any>>('table.capsule',{campaign:state.campaign,_context_read:true});
             // §249: the Keeper judges whether its packet covers the player's spatial choices; no completion review refuses it.
             const newlyMoving=compiled.effects.some(effect=>effect.kind==='move'||effect.kind==='place'&&effect.action==='move'&&effect.to!=='here'&&effect.to!==before.where?.scene);
-            // §250: an arrival the Keeper did not assess is recorded as unassessed (unknown), never refused. §266.17: so is an
-            // assessment of an empty place the registered presence contradicts; the packet is never refused for it (§264.29).
-            const contradicted=!newlyMoving&&scenePopulationConflict(before);
-            if((newlyMoving||contradicted)&&!compiled.effects.some(row=>row.kind==='scene'))compiled.effects.push({kind:'scene',name:'here',_population:true,
-                activity:{service:'unknown',crowd:'unknown',basis:'established',summary:'Service is unknown; crowd is unknown.',review_after_minutes:15},
-                why:contradicted?'The empty assessment contradicts the registered presence; service and population are unknown.':'The arrival was not assessed; service and population remain unknown.'});
+            // §250: an arrival the Keeper did not assess is recorded as unassessed (unknown), never refused.
+            if(newlyMoving&&!compiled.effects.some(row=>row.kind==='scene'))compiled.effects.push({kind:'scene',name:'here',_population:true,
+                activity:{service:'unknown',crowd:'unknown',basis:'established',summary:'Service is unknown; crowd is unknown.',review_after_minutes:15},why:'The arrival was not assessed; service and population remain unknown.'});
+            // §264.30: an empty assessment beside registered people says nobody else is there (§264.24), so it is never a
+            // reason to refuse the packet; left unassessed it stands, and the lane records it (live 2026-10-24: eight packets
+            // in Cold Harvest and Time After Time were refused for it).
+            if(scenePopulationConflict(before)&&!compiled.effects.some(row=>row.kind==='scene'))
+                await record({lane:'scene-population',event:'assessment_kept',turn:state.turn,reason:'registered_people_stay'});
             packetNpcReferences(state).require(packetNpcScope(state),[...compiled.responses.flatMap(row=>[row.actor,...row.to??[]]).filter(isNpcReference),
                 ...compiled.effects.filter(row=>row.kind==='npc'&&!row.walk_on).map(row=>String(row.name)),
                 ...compiled.effects.filter(row=>row.kind==='place'&&row.action==='observe').flatMap(row=>[...row.people??[],...(row.situations??[]).flatMap((situation:Record<string,any>)=>situation.participants??[])]).filter(isNpcReference),
@@ -6034,11 +6036,11 @@ export default function (pi: ExtensionAPI, host: {capabilities?:RuntimeCapabilit
             observationIdentities=[...(current.npc_references?.people??[]),...(current.present??[])];
             if(typeof current.where?.scene==='string'&&current.where.scene!==before.where?.scene)arrivedAt=current.where.scene;
             if(scenePopulationRequired(current)&&!compiled.effects.some(row=>row.kind==='scene')){
-                // §250.6: only an assessment the registered presence contradicts needs the Keeper's new one before prose; a
-                // missing or expired assessment renders as unknown population.
-                if(scenePopulationConflict(current)&&!sceneAssessmentExpiredDuringActivity(before,current,compiled.effects))throw new KernelError({code:'needs',message:'Scene population conflicts with current registered presence; preserve receipts and complete the scene assessment before rendering.'});
+                // §250.6, §264.30: a missing or expired assessment renders as unknown population; an empty one beside registered
+                // people says nobody else is there (§264.24) and is never asked for again before prose.
                 await record({lane:'scene-population',event:'assessment_retired',turn:state.turn,
-                    reason:sceneAssessmentExpiredDuringActivity(before,current,compiled.effects)?'settled_stationary_activity':'unassessed',population:'unknown'});
+                    reason:sceneAssessmentExpiredDuringActivity(before,current,compiled.effects)?'settled_stationary_activity'
+                        :scenePopulationConflict(current)?'registered_people_stay':'unassessed',population:'unknown'});
             }
             for(const newcomer of newcomers){
                 const person=await state.kernel.call<Record<string,any>>('table.look',{campaign:state.campaign,focus:'npc',name:newcomer.label,_context_read:true});
@@ -6054,7 +6056,11 @@ export default function (pi: ExtensionAPI, host: {capabilities?:RuntimeCapabilit
                 if(index>=0)people[index]=projected;
             }
             // §258.11: agreement marks name issued proposal and commitment facts; anything else is the packet's refusal.
-            try{agreements=(compiled.agreements??[]).map(mark=>materialOwner.agreement(mark));}
+            // §264.37: a mark on a fact that is no issued proposal or commitment is set aside, not the packet's refusal: the deal
+            // is recorded by its own effects (live 2026-10-24: five packets refused for it, three in one Starry Wisdom game).
+            const marks=compiled.agreements??[],unissued=marks.filter(mark=>!materialOwner.agreementIssued(mark.proposal));
+            if(unissued.length)await record({lane:'refusals',event:'agreement_mark_dropped',turn:state.turn,proposals:unissued.map(mark=>mark.proposal)});
+            try{agreements=marks.filter(mark=>!unissued.includes(mark)).map(mark=>materialOwner.agreement(mark));}
             catch(error){throw new KernelError({code:'invalid_params',message:error instanceof Error?error.message:String(error),details:{reason:'decision_material_binding',transaction_state:'uncommitted'}});}
             selections=hydrated.responses.flatMap((response,index)=>response.act==='silent'||!isNpcReference(response.actor)?[]
                 :[{actor:response.actor,act:response.act,to:response.to??[],items:hydrated.units[index]??[],...('channel' in response&&response.channel?{channel:response.channel}:{})}]);

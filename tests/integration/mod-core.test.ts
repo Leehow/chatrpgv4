@@ -110,6 +110,7 @@ test('test_a_placement_that_omits_its_definition_is_offered_the_names_on_hand',a
   const draft={name:'笔记本',category:'item',description:'A blank 1920s notebook.',basis:'Fixture basis.',parameters:{charges:null,effects:[]},player_view:{description:'一本空白笔记本。',fields:[]}};
   const placement={kind:'object',name:'大牛皮的笔记本',to:'Thomas Hayes',adopt:target,why:'登记已有笔记本'};
   const refused=await k.tableErr('apply',{call_id:'t1-c1',effects:[await prepared(k,draft),placement]});assert.equal(refused.code,'invalid_params');assert.ok(refused.message.includes('大牛皮的笔记本'));
-  assert.ok(refused.fix.includes('omitted definition'));assert.ok(refused.fix.includes('set definition to one of: 笔记本'));
+  // §263: the fix now offers the define-first route, then the accepted names ("set definition to it: 笔记本").
+  assert.ok(refused.fix.includes('before this effect in the same batch'));assert.ok(refused.fix.includes('set definition to it: 笔记本'));
   await k.table('apply',{call_id:'t1-c2',effects:[await prepared(k,draft),{...placement,definition:'笔记本'}]});assert.equal((await look(k,'大牛皮的笔记本')).definition.name,'笔记本');
 });

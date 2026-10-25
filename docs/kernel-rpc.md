@@ -52924,6 +52924,60 @@ The output schema no longer requires a `scene` command when the current scene is
 expired; left out, it is recorded as unknown, as §250.1 already did for an arrival. A whole packet at a new farmhouse had
 been refused for it (Cold Harvest, 2026-10-24).
 
+### 264.30 An empty assessment beside registered people is never asked for again
+
+§264.24 already read an empty assessment beside registered people as "nobody else is there"; the packet's pre-settlement
+check, its post-settlement supplement and the schema still refused a packet without a new scene command whenever someone
+registered was seated in an empty-assessed scene. They no longer do: the packet settles, and the `scene-population` lane
+records `assessment_kept` / `assessment_retired` with reason `registered_people_stay`. Eight packets of the Codex long runs
+(Cold Harvest, Time After Time, 2026-10-24) had been refused for it.
+
+### 264.31 A clue's source: the investigator's own find, or nobody this table has
+
+`apply clue` with `from` naming an investigator of the party is the investigator's own find: the receipt's `from` is null
+and `adjusted` carries `{field:"from", reason:"investigator_found_it", given}`. A `from` naming nobody at this table, in
+the module graph or the book's cast (an officer the prose made up) keeps the clue and leaves it sourceless with
+`{field:"from", reason:"nobody_at_this_table", given}`; an ambiguous name still refuses.
+
+### 264.32 A word carrying one unread person's full name is that person
+
+`castPersonNamed` falls back from an exact name to the one unread cast person whose full name (two characters or more)
+the word carries, as §264.25 reads a newcomer. "德米特里·阿布拉莫夫" for the book's "德米特里" had been refused both ways:
+as an npc nobody had, and as a walk_on carrying a book name (Cold Harvest, 2026-10-24).
+
+### 264.33 A decision the rulebook lacks is set aside
+
+`resolve` with an unknown `decision` routes by its intent and skill as it would without one, and the result's
+`adjusted` carries `{field:"decision", reason:"unknown_decision", ignored}` (`social:persuade`, refused twice).
+
+### 264.34 An npc sent to a place the table has not established is away
+
+`apply npc` with `to` naming no registered place (their own house, the next village) moves them away and the receipt
+keeps the words: `{field:"to", reason:"unregistered_place", given}`. Three refusals in the long runs.
+
+### 264.35 A part that takes the whole stack, and output commands sent to apply
+
+`object.part` with a `quantity` equal to the whole stack moves the whole stack under its old name; it had refused with a
+fix asking for a quantity "from 1 to 0". `apply` given `relationship` or `agreement` says they are output commands.
+
+### 264.36 A lone `{$text}` where a string is declared is that string
+
+`normalizeToolArgumentSyntax` reads an object whose only key is `$text` as its string where the schema declares a string
+(MiniMax's XML text node), and the `setup` tool now prepares its arguments with it: a card's weapons sent as
+`[{"$text":".38 Automatic"}]` had been refused five times in one opening.
+
+### 264.37 An agreement mark on no issued proposal is set aside
+
+An output `agreement` command naming a fact that is not an issued proposal or commitment of this turn is dropped
+(`refusals` lane, `agreement_mark_dropped`) and the packet settles; a wrong status for an issued fact still refuses.
+Five packets had been refused for it.
+
+### 264.38 A chase can start on a quarry the book gave no block
+
+`chase.start.ready` counts a person here with no stat block, since the chase binding pins them the rulebook's ordinary
+adult (§264.28); the readiness fact had withheld the start first, with a refusal that blamed a missing pursuer. Seventeen
+integration assertions that still expected §264.22–§264.29's old refusals were brought up to date with them.
+
 ## 265. Shopping: the outlet's stock, price and order time are the program's (owner 2026-10-24)
 
 The owner's report: a MiniMax Keeper's long deliberations were mostly about whether a shop had the goods and what they cost. Those answers moved to the kernel; the Keeper picks parameters. Purchase guidance that lived in other packages moved with them, so the problem has one home. Amends §58 ("the kernel does not price anything itself") for goods bought at an outlet while this package is active; every other cash path is unchanged.
@@ -53157,8 +53211,9 @@ Tests: `tests/integration/location-observations.test.ts`.
 
 *Strangers on the Train* (2026-10-24): the scene's current assessment said nobody was there while registered people were
 present; an output with no `scene` command was refused `needs` before any command ran, and the turn ended with its earlier
-History roll settled but never told. The packet now records the scene as unassessed (service and crowd unknown), as an
-unassessed arrival is, and proceeds. The post-settlement check that asks for a supplement when the packet's own commands
+History roll settled but never told. The packet now proceeds; the empty assessment stands beside the registered people
+(§264.30: it says nobody else is there, §264.24), and the scene-population lane records it. (The first version retired it to
+unknown; merged with §264.30 it is kept.) The post-settlement check that asks for a supplement when the packet's own commands
 create the contradiction is unchanged.
 
 The play driver takes `--setup` for a launcher that wraps `bin/pi-coc setup`, so its setup turns read their text as setup

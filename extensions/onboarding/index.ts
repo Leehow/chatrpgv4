@@ -19,6 +19,7 @@ import { prepareCharacterGuidance, acceptedGuidance, guidanceReviewRefused, type
 import {preparePdfCreationGuidance} from './pdf-guidance.ts';
 import { registerInvokeHandlers } from '../../pipicoc/host-bridge.ts';
 import { Type } from "typebox";
+import {normalizeToolArgumentSyntax} from '../../runtime/tool-argument-syntax.ts';
 import { cocHome, cocMode } from "../lanes/host.ts";
 import { agentHomeOf, openingHelp } from "../ui/hints.ts";
 import { playLanguageTag } from "../../runtime/ui-words.ts";
@@ -1315,6 +1316,7 @@ export default function (pi: ExtensionAPI) {
     credit_rating:Type.Optional(Type.Integer())},{additionalProperties:false,description:'Final integer values by skill name; use numbers, not quoted numeric strings.'});
   const limitsSchema=Type.Object({characteristic_min:Type.Optional(Type.Integer()),characteristic_max:Type.Optional(Type.Integer()),
     skill_cap:Type.Optional(Type.Integer()),occupation_points:Type.Optional(Type.Integer()),interest_points:Type.Optional(Type.Integer())},{additionalProperties:false});
+	const setupArgumentSyntax=Type.Object({profile:Type.Optional(profileSchema),params:Type.Optional(Type.Object({profile:Type.Optional(profileSchema)}))});
 	function registerSetupTool(): void { pi.registerTool({
 		name: "setup",
 		label: "Setup",
@@ -1359,6 +1361,8 @@ export default function (pi: ExtensionAPI) {
 			},
 			{ additionalProperties: true },
 		),
+		// §264.36: transport syntax only (a lone {$text} where a string is declared); never action inference.
+		prepareArguments: (args: unknown) => normalizeToolArgumentSyntax(setupArgumentSyntax, args, {nativeValidation: true}).args as any,
 		executionMode: "sequential",
 		execute: async (_toolCallId, params, signal) => {
 			const result = await execute(asRecord(params), signal);

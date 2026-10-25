@@ -133,7 +133,8 @@ def test_after_a_landed_blow_the_rung_is_one_above_his_base_and_only_the_keeper_
         # §224.3: meeting him rolled no first impression, so it is still offered; an offered impression prepares no
         # reaction -- the die below still rolls.
         contact = [line for line in situation(client)["constraints"] if line.startswith("Mod check natural-npc:first-impression")]
-        assert contact and all("matters this turn" in line for line in contact), contact
+        # The Mod check line now reads "... is still to come: the first time the investigator asks ..." (first-impression wording).
+        assert contact and all("is still to come" in line for line in contact), contact
         receipts = client.table("status")["receipts"]
         attack = next(r for r in receipts if r["kind"] == "roll" and r.get("combat_action") == "attack")
         assert attack["actor"] == INVESTIGATOR and attack["npc"] == CORBITT

@@ -188,13 +188,10 @@ if(process.argv[1]===import.meta.filename)for(const [index,row] of ([{}]).entrie
 export async function test_attacking_a_person_with_no_stat_block_is_refused_toward_a_receipt_not_toward_prose(kernel:any){
 let error:any,fix:any;
 (await open_turn(kernel,"我想把你打一顿"));
-error=(await resolve_err(kernel,"t1-c1",({"intent":"combat","goal":"打诺特","method":"挥拳","actor":"Thomas Hayes","target":"Steven Knott"})));
-assert.ok(pyBool(pyEqual(pyAt(error,"code"),"needs")),"tests/kernel/test_turn_floor.py:192 assert error[\"code\"] == \"needs\"");
-assert.ok(pyBool(pyContains(pyAt(error,"message"),"no stat block")),"tests/kernel/test_turn_floor.py:193 assert \"no stat block\" in error[\"message\"]");
-fix=pyAt(error,"fix");
-assert.ok(pyBool(pyContains(fix,"Nothing without a receipt has happened")),"tests/kernel/test_turn_floor.py:195 assert \"Nothing without a receipt has happened\" in fix");
-assert.ok(pyBool(pyContains(fix,"do not narrate a blow as landed")),"tests/kernel/test_turn_floor.py:196 assert \"do not narrate a blow as landed\" in fix");
-assert.ok(pyBool(!pyContains(fix,"without dice")),"tests/kernel/test_turn_floor.py:197 assert \"without dice\" not in fix");
+// §264.28: a person with no stat block is pinned ordinary_adult and the blow is settled into a receipt (was refused with `needs`).
+error=(await pyMethod(kernel,"table",["resolve"],{"call_id":"t1-c1","action":({"intent":"combat","goal":"打诺特","method":"挥拳","weapon":"unarmed","actor":"Thomas Hayes","target":"Steven Knott"})}));
+assert.ok(pyBool(pyAt(error,"receipts").length>0),"a receipt stands behind the blow");
+assert.ok(pyBool(pyAt(error,"adjusted").some((row:any)=>row.reason==="default_stat_block")),JSON.stringify(pyAt(error,"adjusted")));
 }
 if(process.argv[1]===import.meta.filename)for(const [index,row] of ([{}]).entries())test("test_attacking_a_person_with_no_stat_block_is_refused_toward_a_receipt_not_toward_prose"+(([{}]).length>1?' ['+index+']':''),async(t)=>{const temporary=temporaryPath(t);await test_attacking_a_person_with_no_stat_block_is_refused_toward_a_receipt_not_toward_prose(await kernel(t,{}));});
 

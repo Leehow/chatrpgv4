@@ -148,7 +148,8 @@ if(process.argv[1]===import.meta.filename)for(const [index,row] of ([{}]).entrie
 export async function test_a_keeper_override_is_refused_whole_without_why_with_another_change_or_with_an_unknown_word(kernel:any){
 let effect:any,field:any,refused:any,unknown:any;
 (await open_turn(kernel,"I watch Knott."));
-for([effect,field] of pyIterable([[({["kind"]:"npc",["name"]:"Steven Knott",["defense"]:"dodge"}),"npc.why"],[({["kind"]:"npc",["name"]:"Steven Knott",["defense"]:"dodge",["to"]:"here",["why"]:"x"}),"npc.defense"],[({["kind"]:"npc",["name"]:"Steven Knott",["defense"]:"parry",["why"]:"x"}),"npc.defense"]])){
+// §264.24: a missing `why` no longer refuses (recorded as not given), so only the other refusals remain here.
+for([effect,field] of pyIterable([[({["kind"]:"npc",["name"]:"Steven Knott",["defense"]:"dodge",["to"]:"here",["why"]:"x"}),"npc.defense"],[({["kind"]:"npc",["name"]:"Steven Knott",["defense"]:"parry",["why"]:"x"}),"npc.defense"]])){
 refused=(await pyMethod(kernel,"table_err",["apply"],{"call_id":"t1-c1","effects":[effect]}));
 assert.ok(pyBool((await (async()=>{const __left=pyEqual(pyAt(refused,"code"),"invalid_params");return pyBool(__left)?pyEqual(pyAt(pyAt(refused,"details"),"field"),field):__left})())),"tests/kernel/test_npc_standing_defense.py:187 assert refused[\"code\"] == \"invalid_params\" and refused[\"details\"][\"field\"] == field");
 }

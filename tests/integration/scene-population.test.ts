@@ -29,7 +29,9 @@ test('an unnamed staffed scene gets a real temporary person and time-bound popul
  await k.table('apply',{call_id:'t2-c1',effects:[{kind:'time',minutes:16,why:'A wait passes.'}]});
  const expired=await k.table('capsule');assert.equal(scenePopulationRequired(expired),true);assert.ok(expired.where.temporal.review_reasons.includes('review_boundary_reached'));
  const empty=compileTurnPacket({version:4,commands:[{kind:'scene',service:'closed',crowd:'empty'}],interactions:[]}).effects;
- await k.tableErr('apply',{call_id:'t2-c2',effects:empty});
+ // §264.24: an empty assessment beside the registered attendant is accepted and the attendant stays (was refused).
+ const kept=await k.table('apply',{call_id:'t2-c2',effects:empty});assert.ok(kept.receipts.length>0);
+ assert.ok((await k.table('status')).receipts.some((r:any)=>r.call_id==='t2-c2'&&(r.adjusted??[]).some((a:any)=>a.reason==='registered_people_stay')));
  await k.table('apply',{call_id:'t2-c3',effects:[{kind:'npc',name:person.ref,to:'away',why:'The day shift leaves.'},...empty]});
  const closed=await k.table('capsule');assert.equal(closed.where.temporal.crowd,'empty');assert.equal(scenePopulationRequired(closed),false);
  assert.equal((await k.table('look',{focus:'npc',name:person.ref})).ref,person.ref,'leaving does not erase identity');

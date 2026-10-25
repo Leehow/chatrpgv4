@@ -405,7 +405,9 @@ export class SessionView {
                 return false;
             // The book's numbers, or a profile the table pinned from a rulebook archetype (contract §34.10).
             const profile = row(this.world.npc_profiles)[name] ?? this.graph.mechanicsOf(node).profile;
-            return !!profile && typeof profile === "object" && !Array.isArray(profile);
+            // §264.28: a person the book gave no block is pinned the rulebook's ordinary adult when the chase binds them, so
+            // they count here too; the readiness fact had withheld the start before that default could apply.
+            return !!profile && typeof profile === "object" && !Array.isArray(profile) || this.graph.isPerson(node);
         });
         const gain = this.campaign.saved(`sanity-gain-pending/${id}.json`);
         return {

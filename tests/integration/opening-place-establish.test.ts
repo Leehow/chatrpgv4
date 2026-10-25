@@ -13,9 +13,9 @@ test('the opening registers its place before any player input (live el-v2-202610
   assert.ok(established.receipts.length>0,'the opening place establish lands without a first-impression roll opening the turn');
 });
 
-test('an opening line that is no preparation says the opening is still owed, not to wait for the player',async t=>{
+// §264.22: while the opening is owed every write is judged like any turn; an opening move is accepted, no longer refused as turn_state.
+test('an opening line that moves the scene is accepted and judged like any turn (§264.22, was refused as turn_state)',async t=>{
   const k=await kernel(t);await createCampaign(k);
-  const refused=await k.tableErr('apply',{call_id:'t0-c1',effects:[{kind:'place',action:'move',to:'central-library',travel_band:'local_travel',via:'By streetcar'}]});
-  assert.equal(refused.code,'turn_state');
-  assert.match(refused.fix??'',/opening is not published yet/);assert.doesNotMatch(refused.fix??'',/wait for player_input/);
+  const landed=await k.table('apply',{call_id:'t0-c1',effects:[{kind:'place',action:'move',to:'central-library',travel_band:'local_travel',via:'By streetcar'}]});
+  assert.ok(landed.receipts.length>0,JSON.stringify(landed));
 });

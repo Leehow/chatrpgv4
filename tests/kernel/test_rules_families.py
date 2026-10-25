@@ -192,8 +192,7 @@ def test_investigate_on_npc_needs_choice_then_decision_picks(kernel):
 
 def test_unknown_decision_and_absent_target(kernel):
     open_turn(kernel)
-    error = resolve_err(kernel, "t1-c1", intent="investigate", goal="x", method="y", decision="core-check:nope")
-    assert error["code"] == "invalid_params" and "core-check:ordinary-check" in error["details"]["candidates"]
+    # §264.33: an unknown decision is set aside and routes by intent; only the absent target refuses here.
     absent = resolve_err(kernel, "t1-c1", intent="social", goal="x", method="用说服", target="Arty Wilmot")
     assert absent["code"] == "unknown_entity"
     assert [c["name"] for c in absent["details"]["candidates"]] == ["steven-knott"]

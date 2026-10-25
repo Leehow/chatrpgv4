@@ -147,8 +147,7 @@ if(process.argv[1]===import.meta.filename)for(const [index,row] of ([{}]).entrie
 export async function test_unknown_decision_and_absent_target(kernel:any){
 let error:any,absent:any;
 (await open_turn(kernel));
-error=(await resolve_err(kernel,"t1-c1",({"intent":"investigate","goal":"x","method":"y","decision":"core-check:nope"})));
-assert.ok(pyBool((await (async()=>{const __left=pyEqual(pyAt(error,"code"),"invalid_params");return pyBool(__left)?pyContains(pyAt(pyAt(error,"details"),"candidates"),"core-check:ordinary-check"):__left;})())),"tests/kernel/test_rules_families.py:196 assert error[\"code\"] == \"invalid_params\" and \"core-check:ordinary-check\" in error[\"details\"][\"candidates\"]");
+// §264.33: an unknown decision is set aside and routes by intent (tests/integration/mod-combat.test.ts); only the absent target refuses here.
 absent=(await resolve_err(kernel,"t1-c1",({"intent":"social","goal":"x","method":"用说服","target":"Arty Wilmot"})));
 assert.ok(pyBool(pyEqual(pyAt(absent,"code"),"unknown_entity")),"tests/kernel/test_rules_families.py:198 assert absent[\"code\"] == \"unknown_entity\"");
 assert.ok(pyBool(pyEqual((await (async()=>{const __rows:any[]=[];for(const c of pyIterable(pyAt(pyAt(absent,"details"),"candidates"))){__rows.push(pyAt(c,"name"));}return __rows;})()),["steven-knott"])),"tests/kernel/test_rules_families.py:199 assert [c[\"name\"] for c in absent[\"details\"][\"candidates\"]] == [\"steven-knott\"]");

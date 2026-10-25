@@ -271,9 +271,8 @@ def test_a_keeper_attack_stands_and_a_disposition_override_replaces_the_book(tmp
 
 def test_an_override_is_refused_whole_without_why_with_another_change_with_an_unknown_word_or_a_hold_outside_a_fight(kernel):
     open_turn(kernel, "I watch Knott.")
-    for effect, field in [({"kind": "npc", "name": "Steven Knott", "action": "attack"}, "npc.why"),
-                          ({"kind": "npc", "name": "Steven Knott", "disposition": "surrenders"}, "npc.why"),
-                          ({"kind": "npc", "name": "Steven Knott", "action": "attack", "to": "here", "why": "x"}, "npc.action"),
+    # §264.24: a missing `why` no longer refuses (it is recorded as not given), so only the other refusals remain here.
+    for effect, field in [({"kind": "npc", "name": "Steven Knott", "action": "attack", "to": "here", "why": "x"}, "npc.action"),
                           ({"kind": "npc", "name": "Steven Knott", "action": "attack", "defense": "dodge", "why": "x"}, "npc.defense"),
                           ({"kind": "npc", "name": "Steven Knott", "action": "attack", "disposition": "surrenders", "why": "x"}, "npc.action"),
                           ({"kind": "npc", "name": "Steven Knott", "action": "flee", "why": "x"}, "npc.action"),

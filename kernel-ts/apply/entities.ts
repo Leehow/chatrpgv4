@@ -112,11 +112,21 @@ export async function stageClue(context:ApplyContext,effect:Row,told=false):Prom
                     routes:{other_rolls:otherRolls(check,visit),idea_roll:true}}});
         }
     }
-    let source:string|null=null;
-    if(typeof effect.from==='string'&&effect.from.trim()){
+    let source:string|null=null,ownFind=false,unsourced='';
+    // §264.31: a clue an investigator found themselves names no source; `from` naming one of the party is that find, not
+    // an NPC to look up (live 2026-10-24: Cold Harvest, Time After Time and the Starry Wisdom game each refused it).
+    if(typeof effect.from==='string'&&effect.from.trim()&&(await context.campaign.party() as Row[]).some(sheet=>
+        [normalize(string(sheet.id)),normalize(string(sheet.name))].includes(normalize(effect.from))))ownFind=true;
+    else if(typeof effect.from==='string'&&effect.from.trim()){
         // §266.13: a source the book's cast names and this table has not met yet lands on the book's first mention.
-        let node:Row;try{node=npcNode(graph,world,effect.from);}catch(error){const landed=landFromCast(context,effect.from.trim());if(!landed)throw error;node=landed;}
-        source=graph.handle(node);
+        let node:Row|null;try{node=npcNode(graph,world,effect.from);}catch(error){
+            node=landFromCast(context,effect.from.trim());
+            // §264.31: a teller this table has nobody under (an officer the prose made up) leaves the clue sourceless and says
+            // so; the clue is still what the investigators came by.
+            if(!node&&(!(error instanceof RpcError)||error.code!=='unknown_entity'||isAmbiguity(error)))throw error;
+            if(!node)unsourced=string(effect.from).trim();
+        }
+        if(node)source=graph.handle(node);
     }
     else {
         const present=new Set(npcsPresent(graph,world,scene).map(node=>graph.handle(node)));
@@ -125,7 +135,7 @@ export async function stageClue(context:ApplyContext,effect:Row,told=false):Prom
     }
     // Without a keeper label the receipt files the graph's display name: a handle is a machine word and never reaches the player.
     const receipt={id:`clue:${handle}-t${turn}`,kind:'clue',call_id:context.callId,clue:handle,label:label||graph.displayName(node),summary:node.summary||node.name,scene:graph.handle(scene),how,from:source,
-        ...(left?{left_this_turn:true}:{}),...(established?{established:'table'}:{}),...(keptAuthored?{adjusted:[{field:'establish',reason:'authored_clue_kept'}]}:{}),
+        ...(left?{left_this_turn:true}:{}),...(established?{established:'table'}:{}),...(keptAuthored||ownFind||unsourced?{adjusted:[...(keptAuthored?[{field:'establish',reason:'authored_clue_kept'}]:[]),...(ownFind?[{field:'from',reason:'investigator_found_it',given:string(effect.from)}]:[]),...(unsourced?[{field:'from',reason:'nobody_at_this_table',given:unsourced}]:[])]}:{}),
         // §222.1: the book's check and the way the table came through it; a no-roll route keeps §201's `check_skipped` count.
         ...(check&&foundBy?{check:{...check},found_by:{...foundBy},...(foundBy.route==='no_roll'?{check_skipped:true}:{})}:{}),at:nowIso()};
     if(label)(world.clue_labels??={})[handle]=label;
@@ -531,7 +541,7 @@ export async function stageNpc(context:ApplyContext,effect:Row):Promise<StagedEf
     // A creature this call declared is itself the change, with or without a block.
     const declaredHere=!!declared&&established==='table';
     if(to==null&&stance==null&&dead==null&&pinned==null&&profile==null&&!declaredHere)throw new RpcError('invalid_params','an npc effect needs `to`, `stance`, `conditions`, `dead`, `skill`, `archetype`, an intention, a mood, or a combination',{fix:`move them with to: here/away/<scene>, set stance to one of ${repr(words)}, change an explicit condition, say dead: true, pin a skill they have, name an archetype for a person the book gave no numbers or a rules-catalog creature (creature) for a creature with no stat block, report an intention: intends (a new one) or intent_ref (one on the card) with outcome attempted, done, failed or abandoned, or write what they feel right now with mood`});
-    const presence=world.npc_presence??={},previous=presence[handle];let moved:string|null=null;
+    const presence=world.npc_presence??={},previous=presence[handle];let moved:string|null=null;let unplaced='';
     const copies=graph.groupOf(node).filter(copy=>copy!==node&&graph.handle(copy)!==handle);
     const hadCopies=copies.some(copy=>Object.hasOwn(presence,graph.handle(copy)));
     if(to!=null){
@@ -540,10 +550,13 @@ export async function stageNpc(context:ApplyContext,effect:Row):Promise<StagedEf
             try{moved=graph.handle(graph.scene(to.trim()==='here'?world.active_scene:to));}
             catch(error){
                 if(!(error instanceof RpcError))throw error;
-                throw new RpcError(error.code,error.message,{codeDetail:error.codeDetail,fix:error.fix,
+                // §264.34: someone sent to a place this table has not established (their own house, the next village) is away
+                // from every place it has, and the receipt keeps where the Keeper said (live 2026-10-24: three refusals).
+                if(error.code==='unknown_entity'&&!isAmbiguity(error)&&to.trim()!=='here'){moved='away';unplaced=to.trim();}
+                else throw new RpcError(error.code,error.message,{codeDetail:error.codeDetail,fix:error.fix,
                     retryable:error.retryable,next:error.next,details:{...error.details,field:'npc.to'}});
             }
-            presence[handle]=moved;
+            if(unplaced)delete presence[handle];else presence[handle]=moved;
         }
         // §192.3: one entry per thing -- a copy's older entry would stand in again once this one went away.
         for(const copy of copies)delete presence[graph.handle(copy)];
@@ -566,7 +579,7 @@ export async function stageNpc(context:ApplyContext,effect:Row):Promise<StagedEf
     // anything that folds receipts later (the ledger, a worldline rebuild, the KPI).
     const unchanged=to!=null&&established===false&&Object.keys(effect).every(key=>['kind','name','to','why'].includes(key))
         &&(moved==='away'?previous===undefined:previous===moved)&&!hadCopies;
-    const receipt={id:effectId(context,'npc',handle),kind:'npc',call_id:context.callId,npc:node.node_id,handle,name:graph.displayName(node),label:personLabel(world,handle,graph.displayName(node)),from:previous??null,to:moved,stance:stance??null,dead:dead??null,skill:pinned,...creatureNote,...(pinnedProfile?{profile:pinnedProfile}:{}),...establishedOf(established,fromPassage,resolvedFrom),...(unchanged?{unchanged:true}:{}),why,at:nowIso()};
+    const receipt={id:effectId(context,'npc',handle),kind:'npc',call_id:context.callId,npc:node.node_id,handle,name:graph.displayName(node),label:personLabel(world,handle,graph.displayName(node)),from:previous??null,to:moved,stance:stance??null,dead:dead??null,skill:pinned,...creatureNote,...(pinnedProfile?{profile:pinnedProfile}:{}),...establishedOf(established,fromPassage,resolvedFrom),...(unchanged?{unchanged:true}:{}),...(unplaced?{adjusted:[{field:'to',reason:'unregistered_place',given:unplaced}]}:{}),why,at:nowIso()};
     if(unchanged)return {receipt,event:null};
     return walked({receipt,event:{type:'npc-changed',data:{npc:handle,to:moved,stance:stance??null,dead:dead??null,skill:pinned,...creatureNote,...(pinnedProfile?typeof profile!.catalog==='string'?{catalog:profile!.catalog}:{archetype:profile!.archetype}:{}),...establishedOf(established,fromPassage,resolvedFrom),why}}});
 }

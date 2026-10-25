@@ -488,8 +488,13 @@ export function castPersonNamed(graph: ModuleGraph, world: Row, word: string): C
     const key = normalize(word);
     if (!key) return null;
     const words = (person: CastPerson) => [person.id, ...person.names, text(row(row(world.person_epithets)[person.id]).word)];
-    const found = unreadCast(graph).filter(person => words(person).some(value => value && normalize(value) === key));
-    return found.length === 1 ? found[0]! : null;
+    const unread = unreadCast(graph), found = unread.filter(person => words(person).some(value => value && normalize(value) === key));
+    if (found.length) return found.length === 1 ? found[0]! : null;
+    // §264.32: a word carrying one unread person's full name is that person, as §264.25 reads it for a newcomer ("Dmitri
+    // Abramov" for the book's "Dmitri"). The newcomer gate refused it as a book name while the npc path found nobody by it,
+    // so the Keeper could write them neither way (live 2026-10-24, Cold Harvest).
+    const carried = unread.filter(person => person.names.some(full => [...normalize(full)].length >= 2 && occurs(key, normalize(full))));
+    return carried.length === 1 ? carried[0]! : null;
 }
 
 /** A corrective read of an existing source anchor, never permission to establish its named person. */

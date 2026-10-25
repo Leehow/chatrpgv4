@@ -83,6 +83,9 @@ export function validateDivision(world: Row, effect: Row, prior: Row | null, sou
             {fix: 'part separates some of a stack that already exists; to place a new thing, drop part and give it its own name and quantity',
              details: {field: 'object.part'}});
     const held = number(prior.quantity);
+    // §264.35: a part that takes every one of them is the whole stack moving; its old name stays (live 2026-10-24: one of one
+    // photograph taken was refused, and the fix asked for a quantity "from 1 to 0").
+    if (named && integer(stated) && number(stated) === held) return null;
     if (!named)
         throw new RpcError('invalid_params', `${string(prior.name)} is ${held} and this moves ${number(stated)} of them, so the ${held - number(stated)} left behind need a name of their own`,
             {fix: `set part to what the ${number(stated)} that move are called from now on, in the campaign's play_language; the ${held - number(stated)} that stay keep the name ${repr(string(prior.name))}. To move the whole stack, drop quantity`,

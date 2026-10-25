@@ -92,7 +92,7 @@ let client:any,contact:any,receipts:any,attack:any,before:any,result:any,receipt
 client=(await client_for(tmp_path,seed));
 try{(await hit_corbitt(client));
 contact=(await (async()=>{const __rows:any[]=[];for(const line of pyIterable(pyAt((await situation(client)),"constraints"))){if(pyBool((await pyMethod(line,"startswith",["Mod check natural-npc:first-impression"],{})))){__rows.push(line);}}return __rows;})());
-assert.ok(pyBool((await (async()=>{const __left=contact;return pyBool(__left)?(await pyAll((await (async()=>{const __rows:any[]=[];for(const line of pyIterable(contact)){__rows.push(pyContains(line,"matters this turn"));}return __rows;})()))):__left})())),pyStr(contact));
+assert.ok(pyBool((await (async()=>{const __left=contact;return pyBool(__left)?(await pyAll((await (async()=>{const __rows:any[]=[];for(const line of pyIterable(contact)){__rows.push(pyContains(line,"is still to come"));}return __rows;})()))):__left})())),pyStr(contact));
 receipts=pyAt((await pyMethod(client,"table",["status"],{})),"receipts");
 attack=(await pyNext((await (async()=>{const __rows:any[]=[];for(const r of pyIterable(receipts)){if(pyBool((await (async()=>{const __left=pyEqual(pyAt(r,"kind"),"roll");return pyBool(__left)?pyEqual((await pyMethod(r,"get",["combat_action"],{})),"attack"):__left})()))){__rows.push(r);}}return __rows;})())));
 assert.ok(pyBool((await (async()=>{const __left=pyEqual(pyAt(attack,"actor"),INVESTIGATOR);return pyBool(__left)?pyEqual(pyAt(attack,"npc"),CORBITT):__left})())),"tests/kernel/test_npc_stakes.py:139 assert attack[\"actor\"] == INVESTIGATOR and attack[\"npc\"] == CORBITT");

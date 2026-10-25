@@ -175,8 +175,9 @@ let refused:any;
 (await pyMethod(kernel,"table",["open"],{}));
 (await pyMethod(kernel,"table",["apply"],{"call_id":"t0-c1","effects":[(await scene(({"service":"limited","crowd":"quiet"})))]}));
 assert.ok(pyBool(pyEqual(pyAt(pyAt(pyAt((await pyMethod(kernel,"table",["capsule"],{})),"where"),"temporal"),"service"),"limited")),"tests/kernel/test_temporal_context.py:171 assert kernel.table(\"capsule\")[\"where\"][\"temporal\"][\"service\"] == \"limited\"");
-refused=(await pyMethod(kernel,"table_err",["apply"],{"call_id":"t0-c2","effects":[(await pyDict((await scene(({"service":"closed"}))),({"name":"hall-of-records"})))]}));
-assert.ok(pyBool(pyEqual(pyAt(refused,"code"),"invalid_params")),"tests/kernel/test_temporal_context.py:173 assert refused[\"code\"] == \"invalid_params\"");
+// §264.24: the turn-0 limit on a scene assessment naming another scene is gone; it is accepted and the active scene's own assessment is untouched.
+(await pyMethod(kernel,"table",["apply"],{"call_id":"t0-c2","effects":[(await pyDict((await scene(({"service":"closed"}))),({"name":"hall-of-records"})))]}));
+assert.ok(pyBool(pyEqual(pyAt(pyAt(pyAt((await pyMethod(kernel,"table",["capsule"],{})),"where"),"temporal"),"service"),"limited")),"tests/kernel/test_temporal_context.py:174 assert kernel.table(\"capsule\")[\"where\"][\"temporal\"][\"service\"] == \"limited\"");
 }
 if(process.argv[1]===import.meta.filename)for(const [index,row] of ([{}]).entries())test("test_opening_context_initializes_only_active_scene"+(([{}]).length>1?' ['+index+']':''),async(t)=>{const temporary=temporaryPath(t);await test_opening_context_initializes_only_active_scene(await kernel(t,{}));});
 export async function test_daily_life_table_is_mod_owned_and_disabled_strategy_keeps_world_facts(kernel:any){

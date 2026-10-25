@@ -1,7 +1,7 @@
 /** Real TS RPC transactions, not live-play evidence (contract 242). */
 import assert from 'node:assert/strict';
 import {test} from 'node:test';
-import {readFileSync,mkdirSync,writeFileSync} from 'node:fs';
+import {readFileSync,readdirSync,mkdirSync,writeFileSync} from 'node:fs';
 import {join} from 'node:path';
 import {kernel,openTurn,campaignDir,RpcClient,CAMPAIGN,ROOT,importSource,type Row} from './support.ts';
 import {turnPacket,compileTurnPacket} from '../../runtime/turn-packet-prototype.ts';
@@ -339,15 +339,12 @@ test('a clue refused away from its place names where it is found; the move there
     assert.ok(state(k).discovered_clues.includes('knott-research-leads'));
 });
 
-test('an empty assessment beside a registered person names who is registered; moving them away first lands it (live el-v2-20261022h T14)',async t=>{
+test('an empty assessment beside a registered person is accepted and the person stays (§264.24, was refused naming who is registered)',async t=>{
     const k=await kernel(t);await openTurn(k,'Knott has gone home; I find the office empty.');
     const empty=compileTurnPacket({version:4,commands:[{kind:'scene',service:'closed',crowd:'empty',review_after_minutes:45}]}).effects;
-    const refused=await k.tableErr('apply',{call_id:'t1-c1',effects:empty});
-    assert.equal(refused.code,'invalid_params');
-    const present=refused.details?.present??[];
-    assert.ok(present.length>0&&present.every((ref:string)=>Object.values(state(k).npc_references?.by_node??{}).includes(ref)),JSON.stringify(refused));
-    assert.ok(String(refused.fix).includes(present[0]),'the fix names them too, for paths that render only the fix');
-    await k.table('apply',{call_id:'t1-c1',effects:[...present.map((ref:string)=>({kind:'npc',name:ref,to:'away',why:'He went home for the night.'})),...empty]});
+    const receipt=await k.table('apply',{call_id:'t1-c1',effects:empty});
+    const row=(await k.table('status')).receipts.find((r:Row)=>r.call_id==='t1-c1'&&r.kind==='scene');
+    assert.ok((row.adjusted??[]).some((r:Row)=>r.field==='crowd'&&r.reason==='registered_people_stay'&&r.present.length>0),JSON.stringify(receipt));
     assert.equal(state(k).scene_activity[state(k).active_scene].crowd,'empty');
 });
 
@@ -362,4 +359,22 @@ test('a place\'s visit history is what was shown there on earlier turns, at any 
     const history=(await k.ok('mods.locations.inspect',{campaign:CAMPAIGN,name:office,need:'history'})).history;
     assert.deepEqual(history.records.map((row:Row)=>[row.delivered_turn,row.facts]),[[1,['Across the street stand two brick office blocks.']]]);
     assert.equal((await k.ok('mods.locations.inspect',{campaign:CAMPAIGN,name:'Corner Cafe',need:'history'})).history.records.length,0,'this turn\'s undelivered look is not history');
+});
+
+test('a clue an investigator found names no source, and one told by somebody this table lacks is kept sourceless (§264.31, live 2026-10-24)',async t=>{
+    const k=await kernel(t);await openTurn(k,'I read the commission myself and ask the night clerk about it.');
+    const partyDir=join(campaignDir(k.workspace),'party'),sheet=JSON.parse(readFileSync(join(partyDir,readdirSync(partyDir).find(file=>file.endsWith('.json'))!),'utf8'));
+    const investigator=String(sheet.name??'');assert.ok(investigator);
+    await k.table('apply',{call_id:'t1-c1',effects:[{kind:'clue',clue:'knott-commission',from:investigator,how:'Read off the desk.'},
+        {kind:'clue',clue:'A clerk remembers the courier',from:'the night clerk',establish:{summary:'A courier brought the contract after dark.'}}]});
+    const clues=(await k.table('status')).receipts.filter((receipt:Row)=>receipt.kind==='clue');
+    assert.deepEqual(clues.map((receipt:Row)=>[receipt.from,receipt.adjusted?.[0]?.reason]),[[null,'investigator_found_it'],[null,'nobody_at_this_table']]);
+});
+
+test('someone sent to a place this table has not established is away, and the receipt keeps where (§264.34, live 2026-10-24)',async t=>{
+    const k=await kernel(t);await openTurn(k,'Knott says he is going home.');
+    await k.table('apply',{call_id:'t1-c1',effects:[{kind:'npc',name:'Steven Knott',to:"Knott's house on Elm Street",why:'He leaves for home.'}]});
+    const receipt=(await k.table('status')).receipts.filter((row:Row)=>row.kind==='npc').at(-1);
+    assert.deepEqual([receipt.to,receipt.adjusted?.[0]?.reason,receipt.adjusted?.[0]?.given],['away','unregistered_place',"Knott's house on Elm Street"]);
+    assert.equal(Object.keys(state(k).npc_presence??{}).some(key=>key.includes('knott')),false);
 });

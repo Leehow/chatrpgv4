@@ -30,3 +30,10 @@ test('conflicts, unknown fields, wrong prefixes and bounds remain invalid rather
  const ambiguous=Type.Object({topic:Type.String(),other:Type.Optional(Type.String())},{additionalProperties:false});
  const input={topic:'',$text:'topic>Value'};assert.deepEqual(normalizeToolArgumentSyntax(ambiguous,input,{partialTransport:true}).args,input);
 });
+
+test('a lone {$text} where a string is declared is that string; any other shape is left as sent (§264.36)',()=>{
+ const schema=Type.Object({weapons:Type.Array(Type.Union([Type.String(),Type.Object({name:Type.String(),profile:Type.String()},{additionalProperties:false})]))});
+ const result=normalizeToolArgumentSyntax(schema,{weapons:[{$text:'.38 Automatic'},{name:'Rifle',profile:'.30-06 Bolt-Action Rifle'}]},{nativeValidation:true});
+ assert.deepEqual(result.args,{weapons:['.38 Automatic',{name:'Rifle',profile:'.30-06 Bolt-Action Rifle'}]});assert.equal(result.textRepairs,1);
+ const extra={weapons:[{$text:'.38 Automatic',name:'x'}]};assert.deepEqual(normalizeToolArgumentSyntax(schema,extra).args,extra);
+});
