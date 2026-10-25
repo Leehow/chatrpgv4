@@ -169,8 +169,9 @@ def test_opening_context_initializes_only_active_scene(kernel):
     kernel.table("open")
     kernel.table("apply", call_id="t0-c1", effects=[scene(service="limited", crowd="quiet")])
     assert kernel.table("capsule")["where"]["temporal"]["service"] == "limited"
-    refused = kernel.table_err("apply", call_id="t0-c2", effects=[dict(scene(service="closed"), name="hall-of-records")])
-    assert refused["code"] == "invalid_params"
+    # §264.24: the turn-0 limit on a scene assessment naming another scene is gone; it is accepted and the active scene's own is untouched.
+    kernel.table("apply", call_id="t0-c2", effects=[dict(scene(service="closed"), name="hall-of-records")])
+    assert kernel.table("capsule")["where"]["temporal"]["service"] == "limited"
 
 
 def test_daily_life_table_is_mod_owned_and_disabled_strategy_keeps_world_facts(kernel):

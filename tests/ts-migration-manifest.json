@@ -40821,7 +40821,7 @@
           "counterpart": {
             "file": "tests/integration/rules-chase-npc-quarry.test.ts",
             "name": "test_the_investigator_runs_after_corbitt_who_fled",
-            "sha256": "d2fcf21ce176f49db1c94247edf9aca3ace6c423182e5a3efedd8d486f34ed9f"
+            "sha256": "089975890ef8f258ee5cbf685bc93765776627c34e1cafd8d00b4e9d477237c2"
           },
           "review": "statement-by-statement",
           "validation": {
@@ -40909,7 +40909,7 @@
           "counterpart": {
             "file": "tests/integration/rules-chase-npc-quarry.test.ts",
             "name": "test_with_no_flight_on_record_the_investigators_intent_says_who_runs",
-            "sha256": "d2fcf21ce176f49db1c94247edf9aca3ace6c423182e5a3efedd8d486f34ed9f"
+            "sha256": "089975890ef8f258ee5cbf685bc93765776627c34e1cafd8d00b4e9d477237c2"
           },
           "review": "statement-by-statement",
           "validation": {
@@ -40993,7 +40993,7 @@
           "counterpart": {
             "file": "tests/integration/rules-chase-npc-quarry.test.ts",
             "name": "test_an_investigator_who_fled_is_the_quarry_whoever_the_keeper_names",
-            "sha256": "d2fcf21ce176f49db1c94247edf9aca3ace6c423182e5a3efedd8d486f34ed9f"
+            "sha256": "089975890ef8f258ee5cbf685bc93765776627c34e1cafd8d00b4e9d477237c2"
           },
           "review": "statement-by-statement",
           "validation": {
@@ -41104,7 +41104,7 @@
           "counterpart": {
             "file": "tests/integration/rules-chase-npc-quarry.test.ts",
             "name": "test_corbitt_gets_away_and_where_he_went_is_the_keepers",
-            "sha256": "d2fcf21ce176f49db1c94247edf9aca3ace6c423182e5a3efedd8d486f34ed9f"
+            "sha256": "089975890ef8f258ee5cbf685bc93765776627c34e1cafd8d00b4e9d477237c2"
           },
           "review": "statement-by-statement",
           "validation": {
@@ -41203,7 +41203,7 @@
           "counterpart": {
             "file": "tests/integration/rules-chase-npc-quarry.test.ts",
             "name": "test_corbitt_is_caught_and_the_fight_takes_up_again",
-            "sha256": "d2fcf21ce176f49db1c94247edf9aca3ace6c423182e5a3efedd8d486f34ed9f"
+            "sha256": "089975890ef8f258ee5cbf685bc93765776627c34e1cafd8d00b4e9d477237c2"
           },
           "review": "statement-by-statement",
           "validation": {
@@ -41312,7 +41312,7 @@
           "counterpart": {
             "file": "tests/integration/rules-chase-npc-quarry.test.ts",
             "name": "test_a_quarry_missing_a_number_the_chase_reads_is_needs_never_a_default",
-            "sha256": "d2fcf21ce176f49db1c94247edf9aca3ace6c423182e5a3efedd8d486f34ed9f"
+            "sha256": "089975890ef8f258ee5cbf685bc93765776627c34e1cafd8d00b4e9d477237c2"
           },
           "review": "statement-by-statement",
           "validation": {
@@ -41404,7 +41404,7 @@
           "counterpart": {
             "file": "tests/integration/rules-chase-npc-quarry.test.ts",
             "name": "test_a_quarry_with_no_stat_block_is_asked_for_one",
-            "sha256": "d2fcf21ce176f49db1c94247edf9aca3ace6c423182e5a3efedd8d486f34ed9f"
+            "sha256": "089975890ef8f258ee5cbf685bc93765776627c34e1cafd8d00b4e9d477237c2"
           },
           "review": "statement-by-statement",
           "validation": {
@@ -41511,7 +41511,7 @@
           "counterpart": {
             "file": "tests/integration/rules-chase-npc-quarry.test.ts",
             "name": "test_a_wrong_intent_is_told_the_intents_a_chase_start_answers",
-            "sha256": "d2fcf21ce176f49db1c94247edf9aca3ace6c423182e5a3efedd8d486f34ed9f"
+            "sha256": "089975890ef8f258ee5cbf685bc93765776627c34e1cafd8d00b4e9d477237c2"
           },
           "review": "statement-by-statement",
           "validation": {
@@ -46382,7 +46382,7 @@
     },
     {
       "source": "tests/kernel/test_declared_dice.py",
-      "sha256": "24cde09614923e8c0bf54b5cd77d674f914c17b360ebf301e4c8261f7b3dd239",
+      "sha256": "5cadcbd5fd49278008f4bd83cdd63a447089e496ea69865efdb64b850b563fc8",
       "parseErrors": [],
       "cases": [
         {
@@ -46407,7 +46407,7 @@
           "counterpart": {
             "file": "tests/integration/rules-declared-dice.test.ts",
             "name": "test_an_ordinary_check_rolls_the_declared_bonus_die",
-            "sha256": "2b6b8c2488211dd177100c0a7d4b50945a624f078a5d1691278e11a569c124c6"
+            "sha256": "b348871e6138450f92b0646d820e7c48f68a2de5b24ecd3e104a2a9d87949a19"
           },
           "review": "statement-by-statement",
           "validation": {
@@ -46498,7 +46498,7 @@
           "counterpart": {
             "file": "tests/integration/rules-declared-dice.test.ts",
             "name": "test_a_declared_bonus_die_reaches_an_unresisted_attack",
-            "sha256": "2b6b8c2488211dd177100c0a7d4b50945a624f078a5d1691278e11a569c124c6"
+            "sha256": "b348871e6138450f92b0646d820e7c48f68a2de5b24ecd3e104a2a9d87949a19"
           },
           "review": "statement-by-statement",
           "validation": {
@@ -46593,7 +46593,7 @@
           "counterpart": {
             "file": "tests/integration/rules-declared-dice.test.ts",
             "name": "test_the_attackers_dice_survive_the_wait_for_a_defense",
-            "sha256": "2b6b8c2488211dd177100c0a7d4b50945a624f078a5d1691278e11a569c124c6"
+            "sha256": "b348871e6138450f92b0646d820e7c48f68a2de5b24ecd3e104a2a9d87949a19"
           },
           "review": "statement-by-statement",
           "validation": {
@@ -46684,7 +46684,7 @@
           "counterpart": {
             "file": "tests/integration/rules-declared-dice.test.ts",
             "name": "test_an_opposed_check_gives_the_declared_dice_to_the_investigator_only",
-            "sha256": "2b6b8c2488211dd177100c0a7d4b50945a624f078a5d1691278e11a569c124c6"
+            "sha256": "b348871e6138450f92b0646d820e7c48f68a2de5b24ecd3e104a2a9d87949a19"
           },
           "review": "statement-by-statement",
           "validation": {
@@ -46767,7 +46767,7 @@
           "counterpart": {
             "file": "tests/integration/rules-declared-dice.test.ts",
             "name": "test_a_combined_check_rolls_the_declared_bonus_die",
-            "sha256": "2b6b8c2488211dd177100c0a7d4b50945a624f078a5d1691278e11a569c124c6"
+            "sha256": "b348871e6138450f92b0646d820e7c48f68a2de5b24ecd3e104a2a9d87949a19"
           },
           "review": "statement-by-statement",
           "validation": {
@@ -46862,7 +46862,7 @@
           "counterpart": {
             "file": "tests/integration/rules-declared-dice.test.ts",
             "name": "test_a_social_attempt_carries_the_die_the_players_words_earned",
-            "sha256": "2b6b8c2488211dd177100c0a7d4b50945a624f078a5d1691278e11a569c124c6"
+            "sha256": "b348871e6138450f92b0646d820e7c48f68a2de5b24ecd3e104a2a9d87949a19"
           },
           "review": "statement-by-statement",
           "validation": {
@@ -46945,7 +46945,7 @@
           "counterpart": {
             "file": "tests/integration/rules-declared-dice.test.ts",
             "name": "test_the_mechanics_card_reports_the_dice",
-            "sha256": "2b6b8c2488211dd177100c0a7d4b50945a624f078a5d1691278e11a569c124c6"
+            "sha256": "b348871e6138450f92b0646d820e7c48f68a2de5b24ecd3e104a2a9d87949a19"
           },
           "review": "statement-by-statement",
           "validation": {
@@ -47028,7 +47028,7 @@
           "counterpart": {
             "file": "tests/integration/rules-declared-dice.test.ts",
             "name": "test_a_social_modifier_without_its_reason_is_refused_by_name",
-            "sha256": "2b6b8c2488211dd177100c0a7d4b50945a624f078a5d1691278e11a569c124c6"
+            "sha256": "b348871e6138450f92b0646d820e7c48f68a2de5b24ecd3e104a2a9d87949a19"
           },
           "review": "statement-by-statement",
           "validation": {
@@ -47119,7 +47119,7 @@
           "counterpart": {
             "file": "tests/integration/rules-declared-dice.test.ts",
             "name": "test_a_social_modifier_with_its_reason_reaches_the_dice_and_the_receipt",
-            "sha256": "2b6b8c2488211dd177100c0a7d4b50945a624f078a5d1691278e11a569c124c6"
+            "sha256": "b348871e6138450f92b0646d820e7c48f68a2de5b24ecd3e104a2a9d87949a19"
           },
           "review": "statement-by-statement",
           "validation": {
@@ -47206,7 +47206,7 @@
           "counterpart": {
             "file": "tests/integration/rules-declared-dice.test.ts",
             "name": "test_an_ordinary_modifier_records_its_reason_when_given_and_needs_none",
-            "sha256": "2b6b8c2488211dd177100c0a7d4b50945a624f078a5d1691278e11a569c124c6"
+            "sha256": "b348871e6138450f92b0646d820e7c48f68a2de5b24ecd3e104a2a9d87949a19"
           },
           "review": "statement-by-statement",
           "validation": {
@@ -78164,7 +78164,7 @@
           "counterpart": {
             "file": "tests/integration/world-mod-order.test.ts",
             "name": "test_later_named_rule_changes_execution_and_earlier_policy_is_suppressed",
-            "sha256": "9bbf05b79ac9b9fb42be5d6ed7c98a80cd6de25912ffd0922a6e5fd51d4023f9"
+            "sha256": "c848b3cdac9261852657580f45e75b340945b860b55a7cbb570dce1be6e8d380"
           },
           "review": "statement-by-statement",
           "validation": {
@@ -78266,7 +78266,7 @@
           "counterpart": {
             "file": "tests/integration/world-mod-order.test.ts",
             "name": "test_materializer_and_editor_follow_order_and_stale_job_is_rejected",
-            "sha256": "9bbf05b79ac9b9fb42be5d6ed7c98a80cd6de25912ffd0922a6e5fd51d4023f9"
+            "sha256": "c848b3cdac9261852657580f45e75b340945b860b55a7cbb570dce1be6e8d380"
           },
           "review": "statement-by-statement",
           "validation": {
@@ -78356,7 +78356,7 @@
           "counterpart": {
             "file": "tests/integration/world-mod-order.test.ts",
             "name": "test_dependencies_and_default_order_are_preserved",
-            "sha256": "9bbf05b79ac9b9fb42be5d6ed7c98a80cd6de25912ffd0922a6e5fd51d4023f9"
+            "sha256": "c848b3cdac9261852657580f45e75b340945b860b55a7cbb570dce1be6e8d380"
           },
           "review": "statement-by-statement",
           "validation": {
@@ -78438,7 +78438,7 @@
           "counterpart": {
             "file": "tests/integration/world-mod-order.test.ts",
             "name": "test_an_observer_can_explicitly_replace_an_existing_audit_slot",
-            "sha256": "9bbf05b79ac9b9fb42be5d6ed7c98a80cd6de25912ffd0922a6e5fd51d4023f9"
+            "sha256": "c848b3cdac9261852657580f45e75b340945b860b55a7cbb570dce1be6e8d380"
           },
           "review": "statement-by-statement",
           "validation": {
@@ -82083,7 +82083,7 @@
           "counterpart": {
             "file": "tests/integration/mod-core.test.ts",
             "name": "test_initial_inventory_is_audited_without_being_mentioned_and_adopted_once",
-            "sha256": "2ab754315178af821189135cd5975242a5889c6d7bf1627b341db56eeb127a5e"
+            "sha256": "99f26812c7bb435ebeb47368a91375a7a08045346ba18814cbd288a136681c65"
           },
           "review": "statement-by-statement",
           "validation": {
@@ -82185,7 +82185,7 @@
           "counterpart": {
             "file": "tests/integration/mod-core.test.ts",
             "name": "test_adoption_cannot_duplicate_or_change_existing_inventory_and_bad_batch_is_atomic",
-            "sha256": "2ab754315178af821189135cd5975242a5889c6d7bf1627b341db56eeb127a5e"
+            "sha256": "99f26812c7bb435ebeb47368a91375a7a08045346ba18814cbd288a136681c65"
           },
           "review": "statement-by-statement",
           "validation": {
@@ -82275,7 +82275,7 @@
           "counterpart": {
             "file": "tests/integration/mod-core.test.ts",
             "name": "test_existing_equipment_state_is_preserved_and_executable_weapons_are_not_candidates",
-            "sha256": "2ab754315178af821189135cd5975242a5889c6d7bf1627b341db56eeb127a5e"
+            "sha256": "99f26812c7bb435ebeb47368a91375a7a08045346ba18814cbd288a136681c65"
           },
           "review": "statement-by-statement",
           "validation": {
@@ -82373,7 +82373,7 @@
           "counterpart": {
             "file": "tests/integration/mod-combat.test.ts",
             "name": "test_first_impression_refusal_names_who_is_here_and_how_to_stage_the_target",
-            "sha256": "85f6253999a86eccd5e16e63be089481f0ebc4b1b2e78283125452f63f53cbb0",
+            "sha256": "326ff13a07464adfc45948019a25a379e82c2227ac6268879c017465bd092ba6",
             "revalidated": {
               "priorNativeSha256": "60e70a13249b08e5e9caab6f306d9f63f4a6ff0605e7dd56e7e97dd492406ecd",
               "command": "remote-test.sh run <worktree> all (integration lane, leehow-pc, run.2WMEsTm9) and remote-test.sh run <worktree> integration tests/integration/mod-combat.test.ts (run.vNclJx5C)",
@@ -82492,7 +82492,7 @@
           "counterpart": {
             "file": "tests/integration/mod-combat.test.ts",
             "name": "test_first_impression_uses_higher_value_and_reuses_pair",
-            "sha256": "85f6253999a86eccd5e16e63be089481f0ebc4b1b2e78283125452f63f53cbb0",
+            "sha256": "326ff13a07464adfc45948019a25a379e82c2227ac6268879c017465bd092ba6",
             "revalidated": {
               "priorNativeSha256": "60e70a13249b08e5e9caab6f306d9f63f4a6ff0605e7dd56e7e97dd492406ecd",
               "command": "remote-test.sh run <worktree> all (integration lane, leehow-pc, run.2WMEsTm9) and remote-test.sh run <worktree> integration tests/integration/mod-combat.test.ts (run.vNclJx5C)",
@@ -82603,7 +82603,7 @@
           "counterpart": {
             "file": "tests/integration/mod-combat.test.ts",
             "name": "test_pending_contact_carries_the_handle_the_first_impression_receipt_carries",
-            "sha256": "85f6253999a86eccd5e16e63be089481f0ebc4b1b2e78283125452f63f53cbb0",
+            "sha256": "326ff13a07464adfc45948019a25a379e82c2227ac6268879c017465bd092ba6",
             "revalidated": {
               "priorNativeSha256": "60e70a13249b08e5e9caab6f306d9f63f4a6ff0605e7dd56e7e97dd492406ecd",
               "command": "remote-test.sh run <worktree> all (integration lane, leehow-pc, run.2WMEsTm9) and remote-test.sh run <worktree> integration tests/integration/mod-combat.test.ts (run.vNclJx5C)",
@@ -82710,7 +82710,7 @@
           "counterpart": {
             "file": "tests/integration/mod-core.test.ts",
             "name": "test_mod_toggle_waits_for_safe_boundary",
-            "sha256": "2ab754315178af821189135cd5975242a5889c6d7bf1627b341db56eeb127a5e"
+            "sha256": "99f26812c7bb435ebeb47368a91375a7a08045346ba18814cbd288a136681c65"
           },
           "review": "statement-by-statement",
           "validation": {
@@ -82820,7 +82820,7 @@
           "counterpart": {
             "file": "tests/integration/mod-core.test.ts",
             "name": "test_generated_instance_transfer_preserves_identity_and_state",
-            "sha256": "2ab754315178af821189135cd5975242a5889c6d7bf1627b341db56eeb127a5e"
+            "sha256": "99f26812c7bb435ebeb47368a91375a7a08045346ba18814cbd288a136681c65"
           },
           "review": "statement-by-statement",
           "validation": {
@@ -82906,7 +82906,7 @@
           "counterpart": {
             "file": "tests/integration/mod-core.test.ts",
             "name": "test_bad_batch_does_not_register_definition",
-            "sha256": "2ab754315178af821189135cd5975242a5889c6d7bf1627b341db56eeb127a5e"
+            "sha256": "99f26812c7bb435ebeb47368a91375a7a08045346ba18814cbd288a136681c65"
           },
           "review": "statement-by-statement",
           "validation": {
@@ -82988,7 +82988,7 @@
           "counterpart": {
             "file": "tests/integration/mod-core.test.ts",
             "name": "test_definition_rejects_unsupported_mechanics",
-            "sha256": "2ab754315178af821189135cd5975242a5889c6d7bf1627b341db56eeb127a5e"
+            "sha256": "99f26812c7bb435ebeb47368a91375a7a08045346ba18814cbd288a136681c65"
           },
           "review": "statement-by-statement",
           "validation": {
@@ -83074,7 +83074,7 @@
           "counterpart": {
             "file": "tests/integration/mod-core.test.ts",
             "name": "test_melee_definition_preserves_damage_bonus_without_dummy_gun_fields",
-            "sha256": "2ab754315178af821189135cd5975242a5889c6d7bf1627b341db56eeb127a5e"
+            "sha256": "99f26812c7bb435ebeb47368a91375a7a08045346ba18814cbd288a136681c65"
           },
           "review": "statement-by-statement",
           "validation": {
@@ -83164,7 +83164,7 @@
           "counterpart": {
             "file": "tests/integration/mod-combat.test.ts",
             "name": "test_npc_fires_generated_weapon_then_player_takes_remaining_ammo",
-            "sha256": "85f6253999a86eccd5e16e63be089481f0ebc4b1b2e78283125452f63f53cbb0",
+            "sha256": "326ff13a07464adfc45948019a25a379e82c2227ac6268879c017465bd092ba6",
             "revalidated": {
               "priorNativeSha256": "60e70a13249b08e5e9caab6f306d9f63f4a6ff0605e7dd56e7e97dd492406ecd",
               "command": "remote-test.sh run <worktree> all (integration lane, leehow-pc, run.2WMEsTm9) and remote-test.sh run <worktree> integration tests/integration/mod-combat.test.ts (run.vNclJx5C)",
@@ -83271,7 +83271,7 @@
           "counterpart": {
             "file": "tests/integration/mod-core.test.ts",
             "name": "test_consumable_effect_and_charge_are_persisted_together",
-            "sha256": "2ab754315178af821189135cd5975242a5889c6d7bf1627b341db56eeb127a5e"
+            "sha256": "99f26812c7bb435ebeb47368a91375a7a08045346ba18814cbd288a136681c65"
           },
           "review": "statement-by-statement",
           "validation": {
@@ -83365,7 +83365,7 @@
           "counterpart": {
             "file": "tests/integration/mod-combat.test.ts",
             "name": "test_generated_spell_is_priced_and_npc_can_cast_it",
-            "sha256": "85f6253999a86eccd5e16e63be089481f0ebc4b1b2e78283125452f63f53cbb0",
+            "sha256": "326ff13a07464adfc45948019a25a379e82c2227ac6268879c017465bd092ba6",
             "revalidated": {
               "priorNativeSha256": "60e70a13249b08e5e9caab6f306d9f63f4a6ff0605e7dd56e7e97dd492406ecd",
               "command": "remote-test.sh run <worktree> all (integration lane, leehow-pc, run.2WMEsTm9) and remote-test.sh run <worktree> integration tests/integration/mod-combat.test.ts (run.vNclJx5C)",
@@ -83464,7 +83464,7 @@
           "counterpart": {
             "file": "tests/integration/mod-core.test.ts",
             "name": "test_restart_and_disabled_generator_keep_existing_items_usable",
-            "sha256": "2ab754315178af821189135cd5975242a5889c6d7bf1627b341db56eeb127a5e"
+            "sha256": "99f26812c7bb435ebeb47368a91375a7a08045346ba18814cbd288a136681c65"
           },
           "review": "statement-by-statement",
           "validation": {
@@ -83562,7 +83562,7 @@
           "counterpart": {
             "file": "tests/integration/mod-combat.test.ts",
             "name": "test_legacy_hidden_first_impression_is_reused_without_disclosing_or_rerolling",
-            "sha256": "85f6253999a86eccd5e16e63be089481f0ebc4b1b2e78283125452f63f53cbb0",
+            "sha256": "326ff13a07464adfc45948019a25a379e82c2227ac6268879c017465bd092ba6",
             "revalidated": {
               "priorNativeSha256": "60e70a13249b08e5e9caab6f306d9f63f4a6ff0605e7dd56e7e97dd492406ecd",
               "command": "remote-test.sh run <worktree> all (integration lane, leehow-pc, run.2WMEsTm9) and remote-test.sh run <worktree> integration tests/integration/mod-combat.test.ts (run.vNclJx5C)",
@@ -83669,7 +83669,7 @@
           "counterpart": {
             "file": "tests/integration/mod-combat.test.ts",
             "name": "test_player_learns_generated_spell_and_its_effect_reaches_the_sheet",
-            "sha256": "85f6253999a86eccd5e16e63be089481f0ebc4b1b2e78283125452f63f53cbb0",
+            "sha256": "326ff13a07464adfc45948019a25a379e82c2227ac6268879c017465bd092ba6",
             "revalidated": {
               "priorNativeSha256": "60e70a13249b08e5e9caab6f306d9f63f4a6ff0605e7dd56e7e97dd492406ecd",
               "command": "remote-test.sh run <worktree> all (integration lane, leehow-pc, run.2WMEsTm9) and remote-test.sh run <worktree> integration tests/integration/mod-combat.test.ts (run.vNclJx5C)",
@@ -83772,7 +83772,7 @@
           "counterpart": {
             "file": "tests/integration/mod-combat.test.ts",
             "name": "test_worldline_merge_requires_an_explicit_choice_for_different_object_owners",
-            "sha256": "85f6253999a86eccd5e16e63be089481f0ebc4b1b2e78283125452f63f53cbb0",
+            "sha256": "326ff13a07464adfc45948019a25a379e82c2227ac6268879c017465bd092ba6",
             "revalidated": {
               "priorNativeSha256": "60e70a13249b08e5e9caab6f306d9f63f4a6ff0605e7dd56e7e97dd492406ecd",
               "command": "remote-test.sh run <worktree> all (integration lane, leehow-pc, run.2WMEsTm9) and remote-test.sh run <worktree> integration tests/integration/mod-combat.test.ts (run.vNclJx5C)",
@@ -83887,7 +83887,7 @@
           "counterpart": {
             "file": "tests/integration/mod-combat.test.ts",
             "name": "test_container_transfer_and_condition_are_preserved",
-            "sha256": "85f6253999a86eccd5e16e63be089481f0ebc4b1b2e78283125452f63f53cbb0",
+            "sha256": "326ff13a07464adfc45948019a25a379e82c2227ac6268879c017465bd092ba6",
             "revalidated": {
               "priorNativeSha256": "60e70a13249b08e5e9caab6f306d9f63f4a6ff0605e7dd56e7e97dd492406ecd",
               "command": "remote-test.sh run <worktree> all (integration lane, leehow-pc, run.2WMEsTm9) and remote-test.sh run <worktree> integration tests/integration/mod-combat.test.ts (run.vNclJx5C)",
@@ -83990,7 +83990,7 @@
           "counterpart": {
             "file": "tests/integration/mod-combat.test.ts",
             "name": "test_mod_resolution_obeys_pending_defense_and_preserves_session_projection",
-            "sha256": "85f6253999a86eccd5e16e63be089481f0ebc4b1b2e78283125452f63f53cbb0",
+            "sha256": "326ff13a07464adfc45948019a25a379e82c2227ac6268879c017465bd092ba6",
             "revalidated": {
               "priorNativeSha256": "60e70a13249b08e5e9caab6f306d9f63f4a6ff0605e7dd56e7e97dd492406ecd",
               "command": "remote-test.sh run <worktree> all (integration lane, leehow-pc, run.2WMEsTm9) and remote-test.sh run <worktree> integration tests/integration/mod-combat.test.ts (run.vNclJx5C)",
@@ -84097,7 +84097,7 @@
           "counterpart": {
             "file": "tests/integration/mod-combat.test.ts",
             "name": "test_same_owner_damage_updates_instance_and_cannot_be_hidden_in_legacy_rows",
-            "sha256": "85f6253999a86eccd5e16e63be089481f0ebc4b1b2e78283125452f63f53cbb0",
+            "sha256": "326ff13a07464adfc45948019a25a379e82c2227ac6268879c017465bd092ba6",
             "revalidated": {
               "priorNativeSha256": "60e70a13249b08e5e9caab6f306d9f63f4a6ff0605e7dd56e7e97dd492406ecd",
               "command": "remote-test.sh run <worktree> all (integration lane, leehow-pc, run.2WMEsTm9) and remote-test.sh run <worktree> integration tests/integration/mod-combat.test.ts (run.vNclJx5C)",
@@ -84200,7 +84200,7 @@
           "counterpart": {
             "file": "tests/integration/mod-core.test.ts",
             "name": "test_a_definition_job_carries_only_the_table_its_category_can_use",
-            "sha256": "2ab754315178af821189135cd5975242a5889c6d7bf1627b341db56eeb127a5e"
+            "sha256": "99f26812c7bb435ebeb47368a91375a7a08045346ba18814cbd288a136681c65"
           },
           "review": "statement-by-statement",
           "validation": {
@@ -84310,7 +84310,7 @@
           "counterpart": {
             "file": "tests/integration/mod-core.test.ts",
             "name": "test_a_first_placement_may_name_its_giver_and_the_receipt_keeps_him",
-            "sha256": "2ab754315178af821189135cd5975242a5889c6d7bf1627b341db56eeb127a5e"
+            "sha256": "99f26812c7bb435ebeb47368a91375a7a08045346ba18814cbd288a136681c65"
           },
           "review": "statement-by-statement",
           "validation": {
@@ -84404,7 +84404,7 @@
           "counterpart": {
             "file": "tests/integration/mod-core.test.ts",
             "name": "test_a_trait_nested_in_parameters_is_told_to_move_it_not_to_drop_it",
-            "sha256": "2ab754315178af821189135cd5975242a5889c6d7bf1627b341db56eeb127a5e"
+            "sha256": "99f26812c7bb435ebeb47368a91375a7a08045346ba18814cbd288a136681c65"
           },
           "review": "statement-by-statement",
           "validation": {
@@ -85064,7 +85064,7 @@
           "counterpart": {
             "file": "tests/integration/mod-core.test.ts",
             "name": "test_a_handed_over_object_opens_into_its_player_view_on_the_card",
-            "sha256": "2ab754315178af821189135cd5975242a5889c6d7bf1627b341db56eeb127a5e"
+            "sha256": "99f26812c7bb435ebeb47368a91375a7a08045346ba18814cbd288a136681c65"
           },
           "review": "statement-by-statement",
           "validation": {
@@ -85162,7 +85162,7 @@
           "counterpart": {
             "file": "tests/integration/mod-core.test.ts",
             "name": "test_a_placement_that_omits_its_definition_is_offered_the_names_on_hand",
-            "sha256": "2ab754315178af821189135cd5975242a5889c6d7bf1627b341db56eeb127a5e"
+            "sha256": "99f26812c7bb435ebeb47368a91375a7a08045346ba18814cbd288a136681c65"
           },
           "review": "statement-by-statement",
           "validation": {
@@ -89117,7 +89117,7 @@
     },
     {
       "source": "tests/kernel/test_npc_archetype.py",
-      "sha256": "903223a978ed3bdbc07999b024a697ba66996ff87c94f3721f192c06b1e38c7c",
+      "sha256": "b88a60fef6b88f32cccdce7f47c5fc332cbbeb3e926ca10af89a03ed7cdfc09b",
       "parseErrors": [],
       "cases": [
         {
@@ -89162,7 +89162,7 @@
           "counterpart": {
             "file": "tests/integration/npc-npc-archetype.test.ts",
             "name": "test_the_refusal_offers_the_rulebook_archetypes_and_the_source_read",
-            "sha256": "030adf1f0037432861f60e1daad65bda24585a5e7790e03a80946260ded00e1a"
+            "sha256": "629fa0bcfc58e4b858ba46da70b9b0119c9d577ae19d51cd3da891722fe0a57a"
           },
           "review": "statement-by-statement",
           "validation": {
@@ -89281,7 +89281,7 @@
           "counterpart": {
             "file": "tests/integration/npc-npc-archetype.test.ts",
             "name": "test_a_pinned_archetype_rolls_inside_its_ranges_and_derives_the_rest",
-            "sha256": "030adf1f0037432861f60e1daad65bda24585a5e7790e03a80946260ded00e1a"
+            "sha256": "629fa0bcfc58e4b858ba46da70b9b0119c9d577ae19d51cd3da891722fe0a57a"
           },
           "review": "statement-by-statement",
           "validation": {
@@ -89364,7 +89364,7 @@
           "counterpart": {
             "file": "tests/integration/npc-npc-archetype.test.ts",
             "name": "test_the_same_seed_rolls_the_same_profile",
-            "sha256": "030adf1f0037432861f60e1daad65bda24585a5e7790e03a80946260ded00e1a"
+            "sha256": "629fa0bcfc58e4b858ba46da70b9b0119c9d577ae19d51cd3da891722fe0a57a"
           },
           "review": "statement-by-statement",
           "validation": {
@@ -89459,7 +89459,7 @@
           "counterpart": {
             "file": "tests/integration/npc-npc-archetype.test.ts",
             "name": "test_combat_opens_against_the_pinned_person",
-            "sha256": "030adf1f0037432861f60e1daad65bda24585a5e7790e03a80946260ded00e1a"
+            "sha256": "629fa0bcfc58e4b858ba46da70b9b0119c9d577ae19d51cd3da891722fe0a57a"
           },
           "review": "statement-by-statement",
           "validation": {
@@ -89546,7 +89546,7 @@
           "counterpart": {
             "file": "tests/integration/npc-npc-archetype.test.ts",
             "name": "test_the_pin_is_made_once_and_survives_turns",
-            "sha256": "030adf1f0037432861f60e1daad65bda24585a5e7790e03a80946260ded00e1a"
+            "sha256": "629fa0bcfc58e4b858ba46da70b9b0119c9d577ae19d51cd3da891722fe0a57a"
           },
           "review": "statement-by-statement",
           "validation": {
@@ -89637,7 +89637,7 @@
           "counterpart": {
             "file": "tests/integration/npc-npc-archetype.test.ts",
             "name": "test_an_unknown_archetype_is_refused_with_the_options",
-            "sha256": "030adf1f0037432861f60e1daad65bda24585a5e7790e03a80946260ded00e1a"
+            "sha256": "629fa0bcfc58e4b858ba46da70b9b0119c9d577ae19d51cd3da891722fe0a57a"
           },
           "review": "statement-by-statement",
           "validation": {
@@ -89728,7 +89728,7 @@
           "counterpart": {
             "file": "tests/integration/npc-npc-archetype.test.ts",
             "name": "test_the_books_numbers_cannot_be_replaced_by_an_archetype",
-            "sha256": "030adf1f0037432861f60e1daad65bda24585a5e7790e03a80946260ded00e1a"
+            "sha256": "629fa0bcfc58e4b858ba46da70b9b0119c9d577ae19d51cd3da891722fe0a57a"
           },
           "review": "statement-by-statement",
           "validation": {
@@ -89831,7 +89831,7 @@
           "counterpart": {
             "file": "tests/integration/npc-npc-archetype.test.ts",
             "name": "test_a_fight_against_someone_faster_opens_and_hands_them_the_first_action",
-            "sha256": "030adf1f0037432861f60e1daad65bda24585a5e7790e03a80946260ded00e1a"
+            "sha256": "629fa0bcfc58e4b858ba46da70b9b0119c9d577ae19d51cd3da891722fe0a57a"
           },
           "review": "statement-by-statement",
           "validation": {
@@ -96967,7 +96967,7 @@
     },
     {
       "source": "tests/kernel/test_npc_stakes.py",
-      "sha256": "02adace485d7482f5ba92edced023a03d636e740b8f0d0c21bad52dc6f1197c6",
+      "sha256": "d46a113be51783ebfc034c3765f753d0b7cabfd2a8c8375698be2bb72153e54a",
       "parseErrors": [],
       "cases": [
         {
@@ -97062,7 +97062,7 @@
           "counterpart": {
             "file": "tests/integration/npc-npc-stakes.test.ts",
             "name": "test_after_a_landed_blow_the_rung_is_one_above_his_base_and_only_the_keeper_sees_the_die",
-            "sha256": "0c730084d47bd623e9043ce888ec7710405081498de86e9c56c76cde857580b6"
+            "sha256": "85bb1f766eabd0204bce96c1916f5a1ef0d9a8de14f5082fd749e7b930720103"
           },
           "review": "statement-by-statement",
           "validation": {
@@ -97173,7 +97173,7 @@
           "counterpart": {
             "file": "tests/integration/npc-npc-stakes.test.ts",
             "name": "test_on_the_dangerous_rung_a_roll_at_most_its_surprise_column_allows_a_surprise",
-            "sha256": "0c730084d47bd623e9043ce888ec7710405081498de86e9c56c76cde857580b6"
+            "sha256": "85bb1f766eabd0204bce96c1916f5a1ef0d9a8de14f5082fd749e7b930720103"
           },
           "review": "statement-by-statement",
           "validation": {
@@ -97263,7 +97263,7 @@
           "counterpart": {
             "file": "tests/integration/npc-npc-stakes.test.ts",
             "name": "test_a_severe_roll_that_surprises_carries_the_severe_permission",
-            "sha256": "0c730084d47bd623e9043ce888ec7710405081498de86e9c56c76cde857580b6"
+            "sha256": "85bb1f766eabd0204bce96c1916f5a1ef0d9a8de14f5082fd749e7b930720103"
           },
           "review": "statement-by-statement",
           "validation": {
@@ -97358,7 +97358,7 @@
           "counterpart": {
             "file": "tests/integration/npc-npc-stakes.test.ts",
             "name": "test_a_severe_surprise_packet_carries_the_permission_to_be_unexpected",
-            "sha256": "0c730084d47bd623e9043ce888ec7710405081498de86e9c56c76cde857580b6"
+            "sha256": "85bb1f766eabd0204bce96c1916f5a1ef0d9a8de14f5082fd749e7b930720103"
           },
           "review": "statement-by-statement",
           "validation": {
@@ -97457,7 +97457,7 @@
           "counterpart": {
             "file": "tests/integration/npc-npc-stakes.test.ts",
             "name": "test_a_first_contact_row_and_an_open_obligation_do_not_prepare_him",
-            "sha256": "0c730084d47bd623e9043ce888ec7710405081498de86e9c56c76cde857580b6"
+            "sha256": "85bb1f766eabd0204bce96c1916f5a1ef0d9a8de14f5082fd749e7b930720103"
           },
           "review": "statement-by-statement",
           "validation": {
@@ -97556,7 +97556,7 @@
           "counterpart": {
             "file": "tests/integration/npc-npc-stakes.test.ts",
             "name": "test_a_reaction_the_book_preordains_is_prepared_until_its_obligation_is_done",
-            "sha256": "0c730084d47bd623e9043ce888ec7710405081498de86e9c56c76cde857580b6"
+            "sha256": "85bb1f766eabd0204bce96c1916f5a1ef0d9a8de14f5082fd749e7b930720103"
           },
           "review": "statement-by-statement",
           "validation": {
@@ -97671,7 +97671,7 @@
           "counterpart": {
             "file": "tests/integration/npc-npc-stakes.test.ts",
             "name": "test_the_die_is_rolled_once_per_person_per_turn_and_only_in_an_open_turn",
-            "sha256": "0c730084d47bd623e9043ce888ec7710405081498de86e9c56c76cde857580b6"
+            "sha256": "85bb1f766eabd0204bce96c1916f5a1ef0d9a8de14f5082fd749e7b930720103"
           },
           "review": "statement-by-statement",
           "validation": {
@@ -97766,7 +97766,7 @@
           "counterpart": {
             "file": "tests/integration/npc-npc-stakes.test.ts",
             "name": "test_the_die_is_no_interaction_no_fact_and_not_the_last_roll",
-            "sha256": "0c730084d47bd623e9043ce888ec7710405081498de86e9c56c76cde857580b6"
+            "sha256": "85bb1f766eabd0204bce96c1916f5a1ef0d9a8de14f5082fd749e7b930720103"
           },
           "review": "statement-by-statement",
           "validation": {
@@ -97857,7 +97857,7 @@
           "counterpart": {
             "file": "tests/integration/npc-npc-stakes.test.ts",
             "name": "test_a_die_rolled_for_someone_elsewhere_names_no_one_into_the_journal",
-            "sha256": "0c730084d47bd623e9043ce888ec7710405081498de86e9c56c76cde857580b6"
+            "sha256": "85bb1f766eabd0204bce96c1916f5a1ef0d9a8de14f5082fd749e7b930720103"
           },
           "review": "statement-by-statement",
           "validation": {
@@ -97944,7 +97944,7 @@
           "counterpart": {
             "file": "tests/integration/npc-npc-stakes.test.ts",
             "name": "test_the_base_is_the_disposition_word_first",
-            "sha256": "0c730084d47bd623e9043ce888ec7710405081498de86e9c56c76cde857580b6"
+            "sha256": "85bb1f766eabd0204bce96c1916f5a1ef0d9a8de14f5082fd749e7b930720103"
           },
           "review": "statement-by-statement",
           "validation": {
@@ -98035,7 +98035,7 @@
           "counterpart": {
             "file": "tests/integration/npc-npc-stakes.test.ts",
             "name": "test_without_a_disposition_the_pinned_archetype_gives_the_base",
-            "sha256": "0c730084d47bd623e9043ce888ec7710405081498de86e9c56c76cde857580b6"
+            "sha256": "85bb1f766eabd0204bce96c1916f5a1ef0d9a8de14f5082fd749e7b930720103"
           },
           "review": "statement-by-statement",
           "validation": {
@@ -98124,7 +98124,7 @@
           "counterpart": {
             "file": "tests/integration/npc-npc-stakes.test.ts",
             "name": "test_each_shift_is_the_tables",
-            "sha256": "0c730084d47bd623e9043ce888ec7710405081498de86e9c56c76cde857580b6"
+            "sha256": "85bb1f766eabd0204bce96c1916f5a1ef0d9a8de14f5082fd749e7b930720103"
           },
           "review": "statement-by-statement",
           "validation": {
@@ -98218,7 +98218,7 @@
           "counterpart": {
             "file": "tests/integration/npc-npc-stakes.test.ts",
             "name": "test_hit_points_at_half_move_him_up_and_the_last_rung_holds",
-            "sha256": "0c730084d47bd623e9043ce888ec7710405081498de86e9c56c76cde857580b6"
+            "sha256": "85bb1f766eabd0204bce96c1916f5a1ef0d9a8de14f5082fd749e7b930720103"
           },
           "review": "statement-by-statement",
           "validation": {
@@ -98333,7 +98333,7 @@
           "counterpart": {
             "file": "tests/integration/npc-npc-stakes.test.ts",
             "name": "test_in_a_fight_with_the_investigators_a_calm_man_is_at_least_tense_though_no_one_struck_him",
-            "sha256": "0c730084d47bd623e9043ce888ec7710405081498de86e9c56c76cde857580b6"
+            "sha256": "85bb1f766eabd0204bce96c1916f5a1ef0d9a8de14f5082fd749e7b930720103"
           },
           "review": "statement-by-statement",
           "validation": {
@@ -98424,7 +98424,7 @@
           "counterpart": {
             "file": "tests/integration/npc-npc-stakes.test.ts",
             "name": "test_a_punch_that_opens_a_fight_is_one_rung_not_two",
-            "sha256": "0c730084d47bd623e9043ce888ec7710405081498de86e9c56c76cde857580b6"
+            "sha256": "85bb1f766eabd0204bce96c1916f5a1ef0d9a8de14f5082fd749e7b930720103"
           },
           "review": "statement-by-statement",
           "validation": {
@@ -98511,7 +98511,7 @@
           "counterpart": {
             "file": "tests/integration/npc-npc-stakes.test.ts",
             "name": "test_all_three_violence_facts_at_once_are_still_one_rung",
-            "sha256": "0c730084d47bd623e9043ce888ec7710405081498de86e9c56c76cde857580b6"
+            "sha256": "85bb1f766eabd0204bce96c1916f5a1ef0d9a8de14f5082fd749e7b930720103"
           },
           "review": "statement-by-statement",
           "validation": {
@@ -98602,7 +98602,7 @@
           "counterpart": {
             "file": "tests/integration/npc-npc-stakes.test.ts",
             "name": "test_his_own_turn_of_the_fight_a_turn_after_the_punch_is_tense",
-            "sha256": "0c730084d47bd623e9043ce888ec7710405081498de86e9c56c76cde857580b6"
+            "sha256": "85bb1f766eabd0204bce96c1916f5a1ef0d9a8de14f5082fd749e7b930720103"
           },
           "review": "statement-by-statement",
           "validation": {
@@ -98705,7 +98705,7 @@
           "counterpart": {
             "file": "tests/integration/npc-npc-stakes.test.ts",
             "name": "test_last_turns_blow_moves_him_with_no_fight_running_and_only_the_newest_committed_turn_counts",
-            "sha256": "0c730084d47bd623e9043ce888ec7710405081498de86e9c56c76cde857580b6"
+            "sha256": "85bb1f766eabd0204bce96c1916f5a1ef0d9a8de14f5082fd749e7b930720103"
           },
           "review": "statement-by-statement",
           "validation": {
@@ -98788,7 +98788,7 @@
           "counterpart": {
             "file": "tests/integration/npc-npc-stakes.test.ts",
             "name": "test_nothing_done_and_no_fight_is_calm_as_before",
-            "sha256": "0c730084d47bd623e9043ce888ec7710405081498de86e9c56c76cde857580b6"
+            "sha256": "85bb1f766eabd0204bce96c1916f5a1ef0d9a8de14f5082fd749e7b930720103"
           },
           "review": "statement-by-statement",
           "validation": {
@@ -98877,7 +98877,7 @@
           "counterpart": {
             "file": "tests/integration/npc-npc-stakes.test.ts",
             "name": "test_a_table_the_kernel_cannot_read_is_refused_and_nothing_is_rolled",
-            "sha256": "0c730084d47bd623e9043ce888ec7710405081498de86e9c56c76cde857580b6"
+            "sha256": "85bb1f766eabd0204bce96c1916f5a1ef0d9a8de14f5082fd749e7b930720103"
           },
           "review": "statement-by-statement",
           "validation": {
@@ -98975,7 +98975,7 @@
           "counterpart": {
             "file": "tests/integration/npc-npc-stakes.test.ts",
             "name": "test_a_column_that_falls_or_a_missing_surprise_is_refused_before_a_roll",
-            "sha256": "0c730084d47bd623e9043ce888ec7710405081498de86e9c56c76cde857580b6"
+            "sha256": "85bb1f766eabd0204bce96c1916f5a1ef0d9a8de14f5082fd749e7b930720103"
           },
           "review": "statement-by-statement",
           "validation": {
@@ -99063,7 +99063,7 @@
           "counterpart": {
             "file": "tests/integration/npc-npc-stakes.test.ts",
             "name": "test_a_table_whose_columns_rise_or_stay_is_read",
-            "sha256": "0c730084d47bd623e9043ce888ec7710405081498de86e9c56c76cde857580b6"
+            "sha256": "85bb1f766eabd0204bce96c1916f5a1ef0d9a8de14f5082fd749e7b930720103"
           },
           "review": "statement-by-statement",
           "validation": {
@@ -99154,7 +99154,7 @@
           "counterpart": {
             "file": "tests/integration/npc-npc-stakes.test.ts",
             "name": "test_the_shipped_columns_are_the_tickets_and_rise_with_the_rung",
-            "sha256": "0c730084d47bd623e9043ce888ec7710405081498de86e9c56c76cde857580b6"
+            "sha256": "85bb1f766eabd0204bce96c1916f5a1ef0d9a8de14f5082fd749e7b930720103"
           },
           "review": "statement-by-statement",
           "validation": {
@@ -99269,7 +99269,7 @@
           "counterpart": {
             "file": "tests/integration/npc-npc-stakes.test.ts",
             "name": "test_the_shipped_table_names_every_disposition_and_archetype_and_no_certain_rung",
-            "sha256": "0c730084d47bd623e9043ce888ec7710405081498de86e9c56c76cde857580b6"
+            "sha256": "85bb1f766eabd0204bce96c1916f5a1ef0d9a8de14f5082fd749e7b930720103"
           },
           "review": "statement-by-statement",
           "validation": {
@@ -99338,7 +99338,7 @@
     },
     {
       "source": "tests/kernel/test_npc_standing_action.py",
-      "sha256": "5d755eb92c63ac13512a54efd727462c423d7fe5a126c56ef1a53432ca185779",
+      "sha256": "05d77c12f4c35cde779414559735409cc279fc84b2e3d383f07bcab73e0e1c26",
       "parseErrors": [],
       "cases": [
         {
@@ -99367,7 +99367,7 @@
           "counterpart": {
             "file": "tests/integration/npc-npc-standing-action.test.ts",
             "name": "test_no_disposition_no_authored_word_and_no_override_is_no_standing",
-            "sha256": "caeb3720cb17ef47a49102954c0c54a6dc3e6be9736bd5c9b0fbcd1f3706dfb5"
+            "sha256": "1ddbf8eb6556b3a2d04417302c271fcef83b96f9b89d2fdaf3a22b6616cbd7a1"
           },
           "review": "statement-by-statement",
           "validation": {
@@ -99460,7 +99460,7 @@
           "counterpart": {
             "file": "tests/integration/npc-npc-standing-action.test.ts",
             "name": "test_the_rules_default_reads_the_disposition_table",
-            "sha256": "caeb3720cb17ef47a49102954c0c54a6dc3e6be9736bd5c9b0fbcd1f3706dfb5"
+            "sha256": "1ddbf8eb6556b3a2d04417302c271fcef83b96f9b89d2fdaf3a22b6616cbd7a1"
           },
           "review": "statement-by-statement",
           "validation": {
@@ -99560,7 +99560,7 @@
           "counterpart": {
             "file": "tests/integration/npc-npc-standing-action.test.ts",
             "name": "test_the_stance_is_the_ledger_folded_with_the_open_turn",
-            "sha256": "caeb3720cb17ef47a49102954c0c54a6dc3e6be9736bd5c9b0fbcd1f3706dfb5"
+            "sha256": "1ddbf8eb6556b3a2d04417302c271fcef83b96f9b89d2fdaf3a22b6616cbd7a1"
           },
           "review": "statement-by-statement",
           "validation": {
@@ -99643,7 +99643,7 @@
           "counterpart": {
             "file": "tests/integration/npc-npc-standing-action.test.ts",
             "name": "test_an_npc_out_of_the_fight_has_no_standing",
-            "sha256": "caeb3720cb17ef47a49102954c0c54a6dc3e6be9736bd5c9b0fbcd1f3706dfb5"
+            "sha256": "1ddbf8eb6556b3a2d04417302c271fcef83b96f9b89d2fdaf3a22b6616cbd7a1"
           },
           "review": "statement-by-statement",
           "validation": {
@@ -99730,7 +99730,7 @@
           "counterpart": {
             "file": "tests/integration/npc-npc-standing-action.test.ts",
             "name": "test_an_attack_without_a_legal_target_is_not_issued",
-            "sha256": "caeb3720cb17ef47a49102954c0c54a6dc3e6be9736bd5c9b0fbcd1f3706dfb5"
+            "sha256": "1ddbf8eb6556b3a2d04417302c271fcef83b96f9b89d2fdaf3a22b6616cbd7a1"
           },
           "review": "statement-by-statement",
           "validation": {
@@ -99817,7 +99817,7 @@
           "counterpart": {
             "file": "tests/integration/npc-npc-standing-action.test.ts",
             "name": "test_no_standing_while_an_attack_is_pending",
-            "sha256": "caeb3720cb17ef47a49102954c0c54a6dc3e6be9736bd5c9b0fbcd1f3706dfb5"
+            "sha256": "1ddbf8eb6556b3a2d04417302c271fcef83b96f9b89d2fdaf3a22b6616cbd7a1"
           },
           "review": "statement-by-statement",
           "validation": {
@@ -99904,7 +99904,7 @@
           "counterpart": {
             "file": "tests/integration/npc-npc-standing-action.test.ts",
             "name": "test_an_authored_attack_is_issued_with_basis_authored",
-            "sha256": "caeb3720cb17ef47a49102954c0c54a6dc3e6be9736bd5c9b0fbcd1f3706dfb5"
+            "sha256": "1ddbf8eb6556b3a2d04417302c271fcef83b96f9b89d2fdaf3a22b6616cbd7a1"
           },
           "review": "statement-by-statement",
           "validation": {
@@ -99993,7 +99993,7 @@
           "counterpart": {
             "file": "tests/integration/npc-npc-standing-action.test.ts",
             "name": "test_an_authored_word_outside_the_enum_is_refused_where_the_book_is_registered",
-            "sha256": "caeb3720cb17ef47a49102954c0c54a6dc3e6be9736bd5c9b0fbcd1f3706dfb5"
+            "sha256": "1ddbf8eb6556b3a2d04417302c271fcef83b96f9b89d2fdaf3a22b6616cbd7a1"
           },
           "review": "statement-by-statement",
           "validation": {
@@ -100117,7 +100117,7 @@
           "counterpart": {
             "file": "tests/integration/npc-npc-standing-action.test.ts",
             "name": "test_a_keeper_hold_is_a_receipt_survives_a_restart_and_lapses_with_its_round",
-            "sha256": "caeb3720cb17ef47a49102954c0c54a6dc3e6be9736bd5c9b0fbcd1f3706dfb5"
+            "sha256": "1ddbf8eb6556b3a2d04417302c271fcef83b96f9b89d2fdaf3a22b6616cbd7a1"
           },
           "review": "statement-by-statement",
           "validation": {
@@ -100220,7 +100220,7 @@
           "counterpart": {
             "file": "tests/integration/npc-npc-standing-action.test.ts",
             "name": "test_a_keeper_attack_stands_and_a_disposition_override_replaces_the_book",
-            "sha256": "caeb3720cb17ef47a49102954c0c54a6dc3e6be9736bd5c9b0fbcd1f3706dfb5"
+            "sha256": "1ddbf8eb6556b3a2d04417302c271fcef83b96f9b89d2fdaf3a22b6616cbd7a1"
           },
           "review": "statement-by-statement",
           "validation": {
@@ -100311,7 +100311,7 @@
           "counterpart": {
             "file": "tests/integration/npc-npc-standing-action.test.ts",
             "name": "test_an_override_is_refused_whole_without_why_with_another_change_with_an_unknown_word_or_a_hold_outside_a_fight",
-            "sha256": "caeb3720cb17ef47a49102954c0c54a6dc3e6be9736bd5c9b0fbcd1f3706dfb5"
+            "sha256": "1ddbf8eb6556b3a2d04417302c271fcef83b96f9b89d2fdaf3a22b6616cbd7a1"
           },
           "review": "statement-by-statement",
           "validation": {
@@ -100394,7 +100394,7 @@
           "counterpart": {
             "file": "tests/integration/npc-npc-standing-action.test.ts",
             "name": "test_a_hold_for_someone_outside_the_fight_is_refused",
-            "sha256": "caeb3720cb17ef47a49102954c0c54a6dc3e6be9736bd5c9b0fbcd1f3706dfb5"
+            "sha256": "1ddbf8eb6556b3a2d04417302c271fcef83b96f9b89d2fdaf3a22b6616cbd7a1"
           },
           "review": "statement-by-statement",
           "validation": {
@@ -100485,7 +100485,7 @@
           "counterpart": {
             "file": "tests/integration/npc-npc-standing-action.test.ts",
             "name": "test_the_standing_action_and_disposition_are_keeper_only",
-            "sha256": "caeb3720cb17ef47a49102954c0c54a6dc3e6be9736bd5c9b0fbcd1f3706dfb5"
+            "sha256": "1ddbf8eb6556b3a2d04417302c271fcef83b96f9b89d2fdaf3a22b6616cbd7a1"
           },
           "review": "statement-by-statement",
           "validation": {
@@ -100580,7 +100580,7 @@
           "counterpart": {
             "file": "tests/integration/npc-npc-standing-action.test.ts",
             "name": "test_a_card_without_a_disposition_carries_what_one_is_inferred_from",
-            "sha256": "caeb3720cb17ef47a49102954c0c54a6dc3e6be9736bd5c9b0fbcd1f3706dfb5"
+            "sha256": "1ddbf8eb6556b3a2d04417302c271fcef83b96f9b89d2fdaf3a22b6616cbd7a1"
           },
           "review": "statement-by-statement",
           "validation": {
@@ -100671,7 +100671,7 @@
           "counterpart": {
             "file": "tests/integration/npc-npc-standing-action.test.ts",
             "name": "test_a_stated_tactic_is_the_cards_default_disposition_through_the_table",
-            "sha256": "caeb3720cb17ef47a49102954c0c54a6dc3e6be9736bd5c9b0fbcd1f3706dfb5"
+            "sha256": "1ddbf8eb6556b3a2d04417302c271fcef83b96f9b89d2fdaf3a22b6616cbd7a1"
           },
           "review": "statement-by-statement",
           "validation": {
@@ -100774,7 +100774,7 @@
           "counterpart": {
             "file": "tests/integration/npc-npc-standing-action.test.ts",
             "name": "test_a_keeper_tactic_is_the_cards_word_and_a_rule_default_tactic_is_not",
-            "sha256": "caeb3720cb17ef47a49102954c0c54a6dc3e6be9736bd5c9b0fbcd1f3706dfb5"
+            "sha256": "1ddbf8eb6556b3a2d04417302c271fcef83b96f9b89d2fdaf3a22b6616cbd7a1"
           },
           "review": "statement-by-statement",
           "validation": {
@@ -100859,7 +100859,7 @@
           "counterpart": {
             "file": "tests/integration/npc-npc-standing-action.test.ts",
             "name": "test_a_malformed_tactic_map_is_refused_when_the_card_is_read",
-            "sha256": "caeb3720cb17ef47a49102954c0c54a6dc3e6be9736bd5c9b0fbcd1f3706dfb5"
+            "sha256": "1ddbf8eb6556b3a2d04417302c271fcef83b96f9b89d2fdaf3a22b6616cbd7a1"
           },
           "review": "statement-by-statement",
           "validation": {
@@ -100944,7 +100944,7 @@
           "counterpart": {
             "file": "tests/integration/npc-npc-standing-action.test.ts",
             "name": "test_a_table_without_the_tactic_map_gives_no_default",
-            "sha256": "caeb3720cb17ef47a49102954c0c54a6dc3e6be9736bd5c9b0fbcd1f3706dfb5"
+            "sha256": "1ddbf8eb6556b3a2d04417302c271fcef83b96f9b89d2fdaf3a22b6616cbd7a1"
           },
           "review": "statement-by-statement",
           "validation": {
@@ -101059,7 +101059,7 @@
           "counterpart": {
             "file": "tests/integration/npc-npc-standing-action.test.ts",
             "name": "test_an_inferred_disposition_is_a_receipt_is_written_once_and_survives_a_restart",
-            "sha256": "caeb3720cb17ef47a49102954c0c54a6dc3e6be9736bd5c9b0fbcd1f3706dfb5"
+            "sha256": "1ddbf8eb6556b3a2d04417302c271fcef83b96f9b89d2fdaf3a22b6616cbd7a1"
           },
           "review": "statement-by-statement",
           "validation": {
@@ -101146,7 +101146,7 @@
           "counterpart": {
             "file": "tests/integration/npc-npc-standing-action.test.ts",
             "name": "test_an_inferred_write_over_the_books_disposition_is_refused",
-            "sha256": "caeb3720cb17ef47a49102954c0c54a6dc3e6be9736bd5c9b0fbcd1f3706dfb5"
+            "sha256": "1ddbf8eb6556b3a2d04417302c271fcef83b96f9b89d2fdaf3a22b6616cbd7a1"
           },
           "review": "statement-by-statement",
           "validation": {
@@ -101233,7 +101233,7 @@
           "counterpart": {
             "file": "tests/integration/npc-npc-standing-action.test.ts",
             "name": "test_an_unreadable_ledger_withholds_the_tables_reading_and_never_guesses_a_stance",
-            "sha256": "caeb3720cb17ef47a49102954c0c54a6dc3e6be9736bd5c9b0fbcd1f3706dfb5"
+            "sha256": "1ddbf8eb6556b3a2d04417302c271fcef83b96f9b89d2fdaf3a22b6616cbd7a1"
           },
           "review": "statement-by-statement",
           "validation": {
@@ -101302,7 +101302,7 @@
     },
     {
       "source": "tests/kernel/test_npc_standing_defense.py",
-      "sha256": "c2178c2cdea771488afdb1642355443a757e19d69b15e62373e105098794eecc",
+      "sha256": "d982766db614b0788473f137c173ab5aa9985683dfbc9f109015f36bd17c18f2",
       "parseErrors": [],
       "cases": [
         {
@@ -101331,7 +101331,7 @@
           "counterpart": {
             "file": "tests/integration/npc-npc-standing-defense.test.ts",
             "name": "test_rule_default_fights_back_when_fighting_is_at_least_dodge",
-            "sha256": "da130f71d7741f8b924c3a4d39600ffb1fa8caf58043e0961641acc36ee857f6"
+            "sha256": "5eddb3e037d46e3ceed839344f9d82df40a6df96efb62e19237de9510140ad67"
           },
           "review": "statement-by-statement",
           "validation": {
@@ -101414,7 +101414,7 @@
           "counterpart": {
             "file": "tests/integration/npc-npc-standing-defense.test.ts",
             "name": "test_rule_default_dodges_when_dodge_is_higher",
-            "sha256": "da130f71d7741f8b924c3a4d39600ffb1fa8caf58043e0961641acc36ee857f6"
+            "sha256": "5eddb3e037d46e3ceed839344f9d82df40a6df96efb62e19237de9510140ad67"
           },
           "review": "statement-by-statement",
           "validation": {
@@ -101497,7 +101497,7 @@
           "counterpart": {
             "file": "tests/integration/npc-npc-standing-defense.test.ts",
             "name": "test_rule_default_fights_back_on_a_tie",
-            "sha256": "da130f71d7741f8b924c3a4d39600ffb1fa8caf58043e0961641acc36ee857f6"
+            "sha256": "5eddb3e037d46e3ceed839344f9d82df40a6df96efb62e19237de9510140ad67"
           },
           "review": "statement-by-statement",
           "validation": {
@@ -101588,7 +101588,7 @@
           "counterpart": {
             "file": "tests/integration/npc-npc-standing-defense.test.ts",
             "name": "test_a_firearm_attack_maps_the_standing_to_diving_for_cover",
-            "sha256": "da130f71d7741f8b924c3a4d39600ffb1fa8caf58043e0961641acc36ee857f6"
+            "sha256": "5eddb3e037d46e3ceed839344f9d82df40a6df96efb62e19237de9510140ad67"
           },
           "review": "statement-by-statement",
           "validation": {
@@ -101671,7 +101671,7 @@
           "counterpart": {
             "file": "tests/integration/npc-npc-standing-defense.test.ts",
             "name": "test_a_player_defender_has_no_standing",
-            "sha256": "da130f71d7741f8b924c3a4d39600ffb1fa8caf58043e0961641acc36ee857f6"
+            "sha256": "5eddb3e037d46e3ceed839344f9d82df40a6df96efb62e19237de9510140ad67"
           },
           "review": "statement-by-statement",
           "validation": {
@@ -101758,7 +101758,7 @@
           "counterpart": {
             "file": "tests/integration/npc-npc-standing-defense.test.ts",
             "name": "test_an_authored_tactic_is_issued_with_basis_authored",
-            "sha256": "da130f71d7741f8b924c3a4d39600ffb1fa8caf58043e0961641acc36ee857f6"
+            "sha256": "5eddb3e037d46e3ceed839344f9d82df40a6df96efb62e19237de9510140ad67"
           },
           "review": "statement-by-statement",
           "validation": {
@@ -101845,7 +101845,7 @@
           "counterpart": {
             "file": "tests/integration/npc-npc-standing-defense.test.ts",
             "name": "test_an_authored_word_outside_the_enum_is_refused_at_registration",
-            "sha256": "da130f71d7741f8b924c3a4d39600ffb1fa8caf58043e0961641acc36ee857f6"
+            "sha256": "5eddb3e037d46e3ceed839344f9d82df40a6df96efb62e19237de9510140ad67"
           },
           "review": "statement-by-statement",
           "validation": {
@@ -101960,7 +101960,7 @@
           "counterpart": {
             "file": "tests/integration/npc-npc-standing-defense.test.ts",
             "name": "test_a_keeper_override_is_a_receipt_changes_the_standing_and_survives_a_restart",
-            "sha256": "da130f71d7741f8b924c3a4d39600ffb1fa8caf58043e0961641acc36ee857f6"
+            "sha256": "5eddb3e037d46e3ceed839344f9d82df40a6df96efb62e19237de9510140ad67"
           },
           "review": "statement-by-statement",
           "validation": {
@@ -102055,7 +102055,7 @@
           "counterpart": {
             "file": "tests/integration/npc-npc-standing-defense.test.ts",
             "name": "test_a_keeper_override_is_refused_whole_without_why_with_another_change_or_with_an_unknown_word",
-            "sha256": "da130f71d7741f8b924c3a4d39600ffb1fa8caf58043e0961641acc36ee857f6"
+            "sha256": "5eddb3e037d46e3ceed839344f9d82df40a6df96efb62e19237de9510140ad67"
           },
           "review": "statement-by-statement",
           "validation": {
@@ -102146,7 +102146,7 @@
           "counterpart": {
             "file": "tests/integration/npc-npc-standing-defense.test.ts",
             "name": "test_the_tactic_is_keeper_only",
-            "sha256": "da130f71d7741f8b924c3a4d39600ffb1fa8caf58043e0961641acc36ee857f6"
+            "sha256": "5eddb3e037d46e3ceed839344f9d82df40a6df96efb62e19237de9510140ad67"
           },
           "review": "statement-by-statement",
           "validation": {
@@ -102233,7 +102233,7 @@
           "counterpart": {
             "file": "tests/integration/npc-npc-standing-defense.test.ts",
             "name": "test_the_card_reads_the_rule_from_the_profile_and_names_no_word_without_one",
-            "sha256": "da130f71d7741f8b924c3a4d39600ffb1fa8caf58043e0961641acc36ee857f6"
+            "sha256": "5eddb3e037d46e3ceed839344f9d82df40a6df96efb62e19237de9510140ad67"
           },
           "review": "statement-by-statement",
           "validation": {
@@ -102324,7 +102324,7 @@
           "counterpart": {
             "file": "tests/integration/npc-npc-standing-defense.test.ts",
             "name": "test_ask_accepts_the_none_the_kernel_offers_the_player",
-            "sha256": "da130f71d7741f8b924c3a4d39600ffb1fa8caf58043e0961641acc36ee857f6"
+            "sha256": "5eddb3e037d46e3ceed839344f9d82df40a6df96efb62e19237de9510140ad67"
           },
           "review": "statement-by-statement",
           "validation": {
@@ -102419,7 +102419,7 @@
           "counterpart": {
             "file": "tests/integration/npc-npc-standing-defense.test.ts",
             "name": "test_a_handout_already_shown_is_marked_by_world_state",
-            "sha256": "da130f71d7741f8b924c3a4d39600ffb1fa8caf58043e0961641acc36ee857f6"
+            "sha256": "5eddb3e037d46e3ceed839344f9d82df40a6df96efb62e19237de9510140ad67"
           },
           "review": "statement-by-statement",
           "validation": {
@@ -114333,7 +114333,7 @@
     },
     {
       "source": "tests/kernel/test_rules_families.py",
-      "sha256": "23c3c01bf0678a6932549cc3bfee06977c1c64bd86298d9d4d322a69bb2fce84",
+      "sha256": "40f5ddc8c422869c104bb6c4412be4e55539000d28b11bf465bf563a51cddbd3",
       "parseErrors": [],
       "cases": [
         {
@@ -141718,7 +141718,7 @@
     },
     {
       "source": "tests/kernel/test_table_improvisation.py",
-      "sha256": "4d3d4802600388502d47a0f891b6ce7e87180216f84d78c54f5727ccea9af9b1",
+      "sha256": "9fc1cfd0076d9074b3a396135624d89f872ae230013c080f6fb1665c02fd88ec",
       "parseErrors": [],
       "cases": [
         {
@@ -141763,7 +141763,7 @@
           "counterpart": {
             "file": "tests/integration/world-table-improvisation.test.ts",
             "name": "test_improvised_place_person_and_clue_survive_return_and_restart",
-            "sha256": "75beac976a326890ab2f1a5c08d886fcb4b3753e6c555591273b4887e403613a"
+            "sha256": "d9548d3ee72eccd68ab1f39aa884541d20e72340d0423df0e3ab3d1ad8e23097"
           },
           "review": "statement-by-statement",
           "validation": {
@@ -141877,7 +141877,7 @@
           "counterpart": {
             "file": "tests/integration/world-table-improvisation.test.ts",
             "name": "test_a_new_kernel_process_opens_and_plays_from_an_improvised_active_scene",
-            "sha256": "75beac976a326890ab2f1a5c08d886fcb4b3753e6c555591273b4887e403613a"
+            "sha256": "d9548d3ee72eccd68ab1f39aa884541d20e72340d0423df0e3ab3d1ad8e23097"
           },
           "review": "statement-by-statement",
           "validation": {
@@ -141967,7 +141967,7 @@
           "counterpart": {
             "file": "tests/integration/world-table-improvisation.test.ts",
             "name": "test_undeclared_location_and_failed_batch_create_nothing",
-            "sha256": "75beac976a326890ab2f1a5c08d886fcb4b3753e6c555591273b4887e403613a"
+            "sha256": "d9548d3ee72eccd68ab1f39aa884541d20e72340d0423df0e3ab3d1ad8e23097"
           },
           "review": "statement-by-statement",
           "validation": {
@@ -142053,7 +142053,7 @@
           "counterpart": {
             "file": "tests/integration/world-table-improvisation.test.ts",
             "name": "test_establish_cannot_replace_authored_scene",
-            "sha256": "75beac976a326890ab2f1a5c08d886fcb4b3753e6c555591273b4887e403613a"
+            "sha256": "d9548d3ee72eccd68ab1f39aa884541d20e72340d0423df0e3ab3d1ad8e23097"
           },
           "review": "statement-by-statement",
           "validation": {
@@ -142155,7 +142155,7 @@
           "counterpart": {
             "file": "tests/integration/world-table-improvisation.test.ts",
             "name": "test_known_memory_reference_is_not_a_note_and_cannot_block_a_legal_move",
-            "sha256": "75beac976a326890ab2f1a5c08d886fcb4b3753e6c555591273b4887e403613a"
+            "sha256": "d9548d3ee72eccd68ab1f39aa884541d20e72340d0423df0e3ab3d1ad8e23097"
           },
           "review": "statement-by-statement",
           "validation": {
@@ -142245,7 +142245,7 @@
           "counterpart": {
             "file": "tests/integration/world-table-improvisation.test.ts",
             "name": "test_guessed_memory_id_does_not_bypass_atomic_note_validation",
-            "sha256": "75beac976a326890ab2f1a5c08d886fcb4b3753e6c555591273b4887e403613a"
+            "sha256": "d9548d3ee72eccd68ab1f39aa884541d20e72340d0423df0e3ab3d1ad8e23097"
           },
           "review": "statement-by-statement",
           "validation": {
@@ -142335,7 +142335,7 @@
           "counterpart": {
             "file": "tests/integration/world-table-improvisation.test.ts",
             "name": "test_foreign_note_does_not_relax_linked_or_multiple_note_batches",
-            "sha256": "75beac976a326890ab2f1a5c08d886fcb4b3753e6c555591273b4887e403613a"
+            "sha256": "d9548d3ee72eccd68ab1f39aa884541d20e72340d0423df0e3ab3d1ad8e23097"
           },
           "review": "statement-by-statement",
           "validation": {
@@ -142421,7 +142421,7 @@
           "counterpart": {
             "file": "tests/integration/world-table-improvisation.test.ts",
             "name": "test_real_manual_note_wins_over_a_colliding_memory_reference",
-            "sha256": "75beac976a326890ab2f1a5c08d886fcb4b3753e6c555591273b4887e403613a"
+            "sha256": "d9548d3ee72eccd68ab1f39aa884541d20e72340d0423df0e3ab3d1ad8e23097"
           },
           "review": "statement-by-statement",
           "validation": {
@@ -142489,7 +142489,7 @@
     },
     {
       "source": "tests/kernel/test_temporal_context.py",
-      "sha256": "bdd96cffcac0d54cfd1738a5cb0df1a7b069a7a609ba2b8adcbea0e20b7c1ef0",
+      "sha256": "fedf8d912c9bf3f79b85f2a367404735c594dc8c420da960c47b17ba34614ae4",
       "parseErrors": [],
       "cases": [
         {
@@ -142538,7 +142538,7 @@
           "counterpart": {
             "file": "tests/integration/temporal-context.test.ts",
             "name": "test_old_save_projects_need_without_inventing_records",
-            "sha256": "31711537830fd095b80f7456e7f6030fe324ad8a5a019ff79dc92725296f8730",
+            "sha256": "88d930b7fa70ac10ac170a48366a6529c8c3163db54bbe8b3f954ee7bf457ba2",
             "revalidated": {
               "priorNativeSha256": "c9cdc8bc6ced14c06053da116de7241ee3c4b9760efa6ee799eb380e38c57439",
               "command": "node --test tests/integration/mod-director-text.test.ts tests/integration/temporal-context.test.ts tests/integration/npc-language-barrier.test.ts tests/integration/mod-combat.test.ts",
@@ -142659,7 +142659,7 @@
           "counterpart": {
             "file": "tests/integration/temporal-context.test.ts",
             "name": "test_precise_review_boundary_inside_same_day_part_does_not_auto_close",
-            "sha256": "31711537830fd095b80f7456e7f6030fe324ad8a5a019ff79dc92725296f8730",
+            "sha256": "88d930b7fa70ac10ac170a48366a6529c8c3163db54bbe8b3f954ee7bf457ba2",
             "revalidated": {
               "priorNativeSha256": "c9cdc8bc6ced14c06053da116de7241ee3c4b9760efa6ee799eb380e38c57439",
               "command": "node --test tests/integration/mod-director-text.test.ts tests/integration/temporal-context.test.ts tests/integration/npc-language-barrier.test.ts tests/integration/mod-combat.test.ts",
@@ -142768,7 +142768,7 @@
           "counterpart": {
             "file": "tests/integration/temporal-context.test.ts",
             "name": "test_night_changes_applicability_not_the_recorded_world",
-            "sha256": "31711537830fd095b80f7456e7f6030fe324ad8a5a019ff79dc92725296f8730",
+            "sha256": "88d930b7fa70ac10ac170a48366a6529c8c3163db54bbe8b3f954ee7bf457ba2",
             "revalidated": {
               "priorNativeSha256": "c9cdc8bc6ced14c06053da116de7241ee3c4b9760efa6ee799eb380e38c57439",
               "command": "node --test tests/integration/mod-director-text.test.ts tests/integration/temporal-context.test.ts tests/integration/npc-language-barrier.test.ts tests/integration/mod-combat.test.ts",
@@ -142881,7 +142881,7 @@
           "counterpart": {
             "file": "tests/integration/temporal-context.test.ts",
             "name": "test_awakened_person_survives_routine_guess_and_five_minutes",
-            "sha256": "31711537830fd095b80f7456e7f6030fe324ad8a5a019ff79dc92725296f8730",
+            "sha256": "88d930b7fa70ac10ac170a48366a6529c8c3163db54bbe8b3f954ee7bf457ba2",
             "revalidated": {
               "priorNativeSha256": "c9cdc8bc6ced14c06053da116de7241ee3c4b9760efa6ee799eb380e38c57439",
               "command": "node --test tests/integration/mod-director-text.test.ts tests/integration/temporal-context.test.ts tests/integration/npc-language-barrier.test.ts tests/integration/mod-combat.test.ts",
@@ -142990,7 +142990,7 @@
           "counterpart": {
             "file": "tests/integration/temporal-context.test.ts",
             "name": "test_inferred_account_lands_once_the_observed_record_no_longer_applies",
-            "sha256": "31711537830fd095b80f7456e7f6030fe324ad8a5a019ff79dc92725296f8730",
+            "sha256": "88d930b7fa70ac10ac170a48366a6529c8c3163db54bbe8b3f954ee7bf457ba2",
             "revalidated": {
               "priorNativeSha256": "c9cdc8bc6ced14c06053da116de7241ee3c4b9760efa6ee799eb380e38c57439",
               "command": "node --test tests/integration/mod-director-text.test.ts tests/integration/temporal-context.test.ts tests/integration/npc-language-barrier.test.ts tests/integration/mod-combat.test.ts",
@@ -143091,7 +143091,7 @@
           "counterpart": {
             "file": "tests/integration/temporal-context.test.ts",
             "name": "test_time_earlier_in_the_batch_decides_whether_the_record_still_applies",
-            "sha256": "31711537830fd095b80f7456e7f6030fe324ad8a5a019ff79dc92725296f8730",
+            "sha256": "88d930b7fa70ac10ac170a48366a6529c8c3163db54bbe8b3f954ee7bf457ba2",
             "revalidated": {
               "priorNativeSha256": "c9cdc8bc6ced14c06053da116de7241ee3c4b9760efa6ee799eb380e38c57439",
               "command": "node --test tests/integration/mod-director-text.test.ts tests/integration/temporal-context.test.ts tests/integration/npc-language-barrier.test.ts tests/integration/mod-combat.test.ts",
@@ -143192,7 +143192,7 @@
           "counterpart": {
             "file": "tests/integration/temporal-context.test.ts",
             "name": "test_invalid_activity_rolls_back_time_and_scene_atomically",
-            "sha256": "31711537830fd095b80f7456e7f6030fe324ad8a5a019ff79dc92725296f8730",
+            "sha256": "88d930b7fa70ac10ac170a48366a6529c8c3163db54bbe8b3f954ee7bf457ba2",
             "revalidated": {
               "priorNativeSha256": "c9cdc8bc6ced14c06053da116de7241ee3c4b9760efa6ee799eb380e38c57439",
               "command": "node --test tests/integration/mod-director-text.test.ts tests/integration/temporal-context.test.ts tests/integration/npc-language-barrier.test.ts tests/integration/mod-combat.test.ts",
@@ -143313,7 +143313,7 @@
           "counterpart": {
             "file": "tests/integration/temporal-context.test.ts",
             "name": "test_context_effects_replay_without_moving_or_transferring_objects",
-            "sha256": "31711537830fd095b80f7456e7f6030fe324ad8a5a019ff79dc92725296f8730",
+            "sha256": "88d930b7fa70ac10ac170a48366a6529c8c3163db54bbe8b3f954ee7bf457ba2",
             "revalidated": {
               "priorNativeSha256": "c9cdc8bc6ced14c06053da116de7241ee3c4b9760efa6ee799eb380e38c57439",
               "command": "node --test tests/integration/mod-director-text.test.ts tests/integration/temporal-context.test.ts tests/integration/npc-language-barrier.test.ts tests/integration/mod-combat.test.ts",
@@ -143414,7 +143414,7 @@
           "counterpart": {
             "file": "tests/integration/temporal-context.test.ts",
             "name": "test_effect_order_binds_resulting_clock",
-            "sha256": "31711537830fd095b80f7456e7f6030fe324ad8a5a019ff79dc92725296f8730",
+            "sha256": "88d930b7fa70ac10ac170a48366a6529c8c3163db54bbe8b3f954ee7bf457ba2",
             "revalidated": {
               "priorNativeSha256": "c9cdc8bc6ced14c06053da116de7241ee3c4b9760efa6ee799eb380e38c57439",
               "command": "node --test tests/integration/mod-director-text.test.ts tests/integration/temporal-context.test.ts tests/integration/npc-language-barrier.test.ts tests/integration/mod-combat.test.ts",
@@ -143519,7 +143519,7 @@
           "counterpart": {
             "file": "tests/integration/temporal-context.test.ts",
             "name": "test_leaving_person_marks_record_for_review_without_erasing_observation",
-            "sha256": "31711537830fd095b80f7456e7f6030fe324ad8a5a019ff79dc92725296f8730",
+            "sha256": "88d930b7fa70ac10ac170a48366a6529c8c3163db54bbe8b3f954ee7bf457ba2",
             "revalidated": {
               "priorNativeSha256": "c9cdc8bc6ced14c06053da116de7241ee3c4b9760efa6ee799eb380e38c57439",
               "command": "node --test tests/integration/mod-director-text.test.ts tests/integration/temporal-context.test.ts tests/integration/npc-language-barrier.test.ts tests/integration/mod-combat.test.ts",
@@ -143620,7 +143620,7 @@
           "counterpart": {
             "file": "tests/integration/temporal-context.test.ts",
             "name": "test_opening_context_initializes_only_active_scene",
-            "sha256": "31711537830fd095b80f7456e7f6030fe324ad8a5a019ff79dc92725296f8730",
+            "sha256": "88d930b7fa70ac10ac170a48366a6529c8c3163db54bbe8b3f954ee7bf457ba2",
             "revalidated": {
               "priorNativeSha256": "c9cdc8bc6ced14c06053da116de7241ee3c4b9760efa6ee799eb380e38c57439",
               "command": "node --test tests/integration/mod-director-text.test.ts tests/integration/temporal-context.test.ts tests/integration/npc-language-barrier.test.ts tests/integration/mod-combat.test.ts",
@@ -143733,7 +143733,7 @@
           "counterpart": {
             "file": "tests/integration/temporal-context.test.ts",
             "name": "test_daily_life_table_is_mod_owned_and_disabled_strategy_keeps_world_facts",
-            "sha256": "31711537830fd095b80f7456e7f6030fe324ad8a5a019ff79dc92725296f8730",
+            "sha256": "88d930b7fa70ac10ac170a48366a6529c8c3163db54bbe8b3f954ee7bf457ba2",
             "revalidated": {
               "priorNativeSha256": "c9cdc8bc6ced14c06053da116de7241ee3c4b9760efa6ee799eb380e38c57439",
               "command": "node --test tests/integration/mod-director-text.test.ts tests/integration/temporal-context.test.ts tests/integration/npc-language-barrier.test.ts tests/integration/mod-combat.test.ts",
@@ -143842,7 +143842,7 @@
           "counterpart": {
             "file": "tests/integration/temporal-context.test.ts",
             "name": "test_daily_life_guidance_does_not_displace_existing_package_instructions",
-            "sha256": "31711537830fd095b80f7456e7f6030fe324ad8a5a019ff79dc92725296f8730",
+            "sha256": "88d930b7fa70ac10ac170a48366a6529c8c3163db54bbe8b3f954ee7bf457ba2",
             "revalidated": {
               "priorNativeSha256": "c9cdc8bc6ced14c06053da116de7241ee3c4b9760efa6ee799eb380e38c57439",
               "command": "node --test tests/integration/mod-director-text.test.ts tests/integration/temporal-context.test.ts tests/integration/npc-language-barrier.test.ts tests/integration/mod-combat.test.ts",
@@ -143939,7 +143939,7 @@
           "counterpart": {
             "file": "tests/integration/temporal-context.test.ts",
             "name": "test_temporal_threshold_uses_the_configured_numeric_setting",
-            "sha256": "31711537830fd095b80f7456e7f6030fe324ad8a5a019ff79dc92725296f8730",
+            "sha256": "88d930b7fa70ac10ac170a48366a6529c8c3163db54bbe8b3f954ee7bf457ba2",
             "revalidated": {
               "priorNativeSha256": "c9cdc8bc6ced14c06053da116de7241ee3c4b9760efa6ee799eb380e38c57439",
               "command": "node --test tests/integration/mod-director-text.test.ts tests/integration/temporal-context.test.ts tests/integration/npc-language-barrier.test.ts tests/integration/mod-combat.test.ts",
@@ -144040,7 +144040,7 @@
           "counterpart": {
             "file": "tests/integration/temporal-context.test.ts",
             "name": "test_temporal_table_validation_rejects_duplicate_items_before_install",
-            "sha256": "31711537830fd095b80f7456e7f6030fe324ad8a5a019ff79dc92725296f8730",
+            "sha256": "88d930b7fa70ac10ac170a48366a6529c8c3163db54bbe8b3f954ee7bf457ba2",
             "revalidated": {
               "priorNativeSha256": "c9cdc8bc6ced14c06053da116de7241ee3c4b9760efa6ee799eb380e38c57439",
               "command": "node --test tests/integration/mod-director-text.test.ts tests/integration/temporal-context.test.ts tests/integration/npc-language-barrier.test.ts tests/integration/mod-combat.test.ts",
@@ -148840,7 +148840,7 @@
     },
     {
       "source": "tests/kernel/test_turn_floor.py",
-      "sha256": "d9b1e1c427d2190566fc05e2390f3ea32e87e719648a5a405f00ead44d00e273",
+      "sha256": "46632ee783c8bdb72ec2eea5a793f198c596da15e38eef1eb3b6fb121e9b1a65",
       "parseErrors": [],
       "cases": [
         {
@@ -148877,7 +148877,7 @@
           "counterpart": {
             "file": "tests/integration/turn-floor.test.ts",
             "name": "test_style_carries_the_providers_floor_lines_on_every_turn",
-            "sha256": "dcf5a9459de5323b7c3078ebb5f217fb86d72623839ed678d42b0c0eba2a7a16"
+            "sha256": "40b9bcb14fd5ac6d9b79fd7243c43c5567022bab1ddda4836d01b97f190087e7"
           },
           "review": "statement-by-statement",
           "validation": {
@@ -148967,7 +148967,7 @@
           "counterpart": {
             "file": "tests/integration/turn-floor.test.ts",
             "name": "test_without_a_style_provider_there_is_no_floor",
-            "sha256": "dcf5a9459de5323b7c3078ebb5f217fb86d72623839ed678d42b0c0eba2a7a16"
+            "sha256": "40b9bcb14fd5ac6d9b79fd7243c43c5567022bab1ddda4836d01b97f190087e7"
           },
           "review": "statement-by-statement",
           "validation": {
@@ -149057,7 +149057,7 @@
           "counterpart": {
             "file": "tests/integration/turn-floor.test.ts",
             "name": "test_first_player_turn_has_no_previous_turn_to_read",
-            "sha256": "dcf5a9459de5323b7c3078ebb5f217fb86d72623839ed678d42b0c0eba2a7a16"
+            "sha256": "40b9bcb14fd5ac6d9b79fd7243c43c5567022bab1ddda4836d01b97f190087e7"
           },
           "review": "statement-by-statement",
           "validation": {
@@ -149163,7 +149163,7 @@
           "counterpart": {
             "file": "tests/integration/turn-floor.test.ts",
             "name": "test_an_empty_turn_and_a_repeated_input_score_recover_from_the_graph",
-            "sha256": "dcf5a9459de5323b7c3078ebb5f217fb86d72623839ed678d42b0c0eba2a7a16"
+            "sha256": "40b9bcb14fd5ac6d9b79fd7243c43c5567022bab1ddda4836d01b97f190087e7"
           },
           "review": "statement-by-statement",
           "validation": {
@@ -149257,7 +149257,7 @@
           "counterpart": {
             "file": "tests/integration/turn-floor.test.ts",
             "name": "test_a_different_line_after_an_empty_turn_is_not_a_repeat",
-            "sha256": "dcf5a9459de5323b7c3078ebb5f217fb86d72623839ed678d42b0c0eba2a7a16"
+            "sha256": "40b9bcb14fd5ac6d9b79fd7243c43c5567022bab1ddda4836d01b97f190087e7"
           },
           "review": "statement-by-statement",
           "validation": {
@@ -149343,7 +149343,7 @@
           "counterpart": {
             "file": "tests/integration/turn-floor.test.ts",
             "name": "test_a_turn_that_landed_a_receipt_is_not_empty",
-            "sha256": "dcf5a9459de5323b7c3078ebb5f217fb86d72623839ed678d42b0c0eba2a7a16"
+            "sha256": "40b9bcb14fd5ac6d9b79fd7243c43c5567022bab1ddda4836d01b97f190087e7"
           },
           "review": "statement-by-statement",
           "validation": {
@@ -149441,7 +149441,7 @@
           "counterpart": {
             "file": "tests/integration/turn-floor.test.ts",
             "name": "test_recover_offer_leads_with_the_present_person_when_nothing_is_owed",
-            "sha256": "dcf5a9459de5323b7c3078ebb5f217fb86d72623839ed678d42b0c0eba2a7a16"
+            "sha256": "40b9bcb14fd5ac6d9b79fd7243c43c5567022bab1ddda4836d01b97f190087e7"
           },
           "review": "statement-by-statement",
           "validation": {
@@ -149527,7 +149527,7 @@
           "counterpart": {
             "file": "tests/integration/turn-floor.test.ts",
             "name": "test_a_failed_check_last_turn_is_the_consequence_still_owed",
-            "sha256": "dcf5a9459de5323b7c3078ebb5f217fb86d72623839ed678d42b0c0eba2a7a16"
+            "sha256": "40b9bcb14fd5ac6d9b79fd7243c43c5567022bab1ddda4836d01b97f190087e7"
           },
           "review": "statement-by-statement",
           "validation": {
@@ -149621,7 +149621,7 @@
           "counterpart": {
             "file": "tests/integration/turn-floor.test.ts",
             "name": "test_an_open_exit_someone_present_knows_becomes_a_route_row",
-            "sha256": "dcf5a9459de5323b7c3078ebb5f217fb86d72623839ed678d42b0c0eba2a7a16"
+            "sha256": "40b9bcb14fd5ac6d9b79fd7243c43c5567022bab1ddda4836d01b97f190087e7"
           },
           "review": "statement-by-statement",
           "validation": {
@@ -149703,7 +149703,7 @@
           "counterpart": {
             "file": "tests/integration/turn-floor.test.ts",
             "name": "test_walking_the_offered_route_is_recorded_as_offer_taken",
-            "sha256": "dcf5a9459de5323b7c3078ebb5f217fb86d72623839ed678d42b0c0eba2a7a16"
+            "sha256": "40b9bcb14fd5ac6d9b79fd7243c43c5567022bab1ddda4836d01b97f190087e7"
           },
           "review": "statement-by-statement",
           "validation": {
@@ -149793,7 +149793,7 @@
           "counterpart": {
             "file": "tests/integration/turn-floor.test.ts",
             "name": "test_offer_stays_inside_the_director_budget",
-            "sha256": "dcf5a9459de5323b7c3078ebb5f217fb86d72623839ed678d42b0c0eba2a7a16"
+            "sha256": "40b9bcb14fd5ac6d9b79fd7243c43c5567022bab1ddda4836d01b97f190087e7"
           },
           "review": "statement-by-statement",
           "validation": {
@@ -149883,7 +149883,7 @@
           "counterpart": {
             "file": "tests/integration/turn-floor.test.ts",
             "name": "test_an_implicit_close_is_recorded_and_surfaces_in_recent_and_the_signals",
-            "sha256": "dcf5a9459de5323b7c3078ebb5f217fb86d72623839ed678d42b0c0eba2a7a16"
+            "sha256": "40b9bcb14fd5ac6d9b79fd7243c43c5567022bab1ddda4836d01b97f190087e7"
           },
           "review": "statement-by-statement",
           "validation": {
@@ -149965,7 +149965,7 @@
           "counterpart": {
             "file": "tests/integration/turn-floor.test.ts",
             "name": "test_an_explicit_close_is_the_default",
-            "sha256": "dcf5a9459de5323b7c3078ebb5f217fb86d72623839ed678d42b0c0eba2a7a16"
+            "sha256": "40b9bcb14fd5ac6d9b79fd7243c43c5567022bab1ddda4836d01b97f190087e7"
           },
           "review": "statement-by-statement",
           "validation": {
@@ -150059,7 +150059,7 @@
           "counterpart": {
             "file": "tests/integration/turn-floor.test.ts",
             "name": "test_the_director_graph_declares_the_two_recover_rules_and_their_threshold",
-            "sha256": "dcf5a9459de5323b7c3078ebb5f217fb86d72623839ed678d42b0c0eba2a7a16"
+            "sha256": "40b9bcb14fd5ac6d9b79fd7243c43c5567022bab1ddda4836d01b97f190087e7"
           },
           "review": "statement-by-statement",
           "validation": {
@@ -150157,7 +150157,7 @@
           "counterpart": {
             "file": "tests/integration/turn-floor.test.ts",
             "name": "test_attacking_a_person_with_no_stat_block_is_refused_toward_a_receipt_not_toward_prose",
-            "sha256": "dcf5a9459de5323b7c3078ebb5f217fb86d72623839ed678d42b0c0eba2a7a16"
+            "sha256": "40b9bcb14fd5ac6d9b79fd7243c43c5567022bab1ddda4836d01b97f190087e7"
           },
           "review": "statement-by-statement",
           "validation": {
@@ -150263,7 +150263,7 @@
           "counterpart": {
             "file": "tests/integration/turn-floor.test.ts",
             "name": "test_failed_checks_keep_obstacle_signals_without_recovery_debt",
-            "sha256": "dcf5a9459de5323b7c3078ebb5f217fb86d72623839ed678d42b0c0eba2a7a16"
+            "sha256": "40b9bcb14fd5ac6d9b79fd7243c43c5567022bab1ddda4836d01b97f190087e7"
           },
           "review": "statement-by-statement",
           "validation": {
@@ -150353,7 +150353,7 @@
           "counterpart": {
             "file": "tests/integration/turn-floor.test.ts",
             "name": "test_passing_the_obstacle_clears_its_advisory_count",
-            "sha256": "dcf5a9459de5323b7c3078ebb5f217fb86d72623839ed678d42b0c0eba2a7a16"
+            "sha256": "40b9bcb14fd5ac6d9b79fd7243c43c5567022bab1ddda4836d01b97f190087e7"
           },
           "review": "statement-by-statement",
           "validation": {

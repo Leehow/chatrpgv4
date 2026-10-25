@@ -9,7 +9,7 @@ import json
 
 from conftest import CAMPAIGN, CONTENT_DIR, WORKTREE, campaign_dir, create_campaign, narrate, narrate_opening, open_turn, read_json
 from test_director_scoring import rule, threshold, weighted
-from test_rules_families import first_failure, first_success, resolve_err
+from test_rules_families import first_failure, first_success, resolve, resolve_err
 
 PROVIDER = read_json(WORKTREE / "mods" / "narration-craft" / "mod.json")
 STYLE = read_json(WORKTREE / "mods" / "narration-craft" / PROVIDER["contributes"]["style"])
@@ -188,13 +188,10 @@ def test_the_director_graph_declares_the_two_recover_rules_and_their_threshold()
 
 def test_attacking_a_person_with_no_stat_block_is_refused_toward_a_receipt_not_toward_prose(kernel):
     open_turn(kernel, "我想把你打一顿")
-    error = resolve_err(kernel, "t1-c1", intent="combat", goal="打诺特", method="挥拳", actor="Thomas Hayes", target="Steven Knott")
-    assert error["code"] == "needs"
-    assert "no stat block" in error["message"]
-    fix = error["fix"]
-    assert "Nothing without a receipt has happened" in fix
-    assert "do not narrate a blow as landed" in fix
-    assert "without dice" not in fix
+    # §264.28: a person with no stat block is pinned ordinary_adult and the blow is settled into a receipt (was refused with `needs`).
+    result = resolve(kernel, "t1-c1", intent="combat", goal="打诺特", method="挥拳", weapon="unarmed", actor="Thomas Hayes", target="Steven Knott")
+    assert result["receipts"], "a receipt stands behind the blow"
+    assert any(row["reason"] == "default_stat_block" for row in result["adjusted"]), result["adjusted"]
 
 
 # ---- advisory obstacle signals without recovery debt (contract §122, #99 D4) --------------------

@@ -339,15 +339,12 @@ test('a clue refused away from its place names where it is found; the move there
     assert.ok(state(k).discovered_clues.includes('knott-research-leads'));
 });
 
-test('an empty assessment beside a registered person names who is registered; moving them away first lands it (live el-v2-20261022h T14)',async t=>{
+test('an empty assessment beside a registered person is accepted and the person stays (§264.24, was refused naming who is registered)',async t=>{
     const k=await kernel(t);await openTurn(k,'Knott has gone home; I find the office empty.');
     const empty=compileTurnPacket({version:4,commands:[{kind:'scene',service:'closed',crowd:'empty',review_after_minutes:45}]}).effects;
-    const refused=await k.tableErr('apply',{call_id:'t1-c1',effects:empty});
-    assert.equal(refused.code,'invalid_params');
-    const present=refused.details?.present??[];
-    assert.ok(present.length>0&&present.every((ref:string)=>Object.values(state(k).npc_references?.by_node??{}).includes(ref)),JSON.stringify(refused));
-    assert.ok(String(refused.fix).includes(present[0]),'the fix names them too, for paths that render only the fix');
-    await k.table('apply',{call_id:'t1-c1',effects:[...present.map((ref:string)=>({kind:'npc',name:ref,to:'away',why:'He went home for the night.'})),...empty]});
+    const receipt=await k.table('apply',{call_id:'t1-c1',effects:empty});
+    const row=(await k.table('status')).receipts.find((r:Row)=>r.call_id==='t1-c1'&&r.kind==='scene');
+    assert.ok((row.adjusted??[]).some((r:Row)=>r.field==='crowd'&&r.reason==='registered_people_stay'&&r.present.length>0),JSON.stringify(receipt));
     assert.equal(state(k).scene_activity[state(k).active_scene].crowd,'empty');
 });
 

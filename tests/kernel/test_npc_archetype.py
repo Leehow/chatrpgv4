@@ -20,16 +20,10 @@ def attack_knott(client, call_id, **extra):
 
 def test_the_refusal_offers_the_rulebook_archetypes_and_the_source_read(kernel):
     open_turn(kernel, "我想把你打一顿")
-    error = attack_knott(kernel, "t1-c1")
-    assert error["code"] == "needs" and "no stat block" in error["message"]
-    needs = error["details"]["needs"]
-    assert needs["field"] == "archetype"
-    assert needs["options"] == list(ARCHETYPES)  # the table's order, read the way the kernel reads it
-    assert needs["fightable"] == []  # nobody on this stage has numbers
-    fix = error["fix"]
-    assert "apply npc with archetype" in fix and "lookup kind=source" in fix
-    assert "Nothing without a receipt has happened" in fix
-    assert "catalog" not in fix and "without dice" not in fix
+    # §264.28: a person the book gives no block is pinned ordinary_adult instead of refused with `needs archetype`.
+    result = resolve(kernel, "t1-c1", intent="combat", goal="打诺特", method="挥拳", weapon="unarmed", actor="Thomas Hayes", target="Steven Knott")
+    assert any(row["field"] == "npc.archetype" and row["reason"] == "default_stat_block" for row in result["adjusted"]), result["adjusted"]
+    assert result["family"] == "combat"
 
 
 def test_a_pinned_archetype_rolls_inside_its_ranges_and_derives_the_rest(seeded_kernel):

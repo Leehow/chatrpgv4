@@ -139,12 +139,15 @@ def test_the_mechanics_card_reports_the_dice(seeded_kernel):
 
 # ---- the reason a social die was given is refused when missing, and printed when present ------
 
+# §264.28: a social modifier needs no reason; it reaches the dice and the receipt records "(no reason given)" (was refused by name).
 def test_a_social_modifier_without_its_reason_is_refused_by_name(seeded_kernel):
     open_turn(seeded_kernel, "我去报社。")
     seeded_kernel.table("apply", call_id="t1-c1", effects=[{"kind": "move", "to": "newspaper-morgue"}])
-    error = resolve_err(seeded_kernel, "t1-c2", intent="social", goal="让他放松", method="用说服跟他讲道理",
-                        target="Arty Wilmot", modifiers={"bonus_dice": 1})
-    assert error["code"] == "needs" and error["details"]["field"] == "modifiers.reason"
+    result = resolve(seeded_kernel, "t1-c2", intent="social", goal="让他放松", method="用说服跟他讲道理",
+                     target="Arty Wilmot", modifiers={"bonus_dice": 1})
+    assert result["decision"] == "social:adjudicate-difficulty"
+    roll = [r for r in receipts(seeded_kernel).values() if r.get("skill") == "Persuade"][-1]
+    assert roll["bonus"] == 1 and "no reason given" in str(roll["modifier_reason"])
 
 
 def test_a_social_modifier_with_its_reason_reaches_the_dice_and_the_receipt(seeded_kernel):

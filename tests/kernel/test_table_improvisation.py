@@ -77,7 +77,8 @@ def test_undeclared_location_and_failed_batch_create_nothing(tmp_path):
         assert client.table_err("apply", call_id="t1-c1", effects=[{"kind": "move", "to": SHOP}])["code"] == "unknown_entity"
         client.table_err("apply", call_id="t1-c2", effects=[
             {"kind": "move", "to": SHOP, "via": "Walk", "establish": {"summary": "A photographic shop."}},
-            {"kind": "clue", "clue": CLUE, "establish": {"summary": "An address."}},
+            # §264.24: an improvised clue missing its `how` no longer fails the batch; an undeclared place still does.
+            {"kind": "move", "to": "An undeclared second place"},
         ])
         after = read_json(campaign_dir(client.workspace) / "world.json")
         assert after.get("table_entities") == before.get("table_entities")

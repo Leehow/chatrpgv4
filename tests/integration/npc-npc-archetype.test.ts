@@ -15,16 +15,10 @@ return (await resolve_err(client,call_id,({"intent":"combat","goal":"打诺特",
 export async function test_the_refusal_offers_the_rulebook_archetypes_and_the_source_read(kernel:any){
 let error:any,needs:any,fix:any;
 (await open_turn(kernel,"我想把你打一顿"));
-error=(await attack_knott(kernel,"t1-c1"));
-assert.ok(pyBool((await (async()=>{const __left=pyEqual(pyAt(error,"code"),"needs");return pyBool(__left)?pyContains(pyAt(error,"message"),"no stat block"):__left})())),"tests/kernel/test_npc_archetype.py:24 assert error[\"code\"] == \"needs\" and \"no stat block\" in error[\"message\"]");
-needs=pyAt(pyAt(error,"details"),"needs");
-assert.ok(pyBool(pyEqual(pyAt(needs,"field"),"archetype")),"tests/kernel/test_npc_archetype.py:26 assert needs[\"field\"] == \"archetype\"");
-assert.ok(pyBool(pyEqual(pyAt(needs,"options"),(await pyList(ARCHETYPES)))),"tests/kernel/test_npc_archetype.py:27 assert needs[\"options\"] == list(ARCHETYPES)");
-assert.ok(pyBool(pyEqual(pyAt(needs,"fightable"),[])),"tests/kernel/test_npc_archetype.py:28 assert needs[\"fightable\"] == []");
-fix=pyAt(error,"fix");
-assert.ok(pyBool((await (async()=>{const __left=pyContains(fix,"apply npc with archetype");return pyBool(__left)?pyContains(fix,"lookup kind=source"):__left})())),"tests/kernel/test_npc_archetype.py:30 assert \"apply npc with archetype\" in fix and \"lookup kind=source\" in fix");
-assert.ok(pyBool(pyContains(fix,"Nothing without a receipt has happened")),"tests/kernel/test_npc_archetype.py:31 assert \"Nothing without a receipt has happened\" in fix");
-assert.ok(pyBool((await (async()=>{const __left=!pyContains(fix,"catalog");return pyBool(__left)?!pyContains(fix,"without dice"):__left})())),"tests/kernel/test_npc_archetype.py:32 assert \"catalog\" not in fix and \"without dice\" not in fix");
+// §264.28: a person the book gives no block is pinned ordinary_adult instead of refused with `needs archetype`.
+error=(await resolve(kernel,"t1-c1",({"intent":"combat","goal":"打诺特","method":"挥拳","weapon":"unarmed","actor":"Thomas Hayes","target":"Steven Knott"})));
+assert.ok(pyBool(error.adjusted.some((row:any)=>row.field==='npc.archetype'&&row.reason==='default_stat_block')),JSON.stringify(error.adjusted));
+assert.equal(error.family,'combat');
 }
 if(process.argv[1]===import.meta.filename)for(const [index,row] of ([{}]).entries())test("test_the_refusal_offers_the_rulebook_archetypes_and_the_source_read"+(([{}]).length>1?' ['+index+']':''),async(t)=>{const temporary=temporaryPath(t);await test_the_refusal_offers_the_rulebook_archetypes_and_the_source_read(await kernel(t,{}));});
 export async function test_a_pinned_archetype_rolls_inside_its_ranges_and_derives_the_rest(seeded_kernel:any){

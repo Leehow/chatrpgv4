@@ -180,8 +180,8 @@ def test_a_keeper_override_is_a_receipt_changes_the_standing_and_survives_a_rest
 
 def test_a_keeper_override_is_refused_whole_without_why_with_another_change_or_with_an_unknown_word(kernel):
     open_turn(kernel, "I watch Knott.")
-    for effect, field in [({"kind": "npc", "name": "Steven Knott", "defense": "dodge"}, "npc.why"),
-                          ({"kind": "npc", "name": "Steven Knott", "defense": "dodge", "to": "here", "why": "x"}, "npc.defense"),
+    # §264.24: a missing `why` no longer refuses (it is recorded as not given), so only the other refusals remain here.
+    for effect, field in [({"kind": "npc", "name": "Steven Knott", "defense": "dodge", "to": "here", "why": "x"}, "npc.defense"),
                           ({"kind": "npc", "name": "Steven Knott", "defense": "parry", "why": "x"}, "npc.defense")]:
         refused = kernel.table_err("apply", call_id="t1-c1", effects=[effect])
         assert refused["code"] == "invalid_params" and refused["details"]["field"] == field
