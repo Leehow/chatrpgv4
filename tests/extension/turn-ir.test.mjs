@@ -106,3 +106,11 @@ test('a long answer splits into consecutive interactions; a textual duration is 
  const {value}=normalizeTurnIr({version:5,actions:[{op:'time',minutes:'5',reason:'wait'},{op:'time',minutes:0.4,band:'brief',reason:'x'}]});
  assert.equal(value.actions[0].minutes,5);assert.equal(value.actions[1].minutes,undefined);
 });
+
+test('a knowledge item one level too deep is flattened; a topic in words is what was just asked',async()=>{
+ const {normalizeTurnIr}=await import('../../runtime/turn-ir.ts');
+ const {value}=normalizeTurnIr({version:5,actions:[{op:'communicate',speaker:'欧文·塔布勒',to:['周衡'],act:'answer',says:[{knowledge:{knowledge:'withheld',topic:'the well'}}]}]});
+ assert.deepEqual(value.actions[0].says,[{knowledge:'withheld',topic:'the well'}]);
+ const out=packet(value.actions);
+ assert.deepEqual(out.interactions[0].content,[{new:{predicate:'knowledge_status',topic:'player_input',status:'withheld'}}]);
+});

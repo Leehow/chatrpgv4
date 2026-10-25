@@ -89,6 +89,9 @@ export function normalizeTurnIr(value:unknown):{value:unknown;dropped:Array<{ind
    if(!item||typeof item!=='object'||Array.isArray(item))return item;
    const keys=Object.keys(item as Row),ref=(item as Row).fact_ref??(item as Row).source_ref??(item as Row).exhibit_ref;
    if(typeof ref==='string'&&/^(fact|source|exhibit)_[1-9][0-9]*$/.test(ref))return ref;
+   // {knowledge:{knowledge,topic}} is the knowledge item one level too deep (live 1025h Digging T2).
+   const nested=(item as Row).knowledge;
+   if(nested&&typeof nested==='object'&&!Array.isArray(nested))return {...(item as Row),...(nested as Row),knowledge:(nested as Row).knowledge??(nested as Row).status};
    return keys.length===1&&/^(fact|source|exhibit)_[1-9][0-9]*$/.test(keys[0])?keys[0]:item;
   };
   for(const key of ['says','what'])if(Array.isArray(row[key]))row[key]=row[key].map(reference);
@@ -207,7 +210,8 @@ export function toPacket(actions:TurnIrAction[],directory:TurnIrDirectory,aliase
     const content=(action.says??[]).map(item=>typeof item==='string'
      ?{[item.startsWith('fact_')?'fact_ref':item.startsWith('source_')?'source_ref':'exhibit_ref']:item}
      :'claim' in item?{new:{predicate:'meaning',meaning:item.claim}}
-     :'knowledge' in item?{new:{predicate:'knowledge_status',topic:item.topic??ASKED_TOPIC,status:item.knowledge}}:{new:item.new});
+     // A topic is an issued reference; a topic in words is what the investigator just asked about.
+     :'knowledge' in item?{new:{predicate:'knowledge_status',topic:item.topic&&/^[a-z]+_[1-9][0-9]*$/.test(item.topic)?item.topic:ASKED_TOPIC,status:item.knowledge}}:{new:item.new});
     if(!content.length&&!['greet','refuse','acknowledge'].includes(action.act))
      throw new TurnIrError(i,`${action.act} says something: give says (a reference, a claim or knowledge)`,{field:'says'});
     // The v4 interaction carries at most eight items; a longer answer is the same act in consecutive interactions.

@@ -53515,3 +53515,11 @@ the party could not pass, whose crossing the prose must not tell). In 1025h *Dig
 out of a reader's reach held the whole turn untold.
 
 Tests: `tests/extension/held-act-outcome.test.mjs`, `tests/extension/apply-recovery-native.test.mjs`.
+
+### 270.14 Knowledge items
+
+A `{knowledge: {knowledge, topic}}` item, the knowledge written one level too deep, is flattened. A `topic` that is not
+an issued reference is what the investigator just asked about (`player_input`, §264.1). In 1025h *Digging for a Dead God*
+T2 two outputs were refused for the nested shape and the turn went untold.
+
+Tests: `tests/extension/turn-ir.test.mjs`.
