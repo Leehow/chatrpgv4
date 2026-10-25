@@ -53060,6 +53060,20 @@ them anywhere but the party's place (`away` or another place), which takes them 
 Dust turns the Keeper spent a separate apply round (and up to 28k characters of reasoning) moving the same companion
 after every move.
 
+## 268. A failure is answered by the rules, not by an owed consequence (owner 2026-10-25)
+
+### 268.1 The Director offers a failed check's consequence only when its cost was named
+
+A roll receipt carries `named_stake` when the resolve action named its cost (`stakes`, trimmed) and the roll is the
+acting character's own. The Director's `consequence` offer row for a failed non-dice roll is drawn only from such a
+receipt, and its line names that cost ("... failed last turn; the stake named before the roll: <stake>"). A failed check
+with no named cost was answered by the failure itself in the delivered turn; the rules give it nothing more (a failed
+First Aid heals nothing and harms nothing), so no row calls it still owed. Amends §34.3 and turn-floor D2. In 1025c
+*The Restless Thirst* T6 the old row on a failed First Aid became an invented bleed-out clock, 4 HP of damage that turn
+and 2 more five turns later.
+
+Tests: `tests/extension/offer-sources.test.mjs`, `tests/integration/turn-floor.test.ts`.
+
 ## 265. Shopping: the outlet's stock, price and order time are the program's (owner 2026-10-24)
 
 The owner's report: a MiniMax Keeper's long deliberations were mostly about whether a shop had the goods and what they cost. Those answers moved to the kernel; the Keeper picks parameters. Purchase guidance that lived in other packages moved with them, so the problem has one home. Amends §58 ("the kernel does not price anything itself") for goods bought at an outlet while this package is active; every other cash path is unchanged.

@@ -15,7 +15,7 @@ const crowded = () => ({
   present: [{name: 'Witness', wants: 'leave safely'}],
   where: {exits: [{to: 'Library', material: 'ready'}]},
   pressures: [{kind: 'clock', name: 'Closing time'}],
-  previous: {receipts: [{kind: 'roll', form: 'check', passed: false, actor_label: 'Investigator', skill: 'Listen'}]},
+  previous: {receipts: [{kind: 'roll', form: 'check', passed: false, actor_label: 'Investigator', skill: 'Listen', named_stake: 'the guard hears them first'}]},
 });
 const clock = (threat, id) => ({threat, clock: id, state: '0/4', next: 'A visible sign'});
 const clockOffers = clocks => directorOffer('PRESSURE', {present: [], where: {}, pressures: [], pacing: {threat_clocks: clocks}});
@@ -30,9 +30,10 @@ for (const beat of [...Object.keys(OFFER_ORDER), 'UNKNOWN']) {
   });
 }
 
-test('empty and non-consequence histories do not invent a consequence', () => {
+test('empty, non-consequence and unnamed-cost failure histories do not invent a consequence', () => {
   const source = crowded();
-  for (const receipts of [[], [{kind: 'roll', form: 'dice', passed: false}], [{kind: 'roll', form: 'check', passed: true}]]) {
+  const unnamed = {kind: 'roll', form: 'check', passed: false, skill: 'First Aid', check: {goal: 'stop the bleeding', stakes: {on_failure: 'the attempt fails: stop the bleeding'}}};
+  for (const receipts of [[], [{kind: 'roll', form: 'dice', passed: false}], [{kind: 'roll', form: 'check', passed: true}], [unnamed], [{...unnamed, named_stake: ''}]]) {
     source.previous = {receipts};
     assert.ok(directorOffer('ADVANCE', source).every(row => row.kind !== 'consequence'));
   }

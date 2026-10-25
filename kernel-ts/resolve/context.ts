@@ -303,6 +303,10 @@ export class SettleContext {
         };
         receipt.actor_label = this.subjectLabel(actor);
         receipt.actor_is_investigator = investigator;
+        // The cost the Keeper named for failing, as given on the action; absent when none was named (§268.1).
+        const stake = typeof this.action.stakes === 'string' ? this.action.stakes.trim() : '';
+        if (stake && actor === this.actorId && receipt.named_stake == null)
+            receipt.named_stake = stake;
         if (truth(source_receipt))
             receipt.source_receipt = source_receipt;
         if (check != null) {

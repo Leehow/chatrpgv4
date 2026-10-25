@@ -101,18 +101,19 @@ assert.ok(pyBool(pyContains(pyAt(pyAt(offer,0),"line"),"wants:")),"tests/kernel/
 assert.ok(pyBool(!pyBool((await pyAny((await (async()=>{const __rows:any[]=[];for(const row of pyIterable(offer)){__rows.push(pyEqual(pyAt(row,"kind"),"consequence"));}return __rows;})()))))),"tests/kernel/test_turn_floor.py:106 assert not any(row[\"kind\"] == \"consequence\" for row in offer)");
 }
 if(process.argv[1]===import.meta.filename)for(const [index,row] of ([{}]).entries())test("test_recover_offer_leads_with_the_present_person_when_nothing_is_owed"+(([{}]).length>1?' ['+index+']':''),async(t)=>{const temporary=temporaryPath(t);await test_recover_offer_leads_with_the_present_person_when_nothing_is_owed(await kernel(t,{}));});
-export async function test_a_failed_check_last_turn_is_the_consequence_still_owed(seeded_kernel:any){
+export async function test_a_failed_check_with_a_named_stake_offers_that_stake(seeded_kernel:any){
 let call_id:any,result:any,director:any,owed:any;
 
 (await open_turn(seeded_kernel,"我打量诺特。"));
-const __unpack6315=(await first_failure(seeded_kernel,"t1-c",({"intent":"social","goal":"让诺特多说点","method":"套话","skill":"Persuade","target":"Steven Knott"})));call_id=__unpack6315[0];result=__unpack6315[1];
+const __unpack6315=(await first_failure(seeded_kernel,"t1-c",({"intent":"social","goal":"让诺特多说点","method":"套话","skill":"Persuade","target":"Steven Knott","stakes":"诺特起了疑心"})));call_id=__unpack6315[0];result=__unpack6315[1];
 (await narrate(seeded_kernel,"t1-c99","诺特把嘴闭紧了。"));
 director=pyAt(pyAt((await pyMethod(seeded_kernel,"table",["player_input"],{"text":"然后呢"})),"capsule"),"director");
 owed=(await (async()=>{const __rows:any[]=[];for(const row of pyIterable(pyAt(director,"offer"))){if(pyBool(pyEqual(pyAt(row,"kind"),"consequence"))){__rows.push(row);}}return __rows;})());
 assert.ok(pyBool((await (async()=>{const __left=pyEqual((await pyLen(owed)),1);return pyBool(__left)?pyEqual(pyAt(pyAt(owed,0),"from"),"recent.receipts"):__left})())),"tests/kernel/test_turn_floor.py:117 assert len(owed) == 1 and owed[0][\"from\"] == \"recent.receipts\"");
 assert.ok(pyBool(pyContains(pyAt(pyAt(owed,0),"line"),"failed last turn")),"tests/kernel/test_turn_floor.py:118 assert \"failed last turn\" in owed[0][\"line\"]");
+assert.ok(pyBool(pyContains(pyAt(pyAt(owed,0),"line"),"诺特起了疑心")),"the line names the stake set before the roll");
 }
-if(process.argv[1]===import.meta.filename)for(const [index,row] of ([{}]).entries())test("test_a_failed_check_last_turn_is_the_consequence_still_owed"+(([{}]).length>1?' ['+index+']':''),async(t)=>{const temporary=temporaryPath(t);await test_a_failed_check_last_turn_is_the_consequence_still_owed(await kernel(t,{env:{COC_KERNEL_SEED:'7'}}));});
+if(process.argv[1]===import.meta.filename)for(const [index,row] of ([{}]).entries())test("test_a_failed_check_with_a_named_stake_offers_that_stake"+(([{}]).length>1?' ['+index+']':''),async(t)=>{const temporary=temporaryPath(t);await test_a_failed_check_with_a_named_stake_offers_that_stake(await kernel(t,{env:{COC_KERNEL_SEED:'7'}}));});
 export async function test_an_open_exit_someone_present_knows_becomes_a_route_row(kernel:any){
 let capsule:any,routes:any,open_exits:any;
 (await open_turn(kernel,"我接下这活。"));

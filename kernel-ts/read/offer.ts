@@ -127,11 +127,17 @@ function intentRows(intents: Row[]): Row[] {
         from: "npc.intents"
     }));
 }
+/**
+ * §268.1: a failed check offers a consequence only when the Keeper named its cost on the action (`named_stake` on the
+ * receipt). A failure with no named cost was answered by the failure itself, told in the delivered turn; the rules give
+ * it nothing further (a failed First Aid heals nothing and harms nothing), so it is not offered as something still owed
+ * (1025c ad T6: that row on a failed First Aid became an invented bleed-out clock and two rounds of extra damage).
+ */
 function consequenceRows(previous: Row | null | undefined, intents: Row[] = []): Row[] {
     const receipts = array(previous?.receipts), rows: Row[] = intentRows(intents);
     for (const receipt of receipts) {
-        if (receipt.kind === "roll" && receipt.form !== "dice" && receipt.passed === false)
-            rows.push({ kind: "consequence", who: string(receipt.actor_label || receipt.actor || ""), line: clip(string(receipt.actor_label || receipt.actor || "someone") + "'s " + string(receipt.skill || receipt.decision || "check") + " failed last turn; its consequence is still owed"), from: "recent.receipts" });
+        if (receipt.kind === "roll" && receipt.form !== "dice" && receipt.passed === false && truth(receipt.named_stake))
+            rows.push({ kind: "consequence", who: string(receipt.actor_label || receipt.actor || ""), line: clip(string(receipt.actor_label || receipt.actor || "someone") + "'s " + string(receipt.skill || receipt.decision || "check") + " failed last turn; the stake named before the roll: " + string(receipt.named_stake)), from: "recent.receipts" });
         else if (receipt.kind === "npc" && truth(receipt.stance))
             rows.push({ kind: "consequence", who: string(receipt.name || receipt.handle || ""), line: clip(string(receipt.name || receipt.handle) + " turned " + string(receipt.stance) + " last turn" + (truth(receipt.why) ? " (" + string(receipt.why) + ")" : "") + "; that stands in the room now"), from: "recent.receipts" });
     }
