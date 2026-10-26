@@ -7,7 +7,7 @@ import {Type,type Static,type TSchema} from 'typebox';
 import {Errors} from 'typebox/value';
 import {StringEnum} from '@earendil-works/pi-ai';
 import {NewCommunicationFact,MEANING_MAX,DELIVERY,ASKED_TOPIC} from './decision-content.ts';
-import {DISPOSITIONS,CONTROLS,TABLE_NOTE} from './turn-packet-prototype.ts';
+import {DISPOSITIONS,CONTROLS,TABLE_NOTE,FORCE} from './turn-packet-prototype.ts';
 import {isNpcReference} from './npc-references.ts';
 type Row=Record<string,any>;
 const closed=<T extends Record<string,TSchema>>(fields:T,description?:string)=>Type.Object(fields,{additionalProperties:false,...(description?{description}:{})});
@@ -30,7 +30,9 @@ export const TURN_IR_GUIDANCE='Submit one output {version:5,actions:[...]} listi
  +'rule: a check with its goal and stakes fixed before the roll, named by as. Everything before a rule action settles first, then the roll; an '
  +'action after it may carry when:{check,passed} and happens only on that result. End the list at a rule action when what follows needs its '
  +'result read first: the result comes back and you submit the rest. A settled check is final; never re-judge it. Pushing and Luck are the '
- +'player\'s own declarations. Record only what this turn changed; you decide what is meant, the author writes the words.';
+ +'player\'s own declarations. Record only what this turn changed; you decide what is meant, the author writes the words. '
+ +'If the host refuses something you are sure is right and one correction did not help, send the output again with force:{reason}: '
+ +'what it still cannot take is set aside, the rest goes through, and the override is recorded for review.';
 
 export const TURN_IR_ACTIONS={
  move:closed({op:Type.Literal('move'),to:text(120,'Where they go: a known place\'s name, or a new place; here with spot to move within the current place'),actors:Type.Optional(people),
@@ -67,7 +69,7 @@ export const TURN_IR_ACTIONS={
  learn_alias:closed({op:Type.Literal('learn_alias'),who,alias:text(60),reason:Type.Optional(text(160)),when}),
  scene:closed({op:Type.Literal('scene'),service:StringEnum(['open','closed','limited','unknown']),crowd:StringEnum(['empty','quiet','active','crowded','unknown']),reason:Type.Optional(text(160)),when})
 };
-export const TURN_IR_PARAMETERS=closed({version:Type.Literal(5),actions:Type.Array(Type.Union(Object.values(TURN_IR_ACTIONS)),{minItems:1,maxItems:24}),ooc:Type.Optional(TABLE_NOTE)});
+export const TURN_IR_PARAMETERS=closed({version:Type.Literal(5),actions:Type.Array(Type.Union(Object.values(TURN_IR_ACTIONS)),{minItems:1,maxItems:24}),ooc:Type.Optional(TABLE_NOTE),force:FORCE});
 export type TurnIr=Static<typeof TURN_IR_PARAMETERS>;
 export type TurnIrAction=TurnIr['actions'][number];
 
@@ -103,6 +105,16 @@ export function normalizeTurnIr(value:unknown):{value:unknown;dropped:Array<{ind
   return row;
  });
  return {value:{...(value as Row),actions},dropped};
+}
+/** §273: with force, actions that fail their own op's schema are set aside; returns the kept output and what was dropped. */
+export function forceValidActions(value:unknown):{value:unknown;setAside:Array<{index:number;action:unknown;findings:string[]}>} {
+ if(!value||typeof value!=='object'||!Array.isArray((value as Row).actions))return {value,setAside:[]};
+ const setAside:Array<{index:number;action:unknown;findings:string[]}>=[],kept:unknown[]=[];
+ (value as Row).actions.forEach((action:unknown,index:number)=>{
+  const findings=diagnoseTurnIr({version:5,actions:[action]});
+  if(findings.length)setAside.push({index,action,findings});else kept.push(action);
+ });
+ return {value:{...(value as Row),actions:kept},setAside};
 }
 /** §270.9: the first problems of each action against its own op's schema, named by index, op and field. */
 export function diagnoseTurnIr(value:unknown):string[] {

@@ -114,3 +114,16 @@ test('a Keeper that changes its packet and meets the same refusal again keeps it
  assert.equal(published(table),1);
  assert.ok(!table.telemetry().some(row=>row.event==='input_ended'&&row.cause==='parameter_protocol_repeated'));
 });
+
+test('a forced output sets aside what the host cannot take, publishes the rest and records the override (§273)',async t=>{
+ const table=await play(t,[
+  fauxAssistantMessage([fauxToolCall('output',{version:5,force:{reason:'The stranger is the man the player is phoning.'},actions:[
+   {op:'scene',service:'open',crowd:'quiet'},
+   {op:'communicate',speaker:'Nobody Known',to:['investigator_1'],act:'answer',says:[{claim:'never saw him'}]},
+   {op:'material',action:'show',item:'a letter nobody has',holder:'investigator_1',to:'investigator_1',access:'read_full',reason:'reads it'}]})],{stopReason:'toolUse'}),
+  fauxAssistantMessage('done')]);
+ assert.equal(published(table),1,'the rest went through');
+ const overrides=table.telemetry().filter(row=>row.lane==='kp-override');
+ assert.deepEqual(overrides.map(row=>row.event).sort(),['kernel_refusal','turn_ir_action']);
+ assert.ok(overrides.every(row=>row.reason==='The stranger is the man the player is phoning.'));
+});

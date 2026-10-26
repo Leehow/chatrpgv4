@@ -27,7 +27,7 @@ import {fixedToolView} from '../../shared/fixed-tool-view.ts';
 import {SAME_KEEPER_AFTER_RESULT_GUIDANCE} from '../../runtime/keeper-output-guidance.ts';
 import {scenePopulationRequired,scenePopulationConflict,sceneAssessmentExpiredDuringActivity} from '../../runtime/scene-population.ts';
 import {ExpressionPlanStream,writeIsolatedExpression,decisionScene,decisionClock,decisionRecentPublic,decisionResponseScope,decisionObservationScope} from '../../runtime/isolated-expression.ts';
-import {TURN_IR_PARAMETERS,TurnIrError,normalizeTurnIr,diagnoseTurnIr,segments,applyConditions,toPacket,ruleAction,type TurnIr,type TurnIrAction,type TurnIrDirectory} from '../../runtime/turn-ir.ts';
+import {TURN_IR_PARAMETERS,TurnIrError,normalizeTurnIr,diagnoseTurnIr,forceValidActions,segments,applyConditions,toPacket,ruleAction,type TurnIr,type TurnIrAction,type TurnIrDirectory} from '../../runtime/turn-ir.ts';
 import {turnPacket,bindTurnPacketMoves,turnPacketMovementChoices,requireTurnPacketNpcDestinations,isNewNpcSlot,normalizeTurnPacketArguments,compileTurnPacket,turnPacketResult,turnPacketParameterSchema,turnPacketProviderPayload,TurnPacketParameterError,type TurnPacket} from '../../runtime/turn-packet-prototype.ts';
 import {normalizeToolArgumentSyntax} from '../../runtime/tool-argument-syntax.ts';
 import {applyEffectKinds} from '../table/mod-sections.ts';
@@ -5941,7 +5941,10 @@ export default function (pi: ExtensionAPI, host: {capabilities?:RuntimeCapabilit
         let selections:Record<string,unknown>[]=[],agreements:Record<string,unknown>[]=[];
         let observationIdentities:Record<string,any>[]=[],arrivedAt:string|undefined;
         const heldBoundary=heldActs.get(state),held=heldBoundary?.basis;
-		if(held&&(!turnPacketPrototype||heldBoundary?.uncommittedFailures()===undefined)){
+		const forced=forceOf(expression);
+		if(held&&forced&&turnPacketPrototype&&heldBoundary?.uncommittedFailures()===undefined)
+			await recordOverride(state,reply.run,forced,'held_act_gate',{held:held.held.map(row=>({tool:row.tool,cause:row.cause}))});
+		if(held&&!forced&&(!turnPacketPrototype||heldBoundary?.uncommittedFailures()===undefined)){
 			endInput(state,'held_act_unconfirmed',undefined,'settled_operation');
 			throw new KernelError({code:'needs',message:'A failed operation cannot release an unverified expression',details:{reason:HELD_ACT_OUTCOME_REASON}});
 		}
@@ -6012,6 +6015,10 @@ export default function (pi: ExtensionAPI, host: {capabilities?:RuntimeCapabilit
             if(compiled.effects.length||compiled.event){
 				const owner=keeperRun;
 				if(!owner||owner.runId!==reply.run)throw Error('The turn packet owner is stale');
+				// §273: with force, a refused effect is set aside and the rest settles; each override is recorded for review.
+				const force=forceOf(expression);
+				let settled:Awaited<ReturnType<typeof runTool>>;
+				for(let attempt=0;;attempt++){
 				const params={effects:compiled.effects,...(compiled.event?{event:compiled.event}:{})};
                 const identity=createHash('sha256').update(JSON.stringify(params,(_key,value)=>value&&typeof value==='object'&&!Array.isArray(value)
                     ?Object.fromEntries(Object.entries(value).sort(([left],[right])=>left<right?-1:left>right?1:0)):value)).digest('hex');
@@ -6019,11 +6026,21 @@ export default function (pi: ExtensionAPI, host: {capabilities?:RuntimeCapabilit
                 if(!ids.has(identity))ids.set(identity,mintCallId(state));
                 const toolCallId=`keeper:${reply.run}:record:${identity}`;
 				state.mintedCallIds.set(toolCallId,ids.get(identity)!);
-				const settled=await runTool(COC_TOOLS.find(tool=>tool.name==='apply')!,toolCallId,
-					params,reply.signal,undefined,'explicit',ctx,undefined,undefined,compiledDecisionAuthority);
+				let thrown:unknown;
+				try{settled=await runTool(COC_TOOLS.find(tool=>tool.name==='apply')!,toolCallId,
+					params,reply.signal,undefined,'explicit',ctx,undefined,undefined,compiledDecisionAuthority);}
+				catch(error){if(!force||!isKernelError(error))throw error;thrown=error;
+					settled={content:[{type:'text' as const,text:errorText(error)}],details:{coc_error:{code:error.code,message:error.message,details:error.details}}} as typeof settled;}
+				const refused=settled.details.coc_error as Record<string,any>|undefined,index=refused?.details?.index;
+				if(thrown&&(!Number.isInteger(index)||!compiled.effects[index]))throw thrown;
+				if(!refused||!force||attempt>=6||!Number.isInteger(index)||!compiled.effects[index])break;
+				const [setAside]=compiled.effects.splice(index,1);
+				await recordOverride(state,reply.run,force,'kernel_refusal',{code:refused.code,message:refused.message,refusal_reason:refused.details?.reason??null,set_aside:setAside});
+				if(!compiled.effects.length&&!compiled.event)break;
+				}
 				await record({lane:'turn-packet-prototype',turn:state.turn,run:reply.run,effects:compiled.effects,
 					ok:!settled.details.coc_error,jev_extra_calls:0});
-				if(settled.details.coc_error){
+				if(settled.details.coc_error&&!(force&&!compiled.effects.length&&!compiled.event)){
 					const refusal=settled.details.coc_error as ConstructorParameters<typeof KernelError>[0],taughtBy=exhibits?.taughtBy.get(String((refusal.details as Record<string,unknown>|undefined)?.clue??''));
 					// Only a refusal of a packet that selected exhibits is an exhibit refusal; any other refused apply is not logged as one.
 					if(exhibits?.selected.length||taughtBy)await record({lane:'decision-content',event:'exhibit_refused',turn:state.turn,run:reply.run,...materialOwner.exhibitIssue(),selected:exhibits?.selected??[],
@@ -6032,7 +6049,7 @@ export default function (pi: ExtensionAPI, host: {capabilities?:RuntimeCapabilit
 					throw new KernelError(taughtBy?{...refusal,message:`Exhibit ${taughtBy} teaches this clue and cannot be revealed yet: ${refusal.message}`,
 						fix:`Leave {exhibit_ref:"${taughtBy}"} out of ${materialOwner.exhibitIsTestimony(taughtBy)?'interactions content':'reveal'} until the clue's check is met; ${refusal.fix??''}`.trim()}:refusal);
 				}
-				operationResult=turnPacketResult(settled.details);
+				if(!settled.details.coc_error)operationResult=turnPacketResult(settled.details);
 			}
             // §257.17: testimony said in a settled packet is marked `said` in later catalogs of this play line.
             if(exhibits)materialOwner.markSaid(exhibits.selected);
@@ -6098,8 +6115,9 @@ export default function (pi: ExtensionAPI, host: {capabilities?:RuntimeCapabilit
             craft=chosen.text;
             await record({lane:'author-craft',turn:state.turn,run:reply.run,facts:Object.keys(facts).filter(key=>facts[key as keyof typeof facts]),...chosen.record,...(bearing.length?{bearing}:{})});
 		}
-        const failedAttempts=heldActs.get(state)?.uncommittedFailures();
-        if(heldActs.get(state)?.basis&&(!decision||failedAttempts===undefined)){
+        const failedAttempts=forced&&heldActs.get(state)?.basis
+            ?heldActs.get(state)!.basis!.held.map(row=>({tool:row.tool,status:'uncommitted' as const,reason:row.cause})):heldActs.get(state)?.uncommittedFailures();
+        if(heldActs.get(state)?.basis&&!forced&&(!decision||failedAttempts===undefined)){
             endInput(state,'held_act_unconfirmed',undefined,'settled_operation');
             throw new KernelError({code:'needs',message:'A failed operation cannot release an unverified expression',details:{reason:HELD_ACT_OUTCOME_REASON}});
         }
@@ -6182,6 +6200,15 @@ export default function (pi: ExtensionAPI, host: {capabilities?:RuntimeCapabilit
         void record({lane:'arguments',event:'packet_parameters_refused',turn:state.turn,retry,repeated,distinct_failures:failures.size,attempts:total,limit,phase:beforeCommit?'before_commit':'before_execution',jev_calls:0});
         return {retry,refusal};
     }
+	/** §273: the Keeper's force on an output, {reason}, when it is sure the host is wrong to refuse. */
+	function forceOf(value:unknown):{reason:string}|undefined {
+		const force=value&&typeof value==='object'?(value as Record<string,any>).force:undefined;
+		return force&&typeof force==='object'&&typeof force.reason==='string'&&force.reason.trim()?{reason:force.reason.trim().slice(0,400)}:undefined;
+	}
+	/** §273: every forced pass is recorded with what was refused and what the Keeper said, for later analysis. */
+	async function recordOverride(state:TableState,run:string|undefined,force:{reason:string},kind:string,detail:Record<string,unknown>):Promise<void>{
+		await record({lane:'kp-override',event:kind,turn:state.turn,run:run??null,...detail,reason:force.reason});
+	}
 	/** §270: Turn IR is on for a packet-mode session that asks for it. */
 	function turnIr():boolean {return turnPacketPrototype&&process.env.PI_COC_TURN_IR==='1';}
 	/**
@@ -6220,7 +6247,13 @@ export default function (pi: ExtensionAPI, host: {capabilities?:RuntimeCapabilit
 				const condition=applyConditions(part,results,offset);dropped.push(...condition.dropped);
 				const kept=condition.kept,rule=kept.at(-1)?.op==='rule'?kept.at(-1) as Extract<TurnIrAction,{op:'rule'}>:undefined;
 				const body=rule?kept.slice(0,-1):kept,final=index===parts.length-1&&!barrierLast;
-				const packet=toPacket(body,directory,aliases,offset);
+				let packet:Record<string,any>;
+				// §273: with force, an action the host cannot bind is set aside and recorded, and the rest of the segment goes on.
+				for(;;){try{packet=toPacket(body,directory,aliases,offset);break;}catch(error){
+					if(!(error instanceof TurnIrError)||!ir.force||error.index<offset||error.index>=offset+body.length)throw error;
+					const [setAside]=body.splice(error.index-offset,1);
+					await recordOverride(state,owner.runId,ir.force,'turn_ir_action',{message:error.message,set_aside:setAside});
+				}}
 				if(final){
 					// §270.19: a fact said by someone other than the person it belongs to is refused here by name, with its owner, so
 					// the correction moves it to the right speaker (1025i Digging T11: "belongs to another actor perspective" twice).
@@ -6228,12 +6261,14 @@ export default function (pi: ExtensionAPI, host: {capabilities?:RuntimeCapabilit
 					for(const [index,row] of [...speech.interactions,...(packet.interactions??[])].entries()){
 						for(const item of Array.isArray((row as Record<string,any>).content)?(row as Record<string,any>).content:[]){
 							const ref=(item as Record<string,any>).fact_ref,owner=typeof ref==='string'?owners[ref]:undefined;
-							if(owner&&owner!==(row as Record<string,any>).actor)
+							if(owner&&owner!==(row as Record<string,any>).actor&&ir.force)
+								await recordOverride(state,owner.runId,ir.force,'fact_owner',{fact:ref,owner,speaker:(row as Record<string,any>).actor});
+							else if(owner&&owner!==(row as Record<string,any>).actor)
 								throw new TurnIrError(-1,`${ref} is what ${refs.publicName(scope,owner)??owner} knows, not ${refs.publicName(scope,String((row as Record<string,any>).actor))??(row as Record<string,any>).actor}: put it in ${refs.publicName(scope,owner)??owner}'s communicate, or say it as a claim`,{field:'says',fact:ref,owner,interaction:index});
 						}
 					}
 					const merged={...packet,version:4,...(speech.interactions.length||packet.interactions?{interactions:[...speech.interactions,...(packet.interactions??[])]}:{}),
-						...(speech.reveal.length||packet.reveal?{reveal:[...speech.reveal,...(packet.reveal??[])]}:{}),...(ir.ooc?{ooc:ir.ooc}:{})} as unknown as TurnPacket;
+						...(speech.reveal.length||packet.reveal?{reveal:[...speech.reveal,...(packet.reveal??[])]}:{}),...(ir.ooc?{ooc:ir.ooc}:{}),...(ir.force?{force:ir.force}:{})} as unknown as TurnPacket;
 					const published=await submitTurnPacket(merged as unknown as Record<string,unknown>,signal,ctx,true);
 					// A refused final packet after settled segments keeps them: the correction resubmits only what follows the
 					// last rule action, with the carried speech, aliases and check results.
@@ -7602,6 +7637,10 @@ export default function (pi: ExtensionAPI, host: {capabilities?:RuntimeCapabilit
                 if(turnIr()&&spec.name==='output'&&table){
                     const cleaned=normalizeTurnIr(embedded.args);embedded.args=cleaned.value as typeof embedded.args;
                     if(cleaned.dropped.length)void record({lane:'arguments',event:'turn_ir_fields_dropped',tool:spec.name,dropped:cleaned.dropped});
+                    // §273: a forced output keeps its well-formed actions and sets the rest aside, recorded.
+                    const forced=forceOf(embedded.args);
+                    if(forced){const valid=forceValidActions(embedded.args);if(valid.setAside.length&&Array.isArray((valid.value as Record<string,any>).actions)&&(valid.value as Record<string,any>).actions.length){
+                        embedded.args=valid.value as typeof embedded.args;void recordOverride(table,keeperRun?.runId,forced,'turn_ir_parameters',{set_aside:valid.setAside});}}
                     const findings=diagnoseTurnIr(embedded.args);
                     if(findings.length){const {refusal}=refusePacketParameters(table,new KernelError({code:'invalid_params',message:'Invalid Turn IR: '+findings.join('; '),
                         fix:'Correct only the named actions; each op takes its own fields.',details:{reason:'turn_ir_parameters'}}),undefined,false,embedded.args);throw Error(new KernelError(refusal).toToolText());}

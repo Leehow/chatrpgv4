@@ -53584,3 +53584,17 @@ that changed its packet and met the same refusal was correcting, not looping.
 the packet budget instead of ending the turn.
 
 Tests: `tests/extension/turn-ir-native.test.mjs`, `tests/extension/turn-failure-reason.test.mjs`.
+
+## 273. The Keeper's force, recorded (owner 2026-10-26)
+
+The owner: when the Keeper is sure an action is right and the host refuses it, it may force it through, so a refusal it
+disagrees with cannot loop; every such case is recorded for later analysis.
+
+An `output` (Turn IR or v4) takes `force: {reason}`. With it the host sets aside what it still cannot take and lets the
+rest through: a Turn IR action that fails its op's schema or cannot be bound, a compiled effect the kernel refuses (by
+the refusal's `index`, up to six times), the held-act gate (§213) and the fact-owner check (§270.19). Each override is a
+telemetry row in lane `kp-override` (`event`: `turn_ir_parameters`, `turn_ir_action`, `kernel_refusal`, `held_act_gate`,
+`fact_owner`) with the Keeper's reason, the refusal and what was set aside. Kernel invariants are never bypassed: a
+refused effect is set aside, not written. The guidance tells the Keeper to force only after one correction did not help.
+
+Tests: `tests/extension/turn-ir-native.test.mjs`.
