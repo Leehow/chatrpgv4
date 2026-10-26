@@ -435,6 +435,19 @@ export function castDraftFromSkeleton(skeleton: Row, range: { first: number; las
  * question prints (normalised spelling) gives its index pages, then the skeleton rows that name one of them give theirs.
  * Name matching only; what the Keeper asked is never classified.
  */
+/**
+ * Whether a source answer's focus is only the book's own title (1026i: "归于尘埃 Dust to Dust", "An Amaranthine Desire"):
+ * the title is cut at its brackets and dashes, and the focus is the title when nothing is left of it once every piece is
+ * taken out. A place that is only part of one piece ("敦威治" in "敦威治恐怖") stays a place. Spelling only.
+ */
+export function titleOnlyFocus(focus: string, title: string): boolean {
+	let rest = normalName(focus);
+	const pieces = title.split(/[\[\]【】()（）\-–—_|:：]+/).map(normalName).filter(piece => [...piece].length >= 2).sort((a, b) => b.length - a.length);
+	if (!rest || !pieces.length) return false;
+	for (const piece of pieces) rest = rest.split(piece).join("");
+	return !rest;
+}
+
 export function answerPages(skeleton: Row, asked: string, limit = 4): number[] {
 	const key = normalName(asked), out: number[] = [];
 	const add = (page: unknown) => { if (Number.isSafeInteger(page) && Number(page) >= 1 && !out.includes(Number(page)) && out.length < limit) out.push(Number(page)); };

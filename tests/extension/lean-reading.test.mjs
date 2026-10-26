@@ -163,3 +163,14 @@ test('§262.9: a lean answer slices the index pages of the names the question pr
  assert.deepEqual(lean.answerPages(skeleton,'nothing named here'),[]);
  assert.deepEqual(lean.answerPages(skeleton,'Seth and the Last Stop',3),[3,27,28]);
 });
+
+// 1026i: the Keeper named the book itself as a source answer's focus and got its front matter back.
+test('a source answer focus that is only the book title is told from a place that shares a word with it', ()=>{
+ assert.equal(lean.titleOnlyFocus('归于尘埃 Dust to Dust','[COC模组翻译]归于尘埃 -Dust to Dust'),true);
+ assert.equal(lean.titleOnlyFocus('归于尘埃','[COC模组翻译]归于尘埃 -Dust to Dust'),true);
+ assert.equal(lean.titleOnlyFocus('An Amaranthine Desire','[COC模组翻译]不息的渴望-An Amaranthine Desire'),true);
+ assert.equal(lean.titleOnlyFocus('敦威治','敦威治恐怖'),false,'a place inside one piece of the title stays a place');
+ assert.equal(lean.titleOnlyFocus('阿卡姆教堂','[COC模组翻译]归于尘埃 -Dust to Dust'),false);
+ assert.equal(lean.titleOnlyFocus('归于尘埃 教堂','[COC模组翻译]归于尘埃 -Dust to Dust'),false,'a title with a place after it names the place');
+ assert.equal(lean.titleOnlyFocus('','归于尘埃'),false);
+});

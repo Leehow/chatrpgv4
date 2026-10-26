@@ -176,3 +176,24 @@ test('§266.11: a card reads numeric blocks on the pages that print the person, 
  assert.deepEqual(card.dropped.sort(),['characteristics.DEX','characteristics.POW','skills.Drive Auto','skills.Spot Hidden'],'5 is inside 50; 70 is not on its block; an unknown block is no block');
  assert.deepEqual(card.pages,[17,40]);
 });
+
+// 1026i: a source answer whose focus was only the book title came back with the front matter; its scene id, with nothing.
+test('a source answer focused on the book title reads the party\'s scene pages; a scene id focus reads that scene\'s pages',async()=>lean(async()=>{
+ const root=playtestScratch('page-mode','titled-'),notes=[],calls=[],reading=await service(root,{notes,calls});
+ const searched=[];
+ reading.deps.runtime={...reading.deps.runtime,sourceSearch:async({query})=>{searched.push(query);return {matches:[{page:1}]};}};
+ reading.deps.call=async(method,params)=>{calls.push([method,params]);
+  if(method==='module.source.snapshot')return {pdf:join(root,'book','book.pdf'),file_sha256:SHA,page_count:12,revision:'r1',title:'[COC模组翻译]血路-Blood Road'};
+  if(method==='table.capsule')return {where:{scene:'investigator-information'}};
+  if(method==='table.lookup')return params.query==='investigator-information'?{entities:[{name:'investigator-information',display_name:'Diner',kind:'scene',original_pages:[6,7]}]}:{entities:[]};
+  return {};};
+ const titled=await reading.leanAnswer('blood-road',{campaign:'c1',focus:'血路 Blood Road',question:'Who meets them at the counter?'});
+ assert.deepEqual(titled.source_answer.excerpts.map(span=>span.page),[6,7],'the party\'s scene, not the title page');
+ assert.deepEqual(searched,[],'the title is never text-searched');
+ const byId=await reading.leanAnswer('blood-road',{campaign:'c1',focus:'investigator-information',question:'What does the cook know?'});
+ const byIdPages=byId.source_answer.excerpts.map(span=>span.page);
+ assert.ok(byIdPages.includes(6)&&byIdPages.includes(7),JSON.stringify(byIdPages));
+ const plain=await reading.leanAnswer('blood-road',{campaign:'c1',focus:'Chapel',question:'Who keeps the key?'});
+ assert.deepEqual(plain.source_answer.excerpts.map(span=>span.page),[1],'an ordinary focus keeps its text search');
+ assert.equal(notes.find(row=>row.event==='lean_answer'&&row.titled)?.anchored,'Diner');
+}));

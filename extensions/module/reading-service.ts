@@ -33,7 +33,7 @@ import {readFileSync, statSync} from 'node:fs';
 import {SKELETON_VERSION} from './lean-skeleton.ts';
 import {cardBlocks, checkedCard} from './mechanics-card.ts';
 import {BOOK_PAGES_NOTE, PAGE_BOUNDS, bookContents, contentsLines, firstLines, focusInPageMode, inPageMode, requestedPages, type ContentsRow} from './page-mode.ts';
-import {singleCall, normalName} from './lean-skeleton.ts';
+import {singleCall, normalName, titleOnlyFocus} from './lean-skeleton.ts';
 import {LEAN_MAP_REQUESTS, partialSkeletonPath, answerPages, buildSkeleton, castPlayNames, castDraftFromSkeleton, leanCrossReferences, samePrimaryLanguage, skeletonDigest, skeletonIndexRows, skeletonPath, LEAN_ANSWER_ASK, LEAN_ANSWER_REQUESTS} from './lean-skeleton.ts';
 import {acceptedGuidance,acceptedPublicGuidance} from './character-guidance.ts';
 import {validateReferencePacket} from '../../kernel-ts/modules/reference-contract.ts';
@@ -1235,12 +1235,17 @@ export class ReadingService implements ReadingBridge {
 	private async leanAnswer(mid: string, params: Row, signal?: AbortSignal): Promise<Row> {
 		const campaign = this.campaign(params), focus = String(params.focus ?? ""), question = String(params.question ?? "");
 		const snapshot = await this.call("module.source.snapshot", { module_id: mid }, campaign);
-		let pages: number[] = [];
+		// 1026i: the Keeper often names the book itself, or a scene's id, as the focus; the title is printed only on the front
+		// matter and an id nowhere, so the answer was the introduction page or nothing. The pages the graph holds for what
+		// the focus names come first, and a focus that is only the book's title names where the party is.
+		const anchor = await this.answerAnchor(campaign, focus, String(snapshot.title ?? ""));
+		const searched = anchor.titled ? anchor.name : focus;
+		let pages: number[] = [...anchor.pages].slice(0, 4);
 		// The focus's own names first; the question's other names fill what is left.
 		try { const skeleton = JSON.parse(await readFile(skeletonPath(this.deps.home, snapshot.file_sha256), "utf8"));
-			pages = [...new Set([...answerPages(skeleton, focus), ...answerPages(skeleton, `${focus}\n${question}`)])].slice(0, 4); }
+			pages = [...new Set([...pages, ...answerPages(skeleton, searched), ...answerPages(skeleton, `${searched}\n${question}`)])].slice(0, 4); }
 		catch { /* no skeleton yet: the text search alone */ }
-		if (pages.length < 4 && focus.trim()) {
+		if (pages.length < 4 && searched.trim() && !anchor.titled) {
 			try {
 				const found = await this.runtime().sourceSearch({ pdf: snapshot.pdf, query: focus.trim().slice(0, 256), limit: 8 } as any, signal);
 				for (const hit of (found as Row)?.matches ?? []) if (Number.isSafeInteger(hit?.page) && !pages.includes(hit.page) && pages.length < 4) pages.push(hit.page);
@@ -1249,7 +1254,8 @@ export class ReadingService implements ReadingBridge {
 		pages.sort((a, b) => a - b);
 		const texts = pages.length ? await this.sourcePages(mid, pages, { ...(campaign === undefined ? { campaign: null } : { campaign }) }, signal) : [];
 		const excerpts = texts.filter(row => row.text.trim()).map(row => { const text = row.text.slice(0, 3500); return { id: `page-${row.page}`, page: row.page, start: 0, end: text.length, text }; });
-		this.note({ lane: "reading", event: "lean_answer", module_id: mid, campaign, focus, pages: excerpts.map(row => row.page) });
+		this.note({ lane: "reading", event: "lean_answer", module_id: mid, campaign, focus, ...(anchor.titled ? { titled: true, anchored: anchor.name } : {}),
+			...(anchor.pages.length ? { anchor_pages: anchor.pages } : {}), pages: excerpts.map(row => row.page) });
 		// §266.4: nothing found answers the book's contents, so the Keeper can turn the pages it means.
 		const contents = excerpts.length ? [] : await this.bookContentsOf(mid, campaign).catch(() => [] as ContentsRow[]);
 		return { state: "ready", source_answer: { status: "excerpts", authority: "original-source-excerpts", prepared: false, source_sha256: snapshot.file_sha256,
@@ -1259,6 +1265,25 @@ export class ReadingService implements ReadingBridge {
 			excerpts, source_refs: excerpts.map(span => ({ source_id: "pdf:" + mid, pdf_index: span.page - 1 })),
 			coverage: { partial: true, visual: "unassessed", unavailable_pages: [] },
 			note: "Exact original pages the host sliced for this focus (its skeleton index and a text search), not a generated answer. Read them for what was asked; a page may hold Keeper-only material. Do not infer whole-book absence or overwrite table canon." } };
+	}
+
+	/**
+	 * What a source answer's focus names on the graph, with the book pages it holds: the focus itself, or the party's scene
+	 * when the focus is only the book's title. Spelling and graph identity only; nothing here reads what was asked.
+	 */
+	private async answerAnchor(campaign: string | undefined, focus: string, title: string): Promise<{ titled: boolean; name: string; pages: number[] }> {
+		const titled = !!title && titleOnlyFocus(focus, title), none = { titled, name: focus, pages: [] as number[] };
+		if (campaign === undefined) return none;
+		try {
+			let query = focus.trim();
+			if (titled) query = String((await this.call("table.capsule", { _context_read: true }, campaign))?.where?.scene ?? "");
+			if (!query) return none;
+			const found = await this.call("table.lookup", { kind: "module", query, _context_read: true }, campaign);
+			const entity = (found?.entities ?? []).find((row: Row) => [row.name, row.display_name].some(name => typeof name === "string" && normalName(name) === normalName(query)))
+				?? (titled ? found?.entities?.[0] : undefined);
+			const pages = (entity?.original_pages ?? []).filter((page: unknown) => Number.isSafeInteger(page) && Number(page) >= 1).map(Number);
+			return { titled, name: String(entity?.display_name ?? entity?.name ?? query), pages };
+		} catch { return none; }
 	}
 
 	/** §262.8: the cast from the skeleton, or undefined when lean reading cannot build it (the cast reader then runs). */
