@@ -53697,6 +53697,7 @@ released look to the author only at first sight of an undescribed person, and ot
 rarely selects; the author wrote the book's 23-year-old as about forty and kept it. Every approved `appearance` passage in
 scope is now kept by the spellings the book gives that person (`DecisionContent.bookAppearance`, spelling match only), and each
 person in the author's `people` whose table look carries one of those spellings gets `book_appearance` (at most two passages,
-600 characters each) every turn. The author instruction says never to contradict it and to describe it again only where the
-story would. Nothing unreleased is added. Case: `tests/extension/pointer-reading.test.mjs` "a seated book person's released
+600 characters each) every turn. The author instruction says to draw on it for what earlier deliveries have not shown; where the
+table already showed the person differently, the table's version stands (owner, 2026-10-26: the module is not a rule,
+what happened at the table is). Nothing unreleased is added. Case: `tests/extension/pointer-reading.test.mjs` "a seated book person's released
 look stays theirs every turn".
