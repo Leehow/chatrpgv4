@@ -53563,3 +53563,24 @@ Before the final packet, the coordinator checks each selected `fact_N` against t
 `factActors`) and refuses `turn_ir_action` naming the fact, its owner and the speaker, so the correction moves it to the
 right speaker or says it as a claim. In 1025i *Digging for a Dead God* T11 the packet was refused twice as "This fact
 belongs to another actor perspective", with no owner named, and the turn went untold.
+
+## 272. A refusal is a chance to correct, not the end of the turn (owner 2026-10-25)
+
+The owner: when the Keeper fails, the author must not write over it; find why the Keeper fails so often. Of the 15
+undelivered turns in 1025d–1025i, four were the held-act gate stopping prose after a refusal that wrote nothing (fixed
+by §270.7, §270.13), three were kernel rules contradicting the Keeper's own guidance (§270.4, §270.16, §270.17), two were
+a final packet the kernel refused with no chance to correct, and six ended on the second appearance of the same refusal,
+five of them after the Keeper had changed its packet each time.
+
+### 272.1 The same refusal ends the input on its third time
+
+`refusePacketParameters` ends the input when the same refusal signature appears a third time, or when the same
+parameters are sent again unchanged after it (`packetParameterArgs`); eight refusals in all remain the budget. A Keeper
+that changed its packet and met the same refusal was correcting, not looping.
+
+### 272.2 A refused final packet returns to the Keeper, v4 or Turn IR
+
+§270.15 applies to every packet: a kernel refusal of the compiled apply before any prose goes back to the Keeper under
+the packet budget instead of ending the turn.
+
+Tests: `tests/extension/turn-ir-native.test.mjs`, `tests/extension/turn-failure-reason.test.mjs`.

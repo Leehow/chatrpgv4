@@ -106,3 +106,11 @@ test('an investigator named in a place move\'s with is the party itself, not ref
  assert.ok(!place.isError,place.content?.[0]?.text);
  assert.ok(table.telemetry().some(row=>row.event==='party_with_dropped'));
 });
+
+test('a Keeper that changes its packet and meets the same refusal again keeps its turn (§272.1)',async t=>{
+ const broken=item=>output([{op:'material',action:'show',item,holder:'investigator_1'}]);
+ const table=await play(t,[broken('letter'),broken('a different letter'),output([{op:'scene',service:'open',crowd:'quiet'}]),fauxAssistantMessage('done')]);
+ assert.equal(results(table).filter(row=>row.details?.coc_error||/Invalid Turn IR/.test(row.content?.[0]?.text??'')).length,2);
+ assert.equal(published(table),1);
+ assert.ok(!table.telemetry().some(row=>row.event==='input_ended'&&row.cause==='parameter_protocol_repeated'));
+});

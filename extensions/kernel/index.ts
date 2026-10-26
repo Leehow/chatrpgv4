@@ -534,7 +534,8 @@ interface TableState {
 	packetSceneRequired?:boolean;
 	/** §247.3: an active package issues the packet's routine element this turn. */
 	packetRoutineSummary?:boolean;
-	packetParameterFailures?:Set<string>;
+	packetParameterFailures?:Map<string,number>;
+	packetParameterArgs?:Set<string>;
     packetRefusalRecovery?:{turn:number;run:string};
     /** §252: a mechanical choice the packet-mode Keeper staged with ask; it publishes with this turn's output prose. */
     packetChoice?:{turn:number;choice:Record<string,unknown>};
@@ -6160,17 +6161,25 @@ export default function (pi: ExtensionAPI, host: {capabilities?:RuntimeCapabilit
 		}
 		state.renderedText=undefined;
 	}
-    function refusePacketParameters(state:TableState,error:unknown,ctx?:ExtensionContext,beforeCommit=false){
+    function refusePacketParameters(state:TableState,error:unknown,ctx?:ExtensionContext,beforeCommit=false,args?:unknown){
         const fix=isKernelError(error)?error.fix:undefined;
         const refusal={code:'invalid_params',message:error instanceof Error?error.message:String(error),
             ...(fix?{fix}:{}),
             details:{...(isKernelError(error)?error.details:{}),...(error instanceof TurnPacketParameterError?{parameter_fields:error.fields}:{}),reason:isKernelError(error)&&error.details?.reason?error.details.reason:'turn_packet_parameters',parameter_phase:'turn_packet_parameters',...(beforeCommit?{before_commit:true}:{before_execution:true})}};
-        const failures=state.packetParameterFailures??=new Set<string>();
+        const failures=state.packetParameterFailures??=new Map<string,number>();
         const signature=JSON.stringify([refusal.details.reason,error instanceof TurnPacketParameterError?error.fields:refusal.message]);
-        const limit=8,repeated=failures.has(signature),retry=!repeated&&failures.size<limit-1;failures.add(signature);
+        // §272.1: the same refusal ends the input on its third time, not its second: a Keeper that changed its packet and
+        // met the same refusal was correcting, not looping (1025d–1025i: six turns ended after one honest correction).
+        // A resend of identical parameters is stopped earlier by the resend guard; eight refusals in all is the budget.
+        const seen=(failures.get(signature)??0)+1;failures.set(signature,seen);
+        const total=[...failures.values()].reduce((sum,count)=>sum+count,0);
+        // The same parameters sent again unchanged will meet the same refusal: that is the loop the rule stops at once.
+        const sent=args===undefined?undefined:createHash('sha256').update(JSON.stringify(args)??'').digest('hex');
+        const resent=sent!==undefined&&(state.packetParameterArgs??=new Set<string>()).has(sent+signature);if(sent!==undefined)state.packetParameterArgs!.add(sent+signature);
+        const limit=8,repeated=seen>=3||resent,retry=!repeated&&total<limit;
         if(!retry)endInput(state,repeated?'parameter_protocol_repeated':'parameter_protocol_budget',ctx,'settled_operation');
         rememberTurnFailure(state,'output.parameters',refusal);
-        void record({lane:'arguments',event:'packet_parameters_refused',turn:state.turn,retry,repeated,distinct_failures:failures.size,limit,phase:beforeCommit?'before_commit':'before_execution',jev_calls:0});
+        void record({lane:'arguments',event:'packet_parameters_refused',turn:state.turn,retry,repeated,distinct_failures:failures.size,attempts:total,limit,phase:beforeCommit?'before_commit':'before_execution',jev_calls:0});
         return {retry,refusal};
     }
 	/** §270: Turn IR is on for a packet-mode session that asks for it. */
@@ -6185,7 +6194,7 @@ export default function (pi: ExtensionAPI, host: {capabilities?:RuntimeCapabilit
 		const state=table,owner=keeperRun;
 		if(!state||!owner)throw new KernelError({code:'needs',message:'The active Keeper input is unavailable'});
 		const submittedTurn=state.turn;
-		const refuse=(error:unknown)=>{const {retry,refusal}=refusePacketParameters(state,error,ctx);
+		const refuse=(error:unknown)=>{const {retry,refusal}=refusePacketParameters(state,error,ctx,false,params);
 			return {content:[{type:'text' as const,text:JSON.stringify(refusal)}],details:{coc_error:refusal},terminate:!retry};};
 		const invalid=[...argumentErrors(TURN_IR_PARAMETERS,params)].slice(0,4);
 		if(invalid.length)return refuse(new KernelError({code:'invalid_params',message:'Invalid Turn IR: '+invalid.map(error=>`${error.instancePath||'/'}: ${error.message}`).join('; '),
@@ -6297,7 +6306,7 @@ export default function (pi: ExtensionAPI, host: {capabilities?:RuntimeCapabilit
                     if((packet.commands??[]).some(row=>row.kind==='time'&&typeof row.band==='string'&&!bands.includes(row.band)))throw Error('time.band must select one issued rule handle: '+bands.join(', '));
                 }
             }catch(error){
-                    const {retry,refusal}=refusePacketParameters(state,error,ctx);
+                    const {retry,refusal}=refusePacketParameters(state,error,ctx,false,params);
                     return {content:[{type:'text' as const,text:JSON.stringify(refusal)}],details:{coc_error:refusal},terminate:!retry};
             }
 			const authored=await composeKeeperExpression(state,packet,reply,ctx);
@@ -6308,15 +6317,15 @@ export default function (pi: ExtensionAPI, host: {capabilities?:RuntimeCapabilit
 			return{content:[{type:'text' as const,text:'The turn was published.'}],details:{published:true},terminate:true};
 		}catch(error){
 			rememberTurnFailure(state,'output',error);
-			// §270.15: a Turn IR packet's compiled apply is all-or-nothing, so a refusal of it before any prose committed nothing
-			// and goes back to the Keeper to correct (1025h Digging T3: a paper shown out of reach ended the turn untold).
-			if(fromTurnIr&&!reply.evidence&&!reply.stream&&isKernelError(error)&&['needs','invalid_params','unknown_entity','not_here','not_owned'].includes(error.code)
+			// §270.15, §272.2: a packet's compiled apply is all-or-nothing, so a refusal of it before any prose committed nothing
+			// and goes back to the Keeper to correct, v4 or Turn IR (1025h Digging T3: a paper shown out of reach ended the turn).
+			if(!reply.evidence&&!reply.stream&&isKernelError(error)&&['needs','invalid_params','unknown_entity','not_here','not_owned'].includes(error.code)
                 &&error.details?.reason!==HELD_ACT_OUTCOME_REASON){
-                const {retry,refusal}=refusePacketParameters(state,error,ctx,true);
+                const {retry,refusal}=refusePacketParameters(state,error,ctx,true,params);
                 return {content:[{type:'text' as const,text:JSON.stringify(refusal)}],details:{coc_error:refusal},terminate:!retry};
             }
 			if(!reply.evidence&&!reply.stream&&isKernelError(error)&&error.code==='invalid_params'&&error.details?.transaction_state==='uncommitted'){
-                const {retry,refusal}=refusePacketParameters(state,error,ctx,true);
+                const {retry,refusal}=refusePacketParameters(state,error,ctx,true,params);
                 return {content:[{type:'text' as const,text:JSON.stringify(refusal)}],details:{coc_error:refusal},terminate:!retry};
             }
             const knownFailures=heldActs.get(state)?.uncommittedFailures();
@@ -7595,14 +7604,14 @@ export default function (pi: ExtensionAPI, host: {capabilities?:RuntimeCapabilit
                     if(cleaned.dropped.length)void record({lane:'arguments',event:'turn_ir_fields_dropped',tool:spec.name,dropped:cleaned.dropped});
                     const findings=diagnoseTurnIr(embedded.args);
                     if(findings.length){const {refusal}=refusePacketParameters(table,new KernelError({code:'invalid_params',message:'Invalid Turn IR: '+findings.join('; '),
-                        fix:'Correct only the named actions; each op takes its own fields.',details:{reason:'turn_ir_parameters'}}));throw Error(new KernelError(refusal).toToolText());}
+                        fix:'Correct only the named actions; each op takes its own fields.',details:{reason:'turn_ir_parameters'}}),undefined,false,embedded.args);throw Error(new KernelError(refusal).toToolText());}
                 }
                 if(turnPacketPrototype&&!turnIr()&&spec.name==='output'&&table){
                     const bound=packetNpcReferences(table).bindActors(packetNpcScope(table),embedded.args);
                     embedded.args=bound.args as typeof embedded.args;
                     if(bound.repairs)void record({lane:'arguments',event:'public_actor_reference_normalized',tool:spec.name,repairs:bound.repairs});
                     try{turnPacket(JSON.stringify(embedded.args),table.packetParameters?.turn===table.turn&&table.packetParameters.run===keeperRun?.runId?table.packetParameters.schema:undefined);}
-                    catch(error){const {refusal}=refusePacketParameters(table,error);throw Error(new KernelError(refusal).toToolText());}
+                    catch(error){const {refusal}=refusePacketParameters(table,error,undefined,false,embedded.args);throw Error(new KernelError(refusal).toToolText());}
                 }
 				const moveRefusal=spec.name==='apply'?moveEstablishmentRefusal((embedded.args as Record<string,unknown>).effects):undefined;
 				if(moveRefusal){
@@ -8527,7 +8536,7 @@ export default function (pi: ExtensionAPI, host: {capabilities?:RuntimeCapabilit
 			state.mapAttachments = [];
 			// A new player input is a new context (contract §32.4): no verdict outlives it.
 			state.playerText = text;
-			state.packetTimeBands=undefined;state.packetTimeBandRows=undefined;state.packetSceneRequired=undefined;state.packetRoutineSummary=undefined;state.packetParameters=undefined;state.packetParameterFailures=undefined;state.packetRefusalRecovery=undefined;
+			state.packetTimeBands=undefined;state.packetTimeBandRows=undefined;state.packetSceneRequired=undefined;state.packetRoutineSummary=undefined;state.packetParameters=undefined;state.packetParameterFailures=undefined;state.packetParameterArgs=undefined;state.packetRefusalRecovery=undefined;
 			state.interactionScope = undefined;
 			state.interactionScopeSettled = undefined;
 			state.selectedWriting = false;
