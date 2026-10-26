@@ -53639,3 +53639,23 @@ move's `additions`, within `inside` when given. A Turn IR move refused `place_de
 to Dust* T3: the same move to a churchyard the table did not know was refused three times and the turn ended.
 
 Tests: `tests/extension/turn-ir.test.mjs`.
+
+## 275. Every combat defense is settled with the attack (owner 2026-10-26; amends §11.5.1, §11.5.2)
+
+The Keeper never chooses, resolves or asks a defense. After a `resolve` that declares an attack, the host settles the
+pending defense in the same tool call and returns it as `automatic_defense`:
+
+- **An investigator** dodges (against a firearm: dives for cover). They fight back only when the player declared it
+  in their own words this turn, as with a push or a Luck spend (§268.6): the Keeper puts `defense: fight_back` on the
+  attack (Turn IR: `player_fights_back: true` on the `rule` op). The host takes that word off the attack before the
+  kernel sees it, so it is never read as an answer to a pending defense. Without it the campaign's stored preference
+  (§11.5.1, `dodge` unless changed) applies.
+- **A person the Keeper plays** answers with `pending_defense.standing` (§11.5.2: the book's tactic, a Keeper
+  override, else the rules default), or `dodge` when that word is not legal against this attack. The settlement is a
+  host call of its own (`standing-defense` telemetry with `defender: "npc"`), not the Keeper's.
+
+A staged `ask` for a defense is refused before anything is staged (live 1026g *Dust to Dust* T8: the refusal came
+after the prose was shown and the turn could no longer deliver). In 1026g the Keeper spent most of a fight turn
+resolving defenses and asking the player for one.
+
+Tests: `tests/extension/resolve.test.mjs`, `tests/extension/turn-ir.test.mjs`, `tests/extension/packet-choice.test.mjs`.

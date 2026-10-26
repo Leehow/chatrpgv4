@@ -119,27 +119,27 @@ test('push and stakes still use the ordinary resolve path',async t=>{
   assert.equal(table.telemetry().find(row=>row.tool==='resolve').outcome_kind,'push');
 });
 
-test('real TS attack, standing defense and narrated receipts form one extension turn',async t=>{
+test('real TS attack: every defense settles in the attack call, fight_back only when declared',async t=>{
   const table=await openTable({realKernel:true,env:{COC_KERNEL_SEED:'9'},responses:[call('narrate',{text:'The investigation begins.'}),fauxAssistantMessage('Done')]});
   t.after(()=>table.dispose());
   await waitForIdle(table.session);
   table.faux.setResponses([
     ...['corbitt-house-ground','basement-rites','corbitt-confrontation'].map(to=>call('apply',{effects:[{kind:'move',to}]})),
     call('resolve',{action:{intent:'combat',goal:'Shoot',method:'Fire',target:'Walter Corbitt',weapon:'.38 Revolver'}}),
-    call('resolve',{action:{intent:'combat',goal:'Stand',method:'',actor:'Walter Corbitt',defense:'none'}}),
-    call('resolve',{action:{intent:'combat',goal:'Attack',method:'',actor:'Walter Corbitt',target:'thomas-hayes'}}),
+    call('resolve',{action:{intent:'combat',goal:'Attack',method:'',actor:'Walter Corbitt',target:'thomas-hayes',defense:'fight_back'}}),
     narrate(),fauxAssistantMessage('Done'),
   ]);
   await table.session.prompt('I confront Corbitt and fire.'); await waitForIdle(table.session);
   const resolved=results(table,'resolve');
-  assert.equal(resolved.length,3,JSON.stringify(resolved.map(row=>row.details)));
+  assert.equal(resolved.length,2,JSON.stringify(resolved.map(row=>row.details)));
   for(const result of resolved) assert.equal(result.isError,false,JSON.stringify(result));
-  assert.equal(resolved[0].details.automatic_defense,undefined,'NPC defenses remain Keeper decisions');
-  assert.equal(resolved[2].details.automatic_defense.outcome.status,'resolved');
-  assert.equal(resolved[2].details.automatic_defense.outcome.defense,'dodge');
+  // Owner 2026-10-26: a person the Keeper plays answers with their standing defense in the attack's own call.
+  assert.equal(resolved[0].details.automatic_defense.outcome.status,'resolved');
+  // The player declared fighting back this turn, so the investigator fights back instead of the default dodge.
+  assert.equal(resolved[1].details.automatic_defense.outcome.defense,'fight_back');
   assert.equal(table.entries('coc-choice').length,0);
-  assert.ok(table.entries('coc-mechanics').flatMap(row=>row.mechanics).some(row=>row.skill==='Dodge'));
-  assert.equal(table.telemetry().filter(row=>row.lane==='standing-defense'&&row.ok).length,1);
+  const lanes=table.telemetry().filter(row=>row.lane==='standing-defense'&&row.ok);
+  assert.deepEqual(lanes.map(row=>row.defender??'player'),['npc','player']);
 });
 
 test('only current player pending attacks qualify; firearms use legal dodge',()=>{

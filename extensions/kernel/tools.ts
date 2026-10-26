@@ -793,7 +793,7 @@ const ResolveAction = Type.Object({
 	defense: Type.Optional(
 		StringEnum(["dodge", "fight_back", "none"] as const, {
 			description:
-				"with an attack target and weapon, none resolves a non-resisting target in the same call; otherwise answers the pending defence from the previous result: dodge, fight back, or give up the defence; the host automatically resolves a live investigator defense using the campaign standing preference, so never ask the player for or repeat that defense; an NPC's defense is its pending_defense.standing, given together with actor, unless the fiction changed their tactic (then write apply npc defense)",
+				"with an attack target and weapon: none resolves a non-resisting target in the same call; fight_back on an attack on an investigator says the player declared fighting back this turn (without it they dodge). Every defense is then settled by the host in the same call (an investigator's dodge or declared fight-back, a person's standing defense), so never resolve, ask for or repeat a defense; when the fiction changed a person's tactic write apply npc defense",
 		}),
 	),
 	push: Type.Optional(

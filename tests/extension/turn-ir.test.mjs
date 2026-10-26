@@ -140,3 +140,10 @@ test('a move to a new place defines it',()=>{
  const out=packet([{op:'move',to:'阿卡姆教堂公墓',new:true,description:'The churchyard behind the chapel.'}]);
  assert.deepEqual(out.commands[0].additions,[{name:'阿卡姆教堂公墓',description:'The churchyard behind the chapel.'}]);
 });
+
+test('player_fights_back on an attack becomes the declared fight_back the host settles (owner 2026-10-26)',()=>{
+ const rule={op:'rule',as:'r1',intent:'combat',decision:'combat:attack',actor:'Hill',target:'Zhou',goal:'Drive him off',stakes:'He keeps the axe',player_fights_back:true};
+ assert.equal([...Errors(TURN_IR_PARAMETERS,{version:5,actions:[rule]})].length,0);
+ assert.equal(ruleAction(rule,name=>name).defense,'fight_back');
+ assert.equal(ruleAction({...rule,player_fights_back:undefined},name=>name).defense,undefined);
+});

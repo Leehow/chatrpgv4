@@ -5722,11 +5722,14 @@ export default function (pi: ExtensionAPI, host: {capabilities?:RuntimeCapabilit
 		return recovery;
 	}
 	const defenseAttempts = new WeakMap<TableState, Map<string, Promise<Record<string, unknown>>>>();
-	async function settleStandingDefense(state: TableState, session: unknown, signal?: AbortSignal): Promise<Record<string, unknown> | undefined> {
+	async function settleStandingDefense(state: TableState, session: unknown, signal?: AbortSignal, declared?: 'fight_back'): Promise<Record<string, unknown> | undefined> {
 		if (!['open', 'acting'].includes(state.state) || !sessionCtx || state.reviewUnavailable) return;
 		const candidate = (session as any)?.pending_defense;
+		if (candidate?.for === 'npc') return settleNpcStandingDefense(state, candidate, signal);
 		if (candidate?.for !== 'player') return;
-		const preference = await readDefensePreference(cocHome(sessionCtx.cwd), state.campaign);
+		// Owner 2026-10-26: the investigator dodges unless the player declared fighting back this turn, as a push or a
+		// Luck spend is the player's own word; the Keeper marks it with defense: fight_back on the attack it settles.
+		const preference = declared ?? await readDefensePreference(cocHome(sessionCtx.cwd), state.campaign);
 		const selected = automaticDefense(session, preference);
 		if (!selected) return;
 		let attempts = defenseAttempts.get(state);
@@ -5752,6 +5755,44 @@ export default function (pi: ExtensionAPI, host: {capabilities?:RuntimeCapabilit
 			} catch (error) {
 				await record({tool: 'resolve', lane: 'standing-defense', call_id: callId, ok: false,
 					...selected.expected, code: isKernelError(error) ? error.code : 'internal'});
+				throw error;
+			}
+		})();
+		attempts.set(key, attempt);
+		return attempt;
+	}
+
+	/**
+	 * Owner 2026-10-26: a person the Keeper plays answers an attack with their standing defence (§11.5.2: the book's tactic,
+	 * a Keeper override, else the rules default), settled by the host at once, so the Keeper never spends a call or a
+	 * thought on it. A standing the engine cannot take against this attack falls back to dodge.
+	 */
+	async function settleNpcStandingDefense(state: TableState, pending: any, signal?: AbortSignal): Promise<Record<string, unknown> | undefined> {
+		const options = Array.isArray(pending?.options) ? pending.options : [];
+		if (typeof pending?.actor !== 'string' || !pending.actor || typeof pending.attack_command_id !== 'string') return;
+		const standing = pending.standing?.defense;
+		const defense = options.includes(standing) ? standing : options.includes('dodge') ? 'dodge' : options[0];
+		if (typeof defense !== 'string') return;
+		let attempts = defenseAttempts.get(state);
+		if (!attempts) defenseAttempts.set(state, attempts = new Map());
+		const key = JSON.stringify({attack_command_id: pending.attack_command_id, actor: pending.actor, revision: pending.revision ?? null});
+		const previous = attempts.get(key);
+		if (previous) return previous;
+		const attempt = (async () => {
+			if (signal?.aborted) throw new Error('Standing defense was cancelled before settlement');
+			const callId = mintCallId(state), payload = {campaign: state.campaign, call_id: callId, action: {intent: 'combat', actor: pending.actor,
+				decision: 'combat:defend', defense, goal: 'Respond to the pending attack', method: 'Use the defender\'s standing defense'}};
+			try {
+				if (mods) await mods.prepare('resolve', payload, signal);
+				const result = await state.kernel.call<Record<string, unknown>>('table.resolve', payload);
+				applyToolSuccess(state, 'resolve', `standing-defense:${callId}`, result);
+				if (mods?.after) await mods.after('resolve', payload, signal);
+				await record({tool: 'resolve', lane: 'standing-defense', call_id: callId, ok: true, defender: 'npc', defense,
+					basis: pending.standing?.basis ?? null, attack_command_id: pending.attack_command_id, actor: pending.actor, ...resolveTelemetry(result as ResolveResult)});
+				return result;
+			} catch (error) {
+				await record({tool: 'resolve', lane: 'standing-defense', call_id: callId, ok: false, defender: 'npc', defense,
+					attack_command_id: pending.attack_command_id, actor: pending.actor, code: isKernelError(error) ? error.code : 'internal'});
 				throw error;
 			}
 		})();
@@ -6481,6 +6522,12 @@ export default function (pi: ExtensionAPI, host: {capabilities?:RuntimeCapabilit
 		const providerBudget = dispatcher.providerBudget(toolCallId) ?? foregroundProviderBudget?.();
 		delete params._standing_defense;
 		delete params._delivery_evidence;
+		// fight_back on an attack is the player's declaration for the defense the host settles after it (owner 2026-10-26),
+		// not a defense the kernel should answer now: it is taken off the action and handed to that settlement.
+		const asked = spec.name === 'resolve' ? params.action as Record<string, unknown> | undefined : undefined;
+		const declaredDefense = asked && typeof asked === 'object' && asked.defense === 'fight_back'
+			&& typeof asked.target === 'string' && asked.target.trim() ? 'fight_back' as const : undefined;
+		if (declaredDefense) { const {defense: _declared, ...action} = params.action as Record<string, unknown>; params = {...params, action}; }
 		const state = table;
         if(!finalSelection&&(spec.name==='narrate'||spec.name==='ask'&&params.handoff===true)) {
             if(!state)throw new KernelError({code:'needs',message:'The table is unavailable'});
@@ -7252,13 +7299,13 @@ export default function (pi: ExtensionAPI, host: {capabilities?:RuntimeCapabilit
 				}
 				if ((current.session as SessionSummary | null)?.pending_defense?.for === 'player' && !result.replayed)
 					defenseRecoveryTurns.set(state, state.turn);
-				const defense = await settleStandingDefense(state, current.session, signal);
+				const defense = await settleStandingDefense(state, current.session, signal, declaredDefense);
 				if (defense) result = {...result, automatic_defense: defense, outcome: defense.outcome,
 					continuations: defense.continuations, session: defense.session, pending_choice: defense.pending_choice,
 					effects: [...(Array.isArray(result.effects) ? result.effects : []), ...(Array.isArray(defense.effects) ? defense.effects : [])],
 					receipts: [...new Set([...(Array.isArray(result.receipts) ? result.receipts : []), ...(Array.isArray(defense.receipts) ? defense.receipts : [])])],
 					// §138.6: a note the band recovery already wrote on this result stays in front of the defence's.
-					note: [result.note, 'The attack was declared and its investigator defense settled under the standing preference. Do not ask for or repeat this defense.'].filter(Boolean).join(' ')};
+					note: [result.note, 'The attack was declared and its defense settled at once (an investigator dodges unless the player declared fighting back; a person you play answers with their standing defense). Do not ask for or repeat this defense.'].filter(Boolean).join(' ')};
 				else if (result.replayed) result = {...result, session: current.session, pending_choice: current.pending_choice,
 					note: [result.note, 'This is a replay of the recorded action, not a new attack. Use the current session state; do not repeat settled defenses.'].filter(Boolean).join(' ')};
 			}

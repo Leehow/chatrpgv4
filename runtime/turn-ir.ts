@@ -66,7 +66,9 @@ export const TURN_IR_ACTIONS={
  rule:closed({op:Type.Literal('rule'),as:text(16),intent:Type.Optional(StringEnum(['investigate','social','move','combat','flee','cast'],{description:'The rule family; investigate by default'})),
   decision:Type.Optional(text(96,'An issued action.decision when one applies (a treatment, a combat move)')),actor:Type.Optional(who),skill:Type.Optional(text(64)),goal:text(200,'What success achieves, fixed before the roll'),
   stakes:text(200,'What failure costs, fixed before the roll'),method:Type.Optional(text(160)),target:Type.Optional(who),
-  difficulty:Type.Optional(StringEnum(['regular','hard','extreme'])),reason:Type.Optional(text(160)),when}),
+  difficulty:Type.Optional(StringEnum(['regular','hard','extreme'])),
+  player_fights_back:Type.Optional(Type.Literal(true,{description:'On an attack on an investigator: the player said this turn they fight back. Otherwise they dodge; a person you play answers on their own. Never decide a defense yourself.'})),
+  reason:Type.Optional(text(160)),when}),
  mood:closed({op:Type.Literal('mood'),who,mood:text(200),reason:Type.Optional(text(160)),when}),
  learn_alias:closed({op:Type.Literal('learn_alias'),who,alias:text(60),reason:Type.Optional(text(160)),when}),
  scene:closed({op:Type.Literal('scene'),service:StringEnum(['open','closed','limited','unknown']),crowd:StringEnum(['empty','quiet','active','crowded','unknown']),reason:Type.Optional(text(160)),when})
@@ -169,7 +171,8 @@ export function applyConditions(actions:TurnIrAction[],results:ReadonlyMap<strin
 export function ruleAction(action:Extract<TurnIrAction,{op:'rule'}>,bind:(name:string)=>string):Row {
  return {intent:action.intent??'investigate',...(action.decision?{decision:action.decision}:{}),goal:action.goal,method:action.method??action.goal,...(action.skill?{skill:action.skill}:{}),stakes:action.stakes,
   ...(action.actor?{actor:bind(action.actor)}:{}),...(action.target?{target:bind(action.target)}:{}),
-  ...(action.difficulty&&action.difficulty!=='regular'?{modifiers:{difficulty:action.difficulty}}:{})};
+  ...(action.difficulty&&action.difficulty!=='regular'?{modifiers:{difficulty:action.difficulty}}:{}),
+  ...(action.player_fights_back===true?{defense:'fight_back'}:{})};
 }
 
 /**
