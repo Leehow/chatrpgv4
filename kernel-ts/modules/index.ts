@@ -54,8 +54,6 @@ function handlersFor(store: ModuleStore, reading: Reading): HandlerGroup {
             return { version: 1, module_id: id, generation: meta.generation ?? 0,
                 revision: jsonDigest({source: identity, generation: meta.generation ?? 0, graph_digest: meta.graph_digest ?? null}),
                 pdf: join(store.moduleDir(id), 'source.pdf'), file_sha256: source.file_sha256, page_count: source.page_count,
-                // The book's title, metadata beside the identity: a source answer whose focus is only the title reads where the party is.
-                ...(typeof meta.title === 'string' && meta.title.trim() ? { title: meta.title } : {}),
                 ...(source.window ? { window: source.window } : {}) };
         },
         'module.read.request': params => reading.request(params),

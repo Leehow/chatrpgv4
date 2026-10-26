@@ -18636,7 +18636,7 @@ applied, unresolved, filled_in, moved_to_equipment), never the sheet's creation 
 `interest_skills` whose card value is still the base chance, because the priority-ordered walk ran
 out of points before it reached them. The walk itself is unchanged. The setup prompt tells the model
 that an ability the player said the person has must not sit there, and to revise (reorder or pin)
-before inviting confirmation. Case: `tests/integration/setup-card.test.ts`
+before inviting confirmation. Case: `tests/integration/setup-card-at-base.test.ts`
 `test_a_named_skill_the_points_never_reached_is_reported_at_base`.
 
 Cases: `tests/kernel/test_setup_card.py` (29), the rewritten draft and override suites, and

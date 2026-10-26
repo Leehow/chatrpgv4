@@ -610,7 +610,7 @@ export function readHandlers(context: KernelContext, contributions: ReadContribu
                 await campaign.preload();
                 try { return continuityView(graph, world, campaign.records, await campaign.log('memory/candidates.jsonl'), {...params,campaign:campaign.id,currentReceipts:array(campaign.turn.receipts)}); }
                 catch (error) {
-                    // §266.13 for continuity (1026i Dust to Dust T3): look answered that the book has 阿萨·尼克尔森 and how he comes
+                    // §266.13 for continuity (1026i Dust to Dust T3): look answered that the book has the police chief and how he comes
                     // in, and continuity on the same name refused him as unknown with three table strangers as candidates.
                     // Someone the cast names whom this table has not met has no connections yet; say so, as look does.
                     const unread = error instanceof RpcError && error.code === 'unknown_entity' && typeof params.query === 'string' ? castPersonNamed(graph, world, params.query) : null;

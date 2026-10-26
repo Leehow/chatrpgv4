@@ -1238,7 +1238,8 @@ export class ReadingService implements ReadingBridge {
 		// 1026i: the Keeper often names the book itself, or a scene's id, as the focus; the title is printed only on the front
 		// matter and an id nowhere, so the answer was the introduction page or nothing. The pages the graph holds for what
 		// the focus names come first, and a focus that is only the book's title names where the party is.
-		const anchor = await this.answerAnchor(campaign, focus, String(snapshot.title ?? ""));
+		const title = await this.call("module.status", { module_id: mid }, campaign).then(status => String(status?.title ?? ""), () => "");
+		const anchor = await this.answerAnchor(campaign, focus, title);
 		const searched = anchor.titled ? anchor.name : focus;
 		let pages: number[] = [...anchor.pages].slice(0, 4);
 		// The focus's own names first; the question's other names fill what is left.
