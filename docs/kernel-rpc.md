@@ -53619,3 +53619,13 @@ In a Turn IR session the opening instruction asks for one `output {version: 5, a
 communicate, material) instead of the v4 packet; live 1025i's openings were taught v4 while the schema was v5. The
 capsule's `untold` budget is 3072 bytes (was 1024), so a stranded turn's damage and HP receipts stay beside its later
 rows (1025i *Digging for a Dead God* T15 lost T14's 3 HP of damage from the recovery capsule).
+
+## 274. Single-entry Turn IR (owner 2026-10-26, experiment)
+
+The owner approved comparing several strategies in parallel. With `PI_COC_TURN_IR_ONLY=1` beside `PI_COC_TURN_IR=1`,
+the Keeper is offered no `place` tool and `apply` declares only the mechanics output actions do not cover; effects of
+kind `move`, `place`, `clue`, `scene`, `time` and `person` sent through apply are refused `turn_ir_only` with the action
+to use instead. 1025i showed the Keeper still calling apply 88 times and place 24 times beside the IR, choosing between two
+write paths for the same change.
+
+Tests: `tests/extension/turn-ir-native.test.mjs`.

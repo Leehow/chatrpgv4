@@ -81,7 +81,7 @@ import { MAP_DOCUMENT_NONE, renderMapView, type MapAttachment } from './map-view
 import { AUTHORED_MAP_WORDS, KEEPER_MAP_WORDS, mapCardTexts, type MapWordsOptions, prepareMapWords, projectMapCard, readMapWords } from '../module/map-presentation.ts';
 import { aliasEffectKinds, argumentLimitRefusal, documentWriteRefusal, effectShapeRefusal, COC_TOOLS, COC_TOOL_NAMES, type CocToolSpec, WRITE_TOOLS } from "./tools.ts";
 import { unwrapArgumentMarkup } from "./tool-argument-markup.ts";
-import { finalDeliveryAction, leanApplyEnabled, offeredTools } from "./lean-apply.ts";
+import { finalDeliveryAction, leanApplyEnabled, offeredTools, TURN_IR_ONLY_KINDS } from "./lean-apply.ts";
 import {admissionRefusalScope,refusedEffectScope,effectScopes} from './refusal-scope.ts';
 import { stripDialectPrefixes, omitEmptyEmbeddedArguments } from "./dialect-prefix.ts";
 import { decodeSerializedStrings } from "./encoded-string-argument.ts";
@@ -7658,6 +7658,12 @@ export default function (pi: ExtensionAPI, host: {capabilities?:RuntimeCapabilit
                     try{turnPacket(JSON.stringify(embedded.args),table.packetParameters?.turn===table.turn&&table.packetParameters.run===keeperRun?.runId?table.packetParameters.schema:undefined);}
                     catch(error){const {refusal}=refusePacketParameters(table,error,undefined,false,embedded.args);throw Error(new KernelError(refusal).toToolText());}
                 }
+				// §274: in a single-entry Turn IR session these effects are output actions only.
+				if(turnIr()&&process.env.PI_COC_TURN_IR_ONLY==='1'&&spec.name==='apply'&&Array.isArray((embedded.args as Record<string,any>)?.effects)){
+					const kinds=[...new Set(((embedded.args as Record<string,any>).effects as Array<Record<string,any>>).map(effect=>String(effect?.kind)).filter(kind=>TURN_IR_ONLY_KINDS.includes(kind)))];
+					if(kinds.length)throw Error(new KernelError({code:'invalid_params',message:`${kinds.join(', ')} ${kinds.length>1?'are':'is'} written as output actions in this session, not apply`,
+						fix:'Send them in output {version:5,actions}: move for moves, perceive for findings, time for waits, scene for the place, learn_alias for names.',details:{reason:'turn_ir_only',kinds}}).toToolText());
+				}
 				const moveRefusal=spec.name==='apply'?moveEstablishmentRefusal((embedded.args as Record<string,unknown>).effects):undefined;
 				if(moveRefusal){
 					const error=new KernelError(moveRefusal);

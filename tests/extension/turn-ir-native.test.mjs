@@ -127,3 +127,19 @@ test('a forced output sets aside what the host cannot take, publishes the rest a
  assert.deepEqual(overrides.map(row=>row.event).sort(),['kernel_refusal','turn_ir_action']);
  assert.ok(overrides.every(row=>row.reason==='The stranger is the man the player is phoning.'));
 });
+
+test('a single-entry session offers no place tool, keeps rare mechanics in apply and refuses output-only kinds there (§274)',async t=>{
+ let tools;
+ const engine=createHybridEngine({env:{...env,PI_COC_TURN_IR_ONLY:'1'},decision:{decide:async batch=>answer(batch,.99)}});
+ const table=await openTable({legacyDeliveryFixtures:false,realKernel:true,prepareWorkspace:opened,env:{...env,PI_COC_TURN_IR_ONLY:'1'},runDriver:engine.runDriver,
+  extraExtensions:[{name:'engine',factory:engine.extension}],responses:[
+   context=>{tools=getCurrentTools(context.messages);return fauxAssistantMessage([fauxToolCall('apply',{effects:[{kind:'time',minutes:5,why:'wait'}]})],{stopReason:'toolUse'});},
+   output([{op:'time',minutes:5,reason:'wait'},{op:'scene',service:'open',crowd:'quiet'}]),fauxAssistantMessage('done')]});
+ t.after(()=>table.dispose());await table.session.prompt('I wait five minutes.');
+ assert.ok(!tools.some(tool=>tool.name==='place'));
+ const kinds=tools.find(tool=>tool.name==='apply').parameters.properties.effects.items.anyOf.map(v=>v.properties?.kind?.const??v.properties?.kind?.enum?.[0]).filter(Boolean);
+ assert.ok(kinds.includes('damage')&&!kinds.includes('time')&&!kinds.includes('clue'));
+ const refused=table.session.messages.find(message=>message.role==='toolResult'&&message.toolName==='apply');
+ assert.match(refused.content[0].text,/output actions in this session/);
+ assert.equal(published(table),1);
+});

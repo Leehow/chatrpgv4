@@ -17,6 +17,8 @@
  */
 
 import {TURN_IR_PARAMETERS,TURN_IR_GUIDANCE} from '../../runtime/turn-ir.ts';
+/** §274: apply effect kinds a single-entry Turn IR session writes only as output actions. */
+export const TURN_IR_ONLY_KINDS:readonly string[]=['move','place','clue','scene','time','person'];
 import type { CocToolSpec } from "./tools.ts";
 import { SENTENCE_MAX } from "./tools.ts";
 import { readJevApiKey } from "../jev/agent/config.js";
@@ -196,7 +198,15 @@ export function offeredTools(tools: readonly CocToolSpec[], env: Readonly<Record
       }
       return spec;
     }):current;
-	return leanApplyEnabled(env) ? leanTools(declared) : declared;
+    // §274: a single-entry Turn IR session takes the place tool away and keeps in apply only the mechanics output actions
+    // do not cover; moves, presence by place, findings, waits, scene and names go through output alone.
+    const lean=leanApplyEnabled(env)?leanTools(declared):declared;
+    return env.PI_COC_TURN_IR==='1'&&env.PI_COC_TURN_IR_ONLY==='1'?lean.filter(spec=>spec.name!=='place').map(spec=>{
+      if(spec.name!=='apply')return spec;
+      const parameters=cloneSchema(spec.parameters) as Record<string,any>,variants=parameters.properties?.effects?.items?.anyOf;
+      if(Array.isArray(variants))parameters.properties.effects.items.anyOf=variants.filter((branch:any)=>!TURN_IR_ONLY_KINDS.includes(variantKind(branch)));
+      return {...spec,parameters};
+    }):lean;
 }
 
 const INTENT_APPLY_NOTE='Record actor-specific knowledge and directed relationships separately. Heard knowledge must name its actual source and audience; bind prospective speech to its event material so it activates only after delivery. Empty effects are valid when recording a meaningful event. Never repeat a settled effect.';
