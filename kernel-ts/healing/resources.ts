@@ -1,5 +1,6 @@
 /** Shared sheet/save synchronization; callers keep the existing transaction and clock. */
 import { RpcError } from '../errors.js';
+import { sha256Text } from '../json.js';
 import type { PythonRandom } from '../random.js';
 import { array, equal, integer, kebab, number, repr, row, string, truth, type Row } from '../read/values.js';
 import type { SettleContext } from '../resolve/context.js';
@@ -50,6 +51,12 @@ export async function minutesSinceInjury(context: SettleContext): Promise<number
     const active = array(state.wound_ledger).filter(item => item && typeof item === 'object' && item.status === 'active' && (integer(item.occurred_elapsed_minutes) || typeof item.occurred_elapsed_minutes === 'boolean')).map(item => number(item.occurred_elapsed_minutes));
     return active.length ? Math.max(0, context.clockMinutes - Math.max(...active)) : null;
 }
+// A damage roll id carries the combat's place name, which can be any script and any length; the
+// wound id built from it must stay a short ASCII token, so such a source is named by its digest.
+export function woundDecisionId(callId: string, source: string): string {
+    const plain = `${callId}-${kebab(source)}`;
+    return /^[A-Za-z0-9._:-]{1,120}$/.test(plain) ? plain : `${callId}-d${sha256Text(source).slice(0, 16)}`;
+}
 export async function mirrorInvestigator(context: SettleContext, investigator: string, options: {
     currentHp?: number | null;
     currentMp?: number | null;
@@ -79,7 +86,7 @@ export async function mirrorInvestigator(context: SettleContext, investigator: s
     const state = await readHealingState(context, investigator);
     for (const source of options.wounds ?? [])
         establishDamageWound(state, {
-            decisionId: `${context.callId}-${kebab(source)}`, occurredElapsedMinutes: context.clockMinutes, sourceDamageRollId: source,
+            decisionId: woundDecisionId(context.callId, source), occurredElapsedMinutes: context.clockMinutes, sourceDamageRollId: source,
         });
     if (!truth(state) && !options.wounds?.length)
         return;

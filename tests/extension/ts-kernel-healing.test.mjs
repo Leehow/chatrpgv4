@@ -13,7 +13,7 @@ const modules = [
   ['json', ['parsePythonJson', 'pythonJsonDumps', 'canonicalJson']], ['random', ['PythonRandom']], ['context', ['createKernelContext']],
   ['rules/tables', ['RuleTables']], ['resolve/arithmetic', ['CheckArithmetic']],
   ['healing/session', ['HealingSession', 'establishDamageWound', 'rebaseHealingClock', 'healingTimeTrigger']],
-  ['healing/mp', ['MPool', 'rebaseMpClock', 'mpTimeTrigger']], ['healing/day', ['closeSanityDays']], ['healing/resources', ['applyWoundConditions']],
+  ['healing/mp', ['MPool', 'rebaseMpClock', 'mpTimeTrigger']], ['healing/day', ['closeSanityDays']], ['healing/resources', ['applyWoundConditions', 'woundDecisionId']],
 ];
 await build({ stdin: { contents: modules.map(([name, names]) => `export {${names.join(',')}} from ${JSON.stringify(join(ROOT, 'kernel-ts', name + '.ts'))};`).join('\n'),
   resolveDir: ROOT, loader: 'ts', sourcefile: 'healing-oracle.ts' }, outfile: join(evidence, 'api.mjs'), bundle: true, platform: 'node', format: 'esm', target: 'node22', packages: 'external', logLevel: 'silent' });
@@ -201,4 +201,13 @@ test('midnight closes saved SAN days and schedules the existing monthly treatmen
   cases.push({ op: 'day', days: 1, clock: 1440, state: { investigator_id: 'other' } },
     { op: 'day', days: 1, clock: 1440, state: { investigator_id: 'patient', bout_active: true, bout_rounds_remaining: 0 } });
   await compare('sanity-day', cases, t);
+});
+
+test('a damage roll named after a non-ASCII place still forms a wound identity', () => {
+  const source = 'combat-阿卡姆教堂公墓 / 西边林中伐木处 / 西边林子深处-t11:cr7', id = api.woundDecisionId('t11-c4', source);
+  assert.match(id, /^t11-c4-d[0-9a-f]{16}$/);
+  assert.equal(api.woundDecisionId('t11-c4', source), id);
+  assert.equal(api.woundDecisionId('t11-c4', 'combat-x-t11:cr7'), 't11-c4-combat-x-t11-cr7');
+  const state = {};
+  assert.equal(api.establishDamageWound(state, { decisionId: id, occurredElapsedMinutes: 5, sourceDamageRollId: source }).wound_id, `wound-${id}`);
 });
