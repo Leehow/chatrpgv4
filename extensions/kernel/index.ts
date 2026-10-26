@@ -6019,9 +6019,12 @@ export default function (pi: ExtensionAPI, host: {capabilities?:RuntimeCapabilit
             if(routineCharged==='uncharged'||routineCharged==='several')await record({lane:'routine-summary',event:'time_charge',turn:state.turn,charge:routineCharged});
 			// Resolve speakers before any writes; optional style is not an identity fallback.
 			const participantRefs=[...new Set(compiled.responses.flatMap(response=>[response.actor,...response.to??[]]).filter(isNpcReference))];
+            // The spellings each person's book record goes by, for their released appearance (1026h).
+            const lookNames=new Map<string,unknown[]>(),noteNames=(person:Record<string,any>)=>{if(typeof person.ref==='string')lookNames.set(person.ref,[person.name,person.id,person.node_id,person.display_name]);};
             const people=await Promise.all(participantRefs.map(async actor=>{
 				const person=await state.kernel.call<Record<string,any>>('table.look',{campaign:state.campaign,focus:'npc',name:actor,_context_read:true});
                 if(person.ref!==actor||typeof person.display_name!=='string'||typeof person.name_known!=='boolean')throw Error('The NPC reference projection is unavailable');
+                noteNames(person);
 				return decisionPerson(person,[...(before.present??[]),...(before.npc_references?.people??[]),...state.party.map((person,index)=>({ref:`investigator_${index+1}`,name:person.name,display_name:person.name}))]);
 			}));
 			const materialOwner=packetContent(state);
@@ -6111,6 +6114,7 @@ export default function (pi: ExtensionAPI, host: {capabilities?:RuntimeCapabilit
             for(const newcomer of newcomers){
                 const person=await state.kernel.call<Record<string,any>>('table.look',{campaign:state.campaign,focus:'npc',name:newcomer.label,_context_read:true});
                 if(typeof person.ref!=='string'||typeof person.display_name!=='string')throw Error('The created NPC reference projection is unavailable');
+                noteNames(person);
                 packetNpcReferences(state).observe(packetNpcScope(state),person);
                 bindCreatedDecisionPerson(hydrated,newcomer.slot,{ref:person.ref,display_name:person.display_name});
                 if(((current.present??[]).some((row:Record<string,unknown>)=>row.ref===person.ref)||(packet.interactions??[]).some(row=>row.actor===newcomer.slot))&&!people.some(row=>row.ref===person.ref))
@@ -6136,6 +6140,7 @@ export default function (pi: ExtensionAPI, host: {capabilities?:RuntimeCapabilit
             await record({lane:'first-sight',event:'render_scope',turn:state.turn,scene:current.where?.scene,
                 items:[...(sight.place?[sight.place.id]:[]),...(sight.people??[]).map((row:Record<string,any>)=>row.id)]});
 			const where=current.where??{};
+			for(const person of people){const look=materialOwner.bookAppearance(lookNames.get(String(person.ref))??[]);if(look.length)person.book_appearance=look;}
 			decision={scene:decisionScene(sightView),clock:decisionClock(where.clock??{}),...decisionResponseScope(before,current,hydrated.responses),people,selected_materials:hydrated.materials,style:current.style,
 				recent_public:decisionRecentPublic(current.recent,state.delivered)};
             // §254.3: what an establishing reply owes is delivery contract; how to write it is the package's author section.

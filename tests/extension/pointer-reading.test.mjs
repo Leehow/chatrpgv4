@@ -168,6 +168,19 @@ test('§263.5: a person owed first sight with no words of their own is handed th
  assert.deepEqual(materials.map(row=>row.value?.text),['Russ is tall and thin.','A faded sign.'],'the look, and the place\'s description the first time it is here');
 });
 
+// 1026h Dust to Dust: the book's 23-year-old Eric was handed over once, at first sight, and written as about forty after.
+test('a seated book person\'s released look stays theirs every turn, by the spellings the book gives them',()=>{
+ const content=new api.DecisionContent();
+ const capsule={where:{scene:'esso',display_name:'Esso'},present:[{ref:'npc_1',id:'russ',name:'Russ',display_name:'the tall cook'}],first_sight:{people:[]}};
+ const book=[{page:17,kind:'appearance',entity:'Russ',forms:['russ'],text:'Russ is tall and thin, twenty-three.'},{page:17,kind:'secret',entity:'Russ',forms:['russ'],text:'Russ hides the key.'}];
+ content.prepare('a',capsule,[],[],[],[],[],[],book);
+ assert.deepEqual(content.bookAppearance(['Russ','russ','the tall cook']),['Russ is tall and thin, twenty-three.'],'only the appearance, once');
+ assert.deepEqual(content.hydrate([],[]).materials,[],'described already: nothing is handed as a material');
+ assert.deepEqual(content.bookAppearance(['the tall cook']),[],'the table\'s word alone is no book spelling');
+ content.prepare('b',capsule,[],[],[],[],[],[],book);
+ assert.deepEqual(content.bookAppearance(['Russ']),['Russ is tall and thin, twenty-three.'],'and again the next turn');
+});
+
 test('§263.5: a scene the table names more fully still finds the book\'s place by spelling',()=>{
  const rows=[{page:28,kind:'description',entity:'Last Stop',forms:['laststop'],text:'A jukebox and license plates.'}];
  assert.equal(api.passagesInScope(rows,{where:{display_name:'Last Stop Diner'}}).length,1);

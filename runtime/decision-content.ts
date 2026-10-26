@@ -204,9 +204,17 @@ export class DecisionContent {
   private said=new Map<string,Set<string>>();private line='';
  /** §263.5: released looks owed this turn, handed to the author without a selection. */
  private autoBook:string[]=[];private placesShown=new Set<string>();private pendingPlaces:string[]=[];private bookMeta=new Map<string,{kind:string;forms:string[]}>();
+ /** 1026h: a seated book person's released appearance, by the spellings the book gives them, for every turn they are in the author's people. */
+ private bookLooks=new Map<string,string[]>();
  private reads=new Map<string,Row>();private told=new Map<string,Map<string,Row>>();private heard=new Map<string,Row[]>();private sourceRevision:unknown;private bytes=0;private omitted=0;private previous=new Set<string>();
  assertCurrent(capsule:Row):void {if(this.sourceRevision!==undefined&&this.sourceRevision!==(capsule._context?.task_source_revision??capsule._context?.source_revision))throw Error('Prepared communication source revision changed');}
  forScope(scope:string,line?:string):void {if(line!==undefined)this.line=line;else if(scope!==this.scope)this.line=scope;if(scope!==this.scope){this.scope=scope;this.active.clear();this.entities.clear();this.people.clear();this.places.clear();this.listenerAliases.clear();this.entityLabels.clear();this.reads.clear();this.facts.clear();this.exhibitRows.clear();this.activeExhibits.clear();this.handleRefs.clear();}}
+ /** The book's released words for this person's lasting appearance (1026h Dust to Dust: the book's 23-year-old Eric was
+  *  handed to the author once, at first sight, and was written as about forty from then on). Spelling match only. */
+ bookAppearance(names:unknown[]):string[] {
+  const texts=[...new Set(names.map(bookKey).filter(Boolean).flatMap(key=>this.bookLooks.get(key)??[]))];
+  return texts.slice(0,2).map(text=>text.slice(0,600));
+ }
  observePerson(value:Row):void {if(isNpcReference(value.ref))this.reads.set(value.ref,structuredClone(value));}
  prepare(scope:string,capsule:Row,people:Row[],sources:Row[]=[],investigators:string[]=[],issuedPeople:string[]=[],prepared:Row[]=[],exhibits:Row[]=[],book?:Row[],plans:Row[]=[]):Row {
   this.forScope(scope);this.active.clear();this.activeExhibits.clear();this.exhibitsOmitted=0;this.exhibitsGiven=exhibits.length>0;this.entities.clear();this.people.clear();this.places.clear();this.listenerAliases.clear();this.entityLabels.clear();this.bytes=0;this.omitted=0;this.sourceRevision=capsule._context?.task_source_revision??capsule._context?.source_revision;
@@ -301,7 +309,7 @@ export class DecisionContent {
   for(const material of rows(capsule.outcome?.public_materials))if(material.visibility==='player')this.issue('fact',material,undefined,'canonical_material','current');
   for(const source of sources)if(typeof source.text==='string'&&source.text.trim())this.issue('source',{name:source.name,text:source.text,authority:source.authority??'reference_only'},undefined,'reference_only');
   // §263.5: under pointer reading only released book words are selectable; the opening's pages stay Keeper context.
-  this.autoBook=[];this.pendingPlaces=[];this.bookMeta.clear();
+  this.autoBook=[];this.pendingPlaces=[];this.bookMeta.clear();this.bookLooks.clear();
   if(book){
    // §263.5: a person owed first sight with no book words of their own gets their released look without a selection.
    const owed=new Set(rows(capsule.first_sight?.people).filter(item=>item.undescribed===true).map(item=>bookKey(item.name)).filter(Boolean));
@@ -312,6 +320,7 @@ export class DecisionContent {
     const ref=this.aliases.get(digest({kind:'source',value:{name:`Book p${passage.page}: ${passage.kind} of ${passage.entity}`,text:passage.text,authority:BOOK_WORDS_AUTHORITY},actor:undefined,evidence:'book_words'}));
     const forms:string[]=Array.isArray(passage.forms)?passage.forms:[bookKey(passage.entity)];
     if(ref)this.bookMeta.set(ref,{kind:passage.kind,forms});
+    if(ref&&this.active.has(ref)&&passage.kind==='appearance')for(const form of forms){const texts=this.bookLooks.get(form)??[];if(!texts.includes(passage.text))this.bookLooks.set(form,[...texts,passage.text]);}
     if(ref&&this.active.has(ref)&&passage.kind==='appearance'&&forms.some(form=>owed.has(form)))this.autoBook.push(ref);
     // §263.5: the first turn a place's own released description is in scope at this table, it is handed over too.
     const place=String(capsule.where?.scene??capsule.where?.display_name??'');

@@ -53689,3 +53689,14 @@ existing book-person entrance, landing an unread one on its first mention) follo
 <label>}`, so the label is this table's word for them and their name stays untold; the slot binds by the label. Without
 `book` a walk-on is unchanged. Cases: `tests/extension/turn-packet-prototype.test.mjs` "a walk_on that names its book person",
 `tests/extension/module-cast.test.mjs` "a book person seated under a description".
+
+### A seated book person's released look stays theirs (1026h)
+
+Live 1026h, 归于尘埃 T8: the pointer index held Eric's appearance (page 5, released safe and approved), but §263.5 handed a
+released look to the author only at first sight of an undescribed person, and otherwise left it as a `source_N` the Keeper
+rarely selects; the author wrote the book's 23-year-old as about forty and kept it. Every approved `appearance` passage in
+scope is now kept by the spellings the book gives that person (`DecisionContent.bookAppearance`, spelling match only), and each
+person in the author's `people` whose table look carries one of those spellings gets `book_appearance` (at most two passages,
+600 characters each) every turn. The author instruction says never to contradict it and to describe it again only where the
+story would. Nothing unreleased is added. Case: `tests/extension/pointer-reading.test.mjs` "a seated book person's released
+look stays theirs every turn".
