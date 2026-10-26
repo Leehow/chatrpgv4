@@ -608,7 +608,17 @@ export function readHandlers(context: KernelContext, contributions: ReadContribu
             if (!contextRead) await requireNoTransition(campaign, contributions);
             if (kind === 'continuity') {
                 await campaign.preload();
-                return continuityView(graph, world, campaign.records, await campaign.log('memory/candidates.jsonl'), {...params,campaign:campaign.id,currentReceipts:array(campaign.turn.receipts)});
+                try { return continuityView(graph, world, campaign.records, await campaign.log('memory/candidates.jsonl'), {...params,campaign:campaign.id,currentReceipts:array(campaign.turn.receipts)}); }
+                catch (error) {
+                    // §266.13 for continuity (1026i Dust to Dust T3): look answered that the book has 阿萨·尼克尔森 and how he comes
+                    // in, and continuity on the same name refused him as unknown with three table strangers as candidates.
+                    // Someone the cast names whom this table has not met has no connections yet; say so, as look does.
+                    const unread = error instanceof RpcError && error.code === 'unknown_entity' && typeof params.query === 'string' ? castPersonNamed(graph, world, params.query) : null;
+                    if (!unread) throw error;
+                    return { kind: 'continuity', name: params.query, material: "unread", at_table: false, connections: [], original_pages: unread.pages.slice(0, 8),
+                        ...(unread.first ? { first_mention: unread.first } : {}),
+                        note: "The book names this person and this table has not met them yet, so there are no table connections to read. Write to them by this name as any write does (apply npc {name, to}, a clue's from, apply person): the write lands them on the book's first mention of them. Read more of them with lookup kind=source source_mode=pages on these pages." };
+                }
             }
             if (kind === "module") {
                 const query = required(params, "query");

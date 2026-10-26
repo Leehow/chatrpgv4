@@ -1020,6 +1020,20 @@ test('a newcomer slot under an unread book person\'s name lands and seats that p
 	assert.deepEqual((await h.world()).table_people.map(row => [row.name, !!row.cast_id]), [['Jonah', true]]);
 });
 
+// 1026i Dust to Dust T3: look said the book has the police chief; continuity on the same name refused him as unknown.
+test('continuity on an unread book person answers what look answers, not unknown_entity', async t => {
+	const h = await harbor(t);
+	await readCast(h);
+	await h.call('table.player_input', {text: 'I ask after Jonah.'});
+	const answer = await h.attempt('table.lookup', {kind: 'continuity', query: 'Jonah'});
+	assert.equal(answer.ok, true, JSON.stringify(answer.error?.message));
+	assert.equal(answer.result.material, 'unread');
+	assert.equal(answer.result.at_table, false);
+	assert.ok(answer.result.original_pages.includes(3), JSON.stringify(answer.result.original_pages));
+	const stranger = await h.attempt('table.lookup', {kind: 'continuity', query: 'Nobody Of That Name'});
+	assert.equal(stranger.error?.code, 'unknown_entity', 'a name the book never prints is still unknown');
+});
+
 test('§264.41: creature:false on a walk_on of a book person says what an omitted creature says', async t => {
 	const h = await harbor(t);
 	await readCast(h);
