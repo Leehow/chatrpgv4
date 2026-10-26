@@ -6029,18 +6029,22 @@ export default function (pi: ExtensionAPI, host: {capabilities?:RuntimeCapabilit
 				let thrown:unknown;
 				try{settled=await runTool(COC_TOOLS.find(tool=>tool.name==='apply')!,toolCallId,
 					params,reply.signal,undefined,'explicit',ctx,undefined,undefined,compiledDecisionAuthority);}
-				catch(error){if(!force||!isKernelError(error))throw error;thrown=error;
+				catch(error){if(!isKernelError(error)||!force&&!surfaceless(error.message))throw error;thrown=error;
 					settled={content:[{type:'text' as const,text:errorText(error)}],details:{coc_error:{code:error.code,message:error.message,details:error.details}}} as typeof settled;}
 				const refused=settled.details.coc_error as Record<string,any>|undefined,index=refused?.details?.index;
 				if(thrown&&(!Number.isInteger(index)||!compiled.effects[index]))throw thrown;
-				if(!refused||!force||attempt>=6||!Number.isInteger(index)||!compiled.effects[index])break;
+				// §270.21: opening, closing or reading a thing that has no writing surface (a lamp, a first-aid kit, a stone)
+				// asks for nothing to change; that effect is set aside without force and recorded (live 1025i, three turns).
+				const auto=!!refused&&surfaceless(String(refused.message));
+				if(!refused||!force&&!auto||attempt>=6||!Number.isInteger(index)||!compiled.effects[index])break;
 				const [setAside]=compiled.effects.splice(index,1);
-				await recordOverride(state,reply.run,force,'kernel_refusal',{code:refused.code,message:refused.message,refusal_reason:refused.details?.reason??null,set_aside:setAside});
+				if(force)await recordOverride(state,reply.run,force,'kernel_refusal',{code:refused.code,message:refused.message,refusal_reason:refused.details?.reason??null,set_aside:setAside});
+				else await record({lane:'turn-packet-prototype',event:'surfaceless_material_set_aside',turn:state.turn,run:reply.run,set_aside:setAside});
 				if(!compiled.effects.length&&!compiled.event)break;
 				}
 				await record({lane:'turn-packet-prototype',turn:state.turn,run:reply.run,effects:compiled.effects,
 					ok:!settled.details.coc_error,jev_extra_calls:0});
-				if(settled.details.coc_error&&!(force&&!compiled.effects.length&&!compiled.event)){
+				if(settled.details.coc_error&&!(!compiled.effects.length&&!compiled.event)){
 					const refusal=settled.details.coc_error as ConstructorParameters<typeof KernelError>[0],taughtBy=exhibits?.taughtBy.get(String((refusal.details as Record<string,unknown>|undefined)?.clue??''));
 					// Only a refusal of a packet that selected exhibits is an exhibit refusal; any other refused apply is not logged as one.
 					if(exhibits?.selected.length||taughtBy)await record({lane:'decision-content',event:'exhibit_refused',turn:state.turn,run:reply.run,...materialOwner.exhibitIssue(),selected:exhibits?.selected??[],
@@ -6200,6 +6204,8 @@ export default function (pi: ExtensionAPI, host: {capabilities?:RuntimeCapabilit
         void record({lane:'arguments',event:'packet_parameters_refused',turn:state.turn,retry,repeated,distinct_failures:failures.size,attempts:total,limit,phase:beforeCommit?'before_commit':'before_execution',jev_calls:0});
         return {retry,refusal};
     }
+	/** §270.21: the refusal a thing with no writing surface gives a document action. */
+	function surfaceless(message:string):boolean {return /Initialize the physical document before using its reading surface/.test(message);}
 	/** §273: the Keeper's force on an output, {reason}, when it is sure the host is wrong to refuse. */
 	function forceOf(value:unknown):{reason:string}|undefined {
 		const force=value&&typeof value==='object'?(value as Record<string,any>).force:undefined;

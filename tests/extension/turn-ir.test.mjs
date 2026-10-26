@@ -122,3 +122,16 @@ test('a word carrying one issued person\'s whole name binds them; an investigato
  const out=packet([{op:'relationship',who:'周衡',toward:'欧文·塔布勒',disposition:'friendly'}]);
  assert.equal(out.commands,undefined);
 });
+
+test('a move of people only sends them, not the party',()=>{
+ const out=packet([{op:'move',to:'镇上',actors:['欧文·塔布勒']}]);
+ assert.deepEqual(out.commands,[{kind:'npc',actor:'npc_3',to:'镇上',reason:'goes to 镇上'}]);
+ const party=packet([{op:'move',to:'镇上',actors:['周衡','欧文·塔布勒']}]);
+ assert.deepEqual(party.commands,[{kind:'place',action:'move',to:'镇上',with:['npc_3']}]);
+});
+
+test('lists written inside {item} wrappers are the lists themselves',async()=>{
+ const {normalizeTurnIr}=await import('../../runtime/turn-ir.ts');
+ const {value}=normalizeTurnIr({version:5,actions:{item:[{op:'communicate',speaker:'a',to:{item:'b'},act:'answer',says:{item:[{item:'fact_2'},{claim:'no'}]}}]}});
+ assert.deepEqual(value.actions[0].to,['b']);assert.deepEqual(value.actions[0].says,['fact_2',{claim:'no'}]);
+});

@@ -7,8 +7,10 @@ export class NpcReferences {
  private readonly issued=new Set<string>();
  private readonly publicNames=new Map<string,Set<string>>();
  private readonly displays=new Map<string,string>();
+ /** Other names the kernel shows for an issued person (the book's), read by lookup only, never shown. */
+ private readonly names=new Map<string,Set<string>>();
  observe(scope:string,value:unknown):void {
-  if(this.scope!==scope){this.scope=scope;this.issued.clear();this.publicNames.clear();this.displays.clear();}
+  if(this.scope!==scope){this.scope=scope;this.issued.clear();this.publicNames.clear();this.displays.clear();this.names.clear();}
   if(!value||typeof value!=='object')return;
   const packet=value as Row;
   for(const person of [packet,...(Array.isArray(packet.present)?packet.present:[]),
@@ -19,6 +21,12 @@ export class NpcReferences {
      this.displays.set(person.ref,person.display_name.trim());
      const name=person.display_name.normalize('NFKC').trim().toLowerCase(),refs=this.publicNames.get(name)??new Set<string>();
      refs.add(person.ref);this.publicNames.set(name,refs);
+    }
+    // §270.20: the book's own name for them binds too, after the table has given them another word (live 1025i: once a
+    // learned alias replaced the display name, the book's full name was "nobody at this table").
+    if(typeof person.name==='string'&&person.name.trim()&&person.name.trim()!==person.display_name){
+     const name=person.name.normalize('NFKC').trim().toLowerCase(),refs=this.names.get(name)??new Set<string>();
+     refs.add(person.ref);this.names.set(name,refs);
     }
    }
  }
@@ -65,6 +73,8 @@ export class NpcReferences {
   if(this.scope!==scope)return [];
   const key=name.normalize('NFKC').trim().toLowerCase(),exact=[...(this.publicNames.get(key)??[])].filter(ref=>this.issued.has(ref));
   if(exact.length)return exact;
+  const other=[...(this.names.get(key)??[])].filter(ref=>this.issued.has(ref));
+  if(other.length)return other;
   // §270.18: a word that carries one issued person's whole public name is that person ("约翰·格林中士" for "约翰·格林"),
   // as §264.32 reads a full name inside a newcomer's word; two such people stay ambiguous.
   return [...new Set([...this.publicNames].filter(([public_])=>[...public_].length>=2&&key.includes(public_)).flatMap(([,refs])=>[...refs]))].filter(ref=>this.issued.has(ref));

@@ -53598,3 +53598,17 @@ telemetry row in lane `kp-override` (`event`: `turn_ir_parameters`, `turn_ir_act
 refused effect is set aside, not written. The guidance tells the Keeper to force only after one correction did not help.
 
 Tests: `tests/extension/turn-ir-native.test.mjs`.
+
+### 270.20 Moves of people only; the book's name binds; surfaceless things; {item} wrappers
+
+- A Turn IR `move` whose `actors` are all people (no investigator) sends each of them there (`npc` to the place); the
+  party stays. Live 1025i *An Amaranthine Desire* T14 an NPC-only move moved the party.
+- `NpcReferences.lookup` also binds the book's name a present or referenced person carries (`name`), after the table
+  has given them another word; it is read for binding only, never shown.
+- A document action (open, close, show to read) on a thing with no writing surface asks for nothing to change; the
+  compiled effect is set aside without force (`surfaceless_material_set_aside`). Live 1025i: a stone slab, a first-aid
+  kit and a lantern.
+- A list (`actions`, `actors`, `to`, `says`, `what`) or list item written inside a one-key `{item: ...}` wrapper is read
+  as the list or item itself.
+
+Tests: `tests/extension/turn-ir.test.mjs`.

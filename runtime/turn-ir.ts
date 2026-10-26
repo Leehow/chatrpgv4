@@ -78,12 +78,17 @@ export type TurnIrAction=TurnIr['actions'][number];
  * reported, not refused (live 1025g: reason on communicate, at/spot/relation on move, additions on move); a move's `at`
  * is its spot. Returns the cleaned list and what was dropped, by action index.
  */
+/** A list or list item written inside a one-key {item: ...} wrapper is the list or item itself (live 1025i, MiniMax). */
+const unwrapItem=(value:unknown):unknown=>value&&typeof value==='object'&&!Array.isArray(value)&&Object.keys(value as Row).length===1&&'item' in (value as Row)?(value as Row).item:value;
+const unwrapList=(value:unknown):unknown=>{const inner=unwrapItem(value);return Array.isArray(inner)?inner.map(unwrapItem):inner!==value&&inner!==undefined?[inner]:value;};
 export function normalizeTurnIr(value:unknown):{value:unknown;dropped:Array<{index:number;fields:string[]}>} {
+ if(value&&typeof value==='object'&&!Array.isArray(value)&&'actions' in (value as Row))value={...(value as Row),actions:unwrapList((value as Row).actions)};
  if(!value||typeof value!=='object'||!Array.isArray((value as Row).actions))return {value,dropped:[]};
  const dropped:Array<{index:number;fields:string[]}>=[];
  const actions=(value as Row).actions.map((action:unknown,index:number)=>{
   if(!action||typeof action!=='object'||Array.isArray(action))return action;
   const row={...(action as Row)},schema=(TURN_IR_ACTIONS as Record<string,any>)[String(row.op)];
+  for(const key of ['actors','to','says','what'])if(row[key]!==undefined&&(key!=='to'||row.op==='communicate'))row[key]=unwrapList(row[key]);
   if(!schema)return row;
   if(row.op==='move'&&typeof row.at==='string'&&row.spot===undefined){row.spot=row.at;delete row.at;}
   // A reference written as an object ({fact_5: ...} or v4's {fact_ref:"fact_5"}) is the reference itself (live 1025h).
@@ -189,7 +194,13 @@ export function toPacket(actions:TurnIrAction[],directory:TurnIrDirectory,aliase
   const i=offset+j;
   switch(action.op){
    case 'move':{
-    const company=(action.actors??[]).map(name=>person(name,i,'actors')).filter(ref=>!/^investigator_/.test(ref));
+    const movers=(action.actors??[]).map(name=>person(name,i,'actors'));
+    // Only people, no investigator: they go, the party stays (live 1025i Amaranthine T14: an NPC-only move moved the party).
+    if(movers.length&&!movers.some(ref=>/^investigator_/.test(ref))){
+     for(const actor of movers)commands.push({kind:'npc',actor,to:action.to,reason:action.reason??`goes to ${action.to}`});
+     break;
+    }
+    const company=movers.filter(ref=>!/^investigator_/.test(ref));
     commands.push({kind:'place',action:'move',to:action.to,...(action.via?{via:action.via}:{}),...(action.band?{travel_band:action.band}:{}),
      ...(action.inside?{additions:[{name:action.to,within:action.inside}]}:{}),...(company.length?{with:company}:{}),
      ...(action.spot?{spot:action.spot}:{}),...(action.relation?{relation:action.relation}:{})});
