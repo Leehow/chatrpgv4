@@ -214,8 +214,11 @@ export function createApplyHandlers(kernel: KernelContext, writer: ReturnType<ty
                 // A host-vouched full source name or exact unread cast identity uses the existing source entrance.
                 // §264.41: `creature: false` says what an omitted creature says (live 2026-10-25: Captain Habicht refused as a
                 // newcomer carrying a book name, beside creature:false).
+                // 1026i Dust to Dust T3: the newcomer mark goes with walk_on, or the seated book person is refused as the slot's
+                // "existing person" and the Keeper spends the turn looking for another entrance.
                 if (!effect.creature && (passageOf(effect, effect.name) || castPersonNamed(graph, transaction.world, effect.name))) {
                     effect.walk_on = false;
+                    delete effect._new_person;
                     continue;
                 }
 

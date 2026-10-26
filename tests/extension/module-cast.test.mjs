@@ -1004,6 +1004,22 @@ test('§264.32: a word carrying one unread person\'s full name is that person; a
 	assert.deepEqual(people.map(row => [row.name, !!row.cast_id]), [['Jonah Marsh', true]]);
 });
 
+// 1026i Dust to Dust T3: the Keeper's output brought the book's police chief in through a newcomer slot under his printed
+// name; the unread cast entrance turned walk_on off but left the slot's newcomer mark, so seating him was refused as "a
+// newcomer slot cannot select an existing person", the Keeper spent four calls finding another way and the turn timed out.
+test('a newcomer slot under an unread book person\'s name lands and seats that person', async t => {
+	const h = await harbor(t);
+	await readCast(h);
+	await h.call('table.player_input', {text: 'Someone comes down the pier.'});
+	const effects = [{kind: 'npc', name: 'Jonah', to: 'here', walk_on: true, _new_person: true, why: 'he walks up'}];
+	const held = await h.attempt('table.apply', {call_id: 't1-c1', effects});
+	assert.equal(held.error?.details?.reason, 'material_pending', JSON.stringify([held.error?.message, held.error?.details]));
+	const landed = await h.attempt('table.apply', {call_id: 't1-c1', effects, _land_on_text: [{key: held.error.details.person.key,
+		passage: {scene: null, page: 3, label: null, sentence: "Mae's boy Jonah drowned there last spring."}}]});
+	assert.equal(landed.ok, true, JSON.stringify(landed.error?.message));
+	assert.deepEqual((await h.world()).table_people.map(row => [row.name, !!row.cast_id]), [['Jonah', true]]);
+});
+
 test('§264.41: creature:false on a walk_on of a book person says what an omitted creature says', async t => {
 	const h = await harbor(t);
 	await readCast(h);
