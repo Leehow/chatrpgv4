@@ -45,3 +45,17 @@ test('an unknown option is refused before anything is staged',async t=>{
  assert.equal(table.telemetry().filter(row=>row.lane==='packet-choice').length,0);
  assert.equal(turnRecord(table,1).pending_choice??null,null,'the turn publishes without a choice');
 });
+
+test('a defense choice is refused when staged, so the output that follows still delivers (live du-1026g T8)',async t=>{
+ const engine=createHybridEngine({env,decision:{decide:async()=>{throw Error('no review is expected');}}});
+ const table=await openTable({legacyDeliveryFixtures:false,realKernel:true,prepareWorkspace:opened,env,runDriver:engine.runDriver,
+  extraExtensions:[{name:'engine',factory:engine.extension}],responses:[
+   ()=>fauxAssistantMessage([rawToolCall('ask',{kind:'mechanics',options:['dodge','fight_back'],binds:'defense:investigator-r2'})],{stopReason:'toolUse'}),
+   ()=>fauxAssistantMessage([output({version:4,interactions:[{actor:'npc_1',to:['investigator_1'],act:'refuse'}]})],{stopReason:'toolUse'})]});
+ t.after(()=>table.dispose());
+ await table.session.prompt('I ask Knott again for the sealed file.');
+ assert.equal(table.telemetry().filter(row=>row.lane==='packet-choice').length,0,'nothing was staged');
+ const record=turnRecord(table,1);
+ assert.equal(record.pending_choice??null,null);
+ assert.ok(typeof record.rendered_text==='string'&&record.rendered_text.trim().length>0,'the turn still delivers its prose');
+});

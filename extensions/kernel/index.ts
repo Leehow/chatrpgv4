@@ -6437,6 +6437,14 @@ export default function (pi: ExtensionAPI, host: {capabilities?:RuntimeCapabilit
                 throw new KernelError({code:'invalid_params',message:'unknown mechanics choice option',fix:`Stage the choice with options from ${MECHANICS_CHOICE_OPTIONS.join(', ')}. Nothing was staged.`,
                     details:{reason:'mechanics_option_unknown',options:[...MECHANICS_CHOICE_OPTIONS]}});
             const choice={kind:'mechanics',options:[...options],...(typeof params.binds==='string'&&params.binds.trim()?{binds:params.binds}:{})};
+            // A defense is the standing preference's, never a staged ask: refused here it costs a retry, refused when the
+            // output publishes it the prose is already shown and the turn can no longer deliver (live du-1026g T8).
+            if(isDefenseChoice(choice)){
+                const recovered=table.interactionScope!==undefined&&table.interactionScope!=='world'?undefined:await recoverStandingDefense(table,signal);
+                throw new KernelError({code:'stale_choice',retryable:false,next:'change_input',
+                    message:'Combat defense uses the campaign standing preference, not ask. Nothing was staged; continue with output after the defense result.',
+                    ...(recovered?{fix:`The standing defense settled the live attack: ${JSON.stringify(recovered)}`,details:{reason:'standing_defense_settled',automatic_defense:recovered}}:{})});
+            }
             table.packetChoice={turn:table.turn,choice};
             modelSteps.delete(toolCallId);
             await record({lane:'packet-choice',event:'staged',turn:table.turn,binds:choice.binds??null,options:choice.options});
