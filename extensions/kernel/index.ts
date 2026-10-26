@@ -5932,7 +5932,7 @@ export default function (pi: ExtensionAPI, host: {capabilities?:RuntimeCapabilit
         return queries.length?queries.map(({scope,source,...query})=>query):undefined;
     }
 	async function composeKeeperExpression(state:TableState,expression:import('../../runtime/isolated-expression.ts').ExpressionBrief|TurnPacket,
-		reply:NonNullable<typeof keeperReply>,ctx?:ExtensionContext,settledFallback=false){
+		reply:NonNullable<typeof keeperReply>,ctx?:ExtensionContext){
 		let operationResult:ReturnType<typeof turnPacketResult>={player_actions_complete:true,npc_actions_complete:true,outcomes:[]};
 		let decision:import('../../runtime/isolated-expression.ts').DecisionAuthorContext|undefined;
         let craft='';
@@ -5940,8 +5940,7 @@ export default function (pi: ExtensionAPI, host: {capabilities?:RuntimeCapabilit
         let selections:Record<string,unknown>[]=[],agreements:Record<string,unknown>[]=[];
         let observationIdentities:Record<string,any>[]=[],arrivedAt:string|undefined;
         const heldBoundary=heldActs.get(state),held=heldBoundary?.basis;
-		// §271: the settled fallback publishes past a held act; its failures reach the author as failed attempts below.
-		if(held&&!settledFallback&&(!turnPacketPrototype||heldBoundary?.uncommittedFailures()===undefined)){
+		if(held&&(!turnPacketPrototype||heldBoundary?.uncommittedFailures()===undefined)){
 			endInput(state,'held_act_unconfirmed',undefined,'settled_operation');
 			throw new KernelError({code:'needs',message:'A failed operation cannot release an unverified expression',details:{reason:HELD_ACT_OUTCOME_REASON}});
 		}
@@ -6098,9 +6097,8 @@ export default function (pi: ExtensionAPI, host: {capabilities?:RuntimeCapabilit
             craft=chosen.text;
             await record({lane:'author-craft',turn:state.turn,run:reply.run,facts:Object.keys(facts).filter(key=>facts[key as keyof typeof facts]),...chosen.record,...(bearing.length?{bearing}:{})});
 		}
-        const failedAttempts=settledFallback&&heldActs.get(state)?.basis
-            ?heldActs.get(state)!.basis!.held.map(row=>({tool:row.tool,status:'uncommitted' as const,reason:row.cause})):heldActs.get(state)?.uncommittedFailures();
-        if(heldActs.get(state)?.basis&&!settledFallback&&(!decision||failedAttempts===undefined)){
+        const failedAttempts=heldActs.get(state)?.uncommittedFailures();
+        if(heldActs.get(state)?.basis&&(!decision||failedAttempts===undefined)){
             endInput(state,'held_act_unconfirmed',undefined,'settled_operation');
             throw new KernelError({code:'needs',message:'A failed operation cannot release an unverified expression',details:{reason:HELD_ACT_OUTCOME_REASON}});
         }
@@ -6279,7 +6277,7 @@ export default function (pi: ExtensionAPI, host: {capabilities?:RuntimeCapabilit
 		}
 	}
 
-	async function submitTurnPacket(params:Record<string,unknown>,signal?:AbortSignal,ctx?:ExtensionContext,fromTurnIr=false,settledFallback=false){
+	async function submitTurnPacket(params:Record<string,unknown>,signal?:AbortSignal,ctx?:ExtensionContext,fromTurnIr=false){
 		const state=table,owner=keeperRun;
 		if(!state||!owner)throw new KernelError({code:'needs',message:'The active Keeper input is unavailable'});
         const submittedTurn=state.turn;
@@ -6302,20 +6300,13 @@ export default function (pi: ExtensionAPI, host: {capabilities?:RuntimeCapabilit
                     const {retry,refusal}=refusePacketParameters(state,error,ctx);
                     return {content:[{type:'text' as const,text:JSON.stringify(refusal)}],details:{coc_error:refusal},terminate:!retry};
             }
-			const authored=await composeKeeperExpression(state,packet,reply,ctx,settledFallback);
+			const authored=await composeKeeperExpression(state,packet,reply,ctx);
             const staged=state.packetChoice?.turn===submittedTurn?state.packetChoice.choice:undefined;
 			await publishKeeperResult(state,reply,staged?{...authored,record:{choice:staged}}:authored,authored.model,authored.thinking,ctx,compiledDecisionAuthority);
             if(packet.ooc)sendTableNote(state,packet.ooc,submittedTurn);
             if(staged){state.packetChoice=undefined;await record({lane:'packet-choice',event:'published',turn:submittedTurn,binds:staged.binds??null});}
 			return{content:[{type:'text' as const,text:'The turn was published.'}],details:{published:true},terminate:true};
 		}catch(error){
-            // §271: a fallback that could not publish leaves the turn as it was: the failure that stopped the Keeper stays
-            // the turn's reason, and nothing it set up is torn down twice.
-            if(settledFallback){
-                if(reply.stream)reply.stream.interrupt();
-                await record({lane:'delivery',event:'settled_fallback_failed',turn:state.turn,reason:isKernelError(error)?error.code:String(error).slice(0,200)});
-                return{content:[{type:'text' as const,text:errorText(error)}],terminate:true,details:{published:false}};
-            }
 			rememberTurnFailure(state,'output',error);
 			// §270.15: a Turn IR packet's compiled apply is all-or-nothing, so a refusal of it before any prose committed nothing
 			// and goes back to the Keeper to correct (1025h Digging T3: a paper shown out of reach ended the turn untold).
@@ -7975,15 +7966,6 @@ export default function (pi: ExtensionAPI, host: {capabilities?:RuntimeCapabilit
             if(open.quote_turns?.length)quotationQueue(table).schedule();
 			const operationGate = bridgeGate;
 			pi.events.emit('coc:operation-dispatcher', Object.freeze({
-                // §271: what settled is published when the Keeper's own delivery did not land: an empty packet, so the
-                // author writes from this input's receipts and failed attempts, and the turn never ends silent.
-                publishSettled:async(run:string,signal:AbortSignal)=>{
-                    const state=table;
-                    if(!operationGate.open||!turnPacketPrototype||keeperRun?.runId!==run||!state||!['open','acting'].includes(state.state)||state.closedThisRun)
-                        return {details:{published:false,reason:'no_open_turn'}};
-                    await record({lane:'delivery',event:'settled_fallback_started',turn:state.turn,cause:state.inputEnded?.turn===state.turn?state.inputEnded.cause:'no_delivery'});
-                    return submitTurnPacket({version:4},signal,sessionCtx,false,true);
-                },
                 publishRoutine:async(run:string,signal:AbortSignal)=>{
                     if(!operationGate.open||!turnPacketPrototype||keeperRun?.runId!==run||!keeperRun.routineResult)
                         throw new KernelError({code:'needs',message:'The routine expression owner is unavailable or stale'});

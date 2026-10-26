@@ -53563,21 +53563,3 @@ Before the final packet, the coordinator checks each selected `fact_N` against t
 `factActors`) and refuses `turn_ir_action` naming the fact, its owner and the speaker, so the correction moves it to the
 right speaker or says it as a claim. In 1025i *Digging for a Dead God* T11 the packet was refused twice as "This fact
 belongs to another actor perspective", with no owner named, and the turn went untold.
-
-## 271. A turn never ends silent (owner 2026-10-25)
-
-The owner: an undelivered turn is a major problem; find the root cause. Across 1025d–1025i, all 15 undelivered turns
-had different triggers (a malformed packet sent twice, a paper out of reach, a held failed operation, a name not bound,
-a Keeper that stopped without output) and one cause: when the Keeper's own delivery did not land, the turn ended with
-only the settled card and the "no delivered result" notice. Nothing published what had settled.
-
-### 271.1 The settled fallback
-
-In packet mode, before the run finishes undelivered (the input ended, the turn closed without delivery, or the Keeper's
-model call failed), the run policy publishes once per input what settled: the host submits an empty packet
-(`publishSettled`, `settled_fallback_started`), so the author writes from this input's receipts and the player's words,
-with every held failure given to it as a failed attempt (`decision.failed_attempts`) and none told as done. The held-act
-gate does not stop the fallback. A fallback that cannot publish leaves the turn exactly as it was: the stopping failure
-stays the turn's reason, and the ordinary undelivered path (§38, §50) follows.
-
-Tests: `tests/extension/settled-fallback.test.mjs`.
