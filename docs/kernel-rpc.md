@@ -18632,6 +18632,13 @@ are marked, both budgets are drawn, a non-standard card says so. The setup tool'
 step is never un-booked; the model is handed a summary (card numbers and words, pins, budget,
 applied, unresolved, filled_in, moved_to_equipment), never the sheet's creation trace or seed.
 
+**At base (1026i).** Every draft result carries `at_base[]`: the skills on `occupation_skills` or
+`interest_skills` whose card value is still the base chance, because the priority-ordered walk ran
+out of points before it reached them. The walk itself is unchanged. The setup prompt tells the model
+that an ability the player said the person has must not sit there, and to revise (reorder or pin)
+before inviting confirmation. Case: `tests/integration/setup-card.test.ts`
+`test_a_named_skill_the_points_never_reached_is_reported_at_base`.
+
 Cases: `tests/kernel/test_setup_card.py` (29), the rewritten draft and override suites, and
 `tests/extension/setup.test.mjs` §98 cases. The array case dies when `quickFireByAptitude` stops
 being called; the sticky case dies when `flowSkills` stops reading the inherited share; the

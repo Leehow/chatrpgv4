@@ -494,3 +494,19 @@ assert.ok(pyBool(pyLessEqual(points,(await pyMethod(pyAt(occ,"allocations"),"get
 }
 }
 if(process.argv[1]===import.meta.filename)for(const [index,row] of ([{}]).entries())test("test_a_bigger_budget_after_a_characteristic_edit_is_spent_not_left_on_the_table"+(([{}]).length>1?' ['+index+']':''),async(t)=>{const temporary=temporaryPath(t);await test_a_bigger_budget_after_a_characteristic_edit_is_spent_not_left_on_the_table(await kernel(t,{env:{COC_KERNEL_SEED:'7'}}));});
+export async function test_a_named_skill_the_points_never_reached_is_reported_at_base(kernel:any){
+// 1026i: a player's "speaks English" sat sixth in a list whose budget ran out at the third, and the
+// card came back with English 1 and nothing said. The walk stays priority ordered; the card says
+// which listed skills got no points so the model can reorder before the player reads it.
+let semantic:any=(await profile());
+Object.assign(semantic,{name:"周衡",occupation:"Antiquarian",age:41,sex:"男",own_language:"中文",
+  occupation_skills:["Appraise","Art and Craft (Fine Art)","History","Library Use","Spot Hidden","Language (Other: English)","Law","Psychology"],interest_skills:["Archaeology"]});
+let card:any=(await draft(kernel,semantic,{numbers:{characteristics:{EDU:40}}}));
+assert.equal(card.sheet.skills["Language (Other: English)"],1);
+assert.ok(card.at_base.includes("Language (Other: English)"),String(card.at_base));
+assert.ok(!card.at_base.includes("Appraise"),String(card.at_base));
+let moved:any=(await pyMethod(kernel,"ok",["setup.revise",({campaign:CAMPAIGN,profile:{occupation_skills:["Language (Other: English)","Appraise","Art and Craft (Fine Art)","History","Library Use","Spot Hidden","Law","Psychology"]}})],{}));
+assert.ok(moved.sheet.skills["Language (Other: English)"]>1,String(moved.sheet.skills["Language (Other: English)"]));
+assert.ok(!moved.at_base.includes("Language (Other: English)"),String(moved.at_base));
+}
+if(process.argv[1]===import.meta.filename)test("test_a_named_skill_the_points_never_reached_is_reported_at_base",async(t)=>{await test_a_named_skill_the_points_never_reached_is_reported_at_base(await kernel(t,{}));});

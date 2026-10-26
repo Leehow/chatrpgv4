@@ -30,6 +30,16 @@ const PIN_COLUMNS = ['occupation', 'interest'];
 const NUMBER_FIELDS = ['characteristics', 'skills', 'credit_rating'];
 const CHARACTERISTICS = ['STR', 'CON', 'SIZ', 'DEX', 'APP', 'INT', 'POW', 'EDU', 'LUCK'];
 /** What the name-resolution of one profile left behind, to ride out with the card. */
+/** The listed skills the points walk left at their base chance (1026i: a player who "speaks
+ *  English" got English 1 because the skill sat sixth in a list whose budget ran out at the third).
+ *  The lists are priority ordered and the walk is right to stop; what was missing is the model
+ *  seeing which named abilities came away with nothing, so it can reorder or pin before the player
+ *  reads the card. */
+function atBase(draft: Row): string[] {
+  const profile = row(draft.profile), sheet = row(draft.sheet), skills = row(sheet.skills), bases = row(row(row(sheet.creation).skills).bases);
+  const listed = [...array(profile.occupation_skills), ...array(profile.interest_skills)].map(string);
+  return listed.filter((name, index) => listed.indexOf(name) === index && Object.hasOwn(skills, name) && Object.hasOwn(bases, name) && number(skills[name]) <= number(bases[name]));
+}
 interface Resolution { unresolved: Array<{given: string; candidates: string[]}>; moved_to_equipment: string[]; filled_in: string[]; moved_to_interest: string[] }
 export class SetupDrafts {
   constructor(readonly setup: Setup) {}
@@ -46,7 +56,7 @@ export class SetupDrafts {
     return {revision: draft.revision, seed: draft.seed, sheet: draft.sheet, profile: draft.profile, pins: clone(draft.pins ?? emptyPins()),
       budget: clone(draft.budget ?? null), generation: clone(draft.generation ?? null),
       labels: await playerGlossary(this.setup.context, await playLanguageOf(this.setup.context, draft)), completeness: {valid: !issues.length, issues},
-      limits: draft.limits ?? limitsOf(this.setup.chargen, row(draft.sheet), relax), ...extra};
+      limits: draft.limits ?? limitsOf(this.setup.chargen, row(draft.sheet), relax), at_base: atBase(draft), ...extra};
   }
   /** The bounds the edit control renders (contract §23.4), kept for the card. */
   async limits(draft: Row, card?: Row): Promise<Row> {
