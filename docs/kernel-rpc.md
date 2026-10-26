@@ -53612,3 +53612,10 @@ Tests: `tests/extension/turn-ir-native.test.mjs`.
   as the list or item itself.
 
 Tests: `tests/extension/turn-ir.test.mjs`.
+
+### 270.21 The opening speaks Turn IR; an untold turn keeps its receipts
+
+In a Turn IR session the opening instruction asks for one `output {version: 5, actions}` (presence, perceive,
+communicate, material) instead of the v4 packet; live 1025i's openings were taught v4 while the schema was v5. The
+capsule's `untold` budget is 3072 bytes (was 1024), so a stranded turn's damage and HP receipts stay beside its later
+rows (1025i *Digging for a Dead God* T15 lost T14's 3 HP of damage from the recovery capsule).

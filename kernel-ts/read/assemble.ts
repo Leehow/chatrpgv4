@@ -169,7 +169,7 @@ export const SLICE2_BUDGETS: Readonly<Record<string, number>> = Object.freeze({
 ,
     // Contract §69. One stranded turn is a handful of rows; a run of them is rare and still bounded by
     // the next delivery, so the section is sized to carry the receipts rather than a count of them.
-    untold: 1024
+    untold: 3072
 });
 export const SLICE3_BUDGETS: Readonly<Record<string, number>> = Object.freeze({
     pressures: 1024,
