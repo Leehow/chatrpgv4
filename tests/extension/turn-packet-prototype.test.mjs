@@ -419,17 +419,19 @@ test('an invented time phrase is corrected before admission and settles once as 
  assert.equal(turn.receipts.filter(row=>row.kind==='time').length,1);
  assert.equal(table.entries('coc-final-delivery').filter(row=>row.event==='end'&&row.status==='completed').length,1);
 });
-test('repeated unissued time bands terminate without consent, mutation or a later false-success packet',async t=>{
+test('unissued time bands are refused without consent or mutation until the Keeper selects an issued one',async t=>{
  let requests=0;const batches=[];
  const engine=createHybridEngine({env,decision:{decide:async batch=>{batches.push(batch);return answer(batch,.99);}}});
  const table=await openTable({legacyDeliveryFixtures:false,realKernel:true,prepareWorkspace:opened,env,runDriver:engine.runDriver,
   extraExtensions:[{name:'engine',factory:engine.extension}],responses:['several minutes','another phrase','quick_observation'].map(band=>()=>{requests++;return fauxAssistantMessage([
    fauxToolCall('output',{...brief,commands:[{kind:'time',band,reason:'I look around the office.'}]})],{stopReason:'toolUse'});})});
  t.after(()=>table.dispose());await table.session.prompt('I look around the office without leaving.');
- assert.equal(requests,2,JSON.stringify(table.telemetry().filter(row=>row.lane==='arguments'||row.lane==='keeper-delivery'||row.lane==='run'&&row.type==='run_end')));assert.equal(batches.length,0);
+ // §272.1: a changed packet meeting the same refusal gets a third try; the third ends the input.
+ assert.equal(requests,3,JSON.stringify(table.telemetry().filter(row=>row.lane==='arguments'||row.lane==='keeper-delivery'||row.lane==='run'&&row.type==='run_end')));assert.equal(batches.length,0);
  const turn=JSON.parse(readFileSync(join(table.workspace,'.coc/campaigns/test-camp/turns/0001.json')));
- assert.equal(turn.receipts.filter(row=>row.kind==='time').length,0);
- assert.equal(table.entries('coc-final-delivery').filter(row=>row.event==='end'&&row.status==='completed').length,0);
+ // The third packet selects an issued band: the correction settles once and publishes, never the unissued ones.
+ assert.equal(turn.receipts.filter(row=>row.kind==='time').length,1);
+ assert.equal(table.entries('coc-final-delivery').filter(row=>row.event==='end'&&row.status==='completed').length,1);
 });
 
 test('a refused earlier write cannot publish false success through native output',async t=>{
@@ -561,7 +563,7 @@ for(const mode of ['accepted','refusing-reviewer','dialogue','sparse-dialogue','
   }else {packet.interactions[0].actor=capsule.present.find(row=>row.name==='Steven Knott').ref;const content=packet.interactions[0].content.item??packet.interactions[0].content;content[0].new.actor=packet.interactions[0].actor;content[0].new.to=capsule.where.scene;}
  }
  await table.session.prompt(mode==='activity'?'I spend a few minutes arranging my notes.':mode==='refusing-reviewer'?'I stay at the desk. I do not leave.':mode.endsWith('dialogue')?'I ask Knott when he can meet.':mode==='planned'?'I might go to the library later.':'I walk along the street to the Central Library.');
- assert.deepEqual(table.extensionErrors,[]);assert.equal(requests,1);assert.equal(submittedSchema.parameters.additionalProperties,false);assert.deepEqual(Object.keys(submittedSchema.parameters.properties),['version','commands','interactions','reveal','ooc','routine'],'the default Mod set includes Quick Settlement (§247.3); §256.1 adds the table note');
+ assert.deepEqual(table.extensionErrors,[]);assert.equal(requests,1);assert.equal(submittedSchema.parameters.additionalProperties,false);assert.deepEqual(Object.keys(submittedSchema.parameters.properties),['version','commands','interactions','reveal','ooc','force','routine'],'the default Mod set includes Quick Settlement (§247.3); §256.1 adds the table note');
  const rows=table.telemetry(),writes=rows.filter(r=>r.lane==='turn-packet-prototype');
  assert.equal(rows.filter(r=>r.lane==='run'&&r.type==='step_start'&&r.kind==='infer').length,mode==='unknown-dialogue'?2:1,'count actual inference steps: '+JSON.stringify(rows.filter(r=>r.lane==='keeper-delivery'||r.lane==='tool').slice(-4)));
  assert.equal(consent(batches).length,0,'§249: no line of a native packet is put to the consent review');
@@ -679,9 +681,9 @@ test('earlier direct NPC settlement reaches final author without repeating the c
 for(const mode of ['repair','repeat','unrelated'])test('native staged parameter recovery preserves the transaction boundary: '+mode,async t=>{
  const batches=[];let requests=0;
  const engine=createHybridEngine({env,decision:{decide:async batch=>{batches.push(batch);return answer(batch,.99);}}});
- // A walk_on under a name the book gives one of its people is a contradiction the kernel refuses after the move is staged
- // (§264.24 made an empty assessment beside a walk-on land, so it no longer serves).
- const bad={...brief,commands:[movement,{kind:'walk_on',slot:'new_1',label:'Steven Knott',reason:'He lingers at the desk.'},{kind:'scene',service:'closed',crowd:'quiet'}]};
+ // A walk_on under the investigator's own name is a contradiction the kernel refuses after the move is staged (a book
+ // person's name now seats that person, §270.4, so it no longer serves).
+ const bad={...brief,commands:[movement,{kind:'walk_on',slot:'new_1',label:'Thomas Hayes',reason:'He lingers at the desk.'},{kind:'scene',service:'closed',crowd:'quiet'}]};
  // The unrelated packet stays in the unassessed office, so it carries that scene's own assessment.
  const second=mode==='repeat'?bad:mode==='unrelated'?{...brief,commands:[{kind:'scene',service:'open',crowd:'quiet'}]}:{...brief,commands:[movement,{kind:'scene',service:'closed',crowd:'empty'}]};
  const table=await openTable({legacyDeliveryFixtures:false,realKernel:true,prepareWorkspace:opened,env,runDriver:engine.runDriver,
@@ -690,7 +692,7 @@ for(const mode of ['repair','repeat','unrelated'])test('native staged parameter 
   })});t.after(()=>table.dispose());await table.session.prompt('I leave the office and walk to Central Library now.');
  assert.deepEqual(table.extensionErrors,[]);assert.equal(requests,2);
  const errors=table.session.messages.filter(row=>row.role==='toolResult'&&row.toolName==='output'&&row.isError);
- assert.match(JSON.stringify(errors[0]),/transaction_state.*uncommitted/);
+ assert.match(JSON.stringify(errors[0]),/no npc named/);
  assert.match(JSON.stringify(errors[0]),/before_commit/);
  assert.equal(consent(batches).length,0,'§249: movement is the Keeper\'s own judgment, never a consent request');
  assert.deepEqual(keeperJudged(table),Array(mode==='unrelated'?1:2).fill({kinds:['move'],jev_calls:0}),'each staged move attempt is admitted as judged');

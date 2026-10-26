@@ -232,14 +232,16 @@ export function createResolveRuntime(kernel: KernelContext, writer: ResolveWrite
             // re-judgement, not a new attempt (1025d Dust to Dust T6: a failed Spot Hidden re-rolled as a combined check for
             // the same goal, method and stakes). The player's own push or Luck is the way back (§268.6).
             const goalText = string(action.goal).trim();
-            if (goalText && ['investigate', 'social', 'move'].includes(intent) && action.push !== true && action.luck == null) {
-                // Read against another check than the one that failed: another skill or another decision for the same goal.
+            if (goalText && ['investigate', 'social', 'move'].includes(intent) && action.push !== true && action.luck == null && action.obligation == null && action.rule == null) {
+                // Read again through a combined check that carries the skill that failed (live 1025d: an ordinary Spot Hidden
+                // failed, then a combined check with it for the same goal came up an extreme success).
+                // A different skill for the same goal is a different approach and still rolls.
+                const named = (value: unknown) => typeof value === 'string' ? normalize(value) : '';
+                const skills = [action.skill, ...array(action.skills), ...array(action.combined_skills)].map(named).filter(Boolean);
                 const failed = array(transaction.turn.receipts).map(row).find(receipt => receipt.kind === 'roll' && receipt.passed === false
                     && string(row(receipt.check).goal).trim() === goalText
-                    && (typeof action.skill === 'string' && action.skill.trim() !== '' && ![receipt.skill, receipt.skill_label, row(receipt.check).skill, row(receipt.check).characteristic]
-                        .some(name => typeof name === 'string' && normalize(name) === normalize(action.skill))
-                        || typeof action.decision === 'string' && action.decision.trim() !== ''
-                            && action.decision.replace(/^decision:coc7:/, '') !== string(row(receipt.check).decision ?? receipt.decision ?? '').replace(/^decision:coc7:/, '')));
+                    && [receipt.skill, receipt.skill_label, row(receipt.check).skill, row(receipt.check).characteristic].map(named).some(name => name && skills.includes(name))
+                    && skills.length > 1);
                 if (failed)
                     throw new RpcError('turn_state', 'this goal already failed this input; the failure stands', {
                         fix: 'tell the failure and what it costs; a new attempt needs a different goal or the player\'s own declared push or Luck',

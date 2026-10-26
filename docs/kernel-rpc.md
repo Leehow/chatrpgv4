@@ -53436,13 +53436,14 @@ and T7 three of the book's people were refused as "a newcomer slot cannot select
 
 Tests: `tests/integration/walk-on-book-person.test.ts`.
 
-### 270.5 A goal this input already failed is not rolled again under another check
+### 270.5 A failed goal is not re-rolled through a combined check
 
-`resolve` (intent investigate, social or move, without `push` or `luck`) refuses `turn_state` with
-`details.reason: goal_already_failed` and the failed receipt when a roll of this input already failed the same `goal`
-(trimmed text) and the new action names another skill or another decision. The failure stands; a new attempt needs a
-different goal or the player's own push or Luck (§268.6). In 1025d *Dust to Dust* T6 a failed Spot Hidden was rolled
-again as a combined check for the same goal, method and stakes and came up an extreme success.
+`resolve` (intent investigate, social or move, without `push`, `luck`, an `obligation` claim or a `rule`) refuses
+`turn_state` with `details.reason: goal_already_failed` and the failed receipt when a roll of this input already failed
+the same `goal` (trimmed text) and the new action is a combined check (more than one skill) that carries the skill that
+failed. The failure stands; a new attempt needs a different goal, another approach by another skill, or the player's own
+push or Luck (§268.6). In 1025d *Dust to Dust* T6 a failed Spot Hidden was rolled again as a combined check for the same
+goal, method and stakes and came up an extreme success.
 
 Tests: `tests/integration/failed-goal-settled.test.ts`.
 
@@ -53510,7 +53511,7 @@ Tests: `tests/extension/turn-ir.test.mjs`.
 ### 270.13 A refused apply holds nothing back either (extends §270.7)
 
 A refused `apply` is all-or-nothing like a resolve, so it counts as uncommitted for the held-act gate whatever its
-refusal says, except an unreadable outcome (§270.7's causes and `unknown_partial_write`) and `not_reachable` (a barrier
+refusal says, except an unreadable outcome (§270.7's causes and `unknown_partial_write`), a tool hook's `blocked` (it never reached the kernel) and `not_reachable` (a barrier
 the party could not pass, whose crossing the prose must not tell). In 1025h *Digging for a Dead God* T1 a document shown
 out of a reader's reach held the whole turn untold.
 

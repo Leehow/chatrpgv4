@@ -94,7 +94,7 @@ export class HeldActOutcome {
       &&!(row.tool==='resolve'&&!UNKNOWN_OUTCOMES.includes(row.cause))
       // §270.13: an apply refusal is all-or-nothing too (a document out of a reader's reach, 1025h Digging T1); a barrier
       // the party could not pass keeps the turn held, since its prose must not tell the crossing.
-      &&!(row.tool==='apply'&&!UNKNOWN_OUTCOMES.includes(row.cause)&&row.cause!=='not_reachable')))return;
+      &&!(row.tool==='apply'&&!UNKNOWN_OUTCOMES.includes(row.cause)&&!['not_reachable','blocked'].includes(row.cause))))return;
     return this.basis.held.map(row=>({tool:row.tool,status:'uncommitted',reason:row.cause}));
   }
   issuedCorrection(): void { this.correctionIssued = true; }
