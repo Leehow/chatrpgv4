@@ -53678,3 +53678,14 @@ and the author instruction says a writing material's words are given in the stor
 read). An NPC's reading is not added. The Keeper's document tool says an investigator reading a held carrier through
 omits `quote`, so the whole writing is captured (that turn quoted one line of six). Case:
 `tests/extension/physical-documents.test.mjs` "what the investigator reads reaches the prose author".
+
+### A book person who comes in under a description keeps the book's record (1026i)
+
+Live 1026i, 不息的渴望 continuation T5: the Keeper brought the cliff's hooded figure in as `walk_on {label:"兜帽压得很低的人影"}`,
+reasoning that it was the figure the book places on the cliff (Father Fincher's ghost). The label is no printed name, so the
+person was made at the table with a random temper, and two turns later was named a local smuggler. `walk_on` now takes an
+optional `book`: the person's name exactly as the book prints it. The packet compiles it to the seat by that name (the
+existing book-person entrance, landing an unread one on its first mention) followed by `person {who: <book name>, name:
+<label>}`, so the label is this table's word for them and their name stays untold; the slot binds by the label. Without
+`book` a walk-on is unchanged. Cases: `tests/extension/turn-packet-prototype.test.mjs` "a walk_on that names its book person",
+`tests/extension/module-cast.test.mjs` "a book person seated under a description".

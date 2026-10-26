@@ -1020,6 +1020,25 @@ test('a newcomer slot under an unread book person\'s name lands and seats that p
 	assert.deepEqual((await h.world()).table_people.map(row => [row.name, !!row.cast_id]), [['Jonah', true]]);
 });
 
+// 1026i An Amaranthine Desire: a walk_on naming its book person compiles to a seat by the book's name and the table's word.
+test('a book person seated under a description keeps the book record and is called by the description', async t => {
+	const h = await harbor(t);
+	await readCast(h);
+	await h.call('table.player_input', {text: 'Someone stands in the cellar door.'});
+	const effects = [{kind: 'npc', name: 'Jonah', to: 'here', walk_on: true, _new_person: true, why: 'he stands in the door'},
+		{kind: 'person', who: 'Jonah', name: 'the dripping boy', why: 'What the investigator can call him.'}];
+	const held = await h.attempt('table.apply', {call_id: 't1-c1', effects});
+	assert.equal(held.error?.details?.reason, 'material_pending', JSON.stringify([held.error?.message, held.error?.details]));
+	const landed = await h.attempt('table.apply', {call_id: 't1-c1', effects, _land_on_text: [{key: held.error.details.person.key,
+		passage: {scene: null, page: 3, label: null, sentence: "Mae's boy Jonah drowned there last spring."}}]});
+	assert.equal(landed.ok, true, JSON.stringify(landed.error?.message));
+	const people = (await h.world()).table_people;
+	assert.equal(people.length, 1);
+	assert.ok(people[0].cast_id, 'the book record follows him');
+	const look = await h.attempt('table.look', {focus: 'npc', name: 'the dripping boy'});
+	assert.equal(look.ok, true, JSON.stringify(look.error?.message));
+});
+
 // 1026i Dust to Dust T3: look said the book has the police chief; continuity on the same name refused him as unknown.
 test('continuity on an unread book person answers what look answers, not unknown_entity', async t => {
 	const h = await harbor(t);

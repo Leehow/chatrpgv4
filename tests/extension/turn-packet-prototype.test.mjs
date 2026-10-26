@@ -1010,3 +1010,17 @@ test('an ordinary turn settles its finding, a mood and a name in one output pack
  assert.ok(turn.receipts.some(row=>row.kind==='npc'&&row.mood),JSON.stringify(turn.receipts.map(row=>row.kind)));
  assert.ok(turn.receipts.some(row=>row.kind==='person'),JSON.stringify(turn.receipts.map(row=>row.kind)));
 });
+
+// 1026i An Amaranthine Desire: the book's hooded figure came in under a description only and lost the book's record.
+test('a walk_on that names its book person seats that person and gives the label as the table\'s word for them',()=>{
+ const packet={version:4,commands:[{kind:'walk_on',slot:'new_1',label:'the hooded figure',book:'Father Fincher',reason:'He stands by the cliff lamp.'},
+  {kind:'scene',service:'unknown',crowd:'empty'},{kind:'place',action:'observe',facts:['A lamp on a post.'],people:['new_1']}]};
+ const effects=compileTurnPacket(turnPacket(JSON.stringify(packet))).effects;
+ const seat=effects.find(e=>e.kind==='npc'),word=effects.find(e=>e.kind==='person');
+ assert.deepEqual([seat.name,seat.walk_on,seat._new_person],['Father Fincher',true,true]);
+ assert.deepEqual([word.who,word.name],['Father Fincher','the hooded figure']);
+ assert.ok(effects.indexOf(seat)<effects.indexOf(word),'seated before they are given the word');
+ assert.deepEqual(effects.find(e=>e.kind==='place').people,['the hooded figure'],'the slot still reads as the table\'s word');
+ const plain=compileTurnPacket(turnPacket(JSON.stringify({version:4,commands:[{kind:'walk_on',slot:'new_1',label:'a courier',reason:'x'}]}))).effects;
+ assert.deepEqual(plain.map(e=>e.kind),['npc'],'a walk_on with no book person is unchanged');
+});
