@@ -53666,3 +53666,15 @@ after the prose was shown and the turn could no longer deliver). In 1026g the Ke
 resolving defenses and asking the player for one.
 
 Tests: `tests/extension/resolve.test.mjs`, `tests/extension/turn-ir.test.mjs`, `tests/extension/packet-choice.test.mjs`.
+
+### Investigator readings reach the author (1026i)
+
+Live 1026i, 挖掘死去之神 turn 7: the player read the orders they carried "from start to end", the Keeper recorded
+`observe access:held` and the receipt held the writing, but `table.delivery.check` built `settled_results.materials`
+only from event materials, so the author was handed no words and the story told the reading without the orders. A
+document receipt now carries `reader_kind` (`investigator` | `npc`); every receipt this input whose investigator
+reader captured `observed_writing` rides `settled_results.materials` as `{kind:'writing', name, text, reader, scope}`,
+and the author instruction says a writing material's words are given in the story (an excerpt is only the passage
+read). An NPC's reading is not added. The Keeper's document tool says an investigator reading a held carrier through
+omits `quote`, so the whole writing is captured (that turn quoted one line of six). Case:
+`tests/extension/physical-documents.test.mjs` "what the investigator reads reaches the prose author".

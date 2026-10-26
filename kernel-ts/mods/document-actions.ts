@@ -87,7 +87,7 @@ export async function physicalDocumentAction(context:ApplyContext,item:Row,effec
     }else throw new RpcError('invalid_params','Unknown physical document operation');
     const name=item.name,id=context.mint(`definition:document-${context.callId}`);
     return {receipt:{id,kind:'definition',name,document_operation:action,document_changed:action==='requested_edit',
-        ...(readerName?{reader:readerName}:{}),...(observed?{observed_writing:observed.writing,observed_revision:observed.revision,observation_scope:observed.scope}:{}),
+        ...(readerName?{reader:readerName,reader_kind:investigator?'investigator':'npc'}:{}),...(observed?{observed_writing:observed.writing,observed_revision:observed.revision,observation_scope:observed.scope}:{}),
         ...(writingResult?{writing_result:writingResult}:{}),visibility:'keeper',call_id:context.callId},
         event:{type:'resource-changed',data:{resource:action==='observe'?'document_observation':'document',item:name,operation:action,
             ...(readerName?{reader:readerName}:{}),...(observed?{writing:observed.writing,revision:observed.revision,scope:observed.scope}:{})}}};

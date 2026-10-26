@@ -280,3 +280,20 @@ test('§264.16: a page shown to be read whole is read as it is shown, in one eff
   assert.match(receipts.at(-1).observed_writing,/both left early/);
   assert.equal(receipts.at(-1).observation_scope,'full');
 });
+// 1026i: the player read the orders whole, the receipt held the words, and the prose author was handed no material, so the story told
+// the reading and none of the orders. What the investigator read is theirs to read in the prose; what an NPC was shown is not.
+test('what the investigator reads reaches the prose author as a writing material; an NPC reading does not',async t=>{
+  const game=await paper(t);
+  await game.apply([game.doc({action:'append',text:'Dig at the north shaft for diamonds.'},'The investigator writes the selected note.')]);
+  await game.next('I read my notebook through.');
+  await game.apply([game.doc({action:'observe',reader:game.sheet.name,access:'held'},'Hayes reads his note through.')]);
+  const mine=(await game.call('table.delivery.check',{})).settled_results.materials.filter(material=>material.kind==='writing');
+  assert.equal(mine.length,1);
+  assert.equal(mine[0].name,'Pocket notebook');
+  assert.match(mine[0].text,/north shaft for diamonds/);
+  assert.equal(mine[0].scope,'full');
+  await game.next('I let Knott read it.');
+  await game.apply([game.doc({action:'show',reader:'Steven Knott',read:true},'Hayes pushes the page across for him to read.')]);
+  const shown=(await game.call('table.delivery.check',{})).settled_results.materials.filter(material=>material.kind==='writing');
+  assert.deepEqual(shown,[],'an NPC reading is not the investigator reading');
+});

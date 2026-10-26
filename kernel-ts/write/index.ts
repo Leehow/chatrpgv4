@@ -1467,6 +1467,19 @@ export function createWriteRuntime(context: KernelContext, contributions: WriteC
             .map(receipt=>({how:receipt.how,...(receipt.established==='table'&&typeof receipt.summary==='string'?{found:receipt.summary}:{})}));
         return {checks,...(elapsed.length?{elapsed}:{}),...(changes.length?{changes}:{}),...(clues.length?{clues}:{})};
     }
+    /** What an investigator read this input is theirs to read in the prose (1026i: the player read the
+     *  orders whole, the receipt held the words, and the author got nothing to show, so the story told
+     *  the reading and none of the orders). The observed writing is the exact text the reading captured. */
+    function investigatorReadings(receipts:Row[]):Row[] {
+        const seen=new Set<string>();
+        return receipts.filter(receipt=>receipt.reader_kind==='investigator'&&typeof receipt.observed_writing==='string'&&receipt.observed_writing.trim())
+            .flatMap(receipt=>{
+                const key=`${string(receipt.name)}\u0000${string(receipt.observed_writing)}`;
+                if(seen.has(key))return [];seen.add(key);
+                return [{kind:'writing',name:string(receipt.name),text:string(receipt.observed_writing),reader:string(receipt.reader),
+                    scope:string(receipt.observation_scope||'full')}];
+            });
+    }
     async function checkDelivery(params:Row):Promise<Row> {
         const {campaign,snapshot,module}=await load(params);
         preflightCampaign(snapshot.meta,snapshot.world,snapshot.turn,snapshot.party);
@@ -1495,9 +1508,10 @@ export function createWriteRuntime(context: KernelContext, contributions: WriteC
         const settled_results={
             outcomes:operationOutcomes(array(snapshot.turn.receipts),module.graph,snapshot.world),
             ...settledMeaning(array(snapshot.turn.receipts)),
-            materials:publicMaterials.filter(material=>material.visibility==='player').map(material=>({
+            materials:[...publicMaterials.filter(material=>material.visibility==='player').map(material=>({
                 ...Object.fromEntries(['kind','name','text'].filter(key=>material[key]!==undefined).map(key=>[key,material[key]])),
-                ...(material.kind==='speech'?{speaker:prepared(string(material.speaker)).who.name}:{})}))};
+                ...(material.kind==='speech'?{speaker:prepared(string(material.speaker)).who.name}:{})})),
+                ...investigatorReadings(array(snapshot.turn.receipts))]};
         return {checked:true,turn:snapshot.turn.turn,state:snapshot.turn.state,published:false,settled_results,...(speakers.length?{speakers}:{})};
     }
     async function ask(params: Row): Promise<Row> {
