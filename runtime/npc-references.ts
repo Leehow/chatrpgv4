@@ -75,7 +75,7 @@ export class NpcReferences {
   if(exact.length)return exact;
   const other=[...(this.names.get(key)??[])].filter(ref=>this.issued.has(ref));
   if(other.length)return other;
-  // §270.18: a word that carries one issued person's whole public name is that person ("约翰·格林中士" for "约翰·格林"),
+  // §270.18: a word that carries one issued person's whole public name is that person ("Sergeant John Green" for "John Green"),
   // as §264.32 reads a full name inside a newcomer's word; two such people stay ambiguous.
   return [...new Set([...this.publicNames].filter(([public_])=>[...public_].length>=2&&key.includes(public_)).flatMap(([,refs])=>[...refs]))].filter(ref=>this.issued.has(ref));
  }
