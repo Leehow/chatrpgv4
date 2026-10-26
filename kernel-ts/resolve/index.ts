@@ -238,7 +238,8 @@ export function createResolveRuntime(kernel: KernelContext, writer: ResolveWrite
                     && string(row(receipt.check).goal).trim() === goalText
                     && (typeof action.skill === 'string' && action.skill.trim() !== '' && ![receipt.skill, receipt.skill_label, row(receipt.check).skill, row(receipt.check).characteristic]
                         .some(name => typeof name === 'string' && normalize(name) === normalize(action.skill))
-                        || typeof action.decision === 'string' && action.decision.trim() !== '' && action.decision !== string(row(receipt.check).decision ?? receipt.decision ?? '')));
+                        || typeof action.decision === 'string' && action.decision.trim() !== ''
+                            && action.decision.replace(/^decision:coc7:/, '') !== string(row(receipt.check).decision ?? receipt.decision ?? '').replace(/^decision:coc7:/, '')));
                 if (failed)
                     throw new RpcError('turn_state', 'this goal already failed this input; the failure stands', {
                         fix: 'tell the failure and what it costs; a new attempt needs a different goal or the player\'s own declared push or Luck',

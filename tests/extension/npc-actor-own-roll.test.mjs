@@ -158,7 +158,7 @@ test('native RPC preserves fallback evidence, then consumes a later NPC skill pi
 	assert.equal(fallback.outcome.target, 20);
 	assert.equal((await currentRoll(fallback.receipt)).check.target_source, 'rulebook_base');
 	assert.ok(fallback.hints.some(text => text.includes('canonical common-skill base')));
-	const error = await client.tableErr('resolve', { call_id: 't1-c3', action: { ...action, skill: 'Animal Handling' } });
+	const error = await client.tableErr('resolve', { call_id: 't1-c3', action: { ...action, skill: 'Animal Handling', goal: 'calm the horse at the muddy road' } });
 	assert.equal(error.code, 'needs');
 	assert.equal(error.details.needs.field, 'npc.skill');
 	await client.table('apply', { call_id: 't1-c4', effects: [{ kind: 'npc', name: GUARD, skill: { name: 'Drive Auto', value: 60 }, why: 'His previous training is established at the table.' }] });

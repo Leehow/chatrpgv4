@@ -472,7 +472,7 @@ test('JEV-OPEN-05: an NPC pursuit missing only MOV resumes the original foot act
 test('§264.28: the rulebook\'s Idea and Know rolls are INT and EDU checks', async t => {
   const game = await table(t);
   for (const [skill, characteristic] of [['Idea', 'INT'], ['Know', 'EDU'], ['灵感', 'INT']]) {
-    const result = await game.resolve({intent: 'investigate', skill, goal: 'put the pieces together', method: 'think it through'});
+    const result = await game.resolve({intent: 'investigate', skill, goal: `put the pieces together (${skill})`, method: 'think it through'});
     const roll = (await game.receipts()).filter(row => row.kind === 'roll').at(-1);
     assert.ok(result && roll, skill);
     assert.match(JSON.stringify(roll), new RegExp(characteristic), `${skill} rolls ${characteristic}`);
