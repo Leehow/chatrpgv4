@@ -53630,3 +53630,12 @@ to use instead. 1025i showed the Keeper still calling apply 88 times and place 2
 write paths for the same change.
 
 Tests: `tests/extension/turn-ir-native.test.mjs`.
+
+### 270.22 A Turn IR move can name a new place
+
+`move` takes `new: true` (and an optional `description`) for a place the table does not know yet; it compiles to the
+move's `additions`, within `inside` when given. A Turn IR move refused `place_destination_unknown` is told to set
+`new: true` or pick one of `details.known_places`, instead of v4's "define the new place in additions". Live 1026c *Dust
+to Dust* T3: the same move to a churchyard the table did not know was refused three times and the turn ended.
+
+Tests: `tests/extension/turn-ir.test.mjs`.

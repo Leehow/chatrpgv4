@@ -21,7 +21,7 @@ const level=Type.Optional(Type.Integer({minimum:0,maximum:5}));
 /** §270: what the Keeper is told about Turn IR; principles and the shape, not what the schema already says. */
 export const TURN_IR_GUIDANCE='Submit one output {version:5,actions:[...]} listing what happens this turn in order. Name people, places and things by '
  +'name: the book\'s printed name, the table\'s word for them, an investigator\'s name, or an @alias a presence enter introduced. '
- +'move: who goes where (inside names the known place a new one lies in). presence: someone enters or leaves; only enter brings a person here, '
+ +'move: who goes where (new:true for a place the table does not know yet; inside names the known place a new one lies in). presence: someone enters or leaves; only enter brings a person here, '
  +'and as gives a newcomer\'s public appellation. communicate: speaker, to, act; says is issued fact_N/source_N/exhibit_N, {claim} for what they '
  +'mean (said, not true), or {knowledge} (unknown, uncertain, withheld, nothing_more); a {new} constructor takes issued references only, so a '
  +'place or person without one is a {claim}; channel phone or letter reaches someone who is not here; an investigator\'s own words need no action. '
@@ -37,6 +37,8 @@ export const TURN_IR_GUIDANCE='Submit one output {version:5,actions:[...]} listi
 export const TURN_IR_ACTIONS={
  move:closed({op:Type.Literal('move'),to:text(120,'Where they go: a known place\'s name, or a new place; here with spot to move within the current place'),actors:Type.Optional(people),
   spot:Type.Optional(text(160,'A free-text spot inside the destination (by the window)')),relation:Type.Optional(text(60,'standing, sitting, ...')),reason:Type.Optional(text(160)),
+  new:Type.Optional(Type.Boolean({description:'true when the place is not one the table knows yet: it is created under this name (with inside, within that place)'})),
+  description:Type.Optional(text(400,'For a new place: what it is, in a sentence')),
   inside:Type.Optional(text(120,'For a new place: the known place it lies inside (a room in a building)')),via:Type.Optional(text(120)),
   band:Type.Optional(text(64,'An issued travel band, for a journey whose length the fiction gives')),when}),
  presence:closed({op:Type.Literal('presence'),who,action:StringEnum(['enter','leave']),
@@ -202,7 +204,7 @@ export function toPacket(actions:TurnIrAction[],directory:TurnIrDirectory,aliase
     }
     const company=movers.filter(ref=>!/^investigator_/.test(ref));
     commands.push({kind:'place',action:'move',to:action.to,...(action.via?{via:action.via}:{}),...(action.band?{travel_band:action.band}:{}),
-     ...(action.inside?{additions:[{name:action.to,within:action.inside}]}:{}),...(company.length?{with:company}:{}),
+     ...(action.inside||action.new?{additions:[{name:action.to,...(action.inside?{within:action.inside}:{}),...(action.description?{description:action.description}:{})}]}:{}),...(company.length?{with:company}:{}),
      ...(action.spot?{spot:action.spot}:{}),...(action.relation?{relation:action.relation}:{})});
     break;
    }

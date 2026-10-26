@@ -135,3 +135,8 @@ test('lists written inside {item} wrappers are the lists themselves',async()=>{
  const {value}=normalizeTurnIr({version:5,actions:{item:[{op:'communicate',speaker:'a',to:{item:'b'},act:'answer',says:{item:[{item:'fact_2'},{claim:'no'}]}}]}});
  assert.deepEqual(value.actions[0].to,['b']);assert.deepEqual(value.actions[0].says,['fact_2',{claim:'no'}]);
 });
+
+test('a move to a new place defines it',()=>{
+ const out=packet([{op:'move',to:'阿卡姆教堂公墓',new:true,description:'The churchyard behind the chapel.'}]);
+ assert.deepEqual(out.commands[0].additions,[{name:'阿卡姆教堂公墓',description:'The churchyard behind the chapel.'}]);
+});

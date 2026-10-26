@@ -6362,7 +6362,10 @@ export default function (pi: ExtensionAPI, host: {capabilities?:RuntimeCapabilit
 			// and goes back to the Keeper to correct, v4 or Turn IR (1025h Digging T3: a paper shown out of reach ended the turn).
 			if(!reply.evidence&&!reply.stream&&isKernelError(error)&&['needs','invalid_params','unknown_entity','not_here','not_owned'].includes(error.code)
                 &&error.details?.reason!==HELD_ACT_OUTCOME_REASON){
-                const {retry,refusal}=refusePacketParameters(state,error,ctx,true,params);
+                // A Turn IR move names a new place with new:true, not v4 additions (live 1026c: the same move refused three times).
+                const told=fromTurnIr&&error.details?.reason==='place_destination_unknown'
+                    ?new KernelError({code:error.code,message:error.message,details:error.details,fix:'If it is a place the table does not know yet, set new:true on that move (with inside when it lies within a known place); otherwise use one of details.known_places as to.'}):error;
+                const {retry,refusal}=refusePacketParameters(state,told,ctx,true,params);
                 return {content:[{type:'text' as const,text:JSON.stringify(refusal)}],details:{coc_error:refusal},terminate:!retry};
             }
 			if(!reply.evidence&&!reply.stream&&isKernelError(error)&&error.code==='invalid_params'&&error.details?.transaction_state==='uncommitted'){
