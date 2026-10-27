@@ -1259,8 +1259,12 @@ export class ReadingService implements ReadingBridge {
 			...(anchor.pages.length ? { anchor_pages: anchor.pages } : {}), pages: excerpts.map(row => row.page) });
 		// §266.4: nothing found answers the book's contents, so the Keeper can turn the pages it means.
 		const contents = excerpts.length ? [] : await this.bookContentsOf(mid, campaign).catch(() => [] as ContentsRow[]);
+		// 1026k An Amaranthine Desire T10: the pages rode twice (answer and excerpts) and the answer was cut into 4-KiB parts of
+		// about 500 characters of book each, 20 parts for four pages; the Keeper read four, then turned the same pages by number.
+		// The pages ride once, in excerpts, and `host_pages` has the tool hand them over whole, as a page turn is.
 		return { state: "ready", source_answer: { status: "excerpts", authority: "original-source-excerpts", prepared: false, source_sha256: snapshot.file_sha256,
-			answer: excerpts.length ? excerpts.map(span => `[Original physical page ${span.page}]\n${span.text}`).join("\n\n")
+			...(excerpts.length ? { host_pages: true } : {}),
+			answer: excerpts.length ? `Original physical pages ${excerpts.map(span => span.page).join(", ")} are in excerpts, in page order.`
 				: `The book's index and text search found no page for ${focus}. Play on from published material and established table facts`
 					+ (contents.length ? `, or turn the pages you mean with lookup kind=source source_mode=pages. The book's contents (physical pages):\n${contentsLines(contents, PAGE_BOUNDS.answerContents).join("\n")}` : "."),
 			excerpts, source_refs: excerpts.map(span => ({ source_id: "pdf:" + mid, pdf_index: span.page - 1 })),

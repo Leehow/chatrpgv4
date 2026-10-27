@@ -197,4 +197,8 @@ test('a source answer focused on the book title reads the party\'s scene pages; 
  const plain=await reading.leanAnswer('blood-road',{campaign:'c1',focus:'Chapel',question:'Who keeps the key?'});
  assert.deepEqual(plain.source_answer.excerpts.map(span=>span.page),[1],'an ordinary focus keeps its text search');
  assert.equal(notes.find(row=>row.event==='lean_answer'&&row.titled)?.anchored,'Diner');
+ // 1026k T10: the cut pages ride once, in excerpts, marked for whole delivery; the answer only points at them.
+ assert.equal(titled.source_answer.host_pages,true);
+ for(const span of titled.source_answer.excerpts)assert.ok(span.text.length&&!titled.source_answer.answer.includes(span.text),'each page\'s text rides once');
+ assert.match(titled.source_answer.answer,/pages 6, 7 are in excerpts/);
 }));

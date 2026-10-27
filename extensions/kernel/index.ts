@@ -7038,7 +7038,10 @@ export default function (pi: ExtensionAPI, host: {capabilities?:RuntimeCapabilit
 								pendingAnswers.hold(state.campaign, askedAt, [{focus, question, answer: raw}], askedTurn, fromStep?.run, askedScope);
 								cached = pendingAnswers.retains(state.campaign, {scene: askedAt, focus, question, scope: askedScope});
 							}
-							const page = sourceAnswerPage(raw, {focus, question, canContinue: cached, playMaterial: true});
+							// The host's own cut of the book's pages is bounded where it is cut (four pages) and handed over whole, as a
+							// page turn is; parting it again left the Keeper paging 500 characters at a time (1026k T10).
+							const page = raw.host_pages === true ? {view: {...raw, delivery: {complete: true, part: 0, total_parts: 1}}}
+								: sourceAnswerPage(raw, {focus, question, canContinue: cached, playMaterial: true});
 							sourceAnswer = 'unavailable' in page ? {status: 'unavailable', question, reason: 'source_answer_unavailable', cause: page.unavailable,
 								prepared: false, authority: 'cached-source-reference'} : page.view;
 						}

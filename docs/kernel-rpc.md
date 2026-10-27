@@ -53713,3 +53713,13 @@ by the output packet itself, so the start-of-turn catalog (scoped to who was pre
 thin and wild-haired, and that first sight stood for the rest of the game. When an author person has no look from the catalog,
 the host now asks the reading service for that person's approved appearance by their own spellings. Case:
 `tests/extension/pointer-reading.test.mjs` "a person who walks on this turn is found their approved look".
+
+### A source answer of the host's own page cut is handed over whole (1026k)
+
+Live 1026k, 不息的渴望 T10: `lookup source_mode=answer` for the church returned four original pages twice (in `answer` and in
+`excerpts`), and the tool cut that into 4-KiB parts of about 500 characters of book each, 20 parts in all. The Keeper read four
+parts, turned the same pages by number three more times, and then thought for 18k characters. The pointer-reading lean answer
+now carries the pages once, in `excerpts`, with `answer` only pointing at them and `host_pages: true`; the lookup hands such an
+answer over whole, as `source_mode=pages` hands a page turn. Its size is bounded where it is cut (four pages of 3,500
+characters). A held answer carried into later steps is still paged by the carried-view budgets. Case:
+`tests/extension/page-mode.test.mjs` "a source answer focused on the book title".
