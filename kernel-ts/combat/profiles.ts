@@ -33,8 +33,13 @@ export function engineWeapon(shape: Row, id: string | null = null): Row {
         entry.weapon_id = id;
     return entry;
 }
+/**
+ * The weapons on the card. A row the setup wrote before it carried the rules id (every card made up to 1026j:
+ * `{name, ...printed profile}` and no `weapon_id`) is still a weapon the investigator carries: it is listed by its
+ * name, and `resolveInvestigatorWeapon` finds its rules row by the printed name it was copied from.
+ */
 export function investigatorWeapons(sheet: Row): Row[] {
-    const weapons = array(sheet.weapons).filter(weapon => isJsonObject(weapon) && truth(weapon.weapon_id)).map(clone);
+    const weapons = array(sheet.weapons).filter(weapon => isJsonObject(weapon) && (truth(weapon.weapon_id) || truth(weapon.name))).map(clone);
     if (!weapons.some(weapon => weapon.weapon_id === 'unarmed'))
         weapons.push({ weapon_id: 'unarmed', name: 'unarmed' });
     return weapons;
@@ -46,8 +51,14 @@ export async function resolveInvestigatorWeapon(tables: RuleTables, sheet: Row, 
         if (key.startsWith(prefix))
             key = key.slice(prefix.length);
     const catalog = await tables.exists('weapons') ? await tables.weaponsTable() : {};
+    const printed = (weapon: Row): string => {
+        const keys = [weapon.profile, weapon.display_name, weapon.name].filter(truth).map(normalize);
+        return Object.keys(catalog).find(id => keys.includes(normalize(id)) || keys.includes(normalize(string(row(catalog[id]).display_name)))) ?? '';
+    };
     for (const weapon of investigatorWeapons(sheet)) {
-        const id = string(weapon.weapon_id), entry = row(catalog[id]);
+        const id = truth(weapon.weapon_id) ? string(weapon.weapon_id) : printed(weapon), entry = row(catalog[id]);
+        if (!id)
+            continue;
         const names = [normalize(id), normalize(string(weapon.name || '')), normalize(string(weapon.label || ''))];
         if (truth(entry.display_name))
             names.push(normalize(string(entry.display_name)));

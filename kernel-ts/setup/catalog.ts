@@ -174,7 +174,9 @@ export class SetupCatalog {
   weaponProfiles(): Map<string, [Row, string]> {
     const profiles = new Map<string, [Row, string]>();
     for (const [id, value] of entries(this.weapons)) {
-      const entry = row(value), printable = truth(entry.display_name) ? string(entry.display_name) : id;
+      // The rules id rides on the card's row: combat finds a carried weapon by it (1026j: a card without it
+      // carried nothing but fists).
+      const entry = {...row(value), weapon_id: id}, printable = truth(entry.display_name) ? string(entry.display_name) : id;
       // The id, the printed name, and the printed name's head before its parenthesis ("Sword, medium" for
       // "Sword, medium (rapier, heavy epee)"), all matched without punctuation: a model shortens the
       // printed name and a comma is not a different weapon.
