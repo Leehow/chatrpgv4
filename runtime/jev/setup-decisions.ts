@@ -286,7 +286,7 @@ export const STATED_FIELDS: Readonly<Record<string, {asks: string; keys: readonl
   sex: {asks: 'the investigator\'s sex or gender', keys: ['sex']},
   concept: {asks: 'who the investigator is beyond the trade (personality, situation, a reason to be here)', keys: ['concept']},
   own_language: {asks: 'the investigator\'s native language', keys: ['own_language']},
-  // 1026n: "母语中文，会英语" bound Language (Own) only, on all three tables; the generic Language (Other) skill names no
+  // 1026n: "native Chinese, speaks English" bound Language (Own) only, on all three tables; the generic Language (Other) skill names no
   // language, so the clerk could not say which. A second language the player states is an open key the bind step names.
   other_languages: {asks: 'a language other than the native one that the investigator speaks or reads', keys: ['other_languages']},
   backstory: {asks: 'the investigator\'s background (people, places, beliefs, treasured things, looks or history)', keys: ['backstory', 'key_connection']},
