@@ -238,14 +238,17 @@ export function seatPrintedCast(context: ApplyContext, scene: Row): string[] {
 /** §267.5: the party's company for this move: those `with` names, joined to the standing company, who stand where it leaves. */
 function companions(context: ApplyContext, effect: Row, from: string): string[] {
     const { graph, world } = context, presence = row(world.npc_presence);
-    const named = array(effect.with).flatMap(word => {
+    const handles = (field: 'with' | 'leave') => array(effect[field]).flatMap(word => {
         if (typeof word !== 'string' || !word.trim()) return [];
         let node: Row | null = null;
         try { node = referencedNpc(graph, world, word) ?? personNode(graph, world, word); } catch { node = null; }
-        if (!node) throw new RpcError('unknown_entity', `nobody at this table is called ${repr(word)}`, { fix: 'name in with only people this table has, by their npc_N reference or the word present[] shows', details: { field: 'move.with', query: word } });
+        if (!node) throw new RpcError('unknown_entity', `nobody at this table is called ${repr(word)}`, { fix: `name in ${field} only people this table has, by their npc_N reference or the word present[] shows`, details: { field: `move.${field}`, query: word } });
         return [graph.handle(node)];
     });
-    const company = [...new Set([...array(world.party_company).map(string), ...named])];
+    // 1026k An Amaranthine Desire T13: the player sent the hunters off with Sarah and went on alone; the move carried all four
+    // along, and the Keeper wrote four more effects to send them back. `leave` names company who stay where they are.
+    const staying = new Set(handles('leave'));
+    const company = [...new Set([...array(world.party_company).map(string), ...handles('with')])].filter(handle => !staying.has(handle));
     world.party_company = company;
     return company.filter(handle => presence[handle] === from);
 }

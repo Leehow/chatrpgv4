@@ -409,6 +409,19 @@ test('someone who goes along with the party keeps going along until sent elsewhe
     assert.equal(knott(),undefined,'sent away, he left the company');
 });
 
+// 1026k An Amaranthine Desire T13: the player sent the company off and went on alone; four more effects sent them back.
+test('company left behind on a move stays where it is and leaves the company',async t=>{
+    const k=await kernel(t);await openTurn(k,'I ask Knott to come with me to the corner cafe.');
+    await k.table('apply',{call_id:'t1-c1',effects:[{kind:'place',action:'move',to:'Corner Cafe',via:'A few doors down the street',travel_band:'adjacent',with:['Steven Knott'],additions:[hotel('Corner Cafe')]}]});
+    const knott=()=>Object.entries(state(k).npc_presence??{}).find(([handle])=>handle.includes('knott'))?.[1];
+    const cafe=state(k).active_scene;
+    await k.table('apply',{call_id:'t1-c2',effects:[{kind:'place',action:'move',to:'Bookshop',via:'Across the square',travel_band:'adjacent',leave:['Steven Knott'],additions:[hotel('Bookshop')]}]});
+    assert.equal(knott(),cafe,'he stayed at the cafe');
+    await k.table('apply',{call_id:'t1-c3',effects:[{kind:'place',action:'move',to:'Corner Cafe'}]});
+    await k.table('apply',{call_id:'t1-c4',effects:[{kind:'place',action:'move',to:'Bookshop'}]});
+    assert.equal(knott(),cafe,'and is no longer company');
+});
+
 test('a spot that names a place added inside the destination moves the party into that place (§268.4)',async t=>{
     const k=await kernel(t);await openTurn(k,'I go to the inn and into room 203.');
     await k.table('apply',{call_id:'t1-c1',effects:[{kind:'place',action:'move',to:'Inn',via:'Along the street',travel_band:'adjacent',additions:[hotel('Inn')]}]});

@@ -53735,3 +53735,10 @@ Case: `tests/integration/rules-combat-refusal.test.ts` "an NPC's fight action se
 A clue may name this packet's newcomer as its teller (1026k T2): `clue.from` takes a `new_N` slot, compiled to that newcomer's
 seat (their book name, else their label). Case: `tests/extension/turn-packet-prototype.test.mjs` "a clue told by this packet's
 newcomer".
+
+### Company left behind on a move (1026k)
+
+Live 1026k, 不息的渴望 T13: the player sent the hunters off with Sarah and went to the church alone; the move carried all four
+along as standing company (§267.5), and the Keeper wrote four `apply npc` effects to send them back. A place move now takes
+`leave`: company named there stay where they are for this move and stop going along. Case:
+`tests/integration/enhanced-locations.test.ts` "company left behind on a move".
