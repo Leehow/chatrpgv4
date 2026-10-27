@@ -1024,3 +1024,14 @@ test('a walk_on that names its book person seats that person and gives the label
  const plain=compileTurnPacket(turnPacket(JSON.stringify({version:4,commands:[{kind:'walk_on',slot:'new_1',label:'a courier',reason:'x'}]}))).effects;
  assert.deepEqual(plain.map(e=>e.kind),['npc'],'a walk_on with no book person is unchanged');
 });
+
+// 1026k An Amaranthine Desire T2: a clue told by someone who walked on in the same packet was refused for naming their slot.
+test('a clue told by this packet\'s newcomer names their seat',()=>{
+ const packet={version:4,commands:[{kind:'walk_on',slot:'new_1',label:'the beggar at the gate',reason:'He holds out a hand.'},
+  {kind:'walk_on',slot:'new_2',label:'the hooded figure',book:'Father Fincher',reason:'He stands by the lamp.'},
+  {kind:'clue',clue:'Sarah was taken to the church',how:'He tells it for a coin',from:'new_1'},
+  {kind:'clue',clue:'The figure knows Sarah',how:'He says her name',from:'new_2'}]};
+ const effects=compileTurnPacket(turnPacket(JSON.stringify(packet))).effects;
+ assert.deepEqual(effects.filter(e=>e.kind==='clue').map(e=>e.from),['the beggar at the gate','Father Fincher']);
+ assert.ok(effects.findIndex(e=>e.kind==='npc')<effects.findIndex(e=>e.kind==='clue'),'seated before the clue they tell');
+});
