@@ -237,7 +237,13 @@ export function seatPrintedCast(context: ApplyContext, scene: Row): string[] {
 
 /** §267.5: the party's company for this move: those `with` names, joined to the standing company, who stand where it leaves. */
 function companions(context: ApplyContext, effect: Row, from: string): string[] {
-    const { graph, world } = context, presence = row(world.npc_presence);
+    const presence = row(context.world.npc_presence);
+    return updateCompany(context, effect).filter(handle => presence[handle] === from);
+}
+
+/** §267.5: the standing company after a move's `with` joins it and its `leave` parts from it; a move inside the place too. */
+export function updateCompany(context: ApplyContext, effect: Row): string[] {
+    const { graph, world } = context;
     const handles = (field: 'with' | 'leave') => array(effect[field]).flatMap(word => {
         if (typeof word !== 'string' || !word.trim()) return [];
         let node: Row | null = null;
@@ -250,5 +256,5 @@ function companions(context: ApplyContext, effect: Row, from: string): string[] 
     const staying = new Set(handles('leave'));
     const company = [...new Set([...array(world.party_company).map(string), ...handles('with')])].filter(handle => !staying.has(handle));
     world.party_company = company;
-    return company.filter(handle => presence[handle] === from);
+    return company;
 }

@@ -420,6 +420,11 @@ test('company left behind on a move stays where it is and leaves the company',as
     await k.table('apply',{call_id:'t1-c3',effects:[{kind:'place',action:'move',to:'Corner Cafe'}]});
     await k.table('apply',{call_id:'t1-c4',effects:[{kind:'place',action:'move',to:'Bookshop'}]});
     assert.equal(knott(),cafe,'and is no longer company');
+    // 1026l T9: a move inside the place leaves company behind too.
+    await k.table('apply',{call_id:'t1-c5',effects:[{kind:'place',action:'move',to:'Corner Cafe',with:['Steven Knott']}]});
+    await k.table('apply',{call_id:'t1-c6',effects:[{kind:'place',action:'move',to:'here',spot:'by the window',leave:['Steven Knott']}]});
+    await k.table('apply',{call_id:'t1-c7',effects:[{kind:'place',action:'move',to:'Bookshop'}]});
+    assert.equal(knott(),cafe,'left behind inside the cafe, he did not come to the bookshop');
 });
 
 test('a spot that names a place added inside the destination moves the party into that place (§268.4)',async t=>{

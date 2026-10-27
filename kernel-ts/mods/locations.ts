@@ -4,7 +4,7 @@ import {Check,Errors} from 'typebox/value';
 import {PlaceEffect} from '../../shared/place-structures.js';
 import type {DomainEvent} from '../transactions.js';
 import type {ApplyContext} from '../apply/index.js';
-import {stageMove,moveAccess} from '../apply/move.js';
+import {stageMove,moveAccess,updateCompany} from '../apply/move.js';
 import {nowIso} from '../write/store.js';
 import {isPlace} from '../read/places.js';
 import {RpcError} from '../errors.js';
@@ -207,6 +207,9 @@ export function stageLocation(context:ApplyContext,given:Row,active:readonly Row
     if(from===to){
         if(effect.travel_band!==undefined||effect.travel_minutes!==undefined)adjusted.push({field:'travel_band',reason:'local_travel_ignored'});
         moved={receipt:{...receipt,place:to,...(effect.via?{via:effect.via}:{})},event:null};
+        // 1026l An Amaranthine Desire T9: a move inside the place with leave let Claire and Katherine stay in the lane, then
+        // carried them down into the crypt two turns later. Company is joined and parted on every move, this one included.
+        if(Array.isArray(effect.with)||Array.isArray(effect.leave))updateCompany(context,effect);
     }else{
         // §250: a new route the Keeper did not describe is an open, improvised arrival, never an unreachable destination.
         const openRoute=!effect.via&&moveAccess(graph,world,graph.scene(from),destination,false,false).requiresVia;
