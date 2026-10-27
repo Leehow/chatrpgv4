@@ -204,6 +204,8 @@ export default function (pi: ExtensionAPI) {
   let prologueRecorded = false;
   let lastPlayerInput = "";
   let inputKey = "";
+  // The player message whose approval was refused because the card changed in it (setup.confirm confirmation_required).
+  let confirmationHeldFor: string | undefined;
   let inputOrdinal=0;
   let inputCatalog:SetupInputCatalog|undefined;
   /** The player's earlier setup messages, before this input (§151.6: a first card is read from all of them). */
@@ -743,6 +745,10 @@ export default function (pi: ExtensionAPI) {
 
 	/** Run this step's ops in table order; a missing parameter stops it there and hands the results so far to the model to fill in. */
 	async function runOps(step: Step, args: Record<string, unknown>, signal?:AbortSignal): Promise<Record<string, unknown>> {
+		// 1026n Digging for a Dead God setup: the card was revised in the approving message and confirm was refused seven
+		// times in one reply. Once refused for this message, the confirmation is not sent again until the player answers.
+		if (step.id === 'confirm-investigator' && inputKey && confirmationHeldFor === inputKey)
+			return { ok: false, step: step.id, code: 'needs', message: 'Already refused for this player message: the card changed in it. Write the reply now and ask the player to confirm the card as it stands.' };
 		const current = bridge;
 		if (!current) return { ok: false, step: step.id, rejected: "The kernel bridge is gone, so this step cannot run." };
 		const results: Record<string, unknown> = {};
@@ -797,6 +803,7 @@ export default function (pi: ExtensionAPI) {
 				// along (#33).
 				const fix = (error as { fix?: unknown }).fix;
 				const details = (error as { details?: unknown }).details;
+				if (op.method === 'setup.confirm' && (error as { codeDetail?: unknown }).codeDetail === 'confirmation_required') confirmationHeldFor = inputKey;
 				return {
 					ok: false,
 					step: step.id,

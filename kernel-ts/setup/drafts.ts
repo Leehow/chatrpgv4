@@ -494,7 +494,7 @@ export class SetupDrafts {
       if (jsonDigest(draft.sheet) !== draft.digest) throw new RpcError('idempotency_conflict', 'The immutable draft was altered');
       if (equal(state.confirmed_revision, draft.revision)) return {...await this.result(draft), committed: true, replayed: true};
       if (meta.status !== 'setting_up') throw new RpcError('invalid_params', 'the campaign is no longer accepting character changes');
-      if (consent === 'approved' && truth(draft.input_key) && equal(draft.input_key, params.input_key)) throw new RpcError('needs', 'Wait for the next player message to approve the displayed draft', {codeDetail: 'confirmation_required'});
+      if (consent === 'approved' && truth(draft.input_key) && equal(draft.input_key, params.input_key)) throw new RpcError('needs', 'Wait for the next player message to approve the displayed draft', {codeDetail: 'confirmation_required', fix: 'The card changed in this same player message, so this message cannot approve it. Make no more setup calls in this reply: tell the player what changed on the card and ask them to confirm it as it now stands.'});
       const issues = completeness(draft.sheet);
       if (issues.length) throw new RpcError('needs', 'This draft is incomplete', {details: {issues}});
       if (await this.setup.context.snapshots.pathExists(campaign.path('party/investigator.json')) && !equal(await campaign.read('party/investigator.json'), draft.sheet)) throw new RpcError('idempotency_conflict', 'A different investigator already occupies this campaign slot');
