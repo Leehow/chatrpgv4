@@ -53730,7 +53730,7 @@ Live 1026j, 不息的渴望 T12: on Leavitt's turn the Keeper sent his grab with
 the investigator attacking himself; the refusal offered Leavitt as the target, and the Keeper swapped the two until the
 three-strikes stop. When an NPC holds the turn and an action without its actor targets the investigator, the refusal is now
 `turn_state` naming the holder and telling the Keeper to resolve it with `action.actor` (or spend the turn with `apply npc`).
-Case: `tests/integration/rules-combat-refusal.test.ts` "an NPC's fight action sent without its actor".
+Case: `tests/integration/combat-npc-turn-actor.test.ts` "an NPC's fight action sent without its actor".
 
 A clue may name this packet's newcomer as its teller (1026k T2): `clue.from` takes a `new_N` slot, compiled to that newcomer's
 seat (their book name, else their label). Case: `tests/extension/turn-packet-prototype.test.mjs` "a clue told by this packet's

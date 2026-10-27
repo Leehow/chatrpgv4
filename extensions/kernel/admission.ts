@@ -500,7 +500,7 @@ export function continuousAdmissionKey(playerText:string,worldRevision:unknown,s
 const IDENTIFYING_FIELDS: readonly string[] = [
     "action","at","spot","relation","through","additions","state","passable","relations","sense","access","facts","people","situations","view","reason",
 	"to", "establish", "label", "travel_minutes", "travel_band", "via", "clue", "minutes", "band", "band_reach", "until", "stated", "beyond_travel", "delta",
-	"name", "regions", "region_labels", "level_labels", "subject", "from", "with", "quantity", "dice", "scope", "object",
+	"name", "regions", "region_labels", "level_labels", "subject", "from", "with", "leave", "quantity", "dice", "scope", "object",
 	"description", "category", "adopt", "condition", "weapon", "definition", "source_object", "document", "part", "offer", "handover", "check",
 	"settlement", "source", "price_id", "currency", "mode", "quote", "bill", "items", "intent_ref", "intent_outcome", "owed","activity","shop",
 ];

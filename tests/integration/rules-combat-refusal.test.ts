@@ -39,12 +39,3 @@ const cases:Record<string,(k:any)=>Promise<[string,any]>>={
 for(const [name,run] of Object.entries(cases))test(`test_an_investigators_refused_fight_action_names_no_other_fight_decision [${name}]`,async t=>{const k=await clientFor(t),[refused,error]=await run(k);assert.ok(['needs','turn_state'].includes(error.code));assert.ok(error.fix);const names=await decisions(k);assert.ok(names.includes(refused));assert.deepEqual(named(error.fix,names.filter(name=>name!==refused)),[]);});
 test('test_the_maneuver_refusal_still_names_the_four_and_changes_nothing',async t=>{const k=await clientFor(t),n=await hayesTurn(k),count=(await receipts(k)).length,error=await resolveErr(k,`t1-c${n}`,demand);assert.equal(error.code,'needs');assert.equal(error.details.needs.field,'goal');assert.deepEqual(error.details.needs.options.slice().sort(),['disarm','escape','ongoing_disadvantage','push']);const s=(await k.table('look',{focus:'session'})).session;assert.equal(s.turn_of,INVESTIGATOR);assert.equal(s.pending_defense,null);assert.equal((await receipts(k)).length,count);});
 test('test_an_npcs_held_flight_still_names_his_way_free',async t=>{const k=await clientFor(t),n=await corbittsTurn(k);editFight(k,{corbitt:{conditions:['grappled']}});const e=await resolveErr(k,`t1-c${n}`,{actor:'Walter Corbitt',intent:'flee',goal:'get away',method:'run for the stairs'});assert.equal(e.details.actor,CORBITT);assert.deepEqual(named(e.fix,await decisions(k)),['combat:maneuver']);});
-// 1026j An Amaranthine Desire T12: the NPC's grab sent without action.actor was read as the investigator attacking himself;
-// the refusal offered the NPC as the target and the Keeper swapped the two until the three-strikes stop.
-test('an NPC\'s fight action sent without its actor is told whose turn it is',async t=>{
- const k=await clientFor(t),n=await corbittsTurn(k);
- const error=await resolveErr(k,`t1-c${n}`,{intent:'combat',goal:'grab the ledger back',method:'wrench his wrist',target:INVESTIGATOR,weapon:'unarmed',defense:'fight_back'});
- assert.equal(error.code,'turn_state',JSON.stringify(error));
- assert.equal(error.details.turn_of,CORBITT);
- assert.match(error.fix,/action\.actor/);
-});
