@@ -53723,3 +53723,15 @@ now carries the pages once, in `excerpts`, with `answer` only pointing at them a
 answer over whole, as `source_mode=pages` hands a page turn. Its size is bounded where it is cut (four pages of 3,500
 characters). A held answer carried into later steps is still paged by the carried-view budgets. Case:
 `tests/extension/page-mode.test.mjs` "a source answer focused on the book title".
+
+### An NPC's fight action sent without its actor is told whose turn it is (1026j)
+
+Live 1026j, 不息的渴望 T12: on Leavitt's turn the Keeper sent his grab with `target: 许望` and no `action.actor`, so it was read as
+the investigator attacking himself; the refusal offered Leavitt as the target, and the Keeper swapped the two until the
+three-strikes stop. When an NPC holds the turn and an action without its actor targets the investigator, the refusal is now
+`turn_state` naming the holder and telling the Keeper to resolve it with `action.actor` (or spend the turn with `apply npc`).
+Case: `tests/integration/rules-combat-refusal.test.ts` "an NPC's fight action sent without its actor".
+
+A clue may name this packet's newcomer as its teller (1026k T2): `clue.from` takes a `new_N` slot, compiled to that newcomer's
+seat (their book name, else their label). Case: `tests/extension/turn-packet-prototype.test.mjs` "a clue told by this packet's
+newcomer".

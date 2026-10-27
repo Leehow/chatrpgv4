@@ -106,6 +106,14 @@ export function createCombatResolveContribution(): FixedFamilyBinding {
                     }
                 }
                 else {
+                    // 1026j An Amaranthine Desire T12: Leavitt held the turn and the Keeper sent his grab without action.actor, so it
+                    // was read as the investigator's own attack on himself; the refusal offered Leavitt as the target, the Keeper
+                    // swapped the two back and forth and the three-strikes stop ended it. Whose turn it is comes first.
+                    const holder = snapshot ? sessions.combatTurnOf(snapshot) : null, self = truth(action.target) ? context.sheetById(action.target) : null;
+                    if (holder && holder !== actor && !sessions.isInvestigator(holder) && self && string(self.id) === actor)
+                        throw new RpcError('turn_state', `it is ${sessions.label(holder)}'s turn in the fight, and this action targets ${sessions.label(actor)}: it is ${sessions.label(holder)}'s`, {
+                            fix: `resolve it with action.actor ${repr(sessions.label(holder))} and the target as written; when ${sessions.label(holder)} spends the turn on something else, apply npc with name ${repr(sessions.label(holder))}, intends, outcome and spend_turn: true`,
+                            details: { turn_of: holder, actor: sessions.label(holder) } });
                     let handle: string;
                     if (targets.npc === null) {
                         if (snapshot) {
