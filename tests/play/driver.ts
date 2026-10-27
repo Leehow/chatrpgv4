@@ -761,7 +761,7 @@ catch (e) {
         console.log(`  daemon.json status=${info.status} daemon_pid=${info.daemon_pid} pi_pid=${info.pi_pid}`);
     return 1;
 } }
-export function build_parser() { return { parse_args(argv: string[]) { const a: Row = { subcommand: argv[0], run: null, campaign: null, launcher: null, model: argv[0] === 'start' ? DEFAULT_MODEL : null, thinking: null, timeout: 300, tail: 60, first_step_thinking: false, no_default_run: false, pregen: null, module: 'the-haunting', play_language: 'zh', env: [] }; for (let i = 1; i < argv.length; i++) {
+export function build_parser() { return { parse_args(argv: string[]) { const a: Row = { subcommand: argv[0], run: null, campaign: null, launcher: null, model: argv[0] === 'start' ? DEFAULT_MODEL : null, thinking: argv[0] === 'start' ? DEFAULT_THINKING : null, timeout: 300, tail: 60, first_step_thinking: false, no_default_run: false, pregen: null, module: 'the-haunting', play_language: 'zh', env: [] }; for (let i = 1; i < argv.length; i++) {
         const key = argv[i];
         if (['--first-step-thinking', '--no-default-run', '--setup'].includes(key))
             a[key.slice(2).replaceAll('-', '_')] = true;
