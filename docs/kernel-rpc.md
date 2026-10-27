@@ -53701,3 +53701,9 @@ person in the author's `people` whose table look carries one of those spellings 
 table already showed the person differently, the table's version stands (owner, 2026-10-26: the module is not a rule,
 what happened at the table is). Nothing unreleased is added. Case: `tests/extension/pointer-reading.test.mjs` "a seated book person's released
 look stays theirs every turn".
+
+A walk-on that names its book person carries no newcomer mark (1026j). Live 1026j, 不息的渴望 T9: Fincher and Leavitt were
+already at the table when the Keeper walked them into the nave with `book`, and the compiled seat still carried the newcomer
+slot's mark, so both were refused as "a newcomer slot cannot select an existing person" before an issued reference landed them.
+Naming the book person says who this is: someone the table already has walks on as their arrival (§198.1), an unread one is
+seated from the book as before. Case: `tests/extension/module-cast.test.mjs` "a book person already at the table walks on again".

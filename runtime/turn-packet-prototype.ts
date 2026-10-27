@@ -387,12 +387,15 @@ export function compileTurnPacket(packet:TurnPacket|BoundTurnPacket):{responses:
  // 1026i An Amaranthine Desire: the book's hooded figure came in under a description only, was made a stranger with a random
  // temper, and was named a local smuggler two turns later. A walk-on that names its book person seats that person and gives
  // them the label as this table's word for them, so the book's record follows them and their name stays untold.
+ // 1026j An Amaranthine Desire T9: Fincher and Leavitt, named by book, were already at the table, and the newcomer mark
+ // refused them as the slot's "existing person". A walk-on that names its book person is that person arriving, never a
+ // newcomer, so it carries no newcomer mark: an existing person walks on (§198.1), an unread one is seated from the book.
  const expanded=ordered.flatMap(a=>a.kind==='walk_on'&&a.book?[{...a,label:a.book},{kind:'name' as const,actor:a.book,name:a.label}]:[a]);
  const newcomers=new Map(commands.filter(a=>a.kind==='walk_on').map(a=>[a.slot,a.label]));
  const person=(name:string)=>newcomers.get(name)??name;
  return {responses:packet.interactions??[],...(agreements.length?{agreements}:{}),...(directed.length?{event:{name:'Directed relationship update',relationships:directed.map(row=>({actor:row.actor,toward:row.toward,statement:JSON.stringify(directedStatement(row))}))}}:{}),effects:[...definitions,...expanded.map(a=>a.kind==='move'?{kind:'move',to:a.to,...(a.via?{via:a.via}:{}),
   ...('travel_minutes'in a&&a.travel_minutes!==undefined?{travel_minutes:a.travel_minutes}:{}),...(a.travel_band?{travel_band:a.travel_band}:{})}
-  :a.kind==='place'?a.action==='observe'?{...Object.fromEntries(Object.entries(a).filter(([key])=>key!=='additions')),...(a.people?{people:a.people.map(person)}:{}),...(a.situations?{situations:a.situations.map(situation=>({...situation,...(situation.participants?{participants:situation.participants.map(person)}:{})}))}:{})}:{...a}:a.kind==='npc'?{kind:'npc',name:a.actor,to:a.to,why:a.reason}:a.kind==='walk_on'?{kind:'npc',name:a.label,to:a.to??'here',walk_on:true,_new_person:true,why:a.reason}
+  :a.kind==='place'?a.action==='observe'?{...Object.fromEntries(Object.entries(a).filter(([key])=>key!=='additions')),...(a.people?{people:a.people.map(person)}:{}),...(a.situations?{situations:a.situations.map(situation=>({...situation,...(situation.participants?{participants:situation.participants.map(person)}:{})}))}:{})}:{...a}:a.kind==='npc'?{kind:'npc',name:a.actor,to:a.to,why:a.reason}:a.kind==='walk_on'?{kind:'npc',name:a.label,to:a.to??'here',walk_on:true,...(a.book?{}:{_new_person:true}),why:a.reason}
   :a.kind==='scene'?{kind:'scene',name:'here',_population:true,activity:{service:a.service,crowd:a.crowd,basis:'established',summary:`Service is ${a.service}; crowd is ${a.crowd}.`,review_after_minutes:a.review_after_minutes??15},why:'Current place, clock and registered circumstances establish this population assessment.'}
   :a.kind==='clue'?{kind:'clue',clue:a.clue,how:a.how,...(a.summary?{establish:{summary:a.summary}}:{}),...(a.from&&isNpcReference(a.from)?{from:a.from}:{})}
   :a.kind==='mood'?{kind:'npc',name:a.actor,mood:a.mood,why:'What they feel after this turn.'}

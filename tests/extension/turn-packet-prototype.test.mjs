@@ -1017,7 +1017,7 @@ test('a walk_on that names its book person seats that person and gives the label
   {kind:'scene',service:'unknown',crowd:'empty'},{kind:'place',action:'observe',facts:['A lamp on a post.'],people:['new_1']}]};
  const effects=compileTurnPacket(turnPacket(JSON.stringify(packet))).effects;
  const seat=effects.find(e=>e.kind==='npc'),word=effects.find(e=>e.kind==='person');
- assert.deepEqual([seat.name,seat.walk_on,seat._new_person],['Father Fincher',true,true]);
+ assert.deepEqual([seat.name,seat.walk_on,seat._new_person],['Father Fincher',true,undefined],'the book\'s person arrives; they are not a newcomer');
  assert.deepEqual([word.who,word.name],['Father Fincher','the hooded figure']);
  assert.ok(effects.indexOf(seat)<effects.indexOf(word),'seated before they are given the word');
  assert.deepEqual(effects.find(e=>e.kind==='place').people,['the hooded figure'],'the slot still reads as the table\'s word');
