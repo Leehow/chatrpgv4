@@ -206,6 +206,14 @@ Grok 系模型屡次把「交付」当目标、把意图当配菜，也屡次静
 - 主检出与共享 worktree 上禁用 `git stash`、`reset --hard`、`checkout --`、`clean`；要隔离就开临时 worktree。不推、不删分支、不改共享历史，除非用户当回合明说。
 - 每次真桌验收都会找出几个接缝看不见的系统缺陷：给每个切片预留一次修复提交。
 
+## 实测必须带上全部插件（owner 2026-10-27）
+
+真桌、长局、验证臂等一切实测，都按用户 PipiCOC 的真实插件配置跑：PipiCOC 里启用的每个插件（Jev、rerank、minimax-enhanced、image-gen、各 provider 插件等）都要挂上，并带上它在 PipiCOC 里的设置和 vault 里的钥匙。`tests/play/driver.ts` 启动时由 `tests/play/pipicoc-profile.ts` 读 `~/Library/Application Support/Pipi/pipicoc/pi-coc/agent`（`PI_COC_PROFILE_DIR` 可改）；有插件挂不上、Jev 没启用或钥匙不在 vault，就直接报错退出，不许降级继续跑。本轮加载了哪些插件写在 run 的 `daemon.json` `plugins` 和 `driver.log` 里，实测报告必须列出来，并报 Jev 实际调用次数（必须大于 0）。
+
+- 不许让用户再存一次钥匙，不许打印或写出任何钥匙。
+- `PI_COC_PIPICOC_PROFILE=0` 只给离线的驱动自测用，实测不许关。
+- 1026m 之前的实测（1026j/k/l 及更早）都没带 Jev 钥匙，Jev 调用为 0：引用它们的结论时要标注“未装 Jev”，不能当作产品真实配置的结果。
+
 ## Test model override (owner 2026-10-16)
 
 Before creating or cloning test data of any type (including images, PDFs, logs and archives), running model comparisons, or retaining test data, read [the test storage contract](docs/specs/test-data-storage.md). Reuse one retained seed through `scripts/test-workspace.mjs` (`shareTestTree` for arbitrary trees) or the live driver's `--seed-home`; preserve active tests and formal campaigns. Record capacity admission and results; ordinary full-tree copies or per-arm tar snapshots require an explicit exception in the approved test plan.

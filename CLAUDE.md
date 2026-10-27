@@ -30,3 +30,7 @@ Development, tests and packaging are Python-free. Follow Agents.md; use npm ci w
 - 这一轮有没有工具错误或被拒绝的调用（界面上的"N 失败"、技术细节、turn 记录里的 failures/refusals）。有就记下是哪个工具、拒绝理由、最后有没有恢复。
 - thinking 长度。任何一段 thinking 超过约 1k token（中文约 1500 字，英文约 4000 字符）时，必须打开看它在想什么，并记录：是哪个角色（KP、作者、读书或其他 lane），在纠结什么（协议怎么填、价格、物品登记、规则判断……），为什么会纠结（指引含糊、schema 不够用、被拒后重试……）。
 - 不能只报"跑完了"。这两项要写进实测报告，大段 thinking 的成因要作为问题修或上报。
+
+## 实测必须带上全部插件（用户 2026-10-27）
+
+一切实测按用户 PipiCOC 的真实插件配置跑，Jev 等插件连同设置和钥匙都要挂上；驱动启动时检查，缺一个就报错退出，报告里列出本轮插件和 Jev 调用次数。全文见 [Agents.md](Agents.md) → *实测必须带上全部插件*。

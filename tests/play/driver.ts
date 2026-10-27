@@ -185,6 +185,14 @@ export const runtime: {
     processFactory: any;
     rpcCall: any;
 } = { processFactory: PiProcess, rpcCall: null };
+/** The owner's PipiCOC plugins for this build's launcher (tests/play/pipicoc-profile.ts). */
+async function livePluginProfile() {
+    const {runtimeEntrypoints, sessionExtensionPaths} = await import(pathToFileURL(join(REPO_ROOT, 'runtime/deployment.mjs')).href);
+    const {pipicocProfileEnv} = await import('./pipicoc-profile.ts');
+    const mounted = new Set<string>((sessionExtensionPaths(runtimeEntrypoints(REPO_ROOT, 'source')) as string[]).flatMap(path => /build\/extensions\/([^/]+)\//.exec(path)?.[1] ?? []));
+    try { return pipicocProfileEnv(mounted); }
+    catch (error) { throw new DriverError(String(error instanceof Error ? error.message : error)); }
+}
 export class Daemon {
     run_id: string;
     campaign: string;
@@ -192,6 +200,7 @@ export class Daemon {
     first_step_thinking: boolean;
     expected_engine: string | null;
     setup_transport = false;
+    plugins: import('./pipicoc-profile.ts').ProfilePlugin[] | null = null;
     /** `--setup`: a launcher that wraps `bin/pi-coc setup` is a setup session too (its path alone is not `bin/pi-coc-setup`). */
     setup = false;
     dir: string;
@@ -227,7 +236,11 @@ export class Daemon {
             throw new DriverError("--model must be 'provider/modelId', got " + model);
         const i = model.indexOf('/');
         args.push('--provider', model.slice(0, i), '--model', model.slice(i + 1));
-    } const miniMaxTest=model==='minimax-cn/MiniMax-M3.1-Flash-Preview'&&this.thinking==='medium'; this.log.write('spawning ' + launcher + ' ' + args.join(' ') + (this.first_step_thinking ? ' (COC_FIRST_STEP_THINKING=1)' : '')); let env: any = this.first_step_thinking || this.expected_engine || testThinking || miniMaxTest ? { ...process.env } : undefined; if (testThinking) {
+    } const miniMaxTest=model==='minimax-cn/MiniMax-M3.1-Flash-Preview'&&this.thinking==='medium'; this.log.write('spawning ' + launcher + ' ' + args.join(' ') + (this.first_step_thinking ? ' (COC_FIRST_STEP_THINKING=1)' : '')); // Owner 2026-10-27 ("测试必须带上所有插件"): a live table loads the owner's PipiCOC plugins -- their settings and vault
+    // secrets -- as the App does, and refuses to start without them. PI_COC_PIPICOC_PROFILE=0 is for offline driver tests only.
+    const profile = launcher === resolve(DEFAULT_LAUNCHER) && process.env.PI_COC_PIPICOC_PROFILE !== '0' ? await livePluginProfile() : null;
+    if (profile) { for (const mount of profile.extraMounts) args.push('-e', mount); this.plugins = profile.plugins; this.log.write('pipicoc plugins: ' + profile.plugins.map(plugin => plugin.id + (plugin.secrets.length ? '+secret' : '') + (plugin.mount === 'profile' ? '@profile' : '')).join(', ')); }
+    let env: any = profile || this.first_step_thinking || this.expected_engine || testThinking || miniMaxTest ? { ...process.env, ...(profile?.env ?? {}) } : undefined; if (testThinking) {
         env.PI_COC_TEST_MODEL = model;
         env.PI_COC_KEEPER_CALL_CAP_FLOOR_MS ??= '60000';
         for (const name of TEST_LANE_MODEL_ENVS) {
@@ -256,7 +269,7 @@ export class Daemon {
             : await this._set_model(model);
         if (!confirmation?.success)
             throw new DriverError('set_model(' + model + ') failed: ' + JSON.stringify(confirmation));
-    } write_json(this.daemon_json_path, { ...base, engine_expected: this.expected_engine, engine_actual: engine, model_confirmed: confirmation?.data ?? null, status: 'ready' }); this._write_heartbeat('ready'); this.log.write('daemon ready'); }
+    } write_json(this.daemon_json_path, { ...base, engine_expected: this.expected_engine, engine_actual: engine, model_confirmed: confirmation?.data ?? null, ...(this.plugins ? { plugins: this.plugins.map(({id, secrets, settings, mount}) => ({id, mount, settings, secrets})) } : {}), status: 'ready' }); this._write_heartbeat('ready'); this.log.write('daemon ready'); }
     async _set_model(model: string) { if (!model.includes('/'))
         throw new DriverError("--model must be 'provider/modelId', got " + model); const i = model.indexOf('/'); return this.pi.call({ type: 'set_model', provider: model.slice(0, i), modelId: model.slice(i + 1) }, ACK_TIMEOUT); }
     _write_heartbeat(status: string) { write_json(this.heartbeat_path, { at: now_iso(), status, daemon_pid: process.pid, pi_pid: this.pi?.proc?.pid ?? null, pi_alive: this.pi ? this.pi.alive() : false, turn_count: this.turn_count, turn_in_progress: this.turn_in_progress }); }
