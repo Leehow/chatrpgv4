@@ -238,7 +238,7 @@ export class Daemon {
         args.push('--provider', model.slice(0, i), '--model', model.slice(i + 1));
     } const miniMaxTest=model==='minimax-cn/MiniMax-M3.1-Flash-Preview'&&this.thinking==='medium'; this.log.write('spawning ' + launcher + ' ' + args.join(' ') + (this.first_step_thinking ? ' (COC_FIRST_STEP_THINKING=1)' : '')); // Owner 2026-10-27 ("测试必须带上所有插件"): a live table loads the owner's PipiCOC plugins -- their settings and vault
     // secrets -- as the App does, and refuses to start without them. PI_COC_PIPICOC_PROFILE=0 is for offline driver tests only.
-    const profile = launcher === resolve(DEFAULT_LAUNCHER) && process.env.PI_COC_PIPICOC_PROFILE !== '0' ? await livePluginProfile() : null;
+    const profile = [resolve(DEFAULT_LAUNCHER), resolve(REPO_ROOT, 'bin/pi-coc-setup')].includes(launcher) && process.env.PI_COC_PIPICOC_PROFILE !== '0' ? await livePluginProfile() : null;
     if (profile) { for (const mount of profile.extraMounts) args.push('-e', mount); this.plugins = profile.plugins; this.log.write('pipicoc plugins: ' + profile.plugins.map(plugin => plugin.id + (plugin.secrets.length ? '+secret' : '') + (plugin.mount === 'profile' ? '@profile' : '')).join(', ')); }
     let env: any = profile || this.first_step_thinking || this.expected_engine || testThinking || miniMaxTest ? { ...process.env, ...(profile?.env ?? {}) } : undefined; if (testThinking) {
         env.PI_COC_TEST_MODEL = model;
