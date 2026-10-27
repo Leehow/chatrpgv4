@@ -181,6 +181,16 @@ test('a seated book person\'s released look stays theirs every turn, by the spel
  assert.deepEqual(content.bookAppearance(['Russ']),['Russ is tall and thin, twenty-three.'],'and again the next turn');
 });
 
+// 1026j An Amaranthine Desire T9: Leavitt walked on in the packet itself, so the start-of-turn catalog had no look for him. The
+// author's people are asked for by their own spellings, which find the approved appearance with no one present at the start.
+test('a person who walks on this turn is found their approved look by their own spellings',()=>{
+ const rows=[{page:11,kind:'appearance',entity:'William Leavitt',forms:['williamleavitt','leavitt'],text:'A plump, clean-shaven merchant in a plumed hat.'},
+  {page:11,kind:'description',entity:'Leavitt house',forms:['leavitthouse'],text:'Three storeys.'}];
+ assert.deepEqual(api.passagesInScope(rows,{present:[]}).length,0,'nobody present at the start of the turn');
+ const own=api.passagesInScope(rows,{present:[{name:'William Leavitt',aliases:['William Leavitt','npc_9','the merchant by the pillar']}]});
+ assert.deepEqual(own.map(row=>row.text),['A plump, clean-shaven merchant in a plumed hat.']);
+});
+
 test('§263.5: a scene the table names more fully still finds the book\'s place by spelling',()=>{
  const rows=[{page:28,kind:'description',entity:'Last Stop',forms:['laststop'],text:'A jukebox and license plates.'}];
  assert.equal(api.passagesInScope(rows,{where:{display_name:'Last Stop Diner'}}).length,1);

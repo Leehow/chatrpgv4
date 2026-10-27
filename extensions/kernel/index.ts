@@ -6140,7 +6140,19 @@ export default function (pi: ExtensionAPI, host: {capabilities?:RuntimeCapabilit
             await record({lane:'first-sight',event:'render_scope',turn:state.turn,scene:current.where?.scene,
                 items:[...(sight.place?[sight.place.id]:[]),...(sight.people??[]).map((row:Record<string,any>)=>row.id)]});
 			const where=current.where??{};
-			for(const person of people){const look=materialOwner.bookAppearance(lookNames.get(String(person.ref))??[]);if(look.length)person.book_appearance=look;}
+			// 1026j An Amaranthine Desire T9: Leavitt walked on in this packet, so the start-of-turn catalog never held his approved
+			// look, the author wrote him thin and wild-haired, and that first sight stood from then on. Someone the author is given
+			// who has no look in the catalog gets their approved appearance asked for by name now.
+			for(const person of people){
+				const names=lookNames.get(String(person.ref))??[];
+				let look=materialOwner.bookAppearance(names);
+				if(!look.length&&process.env.PI_COC_LEAN_READING==='1'){
+					const spelled=names.filter((name):name is string=>typeof name==='string'&&!!name.trim());
+					const own=(reading?.bookPassages?.(readingModule,{present:[{name:spelled[0],aliases:spelled}]})??[]).filter(row=>row.kind==='appearance'&&typeof row.text==='string');
+					look=[...new Set(own.map(row=>String(row.text)))].slice(0,2).map(text=>text.slice(0,600));
+				}
+				if(look.length)person.book_appearance=look;
+			}
 			decision={scene:decisionScene(sightView),clock:decisionClock(where.clock??{}),...decisionResponseScope(before,current,hydrated.responses),people,selected_materials:hydrated.materials,style:current.style,
 				recent_public:decisionRecentPublic(current.recent,state.delivered)};
             // §254.3: what an establishing reply owes is delivery contract; how to write it is the package's author section.

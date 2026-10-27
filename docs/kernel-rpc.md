@@ -53707,3 +53707,9 @@ already at the table when the Keeper walked them into the nave with `book`, and 
 slot's mark, so both were refused as "a newcomer slot cannot select an existing person" before an issued reference landed them.
 Naming the book person says who this is: someone the table already has walks on as their arrival (§198.1), an unread one is
 seated from the book as before. Case: `tests/extension/module-cast.test.mjs` "a book person already at the table walks on again".
+
+A person who walks on in this turn's packet is given their approved look too (1026j). Live 1026j, 不息的渴望 T9: Leavitt was seated
+by the output packet itself, so the start-of-turn catalog (scoped to who was present) held no look for him; the author wrote him
+thin and wild-haired, and that first sight stood for the rest of the game. When an author person has no look from the catalog,
+the host now asks the reading service for that person's approved appearance by their own spellings. Case:
+`tests/extension/pointer-reading.test.mjs` "a person who walks on this turn is found their approved look".
