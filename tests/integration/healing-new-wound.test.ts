@@ -10,8 +10,3 @@ const first=ok(await aid(k,'t1-c2'));assert.equal(first.decision,'healing:first-
 const again=ok(await aid(k,'t1-c3'));assert.ok(!rolled(again),'the same wound is not treated twice');
 ok(await apply(k,'t1-c4',{kind:'damage',dice:'1D3',why:'a second fall'}));
 const fresh=ok(await aid(k,'t1-c5'));assert.ok(rolled(fresh),'the new wound gets its own First Aid');});
-// 1026k An Amaranthine Desire T13: First Aid under a named ordinary check passed and healed nothing.
-test('First Aid sent as the ordinary check is treated as First Aid',async t=>{const k=await derivedTable(t,1,{});
-ok(await apply(k,'t1-c1',{kind:'damage',dice:'1D3',why:'a splinter'}));
-const named=ok(await k.call('table.resolve',{campaign:'c1',call_id:'t1-c2',action:{intent:'investigate',decision:'core-check:ordinary-check',skill:'First Aid',goal:'bind the wound',method:'tears a sleeve and binds it'}}));
-assert.equal(named.decision,'healing:first-aid-ordinary',JSON.stringify(named.decision));});

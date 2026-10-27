@@ -53742,10 +53742,3 @@ Live 1026k, 不息的渴望 T13: the player sent the hunters off with Sarah and 
 along as standing company (§267.5), and the Keeper wrote four `apply npc` effects to send them back. A place move now takes
 `leave`: company named there stay where they are for this move and stop going along. Case:
 `tests/integration/enhanced-locations.test.ts` "company left behind on a move".
-
-### First Aid under a named ordinary check is First Aid (1026k)
-
-Live 1026k, 不息的渴望 T13: the Keeper resolved the investigator binding his own wound as `decision: core-check:ordinary-check`
-with skill First Aid; it passed with no effects, so no hit point came back. Without a named decision a treatment skill already
-routes to the healing decisions; a named ordinary check with First Aid or Medicine now routes the same way, with an `adjusted`
-row `treatment_skill_heals`. Case: `tests/integration/healing-new-wound.test.ts` "First Aid sent as the ordinary check".

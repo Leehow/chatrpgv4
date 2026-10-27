@@ -360,20 +360,6 @@ export class ResolvePipeline {
             return [LUCK];
         if (action.decision != null) {
             const ref = fullDecisionRef(string(action.decision));
-            // 1026k An Amaranthine Desire T13: the Keeper named the ordinary check for First Aid on the investigator's own
-            // wound; it passed and healed nothing, because a wound is treated by the healing decisions. A treatment skill under
-            // the ordinary check is routed to them, as it is without a named decision, and the result says so.
-            if (ref === ORDINARY && truth(action.skill) && !truth(action.obligation) && !truth(action.rule)) {
-                let named: string[] = [];
-                try { named = this.skillMatches(); } catch { named = []; }
-                const treatment = named.find(skill => ['First Aid', 'Medicine'].includes(skill));
-                const healing = treatment ? [...this.context.observations.nodes.values()].filter(node => node.node_kind === 'decision' && row(node.properties).family_id === 'healing'
-                    && string(node.node_id).includes(treatment === 'First Aid' ? 'first-aid' : 'medicine')).map(node => string(node.node_id)) : [];
-                if (healing.length) {
-                    this.adjusted.push({field: 'decision', reason: 'treatment_skill_heals', ignored: string(action.decision)});
-                    return healing;
-                }
-            }
             if (this.context.observations.nodes.get(ref)?.node_kind === 'decision')
                 return [ref];
             // §264.33: a decision the rulebook does not have is set aside and the action routes by its intent and skill, as it
