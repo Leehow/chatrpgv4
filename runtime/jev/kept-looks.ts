@@ -162,7 +162,24 @@ export async function decideLooks(input: {campaign: string; turn: number; prose:
   try {
     const raw = await port.decide(batch, lease);
     if (signal.aborted) return {ok: false, reason: 'cancelled', detail: 'cancelled', ms: Date.now() - began, model: JEV_MODEL};
-    if (lease.signal.aborted || raw.status !== 'complete') return {ok: false, reason: 'model_unavailable', detail: `decision ${raw.status}`, ms: Date.now() - began, model: JEV_MODEL};
+    // 1026n: a long reply with five people in it packed past the request limit (packing_limit, 1 ms) on ten turns, and no look
+    // was kept. The reply is split by its sentences and each half asked on its own; what both keep is merged.
+    if (raw.status !== 'complete' && raw.failure?.code === 'packing_limit' && units.length > 1 && !lease.signal.aborted) {
+      lease.close();
+      const mid = Math.ceil(units.length / 2), halves = [units.slice(0, mid), units.slice(mid)];
+      const parts = [];
+      for (const half of halves) parts.push(await decideLooks({...input, prose: half.join('')}, port, signal));
+      const failed = parts.find(part => !part.ok);
+      if (failed) return failed;
+      const merged = new Map<string, LookAnswer>();
+      for (const part of parts) if (part.ok) for (const item of part.items) {
+        const kept = merged.get(item.id);
+        merged.set(item.id, kept ? {...kept, excerpts: [...new Set([...kept.excerpts, ...item.excerpts])].slice(0, LOOK_EXCERPTS[item.kind] ?? kept.excerpts.length), ...(kept.pronoun ?? item.pronoun ? {pronoun: kept.pronoun ?? item.pronoun} : {})} : item);
+      }
+      return {ok: true, items: [...merged.values()], ms: Date.now() - began, model: JEV_MODEL, units: units.length,
+        blockers: parts.reduce((sum, part) => sum + (part.ok ? part.blockers ?? 0 : 0), 0)};
+    }
+    if (lease.signal.aborted || raw.status !== 'complete') return {ok: false, reason: 'model_unavailable', detail: `decision ${raw.status}${raw.failure?.code ? `: ${raw.failure.code}` : ''}`, ms: Date.now() - began, model: JEV_MODEL};
     let blockers = 0;
     const sure = (key: string): string | undefined => {
       const answer = raw.answers[key];
