@@ -53742,3 +53742,10 @@ Live 1026k, 不息的渴望 T13: the player sent the hunters off with Sarah and 
 along as standing company (§267.5), and the Keeper wrote four `apply npc` effects to send them back. A place move now takes
 `leave`: company named there stay where they are for this move and stop going along. Case:
 `tests/integration/enhanced-locations.test.ts` "company left behind on a move".
+
+### A social action with a skill that is no social approach rolls that skill (1026l)
+
+Live 1026l, 归于尘埃 T2/T3: the book has the police questioned with Law (p.4); `intent: social, skill: Law` was refused as "the
+social approach is not clear from method" twice and re-sent as Persuade. A social action whose named skill is none of Charm,
+Fast Talk, Intimidate, Persuade or Psychology now routes to the ordinary check of that skill. Case:
+`tests/integration/social-named-skill.test.ts`.

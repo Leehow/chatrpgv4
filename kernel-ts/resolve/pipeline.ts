@@ -398,8 +398,11 @@ export class ResolvePipeline {
             return [];
         // §134.17: a social attempt that is an obligation's attempt rolls the book's check, as a claim binds it; the
         // social adjudication would compute a difficulty the book already states.
+        // 1026l Dust to Dust T2/T3: the book has the police questioned with Law; intent social with skill Law was refused for
+        // naming none of the four approaches, twice. A named skill that is no social approach is rolled as itself.
+        const otherSkill = truth(action.skill) && matches.length > 0 && !matches.some(skill => Object.hasOwn(APPROACH_BY_SKILL, skill) || skill === 'Psychology');
         if (this.intent === 'social')
-            return this.withSanityOffer(!npc || this.fold ? [ORDINARY] : matches.includes('Psychology') ? [SOCIAL, OBSERVE] : [SOCIAL]);
+            return this.withSanityOffer(!npc || this.fold || otherSkill ? [ORDINARY] : matches.includes('Psychology') ? [SOCIAL, OBSERVE] : [SOCIAL]);
         const healing = matches.find(skill => ['First Aid', 'Medicine'].includes(skill));
         if (healing)
             return [...this.context.observations.nodes.values()].filter(node => node.node_kind === 'decision' && row(node.properties).family_id === 'healing' && string(node.node_id).includes(healing === 'First Aid' ? 'first-aid' : 'medicine')).map(node => string(node.node_id));
