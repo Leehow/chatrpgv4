@@ -230,16 +230,18 @@ export class Daemon {
         throw error;
     } }
     async _start_pi(launcher_arg: string | null, campaign: string, model: string | null) { checkTestWorkspaceBudget(coc_home(), this.dir); const launcher = resolve_launcher(launcher_arg); this.setup_transport = this.setup || launcher === resolve(REPO_ROOT, 'bin/pi-coc-setup'); if (!existsSync(launcher))
-        throw new DriverError('launcher not found: ' + launcher + ' (pass --launcher, set PI_COC_LAUNCHER, or wait for bin/pi-coc to exist)'); const entry = join(REPO_ROOT, 'build/kernel/rpc.mjs'); if (launcher === resolve(DEFAULT_LAUNCHER) && !existsSync(join(REPO_ROOT, 'deployment.json')) && existsSync(entry) && !process.env.PI_COC_KERNEL_CMD)
+        throw new DriverError('launcher not found: ' + launcher + ' (pass --launcher, set PI_COC_LAUNCHER, or wait for bin/pi-coc to exist)'); // Owner 2026-10-27 ("测试必须带上所有插件"): a live table loads the owner's PipiCOC plugins -- their settings and vault
+    // secrets -- as the App does, and refuses to start without them; an unstated thinking level is the one PipiCOC runs at
+    // ("要", 2026-10-27). PI_COC_PIPICOC_PROFILE=0 is for offline driver tests only.
+    const profile = [resolve(DEFAULT_LAUNCHER), resolve(REPO_ROOT, 'bin/pi-coc-setup')].includes(launcher) && process.env.PI_COC_PIPICOC_PROFILE !== '0' ? await livePluginProfile() : null;
+    if (profile?.thinking && !this.thinking) this.thinking = profile.thinking;
+        const entry = join(REPO_ROOT, 'build/kernel/rpc.mjs'); if (launcher === resolve(DEFAULT_LAUNCHER) && !existsSync(join(REPO_ROOT, 'deployment.json')) && existsSync(entry) && !process.env.PI_COC_KERNEL_CMD)
         this.player_view_command = [process.env.PI_COC_NODE_EXECUTABLE || process.execPath, entry, '--workspace', coc_home(), '--content', resolve(process.env.PI_COC_CONTENT_ROOT || join(REPO_ROOT, 'content'))]; const testThinking=model==='grok-build/grok-4.5'?'high':model==='codex-relay/gpt-6-luna'?'high':model===DEFAULT_MODEL?this.thinking||DEFAULT_THINKING:null; const args = ['--campaign', campaign, '--mode', 'rpc', '--no-session', '--thinking', testThinking||this.thinking || DEFAULT_THINKING]; if (model) {
         if (!model.includes('/'))
             throw new DriverError("--model must be 'provider/modelId', got " + model);
         const i = model.indexOf('/');
         args.push('--provider', model.slice(0, i), '--model', model.slice(i + 1));
-    } const miniMaxTest=model==='minimax-cn/MiniMax-M3.1-Flash-Preview'&&this.thinking==='medium'; this.log.write('spawning ' + launcher + ' ' + args.join(' ') + (this.first_step_thinking ? ' (COC_FIRST_STEP_THINKING=1)' : '')); // Owner 2026-10-27 ("测试必须带上所有插件"): a live table loads the owner's PipiCOC plugins -- their settings and vault
-    // secrets -- as the App does, and refuses to start without them. PI_COC_PIPICOC_PROFILE=0 is for offline driver tests only.
-    const profile = [resolve(DEFAULT_LAUNCHER), resolve(REPO_ROOT, 'bin/pi-coc-setup')].includes(launcher) && process.env.PI_COC_PIPICOC_PROFILE !== '0' ? await livePluginProfile() : null;
-    if (profile) { for (const mount of profile.extraMounts) args.push('-e', mount); this.plugins = profile.plugins; this.log.write('pipicoc plugins: ' + profile.plugins.map(plugin => plugin.id + (plugin.secrets.length ? '+secret' : '') + (plugin.mount === 'profile' ? '@profile' : '')).join(', ')); }
+    } const miniMaxTest=model==='minimax-cn/MiniMax-M3.1-Flash-Preview'&&this.thinking==='medium'; this.log.write('spawning ' + launcher + ' ' + args.join(' ') + (this.first_step_thinking ? ' (COC_FIRST_STEP_THINKING=1)' : '')); if (profile) { for (const mount of profile.extraMounts) args.push('-e', mount); this.plugins = profile.plugins; this.log.write('pipicoc plugins: ' + profile.plugins.map(plugin => plugin.id + (plugin.secrets.length ? '+secret' : '') + (plugin.mount === 'profile' ? '@profile' : '')).join(', ')); }
     let env: any = profile || this.first_step_thinking || this.expected_engine || testThinking || miniMaxTest ? { ...process.env, ...(profile?.env ?? {}) } : undefined; if (testThinking) {
         env.PI_COC_TEST_MODEL = model;
         env.PI_COC_KEEPER_CALL_CAP_FLOOR_MS ??= '60000';
@@ -759,7 +761,7 @@ catch (e) {
         console.log(`  daemon.json status=${info.status} daemon_pid=${info.daemon_pid} pi_pid=${info.pi_pid}`);
     return 1;
 } }
-export function build_parser() { return { parse_args(argv: string[]) { const a: Row = { subcommand: argv[0], run: null, campaign: null, launcher: null, model: argv[0] === 'start' ? DEFAULT_MODEL : null, thinking: argv[0] === 'start' ? DEFAULT_THINKING : null, timeout: 300, tail: 60, first_step_thinking: false, no_default_run: false, pregen: null, module: 'the-haunting', play_language: 'zh', env: [] }; for (let i = 1; i < argv.length; i++) {
+export function build_parser() { return { parse_args(argv: string[]) { const a: Row = { subcommand: argv[0], run: null, campaign: null, launcher: null, model: argv[0] === 'start' ? DEFAULT_MODEL : null, thinking: null, timeout: 300, tail: 60, first_step_thinking: false, no_default_run: false, pregen: null, module: 'the-haunting', play_language: 'zh', env: [] }; for (let i = 1; i < argv.length; i++) {
         const key = argv[i];
         if (['--first-step-thinking', '--no-default-run', '--setup'].includes(key))
             a[key.slice(2).replaceAll('-', '_')] = true;

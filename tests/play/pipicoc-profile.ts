@@ -20,7 +20,7 @@ const NOT_SESSION_PLUGINS = new Set(['coc-keeper', 'remote-control']);
 const REQUIRED_SECRETS: Readonly<Record<string, readonly string[]>> = {jev: ['ext.jev.apiKey']};
 
 export interface ProfilePlugin {id: string; enabled: boolean; settings: string[]; secrets: string[]; mount: 'build' | 'profile'}
-export interface ProfileEnv {env: Record<string, string>; plugins: ProfilePlugin[]; profile: string; extraMounts: string[]}
+export interface ProfileEnv {env: Record<string, string>; plugins: ProfilePlugin[]; profile: string; extraMounts: string[]; thinking: string | null; model: string | null}
 
 const readJson = (path: string): Row => JSON.parse(readFileSync(path, 'utf8'));
 const settingsEnvName = (id: string) => `PIPIUI_EXT_SETTINGS_${id.replace(/[^a-zA-Z0-9]+/g, '_').replace(/^_+|_+$/g, '').toUpperCase() || 'EXT'}`;
@@ -45,7 +45,10 @@ function vaultSecrets(profile: string): Map<string, string> {
 /** `mounted`: the plugin ids the launcher mounts from this repo's build (build/extensions/<id>). */
 export function pipicocProfileEnv(mounted: ReadonlySet<string>, profile = process.env.PI_COC_PROFILE_DIR || DEFAULT_PROFILE): ProfileEnv {
     if (!existsSync(join(profile, 'pipiui-settings.json'))) throw new Error(`PipiCOC profile not found at ${profile}; live tables load the owner's plugins from it (set PI_COC_PROFILE_DIR)`);
-    const stored = readJson(join(profile, 'pipiui-settings.json')).extensions ?? {}, vault = vaultSecrets(profile);
+    const all = readJson(join(profile, 'pipiui-settings.json')), stored = all.extensions ?? {}, vault = vaultSecrets(profile);
+    // The session's own model and thinking level, and the product pack's lane and author settings, as the App spawns them.
+    const selection = all.manualModelSelection, model = selection?.provider && selection?.modelId ? `${selection.provider}/${selection.modelId}` : null;
+    const thinking = typeof all.manualThinkingLevel === 'string' ? all.manualThinkingLevel : null;
     const env: Record<string, string> = {}, plugins: ProfilePlugin[] = [], problems: string[] = [], extraMounts: string[] = [];
     const dirs = existsSync(join(profile, 'extensions')) ? readdirSync(join(profile, 'extensions')) : [];
     for (const id of dirs.sort()) {
@@ -73,5 +76,6 @@ export function pipicocProfileEnv(mounted: ReadonlySet<string>, profile = proces
     if (!plugins.some(plugin => plugin.id === 'jev')) problems.push('jev is not enabled in PipiCOC; live tables run with Jev');
     if (problems.length) throw new Error(`PipiCOC plugins are not all loaded: ${problems.join('; ')}`);
     if (plugins.length) env.PIPIUI_MOUNTED_EXTENSIONS = plugins.map(plugin => plugin.id).join(',');
-    return {env, plugins, profile, extraMounts};
+    if (stored['coc-keeper']?.settings) env[settingsEnvName('coc-keeper')] = JSON.stringify(stored['coc-keeper'].settings);
+    return {env, plugins, profile, extraMounts, thinking, model};
 }
