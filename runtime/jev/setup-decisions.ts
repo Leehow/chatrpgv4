@@ -274,7 +274,7 @@ export function interpretRoute(read: SetupRead, result: DecisionResult, budget: 
  * written in the play language. The closed keys (occupation, the skill lists, era, aptitude, numbers, limits) are
  * the clerk's or the kernel's.
  */
-export const OPEN_PROFILE_KEYS = Object.freeze(['name', 'occupation_stated', 'age', 'sex', 'concept', 'own_language', 'backstory', 'key_connection', 'equipment', 'weapons', 'custom_skills'] as const);
+export const OPEN_PROFILE_KEYS = Object.freeze(['name', 'occupation_stated', 'age', 'sex', 'concept', 'own_language', 'other_languages', 'backstory', 'key_connection', 'equipment', 'weapons', 'custom_skills'] as const);
 export type OpenProfileKey = typeof OPEN_PROFILE_KEYS[number];
 /** The open words the kernel's `setup.draft` needs before a first card exists (kernel-ts/setup/drafts.ts resolveProfile). */
 export const FIRST_CARD_OPEN_KEYS = Object.freeze(['name', 'sex', 'concept', 'own_language', 'backstory', 'key_connection', 'equipment'] as const);
@@ -286,6 +286,9 @@ export const STATED_FIELDS: Readonly<Record<string, {asks: string; keys: readonl
   sex: {asks: 'the investigator\'s sex or gender', keys: ['sex']},
   concept: {asks: 'who the investigator is beyond the trade (personality, situation, a reason to be here)', keys: ['concept']},
   own_language: {asks: 'the investigator\'s native language', keys: ['own_language']},
+  // 1026n: "母语中文，会英语" bound Language (Own) only, on all three tables; the generic Language (Other) skill names no
+  // language, so the clerk could not say which. A second language the player states is an open key the bind step names.
+  other_languages: {asks: 'a language other than the native one that the investigator speaks or reads', keys: ['other_languages']},
   backstory: {asks: 'the investigator\'s background (people, places, beliefs, treasured things, looks or history)', keys: ['backstory', 'key_connection']},
   equipment: {asks: 'gear, a vehicle, weapons or other things the investigator carries or owns', keys: ['equipment', 'weapons']},
 });

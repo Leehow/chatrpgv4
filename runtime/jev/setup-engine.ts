@@ -31,6 +31,7 @@ import {SETUP_FIELDS_FAMILY, SETUP_INTEREST_FAMILY, SETUP_POLICY, SETUP_ROUTE_FA
 
 type Row = Record<string, any>;
 const object = (value: unknown): Row => value && typeof value === 'object' && !Array.isArray(value) ? value as Row : {};
+const array = (value: unknown): unknown[] => Array.isArray(value) ? value : [];
 
 /** What the onboarding extension puts on the bus (`coc:setup-executor`, contract §151.6 decision 2). */
 export interface SetupExecutorPort {
@@ -415,6 +416,17 @@ export function createSetupEngine(options: SetupEngineOptions): {runDriver: Sess
       catch (error) { return refuse('stale_selection', `occupation_stated could not be copied from the input: ${String((error as Error)?.message ?? error)}`, {refused: ['occupation_stated']}); }
       run.bound.push({field: 'occupation_stated', path: 'stated', value: words.occupation_stated});
     }
+    // The languages the player said the investigator speaks besides their own ride on the card as Language (Other: X)
+    // skills at the front of the interest list; the kernel spends the points.
+    if (Object.hasOwn(words, 'other_languages')) {
+      const languages = Array.isArray(words.other_languages) ? words.other_languages.filter((value: unknown): value is string => typeof value === 'string' && !!value.trim()).map(value => value.trim()) : [];
+      if (!languages.length) return refuse('not_languages', 'other_languages is a list of language names in the rules\' spelling (English, French).', {refused: ['other_languages']});
+      delete words.other_languages;
+      const skills = languages.map(language => `Language (Other: ${language})`), closed = object(bind.closed);
+      const listed = new Set([...array(closed.occupation_skills), ...array(closed.interest_skills)].map(String));
+      words.interest_skills = [...skills.filter(skill => !listed.has(skill)), ...array(closed.interest_skills).map(String)];
+      run.bound.push({field: 'other_languages', path: 'stated', value: skills});
+    }
     if (words.name && typeof words.name === 'object' && !Object.hasOwn(words.name, 'generated')) run.bound.push({field: 'name', path: 'stated'});
     run.written.push(...given.filter(key => key !== 'occupation_stated' && !(key === 'name' && !Object.hasOwn(object(words.name), 'generated'))));
     const step = bind.first ? bind.draftStep ?? 'create-investigator' : 'revise';
@@ -505,7 +517,7 @@ export function createSetupEngine(options: SetupEngineOptions): {runDriver: Sess
       name: SETUP_CARD_TOOL,
       label: 'Setup card',
       description: 'Write the open words of the investigator card in this setup step: only the profile keys the step lists as open (name, occupation_stated, age, sex, '
-        + 'concept, own_language, backstory, key_connection, equipment, weapons, custom_skills). The clerk has already bound the closed fields (trade, skills, era, aptitude) '
+        + 'concept, own_language, other_languages (a list of language names in English, e.g. ["English"]), backstory, key_connection, equipment, weapons, custom_skills). The clerk has already bound the closed fields (trade, skills, era, aptitude) '
         + 'and the kernel does every number; any other key is refused and nothing is executed. name and occupation_stated select issued input aliases '
         + '({source, range?}); name may instead propose {generated}.',
       promptSnippet: 'Write the open words of the investigator card when a setup step asks for them.',

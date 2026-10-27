@@ -732,3 +732,23 @@ test("§151.6: a first card's fields are read from every message of this setup; 
 	const source = readFileSync(join(import.meta.dirname, "..", "..", "extensions", "onboarding", "index.ts"), "utf8");
 	assert.ok(source.includes("...(!card && earlierInputs.length ? {earlier: earlierInputs.slice(-6)} : {})"), "the setup read hands the earlier messages only before the card");
 });
+
+// 1026n: "母语中文，会英语" bound Language (Own) only on all three tables; the second language is an open key now.
+test("a second language the player states is written as a Language (Other) skill on the interest list", async (t) => {
+	const run = await drivenSetup({ decide: cardFieldsJev(FIRST_FIELDS), responses: [bindCall, fauxAssistantMessage("卡好了。")] });
+	t.after(() => run.table.dispose());
+	await run.table.session.prompt(FIRST_INPUT);
+	await waitForIdle(run.table.session);
+	run.decide(cardFieldsJev({ stated_other_languages: 0.94 }));
+	run.respond([
+		fauxAssistantMessage([fauxToolCall(SETUP_CARD_TOOL, { profile: { other_languages: ["English"] } })], { stopReason: "toolUse" }),
+		fauxAssistantMessage("英语加上了。"),
+	]);
+	await run.table.session.prompt("他还会英语。");
+	await waitForIdle(run.table.session);
+	const revise = kernel(run.table, "setup.revise").at(-1);
+	assert.ok(revise, "the card was revised");
+	const profile = revise.params?.profile ?? revise.profile;
+	assert.deepEqual(profile?.interest_skills?.[0], "Language (Other: English)", JSON.stringify(revise));
+	assert.equal(profile.other_languages, undefined, "the open key is not a card field");
+});
