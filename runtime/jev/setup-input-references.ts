@@ -118,7 +118,7 @@ async function selected(snapshot:SetupInputSnapshot,given:unknown,scope:ScopeBin
     let selection:Record<string,any>=given;
     const field=snapshot.fields.find(field=>field.alias===selection.source);if(!field) fail('unknown_or_stale_setup_input_source');
     let start=0,end=field.text.length;
-    // 1028a Blood Road setup T2: the Keeper counted grapheme units and selected "调查" for the name "林远"; the card was
+    // 1028a Blood Road setup T2: the Keeper counted grapheme units and selected the first two characters of the sentence instead of the name; the card was
     // revised on the confirming turn and the confirmation was refused. Finding where quoted words sit in the player's own
     // sentence is the host's job: `text` names them, the host locates them, and words not in that sentence are refused.
     if(selection.text!==undefined) {
