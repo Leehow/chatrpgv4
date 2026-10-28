@@ -410,8 +410,14 @@ export function executorArgs(context: SettleContext, plan: Row, selected: Row): 
                     type: string(supporting.type || 'supporting_action')
                 }];
         }
+        else if (typeof binding.eased_by === 'string')
+            output.leverage = [{leverage_id: 'keeper:eased_by', source_ref: 'keeper:eased_by', independence_group: 'keeper',
+                credibility: 'stated', relevance: 'direct', reason: binding.eased_by, type: 'keeper_reason'}];
         else
             output.leverage = [];
+        // §259.4: the attitude toward the investigator, as the requests table moves the difficulty.
+        if (Number.isInteger(binding.attitude_shift))
+            Object.assign(output, {attitude: binding.attitude ?? null, attitude_shift: binding.attitude_shift});
     }
     else if (['psychology_check_contract', 'psychology_policy'].includes(capability)) {
         const binding = row(selected._host_psychology_binding);

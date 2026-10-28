@@ -1,4 +1,6 @@
 /** Static read RPC group. Turn transitions remain the transaction slice's responsibility. */
+import { stanceTable } from "../write/contributions.js";
+import { requestsTable } from "../npc/asks.js";
 import { join } from "node:path";
 import type { KernelContext } from "../context.js";
 import type { HandlerGroup, KernelResult } from "../handlers.js";
@@ -231,7 +233,7 @@ async function requireNoTransition(campaign: CampaignSnapshot, contributions: Re
 async function present(campaign: CampaignSnapshot, module: LoadedModule): Promise<Row[]> {
     const { graph } = module,
         scene = graph.scene(campaign.world.active_scene);
-    return presentSection(graph, campaign.world, scene, row(campaign.jsonFiles.get("npc-ledger.json")), campaign.logs.get("memory/candidates.jsonl") ?? [], () => [], { campaign:campaign.id, currentReceipts:array(campaign.turn.receipts), journal: row(campaign.jsonFiles.get("npc-journal.json")), records: await campaign.files("turns"), scope:{worldline:campaign.meta.active_worldline??'main',loop:number(row(row(campaign.meta.worldlines)[string(campaign.meta.active_worldline||'main')]).loop)}, chain: campaign.chainReads() });
+    return presentSection(graph, campaign.world, scene, row(campaign.jsonFiles.get("npc-ledger.json")), campaign.logs.get("memory/candidates.jsonl") ?? [], () => [], { campaign:campaign.id, currentReceipts:array(campaign.turn.receipts), journal: row(campaign.jsonFiles.get("npc-journal.json")), records: await campaign.files("turns"), scope:{worldline:campaign.meta.active_worldline??'main',loop:number(row(row(campaign.meta.worldlines)[string(campaign.meta.active_worldline||'main')]).loop),requests:await requestsTable(campaign.context),attitude:await stanceTable(campaign.context)}, chain: campaign.chainReads() });
 }
 /**
  * The being `look focus=npc name=` reads (§180.4): a person by the book's names, then this table's word (`npcNode`);

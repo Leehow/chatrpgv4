@@ -1,4 +1,6 @@
 /** The one table.resolve handler, composed with the owner's existing writer. */
+import { stanceTable } from '../write/contributions.js';
+import { attitudeNow, bindAsk, requestsTable } from '../npc/asks.js';
 import type { KernelContext } from '../context.js';
 import type { HandlerGroup } from '../handlers.js';
 import { RpcError } from '../errors.js';
@@ -250,6 +252,13 @@ export function createResolveRuntime(kernel: KernelContext, writer: ResolveWrite
             // Contract §87.8: a person seat the table's own word fills is read as that person before anything reads it.
             if (!NONE_INTENTS.has(intent))
                 action = readCalledPeople(await transaction.campaign.party() as Row[], graph, transaction.world, action);
+            // §259.4: a request row of the asked person's asks binds the target's tier, skills and difficulty.
+            if (action.ask != null) {
+                const asked = typeof action.target === 'string' ? graph.find(action.target, ['npc']) : null;
+                const ledger = row(await snapshot.optional('npc-ledger.json'));
+                const word = asked ? attitudeNow(graph, ledger, await stanceTable(kernel), transaction.turn, graph.handle(asked)) : null;
+                action = bindAsk(graph, transaction.world, action, word, await requestsTable(kernel));
+            }
             // Contract §134.11: a claimed obligation is validated and bound before anything reads the action;
             // the stored call parameters stay the Keeper's own.
             let claim: ObligationClaim | null = null;

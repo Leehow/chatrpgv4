@@ -219,6 +219,10 @@ export function tagNpcReceipts(context: SettleContext, family: string, npc: Row 
         const named = approach || APPROACH_BY_SKILL[string(receipt.skill || '')];
         if (named && !Object.hasOwn(receipt, 'approach'))
             receipt.approach = named;
+        // §259.4: the request row this roll settles, and the Keeper's reason when it eased the difficulty.
+        const ask = context.action._ask;
+        if (ask && typeof ask === 'object' && against && receipt.npc === against && !Object.hasOwn(receipt, 'ask'))
+            receipt.ask = {...ask, ...(typeof context.action._eased_by === 'string' ? {eased_by: context.action._eased_by} : {})};
     }
 }
 export function markersOf(turn: Row, minted: Row[]): string[] {

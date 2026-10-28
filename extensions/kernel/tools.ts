@@ -837,6 +837,8 @@ const ResolveAction = Type.Object({
 		}, { description: "in a social adjudication, the NPC's leaning towards the player's goal; omitted counts as neutral" }),
 	),
 	support: Type.Optional(Type.String({ description: "the evidence the player puts on the table in a social adjudication: the name of a discovered clue" })),
+	ask: Type.Optional(Type.String({ description: "a request row of the target's present[].asks (ask_N) that the player's words make: the host binds its skills and difficulty. A grant row needs no roll and an impossible one has none; send intent social, target and one of the row's skills" })),
+	eased_by: Type.Optional(Type.String({ maxLength: 200, description: "with ask: one line of what in the player's approach makes this easier (evidence shown, a fair price, a shared friend); lowers the difficulty one step, never to no roll" })),
 	interrupted: Type.Optional(Type.Boolean({ description: "the casting was interrupted" })),
 	rest: Type.Optional(
 		Type.Object({

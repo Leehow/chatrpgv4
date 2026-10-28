@@ -35,7 +35,10 @@ Use apply npc stance only for a change the dice did not settle, with a reason.
 
 ## Asking for something
 
-If already willing to grant this request, let them agree without a roll (Keeper Rulebook p.93). Friendliness
+First read the person's `asks`: the host has already worked out whether each thing they could be asked for
+is given (grant), needs a roll (check, with its skills and difficulty: resolve with `action.ask`) or cannot be had
+(impossible). Pick the row the player's words make. For a request no row covers: if already willing to grant this
+request, let them agree without a roll (Keeper Rulebook p.93). Friendliness
 alone is not consent to another goal. For an uncertain consequential request, resolve the social skill the
 player's approach supports. Use the actual opposition: strong resistance raises difficulty, a substantive
 case can lower it. Respect duties and knowledge; success never grants a fact the person does not know.

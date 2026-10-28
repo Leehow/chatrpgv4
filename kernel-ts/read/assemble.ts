@@ -1,4 +1,6 @@
 /** Assemble the existing capsule from read-only snapshots and validated content. */
+import { stanceTable } from "../write/contributions.js";
+import { ASKS_NOTE, requestsTable } from "../npc/asks.js";
 import { CampaignSnapshot, loadModule, type LoadedModule } from "./campaign.js";
 import {eventOutcome,eventScope,canonicalEvents,actorEventView} from '../turn-events.js';
 import {publicDialogue} from '../../shared/public-dialogue.js';
@@ -97,6 +99,8 @@ export const HEAD = "Everything at the start of this turn: the clock, the undisc
     "do not wait for optional character preparation to answer an ordinary question. " +
     // Contract §161.3: the interface; what to do with it is the prose package's (§161.7).
     "present[].now is the person's recorded mood, interpreted with the current exchange and their own knowledge. " +
+    // §259.4: the requests rows' rule, said once.
+    "present[]." + ASKS_NOTE + " " +
     "A meaningful mood change may be recorded with apply npc mood; ordinary speech requires no mood write first. " +
     "Their relationships retain specific people and evidence; recent_speech is what that person actually said, " +
     "available even before memory extraction finishes. Reports are attributed, not new world truth. " +
@@ -456,6 +460,9 @@ export function fitPresent(rows: Row[], budget: number): boolean {
         older.sort((a, b) => jsonSize(b) - jsonSize(a));
         older[0].pop(); relationshipCut = true;
     }
+    // §259.4: a crowded room keeps its people's dossiers before their request rows (`look focus:npc` still has them).
+    for (let index = rows.length - 1; index >= 0 && jsonSize(rows) > budget; index--)
+        delete rows[index].asks;
     const coverage = (): void => {
         for (const entry of rows) {
             const original = before.get(entry)!;
@@ -664,7 +671,8 @@ export async function buildCapsule(campaign: CampaignSnapshot, module: LoadedMod
     const director = directorSection(dg, ontology, graph, world, scene, sig, memory, present),
         full = options.styleFull ?? true;
     const warningRecord = [...campaign.records].sort((a, b) => number(b.turn) - number(a.turn)).find(record => number(record.turn) < number(turn.turn) && record.closed_by === "narrate");
-    const npcScope={...eventScope(campaign.meta,campaign.id,number(turn.turn)),current_receipts:array(turn.receipts)};
+    // §259.4: the requests table reaches each person's card as `asks`.
+    const npcScope={...eventScope(campaign.meta,campaign.id,number(turn.turn)),current_receipts:array(turn.receipts),requests:await requestsTable(context),attitude:await stanceTable(context)};
     const semanticEvents=canonicalEvents(campaign.records,array(turn.receipts),npcScope);
     const perceptions=party.map(sheet=>actorEventView(semanticEvents,[string(sheet.id),string(sheet.name)],npcScope)),playerCognition=perceptions.flatMap(view=>array(view.cognition))
         .sort((a,b)=>number(a.turn)-number(b.turn));

@@ -1,6 +1,6 @@
 ## 1.7.4
 
-"The impression in play" says the first impression is the person's starting attitude toward the investigator, which the kernel folds into their attitude word and moves by settled checks, fights and trades (contract §259.2). It no longer says the impression is separate from the party's stance. Guidance only; state_version stays 1.
+"The impression in play" says the first impression is the person's starting attitude toward the investigator, which the kernel folds into their attitude word and moves by settled checks, fights and trades (contract §259.2). It no longer says the impression is separate from the party's stance. "Asking for something" first reads the person's `asks` rows and resolves a check row with `action.ask` (contract §259.4); a request no row covers is judged as before. Guidance only; state_version stays 1.
 
 ## 1.7.3
 

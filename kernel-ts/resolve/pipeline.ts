@@ -1,4 +1,6 @@
 /** Action routing, card selection and the existing action-to-slot contract. */
+import { attitudeNow, attitudeShift, requestsTable } from '../npc/asks.js';
+import { stanceTable } from '../write/contributions.js';
 import { RpcError } from '../errors.js';
 import {preparePush, pushSourceCheck} from '../mods/pushed-roll.js';
 import { isJsonObject } from '../json.js';
@@ -644,7 +646,13 @@ export class ResolvePipeline {
                     source_ref: `clue:${context.graph.handle(clue)}`
                 };
             }
-            extras._host_social_binding = socialBinding(context, npc, matches[0]);
+            // §259.4: the person's attitude toward the investigator moves the rule's difficulty by the requests table;
+            // the Keeper's one-line reason for a request row is one step of leverage.
+            const ledger = row(await context.snapshot.optional('npc-ledger.json'));
+            const word = attitudeNow(context.graph, ledger, await stanceTable(context.kernel), context.transaction.turn, handle);
+            extras._host_social_binding = {...socialBinding(context, npc, matches[0]),
+                attitude: word, attitude_shift: attitudeShift(await requestsTable(context.kernel), word),
+                ...(typeof action._eased_by === 'string' ? {eased_by: action._eased_by} : {})};
             return [semantic, extras];
         }
         if (ref === OBSERVE) {

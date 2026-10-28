@@ -52287,6 +52287,40 @@ options are the table's levels.
 
 Tests: `tests/extension/npc-attitude-relationship.test.mjs`.
 
+### 259.4 What a person can be asked for: grant, check or impossible
+
+`content/rulesets/coc7/rules-json/npc-requests.json` (`coc.npc-requests.v1`) and `kernel-ts/npc/asks.ts`. The capsule's
+`present[]` row of a person who can act carries `asks` (the head says the rule once): `[{ask: "ask_N", what: {kind,
+clue? | obligation?}, tier: "grant" | "check" | "impossible", check?: {skills: [{skill, difficulty}]} | {skills: [...],
+difficulty, via: "action.obligation"}}]`, numbered in a fixed order from structure alone:
+
+1. each open obligation (§134) whose `who` is this person and whose next step is a check: the book's skills and
+   difficulty, resolved through `action.obligation` as before (an `ally` may grant it: `attitude_can_grant`);
+2. each clue the person knows that the investigators have not found, at most `max_clue_rows` (4), hidden ones first
+   (`hidden_clue`: the object of their `hides` claim or of an `asserts` lie or rumor), then the rest (`open_clue`);
+3. one `ordinary` row for a small favour.
+
+A row's tier is `tier_by_attitude[kind][word]`, the word being the person's attitude toward the investigator (§259.2;
+the table's start when no row was folded). Defaults: a hidden clue is a check at every word (a good impression is not
+consent), an open clue is given from `neutral` up, an ordinary favour from `unfriendly` up. A check row lists the four
+social skills, each at the rule's difficulty for this person (`socialDifficulty`: their higher of Psychology and the
+matching skill, under 50 regular, under 90 hard, else extreme) moved by `difficulty_shift_by_attitude` (hostile +2,
+unfriendly +1, ally −1); a skill pushed past extreme drops out, and a row with none left is `impossible`. Something the
+person does not know has no row: it cannot be had from them.
+
+The same shift now moves every social adjudication against a person (`social_difficulty`'s `attitude_shift`, recorded
+as `attitude` and `attitude_delta` on the adjudication), so the row and the roll agree.
+
+`resolve {intent: "social", target, ask: "ask_N", skill, eased_by?}`: the host binds the row. A grant row refuses
+`turn_state` (`ask_granted`: give it, no roll), an impossible one `turn_state` (`ask_impossible`), an obligation row
+`invalid_params` naming `action.obligation`, a skill outside the row `invalid_params` with `details.options`, an unknown
+row `invalid_params` with the person's rows. `goal` defaults to the row's clue. `eased_by` (one line, at most 200
+characters) is one step of leverage, so it lowers the difficulty one step and never past what leverage can. The roll
+receipt carries `ask: {ask, what, difficulty, eased_by?}`. A request no row covers is resolved as before. The `resolve`
+tool declares `ask` and `eased_by`; natural-npc 1.7.4's "Asking for something" reads `asks` first.
+
+Tests: `tests/integration/npc-asks.test.ts`.
+
 ## 260. NPC portrayal: beats, attention and the bearing grant (owner 2026-10-23; amends §254.2, §254.6)
 
 Spec: `docs/specs/npc-portrayal.md`. Research: `docs/research/npc-portrayal-lotm-20261023.md`. The owner's direction: the

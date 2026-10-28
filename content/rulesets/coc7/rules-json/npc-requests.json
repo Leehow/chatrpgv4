@@ -1,0 +1,17 @@
+{
+  "contract_id": "coc.npc-requests.v1",
+  "schema_version": 1,
+  "note": "Contract §259.4: what a person present can be asked for, worked out by the host, and how far it is from being given. Rows come only from the graph and the ledger: an open obligation the book states for this person (§134), each clue this person knows that the investigators have not found (hidden when this person hides it or would lie about it), and one ordinary row for a small favour. tier_by_attitude gives each kind of row its tier at each attitude word: grant (they give it without a roll, Keeper Rulebook p.93), check (an uncertain consequential request: a social roll), impossible (no roll). A good first impression only raises the attitude; it is never consent to a request, and something hidden needs a roll at every word. Anything this person does not know or hold is impossible and has no row. difficulty_shift_by_attitude moves the rulebook's social difficulty (the opponent's higher of Psychology and the matching skill: under 50 regular, under 90 hard, else extreme, Keeper Rulebook p.83) by whole steps; past extreme the row is impossible. attitude_can_grant names the words at which a check row of that kind may become grant because of what happened at this table. The Keeper's one-line reason (eased_by) lowers the difficulty one step at most and never turns a check into a grant. Every number lives here; the kernel writes none of its own.",
+  "kinds": ["obligation", "hidden_clue", "open_clue", "ordinary"],
+  "tier_by_attitude": {
+    "obligation": {"hostile": "check", "unfriendly": "check", "neutral": "check", "friendly": "check", "ally": "check"},
+    "hidden_clue": {"hostile": "check", "unfriendly": "check", "neutral": "check", "friendly": "check", "ally": "check"},
+    "open_clue": {"hostile": "check", "unfriendly": "check", "neutral": "grant", "friendly": "grant", "ally": "grant"},
+    "ordinary": {"hostile": "check", "unfriendly": "grant", "neutral": "grant", "friendly": "grant", "ally": "grant"}
+  },
+  "attitude_can_grant": {"obligation": ["ally"]},
+  "difficulty_shift_by_attitude": {"hostile": 2, "unfriendly": 1, "neutral": 0, "friendly": 0, "ally": -1},
+  "kind_difficulty_shift": {"open_clue": 0, "hidden_clue": 0, "ordinary": 0},
+  "ease_max_steps": 1,
+  "max_clue_rows": 4
+}

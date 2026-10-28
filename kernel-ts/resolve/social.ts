@@ -67,7 +67,11 @@ export function socialDifficulty(request: Row, npcDefense: number | null): Row {
     const leverage = existing || truth(supporting.level) ? 1 : 0;
     const base = npcDefense === null || npcDefense < 50 ? 0 : npcDefense < 90 ? 1 : 2;
     const motive = direction === 'oppose' ? number(intensity) : direction === 'support' && number(intensity) > 0 ? -1 : 0;
-    const final = base + motive - leverage;
+    // §259.4: the person's attitude toward the investigator, in whole steps from the requests table.
+    const attitude = request.attitude_shift ?? 0;
+    if (!integer(attitude) || number(attitude) < -2 || number(attitude) > 2)
+        valueError('attitude_shift must be an integer -2..2');
+    const final = base + motive - leverage + number(attitude);
     const feasibility = direction === 'support' && number(intensity) > 0 ? 'automatic' : final > 2 ? 'conditional' : final < 0 ? 'automatic' : 'roll';
     const difficulties = ['regular', 'hard', 'extreme'];
     return {
@@ -77,6 +81,7 @@ export function socialDifficulty(request: Row, npcDefense: number | null): Row {
         motive_adjustment: motive,
         leverage_one_level: Boolean(leverage),
         strategic_adjustment: -leverage || 0,
+        attitude_adjustment: number(attitude),
         described_action: string(request.described_action || ''),
         goal: string(request.goal || ''),
         supporting_action: supporting,

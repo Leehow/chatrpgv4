@@ -477,7 +477,8 @@ export const executeSocial: SettlementExecutor = async (context, args) => {
         motive_evidence: [...array(motive.evidence_refs)],
         bonus: 0,
         penalty: 0,
-        leverage_one_level: Boolean(leverage.length)
+        leverage_one_level: Boolean(leverage.length),
+        attitude_shift: args.attitude_shift ?? 0
     };
     let policy: Row;
     try {
@@ -518,6 +519,8 @@ export const executeSocial: SettlementExecutor = async (context, args) => {
         motive_delta: policy.motive_adjustment,
         leverage: [...leverage],
         leverage_delta: policy.strategic_adjustment,
+        attitude: args.attitude ?? null,
+        attitude_delta: policy.attitude_adjustment,
         final_difficulty: policy.final_difficulty,
         bonus_dice: policy.bonus_dice,
         penalty_dice: policy.penalty_dice,
