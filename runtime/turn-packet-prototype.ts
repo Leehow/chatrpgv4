@@ -33,7 +33,7 @@ const relationship=Type.Object({kind:Type.Literal('relationship'),actor,toward:T
  control:Type.Optional(StringEnum([...CONTROLS],{description:'The actor is under this control by toward; none clears it.'}))},
  {additionalProperties:false,anyOf:[{required:['disposition']},{required:['affinity']},{required:['control']}]});
 // §258.11: what became of an offer or a deal, naming its issued proposal or commitment fact.
-const agreement=Type.Object({kind:Type.Literal('agreement'),proposal:Type.String({pattern:'^fact_[1-9][0-9]*$',maxLength:32,description:'An issued fact of kind proposal or commitment'}),
+const agreement=Type.Object({kind:Type.Literal('agreement'),proposal:Type.String({pattern:'^fact_[1-9][0-9]*$',maxLength:32,description:'An issued fact of kind proposal or commitment, or party_said (an investigator promising)'}),
  status:StringEnum(['accepted','declined','withdrawn','kept','broken'],{description:'proposal: accepted, declined or withdrawn; commitment: kept, broken or withdrawn'}),
  with:Type.Optional(Type.Array(Type.String({pattern:'^investigator_[1-9][0-9]*$',maxLength:32}),{minItems:1,maxItems:8,uniqueItems:true,description:'Who accepted, when not every addressee did'}))},
  {additionalProperties:false});

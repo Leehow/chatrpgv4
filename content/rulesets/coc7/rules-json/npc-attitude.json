@@ -1,7 +1,7 @@
 {
   "contract_id": "coc.npc-attitude.v1",
   "schema_version": 1,
-  "note": "Contract §259.1 (replaces §17.3's coc.npc-stance.v1): the closed table a person's attitude toward the investigator moves by. Every number lives here; kernel-ts/write/contributions.ts reads it and writes no literal of its own. The five words are v3's dispositions. A score starts at initial_score, or at initial_by_impression[reaction] once the pair's first impression (natural-npc, §178) is folded, the deltas already folded kept. A social settlement moves it by social[approach][level]; a pushed roll that failed adds pushed_failure_delta; any combat settled against this person sets it to combat_target_score; a completed trade with them (a cash or item receipt naming them, not a quote) adds trade_delta once per turn. The score is clamped to score_range and its word is the first level whose at_most it does not exceed. legacy_words reads the four words of coc.npc-stance.v1 (old receipts, old tables, old habits), impression_dispositions reads a first impression that carries only the three-word disposition. An approach, level, reaction or word absent from the table moves nothing: silence is zero, never a guess.",
+  "note": "Contract §259.1 (replaces §17.3's coc.npc-stance.v1): the closed table a person's attitude toward the investigator moves by. Every number lives here; kernel-ts/write/contributions.ts reads it and writes no literal of its own. The five words are v3's dispositions. A score starts at initial_score, or at initial_by_impression[reaction] once the pair's first impression (natural-npc, §178) is folded, the deltas already folded kept. A social settlement moves it by social[approach][level]; a pushed roll that failed adds pushed_failure_delta; any combat settled against this person sets it to combat_target_score; a completed trade with them (a cash or item receipt naming them, not a quote) adds trade_delta once per turn; a promise an investigator made to them (an agreement mark whose obligor is the investigator, §259.2) kept adds kept_delta, broken adds betrayal_delta. The score is clamped to score_range and its word is the first level whose at_most it does not exceed. legacy_words reads the four words of coc.npc-stance.v1 (old receipts, old tables, old habits), impression_dispositions reads a first impression that carries only the three-word disposition. An approach, level, reaction or word absent from the table moves nothing: silence is zero, never a guess.",
   "initial_score": 0,
   "score_range": [-5, 5],
   "levels": [
@@ -29,5 +29,7 @@
   "pushed_failure_delta": -1,
   "combat_target_score": -5,
   "trade_delta": 1,
+  "kept_delta": 1,
+  "betrayal_delta": -3,
   "legacy_words": {"hostile": "hostile", "wary": "unfriendly", "neutral": "neutral", "warm": "friendly"}
 }

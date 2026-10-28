@@ -456,6 +456,20 @@ export function foldNpcTurn(ledger: Row, graph: ModuleGraph, record: Row, table:
             }
         }
     }
+    // §259.2: a promise an investigator made to a person, kept or broken, moves that person's attitude toward them.
+    const party = array(row(record.world).investigators).map(sheet => string(row(sheet).id));
+    for (const mark of array(row(record.communication).agreements)) {
+        const by = /^investigator_([1-9][0-9]*)$/.exec(string(row(mark).by)), delta = row(mark).status === 'kept' ? table.kept_delta : row(mark).status === 'broken' ? table.betrayal_delta : null;
+        if (!by || !intLike(delta) || !number(delta)) continue;
+        const who = party[Number(by[1]) - 1] || null;
+        for (const node of array(row(mark).with_npc)) {
+            const id = npcId(graph, node);
+            if (id)
+                for (const investigator of towardWhom(entry(ledger, id), record, who))
+                    moveAttitude(entry(ledger, id), table, investigator, {add: number(delta)}, turn, row(mark).content_id ?? null,
+                        {how: row(mark).status === 'kept' ? 'kept' : 'betrayed'});
+        }
+    }
     // Who spoke this turn (contract §40.3): a resolved say span names a person by handle.
     for (const line of array(record.speech)) {
         const id = npcId(graph, row(row(line).who).npc);

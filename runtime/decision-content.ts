@@ -198,6 +198,8 @@ export class DecisionContent {
  private facts=new Map<string,Fact>();private active=new Set<string>();private entities=new Set<string>();
  private people=new Set<string>();private listenerAliases=new Map<string,string|null>();
  private places=new Set<string>();
+ /** §259.2: who said each party_said item, by reference, so an agreement mark on it names the investigator as obligor. */
+ private partySaid=new Map<string,string>();
  private entityLabels=new Map<string,string>();
  private exhibitRows=new Map<string,Row>();private handleRefs=new Map<string,string>();private activeExhibits=new Set<string>();private exhibitOrdinal=0;private exhibitsOmitted=0;private exhibitsGiven=false;
   /** §257.17: testimony already said at this table, by exhibit id, per play line (campaign, worldline, loop); outlives the turn scope. */
@@ -292,6 +294,7 @@ export class DecisionContent {
    // §258.9: what the investigators said to this person or in their hearing: their claim, never verified truth.
    for(const item of rows(person.party_said))if(typeof item.gist==='string'&&typeof item.content_id==='string'){
     const by=typeof item.said_by==='string'?this.entityLabels.get(item.said_by)??item.said_by:'the investigator';
+    if(typeof item.said_by==='string'&&/^investigator_[1-9][0-9]*$/.test(item.said_by))this.partySaid.set(item.content_id,item.said_by);
     this.issue('fact',{said_by:by,statement:item.gist,turn:item.turn,content_id:item.content_id,...(item.to_me?{to_me:true}:{}),
      authority:`What ${by} said or did ${item.to_me?'to this person':'in this person\'s hearing'}, as the player wrote it; this person knows it was said, and it is ${by}'s claim, not verified truth.`},person.ref,'party_said');
    }
@@ -504,10 +507,16 @@ export class DecisionContent {
  /** §264.37: whether an agreement mark names an issued proposal or commitment fact of this turn. */
  agreementIssued(proposal:string):boolean {
   const fact=this.facts.get(proposal);
-  return !!fact&&this.active.has(proposal)&&['proposal','commitment'].includes(fact.kind)&&!!fact.actor;
+  return !!fact&&this.active.has(proposal)&&(['proposal','commitment'].includes(fact.kind)||fact.kind==='party_said'&&this.partySaid.has(fact.content))&&!!fact.actor;
  }
  agreement(mark:{proposal:string;status:string;with?:string[]}):Row {
   const fact=this.facts.get(mark.proposal);
+  // §259.2: an investigator's own words to this person, marked as a promise they made, kept or broke.
+  if(fact&&this.active.has(mark.proposal)&&fact.kind==='party_said'&&fact.actor&&this.partySaid.has(fact.content)){
+   const allowed=['accepted','kept','broken','withdrawn'];
+   if(!allowed.includes(mark.status))throw Error(`agreement ${mark.proposal} is what an investigator said: its status is one of ${allowed.join(', ')}`);
+   return {content_id:fact.content,by:this.partySaid.get(fact.content)!,status:mark.status,with:[fact.actor]};
+  }
   if(!fact||!this.active.has(mark.proposal)||!['proposal','commitment'].includes(fact.kind)||!fact.actor)
   {const open=[...this.active].filter(ref=>['proposal','commitment'].includes(this.facts.get(ref)?.kind??''));
    // §264.12: say which marks exist; with none, an accepted deal nobody offered as a service needs no mark.

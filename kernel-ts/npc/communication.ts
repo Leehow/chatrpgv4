@@ -6,7 +6,7 @@
  */
 import {createHash} from 'node:crypto';
 import type {ModuleGraph} from '../read/module-graph.js';
-import {array,number,row,string,type Row} from '../read/values.js';
+import {array,entries,number,row,string,type Row} from '../read/values.js';
 import {isNpcReference,npcReference} from './references.js';
 
 export const STRATEGIES=['new','refer','restate','clarify','update'] as const;
@@ -95,8 +95,12 @@ export function communicationRecord(graph:ModuleGraph,world:Row,party:Row[],scop
             ...(heardBy.length?{overheard:heardBy}:{}),...(rolled.length?{overhear_rolls:rolled}:{})};
     });
     const said=partyEvent(turn,party,here,selections,playerText,caught);
+    // §259.2: an investigator's promise names the person it was made to by node too, so the ledger fold reads it alone.
+    const byRef=new Map(entries(row(row(world.npc_references).by_node)).map(([node,ref])=>[string(ref),node]));
+    const marks=agreements.map(mark=>INVESTIGATOR.test(string(mark.by))
+        ?{...mark,with_npc:array(mark.with).map(ref=>byRef.get(string(ref))).filter((node):node is string=>typeof node==='string')}:mark);
     return {version:1,scope:{worldline:string(scope.worldline||'main'),loop:number(scope.loop)},turn,events:said?[said,...events]:events,
-        ...(agreements.length?{agreements}:{})};
+        ...(marks.length?{agreements:marks}:{})};
 }
 
 
@@ -107,8 +111,10 @@ export function communicationRecord(graph:ModuleGraph,world:Row,party:Row[],scop
 export function agreementsOf(evidence:Row):Row[] {
     return array(evidence.agreements).slice(0,8).flatMap(value=>{
         const mark=row(value);
-        if(typeof mark.content_id!=='string'||!CONTENT_ID.test(mark.content_id)||!isNpcReference(mark.by)
-            ||!AGREEMENT_STATUSES.includes(mark.status))return [];
+        // §259.2: an investigator may be the obligor of a promise they made to a person (`with`), never of an offer.
+        const party=INVESTIGATOR.test(string(mark.by));
+        if(typeof mark.content_id!=='string'||!CONTENT_ID.test(mark.content_id)||!(isNpcReference(mark.by)||party)
+            ||!AGREEMENT_STATUSES.includes(mark.status)||party&&(mark.status==='declined'||!array(mark.with).some(isNpcReference)))return [];
         const by=array(mark.with).filter(ref=>typeof ref==='string'&&LISTENER.test(ref)).slice(0,8);
         return [{content_id:mark.content_id,by:mark.by,status:mark.status,...(by.length?{with:by}:{})}];
     });

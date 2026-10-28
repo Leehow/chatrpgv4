@@ -1008,6 +1008,8 @@ function becauseLine(cause: Row): string {
     if (cause.how === "combat") return `${at}: fought`;
     if (cause.how === "impression") return `${at}: first impression ${string(cause.reaction)}`;
     if (cause.how === "trade") return `${at}: traded`;
+    if (cause.how === "kept") return `${at}: the investigator kept a promise`;
+    if (cause.how === "betrayed") return `${at}: the investigator broke a promise`;
     return `${at}: ${string(cause.approach)} ${string(cause.level)}`;
 }
 /** How a present being stands toward the party, from the stance ledger's committed fold, or null when nothing was folded. */

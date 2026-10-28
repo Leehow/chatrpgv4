@@ -52267,12 +52267,18 @@ Nothing combines several investigators.
 - A row first written on a ledger from before §259.2 starts at the party-wide `stance` score it already had.
 - The present card's `toward_party.because` adds `turn N: first impression <reaction>` and `turn N: traded`.
 
-Not built, by the owner's ruling and for want of a source: a commitment an investigator made to a person and then kept
-or broke. §258.11's agreements only have a person as the obligor, so nothing in the records says an investigator
-betrayed someone; the table carries no number for it until something does. natural-npc 1.7.4 says the impression is
-the starting attitude.
+- **A promise the investigator made to the person** (amends §258.11). The Keeper's packet `agreement` command may
+  name an issued `party_said` fact (what an investigator said to this person, §258.9) with status `accepted`, `kept`,
+  `broken` or `withdrawn`; it resolves to `{content_id, by: investigator_N, status, with: [the person's npc_N]}`. A mark
+  whose obligor is an investigator must name the person in `with` and is never `declined`. The commit stores it in
+  `communication.agreements` with `with_npc` (the people's node ids, read from the table's references), and the ledger
+  fold reads it alone: `kept` adds `kept_delta` (+1), `broken` adds `betrayal_delta` (−3), toward that investigator.
+  The deal view (§258.11) still lists only people's own offers.
 
-Tests: `tests/integration/npc-attitude-fold.test.ts`.
+natural-npc 1.7.4 says the impression is the starting attitude.
+
+Tests: `tests/integration/npc-attitude-fold.test.ts`, `tests/integration/npc-state-bench.test.ts`,
+`tests/extension/npc-attitude-relationship.test.mjs`.
 
 ### 259.3 One attitude, one ledger: the Keeper's relationship toward the investigator (amends §258.7)
 
@@ -52378,10 +52384,11 @@ answers the same, it is drawn once per occasion, and it moves no die the table r
 The present card and `look focus:npc` carry `schedule_now: {where, doing?, reachable?, roll?: {d100, probability,
 occasion}, basis}` for a person who can act; `basis` says on the row that this is the book's routine, not the person's
 position (the capsule head carries no line for it: the head has a size it must keep): `world.npc_presence` stays the one truth of where someone is, `apply npc to` moves them, and what happened at
-the table outranks the routine. Nothing is written. No starter book carries a schedule yet; reading quality is the
-reader's and is measured, not gated.
+the table outranks the routine. Nothing is written. The state bench (`content/starters/npc-state-bench`, staged by
+`tests/play/fixtures/npc-state-bench/build.mjs`) carries a printed routine with a printed chance; reading quality in
+real books is the reader's and is measured, not gated.
 
-Tests: `tests/integration/npc-schedule.test.ts`.
+Tests: `tests/integration/npc-schedule.test.ts`, `tests/integration/npc-state-bench.test.ts`.
 
 ## 260. NPC portrayal: beats, attention and the bearing grant (owner 2026-10-23; amends §254.2, §254.6)
 

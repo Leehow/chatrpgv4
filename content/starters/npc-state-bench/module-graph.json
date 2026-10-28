@@ -1,0 +1,751 @@
+{
+ "contract_id": "coc.module-graph.v3",
+ "schema_version": 3,
+ "module_id": "module-npc-state-bench",
+ "source_languages": [
+  "zh-Hans"
+ ],
+ "section_ids": [
+  "section-curated-bench"
+ ],
+ "coverage": {
+  "structure": "accepted",
+  "world": "accepted",
+  "actors": "accepted",
+  "relationships": "accepted",
+  "events": "accepted",
+  "knowledge": "accepted",
+  "causal": "accepted",
+  "mechanics": "accepted",
+  "assets": "accepted",
+  "direction": "accepted"
+ },
+ "coverage_by_section": {
+  "section-curated-bench": {
+   "structure": "accepted",
+   "world": "accepted",
+   "actors": "accepted",
+   "relationships": "accepted",
+   "events": "accepted",
+   "knowledge": "accepted",
+   "causal": "accepted",
+   "mechanics": "accepted",
+   "assets": "accepted",
+   "direction": "accepted"
+  }
+ },
+ "node_refs_by_section": {
+  "section-curated-bench": [
+   "module-npc-state-bench",
+   "scene-grain-shop",
+   "scene-teahouse-back-room",
+   "npc-qian-laoban",
+   "clue-qian",
+   "npc-qian-laoer",
+   "clue-qian-er"
+  ]
+ },
+ "nodes": [
+  {
+   "node_id": "module-npc-state-bench",
+   "node_kind": "module",
+   "name": "河镇粮店",
+   "visibility": "keeper-only",
+   "aliases": [],
+   "summary": "1926 年一个河边小镇的粮店，两兄弟，一份印着作息的人物卡。",
+   "evidence_span_ids": [],
+   "properties": {
+    "asset_root_id": null,
+    "source_binding": {},
+    "runtime_projection": {
+     "contract_id": "coc.module-graph-runtime-projection.v1",
+     "documents": [
+      {
+       "filename": "module-meta.json",
+       "root": {
+        "schema_version": 1,
+        "scenario_id": "npc-state-bench",
+        "source_language": "zh-Hans",
+        "runtime_projection_contract": "coc.module-graph-runtime-projection.v1",
+        "title": "河镇粮店",
+        "opening_scene": "河镇正街的粮店里，钱老板在柜台后面拨着算盘。",
+        "one_liner": "1926 年一个河边小镇的粮店，两兄弟，一份印着作息的人物卡。",
+        "structure_type": "hub_sandbox",
+        "era": "1920s",
+        "setting_tags": [
+         "rural-town",
+         "1920s",
+         "state-bench"
+        ],
+        "content_flags": [
+         "test-module",
+         "state-bench"
+        ],
+        "win_condition": "测试台，不必推进。",
+        "start_clock": {
+         "calendar_mode": "gregorian",
+         "local_datetime": "1926-10-20T10:00:00",
+         "timezone": "Asia/Shanghai",
+         "display": "1926-10-20 10:00"
+        },
+        "summary": "NPC 状态测试台：一个带书面作息的店主和他有关系的兄弟。用来测态度、请求、失败冻结、恐惧压力和日程，不推剧情。",
+        "player_safe_summary": "1926 年 10 月，一个河边小镇。正街上的粮店开着门，店主钱老板在柜台后面。",
+        "keeper_secret_summary": "钱老板夜里赌钱，把粮店仓单押给了茶馆掌柜；他弟弟知道。",
+        "license": "Apache-2.0",
+        "author": "chatrpgv4 contributors",
+        "attribution": "Original test content.",
+        "copyright_notice": []
+       }
+      }
+     ]
+    }
+   },
+   "source_refs": []
+  },
+  {
+   "node_id": "scene-grain-shop",
+   "node_kind": "scene",
+   "name": "粮店",
+   "visibility": "keeper-only",
+   "aliases": [],
+   "summary": "正街上的粮店，米袋堆到房梁。",
+   "evidence_span_ids": [],
+   "properties": {
+    "runtime_projection": {
+     "document": "story-graph.json",
+     "collection": "scenes",
+     "record": {
+      "scene_id": "grain-shop",
+      "is_start": true,
+      "location_tags": [
+       "town",
+       "indoor"
+      ],
+      "scene_type": "social",
+      "origin": "source",
+      "dramatic_question": "谁肯说实话？",
+      "entry_conditions": [],
+      "exit_conditions": [],
+      "available_clues": [
+       "clue-qian",
+       "clue-qian-er"
+      ],
+      "npc_ids": [
+       "npc-qian-laoban",
+       "npc-qian-laoer"
+      ],
+      "pressure_moves": [],
+      "storylet_tags": [
+       "social"
+      ],
+      "affordances": [],
+      "tone": [
+       "quiet"
+      ],
+      "allowed_improvisation": [
+       "invent the shop furniture"
+      ],
+      "scene_edges": [
+       {
+        "to": "teahouse-back-room",
+        "kind": "travel",
+        "when": {
+         "kind": "always"
+        }
+       }
+      ]
+     }
+    }
+   },
+   "source_refs": []
+  },
+  {
+   "node_id": "scene-teahouse-back-room",
+   "node_kind": "scene",
+   "name": "茶馆后屋",
+   "visibility": "keeper-only",
+   "aliases": [],
+   "summary": "茶馆后面烟气腾腾的小屋。",
+   "evidence_span_ids": [],
+   "properties": {
+    "runtime_projection": {
+     "document": "story-graph.json",
+     "collection": "scenes",
+     "record": {
+      "scene_id": "teahouse-back-room",
+      "is_start": false,
+      "location_tags": [
+       "town",
+       "indoor"
+      ],
+      "scene_type": "social",
+      "origin": "source",
+      "dramatic_question": "谁肯说实话？",
+      "entry_conditions": [],
+      "exit_conditions": [],
+      "available_clues": [],
+      "npc_ids": [],
+      "pressure_moves": [],
+      "storylet_tags": [
+       "social"
+      ],
+      "affordances": [],
+      "tone": [
+       "quiet"
+      ],
+      "allowed_improvisation": [
+       "invent the shop furniture"
+      ],
+      "scene_edges": [
+       {
+        "to": "grain-shop",
+        "kind": "travel",
+        "when": {
+         "kind": "always"
+        }
+       }
+      ]
+     }
+    }
+   },
+   "source_refs": []
+  },
+  {
+   "node_id": "npc-qian-laoban",
+   "node_kind": "npc",
+   "name": "钱老板",
+   "visibility": "keeper-only",
+   "aliases": [],
+   "summary": "说话慢，爱用算盘打比方。",
+   "evidence_span_ids": [],
+   "properties": {
+    "runtime_projection": {
+     "document": "npc-agendas.json",
+     "collection": "npcs",
+     "record": {
+      "npc_id": "npc-qian-laoban",
+      "name": "钱老板",
+      "origin": "source",
+      "agenda": "把这季的米价稳住，别让人知道他压了一仓陈米。",
+      "fear": "欠下的赌债传到镇上。",
+      "secret": "他夜里在茶馆后屋输了钱，拿粮店的仓单作押。",
+      "voice": "说话慢，爱用算盘打比方。",
+      "relationship_to_investigators": "informant",
+      "known_fact_ids": [
+       "fact-qian"
+      ],
+      "revealable_fact_ids": [
+       "fact-qian"
+      ],
+      "disclosure_order": [
+       "fact-qian"
+      ],
+      "facts": [
+       {
+        "fact_id": "fact-qian",
+        "clue_id": "clue-qian",
+        "min_trust": 0
+       }
+      ],
+      "lie_options": [],
+      "deflect_options": [],
+      "leverage_ids": [],
+      "active_reactions": [],
+      "availability": {
+       "status": "available"
+      }
+     }
+    },
+    "agenda": "把这季的米价稳住，别让人知道他压了一仓陈米。",
+    "fear": "欠下的赌债传到镇上。",
+    "secret": "他夜里在茶馆后屋输了钱，拿粮店的仓单作押。",
+    "voice": "说话慢，爱用算盘打比方。",
+    "relationship_to_investigators": "informant",
+    "schedule": [
+     {
+      "when": {
+       "clock_range": {
+        "from": "08:00",
+        "to": "18:00"
+       }
+      },
+      "where": "粮店",
+      "doing": "在柜台后面称米记账",
+      "reachable": true
+     },
+     {
+      "when": {
+       "day_part": [
+        "evening",
+        "night"
+       ]
+      },
+      "where": "茶馆后屋",
+      "doing": "和人推牌九",
+      "reachable": true,
+      "probability": 40
+     },
+     {
+      "when": {
+       "day_part": [
+        "evening",
+        "night"
+       ]
+      },
+      "where": "粮店后面的家",
+      "doing": "吃饭，早早睡下",
+      "reachable": false
+     }
+    ]
+   },
+   "source_refs": []
+  },
+  {
+   "node_id": "clue-qian",
+   "node_kind": "clue",
+   "name": "镇东的旧码头上周夜里有人卸过一船不记账的货。",
+   "visibility": "revealable",
+   "aliases": [],
+   "summary": "镇东的旧码头上周夜里有人卸过一船不记账的货。",
+   "evidence_span_ids": [],
+   "properties": {
+    "delivery_kind": "conversation",
+    "handout_asset_id": null
+   },
+   "source_refs": []
+  },
+  {
+   "node_id": "npc-qian-laoer",
+   "node_kind": "npc",
+   "name": "钱老二",
+   "visibility": "keeper-only",
+   "aliases": [],
+   "summary": "嗓门大，话短。",
+   "evidence_span_ids": [],
+   "properties": {
+    "runtime_projection": {
+     "document": "npc-agendas.json",
+     "collection": "npcs",
+     "record": {
+      "npc_id": "npc-qian-laoer",
+      "name": "钱老二",
+      "origin": "source",
+      "agenda": "替哥哥看着铺子，攒钱娶亲。",
+      "fear": "哥哥的赌债落到他头上。",
+      "secret": "他知道哥哥把仓单押出去了。",
+      "voice": "嗓门大，话短。",
+      "relationship_to_investigators": "stranger",
+      "known_fact_ids": [
+       "fact-qian-er"
+      ],
+      "revealable_fact_ids": [
+       "fact-qian-er"
+      ],
+      "disclosure_order": [
+       "fact-qian-er"
+      ],
+      "facts": [
+       {
+        "fact_id": "fact-qian-er",
+        "clue_id": "clue-qian-er",
+        "min_trust": 0
+       }
+      ],
+      "lie_options": [],
+      "deflect_options": [],
+      "leverage_ids": [],
+      "active_reactions": [],
+      "availability": {
+       "status": "available"
+      }
+     }
+    },
+    "agenda": "替哥哥看着铺子，攒钱娶亲。",
+    "fear": "哥哥的赌债落到他头上。",
+    "secret": "他知道哥哥把仓单押出去了。",
+    "voice": "嗓门大，话短。",
+    "relationship_to_investigators": "stranger"
+   },
+   "source_refs": []
+  },
+  {
+   "node_id": "clue-qian-er",
+   "node_kind": "clue",
+   "name": "仓单押在茶馆的掌柜手里。",
+   "visibility": "revealable",
+   "aliases": [],
+   "summary": "仓单押在茶馆的掌柜手里。",
+   "evidence_span_ids": [],
+   "properties": {
+    "delivery_kind": "conversation",
+    "handout_asset_id": null
+   },
+   "source_refs": []
+  }
+ ],
+ "claims": [
+  {
+   "claim_id": "claim-contains-1",
+   "subject_id": "module-npc-state-bench",
+   "predicate": "contains",
+   "object": {
+    "node_id": "scene-grain-shop"
+   },
+   "truth_status": "authored-fact",
+   "visibility": "keeper-only",
+   "evidence_span_ids": [],
+   "asserted_by_ids": [],
+   "known_by_ids": [],
+   "validity": null,
+   "confidence": 1,
+   "source_refs": []
+  },
+  {
+   "claim_id": "claim-contains-2",
+   "subject_id": "module-npc-state-bench",
+   "predicate": "contains",
+   "object": {
+    "node_id": "scene-teahouse-back-room"
+   },
+   "truth_status": "authored-fact",
+   "visibility": "keeper-only",
+   "evidence_span_ids": [],
+   "asserted_by_ids": [],
+   "known_by_ids": [],
+   "validity": null,
+   "confidence": 1,
+   "source_refs": []
+  },
+  {
+   "claim_id": "claim-route-to-3",
+   "subject_id": "scene-grain-shop",
+   "predicate": "route-to",
+   "object": {
+    "node_id": "scene-teahouse-back-room"
+   },
+   "truth_status": "authored-fact",
+   "visibility": "keeper-only",
+   "evidence_span_ids": [],
+   "asserted_by_ids": [],
+   "known_by_ids": [],
+   "validity": null,
+   "confidence": 1,
+   "source_refs": []
+  },
+  {
+   "claim_id": "claim-route-to-4",
+   "subject_id": "scene-teahouse-back-room",
+   "predicate": "route-to",
+   "object": {
+    "node_id": "scene-grain-shop"
+   },
+   "truth_status": "authored-fact",
+   "visibility": "keeper-only",
+   "evidence_span_ids": [],
+   "asserted_by_ids": [],
+   "known_by_ids": [],
+   "validity": null,
+   "confidence": 1,
+   "source_refs": []
+  },
+  {
+   "claim_id": "claim-contains-5",
+   "subject_id": "module-npc-state-bench",
+   "predicate": "contains",
+   "object": {
+    "node_id": "npc-qian-laoban"
+   },
+   "truth_status": "authored-fact",
+   "visibility": "keeper-only",
+   "evidence_span_ids": [],
+   "asserted_by_ids": [],
+   "known_by_ids": [],
+   "validity": null,
+   "confidence": 1,
+   "source_refs": []
+  },
+  {
+   "claim_id": "claim-contains-6",
+   "subject_id": "module-npc-state-bench",
+   "predicate": "contains",
+   "object": {
+    "node_id": "clue-qian"
+   },
+   "truth_status": "authored-fact",
+   "visibility": "keeper-only",
+   "evidence_span_ids": [],
+   "asserted_by_ids": [],
+   "known_by_ids": [],
+   "validity": null,
+   "confidence": 1,
+   "source_refs": []
+  },
+  {
+   "claim_id": "claim-present-in-7",
+   "subject_id": "npc-qian-laoban",
+   "predicate": "present-in",
+   "object": {
+    "node_id": "scene-grain-shop"
+   },
+   "truth_status": "authored-fact",
+   "visibility": "keeper-only",
+   "evidence_span_ids": [],
+   "asserted_by_ids": [],
+   "known_by_ids": [],
+   "validity": null,
+   "confidence": 1,
+   "source_refs": []
+  },
+  {
+   "claim_id": "claim-knows-8",
+   "subject_id": "npc-qian-laoban",
+   "predicate": "knows",
+   "object": {
+    "node_id": "clue-qian"
+   },
+   "truth_status": "authored-fact",
+   "visibility": "keeper-only",
+   "evidence_span_ids": [],
+   "asserted_by_ids": [],
+   "known_by_ids": [],
+   "validity": null,
+   "confidence": 1,
+   "source_refs": []
+  },
+  {
+   "claim_id": "claim-discoverable-at-9",
+   "subject_id": "clue-qian",
+   "predicate": "discoverable-at",
+   "object": {
+    "node_id": "scene-grain-shop"
+   },
+   "truth_status": "authored-fact",
+   "visibility": "keeper-only",
+   "evidence_span_ids": [],
+   "asserted_by_ids": [],
+   "known_by_ids": [],
+   "validity": null,
+   "confidence": 1,
+   "source_refs": []
+  },
+  {
+   "claim_id": "claim-contains-10",
+   "subject_id": "module-npc-state-bench",
+   "predicate": "contains",
+   "object": {
+    "node_id": "npc-qian-laoer"
+   },
+   "truth_status": "authored-fact",
+   "visibility": "keeper-only",
+   "evidence_span_ids": [],
+   "asserted_by_ids": [],
+   "known_by_ids": [],
+   "validity": null,
+   "confidence": 1,
+   "source_refs": []
+  },
+  {
+   "claim_id": "claim-contains-11",
+   "subject_id": "module-npc-state-bench",
+   "predicate": "contains",
+   "object": {
+    "node_id": "clue-qian-er"
+   },
+   "truth_status": "authored-fact",
+   "visibility": "keeper-only",
+   "evidence_span_ids": [],
+   "asserted_by_ids": [],
+   "known_by_ids": [],
+   "validity": null,
+   "confidence": 1,
+   "source_refs": []
+  },
+  {
+   "claim_id": "claim-present-in-12",
+   "subject_id": "npc-qian-laoer",
+   "predicate": "present-in",
+   "object": {
+    "node_id": "scene-grain-shop"
+   },
+   "truth_status": "authored-fact",
+   "visibility": "keeper-only",
+   "evidence_span_ids": [],
+   "asserted_by_ids": [],
+   "known_by_ids": [],
+   "validity": null,
+   "confidence": 1,
+   "source_refs": []
+  },
+  {
+   "claim_id": "claim-knows-13",
+   "subject_id": "npc-qian-laoer",
+   "predicate": "knows",
+   "object": {
+    "node_id": "clue-qian-er"
+   },
+   "truth_status": "authored-fact",
+   "visibility": "keeper-only",
+   "evidence_span_ids": [],
+   "asserted_by_ids": [],
+   "known_by_ids": [],
+   "validity": null,
+   "confidence": 1,
+   "source_refs": []
+  },
+  {
+   "claim_id": "claim-discoverable-at-14",
+   "subject_id": "clue-qian-er",
+   "predicate": "discoverable-at",
+   "object": {
+    "node_id": "scene-grain-shop"
+   },
+   "truth_status": "authored-fact",
+   "visibility": "keeper-only",
+   "evidence_span_ids": [],
+   "asserted_by_ids": [],
+   "known_by_ids": [],
+   "validity": null,
+   "confidence": 1,
+   "source_refs": []
+  },
+  {
+   "claim_id": "claim-allied-with-15",
+   "subject_id": "npc-qian-laoban",
+   "predicate": "allied-with",
+   "object": {
+    "node_id": "npc-qian-laoer"
+   },
+   "truth_status": "authored-fact",
+   "visibility": "keeper-only",
+   "evidence_span_ids": [],
+   "asserted_by_ids": [],
+   "known_by_ids": [],
+   "validity": null,
+   "confidence": 1,
+   "source_refs": []
+  }
+ ],
+ "relations": [
+  {
+   "relation_id": "relation-contains-1",
+   "relation_kind": "contains",
+   "from_node_id": "module-npc-state-bench",
+   "to_node_id": "scene-grain-shop",
+   "claim_id": "claim-contains-1",
+   "properties": {}
+  },
+  {
+   "relation_id": "relation-contains-2",
+   "relation_kind": "contains",
+   "from_node_id": "module-npc-state-bench",
+   "to_node_id": "scene-teahouse-back-room",
+   "claim_id": "claim-contains-2",
+   "properties": {}
+  },
+  {
+   "relation_id": "relation-route-to-3",
+   "relation_kind": "route-to",
+   "from_node_id": "scene-grain-shop",
+   "to_node_id": "scene-teahouse-back-room",
+   "claim_id": "claim-route-to-3",
+   "properties": {}
+  },
+  {
+   "relation_id": "relation-route-to-4",
+   "relation_kind": "route-to",
+   "from_node_id": "scene-teahouse-back-room",
+   "to_node_id": "scene-grain-shop",
+   "claim_id": "claim-route-to-4",
+   "properties": {}
+  },
+  {
+   "relation_id": "relation-contains-5",
+   "relation_kind": "contains",
+   "from_node_id": "module-npc-state-bench",
+   "to_node_id": "npc-qian-laoban",
+   "claim_id": "claim-contains-5",
+   "properties": {}
+  },
+  {
+   "relation_id": "relation-contains-6",
+   "relation_kind": "contains",
+   "from_node_id": "module-npc-state-bench",
+   "to_node_id": "clue-qian",
+   "claim_id": "claim-contains-6",
+   "properties": {}
+  },
+  {
+   "relation_id": "relation-present-in-7",
+   "relation_kind": "present-in",
+   "from_node_id": "npc-qian-laoban",
+   "to_node_id": "scene-grain-shop",
+   "claim_id": "claim-present-in-7",
+   "properties": {}
+  },
+  {
+   "relation_id": "relation-knows-8",
+   "relation_kind": "knows",
+   "from_node_id": "npc-qian-laoban",
+   "to_node_id": "clue-qian",
+   "claim_id": "claim-knows-8",
+   "properties": {}
+  },
+  {
+   "relation_id": "relation-discoverable-at-9",
+   "relation_kind": "discoverable-at",
+   "from_node_id": "clue-qian",
+   "to_node_id": "scene-grain-shop",
+   "claim_id": "claim-discoverable-at-9",
+   "properties": {}
+  },
+  {
+   "relation_id": "relation-contains-10",
+   "relation_kind": "contains",
+   "from_node_id": "module-npc-state-bench",
+   "to_node_id": "npc-qian-laoer",
+   "claim_id": "claim-contains-10",
+   "properties": {}
+  },
+  {
+   "relation_id": "relation-contains-11",
+   "relation_kind": "contains",
+   "from_node_id": "module-npc-state-bench",
+   "to_node_id": "clue-qian-er",
+   "claim_id": "claim-contains-11",
+   "properties": {}
+  },
+  {
+   "relation_id": "relation-present-in-12",
+   "relation_kind": "present-in",
+   "from_node_id": "npc-qian-laoer",
+   "to_node_id": "scene-grain-shop",
+   "claim_id": "claim-present-in-12",
+   "properties": {}
+  },
+  {
+   "relation_id": "relation-knows-13",
+   "relation_kind": "knows",
+   "from_node_id": "npc-qian-laoer",
+   "to_node_id": "clue-qian-er",
+   "claim_id": "claim-knows-13",
+   "properties": {}
+  },
+  {
+   "relation_id": "relation-discoverable-at-14",
+   "relation_kind": "discoverable-at",
+   "from_node_id": "clue-qian-er",
+   "to_node_id": "scene-grain-shop",
+   "claim_id": "claim-discoverable-at-14",
+   "properties": {}
+  },
+  {
+   "relation_id": "relation-allied-with-15",
+   "relation_kind": "allied-with",
+   "from_node_id": "npc-qian-laoban",
+   "to_node_id": "npc-qian-laoer",
+   "claim_id": "claim-allied-with-15",
+   "properties": {}
+  }
+ ],
+ "source_refs": []
+}
