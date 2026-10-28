@@ -52771,6 +52771,11 @@ ref, entity, kind, verdict, reason, facts, status}]}`. `status` is the static re
   at the next release check;
 - `restricted` otherwise (`unsafe`, `uncertain`, no verdict).
 
+The checker's prompt counts the book talking about itself or its own party as Keeper text: how the scenario opens or is
+set up, and the investigators it prepared ("the investigators", pregenerated characters by name). In 1026n, 1026o and
+1026q *An Amaranthine Desire* T1 a p.14 passage that opened "the module begins with the investigators smuggling" and
+placed four pregenerated investigators on deck was released as a description and narrated to a one-investigator table.
+
 A row is reused while its `key`, the facts version (digest of all protected facts) and the prompt digest are unchanged;
 a changed skeleton re-checks only rows whose facts version changed. `revoked: [key]` in the same file (owner-written)
 restricts a row whatever its verdict. Telemetry: `{lane: "reading", event: "release_check", module_id, batch, candidates,
@@ -52794,7 +52799,9 @@ file for the book issues no book passages; the author writes from settled public
 ### 263.6 The author's projection (amends §257.9, §257.17)
 
 A book passage reaches the author as `{kind: "source", text, authority}` with authority "The book's own words for what
-the investigators perceive; render them faithfully in the play language, do not summarize or add to them.".
+the investigators perceive; render them faithfully in the play language, do not summarize or add to them. The book was
+written for its own party: leave out any investigator it names who is not among this table's investigators, and any
+sentence about the scenario itself." (the second sentence since 1026q, see §263.4).
 Testimony stance no longer reaches the author as truth: for every stance the author's claim is
 `{kind: "exhibit", exhibit: {kind: "testimony", channel, surface}, authority: "What this speaker says, in their terms;
 render it as their speech and do not judge or correct it in narration."}`. An interaction may carry `delivery`, one of
@@ -53485,6 +53492,12 @@ them anywhere but the party's place (`away` or another place), which takes them 
 Dust turns the Keeper spent a separate apply round (and up to 28k characters of reasoning) moving the same companion
 after every move.
 
+A person row in the capsule's `present[]` carries `company: "goes_with_party"` when they are in
+`world.party_company` (the next party move takes them; `leave` keeps them behind); a row without it is left where it is
+by a move (`with` takes them along). Owner 2026-10-28, NPC state plan step 1: Keeper reasoning about who goes where was about 29% of long
+thinking in thinking-report-1027, mostly reconstructing the company from earlier turns. Test:
+`tests/integration/enhanced-locations.test.ts`.
+
 ## 268. A failure is answered by the rules, not by an owed consequence (owner 2026-10-25)
 
 ### 268.1 The Director offers a failed check's consequence only when its cost was named
@@ -53617,6 +53630,13 @@ for one not yet read; the newcomer slot refuses only a person this table itself 
 and T7 three of the book's people were refused as "a newcomer slot cannot select an existing person", T6 undelivered.
 
 Tests: `tests/integration/walk-on-book-person.test.ts`.
+
+The word the epithet lane gave an unread book person is keyed by their cast id (`world.person_epithets["cast-..."]`),
+not by the handle they get when seated. A `person` name effect for them excludes their own cast ids (their book cast
+entry and their `table_people` seat) from the words "already what this table calls someone else". In 1026q *Digging for a
+Dead God* T2 the captain's own word was refused for him, the Keeper re-labelled him, and the turn took an extra round.
+v4 `name` and `mood` commands take a `new_N` slot of a `walk_on` in the same packet as `actor`, as `clue.from` does
+(1026q *Dust to Dust* T12). Tests: `tests/extension/module-cast.test.mjs`, `tests/extension/turn-packet-prototype.test.mjs`.
 
 ### 270.5 A failed goal is not re-rolled through a combined check
 

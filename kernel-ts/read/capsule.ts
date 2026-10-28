@@ -926,6 +926,10 @@ export function npcEntry(graph: ModuleGraph, world: Row, node: Row, ledger: Row,
         // §259.6: how afraid and how hard pressed, beside the mood line the Keeper writes from it.
         ...(!state && !truth(ledgerRow.dead) && affectView(ledgerRow) ? {affect: affectView(ledgerRow)} : {}),
         ...(variation ? {variation} : {}),
+        // §267.5 (owner 2026-10-28, NPC state plan step 1): a party move takes this person along, so who goes is read, not
+        // reconstructed from earlier turns; long Keeper thinking on company and position was ~29% (thinking-report-1027).
+        // Absent, a move leaves them where they are.
+        ...(array(world.party_company).includes(graph.handle(node)) ? {company: "goes_with_party"} : {}),
         ...dossier(graph, world, node, seat),
         ...(personalityView(graph, world, node) ? {personality: personalityView(graph, world, node)} : {}),
         ...(sourceRelationships(graph, node).length ? {source_relationships: sourceRelationships(graph, node)} : {})

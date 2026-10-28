@@ -1035,3 +1035,14 @@ test('a clue told by this packet\'s newcomer names their seat',()=>{
  assert.deepEqual(effects.filter(e=>e.kind==='clue').map(e=>e.from),['the beggar at the gate','Father Fincher']);
  assert.ok(effects.findIndex(e=>e.kind==='npc')<effects.findIndex(e=>e.kind==='clue'),'seated before the clue they tell');
 });
+
+// 1026q Dust to Dust T12: a name for someone who walked on in the same packet was refused for naming their slot.
+test('a name or mood for this packet\'s newcomer names their seat',()=>{
+ const packet={version:4,commands:[{kind:'walk_on',slot:'new_1',label:'the old caretaker',reason:'He comes out of the shed.'},
+  {kind:'name',actor:'new_1',name:'Willy Stephen'},{kind:'mood',actor:'new_1',mood:'wary'}]};
+ const effects=compileTurnPacket(turnPacket(JSON.stringify(packet))).effects;
+ assert.equal(effects.find(e=>e.kind==='person').who,'the old caretaker');
+ assert.equal(effects.find(e=>e.kind==='npc'&&e.mood).name,'the old caretaker');
+ assert.ok(effects.findIndex(e=>e.walk_on)<effects.findIndex(e=>e.kind==='person'),'seated before they are named');
+ assert.throws(()=>compileTurnPacket(turnPacket(JSON.stringify({version:4,commands:[{kind:'name',actor:'new_2',name:'Nobody'}]}))),/new_2 names no walk_on/);
+});

@@ -19,7 +19,7 @@ import { occurs } from '../journal/naming.js';
 import { tableWord, untoldPieces } from '../read/person-words.js';
 import { bookCast, tellGuard } from '../read/cast.js';
 import { prepareNameHistory } from '../journal/name-history.js';
-import { normalize, repr, row, string, type Row } from '../read/values.js';
+import { array, normalize, repr, row, string, type Row } from '../read/values.js';
 import { nowIso, required } from '../write/store.js';
 import type { ApplyContext } from './index.js';
 import { passageOf } from '../read/table-people.js';
@@ -93,6 +93,14 @@ function word(effect: Row, field: string): string | null {
  * of anyone still untold, not only this person's. Table 21's journal lane wrote biographies that name the neighbours, and
  * a word like "Steve's neighbour" tells Steve's name. A piece a told person also carries does not count.
  */
+/** The cast ids that stand for `handle`: the book cast entry of their node and the table roster's seat. */
+function ownCastIds(context: ApplyContext, handle: string): Set<string> {
+    const { graph, world } = context, node = graph.find(handle, ['npc']);
+    const ids = new Set<string>(array(world.table_people).filter(entry => string(row(entry).name) === handle).map(entry => string(row(entry).cast_id)).filter(Boolean));
+    if (node) for (const person of bookCast(graph))
+        if (person.node && graph.survivorId(string(person.node.node_id)) === graph.survivorId(string(node.node_id))) person.castIds.forEach(id => ids.add(id));
+    return ids;
+}
 async function deferUntoldName(context: ApplyContext, handle: string, name: string): Promise<boolean> {
     const { graph } = context, node = graph.find(handle, ['npc']);
     if (!node || graph.isTablePerson(node)) return false;
@@ -165,8 +173,11 @@ export async function stagePerson(context: ApplyContext, effect: Row): Promise<{
     // (normalized); whether a word is distinctive enough is the Keeper's, from the rule in this effect's description.
     if (name != null && person.is_investigator !== true) {
         // §176.1: another person's epithet is that person's word too.
+        // 1026q Digging for a Dead God T2: an unread book person's epithet is keyed by their cast id, not their handle, so
+        // the word the book's walk-on gave the captain was refused as someone else's; their own cast ids are themselves.
+        const self = ownCastIds(context, string(person.id));
         const others = [...new Set([...Object.keys(row(world.person_labels)), ...Object.keys(row(world.person_epithets))])]
-            .filter(id => id !== string(person.id))
+            .filter(id => id !== string(person.id) && !self.has(id))
             .flatMap(id => [tableWord(world, id), typeof row(row(world.person_epithets)[id]).word === 'string' ? string(row(row(world.person_epithets)[id]).word).trim() : ''])
             .filter((word, at, all) => word && all.indexOf(word) === at);
         const taken = others.find(other => normalize(other) === normalize(name));

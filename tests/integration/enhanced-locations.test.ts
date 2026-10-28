@@ -427,6 +427,18 @@ test('company left behind on a move stays where it is and leaves the company',as
     assert.equal(knott(),cafe,'left behind inside the cafe, he did not come to the bookshop');
 });
 
+// Owner 2026-10-28 (NPC state plan step 1): each present person says what the next move does with them, so the Keeper reads
+// who goes along instead of reconstructing it from earlier turns.
+test('each present person carries whether a party move takes them along',async t=>{
+    const k=await kernel(t);await openTurn(k,'I ask Knott to come with me to the corner cafe.');
+    const company=async()=>((await k.table('capsule')).present.find((person:Row)=>/knott/i.test(String(person.id)+person.name))??{}).company;
+    assert.equal(await company(),undefined,'not marked: a move leaves him');
+    await k.table('apply',{call_id:'t1-c1',effects:[{kind:'place',action:'move',to:'Corner Cafe',via:'A few doors down the street',travel_band:'adjacent',with:['Steven Knott'],additions:[hotel('Corner Cafe')]}]});
+    assert.equal(await company(),'goes_with_party');
+    await k.table('apply',{call_id:'t1-c2',effects:[{kind:'place',action:'move',to:'here',spot:'by the window',leave:['Steven Knott']}]});
+    assert.equal(await company(),undefined,'left behind, he no longer goes with the party');
+});
+
 test('a spot that names a place added inside the destination moves the party into that place (§268.4)',async t=>{
     const k=await kernel(t);await openTurn(k,'I go to the inn and into room 203.');
     await k.table('apply',{call_id:'t1-c1',effects:[{kind:'place',action:'move',to:'Inn',via:'Along the street',travel_band:'adjacent',additions:[hotel('Inn')]}]});

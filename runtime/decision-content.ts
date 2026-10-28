@@ -161,7 +161,7 @@ const sorted=(value:unknown):unknown=>Array.isArray(value)?value.map(sorted):val
 const bookKey=(value:unknown):string=>typeof value==='string'?value.normalize('NFKC').toLowerCase().replace(/[\s\u00b7\u30fb\u2027\u2022.]/g,''):'';
 /** §263.6: a testimony's authority line, whatever the book's stance. */
 export const TESTIMONY_AUTHORITY='What this speaker says, in their terms; render it as their speech and do not judge or correct it in narration.';
-export const BOOK_WORDS_AUTHORITY='The book\'s own words for what the investigators perceive; render them faithfully in the play language, do not summarize or add to them.';
+export const BOOK_WORDS_AUTHORITY='The book\'s own words for what the investigators perceive; render them faithfully in the play language, do not summarize or add to them. The book was written for its own party: leave out any investigator it names who is not among this table\'s investigators, and any sentence about the scenario itself.';
 /** §261.3: the most characters of one opening passage; a passage ends at a line that closes a sentence once it is this long. */
 const OPENING_PASSAGE_CHARS=900;
 /**

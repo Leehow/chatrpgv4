@@ -1055,6 +1055,25 @@ test('a book person already at the table walks on again by their book name', asy
 	assert.equal((await h.world()).table_people.length, 1, 'the same person, not a second one');
 });
 
+// 1026q Digging for a Dead God T2: the epithet the lane gave an unread book person is keyed by their cast id, and the walk_on
+// that seated them under that same word was refused as "already what this table calls someone else".
+test('a book person seated under the word the table already gave them keeps that word', async t => {
+	const h = await harbor(t);
+	await readCast(h);
+	const jonah = (await h.call('epithets.job')).people.find(person => /^cast-/.test(person.id) && JSON.stringify(person).includes('Jonah'));
+	assert.ok(jonah, 'the lane is asked for a word for the unread boy');
+	await h.call('epithets.submit', {entries: [{id: jonah.id, word: 'the dripping boy'}]});
+	await h.call('table.player_input', {text: 'Someone stands in the cellar door.'});
+	assert.equal((await h.world()).person_epithets[jonah.id].word, 'the dripping boy');
+	const effects = [{kind: 'npc', name: 'Jonah', to: 'here', walk_on: true, why: 'he stands in the door'},
+		{kind: 'person', who: 'Jonah', name: 'the dripping boy', why: 'What the investigator can call him.'}];
+	const held = await h.attempt('table.apply', {call_id: 't1-c1', effects});
+	const landed = held.ok ? held : await h.attempt('table.apply', {call_id: 't1-c1', effects, _land_on_text: [{key: held.error.details.person.key,
+		passage: {scene: null, page: 3, label: null, sentence: "Mae's boy Jonah drowned there last spring."}}]});
+	assert.equal(landed.ok, true, JSON.stringify([landed.error?.message, landed.error?.details]));
+	assert.equal((await h.world()).table_people.length, 1);
+});
+
 // 1026i Dust to Dust T3: look said the book has the police chief; continuity on the same name refused him as unknown.
 test('continuity on an unread book person answers what look answers, not unknown_entity', async t => {
 	const h = await harbor(t);
