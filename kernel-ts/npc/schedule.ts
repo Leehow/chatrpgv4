@@ -66,11 +66,10 @@ export function scheduleNow(graph: ModuleGraph, world: Row, meta: Row, node: Row
             roll = {d100: value, probability: entry.probability, occasion};
             if (value > number(entry.probability)) continue;
         }
-        return {where: entry.where, ...(typeof entry.doing === 'string' ? {doing: entry.doing} : {}),
+        // `basis` says on the row what it is, so the capsule head carries nothing for a rule few tables use.
+        return {basis: 'book routine; present[] is where they are', where: entry.where, ...(typeof entry.doing === 'string' ? {doing: entry.doing} : {}),
             ...(typeof entry.reachable === 'boolean' ? {reachable: entry.reachable} : {}), ...(roll ? {roll} : {})};
     }
     return null;
 }
 
-/** The one line the capsule carries beside it. */
-export const SCHEDULE_NOTE = "schedule_now is the book's routine for this hour (a printed chance is rolled once for the occasion and shown): where they would be and what they would be doing. It is not where they are: present[] and apply npc to decide that, and what happened at this table outranks the routine.";

@@ -1,7 +1,6 @@
 /** Assemble the existing capsule from read-only snapshots and validated content. */
 import { stanceTable } from "../write/contributions.js";
 import { ASKS_NOTE, requestsTable } from "../npc/asks.js";
-import { SCHEDULE_NOTE } from "../npc/schedule.js";
 import { CampaignSnapshot, loadModule, type LoadedModule } from "./campaign.js";
 import {eventOutcome,eventScope,canonicalEvents,actorEventView} from '../turn-events.js';
 import {publicDialogue} from '../../shared/public-dialogue.js';
@@ -102,8 +101,6 @@ export const HEAD = "Everything at the start of this turn: the clock, the undisc
     "present[].now is the person's recorded mood, interpreted with the current exchange and their own knowledge. " +
     // §259.4: the requests rows' rule, said once.
     "present[]." + ASKS_NOTE + " " +
-    // §259.7: the book's routine, said once.
-    "present[]." + SCHEDULE_NOTE + " " +
     "A meaningful mood change may be recorded with apply npc mood; ordinary speech requires no mood write first. " +
     "Their relationships retain specific people and evidence; recent_speech is what that person actually said, " +
     "available even before memory extraction finishes. Reports are attributed, not new world truth. " +

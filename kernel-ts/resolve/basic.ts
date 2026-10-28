@@ -520,7 +520,7 @@ export const executeSocial: SettlementExecutor = async (context, args) => {
         leverage: [...leverage],
         leverage_delta: policy.strategic_adjustment,
         attitude: args.attitude ?? null,
-        attitude_delta: policy.attitude_adjustment,
+        attitude_delta: policy.attitude_adjustment ?? 0,
         final_difficulty: policy.final_difficulty,
         bonus_dice: policy.bonus_dice,
         penalty_dice: policy.penalty_dice,

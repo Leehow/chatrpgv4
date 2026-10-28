@@ -136,7 +136,7 @@ export function asksView(rows: Row[]): Row | null {
     return Object.keys(view).length ? view : null;
 }
 /** The one line the capsule carries beside the rows. */
-export const ASKS_NOTE = 'asks: what this person can be asked for now. grant: they give it, no roll. check: resolve with intent social, action.ask and one of its skills (the host sets the difficulty; action.eased_by with one line of reason lowers it one step). impossible: no roll. A good impression is not consent; anything they do not know is not listed and cannot be had from them.';
+export const ASKS_NOTE = 'asks: grant needs no roll; check: resolve with action.ask and one of its skills (eased_by: one step easier); impossible: no roll. A good impression is not consent; what they do not know is not listed.';
 
 /** §259.5: the targets frozen for this person now, the open turn's receipts folded in. */
 export function blockedNow(graph: ModuleGraph, ledger: Row, attitude: Row, turn: Row, handle: string): Row[] {

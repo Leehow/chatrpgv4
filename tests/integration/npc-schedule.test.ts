@@ -18,8 +18,8 @@ test('the first entry whose hours hold is the routine; none holding is no routin
  const graph=await graphOf([{when:{clock_range:{from:'09:00',to:'17:00'}},where:'his office',doing:'reading contracts',reachable:true},
   {when:{day_part:['evening']},where:'the Lamplighter bar'}]);
  const node=graph.nodes.get('npc-steven-knott');
- assert.deepEqual(scheduleNow(graph,{clock:{minutes:await at(graph,10*60)}},META,node),{where:'his office',doing:'reading contracts',reachable:true});
- assert.deepEqual(scheduleNow(graph,{clock:{minutes:await at(graph,19*60)}},META,node),{where:'the Lamplighter bar'});
+ assert.deepEqual(scheduleNow(graph,{clock:{minutes:await at(graph,10*60)}},META,node),{basis:'book routine; present[] is where they are',where:'his office',doing:'reading contracts',reachable:true});
+ assert.deepEqual(scheduleNow(graph,{clock:{minutes:await at(graph,19*60)}},META,node),{basis:'book routine; present[] is where they are',where:'the Lamplighter bar'});
  assert.equal(scheduleNow(graph,{clock:{minutes:await at(graph,3*60)}},META,node),null);
 });
 
@@ -41,5 +41,5 @@ test('an entry the kernel cannot read is skipped, and no chance is invented',asy
  assert.equal(scheduleEntry({when:{day_part:['teatime']},where:'x'}),null);
  assert.equal(scheduleEntry({where:'x',probability:0}),null);
  const graph=await graphOf([{when:{clock_range:{from:'9am',to:'5pm'}},where:'office'},{where:'the house'}]);
- assert.deepEqual(scheduleNow(graph,{clock:{minutes:0}},META,graph.nodes.get('npc-steven-knott')),{where:'the house'});
+ assert.deepEqual(scheduleNow(graph,{clock:{minutes:0}},META,graph.nodes.get('npc-steven-knott')),{basis:'book routine; present[] is where they are',where:'the house'});
 });

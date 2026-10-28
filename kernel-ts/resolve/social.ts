@@ -81,7 +81,8 @@ export function socialDifficulty(request: Row, npcDefense: number | null): Row {
         motive_adjustment: motive,
         leverage_one_level: Boolean(leverage),
         strategic_adjustment: -leverage || 0,
-        attitude_adjustment: number(attitude),
+        // §259.4: present only when the attitude moved it, so a neutral person's policy reads as it always did.
+        ...(number(attitude) ? {attitude_adjustment: number(attitude)} : {}),
         described_action: string(request.described_action || ''),
         goal: string(request.goal || ''),
         supporting_action: supporting,

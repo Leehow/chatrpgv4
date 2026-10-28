@@ -1573,8 +1573,9 @@ for(const renameGrowth of [false,true])test('the next native request keeps six r
   const inflate=capsule=>({...capsule,
     module:{...capsule.module,fixture_static:'s'.repeat(2000)},
     ...(renameGrowth?{fixture_handles:Array(500).fill('qx')}:{}),
-    // Reserve the measured location grammar/disclosure growth; six results, handle expansion and ceiling stay fixed.
-    fixture_current:(capsule.where?.clock?.minutes??0)+':'+ 'c'.repeat(45000-24576)});
+    // Reserve the measured location grammar/disclosure growth and §259's request rows and their head line; six results,
+    // handle expansion and ceiling stay fixed.
+    fixture_current:(capsule.where?.clock?.minutes??0)+':'+ 'c'.repeat(45000-25600)});
   const seen=[];
   const table=await openTable({legacyDeliveryFixtures:false,realKernel:true,prepareWorkspace:seedOpening,
     runDriver:pressureDriver,env:{PI_COC_LOOP_ENGINE:'hybrid-v1'},

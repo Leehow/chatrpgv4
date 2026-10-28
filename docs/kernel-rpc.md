@@ -52376,8 +52376,8 @@ of the worldline's seed, the person, the entry and the occasion (`day N <day par
 answers the same, it is drawn once per occasion, and it moves no die the table rolls.
 
 The present card and `look focus:npc` carry `schedule_now: {where, doing?, reachable?, roll?: {d100, probability,
-occasion}}` for a person who can act, and the capsule head says once that this is the book's routine, not the person's
-position: `world.npc_presence` stays the one truth of where someone is, `apply npc to` moves them, and what happened at
+occasion}, basis}` for a person who can act; `basis` says on the row that this is the book's routine, not the person's
+position (the capsule head carries no line for it: the head has a size it must keep): `world.npc_presence` stays the one truth of where someone is, `apply npc to` moves them, and what happened at
 the table outranks the routine. Nothing is written. No starter book carries a schedule yet; reading quality is the
 reader's and is measured, not gated.
 
