@@ -235,6 +235,8 @@ export class Daemon {
     // ("要", 2026-10-27). PI_COC_PIPICOC_PROFILE=0 is for offline driver tests only.
     const profile = [resolve(DEFAULT_LAUNCHER), resolve(REPO_ROOT, 'bin/pi-coc-setup')].includes(launcher) && process.env.PI_COC_PIPICOC_PROFILE !== '0' ? await livePluginProfile() : null;
     if (profile?.thinking && !this.thinking) this.thinking = profile.thinking;
+    if (profile) { const {seedKeeperSettings} = await import('./pipicoc-profile.ts'); if (seedKeeperSettings(join(REPO_ROOT, '.pi/coc-agent'))) this.log.write('keeper settings from PipiCOC'); }
+    if (profile && model?.includes('/')) { const {seedProviderLogin} = await import('./pipicoc-profile.ts'); const seeded = seedProviderLogin(model.slice(0, model.indexOf('/')), join(REPO_ROOT, '.pi/coc-agent')); if (seeded !== 'absent') this.log.write('provider login ' + model.slice(0, model.indexOf('/')) + ': ' + seeded); }
         const entry = join(REPO_ROOT, 'build/kernel/rpc.mjs'); if (launcher === resolve(DEFAULT_LAUNCHER) && !existsSync(join(REPO_ROOT, 'deployment.json')) && existsSync(entry) && !process.env.PI_COC_KERNEL_CMD)
         this.player_view_command = [process.env.PI_COC_NODE_EXECUTABLE || process.execPath, entry, '--workspace', coc_home(), '--content', resolve(process.env.PI_COC_CONTENT_ROOT || join(REPO_ROOT, 'content'))]; const testThinking=model==='grok-build/grok-4.5'?'high':model==='codex-relay/gpt-6-luna'?'high':model===DEFAULT_MODEL?this.thinking||DEFAULT_THINKING:null; const args = ['--campaign', campaign, '--mode', 'rpc', '--no-session', '--thinking', testThinking||this.thinking || DEFAULT_THINKING]; if (model) {
         if (!model.includes('/'))

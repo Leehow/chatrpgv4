@@ -8,7 +8,7 @@
  * Secret values only ever go into the returned env; nothing here prints them.
  */
 import {createDecipheriv} from 'node:crypto';
-import {existsSync, readdirSync, readFileSync} from 'node:fs';
+import {existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync} from 'node:fs';
 import {homedir} from 'node:os';
 import {join} from 'node:path';
 
@@ -78,4 +78,35 @@ export function pipicocProfileEnv(mounted: ReadonlySet<string>, profile = proces
     if (plugins.length) env.PIPIUI_MOUNTED_EXTENSIONS = plugins.map(plugin => plugin.id).join(',');
     if (stored['coc-keeper']?.settings) env[settingsEnvName('coc-keeper')] = JSON.stringify(stored['coc-keeper'].settings);
     return {env, plugins, profile, extraMounts, thinking, model};
+}
+
+/**
+ * The PipiCOC login of the session model's provider, for a provider pi reads from its own credential store (an OAuth
+ * login such as grok-build): copied into the table's agent home when PipiCOC's is newer, the way the MiniMax key is read
+ * from PipiCOC. Owner 2026-10-28: logged in to Grok Build in PipiCOC for the Grok 4.6 comparison. Never printed.
+ */
+export function seedProviderLogin(provider: string, agentHome: string, profile = process.env.PI_COC_PROFILE_DIR || DEFAULT_PROFILE): 'seeded' | 'current' | 'absent' {
+    const source = join(profile, 'auth.json'), target = join(agentHome, 'auth.json');
+    if (!existsSync(source)) return 'absent';
+    const theirs = readJson(source)[provider];
+    if (!theirs || typeof theirs !== 'object') return 'absent';
+    const ours: Row = existsSync(target) ? readJson(target) : {};
+    if (Number(ours[provider]?.expires ?? 0) >= Number(theirs.expires ?? 0)) return 'current';
+    mkdirSync(agentHome, {recursive: true});
+    writeFileSync(target, JSON.stringify({...ours, [provider]: theirs}, null, 2), {mode: 0o600});
+    return 'seeded';
+}
+
+/**
+ * The product pack's own settings (lane model and thinking, author model and thinking, difficulty) as PipiCOC holds them,
+ * written into the table's agent home, where runtime/fast-model.ts reads them. Without it a lane fell back to its built-in
+ * default model (the Grok probe of 2026-10-28: the author ran on a provider with no key and the turn was not delivered).
+ */
+export function seedKeeperSettings(agentHome: string, profile = process.env.PI_COC_PROFILE_DIR || DEFAULT_PROFILE): boolean {
+    const settings = readJson(join(profile, 'pipiui-settings.json')).extensions?.['coc-keeper'];
+    if (!settings || typeof settings !== 'object') return false;
+    const target = join(agentHome, 'pipiui-settings.json'), ours: Row = existsSync(target) ? readJson(target) : {};
+    mkdirSync(agentHome, {recursive: true});
+    writeFileSync(target, JSON.stringify({...ours, extensions: {...(ours.extensions ?? {}), 'coc-keeper': settings}}, null, 2) + '\n');
+    return true;
 }
