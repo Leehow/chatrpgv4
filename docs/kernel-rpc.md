@@ -52364,6 +52364,25 @@ reads the module's opening hour.
 
 Tests: `tests/integration/npc-affect.test.ts`.
 
+### 259.7 A person's routine at this hour
+
+`kernel-ts/npc/schedule.ts`. The dossier vocabulary (`module-graph-contract-v3.json`'s `actor_dossier.routine_key`, the
+one home of §17.8) names a structured property `schedule`: `[{when: {day_part?: [...the capsule's day parts], clock_range?:
+{from, to}, after_flag?}, where, doing?, reachable?, probability?}]`, and the visual reader's prompt asks for it only when
+the book gives a routine, a printed chance being `probability` (1–100) and none invented. An entry the kernel cannot read
+is skipped. The first entry whose `when` holds at the table's clock (the module's opening hour plus `clock.minutes`) is
+the routine; an entry with a `probability` holds only when its d100 comes in at or under it. The die is a pure function
+of the worldline's seed, the person, the entry and the occasion (`day N <day part>`), so every read of the same moment
+answers the same, it is drawn once per occasion, and it moves no die the table rolls.
+
+The present card and `look focus:npc` carry `schedule_now: {where, doing?, reachable?, roll?: {d100, probability,
+occasion}}` for a person who can act, and the capsule head says once that this is the book's routine, not the person's
+position: `world.npc_presence` stays the one truth of where someone is, `apply npc to` moves them, and what happened at
+the table outranks the routine. Nothing is written. No starter book carries a schedule yet; reading quality is the
+reader's and is measured, not gated.
+
+Tests: `tests/integration/npc-schedule.test.ts`.
+
 ## 260. NPC portrayal: beats, attention and the bearing grant (owner 2026-10-23; amends §254.2, §254.6)
 
 Spec: `docs/specs/npc-portrayal.md`. Research: `docs/research/npc-portrayal-lotm-20261023.md`. The owner's direction: the

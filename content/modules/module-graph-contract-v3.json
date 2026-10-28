@@ -265,7 +265,13 @@
       "impersonates",
       "located-in"
     ],
-    "law": "Every name here already exists in `relation_kinds`; this block groups them by what they are for and adds no vocabulary. A key a book does not give is absent, never invented -- an actor with none is reported by the measure `npcs_without_material` and fails nothing."
+    "law": "Every name here already exists in `relation_kinds`; this block groups them by what they are for and adds no vocabulary. A key a book does not give is absent, never invented -- an actor with none is reported by the measure `npcs_without_material` and fails nothing.",
+    "routine_key": {
+      "key": "schedule",
+      "shape": "[{when: {day_part?: [small_hours|dawn|morning|midday|afternoon|evening|night], clock_range?: {from: \"HH:MM\", to: \"HH:MM\"}, after_flag?: <flag id>}, where: <place as the book names it>, doing?: <one line>, reachable?: <boolean>, probability?: <1-100, only when the book prints a chance>}]",
+      "ask": "this person's routine when the book gives one: where they are at which hours and what they do there, in the book's order; a printed chance (\"30% chance he is in the back room\") is probability, and none is invented",
+      "why": "Contract §259.7: the routine the kernel reads to say where the book puts someone at this hour (schedule_now). The first entry whose when holds is the routine; it is never their position, which world.npc_presence keeps."
+    }
   },
   "creature_dossier": {
     "why": "A creature is a being the book presents only as a body: an animal, a swarm, a mindless monster, or a mind that never deals with anyone. A being the book lets the investigators deal with as someone is an npc (actor_dossier), even when it is a monster. The kind is decided per node and per encounter from how the book treats the being, never per species: one species can be an npc in one encounter and a creature in another; a life stage the book gives its own numbers is its own node; a parasite with its own body and numbers is a creature beside its host; a being with a human and a monstrous form is one npc (contract §180.2). These are the words for what a book says about a creature, the counterpart of actor_dossier. It has no core keys; a package adds its words here (contract §180.8).",

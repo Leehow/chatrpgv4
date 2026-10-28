@@ -1,4 +1,5 @@
 /** Keeper and player read projections preserve the existing authored/state boundary. */
+import { scheduleNow } from "../npc/schedule.js";
 import { affectView } from "../npc/affect.js";
 import { asksFor, asksView } from "../npc/asks.js";
 import {locationPosition,locationFeatures,locationPlaces} from './locations.js';
@@ -962,6 +963,12 @@ export function npcEntry(graph: ModuleGraph, world: Row, node: Row, ledger: Row,
     const saved = row(ledger[node.node_id]), toward = towardParty(saved);
     if (toward)
         entry.toward_party = toward;
+    // §259.7: where the book's routine puts this person at this hour, beside where they are.
+    if (isJsonObject(scope.meta) && !state && !truth(saved.dead)) {
+        const routine = scheduleNow(graph, world, scope.meta, node);
+        if (routine)
+            entry.schedule_now = routine;
+    }
     // §259.4: what this person can be asked for now, when the caller read the requests table; not for one who cannot act.
     if (isJsonObject(scope.requests) && !state && !truth(saved.dead)) {
         const levels = array(row(scope.attitude).levels), start = number(row(scope.attitude).initial_score);
