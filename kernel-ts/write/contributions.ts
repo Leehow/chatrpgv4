@@ -133,6 +133,7 @@ export function preflightCampaign(meta: Row, world: Row, turn: Row, party: Row[]
 /** A ledger entry with nothing folded into it yet (the fold's own starting shape). */
 export const emptyLedgerEntry = (): Row => ({
     stance: null,
+    attitude: {},
     disclosed: [],
     exchanged: [],
     interactions: [],
@@ -205,19 +206,48 @@ export function attitudeWord(table: Row, word: unknown): string | null {
     const legacy = row(table.legacy_words)[word];
     return typeof legacy === 'string' ? legacy : null;
 }
-function setStance(item: Row, table: Row, value: number, turn: number, receipt: any, because: Row): void {
-    const old = row(item.stance), score = Math.max(number(table.score_range[0]), Math.min(number(table.score_range[1]), Math.trunc(value)));
-    const word = array(table.levels).find(level => score <= number(level.at_most))?.value ?? array(table.levels).at(-1)?.value ?? 'neutral';
-    item.stance = {
-        value: word,
-        score,
-        since_turn: old.value !== word ? turn : old.since_turn ?? turn,
-        because: [...array(old.because), {
-                ...because,
-                turn,
-                receipt: receipt ?? null
-            }].slice(-3)
-    };
+const clampScore = (table: Row, value: number): number =>
+    Math.max(number(table.score_range[0]), Math.min(number(table.score_range[1]), Math.trunc(value)));
+const wordOf = (table: Row, score: number): string =>
+    array(table.levels).find(level => score <= number(level.at_most))?.value ?? array(table.levels).at(-1)?.value ?? 'neutral';
+/**
+ * §259.2: the investigators an attitude change is toward. A receipt that names one (the social roll's or the attack's
+ * actor, the impression's investigator) is toward them; one that names nobody (the Keeper's own word, a trade) is toward
+ * every investigator the turn's snapshot lists, else every row already kept, else the party as one row. This phase has a
+ * single investigator (owner, 2026-10-28), so all three are the same row; nothing here combines several.
+ */
+function towardWhom(item: Row, record: Row, named: unknown): string[] {
+    if (typeof named === 'string' && named) return [named];
+    const party = array(row(record.world).investigators).map(sheet => string(row(sheet).id)).filter(Boolean);
+    if (party.length) return party;
+    const kept = Object.keys(row(item.attitude));
+    return kept.length ? kept : ['party'];
+}
+/**
+ * §259.2: move one investigator's attitude row and mirror it as `stance`, the word every reader of §17.3 still reads.
+ * `set` replaces the score, `add` moves it; an impression `base` swaps the starting score under the deltas already folded.
+ */
+function moveAttitude(item: Row, table: Row, investigator: string, change: {set?: number; add?: number; base?: number},
+    turn: number, receipt: any, because: Row): void {
+    const attitude = item.attitude && typeof item.attitude === 'object' && !Array.isArray(item.attitude) ? item.attitude : (item.attitude = {});
+    const prior = row(attitude[investigator]), old = row(item.stance);
+    // A row first written now starts where the party-wide stance stood (a ledger from before §259.2), else at the start.
+    const start = intLike(prior.score) ? number(prior.score) : intLike(old.score) ? number(old.score) : number(table.initial_score);
+    let score = start, base = prior.base ?? 'default', baseScore = intLike(prior.base_score) ? number(prior.base_score) : number(table.initial_score);
+    if (change.base !== undefined) {
+        if (base !== 'default') return;
+        score = start - baseScore + change.base; base = 'impression'; baseScore = change.base;
+    }
+    else if (change.set !== undefined) { score = change.set; if (because.how === 'keeper') base = 'keeper'; }
+    else score = start + number(change.add);
+    score = clampScore(table, score);
+    const word = wordOf(table, score);
+    const next = {value: word, score, base, base_score: baseScore,
+        since_turn: prior.value !== word ? turn : prior.since_turn ?? turn,
+        because: [...array(prior.because), {...because, turn, receipt: receipt ?? null}].slice(-3)};
+    attitude[investigator] = next;
+    item.stance = {value: word, score, since_turn: old.value !== word ? turn : old.since_turn ?? turn,
+        because: [...array(old.because), {...because, turn, receipt: receipt ?? null}].slice(-3)};
 }
 export function foldNpcTurn(ledger: Row, graph: ModuleGraph, record: Row, table: Row): void {
     const turn = number(record.turn);
@@ -236,7 +266,19 @@ export function foldNpcTurn(ledger: Row, graph: ModuleGraph, record: Row, table:
         // §143.8: the stakes die names its person as `actor` but is no interaction with anyone. §178.4: nor is a first
         // impression -- it observes the meeting, and with one on every meeting it would say "tried social" of everyone met.
         // §180.3: the ledger keys an actor, so a creature's fight and death are recorded; its social deltas are gated below.
-        if (kind === 'roll' && !isStakesRoll(receipt) && !isImpressionRoll(receipt) && !isNpcVariationRoll(receipt)) {
+        // §259.2: a first impression is the pair's starting attitude. It is still no interaction (§178.4).
+        if (isImpressionRoll(receipt)) {
+            const id = npcId(graph, receipt.npc), impression = row(receipt.impression);
+            const reaction = row(table.initial_by_impression)[string(impression.reaction)];
+            const disposition = row(table.impression_dispositions)[string(impression.disposition)];
+            const start = intLike(reaction) ? number(reaction) : intLike(disposition) ? number(disposition) : null;
+            if (id && start !== null)
+                for (const who of towardWhom(entry(ledger, id), record, receipt.actor))
+                    moveAttitude(entry(ledger, id), table, who, {base: start}, turn, receipt.id,
+                        {how: 'impression', reaction: impression.reaction ?? impression.disposition ?? null});
+            continue;
+        }
+        if (kind === 'roll' && !isStakesRoll(receipt) && !isNpcVariationRoll(receipt)) {
             const against = actorId(graph, receipt.npc), actor = actorId(graph, receipt.actor);
             const family = ['social', 'combat', 'chase', 'psychology'].includes(receipt.family || receipt.roll_kind) ? receipt.family || receipt.roll_kind : null;
             for (const [id, target] of [[against, true], [actor, false]] as const) {
@@ -255,9 +297,10 @@ export function foldNpcTurn(ledger: Row, graph: ModuleGraph, record: Row, table:
                 if (!target)
                     continue;
                 if (family === 'combat') {
-                    setStance(item, table, number(table.combat_target_score), turn, receipt.id, {
-                        how: 'combat'
-                    });
+                    // §259.2: toward the attacker when an investigator struck; a blow from someone else is toward all.
+                    const attacker = !actor && typeof receipt.actor === 'string' ? receipt.actor : null;
+                    for (const who of towardWhom(item, record, attacker))
+                        moveAttitude(item, table, who, {set: number(table.combat_target_score)}, turn, receipt.id, {how: 'combat'});
                     continue;
                 }
                 // §180.3: the stance ledger's social deltas are a person's; a creature is not talked round.
@@ -271,12 +314,13 @@ export function foldNpcTurn(ledger: Row, graph: ModuleGraph, record: Row, table:
                 const raw = row(row(table.social)[string(approach || '')])[string(receipt.level || '')];
                 let delta = intLike(raw) ? number(raw) : 0;
                 if (delta)
-                    setStance(item, table, (intLike(row(item.stance).score) ? number(item.stance.score) : number(table.initial_score)) + delta, turn, receipt.id, {
-                        how: 'social',
-                        approach: approach ?? null,
-                        level: receipt.level ?? null,
-                        delta
-                    });
+                    for (const who of towardWhom(item, record, receipt.actor))
+                        moveAttitude(item, table, who, {add: delta}, turn, receipt.id, {
+                            how: 'social',
+                            approach: approach ?? null,
+                            level: receipt.level ?? null,
+                            delta
+                        });
             }
         }
         else if (kind === 'clue' || kind === 'item' || kind === 'cash') {
@@ -292,6 +336,11 @@ export function foldNpcTurn(ledger: Row, graph: ModuleGraph, record: Row, table:
                     turn,
                     receipt: receipt.id ?? null
                 });
+            // §259.2: a completed trade with a person warms them once a turn (a quote never reaches here).
+            if ((kind === 'item' || kind === 'cash') && graph.isPerson(graph.nodes.get(id)) && intLike(table.trade_delta) && number(table.trade_delta)
+                && !array(item.exchanged).some((r: Row) => r.turn === turn))
+                for (const who of towardWhom(item, record, null))
+                    moveAttitude(item, table, who, {add: number(table.trade_delta)}, turn, receipt.id, {how: 'trade'});
             if (kind === 'item')
                 item.exchanged.push({
                     item: receipt.label || receipt.name || null,
@@ -319,11 +368,12 @@ export function foldNpcTurn(ledger: Row, graph: ModuleGraph, record: Row, table:
             const written = attitudeWord(table, receipt.stance);
             for (const level of levels) {
                 if (written === level.value) {
-                    setStance(item, table, floor, turn, receipt.id, {
-                        how: 'keeper',
-                        stance: written,
-                        why: receipt.why ?? null
-                    });
+                    for (const who of towardWhom(item, record, null))
+                        moveAttitude(item, table, who, {set: floor}, turn, receipt.id, {
+                            how: 'keeper',
+                            stance: written,
+                            why: receipt.why ?? null
+                        });
                     break;
                 }
                 floor = number(level.at_most) + 1;

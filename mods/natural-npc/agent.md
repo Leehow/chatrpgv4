@@ -28,9 +28,10 @@ choices. Explain the causal reaction in the story without restating the numbers.
 On critical/fumble, realize a material opportunity/complication within the fiction
 and land actual world changes through apply; never leave it as a bare dice card.
 
-The initial impression is pair-specific. It is not the party's shared stance and
-does not overwrite later interactions. Continue to use the existing social checks,
-NPC ledger and apply npc for subsequent developments, with a reason when needed.
+The impression is this person's starting attitude toward this investigator: the kernel
+turns it into their attitude word (`toward_party`), and the settled social checks, a
+fight or a trade move it from there. A good impression is not consent to any request.
+Use apply npc stance only for a change the dice did not settle, with a reason.
 
 ## Asking for something
 

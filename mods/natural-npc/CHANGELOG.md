@@ -1,3 +1,7 @@
+## 1.7.4
+
+"The impression in play" says the first impression is the person's starting attitude toward the investigator, which the kernel folds into their attitude word and moves by settled checks, fights and trades (contract §259.2). It no longer says the impression is separate from the party's stance. Guidance only; state_version stays 1.
+
 ## 1.7.3
 
 "First impression" says when the roll is due (the first time the investigator asks this person for something they would not give just anyone) instead of asking the Keeper to decide whether it matters. A MiniMax Keeper deliberated that question at length for every new speaker and reversed its own decision within one turn (2026-10-24, contract §264.4). 1.7.2 was a local test draft of the same rule, never released.

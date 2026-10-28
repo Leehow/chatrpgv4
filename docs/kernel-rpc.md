@@ -52247,6 +52247,33 @@ every fight and stakes die reads as before. The `apply` tool's `stance` enum is 
 Tests: `tests/integration/npc-attitude-table.test.ts`; `tests/integration/npc-npc-layer.test.ts` and
 `tests/integration/npc-npc-standing-action.test.ts` follow the new words.
 
+### 259.2 A person's attitude toward the investigator
+
+A ledger entry gains `attitude: {<investigator id>: {value, score, base, base_score, since_turn, because}}` (`because`
+the last three causes), and `stance` mirrors the row last moved, so every reader of §17.3 (`stanceNow`, the present
+card's `toward_party`, the stakes die, the combat disposition) reads the same word. This phase has one investigator:
+a receipt that names an investigator (a social roll's `actor`, an attacker, an impression's `actor`) moves that row;
+one that names nobody (the Keeper's `apply npc stance`, a trade) moves every investigator the turn's snapshot lists.
+Nothing combines several investigators.
+
+- **First impression** (§178, natural-npc's `first-impression` check). Its receipt sets the pair's starting score to
+  `initial_by_impression[reaction]` (else `impression_dispositions[disposition]`), keeping the deltas already folded,
+  `base: "impression"`. It does so only while the row's base is the default: a Keeper's word stands. It is still no
+  interaction (§178.4): no `interactions` row, no `tried` line.
+- **Social settlements, a pushed failure, a fight** move the row by the table as §17.3 did.
+- **A trade**: a `cash` receipt with the person as `with` (a quote never reaches the ledger) or an `item` receipt from
+  them adds `trade_delta` (1) once per turn.
+- **The Keeper's word**: `apply npc stance` sets the row to the word's floor with `base: "keeper"`.
+- A row first written on a ledger from before §259.2 starts at the party-wide `stance` score it already had.
+- The present card's `toward_party.because` adds `turn N: first impression <reaction>` and `turn N: traded`.
+
+Not built, by the owner's ruling and for want of a source: a commitment an investigator made to a person and then kept
+or broke. §258.11's agreements only have a person as the obligor, so nothing in the records says an investigator
+betrayed someone; the table carries no number for it until something does. natural-npc 1.7.4 says the impression is
+the starting attitude.
+
+Tests: `tests/integration/npc-attitude-fold.test.ts`.
+
 ## 260. NPC portrayal: beats, attention and the bearing grant (owner 2026-10-23; amends §254.2, §254.6)
 
 Spec: `docs/specs/npc-portrayal.md`. Research: `docs/research/npc-portrayal-lotm-20261023.md`. The owner's direction: the

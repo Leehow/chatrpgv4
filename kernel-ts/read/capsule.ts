@@ -981,6 +981,15 @@ export function npcEntry(graph: ModuleGraph, world: Row, node: Row, ledger: Row,
         entry.from_other_lines = elsewhere;
     return entry;
 }
+/** §259.2: one cause of an attitude, as the present card says it. */
+function becauseLine(cause: Row): string {
+    const at = `turn ${string(cause.turn)}`;
+    if (cause.how === "keeper") return `${at}: keeper set ${string(cause.stance)}${cause.why ? `: ${cause.why}` : ""}`;
+    if (cause.how === "combat") return `${at}: fought`;
+    if (cause.how === "impression") return `${at}: first impression ${string(cause.reaction)}`;
+    if (cause.how === "trade") return `${at}: traded`;
+    return `${at}: ${string(cause.approach)} ${string(cause.level)}`;
+}
 /** How a present being stands toward the party, from the stance ledger's committed fold, or null when nothing was folded. */
 function towardParty(saved: Row): Row | null {
     const stance = row(saved.stance);
@@ -988,7 +997,7 @@ function towardParty(saved: Row): Row | null {
         return null;
     return {
         stance: stance.value,
-        because: array(stance.because).slice(-3).map(cause => cause.how === "keeper" ? `turn ${string(cause.turn)}: keeper set ${string(cause.stance)}${cause.why ? `: ${cause.why}` : ""}` : cause.how === "combat" ? `turn ${string(cause.turn)}: fought` : `turn ${string(cause.turn)}: ${string(cause.approach)} ${string(cause.level)}`)
+        because: array(stance.because).slice(-3).map(becauseLine)
     };
 }
 /** §180.4: what the book says a creature is, one line of at most 160 characters, or "" when it says nothing. */
