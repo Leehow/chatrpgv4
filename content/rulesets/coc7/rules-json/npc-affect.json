@@ -1,0 +1,13 @@
+{
+  "contract_id": "coc.npc-affect.v1",
+  "schema_version": 1,
+  "note": "Contract §259.6: how afraid a person is right now (fear) and how hard pressed (pressure), each a level in range, folded from receipts like the rest of the NPC ledger. Each level starts at baseline. An event the kernel reads raises a level by its step, at most once a turn: attacked (a combat roll made against this person), intimidated (an Intimidate made against this person that passed; by_level gives a larger step for the levels it names), tied_person_dead (someone this person is tied to on the graph, §17.2, died). The Keeper may set either level with apply npc {fear, pressure, why}. Every day part the game clock crosses (the capsule's day parts, from the module's opening time) brings each level steps_per_day_part toward its baseline. A level never feels: it is an input to the stakes die (npc-stakes.json's fear_at_least and pressure_at_least) and a figure on the present card beside the Keeper's own mood line. An event absent from this table moves nothing.",
+  "range": [0, 5],
+  "baseline": {"fear": 0, "pressure": 0},
+  "events": {
+    "attacked": {"fear": 2},
+    "intimidated": {"fear": 1, "by_level": {"extreme": 2, "critical": 2}},
+    "tied_person_dead": {"fear": 1, "pressure": 2}
+  },
+  "decay": {"steps_per_day_part": 1}
+}

@@ -14,6 +14,7 @@ import {castPersonNamed,openingCast,sourceNameReadFix} from '../read/cast.js';
 import {array,entries,integer,normalize,number,repr,row,sorted,string,truth,type Row} from '../read/values.js';
 import {attitudeWord, stanceTable} from '../write/contributions.js';
 import {blockedNow} from '../npc/asks.js';
+import {AFFECT_KEYS, affectTable} from '../npc/affect.js';
 import {required,nowIso} from '../write/store.js';
 import {effectId,type StagedEffect} from './bookkeeping.js';
 import {archetypeIds,rollArchetypeProfile} from './archetype.js';
@@ -348,7 +349,7 @@ function refuseNotAPerson(graph:ApplyContext['graph'],node:Row,effect:Row):void{
  * and its result, §11.5.2-§11.5.3's defense, action and disposition, conditions, a reunion, the host's draws). A `walk_on` on
  * someone this table already has gains `to: here` only on an effect that opens none of them. Closed effect keys, read as keys.
  */
-const STANDALONE_VARIANTS:readonly string[]=Object.freeze(['activity','mood','intends','outcome','intent_outcome','defense','action','disposition','conditions','reunion','_draws','_produces']);
+const STANDALONE_VARIANTS:readonly string[]=Object.freeze(['activity','mood','fear','pressure','intends','outcome','intent_outcome','defense','action','disposition','conditions','reunion','_draws','_produces']);
 /** §198.3: the keys a seat at the opening carries -- who, where, why, and the walk_on §198.1 reads as an arrival. */
 const OPENING_SEAT_KEYS:readonly string[]=Object.freeze(['kind','name','to','why','walk_on','_new_person']);
 /** §198.3: an npc effect shaped as an opening seat; whether it is one is `refuseUnlessOpeningSeat`'s to say. */
@@ -388,6 +389,20 @@ export async function stageNpc(context:ApplyContext,effect:Row):Promise<StagedEf
     // Contract §161.1: what this person feels right now. Its own variant, like the intention: one line in the play
     // language, an ordinary keeper-only receipt, no world value. `previous` is the line the committed ledger holds --
     // the one this replaces when the turn closes (§161.2: within a turn the newest wins) -- or null.
+    // §259.6: the Keeper's own word on how afraid or hard pressed this person is now: its own variant, like the mood.
+    if(effect.fear!=null||effect.pressure!=null){
+        const combined=[...MOOD_CONFLICTS,'mood'].filter(key=>effect[key]!=null);
+        if(combined.length)throw new RpcError('invalid_params','npc.fear and npc.pressure are their own effect',{fix:'write them in one npc effect and the other change in a second effect of the same batch',details:{field:'npc.fear',conflicts:combined}});
+        const table=await affectTable(context.kernel),[low,high]=array(table.range).map(number),levels:Row={};
+        for(const key of AFFECT_KEYS){
+            if(effect[key]==null)continue;
+            if(!integer(effect[key])||number(effect[key])<low||number(effect[key])>high)
+                throw new RpcError('invalid_params',`npc.${key} is a whole number from ${low} to ${high}`,{fix:`write ${key} as a level from ${low} (none) to ${high}`,details:{field:`npc.${key}`,given:effect[key]}});
+            levels[key]=number(effect[key]);
+        }
+        const receipt={id:effectId(context,'npc',handle),kind:'npc',call_id:context.callId,npc:node.node_id,handle,name:graph.displayName(node),label:personLabel(world,handle,graph.displayName(node)),...levels,...establishedOf(established,fromPassage,resolvedFrom),why,visibility:'keeper',at:nowIso()};
+        return walked({receipt,event:{type:'npc-changed',data:{npc:handle,...levels,why}}});
+    }
     if(effect.mood!=null){
         const combined=MOOD_CONFLICTS.filter(key=>effect[key]!=null);
         if(combined.length)throw new RpcError('invalid_params','npc.mood is its own effect',{fix:'write the mood in one npc effect and the other change in a second effect of the same batch',details:{field:'npc.mood',conflicts:combined}});

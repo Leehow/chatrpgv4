@@ -387,7 +387,7 @@ try{n=(await hit_corbitt(client));
 (await resolve(client,"t2-c4",({"intent":"combat","goal":"combat:defend","method":"combat:defend","actor":"Walter Corbitt","defense":"dodge"})));
 (await stakes(client));
 const __unpack28960=(await stakes_receipts(client));receipt=__unpack28960[0];
-assert.ok(pyBool(pyEqual(pyAt(receipt,"shifts"),["attacked_this_turn","attacked_last_turn","in_fight_with_investigators"])),"tests/kernel/test_npc_stakes.py:515 assert receipt[\"shifts\"] == [\"attacked_this_turn\", \"attacked_last_turn\", \"in_fight_with_investigators\"]");
+assert.ok(pyBool(pyEqual(pyAt(receipt,"shifts"),["attacked_this_turn","attacked_last_turn","in_fight_with_investigators","fear_at_least"])),"tests/kernel/test_npc_stakes.py:515 assert receipt[\"shifts\"] == [\"attacked_this_turn\", \"attacked_last_turn\", \"in_fight_with_investigators\"]");
 assert.ok(pyBool((await (async()=>{const __term0=pyAt(receipt,"rung");const __term1="tense";const __term2=(await moved("calm",pyAt(receipt,"shifts")));return pyCompare(__term0,__term1,"==")&&pyCompare(__term1,__term2,"==");})())),pyStr("three facts of one group: one rung"));}finally{(await pyMethod(client,"close",[],{}));}
 }
 if(process.argv[1]===import.meta.filename)for(const [index,row] of ([{}]).entries())test("test_all_three_violence_facts_at_once_are_still_one_rung"+(([{}]).length>1?' ['+index+']':''),async(t)=>{const temporary=temporaryPath(t);await test_all_three_violence_facts_at_once_are_still_one_rung(temporary);});
@@ -463,7 +463,7 @@ pyAt(pyAt(table,"shifts"),"hp_at_most_half")["group"]="rage";
 }
 export async function group_of_one_shift(table:any){
 let name:any;
-for(name of pyIterable(["attacked_last_turn","in_fight_with_investigators"])){
+for(name of pyIterable(["attacked_last_turn","in_fight_with_investigators","fear_at_least"])){
 delete pyAt(pyAt(table,"shifts"),name)["group"];
 }
 }
@@ -568,9 +568,9 @@ disposition=(await pyMethod(json,"loads",[(await pyMethod((pyDivide(pyDivide(pyD
 assert.ok(pyBool(pyEqual((await pySet(pyAt(table,"base_by_disposition"))),(await pySet(pyAt(disposition,"dispositions"))))),"tests/kernel/test_npc_stakes.py:727 assert set(table[\"base_by_disposition\"]) == set(disposition[\"dispositions\"])");
 assert.ok(pyBool((await pyAll((await (async()=>{const __rows:any[]=[];for(const rung of pyIterable(pyAt(table,"rungs"))){__rows.push(pyLess(pyAt(rung,"severe_at_most"),100));}return __rows;})())))),pyStr("no rung makes severe certain (spec D9)"));
 assert.ok(pyBool(pyContains(names,pyAt(table,"default_rung"))),"tests/kernel/test_npc_stakes.py:729 assert table[\"default_rung\"] in names");
-assert.ok(pyBool(pyEqual((await pySet(pyAt(table,"shifts"))),new Set(["attacked_this_turn","attacked_last_turn","in_fight_with_investigators","hp_at_most_half","table_clock_past_half","stance_friendly"]))),"tests/kernel/test_npc_stakes.py:730 assert set(table[\"shifts\"]) == {\"attacked_this_turn\", \"attacked_last_turn\", \"in_fight_with_investigators\", \"hp_at_most_half\",\n                                    \"table_clock_past_half\", \"stance_friendly\"}");
+assert.ok(pyBool(pyEqual((await pySet(pyAt(table,"shifts"))),new Set(["attacked_this_turn","attacked_last_turn","in_fight_with_investigators","hp_at_most_half","table_clock_past_half","stance_friendly","fear_at_least","pressure_at_least"]))),"tests/kernel/test_npc_stakes.py:730 assert set(table[\"shifts\"]) == {\"attacked_this_turn\", \"attacked_last_turn\", \"in_fight_with_investigators\", \"hp_at_most_half\",\n                                    \"table_clock_past_half\", \"stance_friendly\"}");
 assert.ok(pyBool(pyEqual((await pySet(pyAt(table,"shift_groups"))),new Set(["violence"]))),"tests/kernel/test_npc_stakes.py:733 assert set(table[\"shift_groups\"]) == {\"violence\"}");
-assert.ok(pyBool(pyEqual(new Set((await (async()=>{const __rows:any[]=[];for(const [name,shift] of pyIterable((await pyMethod(pyAt(table,"shifts"),"items",[],{})))){if(pyBool(pyEqual((await pyMethod(shift,"get",["group"],{})),"violence"))){__rows.push(name);}}return __rows;})())),new Set(["attacked_this_turn","attacked_last_turn","in_fight_with_investigators"]))),"tests/kernel/test_npc_stakes.py:734 assert {name for name, shift in table[\"shifts\"].items() if shift.get(\"group\") == \"violence\"} == \\\n        {\"attacked_this_turn\", \"attacked_last_turn\", \"in_fight_with_investigators\"}");
+assert.ok(pyBool(pyEqual(new Set((await (async()=>{const __rows:any[]=[];for(const [name,shift] of pyIterable((await pyMethod(pyAt(table,"shifts"),"items",[],{})))){if(pyBool(pyEqual((await pyMethod(shift,"get",["group"],{})),"violence"))){__rows.push(name);}}return __rows;})())),new Set(["attacked_this_turn","attacked_last_turn","in_fight_with_investigators","fear_at_least"]))),"tests/kernel/test_npc_stakes.py:734 assert {name for name, shift in table[\"shifts\"].items() if shift.get(\"group\") == \"violence\"} == \\\n        {\"attacked_this_turn\", \"attacked_last_turn\", \"in_fight_with_investigators\"}");
 assert.ok(pyBool(!pyBool((await pyAny((await (async()=>{const __rows:any[]=[];for(const name of pyIterable(["hp_at_most_half","table_clock_past_half","stance_friendly"])){__rows.push(pyContains(pyAt(pyAt(table,"shifts"),name),"group"));}return __rows;})()))))),"tests/kernel/test_npc_stakes.py:736 assert not any(\"group\" in table[\"shifts\"][name] for name in (\"hp_at_most_half\", \"table_clock_past_half\", \"stance_friendly\"))");
 }
 if(process.argv[1]===import.meta.filename)for(const [index,row] of ([{}]).entries())test("test_the_shipped_table_names_every_disposition_and_archetype_and_no_certain_rung"+(([{}]).length>1?' ['+index+']':''),async(t)=>{const temporary=temporaryPath(t);await test_the_shipped_table_names_every_disposition_and_archetype_and_no_certain_rung();});

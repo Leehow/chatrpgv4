@@ -38,7 +38,8 @@ import {clockSegment, tableThreats, tableThreatSegment} from '../read/pressures.
 import {SessionView} from '../read/session-view.js';
 import {array, number, numeric, row, string, type Row} from '../read/values.js';
 import {npcProfileOf} from '../resolve/context.js';
-import {stanceTable} from '../write/contributions.js';
+import {emptyLedgerEntry, foldNpcTurn, stanceTable} from '../write/contributions.js';
+import {affectLevels, affectTable} from './affect.js';
 import type {createWriteRuntime} from '../write/index.js';
 import {nowIso, turnStateError} from '../write/store.js';
 import {committedOnLine, personOf, placedConstraints, stateOf, type Person} from './situation.js';
@@ -66,6 +67,8 @@ const SHIFT_PARAMETERS: Readonly<Record<string, string | null>> = Object.freeze(
     hp_at_most_half: 'hp_fraction_at_most',
     table_clock_past_half: 'clock_fraction_above',
     stance_friendly: 'stance_in',
+    fear_at_least: 'at_least',
+    pressure_at_least: 'at_least',
 });
 
 const tableError = (message: string, details: Row = {}) => new RpcError('campaign_not_ready', `npc-stakes: ${message}`,
@@ -135,7 +138,8 @@ export async function stakesTable(context: KernelContext): Promise<Row> {
             || Object.hasOwn(shift, 'group') && (typeof shift.group !== 'string' || !Object.hasOwn(groups, shift.group))
             || parameter === 'hp_fraction_at_most' && !fraction(shift[parameter])
             || parameter === 'clock_fraction_above' && !fraction(shift[parameter])
-            || parameter === 'stance_in' && (!array(shift[parameter]).length || !array(shift[parameter]).every(word => stances.includes(word)));
+            || parameter === 'stance_in' && (!array(shift[parameter]).length || !array(shift[parameter]).every(word => stances.includes(word)))
+            || parameter === 'at_least' && !Number.isInteger(shift[parameter]);
         if (bad)
             throw tableError(`shift ${name} is {step: <integer>${parameter ? `, ${parameter}` : ''}, group?: <a declared group>} and a shift the kernel reads`,
                 {shift: name, options: Object.keys(SHIFT_PARAMETERS), groups: Object.keys(groups), ...(parameter === 'stance_in' ? {stances} : {})});
@@ -202,6 +206,7 @@ export function inFightWithInvestigators(view: SessionView, session: Row | null,
 interface StakesFacts {
     attacked: boolean; attackedLast: boolean; inFight: boolean;
     hp: number | null; hpMax: number | null; stance: string | null; clocks: Array<[number, number]>;
+    fear: number; pressure: number;
 }
 function shiftHolds(name: string, shift: Row, facts: StakesFacts): boolean {
     if (name === 'attacked_this_turn')
@@ -216,6 +221,11 @@ function shiftHolds(name: string, shift: Row, facts: StakesFacts): boolean {
         return facts.clocks.some(([at, of]) => of > 0 && at / of > number(shift.clock_fraction_above));
     if (name === 'stance_friendly')
         return facts.stance !== null && array(shift.stance_in).includes(facts.stance);
+    // §259.6: how afraid and how hard pressed the person is now.
+    if (name === 'fear_at_least')
+        return facts.fear >= number(shift.at_least);
+    if (name === 'pressure_at_least')
+        return facts.pressure >= number(shift.at_least);
     return false;
 }
 
@@ -266,6 +276,14 @@ async function factsOf(context: KernelContext, campaign: CampaignSnapshot, graph
     let ledger: Row = {};
     try { ledger = row(await campaign.optional('npc-ledger.json')); } catch { /* An unreadable ledger is an empty one, as for the situation read. */ }
     const stance = stanceNow(graph, ledger, await stanceTable(context), turn, me.handle);
+    const affect = await affectTable(context), node = graph.actor(me.handle);
+    let entry = node ? row(ledger[string(node.node_id)]) : {};
+    if (node && ['open', 'acting'].includes(string(turn.state)) && array(turn.receipts).length) {
+        const scratch: Row = {[string(node.node_id)]: {...emptyLedgerEntry(), ...JSON.parse(JSON.stringify(entry))}};
+        foldNpcTurn(scratch, graph, {turn: turn.turn, receipts: turn.receipts}, await stanceTable(context), affect);
+        entry = row(scratch[string(node.node_id)]);
+    }
+    const levels = affectLevels(entry, affect);
     const view = new SessionView(campaign, graph, party, world), session = view.activeSession();
     const state = stateOf(graph, world, me, session, stance);
     const hp = typeof state.hp === 'number' ? state.hp : null, hpMax = typeof state.hp_max === 'number' ? state.hp_max : null;
@@ -273,7 +291,7 @@ async function factsOf(context: KernelContext, campaign: CampaignSnapshot, graph
     // `happened` reads its earlier sentences from.
     const {previous} = committedOnLine(campaign);
     return {attacked: attackedThisTurn(array(turn.receipts), me), attackedLast: previous !== null && attackedThisTurn(array(previous.receipts), me),
-        inFight: inFightWithInvestigators(view, session, me), hp, hpMax, stance, clocks: tableClocks(graph, world)};
+        inFight: inFightWithInvestigators(view, session, me), hp, hpMax, stance, clocks: tableClocks(graph, world), fear: levels.fear, pressure: levels.pressure};
 }
 
 export function createStakesHandlers(context: KernelContext, writer: ReturnType<typeof createWriteRuntime>): HandlerGroup {

@@ -1,4 +1,5 @@
 /** Keeper and player read projections preserve the existing authored/state boundary. */
+import { affectView } from "../npc/affect.js";
 import { asksFor, asksView } from "../npc/asks.js";
 import {locationPosition,locationFeatures,locationPlaces} from './locations.js';
 import {observationRoutes} from './location-observations.js';
@@ -921,6 +922,8 @@ export function npcEntry(graph: ModuleGraph, world: Row, node: Row, ledger: Row,
         // After `state`, before the dossier (§161.3): present[] is cut from the bottom, and this is what decides how
         // the next line sounds.
         ...(now ? {now} : {}),
+        // §259.6: how afraid and how hard pressed, beside the mood line the Keeper writes from it.
+        ...(!state && !truth(ledgerRow.dead) && affectView(ledgerRow) ? {affect: affectView(ledgerRow)} : {}),
         ...(variation ? {variation} : {}),
         ...dossier(graph, world, node, seat),
         ...(personalityView(graph, world, node) ? {personality: personalityView(graph, world, node)} : {}),
@@ -1083,6 +1086,7 @@ export function npcView(graph: ModuleGraph, world: Row, node: Row, ledger: Row =
         visibility: node.visibility ?? null,
         ...(npcState(graph, world, node) ? {state: npcState(graph, world, node)} : {}),
         ...(now ? {now} : {}),
+        ...(affectView(row(ledger[node.node_id])) ? {affect: affectView(row(ledger[node.node_id]))} : {}),
         ...(variation ? {variation} : {}),
         ...dossier(graph, world, node),
         ...(personalityView(graph, world, node) ? {personality: personalityView(graph, world, node)} : {}),

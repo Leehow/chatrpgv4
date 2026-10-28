@@ -10,12 +10,16 @@ test('a relationship toward the investigator compiles to a stance effect after t
  assert.equal(compiled.event.relationships.length,1,'the §258.7 statement is still written');
  const stance=compiled.effects.filter(effect=>effect.kind==='npc'&&effect.stance);
  assert.deepEqual(stance,[{kind:'npc',name:'npc_1',stance:'hostile',why:'The Keeper set how they stand with the investigator after this exchange.'}]);
- assert.equal(compiled.effects.at(-1),stance[0],'it settles last, after the mood');
+ const moodAt=compiled.effects.findIndex(effect=>effect.mood),stanceAt=compiled.effects.indexOf(stance[0]);
+ assert.ok(stanceAt>moodAt,'it settles after the mood');
+ // §259.6: the relationship's fear is the person's own level, set by the Keeper last of all.
+ assert.deepEqual(compiled.effects.at(-1),{kind:'npc',name:'npc_1',fear:3,why:'The Keeper set how afraid and how hard pressed they are after this exchange.'});
 });
 
 test('a relationship toward another person, or one without a disposition, writes no stance',()=>{
  for(const command of [{kind:'relationship',actor:'npc_1',toward:'npc_2',disposition:'ally'},
   {kind:'relationship',actor:'npc_1',toward:'investigator_1',control:'coerced'}]){
+  // (neither carries fear or pressure, so neither writes an affect effect either)
   const compiled=compileTurnPacket({version:4,commands:[command]});
   assert.ok(!compiled.effects.some(effect=>effect.kind==='npc'&&effect.stance),JSON.stringify(command));
  }

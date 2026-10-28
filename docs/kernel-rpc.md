@@ -52339,6 +52339,31 @@ later turns. A freeze does not lift with time alone.
 
 Tests: `tests/integration/npc-failure-scope.test.ts`.
 
+### 259.6 Fear and pressure: levels that rise with events and settle with the hours (amends §143.8, §161)
+
+`content/rulesets/coc7/rules-json/npc-affect.json` (`coc.npc-affect.v1`), `kernel-ts/npc/affect.ts`. A ledger entry gains
+`affect: {fear: {level, baseline, since_turn?, because}, pressure: {...}, day_part, seen}`, levels 0–5 from baseline 0.
+The fold reads a closed set of events, each at most once a turn: `attacked` (a combat roll against the person: fear +2),
+`intimidated` (an Intimidate against them that passed: fear +1, +2 at extreme or critical), `tied_person_dead` (someone
+the graph ties to them, §17.2's ties read both ways, died by receipt or `apply npc dead`: fear +1, pressure +2). The
+Keeper sets either through §258.7's `relationship` command (its `fear`, `pressure`): the packet compiles them, last in
+the turn, to `apply {kind: "npc", name, fear?, pressure?, why}`, an effect of its own like the mood (combined with
+another npc field it refuses `invalid_params` naming the conflicts; out of range it refuses naming the field). The apply
+tool does not declare the two fields: a wider tool schema crowded out the material prescreen
+(`tests/extension/npc-preparation-integration.test.mjs`). Before a
+turn's events, every day part the game clock crossed since the last reading (the capsule's `DAY_PARTS` from the
+module's opening hour, `clockStart`; the turn record's snapshot carries `clock.minutes`) brings each level
+`steps_per_day_part` (1) toward its baseline. Nothing here is text: the Keeper still writes the mood line (§161).
+
+Readers: the present card and `look focus:npc` carry `affect: {fear: {level, because}, pressure: {...}}` beside `now`
+while either level stands above its baseline; the stakes die (§143.8) gains `fear_at_least` and `pressure_at_least`
+(each +1 at 4 or more, fear in §143.26's `violence` group, since blows are what raise fear and must not move the rung twice; pressure on its own), its facts folded with the open turn's
+receipts as the stance is. Not built for want of a reading the kernel has: a threat clock past half and an NPC's own
+coercion as pressure. A start time the table pinned in `world.clock.start_local` is not in the turn snapshot; the decay
+reads the module's opening hour.
+
+Tests: `tests/integration/npc-affect.test.ts`.
+
 ## 260. NPC portrayal: beats, attention and the bearing grant (owner 2026-10-23; amends §254.2, §254.6)
 
 Spec: `docs/specs/npc-portrayal.md`. Research: `docs/research/npc-portrayal-lotm-20261023.md`. The owner's direction: the

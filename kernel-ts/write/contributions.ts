@@ -1,4 +1,6 @@
 /** Bounded source-independent contributions required by ordinary turn closure. */
+import { AFFECT_KEYS, affectTable, dayPartOrdinal, decayAffect, raiseAffect, setAffect } from '../npc/affect.js';
+import { clockStart } from '../read/capsule.js';
 import { mkdir, rename, writeFile } from 'node:fs/promises';
 import { randomUUID } from 'node:crypto';
 import { dirname, join } from 'node:path';
@@ -269,8 +271,13 @@ function foldAsk(item: Row, receipt: Row, turn: number): void {
         kept.push({key, what, ask: ask.ask ?? null, skill: receipt.skill ?? null, word: row(item.stance).value ?? null, turn, receipt: receipt.id ?? null});
     if (kept.length || Object.hasOwn(item, 'blocked')) item.blocked = kept;
 }
-export function foldNpcTurn(ledger: Row, graph: ModuleGraph, record: Row, table: Row): void {
+export function foldNpcTurn(ledger: Row, graph: ModuleGraph, record: Row, table: Row, affect: Row | null = null): void {
     const turn = number(record.turn);
+    // §259.6: the day parts the clock crossed bring fear and pressure back toward their baseline before this turn's events.
+    const minutes = row(row(record.world).clock).minutes, ordinal = affect && intLike(minutes) ? dayPartOrdinal(clockStart(graph).minutes, number(minutes)) : null;
+    if (affect && ordinal !== null)
+        for (const value of Object.values(ledger))
+            decayAffect(row(value), affect, ordinal);
     for (const receipt of array(record.receipts)) {
         const kind = receipt.kind;
         // Contract §142.3: a receipt that reports a result of what a person was trying to do carries `intent`, whatever
@@ -318,6 +325,8 @@ export function foldNpcTurn(ledger: Row, graph: ModuleGraph, record: Row, table:
                     continue;
                 // §259.5: a roll on a request row freezes what it was after when it fails, and frees it when it passes.
                 foldAsk(item, receipt, turn);
+                if (family === 'combat' && affect)
+                    raiseAffect(item, affect, 'attacked', turn, receipt.id);
                 if (family === 'combat') {
                     // §259.2: toward the attacker when an investigator struck; a blow from someone else is toward all.
                     const attacker = !actor && typeof receipt.actor === 'string' ? receipt.actor : null;
@@ -333,6 +342,8 @@ export function foldNpcTurn(ledger: Row, graph: ModuleGraph, record: Row, table:
                 // An NPC speaking to another NPC is no change in the listener's stance toward the party.
                 if (family === 'social' && actor)
                     continue;
+                if (affect && approach === 'intimidate' && (receipt.passed ?? row(receipt.check).passed) === true)
+                    raiseAffect(item, affect, 'intimidated', turn, receipt.id, receipt.level);
                 const raw = row(row(table.social)[string(approach || '')])[string(receipt.level || '')];
                 let delta = intLike(raw) ? number(raw) : 0;
                 if (delta)
@@ -409,6 +420,13 @@ export function foldNpcTurn(ledger: Row, graph: ModuleGraph, record: Row, table:
                         why: receipt.why
                     } : {})
                 };
+            // §259.6: the Keeper's own word on fear or pressure.
+            if (affect)
+                for (const key of AFFECT_KEYS)
+                    if (intLike(receipt[key]))
+                        setAffect(item, affect, key, number(receipt[key]), turn, receipt.id, receipt.why);
+            if (receipt.dead === true && affect && !item.dead)
+                mourn(ledger, graph, id, affect, turn, receipt.id);
             if (receipt.dead === true)
                 item.dead = {
                     turn,
@@ -428,11 +446,13 @@ export function foldNpcTurn(ledger: Row, graph: ModuleGraph, record: Row, table:
             const id = actorId(graph, receipt.subject);
             if (id) {
                 const item = entry(ledger, id);
-                if (!Object.hasOwn(item, 'dead'))
+                if (!Object.hasOwn(item, 'dead')) {
                     item.dead = {
                         turn,
                         receipt: receipt.id ?? null
                     };
+                    if (affect) mourn(ledger, graph, id, affect, turn, receipt.id);
+                }
             }
         }
     }
@@ -464,6 +484,15 @@ export function foldNpcTurn(ledger: Row, graph: ModuleGraph, record: Row, table:
                 seen.first = turn;
         }
     }
+    if (affect && ordinal !== null)
+        for (const value of Object.values(ledger))
+            if (row(value).affect && !intLike(row(row(value).affect).day_part)) row(value).affect.day_part = ordinal;
+}
+/** §259.6: everyone the graph ties to a person who just died is shaken (tied_person_dead). */
+function mourn(ledger: Row, graph: ModuleGraph, deadId: string, affect: Row, turn: number, receipt: unknown): void {
+    for (const node of graph.kind('npc'))
+        if (node.node_id !== deadId && graph.isPerson(node) && graph.npcTies(node).some(tie => row(tie.node).node_id === deadId))
+            raiseAffect(entry(ledger, string(node.node_id)), affect, 'tied_person_dead', turn, receipt);
 }
 export async function readNpcLedger(campaign: CampaignWriter): Promise<Row> {
     try {
@@ -475,11 +504,11 @@ export async function readNpcLedger(campaign: CampaignWriter): Promise<Row> {
 }
 export async function updateNpcLedger(campaign: CampaignWriter, graph: ModuleGraph, record: Row): Promise<void> {
     const ledger = await readNpcLedger(campaign);
-    foldNpcTurn(ledger, graph, record, await stanceTable(campaign.context));
+    foldNpcTurn(ledger, graph, record, await stanceTable(campaign.context), await affectTable(campaign.context));
     await campaign.write('npc-ledger.json', ledger);
 }
 export async function rebuildNpcLedger(campaign: CampaignWriter, graph: ModuleGraph): Promise<void> {
-    const ledger: Row = {}, table = await stanceTable(campaign.context);
+    const ledger: Row = {}, table = await stanceTable(campaign.context), affect = await affectTable(campaign.context);
     const names = await campaign.context.snapshots.sortedChildNames(campaign.path('turns'), path => campaign.context.snapshots.isFile(path));
     for (const name of names.filter(n => n.endsWith('.json'))) {
         let record: Row;
@@ -490,7 +519,7 @@ export async function rebuildNpcLedger(campaign: CampaignWriter, graph: ModuleGr
             continue;
         }
         if (intLike(record.turn))
-            foldNpcTurn(ledger, graph, record, table);
+            foldNpcTurn(ledger, graph, record, table, affect);
     }
     noteMemory(ledger, graph, (await campaign.context.snapshots.readJsonl(campaign.path('memory/candidates.jsonl'))).map(row));
     await campaign.write('npc-ledger.json', ledger);

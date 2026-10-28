@@ -387,6 +387,8 @@ export function compileTurnPacket(packet:TurnPacket|BoundTurnPacket):{responses:
  // §259.3: a person's disposition toward the investigator is the attitude ledger's word too, so it lands there as the
  // Keeper's own stance after everything else; a relationship toward another person stays §258.7's statement only.
  ordered.push(...directed.filter(a=>a.disposition&&/^investigator_[0-9]+$/.test(a.toward)));
+ // §259.6: fear and pressure are the person's own levels, whoever the relationship names; they land as the Keeper's set.
+ ordered.push(...directed.filter(a=>a.fear!==undefined||a.pressure!==undefined).map(a=>({...a,kind:'_affect' as const})));
  // 1026i An Amaranthine Desire: the book's hooded figure came in under a description only, was made a stranger with a random
  // temper, and was named a local smuggler two turns later. A walk-on that names its book person seats that person and gives
  // them the label as this table's word for them, so the book's record follows them and their name stays untold.
@@ -406,6 +408,7 @@ export function compileTurnPacket(packet:TurnPacket|BoundTurnPacket):{responses:
   :a.kind==='clue'?{kind:'clue',clue:a.clue,how:a.how,...(a.summary?{establish:{summary:a.summary}}:{}),...(a.from&&isNpcReference(a.from)?{from:a.from}:a.from&&seats.has(a.from)?{from:seats.get(a.from)}:{})}
   :a.kind==='mood'?{kind:'npc',name:a.actor,mood:a.mood,why:'What they feel after this turn.'}
   :a.kind==='relationship'?{kind:'npc',name:person(a.actor),stance:a.disposition,why:'The Keeper set how they stand with the investigator after this exchange.'}
+  :(a as Record<string,any>).kind==='_affect'?{kind:'npc',name:person((a as Record<string,any>).actor),...((a as Record<string,any>).fear!==undefined?{fear:(a as Record<string,any>).fear}:{}),...((a as Record<string,any>).pressure!==undefined?{pressure:(a as Record<string,any>).pressure}:{}),why:'The Keeper set how afraid and how hard pressed they are after this exchange.'}
   :a.kind==='name'?{kind:'person',who:a.actor,name:a.name,why:'The fiction establishes this name.'}
   // §270: a Turn IR material action, already an apply object effect, settles in the route's order.
   :(a as Record<string,any>).kind==='_object'?{...(a as Record<string,any>).effect}
