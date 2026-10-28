@@ -384,6 +384,9 @@ export function compileTurnPacket(packet:TurnPacket|BoundTurnPacket):{responses:
  register();ordered.push(...stop);
  // §267.1: findings, moods and names settle after the route, where the turn ends, in the order written.
  ordered.push(...commands.filter(a=>a.kind==='clue'||a.kind==='mood'||a.kind==='name'));
+ // §259.3: a person's disposition toward the investigator is the attitude ledger's word too, so it lands there as the
+ // Keeper's own stance after everything else; a relationship toward another person stays §258.7's statement only.
+ ordered.push(...directed.filter(a=>a.disposition&&/^investigator_[0-9]+$/.test(a.toward)));
  // 1026i An Amaranthine Desire: the book's hooded figure came in under a description only, was made a stranger with a random
  // temper, and was named a local smuggler two turns later. A walk-on that names its book person seats that person and gives
  // them the label as this table's word for them, so the book's record follows them and their name stays untold.
@@ -402,6 +405,7 @@ export function compileTurnPacket(packet:TurnPacket|BoundTurnPacket):{responses:
   :a.kind==='scene'?{kind:'scene',name:'here',_population:true,activity:{service:a.service,crowd:a.crowd,basis:'established',summary:`Service is ${a.service}; crowd is ${a.crowd}.`,review_after_minutes:a.review_after_minutes??15},why:'Current place, clock and registered circumstances establish this population assessment.'}
   :a.kind==='clue'?{kind:'clue',clue:a.clue,how:a.how,...(a.summary?{establish:{summary:a.summary}}:{}),...(a.from&&isNpcReference(a.from)?{from:a.from}:a.from&&seats.has(a.from)?{from:seats.get(a.from)}:{})}
   :a.kind==='mood'?{kind:'npc',name:a.actor,mood:a.mood,why:'What they feel after this turn.'}
+  :a.kind==='relationship'?{kind:'npc',name:person(a.actor),stance:a.disposition,why:'The Keeper set how they stand with the investigator after this exchange.'}
   :a.kind==='name'?{kind:'person',who:a.actor,name:a.name,why:'The fiction establishes this name.'}
   // §270: a Turn IR material action, already an apply object effect, settles in the route's order.
   :(a as Record<string,any>).kind==='_object'?{...(a as Record<string,any>).effect}

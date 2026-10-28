@@ -52274,6 +52274,19 @@ the starting attitude.
 
 Tests: `tests/integration/npc-attitude-fold.test.ts`.
 
+### 259.3 One attitude, one ledger: the Keeper's relationship toward the investigator (amends §258.7)
+
+A packet or Turn IR `relationship` whose actor is a person and whose `toward` is an investigator, with a `disposition`,
+also compiles to `{kind: "npc", name: <actor>, stance: <disposition>, why}`, settled after everything else in the turn:
+the Keeper's word on how this person stands with the investigator is the attitude ledger's keeper set (§259.2), and the
+dice move it from there. §258.7's `directed_relationship` statement is still written (trust, fear, pressure, public,
+hidden and control live only there), and a relationship toward another person writes no stance. Every other reader of
+the old four words already reads the five through the ledger's `stance` mirror and the tables (§259.1): the stakes die's
+`stance_friendly`, the combat disposition's `stance_in`, the situation packet, and the act options' `stance` way, whose
+options are the table's levels.
+
+Tests: `tests/extension/npc-attitude-relationship.test.mjs`.
+
 ## 260. NPC portrayal: beats, attention and the bearing grant (owner 2026-10-23; amends §254.2, §254.6)
 
 Spec: `docs/specs/npc-portrayal.md`. Research: `docs/research/npc-portrayal-lotm-20261023.md`. The owner's direction: the
