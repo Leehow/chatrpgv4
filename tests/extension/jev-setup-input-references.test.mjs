@@ -175,3 +175,14 @@ test('legacy RPC names/actions and direct UI confirmation keep their established
     await other.call('setup.confirm',{revision:legacy.revision,consent:'delegated',pending_action:'Inspect the door',player_requests:['Inspect the door next.']});
     assert.equal((await other.call('setup.complete')).prologue.pending_action,'Inspect the door');
 });
+
+// 1028a Blood Road setup T2: the Keeper counted units and selected the first two characters of the sentence as the name.
+test('a name selection may quote the player\'s words; the host finds them and refuses words the sentence lacks',async()=>{
+    const source=catalog('epoch',1,'调查员叫林远，34 岁，卡车司机。'),alias=whole(source).source;
+    const named=await selected(source,'profile.name',{source:alias,text:'林远'});
+    assert.equal(named.values['profile.name'],'林远');
+    assert.deepEqual(validateSetupInputs(named.envelope,{campaign:'c1',inputKey:'epoch',values:named.values}),named.envelope);
+    await assert.rejects(selected(source,'profile.name',{source:alias,text:'林元'}),/setup_input_text_not_in_source/);
+    const unit=source.public.sources[0].units[4];
+    await assert.rejects(selected(source,'profile.name',{source:alias,text:'林远',range:{first:unit.alias,last:unit.alias}}),/setup_input_requires_source_selection/);
+});

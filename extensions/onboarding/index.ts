@@ -1301,7 +1301,8 @@ export default function (pi: ExtensionAPI) {
 	// ---- The tool ---------------------------------------------------------
 
   const inputSelection=Type.Object({source:Type.String({description:'Choose a current issued input alias; never copy source text or offsets'}),
-    range:Type.Optional(Type.Object({first:Type.String({description:'First issued grapheme unit alias, inclusive'}),last:Type.String({description:'Last issued grapheme unit alias, inclusive'})},{additionalProperties:false}))},{additionalProperties:false});
+    range:Type.Optional(Type.Object({first:Type.String({description:'First issued grapheme unit alias, inclusive'}),last:Type.String({description:'Last issued grapheme unit alias, inclusive'})},{additionalProperties:false})),
+    text:Type.Optional(Type.String({description:'Instead of range: the exact words as they appear in that input; the host finds where they sit'}))},{additionalProperties:false});
   const profileSchema=Type.Object({name:Type.Optional(Type.Union([inputSelection,Type.Object({generated:Type.String({minLength:1,description:'A newly proposed name, never claimed as the player wording'})},{additionalProperties:false})],
     {description:'Select the player-supplied name, or explicitly propose generated. Omit unchanged name on revisions.'})),
     occupation:Type.Optional(Type.String()),occupation_stated:Type.Optional(Type.String()),

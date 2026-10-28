@@ -18867,6 +18867,16 @@ shape, `interpretNameBoundary`'s per-row fail-safe default, and `checkNameBounda
 to ask about, a foreign lease, a throwing port, an incomplete result), mirroring `tests/extension/
 jev-person-resolution-domain.test.mjs`. Mutations in the SL-68 ticket's Comments.
 
+### §98 addendum 8a — a selection may quote the words instead of counting units (2026-10-28)
+
+`{source, text}` is a third selection shape beside the whole field and `{source, range}`: `text` is the player's words as
+they appear in that source; the host finds their first occurrence and selects the grapheme units that hold it, and the
+range then goes through addendum 7's trim and addendum 8's boundary check as any range does. Words that do not occur in the
+source are refused `setup_input_text_not_in_source`; `text` and `range` together are refused. In 1028a *Blood Road* setup
+T2 the Keeper counted units and selected the first two characters of 调查员叫林远 as the name; the card was revised on the
+confirming turn and the confirmation was refused, so the table never opened. Test:
+`tests/extension/jev-setup-input-references.test.mjs`.
+
 ### §98 addendum 9 — a block never blocks its own remedy (2026-09-26, SL-98; amends addendum 4)
 
 Addendum 4 made every `setup` call answer `setup_blocked` while a turn is blocked. On the Masks table (§14.19) that

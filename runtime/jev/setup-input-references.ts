@@ -6,7 +6,7 @@ export const SETUP_INPUT_PROTOCOL='setup-input-reference-v1';
 export const SETUP_INPUT_LIMITS={fields:32,text:8192,units:2048} as const;
 export type SetupInputField='profile.name'|'pending_action';
 export interface SetupUserField {occurrence:string;field:number;text:string}
-export interface SetupInputSelection {source:string;range?:{first:string;last:string}}
+export interface SetupInputSelection {source:string;range?:{first:string;last:string};text?:string}
 export interface SetupInputSnapshot {
     version:1;protocol:typeof SETUP_INPUT_PROTOCOL;epoch:string;generation:number;branch:string;
     fields:Array<SetupUserField&{ordinal:number;alias:string}>;
@@ -113,10 +113,20 @@ function dropBoundaryTokens(units:Array<{alias:string;text:string;start:number;e
     if(drop.trailing&&hi>=lo) hi--;
     return lo>hi?{start,end}:trimToWordBoundary(units,within[lo].start,within[hi].end);
 }
-async function selected(snapshot:SetupInputSnapshot,selection:unknown,scope:ScopeBinding,options:{trimToWord?:boolean;checkBoundary?:NameBoundaryChecker}={}):Promise<{value:string;ref:SourceRef}> {
-    if(!closed(selection,['source','range'],['source'])||typeof selection.source!=='string') fail('setup_input_requires_source_selection');
+async function selected(snapshot:SetupInputSnapshot,given:unknown,scope:ScopeBinding,options:{trimToWord?:boolean;checkBoundary?:NameBoundaryChecker}={}):Promise<{value:string;ref:SourceRef}> {
+    if(!closed(given,['source','range','text'],['source'])||typeof given.source!=='string'||given.range!==undefined&&given.text!==undefined) fail('setup_input_requires_source_selection');
+    let selection:Record<string,any>=given;
     const field=snapshot.fields.find(field=>field.alias===selection.source);if(!field) fail('unknown_or_stale_setup_input_source');
     let start=0,end=field.text.length;
+    // 1028a Blood Road setup T2: the Keeper counted grapheme units and selected "调查" for the name "林远"; the card was
+    // revised on the confirming turn and the confirmation was refused. Finding where quoted words sit in the player's own
+    // sentence is the host's job: `text` names them, the host locates them, and words not in that sentence are refused.
+    if(selection.text!==undefined) {
+        if(!nonempty(selection.text)) fail('empty_setup_input_selection');
+        const at=field.text.indexOf(selection.text.trim());if(at<0) fail('setup_input_text_not_in_source');
+        const issued=units(field.text,field.alias),first=issued.find(unit=>unit.start<=at&&at<unit.end),last=issued.find(unit=>unit.start<at+selection.text.trim().length&&at+selection.text.trim().length<=unit.end);
+        selection={source:selection.source,range:{first:first!.alias,last:last!.alias}};
+    }
     if(selection.range!==undefined) {
         if(!closed(selection.range,['first','last'])||typeof selection.range.first!=='string'||typeof selection.range.last!=='string')fail('invalid_setup_input_range');
         const issued=units(field.text,field.alias),first=issued.find(unit=>unit.alias===selection.range.first),last=issued.find(unit=>unit.alias===selection.range.last);

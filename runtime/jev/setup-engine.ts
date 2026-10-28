@@ -519,7 +519,7 @@ export function createSetupEngine(options: SetupEngineOptions): {runDriver: Sess
       description: 'Write the open words of the investigator card in this setup step: only the profile keys the step lists as open (name, occupation_stated, age, sex, '
         + 'concept, own_language, other_languages (a list of language names in English, e.g. ["English"]), backstory, key_connection, equipment, weapons, custom_skills). The clerk has already bound the closed fields (trade, skills, era, aptitude) '
         + 'and the kernel does every number; any other key is refused and nothing is executed. name and occupation_stated select issued input aliases '
-        + '({source, range?}); name may instead propose {generated}.',
+        + '({source, text} with the exact words as the player wrote them, or {source, range}); name may instead propose {generated}.',
       promptSnippet: 'Write the open words of the investigator card when a setup step asks for them.',
       parameters: Type.Object({profile: Type.Object({}, {additionalProperties: true, description: 'Only the open keys this step lists.'})}, {additionalProperties: true}),
       executionMode: 'sequential',
