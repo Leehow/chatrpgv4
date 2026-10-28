@@ -112,6 +112,7 @@ function runLauncher(root, args, extraEnv = {}) {
 	const log = join(root, "pi.log");
 	const env = { ...process.env, PI_STUB_LOG: log, PI_COC_NODE_EXECUTABLE: process.execPath, PI_COC_HOME: root, ...extraEnv };
 	delete env.PI_COC_CAMPAIGN;
+	for (const [key, value] of Object.entries(extraEnv)) if (value === undefined) delete env[key];
 	execFileSync(join(root, "bin", "pi-coc"), args, { env, encoding: "utf8" });
 	const lines = readFileSync(log, "utf8").trim().split("\n");
 	return {
@@ -221,10 +222,13 @@ test("bin/pi-coc：写 settings.json、导出战役、拼出 pi 的命令行", (
 	const root = fakeRepo();
 	t.after(() => rmSync(root, { recursive: true, force: true }));
 
-	const run = runLauncher(root, ["--campaign", "camp-a", "--mode", "rpc", "--no-session"]);
+	const run = runLauncher(root, ["--campaign", "camp-a", "--mode", "rpc", "--no-session"], {PI_CODING_AGENT_DIR: undefined});
 
 	assert.equal(run.value("cwd"), root, "cwd 是仓库根");
 	assert.equal(run.value("agentdir"), join(root, ".pi", "coc-agent"));
+	// The play driver names its own agent home for live tables; a source launch honors it.
+	const named = runLauncher(root, ["--campaign", "camp-a", "--mode", "rpc", "--no-session"], {PI_CODING_AGENT_DIR: join(root, ".pi", "play-agent")});
+	assert.equal(named.value("agentdir"), join(root, ".pi", "play-agent"));
 	assert.equal(run.value("campaign"), "camp-a");
 	assert.equal(run.value("runtime"), "typescript");
 	// Both image-gen and grok-build-oauth are mounted and both define image_gen/image_edit; Pi refuses
