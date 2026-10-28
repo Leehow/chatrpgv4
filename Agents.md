@@ -212,6 +212,7 @@ Grok 系模型屡次把「交付」当目标、把意图当配菜，也屡次静
 
 - 不许让用户再存一次钥匙，不许打印或写出任何钥匙。
 - `PI_COC_PIPICOC_PROFILE=0` 只给离线的驱动自测用，实测不许关。
+- 实测桌的 agent home 是 `.pi/play-agent`（驱动设 `PI_CODING_AGENT_DIR`），PipiCOC 的作者/车道设置和登录只写到这里。不要写进 `.pi/coc-agent`：离线测试读那里，2026-10-28 写进去后 test:ext 一次失败 104 条。
 - 1026m 之前的实测（1026j/k/l 及更早）都没带 Jev 钥匙，Jev 调用为 0：引用它们的结论时要标注“未装 Jev”，不能当作产品真实配置的结果。
 
 ## Test model override (owner 2026-10-16)

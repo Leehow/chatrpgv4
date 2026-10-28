@@ -3,7 +3,7 @@ import {withoutMechanicsMarkers} from '../../shared/delivery-markers.js';
 import {createTestWorkspace,checkTestWorkspaceBudget} from '../../scripts/test-workspace.mjs';
 /** Native Pi RPC transport and durable live evidence. It performs no Keeper decisions. */
 import { spawn, spawnSync, type ChildProcessWithoutNullStreams } from 'node:child_process';
-import { existsSync, mkdirSync, readFileSync, writeFileSync, appendFileSync, renameSync, rmSync, readdirSync, openSync, closeSync, statSync, lstatSync, chmodSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, writeFileSync, appendFileSync, renameSync, rmSync, readdirSync, openSync, closeSync, statSync, lstatSync, chmodSync, copyFileSync } from 'node:fs';
 import { join, resolve, dirname } from 'node:path';
 import { tmpdir } from 'node:os';
 import { randomUUID, createHash } from 'node:crypto';
@@ -186,6 +186,14 @@ export const runtime: {
     rpcCall: any;
 } = { processFactory: PiProcess, rpcCall: null };
 /** The owner's PipiCOC plugins for this build's launcher (tests/play/pipicoc-profile.ts). */
+/** The live tables' agent home: created once from the worktree's provider files (models, settings, logins), then theirs. */
+function livePlayAgentHome(): string {
+    const home = join(REPO_ROOT, '.pi', 'play-agent'), from = join(REPO_ROOT, '.pi', 'coc-agent');
+    mkdirSync(home, { recursive: true });
+    for (const file of ['models.json', 'settings.json', 'models-store.json', 'auth.json', 'grok-build-models.json'])
+        if (!existsSync(join(home, file)) && existsSync(join(from, file))) copyFileSync(join(from, file), join(home, file));
+    return home;
+}
 async function livePluginProfile() {
     const {runtimeEntrypoints, sessionExtensionPaths} = await import(pathToFileURL(join(REPO_ROOT, 'runtime/deployment.mjs')).href);
     const {pipicocProfileEnv} = await import('./pipicoc-profile.ts');
@@ -235,8 +243,12 @@ export class Daemon {
     // ("要", 2026-10-27). PI_COC_PIPICOC_PROFILE=0 is for offline driver tests only.
     const profile = [resolve(DEFAULT_LAUNCHER), resolve(REPO_ROOT, 'bin/pi-coc-setup')].includes(launcher) && process.env.PI_COC_PIPICOC_PROFILE !== '0' ? await livePluginProfile() : null;
     if (profile?.thinking && !this.thinking) this.thinking = profile.thinking;
-    if (profile) { const {seedKeeperSettings} = await import('./pipicoc-profile.ts'); if (seedKeeperSettings(join(REPO_ROOT, '.pi/coc-agent'))) this.log.write('keeper settings from PipiCOC'); }
-    if (profile && model?.includes('/')) { const {seedProviderLogin} = await import('./pipicoc-profile.ts'); const seeded = seedProviderLogin(model.slice(0, model.indexOf('/')), join(REPO_ROOT, '.pi/coc-agent')); if (seeded !== 'absent') this.log.write('provider login ' + model.slice(0, model.indexOf('/')) + ': ' + seeded); }
+    // A live table's agent home is its own (.pi/play-agent), not the worktree default .pi/coc-agent that the offline suites
+    // read: PipiCOC's author and lane models seeded there made faux-model extension tests call the real author (2026-10-28,
+    // 104 test:ext failures until the directory was moved aside).
+    const agentHome = profile ? livePlayAgentHome() : null;
+    if (agentHome) { const {seedKeeperSettings} = await import('./pipicoc-profile.ts'); if (seedKeeperSettings(agentHome)) this.log.write('keeper settings from PipiCOC'); }
+    if (agentHome && model?.includes('/')) { const {seedProviderLogin} = await import('./pipicoc-profile.ts'); const seeded = seedProviderLogin(model.slice(0, model.indexOf('/')), agentHome); if (seeded !== 'absent') this.log.write('provider login ' + model.slice(0, model.indexOf('/')) + ': ' + seeded); }
         const entry = join(REPO_ROOT, 'build/kernel/rpc.mjs'); if (launcher === resolve(DEFAULT_LAUNCHER) && !existsSync(join(REPO_ROOT, 'deployment.json')) && existsSync(entry) && !process.env.PI_COC_KERNEL_CMD)
         this.player_view_command = [process.env.PI_COC_NODE_EXECUTABLE || process.execPath, entry, '--workspace', coc_home(), '--content', resolve(process.env.PI_COC_CONTENT_ROOT || join(REPO_ROOT, 'content'))]; const testThinking=model==='grok-build/grok-4.5'?'high':model==='codex-relay/gpt-6-luna'?'high':model===DEFAULT_MODEL?this.thinking||DEFAULT_THINKING:null; const args = ['--campaign', campaign, '--mode', 'rpc', '--no-session', '--thinking', testThinking||this.thinking || DEFAULT_THINKING]; if (model) {
         if (!model.includes('/'))
@@ -244,7 +256,7 @@ export class Daemon {
         const i = model.indexOf('/');
         args.push('--provider', model.slice(0, i), '--model', model.slice(i + 1));
     } const miniMaxTest=model==='minimax-cn/MiniMax-M3.1-Flash-Preview'&&this.thinking==='medium'; this.log.write('spawning ' + launcher + ' ' + args.join(' ') + (this.first_step_thinking ? ' (COC_FIRST_STEP_THINKING=1)' : '')); if (profile) { for (const mount of profile.extraMounts) args.push('-e', mount); this.plugins = profile.plugins; this.log.write('pipicoc plugins: ' + profile.plugins.map(plugin => plugin.id + (plugin.secrets.length ? '+secret' : '') + (plugin.mount === 'profile' ? '@profile' : '')).join(', ')); }
-    let env: any = profile || this.first_step_thinking || this.expected_engine || testThinking || miniMaxTest ? { ...process.env, ...(profile?.env ?? {}) } : undefined; if (testThinking) {
+    let env: any = profile || this.first_step_thinking || this.expected_engine || testThinking || miniMaxTest ? { ...process.env, ...(profile?.env ?? {}), ...(agentHome ? { PI_CODING_AGENT_DIR: agentHome } : {}) } : undefined; if (testThinking) {
         env.PI_COC_TEST_MODEL = model;
         env.PI_COC_KEEPER_CALL_CAP_FLOOR_MS ??= '60000';
         for (const name of TEST_LANE_MODEL_ENVS) {
