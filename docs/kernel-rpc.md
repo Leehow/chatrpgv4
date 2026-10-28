@@ -2573,6 +2573,8 @@ contract one.
 
 ### 17.3 运行时账本 `npc-ledger.json`
 
+*§259.1（2026-10-28）：stance 表已换为 `npc-attitude.json`（`coc.npc-attitude.v1`），五档 hostile / unfriendly / neutral / friendly / ally；下文的四档与 `npc-stance.json` 为历史写法，旧词按 `legacy_words` 读。*
+
 战役目录根下一份，随回合提交；键是 NPC 节点 id（`npc-…`，不用会撞名的句柄）。在场位置**不**进账本——`world.npc_presence` 是唯一的位置真相（#25 写它），账本只引用。
 
 ```
@@ -52214,6 +52216,36 @@ whether the reply has each said low (aside, aloud, unclear). `table.deals {aside
 each person who had heard it rolls Listen as in §258.12, and only a pass keeps hearing it (`overhear_rolls`, `aside_by_lane`).
 This catches a whisper the Keeper did not mark (app smoke 2026-10-24: the owner behind the counter was recorded hearing it).
 Tests: `tests/extension/deal-marks.test.mjs`.
+
+## 259. NPC state the host settles: attitude, requests, failure scope, fear and pressure, schedules (owner 2026-10-28; amends §17.3, §17.4, §17.8, §143.8, §161, §178.4, §258.6, §258.7, §11.5.3)
+
+Spec and tickets: `npc-schema-survey/state-model/npc-state-model-spec.md` and `npc-state-model-tickets.md` (owner's working
+folder; design reference `docs/research/npc-schema-v3-20261023.md`). The owner's direction: the host works out a person's
+state by deterministic rules from receipts and hands the Keeper the result; the Keeper chooses among the options it is
+given. No Markov chain; a die only where the rulebook leaves it to a die, rolled once and kept as a receipt. This phase
+supports a single investigator only (owner, 2026-10-28): attitude is stored per investigator and person, with no rule for
+combining several investigators.
+
+### 259.1 Five attitude words and the table that holds every number
+
+`content/rulesets/coc7/rules-json/npc-attitude.json` (`coc.npc-attitude.v1`) replaces `npc-stance.json`
+(`coc.npc-stance.v1`, deleted). Its levels are v3's five dispositions: `hostile` (≤ −3), `unfriendly` (≤ −1), `neutral`
+(≤ 1), `friendly` (≤ 3), `ally` (≤ 5) over the same score range −5..5; `social`, `pushed_failure_delta` and
+`combat_target_score` are the old table's numbers unchanged. `stanceTable` (the ledger still keeps the attitude under
+`stance`) checks the table whole when it loads and refuses it `campaign_not_ready` naming what is wrong: a wrong
+`contract_id`, levels whose `at_most` do not rise or do not reach the top of the range, a `legacy_words` entry that names
+no level, a non-integer score in `initial_by_impression` or `impression_dispositions`.
+
+Old words: `legacy_words` reads `wary` as `unfriendly` and `warm` as `friendly` (`hostile` and `neutral` are unchanged).
+`apply npc stance` accepts the five words and the four old ones; an old word is written as its new word, and the receipt
+keeps `stance_written` beside `stance`. The ledger fold reads an old receipt's word the same way, so a campaign played
+before §259 rebuilds into the five words. A score folded under the old table keeps its number: 2..5 (`warm`) now reads
+`friendly` at 2..3 and `ally` at 4..5. `npc-combat-disposition.json`'s `stance_in` rows and `npc-stakes.json`'s
+`stance_friendly` shift name the new words (`friendly` and `ally` where `warm` stood; `unfriendly` where `wary` stood), so
+every fight and stakes die reads as before. The `apply` tool's `stance` enum is the five words.
+
+Tests: `tests/integration/npc-attitude-table.test.ts`; `tests/integration/npc-npc-layer.test.ts` and
+`tests/integration/npc-npc-standing-action.test.ts` follow the new words.
 
 ## 260. NPC portrayal: beats, attention and the bearing grant (owner 2026-10-23; amends §254.2, §254.6)
 

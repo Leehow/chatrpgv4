@@ -1,7 +1,7 @@
 {
   "contract_id": "coc.npc-combat-disposition.v1",
   "schema_version": 1,
-  "note": "Contract §11.5.3: the closed table an NPC's standing action in a fight is read from. A disposition is how this person behaves in a fight; its rows are tried in order and the first row whose every `when` condition holds gives the action. The last row of each disposition has no `when`, so every disposition gives an action. Conditions: `hp_fraction_at_most` (the participant's hp_current / hp_max in the saved combat snapshot is at most this number), `outnumbered` (true: more opponents who can still fight than people on the NPC's own side who can, the NPC included), `stance_in` (the NPC's stance word from the ledger, §17.3, is one of these). Every number lives here; the kernel writes no threshold of its own. Actions: attack (the clerk binds the attack), hold (does not attack this round: holds back, yields or surrenders, which the Keeper narrates), flee (tries to get away, which the Keeper narrates; the engine has no NPC flee action).",
+  "note": "Contract §11.5.3: the closed table an NPC's standing action in a fight is read from. A disposition is how this person behaves in a fight; its rows are tried in order and the first row whose every `when` condition holds gives the action. The last row of each disposition has no `when`, so every disposition gives an action. Conditions: `hp_fraction_at_most` (the participant's hp_current / hp_max in the saved combat snapshot is at most this number), `outnumbered` (true: more opponents who can still fight than people on the NPC's own side who can, the NPC included), `stance_in` (the NPC's attitude word toward the investigator from the ledger, §17.3 and §259.1, is one of these). Every number lives here; the kernel writes no threshold of its own. Actions: attack (the clerk binds the attack), hold (does not attack this round: holds back, yields or surrenders, which the Keeper narrates), flee (tries to get away, which the Keeper narrates; the engine has no NPC flee action).",
   "dispositions": {
     "fights_to_the_end": {
       "description": "Fights on whatever it costs: never breaks off, never yields.",
@@ -14,7 +14,7 @@
       "rules": [
         {"when": {"hp_fraction_at_most": 0.5}, "action": "flee"},
         {"when": {"hp_fraction_at_most": 0.75, "outnumbered": true}, "action": "flee"},
-        {"when": {"stance_in": ["wary", "neutral", "warm"]}, "action": "hold"},
+        {"when": {"stance_in": ["unfriendly", "neutral", "friendly", "ally"]}, "action": "hold"},
         {"action": "attack"}
       ]
     },
@@ -31,7 +31,7 @@
       "rules": [
         {"when": {"hp_fraction_at_most": 0.75}, "action": "hold"},
         {"when": {"outnumbered": true}, "action": "hold"},
-        {"when": {"stance_in": ["wary", "neutral", "warm"]}, "action": "hold"},
+        {"when": {"stance_in": ["unfriendly", "neutral", "friendly", "ally"]}, "action": "hold"},
         {"action": "attack"}
       ]
     }

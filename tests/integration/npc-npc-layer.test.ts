@@ -97,8 +97,8 @@ export async function test_the_stance_numbers_all_live_in_the_table(){
 let table:any;
 
 table=(await StanceTable((await RuleTables(pyDivide(pyDivide(pyDivide(CONTENT,"rulesets"),"coc7"),"rules-json")))));
-assert.ok(pyBool(pyEqual(table.words,["hostile","wary","neutral","warm"])),"tests/kernel/test_npc_layer.py:130 assert table.words == [\"hostile\", \"wary\", \"neutral\", \"warm\"]");
-assert.ok(pyBool(pyEqual((await (async()=>{const __rows:any[]=[];for(const s of pyIterable([(-5),(-3),(-2),0,1,2,5])){__rows.push((await pyMethod(table,"word",[s],{})));}return __rows;})()),["hostile","hostile","wary","neutral","neutral","warm","warm"])),"tests/kernel/test_npc_layer.py:131 assert [table.word(s) for s in (-5, -3, -2, 0, 1, 2, 5)] == [\n        \"hostile\", \"hostile\", \"wary\", \"neutral\", \"neutral\", \"warm\", \"warm\"]");
+assert.ok(pyBool(pyEqual(table.words,["hostile","unfriendly","neutral","friendly","ally"])),"tests/kernel/test_npc_layer.py:130 assert table.words == [\"hostile\", \"wary\", \"neutral\", \"warm\"]");
+assert.ok(pyBool(pyEqual((await (async()=>{const __rows:any[]=[];for(const s of pyIterable([(-5),(-3),(-2),0,1,2,5])){__rows.push((await pyMethod(table,"word",[s],{})));}return __rows;})()),["hostile","hostile","unfriendly","neutral","neutral","friendly","ally"])),"tests/kernel/test_npc_layer.py:131 assert [table.word(s) for s in (-5, -3, -2, 0, 1, 2, 5)] == [\n        \"hostile\", \"hostile\", \"wary\", \"neutral\", \"neutral\", \"warm\", \"warm\"]");
 assert.ok(pyBool((await (async()=>{const __left=pyEqual((await pyMethod(table,"delta",["persuade","regular"],{})),1);return pyBool(__left)?pyEqual((await pyMethod(table,"delta",["persuade","extreme"],{})),2):__left})())),"tests/kernel/test_npc_layer.py:133 assert table.delta(\"persuade\", \"regular\") == 1 and table.delta(\"persuade\", \"extreme\") == 2");
 assert.ok(pyBool((await (async()=>{const __left=pyEqual((await pyMethod(table,"delta",["intimidate","regular"],{})),0);return pyBool(__left)?pyEqual((await pyMethod(table,"delta",["intimidate","failure"],{})),(-1)):__left})())),"tests/kernel/test_npc_layer.py:134 assert table.delta(\"intimidate\", \"regular\") == 0 and table.delta(\"intimidate\", \"failure\") == -1");
 assert.ok(pyBool((await (async()=>{const __left=pyEqual((await pyMethod(table,"delta",["nonesuch","regular"],{})),0);return pyBool(__left)?pyEqual((await pyMethod(table,"delta",["persuade","nonesuch"],{})),0):__left})())),"tests/kernel/test_npc_layer.py:135 assert table.delta(\"nonesuch\", \"regular\") == 0 and table.delta(\"persuade\", \"nonesuch\") == 0");
@@ -166,12 +166,12 @@ let row:any,capsule:any,knott:any;
 (await pyMethod(kernel,"table",["apply"],{"call_id":"t1-c1","effects":[({["kind"]:"npc",["name"]:"Steven Knott",["stance"]:"warm",["why"]:"the party found his brother"})]}));
 (await narrate(kernel,"t1-c2","诺特松了口气。"));
 row=pyAt((await ledger(kernel)),KNOTT);
-assert.ok(pyBool((await (async()=>{const __left=pyEqual(pyAt(pyAt(row,"stance"),"value"),"warm");return pyBool(__left)?pyEqual(pyAt(pyAt(row,"stance"),"score"),2):__left})())),"tests/kernel/test_npc_layer.py:215 assert row[\"stance\"][\"value\"] == \"warm\" and row[\"stance\"][\"score\"] == 2");
+assert.ok(pyBool((await (async()=>{const __left=pyEqual(pyAt(pyAt(row,"stance"),"value"),"friendly");return pyBool(__left)?pyEqual(pyAt(pyAt(row,"stance"),"score"),2):__left})())),"tests/kernel/test_npc_layer.py:215 assert row[\"stance\"][\"value\"] == \"warm\" and row[\"stance\"][\"score\"] == 2");
 assert.ok(pyBool(pyEqual(pyAt(pyAt(pyAt(pyAt(row,"stance"),"because"),(-1)),"how"),"keeper")),"tests/kernel/test_npc_layer.py:216 assert row[\"stance\"][\"because\"][-1][\"how\"] == \"keeper\"");
 capsule=pyAt((await pyMethod(kernel,"table",["player_input"],{"text":"我再问他一句。"})),"capsule");
 knott=pyAt(Object.fromEntries((await (async()=>{const __rows:any[]=[];for(const p of pyIterable(pyAt(capsule,"present"))){__rows.push([pyAt(p,"name"),p]);}return __rows;})())),"Steven Knott");
-assert.ok(pyBool(pyEqual(pyAt(pyAt(knott,"toward_party"),"stance"),"warm")),"tests/kernel/test_npc_layer.py:221 assert knott[\"toward_party\"][\"stance\"] == \"warm\"");
-assert.ok(pyBool(pyEqual(pyAt(pyAt(pyAt(knott,"toward_party"),"because"),(-1)),"turn 1: keeper set warm: the party found his brother")),"tests/kernel/test_npc_layer.py:222 assert knott[\"toward_party\"][\"because\"][-1] == \"turn 1: keeper set warm: the party found his brother\"");
+assert.ok(pyBool(pyEqual(pyAt(pyAt(knott,"toward_party"),"stance"),"friendly")),"tests/kernel/test_npc_layer.py:221 assert knott[\"toward_party\"][\"stance\"] == \"warm\"");
+assert.ok(pyBool(pyEqual(pyAt(pyAt(pyAt(knott,"toward_party"),"because"),(-1)),"turn 1: keeper set friendly: the party found his brother")),"tests/kernel/test_npc_layer.py:222 assert knott[\"toward_party\"][\"because\"][-1] == \"turn 1: keeper set warm: the party found his brother\"");
 assert.ok(pyBool(pyEqual(knott,pyAt((await present(kernel)),"Steven Knott"))),"tests/kernel/test_npc_layer.py:223 assert knott == present(kernel)[\"Steven Knott\"]");
 }
 if(process.argv[1]===import.meta.filename)for(const [index,row] of ([{}]).entries())test("test_the_keeper_can_set_a_stance_and_the_reason_reaches_the_capsule"+(([{}]).length>1?' ['+index+']':''),async(t)=>{const temporary=temporaryPath(t);await test_the_keeper_can_set_a_stance_and_the_reason_reaches_the_capsule(await kernel(t,{}));});
@@ -236,7 +236,7 @@ export async function test_the_stance_table_must_say_it_is_the_stance_table(){
 
 const caught:any={};try{await StanceTable({load:()=>({initial_score:0,score_range:[-5,5],levels:[],social:{},pushed_failure_delta:-1,combat_target_score:-5})});assert.fail('undeclared table accepted');}catch(error){caught.value=error;}
 assert.ok(pyBool(pyEqual(caught.value.code,"campaign_not_ready")),"tests/kernel/test_npc_layer.py:317 assert caught.value.code == \"campaign_not_ready\"");
-assert.ok(pyBool(pyContains(caught.value.message,"npc-stance")),"tests/kernel/test_npc_layer.py:318 assert \"npc-stance\" in caught.value.message");
+assert.ok(pyBool(pyContains(caught.value.message,"npc-attitude")),"tests/kernel/test_npc_layer.py:318 assert \"npc-stance\" in caught.value.message");
 }
 if(process.argv[1]===import.meta.filename)for(const [index,row] of ([{}]).entries())test("test_the_stance_table_must_say_it_is_the_stance_table"+(([{}]).length>1?' ['+index+']':''),async(t)=>{const temporary=temporaryPath(t);await test_the_stance_table_must_say_it_is_the_stance_table();});
 export async function test_a_death_the_dice_did_not_settle(kernel:any){

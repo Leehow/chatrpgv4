@@ -592,8 +592,8 @@ const NpcEffect = Type.Object({
 	creature: Type.Optional(Type.Union([Type.String(), Type.Literal(true)], { description: "an animal or monster, not a person: a rules-catalog creature's name (lookup kind=catalog kinds=[\"creature\"]), whose stat block the kernel pins once, or true for one with no stat block yet. With walk_on it brings the creature in; alone it pins a block on a creature that has none, or completes a block that lacks what a fight reads (the refusal names what is missing; every number the block states is kept)" })),
 	reunion: Type.Optional(NpcReunion),
 	to: Type.Optional(Type.String({ description: "where they are now: a scene name, `here` for this scene, or `away` when that NPC actually leaves; the investigator leaving alone does not move the NPC from their existing place" })),
-	stance: Type.Optional(StringEnum(["hostile", "wary", "neutral", "warm"] as const, {
-		description: "your own reading of where they stand with the party; the kernel keeps the settled checks' account on its own, so set this only when you decide something the dice did not",
+	stance: Type.Optional(StringEnum(["hostile", "unfriendly", "neutral", "friendly", "ally"] as const, {
+		description: "your own reading of where they stand with the investigator; the kernel keeps the settled checks' account on its own, so set this only when you decide something the dice did not",
 	})),
 	skill: Type.Optional(Type.Object({
 		name: Type.String({ description: "the skill, as the rulebook names it" }),

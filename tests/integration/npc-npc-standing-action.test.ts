@@ -83,7 +83,7 @@ if(process.argv[1]===import.meta.filename)for(const [index,row] of ([{}]).entrie
 
 
 
-export let TABLE_ROWS:any=[["fights_to_the_end",1.0,false,null,"attack"],["fights_to_the_end",0.25,true,null,"attack"],["fights_then_flees",1.0,false,null,"attack"],["fights_then_flees",0.5,false,null,"flee"],["fights_then_flees",0.75,true,null,"flee"],["fights_then_flees",0.75,false,null,"attack"],["fights_then_flees",1.0,false,"neutral","hold"],["avoids_fighting",1.0,false,null,"hold"],["avoids_fighting",1.0,true,null,"flee"],["avoids_fighting",0.75,false,null,"flee"],["surrenders",1.0,false,null,"attack"],["surrenders",0.75,false,null,"hold"],["surrenders",1.0,true,null,"hold"],["surrenders",1.0,false,"wary","hold"]];
+export let TABLE_ROWS:any=[["fights_to_the_end",1.0,false,null,"attack"],["fights_to_the_end",0.25,true,null,"attack"],["fights_then_flees",1.0,false,null,"attack"],["fights_then_flees",0.5,false,null,"flee"],["fights_then_flees",0.75,true,null,"flee"],["fights_then_flees",0.75,false,null,"attack"],["fights_then_flees",1.0,false,"neutral","hold"],["avoids_fighting",1.0,false,null,"hold"],["avoids_fighting",1.0,true,null,"flee"],["avoids_fighting",0.75,false,null,"flee"],["surrenders",1.0,false,null,"attack"],["surrenders",0.75,false,null,"hold"],["surrenders",1.0,true,null,"hold"],["surrenders",1.0,false,"unfriendly","hold"]];
 export async function test_the_rules_default_reads_the_disposition_table(tmp_path:any,disposition:any,fraction:any,outnumbered:any,stance:any,expected:any){
 let client:any,issued:any;
 client=(await client_with(tmp_path,({["disposition"]:disposition})));

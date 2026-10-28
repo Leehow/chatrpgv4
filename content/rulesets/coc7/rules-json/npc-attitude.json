@@ -1,0 +1,35 @@
+{
+  "contract_id": "coc.npc-attitude.v1",
+  "schema_version": 1,
+  "note": "Contract §259.1 (replaces §17.3's coc.npc-stance.v1): the closed table a person's attitude toward the investigator moves by. Every number lives here; kernel-ts/write/contributions.ts reads it and writes no literal of its own. The five words are v3's dispositions. A score starts at initial_score, or at initial_by_impression[reaction] once the pair's first impression (natural-npc, §178) is folded, the deltas already folded kept. A social settlement moves it by social[approach][level]; a pushed roll that failed adds pushed_failure_delta; any combat settled against this person sets it to combat_target_score; a completed trade with them (a cash or item receipt naming them, not a quote) adds trade_delta once per turn; a commitment an investigator made to them kept adds kept_delta, broken adds betrayal_delta. The score is clamped to score_range and its word is the first level whose at_most it does not exceed. legacy_words reads the four words of coc.npc-stance.v1 (old receipts, old tables, old habits), impression_dispositions reads a first impression that carries only the three-word disposition. An approach, level, reaction or word absent from the table moves nothing: silence is zero, never a guess.",
+  "initial_score": 0,
+  "score_range": [-5, 5],
+  "levels": [
+    {"value": "hostile", "at_most": -3},
+    {"value": "unfriendly", "at_most": -1},
+    {"value": "neutral", "at_most": 1},
+    {"value": "friendly", "at_most": 3},
+    {"value": "ally", "at_most": 5}
+  ],
+  "initial_by_impression": {
+    "breakthrough": 3,
+    "strongly_favorable": 2,
+    "favorable": 2,
+    "open": 0,
+    "guarded": -1,
+    "actively_adverse": -3
+  },
+  "impression_dispositions": {"helpful": 2, "neutral": 0, "hostile": -3},
+  "social": {
+    "persuade": {"critical": 2, "extreme": 2, "hard": 1, "regular": 1, "failure": 0, "fumble": -1},
+    "charm": {"critical": 2, "extreme": 2, "hard": 1, "regular": 1, "failure": 0, "fumble": -1},
+    "fast_talk": {"critical": 2, "extreme": 1, "hard": 1, "regular": 1, "failure": -1, "fumble": -2},
+    "intimidate": {"critical": 0, "extreme": 0, "hard": 0, "regular": 0, "failure": -1, "fumble": -2}
+  },
+  "pushed_failure_delta": -1,
+  "combat_target_score": -5,
+  "trade_delta": 1,
+  "kept_delta": 1,
+  "betrayal_delta": -3,
+  "legacy_words": {"hostile": "hostile", "wary": "unfriendly", "neutral": "neutral", "warm": "friendly"}
+}

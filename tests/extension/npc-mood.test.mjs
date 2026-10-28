@@ -296,7 +296,7 @@ test('a person never given a mood has neither ledger key and no now on the card'
 	await apply(client, 't1-c1', {stance: 'wary', why: 'the party pushed him about the house'});
 	const card = knottCard(await nextTurn(client, 1));
 	const entry = await ledger();
-	assert.equal(entry.stance.value, 'wary', 'the ledger entry exists and was written');
+	assert.equal(entry.stance.value, 'unfriendly', 'the ledger entry exists and was written (a legacy wary reads as unfriendly, §259.1)');
 	assert.equal(Object.hasOwn(entry, 'mood'), false);
 	assert.equal(Object.hasOwn(entry, 'mood_earlier'), false);
 	assert.equal(Object.hasOwn(card, 'now'), false);

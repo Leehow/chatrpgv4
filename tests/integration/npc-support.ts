@@ -140,7 +140,7 @@ export async function ModuleGraph(moduleId:string,path:any){
 export const RuleTables=(directory:any)=>({directory:String(directory),context:{content:dirname(dirname(dirname(String(directory)))),snapshots:{readJson:async(path:string)=>read_json(path)}}});
 export async function StanceTable(tables:any){
  const api=await importSource('kernel-ts/write/contributions.ts');
- const context=tables.context??{content:CONTENT_ROOT,snapshots:{readJson:async()=>tables.load('npc-stance')}};
+ const context=tables.context??{content:CONTENT_ROOT,snapshots:{readJson:async()=>tables.load('npc-attitude')}};
  const table=await api.stanceTable(context);
  const graphApi=await importSource('kernel-ts/read/module-graph.ts');
  const raw=read_json(join(CONTENT_ROOT,'starters/the-haunting/module-graph.json'));

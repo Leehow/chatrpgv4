@@ -91322,7 +91322,7 @@
           "counterpart": {
             "file": "tests/integration/npc-npc-layer.test.ts",
             "name": "test_the_dossier_is_read_the_same_way_from_a_starter_and_a_built_book",
-            "sha256": "d338e394967eec29234bf16459ef983b6c57d7647bb8ebd01cb280ac5f4c57ff"
+            "sha256": "87dd20f7f46f93f6ae043e4d49e4118b44dca2485ed8c1293fff6991d9287dc9"
           },
           "review": "statement-by-statement",
           "validation": {
@@ -91421,7 +91421,7 @@
           "counterpart": {
             "file": "tests/integration/npc-npc-layer.test.ts",
             "name": "test_what_someone_would_say_instead_reaches_the_projection",
-            "sha256": "d338e394967eec29234bf16459ef983b6c57d7647bb8ebd01cb280ac5f4c57ff"
+            "sha256": "87dd20f7f46f93f6ae043e4d49e4118b44dca2485ed8c1293fff6991d9287dc9"
           },
           "review": "statement-by-statement",
           "validation": {
@@ -91512,7 +91512,7 @@
           "counterpart": {
             "file": "tests/integration/npc-npc-layer.test.ts",
             "name": "test_an_assertion_someone_holds_true_is_a_belief_not_a_lie",
-            "sha256": "d338e394967eec29234bf16459ef983b6c57d7647bb8ebd01cb280ac5f4c57ff"
+            "sha256": "87dd20f7f46f93f6ae043e4d49e4118b44dca2485ed8c1293fff6991d9287dc9"
           },
           "review": "statement-by-statement",
           "validation": {
@@ -91595,7 +91595,7 @@
           "counterpart": {
             "file": "tests/integration/npc-npc-layer.test.ts",
             "name": "test_ties_come_from_the_relations_the_graph_already_has",
-            "sha256": "d338e394967eec29234bf16459ef983b6c57d7647bb8ebd01cb280ac5f4c57ff"
+            "sha256": "87dd20f7f46f93f6ae043e4d49e4118b44dca2485ed8c1293fff6991d9287dc9"
           },
           "review": "statement-by-statement",
           "validation": {
@@ -91702,7 +91702,7 @@
           "counterpart": {
             "file": "tests/integration/npc-npc-layer.test.ts",
             "name": "test_the_stance_numbers_all_live_in_the_table",
-            "sha256": "d338e394967eec29234bf16459ef983b6c57d7647bb8ebd01cb280ac5f4c57ff"
+            "sha256": "87dd20f7f46f93f6ae043e4d49e4118b44dca2485ed8c1293fff6991d9287dc9"
           },
           "review": "statement-by-statement",
           "validation": {
@@ -91801,7 +91801,7 @@
           "counterpart": {
             "file": "tests/integration/npc-npc-layer.test.ts",
             "name": "test_apply_npc_moves_someone_on_and_off_the_stage",
-            "sha256": "d338e394967eec29234bf16459ef983b6c57d7647bb8ebd01cb280ac5f4c57ff"
+            "sha256": "87dd20f7f46f93f6ae043e4d49e4118b44dca2485ed8c1293fff6991d9287dc9"
           },
           "review": "statement-by-statement",
           "validation": {
@@ -91892,7 +91892,7 @@
           "counterpart": {
             "file": "tests/integration/npc-npc-layer.test.ts",
             "name": "test_apply_npc_needs_something_to_do_and_a_word_the_ledger_knows",
-            "sha256": "d338e394967eec29234bf16459ef983b6c57d7647bb8ebd01cb280ac5f4c57ff"
+            "sha256": "87dd20f7f46f93f6ae043e4d49e4118b44dca2485ed8c1293fff6991d9287dc9"
           },
           "review": "statement-by-statement",
           "validation": {
@@ -92003,7 +92003,7 @@
           "counterpart": {
             "file": "tests/integration/npc-npc-layer.test.ts",
             "name": "test_apply_npc_conditions_write_the_existing_body_store_and_standard_receipt",
-            "sha256": "d338e394967eec29234bf16459ef983b6c57d7647bb8ebd01cb280ac5f4c57ff"
+            "sha256": "87dd20f7f46f93f6ae043e4d49e4118b44dca2485ed8c1293fff6991d9287dc9"
           },
           "review": "statement-by-statement",
           "validation": {
@@ -92094,7 +92094,7 @@
           "counterpart": {
             "file": "tests/integration/npc-npc-layer.test.ts",
             "name": "test_apply_npc_conditions_reject_unknown_overlap_death_and_combined_mutation",
-            "sha256": "d338e394967eec29234bf16459ef983b6c57d7647bb8ebd01cb280ac5f4c57ff"
+            "sha256": "87dd20f7f46f93f6ae043e4d49e4118b44dca2485ed8c1293fff6991d9287dc9"
           },
           "review": "statement-by-statement",
           "validation": {
@@ -92193,7 +92193,7 @@
           "counterpart": {
             "file": "tests/integration/npc-npc-layer.test.ts",
             "name": "test_the_keeper_can_set_a_stance_and_the_reason_reaches_the_capsule",
-            "sha256": "d338e394967eec29234bf16459ef983b6c57d7647bb8ebd01cb280ac5f4c57ff"
+            "sha256": "87dd20f7f46f93f6ae043e4d49e4118b44dca2485ed8c1293fff6991d9287dc9"
           },
           "review": "statement-by-statement",
           "validation": {
@@ -92304,7 +92304,7 @@
           "counterpart": {
             "file": "tests/integration/npc-npc-layer.test.ts",
             "name": "test_a_settled_social_check_moves_the_stance_by_the_table",
-            "sha256": "d338e394967eec29234bf16459ef983b6c57d7647bb8ebd01cb280ac5f4c57ff"
+            "sha256": "87dd20f7f46f93f6ae043e4d49e4118b44dca2485ed8c1293fff6991d9287dc9"
           },
           "review": "statement-by-statement",
           "validation": {
@@ -92391,7 +92391,7 @@
           "counterpart": {
             "file": "tests/integration/npc-npc-layer.test.ts",
             "name": "test_a_social_level_the_table_gives_nothing_for_leaves_the_stance_alone",
-            "sha256": "d338e394967eec29234bf16459ef983b6c57d7647bb8ebd01cb280ac5f4c57ff"
+            "sha256": "87dd20f7f46f93f6ae043e4d49e4118b44dca2485ed8c1293fff6991d9287dc9"
           },
           "review": "statement-by-statement",
           "validation": {
@@ -92494,7 +92494,7 @@
           "counterpart": {
             "file": "tests/integration/npc-npc-layer.test.ts",
             "name": "test_a_pushed_social_failure_still_reaches_the_stance",
-            "sha256": "d338e394967eec29234bf16459ef983b6c57d7647bb8ebd01cb280ac5f4c57ff"
+            "sha256": "87dd20f7f46f93f6ae043e4d49e4118b44dca2485ed8c1293fff6991d9287dc9"
           },
           "review": "statement-by-statement",
           "validation": {
@@ -92586,7 +92586,7 @@
           "counterpart": {
             "file": "tests/integration/npc-npc-layer.test.ts",
             "name": "test_the_stance_table_must_say_it_is_the_stance_table",
-            "sha256": "d338e394967eec29234bf16459ef983b6c57d7647bb8ebd01cb280ac5f4c57ff"
+            "sha256": "87dd20f7f46f93f6ae043e4d49e4118b44dca2485ed8c1293fff6991d9287dc9"
           },
           "review": "statement-by-statement",
           "validation": {
@@ -92677,7 +92677,7 @@
           "counterpart": {
             "file": "tests/integration/npc-npc-layer.test.ts",
             "name": "test_a_death_the_dice_did_not_settle",
-            "sha256": "d338e394967eec29234bf16459ef983b6c57d7647bb8ebd01cb280ac5f4c57ff"
+            "sha256": "87dd20f7f46f93f6ae043e4d49e4118b44dca2485ed8c1293fff6991d9287dc9"
           },
           "review": "statement-by-statement",
           "validation": {
@@ -92768,7 +92768,7 @@
           "counterpart": {
             "file": "tests/integration/npc-npc-layer.test.ts",
             "name": "test_a_thing_bought_from_someone_goes_on_their_account",
-            "sha256": "d338e394967eec29234bf16459ef983b6c57d7647bb8ebd01cb280ac5f4c57ff"
+            "sha256": "87dd20f7f46f93f6ae043e4d49e4118b44dca2485ed8c1293fff6991d9287dc9"
           },
           "review": "statement-by-statement",
           "validation": {
@@ -92859,7 +92859,7 @@
           "counterpart": {
             "file": "tests/integration/npc-npc-layer.test.ts",
             "name": "test_the_ledger_records_who_handed_a_clue_over",
-            "sha256": "d338e394967eec29234bf16459ef983b6c57d7647bb8ebd01cb280ac5f4c57ff"
+            "sha256": "87dd20f7f46f93f6ae043e4d49e4118b44dca2485ed8c1293fff6991d9287dc9"
           },
           "review": "statement-by-statement",
           "validation": {
@@ -92942,7 +92942,7 @@
           "counterpart": {
             "file": "tests/integration/npc-npc-layer.test.ts",
             "name": "test_turns_present_counts_the_turns_he_was_on_stage",
-            "sha256": "d338e394967eec29234bf16459ef983b6c57d7647bb8ebd01cb280ac5f4c57ff"
+            "sha256": "87dd20f7f46f93f6ae043e4d49e4118b44dca2485ed8c1293fff6991d9287dc9"
           },
           "review": "statement-by-statement",
           "validation": {
@@ -93025,7 +93025,7 @@
           "counterpart": {
             "file": "tests/integration/npc-npc-layer.test.ts",
             "name": "test_a_lost_ledger_is_rebuilt_from_the_closed_turns",
-            "sha256": "d338e394967eec29234bf16459ef983b6c57d7647bb8ebd01cb280ac5f4c57ff"
+            "sha256": "87dd20f7f46f93f6ae043e4d49e4118b44dca2485ed8c1293fff6991d9287dc9"
           },
           "review": "statement-by-statement",
           "validation": {
@@ -93136,7 +93136,7 @@
           "counterpart": {
             "file": "tests/integration/npc-npc-layer.test.ts",
             "name": "test_the_dossier_vocabulary_has_one_home",
-            "sha256": "d338e394967eec29234bf16459ef983b6c57d7647bb8ebd01cb280ac5f4c57ff"
+            "sha256": "87dd20f7f46f93f6ae043e4d49e4118b44dca2485ed8c1293fff6991d9287dc9"
           },
           "review": "statement-by-statement",
           "validation": {
@@ -93227,7 +93227,7 @@
           "counterpart": {
             "file": "tests/integration/npc-npc-layer.test.ts",
             "name": "test_a_profile_key_the_spine_gains_arrives_at_the_table",
-            "sha256": "d338e394967eec29234bf16459ef983b6c57d7647bb8ebd01cb280ac5f4c57ff"
+            "sha256": "87dd20f7f46f93f6ae043e4d49e4118b44dca2485ed8c1293fff6991d9287dc9"
           },
           "review": "statement-by-statement",
           "validation": {
@@ -93346,7 +93346,7 @@
           "counterpart": {
             "file": "tests/integration/npc-npc-layer.test.ts",
             "name": "test_a_reader_s_dossier_claims_reach_the_graph_and_the_table",
-            "sha256": "d338e394967eec29234bf16459ef983b6c57d7647bb8ebd01cb280ac5f4c57ff"
+            "sha256": "87dd20f7f46f93f6ae043e4d49e4118b44dca2485ed8c1293fff6991d9287dc9"
           },
           "review": "statement-by-statement",
           "validation": {
@@ -93465,7 +93465,7 @@
           "counterpart": {
             "file": "tests/integration/npc-npc-layer.test.ts",
             "name": "test_the_books_numbers_read_out_of_either_shape",
-            "sha256": "d338e394967eec29234bf16459ef983b6c57d7647bb8ebd01cb280ac5f4c57ff"
+            "sha256": "87dd20f7f46f93f6ae043e4d49e4118b44dca2485ed8c1293fff6991d9287dc9"
           },
           "review": "statement-by-statement",
           "validation": {
@@ -93568,7 +93568,7 @@
           "counterpart": {
             "file": "tests/integration/npc-npc-layer.test.ts",
             "name": "test_an_npc_acts_for_the_party_and_the_roll_is_theirs",
-            "sha256": "d338e394967eec29234bf16459ef983b6c57d7647bb8ebd01cb280ac5f4c57ff"
+            "sha256": "87dd20f7f46f93f6ae043e4d49e4118b44dca2485ed8c1293fff6991d9287dc9"
           },
           "review": "statement-by-statement",
           "validation": {
@@ -93669,7 +93669,7 @@
           "counterpart": {
             "file": "tests/integration/npc-npc-layer.test.ts",
             "name": "test_an_ordinary_npc_helper_uses_their_target_and_receipt_identity",
-            "sha256": "d338e394967eec29234bf16459ef983b6c57d7647bb8ebd01cb280ac5f4c57ff"
+            "sha256": "87dd20f7f46f93f6ae043e4d49e4118b44dca2485ed8c1293fff6991d9287dc9"
           },
           "review": "statement-by-statement",
           "validation": {
@@ -93761,7 +93761,7 @@
           "counterpart": {
             "file": "tests/integration/npc-npc-layer.test.ts",
             "name": "test_an_ordinary_npc_helper_needs_their_missing_skill_without_using_player_base",
-            "sha256": "d338e394967eec29234bf16459ef983b6c57d7647bb8ebd01cb280ac5f4c57ff"
+            "sha256": "87dd20f7f46f93f6ae043e4d49e4118b44dca2485ed8c1293fff6991d9287dc9"
           },
           "review": "statement-by-statement",
           "validation": {
@@ -93848,7 +93848,7 @@
           "counterpart": {
             "file": "tests/integration/npc-npc-layer.test.ts",
             "name": "test_an_ordinary_npc_check_uses_the_authored_characteristic_without_a_pin",
-            "sha256": "d338e394967eec29234bf16459ef983b6c57d7647bb8ebd01cb280ac5f4c57ff"
+            "sha256": "87dd20f7f46f93f6ae043e4d49e4118b44dca2485ed8c1293fff6991d9287dc9"
           },
           "review": "statement-by-statement",
           "validation": {
@@ -93951,7 +93951,7 @@
           "counterpart": {
             "file": "tests/integration/npc-npc-layer.test.ts",
             "name": "test_an_npc_pin_cannot_replace_an_authored_value_but_can_fill_a_missing_skill",
-            "sha256": "d338e394967eec29234bf16459ef983b6c57d7647bb8ebd01cb280ac5f4c57ff"
+            "sha256": "87dd20f7f46f93f6ae043e4d49e4118b44dca2485ed8c1293fff6991d9287dc9"
           },
           "review": "statement-by-statement",
           "validation": {
@@ -94046,7 +94046,7 @@
           "counterpart": {
             "file": "tests/integration/npc-npc-layer.test.ts",
             "name": "test_visual_npc_properties_reach_the_keeper_without_turning_belief_into_truth",
-            "sha256": "d338e394967eec29234bf16459ef983b6c57d7647bb8ebd01cb280ac5f4c57ff"
+            "sha256": "87dd20f7f46f93f6ae043e4d49e4118b44dca2485ed8c1293fff6991d9287dc9"
           },
           "review": "statement-by-statement",
           "validation": {
@@ -94133,7 +94133,7 @@
           "counterpart": {
             "file": "tests/integration/npc-npc-layer.test.ts",
             "name": "test_a_belief_about_a_person_does_not_import_their_secret_biography",
-            "sha256": "d338e394967eec29234bf16459ef983b6c57d7647bb8ebd01cb280ac5f4c57ff"
+            "sha256": "87dd20f7f46f93f6ae043e4d49e4118b44dca2485ed8c1293fff6991d9287dc9"
           },
           "review": "statement-by-statement",
           "validation": {
@@ -99367,7 +99367,7 @@
           "counterpart": {
             "file": "tests/integration/npc-npc-standing-action.test.ts",
             "name": "test_no_disposition_no_authored_word_and_no_override_is_no_standing",
-            "sha256": "1ddbf8eb6556b3a2d04417302c271fcef83b96f9b89d2fdaf3a22b6616cbd7a1"
+            "sha256": "8bef78debfddd81c9b1bdfd69071eca5366bdad31f770b9d00948a720906a844"
           },
           "review": "statement-by-statement",
           "validation": {
@@ -99460,7 +99460,7 @@
           "counterpart": {
             "file": "tests/integration/npc-npc-standing-action.test.ts",
             "name": "test_the_rules_default_reads_the_disposition_table",
-            "sha256": "1ddbf8eb6556b3a2d04417302c271fcef83b96f9b89d2fdaf3a22b6616cbd7a1"
+            "sha256": "8bef78debfddd81c9b1bdfd69071eca5366bdad31f770b9d00948a720906a844"
           },
           "review": "statement-by-statement",
           "validation": {
@@ -99560,7 +99560,7 @@
           "counterpart": {
             "file": "tests/integration/npc-npc-standing-action.test.ts",
             "name": "test_the_stance_is_the_ledger_folded_with_the_open_turn",
-            "sha256": "1ddbf8eb6556b3a2d04417302c271fcef83b96f9b89d2fdaf3a22b6616cbd7a1"
+            "sha256": "8bef78debfddd81c9b1bdfd69071eca5366bdad31f770b9d00948a720906a844"
           },
           "review": "statement-by-statement",
           "validation": {
@@ -99643,7 +99643,7 @@
           "counterpart": {
             "file": "tests/integration/npc-npc-standing-action.test.ts",
             "name": "test_an_npc_out_of_the_fight_has_no_standing",
-            "sha256": "1ddbf8eb6556b3a2d04417302c271fcef83b96f9b89d2fdaf3a22b6616cbd7a1"
+            "sha256": "8bef78debfddd81c9b1bdfd69071eca5366bdad31f770b9d00948a720906a844"
           },
           "review": "statement-by-statement",
           "validation": {
@@ -99730,7 +99730,7 @@
           "counterpart": {
             "file": "tests/integration/npc-npc-standing-action.test.ts",
             "name": "test_an_attack_without_a_legal_target_is_not_issued",
-            "sha256": "1ddbf8eb6556b3a2d04417302c271fcef83b96f9b89d2fdaf3a22b6616cbd7a1"
+            "sha256": "8bef78debfddd81c9b1bdfd69071eca5366bdad31f770b9d00948a720906a844"
           },
           "review": "statement-by-statement",
           "validation": {
@@ -99817,7 +99817,7 @@
           "counterpart": {
             "file": "tests/integration/npc-npc-standing-action.test.ts",
             "name": "test_no_standing_while_an_attack_is_pending",
-            "sha256": "1ddbf8eb6556b3a2d04417302c271fcef83b96f9b89d2fdaf3a22b6616cbd7a1"
+            "sha256": "8bef78debfddd81c9b1bdfd69071eca5366bdad31f770b9d00948a720906a844"
           },
           "review": "statement-by-statement",
           "validation": {
@@ -99904,7 +99904,7 @@
           "counterpart": {
             "file": "tests/integration/npc-npc-standing-action.test.ts",
             "name": "test_an_authored_attack_is_issued_with_basis_authored",
-            "sha256": "1ddbf8eb6556b3a2d04417302c271fcef83b96f9b89d2fdaf3a22b6616cbd7a1"
+            "sha256": "8bef78debfddd81c9b1bdfd69071eca5366bdad31f770b9d00948a720906a844"
           },
           "review": "statement-by-statement",
           "validation": {
@@ -99993,7 +99993,7 @@
           "counterpart": {
             "file": "tests/integration/npc-npc-standing-action.test.ts",
             "name": "test_an_authored_word_outside_the_enum_is_refused_where_the_book_is_registered",
-            "sha256": "1ddbf8eb6556b3a2d04417302c271fcef83b96f9b89d2fdaf3a22b6616cbd7a1"
+            "sha256": "8bef78debfddd81c9b1bdfd69071eca5366bdad31f770b9d00948a720906a844"
           },
           "review": "statement-by-statement",
           "validation": {
@@ -100117,7 +100117,7 @@
           "counterpart": {
             "file": "tests/integration/npc-npc-standing-action.test.ts",
             "name": "test_a_keeper_hold_is_a_receipt_survives_a_restart_and_lapses_with_its_round",
-            "sha256": "1ddbf8eb6556b3a2d04417302c271fcef83b96f9b89d2fdaf3a22b6616cbd7a1"
+            "sha256": "8bef78debfddd81c9b1bdfd69071eca5366bdad31f770b9d00948a720906a844"
           },
           "review": "statement-by-statement",
           "validation": {
@@ -100220,7 +100220,7 @@
           "counterpart": {
             "file": "tests/integration/npc-npc-standing-action.test.ts",
             "name": "test_a_keeper_attack_stands_and_a_disposition_override_replaces_the_book",
-            "sha256": "1ddbf8eb6556b3a2d04417302c271fcef83b96f9b89d2fdaf3a22b6616cbd7a1"
+            "sha256": "8bef78debfddd81c9b1bdfd69071eca5366bdad31f770b9d00948a720906a844"
           },
           "review": "statement-by-statement",
           "validation": {
@@ -100311,7 +100311,7 @@
           "counterpart": {
             "file": "tests/integration/npc-npc-standing-action.test.ts",
             "name": "test_an_override_is_refused_whole_without_why_with_another_change_with_an_unknown_word_or_a_hold_outside_a_fight",
-            "sha256": "1ddbf8eb6556b3a2d04417302c271fcef83b96f9b89d2fdaf3a22b6616cbd7a1"
+            "sha256": "8bef78debfddd81c9b1bdfd69071eca5366bdad31f770b9d00948a720906a844"
           },
           "review": "statement-by-statement",
           "validation": {
@@ -100394,7 +100394,7 @@
           "counterpart": {
             "file": "tests/integration/npc-npc-standing-action.test.ts",
             "name": "test_a_hold_for_someone_outside_the_fight_is_refused",
-            "sha256": "1ddbf8eb6556b3a2d04417302c271fcef83b96f9b89d2fdaf3a22b6616cbd7a1"
+            "sha256": "8bef78debfddd81c9b1bdfd69071eca5366bdad31f770b9d00948a720906a844"
           },
           "review": "statement-by-statement",
           "validation": {
@@ -100485,7 +100485,7 @@
           "counterpart": {
             "file": "tests/integration/npc-npc-standing-action.test.ts",
             "name": "test_the_standing_action_and_disposition_are_keeper_only",
-            "sha256": "1ddbf8eb6556b3a2d04417302c271fcef83b96f9b89d2fdaf3a22b6616cbd7a1"
+            "sha256": "8bef78debfddd81c9b1bdfd69071eca5366bdad31f770b9d00948a720906a844"
           },
           "review": "statement-by-statement",
           "validation": {
@@ -100580,7 +100580,7 @@
           "counterpart": {
             "file": "tests/integration/npc-npc-standing-action.test.ts",
             "name": "test_a_card_without_a_disposition_carries_what_one_is_inferred_from",
-            "sha256": "1ddbf8eb6556b3a2d04417302c271fcef83b96f9b89d2fdaf3a22b6616cbd7a1"
+            "sha256": "8bef78debfddd81c9b1bdfd69071eca5366bdad31f770b9d00948a720906a844"
           },
           "review": "statement-by-statement",
           "validation": {
@@ -100671,7 +100671,7 @@
           "counterpart": {
             "file": "tests/integration/npc-npc-standing-action.test.ts",
             "name": "test_a_stated_tactic_is_the_cards_default_disposition_through_the_table",
-            "sha256": "1ddbf8eb6556b3a2d04417302c271fcef83b96f9b89d2fdaf3a22b6616cbd7a1"
+            "sha256": "8bef78debfddd81c9b1bdfd69071eca5366bdad31f770b9d00948a720906a844"
           },
           "review": "statement-by-statement",
           "validation": {
@@ -100774,7 +100774,7 @@
           "counterpart": {
             "file": "tests/integration/npc-npc-standing-action.test.ts",
             "name": "test_a_keeper_tactic_is_the_cards_word_and_a_rule_default_tactic_is_not",
-            "sha256": "1ddbf8eb6556b3a2d04417302c271fcef83b96f9b89d2fdaf3a22b6616cbd7a1"
+            "sha256": "8bef78debfddd81c9b1bdfd69071eca5366bdad31f770b9d00948a720906a844"
           },
           "review": "statement-by-statement",
           "validation": {
@@ -100859,7 +100859,7 @@
           "counterpart": {
             "file": "tests/integration/npc-npc-standing-action.test.ts",
             "name": "test_a_malformed_tactic_map_is_refused_when_the_card_is_read",
-            "sha256": "1ddbf8eb6556b3a2d04417302c271fcef83b96f9b89d2fdaf3a22b6616cbd7a1"
+            "sha256": "8bef78debfddd81c9b1bdfd69071eca5366bdad31f770b9d00948a720906a844"
           },
           "review": "statement-by-statement",
           "validation": {
@@ -100944,7 +100944,7 @@
           "counterpart": {
             "file": "tests/integration/npc-npc-standing-action.test.ts",
             "name": "test_a_table_without_the_tactic_map_gives_no_default",
-            "sha256": "1ddbf8eb6556b3a2d04417302c271fcef83b96f9b89d2fdaf3a22b6616cbd7a1"
+            "sha256": "8bef78debfddd81c9b1bdfd69071eca5366bdad31f770b9d00948a720906a844"
           },
           "review": "statement-by-statement",
           "validation": {
@@ -101059,7 +101059,7 @@
           "counterpart": {
             "file": "tests/integration/npc-npc-standing-action.test.ts",
             "name": "test_an_inferred_disposition_is_a_receipt_is_written_once_and_survives_a_restart",
-            "sha256": "1ddbf8eb6556b3a2d04417302c271fcef83b96f9b89d2fdaf3a22b6616cbd7a1"
+            "sha256": "8bef78debfddd81c9b1bdfd69071eca5366bdad31f770b9d00948a720906a844"
           },
           "review": "statement-by-statement",
           "validation": {
@@ -101146,7 +101146,7 @@
           "counterpart": {
             "file": "tests/integration/npc-npc-standing-action.test.ts",
             "name": "test_an_inferred_write_over_the_books_disposition_is_refused",
-            "sha256": "1ddbf8eb6556b3a2d04417302c271fcef83b96f9b89d2fdaf3a22b6616cbd7a1"
+            "sha256": "8bef78debfddd81c9b1bdfd69071eca5366bdad31f770b9d00948a720906a844"
           },
           "review": "statement-by-statement",
           "validation": {
@@ -101233,7 +101233,7 @@
           "counterpart": {
             "file": "tests/integration/npc-npc-standing-action.test.ts",
             "name": "test_an_unreadable_ledger_withholds_the_tables_reading_and_never_guesses_a_stance",
-            "sha256": "1ddbf8eb6556b3a2d04417302c271fcef83b96f9b89d2fdaf3a22b6616cbd7a1"
+            "sha256": "8bef78debfddd81c9b1bdfd69071eca5366bdad31f770b9d00948a720906a844"
           },
           "review": "statement-by-statement",
           "validation": {

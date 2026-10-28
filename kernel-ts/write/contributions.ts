@@ -165,18 +165,45 @@ function actorId(graph: ModuleGraph, value: any): string | null {
     return graph.isActor(node) ? node!.node_id : null;
 }
 const intLike = (value: any): boolean => integer(value) || typeof value === 'boolean';
+/**
+ * Contract §259.1: the attitude table (`npc-attitude.json`, `coc.npc-attitude.v1`), checked whole when it loads: five
+ * levels whose `at_most` rise, a score range they cover, and `legacy_words` that each name one of the levels. It is
+ * still called the stance table: the ledger keeps the person's attitude under `stance`.
+ */
 export async function stanceTable(context: KernelContext): Promise<Row> {
-    const table = row(await context.snapshots.readJson(join(context.content, 'rulesets', 'coc7', 'rules-json', 'npc-stance.json')));
-    if (table.contract_id !== 'coc.npc-stance.v1')
-        throw new RpcError('campaign_not_ready', 'npc-stance does not declare coc.npc-stance.v1', {
-            fix: 'restore content/rulesets/coc7/rules-json/npc-stance',
-            details: {
-                stance: {
-                    declared: table.contract_id ?? null
-                }
-            },
+    const table = row(await context.snapshots.readJson(join(context.content, 'rulesets', 'coc7', 'rules-json', 'npc-attitude.json')));
+    const refuse = (message: string, details: Row = {}): never => {
+        throw new RpcError('campaign_not_ready', message, {
+            fix: 'restore content/rulesets/coc7/rules-json/npc-attitude.json',
+            details: {stance: {declared: table.contract_id ?? null, ...details}},
         });
+    };
+    if (table.contract_id !== 'coc.npc-attitude.v1')
+        refuse('npc-attitude does not declare coc.npc-attitude.v1');
+    const levels = array(table.levels), range = array(table.score_range);
+    if (range.length !== 2 || !integer(range[0]) || !integer(range[1]) || number(range[0]) > number(range[1]))
+        refuse('npc-attitude score_range is [low, high] in whole numbers', {score_range: table.score_range ?? null});
+    if (!levels.length || levels.some((level, index) => typeof row(level).value !== 'string' || !integer(row(level).at_most)
+        || index > 0 && number(row(level).at_most) <= number(row(levels[index - 1]).at_most)))
+        refuse('npc-attitude levels are {value, at_most} with at_most rising', {levels: table.levels ?? null});
+    if (number(row(levels.at(-1)).at_most) < number(range[1]))
+        refuse('npc-attitude levels do not reach the top of score_range', {levels: table.levels ?? null});
+    const words = levels.map(level => string(row(level).value));
+    for (const [old, word] of Object.entries(row(table.legacy_words)))
+        if (!words.includes(string(word)))
+            refuse(`npc-attitude legacy word ${old} reads as ${String(word)}, which is no level`, {legacy_words: table.legacy_words});
+    for (const key of ['initial_by_impression', 'impression_dispositions'])
+        for (const [name, score] of Object.entries(row(table[key])))
+            if (!integer(score))
+                refuse(`npc-attitude ${key}.${name} is not a whole number`, {[key]: table[key]});
     return table;
+}
+/** §259.1: an attitude word as the table reads it -- one of its levels, or a legacy word mapped onto one -- else null. */
+export function attitudeWord(table: Row, word: unknown): string | null {
+    if (typeof word !== 'string') return null;
+    if (array(table.levels).some(level => row(level).value === word)) return word;
+    const legacy = row(table.legacy_words)[word];
+    return typeof legacy === 'string' ? legacy : null;
 }
 function setStance(item: Row, table: Row, value: number, turn: number, receipt: any, because: Row): void {
     const old = row(item.stance), score = Math.max(number(table.score_range[0]), Math.min(number(table.score_range[1]), Math.trunc(value)));
@@ -289,11 +316,12 @@ export function foldNpcTurn(ledger: Row, graph: ModuleGraph, record: Row, table:
                 continue;
             const item = entry(ledger, id), levels = array(table.levels);
             let floor = number(table.score_range[0]);
+            const written = attitudeWord(table, receipt.stance);
             for (const level of levels) {
-                if (receipt.stance === level.value) {
+                if (written === level.value) {
                     setStance(item, table, floor, turn, receipt.id, {
                         how: 'keeper',
-                        stance: receipt.stance,
+                        stance: written,
                         why: receipt.why ?? null
                     });
                     break;

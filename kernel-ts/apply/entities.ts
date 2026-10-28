@@ -12,7 +12,7 @@ import {exhibitTeaches} from '../read/exhibits.js';
 import {passageOf,tablePersonId} from '../read/table-people.js';
 import {castPersonNamed,openingCast,sourceNameReadFix} from '../read/cast.js';
 import {array,entries,integer,normalize,number,repr,row,sorted,string,truth,type Row} from '../read/values.js';
-import {stanceTable} from '../write/contributions.js';
+import {attitudeWord, stanceTable} from '../write/contributions.js';
 import {required,nowIso} from '../write/store.js';
 import {effectId,type StagedEffect} from './bookkeeping.js';
 import {archetypeIds,rollArchetypeProfile} from './archetype.js';
@@ -571,7 +571,11 @@ export async function stageNpc(context:ApplyContext,effect:Row):Promise<StagedEf
         // §192.3: one entry per thing -- a copy's older entry would stand in again once this one went away.
         for(const copy of copies)delete presence[graph.handle(copy)];
     }
-    if(stance!=null&&(typeof stance!=='string'||!words.includes(stance)))unsupported('npc.stance',stance,words,`npc.stance ${repr(stance)} is not one of the ledger's words`);
+    // §259.1: the five attitude words; an old four-word stance is read as the word the table maps it to, and the
+    // receipt keeps what was written beside what it reads as.
+    const read=stance==null?null:attitudeWord(table,stance);
+    if(stance!=null&&read===null)unsupported('npc.stance',stance,words,`npc.stance ${repr(stance)} is not one of the ledger's words`);
+    const stanceFields=stance==null?{stance:null}:{stance:read,...(read!==stance?{stance_written:stance}:{})};
     if(profile!=null){
         (world.npc_profiles??={})[handle]=profile;
         // §180.6: with its catalog block pinned the creature is an actor for the rest of this batch, as on every load.
@@ -589,9 +593,9 @@ export async function stageNpc(context:ApplyContext,effect:Row):Promise<StagedEf
     // anything that folds receipts later (the ledger, a worldline rebuild, the KPI).
     const unchanged=to!=null&&established===false&&Object.keys(effect).every(key=>['kind','name','to','why'].includes(key))
         &&(moved==='away'?previous===undefined:previous===moved)&&!hadCopies;
-    const receipt={id:effectId(context,'npc',handle),kind:'npc',call_id:context.callId,npc:node.node_id,handle,name:graph.displayName(node),label:personLabel(world,handle,graph.displayName(node)),from:previous??null,to:moved,stance:stance??null,dead:dead??null,skill:pinned,...creatureNote,...(pinnedProfile?{profile:pinnedProfile}:{}),...establishedOf(established,fromPassage,resolvedFrom),...(unchanged?{unchanged:true}:{}),...(unplaced||rolledOnEntry?{adjusted:[...(unplaced?[{field:'to',reason:'unregistered_place',given:unplaced}]:[]),...(rolledOnEntry?[{field:'archetype',reason:'rolled_on_entry',archetype:'ordinary_adult'}]:[])]}:{}),why,at:nowIso()};
+    const receipt={id:effectId(context,'npc',handle),kind:'npc',call_id:context.callId,npc:node.node_id,handle,name:graph.displayName(node),label:personLabel(world,handle,graph.displayName(node)),from:previous??null,to:moved,...stanceFields,dead:dead??null,skill:pinned,...creatureNote,...(pinnedProfile?{profile:pinnedProfile}:{}),...establishedOf(established,fromPassage,resolvedFrom),...(unchanged?{unchanged:true}:{}),...(unplaced||rolledOnEntry?{adjusted:[...(unplaced?[{field:'to',reason:'unregistered_place',given:unplaced}]:[]),...(rolledOnEntry?[{field:'archetype',reason:'rolled_on_entry',archetype:'ordinary_adult'}]:[])]}:{}),why,at:nowIso()};
     if(unchanged)return {receipt,event:null};
-    return walked({receipt,event:{type:'npc-changed',data:{npc:handle,to:moved,stance:stance??null,dead:dead??null,skill:pinned,...creatureNote,...(pinnedProfile?typeof profile!.catalog==='string'?{catalog:profile!.catalog}:{archetype:profile!.archetype}:{}),...establishedOf(established,fromPassage,resolvedFrom),why}}});
+    return walked({receipt,event:{type:'npc-changed',data:{npc:handle,to:moved,stance:stanceFields.stance,dead:dead??null,skill:pinned,...creatureNote,...(pinnedProfile?typeof profile!.catalog==='string'?{catalog:profile!.catalog}:{archetype:profile!.archetype}:{}),...establishedOf(established,fromPassage,resolvedFrom),why}}});
 }
 /**
  * Contract §152.4: the handout a name reaches, read through its survivor -- a printed visual the reviewer found to be the
