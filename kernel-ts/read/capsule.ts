@@ -964,7 +964,7 @@ export function npcEntry(graph: ModuleGraph, world: Row, node: Row, ledger: Row,
         const levels = array(row(scope.attitude).levels), start = number(row(scope.attitude).initial_score);
         const word = typeof row(saved.stance).value === "string" ? string(row(saved.stance).value)
             : levels.length ? string(row(levels.find(level => start <= number(row(level).at_most)) ?? levels.at(-1)).value) : null;
-        const asks = asksView(asksFor(graph, world, node, word, scope.requests));
+        const asks = asksView(asksFor(graph, world, node, word, scope.requests, array(saved.blocked)));
         if (asks)
             entry.asks = asks;
     }

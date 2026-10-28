@@ -246,8 +246,28 @@ function moveAttitude(item: Row, table: Row, investigator: string, change: {set?
         since_turn: prior.value !== word ? turn : prior.since_turn ?? turn,
         because: [...array(prior.because), {...because, turn, receipt: receipt ?? null}].slice(-3)};
     attitude[investigator] = next;
+    // §259.5: a freeze lifts once the attitude stands higher than it did when the request failed.
+    const rank = (value: unknown) => array(table.levels).findIndex(level => row(level).value === value);
+    if (Array.isArray(item.blocked))
+        item.blocked = item.blocked.filter((block: Row) => !(rank(block.word) >= 0 && rank(word) > rank(block.word)));
     item.stance = {value: word, score, since_turn: old.value !== word ? turn : old.since_turn ?? turn,
         because: [...array(old.because), {...because, turn, receipt: receipt ?? null}].slice(-3)};
+}
+/** §259.5: the key a request row is frozen under -- the clue it asks for, else the ordinary favour. */
+export const askKey = (what: unknown): string => row(what).kind === 'ordinary' ? 'ordinary' : string(row(what).clue);
+/**
+ * §259.5: fold a roll that named a request row (`ask`, §259.4). A failure (a failed push too) freezes the row's target for
+ * this person, with the skill that failed and the attitude word it failed at; a pass on the same target frees it. An
+ * obligation row is the obligation's own business (§134).
+ */
+function foldAsk(item: Row, receipt: Row, turn: number): void {
+    const ask = row(receipt.ask), what = row(ask.what);
+    if (!what.kind || what.kind === 'obligation') return;
+    const key = askKey(what), passed = receipt.passed ?? row(receipt.check).passed;
+    const kept = array(item.blocked).filter((block: Row) => block.key !== key);
+    if (passed === false)
+        kept.push({key, what, ask: ask.ask ?? null, skill: receipt.skill ?? null, word: row(item.stance).value ?? null, turn, receipt: receipt.id ?? null});
+    if (kept.length || Object.hasOwn(item, 'blocked')) item.blocked = kept;
 }
 export function foldNpcTurn(ledger: Row, graph: ModuleGraph, record: Row, table: Row): void {
     const turn = number(record.turn);
@@ -296,6 +316,8 @@ export function foldNpcTurn(ledger: Row, graph: ModuleGraph, record: Row, table:
                 });
                 if (!target)
                     continue;
+                // §259.5: a roll on a request row freezes what it was after when it fails, and frees it when it passes.
+                foldAsk(item, receipt, turn);
                 if (family === 'combat') {
                     // §259.2: toward the attacker when an investigator struck; a blow from someone else is toward all.
                     const attacker = !actor && typeof receipt.actor === 'string' ? receipt.actor : null;

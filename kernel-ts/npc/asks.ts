@@ -19,6 +19,7 @@ import {SOCIAL_APPROACH_SKILLS} from '../resolve/arithmetic.js';
 import {npcProfileOf} from '../resolve/context.js';
 import {socialDifficulty} from '../resolve/social.js';
 import {stanceNow} from '../combat/standing.js';
+import {askKey, emptyLedgerEntry, foldNpcTurn} from '../write/contributions.js';
 
 export const DIFFICULTIES = ['regular', 'hard', 'extreme'] as const;
 const TIERS = ['grant', 'check', 'impossible'];
@@ -69,7 +70,7 @@ function socialSkills(graph: ModuleGraph, world: Row, handle: string, steps: num
  * the same state numbers them the same way at `resolve` as in the capsule. `word` is their attitude toward the
  * investigator (the ledger's, §259.2).
  */
-export function asksFor(graph: ModuleGraph, world: Row, node: Row, word: string | null, table: Row): Row[] {
+export function asksFor(graph: ModuleGraph, world: Row, node: Row, word: string | null, table: Row, blocked: Row[] = []): Row[] {
     const handle = graph.handle(node), name = graph.displayName(node), shift = attitudeShift(table, word);
     const tierOf = (kind: string) => string(row(row(table.tier_by_attitude)[kind])[string(word)] || 'check');
     const grantable = (kind: string) => word !== null && array(row(table.attitude_can_grant)[kind]).includes(word);
@@ -95,6 +96,11 @@ export function asksFor(graph: ModuleGraph, world: Row, node: Row, word: string 
         clueOrFavour(graph, world, handle, {kind, clue: item.handle}, tierOf(kind), shift + kindShift(table, kind), add);
     }
     clueOrFavour(graph, world, handle, {kind: 'ordinary'}, tierOf('ordinary'), shift + kindShift(table, 'ordinary'), add);
+    // §259.5: a target a failed request froze stays a row, marked with the freeze, whatever its tier would be.
+    for (const item of rows) {
+        const block = blocked.find(entry => entry.key === askKey(item.what));
+        if (block && item.tier !== 'impossible') item.blocked = {skill: block.skill ?? null, turn: block.turn ?? null, receipt: block.receipt ?? null};
+    }
     return rows;
 }
 const kindShift = (table: Row, kind: string): number => integer(row(table.kind_difficulty_shift)[kind]) ? number(row(table.kind_difficulty_shift)[kind]) : 0;
@@ -113,20 +119,37 @@ const askLabel = (what: Row): string => what.kind === 'ordinary' ? 'ordinary fav
  * with their `ask` ref and each skill's difficulty, the way `resolve` binds them.
  */
 export function asksView(rows: Row[]): Row | null {
-    const view: Row = {}, named = (tier: string) => rows.filter(item => item.tier === tier).map(item => askLabel(row(item.what)));
-    const checks = rows.filter(item => item.tier === 'check').map(item => {
+    const open = rows.filter(item => !item.blocked), frozen = rows.filter(item => item.blocked);
+    const view: Row = {}, named = (tier: string) => open.filter(item => item.tier === tier).map(item => askLabel(row(item.what)));
+    const checks = open.filter(item => item.tier === 'check').map(item => {
         const check = row(item.check), what = row(item.what);
         return {ask: item.ask, for: askLabel(what), ...(what.kind === 'obligation'
             ? {via: 'action.obligation', skills: array(check.skills), difficulty: check.difficulty ?? null}
             : {skills: Object.fromEntries(array(check.skills).map(skill => [string(row(skill).skill), row(skill).difficulty]))})};
     });
     if (named('grant').length) view.grant = named('grant');
+    // §259.5: frozen by a failed request: another skill, the player's push or a rise in attitude is the way back.
+    if (frozen.length) view.blocked = frozen.map(item => ({ask: item.ask, for: askLabel(row(item.what)), failed: row(item.blocked).skill ?? null,
+        since_turn: row(item.blocked).turn ?? null}));
     if (checks.length) view.check = checks;
     if (named('impossible').length) view.impossible = named('impossible');
     return Object.keys(view).length ? view : null;
 }
 /** The one line the capsule carries beside the rows. */
 export const ASKS_NOTE = 'asks: what this person can be asked for now. grant: they give it, no roll. check: resolve with intent social, action.ask and one of its skills (the host sets the difficulty; action.eased_by with one line of reason lowers it one step). impossible: no roll. A good impression is not consent; anything they do not know is not listed and cannot be had from them.';
+
+/** §259.5: the targets frozen for this person now, the open turn's receipts folded in. */
+export function blockedNow(graph: ModuleGraph, ledger: Row, attitude: Row, turn: Row, handle: string): Row[] {
+    const node = graph.actor(handle);
+    if (!node) return [];
+    let entry = row(ledger[string(node.node_id)]);
+    if (['open', 'acting'].includes(string(turn.state)) && array(turn.receipts).length) {
+        const scratch: Row = {[string(node.node_id)]: {...emptyLedgerEntry(), ...JSON.parse(JSON.stringify(entry))}};
+        foldNpcTurn(scratch, graph, {turn: turn.turn, receipts: turn.receipts}, attitude);
+        entry = row(scratch[string(node.node_id)]);
+    }
+    return array(entry.blocked);
+}
 
 /** The attitude word toward the investigator now (§259.2), the open turn's receipts folded in; the table's start without a row. */
 export function attitudeNow(graph: ModuleGraph, ledger: Row, attitude: Row, turn: Row, handle: string): string | null {
@@ -139,7 +162,7 @@ export function attitudeNow(graph: ModuleGraph, ledger: Row, attitude: Row, turn
  * skills. The returned action carries the row on a host-only key (`_ask`), and the Keeper's `eased_by` reason on
  * another (`_eased_by`), which the social binding reads as one step of leverage.
  */
-export function bindAsk(graph: ModuleGraph, world: Row, action: Row, word: string | null, table: Row): Row {
+export function bindAsk(graph: ModuleGraph, world: Row, action: Row, word: string | null, table: Row, blocked: Row[] = []): Row {
     const ref = string(action.ask).trim();
     if (string(action.intent) !== 'social')
         throw new RpcError('invalid_params', 'action.ask is a social request: send it with intent social', {
@@ -148,7 +171,7 @@ export function bindAsk(graph: ModuleGraph, world: Row, action: Row, word: strin
     if (!node)
         throw new RpcError('needs', 'action.ask names a row of the asked person\'s asks: name that person in action.target', {
             details: {needs: {field: 'target'}}});
-    const rows = asksFor(graph, world, node, word, table), chosen = rows.find(item => item.ask === ref);
+    const rows = asksFor(graph, world, node, word, table, blocked), chosen = rows.find(item => item.ask === ref);
     if (!chosen)
         throw new RpcError('invalid_params', `${graph.displayName(node)} has no ${ref || 'such'} row`, {
             fix: 'name one of details.options, from this person\'s present[].asks', details: {field: 'action.ask', options: rows.map(item => item.ask)}});
@@ -167,9 +190,15 @@ export function bindAsk(graph: ModuleGraph, world: Row, action: Row, word: strin
     if (!skills.includes(asked))
         throw new RpcError('invalid_params', `this row is settled by one of ${skills.join(', ')}`, {
             fix: 'set action.skill to one of details.options, the approach the player\'s words take', details: {field: 'action.skill', options: skills}});
+    // §259.5: the same skill on a frozen target is the failure asked again; another skill or a declared push is not.
+    if (chosen.blocked && string(row(chosen.blocked).skill) === asked && action.push !== true)
+        throw new RpcError('turn_state', `${graph.displayName(node)} already refused this to ${asked}; the failure stands`, {
+            fix: 'tell the refusal and what they still give; another approach (another skill), new evidence, a warmer attitude or the player\'s own declared push is the way back',
+            details: {reason: 'ask_blocked', ask: ref, what, failed: row(chosen.blocked)}});
+    const stillOpen = rows.filter(item => item.tier === 'grant' && !item.blocked).map(item => askLabel(row(item.what)));
     const eased = typeof action.eased_by === 'string' && action.eased_by.trim() && number(table.ease_max_steps) > 0 ? action.eased_by.trim() : null;
     const {ask: _ask, eased_by: _eased, ...rest} = action;
     return {...rest, goal: typeof action.goal === 'string' && action.goal.trim() ? action.goal : string(what.clue || what.kind),
-        _ask: {ask: ref, what, difficulty: row(array(row(chosen.check).skills).find(item => row(item).skill === asked)).difficulty ?? null},
+        _ask: {ask: ref, what, difficulty: row(array(row(chosen.check).skills).find(item => row(item).skill === asked)).difficulty ?? null, still_open: stillOpen},
         ...(eased ? {_eased_by: eased} : {})};
 }

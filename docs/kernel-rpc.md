@@ -52321,6 +52321,24 @@ tool declares `ask` and `eased_by`; natural-npc 1.7.4's "Asking for something" r
 
 Tests: `tests/integration/npc-asks.test.ts`.
 
+### 259.5 A failed request freezes what it was after (amends §270.5, §269.1)
+
+A roll on a request row (§259.4) that fails (a failed push too) freezes the row's target for that person: the ledger
+entry gains `blocked: [{key, what, ask, skill, word, turn, receipt}]` (`key` the clue's handle, or `ordinary`), and the
+failed roll receipt carries `scope: {blocked: [what], still_open: [...]}`, `still_open` naming the rows that person still
+gives without a roll. A later pass on the same target frees it; so does the attitude standing higher than the word it
+failed at (§259.2). Obligation rows stay §134's.
+
+While frozen: the row shows under `present[].asks.blocked` (`{ask, for, failed, since_turn}`); `resolve` with the same
+skill refuses `turn_state` (`ask_blocked`, with the way back in `fix`), while another skill or the player's declared push
+rolls; and `apply clue` whose source is that person (`from`, or the one present holder §17.8 fills) refuses
+`invalid_params` (`ask_blocked`), so the delivery cannot hand over what the dice refused. The clue can still be found
+another way. Everything is folded from the receipts, so a rebuilt ledger holds the same freezes. §270.5 still refuses
+re-rolling a failed goal through a combined check within one input; this extends the same rule to delivery and to
+later turns. A freeze does not lift with time alone.
+
+Tests: `tests/integration/npc-failure-scope.test.ts`.
+
 ## 260. NPC portrayal: beats, attention and the bearing grant (owner 2026-10-23; amends §254.2, §254.6)
 
 Spec: `docs/specs/npc-portrayal.md`. Research: `docs/research/npc-portrayal-lotm-20261023.md`. The owner's direction: the

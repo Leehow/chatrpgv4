@@ -13,6 +13,7 @@ import {passageOf,tablePersonId} from '../read/table-people.js';
 import {castPersonNamed,openingCast,sourceNameReadFix} from '../read/cast.js';
 import {array,entries,integer,normalize,number,repr,row,sorted,string,truth,type Row} from '../read/values.js';
 import {attitudeWord, stanceTable} from '../write/contributions.js';
+import {blockedNow} from '../npc/asks.js';
 import {required,nowIso} from '../write/store.js';
 import {effectId,type StagedEffect} from './bookkeeping.js';
 import {archetypeIds,rollArchetypeProfile} from './archetype.js';
@@ -45,6 +46,11 @@ function departedThisTurn(context:ApplyContext):string[]{
  * player this clue wherever the party stood, so it lands where they stand now: it is not refused `not_here`, and the
  * book's check (§201.2) is not asked of it: the story already gave it (the told row records whether that check passed).
  */
+/** §259.5: the committed NPC ledger of this campaign, or an empty one before its first fold. */
+async function committedLedger(context:ApplyContext):Promise<Row>{
+    const path=join(context.campaign.directory,'npc-ledger.json');
+    return await context.kernel.snapshots.pathExists(path)?row(await context.kernel.snapshots.readJson(path)):{};
+}
 export async function stageClue(context:ApplyContext,effect:Row,told=false):Promise<StagedEffect>{
     const name=required(effect,'clue')!,{world,graph}=context,turn=context.turn.turn;
     const label=typeof effect.label==='string'&&effect.label.trim()?effect.label:null,how=typeof effect.how==='string'?effect.how:null;
@@ -132,6 +138,14 @@ export async function stageClue(context:ApplyContext,effect:Row,told=false):Prom
         const present=new Set(npcsPresent(graph,world,scene).map(node=>graph.handle(node)));
         const holders=new Set((graph.incoming.get(node.node_id)||[]).filter(rel=>['held-by','delivered-by'].includes(rel.relation_kind)).map(rel=>graph.nodes.get(rel.from_node_id)).filter(node=>node?.node_kind==='npc').map(node=>graph.handle(node!)));
         const candidates=sorted([...holders].filter(name=>present.has(name)));if(candidates.length===1)source=candidates[0];
+    }
+    // §259.5: a clue a failed request froze is not handed over by that person; the refusal says the way back.
+    if(source){
+        const frozen=blockedNow(graph,await committedLedger(context),await stanceTable(context.kernel),
+            {...context.turn,receipts:[...array(context.turn.receipts),...(context.staged?.()??[])]},source).find(block=>block.key===handle);
+        if(frozen)throw new RpcError('invalid_params',`${graph.displayName(graph.actor(source)!)} refused clue ${repr(handle)} on turn ${string(frozen.turn)} (${string(frozen.skill)} failed); the failure stands`,{
+            fix:'tell the refusal and what they still give; it can be had from them again after another approach (another skill), new evidence, a warmer attitude or the player\'s own declared push, or found another way',
+            details:{reason:'ask_blocked',clue:handle,from:source,failed:frozen}});
     }
     // Without a keeper label the receipt files the graph's display name: a handle is a machine word and never reaches the player.
     const receipt={id:`clue:${handle}-t${turn}`,kind:'clue',call_id:context.callId,clue:handle,label:label||graph.displayName(node),summary:node.summary||node.name,scene:graph.handle(scene),how,from:source,

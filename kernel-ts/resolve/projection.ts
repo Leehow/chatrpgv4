@@ -222,7 +222,13 @@ export function tagNpcReceipts(context: SettleContext, family: string, npc: Row 
         // §259.4: the request row this roll settles, and the Keeper's reason when it eased the difficulty.
         const ask = context.action._ask;
         if (ask && typeof ask === 'object' && against && receipt.npc === against && !Object.hasOwn(receipt, 'ask'))
-            receipt.ask = {...ask, ...(typeof context.action._eased_by === 'string' ? {eased_by: context.action._eased_by} : {})};
+        {
+            const {still_open: stillOpen, ...kept} = ask as Row;
+            receipt.ask = {...kept, ...(typeof context.action._eased_by === 'string' ? {eased_by: context.action._eased_by} : {})};
+            // §259.5: a failed request says what it froze and what this person still gives.
+            if ((receipt.passed ?? row(receipt.check).passed) === false)
+                receipt.scope = {blocked: [kept.what], still_open: Array.isArray(stillOpen) ? stillOpen : []};
+        }
     }
 }
 export function markersOf(turn: Row, minted: Row[]): string[] {
