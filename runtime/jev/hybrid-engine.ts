@@ -593,8 +593,9 @@ export function createHybridEngine(options: HybridEngineOptions): {runDriver: Se
             taken=consultations.take({scene:object(capsule.where).scene,run:context.runId,scope:{worldline:scope.worldline,loop:scope.loop}});
           }catch(error){record({lane:'run',event:'source_context_unavailable',run:context.runId,reason:String(error)});}
           const carriedWork=taken?readCarriedViews({call:(method,params)=>bridge!.call!(method,{...params,campaign:bridge!.campaign,_context_read:true}),people:[],
-            answers:taken.landed.map(entry=>({name:entry.focus,view:entry.answer?withSourceQuestion(entry.question,entry.answer):{status:'unavailable',reason:entry.unavailable}})),
-            held:(taken.held??[]).map(entry=>({name:entry.focus,view:withSourceQuestion(entry.question,entry.answer)})),
+            answers:taken.landed.map(entry=>({name:entry.focus,view:entry.answer?withSourceQuestion(entry.question,entry.answer):{status:'unavailable',reason:entry.unavailable},...(entry.cached?{cached:true}:{})})),
+            // A held answer the host still retains continues from its next page; without `cached` it was cut to one page with no read_next.
+            held:(taken.held??[]).map(entry=>({name:entry.focus,view:withSourceQuestion(entry.question,entry.answer),...(entry.cached?{cached:true}:{})})),
             pending:taken.pending,sceneTexts:taken.texts,
             sceneRecords:(taken.records??[]).map(entry=>({...entry,view:{status:entry.unavailable?'unavailable':'landed',note:'Use the named scene or person view for its full current record.'}}))}):undefined;
           const [people,carried]=await Promise.all([peopleWork,carriedWork]);
