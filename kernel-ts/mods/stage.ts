@@ -49,6 +49,17 @@ export function ownerIn(party: readonly Row[], graph: ModuleGraph, world: Row, n
         {fix: 'Use the exact investigator name in details.investigators, or an existing NPC, scene or container name from look. Do not translate or extend a registered name.',
          details: {field:'object.owner', investigators:party.map(sheet=>sheet.name)}}); }
 }
+/**
+ * §276: the instance an adoption names when it already exists in this investigator's hands -- the exact instance name, or
+ * the sheet row the host registered beside play. Handles only, never a reading of the name.
+ */
+function claimedInstance(world: Row, owner: Row, adopt: string, prior: Row | null): Row | null {
+    const held = (item: Row): boolean => { const root = rootObjectOwner(world, item); return root.kind === 'investigator' && root.id === owner.id; };
+    const named = (item: Row): boolean => [item.equipment_name, item.name].some(value => normalize(string(value)) === normalize(adopt));
+    if (prior) return held(prior) && named(prior) ? prior : null;
+    const matches = Object.values(row(objectRegistry(world).instances)).map(row).filter(item => item.equipment_actor === owner.id && named(item) && held(item));
+    return matches.length === 1 ? matches[0] : null;
+}
 export async function stageModEffect(context: ApplyContext, original: Row, sheets: Map<string, Row>, jobs: ModJobs): Promise<{receipt: Row; event: DomainEvent}> {
     const {campaign, graph, world, callId} = context, turn = context.turn.turn;
     let effect = original;
@@ -93,12 +104,12 @@ export async function stageModEffect(context: ApplyContext, original: Row, sheet
         if (canonicalJson(accepted.definition ?? null) !== canonicalJson(draft)) throw new RpcError('invalid_params', 'Definition differs from the accepted Mod job');
         // §129.4: a placement already minted its instance against a placeholder; this replaces it in place.
         const replaced = isPlaceholder(findNamedObject(objectRegistry(world).definitions, draft.name));
-        const value = defineObject(world, draft, provenance);
+        const value = defineObject(world, draft, provenance), kept = value.digest !== jsonDigest(validateDefinition(draft));
         // The registration this definition was queued for is now real, so its marker stops standing in
         // for it -- otherwise the row would stay hidden from the audit that is supposed to notice gaps.
         clearRegistration(world, packageRow.id, string(value.name), string(value.category));
         return {receipt: {id: mint(`definition:${callId}`), kind: 'definition', name: value.name, category: value.category, definition: value.id, visibility: 'keeper', call_id: callId,
-                ...(replaced ? {replaced_placeholder: true} : {})},
+                ...(replaced ? {replaced_placeholder: true} : {}), ...(kept ? {kept_registered: true} : {})},
             event: {type: 'definition-created', data: {name: value.name, category: value.category}}};
     }
     // Contract 28.7, §180.8–§180.9: what an enabled package establishes at the table, in its own namespace.
@@ -108,7 +119,8 @@ export async function stageModEffect(context: ApplyContext, original: Row, sheet
         const name = effect.name;
         if (typeof name !== 'string' || !name.trim()) throw new RpcError('invalid_params', 'Object needs a name');
         const owner = await objectOwner(campaign, graph, world, effect.to);
-        const prior = objectInstance(world, name), identity = Object.hasOwn(effect, 'source_object') ? sourceObjectIdentity(graph, effect.source_object) : null;
+        let prior = objectInstance(world, name);
+        const identity = Object.hasOwn(effect, 'source_object') ? sourceObjectIdentity(graph, effect.source_object) : null;
         // §264.10: a first placement handed over by someone nobody registered (the newsstand vendor, a cab driver) keeps
         // that giver as a label on the receipt; nobody is registered only so that they can hand a thing over.
         const unregisteredGiver: Row[] = [];
@@ -120,6 +132,32 @@ export async function stageModEffect(context: ApplyContext, original: Row, sheet
                 unregisteredGiver.push({field: 'from', reason: 'unregistered_giver', giver: string(effect.from)});
             }
         }
+        // §276: an adoption of carried equipment that already has its instance in this investigator's hands is that claim.
+        if (Object.hasOwn(effect, 'adopt') && owner.kind === 'investigator' && typeof effect.adopt === 'string' && effect.adopt.trim()) {
+            const claimed = claimedInstance(world, owner, effect.adopt, prior);
+            if (claimed) {
+                const {adopt: _adopt, definition: _definition, from: _from, ...rest} = effect, seed = row(rest.document);
+                const claim: Row = {...rest, name: claimed.name};
+                if (equal(claim.quantity, claimed.quantity)) delete claim.quantity;
+                if (equal(claim.condition, claimed.state.condition)) delete claim.condition;
+                // Its pages are already open to writing: first text given with the adoption is appended to them.
+                if (Object.hasOwn(claim, 'document')) {
+                    if (seed.action == null && typeof seed.text === 'string' && claimed.document && !claimed.document.image && !Object.hasOwn(seed, 'handout'))
+                        claim.document = seed.text.trim() ? {action: 'append', text: seed.text} : undefined;
+                    if (claim.document === undefined) delete claim.document;
+                }
+                if (!['document', 'condition', 'quantity'].some(key => Object.hasOwn(claim, key))) {
+                    const definition = row(objectRegistry(world).definitions)[claimed.definition];
+                    return {receipt: {id: mint(`definition:adopt-${callId}`), kind: 'definition', name: claimed.name, category: definition?.category ?? null,
+                            definition: claimed.definition, instance: claimed.id, adopted: effect.adopt, subject: owner.id, visibility: 'keeper', call_id: callId, already_claimed: true},
+                        event: {type: 'resource-changed', data: {resource: 'equipment_representation', subject: owner.id, item: claimed.name}}};
+                }
+                effect = claim; prior = claimed; source = owner;
+            }
+        }
+        // §276: writing in a carrier its `to` already holds directly; the holder is the only `from` there is (as §227.4 for reading).
+        if (prior && !source && ['write', 'append'].includes(row(effect.document).action)
+            && row(prior.owner).kind === owner.kind && row(prior.owner).id === owner.id) source = owner;
         let adopted: any = null;
         // Contract §88. Where it stands, and what it stands on. `validateDisposition` settles which of the
         // three offer positions this call is (and refuses a plain move that would walk past an offer still

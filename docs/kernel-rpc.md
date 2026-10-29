@@ -53954,3 +53954,33 @@ Live 1026l, 归于尘埃 T2/T3: the book has the police questioned with Law (p.4
 social approach is not clear from method" twice and re-sent as Persuade. A social action whose named skill is none of Charm,
 Fast Talk, Intimidate, Persuade or Psychology now routes to the ordinary check of that skill. Case:
 `tests/integration/social-named-skill.test.ts`.
+
+## 276. A carried writing surface is registered beside play (owner 2026-10-29; extends §129.7)
+
+Live 1029z, 挖掘死去之神 mm-ready: the sheet listed a notebook and pencil, the player drew the stones on four turns, and
+the Keeper wrote no page on any of them. On the fourth it named the reason: registering the notebook first was too heavy,
+and the earlier turns had passed without it. §129.7 prepared only rows that already carried a capability, so a plain
+`notebook and stub pencil` row was never registered unless the Keeper did it inside a turn.
+
+1. **The question.** Before the background equipment preparation, the host asks Jev one Choice per plain carried row
+   (`none | paper | notebook | book`, family `equipment-writing-surfaces`, `runtime/jev/writing-surfaces.ts`). Rows that
+   already carry a capability are not asked: their creator judges writability itself. No name list or pattern decides it.
+   An answer below 0.6 confidence is `none`.
+2. **Kept once.** `mods.equipment.surfaces` lists the unregistered rows no verdict covers; `mods.equipment.surfaces.submit
+   {version, verdicts:[{id, surface}]}` keeps answers for listed rows only, in `save/equipment-preparation.json`
+   (`surfaces`), keyed by investigator and exact row, so a row is asked once. Jev unconfigured or failed submits nothing:
+   the row is not registered, and the campaign is not asked again for ten minutes.
+3. **Registered with empty pages.** A row answered `paper`, `notebook` or `book` joins §129.7's preparation with that
+   presentation in its binding and creator input. Publication adopts the exact row as before; when the instance has no
+   document yet it is initialized `{presentation, text: ""}`. Its earlier pages are not established, so nothing is
+   invented: the Keeper only appends. If the Keeper already gave the name an item definition while the job ran, the row
+   adopts that definition instead of defining it again.
+4. **The Keeper's later word is the same claim.** An `object` with `adopt` naming an instance its `to` already holds (by
+   instance name, or the sheet row the host registered) answers `already_claimed: true` instead of refusing; first text
+   given with that adoption is appended to the existing pages; `from` on it is ignored. A `define` of a host-registered
+   name with other parameters keeps the registered definition (`kept_registered: true`). An adoption of something another
+   person holds is still refused.
+5. **Writing without `from`.** `document.action` `write` or `append` on a carrier its `to` holds directly takes that
+   holder as `from` (as §227.4 does for reading).
+
+Cases: `tests/extension/equipment-writing-surfaces.test.mjs`, `tests/extension/writing-surfaces-judge.test.mjs`.
