@@ -1,5 +1,5 @@
 /** Exact cached source-answer pages (§193.2); no source read or semantic decision occurs here. */
-import {prefetchEnabled} from '../prefetch.ts';
+import {sliceMarkEnabled} from '../prefetch.ts';
 type Row = Record<string, any>;
 export const SOURCE_ANSWER_PAGE_BYTES = 4 * 1024;
 const UNIT_BYTES = 512;
@@ -82,7 +82,7 @@ export function sourceAnswerPage(answer: Row, input: SourceAnswerPageInput): Sou
     ? {...view, play_material: playMaterial} : view;
   // Prefetch: a whole answer says the slice itself is complete, apart from `coverage.partial` (how much of the book the
   // reading covered), so a complete slice is not read as material still to be fetched (1029u/y: 19 such re-reads).
-  const whole = {...bound, delivery: {complete: true, part: 0, total_parts: 1, ...(prefetchEnabled() ? {slice: 'complete; reuse it, no lookup needed'} : {})}};
+  const whole = {...bound, delivery: {complete: true, part: 0, total_parts: 1, ...(sliceMarkEnabled() ? {slice: 'complete; reuse it, no lookup needed'} : {})}};
   if (size(whole) <= SOURCE_ANSWER_PAGE_BYTES) return part === 0 ? {view: present(whole)} : {unavailable: 'invalid_part'};
   const metadata = Object.fromEntries(Object.entries(bound).filter(([key]) => !PAYLOAD.includes(key as typeof PAYLOAD[number])));
   const units = unitsOf(bound), pages: number[][] = [];
