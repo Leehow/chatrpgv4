@@ -13,15 +13,15 @@ const base={PI_COC_LOOP_ENGINE:'hybrid-v1',PI_COC_TURN_PACKET_PROTOTYPE:'1',PI_C
 const withFlag=(value,run)=>{const before=process.env.PI_COC_KP_READY_ANSWERS;if(value===undefined)delete process.env.PI_COC_KP_READY_ANSWERS;else process.env.PI_COC_KP_READY_ANSWERS=value;
  try{return run();}finally{if(before===undefined)delete process.env.PI_COC_KP_READY_ANSWERS;else process.env.PI_COC_KP_READY_ANSWERS=before;}};
 
-test('a destination for a newcomer seats the newcomer first and names them by their seat',()=>{
+test('a destination for a newcomer seats the newcomer first and names them by their seat, flag or not',()=>{
  const packet={version:4,commands:[{kind:'npc',actor:'new_1',to:'away',reason:'Leaves after answering.'},{kind:'walk_on',slot:'new_1',label:'the shop attendant',reason:'On shift.'}]};
- const on=withFlag('1',()=>compileTurnPacket(packet)).effects;
- assert.deepEqual(on.map(row=>[row.name,!!row.walk_on]),[['the shop attendant',true],['the shop attendant',false]]);
- const off=withFlag(undefined,()=>compileTurnPacket(packet)).effects;
- assert.deepEqual(off.map(row=>row.name),['new_1','the shop attendant'],'off: unchanged');
+ for(const flag of ['1',undefined]){
+  const effects=withFlag(flag,()=>compileTurnPacket(packet)).effects;
+  assert.deepEqual(effects.map(row=>[row.name,!!row.walk_on]),[['the shop attendant',true],['the shop attendant',false]]);
+ }
 });
 
-test('with ready answers a newcomer walks on and takes a mood in the same native packet',async t=>{
+test('a newcomer walks on and takes a mood in the same native packet',async t=>{
  process.env.PI_COC_KP_READY_ANSWERS='1';t.after(()=>{delete process.env.PI_COC_KP_READY_ANSWERS;});
  const env={...base,PI_COC_KP_READY_ANSWERS:'1'};
  let requests=0;

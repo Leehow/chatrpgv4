@@ -6005,9 +6005,9 @@ export default function (pi: ExtensionAPI, host: {capabilities?:RuntimeCapabilit
             if(scenePopulationConflict(before)&&!compiled.effects.some(row=>row.kind==='scene'))
                 await record({lane:'scene-population',event:'assessment_kept',turn:state.turn,reason:'registered_people_stay'});
             packetNpcReferences(state).require(packetNpcScope(state),[...compiled.responses.flatMap(row=>[row.actor,...row.to??[]]).filter(isNpcReference),
-                // Ready answers: a person this packet's walk_on seats is referenced by that seat; the walk_on registers them first.
+                // A person this packet's walk_on seats is referenced by that seat; the walk_on registers them first.
                 ...compiled.effects.filter(row=>row.kind==='npc'&&!row.walk_on).map(row=>String(row.name))
-                    .filter(name=>!readyAnswers()||!newcomers.some(row=>(row.book??row.label)===name||row.label===name)),
+                    .filter(name=>!newcomers.some(row=>(row.book??row.label)===name||row.label===name)),
                 ...compiled.effects.filter(row=>row.kind==='place'&&row.action==='observe').flatMap(row=>[...row.people??[],...(row.situations??[]).flatMap((situation:Record<string,any>)=>situation.participants??[])]).filter(isNpcReference),
                 ...(compiled.event?.relationships.flatMap(row=>[row.actor,row.toward]).filter(isNpcReference)??[])]);
             if(keeperRun?.runId===reply.run&&keeperRun.routineResult){

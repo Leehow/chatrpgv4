@@ -431,8 +431,9 @@ export function compileTurnPacket(packet:TurnPacket|BoundTurnPacket):{responses:
    settleStop();
   }
   if(command.kind==='place'&&command.action==='observe')register([...command.people??[],...(command.situations??[]).flatMap(situation=>situation.participants??[])]);
-  // Ready answers: a destination for a newcomer of this packet seats that newcomer first, whatever order it was written in.
-  if(readyAnswers()&&command.kind==='npc'&&isNewNpcSlot(command.actor))register([command.actor]);
+  // A destination for a newcomer of this packet seats that newcomer first, whatever order it was written in (live 1029:
+  // 29 packets refused as an unissued reference for a walk_on's own new_N).
+  if(command.kind==='npc'&&isNewNpcSlot(command.actor))register([command.actor]);
   ordered.push(command);
  }
  register();ordered.push(...stop);
@@ -450,15 +451,14 @@ export function compileTurnPacket(packet:TurnPacket|BoundTurnPacket):{responses:
  // refused them as the slot's "existing person". A walk-on that names its book person is that person arriving, never a
  // newcomer, so it carries no newcomer mark: an existing person walks on (§198.1), an unread one is seated from the book.
  const expanded=ordered.flatMap(a=>a.kind==='walk_on'&&a.book?[{...a,label:a.book},{kind:'name' as const,actor:a.book,name:a.label}]:[a]);
- const newcomers=new Map(commands.filter(a=>a.kind==='walk_on').map(a=>[a.slot,a.label]));
- const person=(name:string)=>readyAnswers()&&isNewNpcSlot(name)?seated(name):newcomers.get(name)??name;
+ const person=(name:string)=>isNewNpcSlot(name)?seated(name):name;
  // 1026k An Amaranthine Desire T2: a clue told by someone who walked on in this packet named their slot, and `from` took only
  // issued references, so the packet was refused. A slot is that newcomer's seat: their book name, else their label.
  const seats=new Map(commands.filter(a=>a.kind==='walk_on').map(a=>[a.slot,a.book??a.label]));
  const seated=(actor:string)=>{if(!isNewNpcSlot(actor))return actor;const seat=seats.get(actor);if(seat===undefined)throw Error(`${actor} names no walk_on in this packet; use the person\'s npc_N, or add the walk_on that seats them`);return seat;};
  return {responses:packet.interactions??[],...(agreements.length?{agreements}:{}),...(directed.length?{event:{name:'Directed relationship update',relationships:directed.map(row=>({actor:row.actor,toward:row.toward,statement:JSON.stringify(directedStatement(row))}))}}:{}),effects:[...definitions,...expanded.map(a=>a.kind==='move'?{kind:'move',to:a.to,...(a.via?{via:a.via}:{}),
   ...('travel_minutes'in a&&a.travel_minutes!==undefined?{travel_minutes:a.travel_minutes}:{}),...(a.travel_band?{travel_band:a.travel_band}:{})}
-  :a.kind==='place'?a.action==='observe'?{...Object.fromEntries(Object.entries(a).filter(([key])=>key!=='additions')),...(a.people?{people:a.people.map(person)}:{}),...(a.situations?{situations:a.situations.map(situation=>({...situation,...(situation.participants?{participants:situation.participants.map(person)}:{})}))}:{})}:{...a}:a.kind==='npc'?{kind:'npc',name:readyAnswers()?seated(a.actor):a.actor,to:a.to,why:a.reason}:a.kind==='walk_on'?{kind:'npc',name:a.label,to:a.to??'here',walk_on:true,...(a.book?{}:{_new_person:true}),why:a.reason}
+  :a.kind==='place'?a.action==='observe'?{...Object.fromEntries(Object.entries(a).filter(([key])=>key!=='additions')),...(a.people?{people:a.people.map(person)}:{}),...(a.situations?{situations:a.situations.map(situation=>({...situation,...(situation.participants?{participants:situation.participants.map(person)}:{})}))}:{})}:{...a}:a.kind==='npc'?{kind:'npc',name:seated(a.actor),to:a.to,why:a.reason}:a.kind==='walk_on'?{kind:'npc',name:a.label,to:a.to??'here',walk_on:true,...(a.book?{}:{_new_person:true}),why:a.reason}
   :a.kind==='scene'?{kind:'scene',name:'here',_population:true,activity:{service:a.service,crowd:a.crowd,basis:'established',summary:`Service is ${a.service}; crowd is ${a.crowd}.`,review_after_minutes:a.review_after_minutes??15},why:'Current place, clock and registered circumstances establish this population assessment.'}
   :a.kind==='clue'?{kind:'clue',clue:a.clue,how:a.how,...(a.summary?{establish:{summary:a.summary}}:{}),...(a.from&&isNpcReference(a.from)?{from:a.from}:a.from&&seats.has(a.from)?{from:seats.get(a.from)}:{})}
   :a.kind==='mood'?{kind:'npc',name:seated(a.actor),mood:a.mood,why:'What they feel after this turn.'}
