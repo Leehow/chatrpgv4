@@ -451,7 +451,8 @@ export function compileTurnPacket(packet:TurnPacket|BoundTurnPacket):{responses:
  // refused them as the slot's "existing person". A walk-on that names its book person is that person arriving, never a
  // newcomer, so it carries no newcomer mark: an existing person walks on (§198.1), an unread one is seated from the book.
  const expanded=ordered.flatMap(a=>a.kind==='walk_on'&&a.book?[{...a,label:a.book},{kind:'name' as const,actor:a.book,name:a.label}]:[a]);
- const person=(name:string)=>isNewNpcSlot(name)?seated(name):name;
+ const newcomers=new Map(commands.filter(a=>a.kind==='walk_on').map(a=>[a.slot,a.label]));
+ const person=(name:string)=>newcomers.get(name)??name;
  // 1026k An Amaranthine Desire T2: a clue told by someone who walked on in this packet named their slot, and `from` took only
  // issued references, so the packet was refused. A slot is that newcomer's seat: their book name, else their label.
  const seats=new Map(commands.filter(a=>a.kind==='walk_on').map(a=>[a.slot,a.book??a.label]));
@@ -462,8 +463,8 @@ export function compileTurnPacket(packet:TurnPacket|BoundTurnPacket):{responses:
   :a.kind==='scene'?{kind:'scene',name:'here',_population:true,activity:{service:a.service,crowd:a.crowd,basis:'established',summary:`Service is ${a.service}; crowd is ${a.crowd}.`,review_after_minutes:a.review_after_minutes??15},why:'Current place, clock and registered circumstances establish this population assessment.'}
   :a.kind==='clue'?{kind:'clue',clue:a.clue,how:a.how,...(a.summary?{establish:{summary:a.summary}}:{}),...(a.from&&isNpcReference(a.from)?{from:a.from}:a.from&&seats.has(a.from)?{from:seats.get(a.from)}:{})}
   :a.kind==='mood'?{kind:'npc',name:seated(a.actor),mood:a.mood,why:'What they feel after this turn.'}
-  :a.kind==='relationship'?{kind:'npc',name:person(a.actor),stance:a.disposition,why:'The Keeper set how they stand with the investigator after this exchange.'}
-  :(a as Record<string,any>).kind==='_affect'?{kind:'npc',name:person((a as Record<string,any>).actor),...((a as Record<string,any>).fear!==undefined?{fear:(a as Record<string,any>).fear}:{}),...((a as Record<string,any>).pressure!==undefined?{pressure:(a as Record<string,any>).pressure}:{}),why:'The Keeper set how afraid and how hard pressed they are after this exchange.'}
+  :a.kind==='relationship'?{kind:'npc',name:seated(a.actor),stance:a.disposition,why:'The Keeper set how they stand with the investigator after this exchange.'}
+  :(a as Record<string,any>).kind==='_affect'?{kind:'npc',name:seated((a as Record<string,any>).actor),...((a as Record<string,any>).fear!==undefined?{fear:(a as Record<string,any>).fear}:{}),...((a as Record<string,any>).pressure!==undefined?{pressure:(a as Record<string,any>).pressure}:{}),why:'The Keeper set how afraid and how hard pressed they are after this exchange.'}
   :a.kind==='name'?{kind:'person',who:seated(a.actor),name:a.name,why:'The fiction establishes this name.'}
   // §270: a Turn IR material action, already an apply object effect, settles in the route's order.
   :(a as Record<string,any>).kind==='_object'?{...(a as Record<string,any>).effect}
