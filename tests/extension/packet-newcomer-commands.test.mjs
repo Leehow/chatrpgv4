@@ -11,3 +11,10 @@ test('npc and relationship commands accept the new_N of a walk_on in the same pa
  assert.ok(compiled.effects.filter(e=>e.kind==='npc').every(e=>e.name==='the dock clerk'));
  assert.deepEqual(compiled.event.relationships.map(r=>r.actor),['the dock clerk'],'the directed statement names the seat too');
 });
+
+test('a relationship that changes only trust or fear is a whole command',()=>{
+ const packet=turnPacket(JSON.stringify({version:4,commands:[{kind:'relationship',actor:'npc_1',toward:'investigator_1',trust:3}]}));
+ const compiled=compileTurnPacket(packet);
+ assert.equal(JSON.parse(compiled.event.relationships[0].statement).trust,3);
+ assert.throws(()=>turnPacket(JSON.stringify({version:4,commands:[{kind:'relationship',actor:'npc_1',toward:'investigator_1'}]})),'an empty change is still refused');
+});

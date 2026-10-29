@@ -33,7 +33,9 @@ const relationship=Type.Object({kind:Type.Literal('relationship'),actor:actorOrS
  trust:level,fear:level,pressure:level,public:Type.Optional(StringEnum([...DISPOSITIONS],{description:'What the person shows toward them; omit when it is the disposition.'})),
  hidden:Type.Optional(Type.Array(StringEnum(['disposition','mood']),{minItems:1,maxItems:2,uniqueItems:true})),
  control:Type.Optional(StringEnum([...CONTROLS],{description:'The actor is under this control by toward; none clears it.'}))},
- {additionalProperties:false,anyOf:[{required:['disposition']},{required:['affinity']},{required:['control']}]});
+ // "send only changed fields": a change of trust, fear or pressure alone is a whole relationship command (1029z: the Keeper
+ // weighed inventing a disposition to pass the old anyOf).
+ {additionalProperties:false,anyOf:[{required:['disposition']},{required:['affinity']},{required:['control']},{required:['trust']},{required:['fear']},{required:['pressure']}]});
 // §258.11: what became of an offer or a deal, naming its issued proposal or commitment fact.
 const agreement=Type.Object({kind:Type.Literal('agreement'),proposal:Type.String({pattern:'^fact_[1-9][0-9]*$',maxLength:32,description:'An issued fact of kind proposal or commitment, or party_said (an investigator promising)'}),
  status:StringEnum(['accepted','declined','withdrawn','kept','broken'],{description:'proposal: accepted, declined or withdrawn; commitment: kept, broken or withdrawn'}),
