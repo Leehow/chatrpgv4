@@ -25,15 +25,3 @@ test('settle waits for this input\'s prefetched answers only when asked to',asyn
  const waited=await answers.settle('c',{scene:'harbour',turn:5,ms:500,prefetch:true});
  assert.deepEqual(waited.foci,['harbour']);assert.equal(waited.landed,1);
 });
-
-test('prefetch is on by provider: grok-build by default, every provider with 1, none with 0',async()=>{
- const {prefetchEnabled}=await import('../../runtime/prefetch.ts');
- const keep={flag:process.env.PI_COC_KP_PREFETCH,list:process.env.PI_COC_KP_PREFETCH_PROVIDERS};
- try{
-  delete process.env.PI_COC_KP_PREFETCH;delete process.env.PI_COC_KP_PREFETCH_PROVIDERS;
-  assert.equal(prefetchEnabled('grok-build'),true);assert.equal(prefetchEnabled('minimax-cn'),false);assert.equal(prefetchEnabled(undefined),false);
-  process.env.PI_COC_KP_PREFETCH='1';assert.equal(prefetchEnabled('minimax-cn'),true);
-  process.env.PI_COC_KP_PREFETCH='0';assert.equal(prefetchEnabled('grok-build'),false);
-  delete process.env.PI_COC_KP_PREFETCH;process.env.PI_COC_KP_PREFETCH_PROVIDERS='minimax-cn';assert.equal(prefetchEnabled('grok-build'),false);
- }finally{for(const [key,name] of [['flag','PI_COC_KP_PREFETCH'],['list','PI_COC_KP_PREFETCH_PROVIDERS']]){if(keep[key]===undefined)delete process.env[name];else process.env[name]=keep[key];}}
-});

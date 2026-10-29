@@ -1,24 +1,10 @@
 /**
- * Prefetch (by provider, see `prefetchEnabled`): before the Keeper's first call the host asks the book the
+ * Prefetch (experiment, `PI_COC_KP_PREFETCH=1`, off by default): before the Keeper's first call the host asks the book the
  * same source answer the Keeper's own first lookup usually asks, so that call's round trip is saved (1029 analysis: the v4
  * Grok Keeper's first call was a look-up in 72 of 90 turns, about 10.8 s each). Bounded: at most `PREFETCH_FOCI` foci, a
  * wait of at most `PREFETCH_WAIT_MS` at the first model step, and the carried views' own page and byte caps.
  */
-/**
- * On for the Keeper's provider: `PI_COC_KP_PREFETCH=1` turns it on for every provider and `0` off; left unset, it is on for
- * the providers in `PI_COC_KP_PREFETCH_PROVIDERS` (default grok-build). 1029p: Grok skipped the first look-up round trip with
- * it (first calls that were only look-ups 36 to 23 of 45, -6.4 s a turn); MiniMax read every following page instead and was
- * slower, so it is not on for MiniMax. Configuration by provider, not a judgment of the turn.
- */
-export const PREFETCH_PROVIDERS_DEFAULT='grok-build';
-export function prefetchEnabled(provider?:string):boolean {
-  const flag=process.env.PI_COC_KP_PREFETCH;
-  if(flag==='1')return true;
-  if(flag==='0'||!provider)return false;
-  return (process.env.PI_COC_KP_PREFETCH_PROVIDERS??PREFETCH_PROVIDERS_DEFAULT).split(',').map(value=>value.trim()).includes(provider);
-}
-/** The complete-slice mark rides wherever prefetch may run; it says nothing a whole answer does not already say. */
-export const sliceMarkEnabled=():boolean=>process.env.PI_COC_KP_PREFETCH!=='0';
+export const prefetchEnabled=():boolean=>process.env.PI_COC_KP_PREFETCH==='1';
 export const PREFETCH_FOCI=2;
 export const PREFETCH_WAIT_MS=3000;
 

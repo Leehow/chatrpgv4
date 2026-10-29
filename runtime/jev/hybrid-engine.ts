@@ -560,7 +560,7 @@ export function createHybridEngine(options: HybridEngineOptions): {runDriver: Se
       projection:{project:async({stepId,signal})=>{
         const active=current,accepted=acceptedCapsule,bound=bridge;
         runSignal=signal;
-        api?.events.emit('coc:keeper-run',{...current,signal,...(prefetchEnabled(model?.provider)?{prefetch:true}:{})});
+        api?.events.emit('coc:keeper-run',{...current,signal});
         api?.events.emit('coc:model-infer',{run:context.runId,step:stepId});
         const messages:Row[]=[];
         let turn:number|undefined;
@@ -593,7 +593,7 @@ export function createHybridEngine(options: HybridEngineOptions): {runDriver: Se
           turn=scope.turn;
           let taken:ReturnType<SourceAnswersPort['take']>|undefined;
           // Prefetch: the run's first model step waits a bounded while for the source answers the host asked from this input.
-          if(prefetchEnabled(model?.provider)&&consultations?.settle&&!prefetchSettled.has(context.runId)&&(!consultations.campaign||consultations.campaign===bridge.campaign)
+          if(prefetchEnabled()&&consultations?.settle&&!prefetchSettled.has(context.runId)&&(!consultations.campaign||consultations.campaign===bridge.campaign)
             &&typeof object(capsule.where).scene==='string'&&Number.isSafeInteger(scope.turn)){
             prefetchSettled.add(context.runId);
             try{const report=await consultations.settle({scene:object(capsule.where).scene,turn:scope.turn,elapsed_ms:0,

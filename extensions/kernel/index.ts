@@ -86,7 +86,7 @@ import {admissionRefusalScope,refusedEffectScope,effectScopes} from './refusal-s
 import { stripDialectPrefixes, omitEmptyEmbeddedArguments } from "./dialect-prefix.ts";
 import { decodeSerializedStrings } from "./encoded-string-argument.ts";
 import { readyAnswers } from "../../runtime/ready-answers.ts";
-import { prefetchTargets } from "../../runtime/prefetch.ts";
+import { prefetchEnabled, prefetchTargets } from "../../runtime/prefetch.ts";
 import type {TaskProviderBudget} from '../../runtime/jev/provider-budget.ts';
 import type {Prepared as ReviewPrepared, ReviewMode} from '../mods/index.ts';
 import { markNpcAct } from "./npc-act-marks.ts";
@@ -1593,7 +1593,7 @@ export default function (pi: ExtensionAPI, host: {capabilities?:RuntimeCapabilit
 				note:'A held or previously refused act is not a completed result. Only matching canonical settled facts establish completion; intentions and proposals do not.'};
 		}});
 	pi.events.on('coc:keeper-run',(value:any)=>{
-		if(table&&typeof value?.runId==='string'&&value.prefetch===true&&!prefetchStarts.has(value.runId))
+		if(table&&typeof value?.runId==='string'&&prefetchEnabled()&&!prefetchStarts.has(value.runId))
 			prefetchStarts.set(value.runId,prefetchSourceAnswers(table,value.runId).catch(()=>undefined));
 		keeperRun={...value,...(keeperRun&&keeperRun.runId===value.runId&&keeperRun.inputRevision===value.inputRevision
 			?{recordCallId:keeperRun.recordCallId,packetRecordIds:keeperRun.packetRecordIds,routineResult:keeperRun.routineResult,prescreen:value.prescreen??keeperRun.prescreen}:{})};
@@ -1803,7 +1803,7 @@ export default function (pi: ExtensionAPI, host: {capabilities?:RuntimeCapabilit
 	 */
 	const prefetchedRuns=new Set<string>(),prefetchStarts=new Map<string,Promise<void>>();
 	async function prefetchSourceAnswers(state:TableState,runId:string):Promise<void>{
-		if(prefetchedRuns.has(runId)||!readingModule||!reading||!state.playerText?.trim())return;
+		if(!prefetchEnabled()||prefetchedRuns.has(runId)||!readingModule||!reading||!state.playerText?.trim())return;
 		prefetchedRuns.add(runId);
 		const moduleId=readingModule,service=reading,question=state.playerText,askedAt=state.scene?.handle,askedTurn=state.turn,
 			askedScope=state.sourceAnswerScope?{...state.sourceAnswerScope}:undefined,owner=JSON.stringify([moduleId,runId]);
