@@ -82,3 +82,15 @@ test('the ready block gathers people, clock, charged time, holdings and checks f
  assert.deepEqual(block.documents,[{name:'ledger',holder:'Mara',reach:'investigator',open:true}]);
  assert.deepEqual(block.checks_settled,[{skill:'Spot Hidden',goal:'find the mark',passed:false,level:'regular'}]);
 });
+
+test('with field defaults the ready block carries the minimal field table, the people part only when someone is here',()=>{
+ const before=process.env.PI_COC_KP_FIELD_DEFAULTS;process.env.PI_COC_KP_FIELD_DEFAULTS='1';
+ try{
+  const alone=readyBlock({where:{scene:'road',clock:{minutes:0}},present:[]});
+  assert.ok(alone.fields['place.move']&&alone.fields.host_fills);assert.equal(alone.fields.interactions,undefined);
+  const met=readyBlock({where:{scene:'road',clock:{minutes:0}},present:[{ref:'npc_1',display_name:'a carter'}]});
+  assert.ok(met.fields.interactions&&met.fields.relationship);
+  assert.ok(JSON.stringify(met.fields).length<2048,'compact');
+ }finally{if(before===undefined)delete process.env.PI_COC_KP_FIELD_DEFAULTS;else process.env.PI_COC_KP_FIELD_DEFAULTS=before;}
+ assert.equal(readyBlock({where:{},present:[]}).fields,undefined,'off: no table');
+});

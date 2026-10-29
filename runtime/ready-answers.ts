@@ -5,6 +5,29 @@
  * call, so a test can switch it per case.
  */
 export const readyAnswers=():boolean=>process.env.PI_COC_KP_READY_ANSWERS==='1';
+/**
+ * Field defaults (experiment, `PI_COC_KP_FIELD_DEFAULTS=1`, with ready answers): the ready block also carries the minimal
+ * field table of the packet commands this turn can use, and what the host fills when they are left out (1029z: field and
+ * reference format was still 21% of MiniMax Keeper thinking with ready answers on, in every turn).
+ */
+export const fieldDefaults=():boolean=>process.env.PI_COC_KP_FIELD_DEFAULTS==='1';
+/** The commands any turn may use: required fields first, `?` optional; the schema stays the authority. */
+export const FIELDS_ALWAYS:Readonly<Record<string,string>>={
+ 'place.move':'to; via? or travel_band? only for a route not listed under travel; with?/leave? companions',
+ 'place.observe':'facts[] (short); people[]? refs',
+ time:'reason; one of band | minutes (extra activity only; a move already counts its journey)',
+ walk_on:'slot new_1..new_4, label, reason; book? only for the book\'s own person; to? (default here)',
+ clue:'clue, how; summary? only for a clue the book does not have; from? who told it',
+ mood:'actor npc_N|new_N, mood',
+ scene:'service, crowd (optional: left out is unknown)'};
+/** The commands a turn with people in it may use. */
+export const FIELDS_PEOPLE:Readonly<Record<string,string>>={
+ interactions:'actor, to[], act answer|ask|offer|clarify|report|warn + content[1..8]; greet|refuse|acknowledge content?; silent {actor,act}',
+ content:'{fact_ref} | {source_ref} | {new:{predicate:"meaning",meaning<=60}} | {new:{predicate:"knowledge_status",topic:issued ref|"player_input",status:unknown|uncertain|withheld|nothing_more}}',
+ relationship:'actor, toward; only the changed fields among disposition, trust, fear, pressure, control',
+ npc:'actor npc_N|new_N, to here|away|issued place, reason'};
+export const HOST_FILLS='Left out, the host fills: version 4; walk_on.to here; content strategy (refer when already told, else new); '
+ +'channel speech; a listed route\'s travel minutes. Lists are JSON arrays.';
 
 type Row=Record<string,any>;
 const row=(value:unknown):Row=>value&&typeof value==='object'&&!Array.isArray(value)?value as Row:{};
@@ -49,5 +72,6 @@ export function readyBlock(capsule:Row,startMinutes?:number):Row {
   ...(exits.length?{travel:exits}:{}),
   ...(holders.length?{holdings:holders}:{}),
   ...(documents.length?{documents}:{}),
-  ...(checks.length?{checks_settled:checks}:{})};
+  ...(checks.length?{checks_settled:checks}:{}),
+  ...(fieldDefaults()?{fields:{...FIELDS_ALWAYS,...(present.some(p=>p.ref&&p.kind!=='creature')?FIELDS_PEOPLE:{}),host_fills:HOST_FILLS}}:{})};
 }
