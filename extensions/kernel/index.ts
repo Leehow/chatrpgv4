@@ -6987,7 +6987,7 @@ export default function (pi: ExtensionAPI, host: {capabilities?:RuntimeCapabilit
 				dispatcher.requireCapability(toolCallId, answerOnly ? 'lookup.source.answer' : 'source.prepare');
 				if (params.answer_part !== undefined) {
 					sourceAnswer = pendingAnswers.read(state.campaign, {scene: state.scene?.handle, focus: String(params.query),
-						question: String(params.question), part: Number(params.answer_part), scope: state.sourceAnswerScope}).source_answer;
+						question: String(params.question), part: Number(params.answer_part), scope: state.sourceAnswerScope, ...(fromStep?.run ? {run: fromStep.run} : {})}).source_answer;
 				} else {
 					if (!readingModule || !reading && !(answerOnly && nativeSource)) throw new KernelError({ code: "needs", message: "the source reading service is unavailable",
 						fix: "reopen the table with its module reading extension available", details: { reason: "reading_failed" } });

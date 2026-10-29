@@ -318,9 +318,12 @@ export class PendingAnswers {
 	retains(campaign: string, input: {scene?: string; focus: string; question: string; scope?: SourceAnswerScope}): boolean {
 		return this.shelf(campaign).some(entry => entry.key === heldKey(input.focus, input.question) && entry.scene === input.scene && sameScope(entry.scope, input.scope));
 	}
-	read(campaign: string, input: {scene?: string; focus: string; question: string; part: number; scope?: SourceAnswerScope}): Row {
+	read(campaign: string, input: {scene?: string; focus: string; question: string; part: number; scope?: SourceAnswerScope; run?: string}): Row {
 		const matches = [...this.shelf(campaign)].reverse().filter(value => value.key === heldKey(input.focus, input.question));
-		const entry = matches.find(value => value.scene === input.scene && sameScope(value.scope, input.scope));
+		// An answer this run was handed stays readable to the end of the run, wherever the party has moved since: its request
+		// still holds the view and the view's read_next (1029p du6: a move inside the turn left that read_next cache_unavailable).
+		const entry = matches.find(value => value.scene === input.scene && sameScope(value.scope, input.scope))
+			?? matches.find(value => input.run !== undefined && value.run === input.run && sameScope(value.scope, input.scope));
 		const unavailable = (cause: string): Row => ({source_answer: {status: 'unavailable', question: input.question,
 			reason: 'source_answer_unavailable', cause, prepared: false, authority: 'cached-source-reference'}});
 		if (!entry) return unavailable(!matches.length ? 'cache_unavailable'
@@ -377,12 +380,16 @@ export class PendingAnswers {
 						&& this.retains(campaign, {scene: at.scene, focus: entry.focus, question: entry.question, scope: at.scope})} : {unavailable: entry.reason ?? 'reading_failed'})});
 		}
 		if (!at.scene) return {pending, landed, ...(handed.length ? {handed} : {})};
-		const shelf = this.shelf(campaign), gone = shelf.filter(entry => entry.scene !== at.scene);
+		// An answer handed to this run at another scene is kept for this run's continuation reads, never carried again here.
+		const shelf = this.shelf(campaign), handedHere = (entry: HeldAnswer) => at.run !== undefined && entry.run === at.run,
+			gone = shelf.filter(entry => entry.scene !== at.scene && !handedHere(entry));
 		if (gone.length) this.record({lane: 'reading', event: 'held_dropped', campaign, reason: 'scene_change', scene: at.scene, foci: gone.map(entry => entry.focus)});
 		const changed = shelf.filter(entry => entry.scene === at.scene && !sameScope(entry.scope, at.scope));
 		if (changed.length) this.record({lane: 'reading', event: 'held_dropped', campaign, reason: 'scope_changed', scene: at.scene, foci: changed.map(entry => entry.focus)});
-		const here = shelf.filter(entry => entry.scene === at.scene && sameScope(entry.scope, at.scope));
-		if (here.length) this.shelves.set(campaign, here); else this.shelves.delete(campaign);
+		const here = shelf.filter(entry => entry.scene === at.scene && sameScope(entry.scope, at.scope)),
+			elsewhere = shelf.filter(entry => entry.scene !== at.scene && handedHere(entry) && sameScope(entry.scope, at.scope)),
+			kept = [...elsewhere, ...here];
+		if (kept.length) this.shelves.set(campaign, kept); else this.shelves.delete(campaign);
 		// Without a run the landed ones of this take are the only thing known to be in hand: they are not repeated as held.
 		const now = new Set(landed.map(entry => heldKey(entry.focus, entry.question)));
 		const due = here.filter(entry => !entry.continuationOnly && (at.run === undefined ? !now.has(entry.key) : entry.run !== at.run)).reverse();
