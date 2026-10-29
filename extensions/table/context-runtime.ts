@@ -34,6 +34,7 @@ import {createTemporalAdvice,TEMPORAL_ADVICE_MESSAGE} from './temporal-advice.ts
 import {foldConsumedReads} from './turn-fold.ts';
 import {fixedToolView} from '../../shared/fixed-tool-view.ts';
 import {createWritingSupportNames} from '../../runtime/writing-support.ts';
+import {readyAnswers,readyBlock} from '../../runtime/ready-answers.ts';
 import {bindingOf, customMessage, epochOf, sourceOf, historyView, metadata, quoteView, briefForTurn, projectedMessages, foldPlan,
     boundedTail, retainsLatestToolBatch, requestBudget, BYTES_PER_TOKEN, HISTORY_BYTES, POLICY_VERSION, DIAGNOSTIC_TYPE, WORKSPACE_TYPE, PRESCREEN_TYPE, entryMessage, object, sizeOf, requestSize,
     capsuleUpdate, stableFirst, CAPSULE_UPDATE_TYPE, NPC_ADVICE_TYPE, CLERK_TYPE, BRIEF_TYPE,
@@ -118,6 +119,8 @@ export function installContextPolicy(pi: ExtensionAPI, writeTelemetry: (row: Row
     // Contract §135.23: the turn's first capsule and first run packet, as the first request of the input sent them.
     // §184.2: `sent` is that capsule as the Keeper is sent it (stable sections first); `capsule` keeps the kernel's own copy.
     let turnMaterial:{epoch:string;capsule:Row;sent:Row;packet?:Row}|undefined;
+    // Ready answers: the clock at the input's first request, so the time this input has charged is a subtraction.
+    let readyStart:{epoch:string;minutes:number|undefined}|undefined;
     pi.events.on('coc:loop-engine',value=>{runOwnsPrescreen=object(value).prescreen==='run';singleKeeper=object(value).singleKeeper===true;decisionAuthor=object(value).turnPacketPrototype===true&&object(value).isolatedOutput===true;});
     pi.events.on('coc:run-prescreen',value=>{const packet=object(value);
         runPrescreen=typeof packet.campaign==='string'&&Number.isSafeInteger(packet.turn)&&packet.message?{campaign:packet.campaign,turn:packet.turn,message:object(packet.message)}:undefined;});
@@ -848,6 +851,12 @@ export function installContextPolicy(pi: ExtensionAPI, writeTelemetry: (row: Row
         const view = untoldView(structuredClone(snapshot.capsule)).capsule;
         if(decisionAuthor&&typeof view.head==='string')view.head=keeperCapsuleHead(view.head,true);
         if(locationIdentity)view.location_identity=locationIdentity;
+        if(readyAnswers()){
+            const epoch=inputEpoch??snapshot.key,minutes=object(object(view.where).clock).minutes;
+            if(readyStart?.epoch!==epoch)readyStart={epoch,minutes:typeof minutes==='number'?minutes:undefined};
+            view.ready=readyBlock(view,readyStart.minutes);
+            record({lane:'ready-answers',event:'block',turn:snapshot.binding.turn,bytes:sizeOf(view.ready),capsule_bytes:sizeOf(view)});
+        }
         if(observationReference)view.observation_reference={...observationReference,
             authority:'Delivered historical records only. Repeated person refs identify the same recorded person. Reading neither refreshes perception nor moves people or advances time.'};
         // Current-request visibility is a procedural instruction, never canonical state or writer material.

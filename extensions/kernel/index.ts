@@ -85,6 +85,7 @@ import { finalDeliveryAction, leanApplyEnabled, offeredTools, TURN_IR_ONLY_KINDS
 import {admissionRefusalScope,refusedEffectScope,effectScopes} from './refusal-scope.ts';
 import { stripDialectPrefixes, omitEmptyEmbeddedArguments } from "./dialect-prefix.ts";
 import { decodeSerializedStrings } from "./encoded-string-argument.ts";
+import { readyAnswers } from "../../runtime/ready-answers.ts";
 import type {TaskProviderBudget} from '../../runtime/jev/provider-budget.ts';
 import type {Prepared as ReviewPrepared, ReviewMode} from '../mods/index.ts';
 import { markNpcAct } from "./npc-act-marks.ts";
@@ -6004,10 +6005,18 @@ export default function (pi: ExtensionAPI, host: {capabilities?:RuntimeCapabilit
             if(scenePopulationConflict(before)&&!compiled.effects.some(row=>row.kind==='scene'))
                 await record({lane:'scene-population',event:'assessment_kept',turn:state.turn,reason:'registered_people_stay'});
             packetNpcReferences(state).require(packetNpcScope(state),[...compiled.responses.flatMap(row=>[row.actor,...row.to??[]]).filter(isNpcReference),
-                ...compiled.effects.filter(row=>row.kind==='npc'&&!row.walk_on).map(row=>String(row.name)),
+                // Ready answers: a person this packet's walk_on seats is referenced by that seat; the walk_on registers them first.
+                ...compiled.effects.filter(row=>row.kind==='npc'&&!row.walk_on).map(row=>String(row.name))
+                    .filter(name=>!readyAnswers()||!newcomers.some(row=>(row.book??row.label)===name||row.label===name)),
                 ...compiled.effects.filter(row=>row.kind==='place'&&row.action==='observe').flatMap(row=>[...row.people??[],...(row.situations??[]).flatMap((situation:Record<string,any>)=>situation.participants??[])]).filter(isNpcReference),
                 ...(compiled.event?.relationships.flatMap(row=>[row.actor,row.toward]).filter(isNpcReference)??[])]);
             if(keeperRun?.runId===reply.run&&keeperRun.routineResult){
+                // Ready answers: the host already charged this input's time, so a repeated time command is dropped, not refused.
+                if(readyAnswers()&&!newlyMoving&&compiled.effects.some(effect=>effect.kind==='time')){
+                    const repeated=compiled.effects.filter(effect=>effect.kind==='time');
+                    compiled.effects.splice(0,compiled.effects.length,...compiled.effects.filter(effect=>effect.kind!=='time'));
+                    await record({lane:'ready-answers',event:'time_deduplicated',turn:state.turn,reason:'host_settled_journey',dropped:repeated.length});
+                }
                 if(newlyMoving||compiled.effects.some(effect=>effect.kind==='time'))throw new KernelError({code:'invalid_params',message:'The host already settled this input journey and its time; omit repeated journeys and time commands'});
             }
             const earlierTime=packet.routine?(await state.kernel.call<{receipts:Record<string,unknown>[]}>('table.status',{campaign:state.campaign,projection:'receipts',expected_turn:state.turn}))
@@ -7667,6 +7676,8 @@ export default function (pi: ExtensionAPI, host: {capabilities?:RuntimeCapabilit
                 if('placeKindRepairs' in normalized&&normalized.placeKindRepairs)void record({lane:'arguments',event:'place_kind_inferred',tool:spec.name,repairs:normalized.placeKindRepairs});
                 if('npcHereRepairs' in normalized&&normalized.npcHereRepairs)void record({lane:'arguments',event:'npc_destination_here',tool:spec.name,repairs:normalized.npcHereRepairs});
                 if('strayCommandRepairs' in normalized&&normalized.strayCommandRepairs)void record({lane:'arguments',event:'stray_command_moved',tool:spec.name,repairs:normalized.strayCommandRepairs});
+                if('arrayTextFields' in normalized&&normalized.arrayTextFields?.length)void record({lane:'ready-answers',event:'array_text_decoded',tool:spec.name,fields:normalized.arrayTextFields});
+                if('sceneRepairs' in normalized&&normalized.sceneRepairs)void record({lane:'ready-answers',event:'repeated_commands_dropped',tool:spec.name,dropped:normalized.sceneRepairs});
 				const unwrapped = unwrapArgumentMarkup(spec.name, spec.parameters, normalized.args);
 				if (!unwrapped.ok) throw new Error(new KernelError(unwrapped.refusal).toToolText());
 				if (unwrapped.repairs.length) void record({ lane: "tool_arguments", event: "markup_unwrapped", tool: spec.name, repairs: unwrapped.repairs });
