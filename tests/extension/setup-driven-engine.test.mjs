@@ -164,7 +164,7 @@ test("bare bind arguments fail explicitly, preserve evidence and do not instruct
 		const text = context.messages.flatMap(message => typeof message.content === "string" ? [message.content]
 			: (message.content ?? []).filter(block => block.type === "text").map(block => block.text)).join("\n");
 		assert.equal(text.includes('"purpose":"bind"'), false);
-		assert.deepEqual(getCurrentTools(context.messages).map(tool => tool.name), ["setup"]);
+		assert.deepEqual(getCurrentTools(context.messages).map(tool => tool.name), ["setup", SETUP_CARD_TOOL]);
 		return fauxAssistantMessage("A private investigator can carry ordinary notebooks.");
 	}]);
 	await run.table.session.prompt("Can a private investigator carry a notebook?");
@@ -317,7 +317,7 @@ test("§151.6: an open field on the card goes through the narrowed tool, which r
 	await run.table.session.prompt("她其实是女性。");
 	await waitForIdle(run.table.session);
 	const { table, requests } = run;
-	assert.deepEqual(requests, [[SETUP_CARD_TOOL], ["setup"]], "bind first; the refused call hands the step to the full tool");
+	assert.deepEqual(requests, [[SETUP_CARD_TOOL], ["setup", SETUP_CARD_TOOL]], "bind first; the refused call hands the step to the full tool");
 	const refused = toolResults(table, SETUP_CARD_TOOL).at(-1).details;
 	assert.equal(refused.ok, false);
 	assert.equal(refused.code, "closed_key");
@@ -336,10 +336,24 @@ test("§151.6: a question routes to adjudicate with today's full setup tool, and
 	await run.table.session.prompt("调查员能带枪吗？");
 	await waitForIdle(run.table.session);
 	assert.deepEqual(run.decisions.map((batch) => batch.family), [SETUP_ROUTE_FAMILY]);
-	assert.deepEqual(run.requests, [["setup"]]);
+	assert.deepEqual(run.requests, [["setup", SETUP_CARD_TOOL]]);
 	const [row] = setupRuns(run.table);
 	assert.equal(row.fallback, "ask_llm");
 	assert.deepEqual(row.model_steps, { bind: 0, compose: 0, adjudicate: 1 });
+});
+
+// Live 1029v/1029w (MiniMax): after the bind step the model kept calling setup_card in the adjudicate step, met "tool not
+// found" 24 times and left the campaign setting up. There it is told where card changes go, and nothing is written.
+test("a setup_card call outside the bind step writes nothing and says to use the full tool", async (t) => {
+	const run = await drivenSetup({ decide: (batch) => answer(batch, { exit: "ask_llm" }), responses: [
+		fauxAssistantMessage([fauxToolCall(SETUP_CARD_TOOL, { profile: { age: 40 } })], { stopReason: "toolUse" }), fauxAssistantMessage("好的。")] });
+	t.after(() => run.table.dispose());
+	await run.table.session.prompt("调查员能带枪吗？");
+	await waitForIdle(run.table.session);
+	const [result] = toolResults(run.table, SETUP_CARD_TOOL);
+	assert.equal(result.details.code, "not_a_bind_step");
+	assert.match(result.details.message, /revise/);
+	assert.equal(kernel(run.table, "setup.revise").length + kernel(run.table, "setup.draft").length, 0);
 });
 
 const legacyCard = fauxAssistantMessage([fauxToolCall("setup", { step: "create-investigator", profile: { name: { generated: "Alan" }, occupation: "Journalist", sex: "male",
@@ -354,7 +368,7 @@ for (const [label, decide] of [
 	t.after(() => run.table.dispose());
 	await run.table.session.prompt("Make me a journalist called Alan.");
 	await waitForIdle(run.table.session);
-	assert.deepEqual(run.requests, [["setup"], ["setup"]], "every request has the full setup tool, as the legacy loop does");
+	assert.deepEqual(run.requests, [["setup", SETUP_CARD_TOOL], ["setup", SETUP_CARD_TOOL]], "every request has the full setup tool, as the legacy loop does");
 	assert.equal(kernel(run.table, "setup.draft")[0]?.params.profile.occupation, "Journalist", "the model's own setup call reached the kernel");
 	assert.equal(toolResults(run.table, SETUP_CARD_TOOL).length, 0);
 	assert.equal(run.table.session.messages.filter((message) => message.role === "custom" && message.customType === "coc-setup-step").length, 0,
@@ -375,7 +389,7 @@ test("§151.6: approving the card is never the policy's: the route hands it to t
 	await run.table.session.prompt("可以，就这样开始吧。");
 	await waitForIdle(run.table.session);
 	assert.deepEqual(run.decisions.map((batch) => batch.family), [SETUP_ROUTE_FAMILY], "approval asks no card field");
-	assert.deepEqual(run.requests, [["setup"]], "the Keeper gets the full tool for the approval");
+	assert.deepEqual(run.requests, [["setup", SETUP_CARD_TOOL]], "the Keeper gets the full tool for the approval");
 	assert.equal(kernel(run.table, "setup.confirm").length, 0, "the policy never issues setup.confirm");
 	const note = run.table.session.messages.filter((message) => message.role === "custom" && message.customType === "coc-setup-step").at(-1);
 	assert.equal(JSON.parse(note.content).reason, "approve_card");
@@ -391,7 +405,7 @@ test('an ambiguous drawn-card input receives current adjudication state after a 
 	run.decide(batch=>answer(batch,{exit:'continue',move_card_fields:0.96,move_approve_card:0.96}));
 	run.respond([fauxAssistantMessage('Please clarify the selected change or approval.')]);
 	await run.table.session.prompt('Use this card, with the change we discussed.');await waitForIdle(run.table.session);
-	assert.deepEqual(run.requests,[['setup']]);
+	assert.deepEqual(run.requests,[['setup', SETUP_CARD_TOOL]]);
 	const note=JSON.parse(run.table.session.messages.filter(message=>message.role==='custom'&&message.customType==='coc-setup-step').at(-1).content);
 	assert.equal(note.purpose,'adjudicate');assert.equal(note.reason,'several_moves');
 	assert.deepEqual(note.state,{available:true,draft_present:true,confirmed:false,loaded:false,complete:false});
@@ -644,7 +658,7 @@ test("§151.6 brief: answering a brief question without asking for the card stay
 	await run.table.session.prompt("我是个自由摄影记者。");
 	await waitForIdle(run.table.session);
 	assert.deepEqual(run.decisions.map((batch) => batch.family), [SETUP_ROUTE_FAMILY]);
-	assert.deepEqual(run.requests, [["setup"]], "the Keeper notes the answer and asks the next question with the full tool");
+	assert.deepEqual(run.requests, [["setup", SETUP_CARD_TOOL]], "the Keeper notes the answer and asks the next question with the full tool");
 	assert.equal(kernel(run.table, "setup.note").filter((row) => row.params.slot === "stop").length, 0);
 	assert.equal(kernel(run.table, "setup.draft").length, 0);
 	const [row] = setupRuns(run.table);

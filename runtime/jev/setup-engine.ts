@@ -233,6 +233,7 @@ export function createSetupEngine(options: SetupEngineOptions): {runDriver: Sess
   /** The step catalog of the request in flight (§151.6 decision 3); undefined outside a driven infer. */
   let stepCatalog: string[] | undefined;
   let projectedStep: string | undefined;
+  let projectedPurpose: string | undefined;
   const record = (row: Record<string, unknown>) => {
     try {
       if (options.record) options.record(row);
@@ -342,9 +343,13 @@ export function createSetupEngine(options: SetupEngineOptions): {runDriver: Sess
     run.modelSteps[purpose] = (run.modelSteps[purpose] ?? 0) + 1;
     // The run's fallback is why it first reached the full tool (an outage, a budget, an exit, a refusal).
     if (purpose === 'adjudicate') run.fallback ??= step.reason;
-    const catalog = purpose === 'bind' ? [SETUP_CARD_TOOL] : purpose === 'compose' ? [] : [fullTool()];
+    // The adjudicate step keeps setup_card declared beside the full tool: a model still calling it after the bind step is told
+    // where card changes go, instead of "tool not found" until the step limit (live 1029v/1029w MiniMax: 24 such calls, the
+    // campaign left setting up, twice in half an hour).
+    const catalog = purpose === 'bind' ? [SETUP_CARD_TOOL] : purpose === 'compose' ? [] : [fullTool(), SETUP_CARD_TOOL];
     stepCatalog = catalog;
     projectedStep = stepId;
+    projectedPurpose = purpose;
     setTools(catalog);
     const plan = request.plan as CardPlan | undefined;
     const bound = (plan?.bound ?? []).map(({field, path, value}) => ({field, path, ...(value !== undefined ? {value} : {})}));
@@ -396,7 +401,8 @@ export function createSetupEngine(options: SetupEngineOptions): {runDriver: Sess
 
   async function executeCard(params: Row, signal?: AbortSignal): Promise<Row> {
     const run = current, bind = run?.bind;
-    if (!run || !bind || !executor) return {ok: false, step: SETUP_CARD_TOOL, code: 'not_a_bind_step', message: `${SETUP_CARD_TOOL} runs only in the bind step of a setup run.`};
+    if (!run || !bind || !executor || projectedPurpose !== 'bind') return {ok: false, step: SETUP_CARD_TOOL, code: 'not_a_bind_step',
+      message: `The bind step is over; ${SETUP_CARD_TOOL} writes nothing now. Make a card change with the ${fullTool()} tool (its revise step, with the profile or numbers that change), or the step the player's input asks for; do not call ${SETUP_CARD_TOOL} again in this turn.`};
     const refuse = (code: string, message: string, extra: Row = {}) => {
       const refusal = {ok: false, step: SETUP_CARD_TOOL, code, message, open_keys: bind.open, bound: bind.closed, ...extra};
       run.refusals.push({step: SETUP_CARD_TOOL, code, ...extra});
