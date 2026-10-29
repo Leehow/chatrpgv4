@@ -12,3 +12,14 @@ test('the same-input refusal tells the Keeper to stop calling setup and ask agai
   assert.equal(error.code_detail,'confirmation_required');
   assert.match(error.fix,/no more setup calls/);
 });
+// 1029g: a player who asked for the change and said to go ahead with it ("改成X，然后确认") delegated the confirmation; the
+// campaign stayed setting_up three times when that message could only be refused.
+test('a card changed at the player\'s own request in the approving message is confirmed as delegated',async t=>{
+  const k=await kernel(t,{});
+  await k.ok('campaign.create',{id:CAMPAIGN,module:'the-haunting',play_language:'en'});
+  const draft=await k.ok('setup.draft',{campaign:CAMPAIGN,profile:await profile(),input_key:'change-and-go'});
+  const error=await k.err('setup.confirm',{campaign:CAMPAIGN,revision:draft.revision,consent:'approved',input_key:'change-and-go'});
+  assert.match(error.fix,/consent delegated/);
+  const confirmed=await k.ok('setup.confirm',{campaign:CAMPAIGN,revision:draft.revision,consent:'delegated',input_key:'change-and-go'});
+  assert.equal(confirmed.committed,true);
+});
