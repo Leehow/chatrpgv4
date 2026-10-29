@@ -78,7 +78,7 @@ export async function piLaunch(input: string[], options: RuntimeHostOptions = {}
     ...options, resourceRoot: root, env,
     // A source launch uses the worktree's .pi/coc-agent unless the caller names an agent home: the play driver's live
     // tables run in their own (.pi/play-agent, owner 2026-10-28), which this launch ignored, so a worktree without a
-    // .pi/coc-agent login could not start a Grok table ("No API key found for grok-build", §271 bench 1028t).
+    // .pi/coc-agent login could not start a Grok table ("No API key found for grok-build", bench 1028t).
     agentHome: compiled || env.PI_CODING_AGENT_DIR ? env.PI_CODING_AGENT_DIR! : join(root, '.pi/coc-agent'),
   });
   const prompt = join(context.resourceRoot, 'prompts', `${mode === 'setup' ? 'setup' : 'keeper'}.md`);
