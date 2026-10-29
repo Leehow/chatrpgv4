@@ -86,6 +86,7 @@ import {admissionRefusalScope,refusedEffectScope,effectScopes} from './refusal-s
 import { stripDialectPrefixes, omitEmptyEmbeddedArguments } from "./dialect-prefix.ts";
 import { decodeSerializedStrings } from "./encoded-string-argument.ts";
 import { readyAnswers } from "../../runtime/ready-answers.ts";
+import { prefetchEnabled, prefetchTargets } from "../../runtime/prefetch.ts";
 import type {TaskProviderBudget} from '../../runtime/jev/provider-budget.ts';
 import type {Prepared as ReviewPrepared, ReviewMode} from '../mods/index.ts';
 import { markNpcAct } from "./npc-act-marks.ts";
@@ -1592,6 +1593,8 @@ export default function (pi: ExtensionAPI, host: {capabilities?:RuntimeCapabilit
 				note:'A held or previously refused act is not a completed result. Only matching canonical settled facts establish completion; intentions and proposals do not.'};
 		}});
 	pi.events.on('coc:keeper-run',(value:any)=>{
+		if(table&&typeof value?.runId==='string'&&prefetchEnabled()&&!prefetchStarts.has(value.runId))
+			prefetchStarts.set(value.runId,prefetchSourceAnswers(table,value.runId).catch(()=>undefined));
 		keeperRun={...value,...(keeperRun&&keeperRun.runId===value.runId&&keeperRun.inputRevision===value.inputRevision
 			?{recordCallId:keeperRun.recordCallId,packetRecordIds:keeperRun.packetRecordIds,routineResult:keeperRun.routineResult,prescreen:value.prescreen??keeperRun.prescreen}:{})};
 	});
@@ -1792,6 +1795,52 @@ export default function (pi: ExtensionAPI, host: {capabilities?:RuntimeCapabilit
 	 */
 	const pendingAnswers = new PendingAnswers((row) => { void record(row); });
 	const sourceConsultations = new SourceConsultations((row) => { void record(row); });
+	/**
+	 * Prefetch (`PI_COC_KP_PREFETCH=1`): at a run's start the host asks the source answers the Keeper's first lookup usually
+	 * asks -- the current place and the one issued name the player's words carry, with the player's words as the question --
+	 * as an answer consultation of this input. It never blocks: what lands rides to the Keeper the way a landed lookup does
+	 * (with its next page), and the first model step waits at most PREFETCH_WAIT_MS for it.
+	 */
+	const prefetchedRuns=new Set<string>(),prefetchStarts=new Map<string,Promise<void>>();
+	async function prefetchSourceAnswers(state:TableState,runId:string):Promise<void>{
+		if(!prefetchEnabled()||prefetchedRuns.has(runId)||!readingModule||!reading||!state.playerText?.trim())return;
+		prefetchedRuns.add(runId);
+		const moduleId=readingModule,service=reading,question=state.playerText,askedAt=state.scene?.handle,askedTurn=state.turn,
+			askedScope=state.sourceAnswerScope?{...state.sourceAnswerScope}:undefined,owner=JSON.stringify([moduleId,runId]);
+		let capsule:Record<string,any>;
+		try{capsule=await state.kernel.call<Record<string,any>>('table.capsule',{campaign:state.campaign,_context_read:true});}
+		catch{void record({lane:'prefetch',event:'skipped',turn:askedTurn,run:runId,reason:'capsule_unavailable'});return;}
+		const targets=prefetchTargets(capsule,question);
+		void record({lane:'prefetch',event:'started',turn:askedTurn,run:runId,foci:targets.map(target=>target.focus),kinds:targets.map(target=>target.kind)});
+		for(const target of targets){
+			const read={focus:target.focus,question};
+			if(pendingAnswers.pendingFor(state.campaign,{scene:askedAt,turn:askedTurn,focus:target.focus,owner,scope:askedScope}))continue;
+			try{
+				const response=await sourceConsultations.lookup({campaign:state.campaign,moduleId,...askedScope,focus:target.focus,question,mode:'answer',
+					retry:false,allowanceMs:0,
+					binding:async workSignal=>{
+						workSignal.throwIfAborted();
+						try{return (await state.kernel.call<Record<string,any>>('module.source.snapshot',{module_id:moduleId,campaign:state.campaign})).revision;}
+						catch(failure){
+							if(!(failure instanceof KernelError)||failure.details?.reason!=='source_unavailable')throw failure;
+							const status=await state.kernel.call<Record<string,any>>('module.reference.status',{module_id:moduleId,campaign:state.campaign});
+							return JSON.stringify(['no-original',status.generation]);
+						}
+					},
+					accepted:async workSignal=>{
+						workSignal.throwIfAborted();
+						const cached=await state.kernel.call<Record<string,any>>('module.read.request',{module_id:moduleId,campaign:state.campaign,
+							purpose:'answer',focus:target.focus,question,cache_only:true,foreground:false});
+						return cached.state==='ready'?cached:undefined;
+					},
+					reference:(workSignal,priority)=>service.reference?.(moduleId,{purpose:'answer',focus:target.focus,question,campaign:state.campaign},workSignal,priority)??Promise.resolve(undefined),
+					fallback:(workSignal,options)=>service.ensure(moduleId,{purpose:'answer',focus:target.focus,question,foreground:options.foreground},workSignal,
+						{allowanceMs:options.allowanceMs,...(options.blocking?{blocking:true}:{})})});
+				const settled=response.state==='pending'&&response.settled?response.settled:Promise.resolve(response);
+				pendingAnswers.register(state.campaign,read,askedTurn,asString(response.job_id),settled,'answer',askedAt,askedScope,owner,true);
+			}catch(error){void record({lane:'prefetch',event:'unavailable',turn:askedTurn,run:runId,focus:target.focus,reason:String((error as Error)?.message??error).slice(0,160)});}
+		}
+	}
 	function sourceConsultationsForAudit(state:TableState):Record<string,unknown>|undefined{
 		const evidence=pendingAnswers.audit(state.campaign,{scene:state.scene?.handle,turn:state.turn,scope:state.sourceAnswerScope});
 		if(state.sourceWait?.question&&!evidence.unavailable.some(row=>row.focus===state.sourceWait?.focus&&row.question===state.sourceWait?.question))
@@ -8209,9 +8258,19 @@ export default function (pi: ExtensionAPI, host: {capabilities?:RuntimeCapabilit
 			},
 			// §135.20.1 (SL-102): the next turn's first model step waits out what is left of one allowance (§22.4.3, the same
 			// named default and override) for this scene's consultations still being read; past it they ride as pending.
-			settle: (input: { scene: string; turn: number; elapsed_ms: number; scope?: SourceAnswerScope }) =>
-				pendingAnswers.settle(campaign, { scene: input.scene, turn: input.turn, ms: sourceAnswerAllowanceMs() - Math.max(0, input.elapsed_ms),
-					scope: input.scope ?? (table?.campaign === campaign ? table.sourceAnswerScope : undefined) }),
+			settle: async (input: { scene: string; turn: number; elapsed_ms: number; scope?: SourceAnswerScope; prefetch?: boolean; ms?: number; run?: string }) => {
+				let ms = input.ms ?? sourceAnswerAllowanceMs() - Math.max(0, input.elapsed_ms);
+				// Prefetch: the host's asks of this run register first (they read the capsule), inside the same bound.
+				const started = input.prefetch && input.run ? prefetchStarts.get(input.run) : undefined;
+				if (started) {
+					const began = Date.now();let timer: ReturnType<typeof setTimeout> | undefined;
+					await Promise.race([started, new Promise<void>(resolve => { timer = setTimeout(resolve, Math.max(0, ms)); })]);
+					if (timer) clearTimeout(timer);
+					ms = Math.max(0, ms - (Date.now() - began));
+				}
+				return pendingAnswers.settle(campaign, { scene: input.scene, turn: input.turn, ms,
+					scope: input.scope ?? (table?.campaign === campaign ? table.sourceAnswerScope : undefined), ...(input.prefetch ? { prefetch: true } : {}) });
+			},
 			}));
 			// Contract §39.2: the module's own map labels, projected into this campaign's play
 			// language before the first arrival can need them.

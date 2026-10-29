@@ -84,6 +84,8 @@ export interface PendingAnswer {
 	scene?: string;
 	scope?: SourceAnswerScope;
 	owner?: string;
+	/** Prefetch (`PI_COC_KP_PREFETCH=1`): the host asked it from the player's input before the Keeper's first call. */
+	prefetch?: true;
 }
 /**
  * §135.20.1 (SL-102): an answer the Keeper was handed at a scene, kept while the party stays there. `run` is the run whose
@@ -218,13 +220,13 @@ export class PendingAnswers {
 	 * is where the party was when the Keeper asked.
 	 */
 	register(campaign: string, read: {focus: string; question: string}, turn: number, jobId: string | undefined, settled: Promise<Row> | undefined,
-		kind: 'answer' | 'prepare' = 'answer', scene?: string, scope?: SourceAnswerScope, owner?:string): PendingAnswer {
+		kind: 'answer' | 'prepare' = 'answer', scene?: string, scope?: SourceAnswerScope, owner?:string, prefetch=false): PendingAnswer {
 		const key = JSON.stringify([kind, read.focus, read.question]), list = this.lists.get(campaign) ?? [];
 		this.lists.set(campaign, list);
 		const existing = list.find(entry => entry.key === key && entry.state === 'pending' && entry.owner===owner && sameScope(entry.scope, scope));
 		if (existing) return existing;
 		const entry: PendingAnswer = {key, focus: read.focus, question: read.question, ...(jobId ? {jobId} : {}), turn, since: this.now(), state: 'pending', kind,
-			...(scene ? {scene} : {}), ...(scope ? {scope: {...scope}} : {}),...(owner?{owner}:{})};
+			...(scene ? {scene} : {}), ...(scope ? {scope: {...scope}} : {}),...(owner?{owner}:{}),...(prefetch?{prefetch:true as const}:{})};
 		list.push(entry);
 		this.record({lane: 'reading', event: 'answer_pending', campaign, turn, focus: read.focus, purpose: kind, ...(jobId ? {job_id: jobId} : {})});
 		const settle = (state: 'landed' | 'unavailable', fields: Partial<PendingAnswer>) => {
@@ -395,9 +397,11 @@ export class PendingAnswers {
 	 * than `turn` that are still being read -- at most `ms` (what is left of one allowance), and not at all when there are none.
 	 * Past the bound the note carries them `pending`, as before. Never throws; the reading is never cancelled.
 	 */
-	async settle(campaign: string, input: {scene: string; turn: number; ms: number; scope?: SourceAnswerScope}): Promise<SettleReport> {
+	async settle(campaign: string, input: {scene: string; turn: number; ms: number; scope?: SourceAnswerScope; prefetch?: boolean}): Promise<SettleReport> {
+		// Prefetch: this input's own host-asked consultations are waited for too, under the same bound.
 		const due = (this.lists.get(campaign) ?? []).filter(entry => entry.state === 'pending' && entry.kind === 'answer'
-			&& entry.scene === input.scene && entry.turn < input.turn && sameScope(entry.scope, input.scope));
+			&& entry.scene === input.scene && (entry.turn < input.turn || input.prefetch === true && entry.prefetch === true && entry.turn === input.turn)
+			&& sameScope(entry.scope, input.scope));
 		const bound = Math.max(0, input.ms), began = this.now();
 		if (due.length && bound > 0) {
 			let timer: ReturnType<typeof setTimeout> | undefined;

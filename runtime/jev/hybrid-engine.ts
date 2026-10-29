@@ -35,6 +35,7 @@ import { type NpcActPort } from './npc-act.ts';
 import { issuedSection, type CandidateBodies } from './candidate-bodies.ts';
 import { IMPROVISATION_GUIDANCE, CARRIED_VIEW_BYTES, fitView, scenePassages, type PassageSource } from './carried-views.ts';
 import { DEFAULT_TURN_BUDGET_MS, ROUTE_FAMILY, type BindRecord, type Candidate, type TurnContext } from './step-policy.ts';
+import { prefetchEnabled, PREFETCH_WAIT_MS } from '../prefetch.ts';
 
 type Row = Record<string, any>;
 const object = (value: unknown): Row => value && typeof value === 'object' && !Array.isArray(value) ? value as Row : {};
@@ -145,7 +146,7 @@ export interface SourceAnswersPort {
    * §135.20.1 (SL-102): at the run's first model step, wait for the consultations asked at `scene` on an earlier turn that are
    * still being read, for what is left of one allowance after `elapsed_ms` (the run's time so far).
    */
-  settle?(input: {scene: string; turn: number; elapsed_ms: number; scope?: {worldline?: string; loop?: number}}): Promise<{foci: string[]; waited_ms: number; bound_ms: number; landed: number; pending: number}>;
+  settle?(input: {scene: string; turn: number; elapsed_ms: number; scope?: {worldline?: string; loop?: number}; prefetch?: boolean; ms?: number; run?: string}): Promise<{foci: string[]; waited_ms: number; bound_ms: number; landed: number; pending: number}>;
 }
 /** The kernel extension's canonical operation gateway (`coc:operation-dispatcher`). */
 export interface OperationGateway {
@@ -395,6 +396,8 @@ const statedPart = (records: BindRecord[]): BindRecord | undefined => records.fi
 export function createHybridEngine(options: HybridEngineOptions): {runDriver: SessionRunDriver; extension: (pi: any) => void; bridge: () => KernelBridge | undefined;
   keeperCallCapMs: number | (() => Promise<number>); onKeeperCallCap: (phase:'first_byte'|'streaming',capMs:number)=>void} {
   let bridge:KernelBridge|undefined,closer:TurnClosePort|undefined,consultations:SourceAnswersPort|undefined,api:any,gateway:OperationGateway|undefined;
+  /** Prefetch: the runs whose first model step already waited for the host's source answers. */
+  const prefetchSettled=new Set<string>();
   let current:{runId:string;inputRevision:string;rawInput:string}|undefined, model:any;
   let acceptedCapsule:Row|undefined;
   const turnPacketPrototype=options.env.PI_COC_TURN_PACKET_PROTOTYPE==='1';
@@ -589,6 +592,15 @@ export function createHybridEngine(options: HybridEngineOptions): {runDriver: Se
           }));
           turn=scope.turn;
           let taken:ReturnType<SourceAnswersPort['take']>|undefined;
+          // Prefetch: the run's first model step waits a bounded while for the source answers the host asked from this input.
+          if(prefetchEnabled()&&consultations?.settle&&!prefetchSettled.has(context.runId)&&(!consultations.campaign||consultations.campaign===bridge.campaign)
+            &&typeof object(capsule.where).scene==='string'&&Number.isSafeInteger(scope.turn)){
+            prefetchSettled.add(context.runId);
+            try{const report=await consultations.settle({scene:object(capsule.where).scene,turn:scope.turn,elapsed_ms:0,
+                scope:{worldline:scope.worldline,loop:scope.loop},prefetch:true,ms:PREFETCH_WAIT_MS,run:context.runId});
+              record({lane:'prefetch',event:'settled',run:context.runId,turn:scope.turn,...report});}
+            catch(error){record({lane:'prefetch',event:'settle_failed',run:context.runId,reason:String(error).slice(0,160)});}
+          }
           try{if(consultations&&(!consultations.campaign||consultations.campaign===bridge.campaign))
             taken=consultations.take({scene:object(capsule.where).scene,run:context.runId,scope:{worldline:scope.worldline,loop:scope.loop}});
           }catch(error){record({lane:'run',event:'source_context_unavailable',run:context.runId,reason:String(error)});}

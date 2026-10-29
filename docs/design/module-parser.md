@@ -82,6 +82,8 @@
 - **KP 用不用书。** MiniMax KP 很少选用 `source_N`，第一刀也没理会 p13 的拖延计划；翻书模式下 KP 会不会主动翻书，要靠真桌验证。
 - **开场落座的 Jev 判断只问图里的人**（cast 里的人只能由 KP 自己入座，§266.7）。
 - **翻书一次最多 3 页**，跨节内容要翻多次；目录节名靠拼写匹配，节名含糊时 KP 要改用页码。
+- **已读答案续页（2026-10-29 修）。** run 把本轮落地和场景内留存的 source 答案交给 carried views 时漏传 `cached`，多页答案每次只带第一页、标 `cache_unavailable`、没有 `read_next`，KP 只好把同一页再查一次（1029u/y Grok：7 次首调用、23 次 source 读取）。现在宿主仍持有的答案带续页。
+- **预取实验（`PI_COC_KP_PREFETCH=1`，默认关，2026-10-29）。** run 开始时宿主按本轮玩家原话先问 source 答案：当前地点，加上原话里出现的一个已发行名字（人物、出口、手边文书；按公开名称做身份匹配，不做语义分类），最多 2 个焦点。走的就是 KP 自己 `lookup kind=source source_mode=answer` 的同一条读取（不新开读者会话，精简读取下照样只切原文页），登记为本输入的 answer 咨询；第一步模型调用前最多等 3 秒，落地的按已读答案带给 KP（含续页），没落地的照旧标 pending。遥测 `lane: prefetch`（started / settled / unavailable）。完整切片另标 `delivery.slice`，免得和 `coverage.partial`（全书覆盖度）混读。要不要转正，看配对实测里首调用被省掉的比例和多送的 token。
 
 ## 7. 改动清单（每次改解析都过一遍）
 
