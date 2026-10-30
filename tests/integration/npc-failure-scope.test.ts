@@ -58,3 +58,16 @@ test('a warmer attitude lifts the freeze, and the ledger rebuilds the same freez
  await k.table('narrate',{call_id:'t3-c2',text:'诺特松了口气。'});
  assert.ok(!ledger(k)[KNOTT].blocked.some((b:Row)=>b.key===row.for));
 });
+
+test('a fractional payment on record does not break the freeze check of a later handover',async t=>{
+ // live 1030i: a payment of 2.5 sat in the person's exchanges; every clue from them in a later open turn failed internally.
+ const k=await kernel(t);await openTurn(k);
+ await k.table('apply',{call_id:'t1-c1',effects:[{kind:'cash',delta:-2.5,with:'Steven Knott',source:'found',why:'paid for the tip'}]});
+ await k.table('narrate',{call_id:'t1-c2',text:'诺特收下了钱。'});
+ assert.equal(String(ledger(k)[KNOTT].exchanged.at(-1).cash),'-2.5');
+ const capsule=(await k.table('player_input',{text:'我再问诺特。'})).capsule;
+ const clue=knott(capsule).asks.grant.find((ask:string)=>ask!=='ordinary favour');
+ await k.table('apply',{call_id:'t2-c1',effects:[{kind:'npc',name:'Steven Knott',mood:'pleased',why:'test'}]});
+ const handover=await k.tableErr('apply',{call_id:'t2-c2',effects:[{kind:'clue',clue,from:'Steven Knott',how:'he tells it'}]}).catch(()=>null);
+ assert.notEqual(handover?.code,'internal',handover?.message);
+});

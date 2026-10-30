@@ -36,7 +36,7 @@ import {readCampaign} from '../read/handlers.js';
 import {recordOf, type ModuleGraph} from '../read/module-graph.js';
 import {clockSegment, tableThreats, tableThreatSegment} from '../read/pressures.js';
 import {SessionView} from '../read/session-view.js';
-import {array, number, numeric, row, string, type Row} from '../read/values.js';
+import {array, clone, number, numeric, row, string, type Row} from '../read/values.js';
 import {npcProfileOf} from '../resolve/context.js';
 import {emptyLedgerEntry, foldNpcTurn, stanceTable} from '../write/contributions.js';
 import {affectLevels, affectTable} from './affect.js';
@@ -279,7 +279,7 @@ async function factsOf(context: KernelContext, campaign: CampaignSnapshot, graph
     const affect = await affectTable(context), node = graph.actor(me.handle);
     let entry = node ? row(ledger[string(node.node_id)]) : {};
     if (node && ['open', 'acting'].includes(string(turn.state)) && array(turn.receipts).length) {
-        const scratch: Row = {[string(node.node_id)]: {...emptyLedgerEntry(), ...JSON.parse(JSON.stringify(entry))}};
+        const scratch: Row = {[string(node.node_id)]: {...emptyLedgerEntry(), ...clone(entry)}};
         foldNpcTurn(scratch, graph, {turn: turn.turn, receipts: turn.receipts}, await stanceTable(context), affect);
         entry = row(scratch[string(node.node_id)]);
     }

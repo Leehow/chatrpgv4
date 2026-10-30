@@ -14,7 +14,7 @@ import type {KernelContext} from '../context.js';
 import {RpcError} from '../errors.js';
 import type {ModuleGraph} from '../read/module-graph.js';
 import {sceneObligations, activeScene} from '../read/obligations.js';
-import {array, entries, integer, number, row, string, type Row} from '../read/values.js';
+import {array, clone, entries, integer, number, row, string, type Row} from '../read/values.js';
 import {SOCIAL_APPROACH_SKILLS} from '../resolve/arithmetic.js';
 import {npcProfileOf} from '../resolve/context.js';
 import {socialDifficulty} from '../resolve/social.js';
@@ -144,7 +144,7 @@ export function blockedNow(graph: ModuleGraph, ledger: Row, attitude: Row, turn:
     if (!node) return [];
     let entry = row(ledger[string(node.node_id)]);
     if (['open', 'acting'].includes(string(turn.state)) && array(turn.receipts).length) {
-        const scratch: Row = {[string(node.node_id)]: {...emptyLedgerEntry(), ...JSON.parse(JSON.stringify(entry))}};
+        const scratch: Row = {[string(node.node_id)]: {...emptyLedgerEntry(), ...clone(entry)}};
         foldNpcTurn(scratch, graph, {turn: turn.turn, receipts: turn.receipts}, attitude);
         entry = row(scratch[string(node.node_id)]);
     }
