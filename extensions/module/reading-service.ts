@@ -608,8 +608,12 @@ export class ReadingService implements ReadingBridge {
 		const book = await this.chapterBooks.get(sha)!;
 		const at = (page: number | undefined) => page === undefined ? undefined : chapterHolding(book.chapters, page);
 		let chapter: Chapter | undefined, resolved: ChapterScope["resolved"] = "scene";
-		const scene = String((await this.call("table.capsule", { _context_read: true }, campaign).catch(() => undefined))?.where?.scene ?? "");
+		const where = (await this.call("table.capsule", { _context_read: true }, campaign).catch(() => undefined))?.where ?? {};
+		const scene = String(where.scene ?? ""), shown = String(where.display_name ?? "");
 		chapter = at(anchorPage(await this.graphPages(campaign, scene).catch(() => [])));
+		// Under lean reading the graph holds few places: the pointer index's pages for the names the scene is shown by.
+		if (!chapter) try { const skeleton = JSON.parse(await readFile(skeletonPath(this.deps.home, sha), "utf8"));
+			chapter = at(anchorPage(answerPages(skeleton, `${shown}\n${scene}`))); } catch { /* no index yet */ }
 		if (!chapter) {
 			resolved = "kept";
 			const kept = await this.keptChapter(campaign, mid);

@@ -75,7 +75,7 @@ async function service(root,{scene,graph={},notes=[],searched=[],opening}={}){
   call:async(method,params)=>{
    if(method==='module.source.snapshot')return {pdf,file_sha256:SHA,page_count:12,revision:'r1'};
    if(method==='module.status')return {title:'Blood Road',opening:opening?{start_scene:opening}:{}};
-   if(method==='table.capsule')return {where:{scene:state.scene}};
+   if(method==='table.capsule')return {where:{scene:state.scene,...(state.shown?{display_name:state.shown}:{})}};
    if(method==='table.lookup')return {entities:graph[params.query]?[{name:params.query,kind:'scene',original_pages:graph[params.query]}]:[]};
    return {};},
   campaign:()=>'c1',home:root,model:()=>({id:'m',vision:true}),progress:()=>{},record:row=>notes.push(row),
@@ -102,6 +102,16 @@ test('§276.2: the scene\'s book pages name the chapter; a scene the table made 
  const bare=await service(playtestScratch('chapter-scope','first-'),{scene:'nowhere'});
  assert.deepEqual([(await bare.reading.chapterScope('blood-road','c3')).name],['Intro'],'the first chapter after the front matter');
  reading.dispose();fresh.reading.dispose();bare.reading.dispose();
+}));
+
+test('§276.2: a scene the graph has no pages for is found in the pointer index by the names it is shown by',async()=>lean(async()=>{
+ const root=playtestScratch('chapter-scope','index-');
+ const {reading,state}=await service(root,{scene:'military-camp',graph:{}});
+ state.shown='场景 1：营地';
+ await mkdir(join(root,'source-skeletons'),{recursive:true});
+ await writeFile(join(root,'source-skeletons',`${SHA}.json`),JSON.stringify({complete:true,entities:[{name:'营地',aliases:[],blocks:['b4-0-x','b4-1-x'],pages:[4]}]}));
+ assert.deepEqual([(await reading.chapterScope('blood-road','c1')).name,(await reading.chapterScope('blood-road','c1')).resolved],['Intro','scene']);
+ reading.dispose();
 }));
 
 test('§276.3, §276.4: an answer reads and searches the chapter only, and answers chapter_absent when it has nothing',async()=>lean(async()=>{

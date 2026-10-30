@@ -53984,7 +53984,8 @@ Pages before the first chapter are the front matter, a chapter of their own.
 
 The host resolves it at each book read from the party's scene: the scene's book pages (`table.lookup kind=module` of the
 capsule's `where.scene`, its `original_pages`), anchored by `anchorPage` (§182.3), name the chapter that holds the anchor.
-A scene with no book pages (one the table made) keeps the chapter last resolved for the campaign and module; the host keeps
+Under lean reading the graph holds few places, so a scene the graph has no pages for is looked up in the pointer index by
+the names it is shown by (`where.display_name` and `where.scene`, `answerPages`: spelling only). A scene with no book pages (one the table made) keeps the chapter last resolved for the campaign and module; the host keeps
 it in `<home>/.coc/chapter-scope/<campaign>.json`. With neither, the opening's pages decide; with no opening pages either,
 the first chapter. The chapter changes only when the party is in a book scene of another chapter. Telemetry:
 `lane: reading, event: chapter_scope` with the chapter, how it was resolved (`scene`, `kept`, `opening`, `first`) and the
