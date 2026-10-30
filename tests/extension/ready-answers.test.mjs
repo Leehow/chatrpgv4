@@ -83,14 +83,17 @@ test('the ready block gathers people, clock, charged time, holdings and checks f
  assert.deepEqual(block.checks_settled,[{skill:'Spot Hidden',goal:'find the mark',passed:false,level:'regular'}]);
 });
 
-test('with field defaults the ready block carries the minimal field table, the people part only when someone is here',()=>{
+test('with field defaults the ready block carries the field index generated from the packet schema, with the apply route',async()=>{
+ const {TURN_PACKET_PARAMETERS}=await import('../../runtime/turn-packet-prototype.ts');
  const before=process.env.PI_COC_KP_FIELD_DEFAULTS;process.env.PI_COC_KP_FIELD_DEFAULTS='1';
  try{
-  const alone=readyBlock({where:{scene:'road',clock:{minutes:0}},present:[]});
-  assert.ok(alone.fields['place.move']&&alone.fields.host_fills);assert.equal(alone.fields.interactions,undefined);
-  const met=readyBlock({where:{scene:'road',clock:{minutes:0}},present:[{ref:'npc_1',display_name:'a carter'}]});
-  assert.ok(met.fields.interactions&&met.fields.relationship);
-  assert.ok(JSON.stringify(met.fields).length<2048,'compact');
+  const fields=readyBlock({where:{scene:'road',clock:{minutes:0}},present:[]}).fields;
+  const kinds=new Set(TURN_PACKET_PARAMETERS.properties.commands.anyOf[0].items.anyOf.map(v=>v.properties.kind.const));
+  for(const kind of kinds)assert.ok(Object.keys(fields).some(key=>key===`commands ${kind}`||key.startsWith(`commands ${kind}.`)),`every command kind is indexed: ${kind}`);
+  assert.match(fields['commands relationship'],/at least one of/);
+  assert.ok(fields['interactions answer|ask|offer|clarify|report|warn']&&fields['content new knowledge_status']);
+  assert.match(fields.apply_route,/apply/);assert.ok(fields.host_fills);
+  assert.ok(Buffer.byteLength(JSON.stringify(fields))<3072,'compact');
  }finally{if(before===undefined)delete process.env.PI_COC_KP_FIELD_DEFAULTS;else process.env.PI_COC_KP_FIELD_DEFAULTS=before;}
  assert.equal(readyBlock({where:{},present:[]}).fields,undefined,'off: no table');
 });

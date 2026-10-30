@@ -11,23 +11,59 @@ export const readyAnswers=():boolean=>process.env.PI_COC_KP_READY_ANSWERS==='1';
  * reference format was still 21% of MiniMax Keeper thinking with ready answers on, in every turn).
  */
 export const fieldDefaults=():boolean=>process.env.PI_COC_KP_FIELD_DEFAULTS==='1';
-/** The commands any turn may use: required fields first, `?` optional; the schema stays the authority. */
-export const FIELDS_ALWAYS:Readonly<Record<string,string>>={
- 'place.move':'to; via? or travel_band? only for a route not listed under travel; with?/leave? companions',
- 'place.observe':'facts[] (short); people[]? refs',
- time:'reason; one of band | minutes (extra activity only; a move already counts its journey)',
- walk_on:'slot new_1..new_4, label, reason; book? only for the book\'s own person; to? (default here)',
- clue:'clue, how; summary? only for a clue the book does not have; from? who told it',
- mood:'actor npc_N|new_N, mood',
- scene:'service, crowd (optional: left out is unknown)'};
-/** The commands a turn with people in it may use. */
-export const FIELDS_PEOPLE:Readonly<Record<string,string>>={
- interactions:'actor, to[], act answer|ask|offer|clarify|report|warn + content[1..8]; greet|refuse|acknowledge content?; silent {actor,act}',
- content:'{fact_ref} | {source_ref} | {new:{predicate:"meaning",meaning<=60}} | {new:{predicate:"knowledge_status",topic:issued ref|"player_input",status:unknown|uncertain|withheld|nothing_more}}',
- relationship:'actor, toward; only the changed fields among disposition, trust, fear, pressure, control',
- npc:'actor npc_N|new_N, to here|away|issued place, reason'};
+/**
+ * The field index, generated from the packet schema itself so it never leaves a command out (1030c/d review: the hand-written
+ * table listed seven commands and no route for objects and documents). One row per command, interaction and content
+ * variant: its discriminator, then its fields, `?` for optional. Names only; the schema stays the authority.
+ */
+const DISCRIMINATORS = ['kind', 'action', 'act', 'predicate'];
+function variantsOf(schema: Row | undefined): Row[] {
+  if (!schema) return [];
+  // An object whose own anyOf names which fields must appear (time, relationship) is one variant, not a union.
+  if (schema.type === 'object') return [schema];
+  if (Array.isArray(schema.anyOf)) return schema.anyOf.flatMap((branch: Row) => variantsOf(branch));
+  if (Array.isArray(schema.oneOf)) return schema.oneOf.flatMap((branch: Row) => variantsOf(branch));
+  if (schema.type === 'array') return variantsOf(schema.items);
+  return [];
+}
+function labelOf(variant: Row): string {
+  const props = row(variant.properties);
+  return DISCRIMINATORS.flatMap(key => {
+    const value = row(props[key]).const ?? row(props[key]).enum;
+    return value === undefined ? [] : [Array.isArray(value) ? value.join('|') : String(value)];
+  }).join('.');
+}
+function fieldsOf(variant: Row): string {
+  const required = new Set(Array.isArray(variant.required) ? variant.required : []);
+  const listed = Object.keys(row(variant.properties)).filter(key => !DISCRIMINATORS.includes(key)).map(key => required.has(key) ? key : `${key}?`).join(', ');
+  // The object's own anyOf of required fields: at least one of them.
+  const oneOf = (Array.isArray(variant.anyOf) ? variant.anyOf : []).flatMap((branch: Row) => Array.isArray(branch.required) ? [branch.required.join('+')] : []);
+  return oneOf.length ? `${listed}; at least one of ${oneOf.join('|')}` : listed;
+}
+export function schemaFieldIndex(packet: Row): Row {
+  const props = row(packet.properties), index: Row = {};
+  for (const variant of variantsOf(props.commands)) index[`commands ${labelOf(variant)}`] = fieldsOf(variant);
+  const interactions = variantsOf(props.interactions);
+  for (const variant of interactions) index[`interactions ${labelOf(variant)}`] = fieldsOf(variant);
+  const content = interactions.flatMap(variant => variantsOf(row(row(variant.properties).content)));
+  const seen = new Set<string>();
+  for (const item of content) {
+    const constructors = variantsOf(row(row(item.properties).new));
+    for (const entry of constructors.length ? constructors : [item]) {
+      const key = constructors.length ? `content new ${labelOf(entry)}` : `content ${Object.keys(row(entry.properties)).filter(name => name !== 'strategy').join('|')}`;
+      if (!seen.has(key)) { seen.add(key); index[key] = fieldsOf(entry); }
+    }
+  }
+  for (const variant of variantsOf(props.reveal)) index[`reveal ${Object.keys(row(variant.properties)).join('|')}`] = fieldsOf(variant);
+  return index;
+}
+/** What the packet cannot do, said where the index is read. */
+export const APPLY_ROUTE = 'Objects and documents are not packet commands: taking, giving, buying, defining an item, and writing or showing a '
+ + 'paper go through apply (define / object, document write or append), read its result, then output. Rolls go through resolve first.';
 export const HOST_FILLS='Left out, the host fills: version 4; walk_on.to here; content strategy (refer when already told, else new); '
  +'channel speech; a listed route\'s travel minutes. Lists are JSON arrays.';
+
+import {TURN_PACKET_PARAMETERS} from './turn-packet-prototype.ts';
 
 type Row=Record<string,any>;
 const row=(value:unknown):Row=>value&&typeof value==='object'&&!Array.isArray(value)?value as Row:{};
@@ -73,5 +109,5 @@ export function readyBlock(capsule:Row,startMinutes?:number):Row {
   ...(holders.length?{holdings:holders}:{}),
   ...(documents.length?{documents}:{}),
   ...(checks.length?{checks_settled:checks}:{}),
-  ...(fieldDefaults()?{fields:{...FIELDS_ALWAYS,...(present.some(p=>p.ref&&p.kind!=='creature')?FIELDS_PEOPLE:{}),host_fills:HOST_FILLS}}:{})};
+  ...(fieldDefaults()?{fields:{...schemaFieldIndex(TURN_PACKET_PARAMETERS),apply_route:APPLY_ROUTE,host_fills:HOST_FILLS}}:{})};
 }
