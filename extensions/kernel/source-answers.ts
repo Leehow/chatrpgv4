@@ -111,7 +111,7 @@ export interface HeldAnswer {
 /** What the engine takes before a model step: the consultations still reading, and those that settled and were not yet carried. */
 export interface SourceAnswersTake {
 	pending: Array<{focus: string; question: string; since_turn: number; purpose?: string; scene?: string}>;
-	landed: Array<{focus: string; question: string; since_turn: number; answer?: Row; unavailable?: string; cached?: boolean}>;
+	landed: Array<{focus: string; question: string; since_turn: number; answer?: Row; unavailable?: string; cached?: boolean; prefetch?: true}>;
 	/** §135.20.1 (SL-102): the answers held at the scene the engine is at, not yet in this run's request, newest first. */
 	held?: Array<{focus: string; question: string; since_turn: number; answer: Row; cached?: boolean}>;
 	/** §135.20.1: landed answers the Keeper's own lookup already returned in this run, so not carried again (named, never silent). */
@@ -374,7 +374,7 @@ export class PendingAnswers {
 				&& this.shelf(campaign).some(held => !held.continuationOnly && held.key === heldKey(entry.focus, entry.question) && held.scene === entry.scene && held.run === at.run && sameScope(held.scope, at.scope));
 			if (readable(answer) && (!at.scene || entry.scene === at.scene)) this.hold(campaign, entry.scene, [{focus: entry.focus, question: entry.question, answer}], entry.turn, at.run, at.scope);
 			if (already) { handed.push({focus: entry.focus, since_turn: entry.turn}); continue; }
-			landed.push({focus: entry.focus, question: entry.question, since_turn: entry.turn,
+			landed.push({focus: entry.focus, question: entry.question, since_turn: entry.turn, ...(entry.prefetch ? {prefetch: true as const} : {}),
 				...(entry.state === 'landed' ? {answer: entry.answer ? withSourceQuestion(entry.question, entry.answer) : undefined,
 					cached: at.scene !== undefined && entry.scene === at.scene
 						&& this.retains(campaign, {scene: at.scene, focus: entry.focus, question: entry.question, scope: at.scope})} : {unavailable: entry.reason ?? 'reading_failed'})});

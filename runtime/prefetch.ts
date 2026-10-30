@@ -7,6 +7,8 @@
 export const prefetchEnabled=():boolean=>process.env.PI_COC_KP_PREFETCH==='1';
 export const PREFETCH_FOCI=2;
 export const PREFETCH_WAIT_MS=3000;
+/** The book pages one turn's prefetch may carry, whole pages only (about 4k tokens). */
+export const PREFETCH_BYTES=16*1024;
 
 type Row=Record<string,any>;
 const row=(value:unknown):Row=>value&&typeof value==='object'&&!Array.isArray(value)?value as Row:{};

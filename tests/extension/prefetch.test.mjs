@@ -25,3 +25,25 @@ test('settle waits for this input\'s prefetched answers only when asked to',asyn
  const waited=await answers.settle('c',{scene:'harbour',turn:5,ms:500,prefetch:true});
  assert.deepEqual(waited.foci,['harbour']);assert.equal(waited.landed,1);
 });
+
+import {readCarriedViews,prefetchedPages} from '../../runtime/jev/carried-views.ts';
+
+const hostPages=(n,chars)=>({status:'excerpts',authority:'original-source-excerpts',prepared:false,host_pages:true,question:'q',
+ excerpts:Array.from({length:n},(_,i)=>({id:`page-${i+1}`,page:i+1,start:0,end:chars,text:'页'.repeat(chars)})),
+ source_refs:Array.from({length:n},(_,i)=>({source_id:'pdf:x',pdf_index:i})),coverage:{partial:true}});
+
+test('a prefetched host-cut answer rides whole, whole pages up to the budget, with no read_next',async()=>{
+ const carried=await readCarriedViews({call:async()=>{throw Error('no reads');},people:[],answers:[{name:'harbour',view:hostPages(2,500),prefetch:true,cached:true}]});
+ const view=carried.views.find(v=>v.focus==='source_answer').view;
+ assert.equal(view.excerpts.length,2);assert.equal(view.delivery.complete,true);assert.equal(view.read_next,undefined);assert.equal(view.delivery.pages_not_sent,undefined);
+ const big=prefetchedPages(hostPages(4,2000),16*1024).view;
+ assert.deepEqual(big.excerpts.map(e=>e.page),[1,2],'whole pages in book order until the budget');
+ assert.deepEqual(big.delivery.pages_not_sent,[3,4]);assert.equal(big.read_next,undefined);
+ assert.deepEqual(big.source_refs.map(r=>r.pdf_index),[0,1]);
+});
+
+test('without the prefetch mark the same answer is paged as before',async()=>{
+ const carried=await readCarriedViews({call:async()=>{throw Error('no reads');},people:[],answers:[{name:'harbour',view:hostPages(4,2000),cached:true}]});
+ const view=carried.views.find(v=>v.focus==='source_answer').view;
+ assert.equal(view.delivery.complete,false);assert.ok(view.read_next);
+});

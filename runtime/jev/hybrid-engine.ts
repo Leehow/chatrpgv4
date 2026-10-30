@@ -133,7 +133,7 @@ export interface SourceAnswersPort {
   campaign?: string;
   /** §135.20.1 (SL-102): `scene` is where the run is (held answers of another scene are dropped), `run` the run taking. */
   take(at?: {scene?: string; run?: string; scope?: {worldline?: string; loop?: number}}): {pending: Array<{focus: string; question: string; since_turn: number; purpose?: string; scene?: string; person?: string}>;
-    landed: Array<{focus: string; question: string; since_turn: number; answer?: Row; unavailable?: string; cached?: boolean}>;
+    landed: Array<{focus: string; question: string; since_turn: number; answer?: Row; unavailable?: string; cached?: boolean; prefetch?: true}>;
     /** §135.20.1: the answers held at `scene` that this run's request does not hold yet, newest first. */
     held?: Array<{focus: string; question: string; since_turn: number; answer: Row; cached?: boolean}>;
     /** §135.20.1: landed answers not carried because the Keeper's own lookup returned them in this run. */
@@ -605,7 +605,7 @@ export function createHybridEngine(options: HybridEngineOptions): {runDriver: Se
             taken=consultations.take({scene:object(capsule.where).scene,run:context.runId,scope:{worldline:scope.worldline,loop:scope.loop}});
           }catch(error){record({lane:'run',event:'source_context_unavailable',run:context.runId,reason:String(error)});}
           const carriedWork=taken?readCarriedViews({call:(method,params)=>bridge!.call!(method,{...params,campaign:bridge!.campaign,_context_read:true}),people:[],
-            answers:taken.landed.map(entry=>({name:entry.focus,view:entry.answer?withSourceQuestion(entry.question,entry.answer):{status:'unavailable',reason:entry.unavailable},...(entry.cached?{cached:true}:{})})),
+            answers:taken.landed.map(entry=>({name:entry.focus,view:entry.answer?withSourceQuestion(entry.question,entry.answer):{status:'unavailable',reason:entry.unavailable},...(entry.cached?{cached:true}:{}),...(entry.prefetch?{prefetch:true}:{})})),
             // A held answer the host still retains continues from its next page; without `cached` it was cut to one page with no read_next.
             held:(taken.held??[]).map(entry=>({name:entry.focus,view:withSourceQuestion(entry.question,entry.answer),...(entry.cached?{cached:true}:{})})),
             pending:taken.pending,sceneTexts:taken.texts,

@@ -23,6 +23,7 @@
  * is marked, and a view that does not fit, could not be read or does not resolve is listed with its reason. Never a silent
  * cut. §135.20's own ceilings stay for the issued bodies.
  */
+import { PREFETCH_BYTES } from '../prefetch.ts';
 import { BOOK_ABSENCE_RULE } from '../../shared/book-absence.ts';
 import {fitBody} from './candidate-bodies.ts';
 import {SOURCE_ANSWER_PAGE_BYTES, sourceAnswerPage} from './source-answer-pages.ts';
@@ -170,8 +171,25 @@ export interface CarriedViews {
  * again); `session`: the fresh read's `{session, pending_choice}`, or `'read'` when that read failed and a session is
  * active (then `look focus=session` is read). Read-only.
  */
+/**
+ * Prefetch: a host-cut source answer (`host_pages`) rides as a lookup hands it over, whole pages in book order, as many as fit
+ * `budget`; pages that do not fit are named and not sent, with no read_next (1029p: re-paging the prefetch into 4-KiB parts left
+ * the needed passage in later parts and the Keeper read on to find it).
+ */
+export function prefetchedPages(view: Row, budget: number): {view: Row} | {unavailable: 'metadata_budget'} {
+  const excerpts = Array.isArray(view.excerpts) ? view.excerpts : [], kept: Row[] = [], left: number[] = [];
+  const shape = (rows: Row[], notSent: number[]) => ({...view, excerpts: rows,
+    source_refs: Array.isArray(view.source_refs) ? view.source_refs.filter((ref: Row) => rows.some(row => row.page === Number(ref.pdf_index) + 1)) : view.source_refs,
+    delivery: {complete: true, part: 0, total_parts: 1, ...(notSent.length ? {pages_not_sent: notSent,
+      note: 'Pages past the prefetch budget were not sent; your own lookup reads them if this part needs them.'} : {})}});
+  for (const row of excerpts) {
+    if (!left.length && bytes(shape([...kept, row], [])) <= budget) kept.push(row); else left.push(Number(row.page));
+  }
+  if (!kept.length && excerpts.length) return {unavailable: 'metadata_budget'};
+  return {view: shape(kept, left)};
+}
 export async function readCarriedViews(input: {call: Call; scene?: string; people: readonly string[]; skip?: ReadonlySet<string>;
-  session?: Row | 'read'; passages?: {scene: string; view: Row}; answers?: Array<{name: string; view: Row; cached?: boolean}>; pending?: Row[];
+  session?: Row | 'read'; passages?: {scene: string; view: Row}; answers?: Array<{name: string; view: Row; cached?: boolean; prefetch?: boolean}>; pending?: Row[];
   /** §135.20.1 (SL-102): the answers held at the run's scene that this run's request does not hold yet, newest first. */
   held?: Array<{name: string; view: Row; cached?: boolean}>;
   /**
@@ -187,7 +205,7 @@ export async function readCarriedViews(input: {call: Call; scene?: string; peopl
     try { return {ok: true, value: object(await input.call(method, params))}; }
     catch (error) { return {ok: false, code: text(object(error).code) || text(object(object(error).error).code) || 'read_failed'}; }
   };
-  const due: Array<Omit<CarriedView, 'view'> & {view?: Row; reason?: 'read_failed' | 'not_found'; dropped?: string[]; cached?: boolean}> = [];
+  const due: Array<Omit<CarriedView, 'view'> & {view?: Row; reason?: 'read_failed' | 'not_found'; dropped?: string[]; cached?: boolean; prefetch?: boolean}> = [];
   const resolved: CarriedViews['resolved'] = [];
   if (input.session === 'read') {
     const params = {focus: 'session'}, answer = await read('table.look', params);
@@ -195,7 +213,7 @@ export async function readCarriedViews(input: {call: Call; scene?: string; peopl
     else due.push({focus: 'session', read: {method: 'table.look', params}, reason: 'read_failed'});
   } else if (input.session) due.push({focus: 'session', view: input.session, read: null});
   // §135.31.2: a consultation the Keeper asked for that has since landed, next after the session; nothing is read for it.
-  for (const answer of input.answers ?? []) due.push({focus: 'source_answer', name: answer.name, view: answer.view, cached: answer.cached, read: null});
+  for (const answer of input.answers ?? []) due.push({focus: 'source_answer', name: answer.name, view: answer.view, cached: answer.cached, ...(answer.prefetch ? {prefetch: true} : {}), read: null});
   // §22.4.7: the book's text of a scene a move landed on, next; nothing is read for it (the host extracted it).
   // Whole pages in the book's order while they fit the ceiling; a page that does not fit is dropped and named, so the first
   // page arrives whole (a long string cut mid-page would lose the page's end, where the scene's own lines often are).
@@ -248,11 +266,13 @@ export async function readCarriedViews(input: {call: Call; scene?: string; peopl
   // that rode before them; nothing is read for them.
   for (const answer of input.held ?? []) due.push({focus: 'source_answer', name: answer.name, view: answer.view, held: true, cached: answer.cached, read: null});
   const views: CarriedView[] = [], omitted: CarriedViews['omitted'] = [];
-  let total = 0;
+  let total = 0, prefetchTotal = 0;
   for (const item of due) {
     const named = item.name ? {name: item.name} : {};
     if (item.reason || !item.view) { omitted.push({focus: item.focus, ...named, reason: item.reason ?? 'read_failed'}); continue; }
-    const fitted = item.focus === 'source_answer'
+    // Prefetch: the host's own cut of the book's pages rides whole, as a lookup hands it over, page by page up to the prefetch budget.
+    const whole = item.focus === 'source_answer' && item.prefetch === true && item.view.host_pages === true;
+    const fitted = whole ? prefetchedPages(item.view, PREFETCH_BYTES - prefetchTotal) : item.focus === 'source_answer'
       ? sourceAnswerPage(item.view, {focus: item.name ?? '', question: typeof item.view.question === 'string' ? item.view.question : '', canContinue: item.cached === true})
       : fitView(item.view, item.focus === 'scene_text' || item.focus === 'person_text' ? SCENE_TEXT_VIEW_BYTES : CARRIED_VIEW_BYTES,
         item.held ? HELD_ANSWER_FIELD_ORDER : FIELD_ORDER[item.focus] ?? []);
@@ -263,11 +283,12 @@ export async function readCarriedViews(input: {call: Call; scene?: string; peopl
       ...(item.held ? {held: true as const} : {})};
     // The budget is what the Keeper reads (focus, name, view and the cut marks), not the host's id and read.
     const size = bytes(keeperView(entry));
-    if (total + size > CARRIED_VIEWS_BYTES) { omitted.push({focus: item.focus, ...named, reason: 'budget', ...(item.held ? {held: true as const} : {})}); continue; }
-    total += size;
+    if (whole) { if (prefetchTotal + size > PREFETCH_BYTES) { omitted.push({focus: item.focus, ...named, reason: 'budget'}); continue; } prefetchTotal += size; }
+    else if (total + size > CARRIED_VIEWS_BYTES) { omitted.push({focus: item.focus, ...named, reason: 'budget', ...(item.held ? {held: true as const} : {})}); continue; }
+    if (!whole) total += size;
     views.push(entry);
   }
-  return {views, omitted, resolved, bytes: total, reads, ms: Date.now() - began, ...(input.pending?.length ? {pending: input.pending} : {})};
+  return {views, omitted, resolved, bytes: total + prefetchTotal, reads, ms: Date.now() - began, ...(input.pending?.length ? {pending: input.pending} : {})};
 }
 
 /** What the Keeper is told about the carried views (Keeper-only, system language). */
