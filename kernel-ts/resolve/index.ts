@@ -112,6 +112,11 @@ function bindChoice(turn: Row, action: Row, callId: string): Row | null {
 const RULES_RUN_THESE = new Set(['decision:coc7:healing:dying-round-clock', 'decision:coc7:healing:dying-hour-clock',
     'decision:coc7:healing:weekly-major-wound-recovery']);
 const RULES_RUN_FAMILIES = ['decision:coc7:sanity:', 'decision:coc7:development:'];
+function rulesRun(action: Row): boolean {
+    // The Keeper writes the short form (`healing:dying-round-clock`); the exemptions are full refs.
+    const decision = action.decision == null ? '' : fullDecisionRef(string(action.decision));
+    return RULES_RUN_THESE.has(decision) || RULES_RUN_FAMILIES.some(prefix => decision.startsWith(prefix));
+}
 /**
  * An action the current state forbids is refused by naming the state (contract §42).
  *
@@ -136,9 +141,7 @@ function refuseIncapacitated(actor: ReturnType<typeof resolveActor>, action: Row
     // incapacitated participant out of the initiative order there.
     if (actor.npcInSession || string(actor.actor.id) !== actor.actingId)
         return;
-    // The Keeper writes the short form (`healing:dying-round-clock`); the exemptions are full refs.
-    const decision = action.decision == null ? '' : fullDecisionRef(string(action.decision));
-    if (action.involuntary != null || action.choice != null || RULES_RUN_THESE.has(decision) || RULES_RUN_FAMILIES.some(prefix => decision.startsWith(prefix)))
+    if (action.involuntary != null || action.choice != null || rulesRun(action))
         return;
     const blocked = incapacitatedBy(actor.actor.conditions);
     if (!blocked.length)
@@ -379,7 +382,9 @@ export function createResolveRuntime(kernel: KernelContext, writer: ResolveWrite
                     return result;
                 }
             }
-            if (NONE_INTENTS.has(intent))
+            // A decision the rules run for the character (a bout tick, a dying clock) is settled by its name, whatever
+            // intent the call carries (live 1030j ad T3: a bout tick sent as meta rolled nothing, four times).
+            if (NONE_INTENTS.has(intent) && !rulesRun(action))
                 return noneResult(`intent ${intent}: nothing to roll; answer or clarify in the narration`);
             // §249.5: accepting a failed roll's push or Luck offer settles the offer and rolls nothing, whatever intent the
             // answer carries (live el-v2-20261021e T27: a social accept was refused for a skill, then rolled Accounting).
