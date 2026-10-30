@@ -53954,3 +53954,64 @@ Live 1026l, 归于尘埃 T2/T3: the book has the police questioned with Law (p.4
 social approach is not clear from method" twice and re-sent as Persuade. A social action whose named skill is none of Charm,
 Fast Talk, Intimidate, Persuade or Psychology now routes to the ordinary check of that skill. Case:
 `tests/integration/social-named-skill.test.ts`.
+
+## 276. Book reads keep to the current chapter (owner 2026-10-29; amends §266.3, §266.4, §196.7, §262.9)
+
+Owner rule: while the party is in a chapter, the Keeper's book is that chapter. What the current chapter does not hold is
+absent from the book for this table, and the Keeper fills it in plausibly; nobody pages through other chapters for it.
+Played memory outranks the book: where the table's established facts and the book disagree, the table wins, or the
+Keeper fuses the two into one account. 1029p: 27 of 68 book reads of the two prefetch arms returned pages outside the
+chapter the party was in, and no read ever told the Keeper "this chapter has nothing on it".
+
+### 276.1 The book's chapters
+
+A book's chapters are, in order of preference:
+
+1. its PDF top-level bookmarks (§182.1, `outlineChapters`), when they give at least two chapters;
+2. otherwise its *heading chapters*: the source worker's `sourceInfo` adds `headings` for a book without two paged
+   top-level bookmarks. Typography only: every text item's font height (rounded to 0.5), lines grouped by page and
+   baseline (items more than two heights apart on one baseline are separate lines), the body height is the height
+   carrying the most characters; a heading line is at most 40 characters at
+   1.25 times the body height or more. The chapter tier is the largest heading height whose lines stand on at least two
+   different pages; its lines are `{name, page}` entries, read with `outlineChapters` (same-page entries collapse to the
+   last). Nothing reads what a heading says. (An Amaranthine Desire: this tier gives exactly its bookmarks. Dust to Dust:
+   seven chapters, p2, 4, 5, 7, 15, 18, 21. Digging for a Dead God: three parts, p2, 7, 13.)
+3. otherwise none: the book is one chapter, `{name: "whole book", first: 1, last: page_count}`, and receipts say so.
+
+Pages before the first chapter are the front matter, a chapter of their own.
+
+### 276.2 The current chapter
+
+The host resolves it at each book read from the party's scene: the scene's book pages (`table.lookup kind=module` of the
+capsule's `where.scene`, its `original_pages`), anchored by `anchorPage` (§182.3), name the chapter that holds the anchor.
+A scene with no book pages (one the table made) keeps the chapter last resolved for the campaign and module; the host keeps
+it in `<home>/.coc/chapter-scope/<campaign>.json`. With neither, the opening's pages decide; with no opening pages either,
+the first chapter. The chapter changes only when the party is in a book scene of another chapter. Telemetry:
+`lane: reading, event: chapter_scope` with the chapter, how it was resolved (`scene`, `kept`, `opening`, `first`) and the
+chapter source (`bookmarks`, `headings`, `none`).
+
+### 276.3 Every read is cut to it
+
+- **answer** (`leanAnswer`, so also the `PI_COC_KP_PREFETCH` prefetch that uses it): the focus's graph pages, the
+  pointer index pages and the text search (`sourceSearch` with `first_page`/`last_page` of the chapter) keep only
+  chapter pages.
+- **pages**: requested pages and a contents section are cut to the chapter; the contents lists only the chapter's rows.
+- **held, memo and continued answers** (`answer_part`, carried views, `read_next`): excerpts and refs outside the current
+  chapter are dropped where the answer is handed to the Keeper; an answer left with nothing becomes the receipt below.
+- **Jev locate** (§196.7): only passages on chapter pages are cards; **source materials** of the prescreen search and pick
+  pages inside the chapter only. A missing chapter scope is not "the whole book": the provider reports
+  `chapter_unavailable` and offers no book passages.
+
+### 276.4 The receipt
+
+A read that finds nothing in the chapter, or whose pages all fall outside it, answers
+
+`{status: "chapter_absent", chapter: {name, first, last, source}, checked: [...], answer, note}`
+
+with the answer "The current chapter (name, pages a-b) has nothing on <focus>. Treat it as absent from the book for this
+table: play on from the table's memory and fill it in plausibly. Do not look in other chapters." `checked` names what was
+looked at (`graph`, `index`, `text_search`, `pages`). No contents, no `read_next`, no `coverage.partial`. A technical
+failure is still reported as itself, never as `chapter_absent`.
+
+Every answer that does carry pages adds `chapter` and the note "These pages are the current chapter's. The table's
+established facts outrank them: where they disagree, keep what happened at the table, or fuse both into one account."

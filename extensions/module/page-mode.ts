@@ -84,8 +84,8 @@ export const contentsLines = (contents: ContentsRow[], limit: number): string[] 
 
 /** §266.5: what the Keeper is told while the index does not cover the whole book. */
 export const BOOK_PAGES_NOTE = "The book's index does not cover the whole book yet: what this section lists is all it has for now. For anything else, turn "
-	+ "the book's pages yourself with lookup kind=source source_mode=pages and pages (physical page numbers, at most 3) or section (a contents name). "
-	+ "The pages are the book's own text, Keeper-only, and may hold secrets.";
+	+ "the current chapter's pages yourself with lookup kind=source source_mode=pages and pages (physical page numbers, at most 3) or section (a contents name). "
+	+ "The pages are the book's own text, Keeper-only, and may hold secrets. Only the current chapter is turned: what it lacks, fill in from the table's memory.";
 
 /** §266.6: what the Keeper is told beside a landing's pages in page mode. */
 export const PAGE_MODE_TEXT_NOTE = "The book's index does not cover these pages yet, so they are carried as the book's own text and no reviewed record "

@@ -158,6 +158,8 @@ export interface PrescreenSourceInput {
    * the page rotation.
    */
   passages?:Array<{handle:string;page:number;start:number;end:number}>;
+  /** §276.3: the current chapter's physical pages; when given, nothing outside them is searched, read or offered. */
+  chapter?:{first:number;last:number};
 }
 /** §196 (PU-03): how many located names are searched literally beside the request itself. */
 const LOCATED_SEARCHES=3;
@@ -429,10 +431,13 @@ export async function preparePrescreenSources(input:PrescreenSourceInput):Promis
   // §196 (PU-03): the request is searched as it was given, and beside it the names of the entities the locate judged most
   // relevant: a literal search finds a name the book prints; a player's whole sentence it never finds.
   const literalOf=(value:string)=>Array.from(value.trim()).slice(0,256).join('');
+  // §276.3: the chapter's pages bound the search and every page picked below.
+  const firstPage=Math.max(1,Math.min(snapshot.page_count,input.chapter?.first??1)),lastPage=Math.max(firstPage,Math.min(snapshot.page_count,input.chapter?.last??snapshot.page_count));
+  const inScope=(page:number)=>page>=firstPage&&page<=lastPage;
   const located=(input.located??[]).filter(row=>isPlainRecord(row)&&typeof row.label==='string'),
     queries=[...new Set([literalOf(input.query),...located.map(row=>literalOf(row.label))].filter(Boolean))].slice(0,1+LOCATED_SEARCHES);
   if(input.source.sourceSearch&&queries.length){
-    const results=await Promise.allSettled(queries.map(query=>input.source.sourceSearch!({pdf:snapshot.pdf,query,first_page:1,last_page:snapshot.page_count,limit:20},signal)));
+    const results=await Promise.allSettled(queries.map(query=>input.source.sourceSearch!({pdf:snapshot.pdf,query,first_page:firstPage,last_page:lastPage,limit:20},signal)));
     if(signal.aborted)throw signal.reason;
     for(const [index,settled] of results.entries()){
       if(settled.status==='rejected'){searchError??=settled.reason instanceof Error?settled.reason.message.slice(0,160):'source_search_unavailable';continue;}
@@ -440,19 +445,19 @@ export async function preparePrescreenSources(input:PrescreenSourceInput):Promis
       if(Number.isSafeInteger(scope.searched_first_page)&&Number.isSafeInteger(scope.searched_last_page))
         for(let page=Number(scope.searched_first_page);page<=Number(scope.searched_last_page);page++)searched.add(page);
       searchLayers??={transcript:0,native:0,image_text:0};
-      for(const row of Array.isArray(result.matches)?result.matches:[])if(Number.isSafeInteger(row.page)&&row.page>=1&&row.page<=snapshot.page_count){matches.push(row.page);
+      for(const row of Array.isArray(result.matches)?result.matches:[])if(Number.isSafeInteger(row.page)&&inScope(row.page)){matches.push(row.page);
         if(row.layer==='transcript')searchLayers.transcript++;else searchLayers.native++;if(row.image_text===true)searchLayers.image_text++;}
       if(index===0&&queries[0]===literalOf(input.query)&&result.truncated===true&&typeof result.next_cursor==='string')next=result.next_cursor;
     }
   }
-  const maxPages=positive(budget.maxNativePages,16,32),broad=spreadPages(snapshot.page_count,maxPages);
+  const maxPages=positive(budget.maxNativePages,16,32),broad=spreadPages(lastPage-firstPage+1,maxPages).map(page=>page+firstPage-1);
   // §196.7 (PU-05): the located passages' pages, most relevant first, lead; then (§196 PU-03) the located entities' own pages,
   // most relevant first, before the pages the capsule cites.
   const passages=(input.passages??[]).filter(row=>isPlainRecord(row)&&typeof row.handle==='string'&&Number.isSafeInteger(row.page)
-    &&row.page>=1&&row.page<=snapshot.page_count&&Number.isSafeInteger(row.start)&&Number.isSafeInteger(row.end)&&row.end>row.start);
-  const passagePages=[...new Set(passages.map(row=>row.page))],entityPages=[...citedPages(located.map(row=>row.refs),input.moduleId,snapshot.page_count,snapshot.window)];
+    &&inScope(row.page)&&Number.isSafeInteger(row.start)&&Number.isSafeInteger(row.end)&&row.end>row.start);
+  const passagePages=[...new Set(passages.map(row=>row.page))],entityPages=[...citedPages(located.map(row=>row.refs),input.moduleId,snapshot.page_count,snapshot.window)].filter(inScope);
   const locatedPages=[...new Set([...passagePages,...entityPages])];
-  const authored=[...citedPages(capsule,input.moduleId,snapshot.page_count,snapshot.window)].filter(page=>!locatedPages.includes(page));
+  const authored=[...citedPages(capsule,input.moduleId,snapshot.page_count,snapshot.window)].filter(page=>inScope(page)&&!locatedPages.includes(page));
   const cited=[...locatedPages,...authored],reserved:number[]=[];
   const reserve=(values:number[],preferLast=false)=>{const ordered=preferLast?[...values].reverse():values;const page=ordered.find(value=>!cited.includes(value)&&!reserved.includes(value));if(page!==undefined)reserved.push(page);};
   if(maxPages>=2)reserve(matches);if(maxPages>=2)reserve(broad,true);
