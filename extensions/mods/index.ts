@@ -154,6 +154,11 @@ export default function modsExtension(pi: ExtensionAPI): void {
   let prefetchController: AbortController | undefined;
   let stopped = false;
   let equipmentWork: Promise<void> | undefined;
+  // §277: a background registration lands between turns, never while a turn's reply is being written: its world change would
+  // retire the reply's frozen snapshot at publication (1030a: an opening narration refused six times, the table never opened).
+  let agentRunning = false, agentIdle: Promise<void> = Promise.resolve(), releaseIdle: () => void = () => {};
+  pi.on("agent_start", async () => { if (!agentRunning) { agentRunning = true; agentIdle = new Promise<void>(resolve => { releaseIdle = resolve; }); } });
+  pi.on("agent_end", async () => { agentRunning = false; releaseIdle(); });
   const judgeSurfaces = createWritingSurfaceJudge({record: row => record?.(row)});
   let equipmentAgain = false;
   /** The worker owns only preparation; publication rebinds the exact owned row in the kernel. */
@@ -174,6 +179,9 @@ export default function modsExtension(pi: ExtensionAPI): void {
         if (stopped || signal.aborted || current !== call || owner !== runtime || owner.signal?.aborted) break;
         try {
           await task(campaign,'create',job.input,signal,undefined,undefined,undefined,{job,priority:'background'});
+          if (stopped || signal.aborted || current !== call || owner !== runtime) break;
+          if (agentRunning) note({lane:'equipment-preparation',campaign,job:job.job,status:'publish_deferred'});
+          while (agentRunning && !stopped && !signal.aborted) await agentIdle;
           if (stopped || signal.aborted || current !== call || owner !== runtime) break;
           const result = await current('mods.equipment.publish',{campaign,job:job.job});
           if (result.status === 'ready') warm(campaign,[{actor:result.actor,name:result.name}]);
