@@ -53972,8 +53972,9 @@ and the earlier turns had passed without it. §129.7 prepared only rows that alr
    the row is not registered, and the campaign is not asked again for ten minutes.
 3. **Registered with empty pages.** A row answered `paper`, `notebook` or `book` joins §129.7's preparation with that
    presentation in its binding and creator input. Publication adopts the exact row as before; when the instance has no
-   document yet it is initialized `{presentation, text: ""}`. Its earlier pages are not established, so nothing is
-   invented: the Keeper only appends. If the Keeper already gave the name an item definition while the job ran, the row
+   document yet it is initialized `{presentation, text: ""}` with `earlier_pages: "unrecorded"`. Its earlier pages are
+   not established, so nothing is invented: the Keeper only appends, and the object context and a reading's receipt say
+   the text is only what was written at the table, never that the carrier is blank. If the Keeper already gave the name an item definition while the job ran, the row
    adopts that definition instead of defining it again.
 4. **The Keeper's later word is the same claim.** An `object` with `adopt` naming an instance its `to` already holds (by
    instance name, or the sheet row the host registered) answers `already_claimed: true` instead of refusing; first text

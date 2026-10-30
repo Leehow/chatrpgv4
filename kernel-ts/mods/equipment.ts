@@ -193,7 +193,8 @@ export class EquipmentJobs {
         const item = objectInstance(world,entry.instance_name)!;
         item.equipment_name = entry.name; item.equipment_actor = entry.actor; item.equipment_row = clone(entry.row);
         if (WRITING_SURFACES.includes(string(entry.surface)) && item.document == null) {
-            initializeDocument(item,{presentation:entry.surface,text:''}); ownershipChanged(world);
+            // Empty is what is on record, not what the pages hold: writing before play is unknown, never blank.
+            initializeDocument(item,{presentation:entry.surface,text:''}); item.document.earlier_pages = 'unrecorded'; ownershipChanged(world);
         }
         const staged = sheets.get(string(actor.id))!;
         projectSheet(world,staged);

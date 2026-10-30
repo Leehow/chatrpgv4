@@ -64,11 +64,14 @@ test('an unanswered or none row is never prepared; a writing surface is, and sta
   assert.equal((await other.call('mods.equipment.publish',{job:jobs[0].job})).status,'ready');
   const [item]=await instance(other,NOTEBOOK);
   assert.equal(item.document.text,'');assert.equal(item.document.presentation,'notebook');
+  assert.equal(item.document.earlier_pages,'unrecorded','empty is what is on record, not a blank notebook');
   assert.deepEqual(await other.call('table.status'),before,'registration is not a turn');
   const capsule=await other.call('table.capsule');
   assert.ok(capsule.documents_in_reach.rows.some(value=>value.name===NOTEBOOK&&value.reach==='investigator'));
   await other.apply([{kind:'object',name:NOTEBOOK,to:other.sheet.name,document:{action:'append',text:'Sketch: three stones, the tallest north.'},why:'The investigator drew the stones.'}]);
   assert.equal((await instance(other,NOTEBOOK))[0].document.text,'Sketch: three stones, the tallest north.');
+  const context=await other.call('mods.context');
+  assert.match(JSON.stringify(context),/Pages written before play are not on record/);
 });
 
 test('the creator\'s own document for the surface is kept',async t=>{
