@@ -23,6 +23,7 @@
  * is marked, and a view that does not fit, could not be read or does not resolve is listed with its reason. Never a silent
  * cut. §135.20's own ceilings stay for the issued bodies.
  */
+import { BOOK_ABSENCE_RULE } from '../../shared/book-absence.ts';
 import {fitBody} from './candidate-bodies.ts';
 import {SOURCE_ANSWER_PAGE_BYTES, sourceAnswerPage} from './source-answer-pages.ts';
 import type {Candidate, Json} from './step-policy.ts';
@@ -288,9 +289,10 @@ export const CARRIED_DOCUMENT = 'lookup kind=source reads the original document 
 export const CARRIED_ANSWERS_HEAD = 'A view with focus source_answer is a source consultation you asked for earlier that has come back since: the '
   + 'checked answer with its question, carried once and kept in the campaign memo (the same lookup returns it at once). It is a source '
   + 'consultation, not prepared material. One marked unavailable could not be read: that is the clerk\'s business, never the fiction or the '
-  + 'player\'s; play on without it. A partial answer carries exact retained_parts with declared original ranges. It is incomplete delivery, '
-  + 'not a complete answer: use its read_next only to read the locally retained next page. A cache_unavailable marker supplies no continuation '
-  + 'and does not authorize a new source read. Reference passages remain Keeper-only until an ordinary authorized handout or document operation exposes them.';
+  + 'player\'s; play on without it. A partial answer carries exact retained_parts with declared original ranges; its read_next reads the '
+  + 'locally retained next page if you need it, and is no reason to read on. A cache_unavailable marker supplies no continuation and does '
+  + 'not authorize a new source read. Reference passages remain Keeper-only until an ordinary authorized handout or document operation exposes them. '
+  + BOOK_ABSENCE_RULE;
 /**
  * §135.20.1 (SL-102): what the Keeper is told about a held answer. A turn's request keeps nothing of an earlier turn's notes or
  * tool results, so an answer handed at this scene on an earlier turn is carried again, once per turn, while the party stays.

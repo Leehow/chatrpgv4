@@ -65,7 +65,9 @@ export const HEAD = "Everything at the start of this turn: the clock, the undisc
     "historical_setting holds the authored era, starting place and background on every turn, including after the opening briefing. Do not look/lookup " +
     // Contract §205.4: the rule holds for what is present, never for a need named missing.
     "for what is already here; that holds only for what is present. A need this turn's keeper_support lists under missing is not here: " +
-    "make its read before you narrate that part, and never answer it from invention or deny it because it is absent. " +
+    // The owner's book-lookup rule (2026-10-29): what the book says for here is all it holds; memory outranks the book.
+    "make its one read before you narrate that part; what that read does not find is not there, so do not search other parts of the book " +
+    "for it: play on from established table memory and improvise plausibly, and where memory and the book disagree, memory wins. " +
     "director is advice, not lines. Truncated place/rule previews are incomplete; " +
     "look focus=scene returns their full descriptions. where.material and each exit's material say how " +
     "far the book has been read: ready, reading, or missing. An exit's unlock_when.met is true, false, or null " +

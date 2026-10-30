@@ -1,4 +1,5 @@
 /** Fixed host-built support contracts. Semantic aliases never grant execution authority. */
+import {BOOK_ABSENCE_RULE} from '../../shared/book-absence.ts';
 import {Type,type Static} from 'typebox';
 import {Check} from 'typebox/value';
 import {isDeepStrictEqual} from 'node:util';
@@ -73,8 +74,8 @@ function sectionOf(material:Row):typeof SUPPORT_SECTIONS[number] {
  * for what is present; these needs are not.
  */
 export const MISSING_NOTE=' missing lists parts of this turn\'s request that nothing supplied here or in the capsule holds: each row is the player\'s '
-    +'own words for that part, what it is about, and the read that answers it. Make that read before you narrate the part; do not answer it '
-    +'from invention, and do not deny it exists because it is absent here.';
+    +'own words for that part, what it is about, and the read that may answer it. Make that one read before you narrate the part; what it '
+    +'does not find is not there. '+BOOK_ABSENCE_RULE;
 
 /** Build before every budget trial so required schema fields are never appended after packing. */
 export function keeperSupportView(value:Row):KeeperSupport {

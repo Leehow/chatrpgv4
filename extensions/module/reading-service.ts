@@ -1,5 +1,6 @@
 import {readingPriority} from '../../kernel-ts/modules/reading-policy.ts';
 /** A single host service for PDF preparation and foreground/background reading. */
+import { BOOK_ABSENCE_RULE } from "../../shared/book-absence.ts";
 import { readFile, readdir, writeFile, mkdir, copyFile, appendFile, rm } from "node:fs/promises";
 import { createHash } from "node:crypto";
 import { basename, dirname, join, resolve } from "node:path";
@@ -1257,19 +1258,17 @@ export class ReadingService implements ReadingBridge {
 		const excerpts = texts.filter(row => row.text.trim()).map(row => { const text = row.text.slice(0, 3500); return { id: `page-${row.page}`, page: row.page, start: 0, end: text.length, text }; });
 		this.note({ lane: "reading", event: "lean_answer", module_id: mid, campaign, focus, ...(anchor.titled ? { titled: true, anchored: anchor.name } : {}),
 			...(anchor.pages.length ? { anchor_pages: anchor.pages } : {}), pages: excerpts.map(row => row.page) });
-		// §266.4: nothing found answers the book's contents, so the Keeper can turn the pages it means.
-		const contents = excerpts.length ? [] : await this.bookContentsOf(mid, campaign).catch(() => [] as ContentsRow[]);
+		// The owner's book-lookup rule: nothing found here is not there; the receipt says so instead of offering the whole book's contents.
 		// 1026k An Amaranthine Desire T10: the pages rode twice (answer and excerpts) and the answer was cut into 4-KiB parts of
 		// about 500 characters of book each, 20 parts for four pages; the Keeper read four, then turned the same pages by number.
 		// The pages ride once, in excerpts, and `host_pages` has the tool hand them over whole, as a page turn is.
 		return { state: "ready", source_answer: { status: "excerpts", authority: "original-source-excerpts", prepared: false, source_sha256: snapshot.file_sha256,
 			...(excerpts.length ? { host_pages: true } : {}),
 			answer: excerpts.length ? `Original physical pages ${excerpts.map(span => span.page).join(", ")} are in excerpts, in page order.`
-				: `The book's index and text search found no page for ${focus}. Play on from published material and established table facts`
-					+ (contents.length ? `, or turn the pages you mean with lookup kind=source source_mode=pages. The book's contents (physical pages):\n${contentsLines(contents, PAGE_BOUNDS.answerContents).join("\n")}` : "."),
+				: `The book has nothing on ${focus} for here. ${BOOK_ABSENCE_RULE}`,
 			excerpts, source_refs: excerpts.map(span => ({ source_id: "pdf:" + mid, pdf_index: span.page - 1 })),
 			coverage: { partial: true, visual: "unassessed", unavailable_pages: [] },
-			note: "Exact original pages the host sliced for this focus (its skeleton index and a text search), not a generated answer. Read them for what was asked; a page may hold Keeper-only material. Do not infer whole-book absence or overwrite table canon." } };
+			note: `Exact original pages the host sliced for this focus (its skeleton index and a text search), not a generated answer. Read them for what was asked; a page may hold Keeper-only material. ${BOOK_ABSENCE_RULE}` } };
 	}
 
 	/**

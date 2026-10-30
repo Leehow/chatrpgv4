@@ -3,6 +3,7 @@
  * cuts them from its own text; no model reads the book for it. This module decides which pages are indexed, builds the
  * book's contents without a model, and shapes the pages the host hands the Keeper.
  */
+import { BOOK_ABSENCE_RULE } from "../../shared/book-absence.ts";
 import { answerPages, normalName, starts } from "./lean-skeleton.ts";
 export { partialSkeletonPath } from "./lean-skeleton.ts";
 
@@ -83,14 +84,14 @@ export const contentsLines = (contents: ContentsRow[], limit: number): string[] 
 	contents.slice(0, limit).map(row => `p${row.first}${row.last > row.first ? `-${row.last}` : ""} ${row.name}`);
 
 /** §266.5: what the Keeper is told while the index does not cover the whole book. */
-export const BOOK_PAGES_NOTE = "The book's index does not cover the whole book yet: what this section lists is all it has for now. For anything else, turn "
-	+ "the book's pages yourself with lookup kind=source source_mode=pages and pages (physical page numbers, at most 3) or section (a contents name). "
-	+ "The pages are the book's own text, Keeper-only, and may hold secrets.";
+export const BOOK_PAGES_NOTE = "The book's index does not cover the whole book yet: what this section lists is all it has for now. For this part of the "
+	+ "book that the index does not reach yet, turn its pages with lookup kind=source source_mode=pages and pages (physical page numbers, at most 3) "
+	+ "or section (a contents name). The pages are the book's own text, Keeper-only, and may hold secrets. " + BOOK_ABSENCE_RULE;
 
 /** §266.6: what the Keeper is told beside a landing's pages in page mode. */
 export const PAGE_MODE_TEXT_NOTE = "The book's index does not cover these pages yet, so they are carried as the book's own text and no reviewed record "
-	+ "of them will land. Play from these pages; for more of the book, turn its pages with lookup kind=source source_mode=pages.";
+	+ "of them will land. Play from these pages. " + BOOK_ABSENCE_RULE;
 
 /** §266.10: what the Keeper is told beside a landing's pages where the pointer index covers them. */
 export const POINTER_TEXT_NOTE = "These pages are the book's own text for this, carried once; no reader rewrites them into a record. Play from them, "
-	+ "with what book_truth says about the people and place here; for more of the book, turn its pages with lookup kind=source source_mode=pages.";
+	+ "with what book_truth says about the people and place here. " + BOOK_ABSENCE_RULE;
