@@ -107,7 +107,9 @@ test('§205.4 the capsule head forbids looking only for what is present, never f
   const f=await fixture(t);
   assert.equal(f.capsule.head.startsWith(api.HEAD),true,'the kernel\'s own head');
   assert.match(f.capsule.head,/Do not look\/lookup for what is already here; that holds only for what is present\./);
-  assert.match(f.capsule.head,/A need this turn's keeper_support lists under missing is not here: make its read before you narrate that part/);
+  assert.match(f.capsule.head,/A need this turn's keeper_support lists under missing is not here: make its one read before you narrate that part/);
+  assert.match(f.capsule.head,/what that read does not find is not there, so do not search other parts of the book/,'the owner\'s lookup rule');
+  assert.match(f.capsule.head,/memory wins/);
   assert.doesNotMatch(f.capsule.head,/for what is already here; director is advice/,'the blanket form is gone');
 });
 
