@@ -54016,3 +54016,19 @@ failure is still reported as itself, never as `chapter_absent`.
 
 Every answer that does carry pages adds `chapter` and the note "These pages are the current chapter's. The table's
 established facts outrank them: where they disagree, keep what happened at the table, or fuse both into one account."
+
+### 276.5 Resident chapters (owner 2026-10-30)
+
+The book's reference chapters are read from any chapter: background, the Keeper's information or overview, the cast of
+characters and their statistics. Which chapters these are is a question of what they are about, so Jev answers it once per
+document (family `resident-chapters` v1): one Noul per chapter from its heading, its pages and the first 400 characters
+printed on its first page; at 0.5 or more the chapter is resident. The answer is kept by file hash in
+`<home>/.coc/chapter-scope/resident-<sha>.json`; an ask Jev could not answer keeps nothing resident and is asked again in the
+next session. A book with no chapters has none. Telemetry: `lane: reading, event: resident_chapters` with each chapter's Noul.
+
+Every cut of §276.3 reads the current chapter and the resident chapters (`chapter.resident` on the answer). The text search
+searches one span as itself and several over their hull, cutting the hits; the contents list the rows of every span; the
+receipt names both ("The current chapter (...) and the book's reference chapters (...) have nothing on ..."). 1029p books, two
+asks each: Dust to Dust: Keeper information, town and residents, character statistics; An Amaranthine Desire: background,
+protagonists, appendix B (character information); Digging for a Dead God: none (its three parts are 0.29-0.39).
+

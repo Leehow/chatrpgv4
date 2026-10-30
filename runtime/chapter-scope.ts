@@ -10,7 +10,11 @@ export type ChapterSource = 'bookmarks' | 'headings' | 'none';
 export interface Chapter { name: string; first: number; last: number }
 /** How the current chapter was found (§276.2). */
 export type ChapterResolution = 'scene' | 'kept' | 'opening' | 'first';
-export interface ChapterScope extends Chapter { source: ChapterSource; resolved: ChapterResolution }
+/**
+ * The current chapter and (§276.5) the book's resident chapters, read from any chapter: `resident` never holds the current
+ * chapter itself.
+ */
+export interface ChapterScope extends Chapter { source: ChapterSource; resolved: ChapterResolution; resident?: Chapter[] }
 
 export const WHOLE_BOOK = 'whole book', FRONT_MATTER = 'front matter';
 
@@ -43,8 +47,13 @@ export function bookChapters(info: { bookmarks?: unknown; headings?: unknown }, 
 
 export const chapterHolding = (chapters: Chapter[], page: number): Chapter | undefined =>
 	chapters.find(chapter => page >= chapter.first && page <= chapter.last);
-export const inChapter = (chapter: Chapter, page: unknown): boolean =>
+const inSpan = (chapter: Chapter, page: unknown): boolean =>
 	Number.isSafeInteger(page) && Number(page) >= chapter.first && Number(page) <= chapter.last;
+/** Whether a page may be read: in the chapter, or (for a scope) in one of its resident chapters. */
+export const inChapter = (chapter: Chapter | ChapterScope, page: unknown): boolean =>
+	inSpan(chapter, page) || ((chapter as ChapterScope).resident ?? []).some(own => inSpan(own, page));
+/** The spans a scope reads, the current chapter first. */
+export const scopeSpans = (scope: Chapter | ChapterScope): Chapter[] => [{ name: scope.name, first: scope.first, last: scope.last }, ...((scope as ChapterScope).resident ?? [])];
 
 /** §182.3: a scene's anchor page, the median of its distinct pages (the upper one of an even count). */
 export function anchorPage(pages: number[]): number | undefined {
@@ -52,18 +61,20 @@ export function anchorPage(pages: number[]): number | undefined {
 	return distinct.length ? distinct[Math.floor(distinct.length / 2)] : undefined;
 }
 
-export const chapterView = (scope: ChapterScope): Row => ({ name: scope.name, first: scope.first, last: scope.last, source: scope.source });
+export const chapterView = (scope: ChapterScope): Row => ({ name: scope.name, first: scope.first, last: scope.last, source: scope.source,
+	...(scope.resident?.length ? { resident: scope.resident.map(own => ({ name: own.name, first: own.first, last: own.last })) } : {}) });
 export const CHAPTER_NOTE = "These pages are the current chapter's; the Keeper's book is this chapter. The table's established facts outrank "
 	+ "them: where they disagree, keep what happened at the table, or fuse both into one account.";
 const span = (scope: ChapterScope) => scope.source === 'none' ? `the book, pages ${scope.first}-${scope.last}`
-	: `the current chapter (${scope.name}, pages ${scope.first}-${scope.last})`;
+	: `the current chapter (${scope.name}, pages ${scope.first}-${scope.last})`
+		+ (scope.resident?.length ? ` and the book's reference chapters (${scope.resident.map(own => `${own.name}, pages ${own.first}-${own.last}`).join('; ')})` : '');
 
 /** §276.4: the receipt for a read that found nothing in the current chapter. */
 export function chapterAbsent(scope: ChapterScope, focus: string, checked: string[], sha?: string): Row {
 	const what = focus.trim() ? focus.trim() : 'what was asked';
 	return { status: 'chapter_absent', authority: 'original-source-excerpts', prepared: false, ...(sha ? { source_sha256: sha } : {}),
 		chapter: chapterView(scope), checked: [...new Set(checked)],
-		answer: `${span(scope)[0].toUpperCase()}${span(scope).slice(1)} has nothing on ${what}. Treat it as absent from the book for this table: `
+		answer: `${span(scope)[0].toUpperCase()}${span(scope).slice(1)} ${scope.resident?.length ? 'have' : 'has'} nothing on ${what}. Treat it as absent from the book for this table: `
 			+ 'play on from the table\'s memory and fill it in plausibly. Do not look in other chapters.',
 		excerpts: [], source_refs: [],
 		note: 'Not a failure: the chapter was checked. What the table has already established stands; anything else here is yours to fill in.' };

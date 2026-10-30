@@ -6,7 +6,7 @@ import {TaskLease,type TaskClock} from '../../runtime/jev/task-context.ts';
 import {JEV_MODEL,packDecisionBatch} from '../../runtime/jev/question-packing.ts';
 import {locateCards,locatedSelection,LOCATE_ABSENT,LOCATE_FAMILY,LOCATE_FOUND,type LocateCard,type LocateJudgment,type LocateResult,type LocatedSelection} from '../../runtime/jev/semantic-locate.ts';
 import {bookPassages,passageSection,type BookPassage,type BookPassagesRead} from '../../runtime/jev/book-passages.ts';
-import {chapterResolverSet,currentChapter,inChapter,type ChapterScope} from '../../runtime/chapter-scope.ts';
+import {chapterResolverSet,currentChapter,inChapter,scopeSpans,type ChapterScope} from '../../runtime/chapter-scope.ts';
 import {preparationProviderBudget} from '../../runtime/jev/preparation-budget.ts';
 import type {DecisionBatch,DecisionResult,Json,ReadSet} from '../../runtime/jev/contracts.ts';
 import {workspaceCandidates} from './workspace/projection.ts';
@@ -211,7 +211,7 @@ async function bookPassagesFor(input:KeeperSupportInput,env:NodeJS.ProcessEnv,sn
             snapshot:{pdf:bound.pdf,file_sha256:bound.file_sha256,page_count:Number(bound.page_count)}});
         const passages=chapter?read.passages.filter(passage=>inChapter(chapter,passage.page)):read.passages;
         // The chapter enters the passages' identity, so a locate judged in one chapter is never reused in another.
-        const scoped=chapter?{...read,key:`${read.key}:${chapter.first}-${chapter.last}`,passages,pages:read.pages.filter(page=>inChapter(chapter,page))}:read;
+        const scoped=chapter?{...read,key:`${read.key}:${scopeSpans(chapter).map(own=>`${own.first}-${own.last}`).join(',')}`,passages,pages:read.pages.filter(page=>inChapter(chapter,page))}:read;
         return {read:scoped,chapter,summary:{status:read.status,cards:passages.length,pages:scoped.pages.length,read_pages:read.read_pages,index_ms:read.ms,
             ...(chapter?{chapter:chapter.name,chapter_pages:[chapter.first,chapter.last],outside_chapter:read.passages.length-passages.length}:{})}};
     }catch(error){return {summary:{status:'unavailable',reason:error instanceof Error?error.message.slice(0,160):'passages_unavailable'}};}
@@ -503,7 +503,7 @@ export async function prepareKeeperSupport(input:KeeperSupportInput&{request?:Su
             sourcePdf=sourceSnapshot.pdf;
             sourceResult=await preparePrescreenSources({call:async(method,params)=>object(await input.call(method,{...params,campaign:input.campaign})),
                 campaign:input.campaign,moduleId:input.source.moduleId,scope,query,capsule:input.capsule,source:input.source.runtime,
-                ...(sourceChapter?{chapter:{first:sourceChapter.first,last:sourceChapter.last}}:{}),
+                ...(sourceChapter?{chapter:{spans:scopeSpans(sourceChapter).map(own=>({first:own.first,last:own.last}))}}:{}),
                 signal:semanticSignal,budget:{deadlineAt:semanticDeadlineAt,candidateBytes:Math.max(4096,availableBytes*2),materialBytes:availableBytes,maxNativePages:16},snapshot:sourceSnapshot,
                 located:locatedRows,
                 ...(passageSummary?{passages:(passageFile===sourceSnapshot.file_sha256?selection.passages:[]).flatMap(handle=>{const passage=passageByHandle.get(handle);

@@ -158,8 +158,11 @@ export interface PrescreenSourceInput {
    * the page rotation.
    */
   passages?:Array<{handle:string;page:number;start:number;end:number}>;
-  /** §276.3: the current chapter's physical pages; when given, nothing outside them is searched, read or offered. */
-  chapter?:{first:number;last:number};
+  /**
+   * §276.3, §276.5: the physical page spans of the current chapter and the book's resident chapters; when given, nothing
+   * outside them is searched, read or offered.
+   */
+  chapter?:{spans:Array<{first:number;last:number}>};
 }
 /** §196 (PU-03): how many located names are searched literally beside the request itself. */
 const LOCATED_SEARCHES=3;
@@ -432,11 +435,15 @@ export async function preparePrescreenSources(input:PrescreenSourceInput):Promis
   // relevant: a literal search finds a name the book prints; a player's whole sentence it never finds.
   const literalOf=(value:string)=>Array.from(value.trim()).slice(0,256).join('');
   // §276.3: the chapter's pages bound the search and every page picked below.
-  const firstPage=Math.max(1,Math.min(snapshot.page_count,input.chapter?.first??1)),lastPage=Math.max(firstPage,Math.min(snapshot.page_count,input.chapter?.last??snapshot.page_count));
-  const inScope=(page:number)=>page>=firstPage&&page<=lastPage;
+  const spans=(input.chapter?.spans??[{first:1,last:snapshot.page_count}]).map(own=>({first:Math.max(1,own.first),last:Math.min(snapshot.page_count,own.last)}))
+    .filter(own=>own.first<=own.last);
+  const inScope=(page:number)=>spans.some(own=>page>=own.first&&page<=own.last);
+  // One span is searched as itself; several are searched over their hull and the hits cut to them.
+  const firstPage=Math.min(...spans.map(own=>own.first)),lastPage=Math.max(...spans.map(own=>own.last));
+  const scopePages=spans.flatMap(own=>Array.from({length:own.last-own.first+1},(_,at)=>own.first+at));
   const located=(input.located??[]).filter(row=>isPlainRecord(row)&&typeof row.label==='string'),
     queries=[...new Set([literalOf(input.query),...located.map(row=>literalOf(row.label))].filter(Boolean))].slice(0,1+LOCATED_SEARCHES);
-  if(input.source.sourceSearch&&queries.length){
+  if(input.source.sourceSearch&&queries.length&&spans.length){
     const results=await Promise.allSettled(queries.map(query=>input.source.sourceSearch!({pdf:snapshot.pdf,query,first_page:firstPage,last_page:lastPage,limit:20},signal)));
     if(signal.aborted)throw signal.reason;
     for(const [index,settled] of results.entries()){
@@ -450,7 +457,7 @@ export async function preparePrescreenSources(input:PrescreenSourceInput):Promis
       if(index===0&&queries[0]===literalOf(input.query)&&result.truncated===true&&typeof result.next_cursor==='string')next=result.next_cursor;
     }
   }
-  const maxPages=positive(budget.maxNativePages,16,32),broad=spreadPages(lastPage-firstPage+1,maxPages).map(page=>page+firstPage-1);
+  const maxPages=positive(budget.maxNativePages,16,32),broad=spreadPages(scopePages.length,maxPages).map(at=>scopePages[at-1]);
   // §196.7 (PU-05): the located passages' pages, most relevant first, lead; then (§196 PU-03) the located entities' own pages,
   // most relevant first, before the pages the capsule cites.
   const passages=(input.passages??[]).filter(row=>isPlainRecord(row)&&typeof row.handle==='string'&&Number.isSafeInteger(row.page)
