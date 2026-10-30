@@ -9,7 +9,7 @@ import { array, clone, entries, equal, integer, normalize, repr, row, string, tr
 import type { CampaignWritePort, DomainEvent } from '../transactions.js';
 import type { ApplyContext } from '../apply/index.js';
 import {stagedSheet,stagePendingItemIdentity} from '../apply/inventory.js';
-import { required } from '../write/store.js';
+import { CampaignWriter, required } from '../write/store.js';
 import { validateDefinition } from './definition.js';
 import { appendDocument, documentVersion, initializeDocument, ownershipChanged, writeDocument } from './documents.js';
 import {rootObjectOwner} from '../read/object-owner.js';
@@ -25,6 +25,7 @@ import type { ModJobs } from './jobs.js';
 import {registerUsage, validateUsage, validateUsageRequest} from './usages.js';
 import {stageDossier} from './dossier-door.js';
 import {bindSourceObject, sourceObjectIdentity} from './source-object.js';
+import {claimWritingSurface} from './surface-verdicts.js';
 import {refuseJoinedInDocument} from '../write/shared-untold.js';
 
 const field = (value: Row, key: string, fallback: any): any => Object.hasOwn(value, key) ? value[key] : fallback;
@@ -223,6 +224,17 @@ export async function stageModEffect(context: ApplyContext, original: Row, sheet
         }
         if (!prior && !Object.hasOwn(effect, 'adopt') && owner.kind === 'investigator') {
             const sheet = sheets ? await stagedSheet(context, sheets, owner.name) : selectActor(await campaign.party() as Row[], owner.name);
+            // §276: writing in a carried row nobody has judged yet (the host's question failed or has no Jev): the Keeper's
+            // writing in it is the evidence, so it is registered beside play from now on; this turn takes the one-batch route.
+            const carried = ['write','append'].includes(row(effect.document).action) ? array(sheet.equipment).find(item => typeof item === 'string'
+                ? item === name : isJsonObject(item) && !truth(item.object_id) && item.name === name) : undefined;
+            if (carried !== undefined) {
+                // Written past this batch's staging: the refusal discards the batch, not the evidence its attempt gave.
+                const claimed = await claimWritingSurface(new CampaignWriter(context.kernel, campaign.id), owner.id, carried);
+                throw new RpcError('unknown_entity', `${repr(name)} is carried equipment not yet registered as a writable carrier`,
+                    {fix:`Write in it this turn with one apply: {kind:"define",name:${repr(name)},category:"item"} and {kind:"object",name:${repr(name)},definition:${repr(name)},to:${repr(owner.name)},adopt:${repr(name)},document:{presentation:"paper"|"notebook"|"book",text:<this writing>},why} -- document without action.${claimed ? ' From the next turn it is registered beside play; then append to it.' : ''}`,
+                     details:{field:'object.name',reason:'document_not_found',equipment_row:name}});
+            }
             if (array(sheet.equipment).some(item => typeof item === 'string' ? item === name : isJsonObject(item) && item.name === name))
                 throw new RpcError('invalid_params', 'This equipment is already owned; use object.adopt to enrich it instead of awarding another copy',
                     {fix:`Keep its define in this batch and send this effect as {kind:"object", name, adopt:${repr(name)}, definition:<the defined name>, to:${repr(owner.name)}}. A sheet row the fiction only shows or mentions needs no registration: drop both effects.`,

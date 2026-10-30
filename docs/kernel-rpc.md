@@ -53981,7 +53981,12 @@ and the earlier turns had passed without it. §129.7 prepared only rows that alr
    given with that adoption is appended to the existing pages; `from` on it is ignored. A `define` of a host-registered
    name with other parameters keeps the registered definition (`kept_registered: true`). An adoption of something another
    person holds is still refused.
-5. **Writing without `from`.** `document.action` `write` or `append` on a carrier its `to` holds directly takes that
+5. **When the question gave no answer.** If Jev failed or is not configured, the Keeper's write or append in a carried row
+   no verdict covers is refused with `details.equipment_row` and a one-batch fix (define plus adopt with the first text),
+   and the attempt itself is kept as the row's verdict (`paper`, `source: "keeper_write"`), written past the refused
+   batch's staging, so the background preparation registers it from the next turn. A row Jev answered `none` keeps its
+   answer.
+6. **Writing without `from`.** `document.action` `write` or `append` on a carrier its `to` holds directly takes that
    holder as `from` (as §227.4 does for reading).
 
 Cases: `tests/extension/equipment-writing-surfaces.test.mjs`, `tests/extension/writing-surfaces-judge.test.mjs`.

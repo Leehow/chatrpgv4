@@ -122,3 +122,17 @@ test('a definition the Keeper gave the name while it was being prepared is adopt
   assert.equal((await game.world()).objects.definitions[item.definition].description,'The Keeper\'s notebook.');
   assert.equal(item.document.text,'');assert.equal(item.equipment_name,NOTEBOOK);
 });
+
+test('writing in a carried row nobody judged registers it from then on; a row Jev answered none keeps its answer',async t=>{
+  const game=await gear(t);
+  const write=()=>game.apply([{kind:'object',name:NOTEBOOK,to:game.sheet.name,document:{action:'append',text:'Three stones.'},why:'The investigator notes the stones.'}]);
+  await assert.rejects(write(),error=>error.details?.equipment_row===NOTEBOOK&&/adopt/.test(error.fix));
+  assert.deepEqual((await game.call('mods.equipment.surfaces')).rows.map(value=>value.name),['Camera'],'the written row is judged by the attempt');
+  const {jobs}=await game.call('mods.equipment.prepare');
+  assert.equal(jobs.length,1);assert.match(jobs[0].input.description,/presentation paper/);
+  const other=await gear(t);
+  await judged(other,{});
+  await assert.rejects(other.apply([{kind:'object',name:NOTEBOOK,to:other.sheet.name,document:{action:'append',text:'x'},why:'Notes.'}]),
+    error=>error.details?.equipment_row===NOTEBOOK);
+  assert.deepEqual((await other.call('mods.equipment.prepare')).jobs,[],'the answer none stands');
+});

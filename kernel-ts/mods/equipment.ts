@@ -17,8 +17,8 @@ import {initializeDocument,ownershipChanged} from './documents.js';
 import {claimedEquipment} from './queue.js';
 import {projectInventory, projectSheet} from './projection.js';
 import type {ModJobs} from './jobs.js';
-
-export const EQUIPMENT_PREPARATION = 'equipment-preparation.json';
+import {EQUIPMENT_PREPARATION,SURFACE_VERSION,WRITING_SURFACES,surfaceKey,writingSurfaceOf} from './surface-verdicts.js';
+export {EQUIPMENT_PREPARATION,SURFACE_VERSION,WRITING_SURFACES,writingSurfaceOf};
 
 /** Supplied capabilities only: names and descriptive prose never justify model enrichment. */
 export function equipmentNeedsPreparation(value: unknown): boolean {
@@ -33,17 +33,6 @@ export function equipmentNeedsPreparation(value: unknown): boolean {
         || [state.ammo,state.charges].some(present);
 }
 
-/**
- * Contract §276: the host's Jev verdict on whether a plain carried row is a writing surface, kept beside the jobs so each row
- * is asked once. A row with no verdict, a failed question or the answer `none` is never prepared for this reason.
- */
-export const SURFACE_VERSION = '1';
-export const WRITING_SURFACES: readonly string[] = ['paper','notebook','book'];
-const surfaceKey = (actor: unknown, value: unknown): string => jsonDigest([actor,value] as Row[]);
-export function writingSurfaceOf(ledger: Row, actor: unknown, value: unknown): string | null {
-    const verdict = row(row(ledger.surfaces)[surfaceKey(actor,value)]);
-    return verdict.version === SURFACE_VERSION && WRITING_SURFACES.includes(string(verdict.surface)) ? string(verdict.surface) : null;
-}
 /** Supplied capabilities, or a writing surface the host's question found. */
 function eligible(ledger: Row, actor: unknown, value: unknown): boolean {
     return equipmentNeedsPreparation(value) || writingSurfaceOf(ledger,actor,value) !== null;
