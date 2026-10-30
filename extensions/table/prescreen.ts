@@ -210,7 +210,8 @@ async function bookPassagesFor(input:KeeperSupportInput,env:NodeJS.ProcessEnv,sn
         const read=await bookPassages({source:runtime,roots:{home:runtime.home,contentRoot},signal,
             snapshot:{pdf:bound.pdf,file_sha256:bound.file_sha256,page_count:Number(bound.page_count)}});
         const passages=chapter?read.passages.filter(passage=>inChapter(chapter,passage.page)):read.passages;
-        const scoped=chapter?{...read,passages,pages:read.pages.filter(page=>inChapter(chapter,page))}:read;
+        // The chapter enters the passages' identity, so a locate judged in one chapter is never reused in another.
+        const scoped=chapter?{...read,key:`${read.key}:${chapter.first}-${chapter.last}`,passages,pages:read.pages.filter(page=>inChapter(chapter,page))}:read;
         return {read:scoped,chapter,summary:{status:read.status,cards:passages.length,pages:scoped.pages.length,read_pages:read.read_pages,index_ms:read.ms,
             ...(chapter?{chapter:chapter.name,chapter_pages:[chapter.first,chapter.last],outside_chapter:read.passages.length-passages.length}:{})}};
     }catch(error){return {summary:{status:'unavailable',reason:error instanceof Error?error.message.slice(0,160):'passages_unavailable'}};}
